@@ -1,0 +1,92 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function sameSchool(schoolId) {
+      return signedIn() && userDoc().schoolId == schoolId;
+    }
+
+    function superAdmin() {
+      return signedIn() && userDoc().role == "super_admin";
+    }
+
+    function staff() {
+      return signedIn() && userDoc().role in ["super_admin", "school_admin", "cashier"];
+    }
+
+    function admin() {
+      return signedIn() && userDoc().role in ["super_admin", "school_admin"];
+    }
+
+    function cashier() {
+      return signedIn() && userDoc().role in ["super_admin", "school_admin", "cashier"];
+    }
+
+    function sameYear() {
+      return request.resource.data.schoolYearId == resource.data.schoolYearId;
+    }
+
+    function currentYear() {
+      return userDoc().activeSchoolYearId == resource.data.schoolYearId;
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn() && (request.auth.uid == userId || superAdmin() || sameSchool(resource.data.schoolId));
+      allow create, update, delete: if superAdmin() || admin();
+    }
+
+    match /schools/{schoolId} {
+      allow read: if superAdmin() || sameSchool(schoolId);
+      allow create, update: if superAdmin() || admin();
+      allow delete: if superAdmin();
+    }
+
+    match /schoolYears/{yearId} {
+      allow read: if superAdmin() || sameSchool(resource.data.schoolId);
+      allow create: if admin() && sameSchool(request.resource.data.schoolId);
+      allow update: if admin() && sameSchool(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId;
+      allow delete: if superAdmin();
+    }
+
+    match /students/{studentId} {
+      allow read: if staff() && sameSchool(resource.data.schoolId)
+        || (signedIn() && userDoc().role == "parent" && studentId in userDoc().studentIds && currentYear());
+      allow create: if admin() && sameSchool(request.resource.data.schoolId);
+      allow update: if admin() && sameSchool(resource.data.schoolId) && sameYear();
+      allow delete: if admin() && sameSchool(resource.data.schoolId);
+    }
+
+    match /parents/{parentId} {
+      allow read: if staff() && sameSchool(resource.data.schoolId)
+        || (signedIn() && request.auth.uid == resource.data.userId && currentYear());
+      allow create, update: if admin() && sameSchool(request.resource.data.schoolId);
+      allow delete: if admin() && sameSchool(resource.data.schoolId);
+    }
+
+    match /payments/{paymentId} {
+      allow read: if staff() && sameSchool(resource.data.schoolId)
+        || (signedIn() && userDoc().role == "parent" && resource.data.studentId in userDoc().studentIds && currentYear());
+      allow create: if cashier() && sameSchool(request.resource.data.schoolId);
+      allow update, delete: if admin() && sameSchool(resource.data.schoolId) && sameYear();
+    }
+
+    match /feeTypes/{feeTypeId} {
+      allow read: if signedIn() && sameSchool(resource.data.schoolId);
+      allow create, update, delete: if admin() && sameSchool(request.resource.data.schoolId);
+    }
+
+    match /messages/{messageId} {
+      allow read: if staff() && sameSchool(resource.data.schoolId)
+        || (signedIn() && userDoc().role == "parent" && currentYear() && (resource.data.recipientParentId == userDoc().parentId || resource.data.recipientParentId == "all"));
+      allow create: if staff() && sameSchool(request.resource.data.schoolId);
+      allow update, delete: if admin() && sameSchool(resource.data.schoolId);
+    }
+  }
+}
