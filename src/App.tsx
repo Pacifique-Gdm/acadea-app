@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import {
   Banknote,
   BarChart3,
@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { demoData } from "./data/demoData";
 import { firebaseReady } from "./firebase";
+import { getDefaultRoute, signIn, signOutUser, validatePlatformAdmin, validateSchoolAdmin } from "./services/auth";
 import { generateReceiptPdf } from "./utils/pdf";
 import { buildStats, getStudentBalance } from "./utils/stats";
 import type {
@@ -56,10 +57,16 @@ export default function App() {
   const [user, setUser] = useState<AppUser | null>(null);
   const [selectedYearId, setSelectedYearId] = useState("");
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
+  const [route, setRoute] = useState(() => (window.location.pathname === "/platform" ? "/platform" : "/login"));
 
-  const school = data.schools.find((item) => item.id === user?.schoolId) ?? data.schools[0];
-  const schoolYears = data.schoolYears.filter((year) => year.schoolId === school.id);
+  const school = data.schools.find((item) => item.id === user?.schoolId);
+  const schoolYears = school ? data.schoolYears.filter((year) => year.schoolId === school.id) : [];
   const selectedYear = schoolYears.find((year) => year.id === selectedYearId);
+
+  function navigate(nextRoute: "/login" | "/dashboard" | "/platform") {
+    window.history.pushState({}, "", nextRoute);
+    setRoute(nextRoute);
+  }
 
   function enterSchoolYear(yearId: string) {
     setSelectedYearId(yearId);
@@ -70,16 +77,62 @@ export default function App() {
     }));
   }
 
-  function loginAs(userId: string) {
-    const nextUser = data.users.find((item) => item.id === userId) ?? data.users[0];
+  async function loginWithCredentials(email: string, password: string) {
+    const nextUser = await signIn(email, password, data);
+    const nextRoute = getDefaultRoute(nextUser.role);
+
+    if (nextRoute === "/platform" && !validatePlatformAdmin(nextUser)) {
+      throw new Error("Accès plateforme refusé.");
+    }
+
+    if (nextRoute === "/dashboard") {
+      if (!validateSchoolAdmin(nextUser)) {
+        throw new Error("Seuls les administrateurs d'école peuvent accéder au dashboard école.");
+      }
+
+      const nextSchool = data.schools.find((item) => item.id === nextUser.schoolId);
+      if (!nextSchool) {
+        throw new Error("Aucune école n'est associée à ce compte.");
+      }
+
+      if (nextSchool.status !== "active") {
+        throw new Error("Cette école est suspendue. Contactez la plateforme Acadéa.");
+      }
+
+      setSelectedYearId(nextUser.activeSchoolYearId ?? nextSchool.activeSchoolYearId);
+    }
+
     setUser(nextUser);
-    const nextSchool = data.schools.find((item) => item.id === nextUser.schoolId) ?? data.schools[0];
-    setSelectedYearId(nextUser.activeSchoolYearId ?? nextSchool.activeSchoolYearId);
     setActiveTab("dashboard");
+    navigate(nextRoute);
   }
 
-  if (!user) {
-    return <LoginScreen users={data.users} onLogin={loginAs} />;
+  async function logout() {
+    await signOutUser();
+    setUser(null);
+    setSelectedYearId("");
+    setActiveTab("dashboard");
+    navigate("/login");
+  }
+
+  function updateData(next: Partial<AppData>) {
+    setData((prev) => ({ ...prev, ...next }));
+  }
+
+  if (!user || route === "/login") {
+    return <LoginScreen onLogin={loginWithCredentials} />;
+  }
+
+  if (route === "/platform") {
+    if (!validatePlatformAdmin(user)) {
+      return <AccessDenied onLogout={logout} />;
+    }
+
+    return <PlatformModule user={user} data={data} updateData={updateData} onLogout={logout} />;
+  }
+
+  if (!validateSchoolAdmin(user) || !school) {
+    return <AccessDenied onLogout={logout} />;
   }
 
   if (!selectedYear) {
@@ -89,17 +142,13 @@ export default function App() {
         years={schoolYears}
         activeYearId={school.activeSchoolYearId}
         onSelect={enterSchoolYear}
-        onLogout={() => setUser(null)}
+        onLogout={logout}
         onCreate={(year) => setData((prev) => ({ ...prev, schoolYears: [...prev.schoolYears, year] }))}
       />
     );
   }
 
   const yearData = scopeData(data, school.id, selectedYear.id, user);
-
-  function updateData(next: Partial<AppData>) {
-    setData((prev) => ({ ...prev, ...next }));
-  }
 
   return (
     <div className="min-h-screen bg-[#f6f8fb]">
@@ -111,7 +160,7 @@ export default function App() {
         activeTab={activeTab}
         onTab={setActiveTab}
         onYearChange={enterSchoolYear}
-        onLogout={() => setUser(null)}
+        onLogout={logout}
       />
 
       <main className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
@@ -165,7 +214,26 @@ function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: 
   };
 }
 
-function LoginScreen({ users, onLogin }: { users: AppUser[]; onLogin: (userId: string) => void }) {
+function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) => Promise<void> }) {
+  const [email, setEmail] = useState("direction@acadea.demo");
+  const [password, setPassword] = useState("ecole123");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setLoading(true);
+
+    try {
+      await onLogin(email, password);
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : "Connexion refusée.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#edf4f2] p-4">
       <section className="grid w-full max-w-5xl overflow-hidden rounded-lg bg-white shadow-xl lg:grid-cols-[1fr_1.1fr]">
@@ -174,13 +242,13 @@ function LoginScreen({ users, onLogin }: { users: AppUser[]; onLogin: (userId: s
             <div className="flex h-11 w-11 items-center justify-center rounded bg-mint font-bold">A</div>
             <div>
               <h1 className="text-3xl font-bold tracking-normal">Acadéa</h1>
-              <p className="text-sm text-white/75">Gestion scolaire par année académique</p>
+              <p className="text-sm text-white/75">Gestion scolaire sécurisée par école</p>
             </div>
           </div>
           <div className="space-y-5">
             <p className="text-2xl font-semibold">Connexion</p>
             <p className="max-w-sm text-sm leading-6 text-white/75">
-              Sélectionnez un profil de démonstration. Avec une configuration Firebase, ces profils peuvent être remplacés par Firebase Authentication.
+              Authentification obligatoire par email et mot de passe avant tout accès école ou plateforme.
             </p>
             <div className="rounded border border-white/15 bg-white/10 p-3 text-xs text-white/70">
               Firebase SDK: {firebaseReady ? "configuré" : "mode démonstration local"}
@@ -189,30 +257,27 @@ function LoginScreen({ users, onLogin }: { users: AppUser[]; onLogin: (userId: s
         </div>
         <div className="p-6 sm:p-8">
           <div className="mb-5">
-            <p className="text-sm font-semibold uppercase text-mint">Profils</p>
-            <h2 className="text-2xl font-bold text-ink">Choisir un rôle</h2>
+            <p className="text-sm font-semibold uppercase text-mint">Accès sécurisé</p>
+            <h2 className="text-2xl font-bold text-ink">Se connecter</h2>
           </div>
-          <div className="grid gap-3">
-            {users.map((demoUser) => (
-              <button
-                key={demoUser.id}
-                onClick={() => onLogin(demoUser.id)}
-                className="flex items-center justify-between rounded border border-slate-200 bg-white p-4 text-left transition hover:border-mint hover:bg-mint/5"
-              >
-                <span>
-                  <span className="block font-semibold text-ink">{demoUser.name}</span>
-                  <span className="text-sm text-slate-500">{roleLabels[demoUser.role]} | {demoUser.email}</span>
-                </span>
-                <ShieldCheck className="h-5 w-5 text-mint" />
-              </button>
-            ))}
-          </div>
+          <form onSubmit={submit} className="grid gap-4">
+            <Field label="Email" value={email} onChange={setEmail} type="email" />
+            <Field label="Mot de passe" value={password} onChange={setPassword} type="password" />
+            {error && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-700">{error}</p>}
+            <button disabled={loading} className="primary-button disabled:opacity-60">
+              <ShieldCheck className="h-4 w-4" /> {loading ? "Connexion..." : "Se connecter"}
+            </button>
+          </form>
+          {!firebaseReady && (
+            <div className="mt-5 rounded border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+              Démo: direction@acadea.demo / ecole123 pour l'école, admin@acadea.demo / admin123 pour la plateforme.
+            </div>
+          )}
         </div>
       </section>
     </main>
   );
 }
-
 function YearScreen({
   user,
   years,
@@ -229,7 +294,7 @@ function YearScreen({
   onCreate: (year: SchoolYear) => void;
 }) {
   const [name, setName] = useState("2026-2027");
-  const canEdit = user.role === "super_admin" || user.role === "school_admin";
+  const canEdit = user.role === "school_admin";
 
   return (
     <main className="min-h-screen bg-[#f6f8fb] p-4">
@@ -262,7 +327,7 @@ function YearScreen({
               onClick={() =>
                 onCreate({
                   id: uid("year"),
-                  schoolId: user.schoolId,
+                  schoolId: user.schoolId ?? "",
                   name,
                   startsAt: `${name.slice(0, 4)}-09-01`,
                   endsAt: `${name.slice(5)}-07-15`,
@@ -387,6 +452,185 @@ function Dashboard({ data }: { data: ReturnType<typeof scopeData> }) {
   );
 }
 
+function PlatformModule({
+  user,
+  data,
+  updateData,
+  onLogout,
+}: {
+  user: AppUser;
+  data: AppData;
+  updateData: (next: Partial<AppData>) => void;
+  onLogout: () => void;
+}) {
+  const [schoolName, setSchoolName] = useState("");
+  const [adminEmail, setAdminEmail] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
+  const [subscriptionPlan, setSubscriptionPlan] = useState<School["subscriptionPlan"]>("Standard");
+  const totalRevenue = data.schools.reduce((sum, school) => sum + school.subscriptionAmount, 0);
+  const totalStudents = data.students.length;
+  const activeSchools = data.schools.filter((school) => school.status === "active").length;
+  const suspendedSchools = data.schools.filter((school) => school.status === "suspended").length;
+
+  function createSchool() {
+    if (!schoolName || !adminEmail || !adminPassword) return;
+
+    const schoolId = uid("school");
+    const yearId = uid("year");
+    const adminId = uid("u-school-admin");
+    const amount = subscriptionPlan === "Starter" ? 29 : subscriptionPlan === "Premium" ? 99 : 49;
+    const school: School = {
+      id: schoolId,
+      name: schoolName,
+      address: "",
+      phone: "",
+      email: adminEmail,
+      currency: "USD",
+      activeSchoolYearId: yearId,
+      logoUrl: "",
+      status: "active",
+      subscriptionPlan,
+      subscriptionAmount: amount,
+    };
+    const year: SchoolYear = {
+      id: yearId,
+      schoolId,
+      name: "2026-2027",
+      startsAt: "2026-09-01",
+      endsAt: "2027-07-15",
+      status: "active",
+    };
+    const adminUser: AppUser = {
+      id: adminId,
+      name: `Admin ${schoolName}`,
+      email: adminEmail,
+      role: "school_admin",
+      schoolId,
+      activeSchoolYearId: yearId,
+      demoPassword: adminPassword,
+    };
+
+    updateData({
+      schools: [...data.schools, school],
+      schoolYears: [...data.schoolYears, year],
+      users: [...data.users, adminUser],
+    });
+    setSchoolName("");
+    setAdminEmail("");
+    setAdminPassword("");
+  }
+
+  function updateSchool(schoolId: string, next: Partial<School>) {
+    updateData({ schools: data.schools.map((school) => (school.id === schoolId ? { ...school, ...next } : school)) });
+  }
+
+  function updateSubscription(schoolId: string, plan: School["subscriptionPlan"]) {
+    const amount = plan === "Starter" ? 29 : plan === "Premium" ? 99 : 49;
+    updateSchool(schoolId, { subscriptionPlan: plan, subscriptionAmount: amount });
+  }
+
+  return (
+    <div className="min-h-screen bg-[#f6f8fb]">
+      <header className="border-b border-slate-200 bg-white">
+        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded bg-ink font-bold text-white">A</div>
+            <div>
+              <p className="text-lg font-bold text-ink">Plateforme Acadéa</p>
+              <p className="text-xs text-slate-500">{roleLabels[user.role]} | statistiques anonymisées</p>
+            </div>
+          </div>
+          <button onClick={onLogout} className="secondary-button">
+            <LogOut className="h-4 w-4" /> Sortir
+          </button>
+        </div>
+      </header>
+      <main className="mx-auto grid max-w-7xl gap-4 px-4 py-5 sm:px-6 lg:px-8">
+        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <PlatformCard label="Écoles" value={data.schools.length} icon={BookOpen} />
+          <PlatformCard label="Élèves totalisés" value={totalStudents} icon={GraduationCap} />
+          <PlatformCard label="Revenus globaux" value={`$${totalRevenue.toFixed(2)}`} icon={Banknote} />
+          <PlatformCard label="Actives / suspendues" value={`${activeSchools} / ${suspendedSchools}`} icon={BarChart3} />
+        </section>
+
+        <section className="grid gap-4 xl:grid-cols-[380px_1fr]">
+          <FormPanel title="Créer une école">
+            <Field label="Nom de l'école" value={schoolName} onChange={setSchoolName} />
+            <Field label="Email admin école" value={adminEmail} onChange={setAdminEmail} type="email" />
+            <Field label="Mot de passe admin" value={adminPassword} onChange={setAdminPassword} type="password" />
+            <label className="grid gap-1 text-sm font-medium text-slate-700">
+              Abonnement
+              <select value={subscriptionPlan} onChange={(event) => setSubscriptionPlan(event.target.value as School["subscriptionPlan"])} className="input">
+                <option value="Starter">Starter</option>
+                <option value="Standard">Standard</option>
+                <option value="Premium">Premium</option>
+              </select>
+            </label>
+            <button onClick={createSchool} className="primary-button">
+              <Plus className="h-4 w-4" /> Créer
+            </button>
+          </FormPanel>
+
+          <div className="grid gap-3">
+            {data.schools.map((school) => (
+              <article key={school.id} className="rounded border border-slate-200 bg-white p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h2 className="font-bold text-ink">{school.name}</h2>
+                    <p className="text-sm text-slate-500">
+                      {school.subscriptionPlan} | ${school.subscriptionAmount}/mois | {school.status}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => updateSchool(school.id, { status: school.status === "active" ? "suspended" : "active" })}
+                      className={`rounded px-3 py-2 text-xs font-semibold ${school.status === "active" ? "bg-amber-100 text-amber-700" : "bg-mint/10 text-mint"}`}
+                    >
+                      {school.status === "active" ? "Suspendre" : "Activer"}
+                    </button>
+                    {(["Starter", "Standard", "Premium"] as School["subscriptionPlan"][]).map((plan) => (
+                      <button key={plan} onClick={() => updateSubscription(school.id, plan)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
+                        {plan}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}
+
+function PlatformCard({ label, value, icon: Icon }: { label: string; value: string | number; icon: typeof BookOpen }) {
+  return (
+    <article className="rounded border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-4 flex h-10 w-10 items-center justify-center rounded bg-mint/10 text-mint">
+        <Icon className="h-5 w-5" />
+      </div>
+      <p className="text-sm text-slate-500">{label}</p>
+      <p className="mt-1 text-2xl font-bold text-ink">{value}</p>
+    </article>
+  );
+}
+
+function AccessDenied({ onLogout }: { onLogout: () => void }) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-[#f6f8fb] p-4">
+      <section className="w-full max-w-md rounded border border-slate-200 bg-white p-6 text-center shadow-sm">
+        <ShieldCheck className="mx-auto mb-3 h-10 w-10 text-red-600" />
+        <h1 className="text-2xl font-bold text-ink">Accès refusé</h1>
+        <p className="mt-2 text-sm text-slate-500">Votre rôle ou votre école ne permet pas d'ouvrir cet espace.</p>
+        <button onClick={onLogout} className="primary-button mt-5">
+          <LogOut className="h-4 w-4" /> Retour à la connexion
+        </button>
+      </section>
+    </main>
+  );
+}
+
 function StudentsModule({
   user,
   data,
@@ -405,7 +649,7 @@ function StudentsModule({
   const [query, setQuery] = useState("");
   const [classFilter, setClassFilter] = useState("");
   const [form, setForm] = useState<Student>(() => emptyStudent(school.id, year.id));
-  const canEdit = user.role === "super_admin" || user.role === "school_admin";
+  const canEdit = user.role === "school_admin";
 
   const students = yearData.students.filter((student) => {
     const text = `${student.matricule} ${student.nom} ${student.postnom} ${student.prenom}`.toLowerCase();
@@ -705,7 +949,7 @@ function MenuModule({
   const [parentForm, setParentForm] = useState<ParentProfile>(() => emptyParent(school.id, selectedYear.id));
   const [feeName, setFeeName] = useState<FeeKind>("Minerval");
   const [feeAmount, setFeeAmount] = useState("100");
-  const canAdmin = user.role === "super_admin" || user.role === "school_admin";
+  const canAdmin = user.role === "school_admin";
 
   function saveSchool() {
     updateData({ schools: data.schools.map((item) => (item.id === school.id ? schoolForm : item)) });

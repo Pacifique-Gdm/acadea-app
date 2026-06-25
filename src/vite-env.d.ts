@@ -23,3 +23,9 @@ declare module "jspdf" {
     save(filename: string): void;
   }
 }
+
+declare module "firebase/auth" {
+  export function getAuth(app?: unknown): unknown;
+  export function signInWithEmailAndPassword(auth: unknown, email: string, password: string): Promise<{ user: { uid: string; email: string | null } }>;
+  export function signOut(auth: unknown): Promise<void>;
+}

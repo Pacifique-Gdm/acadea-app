@@ -21,8 +21,9 @@ export interface AppUser {
   name: string;
   email: string;
   role: Role;
-  schoolId: string;
+  schoolId?: string;
   activeSchoolYearId?: string;
+  demoPassword?: string;
   parentId?: string;
   studentIds?: string[];
 }
@@ -36,6 +37,9 @@ export interface School {
   currency: "USD";
   logoUrl?: string;
   activeSchoolYearId: string;
+  status: "active" | "suspended";
+  subscriptionPlan: "Starter" | "Standard" | "Premium";
+  subscriptionAmount: number;
 }
 
 export interface SchoolYear {

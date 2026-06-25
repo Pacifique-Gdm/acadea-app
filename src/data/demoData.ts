@@ -7,8 +7,7 @@ export const demoData: AppData = {
       name: "Grâce Kalonji",
       email: "admin@acadea.demo",
       role: "super_admin",
-      schoolId: "school-1",
-      activeSchoolYearId: "year-2025",
+      demoPassword: "admin123",
     },
     {
       id: "u-school-admin",
@@ -17,6 +16,7 @@ export const demoData: AppData = {
       role: "school_admin",
       schoolId: "school-1",
       activeSchoolYearId: "year-2025",
+      demoPassword: "ecole123",
     },
     {
       id: "u-cashier",
@@ -25,6 +25,7 @@ export const demoData: AppData = {
       role: "cashier",
       schoolId: "school-1",
       activeSchoolYearId: "year-2025",
+      demoPassword: "caisse123",
     },
     {
       id: "u-parent",
@@ -33,6 +34,7 @@ export const demoData: AppData = {
       role: "parent",
       schoolId: "school-1",
       activeSchoolYearId: "year-2025",
+      demoPassword: "parent123",
       parentId: "parent-1",
       studentIds: ["student-1", "student-3"],
     },
@@ -47,6 +49,9 @@ export const demoData: AppData = {
       currency: "USD",
       activeSchoolYearId: "year-2025",
       logoUrl: "",
+      status: "active",
+      subscriptionPlan: "Standard",
+      subscriptionAmount: 49,
     },
   ],
   schoolYears: [
