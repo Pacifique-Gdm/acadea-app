@@ -2880,19 +2880,20 @@ function MenuModule({
   onOpenFinancialReport: () => void;
   updateData: (next: Partial<AppData>) => void;
 }) {
-  type MenuSection = "school" | "years" | "parents" | "accounts" | "fees" | "financial";
+  type MenuSection = "school" | "years" | "accounts" | "fees" | "financial";
   const [schoolForm, setSchoolForm] = useState(school);
-  const [parentForm, setParentForm] = useState<ParentProfile>(() => emptyParent(school.id, selectedYear.id));
+  const [cashierName, setCashierName] = useState("");
+  const [cashierPhone, setCashierPhone] = useState("");
+  const [cashierEmail, setCashierEmail] = useState("");
+  const [cashierPassword, setCashierPassword] = useState("");
   const [feeName, setFeeName] = useState<FeeKind>("Minerval");
   const [feeAmount, setFeeAmount] = useState("100");
-  const [menuParentError, setMenuParentError] = useState("");
   const [activeMenuSection, setActiveMenuSection] = useState<MenuSection | null>(null);
   const canAdmin = user.role === "school_admin";
   const menuSections = [
     { id: "school", title: "Paramètres école", description: "Logo, coordonnées et informations de l'établissement.", icon: Settings },
     { id: "years", title: "Années scolaires", description: "Année active, années archivées et contexte global.", icon: BookOpen },
-    { id: "parents", title: "Parents", description: "Création et association des parents aux élèves.", icon: UsersRound },
-    { id: "accounts", title: "Comptes de connexion", description: "Comptes parents liés à l'école et à l'année.", icon: ShieldCheck },
+    { id: "accounts", title: "Créer un caissier", description: "Compte de connexion caissier lié à l'école.", icon: ShieldCheck },
     { id: "fees", title: "Types de frais", description: "Montants et catégories de frais scolaires.", icon: Banknote },
     { id: "financial", title: "Rapport financier", description: "Synthèse et exports des rapports financiers.", icon: BarChart3 },
   ] satisfies { id: MenuSection; title: string; description: string; icon: typeof Settings }[];
@@ -2916,38 +2917,28 @@ function MenuModule({
     updateData({ schoolYears: data.schoolYears.map((year) => (year.id === yearId ? { ...year, status: "archived" } : year)) });
   }
 
-  function saveParent() {
-    setMenuParentError("");
-    const isNew = parentForm.id.startsWith("new");
-    const parentId = isNew ? uid("parent") : parentForm.id;
-    const existingUser = data.users.find((item) => item.parentId === parentId || item.id === parentForm.userId);
-    const userId = existingUser?.id ?? uid("u-parent");
-    const parent = { ...parentForm, id: parentId, schoolId: school.id, schoolYearId: selectedYear.id, userId, status: parentForm.status ?? "active" };
-    const parentUser: AppUser = {
-      id: userId,
-      name: parent.fullName,
-      email: parent.email,
-      role: "parent",
+  async function saveCashier() {
+    if (!cashierName || !cashierEmail || !cashierPassword) return;
+
+    const cashierId = await createFirebaseAuthUser(cashierEmail, cashierPassword, uid("u-cashier"));
+    const cashierUser: AppUser & { active: boolean } = {
+      id: cashierId,
+      name: cashierName,
+      email: cashierEmail,
+      role: "cashier",
       schoolId: school.id,
       activeSchoolYearId: selectedYear.id,
-      parentId: parent.id,
-      studentIds: parent.studentIds,
-      status: parent.status,
-      phone: parent.phone,
-      address: parent.address,
+      demoPassword: cashierPassword,
+      phone: cashierPhone,
+      status: "active",
+      active: true,
+      createdAt: new Date().toISOString(),
     };
-    const nextParents = isNew ? [...data.parents, parent] : data.parents.map((item) => (item.id === parent.id ? parent : item));
-    const nextUsers = existingUser ? data.users.map((item) => (item.id === userId ? { ...item, ...parentUser } : item)) : [...data.users, parentUser];
-    updateData({
-      parents: nextParents,
-      users: nextUsers,
-      students: data.students.map((student) => {
-        if (parent.studentIds.includes(student.id)) return { ...student, parentId: parent.id };
-        if (student.parentId === parent.id) return { ...student, parentId: undefined };
-        return student;
-      }),
-    });
-    setParentForm(emptyParent(school.id, selectedYear.id));
+    updateData({ users: [...data.users, cashierUser] });
+    setCashierName("");
+    setCashierPhone("");
+    setCashierEmail("");
+    setCashierPassword("");
   }
 
   function addFee() {
@@ -3030,27 +3021,15 @@ function MenuModule({
       </FormPanel>
       )}
 
-      {canAdmin && (activeMenuSection === "parents" || activeMenuSection === "accounts") && (
-        <FormPanel title={activeMenuSection === "accounts" ? "Comptes de connexion" : "Parents"}>
-          {menuParentError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{menuParentError}</p>}
-          <Field label="Nom complet" value={parentForm.fullName} onChange={(value) => setParentForm({ ...parentForm, fullName: value })} />
-          <Field label="Téléphone" value={parentForm.phone} onChange={(value) => setParentForm({ ...parentForm, phone: value })} />
-          <Field label="Email" value={parentForm.email} onChange={(value) => setParentForm({ ...parentForm, email: value })} />
-          <Field label="Adresse" value={parentForm.address} onChange={(value) => setParentForm({ ...parentForm, address: value })} />
-          <label className="grid gap-1 text-sm font-medium text-slate-700">
-            Associer les élèves
-            <select
-              multiple
-              value={parentForm.studentIds}
-              onChange={(event) => setParentForm({ ...parentForm, studentIds: Array.from(event.target.selectedOptions).map((option) => option.value) })}
-              className="input min-h-32"
-            >
-              {yearData.students.map((student) => (
-                <option key={student.id} value={student.id}>{student.nom} {student.prenom}</option>
-              ))}
-            </select>
-          </label>
-          <button onClick={saveParent} className="primary-button"><UsersRound className="h-4 w-4" /> Créer le parent</button>
+      {canAdmin && activeMenuSection === "accounts" && (
+        <FormPanel title="Créer un caissier">
+          <Field label="Nom complet" value={cashierName} onChange={setCashierName} />
+          <Field label="Téléphone" value={cashierPhone} onChange={setCashierPhone} />
+          <Field label="Email" value={cashierEmail} onChange={setCashierEmail} />
+          <Field label="Mot de passe temporaire" value={cashierPassword} onChange={setCashierPassword} type="password" />
+          <button onClick={saveCashier} disabled={!cashierName || !cashierEmail || !cashierPassword} className="primary-button disabled:opacity-50">
+            <UserRound className="h-4 w-4" /> Créer le caissier
+          </button>
         </FormPanel>
       )}
 
