@@ -60,7 +60,6 @@ import type {
 import { CLASSES, FEE_KINDS } from "./types";
 
 type Tab = "dashboard" | "students" | "parents" | "control" | "reports" | "messages" | "menu";
-type PaymentFilter = "all" | "paid" | "due";
 
 const roleLabels: Record<AppUser["role"], string> = {
   super_admin: "Super Administrateur",
@@ -2507,24 +2506,23 @@ function ControlModule({
   year: SchoolYear;
   updateData: (next: Partial<AppData>) => void;
 }) {
-  const [filter, setFilter] = useState<PaymentFilter>("all");
   const [studentId, setStudentId] = useState(yearData.students[0]?.id ?? "");
   const [feeTypeId, setFeeTypeId] = useState(yearData.feeTypes[0]?.id ?? "");
   const [amount, setAmount] = useState("100");
   const [expenseAmount, setExpenseAmount] = useState("");
   const [expenseCategory, setExpenseCategory] = useState("Fournitures");
   const [expenseDescription, setExpenseDescription] = useState("");
-  const [amountComparator, setAmountComparator] = useState<"all" | ">=" | "<=">("all");
+  const [amountComparator, setAmountComparator] = useState<"all" | ">=" | "<">("all");
   const [amountThreshold, setAmountThreshold] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
   const canPay = user.role === "cashier";
   const canCorrectPayments = user.role === "school_admin";
 
   const rows = yearData.students
     .map((student) => ({ student, balance: getStudentBalance(student.id, yearData.feeTypes, yearData.payments) }))
-    .filter((row) => filter === "all" || (filter === "paid" ? row.balance.remaining === 0 : row.balance.remaining > 0))
     .filter((row) => {
       if (amountComparator === "all" || !amountThreshold) return true;
-      return amountComparator === ">=" ? row.balance.paid >= Number(amountThreshold) : row.balance.paid <= Number(amountThreshold);
+      return amountComparator === ">=" ? row.balance.paid >= Number(amountThreshold) : row.balance.paid < Number(amountThreshold);
     });
 
   function savePayment() {
@@ -2610,26 +2608,84 @@ function ControlModule({
     });
   }
 
+  function printFilteredStudents() {
+    const printedAt = new Date().toLocaleString("fr-FR");
+    const filterLabel =
+      amountComparator === "all" || !amountThreshold
+        ? "Montant payÃ© : tous"
+        : `Montant payÃ© ${amountComparator} ${amountThreshold}`;
+    const rowsHtml = rows
+      .map(
+        ({ student, balance }) => `
+          <tr>
+            <td>${student.nom} ${student.postnom} ${student.prenom}</td>
+            <td>${student.matricule}</td>
+            <td>${student.className}</td>
+            <td>$${balance.expected}</td>
+            <td>$${balance.paid}</td>
+            <td>$${balance.remaining}</td>
+          </tr>
+        `,
+      )
+      .join("");
+    const printWindow = window.open("", "_blank", "width=1024,height=720");
+    if (!printWindow) return;
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>ContrÃ´le des paiements</title>
+          <style>
+            body { font-family: Arial, sans-serif; color: #14213d; margin: 32px; }
+            h1 { margin: 0 0 8px; font-size: 22px; }
+            p { margin: 4px 0; color: #475569; }
+            table { width: 100%; border-collapse: collapse; margin-top: 24px; font-size: 13px; }
+            th, td { border: 1px solid #e2e8f0; padding: 10px; text-align: left; }
+            th { background: #f8fafc; color: #334155; text-transform: uppercase; font-size: 11px; }
+          </style>
+        </head>
+        <body>
+          <h1>${school.name}</h1>
+          <p>AnnÃ©e scolaire : ${year.name}</p>
+          <p>Date d'impression : ${printedAt}</p>
+          <p>CritÃ¨re : ${filterLabel}</p>
+          <table>
+            <thead>
+              <tr>
+                <th>Nom de l'Ã©lÃ¨ve</th>
+                <th>Matricule</th>
+                <th>Classe</th>
+                <th>Montant prÃ©vu</th>
+                <th>Montant payÃ©</th>
+                <th>Solde restant</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  }
+
   return (
     <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
       <div className="min-w-0">
         <SectionTitle title="Contrôle" subtitle="Frais scolaires, paiements, historique et soldes restants en dollar américain." />
         <div className="mb-3 flex min-w-0 flex-wrap gap-2">
-          {(["all", "paid", "due"] as PaymentFilter[]).map((item) => (
-            <button
-              key={item}
-              onClick={() => setFilter(item)}
-              className={`rounded px-3 py-2 text-sm font-semibold ${filter === item ? "bg-ink text-white" : "bg-white text-slate-700"}`}
-            >
-              {item === "all" ? "Tous" : item === "paid" ? "Élèves en ordre" : "Élèves non en ordre"}
-            </button>
-          ))}
           <select value={amountComparator} onChange={(event) => setAmountComparator(event.target.value as typeof amountComparator)} className="rounded border border-slate-200 bg-white px-3 py-2 text-sm">
             <option value="all">Montant payé</option>
             <option value=">=">Payé &gt;=</option>
-            <option value="<=">Payé &lt;=</option>
+            <option value="<">Payé &lt;</option>
           </select>
           <input value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)} type="number" className="w-32 max-w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm" placeholder="Montant" />
+          <button onClick={printFilteredStudents} className="secondary-button">
+            <Download className="h-4 w-4" /> Imprimer
+          </button>
+          <button onClick={() => setHistoryOpen(true)} className="secondary-button">
+            Historique des paiements
+          </button>
         </div>
         <div className="grid min-w-0 gap-3 md:grid-cols-2">
           {rows.map(({ student, balance }) => (
@@ -2683,31 +2739,41 @@ function ControlModule({
             <button onClick={saveExpense} className="primary-button"><Plus className="h-4 w-4" /> Enregistrer</button>
           </FormPanel>
         )}
-        <FormPanel title="Historique des paiements">
-          <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1 scrollbar-thin">
-            {yearData.payments.map((payment) => {
-              const student = yearData.students.find((item) => item.id === payment.studentId);
-              const fee = yearData.feeTypes.find((item) => item.id === payment.feeTypeId);
-              if (!student || !fee) return null;
-              return (
-                <div key={payment.id} className="rounded border border-slate-100 p-3 text-sm">
-                  <div className="flex min-w-0 items-center justify-between gap-2">
-                    <p className="min-w-0 break-words font-semibold text-ink">{student.nom} {student.prenom}</p>
-                    <div className="flex shrink-0 gap-1">
-                      <button onClick={() => generateReceiptPdf(payment, student, fee, school)} className="rounded bg-slate-100 p-2" title="Télécharger le reçu PDF">
-                        <Download className="h-4 w-4" />
-                      </button>
-                      {canCorrectPayments && <button onClick={() => correctPayment(payment)} className="rounded bg-slate-100 p-2" title="Corriger"><Edit3 className="h-4 w-4" /></button>}
-                      {canCorrectPayments && <button onClick={() => deletePayment(payment)} className="rounded bg-red-50 p-2 text-red-700" title="Supprimer"><Trash2 className="h-4 w-4" /></button>}
-                    </div>
-                  </div>
-                  <p className="break-words text-slate-500">{fee.name} | ${payment.amount} | {payment.paidAt}</p>
-                </div>
-              );
-            })}
-          </div>
-        </FormPanel>
       </div>
+      {historyOpen && (
+        <div className="fixed inset-0 z-50 bg-ink/30 p-3 backdrop-blur-sm">
+          <div className="ml-auto flex h-full w-full max-w-xl flex-col rounded border border-slate-200 bg-white p-4 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between gap-3 border-b border-slate-100 pb-3">
+              <h2 className="break-words text-lg font-bold text-ink">Historique des paiements</h2>
+              <button onClick={() => setHistoryOpen(false)} className="rounded bg-slate-100 p-2 text-slate-700" aria-label="Fermer l'historique">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+              {yearData.payments.map((payment) => {
+                const student = yearData.students.find((item) => item.id === payment.studentId);
+                const fee = yearData.feeTypes.find((item) => item.id === payment.feeTypeId);
+                if (!student || !fee) return null;
+                return (
+                  <div key={payment.id} className="rounded border border-slate-100 p-3 text-sm">
+                    <div className="flex min-w-0 items-center justify-between gap-2">
+                      <p className="min-w-0 break-words font-semibold text-ink">{student.nom} {student.prenom}</p>
+                      <div className="flex shrink-0 gap-1">
+                        <button onClick={() => generateReceiptPdf(payment, student, fee, school)} className="rounded bg-slate-100 p-2" title="Télécharger le reçu PDF">
+                          <Download className="h-4 w-4" />
+                        </button>
+                        {canCorrectPayments && <button onClick={() => correctPayment(payment)} className="rounded bg-slate-100 p-2" title="Corriger"><Edit3 className="h-4 w-4" /></button>}
+                        {canCorrectPayments && <button onClick={() => deletePayment(payment)} className="rounded bg-red-50 p-2 text-red-700" title="Supprimer"><Trash2 className="h-4 w-4" /></button>}
+                      </div>
+                    </div>
+                    <p className="break-words text-slate-500">{fee.name} | ${payment.amount} | {payment.paidAt}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
