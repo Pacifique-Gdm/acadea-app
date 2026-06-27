@@ -54,5 +54,5 @@ declare module "firebase/firestore" {
   export function setDoc(ref: unknown, data: unknown): Promise<void>;
   export function deleteDoc(ref: unknown): Promise<void>;
   export function getDoc(ref: unknown): Promise<{ exists(): boolean; data(): Record<string, unknown> }>;
-  export function getDocs(ref: unknown): Promise<{ docs: Array<{ id: string; ref: unknown; data(): Record<string, unknown> }> }>;
+  export function getDocs(ref: unknown): Promise<{ size: number; docs: Array<{ id: string; ref: unknown; data(): Record<string, unknown> }> }>;
 }

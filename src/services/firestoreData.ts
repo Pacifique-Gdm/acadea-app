@@ -28,7 +28,18 @@ export async function loadFirestoreData() {
 
   const entries = await Promise.all(
     (Object.entries(collectionMap) as [CollectionKey, string][]).map(async ([key, collectionName]) => {
-      const snapshot = await getDocs(collection(db, collectionName));
+      const snapshot = await getDocs(collection(db, collectionName)).catch((error) => {
+        console.error("[Acadéa Firestore] Erreur getDocs collection.", {
+          collectionName,
+          error,
+        });
+        throw error;
+      });
+      console.log("[Acadéa Firestore] Collection chargée.", {
+        collectionName,
+        snapshotSize: snapshot.size,
+        ids: snapshot.docs.map((item) => item.id),
+      });
       const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
       return [key, items] as const;
     }),
