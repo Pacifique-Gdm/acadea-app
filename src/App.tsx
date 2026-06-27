@@ -357,7 +357,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-[#f6f8fb] pb-24 sm:pb-28">
+    <div className="flex h-screen flex-col overflow-hidden bg-[#f6f8fb]">
       <EnvironmentBanner />
       <Header
         user={user}
@@ -371,7 +371,7 @@ export default function App() {
         onLogout={logout}
       />
 
-      <main className="mx-auto w-full max-w-7xl min-w-0 px-3 py-5 sm:px-6 lg:px-8">
+      <main className="mx-auto w-full max-w-7xl min-w-0 flex-1 overflow-y-auto px-3 py-5 pb-28 sm:px-6 sm:pb-32 lg:px-8">
         {studentDetailMatch ? (
           <StudentDetailPage
             studentId={studentDetailMatch[1]}
