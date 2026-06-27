@@ -2937,6 +2937,11 @@ function MessagesModule({
     setBody("");
   }
 
+  function clearSelectedRecipient() {
+    setRecipientParentId("all");
+    setRecipientSearch("");
+  }
+
   return (
     <section className="grid min-w-0 gap-4">
       {canSend && (
@@ -2980,7 +2985,7 @@ function MessagesModule({
                 <p className="min-w-0 truncate">Destinataire : {selectedParent.fullName}</p>
                 <button
                   type="button"
-                  onClick={() => setRecipientParentId("all")}
+                  onClick={clearSelectedRecipient}
                   className="shrink-0 rounded-full p-1 text-blue-600 transition hover:bg-blue-100 hover:text-blue-800"
                   aria-label="Retirer le destinataire"
                 >
