@@ -1954,13 +1954,17 @@ function StudentsModule({
   const [query, setQuery] = useState("");
   const [sectionFilter, setSectionFilter] = useState<"all" | "maternelle" | "primaire" | "secondaire">("all");
   const [classFilter, setClassFilter] = useState("");
+  const [optionFilter, setOptionFilter] = useState("");
+  const [schoolOptions, setSchoolOptions] = useState<string[]>(["Littéraire", "Pédagogie", "Sciences", "Commerciale"]);
   const [form, setForm] = useState<Student>(() => emptyStudent(school.id, year.id));
   const [quickParent, setQuickParent] = useState({ fullName: "", phone: "", email: "", password: "" });
   const [saveError, setSaveError] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
   const [showForm, setShowForm] = useState(false);
   const canEdit = user.role === "school_admin";
-  const availableClasses = CLASSES.filter((className) => sectionFilter === "all" || getClassSection(className) === sectionFilter);
+  const studentClassChoices = CLASSES.filter((className) => className !== "Humanités");
+  const availableClasses = studentClassChoices.filter((className) => sectionFilter === "all" || getClassSection(className) === sectionFilter);
+  const optionChoices = Array.from(new Set([...schoolOptions, ...yearData.students.map((student) => student.option).filter(Boolean)])) as string[];
 
   const students = yearData.students.filter((student) => {
     const text = `${student.matricule} ${student.nom} ${student.postnom} ${student.prenom}`.toLowerCase();
@@ -1968,7 +1972,8 @@ function StudentsModule({
       (student.status ?? "ACTIVE") === "ACTIVE" &&
       text.includes(query.toLowerCase()) &&
       (sectionFilter === "all" || getClassSection(student.className) === sectionFilter) &&
-      (!classFilter || student.className === classFilter)
+      (!classFilter || student.className === classFilter) &&
+      (!optionFilter || student.option === optionFilter)
     );
   });
 
@@ -2095,6 +2100,23 @@ function StudentsModule({
     setQuickParent({ fullName: "", phone: "", email: "", password: "" });
   }
 
+  function addSchoolOption(option: string) {
+    const trimmed = option.trim();
+    if (!trimmed) return;
+    setSchoolOptions((current) => (current.some((item) => item.toLowerCase() === trimmed.toLowerCase()) ? current : [...current, trimmed]));
+    setForm({ ...form, option: trimmed });
+  }
+
+  function printStudentsPdf() {
+    const filters = [
+      `Recherche: ${query || "Toutes"}`,
+      `Section: ${sectionFilter === "all" ? "Toutes les sections" : sectionFilter}`,
+      `Classe: ${classFilter || "Toutes les classes"}`,
+      `Option: ${optionFilter || "Toutes les options"}`,
+    ];
+    exportStudentsPdf(school, year, students, filters);
+  }
+
   return (
     <section className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
       <div className="min-w-0">
@@ -2119,7 +2141,7 @@ function StudentsModule({
             }}
             className="min-w-0 rounded border border-slate-200 bg-white px-3 py-2"
           >
-            <option value="all">Toutes directions</option>
+            <option value="all">Toutes les sections</option>
             <option value="maternelle">Maternelle</option>
             <option value="primaire">Primaire</option>
             <option value="secondaire">Secondaire</option>
@@ -2130,6 +2152,17 @@ function StudentsModule({
               <option key={className} value={className}>{className}</option>
             ))}
           </select>
+        </div>
+        <div className="mb-3 grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <select value={optionFilter} onChange={(event) => setOptionFilter(event.target.value)} className="min-w-0 rounded border border-slate-200 bg-white px-3 py-2">
+            <option value="">Toutes les options</option>
+            {optionChoices.map((option) => (
+              <option key={option} value={option}>{option}</option>
+            ))}
+          </select>
+          <button onClick={printStudentsPdf} type="button" className="secondary-button justify-center">
+            <Download className="h-4 w-4" /> Exporter PDF
+          </button>
         </div>
         <div className="max-w-full overflow-x-auto rounded border border-slate-200 bg-white">
           <table className="min-w-[820px] w-full text-left text-sm">
@@ -2183,6 +2216,9 @@ function StudentsModule({
               parents={yearData.parents}
               quickParent={quickParent}
               setQuickParent={setQuickParent}
+              classChoices={studentClassChoices}
+              optionChoices={optionChoices}
+              onAddOption={addSchoolOption}
               onCreateParent={createParentForStudent}
               onSave={saveStudent}
               onReset={() => setForm(emptyStudent(school.id, year.id))}
@@ -3271,6 +3307,9 @@ function StudentForm({
   parents,
   quickParent,
   setQuickParent,
+  classChoices,
+  optionChoices,
+  onAddOption,
   onCreateParent,
   onSave,
   onReset,
@@ -3280,10 +3319,24 @@ function StudentForm({
   parents: ParentProfile[];
   quickParent: { fullName: string; phone: string; email: string; password: string };
   setQuickParent: (parent: { fullName: string; phone: string; email: string; password: string }) => void;
+  classChoices: SchoolClass[];
+  optionChoices: string[];
+  onAddOption: (option: string) => void;
   onCreateParent: () => void;
   onSave: () => void;
   onReset: () => void;
 }) {
+  const [showOptionForm, setShowOptionForm] = useState(false);
+  const [newOption, setNewOption] = useState("");
+
+  function submitOption() {
+    const trimmed = newOption.trim();
+    if (!trimmed) return;
+    onAddOption(trimmed);
+    setNewOption("");
+    setShowOptionForm(false);
+  }
+
   return (
     <>
       <Field label="Matricule" value={form.matricule || "Généré automatiquement"} onChange={() => undefined} disabled />
@@ -3322,16 +3375,45 @@ function StudentForm({
       <label className="grid gap-1 text-sm font-medium text-slate-700">
         Classe
         <select value={form.className} onChange={(event) => setForm({ ...form, className: event.target.value as SchoolClass })} className="input">
-          {CLASSES.map((className) => (
+          {classChoices.map((className) => (
             <option key={className} value={className}>{className}</option>
           ))}
         </select>
       </label>
       {getClassSection(form.className) === "secondaire" && (
-        <label className="grid gap-1 text-sm font-medium text-slate-700">
-          Option
-          <input value={form.option ?? ""} onChange={(event) => setForm({ ...form, option: event.target.value })} className="input" placeholder="Littéraire, Sciences, Pédagogique..." />
-        </label>
+        <div className="grid gap-2">
+          <label className="grid gap-1 text-sm font-medium text-slate-700">
+            Option
+            <select
+              value={optionChoices.includes(form.option ?? "") ? form.option : ""}
+              onChange={(event) => {
+                if (event.target.value === "__add_option__") {
+                  setShowOptionForm(true);
+                  return;
+                }
+                setForm({ ...form, option: event.target.value || undefined });
+              }}
+              className="input"
+            >
+              <option value="">Aucune option</option>
+              {optionChoices.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+              <option value="__add_option__">Ajouter une option</option>
+            </select>
+          </label>
+          {showOptionForm && (
+            <div className="rounded border border-slate-100 bg-slate-50 p-3">
+              <p className="mb-2 text-sm font-semibold text-ink">Nouvelle option</p>
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                <input value={newOption} onChange={(event) => setNewOption(event.target.value)} className="input" placeholder="Nom de l'option" />
+                <button onClick={submitOption} type="button" className="secondary-button justify-center">
+                  <Plus className="h-4 w-4" /> Ajouter
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
       <Field label="Photo URL" value={form.photoUrl ?? ""} onChange={(value) => setForm({ ...form, photoUrl: value })} />
       <div className="grid grid-cols-2 gap-2">
@@ -3370,6 +3452,73 @@ function createAuditLog(user: AppUser, schoolId: string, schoolYearId: string, a
     details,
     createdAt: new Date().toISOString(),
   };
+}
+
+async function exportStudentsPdf(school: School, year: SchoolYear, students: Student[], filters: string[]) {
+  const { default: jsPDF } = await import("jspdf");
+  type StudentsPdfDoc = InstanceType<typeof jsPDF> & {
+    addPage: () => void;
+    splitTextToSize: (text: string, maxWidth: number) => string[];
+    internal: InstanceType<typeof jsPDF>["internal"] & { pageSize: { getWidth: () => number; getHeight: () => number } };
+  };
+  const doc = new jsPDF() as StudentsPdfDoc;
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 14;
+  let y = 18;
+
+  doc.setFontSize(16);
+  doc.text(`Liste des élèves - ${school.name}`, margin, y);
+  y += 8;
+  doc.setFontSize(10);
+  doc.text(`Année scolaire : ${year.name}`, margin, y);
+  y += 6;
+  doc.text(`Date d'impression : ${new Date().toLocaleDateString("fr-FR")}`, margin, y);
+  y += 6;
+  doc.text(doc.splitTextToSize(`Filtres appliqués : ${filters.join(" | ")}`, pageWidth - margin * 2), margin, y);
+  y += 14;
+
+  const columns = [
+    { label: "Matricule", x: margin },
+    { label: "Nom complet", x: 42 },
+    { label: "Sexe", x: 106 },
+    { label: "Classe", x: 124 },
+    { label: "Téléphone", x: 166 },
+  ];
+
+  function drawHeader() {
+    doc.setFillColor(245, 247, 251);
+    doc.rect(margin, y - 5, pageWidth - margin * 2, 8, "F");
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    columns.forEach((column) => doc.text(column.label, column.x, y));
+    doc.setFont("helvetica", "normal");
+    y += 7;
+  }
+
+  drawHeader();
+  students.forEach((student) => {
+    if (y > pageHeight - 18) {
+      doc.addPage();
+      y = 18;
+      drawHeader();
+    }
+    doc.setFontSize(8);
+    const fullName = `${student.nom} ${student.postnom} ${student.prenom}`.trim();
+    doc.text(student.matricule || "-", margin, y);
+    doc.text(doc.splitTextToSize(fullName || "-", 58)[0] ?? "-", 42, y);
+    doc.text(student.sexe || "-", 106, y);
+    doc.text(doc.splitTextToSize(student.className || "-", 38)[0] ?? "-", 124, y);
+    doc.text(student.phone || "-", 166, y);
+    y += 7;
+  });
+
+  if (students.length === 0) {
+    doc.setFontSize(10);
+    doc.text("Aucun élève ne correspond aux filtres appliqués.", margin, y);
+  }
+
+  doc.save(`eleves-${year.name}.pdf`);
 }
 
 async function exportReportPdf(
