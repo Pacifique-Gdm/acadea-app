@@ -69,9 +69,21 @@ const roleLabels: Record<AppUser["role"], string> = {
 const appEnvironment = import.meta.env.VITE_APP_ENV ?? "development";
 const showStagingBanner = import.meta.env.VITE_STAGING_BANNER === "true" || appEnvironment === "staging" || appEnvironment === "preview";
 const stagingLabel = import.meta.env.VITE_STAGING_LABEL ?? "ENVIRONNEMENT DE TEST";
+const localDataKey = "acadea-app-data";
 
 function uid(prefix: string) {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
+}
+
+function loadInitialData() {
+  if (typeof window === "undefined") return demoData;
+
+  try {
+    const saved = window.localStorage.getItem(localDataKey);
+    return saved ? ({ ...demoData, ...JSON.parse(saved) } as AppData) : demoData;
+  } catch {
+    return demoData;
+  }
 }
 
 function EnvironmentBanner() {
@@ -88,7 +100,7 @@ function EnvironmentBanner() {
 }
 
 export default function App() {
-  const [data, setData] = useState<AppData>(demoData);
+  const [data, setData] = useState<AppData>(() => loadInitialData());
   const [user, setUser] = useState<AppUser | null>(null);
   const [selectedYearId, setSelectedYearId] = useState("");
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
@@ -97,8 +109,7 @@ export default function App() {
   const school = data.schools.find((item) => item.id === user?.schoolId);
   const schoolYears = school ? data.schoolYears.filter((year) => year.schoolId === school.id) : [];
   const selectedYear = schoolYears.find((year) => year.id === selectedYearId);
-
-  function navigate(nextRoute: "/login" | "/dashboard" | "/platform") {
+  function navigate(nextRoute: string) {
     window.history.pushState({}, "", nextRoute);
     setRoute(nextRoute);
   }
@@ -106,10 +117,14 @@ export default function App() {
   function enterSchoolYear(yearId: string) {
     setSelectedYearId(yearId);
     setUser((currentUser) => (currentUser ? { ...currentUser, activeSchoolYearId: yearId } : currentUser));
-    setData((prev) => ({
-      ...prev,
-      users: prev.users.map((item) => (item.id === user?.id ? { ...item, activeSchoolYearId: yearId } : item)),
-    }));
+    setData((prev) => {
+      const updated = {
+        ...prev,
+        users: prev.users.map((item) => (item.id === user?.id ? { ...item, activeSchoolYearId: yearId } : item)),
+      };
+      window.localStorage.setItem(localDataKey, JSON.stringify(updated));
+      return updated;
+    });
   }
 
   async function loginWithCredentials(email: string, password: string) {
@@ -134,7 +149,9 @@ export default function App() {
         throw new Error("Cette école est suspendue. Contactez la plateforme Acadéa.");
       }
 
-      setSelectedYearId(nextUser.activeSchoolYearId ?? nextSchool.activeSchoolYearId);
+      const nextSchoolYears = data.schoolYears.filter((year) => year.schoolId === nextSchool.id);
+      const nextActiveYear = nextSchoolYears.find((year) => year.status === "active");
+      setSelectedYearId(nextActiveYear?.id ?? "");
     }
 
     setUser(nextUser);
@@ -151,7 +168,11 @@ export default function App() {
   }
 
   function updateData(next: Partial<AppData>) {
-    setData((prev) => ({ ...prev, ...next }));
+    setData((prev) => {
+      const updated = { ...prev, ...next };
+      window.localStorage.setItem(localDataKey, JSON.stringify(updated));
+      return updated;
+    });
   }
 
   if (!user || route === "/login") {
@@ -184,6 +205,7 @@ export default function App() {
   }
 
   const yearData = scopeData(data, school.id, selectedYear.id, user);
+  const studentDetailMatch = route.match(/^\/admin\/eleves\/(.+)$/);
 
   if (validateParent(user)) {
     return <ParentPortal user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} onLogout={logout} />;
@@ -196,29 +218,48 @@ export default function App() {
         user={user}
         school={school}
         year={selectedYear}
-        years={schoolYears}
-        onYearChange={enterSchoolYear}
         onLogout={logout}
       />
 
-      <main className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
-        {activeTab === "dashboard" && <Dashboard data={yearData} />}
-        {activeTab === "students" && (
-          <StudentsModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} />
+      <main className="mx-auto w-full max-w-7xl min-w-0 px-3 py-5 sm:px-6 lg:px-8">
+        {studentDetailMatch ? (
+          <StudentDetailPage
+            studentId={studentDetailMatch[1]}
+            yearData={yearData}
+            year={selectedYear}
+            school={school}
+            onBack={() => {
+              setActiveTab("students");
+              navigate("/dashboard");
+            }}
+          />
+        ) : route === "/admin/rapport-financier" ? (
+          <FinancialReportPage user={user} data={data} yearData={yearData} school={school} year={selectedYear} />
+        ) : activeTab === "dashboard" && <Dashboard data={yearData} />}
+        {!studentDetailMatch && route !== "/admin/rapport-financier" && activeTab === "students" && (
+          <StudentsModule
+            user={user}
+            data={data}
+            yearData={yearData}
+            school={school}
+            year={selectedYear}
+            updateData={updateData}
+            onOpenStudent={(studentId) => navigate(`/admin/eleves/${studentId}`)}
+          />
         )}
-        {activeTab === "parents" && (
+        {!studentDetailMatch && route !== "/admin/rapport-financier" && activeTab === "parents" && (
           <ParentsModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} />
         )}
-        {activeTab === "control" && (
+        {!studentDetailMatch && route !== "/admin/rapport-financier" && activeTab === "control" && (
           <ControlModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} />
         )}
-        {activeTab === "reports" && (
+        {!studentDetailMatch && route !== "/admin/rapport-financier" && activeTab === "reports" && (
           <ReportsModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} />
         )}
-        {activeTab === "messages" && (
+        {!studentDetailMatch && route !== "/admin/rapport-financier" && activeTab === "messages" && (
           <MessagesModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} />
         )}
-        {activeTab === "menu" && (
+        {!studentDetailMatch && route !== "/admin/rapport-financier" && activeTab === "menu" && (
           <MenuModule
             user={user}
             data={data}
@@ -226,11 +267,20 @@ export default function App() {
             school={school}
             years={schoolYears}
             selectedYear={selectedYear}
+            onYearChange={enterSchoolYear}
+            onOpenFinancialReport={() => navigate("/admin/rapport-financier")}
             updateData={updateData}
           />
         )}
       </main>
-      <BottomNavigation user={user} activeTab={activeTab} onTab={setActiveTab} />
+      <BottomNavigation
+        user={user}
+        activeTab={activeTab}
+        onTab={(tab) => {
+          setActiveTab(tab);
+          navigate("/dashboard");
+        }}
+      />
     </div>
   );
 }
@@ -466,15 +516,11 @@ function Header({
   user,
   school,
   year,
-  years,
-  onYearChange,
   onLogout,
 }: {
   user: AppUser;
   school: School;
   year: SchoolYear;
-  years: SchoolYear[];
-  onYearChange: (id: string) => void;
   onLogout: () => void;
 }) {
   return (
@@ -485,15 +531,11 @@ function Header({
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-ink font-bold text-white">A</div>
             <div className="min-w-0">
               <p className="truncate text-lg font-bold text-ink">{school.name}</p>
-              <p className="text-xs text-slate-500">{roleLabels[user.role]} | {year.name}</p>
+              <p className="text-xs text-slate-500">{roleLabels[user.role]}</p>
             </div>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <select value={year.id} onChange={(event) => onYearChange(event.target.value)} className="rounded border border-slate-200 bg-white px-3 py-2 text-sm">
-              {years.map((item) => (
-                <option key={item.id} value={item.id}>{item.name}</option>
-              ))}
-            </select>
+            <span className="rounded bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600">Année scolaire : {year.name}</span>
             <button onClick={onLogout} className="inline-flex items-center justify-center gap-2 rounded border border-slate-200 px-3 py-2 text-sm">
               <LogOut className="h-4 w-4" /> Sortir
             </button>
@@ -514,7 +556,7 @@ function BottomNavigation({ user, activeTab, onTab }: { user: AppUser; activeTab
   ].filter((tab) => (user.role === "cashier" ? ["dashboard", "control", "messages"].includes(tab.id) : true)) as { id: Tab; label: string; icon: typeof BookOpen }[];
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur">
+    <nav className="fixed inset-x-0 bottom-0 z-40 max-w-full overflow-hidden border-t border-slate-200 bg-white/95 px-1 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur sm:px-2">
       <div className="mx-auto grid max-w-3xl grid-cols-5 gap-1">
         {tabs.map((tab) => {
           const Icon = tab.icon;
@@ -523,7 +565,7 @@ function BottomNavigation({ user, activeTab, onTab }: { user: AppUser; activeTab
             <button
               key={tab.id}
               onClick={() => onTab(tab.id)}
-              className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-2xl px-1 py-2 text-[11px] font-semibold transition sm:text-xs ${
+              className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-2xl px-0.5 py-2 text-[10px] font-semibold transition min-[360px]:text-[11px] sm:px-1 sm:text-xs ${
                 active ? "bg-blue-50 text-blue-700" : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
               }`}
               aria-current={active ? "page" : undefined}
@@ -579,23 +621,23 @@ function Dashboard({ data }: { data: ReturnType<typeof scopeData> }) {
         <h1 className="text-2xl font-bold text-ink">Dashboard</h1>
         <p className="text-sm text-slate-500">Statistiques limitées à l'année scolaire sélectionnée.</p>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {cards.map((card) => {
           const Icon = card.icon;
           return (
-            <article key={card.label} className="rounded border border-slate-200 bg-white p-4 shadow-sm">
+            <article key={card.label} className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
               <div className={`mb-4 flex h-10 w-10 items-center justify-center rounded ${card.tone}`}>
                 <Icon className="h-5 w-5" />
               </div>
               <p className="text-sm text-slate-500">{card.label}</p>
-              <p className="mt-1 text-2xl font-bold text-ink">{card.value}</p>
+              <p className="mt-1 break-words text-2xl font-bold text-ink">{card.value}</p>
             </article>
           );
         })}
       </div>
-      <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_380px]">
-        <section className="grid gap-4">
-          <div className="rounded border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mt-4 grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <section className="grid min-w-0 gap-4">
+          <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="font-bold text-ink">KPI financier</h2>
@@ -614,7 +656,7 @@ function Dashboard({ data }: { data: ReturnType<typeof scopeData> }) {
             </div>
           </div>
 
-          <div className="rounded border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
             <h2 className="font-bold text-ink">Élèves par classe</h2>
             <div className="mt-3 overflow-x-auto">
               <table className="w-full min-w-[520px] text-left text-sm">
@@ -644,12 +686,12 @@ function Dashboard({ data }: { data: ReturnType<typeof scopeData> }) {
         <FormPanel title="Transactions récentes">
           <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
             {transactions.map((transaction) => (
-              <div key={transaction.id} className="flex items-center justify-between rounded bg-slate-50 p-3 text-sm">
-                <div>
+              <div key={transaction.id} className="flex min-w-0 items-center justify-between gap-3 rounded bg-slate-50 p-3 text-sm">
+                <div className="min-w-0">
                   <p className="font-semibold text-ink">{transaction.type}</p>
-                  <p className="text-xs text-slate-500">{transaction.label} | {transaction.date.slice(0, 10)}</p>
+                  <p className="break-words text-xs text-slate-500">{transaction.label} | {transaction.date.slice(0, 10)}</p>
                 </div>
-                <span className={transaction.amount >= 0 ? "font-bold text-mint" : "font-bold text-red-600"}>
+                <span className={transaction.amount >= 0 ? "shrink-0 font-bold text-mint" : "shrink-0 font-bold text-red-600"}>
                   {transaction.amount >= 0 ? "+" : "-"}${Math.abs(transaction.amount).toFixed(2)}
                 </span>
               </div>
@@ -917,14 +959,14 @@ function PlatformModule({
         </div>
       </aside>
 
-      <div className="lg:pl-64">
+      <div className="min-w-0 lg:pl-64">
         <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
-          <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+          <div className="flex min-w-0 items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded bg-ink font-bold text-white lg:hidden">A</div>
-            <div>
-              <p className="text-xl font-bold text-ink">Plateforme Acadéa</p>
-              <p className="text-xs text-slate-500">{roleLabels[user.role]} | dashboard SaaS anonymisé</p>
+            <div className="min-w-0">
+              <p className="break-words text-xl font-bold text-ink">Plateforme Acadéa</p>
+              <p className="break-words text-xs text-slate-500">{roleLabels[user.role]} | dashboard SaaS anonymisé</p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -941,8 +983,8 @@ function PlatformModule({
           </div>
         </header>
 
-        <main className="grid gap-5 px-4 py-5 sm:px-6 lg:px-8">
-          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <main className="grid min-w-0 gap-5 px-3 py-5 sm:px-6 lg:px-8">
+          <section className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <PlatformCard label="Écoles" value={data.schools.length} icon={BookOpen} description={`${activeSchools} actives, ${suspendedSchools} suspendues`} tone="mint" />
             <PlatformCard label="Élèves totalisés" value={totalStudents} icon={GraduationCap} description="Chiffre agrégé, sans détail individuel" tone="sky" />
             <PlatformCard label="Parents" value={totalParents} icon={UsersRound} description="Comptes rattachés aux écoles" tone="violet" />
@@ -950,7 +992,7 @@ function PlatformModule({
           </section>
 
           {platformView === "overview" && (
-            <section className="grid gap-4 xl:grid-cols-[380px_1fr]">
+            <section className="grid min-w-0 gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
               <FormPanel title="Créer une école">
                 <Field label="Nom de l'école" value={schoolName} onChange={setSchoolName} />
                 <Field label="Email admin école" value={adminEmail} onChange={setAdminEmail} type="email" />
@@ -968,10 +1010,10 @@ function PlatformModule({
                 </button>
               </FormPanel>
 
-              <section className="grid gap-4">
-                <div className="rounded border border-slate-200 bg-white p-4 shadow-sm">
-                  <div className="flex items-center justify-between">
-                    <div>
+              <section className="grid min-w-0 gap-4">
+                <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex min-w-0 items-center justify-between gap-3">
+                    <div className="min-w-0">
                       <h2 className="font-bold text-ink">Activité plateforme</h2>
                       <p className="text-sm text-slate-500">Vue globale anonymisée des écoles clientes.</p>
                     </div>
@@ -986,9 +1028,9 @@ function PlatformModule({
                   </div>
                 </div>
 
-                <div className="rounded border border-slate-200 bg-white p-4 shadow-sm">
-                  <div className="mb-4 flex items-center justify-between">
-                    <div>
+                <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="mb-4 flex min-w-0 items-center justify-between gap-3">
+                    <div className="min-w-0">
                       <h2 className="font-bold text-ink">Écoles récentes</h2>
                       <p className="text-sm text-slate-500">Accès rapide aux comptes école.</p>
                     </div>
@@ -1008,8 +1050,8 @@ function PlatformModule({
 
           {platformView === "schools" && (
             <section className="grid gap-4">
-              <div className="rounded border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="grid gap-3 lg:grid-cols-[1fr_repeat(4,180px)]">
+              <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_repeat(4,180px)]">
                   <label className="relative">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                     <input value={search} onChange={(event) => setSearch(event.target.value)} className="input pl-9" placeholder="Rechercher une école..." />
@@ -1527,15 +1569,15 @@ function ParentPortal({
   }
 
   return (
-    <div className="min-h-screen bg-[#f6f8fb]">
+    <div className="min-h-screen overflow-x-hidden bg-[#f6f8fb]">
       <EnvironmentBanner />
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3">
+        <div className="mx-auto flex max-w-7xl min-w-0 flex-col gap-3 px-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+          <div className="flex min-w-0 items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded bg-ink font-bold text-white">A</div>
-            <div>
-              <p className="text-lg font-bold text-ink">{school.name}</p>
-              <p className="text-xs text-slate-500">Espace Parent | {parent?.fullName ?? user.name} | {year.name}</p>
+            <div className="min-w-0">
+              <p className="break-words text-lg font-bold text-ink">{school.name}</p>
+              <p className="break-words text-xs text-slate-500">Espace Parent | {parent?.fullName ?? user.name} | {year.name}</p>
             </div>
           </div>
           <button onClick={onLogout} className="secondary-button">
@@ -1543,12 +1585,12 @@ function ParentPortal({
           </button>
         </div>
       </header>
-      <main className="mx-auto grid max-w-7xl gap-4 px-4 py-5 sm:px-6 lg:px-8">
-        <section className="rounded border border-slate-200 bg-white p-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
+      <main className="mx-auto grid max-w-7xl min-w-0 gap-4 px-3 py-5 sm:px-6 lg:px-8">
+        <section className="min-w-0 rounded border border-slate-200 bg-white p-4">
+          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
               <h1 className="text-2xl font-bold text-ink">Mes enfants</h1>
-              <p className="text-sm text-slate-500">Consultation limitée aux élèves rattachés à ce parent.</p>
+              <p className="break-words text-sm text-slate-500">Consultation limitée aux élèves rattachés à ce parent.</p>
             </div>
             <button onClick={markNotificationsRead} className="secondary-button">
               <Bell className="h-4 w-4" /> {unread} notification(s)
@@ -1556,25 +1598,25 @@ function ParentPortal({
           </div>
         </section>
 
-        <section className="grid gap-4 lg:grid-cols-[1fr_360px]">
-          <div className="grid gap-4">
+        <section className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="grid min-w-0 gap-4">
             {yearData.students.map((student) => {
               const balance = getStudentBalance(student.id, yearData.feeTypes, yearData.payments);
               const progress = balance.expected > 0 ? Math.min(100, Math.round((balance.paid / balance.expected) * 100)) : 0;
               const payments = yearData.payments.filter((payment) => payment.studentId === student.id);
               return (
-                <article key={student.id} className="rounded border border-slate-200 bg-white p-4">
-                  <div className="flex flex-col gap-4 md:flex-row">
+                <article key={student.id} className="min-w-0 rounded border border-slate-200 bg-white p-4">
+                  <div className="flex min-w-0 flex-col gap-4 md:flex-row">
                     <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded bg-slate-100 text-xl font-bold text-ink">
                       {student.photoUrl ? <img src={student.photoUrl} alt="" className="h-full w-full object-cover" /> : student.prenom.slice(0, 1)}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <h2 className="text-xl font-bold text-ink">{student.nom} {student.postnom} {student.prenom}</h2>
-                          <p className="text-sm text-slate-500">{student.className} | {year.name}</p>
+                        <div className="min-w-0">
+                          <h2 className="break-words text-xl font-bold text-ink">{student.nom} {student.postnom} {student.prenom}</h2>
+                          <p className="break-words text-sm text-slate-500">{student.className} | {year.name}</p>
                         </div>
-                        <span className="rounded bg-mint/10 px-2 py-1 text-xs font-semibold text-mint">{progress}% payé</span>
+                        <span className="shrink-0 rounded bg-mint/10 px-2 py-1 text-xs font-semibold text-mint">{progress}% payé</span>
                       </div>
                       <div className="mt-4 h-3 overflow-hidden rounded bg-slate-100">
                         <div className="h-full rounded bg-mint" style={{ width: `${progress}%` }} />
@@ -1591,9 +1633,9 @@ function ParentPortal({
                           {payments.map((payment) => {
                             const fee = yearData.feeTypes.find((item) => item.id === payment.feeTypeId);
                             return (
-                              <div key={payment.id} className="rounded bg-slate-50 p-3 text-sm">
+                              <div key={payment.id} className="min-w-0 rounded bg-slate-50 p-3 text-sm">
                                 <span className="font-semibold text-ink">${payment.amount}</span>
-                                <span className="text-slate-500"> | {fee?.name ?? "Frais"} | {payment.paidAt}</span>
+                                <span className="break-words text-slate-500"> | {fee?.name ?? "Frais"} | {payment.paidAt}</span>
                               </div>
                             );
                           })}
@@ -1606,14 +1648,14 @@ function ParentPortal({
             })}
           </div>
 
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <FormPanel title="Notifications">
               <div className="max-h-72 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
                 {yearData.notifications.length === 0 && <p className="text-sm text-slate-500">Aucune notification.</p>}
                 {yearData.notifications.map((notification) => (
-                  <div key={notification.id} className={`rounded border p-3 text-sm ${notification.read ? "border-slate-100 bg-white" : "border-mint/30 bg-mint/5"}`}>
-                    <p className="font-semibold text-ink">{notification.title}</p>
-                    <p className="text-slate-600">{notification.body}</p>
+                  <div key={notification.id} className={`min-w-0 rounded border p-3 text-sm ${notification.read ? "border-slate-100 bg-white" : "border-mint/30 bg-mint/5"}`}>
+                    <p className="break-words font-semibold text-ink">{notification.title}</p>
+                    <p className="break-words text-slate-600">{notification.body}</p>
                     <p className="mt-1 text-xs text-slate-400">{new Date(notification.createdAt).toLocaleString("fr-FR")}</p>
                   </div>
                 ))}
@@ -1631,9 +1673,9 @@ function ParentPortal({
             <FormPanel title="Conversation">
               <div className="max-h-80 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
                 {yearData.messages.filter((message) => message.threadParentId === user.parentId).map((message) => (
-                  <div key={message.id} className="rounded bg-slate-50 p-3 text-sm">
-                    <p className="font-semibold text-ink">{message.subject}</p>
-                    <p className="text-slate-600">{message.body}</p>
+                  <div key={message.id} className="min-w-0 rounded bg-slate-50 p-3 text-sm">
+                    <p className="break-words font-semibold text-ink">{message.subject}</p>
+                    <p className="break-words text-slate-600">{message.body}</p>
                     <p className="mt-1 text-xs text-slate-400">{new Date(message.createdAt).toLocaleString("fr-FR")}</p>
                   </div>
                 ))}
@@ -1653,6 +1695,7 @@ function StudentsModule({
   school,
   year,
   updateData,
+  onOpenStudent,
 }: {
   user: AppUser;
   data: AppData;
@@ -1660,12 +1703,16 @@ function StudentsModule({
   school: School;
   year: SchoolYear;
   updateData: (next: Partial<AppData>) => void;
+  onOpenStudent: (studentId: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [sectionFilter, setSectionFilter] = useState<"all" | "maternelle" | "primaire" | "secondaire">("all");
   const [classFilter, setClassFilter] = useState("");
   const [form, setForm] = useState<Student>(() => emptyStudent(school.id, year.id));
   const [quickParent, setQuickParent] = useState({ fullName: "", phone: "", email: "", password: "" });
+  const [saveError, setSaveError] = useState("");
+  const [saveMessage, setSaveMessage] = useState("");
+  const [showForm, setShowForm] = useState(false);
   const canEdit = user.role === "school_admin";
   const availableClasses = CLASSES.filter((className) => sectionFilter === "all" || getClassSection(className) === sectionFilter);
 
@@ -1680,9 +1727,21 @@ function StudentsModule({
   });
 
   function saveStudent() {
+    setSaveError("");
+    setSaveMessage("");
     const exists = data.students.some((item) => item.id === form.id);
-    const matricule = exists ? form.matricule : generateMatricule(data.students, year.name, school.id, year.id);
-    const student = { ...form, matricule, section: getClassSection(form.className), status: form.status ?? "ACTIVE", schoolId: school.id, schoolYearId: year.id };
+    const targetYearId = exists ? form.schoolYearId : year.id;
+    const targetYearName = exists ? data.schoolYears.find((item) => item.id === form.schoolYearId)?.name ?? year.name : year.name;
+    const matricule = exists ? form.matricule : generateMatricule(data.students, targetYearName, school.id, targetYearId);
+    const student = {
+      ...form,
+      matricule,
+      section: getClassSection(form.className),
+      status: form.status ?? "ACTIVE",
+      schoolId: school.id,
+      schoolYearId: targetYearId,
+      annee_scolaire_id: targetYearId,
+    };
     const parents = data.parents.map((parent) => {
       const withoutStudent = parent.studentIds.filter((studentId) => studentId !== student.id);
       return parent.id === student.parentId ? { ...parent, studentIds: [...withoutStudent, student.id] } : { ...parent, studentIds: withoutStudent };
@@ -1697,11 +1756,27 @@ function StudentsModule({
       parents,
       users,
       auditLogs: [
-        createAuditLog(user, school.id, year.id, exists ? "Modification élève" : "Création élève", `${student.matricule} - ${student.nom} ${student.prenom}`),
+        createAuditLog(user, school.id, targetYearId, exists ? "Modification élève" : "Création élève", `${student.matricule} - ${student.nom} ${student.prenom}`),
         ...data.auditLogs,
       ],
     });
     setForm(emptyStudent(school.id, year.id));
+    setShowForm(false);
+    setSaveMessage(exists ? "Élève modifié avec succès." : "Élève enregistré avec succès.");
+  }
+
+  function openAddStudentForm() {
+    setForm(emptyStudent(school.id, year.id));
+    setSaveError("");
+    setSaveMessage("");
+    setShowForm(true);
+  }
+
+  function openEditStudentForm(student: Student) {
+    setForm(student);
+    setSaveError("");
+    setSaveMessage("");
+    setShowForm(true);
   }
 
   function removeStudent(id: string) {
@@ -1728,6 +1803,7 @@ function StudentsModule({
   }
 
   async function createParentForStudent() {
+    setSaveError("");
     if (!quickParent.fullName || !quickParent.phone || !quickParent.email) return;
     const parentId = uid("parent");
     const userId = await createFirebaseAuthUser(quickParent.email, quickParent.password || "parent123", uid("u-parent"));
@@ -1762,10 +1838,17 @@ function StudentsModule({
   }
 
   return (
-    <section className="grid gap-4 lg:grid-cols-[1fr_360px]">
+    <section className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
       <div className="min-w-0">
         <SectionTitle title="Élèves" subtitle="Ajouter, modifier, rechercher et filtrer par direction puis classe." />
-        <div className="mb-3 grid gap-2 lg:grid-cols-[1fr_180px_220px]">
+        {saveError && <p className="mb-3 rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{saveError}</p>}
+        {saveMessage && <p className="mb-3 rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{saveMessage}</p>}
+        {canEdit && (
+          <button onClick={openAddStudentForm} className="primary-button mb-3">
+            <Plus className="h-4 w-4" /> Ajouter un élève
+          </button>
+        )}
+        <div className="mb-3 grid min-w-0 gap-2 lg:grid-cols-[minmax(0,1fr)_180px_220px]">
           <label className="flex items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
             <Search className="h-4 w-4 text-slate-400" />
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher" className="min-w-0 flex-1 outline-none" />
@@ -1776,21 +1859,21 @@ function StudentsModule({
               setSectionFilter(event.target.value as typeof sectionFilter);
               setClassFilter("");
             }}
-            className="rounded border border-slate-200 bg-white px-3 py-2"
+            className="min-w-0 rounded border border-slate-200 bg-white px-3 py-2"
           >
             <option value="all">Toutes directions</option>
             <option value="maternelle">Maternelle</option>
             <option value="primaire">Primaire</option>
             <option value="secondaire">Secondaire</option>
           </select>
-          <select value={classFilter} onChange={(event) => setClassFilter(event.target.value)} className="rounded border border-slate-200 bg-white px-3 py-2">
+          <select value={classFilter} onChange={(event) => setClassFilter(event.target.value)} className="min-w-0 rounded border border-slate-200 bg-white px-3 py-2">
             <option value="">Toutes les classes</option>
             {availableClasses.map((className) => (
               <option key={className} value={className}>{className}</option>
             ))}
           </select>
         </div>
-        <div className="overflow-x-auto rounded border border-slate-200 bg-white">
+        <div className="max-w-full overflow-x-auto rounded border border-slate-200 bg-white">
           <table className="min-w-[820px] w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
@@ -1806,14 +1889,18 @@ function StudentsModule({
               {students.map((student) => (
                 <tr key={student.id} className="border-t border-slate-100">
                   <td className="px-3 py-3 font-semibold text-ink">{student.matricule}</td>
-                  <td className="px-3 py-3">{student.nom} {student.postnom} {student.prenom}</td>
+                  <td className="px-3 py-3">
+                    <button onClick={() => onOpenStudent(student.id)} className="text-left font-semibold text-ink hover:text-blue-700 hover:underline">
+                      {student.nom} {student.postnom} {student.prenom}
+                    </button>
+                  </td>
                   <td className="px-3 py-3">{student.sexe}</td>
                   <td className="px-3 py-3">{student.className}</td>
                   <td className="px-3 py-3">{student.phone}</td>
                   <td className="px-3 py-3">
                     {canEdit ? (
                       <div className="flex gap-1">
-                        <IconButton label="Modifier" onClick={() => setForm(student)} icon={Edit3} />
+                        <IconButton label="Modifier" onClick={() => openEditStudentForm(student)} icon={Edit3} />
                         <IconButton label="Supprimer" onClick={() => removeStudent(student.id)} icon={Trash2} danger />
                       </div>
                     ) : (
@@ -1826,20 +1913,155 @@ function StudentsModule({
           </table>
         </div>
       </div>
-      {canEdit && (
-        <FormPanel title={form.id.startsWith("new") ? "Ajouter un élève" : "Modifier l'élève"}>
-          <StudentForm
-            form={form}
-            setForm={setForm}
-            parents={yearData.parents}
-            quickParent={quickParent}
-            setQuickParent={setQuickParent}
-            onCreateParent={createParentForStudent}
-            onSave={saveStudent}
-            onReset={() => setForm(emptyStudent(school.id, year.id))}
-          />
-        </FormPanel>
+      {canEdit && showForm && (
+        <div className="transition-all duration-300 ease-out">
+          <FormPanel title={form.id.startsWith("new") ? "Ajouter un élève" : "Modifier l'élève"}>
+            <button onClick={() => setShowForm(false)} className="secondary-button justify-center">
+              <X className="h-4 w-4" /> Fermer
+            </button>
+            <StudentForm
+              form={form}
+              setForm={setForm}
+              parents={yearData.parents}
+              quickParent={quickParent}
+              setQuickParent={setQuickParent}
+              onCreateParent={createParentForStudent}
+              onSave={saveStudent}
+              onReset={() => setForm(emptyStudent(school.id, year.id))}
+            />
+          </FormPanel>
+        </div>
       )}
+    </section>
+  );
+}
+
+function StudentDetailPage({
+  studentId,
+  yearData,
+  year,
+  school,
+  onBack,
+}: {
+  studentId: string;
+  yearData: ReturnType<typeof scopeData>;
+  year: SchoolYear;
+  school: School;
+  onBack: () => void;
+}) {
+  const student = yearData.students.find((item) => item.id === studentId);
+
+  if (!student) {
+    return (
+      <section className="grid gap-4">
+        <button onClick={onBack} className="secondary-button w-fit">← Retour à la liste des élèves</button>
+        <FormPanel title="Élève introuvable">
+          <p className="text-sm text-slate-500">Aucun élève ne correspond à ce dossier dans l'année scolaire sélectionnée.</p>
+        </FormPanel>
+      </section>
+    );
+  }
+
+  const balance = getStudentBalance(student.id, yearData.feeTypes, yearData.payments);
+  const payments = yearData.payments.filter((payment) => payment.studentId === student.id);
+  const parent = yearData.parents.find((item) => item.id === student.parentId);
+  const progress = balance.expected > 0 ? Math.min(100, Math.round((balance.paid / balance.expected) * 100)) : 0;
+
+  return (
+    <section className="grid min-w-0 gap-4">
+      <button onClick={onBack} className="secondary-button w-fit">← Retour à la liste des élèves</button>
+
+      <article className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+          <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded bg-slate-100 text-2xl font-bold text-ink">
+            {student.photoUrl ? <img src={student.photoUrl} alt="" className="h-full w-full object-cover" /> : student.prenom.slice(0, 1)}
+          </div>
+          <div className="min-w-0">
+            <h1 className="break-words text-2xl font-bold text-ink">{student.nom} {student.postnom} {student.prenom}</h1>
+            <p className="break-words text-sm text-slate-500">{student.matricule} | {student.className} | {year.name}</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <span className="rounded bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">{student.className}</span>
+              <span className="rounded bg-mint/10 px-2 py-1 text-xs font-semibold text-mint">{student.status ?? "ACTIVE"}</span>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <section className="grid min-w-0 gap-4 lg:grid-cols-2">
+        <FormPanel title="Informations générales">
+          <Metric label="Sexe" value={student.sexe} />
+          <Metric label="Date de naissance" value={student.birthDate} />
+          <Metric label="Adresse" value={student.address} />
+          <Metric label="Téléphone" value={student.phone} />
+          <Metric label="Parent" value={parent?.fullName ?? "Non renseigné"} />
+        </FormPanel>
+
+        <FormPanel title="Paiements">
+          <Metric label="Total frais" value={`$${balance.expected}`} />
+          <Metric label="Total payé" value={`$${balance.paid}`} />
+          <Metric label="Solde" value={`$${balance.remaining}`} />
+          <div className="h-3 overflow-hidden rounded bg-slate-100">
+            <div className="h-full rounded bg-mint" style={{ width: `${progress}%` }} />
+          </div>
+        </FormPanel>
+
+        <FormPanel title="Historique des paiements">
+          <div className="max-h-80 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+            {payments.length === 0 && <p className="text-sm text-slate-500">Aucun paiement enregistré.</p>}
+            {payments.map((payment) => {
+              const fee = yearData.feeTypes.find((item) => item.id === payment.feeTypeId);
+              return (
+                <div key={payment.id} className="min-w-0 rounded border border-slate-100 p-3 text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-semibold text-ink">{fee?.name ?? "Frais"}</p>
+                    <button onClick={() => fee && generateReceiptPdf(payment, student, fee, school)} className="rounded bg-slate-100 p-2" title="Télécharger le reçu PDF">
+                      <Download className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <p className="break-words text-slate-500">${payment.amount} | {payment.paidAt} | {payment.cashierName}</p>
+                </div>
+              );
+            })}
+          </div>
+        </FormPanel>
+
+        <FormPanel title="Résultats scolaires">
+          <p className="text-sm text-slate-500">Structure prête pour les résultats scolaires.</p>
+        </FormPanel>
+
+        <FormPanel title="Présences">
+          <p className="text-sm text-slate-500">Structure prête pour les présences.</p>
+        </FormPanel>
+
+        <FormPanel title="Documents">
+          <p className="text-sm text-slate-500">Structure prête pour les documents.</p>
+        </FormPanel>
+
+        <FormPanel title="Observations">
+          <p className="text-sm text-slate-500">{student.exitReasonDetails ?? "Aucune observation enregistrée."}</p>
+        </FormPanel>
+      </section>
+    </section>
+  );
+}
+
+function FinancialReportPage({
+  user,
+  data,
+  yearData,
+  school,
+  year,
+}: {
+  user: AppUser;
+  data: AppData;
+  yearData: ReturnType<typeof scopeData>;
+  school: School;
+  year: SchoolYear;
+}) {
+  return (
+    <section className="grid min-w-0 gap-4">
+      <SectionTitle title="Rapport financier" subtitle="Rapports financiers dédiés à l'année scolaire sélectionnée." />
+      <ReportsModule user={user} data={data} yearData={yearData} school={school} year={year} />
     </section>
   );
 }
@@ -1861,17 +2083,20 @@ function ParentsModule({
   const [form, setForm] = useState<ParentProfile>(() => emptyParent(school.id, year.id));
   const [password, setPassword] = useState("");
   const [query, setQuery] = useState("");
+  const [parentError, setParentError] = useState("");
   const filteredParents = yearData.parents.filter((parent) => {
     const text = `${parent.fullName} ${parent.email} ${parent.phone}`.toLowerCase();
     return text.includes(query.toLowerCase());
   });
 
   async function saveParentProfile() {
+    setParentError("");
     if (!form.fullName || !form.email || !form.phone) return;
 
     const isNew = form.id.startsWith("new");
     const parentId = isNew ? uid("parent") : form.id;
-    const userId = isNew ? await createFirebaseAuthUser(form.email, password || "parent123", uid("u-parent")) : form.userId;
+    const existingUser = data.users.find((item) => item.id === form.userId || item.parentId === parentId);
+    const userId = isNew || !existingUser ? await createFirebaseAuthUser(form.email, password || "parent123", uid("u-parent")) : existingUser.id;
     const parent: ParentProfile = {
       ...form,
       id: parentId,
@@ -1896,7 +2121,7 @@ function ParentsModule({
       address: parent.address,
     };
     const nextParents = isNew ? [...data.parents, parent] : data.parents.map((item) => (item.id === parent.id ? parent : item));
-    const nextUsers = isNew ? [...data.users, parentUser] : data.users.map((item) => (item.id === userId ? { ...item, ...parentUser } : item));
+    const nextUsers = isNew || !existingUser ? [...data.users, parentUser] : data.users.map((item) => (item.id === userId ? { ...item, ...parentUser } : item));
     const nextStudents = data.students.map((student) => {
       if (parent.studentIds.includes(student.id)) return { ...student, parentId: parent.id };
       if (student.parentId === parent.id) return { ...student, parentId: undefined };
@@ -1921,10 +2146,21 @@ function ParentsModule({
     setPassword("");
   }
 
+  function deleteParent(parent: ParentProfile) {
+    if (!confirm(`Supprimer le parent ${parent.fullName} et détacher ses élèves ?`)) return;
+    updateData({
+      parents: data.parents.filter((item) => item.id !== parent.id),
+      users: data.users.filter((item) => item.parentId !== parent.id && item.id !== parent.userId),
+      students: data.students.map((student) => (student.parentId === parent.id ? { ...student, parentId: undefined } : student)),
+    });
+    setForm(emptyParent(school.id, year.id));
+  }
+
   return (
-    <section className="grid gap-4 xl:grid-cols-[1fr_380px]">
+    <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
       <div className="min-w-0">
         <SectionTitle title="Parents" subtitle="Comptes parents, statut et liaison unique avec les élèves." />
+        {parentError && <p className="mb-3 rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{parentError}</p>}
         <label className="mb-3 flex items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
           <Search className="h-4 w-4 text-slate-400" />
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher un parent" className="min-w-0 flex-1 outline-none" />
@@ -1933,20 +2169,21 @@ function ParentsModule({
           {filteredParents.map((parent) => {
             const children = yearData.students.filter((student) => student.parentId === parent.id);
             return (
-              <article key={parent.id} className="rounded border border-slate-200 bg-white p-4">
+              <article key={parent.id} className="min-w-0 rounded border border-slate-200 bg-white p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
+                  <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="font-bold text-ink">{parent.fullName}</h2>
                       <span className={`rounded px-2 py-1 text-xs font-semibold ${parent.status === "active" ? "bg-mint/10 text-mint" : "bg-slate-100 text-slate-500"}`}>
                         {parent.status === "active" ? "Actif" : "Inactif"}
                       </span>
                     </div>
-                    <p className="text-sm text-slate-500">{parent.phone} | {parent.email}</p>
-                    <p className="text-sm text-slate-500">{children.length} enfant(s): {children.map((student) => `${student.nom} ${student.prenom}`).join(", ") || "aucun"}</p>
+                    <p className="break-words text-sm text-slate-500">{parent.phone} | {parent.email}</p>
+                    <p className="break-words text-sm text-slate-500">{children.length} enfant(s): {children.map((student) => `${student.nom} ${student.prenom}`).join(", ") || "aucun"}</p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <IconButton label="Modifier" onClick={() => editParent(parent)} icon={Edit3} />
+                    <IconButton label="Supprimer" onClick={() => deleteParent(parent)} icon={Trash2} danger />
                     <button onClick={() => toggleParent(parent)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
                       {parent.status === "active" ? "Désactiver" : "Réactiver"}
                     </button>
@@ -1978,7 +2215,7 @@ function ParentsModule({
             ))}
           </select>
         </label>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid min-w-0 grid-cols-2 gap-2">
           <button onClick={() => setForm(emptyParent(school.id, year.id))} className="secondary-button">Annuler</button>
           <button onClick={saveParentProfile} className="primary-button"><CheckCircle2 className="h-4 w-4" /> Enregistrer</button>
         </div>
@@ -2106,10 +2343,10 @@ function ControlModule({
   }
 
   return (
-    <section className="grid gap-4 xl:grid-cols-[1fr_380px]">
+    <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
       <div className="min-w-0">
         <SectionTitle title="Contrôle" subtitle="Frais scolaires, paiements, historique et soldes restants en dollar américain." />
-        <div className="mb-3 flex flex-wrap gap-2">
+        <div className="mb-3 flex min-w-0 flex-wrap gap-2">
           {(["all", "paid", "due"] as PaymentFilter[]).map((item) => (
             <button
               key={item}
@@ -2124,17 +2361,17 @@ function ControlModule({
             <option value=">=">Payé &gt;=</option>
             <option value="<=">Payé &lt;=</option>
           </select>
-          <input value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)} type="number" className="w-32 rounded border border-slate-200 bg-white px-3 py-2 text-sm" placeholder="Montant" />
+          <input value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)} type="number" className="w-32 max-w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm" placeholder="Montant" />
         </div>
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid min-w-0 gap-3 md:grid-cols-2">
           {rows.map(({ student, balance }) => (
-            <article key={student.id} className="rounded border border-slate-200 bg-white p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
+            <article key={student.id} className="min-w-0 rounded border border-slate-200 bg-white p-4">
+              <div className="flex min-w-0 items-start justify-between gap-3">
+                <div className="min-w-0">
                   <h3 className="font-bold text-ink">{student.nom} {student.prenom}</h3>
-                  <p className="text-sm text-slate-500">{student.matricule} | {student.className}</p>
+                  <p className="break-words text-sm text-slate-500">{student.matricule} | {student.className}</p>
                 </div>
-                <span className={`rounded px-2 py-1 text-xs font-semibold ${balance.remaining === 0 ? "bg-mint/10 text-mint" : "bg-amber-100 text-amber-700"}`}>
+                <span className={`shrink-0 rounded px-2 py-1 text-xs font-semibold ${balance.remaining === 0 ? "bg-mint/10 text-mint" : "bg-amber-100 text-amber-700"}`}>
                   {balance.remaining === 0 ? "En ordre" : "Non en ordre"}
                 </span>
               </div>
@@ -2147,7 +2384,7 @@ function ControlModule({
           ))}
         </div>
       </div>
-      <div className="space-y-4">
+      <div className="min-w-0 space-y-4">
         {canPay && (
           <FormPanel title="Enregistrer un paiement">
             <select value={studentId} onChange={(event) => setStudentId(event.target.value)} className="input">
@@ -2186,9 +2423,9 @@ function ControlModule({
               if (!student || !fee) return null;
               return (
                 <div key={payment.id} className="rounded border border-slate-100 p-3 text-sm">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="font-semibold text-ink">{student.nom} {student.prenom}</p>
-                    <div className="flex gap-1">
+                  <div className="flex min-w-0 items-center justify-between gap-2">
+                    <p className="min-w-0 break-words font-semibold text-ink">{student.nom} {student.prenom}</p>
+                    <div className="flex shrink-0 gap-1">
                       <button onClick={() => generateReceiptPdf(payment, student, fee, school)} className="rounded bg-slate-100 p-2" title="Télécharger le reçu PDF">
                         <Download className="h-4 w-4" />
                       </button>
@@ -2196,7 +2433,7 @@ function ControlModule({
                       {canCorrectPayments && <button onClick={() => deletePayment(payment)} className="rounded bg-red-50 p-2 text-red-700" title="Supprimer"><Trash2 className="h-4 w-4" /></button>}
                     </div>
                   </div>
-                  <p className="text-slate-500">{fee.name} | ${payment.amount} | {payment.paidAt}</p>
+                  <p className="break-words text-slate-500">{fee.name} | ${payment.amount} | {payment.paidAt}</p>
                 </div>
               );
             })}
@@ -2229,10 +2466,10 @@ function ReportsModule({
   const recovery = expected > 0 ? Math.round((paid / expected) * 100) : 0;
 
   return (
-    <section className="grid gap-4">
+    <section className="grid min-w-0 gap-4">
       <SectionTitle title="Rapports" subtitle="Rapports journaliers et globaux limités à l'année scolaire sélectionnée." />
-      <div className="rounded border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+      <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="grid min-w-0 gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
           <Field label="Date début" value={startDate} onChange={setStartDate} type="date" />
           <Field label="Date fin" value={endDate} onChange={setEndDate} type="date" />
           <button onClick={() => exportReportPdf(school, year, startDate, endDate, paid, spent, recovery, payments, expenses)} className="primary-button self-end">
@@ -2240,21 +2477,21 @@ function ReportsModule({
           </button>
         </div>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric label="Paiements" value={`$${paid.toFixed(2)}`} />
         <Metric label="Dépenses" value={`$${spent.toFixed(2)}`} />
         <Metric label="Solde net" value={`$${(paid - spent).toFixed(2)}`} />
         <Metric label="Recouvrement période" value={`${recovery}%`} />
       </div>
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid min-w-0 gap-4 xl:grid-cols-2">
         <FormPanel title="Paiements">
           <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
             {payments.map((payment) => {
               const student = yearData.students.find((item) => item.id === payment.studentId);
               return (
-                <div key={payment.id} className="rounded bg-slate-50 p-3 text-sm">
-                  <p className="font-semibold text-ink">{student ? `${student.nom} ${student.prenom}` : "Élève"}</p>
-                  <p className="text-slate-500">${payment.amount} | {payment.paidAt} | {payment.cashierName}</p>
+                <div key={payment.id} className="min-w-0 rounded bg-slate-50 p-3 text-sm">
+                  <p className="break-words font-semibold text-ink">{student ? `${student.nom} ${student.prenom}` : "Élève"}</p>
+                  <p className="break-words text-slate-500">${payment.amount} | {payment.paidAt} | {payment.cashierName}</p>
                 </div>
               );
             })}
@@ -2264,10 +2501,10 @@ function ReportsModule({
         <FormPanel title="Dépenses">
           <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
             {expenses.map((expense) => (
-              <div key={expense.id} className="rounded bg-slate-50 p-3 text-sm">
-                <p className="font-semibold text-ink">{expense.category}</p>
-                <p className="text-slate-500">${expense.amount} | {expense.spentAt} | {expense.cashierName}</p>
-                <p className="text-slate-500">{expense.description}</p>
+              <div key={expense.id} className="min-w-0 rounded bg-slate-50 p-3 text-sm">
+                <p className="break-words font-semibold text-ink">{expense.category}</p>
+                <p className="break-words text-slate-500">${expense.amount} | {expense.spentAt} | {expense.cashierName}</p>
+                <p className="break-words text-slate-500">{expense.description}</p>
               </div>
             ))}
             {expenses.length === 0 && <p className="text-sm text-slate-500">Aucune dépense sur cette période.</p>}
@@ -2317,7 +2554,7 @@ function MessagesModule({
   }
 
   return (
-    <section className="grid gap-4 lg:grid-cols-[380px_1fr]">
+    <section className="grid min-w-0 gap-4 lg:grid-cols-[380px_minmax(0,1fr)]">
       {canSend && (
         <FormPanel title="Envoyer un message">
           <select value={recipientParentId} onChange={(event) => setRecipientParentId(event.target.value)} className="input">
@@ -2335,7 +2572,7 @@ function MessagesModule({
       )}
       <div className="min-w-0">
         <SectionTitle title="Messages" subtitle={user.role === "parent" ? "Messages reçus par le parent connecté." : "Historique des messages envoyés."} />
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3">
           {yearData.messages.map((message) => {
             const recipient =
               message.recipientParentId === "all"
@@ -2345,11 +2582,11 @@ function MessagesModule({
                   : yearData.parents.find((parent) => parent.id === message.recipientParentId)?.fullName;
             const threadParent = message.threadParentId ? yearData.parents.find((parent) => parent.id === message.threadParentId) : undefined;
             return (
-              <article key={message.id} className="rounded border border-slate-200 bg-white p-4">
+              <article key={message.id} className="min-w-0 rounded border border-slate-200 bg-white p-4">
                 <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <h3 className="font-bold text-ink">{message.subject}</h3>
-                    <p className="text-xs text-slate-500">{recipient}{threadParent ? ` | ${threadParent.fullName}` : ""} | {new Date(message.createdAt).toLocaleString("fr-FR")}</p>
+                  <div className="min-w-0">
+                    <h3 className="break-words font-bold text-ink">{message.subject}</h3>
+                    <p className="break-words text-xs text-slate-500">{recipient}{threadParent ? ` | ${threadParent.fullName}` : ""} | {new Date(message.createdAt).toLocaleString("fr-FR")}</p>
                   </div>
                   {message.recipientParentId === "school" && threadParent && (
                     <button
@@ -2363,7 +2600,7 @@ function MessagesModule({
                     </button>
                   )}
                 </div>
-                <p className="mt-3 text-sm leading-6 text-slate-700">{message.body}</p>
+                <p className="mt-3 break-words text-sm leading-6 text-slate-700">{message.body}</p>
               </article>
             );
           })}
@@ -2380,6 +2617,8 @@ function MenuModule({
   school,
   years,
   selectedYear,
+  onYearChange,
+  onOpenFinancialReport,
   updateData,
 }: {
   user: AppUser;
@@ -2388,13 +2627,26 @@ function MenuModule({
   school: School;
   years: SchoolYear[];
   selectedYear: SchoolYear;
+  onYearChange: (id: string) => void;
+  onOpenFinancialReport: () => void;
   updateData: (next: Partial<AppData>) => void;
 }) {
+  type MenuSection = "school" | "years" | "parents" | "accounts" | "fees" | "financial";
   const [schoolForm, setSchoolForm] = useState(school);
   const [parentForm, setParentForm] = useState<ParentProfile>(() => emptyParent(school.id, selectedYear.id));
   const [feeName, setFeeName] = useState<FeeKind>("Minerval");
   const [feeAmount, setFeeAmount] = useState("100");
+  const [menuParentError, setMenuParentError] = useState("");
+  const [activeMenuSection, setActiveMenuSection] = useState<MenuSection | null>(null);
   const canAdmin = user.role === "school_admin";
+  const menuSections = [
+    { id: "school", title: "Paramètres école", description: "Logo, coordonnées et informations de l'établissement.", icon: Settings },
+    { id: "years", title: "Années scolaires", description: "Année active, années archivées et contexte global.", icon: BookOpen },
+    { id: "parents", title: "Parents", description: "Création et association des parents aux élèves.", icon: UsersRound },
+    { id: "accounts", title: "Comptes de connexion", description: "Comptes parents liés à l'école et à l'année.", icon: ShieldCheck },
+    { id: "fees", title: "Types de frais", description: "Montants et catégories de frais scolaires.", icon: Banknote },
+    { id: "financial", title: "Rapport financier", description: "Synthèse et exports des rapports financiers.", icon: BarChart3 },
+  ] satisfies { id: MenuSection; title: string; description: string; icon: typeof Settings }[];
 
   function saveSchool() {
     updateData({ schools: data.schools.map((item) => (item.id === school.id ? schoolForm : item)) });
@@ -2407,6 +2659,8 @@ function MenuModule({
         year.schoolId === school.id ? { ...year, status: year.id === yearId ? "active" : year.status === "active" ? "draft" : year.status } : year,
       ),
     });
+    onYearChange(yearId);
+    setSchoolForm({ ...schoolForm, activeSchoolYearId: yearId });
   }
 
   function archiveYear(yearId: string) {
@@ -2414,24 +2668,35 @@ function MenuModule({
   }
 
   function saveParent() {
-    const userId = uid("u-parent");
-    const parent = { ...parentForm, id: parentForm.id.startsWith("new") ? uid("parent") : parentForm.id, schoolId: school.id, schoolYearId: selectedYear.id, userId };
+    setMenuParentError("");
+    const isNew = parentForm.id.startsWith("new");
+    const parentId = isNew ? uid("parent") : parentForm.id;
+    const existingUser = data.users.find((item) => item.parentId === parentId || item.id === parentForm.userId);
+    const userId = existingUser?.id ?? uid("u-parent");
+    const parent = { ...parentForm, id: parentId, schoolId: school.id, schoolYearId: selectedYear.id, userId, status: parentForm.status ?? "active" };
     const parentUser: AppUser = {
       id: userId,
       name: parent.fullName,
       email: parent.email,
       role: "parent",
       schoolId: school.id,
+      activeSchoolYearId: selectedYear.id,
       parentId: parent.id,
       studentIds: parent.studentIds,
-      status: "active",
+      status: parent.status,
       phone: parent.phone,
       address: parent.address,
     };
+    const nextParents = isNew ? [...data.parents, parent] : data.parents.map((item) => (item.id === parent.id ? parent : item));
+    const nextUsers = existingUser ? data.users.map((item) => (item.id === userId ? { ...item, ...parentUser } : item)) : [...data.users, parentUser];
     updateData({
-      parents: [...data.parents, parent],
-      users: [...data.users, parentUser],
-      students: data.students.map((student) => (parent.studentIds.includes(student.id) ? { ...student, parentId: parent.id } : student)),
+      parents: nextParents,
+      users: nextUsers,
+      students: data.students.map((student) => {
+        if (parent.studentIds.includes(student.id)) return { ...student, parentId: parent.id };
+        if (student.parentId === parent.id) return { ...student, parentId: undefined };
+        return student;
+      }),
     });
     setParentForm(emptyParent(school.id, selectedYear.id));
   }
@@ -2446,34 +2711,66 @@ function MenuModule({
   }
 
   return (
-    <section className="grid gap-4 xl:grid-cols-2">
+    <section className="grid min-w-0 gap-4 xl:grid-cols-2">
+      <div className="grid min-w-0 gap-3 xl:col-span-2 sm:grid-cols-2 lg:grid-cols-3">
+        {menuSections.map((section) => {
+          const Icon = section.icon;
+          const active = activeMenuSection === section.id;
+          return (
+            <button
+              key={section.id}
+              onClick={() => {
+                if (section.id === "financial") {
+                  onOpenFinancialReport();
+                  return;
+                }
+                setActiveMenuSection(section.id);
+              }}
+              className={`min-w-0 rounded border p-4 text-left shadow-sm transition ${
+                active ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white hover:border-mint"
+              }`}
+            >
+              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded bg-slate-100 text-ink">
+                <Icon className="h-5 w-5" />
+              </div>
+              <h2 className="break-words font-bold text-ink">{section.title}</h2>
+              <p className="mt-1 break-words text-sm text-slate-500">{section.description}</p>
+            </button>
+          );
+        })}
+      </div>
+
+      {activeMenuSection === "school" && (
       <FormPanel title="Paramètres école">
         <Field label="Logo URL" value={schoolForm.logoUrl ?? ""} onChange={(value) => setSchoolForm({ ...schoolForm, logoUrl: value })} disabled={!canAdmin} />
         <Field label="Nom de l'école" value={schoolForm.name} onChange={(value) => setSchoolForm({ ...schoolForm, name: value })} disabled={!canAdmin} />
         <Field label="Adresse" value={schoolForm.address} onChange={(value) => setSchoolForm({ ...schoolForm, address: value })} disabled={!canAdmin} />
         <Field label="Téléphone" value={schoolForm.phone} onChange={(value) => setSchoolForm({ ...schoolForm, phone: value })} disabled={!canAdmin} />
         <Field label="Email" value={schoolForm.email} onChange={(value) => setSchoolForm({ ...schoolForm, email: value })} disabled={!canAdmin} />
-        <label className="grid gap-1 text-sm font-medium text-slate-700">
-          Année scolaire active
-          <select value={schoolForm.activeSchoolYearId} onChange={(event) => setSchoolForm({ ...schoolForm, activeSchoolYearId: event.target.value })} disabled={!canAdmin} className="input">
-            {years.map((year) => (
-              <option key={year.id} value={year.id}>{year.name}</option>
-            ))}
-          </select>
-        </label>
+        <p className="rounded bg-slate-50 p-3 text-sm font-semibold text-slate-600">Année scolaire : {selectedYear.name}</p>
         {canAdmin && <button onClick={saveSchool} className="primary-button"><Settings className="h-4 w-4" /> Enregistrer</button>}
       </FormPanel>
+      )}
 
+      {activeMenuSection === "years" && (
       <FormPanel title="Années scolaires">
         <div className="space-y-2">
           {years.map((year) => (
-            <div key={year.id} className="flex flex-col gap-2 rounded border border-slate-100 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div key={year.id} className={`flex min-w-0 flex-col gap-2 rounded border p-3 sm:flex-row sm:items-center sm:justify-between ${year.id === selectedYear.id ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-white"}`}>
+              <button onClick={() => onYearChange(year.id)} className="min-w-0 text-left">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-semibold text-ink">{year.name}</p>
+                  {year.id === selectedYear.id && <span className="rounded bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700">Contexte actuel</span>}
+                  {year.status === "active" && <span className="rounded bg-mint/10 px-2 py-1 text-xs font-semibold text-mint">Active</span>}
+                  {year.status === "archived" && <span className="rounded bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-500">Archivée</span>}
+                </div>
+                <p className="text-xs text-slate-500">{year.startsAt} au {year.endsAt}</p>
+              </button>
               <div>
-                <p className="font-semibold text-ink">{year.name}</p>
-                <p className="text-xs text-slate-500">{year.status}</p>
+                <p className="text-xs font-medium capitalize text-slate-500">{year.status}</p>
               </div>
               {canAdmin && (
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <button onClick={() => activateYear(year.id)} className="rounded bg-mint px-3 py-2 text-xs font-semibold text-white">Activer</button>
                   <button onClick={() => archiveYear(year.id)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">Archiver</button>
                 </div>
@@ -2482,9 +2779,11 @@ function MenuModule({
           ))}
         </div>
       </FormPanel>
+      )}
 
-      {canAdmin && (
-        <FormPanel title="Parents et comptes de connexion">
+      {canAdmin && (activeMenuSection === "parents" || activeMenuSection === "accounts") && (
+        <FormPanel title={activeMenuSection === "accounts" ? "Comptes de connexion" : "Parents"}>
+          {menuParentError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{menuParentError}</p>}
           <Field label="Nom complet" value={parentForm.fullName} onChange={(value) => setParentForm({ ...parentForm, fullName: value })} />
           <Field label="Téléphone" value={parentForm.phone} onChange={(value) => setParentForm({ ...parentForm, phone: value })} />
           <Field label="Email" value={parentForm.email} onChange={(value) => setParentForm({ ...parentForm, email: value })} />
@@ -2506,9 +2805,9 @@ function MenuModule({
         </FormPanel>
       )}
 
-      {canAdmin && (
+      {canAdmin && activeMenuSection === "fees" && (
         <FormPanel title="Types de frais">
-          <div className="grid gap-2 sm:grid-cols-[1fr_120px_auto]">
+          <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_120px_auto]">
             <select value={feeName} onChange={(event) => setFeeName(event.target.value as FeeKind)} className="input">
               {FEE_KINDS.map((kind) => (
                 <option key={kind} value={kind}>{kind}</option>
@@ -2519,9 +2818,9 @@ function MenuModule({
           </div>
           <div className="space-y-2">
             {yearData.feeTypes.map((fee) => (
-              <div key={fee.id} className="flex justify-between rounded bg-slate-50 p-3 text-sm">
-                <span>{fee.name}</span>
-                <strong>${fee.amount}</strong>
+              <div key={fee.id} className="flex min-w-0 justify-between gap-3 rounded bg-slate-50 p-3 text-sm">
+                <span className="min-w-0 break-words">{fee.name}</span>
+                <strong className="shrink-0">${fee.amount}</strong>
               </div>
             ))}
           </div>
@@ -2683,6 +2982,7 @@ function emptyStudent(schoolId: string, schoolYearId: string): Student {
     id: `new-${crypto.randomUUID()}`,
     schoolId,
     schoolYearId,
+    annee_scolaire_id: schoolYearId,
     matricule: "",
     nom: "",
     postnom: "",
@@ -2715,18 +3015,18 @@ function emptyParent(schoolId: string, schoolYearId: string): ParentProfile {
 
 function SectionTitle({ title, subtitle }: { title: string; subtitle: string }) {
   return (
-    <div className="mb-4">
-      <h1 className="text-2xl font-bold text-ink">{title}</h1>
-      <p className="text-sm text-slate-500">{subtitle}</p>
+    <div className="mb-4 min-w-0">
+      <h1 className="break-words text-2xl font-bold text-ink">{title}</h1>
+      <p className="break-words text-sm text-slate-500">{subtitle}</p>
     </div>
   );
 }
 
 function FormPanel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <aside className="rounded border border-slate-200 bg-white p-4 shadow-sm">
-      <h2 className="mb-3 text-lg font-bold text-ink">{title}</h2>
-      <div className="grid gap-3">{children}</div>
+    <aside className="min-w-0 max-w-full rounded border border-slate-200 bg-white p-4 shadow-sm">
+      <h2 className="mb-3 break-words text-lg font-bold text-ink">{title}</h2>
+      <div className="grid min-w-0 gap-3">{children}</div>
     </aside>
   );
 }
@@ -2745,7 +3045,7 @@ function Field({
   disabled?: boolean;
 }) {
   return (
-    <label className="grid gap-1 text-sm font-medium text-slate-700">
+    <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
       {label}
       <input value={value} onChange={(event) => onChange(event.target.value)} type={type} disabled={disabled} className="input disabled:bg-slate-100" />
     </label>
@@ -2762,9 +3062,9 @@ function IconButton({ label, onClick, icon: Icon, danger = false }: { label: str
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded bg-slate-50 p-2">
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className="font-bold text-ink">{value}</p>
+    <div className="min-w-0 rounded bg-slate-50 p-2">
+      <p className="break-words text-xs text-slate-500">{label}</p>
+      <p className="break-words font-bold text-ink">{value}</p>
     </div>
   );
 }

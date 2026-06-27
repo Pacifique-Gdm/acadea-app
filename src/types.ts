@@ -73,6 +73,7 @@ export interface Student {
   id: string;
   schoolId: string;
   schoolYearId: string;
+  annee_scolaire_id?: string;
   matricule: string;
   nom: string;
   postnom: string;
