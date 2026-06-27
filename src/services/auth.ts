@@ -10,6 +10,13 @@ interface FirebaseAuthModule {
   signOut: (authInstance: unknown) => Promise<void>;
 }
 
+type RawAppUser = Omit<AppUser, "role"> & { role: AppUser["role"] | "admin" | "superadmin" };
+
+function normalizeUserProfile(user: RawAppUser): AppUser {
+  const normalizedRole = user.role === "superadmin" ? "super_admin" : user.role === "admin" ? "school_admin" : user.role;
+  return { ...user, role: normalizedRole };
+}
+
 export async function signIn(email: string, password: string, data: AppData) {
   if (firebaseReady && auth && db) {
     const authModule = (await import("firebase/auth")) as unknown as FirebaseAuthModule;
@@ -20,17 +27,22 @@ export async function signIn(email: string, password: string, data: AppData) {
       throw new Error("Aucun profil Acadéa n'est associé à ce compte.");
     }
 
-    return { id: credential.user.uid, ...userSnapshot.data() } as AppUser;
+    return normalizeUserProfile({ id: credential.user.uid, ...userSnapshot.data() } as RawAppUser);
   }
 
   const normalizedEmail = email.trim().toLowerCase();
-  const demoUser = data.users.find((user) => user.email.toLowerCase() === normalizedEmail && user.demoPassword === password);
+  const demoEmailAliases: Record<string, string[]> = {
+    "superadmin@acadea.demo": ["admin@acadea.demo"],
+    "admin@acadea.demo": ["admin@acadea.demo", "direction@acadea.demo"],
+  };
+  const acceptedEmails = [normalizedEmail, ...(demoEmailAliases[normalizedEmail] ?? [])];
+  const demoUser = data.users.find((user) => acceptedEmails.includes(user.email.toLowerCase()) && user.demoPassword === password);
 
   if (!demoUser) {
     throw new Error("Email ou mot de passe incorrect.");
   }
 
-  return demoUser;
+  return normalizeUserProfile(demoUser as RawAppUser);
 }
 
 export async function signOutUser() {

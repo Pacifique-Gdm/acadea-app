@@ -453,7 +453,8 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [logoPreview, setLogoPreview] = useState("");
-  const isSuperAdmin = email.trim().toLowerCase() === "admin@acadea.demo";
+  const normalizedEmail = email.trim().toLowerCase();
+  const isSuperAdmin = normalizedEmail === "admin@acadea.demo" || normalizedEmail === "superadmin@acadea.demo";
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
