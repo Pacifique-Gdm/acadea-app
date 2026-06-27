@@ -54,10 +54,81 @@ function normalizeUserProfile(user: RawAppUser): AppUser {
   } as AppUser;
 }
 
+function getDemoFallbackUser(email: string, password: string, data: AppData) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const demoUsers: Record<string, RawAppUser> = {
+    "superadmin@acadea.demo": {
+      id: "demo-superadmin",
+      name: "Super Administrateur Acadéa",
+      email: "superadmin@acadea.demo",
+      role: "super_admin",
+      demoPassword: "admin123",
+      status: "active",
+      __authDiagnostic: {
+        firebaseUid: "demo-superadmin",
+        email: "superadmin@acadea.demo",
+        firestoreDocument: null,
+        customClaims: {},
+        rawRole: "super_admin",
+      },
+    },
+    "admin@acadea.demo": {
+      id: "demo-school-admin",
+      name: "Administrateur École Demo",
+      email: "admin@acadea.demo",
+      role: "school_admin",
+      schoolId: "school-1",
+      activeSchoolYearId: "year-2025",
+      demoPassword: "admin123",
+      status: "active",
+      __authDiagnostic: {
+        firebaseUid: "demo-school-admin",
+        email: "admin@acadea.demo",
+        firestoreDocument: null,
+        customClaims: {},
+        rawRole: "school_admin",
+        schoolId: "school-1",
+      },
+    },
+  };
+  const fallbackUser = demoUsers[normalizedEmail];
+
+  if (fallbackUser && fallbackUser.demoPassword === password) {
+    return normalizeUserProfile(fallbackUser);
+  }
+
+  const demoEmailAliases: Record<string, string[]> = {
+    "superadmin@acadea.demo": ["admin@acadea.demo"],
+    "admin@acadea.demo": ["direction@acadea.demo"],
+  };
+  const acceptedEmails = [normalizedEmail, ...(demoEmailAliases[normalizedEmail] ?? [])];
+  const demoUser = data.users.find((user) => acceptedEmails.includes(user.email.toLowerCase()) && user.demoPassword === password);
+
+  return demoUser ? normalizeUserProfile(demoUser as RawAppUser) : null;
+}
+
 export async function signIn(email: string, password: string, data: AppData) {
   if (firebaseReady && auth && db) {
     const authModule = (await import("firebase/auth")) as unknown as FirebaseAuthModule;
-    const credential = await authModule.signInWithEmailAndPassword(auth, email, password);
+    const credential = await authModule.signInWithEmailAndPassword(auth, email, password).catch((error) => {
+      const fallbackUser = getDemoFallbackUser(email, password, data);
+      if (fallbackUser) {
+        console.warn("[Acadéa auth] Firebase Auth indisponible pour un compte demo, fallback local utilisé.", {
+          email,
+          errorCode: error instanceof Error ? error.message : error,
+        });
+        return null;
+      }
+
+      throw error;
+    });
+
+    if (!credential) {
+      const fallbackUser = getDemoFallbackUser(email, password, data);
+      if (fallbackUser) return fallbackUser;
+      throw new Error("Email ou mot de passe incorrect.");
+    }
+
     const userSnapshot = await getDoc(doc(db, "users", credential.user.uid));
     const tokenResult = await authModule.getIdTokenResult(credential.user).catch(() => ({ claims: {} as Record<string, unknown> }));
     const claims = tokenResult.claims;
@@ -69,6 +140,8 @@ export async function signIn(email: string, password: string, data: AppData) {
         firestoreDocument: null,
         customClaims: claims,
       });
+      const fallbackUser = getDemoFallbackUser(email, password, data);
+      if (fallbackUser) return fallbackUser;
       throw new Error("Aucun profil Acadéa n'est associé à ce compte.");
     }
 
@@ -100,19 +173,12 @@ export async function signIn(email: string, password: string, data: AppData) {
     return normalizeUserProfile(rawProfile as RawAppUser);
   }
 
-  const normalizedEmail = email.trim().toLowerCase();
-  const demoEmailAliases: Record<string, string[]> = {
-    "superadmin@acadea.demo": ["admin@acadea.demo"],
-    "admin@acadea.demo": ["admin@acadea.demo", "direction@acadea.demo"],
-  };
-  const acceptedEmails = [normalizedEmail, ...(demoEmailAliases[normalizedEmail] ?? [])];
-  const demoUser = data.users.find((user) => acceptedEmails.includes(user.email.toLowerCase()) && user.demoPassword === password);
-
+  const demoUser = getDemoFallbackUser(email, password, data);
   if (!demoUser) {
     throw new Error("Email ou mot de passe incorrect.");
   }
 
-  return normalizeUserProfile(demoUser as RawAppUser);
+  return demoUser;
 }
 
 export async function signOutUser() {

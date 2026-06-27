@@ -196,6 +196,9 @@ export default function App() {
     if (nextRoute === "/dashboard") {
       const schoolStaffAccess = validateSchoolStaff(nextUser);
       const parentAccess = validateParent(nextUser);
+      if (["school_admin", "cashier"].includes(nextUser.role) && !nextUser.schoolId) {
+        throw new Error("schoolId manquant.");
+      }
       if (!schoolStaffAccess && !parentAccess) {
         const authDiagnostic = (nextUser as AppUser & { __authDiagnostic?: Record<string, unknown> }).__authDiagnostic ?? {};
         const rawRole = authDiagnostic.rawRole ?? nextUser.role;
