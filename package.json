@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "build": "node scripts/verifyProductionBranch.cjs && tsc -b && vite build",
+    "build": "node scripts/verifyProductionBranch.cjs && node scripts/verifyDeploymentEnvironment.cjs && tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "lint": "eslint .",
     "seed": "tsx scripts/seedDemo.ts",

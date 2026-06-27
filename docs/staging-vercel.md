@@ -41,6 +41,8 @@ VITE_FIREBASE_MESSAGING_SENDER_ID=
 VITE_FIREBASE_APP_ID=
 ACADEA_ALLOW_FIRESTORE_IMPORT=false
 ACADEA_ALLOW_FIRESTORE_SEED=false
+ACADEA_EXPECTED_PREVIEW_FIREBASE_PROJECT_ID=
+ACADEA_EXPECTED_PRODUCTION_FIREBASE_PROJECT_ID=
 ```
 
 Development:
@@ -58,6 +60,7 @@ VITE_APP_ENV=staging
 VITE_STAGING_BANNER=true
 VITE_STAGING_LABEL=ENVIRONNEMENT DE TEST
 VITE_FIREBASE_PROJECT_ID=<firebase-staging-project-id>
+ACADEA_EXPECTED_PREVIEW_FIREBASE_PROJECT_ID=<firebase-staging-project-id>
 ```
 
 Sur Vercel, si `VITE_APP_ENV` n'est pas défini, `vite.config.ts` reprend automatiquement `VERCEL_ENV`. Un Preview Deployment reçoit donc `preview`, ce qui affiche aussi la bannière de test.
@@ -68,7 +71,14 @@ Production:
 VITE_APP_ENV=production
 VITE_STAGING_BANNER=false
 VITE_FIREBASE_PROJECT_ID=<firebase-production-project-id>
+ACADEA_EXPECTED_PRODUCTION_FIREBASE_PROJECT_ID=<firebase-production-project-id>
 ```
+
+Le build Vercel exécute `scripts/verifyDeploymentEnvironment.cjs` avant Vite:
+
+- Production est bloquée si `VITE_FIREBASE_PROJECT_ID` ressemble à un projet staging/preview/test/demo/dev.
+- Preview/Staging est bloqué si `VITE_FIREBASE_PROJECT_ID` ressemble à un projet production.
+- Si `ACADEA_EXPECTED_PRODUCTION_FIREBASE_PROJECT_ID` ou `ACADEA_EXPECTED_PREVIEW_FIREBASE_PROJECT_ID` est défini, le build exige une correspondance exacte.
 
 ## Bannière Staging
 
