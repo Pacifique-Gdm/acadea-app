@@ -2040,7 +2040,16 @@ function StudentsModule({
     setSaveError("");
     if (!quickParent.fullName || !quickParent.phone || !quickParent.email) return;
     const parentId = uid("parent");
-    const userId = await createFirebaseAuthUser(quickParent.email, quickParent.password || "parent123", uid("u-parent"));
+    const existingUser = data.users.find((item) => item.email.toLowerCase() === quickParent.email.toLowerCase());
+    let userId = existingUser?.id;
+    if (!userId) {
+      try {
+        userId = await createFirebaseAuthUser(quickParent.email, quickParent.password || "parent123", uid("u-parent"));
+      } catch (error) {
+        setSaveError(error instanceof Error ? `Création Firebase Auth parent impossible : ${error.message}` : "Création Firebase Auth parent impossible.");
+        return;
+      }
+    }
     const parent: ParentProfile = {
       id: parentId,
       schoolId: school.id,
@@ -2066,7 +2075,10 @@ function StudentsModule({
       status: "active",
       phone: parent.phone,
     };
-    updateData({ parents: [...data.parents, parent], users: [...data.users, parentUser] });
+    updateData({
+      parents: [...data.parents, parent],
+      users: existingUser ? data.users.map((item) => (item.id === existingUser.id ? { ...item, ...parentUser } : item)) : [...data.users, parentUser],
+    });
     setForm({ ...form, parentId });
     setQuickParent({ fullName: "", phone: "", email: "", password: "" });
   }
@@ -2886,6 +2898,7 @@ function MenuModule({
   const [cashierPhone, setCashierPhone] = useState("");
   const [cashierEmail, setCashierEmail] = useState("");
   const [cashierPassword, setCashierPassword] = useState("");
+  const [cashierError, setCashierError] = useState("");
   const [feeName, setFeeName] = useState<FeeKind>("Minerval");
   const [feeAmount, setFeeAmount] = useState("100");
   const [activeMenuSection, setActiveMenuSection] = useState<MenuSection | null>(null);
@@ -2918,9 +2931,19 @@ function MenuModule({
   }
 
   async function saveCashier() {
+    setCashierError("");
     if (!cashierName || !cashierEmail || !cashierPassword) return;
 
-    const cashierId = await createFirebaseAuthUser(cashierEmail, cashierPassword, uid("u-cashier"));
+    const existingUser = data.users.find((item) => item.email.toLowerCase() === cashierEmail.toLowerCase());
+    let cashierId = existingUser?.id;
+    if (!cashierId) {
+      try {
+        cashierId = await createFirebaseAuthUser(cashierEmail, cashierPassword, uid("u-cashier"));
+      } catch (error) {
+        setCashierError(error instanceof Error ? `Création Firebase Auth caissier impossible : ${error.message}` : "Création Firebase Auth caissier impossible.");
+        return;
+      }
+    }
     const cashierUser: AppUser & { active: boolean } = {
       id: cashierId,
       name: cashierName,
@@ -2934,7 +2957,7 @@ function MenuModule({
       active: true,
       createdAt: new Date().toISOString(),
     };
-    updateData({ users: [...data.users, cashierUser] });
+    updateData({ users: existingUser ? data.users.map((item) => (item.id === existingUser.id ? { ...item, ...cashierUser } : item)) : [...data.users, cashierUser] });
     setCashierName("");
     setCashierPhone("");
     setCashierEmail("");
@@ -3023,6 +3046,7 @@ function MenuModule({
 
       {canAdmin && activeMenuSection === "accounts" && (
         <FormPanel title="Créer un caissier">
+          {cashierError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{cashierError}</p>}
           <Field label="Nom complet" value={cashierName} onChange={setCashierName} />
           <Field label="Téléphone" value={cashierPhone} onChange={setCashierPhone} />
           <Field label="Email" value={cashierEmail} onChange={setCashierEmail} />
