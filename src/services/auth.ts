@@ -7,14 +7,51 @@ interface FirebaseAuthModule {
   signInWithEmailAndPassword: (authInstance: unknown, email: string, password: string) => Promise<{ user: { uid: string; email: string | null } }>;
   createUserWithEmailAndPassword: (authInstance: unknown, email: string, password: string) => Promise<{ user: { uid: string; email: string | null } }>;
   getAuth: (appInstance: unknown) => unknown;
+  getIdTokenResult: (user: unknown) => Promise<{ claims: Record<string, unknown> }>;
   signOut: (authInstance: unknown) => Promise<void>;
 }
 
-type RawAppUser = Omit<AppUser, "role"> & { role: AppUser["role"] | "admin" | "superadmin" };
+type AuthDiagnostic = {
+  firebaseUid?: string;
+  email?: string | null;
+  firestoreDocument?: Record<string, unknown> | null;
+  customClaims?: Record<string, unknown>;
+  rawRole?: unknown;
+  normalizedRole?: AppUser["role"];
+  schoolId?: unknown;
+  tenantId?: unknown;
+  organisationId?: unknown;
+  organizationId?: unknown;
+  parentId?: unknown;
+};
+
+type RawAppUser = Omit<AppUser, "role" | "schoolId"> & {
+  role: AppUser["role"] | "admin" | "superadmin";
+  schoolId?: string;
+  tenantId?: string;
+  organisationId?: string;
+  organizationId?: string;
+  __authDiagnostic?: AuthDiagnostic;
+};
 
 function normalizeUserProfile(user: RawAppUser): AppUser {
   const normalizedRole = user.role === "superadmin" ? "super_admin" : user.role === "admin" ? "school_admin" : user.role;
-  return { ...user, role: normalizedRole };
+  const normalizedSchoolId = user.schoolId ?? user.tenantId ?? user.organisationId ?? user.organizationId;
+  return {
+    ...user,
+    role: normalizedRole,
+    schoolId: normalizedSchoolId,
+    __authDiagnostic: {
+      ...user.__authDiagnostic,
+      rawRole: user.__authDiagnostic?.rawRole ?? user.role,
+      normalizedRole,
+      schoolId: normalizedSchoolId,
+      tenantId: user.tenantId,
+      organisationId: user.organisationId,
+      organizationId: user.organizationId,
+      parentId: user.parentId,
+    },
+  } as AppUser;
 }
 
 export async function signIn(email: string, password: string, data: AppData) {
@@ -22,12 +59,45 @@ export async function signIn(email: string, password: string, data: AppData) {
     const authModule = (await import("firebase/auth")) as unknown as FirebaseAuthModule;
     const credential = await authModule.signInWithEmailAndPassword(auth, email, password);
     const userSnapshot = await getDoc(doc(db, "users", credential.user.uid));
+    const tokenResult = await authModule.getIdTokenResult(credential.user).catch(() => ({ claims: {} as Record<string, unknown> }));
+    const claims = tokenResult.claims;
 
     if (!userSnapshot.exists()) {
+      console.error("[Acadéa auth] Document Firestore users/{uid} introuvable.", {
+        firebaseUid: credential.user.uid,
+        email: credential.user.email ?? email,
+        firestoreDocument: null,
+        customClaims: claims,
+      });
       throw new Error("Aucun profil Acadéa n'est associé à ce compte.");
     }
 
-    return normalizeUserProfile({ id: credential.user.uid, ...userSnapshot.data() } as RawAppUser);
+    const firestoreDocument = userSnapshot.data();
+    const rawProfile = {
+      id: credential.user.uid,
+      email: credential.user.email ?? email,
+      role: claims.role,
+      schoolId: claims.schoolId,
+      parentId: claims.parentId,
+      tenantId: claims.tenantId,
+      organisationId: claims.organisationId,
+      organizationId: claims.organizationId,
+      ...firestoreDocument,
+      __authDiagnostic: {
+        firebaseUid: credential.user.uid,
+        email: credential.user.email ?? email,
+        firestoreDocument,
+        customClaims: claims,
+        rawRole: firestoreDocument.role ?? claims.role,
+        schoolId: firestoreDocument.schoolId ?? claims.schoolId,
+        tenantId: firestoreDocument.tenantId ?? claims.tenantId,
+        organisationId: firestoreDocument.organisationId ?? claims.organisationId,
+        organizationId: firestoreDocument.organizationId ?? claims.organizationId,
+        parentId: firestoreDocument.parentId ?? claims.parentId,
+      },
+    };
+
+    return normalizeUserProfile(rawProfile as RawAppUser);
   }
 
   const normalizedEmail = email.trim().toLowerCase();

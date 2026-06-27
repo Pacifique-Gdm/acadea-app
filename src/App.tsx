@@ -194,7 +194,19 @@ export default function App() {
     }
 
     if (nextRoute === "/dashboard") {
-      if (!validateSchoolStaff(nextUser) && !validateParent(nextUser)) {
+      const schoolStaffAccess = validateSchoolStaff(nextUser);
+      const parentAccess = validateParent(nextUser);
+      if (!schoolStaffAccess && !parentAccess) {
+        console.error("[Acadéa auth] Accès dashboard refusé.", {
+          ...(nextUser as AppUser & { __authDiagnostic?: Record<string, unknown> }).__authDiagnostic,
+          roleAfterNormalization: nextUser.role,
+          validateSchoolStaff: schoolStaffAccess,
+          validateParent: parentAccess,
+          missingFields: {
+            schoolId: !nextUser.schoolId,
+            parentId: nextUser.role === "parent" && !nextUser.parentId,
+          },
+        });
         throw new Error("Votre compte ne peut pas accéder à cet espace.");
       }
 
