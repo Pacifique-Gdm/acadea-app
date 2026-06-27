@@ -429,7 +429,6 @@ export default function App() {
             years={schoolYears}
             selectedYear={selectedYear}
             onYearChange={enterSchoolYear}
-            onOpenFinancialReport={() => navigate("/admin/rapport-financier")}
             updateData={updateData}
           />
         )}
@@ -2892,7 +2891,6 @@ function MenuModule({
   years,
   selectedYear,
   onYearChange,
-  onOpenFinancialReport,
   updateData,
 }: {
   user: AppUser;
@@ -2902,7 +2900,6 @@ function MenuModule({
   years: SchoolYear[];
   selectedYear: SchoolYear;
   onYearChange: (id: string) => void;
-  onOpenFinancialReport: () => void;
   updateData: (next: Partial<AppData>) => void;
 }) {
   type MenuSection = "school" | "years" | "accounts" | "fees" | "financial";
@@ -2927,6 +2924,7 @@ function MenuModule({
   const menuPanelOpen =
     activeMenuSection === "school" ||
     activeMenuSection === "years" ||
+    activeMenuSection === "financial" ||
     (canAdmin && (activeMenuSection === "accounts" || activeMenuSection === "fees"));
 
   useEffect(() => {
@@ -3022,10 +3020,6 @@ function MenuModule({
             <button
               key={section.id}
               onClick={() => {
-                if (section.id === "financial") {
-                  onOpenFinancialReport();
-                  return;
-                }
                 setActiveMenuSection(section.id);
               }}
               className={`min-w-0 rounded border p-4 text-left shadow-sm transition ${
@@ -3125,6 +3119,23 @@ function MenuModule({
             ))}
           </div>
         </FormPanel>
+      )}
+
+      {activeMenuSection === "financial" && (
+        <div className="grid min-w-0 gap-4">
+          <div className="mb-1 flex min-w-0 items-center gap-2">
+            <button
+              onClick={() => setActiveMenuSection(null)}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded bg-white text-slate-600 transition hover:bg-slate-50 hover:text-ink"
+              aria-label="Retour au menu"
+              title="Retour au menu"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <h1 className="break-words text-2xl font-bold text-ink">Rapport financier</h1>
+          </div>
+          <ReportsModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} />
+        </div>
       )}
       </div>
       )}
