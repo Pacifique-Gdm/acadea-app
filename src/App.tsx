@@ -365,7 +365,7 @@ export default function App() {
         messages={yearData.messages}
         unreadNotifications={unreadNotifications}
         notificationsOpen={notificationsOpen}
-        onRefresh={refreshData}
+        onRefresh={() => window.location.reload()}
         onToggleNotifications={openNotifications}
         onLogout={logout}
       />
@@ -724,13 +724,18 @@ function Header({
               <LogOut className="h-4 w-4" /> Sortir
             </button>
             {notificationsOpen && (
-              <div className="absolute right-0 top-full z-30 mt-2 w-full min-w-72 rounded border border-slate-200 bg-white p-3 text-sm shadow-xl sm:w-80">
+              <div className="fixed inset-x-3 bottom-24 top-24 z-30 rounded border border-slate-200 bg-white p-4 text-sm shadow-xl sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:w-96 sm:max-w-[calc(100vw-2rem)]">
                 <p className="mb-2 font-bold text-ink">Boîte à Messagerie</p>
-                <div className="max-h-80 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+                <div className="max-h-full space-y-2 overflow-y-auto pr-1 scrollbar-thin sm:max-h-80">
                   {messages.length === 0 && <p className="text-slate-500">Aucun message.</p>}
                   {messages.map((message) => (
                     <article key={message.id} className="rounded bg-slate-50 p-3">
-                      <p className="font-semibold text-ink">{message.subject}</p>
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="font-semibold text-ink">{message.subject}</p>
+                        <span className="shrink-0 rounded bg-white px-2 py-1 text-[10px] font-semibold uppercase text-slate-500">
+                          {message.senderId === user.id ? "Envoye" : "Recu"}
+                        </span>
+                      </div>
                       <p className="mt-1 break-words text-xs text-slate-500">{message.body}</p>
                       <p className="mt-2 text-[11px] text-slate-400">{new Date(message.createdAt).toLocaleString("fr-FR")}</p>
                     </article>
