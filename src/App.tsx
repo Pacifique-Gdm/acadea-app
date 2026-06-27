@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   ArrowUpDown,
@@ -2893,6 +2893,7 @@ function MenuModule({
   const [feeName, setFeeName] = useState<FeeKind>("Minerval");
   const [feeAmount, setFeeAmount] = useState("100");
   const [activeMenuSection, setActiveMenuSection] = useState<MenuSection | null>(null);
+  const menuPanelRef = useRef<HTMLDivElement | null>(null);
   const canAdmin = user.role === "school_admin";
   const menuSections = [
     { id: "school", title: "Paramètres école", description: "Logo, coordonnées et informations de l'établissement.", icon: Settings },
@@ -2901,6 +2902,31 @@ function MenuModule({
     { id: "fees", title: "Types de frais", description: "Montants et catégories de frais scolaires.", icon: Banknote },
     { id: "financial", title: "Rapport financier", description: "Synthèse et exports des rapports financiers.", icon: BarChart3 },
   ] satisfies { id: MenuSection; title: string; description: string; icon: typeof Settings }[];
+  const menuPanelOpen =
+    activeMenuSection === "school" ||
+    activeMenuSection === "years" ||
+    (canAdmin && (activeMenuSection === "accounts" || activeMenuSection === "fees"));
+
+  useEffect(() => {
+    if (!menuPanelOpen) return;
+
+    function closeOnOutsideClick(event: MouseEvent) {
+      if (menuPanelRef.current && !menuPanelRef.current.contains(event.target as Node)) {
+        setActiveMenuSection(null);
+      }
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setActiveMenuSection(null);
+    }
+
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [menuPanelOpen]);
 
   function saveSchool() {
     updateData({ schools: data.schools.map((item) => (item.id === school.id ? schoolForm : item)) });
@@ -2965,8 +2991,8 @@ function MenuModule({
   }
 
   return (
-    <section className="grid min-w-0 gap-4 xl:grid-cols-2">
-      <div className="grid min-w-0 gap-3 xl:col-span-2 sm:grid-cols-2 lg:grid-cols-3">
+    <section className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+      <div className="grid min-w-0 content-start gap-3">
         {menuSections.map((section) => {
           const Icon = section.icon;
           const active = activeMenuSection === section.id;
@@ -2984,16 +3010,25 @@ function MenuModule({
                 active ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white hover:border-mint"
               }`}
             >
-              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded bg-slate-100 text-ink">
-                <Icon className="h-5 w-5" />
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink">
+                  <Icon className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="break-words font-bold text-ink">{section.title}</h2>
+                  <p className="mt-1 break-words text-sm text-slate-500">{section.description}</p>
+                </div>
               </div>
-              <h2 className="break-words font-bold text-ink">{section.title}</h2>
-              <p className="mt-1 break-words text-sm text-slate-500">{section.description}</p>
             </button>
           );
         })}
       </div>
 
+      {menuPanelOpen && (
+      <div
+        ref={menuPanelRef}
+        className="fixed inset-x-3 bottom-24 top-24 z-30 min-w-0 animate-[menuDrawerIn_180ms_ease-out] overflow-y-auto rounded border border-slate-200 bg-white p-3 shadow-2xl scrollbar-thin lg:static lg:inset-auto lg:z-auto lg:animate-[menuPanelIn_180ms_ease-out] lg:overflow-visible lg:bg-transparent lg:p-0 lg:shadow-none"
+      >
       {activeMenuSection === "school" && (
       <FormPanel title="Paramètres école">
         <Field label="Logo URL" value={schoolForm.logoUrl ?? ""} onChange={(value) => setSchoolForm({ ...schoolForm, logoUrl: value })} disabled={!canAdmin} />
@@ -3068,6 +3103,8 @@ function MenuModule({
             ))}
           </div>
         </FormPanel>
+      )}
+      </div>
       )}
     </section>
   );
