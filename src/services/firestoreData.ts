@@ -46,7 +46,11 @@ export async function persistFirestorePatch(patch: Partial<AppData>) {
       .map(async ([key, items]) => {
         const collectionName = collectionMap[key];
         await Promise.all(
-          (items as PersistableItem[]).map((item) => setDoc(doc(db, collectionName, item.id), item)),
+          (items as PersistableItem[]).map((item) =>
+            setDoc(doc(db, collectionName, item.id), item).catch((error) => {
+              console.warn(`Document Firestore ignoré (${collectionName}/${item.id}).`, error);
+            }),
+          ),
         );
       }),
   );

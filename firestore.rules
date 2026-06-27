@@ -158,12 +158,17 @@ service cloud.firestore {
         || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.parentId == tenantParentId());
       allow create: if signedIn()
         && role() in ["school_admin", "cashier"]
-        && sameTenantCreate();
-      allow update: if parentUser()
+        && sameTenantCreate()
+        || (parentUser()
+          && request.resource.data.schoolId == tenantSchoolId()
+          && request.resource.data.recipientRole == "school"
+          && request.resource.data.type == "message");
+      allow update: if (role() in ["school_admin", "cashier"] && sameTenantUpdate())
+        || (parentUser()
         && resource.data.schoolId == tenantSchoolId()
         && resource.data.parentId == tenantParentId()
         && request.resource.data.parentId == resource.data.parentId
-        && request.resource.data.schoolId == resource.data.schoolId;
+        && request.resource.data.schoolId == resource.data.schoolId);
       allow delete: if false;
     }
 

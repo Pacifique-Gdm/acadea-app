@@ -159,6 +159,7 @@ export interface AppNotification {
   id: string;
   schoolId: string;
   schoolYearId: string;
+  recipientRole?: "parent" | "school";
   parentId?: string;
   studentId?: string;
   messageId?: string;

@@ -293,9 +293,12 @@ export default function App() {
   const unreadNotifications = yearData.notifications.filter((notification) => !notification.read).length;
 
   function markNotificationsRead(notificationId?: string) {
+    const visibleNotificationIds = new Set(yearData.notifications.map((notification) => notification.id));
     updateData({
       notifications: data.notifications.map((notification) =>
-        notification.schoolId === currentSchool.id && notification.schoolYearId === currentYear.id && (!notificationId || notification.id === notificationId)
+        notification.schoolId === currentSchool.id &&
+        notification.schoolYearId === currentYear.id &&
+        (notificationId ? notification.id === notificationId : visibleNotificationIds.has(notification.id))
           ? { ...notification, read: true }
           : notification,
       ),
@@ -432,10 +435,14 @@ function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: 
             (notification) =>
               notification.schoolId === schoolId &&
               notification.schoolYearId === schoolYearId &&
-              notification.parentId === user.parentId &&
-              notification.type !== "message",
+              notification.parentId === user.parentId,
           )
-        : data.notifications.filter((notification) => notification.schoolId === schoolId && notification.schoolYearId === schoolYearId),
+        : data.notifications.filter(
+            (notification) =>
+              notification.schoolId === schoolId &&
+              notification.schoolYearId === schoolYearId &&
+              (!notification.parentId || notification.recipientRole === "school"),
+          ),
   };
 }
 
@@ -1725,7 +1732,7 @@ function ParentPortal({
       id: uid("notif"),
       schoolId: school.id,
       schoolYearId: year.id,
-      parentId: user.parentId,
+      recipientRole: "school",
       messageId: message.id,
       type: "message",
       title: "Nouveau message parent",
@@ -2722,6 +2729,7 @@ function MessagesModule({
 
   function sendMessage() {
     const threadParentId = recipientParentId !== "all" ? recipientParentId : undefined;
+    const createdAt = new Date().toISOString();
     const message: Message = {
       id: uid("msg"),
       schoolId: school.id,
@@ -2731,9 +2739,23 @@ function MessagesModule({
       threadParentId,
       subject,
       body,
-      createdAt: new Date().toISOString(),
+      createdAt,
     };
-    updateData({ messages: [message, ...data.messages] });
+    const recipientParents = recipientParentId === "all" ? yearData.parents : yearData.parents.filter((parent) => parent.id === recipientParentId);
+    const notifications: AppNotification[] = recipientParents.map((parent) => ({
+      id: uid("notif"),
+      schoolId: school.id,
+      schoolYearId: year.id,
+      recipientRole: "parent",
+      parentId: parent.id,
+      messageId: message.id,
+      type: "message",
+      title: "Nouveau message de l'école",
+      body: `${school.name}: ${subject}`,
+      createdAt,
+      read: false,
+    }));
+    updateData({ messages: [message, ...data.messages], notifications: [...notifications, ...data.notifications] });
     setSubject("");
     setBody("");
   }
