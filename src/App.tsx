@@ -735,20 +735,30 @@ function Header({
               <LogOut className="h-4 w-4" /> Sortir
             </button>
             {notificationsOpen && (
-              <div className="fixed inset-x-3 bottom-24 top-24 z-30 rounded border border-slate-200 bg-white p-4 text-sm shadow-xl sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:w-96 sm:max-w-[calc(100vw-2rem)]">
-                <p className="mb-2 font-bold text-ink">Boîte à Messagerie</p>
-                <div className="max-h-full space-y-2 overflow-y-auto pr-1 scrollbar-thin sm:max-h-80">
-                  {messages.length === 0 && <p className="text-slate-500">Aucun message.</p>}
+              <div className="fixed inset-x-3 bottom-24 top-24 z-30 rounded border border-slate-200 bg-white p-4 text-sm shadow-xl sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[420px] sm:max-w-[calc(100vw-2rem)]">
+                <div className="mb-3 flex items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                  <div className="min-w-0">
+                    <p className="font-bold text-ink">Boîte à Messagerie</p>
+                    <p className="text-xs text-slate-500">Conversations envoyées et reçues</p>
+                  </div>
+                  <button onClick={onToggleNotifications} className="rounded bg-slate-100 p-2 text-slate-600 transition hover:bg-slate-200" aria-label="Fermer la boîte à messagerie" title="Fermer">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="max-h-full space-y-2 overflow-y-auto pr-1 scrollbar-thin sm:max-h-96">
+                  {messages.length === 0 && <p className="rounded bg-slate-50 p-3 text-slate-500">Aucun message.</p>}
                   {messages.map((message) => (
-                    <article key={message.id} className="rounded bg-slate-50 p-3">
+                    <article key={message.id} className="rounded border border-slate-100 bg-slate-50 p-3">
                       <div className="flex items-start justify-between gap-3">
-                        <p className="font-semibold text-ink">{message.subject}</p>
-                        <span className="shrink-0 rounded bg-white px-2 py-1 text-[10px] font-semibold uppercase text-slate-500">
-                          {message.senderId === user.id ? "Envoye" : "Recu"}
+                        <div className="min-w-0">
+                          <p className="break-words font-semibold text-ink">{message.subject}</p>
+                          <p className="mt-1 text-[11px] text-slate-400">{new Date(message.createdAt).toLocaleString("fr-FR")}</p>
+                        </div>
+                        <span className={`shrink-0 rounded px-2 py-1 text-[10px] font-semibold uppercase ${message.senderId === user.id ? "bg-blue-50 text-blue-700" : "bg-mint/10 text-mint"}`}>
+                          {message.senderId === user.id ? "Envoyé" : "Reçu"}
                         </span>
                       </div>
-                      <p className="mt-1 break-words text-xs text-slate-500">{message.body}</p>
-                      <p className="mt-2 text-[11px] text-slate-400">{new Date(message.createdAt).toLocaleString("fr-FR")}</p>
+                      <p className="mt-3 break-words text-sm leading-6 text-slate-700">{message.body}</p>
                     </article>
                   ))}
                 </div>
@@ -2789,9 +2799,22 @@ function MessagesModule({
   updateData: (next: Partial<AppData>) => void;
 }) {
   const [recipientParentId, setRecipientParentId] = useState<string>("all");
+  const [recipientSearch, setRecipientSearch] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const canSend = user.role !== "parent";
+  const recipientCandidates = yearData.parents.reduce<{ parent: ParentProfile; student?: Student }[]>((items, parent) => {
+      const children = yearData.students.filter((student) => student.parentId === parent.id);
+      if (children.length === 0) return [...items, { parent }];
+      return [...items, ...children.map((student) => ({ parent, student }))];
+    }, []);
+  const recipientResults = recipientCandidates.filter(({ parent, student }) => {
+      const search = recipientSearch.trim().toLowerCase();
+      if (!search) return true;
+      const studentText = student ? `${student.nom} ${student.postnom} ${student.prenom} ${student.matricule}` : "";
+      return `${parent.fullName} ${studentText}`.toLowerCase().includes(search);
+    });
+  const selectedParent = yearData.parents.find((parent) => parent.id === recipientParentId);
 
   function sendMessage() {
     const threadParentId = recipientParentId !== "all" ? recipientParentId : undefined;
@@ -2827,15 +2850,47 @@ function MessagesModule({
   }
 
   return (
-    <section className="grid min-w-0 gap-4 lg:grid-cols-[380px_minmax(0,1fr)]">
+    <section className="grid min-w-0 gap-4">
       {canSend && (
         <FormPanel title="Envoyer un message">
-          <select value={recipientParentId} onChange={(event) => setRecipientParentId(event.target.value)} className="input">
-            <option value="all">Tous les parents</option>
-            {yearData.parents.map((parent) => (
-              <option key={parent.id} value={parent.id}>{parent.fullName}</option>
-            ))}
-          </select>
+          <div className="grid min-w-0 gap-2">
+            <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
+              <Search className="h-4 w-4 shrink-0 text-slate-400" />
+              <input
+                value={recipientSearch}
+                onChange={(event) => setRecipientSearch(event.target.value)}
+                className="min-w-0 flex-1 outline-none"
+                placeholder="Rechercher parent, enfant ou matricule"
+              />
+            </label>
+            <div className="max-h-60 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+              <button
+                onClick={() => setRecipientParentId("all")}
+                type="button"
+                className={`w-full rounded border p-3 text-left text-sm transition ${recipientParentId === "all" ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50 hover:border-slate-200"}`}
+              >
+                <p className="font-semibold text-ink">Tous les parents</p>
+                <p className="text-xs text-slate-500">Envoyer à tous les parents</p>
+              </button>
+              {recipientResults.map(({ parent, student }) => (
+                <button
+                  key={`${parent.id}-${student?.id ?? "none"}`}
+                  onClick={() => setRecipientParentId(parent.id)}
+                  type="button"
+                  className={`w-full rounded border p-3 text-left text-sm transition ${recipientParentId === parent.id ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50 hover:border-slate-200"}`}
+                >
+                  <p className="font-semibold text-ink">{parent.fullName}</p>
+                  <p className="text-xs text-slate-500">
+                    {student ? `${student.nom} ${student.prenom} | ${student.matricule}` : "Aucun enfant associé"}
+                  </p>
+                </button>
+              ))}
+              {recipientResults.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun parent trouvé.</p>}
+            </div>
+            {recipientParentId !== "all" && selectedParent && (
+              <p className="rounded bg-blue-50 p-3 text-sm font-semibold text-blue-700">Destinataire : {selectedParent.fullName}</p>
+            )}
+          </div>
           <input value={subject} onChange={(event) => setSubject(event.target.value)} className="input" placeholder="Objet" />
           <textarea value={body} onChange={(event) => setBody(event.target.value)} className="input min-h-32" placeholder="Message" />
           <button onClick={sendMessage} disabled={!subject || !body} className="primary-button disabled:opacity-50">
@@ -2843,42 +2898,6 @@ function MessagesModule({
           </button>
         </FormPanel>
       )}
-      <div className="min-w-0">
-        <SectionTitle title="Messages" subtitle={user.role === "parent" ? "Messages reçus par le parent connecté." : "Historique des messages envoyés."} />
-        <div className="min-w-0 space-y-3">
-          {yearData.messages.map((message) => {
-            const recipient =
-              message.recipientParentId === "all"
-                ? "Tous les parents"
-                : message.recipientParentId === "school"
-                  ? "École"
-                  : yearData.parents.find((parent) => parent.id === message.recipientParentId)?.fullName;
-            const threadParent = message.threadParentId ? yearData.parents.find((parent) => parent.id === message.threadParentId) : undefined;
-            return (
-              <article key={message.id} className="min-w-0 rounded border border-slate-200 bg-white p-4">
-                <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
-                    <h3 className="break-words font-bold text-ink">{message.subject}</h3>
-                    <p className="break-words text-xs text-slate-500">{recipient}{threadParent ? ` | ${threadParent.fullName}` : ""} | {new Date(message.createdAt).toLocaleString("fr-FR")}</p>
-                  </div>
-                  {message.recipientParentId === "school" && threadParent && (
-                    <button
-                      onClick={() => {
-                        setRecipientParentId(threadParent.id);
-                        setSubject(`Re: ${message.subject}`);
-                      }}
-                      className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700"
-                    >
-                      Répondre
-                    </button>
-                  )}
-                </div>
-                <p className="mt-3 break-words text-sm leading-6 text-slate-700">{message.body}</p>
-              </article>
-            );
-          })}
-        </div>
-      </div>
     </section>
   );
 }
