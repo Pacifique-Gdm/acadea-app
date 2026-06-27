@@ -2,30 +2,43 @@
 
 Application web responsive de gestion d'établissements scolaires, construite avec React, TypeScript, Firebase, Tailwind CSS et génération PDF.
 
-## Démarrage
+## Démarrage local
 
 ```bash
 npm install
 npm run dev
 ```
 
-Build de production:
+Build:
 
 ```bash
 npm run build
 ```
 
-Vérification qualité:
+Qualité:
 
 ```bash
 npm run lint
 ```
+
+## Environnements
+
+Acadéa distingue maintenant:
+
+- Development: `.env` local basé sur `.env.example`.
+- Preview / Staging: Vercel Preview Deployment + Firebase staging.
+- Production: Vercel Production Deployment depuis `main` + Firebase production.
+
+Documentation complète: [docs/staging-vercel.md](docs/staging-vercel.md).
 
 ## Configuration Firebase
 
 Copier `.env.example` vers `.env` puis renseigner les valeurs Firebase:
 
 ```bash
+VITE_APP_ENV=development
+VITE_STAGING_BANNER=false
+VITE_STAGING_LABEL=ENVIRONNEMENT DE TEST
 VITE_FIREBASE_API_KEY=
 VITE_FIREBASE_AUTH_DOMAIN=
 VITE_FIREBASE_PROJECT_ID=
@@ -36,14 +49,22 @@ VITE_FIREBASE_APP_ID=
 
 Le projet contient:
 
-- `firebase.json` pour Firebase Hosting et Firestore
-- `firestore.rules` pour l'isolation par école et année scolaire
-- `scripts/seedDemo.ts` pour importer les données de démonstration
+- `firebase.json` pour Firebase Hosting et Firestore.
+- `firestore.rules` pour l'isolation par école et année scolaire.
+- `scripts/seedDemo.ts` pour importer les données de démonstration.
+- `scripts/resetStaging.ts` pour réinitialiser uniquement une base de test protégée.
 
 Importer les données de démonstration:
 
 ```bash
 npm run seed
+```
+
+Réinitialiser staging:
+
+```powershell
+$env:ACADEA_ALLOW_STAGING_RESET="true"
+npm run reset:staging
 ```
 
 ## Profils de démonstration
@@ -58,7 +79,9 @@ npm run seed
 - Connexion et sélection de l'année scolaire
 - Dashboard
 - Élèves
+- Parents
 - Contrôle des frais scolaires
+- Rapports
 - Messages
 - Menu: paramètres école, années scolaires, parents, types de frais
 - Reçus PDF

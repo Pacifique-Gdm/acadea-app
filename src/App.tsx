@@ -1,44 +1,62 @@
 ﻿import { useState } from "react";
+import type { ReactNode } from "react";
 import {
+  ArrowUpDown,
   Banknote,
   BarChart3,
+  Bell,
   BookOpen,
+  Building2,
   CheckCircle2,
+  Clock3,
   Download,
   Edit3,
+  Eye,
+  EyeOff,
+  Filter,
   GraduationCap,
   LayoutDashboard,
+  Lock,
   LogOut,
+  Mail,
   Menu as MenuIcon,
   MessageSquare,
+  MoreHorizontal,
   Plus,
   Search,
+  Send,
   Settings,
   ShieldCheck,
   Trash2,
+  Upload,
+  X,
   UserRound,
   UsersRound,
 } from "lucide-react";
 import { demoData } from "./data/demoData";
 import { firebaseReady } from "./firebase";
-import { getDefaultRoute, signIn, signOutUser, validatePlatformAdmin, validateSchoolAdmin } from "./services/auth";
+import { createFirebaseAuthUser, getDefaultRoute, signIn, signOutUser, validateParent, validatePlatformAdmin, validateSchoolStaff } from "./services/auth";
 import { generateReceiptPdf } from "./utils/pdf";
 import { buildStats, getStudentBalance } from "./utils/stats";
 import type {
   AppData,
+  AppNotification,
   AppUser,
+  AuditLog,
+  Expense,
   FeeKind,
   Message,
   ParentProfile,
   Payment,
   School,
   SchoolClass,
+  SchoolSection,
   SchoolYear,
   Student,
 } from "./types";
 import { CLASSES, FEE_KINDS } from "./types";
 
-type Tab = "dashboard" | "students" | "control" | "messages" | "menu";
+type Tab = "dashboard" | "students" | "parents" | "control" | "reports" | "messages" | "menu";
 type PaymentFilter = "all" | "paid" | "due";
 
 const roleLabels: Record<AppUser["role"], string> = {
@@ -48,8 +66,25 @@ const roleLabels: Record<AppUser["role"], string> = {
   parent: "Parent",
 };
 
+const appEnvironment = import.meta.env.VITE_APP_ENV ?? "development";
+const showStagingBanner = import.meta.env.VITE_STAGING_BANNER === "true" || appEnvironment === "staging" || appEnvironment === "preview";
+const stagingLabel = import.meta.env.VITE_STAGING_LABEL ?? "ENVIRONNEMENT DE TEST";
+
 function uid(prefix: string) {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
+}
+
+function EnvironmentBanner() {
+  if (!showStagingBanner) return null;
+
+  return (
+    <>
+      <div className="fixed inset-x-0 top-0 z-[70] bg-amber-500 px-3 py-2 text-center text-xs font-extrabold uppercase tracking-wide text-ink shadow-sm sm:text-sm">
+        {stagingLabel}
+      </div>
+      <div className="h-9 sm:h-10" />
+    </>
+  );
 }
 
 export default function App() {
@@ -86,8 +121,8 @@ export default function App() {
     }
 
     if (nextRoute === "/dashboard") {
-      if (!validateSchoolAdmin(nextUser)) {
-        throw new Error("Seuls les administrateurs d'école peuvent accéder au dashboard école.");
+      if (!validateSchoolStaff(nextUser) && !validateParent(nextUser)) {
+        throw new Error("Votre compte ne peut pas accéder à cet espace.");
       }
 
       const nextSchool = data.schools.find((item) => item.id === nextUser.schoolId);
@@ -131,7 +166,7 @@ export default function App() {
     return <PlatformModule user={user} data={data} updateData={updateData} onLogout={logout} />;
   }
 
-  if (!validateSchoolAdmin(user) || !school) {
+  if ((!validateSchoolStaff(user) && !validateParent(user)) || !school) {
     return <AccessDenied onLogout={logout} />;
   }
 
@@ -150,15 +185,18 @@ export default function App() {
 
   const yearData = scopeData(data, school.id, selectedYear.id, user);
 
+  if (validateParent(user)) {
+    return <ParentPortal user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} onLogout={logout} />;
+  }
+
   return (
-    <div className="min-h-screen bg-[#f6f8fb]">
+    <div className="min-h-screen overflow-x-hidden bg-[#f6f8fb] pb-24 sm:pb-28">
+      <EnvironmentBanner />
       <Header
         user={user}
         school={school}
         year={selectedYear}
         years={schoolYears}
-        activeTab={activeTab}
-        onTab={setActiveTab}
         onYearChange={enterSchoolYear}
         onLogout={logout}
       />
@@ -168,8 +206,14 @@ export default function App() {
         {activeTab === "students" && (
           <StudentsModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} />
         )}
+        {activeTab === "parents" && (
+          <ParentsModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} />
+        )}
         {activeTab === "control" && (
           <ControlModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} />
+        )}
+        {activeTab === "reports" && (
+          <ReportsModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} />
         )}
         {activeTab === "messages" && (
           <MessagesModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} />
@@ -186,6 +230,7 @@ export default function App() {
           />
         )}
       </main>
+      <BottomNavigation user={user} activeTab={activeTab} onTab={setActiveTab} />
     </div>
   );
 }
@@ -193,7 +238,7 @@ export default function App() {
 function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: AppUser) {
   const students =
     user.role === "parent"
-      ? data.students.filter((student) => user.studentIds?.includes(student.id) && student.schoolYearId === schoolYearId)
+      ? data.students.filter((student) => student.parentId === user.parentId && student.schoolId === schoolId && student.schoolYearId === schoolYearId)
       : data.students.filter((student) => student.schoolId === schoolId && student.schoolYearId === schoolYearId);
   const studentIds = students.map((student) => student.id);
 
@@ -203,14 +248,21 @@ function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: 
       user.role === "parent"
         ? data.parents.filter((parent) => parent.id === user.parentId && parent.schoolYearId === schoolYearId)
         : data.parents.filter((parent) => parent.schoolId === schoolId && parent.schoolYearId === schoolYearId),
+    users: data.users.filter((item) => item.schoolId === schoolId),
     feeTypes: data.feeTypes.filter((fee) => fee.schoolId === schoolId && fee.schoolYearId === schoolYearId),
     payments: data.payments.filter((payment) => payment.schoolId === schoolId && payment.schoolYearId === schoolYearId && studentIds.includes(payment.studentId)),
+    expenses: data.expenses.filter((expense) => expense.schoolId === schoolId && expense.schoolYearId === schoolYearId),
+    auditLogs: data.auditLogs.filter((log) => log.schoolId === schoolId && log.schoolYearId === schoolYearId),
     messages: data.messages.filter((message) => {
       const sameScope = message.schoolId === schoolId && message.schoolYearId === schoolYearId;
       if (!sameScope) return false;
       if (user.role !== "parent") return true;
-      return message.recipientParentId === "all" || message.recipientParentId === user.parentId;
+      return message.threadParentId === user.parentId || message.recipientParentId === user.parentId || message.recipientParentId === "all";
     }),
+    notifications:
+      user.role === "parent"
+        ? data.notifications.filter((notification) => notification.schoolId === schoolId && notification.schoolYearId === schoolYearId && notification.parentId === user.parentId)
+        : data.notifications.filter((notification) => notification.schoolId === schoolId && notification.schoolYearId === schoolYearId),
   };
 }
 
@@ -219,6 +271,9 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
   const [password, setPassword] = useState("ecole123");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [logoPreview, setLogoPreview] = useState("");
+  const isSuperAdmin = email.trim().toLowerCase() === "admin@acadea.demo";
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -235,45 +290,106 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#edf4f2] p-4">
-      <section className="grid w-full max-w-5xl overflow-hidden rounded-lg bg-white shadow-xl lg:grid-cols-[1fr_1.1fr]">
-        <div className="bg-ink p-8 text-white sm:p-10">
-          <div className="mb-10 flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded bg-mint font-bold">A</div>
-            <div>
-              <h1 className="text-3xl font-bold tracking-normal">Acadéa</h1>
-              <p className="text-sm text-white/75">Gestion scolaire sécurisée par école</p>
-            </div>
+    <main className="flex min-h-screen flex-col items-center justify-center overflow-x-hidden bg-[#F5F7FB] px-4 py-8 sm:px-6">
+      <EnvironmentBanner />
+      <style>{`
+        @keyframes loginCardIn {
+          from { opacity: 0; transform: translateY(18px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
+      <section className="w-full max-w-[460px] rounded-[24px] border border-white/80 bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.10)] [animation:loginCardIn_520ms_ease-out] sm:p-8">
+        <div className="text-center">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center overflow-hidden rounded-[22px] bg-ink text-2xl font-bold text-white shadow-[0_14px_30px_rgba(20,33,61,0.22)]">
+            {logoPreview ? <img src={logoPreview} alt="Logo Acadéa" className="h-full w-full object-cover" /> : "A"}
           </div>
-          <div className="space-y-5">
-            <p className="text-2xl font-semibold">Connexion</p>
-            <p className="max-w-sm text-sm leading-6 text-white/75">
-              Authentification obligatoire par email et mot de passe avant tout accès école ou plateforme.
-            </p>
-            <div className="rounded border border-white/15 bg-white/10 p-3 text-xs text-white/70">
-              Firebase SDK: {firebaseReady ? "configuré" : "mode démonstration local"}
-            </div>
-          </div>
-        </div>
-        <div className="p-6 sm:p-8">
-          <div className="mb-5">
-            <p className="text-sm font-semibold uppercase text-mint">Accès sécurisé</p>
-            <h2 className="text-2xl font-bold text-ink">Se connecter</h2>
-          </div>
-          <form onSubmit={submit} className="grid gap-4">
-            <Field label="Email" value={email} onChange={setEmail} type="email" />
-            <Field label="Mot de passe" value={password} onChange={setPassword} type="password" />
-            {error && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-700">{error}</p>}
-            <button disabled={loading} className="primary-button disabled:opacity-60">
-              <ShieldCheck className="h-4 w-4" /> {loading ? "Connexion..." : "Se connecter"}
-            </button>
-          </form>
-          {!firebaseReady && (
-            <div className="mt-5 rounded border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
-              Démo: direction@acadea.demo / ecole123 pour l'école, admin@acadea.demo / admin123 pour la plateforme.
+          <h1 className="mt-4 text-3xl font-bold tracking-normal text-ink">Acadéa</h1>
+          <p className="mt-2 text-sm font-medium text-slate-500">Gestion scolaire sécurisée par école</p>
+          {isSuperAdmin && (
+            <div className="mt-4">
+              <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-ink/20 hover:bg-slate-50">
+                <Upload className="h-4 w-4" />
+                Changer le logo
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) setLogoPreview(URL.createObjectURL(file));
+                  }}
+                />
+              </label>
             </div>
           )}
         </div>
+
+        <div className="mt-8 text-center">
+          <h2 className="text-2xl font-bold text-ink">Connexion</h2>
+          <p className="mt-2 text-sm text-slate-500">Entrez vos identifiants pour continuer</p>
+        </div>
+
+        <form onSubmit={submit} className="mt-7 grid gap-4">
+          <label className="group grid gap-2 text-sm font-semibold text-slate-700">
+            Email
+            <span className="flex h-14 items-center gap-3 rounded-2xl border border-slate-200 bg-[#F8FAFC] px-4 transition duration-200 group-focus-within:border-blue-500 group-focus-within:bg-white group-focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
+              <Mail className="h-5 w-5 shrink-0 text-slate-400 transition group-focus-within:text-blue-600" />
+              <input
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                type="email"
+                className="min-w-0 flex-1 bg-transparent text-base text-ink outline-none placeholder:text-slate-400"
+                placeholder="email@ecole.com"
+              />
+            </span>
+          </label>
+
+          <label className="group grid gap-2 text-sm font-semibold text-slate-700">
+            Mot de passe
+            <span className="flex h-14 items-center gap-3 rounded-2xl border border-slate-200 bg-[#F8FAFC] px-4 transition duration-200 group-focus-within:border-blue-500 group-focus-within:bg-white group-focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
+              <Lock className="h-5 w-5 shrink-0 text-slate-400 transition group-focus-within:text-blue-600" />
+              <input
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                type={showPassword ? "text" : "password"}
+                className="min-w-0 flex-1 bg-transparent text-base text-ink outline-none placeholder:text-slate-400"
+                placeholder="Votre mot de passe"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="rounded-full p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-ink"
+                aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+              >
+                {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+              </button>
+            </span>
+          </label>
+
+          {error && <p className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-700">{error}</p>}
+
+          <button
+            disabled={loading}
+            className="mt-1 flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-ink font-semibold text-white shadow-[0_16px_34px_rgba(20,33,61,0.22)] transition duration-200 hover:bg-[#0f1a30] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {loading ? "Connexion..." : "Se connecter"}
+          </button>
+        </form>
+
+        <div className="mt-5 flex items-center justify-center gap-2 text-sm font-medium text-slate-500">
+          <ShieldCheck className="h-4 w-4 text-mint" />
+          Espace sécurisé
+        </div>
+
+        <div className="mt-6 rounded-2xl border border-slate-200 bg-[#F8FAFC] p-3 text-center text-xs leading-5 text-slate-500">
+          Firebase SDK : {firebaseReady ? "configuré" : "mode démonstration local"}
+        </div>
+
+        {!firebaseReady && (
+          <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3 text-center text-xs leading-5 text-slate-500">
+            Démo: direction@acadea.demo / ecole123 pour l'école, admin@acadea.demo / admin123 pour la plateforme.
+          </div>
+        )}
       </section>
     </main>
   );
@@ -298,6 +414,7 @@ function YearScreen({
 
   return (
     <main className="min-h-screen bg-[#f6f8fb] p-4">
+      <EnvironmentBanner />
       <section className="mx-auto max-w-4xl py-8">
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -350,8 +467,6 @@ function Header({
   school,
   year,
   years,
-  activeTab,
-  onTab,
   onYearChange,
   onLogout,
 }: {
@@ -359,19 +474,9 @@ function Header({
   school: School;
   year: SchoolYear;
   years: SchoolYear[];
-  activeTab: Tab;
-  onTab: (tab: Tab) => void;
   onYearChange: (id: string) => void;
   onLogout: () => void;
 }) {
-  const tabs = [
-    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { id: "students", label: "Élèves", icon: GraduationCap },
-    { id: "control", label: "Contrôle", icon: Banknote },
-    { id: "messages", label: "Messages", icon: MessageSquare },
-    { id: "menu", label: "Menu", icon: MenuIcon },
-  ] as const;
-
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-white">
       <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6 lg:px-8">
@@ -394,36 +499,76 @@ function Header({
             </button>
           </div>
         </div>
-        <nav className="grid grid-cols-5 gap-2 overflow-x-auto md:flex md:flex-nowrap">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => onTab(tab.id)}
-                className={`inline-flex min-w-0 items-center justify-center gap-2 rounded px-2 py-2 text-sm font-semibold transition sm:px-4 ${
-                  activeTab === tab.id ? "bg-ink text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                }`}
-              >
-                <Icon className="h-4 w-4 shrink-0" />
-                <span className="truncate">{tab.label}</span>
-              </button>
-            );
-          })}
-        </nav>
       </div>
     </header>
   );
 }
 
+function BottomNavigation({ user, activeTab, onTab }: { user: AppUser; activeTab: Tab; onTab: (tab: Tab) => void }) {
+  const tabs = [
+    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { id: "students", label: "Élèves", icon: GraduationCap },
+    { id: "control", label: "Contrôle", icon: Banknote },
+    { id: "messages", label: "Message", icon: MessageSquare },
+    { id: "menu", label: "Menu", icon: MenuIcon },
+  ].filter((tab) => (user.role === "cashier" ? ["dashboard", "control", "messages"].includes(tab.id) : true)) as { id: Tab; label: string; icon: typeof BookOpen }[];
+
+  return (
+    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur">
+      <div className="mx-auto grid max-w-3xl grid-cols-5 gap-1">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const active = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => onTab(tab.id)}
+              className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-2xl px-1 py-2 text-[11px] font-semibold transition sm:text-xs ${
+                active ? "bg-blue-50 text-blue-700" : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+              }`}
+              aria-current={active ? "page" : undefined}
+            >
+              <Icon className={`h-5 w-5 shrink-0 ${active ? "text-blue-700" : "text-slate-400"}`} />
+              <span className="max-w-full truncate">{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
 function Dashboard({ data }: { data: ReturnType<typeof scopeData> }) {
   const stats = buildStats(data.students, data.parents, data.feeTypes, data.payments);
+  const today = new Date().toISOString().slice(0, 10);
+  const todayPayments = data.payments.filter((payment) => payment.paidAt === today);
+  const todayExpenses = data.expenses.filter((expense) => expense.spentAt === today);
+  const totalTodayPayments = todayPayments.reduce((sum, payment) => sum + payment.amount, 0);
+  const totalTodayExpenses = todayExpenses.reduce((sum, expense) => sum + expense.amount, 0);
+  const recoveryRate = stats.expected > 0 ? Math.round((stats.paid / stats.expected) * 100) : 0;
+  const recoveryTone = recoveryRate >= 80 ? "text-mint bg-mint/10" : recoveryRate >= 50 ? "text-amber-700 bg-amber-100" : "text-red-700 bg-red-50";
+  const admins = data.users.filter((item) => item.role === "school_admin").length;
+  const cashiers = data.users.filter((item) => item.role === "cashier").length;
+  const classRows = CLASSES.map((className) => {
+    const students = data.students.filter((student) => student.className === className && (student.status ?? "ACTIVE") === "ACTIVE");
+    return {
+      className,
+      girls: students.filter((student) => student.sexe === "F").length,
+      boys: students.filter((student) => student.sexe === "M").length,
+      total: students.length,
+    };
+  }).filter((row) => row.total > 0);
+  const transactions = [
+    ...data.payments.map((payment) => ({ id: payment.id, type: "Paiement", label: payment.cashierName, amount: payment.amount, date: payment.createdAt ?? payment.paidAt })),
+    ...data.expenses.map((expense) => ({ id: expense.id, type: "Dépense", label: expense.category, amount: -expense.amount, date: expense.createdAt })),
+  ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
   const cards = [
     { label: "Nombre total d'élèves", value: stats.students, icon: GraduationCap, tone: "bg-mint/10 text-mint" },
     { label: "Nombre total de parents", value: stats.parents, icon: UsersRound, tone: "bg-coral/10 text-coral" },
-    { label: "Garçons", value: stats.boys, icon: UserRound, tone: "bg-blue-100 text-blue-700" },
-    { label: "Filles", value: stats.girls, icon: UserRound, tone: "bg-pink-100 text-pink-700" },
+    { label: "Administrateurs", value: admins, icon: ShieldCheck, tone: "bg-blue-100 text-blue-700" },
+    { label: "Caissiers", value: cashiers, icon: UserRound, tone: "bg-pink-100 text-pink-700" },
     { label: "Montant total encaissé", value: `$${stats.paid.toFixed(2)}`, icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
+    { label: "Montant attendu", value: `$${stats.expected.toFixed(2)}`, icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
     { label: "Montant restant à payer", value: `$${stats.remaining.toFixed(2)}`, icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
     { label: "Nombre de classes", value: stats.classes, icon: BookOpen, tone: "bg-indigo-100 text-indigo-700" },
   ];
@@ -448,6 +593,70 @@ function Dashboard({ data }: { data: ReturnType<typeof scopeData> }) {
           );
         })}
       </div>
+      <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_380px]">
+        <section className="grid gap-4">
+          <div className="rounded border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="font-bold text-ink">KPI financier</h2>
+                <p className="text-sm text-slate-500">Recouvrement sur l'année scolaire sélectionnée.</p>
+              </div>
+              <span className={`rounded px-3 py-2 text-sm font-bold ${recoveryTone}`}>{recoveryRate}% recouvré</span>
+            </div>
+            <div className="mt-4 h-3 overflow-hidden rounded bg-slate-100">
+              <div className="h-full rounded bg-mint" style={{ width: `${Math.min(100, recoveryRate)}%` }} />
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-4">
+              <Metric label="Jour encaissé" value={`$${totalTodayPayments.toFixed(2)}`} />
+              <Metric label="Jour dépenses" value={`$${totalTodayExpenses.toFixed(2)}`} />
+              <Metric label="Attendu" value={`$${stats.expected.toFixed(2)}`} />
+              <Metric label="Reste" value={`$${stats.remaining.toFixed(2)}`} />
+            </div>
+          </div>
+
+          <div className="rounded border border-slate-200 bg-white p-4 shadow-sm">
+            <h2 className="font-bold text-ink">Élèves par classe</h2>
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full min-w-[520px] text-left text-sm">
+                <thead className="text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="py-2">Classe</th>
+                    <th className="py-2">Filles</th>
+                    <th className="py-2">Garçons</th>
+                    <th className="py-2">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {classRows.map((row) => (
+                    <tr key={row.className} className="border-t border-slate-100">
+                      <td className="py-2 font-semibold text-ink">{row.className}</td>
+                      <td className="py-2">{row.girls}</td>
+                      <td className="py-2">{row.boys}</td>
+                      <td className="py-2">{row.total}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <FormPanel title="Transactions récentes">
+          <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+            {transactions.map((transaction) => (
+              <div key={transaction.id} className="flex items-center justify-between rounded bg-slate-50 p-3 text-sm">
+                <div>
+                  <p className="font-semibold text-ink">{transaction.type}</p>
+                  <p className="text-xs text-slate-500">{transaction.label} | {transaction.date.slice(0, 10)}</p>
+                </div>
+                <span className={transaction.amount >= 0 ? "font-bold text-mint" : "font-bold text-red-600"}>
+                  {transaction.amount >= 0 ? "+" : "-"}${Math.abs(transaction.amount).toFixed(2)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </FormPanel>
+      </div>
     </section>
   );
 }
@@ -463,21 +672,78 @@ function PlatformModule({
   updateData: (next: Partial<AppData>) => void;
   onLogout: () => void;
 }) {
+  type PlatformView = "overview" | "schools";
+  type SchoolDetailTab = "overview" | "info" | "admins" | "subscription" | "history";
+  type SubscriptionFilter = "all" | "active" | "suspended" | "expired";
+  type SchoolSort = "az" | "recent" | "users";
+
   const [schoolName, setSchoolName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [subscriptionPlan, setSubscriptionPlan] = useState<School["subscriptionPlan"]>("Standard");
+  const [platformView, setPlatformView] = useState<PlatformView>("overview");
+  const [selectedSchoolId, setSelectedSchoolId] = useState(data.schools[0]?.id ?? "");
+  const [detailTab, setDetailTab] = useState<SchoolDetailTab>("overview");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | School["status"]>("all");
+  const [subscriptionFilter, setSubscriptionFilter] = useState<SubscriptionFilter>("all");
+  const [typeFilter, setTypeFilter] = useState<"all" | NonNullable<School["schoolType"]>>("all");
+  const [sortBy, setSortBy] = useState<SchoolSort>("az");
+  const [adminModalOpen, setAdminModalOpen] = useState(false);
+  const [editingAdminId, setEditingAdminId] = useState<string | null>(null);
+  const [adminName, setAdminName] = useState("");
+  const [adminPhone, setAdminPhone] = useState("");
+  const [modalAdminEmail, setModalAdminEmail] = useState("");
+  const [modalAdminPassword, setModalAdminPassword] = useState("");
+  const [modalAdminPasswordConfirm, setModalAdminPasswordConfirm] = useState("");
+  const [showModalPassword, setShowModalPassword] = useState(false);
+
   const totalRevenue = data.schools.reduce((sum, school) => sum + school.subscriptionAmount, 0);
   const totalStudents = data.students.length;
+  const totalParents = data.parents.length;
+  const totalAdmins = data.users.filter((item) => item.role === "school_admin").length;
   const activeSchools = data.schools.filter((school) => school.status === "active").length;
   const suspendedSchools = data.schools.filter((school) => school.status === "suspended").length;
+  const selectedSchool = data.schools.find((school) => school.id === selectedSchoolId) ?? data.schools[0];
+  const selectedStats = selectedSchool ? getPlatformSchoolStats(selectedSchool.id, data) : { students: 0, parents: 0, admins: 0, users: 0 };
+  const selectedAdmins = selectedSchool ? data.users.filter((item) => item.role === "school_admin" && item.schoolId === selectedSchool.id) : [];
+  const selectedLogs = selectedSchool
+    ? data.auditLogs.filter((log) => log.schoolId === selectedSchool.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    : [];
+  const adminFormValid =
+    adminName.trim().length >= 2 &&
+    modalAdminEmail.includes("@") &&
+    (editingAdminId || modalAdminPassword.length >= 6) &&
+    (editingAdminId || modalAdminPassword === modalAdminPasswordConfirm);
+  const filteredSchools = data.schools
+    .filter((school) => school.name.toLowerCase().includes(search.toLowerCase()) || (school.acronym ?? "").toLowerCase().includes(search.toLowerCase()))
+    .filter((school) => (statusFilter === "all" ? true : school.status === statusFilter))
+    .filter((school) => (subscriptionFilter === "all" ? true : getSubscriptionStatus(school) === subscriptionFilter))
+    .filter((school) => (typeFilter === "all" ? true : school.schoolType === typeFilter))
+    .sort((a, b) => {
+      if (sortBy === "recent") return (b.createdAt ?? "").localeCompare(a.createdAt ?? "");
+      if (sortBy === "users") return getPlatformSchoolStats(b.id, data).users - getPlatformSchoolStats(a.id, data).users;
+      return a.name.localeCompare(b.name);
+    });
 
-  function createSchool() {
+  function writeAudit(schoolId: string | undefined, action: string): AuditLog {
+    return {
+      id: uid("audit"),
+      schoolId,
+      actorId: user.id,
+      actorName: user.name,
+      action,
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  async function createSchool() {
     if (!schoolName || !adminEmail || !adminPassword) return;
 
     const schoolId = uid("school");
     const yearId = uid("year");
-    const adminId = uid("u-school-admin");
+    const fallbackAdminId = uid("u-school-admin");
+    const adminId = await createFirebaseAuthUser(adminEmail, adminPassword, fallbackAdminId);
     const amount = subscriptionPlan === "Starter" ? 29 : subscriptionPlan === "Premium" ? 99 : 49;
     const school: School = {
       id: schoolId,
@@ -488,8 +754,13 @@ function PlatformModule({
       currency: "USD",
       activeSchoolYearId: yearId,
       logoUrl: "",
+      acronym: buildAcronym(schoolName),
+      educationLevels: ["Primaire"],
+      schoolType: "Mixte",
+      createdAt: new Date().toISOString(),
       status: "active",
       subscriptionPlan,
+      subscriptionStatus: "active",
       subscriptionAmount: amount,
     };
     const year: SchoolYear = {
@@ -508,117 +779,693 @@ function PlatformModule({
       schoolId,
       activeSchoolYearId: yearId,
       demoPassword: adminPassword,
+      status: "active",
+      createdAt: new Date().toISOString(),
     };
 
     updateData({
       schools: [...data.schools, school],
       schoolYears: [...data.schoolYears, year],
       users: [...data.users, adminUser],
+      auditLogs: [writeAudit(schoolId, `Création de l'école ${schoolName}`), ...data.auditLogs],
     });
     setSchoolName("");
     setAdminEmail("");
     setAdminPassword("");
+    setSelectedSchoolId(schoolId);
+    setPlatformView("schools");
+    setDetailTab("overview");
   }
 
   function updateSchool(schoolId: string, next: Partial<School>) {
-    updateData({ schools: data.schools.map((school) => (school.id === schoolId ? { ...school, ...next } : school)) });
+    updateData({
+      schools: data.schools.map((school) => (school.id === schoolId ? { ...school, ...next } : school)),
+      auditLogs: [writeAudit(schoolId, "Mise à jour des informations école"), ...data.auditLogs],
+    });
   }
 
   function updateSubscription(schoolId: string, plan: School["subscriptionPlan"]) {
     const amount = plan === "Starter" ? 29 : plan === "Premium" ? 99 : 49;
-    updateSchool(schoolId, { subscriptionPlan: plan, subscriptionAmount: amount });
+    updateData({
+      schools: data.schools.map((school) =>
+        school.id === schoolId ? { ...school, subscriptionPlan: plan, subscriptionStatus: "active", subscriptionAmount: amount } : school,
+      ),
+      auditLogs: [writeAudit(schoolId, `Passage au plan ${plan}`), ...data.auditLogs],
+    });
+  }
+
+  function openCreateAdminModal() {
+    setEditingAdminId(null);
+    setAdminName("");
+    setAdminPhone("");
+    setModalAdminEmail("");
+    setModalAdminPassword("");
+    setModalAdminPasswordConfirm("");
+    setShowModalPassword(false);
+    setAdminModalOpen(true);
+  }
+
+  function openEditAdminModal(admin: AppUser) {
+    setEditingAdminId(admin.id);
+    setAdminName(admin.name);
+    setAdminPhone(admin.phone ?? "");
+    setModalAdminEmail(admin.email);
+    setModalAdminPassword("");
+    setModalAdminPasswordConfirm("");
+    setShowModalPassword(false);
+    setAdminModalOpen(true);
+  }
+
+  async function saveAdmin() {
+    if (!selectedSchool || !adminFormValid) return;
+
+    if (editingAdminId) {
+      updateData({
+        users: data.users.map((item) =>
+          item.id === editingAdminId ? { ...item, name: adminName, phone: adminPhone, email: modalAdminEmail } : item,
+        ),
+        auditLogs: [writeAudit(selectedSchool.id, `Modification de l'administrateur ${adminName}`), ...data.auditLogs],
+      });
+    } else {
+      const fallbackAdminId = uid("u-school-admin");
+      const adminId = await createFirebaseAuthUser(modalAdminEmail, modalAdminPassword, fallbackAdminId);
+      const adminUser: AppUser = {
+        id: adminId,
+        name: adminName,
+        email: modalAdminEmail,
+        role: "school_admin",
+        schoolId: selectedSchool.id,
+        activeSchoolYearId: selectedSchool.activeSchoolYearId,
+        demoPassword: modalAdminPassword,
+        phone: adminPhone,
+        status: "active",
+        createdAt: new Date().toISOString(),
+      };
+      updateData({
+        users: [...data.users, adminUser],
+        auditLogs: [writeAudit(selectedSchool.id, `Ajout de l'administrateur ${adminName}`), ...data.auditLogs],
+      });
+    }
+
+    setAdminModalOpen(false);
+  }
+
+  function toggleAdminStatus(admin: AppUser) {
+    const nextStatus = admin.status === "inactive" ? "active" : "inactive";
+    const label = nextStatus === "inactive" ? "désactiver" : "réactiver";
+    if (!confirm(`Confirmer: ${label} ${admin.name} ?`)) return;
+
+    updateData({
+      users: data.users.map((item) => (item.id === admin.id ? { ...item, status: nextStatus } : item)),
+      auditLogs: [writeAudit(admin.schoolId, `${nextStatus === "inactive" ? "Désactivation" : "Réactivation"} de l'administrateur ${admin.name}`), ...data.auditLogs],
+    });
+  }
+
+  function resetAdminPassword(admin: AppUser) {
+    if (!confirm(`Générer un nouveau mot de passe temporaire pour ${admin.name} ?`)) return;
+    const nextPassword = `Acadea-${Math.random().toString(36).slice(2, 8)}`;
+    updateData({
+      users: data.users.map((item) => (item.id === admin.id ? { ...item, demoPassword: nextPassword } : item)),
+      auditLogs: [writeAudit(admin.schoolId, `Réinitialisation du mot de passe de ${admin.name}`), ...data.auditLogs],
+    });
+  }
+
+  function selectSchool(schoolId: string, tab: SchoolDetailTab = "overview") {
+    setSelectedSchoolId(schoolId);
+    setDetailTab(tab);
+    setPlatformView("schools");
   }
 
   return (
-    <div className="min-h-screen bg-[#f6f8fb]">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-[#f6f8fb] text-ink">
+      <EnvironmentBanner />
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-slate-200 bg-white px-4 py-5 lg:block">
+        <div className="flex items-center gap-3 px-2">
+          <div className="flex h-10 w-10 items-center justify-center rounded bg-ink font-bold text-white">A</div>
+          <div>
+            <p className="font-bold">Acadéa Platform</p>
+            <p className="text-xs text-slate-500">Console SaaS</p>
+          </div>
+        </div>
+        <nav className="mt-8 grid gap-1">
+          <PlatformNavButton active={platformView === "overview"} icon={LayoutDashboard} label="Vue globale" onClick={() => setPlatformView("overview")} />
+          <PlatformNavButton active={platformView === "schools"} icon={Building2} label="Écoles" onClick={() => setPlatformView("schools")} />
+        </nav>
+        <div className="absolute bottom-5 left-4 right-4 rounded bg-slate-50 p-3 text-xs text-slate-500">
+          <p className="font-semibold text-ink">Sécurité multi-tenant</p>
+          <p className="mt-1">La plateforme affiche uniquement des statistiques agrégées.</p>
+        </div>
+      </aside>
+
+      <div className="lg:pl-64">
+        <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
+          <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded bg-ink font-bold text-white">A</div>
+            <div className="flex h-10 w-10 items-center justify-center rounded bg-ink font-bold text-white lg:hidden">A</div>
             <div>
-              <p className="text-lg font-bold text-ink">Plateforme Acadéa</p>
-              <p className="text-xs text-slate-500">{roleLabels[user.role]} | statistiques anonymisées</p>
+              <p className="text-xl font-bold text-ink">Plateforme Acadéa</p>
+              <p className="text-xs text-slate-500">{roleLabels[user.role]} | dashboard SaaS anonymisé</p>
             </div>
           </div>
-          <button onClick={onLogout} className="secondary-button">
-            <LogOut className="h-4 w-4" /> Sortir
-          </button>
-        </div>
-      </header>
-      <main className="mx-auto grid max-w-7xl gap-4 px-4 py-5 sm:px-6 lg:px-8">
-        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <PlatformCard label="Écoles" value={data.schools.length} icon={BookOpen} />
-          <PlatformCard label="Élèves totalisés" value={totalStudents} icon={GraduationCap} />
-          <PlatformCard label="Revenus globaux" value={`$${totalRevenue.toFixed(2)}`} icon={Banknote} />
-          <PlatformCard label="Actives / suspendues" value={`${activeSchools} / ${suspendedSchools}`} icon={BarChart3} />
-        </section>
-
-        <section className="grid gap-4 xl:grid-cols-[380px_1fr]">
-          <FormPanel title="Créer une école">
-            <Field label="Nom de l'école" value={schoolName} onChange={setSchoolName} />
-            <Field label="Email admin école" value={adminEmail} onChange={setAdminEmail} type="email" />
-            <Field label="Mot de passe admin" value={adminPassword} onChange={setAdminPassword} type="password" />
-            <label className="grid gap-1 text-sm font-medium text-slate-700">
-              Abonnement
-              <select value={subscriptionPlan} onChange={(event) => setSubscriptionPlan(event.target.value as School["subscriptionPlan"])} className="input">
-                <option value="Starter">Starter</option>
-                <option value="Standard">Standard</option>
-                <option value="Premium">Premium</option>
-              </select>
-            </label>
-            <button onClick={createSchool} className="primary-button">
-              <Plus className="h-4 w-4" /> Créer
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={() => setPlatformView("overview")} className="secondary-button lg:hidden">
+              <LayoutDashboard className="h-4 w-4" /> Vue globale
             </button>
-          </FormPanel>
+            <button onClick={() => setPlatformView("schools")} className="secondary-button lg:hidden">
+              <Building2 className="h-4 w-4" /> Écoles
+            </button>
+            <button onClick={onLogout} className="secondary-button">
+              <LogOut className="h-4 w-4" /> Sortir
+            </button>
+          </div>
+          </div>
+        </header>
 
-          <div className="grid gap-3">
-            {data.schools.map((school) => (
-              <article key={school.id} className="rounded border border-slate-200 bg-white p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h2 className="font-bold text-ink">{school.name}</h2>
-                    <p className="text-sm text-slate-500">
-                      {school.subscriptionPlan} | ${school.subscriptionAmount}/mois | {school.status}
-                    </p>
+        <main className="grid gap-5 px-4 py-5 sm:px-6 lg:px-8">
+          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <PlatformCard label="Écoles" value={data.schools.length} icon={BookOpen} description={`${activeSchools} actives, ${suspendedSchools} suspendues`} tone="mint" />
+            <PlatformCard label="Élèves totalisés" value={totalStudents} icon={GraduationCap} description="Chiffre agrégé, sans détail individuel" tone="sky" />
+            <PlatformCard label="Parents" value={totalParents} icon={UsersRound} description="Comptes rattachés aux écoles" tone="violet" />
+            <PlatformCard label="Revenus globaux" value={`$${totalRevenue.toFixed(2)}`} icon={Banknote} description={`${totalAdmins} administrateurs école`} tone="amber" />
+          </section>
+
+          {platformView === "overview" && (
+            <section className="grid gap-4 xl:grid-cols-[380px_1fr]">
+              <FormPanel title="Créer une école">
+                <Field label="Nom de l'école" value={schoolName} onChange={setSchoolName} />
+                <Field label="Email admin école" value={adminEmail} onChange={setAdminEmail} type="email" />
+                <Field label="Mot de passe admin" value={adminPassword} onChange={setAdminPassword} type="password" />
+                <label className="grid gap-1 text-sm font-medium text-slate-700">
+                  Abonnement
+                  <select value={subscriptionPlan} onChange={(event) => setSubscriptionPlan(event.target.value as School["subscriptionPlan"])} className="input">
+                    <option value="Starter">Starter</option>
+                    <option value="Standard">Standard</option>
+                    <option value="Premium">Premium</option>
+                  </select>
+                </label>
+                <button onClick={createSchool} className="primary-button">
+                  <Plus className="h-4 w-4" /> Créer
+                </button>
+              </FormPanel>
+
+              <section className="grid gap-4">
+                <div className="rounded border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="font-bold text-ink">Activité plateforme</h2>
+                      <p className="text-sm text-slate-500">Vue globale anonymisée des écoles clientes.</p>
+                    </div>
+                    <span className="rounded bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">SaaS</span>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={() => updateSchool(school.id, { status: school.status === "active" ? "suspended" : "active" })}
-                      className={`rounded px-3 py-2 text-xs font-semibold ${school.status === "active" ? "bg-amber-100 text-amber-700" : "bg-mint/10 text-mint"}`}
-                    >
-                      {school.status === "active" ? "Suspendre" : "Activer"}
-                    </button>
-                    {(["Starter", "Standard", "Premium"] as School["subscriptionPlan"][]).map((plan) => (
-                      <button key={plan} onClick={() => updateSubscription(school.id, plan)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
-                        {plan}
-                      </button>
+                  <div className="mt-5 grid h-48 grid-cols-6 items-end gap-3 rounded bg-slate-50 p-4">
+                    {[42, 58, 52, 70, 64, 86].map((height, index) => (
+                      <div key={index} className="flex h-full items-end">
+                        <div className="w-full rounded-t bg-ink" style={{ height: `${height}%` }} />
+                      </div>
                     ))}
                   </div>
                 </div>
-              </article>
-            ))}
-          </div>
-        </section>
-      </main>
+
+                <div className="rounded border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="mb-4 flex items-center justify-between">
+                    <div>
+                      <h2 className="font-bold text-ink">Écoles récentes</h2>
+                      <p className="text-sm text-slate-500">Accès rapide aux comptes école.</p>
+                    </div>
+                    <button onClick={() => setPlatformView("schools")} className="secondary-button">
+                      Voir tout
+                    </button>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {data.schools.slice(0, 3).map((school) => (
+                      <SchoolSaasCard key={school.id} school={school} stats={getPlatformSchoolStats(school.id, data)} onSelect={() => selectSchool(school.id)} />
+                    ))}
+                  </div>
+                </div>
+              </section>
+            </section>
+          )}
+
+          {platformView === "schools" && (
+            <section className="grid gap-4">
+              <div className="rounded border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="grid gap-3 lg:grid-cols-[1fr_repeat(4,180px)]">
+                  <label className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <input value={search} onChange={(event) => setSearch(event.target.value)} className="input pl-9" placeholder="Rechercher une école..." />
+                  </label>
+                  <FilterSelect icon={Filter} value={statusFilter} onChange={(value) => setStatusFilter(value as typeof statusFilter)}>
+                    <option value="all">Tous statuts</option>
+                    <option value="active">Active</option>
+                    <option value="suspended">Suspendue</option>
+                  </FilterSelect>
+                  <FilterSelect icon={ShieldCheck} value={subscriptionFilter} onChange={(value) => setSubscriptionFilter(value as SubscriptionFilter)}>
+                    <option value="all">Tous abonnements</option>
+                    <option value="active">Actif</option>
+                    <option value="suspended">Suspendu</option>
+                    <option value="expired">Expiré</option>
+                  </FilterSelect>
+                  <FilterSelect icon={Building2} value={typeFilter} onChange={(value) => setTypeFilter(value as typeof typeFilter)}>
+                    <option value="all">Tous types</option>
+                    <option value="Maternelle">Maternelle</option>
+                    <option value="Primaire">Primaire</option>
+                    <option value="Secondaire">Secondaire</option>
+                    <option value="Mixte">Mixte</option>
+                  </FilterSelect>
+                  <FilterSelect icon={ArrowUpDown} value={sortBy} onChange={(value) => setSortBy(value as SchoolSort)}>
+                    <option value="az">A-Z</option>
+                    <option value="recent">Plus récente</option>
+                    <option value="users">Plus d'utilisateurs</option>
+                  </FilterSelect>
+                </div>
+              </div>
+
+              <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_460px]">
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {filteredSchools.length === 0 && (
+                    <div className="rounded border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 md:col-span-2 xl:col-span-3">
+                      Aucune école ne correspond aux filtres.
+                    </div>
+                  )}
+                  {filteredSchools.map((school) => (
+                    <SchoolSaasCard
+                      key={school.id}
+                      school={school}
+                      stats={getPlatformSchoolStats(school.id, data)}
+                      selected={school.id === selectedSchool?.id}
+                      onSelect={() => selectSchool(school.id)}
+                      onSubscription={() => selectSchool(school.id, "subscription")}
+                      onAdmins={() => selectSchool(school.id, "admins")}
+                    />
+                  ))}
+                </div>
+
+                {selectedSchool && (
+                  <section className="rounded border border-slate-200 bg-white shadow-sm 2xl:sticky 2xl:top-24 2xl:max-h-[calc(100vh-7rem)] 2xl:overflow-y-auto">
+                    <div className="sticky top-0 z-10 border-b border-slate-200 bg-white p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <SchoolLogo school={selectedSchool} />
+                          <div className="min-w-0">
+                            <h2 className="truncate text-lg font-bold text-ink">{selectedSchool.name}</h2>
+                            <div className="mt-1 flex flex-wrap gap-2">
+                              <StatusBadge status={selectedSchool.status} />
+                              <SubscriptionBadge status={getSubscriptionStatus(selectedSchool)} />
+                            </div>
+                          </div>
+                        </div>
+                        <button className="rounded border border-slate-200 p-2 text-slate-500 hover:bg-slate-50" title="Actions rapides">
+                          <MoreHorizontal className="h-5 w-5" />
+                        </button>
+                      </div>
+                      <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+                        {(["overview", "info", "admins", "subscription", "history"] as SchoolDetailTab[]).map((tab) => (
+                          <button
+                            key={tab}
+                            onClick={() => setDetailTab(tab)}
+                            className={`shrink-0 rounded px-3 py-2 text-xs font-semibold ${detailTab === tab ? "bg-ink text-white" : "bg-slate-100 text-slate-600"}`}
+                          >
+                            {schoolTabLabel(tab)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="p-4">
+                      {detailTab === "overview" && (
+                        <div className="grid gap-4">
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <MiniStat label="Élèves" value={selectedStats.students} />
+                            <MiniStat label="Parents" value={selectedStats.parents} />
+                            <MiniStat label="Administrateurs" value={selectedStats.admins} />
+                            <MiniStat label="Total utilisateurs" value={selectedStats.users} />
+                          </div>
+                          <div className="rounded bg-slate-50 p-4">
+                            <p className="text-sm font-semibold text-ink">Évolution utilisateurs</p>
+                            <div className="mt-4 flex h-32 items-end gap-2">
+                              {[35, 48, 46, 61, 72, 80].map((height, index) => (
+                                <div key={index} className="flex-1 rounded-t bg-mint" style={{ height: `${height}%` }} />
+                              ))}
+                            </div>
+                          </div>
+                          <AuditTimeline logs={selectedLogs.slice(0, 4)} />
+                        </div>
+                      )}
+
+                      {detailTab === "info" && (
+                        <div className="grid gap-3 text-sm">
+                          <InfoRow label="Nom" value={selectedSchool.name} />
+                          <InfoRow label="Sigle" value={selectedSchool.acronym ?? "-"} />
+                          <InfoRow label="Adresse" value={selectedSchool.address || "-"} />
+                          <InfoRow label="Téléphone" value={selectedSchool.phone || "-"} />
+                          <InfoRow label="Email" value={selectedSchool.email || "-"} />
+                          <InfoRow label="Niveaux" value={(selectedSchool.educationLevels ?? []).join(", ") || "-"} />
+                          <InfoRow label="Type" value={selectedSchool.schoolType ?? "-"} />
+                        </div>
+                      )}
+
+                      {detailTab === "admins" && (
+                        <div className="grid gap-3">
+                          <button onClick={openCreateAdminModal} className="primary-button justify-center">
+                            <Plus className="h-4 w-4" /> Ajouter un admin
+                          </button>
+                          {selectedAdmins.map((admin) => (
+                            <div key={admin.id} className="rounded border border-slate-200 p-3">
+                              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                <div>
+                                  <p className="font-semibold text-ink">{admin.name}</p>
+                                  <p className="text-sm text-slate-500">{admin.email}</p>
+                                  <p className="text-xs text-slate-400">{admin.phone ?? "Téléphone non renseigné"}</p>
+                                </div>
+                                <StatusPill active={admin.status !== "inactive"} />
+                              </div>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <button onClick={() => openEditAdminModal(admin)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
+                                  Modifier
+                                </button>
+                                <button onClick={() => toggleAdminStatus(admin)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
+                                  {admin.status === "inactive" ? "Réactiver" : "Désactiver"}
+                                </button>
+                                <button onClick={() => resetAdminPassword(admin)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
+                                  Reset password
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {detailTab === "subscription" && (
+                        <div className="grid gap-4">
+                          <div className="rounded bg-slate-50 p-4">
+                            <p className="text-sm text-slate-500">Plan actuel</p>
+                            <p className="mt-1 text-2xl font-bold text-ink">{selectedSchool.subscriptionPlan}</p>
+                            <p className="text-sm text-slate-500">${selectedSchool.subscriptionAmount}/mois</p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {(["Starter", "Standard", "Premium"] as School["subscriptionPlan"][]).map((plan) => (
+                              <button key={plan} onClick={() => updateSubscription(selectedSchool.id, plan)} className="secondary-button">
+                                Upgrade {plan}
+                              </button>
+                            ))}
+                            <button
+                              onClick={() => updateSchool(selectedSchool.id, { status: "suspended", subscriptionStatus: "suspended" })}
+                              className="rounded bg-red-50 px-3 py-2 text-sm font-semibold text-red-700"
+                            >
+                              Suspendre
+                            </button>
+                          </div>
+                          <AuditTimeline logs={selectedLogs} />
+                        </div>
+                      )}
+
+                      {detailTab === "history" && <AuditTimeline logs={selectedLogs} />}
+                    </div>
+                  </section>
+                )}
+              </div>
+            </section>
+          )}
+        </main>
+      </div>
+
+      {adminModalOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-4">
+          <section className="w-full max-w-lg rounded border border-slate-200 bg-white p-5 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-ink">{editingAdminId ? "Modifier administrateur" : "Ajouter administrateur"}</h2>
+                <p className="text-sm text-slate-500">{selectedSchool?.name}</p>
+              </div>
+              <button onClick={() => setAdminModalOpen(false)} className="rounded bg-slate-100 p-2">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="mt-5 grid gap-3">
+              <Field label="Nom" value={adminName} onChange={setAdminName} />
+              <Field label="Email" value={modalAdminEmail} onChange={setModalAdminEmail} type="email" />
+              <Field label="Téléphone" value={adminPhone} onChange={setAdminPhone} />
+              {!editingAdminId && (
+                <>
+                  <label className="grid gap-1 text-sm font-medium text-slate-700">
+                    Mot de passe
+                    <span className="relative">
+                      <input
+                        value={modalAdminPassword}
+                        onChange={(event) => setModalAdminPassword(event.target.value)}
+                        type={showModalPassword ? "text" : "password"}
+                        className="input pr-10"
+                      />
+                      <button type="button" onClick={() => setShowModalPassword(!showModalPassword)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-500">
+                        {showModalPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </span>
+                  </label>
+                  <Field label="Confirmation" value={modalAdminPasswordConfirm} onChange={setModalAdminPasswordConfirm} type={showModalPassword ? "text" : "password"} />
+                  <p className={`text-xs font-semibold ${modalAdminPassword.length >= 6 ? "text-mint" : "text-amber-700"}`}>
+                    Minimum 6 caractères, confirmation identique.
+                  </p>
+                </>
+              )}
+              <button disabled={!adminFormValid} onClick={saveAdmin} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50">
+                <CheckCircle2 className="h-4 w-4" /> Enregistrer
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
 
-function PlatformCard({ label, value, icon: Icon }: { label: string; value: string | number; icon: typeof BookOpen }) {
+function PlatformCard({
+  label,
+  value,
+  icon: Icon,
+  description,
+  tone = "mint",
+}: {
+  label: string;
+  value: string | number;
+  icon: typeof BookOpen;
+  description?: string;
+  tone?: "mint" | "sky" | "violet" | "amber";
+}) {
+  const tones = {
+    mint: "bg-mint/10 text-mint",
+    sky: "bg-sky-50 text-sky-700",
+    violet: "bg-violet-50 text-violet-700",
+    amber: "bg-amber-50 text-amber-700",
+  };
   return (
     <article className="rounded border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="mb-4 flex h-10 w-10 items-center justify-center rounded bg-mint/10 text-mint">
+      <div className={`mb-4 flex h-10 w-10 items-center justify-center rounded ${tones[tone]}`}>
         <Icon className="h-5 w-5" />
       </div>
       <p className="text-sm text-slate-500">{label}</p>
       <p className="mt-1 text-2xl font-bold text-ink">{value}</p>
+      {description && <p className="mt-2 text-xs text-slate-500">{description}</p>}
     </article>
   );
 }
 
+function PlatformNavButton({ active, icon: Icon, label, onClick }: { active: boolean; icon: typeof BookOpen; label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-3 rounded px-3 py-2 text-sm font-semibold ${active ? "bg-ink text-white" : "text-slate-600 hover:bg-slate-50"}`}
+    >
+      <Icon className="h-4 w-4" /> {label}
+    </button>
+  );
+}
+
+function SchoolSaasCard({
+  school,
+  stats,
+  selected,
+  onSelect,
+  onSubscription,
+  onAdmins,
+}: {
+  school: School;
+  stats: ReturnType<typeof getPlatformSchoolStats>;
+  selected?: boolean;
+  onSelect: () => void;
+  onSubscription?: () => void;
+  onAdmins?: () => void;
+}) {
+  return (
+    <article className={`rounded border bg-white p-4 shadow-sm ${selected ? "border-ink ring-2 ring-ink/10" : "border-slate-200"}`}>
+      <div className="flex items-start gap-3">
+        <SchoolLogo school={school} />
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate font-bold text-ink">{school.name}</h3>
+          <p className="text-xs text-slate-500">{school.acronym ?? buildAcronym(school.name)}</p>
+        </div>
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <StatusBadge status={school.status} />
+        <SubscriptionBadge status={getSubscriptionStatus(school)} />
+      </div>
+      <p className="mt-3 text-sm text-slate-500">{(school.educationLevels ?? ["Primaire"]).join(" · ")}</p>
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <MiniStat label="Utilisateurs" value={stats.users} compact />
+        <MiniStat label="Plan" value={school.subscriptionPlan} compact />
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button onClick={onSelect} className="rounded bg-ink px-3 py-2 text-xs font-semibold text-white">
+          Voir détails
+        </button>
+        <button onClick={onSubscription ?? onSelect} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
+          Abonnement
+        </button>
+        <button onClick={onAdmins ?? onSelect} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
+          Admins
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function SchoolLogo({ school }: { school: School }) {
+  return (
+    <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded border border-slate-200 bg-slate-50 text-sm font-bold text-ink">
+      {school.logoUrl ? <img src={school.logoUrl} alt="" className="h-full w-full object-cover" /> : school.acronym ?? buildAcronym(school.name)}
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: School["status"] }) {
+  return (
+    <span className={`rounded px-2 py-1 text-xs font-semibold ${status === "active" ? "bg-mint/10 text-mint" : "bg-red-50 text-red-700"}`}>
+      {status === "active" ? "Active" : "Suspendue"}
+    </span>
+  );
+}
+
+function SubscriptionBadge({ status }: { status: NonNullable<School["subscriptionStatus"]> }) {
+  const classes = {
+    active: "bg-mint/10 text-mint",
+    suspended: "bg-amber-50 text-amber-700",
+    expired: "bg-red-50 text-red-700",
+  };
+  const labels = {
+    active: "Abonnement actif",
+    suspended: "Abonnement suspendu",
+    expired: "Abonnement expiré",
+  };
+  return <span className={`rounded px-2 py-1 text-xs font-semibold ${classes[status]}`}>{labels[status]}</span>;
+}
+
+function StatusPill({ active }: { active: boolean }) {
+  return <span className={`rounded px-2 py-1 text-xs font-semibold ${active ? "bg-mint/10 text-mint" : "bg-slate-100 text-slate-500"}`}>{active ? "Actif" : "Inactif"}</span>;
+}
+
+function FilterSelect({
+  icon: Icon,
+  value,
+  onChange,
+  children,
+}: {
+  icon: typeof BookOpen;
+  value: string;
+  onChange: (value: string) => void;
+  children: ReactNode;
+}) {
+  return (
+    <label className="relative">
+      <Icon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+      <select value={value} onChange={(event) => onChange(event.target.value)} className="input pl-9">
+        {children}
+      </select>
+    </label>
+  );
+}
+
+function MiniStat({ label, value, compact }: { label: string; value: string | number; compact?: boolean }) {
+  return (
+    <div className={`rounded bg-slate-50 ${compact ? "p-3" : "p-4"}`}>
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className={`${compact ? "text-lg" : "text-2xl"} mt-1 font-bold text-ink`}>{value}</p>
+    </div>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded bg-slate-50 p-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-1 font-semibold text-ink">{value}</p>
+    </div>
+  );
+}
+
+function AuditTimeline({ logs }: { logs: AuditLog[] }) {
+  if (logs.length === 0) {
+    return (
+      <div className="rounded border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">
+        Aucun historique pour cette école.
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-3">
+      <p className="text-sm font-semibold text-ink">Historique</p>
+      {logs.map((log) => (
+        <div key={log.id} className="flex gap-3 rounded border border-slate-200 p-3">
+          <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded bg-slate-100 text-slate-600">
+            <Clock3 className="h-4 w-4" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-ink">{log.action}</p>
+            <p className="text-xs text-slate-500">
+              {log.actorName} · {new Date(log.createdAt).toLocaleString("fr-FR")}
+            </p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function getPlatformSchoolStats(schoolId: string, data: AppData) {
+  const students = data.students.filter((student) => student.schoolId === schoolId).length;
+  const parents = data.parents.filter((parent) => parent.schoolId === schoolId).length;
+  const admins = data.users.filter((item) => item.role === "school_admin" && item.schoolId === schoolId).length;
+  const users = data.users.filter((item) => item.schoolId === schoolId).length;
+  return { students, parents, admins, users };
+}
+
+function getSubscriptionStatus(school: School): NonNullable<School["subscriptionStatus"]> {
+  return school.subscriptionStatus ?? (school.status === "suspended" ? "suspended" : "active");
+}
+
+function buildAcronym(value: string) {
+  return value
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 3)
+    .map((part) => part.slice(0, 1).toUpperCase())
+    .join("");
+}
+
+function schoolTabLabel(tab: "overview" | "info" | "admins" | "subscription" | "history") {
+  const labels = {
+    overview: "Overview",
+    info: "Informations",
+    admins: "Administrateurs",
+    subscription: "Abonnement",
+    history: "Historique",
+  };
+  return labels[tab];
+}
+
 function AccessDenied({ onLogout }: { onLogout: () => void }) {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#f6f8fb] p-4">
+    <main className="flex min-h-screen flex-col items-center justify-center bg-[#f6f8fb] p-4">
+      <EnvironmentBanner />
       <section className="w-full max-w-md rounded border border-slate-200 bg-white p-6 text-center shadow-sm">
         <ShieldCheck className="mx-auto mb-3 h-10 w-10 text-red-600" />
         <h1 className="text-2xl font-bold text-ink">Accès refusé</h1>
@@ -628,6 +1475,174 @@ function AccessDenied({ onLogout }: { onLogout: () => void }) {
         </button>
       </section>
     </main>
+  );
+}
+
+function ParentPortal({
+  user,
+  data,
+  yearData,
+  school,
+  year,
+  updateData,
+  onLogout,
+}: {
+  user: AppUser;
+  data: AppData;
+  yearData: ReturnType<typeof scopeData>;
+  school: School;
+  year: SchoolYear;
+  updateData: (next: Partial<AppData>) => void;
+  onLogout: () => void;
+}) {
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const parent = yearData.parents.find((item) => item.id === user.parentId);
+  const unread = yearData.notifications.filter((notification) => !notification.read).length;
+
+  function sendParentMessage() {
+    if (!subject || !body || !user.parentId) return;
+    const message: Message = {
+      id: uid("msg"),
+      schoolId: school.id,
+      schoolYearId: year.id,
+      senderId: user.id,
+      recipientParentId: "school",
+      threadParentId: user.parentId,
+      subject,
+      body,
+      createdAt: new Date().toISOString(),
+    };
+    updateData({ messages: [message, ...data.messages] });
+    setSubject("");
+    setBody("");
+  }
+
+  function markNotificationsRead() {
+    updateData({
+      notifications: data.notifications.map((notification) =>
+        notification.parentId === user.parentId && notification.schoolYearId === year.id ? { ...notification, read: true } : notification,
+      ),
+    });
+  }
+
+  return (
+    <div className="min-h-screen bg-[#f6f8fb]">
+      <EnvironmentBanner />
+      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white">
+        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded bg-ink font-bold text-white">A</div>
+            <div>
+              <p className="text-lg font-bold text-ink">{school.name}</p>
+              <p className="text-xs text-slate-500">Espace Parent | {parent?.fullName ?? user.name} | {year.name}</p>
+            </div>
+          </div>
+          <button onClick={onLogout} className="secondary-button">
+            <LogOut className="h-4 w-4" /> Sortir
+          </button>
+        </div>
+      </header>
+      <main className="mx-auto grid max-w-7xl gap-4 px-4 py-5 sm:px-6 lg:px-8">
+        <section className="rounded border border-slate-200 bg-white p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-ink">Mes enfants</h1>
+              <p className="text-sm text-slate-500">Consultation limitée aux élèves rattachés à ce parent.</p>
+            </div>
+            <button onClick={markNotificationsRead} className="secondary-button">
+              <Bell className="h-4 w-4" /> {unread} notification(s)
+            </button>
+          </div>
+        </section>
+
+        <section className="grid gap-4 lg:grid-cols-[1fr_360px]">
+          <div className="grid gap-4">
+            {yearData.students.map((student) => {
+              const balance = getStudentBalance(student.id, yearData.feeTypes, yearData.payments);
+              const progress = balance.expected > 0 ? Math.min(100, Math.round((balance.paid / balance.expected) * 100)) : 0;
+              const payments = yearData.payments.filter((payment) => payment.studentId === student.id);
+              return (
+                <article key={student.id} className="rounded border border-slate-200 bg-white p-4">
+                  <div className="flex flex-col gap-4 md:flex-row">
+                    <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded bg-slate-100 text-xl font-bold text-ink">
+                      {student.photoUrl ? <img src={student.photoUrl} alt="" className="h-full w-full object-cover" /> : student.prenom.slice(0, 1)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <h2 className="text-xl font-bold text-ink">{student.nom} {student.postnom} {student.prenom}</h2>
+                          <p className="text-sm text-slate-500">{student.className} | {year.name}</p>
+                        </div>
+                        <span className="rounded bg-mint/10 px-2 py-1 text-xs font-semibold text-mint">{progress}% payé</span>
+                      </div>
+                      <div className="mt-4 h-3 overflow-hidden rounded bg-slate-100">
+                        <div className="h-full rounded bg-mint" style={{ width: `${progress}%` }} />
+                      </div>
+                      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                        <Metric label="Total frais" value={`$${balance.expected}`} />
+                        <Metric label="Total payé" value={`$${balance.paid}`} />
+                        <Metric label="Solde" value={`$${balance.remaining}`} />
+                      </div>
+                      <div className="mt-4">
+                        <p className="mb-2 text-sm font-semibold text-ink">Historique des paiements</p>
+                        <div className="max-h-48 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+                          {payments.length === 0 && <p className="text-sm text-slate-500">Aucun paiement enregistré.</p>}
+                          {payments.map((payment) => {
+                            const fee = yearData.feeTypes.find((item) => item.id === payment.feeTypeId);
+                            return (
+                              <div key={payment.id} className="rounded bg-slate-50 p-3 text-sm">
+                                <span className="font-semibold text-ink">${payment.amount}</span>
+                                <span className="text-slate-500"> | {fee?.name ?? "Frais"} | {payment.paidAt}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+
+          <div className="space-y-4">
+            <FormPanel title="Notifications">
+              <div className="max-h-72 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+                {yearData.notifications.length === 0 && <p className="text-sm text-slate-500">Aucune notification.</p>}
+                {yearData.notifications.map((notification) => (
+                  <div key={notification.id} className={`rounded border p-3 text-sm ${notification.read ? "border-slate-100 bg-white" : "border-mint/30 bg-mint/5"}`}>
+                    <p className="font-semibold text-ink">{notification.title}</p>
+                    <p className="text-slate-600">{notification.body}</p>
+                    <p className="mt-1 text-xs text-slate-400">{new Date(notification.createdAt).toLocaleString("fr-FR")}</p>
+                  </div>
+                ))}
+              </div>
+            </FormPanel>
+
+            <FormPanel title="Message à l'école">
+              <input value={subject} onChange={(event) => setSubject(event.target.value)} className="input" placeholder="Objet" />
+              <textarea value={body} onChange={(event) => setBody(event.target.value)} className="input min-h-32" placeholder="Message" />
+              <button onClick={sendParentMessage} disabled={!subject || !body} className="primary-button disabled:opacity-50">
+                <Send className="h-4 w-4" /> Envoyer
+              </button>
+            </FormPanel>
+
+            <FormPanel title="Conversation">
+              <div className="max-h-80 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+                {yearData.messages.filter((message) => message.threadParentId === user.parentId).map((message) => (
+                  <div key={message.id} className="rounded bg-slate-50 p-3 text-sm">
+                    <p className="font-semibold text-ink">{message.subject}</p>
+                    <p className="text-slate-600">{message.body}</p>
+                    <p className="mt-1 text-xs text-slate-400">{new Date(message.createdAt).toLocaleString("fr-FR")}</p>
+                  </div>
+                ))}
+              </div>
+            </FormPanel>
+          </div>
+        </section>
+      </main>
+    </div>
   );
 }
 
@@ -647,44 +1662,130 @@ function StudentsModule({
   updateData: (next: Partial<AppData>) => void;
 }) {
   const [query, setQuery] = useState("");
+  const [sectionFilter, setSectionFilter] = useState<"all" | "maternelle" | "primaire" | "secondaire">("all");
   const [classFilter, setClassFilter] = useState("");
   const [form, setForm] = useState<Student>(() => emptyStudent(school.id, year.id));
+  const [quickParent, setQuickParent] = useState({ fullName: "", phone: "", email: "", password: "" });
   const canEdit = user.role === "school_admin";
+  const availableClasses = CLASSES.filter((className) => sectionFilter === "all" || getClassSection(className) === sectionFilter);
 
   const students = yearData.students.filter((student) => {
     const text = `${student.matricule} ${student.nom} ${student.postnom} ${student.prenom}`.toLowerCase();
-    return text.includes(query.toLowerCase()) && (!classFilter || student.className === classFilter);
+    return (
+      (student.status ?? "ACTIVE") === "ACTIVE" &&
+      text.includes(query.toLowerCase()) &&
+      (sectionFilter === "all" || getClassSection(student.className) === sectionFilter) &&
+      (!classFilter || student.className === classFilter)
+    );
   });
 
   function saveStudent() {
-    const student = { ...form, schoolId: school.id, schoolYearId: year.id };
-    const exists = data.students.some((item) => item.id === student.id);
+    const exists = data.students.some((item) => item.id === form.id);
+    const matricule = exists ? form.matricule : generateMatricule(data.students, year.name, school.id, year.id);
+    const student = { ...form, matricule, section: getClassSection(form.className), status: form.status ?? "ACTIVE", schoolId: school.id, schoolYearId: year.id };
+    const parents = data.parents.map((parent) => {
+      const withoutStudent = parent.studentIds.filter((studentId) => studentId !== student.id);
+      return parent.id === student.parentId ? { ...parent, studentIds: [...withoutStudent, student.id] } : { ...parent, studentIds: withoutStudent };
+    });
+    const users = data.users.map((item) => {
+      if (item.role !== "parent" || !item.parentId) return item;
+      const parent = parents.find((parentItem) => parentItem.id === item.parentId);
+      return parent ? { ...item, studentIds: parent.studentIds } : item;
+    });
     updateData({
       students: exists ? data.students.map((item) => (item.id === student.id ? student : item)) : [...data.students, student],
+      parents,
+      users,
+      auditLogs: [
+        createAuditLog(user, school.id, year.id, exists ? "Modification élève" : "Création élève", `${student.matricule} - ${student.nom} ${student.prenom}`),
+        ...data.auditLogs,
+      ],
     });
     setForm(emptyStudent(school.id, year.id));
   }
 
   function removeStudent(id: string) {
+    const student = data.students.find((item) => item.id === id);
+    if (!student) return;
+    const reason = prompt("Motif obligatoire: Renvoi définitif, Décès, Abandon ou Autre avec précision");
+    if (!reason) return;
+    const normalized = reason.toLowerCase();
+    const status = normalized.includes("décès") || normalized.includes("deces") ? "DECEASED" : normalized.includes("abandon") ? "DROPPED" : "TRANSFERRED";
     updateData({
-      students: data.students.filter((student) => student.id !== id),
-      payments: data.payments.filter((payment) => payment.studentId !== id),
-      parents: data.parents.map((parent) => ({ ...parent, studentIds: parent.studentIds.filter((studentId) => studentId !== id) })),
+      students: data.students.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              status,
+              exitReason: reason.includes("Autre") ? "Autre" : normalized.includes("décès") || normalized.includes("deces") ? "Décès" : normalized.includes("abandon") ? "Abandon" : "Renvoi définitif",
+              exitReasonDetails: reason,
+              deletedAt: new Date().toISOString(),
+            }
+          : item,
+      ),
+      auditLogs: [createAuditLog(user, school.id, year.id, "Soft delete élève", `${student.matricule} - ${reason}`), ...data.auditLogs],
     });
+  }
+
+  async function createParentForStudent() {
+    if (!quickParent.fullName || !quickParent.phone || !quickParent.email) return;
+    const parentId = uid("parent");
+    const userId = await createFirebaseAuthUser(quickParent.email, quickParent.password || "parent123", uid("u-parent"));
+    const parent: ParentProfile = {
+      id: parentId,
+      schoolId: school.id,
+      schoolYearId: year.id,
+      userId,
+      fullName: quickParent.fullName,
+      phone: quickParent.phone,
+      email: quickParent.email,
+      address: "",
+      studentIds: [form.id],
+      status: "active",
+    };
+    const parentUser: AppUser = {
+      id: userId,
+      name: parent.fullName,
+      email: parent.email,
+      role: "parent",
+      schoolId: school.id,
+      activeSchoolYearId: year.id,
+      parentId,
+      studentIds: [form.id],
+      demoPassword: quickParent.password || undefined,
+      status: "active",
+      phone: parent.phone,
+    };
+    updateData({ parents: [...data.parents, parent], users: [...data.users, parentUser] });
+    setForm({ ...form, parentId });
+    setQuickParent({ fullName: "", phone: "", email: "", password: "" });
   }
 
   return (
     <section className="grid gap-4 lg:grid-cols-[1fr_360px]">
       <div className="min-w-0">
-        <SectionTitle title="Élèves" subtitle="Ajouter, modifier, supprimer, rechercher et filtrer par classe." />
-        <div className="mb-3 grid gap-2 sm:grid-cols-[1fr_220px]">
+        <SectionTitle title="Élèves" subtitle="Ajouter, modifier, rechercher et filtrer par direction puis classe." />
+        <div className="mb-3 grid gap-2 lg:grid-cols-[1fr_180px_220px]">
           <label className="flex items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
             <Search className="h-4 w-4 text-slate-400" />
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher" className="min-w-0 flex-1 outline-none" />
           </label>
+          <select
+            value={sectionFilter}
+            onChange={(event) => {
+              setSectionFilter(event.target.value as typeof sectionFilter);
+              setClassFilter("");
+            }}
+            className="rounded border border-slate-200 bg-white px-3 py-2"
+          >
+            <option value="all">Toutes directions</option>
+            <option value="maternelle">Maternelle</option>
+            <option value="primaire">Primaire</option>
+            <option value="secondaire">Secondaire</option>
+          </select>
           <select value={classFilter} onChange={(event) => setClassFilter(event.target.value)} className="rounded border border-slate-200 bg-white px-3 py-2">
             <option value="">Toutes les classes</option>
-            {CLASSES.map((className) => (
+            {availableClasses.map((className) => (
               <option key={className} value={className}>{className}</option>
             ))}
           </select>
@@ -727,9 +1828,161 @@ function StudentsModule({
       </div>
       {canEdit && (
         <FormPanel title={form.id.startsWith("new") ? "Ajouter un élève" : "Modifier l'élève"}>
-          <StudentForm form={form} setForm={setForm} onSave={saveStudent} onReset={() => setForm(emptyStudent(school.id, year.id))} />
+          <StudentForm
+            form={form}
+            setForm={setForm}
+            parents={yearData.parents}
+            quickParent={quickParent}
+            setQuickParent={setQuickParent}
+            onCreateParent={createParentForStudent}
+            onSave={saveStudent}
+            onReset={() => setForm(emptyStudent(school.id, year.id))}
+          />
         </FormPanel>
       )}
+    </section>
+  );
+}
+
+function ParentsModule({
+  data,
+  yearData,
+  school,
+  year,
+  updateData,
+}: {
+  user: AppUser;
+  data: AppData;
+  yearData: ReturnType<typeof scopeData>;
+  school: School;
+  year: SchoolYear;
+  updateData: (next: Partial<AppData>) => void;
+}) {
+  const [form, setForm] = useState<ParentProfile>(() => emptyParent(school.id, year.id));
+  const [password, setPassword] = useState("");
+  const [query, setQuery] = useState("");
+  const filteredParents = yearData.parents.filter((parent) => {
+    const text = `${parent.fullName} ${parent.email} ${parent.phone}`.toLowerCase();
+    return text.includes(query.toLowerCase());
+  });
+
+  async function saveParentProfile() {
+    if (!form.fullName || !form.email || !form.phone) return;
+
+    const isNew = form.id.startsWith("new");
+    const parentId = isNew ? uid("parent") : form.id;
+    const userId = isNew ? await createFirebaseAuthUser(form.email, password || "parent123", uid("u-parent")) : form.userId;
+    const parent: ParentProfile = {
+      ...form,
+      id: parentId,
+      userId,
+      schoolId: school.id,
+      schoolYearId: year.id,
+      status: form.status ?? "active",
+      studentIds: form.studentIds,
+    };
+    const parentUser: AppUser = {
+      id: userId,
+      name: parent.fullName,
+      email: parent.email,
+      role: "parent",
+      schoolId: school.id,
+      activeSchoolYearId: year.id,
+      parentId: parent.id,
+      studentIds: parent.studentIds,
+      demoPassword: password || undefined,
+      status: parent.status,
+      phone: parent.phone,
+      address: parent.address,
+    };
+    const nextParents = isNew ? [...data.parents, parent] : data.parents.map((item) => (item.id === parent.id ? parent : item));
+    const nextUsers = isNew ? [...data.users, parentUser] : data.users.map((item) => (item.id === userId ? { ...item, ...parentUser } : item));
+    const nextStudents = data.students.map((student) => {
+      if (parent.studentIds.includes(student.id)) return { ...student, parentId: parent.id };
+      if (student.parentId === parent.id) return { ...student, parentId: undefined };
+      return student;
+    });
+
+    updateData({ parents: nextParents, users: nextUsers, students: nextStudents });
+    setForm(emptyParent(school.id, year.id));
+    setPassword("");
+  }
+
+  function toggleParent(parent: ParentProfile) {
+    const status = parent.status === "active" ? "inactive" : "active";
+    updateData({
+      parents: data.parents.map((item) => (item.id === parent.id ? { ...item, status } : item)),
+      users: data.users.map((item) => (item.parentId === parent.id ? { ...item, status } : item)),
+    });
+  }
+
+  function editParent(parent: ParentProfile) {
+    setForm(parent);
+    setPassword("");
+  }
+
+  return (
+    <section className="grid gap-4 xl:grid-cols-[1fr_380px]">
+      <div className="min-w-0">
+        <SectionTitle title="Parents" subtitle="Comptes parents, statut et liaison unique avec les élèves." />
+        <label className="mb-3 flex items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
+          <Search className="h-4 w-4 text-slate-400" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher un parent" className="min-w-0 flex-1 outline-none" />
+        </label>
+        <div className="grid gap-3">
+          {filteredParents.map((parent) => {
+            const children = yearData.students.filter((student) => student.parentId === parent.id);
+            return (
+              <article key={parent.id} className="rounded border border-slate-200 bg-white p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="font-bold text-ink">{parent.fullName}</h2>
+                      <span className={`rounded px-2 py-1 text-xs font-semibold ${parent.status === "active" ? "bg-mint/10 text-mint" : "bg-slate-100 text-slate-500"}`}>
+                        {parent.status === "active" ? "Actif" : "Inactif"}
+                      </span>
+                    </div>
+                    <p className="text-sm text-slate-500">{parent.phone} | {parent.email}</p>
+                    <p className="text-sm text-slate-500">{children.length} enfant(s): {children.map((student) => `${student.nom} ${student.prenom}`).join(", ") || "aucun"}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <IconButton label="Modifier" onClick={() => editParent(parent)} icon={Edit3} />
+                    <button onClick={() => toggleParent(parent)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
+                      {parent.status === "active" ? "Désactiver" : "Réactiver"}
+                    </button>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </div>
+      <FormPanel title={form.id.startsWith("new") ? "Créer un parent" : "Modifier le parent"}>
+        <Field label="Nom complet" value={form.fullName} onChange={(value) => setForm({ ...form, fullName: value })} />
+        <Field label="Téléphone" value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} />
+        <Field label="Adresse e-mail" value={form.email} onChange={(value) => setForm({ ...form, email: value })} type="email" />
+        <Field label="Adresse" value={form.address} onChange={(value) => setForm({ ...form, address: value })} />
+        {form.id.startsWith("new") && <Field label="Mot de passe temporaire" value={password} onChange={setPassword} type="password" />}
+        <label className="grid gap-1 text-sm font-medium text-slate-700">
+          Élèves liés
+          <select
+            multiple
+            value={form.studentIds}
+            onChange={(event) => setForm({ ...form, studentIds: Array.from(event.target.selectedOptions).map((option) => option.value) })}
+            className="input min-h-32"
+          >
+            {yearData.students.map((student) => (
+              <option key={student.id} value={student.id}>
+                {student.nom} {student.prenom}{student.parentId && student.parentId !== form.id ? " - déjà lié" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          <button onClick={() => setForm(emptyParent(school.id, year.id))} className="secondary-button">Annuler</button>
+          <button onClick={saveParentProfile} className="primary-button"><CheckCircle2 className="h-4 w-4" /> Enregistrer</button>
+        </div>
+      </FormPanel>
     </section>
   );
 }
@@ -753,25 +2006,103 @@ function ControlModule({
   const [studentId, setStudentId] = useState(yearData.students[0]?.id ?? "");
   const [feeTypeId, setFeeTypeId] = useState(yearData.feeTypes[0]?.id ?? "");
   const [amount, setAmount] = useState("100");
-  const canPay = user.role !== "parent";
+  const [expenseAmount, setExpenseAmount] = useState("");
+  const [expenseCategory, setExpenseCategory] = useState("Fournitures");
+  const [expenseDescription, setExpenseDescription] = useState("");
+  const [amountComparator, setAmountComparator] = useState<"all" | ">=" | "<=">("all");
+  const [amountThreshold, setAmountThreshold] = useState("");
+  const canPay = user.role === "cashier";
+  const canCorrectPayments = user.role === "school_admin";
 
   const rows = yearData.students
     .map((student) => ({ student, balance: getStudentBalance(student.id, yearData.feeTypes, yearData.payments) }))
-    .filter((row) => filter === "all" || (filter === "paid" ? row.balance.remaining === 0 : row.balance.remaining > 0));
+    .filter((row) => filter === "all" || (filter === "paid" ? row.balance.remaining === 0 : row.balance.remaining > 0))
+    .filter((row) => {
+      if (amountComparator === "all" || !amountThreshold) return true;
+      return amountComparator === ">=" ? row.balance.paid >= Number(amountThreshold) : row.balance.paid <= Number(amountThreshold);
+    });
 
   function savePayment() {
     if (!studentId || !feeTypeId) return;
+    const student = data.students.find((item) => item.id === studentId);
     const payment: Payment = {
       id: uid("pay"),
       schoolId: school.id,
       schoolYearId: year.id,
       studentId,
+      parentId: student?.parentId,
       feeTypeId,
       amount: Number(amount),
       paidAt: new Date().toISOString().slice(0, 10),
+      createdAt: new Date().toISOString(),
+      receiptNumber: generateReceiptNumber(data.payments, year.name),
       cashierName: user.name,
     };
-    updateData({ payments: [...data.payments, payment] });
+    const notification: AppNotification | undefined = student?.parentId
+      ? {
+          id: uid("notif"),
+          schoolId: school.id,
+          schoolYearId: year.id,
+          parentId: student.parentId,
+          studentId,
+          type: "payment",
+          title: "Paiement enregistré",
+          body: `Un paiement de $${Number(amount).toFixed(2)} a été enregistré pour ${student.nom} ${student.prenom}.`,
+          createdAt: new Date().toISOString(),
+          read: false,
+        }
+      : undefined;
+    updateData({
+      payments: [...data.payments, payment],
+      notifications: notification ? [notification, ...data.notifications] : data.notifications,
+      auditLogs: [createAuditLog(user, school.id, year.id, "Création paiement", `${payment.receiptNumber} - $${payment.amount}`), ...data.auditLogs],
+    });
+  }
+
+  function saveExpense() {
+    if (!expenseAmount || !expenseDescription) return;
+    const expense: Expense = {
+      id: uid("expense"),
+      schoolId: school.id,
+      schoolYearId: year.id,
+      amount: Number(expenseAmount),
+      category: expenseCategory,
+      description: expenseDescription,
+      spentAt: new Date().toISOString().slice(0, 10),
+      createdAt: new Date().toISOString(),
+      cashierName: user.name,
+    };
+    updateData({
+      expenses: [expense, ...data.expenses],
+      auditLogs: [createAuditLog(user, school.id, year.id, "Création dépense", `${expense.category} - $${expense.amount}`), ...data.auditLogs],
+    });
+    setExpenseAmount("");
+    setExpenseDescription("");
+  }
+
+  function correctPayment(payment: Payment) {
+    const nextAmount = prompt("Nouveau montant du paiement", String(payment.amount));
+    if (!nextAmount) return;
+    const reason = prompt("Motif obligatoire de correction");
+    if (!reason) return;
+    updateData({
+      payments: data.payments.map((item) =>
+        item.id === payment.id ? { ...item, amount: Number(nextAmount), updatedAt: new Date().toISOString(), correctionReason: reason } : item,
+      ),
+      auditLogs: [
+        createAuditLog(user, school.id, year.id, "Correction paiement", `${payment.receiptNumber ?? payment.id}: ancien $${payment.amount}, nouveau $${Number(nextAmount)}. Motif: ${reason}`),
+        ...data.auditLogs,
+      ],
+    });
+  }
+
+  function deletePayment(payment: Payment) {
+    const reason = prompt("Motif obligatoire de suppression du paiement");
+    if (!reason) return;
+    updateData({
+      payments: data.payments.filter((item) => item.id !== payment.id),
+      auditLogs: [createAuditLog(user, school.id, year.id, "Suppression paiement", `${payment.receiptNumber ?? payment.id}: $${payment.amount}. Motif: ${reason}`), ...data.auditLogs],
+    });
   }
 
   return (
@@ -788,6 +2119,12 @@ function ControlModule({
               {item === "all" ? "Tous" : item === "paid" ? "Élèves en ordre" : "Élèves non en ordre"}
             </button>
           ))}
+          <select value={amountComparator} onChange={(event) => setAmountComparator(event.target.value as typeof amountComparator)} className="rounded border border-slate-200 bg-white px-3 py-2 text-sm">
+            <option value="all">Montant payé</option>
+            <option value=">=">Payé &gt;=</option>
+            <option value="<=">Payé &lt;=</option>
+          </select>
+          <input value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)} type="number" className="w-32 rounded border border-slate-200 bg-white px-3 py-2 text-sm" placeholder="Montant" />
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           {rows.map(({ student, balance }) => (
@@ -827,6 +2164,20 @@ function ControlModule({
             <button onClick={savePayment} className="primary-button"><Plus className="h-4 w-4" /> Enregistrer</button>
           </FormPanel>
         )}
+        {canPay && (
+          <FormPanel title="Enregistrer une dépense">
+            <select value={expenseCategory} onChange={(event) => setExpenseCategory(event.target.value)} className="input">
+              <option>Fournitures</option>
+              <option>Transport</option>
+              <option>Salaire</option>
+              <option>Maintenance</option>
+              <option>Autres</option>
+            </select>
+            <input value={expenseAmount} onChange={(event) => setExpenseAmount(event.target.value)} type="number" min="0" className="input" placeholder="Montant" />
+            <textarea value={expenseDescription} onChange={(event) => setExpenseDescription(event.target.value)} className="input min-h-24" placeholder="Description" />
+            <button onClick={saveExpense} className="primary-button"><Plus className="h-4 w-4" /> Enregistrer</button>
+          </FormPanel>
+        )}
         <FormPanel title="Historique des paiements">
           <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1 scrollbar-thin">
             {yearData.payments.map((payment) => {
@@ -837,14 +2188,89 @@ function ControlModule({
                 <div key={payment.id} className="rounded border border-slate-100 p-3 text-sm">
                   <div className="flex items-center justify-between gap-2">
                     <p className="font-semibold text-ink">{student.nom} {student.prenom}</p>
-                    <button onClick={() => generateReceiptPdf(payment, student, fee, school)} className="rounded bg-slate-100 p-2" title="Télécharger le reçu PDF">
-                      <Download className="h-4 w-4" />
-                    </button>
+                    <div className="flex gap-1">
+                      <button onClick={() => generateReceiptPdf(payment, student, fee, school)} className="rounded bg-slate-100 p-2" title="Télécharger le reçu PDF">
+                        <Download className="h-4 w-4" />
+                      </button>
+                      {canCorrectPayments && <button onClick={() => correctPayment(payment)} className="rounded bg-slate-100 p-2" title="Corriger"><Edit3 className="h-4 w-4" /></button>}
+                      {canCorrectPayments && <button onClick={() => deletePayment(payment)} className="rounded bg-red-50 p-2 text-red-700" title="Supprimer"><Trash2 className="h-4 w-4" /></button>}
+                    </div>
                   </div>
                   <p className="text-slate-500">{fee.name} | ${payment.amount} | {payment.paidAt}</p>
                 </div>
               );
             })}
+          </div>
+        </FormPanel>
+      </div>
+    </section>
+  );
+}
+
+function ReportsModule({
+  yearData,
+  school,
+  year,
+}: {
+  user: AppUser;
+  data: AppData;
+  yearData: ReturnType<typeof scopeData>;
+  school: School;
+  year: SchoolYear;
+}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [startDate, setStartDate] = useState(today);
+  const [endDate, setEndDate] = useState(today);
+  const payments = yearData.payments.filter((payment) => payment.paidAt >= startDate && payment.paidAt <= endDate);
+  const expenses = yearData.expenses.filter((expense) => expense.spentAt >= startDate && expense.spentAt <= endDate);
+  const paid = payments.reduce((sum, payment) => sum + payment.amount, 0);
+  const spent = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+  const expected = yearData.students.length * yearData.feeTypes.reduce((sum, fee) => sum + fee.amount, 0);
+  const recovery = expected > 0 ? Math.round((paid / expected) * 100) : 0;
+
+  return (
+    <section className="grid gap-4">
+      <SectionTitle title="Rapports" subtitle="Rapports journaliers et globaux limités à l'année scolaire sélectionnée." />
+      <div className="rounded border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+          <Field label="Date début" value={startDate} onChange={setStartDate} type="date" />
+          <Field label="Date fin" value={endDate} onChange={setEndDate} type="date" />
+          <button onClick={() => exportReportPdf(school, year, startDate, endDate, paid, spent, recovery, payments, expenses)} className="primary-button self-end">
+            <Download className="h-4 w-4" /> Export PDF
+          </button>
+        </div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Metric label="Paiements" value={`$${paid.toFixed(2)}`} />
+        <Metric label="Dépenses" value={`$${spent.toFixed(2)}`} />
+        <Metric label="Solde net" value={`$${(paid - spent).toFixed(2)}`} />
+        <Metric label="Recouvrement période" value={`${recovery}%`} />
+      </div>
+      <div className="grid gap-4 xl:grid-cols-2">
+        <FormPanel title="Paiements">
+          <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+            {payments.map((payment) => {
+              const student = yearData.students.find((item) => item.id === payment.studentId);
+              return (
+                <div key={payment.id} className="rounded bg-slate-50 p-3 text-sm">
+                  <p className="font-semibold text-ink">{student ? `${student.nom} ${student.prenom}` : "Élève"}</p>
+                  <p className="text-slate-500">${payment.amount} | {payment.paidAt} | {payment.cashierName}</p>
+                </div>
+              );
+            })}
+            {payments.length === 0 && <p className="text-sm text-slate-500">Aucun paiement sur cette période.</p>}
+          </div>
+        </FormPanel>
+        <FormPanel title="Dépenses">
+          <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+            {expenses.map((expense) => (
+              <div key={expense.id} className="rounded bg-slate-50 p-3 text-sm">
+                <p className="font-semibold text-ink">{expense.category}</p>
+                <p className="text-slate-500">${expense.amount} | {expense.spentAt} | {expense.cashierName}</p>
+                <p className="text-slate-500">{expense.description}</p>
+              </div>
+            ))}
+            {expenses.length === 0 && <p className="text-sm text-slate-500">Aucune dépense sur cette période.</p>}
           </div>
         </FormPanel>
       </div>
@@ -873,12 +2299,14 @@ function MessagesModule({
   const canSend = user.role !== "parent";
 
   function sendMessage() {
+    const threadParentId = recipientParentId !== "all" ? recipientParentId : undefined;
     const message: Message = {
       id: uid("msg"),
       schoolId: school.id,
       schoolYearId: year.id,
       senderId: user.id,
       recipientParentId,
+      threadParentId,
       subject,
       body,
       createdAt: new Date().toISOString(),
@@ -909,14 +2337,31 @@ function MessagesModule({
         <SectionTitle title="Messages" subtitle={user.role === "parent" ? "Messages reçus par le parent connecté." : "Historique des messages envoyés."} />
         <div className="space-y-3">
           {yearData.messages.map((message) => {
-            const recipient = message.recipientParentId === "all" ? "Tous les parents" : yearData.parents.find((parent) => parent.id === message.recipientParentId)?.fullName;
+            const recipient =
+              message.recipientParentId === "all"
+                ? "Tous les parents"
+                : message.recipientParentId === "school"
+                  ? "École"
+                  : yearData.parents.find((parent) => parent.id === message.recipientParentId)?.fullName;
+            const threadParent = message.threadParentId ? yearData.parents.find((parent) => parent.id === message.threadParentId) : undefined;
             return (
               <article key={message.id} className="rounded border border-slate-200 bg-white p-4">
                 <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <h3 className="font-bold text-ink">{message.subject}</h3>
-                    <p className="text-xs text-slate-500">{recipient} | {new Date(message.createdAt).toLocaleString("fr-FR")}</p>
+                    <p className="text-xs text-slate-500">{recipient}{threadParent ? ` | ${threadParent.fullName}` : ""} | {new Date(message.createdAt).toLocaleString("fr-FR")}</p>
                   </div>
+                  {message.recipientParentId === "school" && threadParent && (
+                    <button
+                      onClick={() => {
+                        setRecipientParentId(threadParent.id);
+                        setSubject(`Re: ${message.subject}`);
+                      }}
+                      className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700"
+                    >
+                      Répondre
+                    </button>
+                  )}
                 </div>
                 <p className="mt-3 text-sm leading-6 text-slate-700">{message.body}</p>
               </article>
@@ -979,8 +2424,15 @@ function MenuModule({
       schoolId: school.id,
       parentId: parent.id,
       studentIds: parent.studentIds,
+      status: "active",
+      phone: parent.phone,
+      address: parent.address,
     };
-    updateData({ parents: [...data.parents, parent], users: [...data.users, parentUser] });
+    updateData({
+      parents: [...data.parents, parent],
+      users: [...data.users, parentUser],
+      students: data.students.map((student) => (parent.studentIds.includes(student.id) ? { ...student, parentId: parent.id } : student)),
+    });
     setParentForm(emptyParent(school.id, selectedYear.id));
   }
 
@@ -1082,17 +2534,25 @@ function MenuModule({
 function StudentForm({
   form,
   setForm,
+  parents,
+  quickParent,
+  setQuickParent,
+  onCreateParent,
   onSave,
   onReset,
 }: {
   form: Student;
   setForm: (student: Student) => void;
+  parents: ParentProfile[];
+  quickParent: { fullName: string; phone: string; email: string; password: string };
+  setQuickParent: (parent: { fullName: string; phone: string; email: string; password: string }) => void;
+  onCreateParent: () => void;
   onSave: () => void;
   onReset: () => void;
 }) {
   return (
     <>
-      <Field label="Matricule" value={form.matricule} onChange={(value) => setForm({ ...form, matricule: value })} />
+      <Field label="Matricule" value={form.matricule || "Généré automatiquement"} onChange={() => undefined} disabled />
       <Field label="Nom" value={form.nom} onChange={(value) => setForm({ ...form, nom: value })} />
       <Field label="Postnom" value={form.postnom} onChange={(value) => setForm({ ...form, postnom: value })} />
       <Field label="Prénom" value={form.prenom} onChange={(value) => setForm({ ...form, prenom: value })} />
@@ -1107,6 +2567,25 @@ function StudentForm({
       <Field label="Adresse" value={form.address} onChange={(value) => setForm({ ...form, address: value })} />
       <Field label="Téléphone" value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} />
       <label className="grid gap-1 text-sm font-medium text-slate-700">
+        Parent
+        <select value={form.parentId ?? ""} onChange={(event) => setForm({ ...form, parentId: event.target.value || undefined })} className="input">
+          <option value="">Aucun parent</option>
+          {parents.map((parent) => (
+            <option key={parent.id} value={parent.id}>{parent.fullName} - {parent.phone}</option>
+          ))}
+        </select>
+      </label>
+      <div className="rounded border border-slate-100 bg-slate-50 p-3">
+        <p className="mb-2 text-sm font-semibold text-ink">Créer un parent sans quitter la fiche</p>
+        <div className="grid gap-2">
+          <input value={quickParent.fullName} onChange={(event) => setQuickParent({ ...quickParent, fullName: event.target.value })} className="input" placeholder="Nom complet" />
+          <input value={quickParent.phone} onChange={(event) => setQuickParent({ ...quickParent, phone: event.target.value })} className="input" placeholder="Téléphone" />
+          <input value={quickParent.email} onChange={(event) => setQuickParent({ ...quickParent, email: event.target.value })} className="input" placeholder="Email" />
+          <input value={quickParent.password} onChange={(event) => setQuickParent({ ...quickParent, password: event.target.value })} type="password" className="input" placeholder="Mot de passe temporaire" />
+          <button onClick={onCreateParent} className="secondary-button" type="button"><Plus className="h-4 w-4" /> Créer et sélectionner</button>
+        </div>
+      </div>
+      <label className="grid gap-1 text-sm font-medium text-slate-700">
         Classe
         <select value={form.className} onChange={(event) => setForm({ ...form, className: event.target.value as SchoolClass })} className="input">
           {CLASSES.map((className) => (
@@ -1114,6 +2593,12 @@ function StudentForm({
           ))}
         </select>
       </label>
+      {getClassSection(form.className) === "secondaire" && (
+        <label className="grid gap-1 text-sm font-medium text-slate-700">
+          Option
+          <input value={form.option ?? ""} onChange={(event) => setForm({ ...form, option: event.target.value })} className="input" placeholder="Littéraire, Sciences, Pédagogique..." />
+        </label>
+      )}
       <Field label="Photo URL" value={form.photoUrl ?? ""} onChange={(value) => setForm({ ...form, photoUrl: value })} />
       <div className="grid grid-cols-2 gap-2">
         <button onClick={onReset} className="secondary-button">Réinitialiser</button>
@@ -1121,6 +2606,76 @@ function StudentForm({
       </div>
     </>
   );
+}
+
+function getClassSection(className: SchoolClass): SchoolSection {
+  if (className.includes("Maternelle")) return "maternelle";
+  if (className.includes("Humanité")) return "secondaire";
+  return "primaire";
+}
+
+function generateMatricule(students: Student[], yearName: string, schoolId: string, schoolYearId: string) {
+  const year = yearName.slice(2, 4);
+  const count = students.filter((student) => student.schoolId === schoolId && student.schoolYearId === schoolYearId).length + 1;
+  return `ACD-${year}-${String(count).padStart(4, "0")}`;
+}
+
+function generateReceiptNumber(payments: Payment[], yearName: string) {
+  const year = yearName.slice(0, 4);
+  return `REC-${year}-${String(payments.length + 1).padStart(4, "0")}`;
+}
+
+function createAuditLog(user: AppUser, schoolId: string, schoolYearId: string, action: string, details: string): AuditLog {
+  return {
+    id: uid("audit"),
+    schoolId,
+    schoolYearId,
+    actorId: user.id,
+    actorName: user.name,
+    action,
+    details,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+async function exportReportPdf(
+  school: School,
+  year: SchoolYear,
+  startDate: string,
+  endDate: string,
+  paid: number,
+  spent: number,
+  recovery: number,
+  payments: Payment[],
+  expenses: Expense[],
+) {
+  const { default: jsPDF } = await import("jspdf");
+  const doc = new jsPDF();
+  doc.setFontSize(16);
+  doc.text(`Rapport Acadéa - ${school.name}`, 14, 18);
+  doc.setFontSize(10);
+  doc.text(`Année scolaire: ${year.name}`, 14, 28);
+  doc.text(`Période: ${startDate} au ${endDate}`, 14, 34);
+  doc.text(`Paiements: $${paid.toFixed(2)} | Dépenses: $${spent.toFixed(2)} | Solde: $${(paid - spent).toFixed(2)} | Recouvrement: ${recovery}%`, 14, 44);
+  let y = 58;
+  doc.setFontSize(12);
+  doc.text("Paiements", 14, y);
+  y += 8;
+  payments.slice(0, 24).forEach((payment) => {
+    doc.setFontSize(9);
+    doc.text(`${payment.paidAt} - ${payment.cashierName} - $${payment.amount.toFixed(2)} - ${payment.receiptNumber ?? payment.id}`, 14, y);
+    y += 6;
+  });
+  y += 4;
+  doc.setFontSize(12);
+  doc.text("Dépenses", 14, y);
+  y += 8;
+  expenses.slice(0, 24).forEach((expense) => {
+    doc.setFontSize(9);
+    doc.text(`${expense.spentAt} - ${expense.category} - $${expense.amount.toFixed(2)} - ${expense.description}`, 14, y);
+    y += 6;
+  });
+  doc.save(`rapport-${startDate}-${endDate}.pdf`);
 }
 
 function emptyStudent(schoolId: string, schoolYearId: string): Student {
@@ -1137,6 +2692,8 @@ function emptyStudent(schoolId: string, schoolYearId: string): Student {
     address: "",
     phone: "",
     className: "1ère Primaire",
+    section: "primaire",
+    status: "ACTIVE",
     photoUrl: "",
   };
 }
@@ -1152,6 +2709,7 @@ function emptyParent(schoolId: string, schoolYearId: string): ParentProfile {
     email: "",
     address: "",
     studentIds: [],
+    status: "active",
   };
 }
 
@@ -1164,7 +2722,7 @@ function SectionTitle({ title, subtitle }: { title: string; subtitle: string }) 
   );
 }
 
-function FormPanel({ title, children }: { title: string; children: React.ReactNode }) {
+function FormPanel({ title, children }: { title: string; children: ReactNode }) {
   return (
     <aside className="rounded border border-slate-200 bg-white p-4 shadow-sm">
       <h2 className="mb-3 text-lg font-bold text-ink">{title}</h2>

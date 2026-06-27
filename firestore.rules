@@ -13,6 +13,10 @@ service cloud.firestore {
       return request.auth.token.schoolId;
     }
 
+    function tenantParentId() {
+      return request.auth.token.parentId;
+    }
+
     function superAdmin() {
       return signedIn() && role() == "super_admin";
     }
@@ -25,6 +29,13 @@ service cloud.firestore {
 
     function schoolAdmin() {
       return signedIn() && role() == "school_admin" && tenantSchoolId() is string;
+    }
+
+    function parentUser() {
+      return signedIn()
+        && role() == "parent"
+        && tenantSchoolId() is string
+        && tenantParentId() is string;
     }
 
     function sameTenantResource() {
@@ -59,9 +70,13 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if signedIn() && request.auth.uid == userId;
-      allow create: if superAdmin()
-        && request.resource.data.role == "school_admin"
-        && request.resource.data.schoolId is string;
+      allow create: if (superAdmin()
+          && request.resource.data.role == "school_admin"
+          && request.resource.data.schoolId is string)
+        || (schoolAdmin()
+          && request.resource.data.role == "parent"
+          && request.resource.data.schoolId == tenantSchoolId()
+          && request.resource.data.parentId is string);
       allow update: if signedIn()
         && request.auth.uid == userId
         && request.resource.data.role == resource.data.role
@@ -77,26 +92,45 @@ service cloud.firestore {
     }
 
     match /students/{studentId} {
-      allow read: if sameTenantResource();
+      allow read: if (role() in ["school_admin", "cashier"] && sameTenantResource())
+        || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.parentId == tenantParentId());
       allow create: if schoolAdmin() && sameTenantCreate();
       allow update: if schoolAdmin() && sameTenantUpdate() && sameYearUpdate();
-      allow delete: if schoolAdmin() && sameTenantResource();
+      allow delete: if false;
     }
 
     match /parents/{parentId} {
-      allow read: if sameTenantResource();
+      allow read: if (role() in ["school_admin", "cashier"] && sameTenantResource())
+        || (parentUser() && resource.data.schoolId == tenantSchoolId() && parentId == tenantParentId());
       allow create: if schoolAdmin() && sameTenantCreate();
       allow update: if schoolAdmin() && sameTenantUpdate() && sameYearUpdate();
       allow delete: if schoolAdmin() && sameTenantResource();
     }
 
     match /payments/{paymentId} {
-      allow read: if sameTenantResource();
+      allow read: if (role() in ["school_admin", "cashier"] && sameTenantResource())
+        || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.parentId == tenantParentId());
       allow create: if signedIn()
-        && role() in ["school_admin", "cashier"]
+        && role() == "cashier"
         && sameTenantCreate();
       allow update: if schoolAdmin() && sameTenantUpdate() && sameYearUpdate();
       allow delete: if schoolAdmin() && sameTenantResource();
+    }
+
+    match /expenses/{expenseId} {
+      allow read: if role() in ["school_admin", "cashier"] && sameTenantResource();
+      allow create: if signedIn()
+        && role() == "cashier"
+        && sameTenantCreate();
+      allow update, delete: if schoolAdmin() && sameTenantResource();
+    }
+
+    match /auditLogs/{auditLogId} {
+      allow read: if schoolAdmin() && sameTenantResource();
+      allow create: if signedIn()
+        && role() in ["school_admin", "cashier"]
+        && sameTenantCreate();
+      allow update, delete: if false;
     }
 
     match /feeTypes/{feeTypeId} {
@@ -107,11 +141,30 @@ service cloud.firestore {
     }
 
     match /messages/{messageId} {
-      allow read: if sameTenantResource();
+      allow read: if (role() in ["school_admin", "cashier"] && sameTenantResource())
+        || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.threadParentId == tenantParentId());
+      allow create: if (signedIn()
+          && role() in ["school_admin", "cashier"]
+          && sameTenantCreate())
+        || (parentUser()
+          && request.resource.data.schoolId == tenantSchoolId()
+          && request.resource.data.threadParentId == tenantParentId()
+          && request.resource.data.recipientParentId == "school");
+      allow update, delete: if schoolAdmin() && sameTenantResource();
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if (role() in ["school_admin", "cashier"] && sameTenantResource())
+        || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.parentId == tenantParentId());
       allow create: if signedIn()
         && role() in ["school_admin", "cashier"]
         && sameTenantCreate();
-      allow update, delete: if schoolAdmin() && sameTenantResource();
+      allow update: if parentUser()
+        && resource.data.schoolId == tenantSchoolId()
+        && resource.data.parentId == tenantParentId()
+        && request.resource.data.parentId == resource.data.parentId
+        && request.resource.data.schoolId == resource.data.schoolId;
+      allow delete: if false;
     }
 
     match /{document=**} {

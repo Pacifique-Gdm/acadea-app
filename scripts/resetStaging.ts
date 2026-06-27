@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, setDoc } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDocs, getFirestore, setDoc } from "firebase/firestore";
 import { demoData } from "../src/data/demoData";
 import { stagingClasses, stagingTeachers } from "./stagingSeedData";
 
@@ -12,15 +12,50 @@ const firebaseConfig = {
   appId: process.env.VITE_FIREBASE_APP_ID,
 };
 
-if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
-  throw new Error("Renseignez les variables VITE_FIREBASE_* avant d'exécuter npm run seed.");
+const projectId = firebaseConfig.projectId ?? "";
+const allowedProjectName = /staging|preview|test|demo/i.test(projectId);
+const resetAllowed = process.env.ACADEA_ALLOW_STAGING_RESET === "true";
+
+if (!firebaseConfig.apiKey || !projectId) {
+  throw new Error("Renseignez les variables VITE_FIREBASE_* du projet staging avant le reset.");
+}
+
+if (!allowedProjectName || !resetAllowed) {
+  throw new Error(
+    "Reset refusé. Utilisez un projectId staging/preview/test/demo et définissez ACADEA_ALLOW_STAGING_RESET=true.",
+  );
 }
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
+const collections = [
+  "users",
+  "schools",
+  "schoolYears",
+  "students",
+  "classes",
+  "teachers",
+  "parents",
+  "feeTypes",
+  "payments",
+  "expenses",
+  "messages",
+  "notifications",
+  "auditLogs",
+] as const;
+
+async function clearCollection(collectionName: string) {
+  const snapshot = await getDocs(collection(db, collectionName));
+  await Promise.all(snapshot.docs.map((item) => deleteDoc(item.ref)));
+}
+
 async function seedCollection<T extends { id: string }>(collectionName: string, items: T[]) {
   await Promise.all(items.map((item) => setDoc(doc(db, collectionName, item.id), item)));
+}
+
+for (const collectionName of collections) {
+  await clearCollection(collectionName);
 }
 
 await seedCollection("users", demoData.users);
@@ -37,4 +72,4 @@ await seedCollection("messages", demoData.messages);
 await seedCollection("notifications", demoData.notifications);
 await seedCollection("auditLogs", demoData.auditLogs);
 
-console.log("Données de démonstration Acadéa importées dans Firestore.");
+console.log(`Base de test réinitialisée et reseedée pour le projet Firebase "${projectId}".`);

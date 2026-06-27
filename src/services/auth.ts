@@ -1,9 +1,12 @@
 ﻿import { doc, getDoc } from "firebase/firestore";
-import { auth, db, firebaseReady } from "../firebase";
+import { initializeApp } from "firebase/app";
+import { auth, db, firebaseConfig, firebaseReady } from "../firebase";
 import type { AppData, AppUser, Role } from "../types";
 
 interface FirebaseAuthModule {
   signInWithEmailAndPassword: (authInstance: unknown, email: string, password: string) => Promise<{ user: { uid: string; email: string | null } }>;
+  createUserWithEmailAndPassword: (authInstance: unknown, email: string, password: string) => Promise<{ user: { uid: string; email: string | null } }>;
+  getAuth: (appInstance: unknown) => unknown;
   signOut: (authInstance: unknown) => Promise<void>;
 }
 
@@ -37,16 +40,36 @@ export async function signOutUser() {
   await authModule.signOut(auth);
 }
 
+export async function createFirebaseAuthUser(email: string, password: string, fallbackId: string) {
+  if (!firebaseReady) return fallbackId;
+
+  const authModule = (await import("firebase/auth")) as unknown as FirebaseAuthModule;
+  const secondaryApp = initializeApp(firebaseConfig, `parent-create-${crypto.randomUUID()}`);
+  const secondaryAuth = authModule.getAuth(secondaryApp);
+  const credential = await authModule.createUserWithEmailAndPassword(secondaryAuth, email, password);
+  await authModule.signOut(secondaryAuth);
+
+  return credential.user.uid;
+}
+
 export function canEnterRoute(user: AppUser | null, route: string) {
   if (!user) return false;
   if (route === "/platform") return user.role === "super_admin";
-  if (route === "/dashboard") return user.role === "school_admin" && Boolean(user.schoolId);
+  if (route === "/dashboard") return ["school_admin", "cashier"].includes(user.role) && Boolean(user.schoolId);
 
   return false;
 }
 
 export function validateSchoolAdmin(user: AppUser) {
   return user.role === "school_admin" && Boolean(user.schoolId);
+}
+
+export function validateSchoolStaff(user: AppUser) {
+  return ["school_admin", "cashier"].includes(user.role) && Boolean(user.schoolId);
+}
+
+export function validateParent(user: AppUser) {
+  return user.role === "parent" && Boolean(user.schoolId) && Boolean(user.parentId) && user.status !== "inactive";
 }
 
 export function validatePlatformAdmin(user: AppUser) {

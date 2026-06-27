@@ -12,9 +12,17 @@ export type SchoolClass =
   | "6ème Primaire"
   | "7ème CTEB"
   | "8ème CTEB"
+  | "1ère Humanité"
+  | "2ème Humanité"
+  | "3ème Humanité"
+  | "4ème Humanité"
   | "Humanités";
 
-export type FeeKind = "Minerval" | "Bulletin" | "Examen" | "Autres";
+export type FeeKind = "Minerval" | "Bulletin" | "Examen" | "Scolaire" | "Inscription" | "Uniforme" | "Transport" | "Autres";
+export type StudentStatus = "ACTIVE" | "TRANSFERRED" | "DROPPED" | "DECEASED";
+export type StudentExitReason = "Renvoi définitif" | "Décès" | "Abandon" | "Autre";
+export type SchoolSection = "maternelle" | "primaire" | "secondaire";
+export type HumanityOption = "Littéraire" | "Sciences" | "Pédagogique" | "Commerciale" | string;
 
 export interface AppUser {
   id: string;
@@ -26,6 +34,11 @@ export interface AppUser {
   demoPassword?: string;
   parentId?: string;
   studentIds?: string[];
+  status?: "active" | "inactive";
+  phone?: string;
+  address?: string;
+  createdAt?: string;
+  lastLoginAt?: string;
 }
 
 export interface School {
@@ -36,9 +49,14 @@ export interface School {
   email: string;
   currency: "USD";
   logoUrl?: string;
+  acronym?: string;
+  educationLevels?: string[];
+  schoolType?: "Maternelle" | "Primaire" | "Secondaire" | "Mixte";
+  createdAt?: string;
   activeSchoolYearId: string;
   status: "active" | "suspended";
   subscriptionPlan: "Starter" | "Standard" | "Premium";
+  subscriptionStatus?: "active" | "suspended" | "expired";
   subscriptionAmount: number;
 }
 
@@ -64,7 +82,14 @@ export interface Student {
   address: string;
   phone: string;
   className: SchoolClass;
+  section?: SchoolSection;
+  option?: HumanityOption;
+  status?: StudentStatus;
+  exitReason?: StudentExitReason;
+  exitReasonDetails?: string;
+  deletedAt?: string;
   photoUrl?: string;
+  parentId?: string;
 }
 
 export interface ParentProfile {
@@ -77,6 +102,7 @@ export interface ParentProfile {
   email: string;
   address: string;
   studentIds: string[];
+  status: "active" | "inactive";
 }
 
 export interface FeeType {
@@ -92,11 +118,28 @@ export interface Payment {
   schoolId: string;
   schoolYearId: string;
   studentId: string;
+  parentId?: string;
   feeTypeId: string;
   amount: number;
   paidAt: string;
+  createdAt?: string;
+  receiptNumber?: string;
   cashierName: string;
   note?: string;
+  updatedAt?: string;
+  correctionReason?: string;
+}
+
+export interface Expense {
+  id: string;
+  schoolId: string;
+  schoolYearId: string;
+  amount: number;
+  category: string;
+  description: string;
+  spentAt: string;
+  createdAt: string;
+  cashierName: string;
 }
 
 export interface Message {
@@ -104,9 +147,34 @@ export interface Message {
   schoolId: string;
   schoolYearId: string;
   senderId: string;
-  recipientParentId: string | "all";
+  recipientParentId: string | "all" | "school";
+  threadParentId?: string;
   subject: string;
   body: string;
+  createdAt: string;
+}
+
+export interface AppNotification {
+  id: string;
+  schoolId: string;
+  schoolYearId: string;
+  parentId: string;
+  studentId: string;
+  type: "payment";
+  title: string;
+  body: string;
+  createdAt: string;
+  read: boolean;
+}
+
+export interface AuditLog {
+  id: string;
+  schoolId?: string;
+  schoolYearId?: string;
+  actorId: string;
+  actorName: string;
+  action: string;
+  details?: string;
   createdAt: string;
 }
 
@@ -118,7 +186,10 @@ export interface AppData {
   parents: ParentProfile[];
   feeTypes: FeeType[];
   payments: Payment[];
+  expenses: Expense[];
   messages: Message[];
+  notifications: AppNotification[];
+  auditLogs: AuditLog[];
 }
 
 export const CLASSES: SchoolClass[] = [
@@ -133,7 +204,11 @@ export const CLASSES: SchoolClass[] = [
   "6ème Primaire",
   "7ème CTEB",
   "8ème CTEB",
+  "1ère Humanité",
+  "2ème Humanité",
+  "3ème Humanité",
+  "4ème Humanité",
   "Humanités",
 ];
 
-export const FEE_KINDS: FeeKind[] = ["Minerval", "Bulletin", "Examen", "Autres"];
+export const FEE_KINDS: FeeKind[] = ["Minerval", "Bulletin", "Examen", "Scolaire", "Inscription", "Uniforme", "Transport", "Autres"];

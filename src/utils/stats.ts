@@ -19,6 +19,7 @@ export function buildStats(students: Student[], parents: ParentProfile[], feeTyp
     boys: students.filter((student) => student.sexe === "M").length,
     girls: students.filter((student) => student.sexe === "F").length,
     paid,
+    expected,
     remaining: Math.max(expected - paid, 0),
     classes: new Set(students.map((student) => student.className)).size,
   };

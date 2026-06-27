@@ -1,0 +1,126 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model School {
+  id        String   @id @default(cuid())
+  name      String
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+
+  users         User[]
+  academicYears AcademicYear[]
+  students      Student[]
+  payments      Payment[]
+  expenses      Expense[]
+  auditLogs     AuditLog[]
+}
+
+model AcademicYear {
+  id        String   @id @default(cuid())
+  schoolId  String
+  name      String
+  status    String   @default("draft")
+  startsAt  DateTime
+  endsAt    DateTime
+
+  school    School   @relation(fields: [schoolId], references: [id])
+  students  Student[]
+  payments  Payment[]
+  expenses  Expense[]
+  auditLogs AuditLog[]
+
+  @@index([schoolId])
+}
+
+model User {
+  id        String   @id
+  schoolId  String?
+  role      String
+  name      String
+  email     String   @unique
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+
+  school School? @relation(fields: [schoolId], references: [id])
+}
+
+model Student {
+  id             String   @id @default(cuid())
+  schoolId       String
+  academicYearId String
+  matricule      String
+  firstName      String
+  lastName       String
+  sex            String
+  className      String
+  section        String
+  status         String   @default("ACTIVE")
+  createdAt      DateTime @default(now())
+
+  school       School       @relation(fields: [schoolId], references: [id])
+  academicYear AcademicYear @relation(fields: [academicYearId], references: [id])
+  payments     Payment[]
+
+  @@unique([schoolId, academicYearId, matricule])
+  @@index([schoolId, academicYearId])
+}
+
+model Payment {
+  id             String   @id @default(cuid())
+  schoolId       String
+  academicYearId String
+  studentId      String
+  amount         Decimal
+  feeType        String
+  receiptNumber  String
+  cashierName    String
+  createdAt      DateTime @default(now())
+
+  school       School       @relation(fields: [schoolId], references: [id])
+  academicYear AcademicYear @relation(fields: [academicYearId], references: [id])
+  student      Student      @relation(fields: [studentId], references: [id])
+
+  @@index([schoolId])
+  @@index([academicYearId])
+  @@index([createdAt])
+  @@index([schoolId, academicYearId, createdAt])
+}
+
+model Expense {
+  id             String   @id @default(cuid())
+  schoolId       String
+  academicYearId String
+  amount         Decimal
+  category       String
+  description    String
+  createdAt      DateTime @default(now())
+
+  school       School       @relation(fields: [schoolId], references: [id])
+  academicYear AcademicYear @relation(fields: [academicYearId], references: [id])
+
+  @@index([schoolId])
+  @@index([academicYearId])
+  @@index([createdAt])
+  @@index([schoolId, academicYearId, createdAt])
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  userId         String
+  schoolId       String
+  academicYearId String
+  action         String
+  details        Json?
+  timestamp      DateTime @default(now())
+
+  school       School       @relation(fields: [schoolId], references: [id])
+  academicYear AcademicYear @relation(fields: [academicYearId], references: [id])
+
+  @@index([schoolId, academicYearId, timestamp])
+}
