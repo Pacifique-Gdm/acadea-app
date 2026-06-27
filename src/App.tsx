@@ -197,14 +197,40 @@ export default function App() {
       const schoolStaffAccess = validateSchoolStaff(nextUser);
       const parentAccess = validateParent(nextUser);
       if (!schoolStaffAccess && !parentAccess) {
+        const authDiagnostic = (nextUser as AppUser & { __authDiagnostic?: Record<string, unknown> }).__authDiagnostic ?? {};
+        const rawRole = authDiagnostic.rawRole ?? nextUser.role;
+        const schoolStaffReasons = {
+          roleAccepted: ["school_admin", "cashier"].includes(nextUser.role),
+          hasSchoolId: Boolean(nextUser.schoolId),
+        };
+        const parentReasons = {
+          roleAccepted: nextUser.role === "parent",
+          hasSchoolId: Boolean(nextUser.schoolId),
+          hasParentId: Boolean(nextUser.parentId),
+          statusActive: nextUser.status !== "inactive",
+        };
         console.error("[Acadéa auth] Accès dashboard refusé.", {
-          ...(nextUser as AppUser & { __authDiagnostic?: Record<string, unknown> }).__authDiagnostic,
-          roleAfterNormalization: nextUser.role,
+          firebaseUid: authDiagnostic.firebaseUid ?? nextUser.id,
+          email: authDiagnostic.email ?? nextUser.email,
+          firestoreDocument: authDiagnostic.firestoreDocument ?? null,
+          customClaims: authDiagnostic.customClaims ?? null,
+          rawRole,
+          normalizedRole: nextUser.role,
+          schoolId: nextUser.schoolId,
+          tenantId: authDiagnostic.tenantId,
           validateSchoolStaff: schoolStaffAccess,
           validateParent: parentAccess,
-          missingFields: {
-            schoolId: !nextUser.schoolId,
-            parentId: nextUser.role === "parent" && !nextUser.parentId,
+          validationReasons: {
+            validateSchoolStaff: schoolStaffReasons,
+            validateParent: parentReasons,
+          },
+          exactFailure: {
+            validateSchoolStaff: Object.entries(schoolStaffReasons)
+              .filter(([, passed]) => !passed)
+              .map(([reason]) => reason),
+            validateParent: Object.entries(parentReasons)
+              .filter(([, passed]) => !passed)
+              .map(([reason]) => reason),
           },
         });
         throw new Error("Votre compte ne peut pas accéder à cet espace.");
