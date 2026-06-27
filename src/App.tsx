@@ -351,16 +351,6 @@ export default function App() {
     if (!notificationsOpen) markNotificationsRead();
   }
 
-  function openNotification(notification: AppNotification) {
-    markNotificationsRead(notification.id);
-    setNotificationsOpen(false);
-    if (notification.type === "message") {
-      setActiveTab("messages");
-      saveSession(user, currentYear.id, "messages");
-      navigate("/dashboard");
-    }
-  }
-
   if (validateParent(user)) {
     return <ParentPortal user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} onRefresh={refreshData} onLogout={logout} />;
   }
@@ -372,12 +362,11 @@ export default function App() {
         user={user}
         school={school}
         year={selectedYear}
-        notifications={yearData.notifications}
+        messages={yearData.messages}
         unreadNotifications={unreadNotifications}
         notificationsOpen={notificationsOpen}
         onRefresh={refreshData}
         onToggleNotifications={openNotifications}
-        onOpenNotification={openNotification}
         onLogout={logout}
       />
 
@@ -688,23 +677,21 @@ function Header({
   user,
   school,
   year,
-  notifications,
+  messages,
   unreadNotifications,
   notificationsOpen,
   onRefresh,
   onToggleNotifications,
-  onOpenNotification,
   onLogout,
 }: {
   user: AppUser;
   school: School;
   year: SchoolYear;
-  notifications: AppNotification[];
+  messages: Message[];
   unreadNotifications: number;
   notificationsOpen: boolean;
   onRefresh: () => void;
   onToggleNotifications: () => void;
-  onOpenNotification: (notification: AppNotification) => void;
   onLogout: () => void;
 }) {
   return (
@@ -719,11 +706,12 @@ function Header({
             </div>
           </div>
           <div className="relative flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="flex items-center justify-end gap-3">
             <span className="rounded bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600">Année scolaire : {year.name}</span>
-            <button onClick={onRefresh} className="inline-flex items-center justify-center gap-2 rounded border border-slate-200 px-3 py-2 text-sm" title="Actualiser">
-              <RefreshCw className="h-4 w-4" /> Actualiser
+            <button onClick={onRefresh} className="inline-flex h-8 w-8 items-center justify-center text-slate-500 transition hover:text-ink" title="Actualiser" aria-label="Actualiser">
+              <RefreshCw className="h-4 w-4" />
             </button>
-            <button onClick={onToggleNotifications} className="relative inline-flex items-center justify-center rounded border border-slate-200 px-3 py-2 text-sm" title="Notifications">
+            <button onClick={onToggleNotifications} className="relative inline-flex h-8 w-8 items-center justify-center text-slate-500 transition hover:text-ink" title="Boîte à Messagerie" aria-label="Boîte à Messagerie">
               <Bell className="h-4 w-4" />
               {unreadNotifications > 0 && (
                 <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-600 px-1 text-center text-[11px] font-bold text-white">
@@ -731,23 +719,21 @@ function Header({
                 </span>
               )}
             </button>
+            </div>
             <button onClick={onLogout} className="inline-flex items-center justify-center gap-2 rounded border border-slate-200 px-3 py-2 text-sm">
               <LogOut className="h-4 w-4" /> Sortir
             </button>
             {notificationsOpen && (
               <div className="absolute right-0 top-full z-30 mt-2 w-full min-w-72 rounded border border-slate-200 bg-white p-3 text-sm shadow-xl sm:w-80">
-                <p className="mb-2 font-bold text-ink">Notifications</p>
+                <p className="mb-2 font-bold text-ink">Boîte à Messagerie</p>
                 <div className="max-h-80 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
-                  {notifications.length === 0 && <p className="text-slate-500">Aucune notification.</p>}
-                  {notifications.map((notification) => (
-                    <button
-                      key={notification.id}
-                      onClick={() => onOpenNotification(notification)}
-                      className="block w-full rounded bg-slate-50 p-3 text-left hover:bg-slate-100"
-                    >
-                      <p className="font-semibold text-ink">{notification.title}</p>
-                      <p className="mt-1 break-words text-xs text-slate-500">{notification.body}</p>
-                    </button>
+                  {messages.length === 0 && <p className="text-slate-500">Aucun message.</p>}
+                  {messages.map((message) => (
+                    <article key={message.id} className="rounded bg-slate-50 p-3">
+                      <p className="font-semibold text-ink">{message.subject}</p>
+                      <p className="mt-1 break-words text-xs text-slate-500">{message.body}</p>
+                      <p className="mt-2 text-[11px] text-slate-400">{new Date(message.createdAt).toLocaleString("fr-FR")}</p>
+                    </article>
                   ))}
                 </div>
               </div>
