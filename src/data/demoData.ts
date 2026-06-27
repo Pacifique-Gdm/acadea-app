@@ -71,6 +71,20 @@ export const demoData: AppData = {
       phone: "+243 811 111 111",
       address: "Gombe",
     },
+    {
+      id: "u-parent-2",
+      name: "Anita Mbuyi",
+      email: "anita@example.cd",
+      role: "parent",
+      schoolId: "school-1",
+      activeSchoolYearId: "year-2025",
+      demoPassword: "anita123",
+      parentId: "parent-2",
+      studentIds: ["student-2"],
+      status: "active",
+      phone: "+243 822 222 222",
+      address: "Limete",
+    },
   ],
   schools: [
     {

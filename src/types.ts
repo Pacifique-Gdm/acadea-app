@@ -159,9 +159,10 @@ export interface AppNotification {
   id: string;
   schoolId: string;
   schoolYearId: string;
-  parentId: string;
-  studentId: string;
-  type: "payment";
+  parentId?: string;
+  studentId?: string;
+  messageId?: string;
+  type: "payment" | "message";
   title: string;
   body: string;
   createdAt: string;

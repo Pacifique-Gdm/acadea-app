@@ -23,6 +23,7 @@ import {
   MessageSquare,
   MoreHorizontal,
   Plus,
+  RefreshCw,
   Search,
   Send,
   Settings,
@@ -70,6 +71,7 @@ const appEnvironment = import.meta.env.VITE_APP_ENV ?? "development";
 const showStagingBanner = import.meta.env.VITE_STAGING_BANNER === "true" || appEnvironment === "staging" || appEnvironment === "preview";
 const stagingLabel = import.meta.env.VITE_STAGING_LABEL ?? "ENVIRONNEMENT DE TEST";
 const localDataKey = "acadea-app-data";
+const sessionKey = "acadea-session";
 
 function uid(prefix: string) {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
@@ -84,6 +86,26 @@ function loadInitialData() {
   } catch {
     return demoData;
   }
+}
+
+function loadStoredSession(data: AppData) {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(sessionKey) ?? "null") as { userId?: string; selectedYearId?: string; activeTab?: Tab } | null;
+    const sessionUser = saved?.userId ? data.users.find((item) => item.id === saved.userId && item.status !== "inactive") : undefined;
+    return sessionUser ? { user: sessionUser, selectedYearId: saved?.selectedYearId ?? "", activeTab: saved?.activeTab ?? "dashboard" } : null;
+  } catch {
+    return null;
+  }
+}
+
+function getInitialRoute(hasSession: boolean) {
+  if (typeof window === "undefined") return "/login";
+  const path = window.location.pathname;
+  if (!hasSession) return path === "/platform" ? "/platform" : "/login";
+  if (path === "/platform" || path === "/dashboard" || path.startsWith("/admin/")) return path;
+  return "/dashboard";
 }
 
 function EnvironmentBanner() {
@@ -101,14 +123,25 @@ function EnvironmentBanner() {
 
 export default function App() {
   const [data, setData] = useState<AppData>(() => loadInitialData());
-  const [user, setUser] = useState<AppUser | null>(null);
-  const [selectedYearId, setSelectedYearId] = useState("");
-  const [activeTab, setActiveTab] = useState<Tab>("dashboard");
-  const [route, setRoute] = useState(() => (window.location.pathname === "/platform" ? "/platform" : "/login"));
+  const storedSession = loadStoredSession(data);
+  const [user, setUser] = useState<AppUser | null>(() => storedSession?.user ?? null);
+  const [selectedYearId, setSelectedYearId] = useState(() => storedSession?.selectedYearId ?? "");
+  const [activeTab, setActiveTab] = useState<Tab>(() => storedSession?.activeTab ?? "dashboard");
+  const [route, setRoute] = useState(() => getInitialRoute(Boolean(storedSession?.user)));
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   const school = data.schools.find((item) => item.id === user?.schoolId);
   const schoolYears = school ? data.schoolYears.filter((year) => year.schoolId === school.id) : [];
   const selectedYear = schoolYears.find((year) => year.id === selectedYearId);
+  function saveSession(nextUser: AppUser | null, nextSelectedYearId = selectedYearId, nextActiveTab = activeTab) {
+    if (!nextUser) {
+      window.localStorage.removeItem(sessionKey);
+      return;
+    }
+
+    window.localStorage.setItem(sessionKey, JSON.stringify({ userId: nextUser.id, selectedYearId: nextSelectedYearId, activeTab: nextActiveTab }));
+  }
+
   function navigate(nextRoute: string) {
     window.history.pushState({}, "", nextRoute);
     setRoute(nextRoute);
@@ -117,6 +150,7 @@ export default function App() {
   function enterSchoolYear(yearId: string) {
     setSelectedYearId(yearId);
     setUser((currentUser) => (currentUser ? { ...currentUser, activeSchoolYearId: yearId } : currentUser));
+    if (user) saveSession({ ...user, activeSchoolYearId: yearId }, yearId);
     setData((prev) => {
       const updated = {
         ...prev,
@@ -130,6 +164,7 @@ export default function App() {
   async function loginWithCredentials(email: string, password: string) {
     const nextUser = await signIn(email, password, data);
     const nextRoute = getDefaultRoute(nextUser.role);
+    let nextSessionYearId = "";
 
     if (nextRoute === "/platform" && !validatePlatformAdmin(nextUser)) {
       throw new Error("Accès plateforme refusé.");
@@ -152,15 +187,18 @@ export default function App() {
       const nextSchoolYears = data.schoolYears.filter((year) => year.schoolId === nextSchool.id);
       const nextActiveYear = nextSchoolYears.find((year) => year.status === "active");
       setSelectedYearId(nextActiveYear?.id ?? "");
+      nextSessionYearId = nextActiveYear?.id ?? "";
     }
 
     setUser(nextUser);
     setActiveTab("dashboard");
+    saveSession(nextUser, nextSessionYearId, "dashboard");
     navigate(nextRoute);
   }
 
   async function logout() {
     await signOutUser();
+    saveSession(null);
     setUser(null);
     setSelectedYearId("");
     setActiveTab("dashboard");
@@ -173,6 +211,11 @@ export default function App() {
       window.localStorage.setItem(localDataKey, JSON.stringify(updated));
       return updated;
     });
+  }
+
+  function refreshData() {
+    const freshData = loadInitialData();
+    setData(freshData);
   }
 
   if (!user || route === "/login") {
@@ -204,11 +247,39 @@ export default function App() {
     );
   }
 
-  const yearData = scopeData(data, school.id, selectedYear.id, user);
+  const currentSchool = school;
+  const currentYear = selectedYear;
+  const yearData = scopeData(data, currentSchool.id, currentYear.id, user);
   const studentDetailMatch = route.match(/^\/admin\/eleves\/(.+)$/);
+  const unreadNotifications = yearData.notifications.filter((notification) => !notification.read).length;
+
+  function markNotificationsRead(notificationId?: string) {
+    updateData({
+      notifications: data.notifications.map((notification) =>
+        notification.schoolId === currentSchool.id && notification.schoolYearId === currentYear.id && (!notificationId || notification.id === notificationId)
+          ? { ...notification, read: true }
+          : notification,
+      ),
+    });
+  }
+
+  function openNotifications() {
+    setNotificationsOpen((current) => !current);
+    if (!notificationsOpen) markNotificationsRead();
+  }
+
+  function openNotification(notification: AppNotification) {
+    markNotificationsRead(notification.id);
+    setNotificationsOpen(false);
+    if (notification.type === "message") {
+      setActiveTab("messages");
+      saveSession(user, currentYear.id, "messages");
+      navigate("/dashboard");
+    }
+  }
 
   if (validateParent(user)) {
-    return <ParentPortal user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} onLogout={logout} />;
+    return <ParentPortal user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} onRefresh={refreshData} onLogout={logout} />;
   }
 
   return (
@@ -218,6 +289,12 @@ export default function App() {
         user={user}
         school={school}
         year={selectedYear}
+        notifications={yearData.notifications}
+        unreadNotifications={unreadNotifications}
+        notificationsOpen={notificationsOpen}
+        onRefresh={refreshData}
+        onToggleNotifications={openNotifications}
+        onOpenNotification={openNotification}
         onLogout={logout}
       />
 
@@ -278,6 +355,7 @@ export default function App() {
         activeTab={activeTab}
         onTab={(tab) => {
           setActiveTab(tab);
+          saveSession(user, selectedYear.id, tab);
           navigate("/dashboard");
         }}
       />
@@ -311,7 +389,13 @@ function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: 
     }),
     notifications:
       user.role === "parent"
-        ? data.notifications.filter((notification) => notification.schoolId === schoolId && notification.schoolYearId === schoolYearId && notification.parentId === user.parentId)
+        ? data.notifications.filter(
+            (notification) =>
+              notification.schoolId === schoolId &&
+              notification.schoolYearId === schoolYearId &&
+              notification.parentId === user.parentId &&
+              notification.type !== "message",
+          )
         : data.notifications.filter((notification) => notification.schoolId === schoolId && notification.schoolYearId === schoolYearId),
   };
 }
@@ -340,7 +424,7 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center overflow-x-hidden bg-[#F5F7FB] px-4 py-8 sm:px-6">
+    <main className="flex min-h-screen w-full flex-col items-center justify-center overflow-x-hidden bg-[#F5F7FB] px-3 py-4 sm:px-6 sm:py-8">
       <EnvironmentBanner />
       <style>{`
         @keyframes loginCardIn {
@@ -348,13 +432,13 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
           to { opacity: 1; transform: translateY(0); }
         }
       `}</style>
-      <section className="w-full max-w-[460px] rounded-[24px] border border-white/80 bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.10)] [animation:loginCardIn_520ms_ease-out] sm:p-8">
+      <section className="w-full max-w-[460px] overflow-hidden rounded-[22px] border border-white/80 bg-white p-4 shadow-[0_24px_80px_rgba(15,23,42,0.10)] [animation:loginCardIn_520ms_ease-out] sm:rounded-[24px] sm:p-8">
         <div className="text-center">
           <div className="mx-auto flex h-16 w-16 items-center justify-center overflow-hidden rounded-[22px] bg-ink text-2xl font-bold text-white shadow-[0_14px_30px_rgba(20,33,61,0.22)]">
             {logoPreview ? <img src={logoPreview} alt="Logo Acadéa" className="h-full w-full object-cover" /> : "A"}
           </div>
-          <h1 className="mt-4 text-3xl font-bold tracking-normal text-ink">Acadéa</h1>
-          <p className="mt-2 text-sm font-medium text-slate-500">Gestion scolaire sécurisée par école</p>
+          <h1 className="mt-4 break-words text-3xl font-bold tracking-normal text-ink">Acadéa</h1>
+          <p className="mt-2 break-words text-sm font-medium text-slate-500">Gestion scolaire sécurisée par école</p>
           {isSuperAdmin && (
             <div className="mt-4">
               <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-ink/20 hover:bg-slate-50">
@@ -374,15 +458,15 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
           )}
         </div>
 
-        <div className="mt-8 text-center">
+        <div className="mt-6 text-center sm:mt-8">
           <h2 className="text-2xl font-bold text-ink">Connexion</h2>
           <p className="mt-2 text-sm text-slate-500">Entrez vos identifiants pour continuer</p>
         </div>
 
-        <form onSubmit={submit} className="mt-7 grid gap-4">
+        <form onSubmit={submit} className="mt-6 grid min-w-0 gap-4 sm:mt-7">
           <label className="group grid gap-2 text-sm font-semibold text-slate-700">
             Email
-            <span className="flex h-14 items-center gap-3 rounded-2xl border border-slate-200 bg-[#F8FAFC] px-4 transition duration-200 group-focus-within:border-blue-500 group-focus-within:bg-white group-focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
+            <span className="flex h-14 min-w-0 items-center gap-3 rounded-2xl border border-slate-200 bg-[#F8FAFC] px-3 transition duration-200 group-focus-within:border-blue-500 group-focus-within:bg-white group-focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)] sm:px-4">
               <Mail className="h-5 w-5 shrink-0 text-slate-400 transition group-focus-within:text-blue-600" />
               <input
                 value={email}
@@ -396,7 +480,7 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
 
           <label className="group grid gap-2 text-sm font-semibold text-slate-700">
             Mot de passe
-            <span className="flex h-14 items-center gap-3 rounded-2xl border border-slate-200 bg-[#F8FAFC] px-4 transition duration-200 group-focus-within:border-blue-500 group-focus-within:bg-white group-focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
+            <span className="flex h-14 min-w-0 items-center gap-3 rounded-2xl border border-slate-200 bg-[#F8FAFC] px-3 transition duration-200 group-focus-within:border-blue-500 group-focus-within:bg-white group-focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)] sm:px-4">
               <Lock className="h-5 w-5 shrink-0 text-slate-400 transition group-focus-within:text-blue-600" />
               <input
                 value={password}
@@ -431,12 +515,12 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
           Espace sécurisé
         </div>
 
-        <div className="mt-6 rounded-2xl border border-slate-200 bg-[#F8FAFC] p-3 text-center text-xs leading-5 text-slate-500">
+        <div className="mt-6 break-words rounded-2xl border border-slate-200 bg-[#F8FAFC] p-3 text-center text-xs leading-5 text-slate-500">
           Firebase SDK : {firebaseReady ? "configuré" : "mode démonstration local"}
         </div>
 
         {!firebaseReady && (
-          <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3 text-center text-xs leading-5 text-slate-500">
+          <div className="mt-3 break-words rounded-2xl border border-slate-200 bg-white p-3 text-center text-xs leading-5 text-slate-500">
             Démo: direction@acadea.demo / ecole123 pour l'école, admin@acadea.demo / admin123 pour la plateforme.
           </div>
         )}
@@ -516,11 +600,23 @@ function Header({
   user,
   school,
   year,
+  notifications,
+  unreadNotifications,
+  notificationsOpen,
+  onRefresh,
+  onToggleNotifications,
+  onOpenNotification,
   onLogout,
 }: {
   user: AppUser;
   school: School;
   year: SchoolYear;
+  notifications: AppNotification[];
+  unreadNotifications: number;
+  notificationsOpen: boolean;
+  onRefresh: () => void;
+  onToggleNotifications: () => void;
+  onOpenNotification: (notification: AppNotification) => void;
   onLogout: () => void;
 }) {
   return (
@@ -534,11 +630,40 @@ function Header({
               <p className="text-xs text-slate-500">{roleLabels[user.role]}</p>
             </div>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="relative flex flex-col gap-2 sm:flex-row sm:items-center">
             <span className="rounded bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600">Année scolaire : {year.name}</span>
+            <button onClick={onRefresh} className="inline-flex items-center justify-center gap-2 rounded border border-slate-200 px-3 py-2 text-sm" title="Actualiser">
+              <RefreshCw className="h-4 w-4" /> Actualiser
+            </button>
+            <button onClick={onToggleNotifications} className="relative inline-flex items-center justify-center rounded border border-slate-200 px-3 py-2 text-sm" title="Notifications">
+              <Bell className="h-4 w-4" />
+              {unreadNotifications > 0 && (
+                <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-600 px-1 text-center text-[11px] font-bold text-white">
+                  {unreadNotifications}
+                </span>
+              )}
+            </button>
             <button onClick={onLogout} className="inline-flex items-center justify-center gap-2 rounded border border-slate-200 px-3 py-2 text-sm">
               <LogOut className="h-4 w-4" /> Sortir
             </button>
+            {notificationsOpen && (
+              <div className="absolute right-0 top-full z-30 mt-2 w-full min-w-72 rounded border border-slate-200 bg-white p-3 text-sm shadow-xl sm:w-80">
+                <p className="mb-2 font-bold text-ink">Notifications</p>
+                <div className="max-h-80 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+                  {notifications.length === 0 && <p className="text-slate-500">Aucune notification.</p>}
+                  {notifications.map((notification) => (
+                    <button
+                      key={notification.id}
+                      onClick={() => onOpenNotification(notification)}
+                      className="block w-full rounded bg-slate-50 p-3 text-left hover:bg-slate-100"
+                    >
+                      <p className="font-semibold text-ink">{notification.title}</p>
+                      <p className="mt-1 break-words text-xs text-slate-500">{notification.body}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1527,6 +1652,7 @@ function ParentPortal({
   school,
   year,
   updateData,
+  onRefresh,
   onLogout,
 }: {
   user: AppUser;
@@ -1535,6 +1661,7 @@ function ParentPortal({
   school: School;
   year: SchoolYear;
   updateData: (next: Partial<AppData>) => void;
+  onRefresh: () => void;
   onLogout: () => void;
 }) {
   const [subject, setSubject] = useState("");
@@ -1555,7 +1682,19 @@ function ParentPortal({
       body,
       createdAt: new Date().toISOString(),
     };
-    updateData({ messages: [message, ...data.messages] });
+    const notification: AppNotification = {
+      id: uid("notif"),
+      schoolId: school.id,
+      schoolYearId: year.id,
+      parentId: user.parentId,
+      messageId: message.id,
+      type: "message",
+      title: "Nouveau message parent",
+      body: `${parent?.fullName ?? user.name}: ${subject}`,
+      createdAt: message.createdAt,
+      read: false,
+    };
+    updateData({ messages: [message, ...data.messages], notifications: [notification, ...data.notifications] });
     setSubject("");
     setBody("");
   }
@@ -1582,6 +1721,13 @@ function ParentPortal({
           </div>
           <button onClick={onLogout} className="secondary-button">
             <LogOut className="h-4 w-4" /> Sortir
+          </button>
+          <button onClick={onRefresh} className="secondary-button" title="Actualiser">
+            <RefreshCw className="h-4 w-4" /> Actualiser
+          </button>
+          <button onClick={markNotificationsRead} className="relative secondary-button" title="Notifications">
+            <Bell className="h-4 w-4" />
+            {unread > 0 && <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-600 px-1 text-center text-[11px] font-bold text-white">{unread}</span>}
           </button>
         </div>
       </header>
