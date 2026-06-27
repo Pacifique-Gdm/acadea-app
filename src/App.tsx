@@ -2897,10 +2897,11 @@ function MessagesModule({
     }, []);
   const recipientResults = recipientCandidates.filter(({ parent, student }) => {
       const search = recipientSearch.trim().toLowerCase();
-      if (!search) return true;
+      if (!search) return false;
       const studentText = student ? `${student.nom} ${student.postnom} ${student.prenom} ${student.matricule}` : "";
       return `${parent.fullName} ${studentText}`.toLowerCase().includes(search);
     });
+  const hasRecipientSearch = recipientSearch.trim().length > 0;
   const selectedParent = yearData.parents.find((parent) => parent.id === recipientParentId);
 
   function sendMessage() {
@@ -2959,7 +2960,7 @@ function MessagesModule({
                 <p className="font-semibold text-ink">Tous les parents</p>
                 <p className="text-xs text-slate-500">Envoyer à tous les parents</p>
               </button>
-              {recipientResults.map(({ parent, student }) => (
+              {hasRecipientSearch && recipientResults.map(({ parent, student }) => (
                 <button
                   key={`${parent.id}-${student?.id ?? "none"}`}
                   onClick={() => setRecipientParentId(parent.id)}
@@ -2972,10 +2973,20 @@ function MessagesModule({
                   </p>
                 </button>
               ))}
-              {recipientResults.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun parent trouvé.</p>}
+              {hasRecipientSearch && recipientResults.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun parent trouvé.</p>}
             </div>
             {recipientParentId !== "all" && selectedParent && (
-              <p className="rounded bg-blue-50 p-3 text-sm font-semibold text-blue-700">Destinataire : {selectedParent.fullName}</p>
+              <div className="flex min-w-0 items-center justify-between gap-3 rounded bg-blue-50 p-3 text-sm font-semibold text-blue-700">
+                <p className="min-w-0 truncate">Destinataire : {selectedParent.fullName}</p>
+                <button
+                  type="button"
+                  onClick={() => setRecipientParentId("all")}
+                  className="shrink-0 rounded-full p-1 text-blue-600 transition hover:bg-blue-100 hover:text-blue-800"
+                  aria-label="Retirer le destinataire"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             )}
           </div>
           <input value={subject} onChange={(event) => setSubject(event.target.value)} className="input" placeholder="Objet" />
