@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import {
   ArrowUpDown,
@@ -37,6 +37,7 @@ import {
 import { demoData } from "./data/demoData";
 import { firebaseReady } from "./firebase";
 import { createFirebaseAuthUser, getDefaultRoute, signIn, signOutUser, validateParent, validatePlatformAdmin, validateSchoolStaff } from "./services/auth";
+import { canUseFirestoreData, loadFirestoreData, persistFirestorePatch } from "./services/firestoreData";
 import { generateReceiptPdf } from "./utils/pdf";
 import { buildStats, getStudentBalance } from "./utils/stats";
 import type {
@@ -133,6 +134,28 @@ export default function App() {
   const school = data.schools.find((item) => item.id === user?.schoolId);
   const schoolYears = school ? data.schoolYears.filter((year) => year.schoolId === school.id) : [];
   const selectedYear = schoolYears.find((year) => year.id === selectedYearId);
+
+  useEffect(() => {
+    if (!user || !canUseFirestoreData()) return;
+
+    let cancelled = false;
+
+    loadFirestoreData()
+      .then((firestoreData) => {
+        if (!firestoreData || cancelled) return;
+        const mergedData = { ...demoData, ...firestoreData };
+        window.localStorage.setItem(localDataKey, JSON.stringify(mergedData));
+        setData(mergedData);
+      })
+      .catch((error) => {
+        console.warn("Chargement Firestore indisponible, fallback localStorage.", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
   function saveSession(nextUser: AppUser | null, nextSelectedYearId = selectedYearId, nextActiveTab = activeTab) {
     if (!nextUser) {
       window.localStorage.removeItem(sessionKey);
@@ -209,13 +232,29 @@ export default function App() {
     setData((prev) => {
       const updated = { ...prev, ...next };
       window.localStorage.setItem(localDataKey, JSON.stringify(updated));
+      void persistFirestorePatch(next).catch((error) => {
+        console.warn("Sauvegarde Firestore indisponible, fallback localStorage.", error);
+      });
       return updated;
     });
   }
 
-  function refreshData() {
-    const freshData = loadInitialData();
-    setData(freshData);
+  async function refreshData() {
+    if (canUseFirestoreData()) {
+      try {
+        const firestoreData = await loadFirestoreData();
+        if (firestoreData) {
+          const mergedData = { ...demoData, ...firestoreData };
+          window.localStorage.setItem(localDataKey, JSON.stringify(mergedData));
+          setData(mergedData);
+          return;
+        }
+      } catch (error) {
+        console.warn("Actualisation Firestore indisponible, fallback localStorage.", error);
+      }
+    }
+
+    setData(loadInitialData());
   }
 
   if (!user || route === "/login") {

@@ -39,6 +39,8 @@ VITE_FIREBASE_PROJECT_ID=
 VITE_FIREBASE_STORAGE_BUCKET=
 VITE_FIREBASE_MESSAGING_SENDER_ID=
 VITE_FIREBASE_APP_ID=
+ACADEA_ALLOW_FIRESTORE_IMPORT=false
+ACADEA_ALLOW_FIRESTORE_SEED=false
 ```
 
 Development:
@@ -99,6 +101,44 @@ Importer les données dans le projet Firebase ciblé par les variables locales:
 ```bash
 npm run seed:staging
 ```
+
+Protection obligatoire du seed Firestore:
+
+- `VITE_FIREBASE_PROJECT_ID` doit contenir `staging`, `preview`, `test`, `demo` ou `dev`.
+- `ACADEA_ALLOW_FIRESTORE_SEED=true` doit être défini uniquement pour une opération staging explicite.
+- Le seed est refusé si `VITE_APP_ENV=production`.
+
+Commande PowerShell:
+
+```powershell
+$env:ACADEA_ALLOW_FIRESTORE_SEED="true"
+npm run seed:staging
+```
+
+## Import localStorage/demoData vers Firestore
+
+La persistance métier utilise Firestore quand Firebase est configuré. `localStorage` reste un cache et un fallback temporaire si Firestore est indisponible.
+
+Importer les données de démonstration:
+
+```powershell
+$env:ACADEA_ALLOW_FIRESTORE_IMPORT="true"
+npm run import:firestore
+```
+
+Importer un export localStorage JSON:
+
+```powershell
+$env:ACADEA_ALLOW_FIRESTORE_IMPORT="true"
+$env:ACADEA_LOCAL_DATA_FILE="C:\chemin\vers\acadea-app-data.json"
+npm run import:firestore
+```
+
+Protections:
+
+- l'import est refusé en production;
+- le projet Firebase doit être un projet staging/preview/test/demo/dev;
+- `ACADEA_ALLOW_FIRESTORE_IMPORT=true` est obligatoire pour chaque import.
 
 ## Reset complet de la base staging
 

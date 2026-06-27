@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "seed": "tsx scripts/seedDemo.ts",
     "seed:staging": "tsx scripts/seedDemo.ts",
+    "import:firestore": "tsx scripts/importLocalDataToFirestore.ts",
     "reset:staging": "tsx scripts/resetStaging.ts"
   },
   "dependencies": {

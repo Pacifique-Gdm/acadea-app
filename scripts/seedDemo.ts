@@ -16,6 +16,17 @@ if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
   throw new Error("Renseignez les variables VITE_FIREBASE_* avant d'exécuter npm run seed.");
 }
 
+const appEnv = process.env.VITE_APP_ENV ?? process.env.VERCEL_ENV ?? "development";
+const projectId = firebaseConfig.projectId ?? "";
+const seedAllowed = process.env.ACADEA_ALLOW_FIRESTORE_SEED === "true";
+const safeProject = /staging|preview|test|demo|dev/i.test(projectId);
+
+if (appEnv === "production" || !safeProject || !seedAllowed) {
+  throw new Error(
+    "Seed Firestore refusé. Utilisez un projet staging/preview/test/demo et ACADEA_ALLOW_FIRESTORE_SEED=true.",
+  );
+}
+
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
