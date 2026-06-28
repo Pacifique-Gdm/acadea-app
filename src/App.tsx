@@ -512,7 +512,7 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
   }
 
   return (
-    <main className="flex min-h-screen w-full flex-col items-center justify-center overflow-x-hidden bg-[#F5F7FB] px-3 py-4 sm:px-6 sm:py-8">
+    <main className="flex h-dvh w-full flex-col items-center justify-center overflow-hidden bg-[#F5F7FB] px-3 py-2 sm:px-6 sm:py-4">
       <EnvironmentBanner />
       <style>{`
         @keyframes loginCardIn {
@@ -520,13 +520,13 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
           to { opacity: 1; transform: translateY(0); }
         }
       `}</style>
-      <section className="w-full max-w-[460px] overflow-hidden rounded-[22px] border border-white/80 bg-white p-4 shadow-[0_24px_80px_rgba(15,23,42,0.10)] [animation:loginCardIn_520ms_ease-out] sm:rounded-[24px] sm:p-8">
+      <section className="w-full max-w-[460px] overflow-hidden rounded-[22px] border border-white/80 bg-white p-3 shadow-[0_24px_80px_rgba(15,23,42,0.10)] [animation:loginCardIn_520ms_ease-out] sm:rounded-[24px] sm:p-6">
         <div className="text-center">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center overflow-hidden rounded-[22px] bg-ink text-2xl font-bold text-white shadow-[0_14px_30px_rgba(20,33,61,0.22)]">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center overflow-hidden rounded-[18px] bg-ink text-xl font-bold text-white shadow-[0_14px_30px_rgba(20,33,61,0.22)] sm:h-16 sm:w-16 sm:rounded-[22px] sm:text-2xl">
             {logoPreview ? <img src={logoPreview} alt="Logo Acadéa" className="h-full w-full object-cover" /> : "A"}
           </div>
-          <h1 className="mt-4 break-words text-3xl font-bold tracking-normal text-ink">Acadéa</h1>
-          <p className="mt-2 break-words text-sm font-medium text-slate-500">Gestion scolaire sécurisée par école</p>
+          <h1 className="mt-2 break-words text-2xl font-bold tracking-normal text-ink sm:mt-4 sm:text-3xl">Acadéa</h1>
+          <p className="mt-1 break-words text-xs font-medium text-slate-500 sm:mt-2 sm:text-sm">Gestion scolaire sécurisée par école</p>
           {isSuperAdmin && (
             <div className="mt-4">
               <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-ink/20 hover:bg-slate-50">
@@ -546,15 +546,15 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
           )}
         </div>
 
-        <div className="mt-6 text-center sm:mt-8">
-          <h2 className="text-2xl font-bold text-ink">Connexion</h2>
-          <p className="mt-2 text-sm text-slate-500">Entrez vos identifiants pour continuer</p>
+        <div className="mt-4 text-center sm:mt-6">
+          <h2 className="text-xl font-bold text-ink sm:text-2xl">Connexion</h2>
+          <p className="mt-1 text-xs text-slate-500 sm:mt-2 sm:text-sm">Entrez vos identifiants pour continuer</p>
         </div>
 
-        <form onSubmit={submit} className="mt-6 grid min-w-0 gap-4 sm:mt-7">
+        <form onSubmit={submit} className="mt-4 grid min-w-0 gap-3 sm:mt-6 sm:gap-4">
           <label className="group grid gap-2 text-sm font-semibold text-slate-700">
             Email
-            <span className="flex h-14 min-w-0 items-center gap-3 rounded-2xl border border-slate-200 bg-[#F8FAFC] px-3 transition duration-200 group-focus-within:border-blue-500 group-focus-within:bg-white group-focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)] sm:px-4">
+            <span className="flex h-12 min-w-0 items-center gap-3 rounded-2xl border border-slate-200 bg-[#F8FAFC] px-3 transition duration-200 group-focus-within:border-blue-500 group-focus-within:bg-white group-focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)] sm:h-14 sm:px-4">
               <Mail className="h-5 w-5 shrink-0 text-slate-400 transition group-focus-within:text-blue-600" />
               <input
                 value={email}
@@ -568,7 +568,7 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
 
           <label className="group grid gap-2 text-sm font-semibold text-slate-700">
             Mot de passe
-            <span className="flex h-14 min-w-0 items-center gap-3 rounded-2xl border border-slate-200 bg-[#F8FAFC] px-3 transition duration-200 group-focus-within:border-blue-500 group-focus-within:bg-white group-focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)] sm:px-4">
+            <span className="flex h-12 min-w-0 items-center gap-3 rounded-2xl border border-slate-200 bg-[#F8FAFC] px-3 transition duration-200 group-focus-within:border-blue-500 group-focus-within:bg-white group-focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)] sm:h-14 sm:px-4">
               <Lock className="h-5 w-5 shrink-0 text-slate-400 transition group-focus-within:text-blue-600" />
               <input
                 value={password}
@@ -592,23 +592,23 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
 
           <button
             disabled={loading}
-            className="mt-1 flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-ink font-semibold text-white shadow-[0_16px_34px_rgba(20,33,61,0.22)] transition duration-200 hover:bg-[#0f1a30] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-1 flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-ink font-semibold text-white shadow-[0_16px_34px_rgba(20,33,61,0.22)] transition duration-200 hover:bg-[#0f1a30] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 sm:h-14"
           >
             {loading ? "Connexion..." : "Se connecter"}
           </button>
         </form>
 
-        <div className="mt-5 flex items-center justify-center gap-2 text-sm font-medium text-slate-500">
+        <div className="mt-3 flex items-center justify-center gap-2 text-sm font-medium text-slate-500 sm:mt-5">
           <ShieldCheck className="h-4 w-4 text-mint" />
           Espace sécurisé
         </div>
 
-        <div className="mt-6 break-words rounded-2xl border border-slate-200 bg-[#F8FAFC] p-3 text-center text-xs leading-5 text-slate-500">
+        <div className="mt-3 break-words rounded-2xl border border-slate-200 bg-[#F8FAFC] p-2 text-center text-xs leading-5 text-slate-500 sm:mt-5 sm:p-3">
           Firebase SDK : {firebaseReady ? "configuré" : "mode démonstration local"}
         </div>
 
         {!firebaseReady && (
-          <div className="mt-3 break-words rounded-2xl border border-slate-200 bg-white p-3 text-center text-xs leading-5 text-slate-500">
+          <div className="mt-2 break-words rounded-2xl border border-slate-200 bg-white p-2 text-center text-xs leading-5 text-slate-500 sm:mt-3 sm:p-3">
             Démo: direction@acadea.demo / ecole123 pour l'école, admin@acadea.demo / admin123 pour la plateforme.
           </div>
         )}
@@ -1990,7 +1990,7 @@ function ParentPortal({
         <section className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
           <div className="grid min-w-0 gap-4">
             {yearData.students.map((student) => {
-              const balance = getStudentBalance(student.id, yearData.feeTypes, yearData.payments);
+              const balance = getStudentBalance(student.id, yearData.feeTypes, yearData.payments, yearData.students);
               const progress = balance.expected > 0 ? Math.min(100, Math.round((balance.paid / balance.expected) * 100)) : 0;
               const payments = yearData.payments.filter((payment) => payment.studentId === student.id);
               return (
@@ -2399,7 +2399,7 @@ function StudentDetailPage({
     );
   }
 
-  const balance = getStudentBalance(student.id, yearData.feeTypes, yearData.payments);
+  const balance = getStudentBalance(student.id, yearData.feeTypes, yearData.payments, yearData.students);
   const payments = yearData.payments.filter((payment) => payment.studentId === student.id);
   const parent = yearData.parents.find((item) => item.id === student.parentId);
   const progress = balance.expected > 0 ? Math.min(100, Math.round((balance.paid / balance.expected) * 100)) : 0;
@@ -2698,9 +2698,12 @@ function ControlModule({
   const [historyQuery, setHistoryQuery] = useState("");
   const canPay = user.role === "cashier";
   const canCorrectPayments = user.role === "school_admin";
+  const selectedPaymentStudent = yearData.students.find((student) => student.id === studentId);
+  const payableFeeTypes = yearData.feeTypes.filter((fee) => !fee.className || !selectedPaymentStudent || fee.className === selectedPaymentStudent.className);
+  const selectedFeeTypeValue = payableFeeTypes.some((fee) => fee.id === feeTypeId) ? feeTypeId : payableFeeTypes[0]?.id ?? "";
 
   const rows = yearData.students
-    .map((student) => ({ student, balance: getStudentBalance(student.id, yearData.feeTypes, yearData.payments) }))
+    .map((student) => ({ student, balance: getStudentBalance(student.id, yearData.feeTypes, yearData.payments, yearData.students) }))
     .filter((row) => {
       if (amountComparator === "all" || !amountThreshold) return true;
       return amountComparator === ">=" ? row.balance.paid >= Number(amountThreshold) : row.balance.paid < Number(amountThreshold);
@@ -2719,7 +2722,7 @@ function ControlModule({
   });
 
   function savePayment() {
-    if (!studentId || !feeTypeId) return;
+    if (!studentId || !selectedFeeTypeValue) return;
     const student = data.students.find((item) => item.id === studentId);
     const payment: Payment = {
       id: uid("pay"),
@@ -2727,7 +2730,7 @@ function ControlModule({
       schoolYearId: year.id,
       studentId,
       parentId: student?.parentId,
-      feeTypeId,
+      feeTypeId: selectedFeeTypeValue,
       amount: Number(amount),
       paidAt: new Date().toISOString().slice(0, 10),
       createdAt: new Date().toISOString(),
@@ -2909,8 +2912,8 @@ function ControlModule({
                 <option key={student.id} value={student.id}>{student.nom} {student.prenom}</option>
               ))}
             </select>
-            <select value={feeTypeId} onChange={(event) => setFeeTypeId(event.target.value)} className="input">
-              {yearData.feeTypes.map((fee) => (
+            <select value={selectedFeeTypeValue} onChange={(event) => setFeeTypeId(event.target.value)} className="input">
+              {payableFeeTypes.map((fee) => (
                 <option key={fee.id} value={fee.id}>{fee.name} - ${fee.amount}</option>
               ))}
             </select>
@@ -3211,7 +3214,11 @@ function MenuModule({
   const [cashierPassword, setCashierPassword] = useState("");
   const [cashierError, setCashierError] = useState("");
   const [feeName, setFeeName] = useState<FeeKind>("Minerval");
+  const [feeClassName, setFeeClassName] = useState<SchoolClass>(CLASSES[0]);
   const [feeAmount, setFeeAmount] = useState("100");
+  const [editingFeeId, setEditingFeeId] = useState("");
+  const [showNewFeeForm, setShowNewFeeForm] = useState(false);
+  const [newFeeName, setNewFeeName] = useState("");
   const [activeMenuSection, setActiveMenuSection] = useState<MenuSection | null>(null);
   const menuPanelRef = useRef<HTMLDivElement | null>(null);
   const canAdmin = user.role === "school_admin";
@@ -3227,6 +3234,7 @@ function MenuModule({
     activeMenuSection === "years" ||
     activeMenuSection === "financial" ||
     (canAdmin && (activeMenuSection === "accounts" || activeMenuSection === "fees"));
+  const feeKindChoices = Array.from(new Set([...FEE_KINDS, ...yearData.feeTypes.map((fee) => fee.name)]));
 
   useEffect(() => {
     if (!menuPanelOpen) return;
@@ -3302,13 +3310,43 @@ function MenuModule({
     setCashierPassword("");
   }
 
-  function addFee() {
+  function saveFee() {
+    if (!feeName || !feeClassName || !feeAmount) return;
+    const fee: FeeType = {
+      id: editingFeeId || uid("fee"),
+      schoolId: school.id,
+      schoolYearId: selectedYear.id,
+      name: feeName,
+      className: feeClassName,
+      amount: Number(feeAmount),
+    };
     updateData({
-      feeTypes: [
-        ...data.feeTypes,
-        { id: uid("fee"), schoolId: school.id, schoolYearId: selectedYear.id, name: feeName, amount: Number(feeAmount) },
-      ],
+      feeTypes: editingFeeId ? data.feeTypes.map((item) => (item.id === editingFeeId ? fee : item)) : [...data.feeTypes, fee],
     });
+    setEditingFeeId("");
+    setFeeName("Minerval");
+    setFeeClassName(CLASSES[0]);
+    setFeeAmount("100");
+  }
+
+  function editFee(fee: FeeType) {
+    setEditingFeeId(fee.id);
+    setFeeName(fee.name);
+    setFeeClassName(fee.className ?? CLASSES[0]);
+    setFeeAmount(String(fee.amount));
+  }
+
+  function deleteFee(fee: FeeType) {
+    if (!confirm(`Supprimer le frais ${fee.name} ?`)) return;
+    updateData({ feeTypes: data.feeTypes.filter((item) => item.id !== fee.id) });
+  }
+
+  function addFeeKind() {
+    const trimmed = newFeeName.trim();
+    if (!trimmed) return;
+    setFeeName(trimmed);
+    setNewFeeName("");
+    setShowNewFeeForm(false);
   }
 
   return (
@@ -3402,20 +3440,69 @@ function MenuModule({
 
       {canAdmin && activeMenuSection === "fees" && (
         <FormPanel title="Types de frais">
-          <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_120px_auto]">
-            <select value={feeName} onChange={(event) => setFeeName(event.target.value as FeeKind)} className="input">
-              {FEE_KINDS.map((kind) => (
+          <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_120px_auto]">
+            <select
+              value={feeName}
+              onChange={(event) => {
+                if (event.target.value === "__add_fee__") {
+                  setShowNewFeeForm(true);
+                  return;
+                }
+                setFeeName(event.target.value);
+              }}
+              className="input"
+            >
+              {feeKindChoices.map((kind) => (
                 <option key={kind} value={kind}>{kind}</option>
+              ))}
+              <option value="__add_fee__">Ajouter un frais</option>
+            </select>
+            <select value={feeClassName} onChange={(event) => setFeeClassName(event.target.value as SchoolClass)} className="input">
+              {CLASSES.map((className) => (
+                <option key={className} value={className}>{className}</option>
               ))}
             </select>
             <input value={feeAmount} onChange={(event) => setFeeAmount(event.target.value)} type="number" className="input" />
-            <button onClick={addFee} className="primary-button"><Plus className="h-4 w-4" /> Ajouter</button>
+            <button onClick={saveFee} className="primary-button"><Plus className="h-4 w-4" /> {editingFeeId ? "Enregistrer" : "Ajouter"}</button>
           </div>
+          {editingFeeId && (
+            <button
+              onClick={() => {
+                setEditingFeeId("");
+                setFeeName("Minerval");
+                setFeeClassName(CLASSES[0]);
+                setFeeAmount("100");
+              }}
+              className="secondary-button w-fit"
+              type="button"
+            >
+              Annuler la modification
+            </button>
+          )}
+          {showNewFeeForm && (
+            <div className="rounded border border-slate-100 bg-slate-50 p-3">
+              <p className="mb-2 text-sm font-semibold text-ink">Nouveau frais</p>
+              <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                <input value={newFeeName} onChange={(event) => setNewFeeName(event.target.value)} className="input" placeholder="Nom du frais" />
+                <button onClick={addFeeKind} type="button" className="secondary-button justify-center">
+                  <Plus className="h-4 w-4" /> Ajouter le frais
+                </button>
+              </div>
+            </div>
+          )}
           <div className="space-y-2">
             {yearData.feeTypes.map((fee) => (
-              <div key={fee.id} className="flex min-w-0 justify-between gap-3 rounded bg-slate-50 p-3 text-sm">
-                <span className="min-w-0 break-words">{fee.name}</span>
-                <strong className="shrink-0">${fee.amount}</strong>
+              <div key={fee.id} className="flex min-w-0 flex-col gap-3 rounded bg-slate-50 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                <span className="min-w-0 break-words font-semibold text-ink">{fee.name} - {fee.className ?? "Toutes les classes"}</span>
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  <strong>${fee.amount}</strong>
+                  <button onClick={() => editFee(fee)} type="button" className="rounded bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100">
+                    Modifier
+                  </button>
+                  <button onClick={() => deleteFee(fee)} type="button" className="rounded bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100">
+                    Supprimer
+                  </button>
+                </div>
               </div>
             ))}
           </div>

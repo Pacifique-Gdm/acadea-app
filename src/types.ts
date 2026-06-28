@@ -18,7 +18,7 @@ export type SchoolClass =
   | "4ème Humanité"
   | "Humanités";
 
-export type FeeKind = "Minerval" | "Bulletin" | "Examen" | "Scolaire" | "Inscription" | "Uniforme" | "Transport" | "Autres";
+export type FeeKind = "Minerval" | "Fourniture" | string;
 export type StudentStatus = "ACTIVE" | "TRANSFERRED" | "DROPPED" | "DECEASED";
 export type StudentExitReason = "Renvoi définitif" | "Décès" | "Abandon" | "Autre";
 export type SchoolSection = "maternelle" | "primaire" | "secondaire";
@@ -112,6 +112,7 @@ export interface FeeType {
   schoolYearId: string;
   name: FeeKind;
   amount: number;
+  className?: SchoolClass;
 }
 
 export interface Payment {
@@ -214,4 +215,4 @@ export const CLASSES: SchoolClass[] = [
   "Humanités",
 ];
 
-export const FEE_KINDS: FeeKind[] = ["Minerval", "Bulletin", "Examen", "Scolaire", "Inscription", "Uniforme", "Transport", "Autres"];
+export const FEE_KINDS: FeeKind[] = ["Minerval", "Fourniture"];
