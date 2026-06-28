@@ -396,7 +396,7 @@ export default function App() {
               navigate("/dashboard");
             }}
           />
-        ) : activeTab === "dashboard" && <Dashboard data={yearData} />}
+        ) : activeTab === "dashboard" && <Dashboard data={yearData} school={school} year={selectedYear} />}
         {!studentDetailMatch && route !== "/admin/rapport-financier" && activeTab === "students" && (
           <StudentsModule
             user={user}
@@ -805,19 +805,28 @@ function BottomNavigation({ user, activeTab, onTab }: { user: AppUser; activeTab
   );
 }
 
-function Dashboard({ data }: { data: ReturnType<typeof scopeData> }) {
-  const stats = buildStats(data.students, data.parents, data.feeTypes, data.payments);
+function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>; school: School; year: SchoolYear }) {
   const today = new Date().toISOString().slice(0, 10);
-  const todayPayments = data.payments.filter((payment) => payment.paidAt === today);
-  const todayExpenses = data.expenses.filter((expense) => expense.spentAt === today);
-  const totalTodayPayments = todayPayments.reduce((sum, payment) => sum + payment.amount, 0);
-  const totalTodayExpenses = todayExpenses.reduce((sum, expense) => sum + expense.amount, 0);
-  const recoveryRate = stats.expected > 0 ? Math.round((stats.paid / stats.expected) * 100) : 0;
+  const [sectionFilter, setSectionFilter] = useState<"all" | "maternelle" | "primaire" | "secondaire">("all");
+  const [startDate, setStartDate] = useState(today);
+  const [endDate, setEndDate] = useState(today);
+  const activeStudents = data.students.filter((student) => (student.status ?? "ACTIVE") === "ACTIVE");
+  const filteredStudents = activeStudents.filter((student) => sectionFilter === "all" || getClassSection(student.className) === sectionFilter);
+  const filteredStudentIds = new Set(filteredStudents.map((student) => student.id));
+  const inDateRange = (date: string) => {
+    const normalized = date.slice(0, 10);
+    return (!startDate || normalized >= startDate) && (!endDate || normalized <= endDate);
+  };
+  const filteredPayments = data.payments.filter((payment) => filteredStudentIds.has(payment.studentId) && inDateRange(payment.paidAt));
+  const filteredExpenses = data.expenses.filter((expense) => sectionFilter === "all" && inDateRange(expense.spentAt));
+  const stats = buildStats(filteredStudents, data.parents, data.feeTypes, filteredPayments);
+  const totalPayments = filteredPayments.reduce((sum, payment) => sum + payment.amount, 0);
+  const totalExpenses = filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0);
+  const remaining = Math.max(stats.expected - totalPayments, 0);
+  const recoveryRate = stats.expected > 0 ? Math.round((totalPayments / stats.expected) * 100) : 0;
   const recoveryTone = recoveryRate >= 80 ? "text-mint bg-mint/10" : recoveryRate >= 50 ? "text-amber-700 bg-amber-100" : "text-red-700 bg-red-50";
-  const admins = data.users.filter((item) => item.role === "school_admin").length;
-  const cashiers = data.users.filter((item) => item.role === "cashier").length;
   const classRows = CLASSES.map((className) => {
-    const students = data.students.filter((student) => student.className === className && (student.status ?? "ACTIVE") === "ACTIVE");
+    const students = filteredStudents.filter((student) => student.className === className);
     return {
       className,
       girls: students.filter((student) => student.sexe === "F").length,
@@ -825,107 +834,241 @@ function Dashboard({ data }: { data: ReturnType<typeof scopeData> }) {
       total: students.length,
     };
   }).filter((row) => row.total > 0);
+  const totalGirls = classRows.reduce((sum, row) => sum + row.girls, 0);
+  const totalBoys = classRows.reduce((sum, row) => sum + row.boys, 0);
+  const totalStudents = totalGirls + totalBoys;
   const transactions = [
-    ...data.payments.map((payment) => ({ id: payment.id, type: "Paiement", label: payment.cashierName, amount: payment.amount, date: payment.createdAt ?? payment.paidAt })),
-    ...data.expenses.map((expense) => ({ id: expense.id, type: "Dépense", label: expense.category, amount: -expense.amount, date: expense.createdAt })),
-  ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
-  const cards = [
-    { label: "Nombre total d'élèves", value: stats.students, icon: GraduationCap, tone: "bg-mint/10 text-mint" },
-    { label: "Nombre total de parents", value: stats.parents, icon: UsersRound, tone: "bg-coral/10 text-coral" },
-    { label: "Administrateurs", value: admins, icon: ShieldCheck, tone: "bg-blue-100 text-blue-700" },
-    { label: "Caissiers", value: cashiers, icon: UserRound, tone: "bg-pink-100 text-pink-700" },
-    { label: "Montant total encaissé", value: `$${stats.paid.toFixed(2)}`, icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
-    { label: "Montant attendu", value: `$${stats.expected.toFixed(2)}`, icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
-    { label: "Montant restant à payer", value: `$${stats.remaining.toFixed(2)}`, icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
-    { label: "Nombre de classes", value: stats.classes, icon: BookOpen, tone: "bg-indigo-100 text-indigo-700" },
-  ];
+    ...filteredPayments.map((payment) => ({ id: payment.id, type: "Paiement", label: payment.cashierName, amount: payment.amount, date: payment.paidAt })),
+    ...filteredExpenses.map((expense) => ({ id: expense.id, type: "D\u00e9pense", label: expense.category, amount: -expense.amount, date: expense.spentAt })),
+  ].sort((a, b) => b.date.localeCompare(a.date));
+  const transactionsByDay = transactions.reduce<{ date: string; income: number; outcome: number }[]>((items, transaction) => {
+    const date = transaction.date.slice(0, 10);
+    const existing = items.find((item) => item.date === date);
+    if (existing) {
+      if (transaction.amount >= 0) existing.income += transaction.amount;
+      else existing.outcome += Math.abs(transaction.amount);
+      return items;
+    }
+    return [...items, { date, income: transaction.amount >= 0 ? transaction.amount : 0, outcome: transaction.amount < 0 ? Math.abs(transaction.amount) : 0 }];
+  }, []).sort((a, b) => a.date.localeCompare(b.date));
+  const maxDailyAmount = Math.max(1, ...transactionsByDay.map((item) => Math.max(item.income, item.outcome)));
+  const sectionLabel = sectionFilter === "all" ? "Toutes les sections" : sectionFilter.charAt(0).toUpperCase() + sectionFilter.slice(1);
+  const dateLabel = (startDate || "D\u00e9but") + " au " + (endDate || "Fin");
+
+  function exportDashboardPdf() {
+    exportDashboardReportPdf({
+      school,
+      year,
+      sectionLabel,
+      dateLabel,
+      recoveryRate,
+      totalPayments,
+      totalExpenses,
+      expected: stats.expected,
+      remaining,
+      transactions,
+      classRows,
+      totalGirls,
+      totalBoys,
+      totalStudents,
+    });
+  }
 
   return (
-    <section>
-      <div className="mb-5">
-        <h1 className="text-2xl font-bold text-ink">Dashboard</h1>
-        <p className="text-sm text-slate-500">Statistiques limitées à l'année scolaire sélectionnée.</p>
+    <section className="grid min-w-0 gap-4">
+      <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold text-ink">Dashboard</h1>
+          <p className="text-sm text-slate-500">{"Statistiques limit\u00e9es \u00e0 l'ann\u00e9e scolaire s\u00e9lectionn\u00e9e."}</p>
+        </div>
+        <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-[180px_150px_150px_auto]">
+          <select value={sectionFilter} onChange={(event) => setSectionFilter(event.target.value as typeof sectionFilter)} className="input">
+            <option value="all">Toutes les sections</option>
+            <option value="maternelle">Maternelle</option>
+            <option value="primaire">Primaire</option>
+            <option value="secondaire">Secondaire</option>
+          </select>
+          <input value={startDate} onChange={(event) => setStartDate(event.target.value)} type="date" className="input" />
+          <input value={endDate} onChange={(event) => setEndDate(event.target.value)} type="date" className="input" />
+          <button onClick={exportDashboardPdf} type="button" className="secondary-button justify-center">
+            <Download className="h-4 w-4" /> Exporter PDF
+          </button>
+        </div>
       </div>
-      <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {cards.map((card) => {
-          const Icon = card.icon;
-          return (
-            <article key={card.label} className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
-              <div className={`mb-4 flex h-10 w-10 items-center justify-center rounded ${card.tone}`}>
-                <Icon className="h-5 w-5" />
-              </div>
-              <p className="text-sm text-slate-500">{card.label}</p>
-              <p className="mt-1 break-words text-2xl font-bold text-ink">{card.value}</p>
-            </article>
-          );
-        })}
+
+      <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="font-bold text-ink">KPI financier</h2>
+            <p className="text-sm text-slate-500">{"Recouvrement selon la section et la p\u00e9riode s\u00e9lectionn\u00e9es."}</p>
+          </div>
+          <span className={"rounded px-3 py-2 text-sm font-bold " + recoveryTone}>{recoveryRate}{"% recouvr\u00e9"}</span>
+        </div>
+        <div className="mt-4 h-3 overflow-hidden rounded bg-slate-100">
+          <div className="h-full rounded bg-mint" style={{ width: Math.min(100, recoveryRate) + "%" }} />
+        </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-4">
+          <Metric label={"Encaiss\u00e9"} value={"$" + totalPayments.toFixed(2)} />
+          <Metric label={"D\u00e9penses"} value={"$" + totalExpenses.toFixed(2)} />
+          <Metric label="Attendu" value={"$" + stats.expected.toFixed(2)} />
+          <Metric label="Reste" value={"$" + remaining.toFixed(2)} />
+        </div>
       </div>
-      <div className="mt-4 grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <section className="grid min-w-0 gap-4">
-          <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="font-bold text-ink">KPI financier</h2>
-                <p className="text-sm text-slate-500">Recouvrement sur l'année scolaire sélectionnée.</p>
+
+      <FormPanel title="Transactions du jour">
+        <div className="max-h-80 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+          {transactions.map((transaction) => (
+            <div key={transaction.id} className="flex min-w-0 items-center justify-between gap-3 rounded bg-slate-50 p-3 text-sm">
+              <div className="min-w-0">
+                <p className="font-semibold text-ink">{transaction.type}</p>
+                <p className="break-words text-xs text-slate-500">{transaction.label} | {transaction.date.slice(0, 10)}</p>
               </div>
-              <span className={`rounded px-3 py-2 text-sm font-bold ${recoveryTone}`}>{recoveryRate}% recouvré</span>
+              <span className={transaction.amount >= 0 ? "shrink-0 font-bold text-mint" : "shrink-0 font-bold text-red-600"}>
+                {(transaction.amount >= 0 ? "+" : "-") + "$" + Math.abs(transaction.amount).toFixed(2)}
+              </span>
             </div>
-            <div className="mt-4 h-3 overflow-hidden rounded bg-slate-100">
-              <div className="h-full rounded bg-mint" style={{ width: `${Math.min(100, recoveryRate)}%` }} />
-            </div>
-            <div className="mt-4 grid gap-2 sm:grid-cols-4">
-              <Metric label="Jour encaissé" value={`$${totalTodayPayments.toFixed(2)}`} />
-              <Metric label="Jour dépenses" value={`$${totalTodayExpenses.toFixed(2)}`} />
-              <Metric label="Attendu" value={`$${stats.expected.toFixed(2)}`} />
-              <Metric label="Reste" value={`$${stats.remaining.toFixed(2)}`} />
-            </div>
-          </div>
-
-          <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="font-bold text-ink">Élèves par classe</h2>
-            <div className="mt-3 overflow-x-auto">
-              <table className="w-full min-w-[520px] text-left text-sm">
-                <thead className="text-xs uppercase text-slate-500">
-                  <tr>
-                    <th className="py-2">Classe</th>
-                    <th className="py-2">Filles</th>
-                    <th className="py-2">Garçons</th>
-                    <th className="py-2">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {classRows.map((row) => (
-                    <tr key={row.className} className="border-t border-slate-100">
-                      <td className="py-2 font-semibold text-ink">{row.className}</td>
-                      <td className="py-2">{row.girls}</td>
-                      <td className="py-2">{row.boys}</td>
-                      <td className="py-2">{row.total}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-
-        <FormPanel title="Transactions récentes">
-          <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
-            {transactions.map((transaction) => (
-              <div key={transaction.id} className="flex min-w-0 items-center justify-between gap-3 rounded bg-slate-50 p-3 text-sm">
-                <div className="min-w-0">
-                  <p className="font-semibold text-ink">{transaction.type}</p>
-                  <p className="break-words text-xs text-slate-500">{transaction.label} | {transaction.date.slice(0, 10)}</p>
+          ))}
+          {transactions.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">{"Aucune transaction pour cette p\u00e9riode."}</p>}
+        </div>
+        <div className="mt-4 border-t border-slate-100 pt-4">
+          <h3 className="mb-3 text-sm font-bold text-ink">Mouvement des transactions par jour</h3>
+          <div className="grid min-w-0 gap-3">
+            {transactionsByDay.map((item) => (
+              <div key={item.date} className="grid min-w-0 gap-2 sm:grid-cols-[110px_minmax(0,1fr)] sm:items-center">
+                <span className="text-xs font-semibold text-slate-500">{item.date}</span>
+                <div className="grid min-w-0 gap-1">
+                  <div className="h-2 rounded bg-slate-100">
+                    <div className="h-full rounded bg-mint" style={{ width: (item.income / maxDailyAmount) * 100 + "%" }} />
+                  </div>
+                  <div className="h-2 rounded bg-slate-100">
+                    <div className="h-full rounded bg-red-400" style={{ width: (item.outcome / maxDailyAmount) * 100 + "%" }} />
+                  </div>
                 </div>
-                <span className={transaction.amount >= 0 ? "shrink-0 font-bold text-mint" : "shrink-0 font-bold text-red-600"}>
-                  {transaction.amount >= 0 ? "+" : "-"}${Math.abs(transaction.amount).toFixed(2)}
-                </span>
               </div>
             ))}
+            {transactionsByDay.length === 0 && <p className="text-sm text-slate-500">{"Aucun mouvement \u00e0 afficher."}</p>}
           </div>
-        </FormPanel>
+        </div>
+      </FormPanel>
+
+      <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
+        <h2 className="font-bold text-ink">{"\u00c9l\u00e8ves par classe"}</h2>
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[520px] text-left text-sm">
+            <thead className="text-xs uppercase text-slate-500">
+              <tr>
+                <th className="py-2">Classe</th>
+                <th className="py-2">Filles</th>
+                <th className="py-2">{"Gar\u00e7ons"}</th>
+                <th className="py-2">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {classRows.map((row) => (
+                <tr key={row.className} className="border-t border-slate-100">
+                  <td className="py-2 font-semibold text-ink">{row.className}</td>
+                  <td className="py-2">{row.girls}</td>
+                  <td className="py-2">{row.boys}</td>
+                  <td className="py-2">{row.total}</td>
+                </tr>
+              ))}
+              <tr className="border-t border-slate-200 bg-slate-50 font-bold text-ink">
+                <td className="py-2">Totaux</td>
+                <td className="py-2">{totalGirls}</td>
+                <td className="py-2">{totalBoys}</td>
+                <td className="py-2">{totalStudents}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
   );
+}
+
+async function exportDashboardReportPdf({
+  school,
+  year,
+  sectionLabel,
+  dateLabel,
+  recoveryRate,
+  totalPayments,
+  totalExpenses,
+  expected,
+  remaining,
+  transactions,
+  classRows,
+  totalGirls,
+  totalBoys,
+  totalStudents,
+}: {
+  school: School;
+  year: SchoolYear;
+  sectionLabel: string;
+  dateLabel: string;
+  recoveryRate: number;
+  totalPayments: number;
+  totalExpenses: number;
+  expected: number;
+  remaining: number;
+  transactions: { id: string; type: string; label: string; amount: number; date: string }[];
+  classRows: { className: SchoolClass; girls: number; boys: number; total: number }[];
+  totalGirls: number;
+  totalBoys: number;
+  totalStudents: number;
+}) {
+  const { default: jsPDF } = await import("jspdf");
+  const doc = new jsPDF();
+  let y = 18;
+
+  doc.setFontSize(16);
+  doc.text(`Dashboard Acadea - ${school.name}`, 14, y);
+  y += 8;
+  doc.setFontSize(10);
+  doc.text(`Annee scolaire: ${year.name}`, 14, y);
+  y += 6;
+  doc.text(`Date d'impression: ${new Date().toLocaleDateString("fr-FR")}`, 14, y);
+  y += 6;
+  doc.text(`Section: ${sectionLabel}`, 14, y);
+  y += 6;
+  doc.text(`Tranche de date: ${dateLabel}`, 14, y);
+  y += 10;
+
+  doc.setFontSize(12);
+  doc.text("KPI financier", 14, y);
+  y += 7;
+  doc.setFontSize(9);
+  doc.text(`Recouvrement: ${recoveryRate}%`, 14, y);
+  y += 5;
+  doc.text(`Encaisse: $${totalPayments.toFixed(2)} | Depenses: $${totalExpenses.toFixed(2)} | Attendu: $${expected.toFixed(2)} | Reste: $${remaining.toFixed(2)}`, 14, y);
+  y += 10;
+
+  doc.setFontSize(12);
+  doc.text("Transactions du jour", 14, y);
+  y += 7;
+  doc.setFontSize(8);
+  transactions.slice(0, 18).forEach((transaction) => {
+    doc.text(`${transaction.date.slice(0, 10)} - ${transaction.type} - ${transaction.label} - $${transaction.amount.toFixed(2)}`, 14, y);
+    y += 5;
+  });
+  if (transactions.length === 0) {
+    doc.text("Aucune transaction pour cette periode.", 14, y);
+    y += 5;
+  }
+  y += 6;
+
+  doc.setFontSize(12);
+  doc.text("Eleves par classe", 14, y);
+  y += 7;
+  doc.setFontSize(8);
+  classRows.forEach((row) => {
+    doc.text(`${row.className} | Filles: ${row.girls} | Garcons: ${row.boys} | Total: ${row.total}`, 14, y);
+    y += 5;
+  });
+  y += 4;
+  doc.setFontSize(9);
+  doc.text(`Total filles: ${totalGirls} | Total garcons: ${totalBoys} | Total general: ${totalStudents}`, 14, y);
+  doc.save(`dashboard-${year.name}.pdf`);
 }
 
 function PlatformModule({
