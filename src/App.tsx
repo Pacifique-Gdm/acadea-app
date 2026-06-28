@@ -825,6 +825,8 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
   const remaining = Math.max(stats.expected - totalPayments, 0);
   const recoveryRate = stats.expected > 0 ? Math.round((totalPayments / stats.expected) * 100) : 0;
   const recoveryTone = recoveryRate >= 80 ? "text-mint bg-mint/10" : recoveryRate >= 50 ? "text-amber-700 bg-amber-100" : "text-red-700 bg-red-50";
+  const admins = data.users.filter((item) => item.role === "school_admin").length;
+  const cashiers = data.users.filter((item) => item.role === "cashier").length;
   const classRows = CLASSES.map((className) => {
     const students = filteredStudents.filter((student) => student.className === className);
     return {
@@ -854,6 +856,16 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
   const maxDailyAmount = Math.max(1, ...transactionsByDay.map((item) => Math.max(item.income, item.outcome)));
   const sectionLabel = sectionFilter === "all" ? "Toutes les sections" : sectionFilter.charAt(0).toUpperCase() + sectionFilter.slice(1);
   const dateLabel = (startDate || "D\u00e9but") + " au " + (endDate || "Fin");
+  const cards = [
+    { label: "Nombre total d'\u00e9l\u00e8ves", value: stats.students, icon: GraduationCap, tone: "bg-mint/10 text-mint" },
+    { label: "Nombre total de parents", value: stats.parents, icon: UsersRound, tone: "bg-coral/10 text-coral" },
+    { label: "Administrateurs", value: admins, icon: ShieldCheck, tone: "bg-blue-100 text-blue-700" },
+    { label: "Caissiers", value: cashiers, icon: UserRound, tone: "bg-pink-100 text-pink-700" },
+    { label: "Montant total encaiss\u00e9", value: "$" + totalPayments.toFixed(2), icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
+    { label: "Montant attendu", value: "$" + stats.expected.toFixed(2), icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
+    { label: "Montant restant \u00e0 payer", value: "$" + remaining.toFixed(2), icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
+    { label: "Nombre de classes", value: stats.classes, icon: BookOpen, tone: "bg-indigo-100 text-indigo-700" },
+  ];
 
   function exportDashboardPdf() {
     exportDashboardReportPdf({
@@ -894,6 +906,21 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
             <Download className="h-4 w-4" /> Exporter PDF
           </button>
         </div>
+      </div>
+
+      <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {cards.map((card) => {
+          const Icon = card.icon;
+          return (
+            <article key={card.label} className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
+              <div className={`mb-4 flex h-10 w-10 items-center justify-center rounded ${card.tone}`}>
+                <Icon className="h-5 w-5" />
+              </div>
+              <p className="text-sm text-slate-500">{card.label}</p>
+              <p className="mt-1 break-words text-2xl font-bold text-ink">{card.value}</p>
+            </article>
+          );
+        })}
       </div>
 
       <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
