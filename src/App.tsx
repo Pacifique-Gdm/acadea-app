@@ -2723,11 +2723,13 @@ function ControlModule({
   const [amountThreshold, setAmountThreshold] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyQuery, setHistoryQuery] = useState("");
+  const [selectedHistoryStudentId, setSelectedHistoryStudentId] = useState("");
   const canPay = user.role === "cashier";
   const canCorrectPayments = user.role === "school_admin";
   const selectedPaymentStudent = yearData.students.find((student) => student.id === studentId);
   const payableFeeTypes = yearData.feeTypes.filter((fee) => !fee.className || !selectedPaymentStudent || fee.className === selectedPaymentStudent.className);
   const selectedFeeTypeValue = payableFeeTypes.some((fee) => fee.id === feeTypeId) ? feeTypeId : payableFeeTypes[0]?.id ?? "";
+  const selectedHistoryStudent = yearData.students.find((student) => student.id === selectedHistoryStudentId);
 
   const rows = yearData.students
     .map((student) => ({ student, balance: getStudentBalance(student.id, yearData.feeTypes, yearData.payments, yearData.students) }))
@@ -2747,6 +2749,39 @@ function ControlModule({
     if (!query) return true;
     return `${student.nom} ${student.postnom} ${student.prenom} ${student.matricule}`.toLowerCase().includes(query);
   });
+  const selectedHistoryBalance = selectedHistoryStudent
+    ? getStudentBalance(selectedHistoryStudent.id, yearData.feeTypes, yearData.payments, yearData.students)
+    : { expected: 0, paid: 0, remaining: 0 };
+  const selectedHistoryPayments = selectedHistoryStudent
+    ? yearData.payments
+        .filter((payment) => payment.studentId === selectedHistoryStudent.id)
+        .map((payment) => ({
+          payment,
+          fee: yearData.feeTypes.find((item) => item.id === payment.feeTypeId),
+        }))
+        .sort((a, b) => `${a.payment.paidAt}${a.payment.createdAt ?? ""}`.localeCompare(`${b.payment.paidAt}${b.payment.createdAt ?? ""}`))
+    : [];
+  let selectedHistoryRunningPaid = 0;
+  const selectedHistoryRows = selectedHistoryPayments.map(({ payment, fee }) => {
+    selectedHistoryRunningPaid += payment.amount;
+    return {
+      payment,
+      feeName: fee?.name ?? "Frais",
+      remaining: Math.max(selectedHistoryBalance.expected - selectedHistoryRunningPaid, 0),
+    };
+  });
+
+  function studentFullName(student: Student) {
+    return `${student.nom} ${student.postnom} ${student.prenom}`.replace(/\s+/g, " ").trim();
+  }
+
+  function formatMoney(value: number) {
+    return `$${value.toFixed(2)}`;
+  }
+
+  function formatPaymentDate(value: string) {
+    return new Date(value).toLocaleDateString("fr-FR");
+  }
 
   function savePayment() {
     if (!studentId || !selectedFeeTypeValue) return;
@@ -2892,6 +2927,198 @@ function ControlModule({
     printWindow.print();
   }
 
+  async function createStudentHistoryPdf(action: "view" | "print") {
+    if (!selectedHistoryStudent) return;
+
+    const { default: jsPDF } = await import("jspdf");
+    type StudentHistoryPdfDoc = InstanceType<typeof jsPDF> & {
+      addPage: () => void;
+      splitTextToSize: (text: string, maxWidth: number) => string[];
+      output: (type: "bloburl") => URL | string;
+      internal: InstanceType<typeof jsPDF>["internal"] & { pageSize: { getWidth: () => number; getHeight: () => number } };
+    };
+    const doc = new jsPDF() as StudentHistoryPdfDoc;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 14;
+    const tableWidth = pageWidth - margin * 2;
+    let y = 18;
+
+    function ensureSpace(height: number) {
+      if (y + height <= pageHeight - 14) return;
+      doc.addPage();
+      y = 18;
+    }
+
+    doc.setFillColor(20, 33, 61);
+    doc.rect(0, 0, pageWidth, 34, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(15);
+    doc.text(school.name, margin, 15);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.text(`Annee scolaire : ${year.name}`, margin, 24);
+
+    y = 48;
+    doc.setTextColor(20, 33, 61);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.text("Historique individuel des paiements", margin, y);
+    y += 9;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.text(`Date de generation : ${new Date().toLocaleString("fr-FR")}`, margin, y);
+    y += 10;
+
+    const identityRows = [
+      ["Eleve", studentFullName(selectedHistoryStudent)],
+      ["Matricule", selectedHistoryStudent.matricule],
+      ["Classe", selectedHistoryStudent.className],
+    ];
+    identityRows.forEach(([label, value]) => {
+      doc.setFont("helvetica", "bold");
+      doc.text(`${label} :`, margin, y);
+      doc.setFont("helvetica", "normal");
+      doc.text(value, margin + 32, y);
+      y += 6;
+    });
+    y += 6;
+
+    doc.setFillColor(248, 250, 252);
+    doc.rect(margin, y - 5, tableWidth, 9, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.text("Date", margin + 2, y);
+    doc.text("Type de frais", margin + 36, y);
+    doc.text("Montant paye", margin + 106, y);
+    doc.text("Solde restant", margin + 150, y);
+    y += 7;
+
+    doc.setFont("helvetica", "normal");
+    selectedHistoryRows.forEach((row) => {
+      ensureSpace(8);
+      doc.setDrawColor(226, 232, 240);
+      doc.line(margin, y - 4, margin + tableWidth, y - 4);
+      doc.text(formatPaymentDate(row.payment.paidAt), margin + 2, y);
+      doc.text(doc.splitTextToSize(String(row.feeName), 62)[0] ?? String(row.feeName), margin + 36, y);
+      doc.text(formatMoney(row.payment.amount), margin + 106, y);
+      doc.text(formatMoney(row.remaining), margin + 150, y);
+      y += 8;
+    });
+
+    if (selectedHistoryRows.length === 0) {
+      doc.text("Aucun paiement enregistre pour cet eleve.", margin + 2, y);
+      y += 8;
+    }
+
+    y += 6;
+    ensureSpace(24);
+    doc.setFillColor(245, 247, 251);
+    doc.roundedRect(margin, y, tableWidth, 22, 3, 3, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text(`Total paye : ${formatMoney(selectedHistoryBalance.paid)}`, margin + 6, y + 9);
+    doc.text(`Total restant : ${formatMoney(selectedHistoryBalance.remaining)}`, margin + 6, y + 17);
+
+    const pdfUrl = doc.output("bloburl").toString();
+    if (action === "view") {
+      window.open(pdfUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    const frame = document.createElement("iframe");
+    frame.style.position = "fixed";
+    frame.style.right = "0";
+    frame.style.bottom = "0";
+    frame.style.width = "0";
+    frame.style.height = "0";
+    frame.style.border = "0";
+    frame.src = pdfUrl;
+    frame.onload = () => {
+      frame.contentWindow?.focus();
+      frame.contentWindow?.print();
+      window.setTimeout(() => frame.remove(), 60000);
+    };
+    document.body.appendChild(frame);
+  }
+
+  if (selectedHistoryStudent) {
+    return (
+      <section className="grid min-w-0 gap-4">
+        <div className="flex min-w-0 flex-col gap-3 rounded border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <button
+              onClick={() => setSelectedHistoryStudentId("")}
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-slate-700 transition hover:bg-slate-200 hover:text-ink"
+              aria-label="Retour au controle"
+              title="Retour"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold uppercase text-mint">Historique individuel</p>
+              <h1 className="break-words text-2xl font-bold text-ink">{studentFullName(selectedHistoryStudent)}</h1>
+              <p className="break-words text-sm text-slate-500">
+                {selectedHistoryStudent.matricule} | {selectedHistoryStudent.className}
+              </p>
+            </div>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <button onClick={() => createStudentHistoryPdf("view")} className="secondary-button justify-center" type="button">
+              <Eye className="h-4 w-4" /> Voir PDF
+            </button>
+            <button onClick={() => createStudentHistoryPdf("print")} className="primary-button justify-center" type="button">
+              <Download className="h-4 w-4" /> Imprimer PDF
+            </button>
+          </div>
+        </div>
+
+        <div className="grid min-w-0 gap-3 sm:grid-cols-3">
+          <Metric label="Total attendu" value={formatMoney(selectedHistoryBalance.expected)} />
+          <Metric label="Total paye" value={formatMoney(selectedHistoryBalance.paid)} />
+          <Metric label="Total restant" value={formatMoney(selectedHistoryBalance.remaining)} />
+        </div>
+
+        <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="mb-4 min-w-0">
+            <h2 className="break-words text-lg font-bold text-ink">Paiements de l'eleve</h2>
+            <p className="text-sm text-slate-500">Liste chronologique limitee a cet eleve.</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="px-3 py-2">Date</th>
+                  <th className="px-3 py-2">Type de frais</th>
+                  <th className="px-3 py-2">Montant paye</th>
+                  <th className="px-3 py-2">Solde restant</th>
+                </tr>
+              </thead>
+              <tbody>
+                {selectedHistoryRows.map((row) => (
+                  <tr key={row.payment.id} className="border-t border-slate-100">
+                    <td className="px-3 py-3 font-medium text-ink">{formatPaymentDate(row.payment.paidAt)}</td>
+                    <td className="px-3 py-3 text-slate-700">{row.feeName}</td>
+                    <td className="px-3 py-3 font-semibold text-mint">{formatMoney(row.payment.amount)}</td>
+                    <td className="px-3 py-3 font-semibold text-ink">{formatMoney(row.remaining)}</td>
+                  </tr>
+                ))}
+                {selectedHistoryRows.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-3 py-6 text-center text-slate-500">
+                      Aucun paiement enregistre pour cet eleve.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
       <div className="min-w-0">
@@ -2915,7 +3142,13 @@ function ControlModule({
             <article key={student.id} className="min-w-0 rounded border border-slate-200 bg-white p-4">
               <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
-                  <h3 className="font-bold text-ink">{student.nom} {student.prenom}</h3>
+                  <button
+                    onClick={() => setSelectedHistoryStudentId(student.id)}
+                    className="break-words text-left font-bold text-ink underline-offset-4 transition hover:text-blue-700 hover:underline"
+                    type="button"
+                  >
+                    {student.nom} {student.prenom}
+                  </button>
                   <p className="break-words text-sm text-slate-500">{student.matricule} | {student.className}</p>
                 </div>
                 <span className={`shrink-0 rounded px-2 py-1 text-xs font-semibold ${balance.remaining === 0 ? "bg-mint/10 text-mint" : "bg-amber-100 text-amber-700"}`}>
