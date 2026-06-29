@@ -386,7 +386,6 @@ export default function App() {
         notificationsOpen={notificationsOpen}
         onRefresh={() => window.location.reload()}
         onToggleNotifications={openNotifications}
-        onLogout={logout}
       />
 
       <main className="mx-auto w-full max-w-7xl min-w-0 flex-1 overflow-y-auto px-3 py-5 pb-28 sm:px-6 sm:pb-32 lg:px-8">
@@ -447,6 +446,7 @@ export default function App() {
             selectedYear={selectedYear}
             onYearChange={enterSchoolYear}
             updateData={updateData}
+            onLogout={logout}
           />
         )}
       </main>
@@ -727,7 +727,6 @@ function Header({
   notificationsOpen,
   onRefresh,
   onToggleNotifications,
-  onLogout,
 }: {
   user: AppUser;
   school: School;
@@ -737,7 +736,6 @@ function Header({
   notificationsOpen: boolean;
   onRefresh: () => void;
   onToggleNotifications: () => void;
-  onLogout: () => void;
 }) {
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-white">
@@ -765,9 +763,6 @@ function Header({
               )}
             </button>
             </div>
-            <button onClick={onLogout} className="inline-flex items-center justify-center gap-2 rounded border border-slate-200 px-3 py-2 text-sm">
-              <LogOut className="h-4 w-4" /> Sortir
-            </button>
             {notificationsOpen && (
               <div className="fixed inset-x-3 bottom-24 top-24 z-30 rounded border border-slate-200 bg-white p-4 text-sm shadow-xl sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[420px] sm:max-w-[calc(100vw-2rem)]">
                 <div className="mb-3 flex items-center justify-between gap-3 border-b border-slate-100 pb-3">
@@ -812,7 +807,7 @@ function BottomNavigation({ user, activeTab, onTab }: { user: AppUser; activeTab
     { id: "control", label: "Contrôle", icon: Banknote },
     { id: "messages", label: "Message", icon: MessageSquare },
     { id: "menu", label: "Menu", icon: MenuIcon },
-  ].filter((tab) => (user.role === "cashier" ? ["dashboard", "control", "messages"].includes(tab.id) : true)) as { id: Tab; label: string; icon: typeof BookOpen }[];
+  ].filter((tab) => (user.role === "cashier" ? ["dashboard", "control", "messages", "menu"].includes(tab.id) : true)) as { id: Tab; label: string; icon: typeof BookOpen }[];
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 max-w-full overflow-hidden border-t border-slate-200 bg-white/95 px-1 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur sm:px-2">
@@ -2090,16 +2085,15 @@ function ParentPortal({
               <p className="break-words text-xs text-slate-500">Espace Parent | {parent?.fullName ?? user.name} | {year.name}</p>
             </div>
           </div>
-          <button onClick={onLogout} className="secondary-button">
-            <LogOut className="h-4 w-4" /> Sortir
-          </button>
-          <button onClick={onRefresh} className="secondary-button" title="Actualiser">
-            <RefreshCw className="h-4 w-4" /> Actualiser
-          </button>
-          <button onClick={markNotificationsRead} className="relative secondary-button" title="Notifications">
-            <Bell className="h-4 w-4" />
-            {unread > 0 && <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-600 px-1 text-center text-[11px] font-bold text-white">{unread}</span>}
-          </button>
+          <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
+            <button onClick={onRefresh} className="inline-flex h-9 w-9 items-center justify-center text-slate-500 transition hover:text-ink" title="Actualiser" aria-label="Actualiser">
+              <RefreshCw className="h-4 w-4" />
+            </button>
+            <button onClick={markNotificationsRead} className="relative inline-flex h-9 w-9 items-center justify-center text-slate-500 transition hover:text-ink" title="Notifications" aria-label="Notifications">
+              <Bell className="h-4 w-4" />
+              {unread > 0 && <span className="absolute right-0 top-0 min-w-5 rounded-full bg-red-600 px-1 text-center text-[11px] font-bold text-white">{unread}</span>}
+            </button>
+          </div>
         </div>
       </header>
       <main className="mx-auto grid max-w-7xl min-w-0 gap-4 px-3 py-5 pb-28 sm:px-6 lg:px-8">
@@ -2115,9 +2109,6 @@ function ParentPortal({
                     : "Options du compte parent."}
               </p>
             </div>
-            <button onClick={markNotificationsRead} className="secondary-button">
-              <Bell className="h-4 w-4" /> {unread} notification(s)
-            </button>
           </div>
         </section>
 
@@ -2226,14 +2217,8 @@ function ParentPortal({
             </FormPanel>
 
             <FormPanel title="Actions">
-              <button onClick={onRefresh} className="secondary-button w-full justify-center">
-                <RefreshCw className="h-4 w-4" /> Actualiser
-              </button>
-              <button onClick={markNotificationsRead} className="secondary-button w-full justify-center">
-                <Bell className="h-4 w-4" /> Marquer les notifications
-              </button>
-              <button onClick={onLogout} className="secondary-button w-full justify-center">
-                <LogOut className="h-4 w-4" /> Sortir
+              <button onClick={onLogout} className="inline-flex w-full items-center justify-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 transition hover:bg-red-100" type="button">
+                <LogOut className="h-4 w-4" /> Déconnexion
               </button>
             </FormPanel>
           </section>
@@ -3634,6 +3619,7 @@ function MenuModule({
   selectedYear,
   onYearChange,
   updateData,
+  onLogout,
 }: {
   user: AppUser;
   data: AppData;
@@ -3643,8 +3629,9 @@ function MenuModule({
   selectedYear: SchoolYear;
   onYearChange: (id: string) => void;
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
+  onLogout: () => void;
 }) {
-  type MenuSection = "school" | "years" | "accounts" | "fees" | "financial";
+  type MenuSection = "school" | "years" | "accounts" | "fees" | "financial" | "session";
   const [schoolForm, setSchoolForm] = useState(school);
   const [cashierName, setCashierName] = useState("");
   const [cashierPhone, setCashierPhone] = useState("");
@@ -3665,6 +3652,7 @@ function MenuModule({
     { id: "accounts", title: "Créer un caissier", description: "Compte de connexion caissier lié à l'école.", icon: ShieldCheck },
     { id: "fees", title: "Types de frais", description: "Montants et catégories de frais scolaires.", icon: Banknote },
     { id: "financial", title: "Rapport financier", description: "Synthèse et exports des rapports financiers.", icon: BarChart3 },
+    { id: "session", title: "Déconnexion", description: "Quitter la session en cours en toute sécurité.", icon: LogOut },
   ] satisfies { id: MenuSection; title: string; description: string; icon: typeof Settings }[];
   const feeKindChoices = Array.from(new Set([...FEE_KINDS, ...yearData.feeTypes.map((fee) => fee.name)]));
 
@@ -3913,27 +3901,35 @@ function MenuModule({
       );
     }
 
+    if (sectionId === "session") {
+      return (
+        <div className="grid min-w-0 gap-3">
+          <p className="rounded bg-slate-50 p-3 text-sm font-semibold text-slate-600">Vous pouvez quitter Acadéa et revenir à l'écran de connexion.</p>
+          <button onClick={onLogout} className="inline-flex w-full items-center justify-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 transition hover:bg-red-100" type="button">
+            <LogOut className="h-4 w-4" /> Déconnexion
+          </button>
+        </div>
+      );
+    }
+
     return null;
   }
 
-  const activeMenuSectionConfig = menuSections.find((section) => section.id === activeMenuSection);
+  const visibleMenuSections = canAdmin ? menuSections : menuSections.filter((section) => section.id === "session");
+  const activeMenuSectionConfig = visibleMenuSections.find((section) => section.id === activeMenuSection);
 
   return (
     <section className="grid min-w-0 gap-3">
-      {menuSections.map((section) => {
+      {visibleMenuSections.map((section) => {
         const Icon = section.icon;
         const active = activeMenuSection === section.id;
-        const canOpenSection = section.id !== "accounts" && section.id !== "fees" ? true : canAdmin;
         return (
           <button
             key={section.id}
-            onClick={() => {
-              if (canOpenSection) setActiveMenuSection(section.id);
-            }}
+            onClick={() => setActiveMenuSection(section.id)}
             className={`min-w-0 rounded border p-4 text-left shadow-sm transition ${
               active ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white hover:border-mint"
             }`}
-            aria-disabled={!canOpenSection}
             type="button"
           >
             <div className="flex min-w-0 items-start gap-3">
