@@ -2727,12 +2727,18 @@ function ControlModule({
   const [expenseDescription, setExpenseDescription] = useState("");
   const [amountComparator, setAmountComparator] = useState<"all" | ">=" | "<">("all");
   const [amountThreshold, setAmountThreshold] = useState("");
+  const [paymentError, setPaymentError] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyQuery, setHistoryQuery] = useState("");
   const [selectedHistoryStudentId, setSelectedHistoryStudentId] = useState("");
   const canPay = user.role === "cashier";
   const canCorrectPayments = user.role === "school_admin";
   const selectedPaymentStudent = yearData.students.find((student) => student.id === studentId);
+  const selectedPaymentBalance = selectedPaymentStudent
+    ? getStudentBalance(selectedPaymentStudent.id, yearData.feeTypes, yearData.payments, yearData.students)
+    : { expected: 0, paid: 0, remaining: 0 };
+  const isSelectedPaymentComplete = selectedPaymentBalance.expected > 0 && selectedPaymentBalance.paid === selectedPaymentBalance.expected;
+  const isPaymentEntryDisabled = selectedPaymentBalance.expected <= 0 || isSelectedPaymentComplete;
   const payableFeeTypes = yearData.feeTypes.filter((fee) => !fee.className || !selectedPaymentStudent || fee.className === selectedPaymentStudent.className);
   const selectedFeeTypeValue = payableFeeTypes.some((fee) => fee.id === feeTypeId) ? feeTypeId : payableFeeTypes[0]?.id ?? "";
   const selectedHistoryStudent = yearData.students.find((student) => student.id === selectedHistoryStudentId);
@@ -2789,8 +2795,22 @@ function ControlModule({
     return new Date(value).toLocaleDateString("fr-FR");
   }
 
+  function isStudentPaymentComplete(balance: { expected: number; paid: number }) {
+    return balance.expected > 0 && balance.paid === balance.expected;
+  }
+
   function savePayment() {
     if (!studentId || !selectedFeeTypeValue) return;
+    setPaymentError("");
+    const paymentAmount = Number(amount);
+    if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
+      setPaymentError("Montant de paiement invalide.");
+      return;
+    }
+    if (selectedPaymentBalance.paid + paymentAmount > selectedPaymentBalance.expected) {
+      setPaymentError("Paiement impossible : ce paiement dépasse le montant total attendu.");
+      return;
+    }
     const student = data.students.find((item) => item.id === studentId);
     const payment: Payment = {
       id: uid("pay"),
@@ -2799,7 +2819,7 @@ function ControlModule({
       studentId,
       parentId: student?.parentId,
       feeTypeId: selectedFeeTypeValue,
-      amount: Number(amount),
+      amount: paymentAmount,
       paidAt: new Date().toISOString().slice(0, 10),
       createdAt: new Date().toISOString(),
       receiptNumber: generateReceiptNumber(data.payments, year.name),
@@ -2814,7 +2834,7 @@ function ControlModule({
           studentId,
           type: "payment",
           title: "Paiement enregistré",
-          body: `Un paiement de $${Number(amount).toFixed(2)} a été enregistré pour ${student.nom} ${student.prenom}.`,
+          body: `Un paiement de $${paymentAmount.toFixed(2)} a été enregistré pour ${student.nom} ${student.prenom}.`,
           createdAt: new Date().toISOString(),
           read: false,
         }
@@ -2824,6 +2844,7 @@ function ControlModule({
       notifications: notification ? [notification, ...data.notifications] : data.notifications,
       auditLogs: [createAuditLog(user, school.id, year.id, "Création paiement", `${payment.receiptNumber} - $${payment.amount}`), ...data.auditLogs],
     });
+    setAmount("");
   }
 
   function saveExpense() {
@@ -2850,14 +2871,25 @@ function ControlModule({
   function correctPayment(payment: Payment) {
     const nextAmount = prompt("Nouveau montant du paiement", String(payment.amount));
     if (!nextAmount) return;
+    const correctedAmount = Number(nextAmount);
+    if (!Number.isFinite(correctedAmount) || correctedAmount <= 0) {
+      alert("Montant de paiement invalide.");
+      return;
+    }
+    const paymentStudent = yearData.students.find((student) => student.id === payment.studentId);
+    const paymentBalance = paymentStudent ? getStudentBalance(paymentStudent.id, yearData.feeTypes, yearData.payments, yearData.students) : { expected: 0, paid: 0 };
+    if (paymentBalance.paid - payment.amount + correctedAmount > paymentBalance.expected) {
+      alert("Paiement impossible : ce paiement dépasse le montant total attendu.");
+      return;
+    }
     const reason = prompt("Motif obligatoire de correction");
     if (!reason) return;
     updateData({
       payments: data.payments.map((item) =>
-        item.id === payment.id ? { ...item, amount: Number(nextAmount), updatedAt: new Date().toISOString(), correctionReason: reason } : item,
+        item.id === payment.id ? { ...item, amount: correctedAmount, updatedAt: new Date().toISOString(), correctionReason: reason } : item,
       ),
       auditLogs: [
-        createAuditLog(user, school.id, year.id, "Correction paiement", `${payment.receiptNumber ?? payment.id}: ancien $${payment.amount}, nouveau $${Number(nextAmount)}. Motif: ${reason}`),
+        createAuditLog(user, school.id, year.id, "Correction paiement", `${payment.receiptNumber ?? payment.id}: ancien $${payment.amount}, nouveau $${correctedAmount}. Motif: ${reason}`),
         ...data.auditLogs,
       ],
     });
@@ -3086,8 +3118,8 @@ function ControlModule({
                   </button>
                   <p className="break-words text-sm text-slate-500">{student.matricule} | {student.className}</p>
                 </div>
-                <span className={`shrink-0 rounded px-2 py-1 text-xs font-semibold ${balance.remaining === 0 ? "bg-mint/10 text-mint" : "bg-amber-100 text-amber-700"}`}>
-                  {balance.remaining === 0 ? "En ordre" : "Non en ordre"}
+                <span className={`shrink-0 rounded px-2 py-1 text-xs font-semibold ${isStudentPaymentComplete(balance) ? "bg-mint/10 text-mint" : "bg-amber-100 text-amber-700"}`}>
+                  {isStudentPaymentComplete(balance) ? "En ordre" : "Non en ordre"}
                 </span>
               </div>
               <div className="mt-4 grid grid-cols-3 gap-2 text-sm">
@@ -3107,13 +3139,19 @@ function ControlModule({
                 <option key={student.id} value={student.id}>{student.nom} {student.prenom}</option>
               ))}
             </select>
-            <select value={selectedFeeTypeValue} onChange={(event) => setFeeTypeId(event.target.value)} className="input">
+            <div className="grid grid-cols-3 gap-2 text-sm">
+              <Metric label="Attendu" value={`$${selectedPaymentBalance.expected}`} />
+              <Metric label="Payé" value={`$${selectedPaymentBalance.paid}`} />
+              <Metric label="Solde" value={`$${selectedPaymentBalance.remaining}`} />
+            </div>
+            {paymentError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{paymentError}</p>}
+            <select value={selectedFeeTypeValue} onChange={(event) => setFeeTypeId(event.target.value)} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60">
               {payableFeeTypes.map((fee) => (
                 <option key={fee.id} value={fee.id}>{fee.name} - ${fee.amount}</option>
               ))}
             </select>
-            <input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" min="0" className="input" placeholder="Montant" />
-            <button onClick={savePayment} className="primary-button"><Plus className="h-4 w-4" /> Enregistrer</button>
+            <input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" min="0" max={selectedPaymentBalance.remaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" placeholder="Montant" />
+            <button onClick={savePayment} disabled={isPaymentEntryDisabled} className="primary-button disabled:opacity-50"><Plus className="h-4 w-4" /> Enregistrer</button>
           </FormPanel>
         )}
         {canPay && (
