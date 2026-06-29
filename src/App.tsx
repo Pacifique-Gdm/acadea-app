@@ -2570,26 +2570,21 @@ function StudentsModule({
         </div>
       </div>
       {canEdit && showForm && (
-        <div className="transition-all duration-300 ease-out">
-          <FormPanel title={form.id.startsWith("new") ? "Ajouter un élève" : "Modifier l'élève"}>
-            <button onClick={() => setShowForm(false)} className="secondary-button justify-center">
-              <X className="h-4 w-4" /> Fermer
-            </button>
-            <StudentForm
-              form={form}
-              setForm={setForm}
-              parents={yearData.parents}
-              quickParent={quickParent}
-              setQuickParent={setQuickParent}
-              classChoices={studentClassChoices}
-              optionChoices={optionChoices}
-              onAddOption={addSchoolOption}
-              onCreateParent={createParentForStudent}
-              onSave={saveStudent}
-              onReset={() => setForm(emptyStudent(school.id, year.id))}
-            />
-          </FormPanel>
-        </div>
+        <AdminDrawer title={form.id.startsWith("new") ? "Ajouter un élève" : "Modifier l'élève"} onClose={() => setShowForm(false)} closeLabel="Fermer le formulaire élève">
+          <StudentForm
+            form={form}
+            setForm={setForm}
+            parents={yearData.parents}
+            quickParent={quickParent}
+            setQuickParent={setQuickParent}
+            classChoices={studentClassChoices}
+            optionChoices={optionChoices}
+            onAddOption={addSchoolOption}
+            onCreateParent={createParentForStudent}
+            onSave={saveStudent}
+            onReset={() => setForm(emptyStudent(school.id, year.id))}
+          />
+        </AdminDrawer>
       )}
     </section>
   );
@@ -3388,15 +3383,8 @@ function ControlModule({
         )}
       </div>
       {historyOpen && (
-        <div className="fixed inset-0 z-50 bg-ink/30 p-3 backdrop-blur-sm">
-          <div className="ml-auto flex h-full w-full max-w-xl flex-col rounded border border-slate-200 bg-white p-4 shadow-2xl">
-            <div className="mb-4 flex items-center justify-between gap-3 border-b border-slate-100 pb-3">
-              <h2 className="break-words text-lg font-bold text-ink">Historique des paiements</h2>
-              <button onClick={() => setHistoryOpen(false)} className="rounded bg-slate-100 p-2 text-slate-700" aria-label="Fermer l'historique">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <label className="mb-3 flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
+        <AdminDrawer title="Historique des paiements" onClose={() => setHistoryOpen(false)} closeLabel="Fermer l'historique">
+            <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
               <Search className="h-4 w-4 shrink-0 text-slate-400" />
               <input
                 value={historyQuery}
@@ -3405,7 +3393,7 @@ function ControlModule({
                 placeholder="Rechercher par nom ou matricule"
               />
             </label>
-            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+            <div className="space-y-2">
               {filteredHistoryPayments.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun paiement trouvé</p>}
               {filteredHistoryPayments.map(({ payment, student, fee }) => {
                 return (
@@ -3425,8 +3413,7 @@ function ControlModule({
                 );
               })}
             </div>
-          </div>
-        </div>
+        </AdminDrawer>
       )}
     </section>
   );
@@ -3784,28 +3771,10 @@ function MenuModule({
     setShowNewFeeForm(false);
   }
 
-  function renderMenuFormHeader(title: string) {
-    return (
-      <div className="mb-3 flex min-w-0 items-center gap-2">
-        <button
-          onClick={() => setActiveMenuSection(null)}
-          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded bg-slate-100 text-slate-700 transition hover:bg-slate-200 hover:text-ink"
-          aria-label="Retour au menu"
-          title="Retour au menu"
-          type="button"
-        >
-          <ArrowLeft className="h-5 w-5" />
-        </button>
-        <h3 className="break-words text-lg font-bold text-ink">{title}</h3>
-      </div>
-    );
-  }
-
   function renderMenuSectionForm(sectionId: MenuSection) {
     if (sectionId === "school") {
       return (
         <div className="grid min-w-0 gap-4">
-          {renderMenuFormHeader("Paramètres école")}
           <Field label="Logo URL" value={schoolForm.logoUrl ?? ""} onChange={(value) => setSchoolForm({ ...schoolForm, logoUrl: value })} disabled={!canAdmin} />
           <Field label="Nom de l'école" value={schoolForm.name} onChange={(value) => setSchoolForm({ ...schoolForm, name: value })} disabled={!canAdmin} />
           <Field label="Adresse" value={schoolForm.address} onChange={(value) => setSchoolForm({ ...schoolForm, address: value })} disabled={!canAdmin} />
@@ -3820,7 +3789,6 @@ function MenuModule({
     if (sectionId === "years") {
       return (
         <div className="grid min-w-0 gap-4">
-          {renderMenuFormHeader("Années scolaires")}
           <div className="space-y-2">
             {years.map((year) => (
               <div key={year.id} className={`flex min-w-0 flex-col gap-2 rounded border p-3 sm:flex-row sm:items-center sm:justify-between ${year.id === selectedYear.id ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-white"}`}>
@@ -3852,7 +3820,6 @@ function MenuModule({
     if (sectionId === "accounts" && canAdmin) {
       return (
         <div className="grid min-w-0 gap-4">
-          {renderMenuFormHeader("Créer un caissier")}
           {cashierError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{cashierError}</p>}
           <Field label="Nom complet" value={cashierName} onChange={setCashierName} />
           <Field label="Téléphone" value={cashierPhone} onChange={setCashierPhone} />
@@ -3868,7 +3835,6 @@ function MenuModule({
     if (sectionId === "fees" && canAdmin) {
       return (
         <div className="grid min-w-0 gap-4">
-          {renderMenuFormHeader("Types de frais")}
           <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_120px_auto]">
             <select
               value={feeName}
@@ -3942,7 +3908,6 @@ function MenuModule({
     if (sectionId === "financial") {
       return (
         <div className="grid min-w-0 gap-4">
-          {renderMenuFormHeader("Rapport financier")}
           <ReportsModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} />
         </div>
       );
@@ -3951,46 +3916,43 @@ function MenuModule({
     return null;
   }
 
+  const activeMenuSectionConfig = menuSections.find((section) => section.id === activeMenuSection);
+
   return (
     <section className="grid min-w-0 gap-3">
       {menuSections.map((section) => {
         const Icon = section.icon;
         const active = activeMenuSection === section.id;
+        const canOpenSection = section.id !== "accounts" && section.id !== "fees" ? true : canAdmin;
         return (
-          <article
+          <button
             key={section.id}
-            className={`min-w-0 overflow-hidden rounded border bg-white shadow-sm transition duration-200 ${
-              active ? "border-blue-200 ring-2 ring-blue-50" : "border-slate-200 hover:border-mint"
+            onClick={() => {
+              if (canOpenSection) setActiveMenuSection(section.id);
+            }}
+            className={`min-w-0 rounded border p-4 text-left shadow-sm transition ${
+              active ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white hover:border-mint"
             }`}
+            aria-disabled={!canOpenSection}
+            type="button"
           >
-            <button
-              onClick={() => setActiveMenuSection(active ? null : section.id)}
-              className={`w-full min-w-0 p-4 text-left transition ${active ? "bg-blue-50" : "bg-white"}`}
-              aria-expanded={active}
-              type="button"
-            >
-              <div className="flex min-w-0 items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink">
-                  <Icon className="h-5 w-5" />
-                </div>
-                <div className="min-w-0">
-                  <h2 className="break-words font-bold text-ink">{section.title}</h2>
-                  <p className="mt-1 break-words text-sm text-slate-500">{section.description}</p>
-                </div>
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink">
+                <Icon className="h-5 w-5" />
               </div>
-            </button>
-            <div className={`grid transition-all duration-300 ease-out ${active ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
-              <div className="min-h-0 overflow-hidden">
-                {active && (
-                  <div className="border-t border-slate-100 p-4 animate-[menuPanelIn_180ms_ease-out]">
-                    {renderMenuSectionForm(section.id)}
-                  </div>
-                )}
+              <div className="min-w-0">
+                <h2 className="break-words font-bold text-ink">{section.title}</h2>
+                <p className="mt-1 break-words text-sm text-slate-500">{section.description}</p>
               </div>
             </div>
-          </article>
+          </button>
         );
       })}
+      {activeMenuSection && activeMenuSectionConfig && (
+        <AdminDrawer title={activeMenuSectionConfig.title} onClose={() => setActiveMenuSection(null)} closeLabel={`Fermer ${activeMenuSectionConfig.title}`}>
+          {renderMenuSectionForm(activeMenuSection)}
+        </AdminDrawer>
+      )}
     </section>
   );
 }
@@ -4280,6 +4242,22 @@ function SectionTitle({ title, subtitle }: { title: string; subtitle: string }) 
     <div className="mb-4 min-w-0">
       <h1 className="break-words text-2xl font-bold text-ink">{title}</h1>
       <p className="break-words text-sm text-slate-500">{subtitle}</p>
+    </div>
+  );
+}
+
+function AdminDrawer({ title, children, onClose, closeLabel }: { title: string; children: ReactNode; onClose: () => void; closeLabel: string }) {
+  return (
+    <div className="fixed inset-0 z-50 bg-ink/30 p-3 backdrop-blur-sm">
+      <div className="ml-auto flex h-full w-full max-w-xl flex-col rounded border border-slate-200 bg-white p-4 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between gap-3 border-b border-slate-100 pb-3">
+          <h2 className="break-words text-lg font-bold text-ink">{title}</h2>
+          <button onClick={onClose} className="rounded bg-slate-100 p-2 text-slate-700" aria-label={closeLabel} type="button">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 scrollbar-thin">{children}</div>
+      </div>
     </div>
   );
 }
