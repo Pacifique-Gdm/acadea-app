@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   ArrowUpDown,
@@ -30,16 +30,14 @@ import {
   Settings,
   ShieldCheck,
   Trash2,
-  Upload,
   X,
   UserRound,
   UsersRound,
 } from "lucide-react";
-import { demoData } from "./data/demoData";
-import { firebaseReady } from "./firebase";
-import { createFirebaseAuthUser, getDefaultRoute, signIn, signOutUser, validateParent, validatePlatformAdmin, validateSchoolStaff } from "./services/auth";
+import { createFirebaseAuthUser, getDefaultRoute, sendPasswordReset, signIn, signOutUser, subscribeToFirebaseUser, validateParent, validatePlatformAdmin, validateSchoolStaff } from "./services/auth";
 import { canUseFirestoreData, loadFirestoreData, persistFirestorePatch } from "./services/firestoreData";
-import { generateReceiptPdf } from "./utils/pdf";
+import { provisionSchoolAdmin } from "./services/provisioning";
+import { escapePdfHtml, generateReceiptPdf, money, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./utils/pdf";
 import { buildStats, getStudentBalance } from "./utils/stats";
 import type {
   AppData,
@@ -72,42 +70,32 @@ const roleLabels: Record<AppUser["role"], string> = {
 const appEnvironment = import.meta.env.VITE_APP_ENV ?? "development";
 const showStagingBanner = import.meta.env.VITE_STAGING_BANNER === "true" || appEnvironment === "staging" || appEnvironment === "preview";
 const stagingLabel = import.meta.env.VITE_STAGING_LABEL ?? "ENVIRONNEMENT DE TEST";
-const localDataKey = "acadea-app-data";
-const sessionKey = "acadea-session";
+const emptyAppData: AppData = {
+  users: [],
+  schools: [],
+  schoolYears: [],
+  students: [],
+  parents: [],
+  feeTypes: [],
+  payments: [],
+  expenses: [],
+  messages: [],
+  notifications: [],
+  auditLogs: [],
+};
 
 function uid(prefix: string) {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
 function loadInitialData() {
-  if (typeof window === "undefined") return demoData;
-
-  try {
-    const saved = window.localStorage.getItem(localDataKey);
-    return saved ? ({ ...demoData, ...JSON.parse(saved) } as AppData) : demoData;
-  } catch {
-    return demoData;
-  }
+  return emptyAppData;
 }
 
-function loadStoredSession(data: AppData) {
-  if (typeof window === "undefined") return null;
-
-  try {
-    const saved = JSON.parse(window.localStorage.getItem(sessionKey) ?? "null") as { userId?: string; selectedYearId?: string; activeTab?: Tab } | null;
-    const sessionUser = saved?.userId ? data.users.find((item) => item.id === saved.userId && item.status !== "inactive") : undefined;
-    return sessionUser ? { user: sessionUser, selectedYearId: saved?.selectedYearId ?? "", activeTab: saved?.activeTab ?? "dashboard" } : null;
-  } catch {
-    return null;
-  }
-}
-
-function getInitialRoute(hasSession: boolean) {
+function getInitialRoute() {
   if (typeof window === "undefined") return "/login";
   const path = window.location.pathname;
-  if (!hasSession) return path === "/platform" ? "/platform" : "/login";
-  if (path === "/platform" || path === "/dashboard" || path.startsWith("/admin/")) return path;
-  return "/dashboard";
+  return path === "/platform" ? "/platform" : "/login";
 }
 
 function EnvironmentBanner() {
@@ -125,182 +113,200 @@ function EnvironmentBanner() {
 
 export default function App() {
   const [data, setData] = useState<AppData>(() => loadInitialData());
-  const storedSession = loadStoredSession(data);
-  const [user, setUser] = useState<AppUser | null>(() => storedSession?.user ?? null);
-  const [selectedYearId, setSelectedYearId] = useState(() => storedSession?.selectedYearId ?? "");
-  const [activeTab, setActiveTab] = useState<Tab>(() => storedSession?.activeTab ?? "dashboard");
-  const [route, setRoute] = useState(() => getInitialRoute(Boolean(storedSession?.user)));
+  const [user, setUser] = useState<AppUser | null>(null);
+  const [selectedYearId, setSelectedYearId] = useState("");
+  const [activeTab, setActiveTab] = useState<Tab>("dashboard");
+  const [route, setRoute] = useState(() => getInitialRoute());
+  const [authReady, setAuthReady] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [dataLoading, setDataLoading] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const logoutInProgressRef = useRef(false);
 
   const school = data.schools.find((item) => item.id === user?.schoolId);
   const schoolYears = school ? data.schoolYears.filter((year) => year.schoolId === school.id) : [];
   const selectedYear = schoolYears.find((year) => year.id === selectedYearId);
 
-  useEffect(() => {
-    if (!user || !canUseFirestoreData()) return;
+  const navigate = useCallback((nextRoute: string) => {
+    window.history.pushState({}, "", nextRoute);
+    setRoute(nextRoute);
+  }, []);
 
+  const applyAuthenticatedUser = useCallback((nextUser: AppUser | null) => {
+    setAuthError("");
+
+    if (!nextUser) {
+      setUser(null);
+      setSelectedYearId("");
+      setActiveTab("dashboard");
+      setDataLoading(false);
+      setData(loadInitialData());
+      navigate("/login");
+      return;
+    }
+
+    const nextRoute = getDefaultRoute(nextUser.role);
+    const nextYearId = nextRoute === "/dashboard" ? nextUser.activeSchoolYearId ?? "" : "";
+
+    setUser(nextUser);
+    setSelectedYearId(nextYearId);
+    setActiveTab("dashboard");
+    navigate(nextRoute);
+  }, [navigate]);
+
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
     let cancelled = false;
 
-    loadFirestoreData()
-      .then((firestoreData) => {
-        if (!firestoreData || cancelled) return;
-        const mergedData = { ...demoData, ...firestoreData };
-        window.localStorage.setItem(localDataKey, JSON.stringify(mergedData));
-        setData(mergedData);
+    subscribeToFirebaseUser(
+      (nextUser) => {
+        if (cancelled) return;
+        setAuthReady(true);
+        applyAuthenticatedUser(nextUser);
+      },
+      (error) => {
+        if (cancelled) return;
+        console.error("[Acadéa auth] Session Firebase invalide.", error);
+        if (!logoutInProgressRef.current) {
+          setAuthError(error instanceof Error ? error.message : "Session Firebase invalide.");
+        }
+        setUser(null);
+        setSelectedYearId("");
+        setActiveTab("dashboard");
+        setData(loadInitialData());
+        setAuthReady(true);
+        navigate("/login");
+      },
+    )
+      .then((nextUnsubscribe) => {
+        unsubscribe = nextUnsubscribe;
       })
       .catch((error) => {
-        console.warn("Chargement Firestore indisponible, fallback localStorage.", error);
+        if (cancelled) return;
+        console.error("[Acadéa auth] Firebase indisponible.", error);
+        setAuthError(error instanceof Error ? error.message : "Configuration Firebase indisponible.");
+        setAuthReady(true);
       });
 
     return () => {
       cancelled = true;
+      unsubscribe?.();
     };
-  }, [user]);
+  }, [applyAuthenticatedUser, navigate]);
 
-  function saveSession(nextUser: AppUser | null, nextSelectedYearId = selectedYearId, nextActiveTab = activeTab) {
-    if (!nextUser) {
-      window.localStorage.removeItem(sessionKey);
-      return;
-    }
+  useEffect(() => {
+    if (!user || !canUseFirestoreData()) return;
 
-    window.localStorage.setItem(sessionKey, JSON.stringify({ userId: nextUser.id, selectedYearId: nextSelectedYearId, activeTab: nextActiveTab }));
-  }
+    let cancelled = false;
+    setDataLoading(true);
 
-  function navigate(nextRoute: string) {
-    window.history.pushState({}, "", nextRoute);
-    setRoute(nextRoute);
-  }
+    loadFirestoreData(user)
+      .then((firestoreData) => {
+        if (!firestoreData || cancelled) return;
+        setData(firestoreData);
+        const nextSchool = firestoreData.schools.find((item) => item.id === user.schoolId);
+        const nextSchoolYears = nextSchool ? firestoreData.schoolYears.filter((year) => year.schoolId === nextSchool.id) : [];
+        const nextActiveYear = nextSchoolYears.find((year) => year.status === "active");
+        setSelectedYearId(user.activeSchoolYearId && nextSchoolYears.some((year) => year.id === user.activeSchoolYearId) ? user.activeSchoolYearId : nextActiveYear?.id ?? "");
+      })
+      .catch((error) => {
+        if (cancelled || logoutInProgressRef.current) return;
+        console.warn("Chargement Firestore indisponible.", error);
+        setAuthError(error instanceof Error ? error.message : "Chargement Firestore impossible après connexion.");
+        setUser(null);
+        setSelectedYearId("");
+        setActiveTab("dashboard");
+        setData(loadInitialData());
+        navigate("/login");
+        void signOutUser().catch((signOutError) => {
+          console.warn("Déconnexion Firebase après erreur de chargement impossible.", signOutError);
+        });
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setDataLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      setDataLoading(false);
+    };
+  }, [navigate, user]);
 
   function enterSchoolYear(yearId: string) {
     setSelectedYearId(yearId);
     setUser((currentUser) => (currentUser ? { ...currentUser, activeSchoolYearId: yearId } : currentUser));
-    if (user) saveSession({ ...user, activeSchoolYearId: yearId }, yearId);
     setData((prev) => {
       const updated = {
         ...prev,
         users: prev.users.map((item) => (item.id === user?.id ? { ...item, activeSchoolYearId: yearId } : item)),
       };
-      window.localStorage.setItem(localDataKey, JSON.stringify(updated));
       return updated;
     });
   }
 
   async function loginWithCredentials(email: string, password: string) {
-    const nextUser = await signIn(email, password, data);
-    const nextRoute = getDefaultRoute(nextUser.role);
-    let nextSessionYearId = "";
-
-    if (nextRoute === "/platform" && !validatePlatformAdmin(nextUser)) {
-      throw new Error("Accès plateforme refusé.");
-    }
-
-    if (nextRoute === "/dashboard") {
-      const schoolStaffAccess = validateSchoolStaff(nextUser);
-      const parentAccess = validateParent(nextUser);
-      if (["school_admin", "cashier"].includes(nextUser.role) && !nextUser.schoolId) {
-        throw new Error("schoolId manquant.");
-      }
-      if (!schoolStaffAccess && !parentAccess) {
-        const authDiagnostic = (nextUser as AppUser & { __authDiagnostic?: Record<string, unknown> }).__authDiagnostic ?? {};
-        const rawRole = authDiagnostic.rawRole ?? nextUser.role;
-        const schoolStaffReasons = {
-          roleAccepted: ["school_admin", "cashier"].includes(nextUser.role),
-          hasSchoolId: Boolean(nextUser.schoolId),
-        };
-        const parentReasons = {
-          roleAccepted: nextUser.role === "parent",
-          hasSchoolId: Boolean(nextUser.schoolId),
-          hasParentId: Boolean(nextUser.parentId),
-          statusActive: nextUser.status !== "inactive",
-        };
-        console.error("[Acadéa auth] Accès dashboard refusé.", {
-          firebaseUid: authDiagnostic.firebaseUid ?? nextUser.id,
-          email: authDiagnostic.email ?? nextUser.email,
-          firestoreDocument: authDiagnostic.firestoreDocument ?? null,
-          customClaims: authDiagnostic.customClaims ?? null,
-          rawRole,
-          normalizedRole: nextUser.role,
-          schoolId: nextUser.schoolId,
-          tenantId: authDiagnostic.tenantId,
-          validateSchoolStaff: schoolStaffAccess,
-          validateParent: parentAccess,
-          validationReasons: {
-            validateSchoolStaff: schoolStaffReasons,
-            validateParent: parentReasons,
-          },
-          exactFailure: {
-            validateSchoolStaff: Object.entries(schoolStaffReasons)
-              .filter(([, passed]) => !passed)
-              .map(([reason]) => reason),
-            validateParent: Object.entries(parentReasons)
-              .filter(([, passed]) => !passed)
-              .map(([reason]) => reason),
-          },
-        });
-        throw new Error("Votre compte ne peut pas accéder à cet espace.");
-      }
-
-      const nextSchool = data.schools.find((item) => item.id === nextUser.schoolId);
-      if (!nextSchool) {
-        throw new Error("Aucune école n'est associée à ce compte.");
-      }
-
-      if (nextSchool.status !== "active") {
-        throw new Error("Cette école est suspendue. Contactez la plateforme Acadéa.");
-      }
-
-      const nextSchoolYears = data.schoolYears.filter((year) => year.schoolId === nextSchool.id);
-      const nextActiveYear = nextSchoolYears.find((year) => year.status === "active");
-      setSelectedYearId(nextActiveYear?.id ?? "");
-      nextSessionYearId = nextActiveYear?.id ?? "";
-    }
-
-    setUser(nextUser);
-    setActiveTab("dashboard");
-    saveSession(nextUser, nextSessionYearId, "dashboard");
-    navigate(nextRoute);
+    await signIn(email, password);
   }
 
   async function logout() {
-    await signOutUser();
-    saveSession(null);
+    logoutInProgressRef.current = true;
     setUser(null);
     setSelectedYearId("");
     setActiveTab("dashboard");
+    setData(loadInitialData());
+    setDataLoading(false);
+    setAuthError("");
     navigate("/login");
+    try {
+      await signOutUser();
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Déconnexion Firebase impossible.");
+    } finally {
+      logoutInProgressRef.current = false;
+    }
   }
 
-  function updateData(next: Partial<AppData>) {
+  function updateData(next: Partial<AppData>, options: { persist?: boolean } = {}) {
     setData((prev) => {
       const updated = { ...prev, ...next };
-      window.localStorage.setItem(localDataKey, JSON.stringify(updated));
-      void persistFirestorePatch(next).catch((error) => {
-        console.warn("Sauvegarde Firestore indisponible, fallback localStorage.", error);
-      });
+      if (options.persist !== false) {
+        void persistFirestorePatch(next).catch((error) => {
+          console.warn("Sauvegarde Firestore indisponible.", error);
+        });
+      }
       return updated;
     });
   }
 
   async function refreshData() {
-    if (canUseFirestoreData()) {
+    if (user && canUseFirestoreData()) {
       try {
-        const firestoreData = await loadFirestoreData();
+        const firestoreData = await loadFirestoreData(user);
         if (firestoreData) {
-          const mergedData = { ...demoData, ...firestoreData };
-          window.localStorage.setItem(localDataKey, JSON.stringify(mergedData));
-          setData(mergedData);
+          setData(firestoreData);
           return;
         }
       } catch (error) {
-        console.warn("Actualisation Firestore indisponible, fallback localStorage.", error);
+        console.warn("Actualisation Firestore indisponible.", error);
       }
     }
+  }
 
-    setData(loadInitialData());
+  if (!authReady) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#F5F7FB] px-4 text-center">
+        <div>
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded bg-ink font-bold text-white">A</div>
+          <p className="font-semibold text-ink">Vérification de la session Firebase...</p>
+        </div>
+      </main>
+    );
   }
 
   if (!user || route === "/login") {
-    return <LoginScreen onLogin={loginWithCredentials} />;
+    return <LoginScreen onLogin={loginWithCredentials} initialError={authError} />;
   }
 
   if (route === "/platform") {
@@ -309,6 +315,17 @@ export default function App() {
     }
 
     return <PlatformModule user={user} data={data} updateData={updateData} onLogout={logout} />;
+  }
+
+  if (dataLoading) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#F5F7FB] px-4 text-center">
+        <div>
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded bg-ink font-bold text-white">A</div>
+          <p className="font-semibold text-ink">Chargement des données Firestore...</p>
+        </div>
+      </main>
+    );
   }
 
   if ((!validateSchoolStaff(user) && !validateParent(user)) || !school) {
@@ -392,7 +409,6 @@ export default function App() {
             year={selectedYear}
             onBack={() => {
               setActiveTab("menu");
-              saveSession(user, selectedYear.id, "menu");
               navigate("/dashboard");
             }}
           />
@@ -438,7 +454,6 @@ export default function App() {
         activeTab={activeTab}
         onTab={(tab) => {
           setActiveTab(tab);
-          saveSession(user, selectedYear.id, tab);
           navigate("/dashboard");
         }}
       />
@@ -487,15 +502,30 @@ function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: 
   };
 }
 
-function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) => Promise<void> }) {
-  const [email, setEmail] = useState("direction@acadea.demo");
-  const [password, setPassword] = useState("ecole123");
-  const [error, setError] = useState("");
+function LoginScreen({ onLogin, initialError }: { onLogin: (email: string, password: string) => Promise<void>; initialError?: string }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState(initialError ?? "");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [logoPreview, setLogoPreview] = useState("");
-  const normalizedEmail = email.trim().toLowerCase();
-  const isSuperAdmin = normalizedEmail === "admin@acadea.demo" || normalizedEmail === "superadmin@acadea.demo";
+
+  useEffect(() => {
+    setError(initialError ?? "");
+  }, [initialError]);
+
+  function formatLoginError(loginError: unknown) {
+    const message = loginError instanceof Error ? loginError.message : String(loginError);
+    if (message.includes("auth/invalid-credential") || message.includes("auth/user-not-found") || message.includes("auth/wrong-password")) {
+      return "Identifiants Firebase invalides. Vérifiez l'email et le mot de passe.";
+    }
+    if (message.includes("auth/too-many-requests")) {
+      return "Trop de tentatives de connexion. Réessayez plus tard ou réinitialisez le mot de passe.";
+    }
+    if (message.includes("auth/network-request-failed")) {
+      return "Connexion Firebase impossible : vérifiez votre connexion internet.";
+    }
+    return loginError instanceof Error ? loginError.message : "Connexion refusée.";
+  }
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -505,7 +535,25 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
     try {
       await onLogin(email, password);
     } catch (loginError) {
-      setError(loginError instanceof Error ? loginError.message : "Connexion refusée.");
+      setError(formatLoginError(loginError));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function requestPasswordReset() {
+    setError("");
+    if (!email.trim()) {
+      setError("Renseignez votre email avant de demander la réinitialisation.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await sendPasswordReset(email.trim());
+      setError("Un email de réinitialisation Firebase a été envoyé si ce compte existe.");
+    } catch (resetError) {
+      setError(resetError instanceof Error ? resetError.message : "Réinitialisation du mot de passe impossible.");
     } finally {
       setLoading(false);
     }
@@ -523,27 +571,10 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
       <section className="w-full max-w-[460px] overflow-hidden rounded-[22px] border border-white/80 bg-white p-3 shadow-[0_24px_80px_rgba(15,23,42,0.10)] [animation:loginCardIn_520ms_ease-out] sm:rounded-[24px] sm:p-6">
         <div className="text-center">
           <div className="mx-auto flex h-12 w-12 items-center justify-center overflow-hidden rounded-[18px] bg-ink text-xl font-bold text-white shadow-[0_14px_30px_rgba(20,33,61,0.22)] sm:h-16 sm:w-16 sm:rounded-[22px] sm:text-2xl">
-            {logoPreview ? <img src={logoPreview} alt="Logo Acadéa" className="h-full w-full object-cover" /> : "A"}
+            A
           </div>
           <h1 className="mt-2 break-words text-2xl font-bold tracking-normal text-ink sm:mt-4 sm:text-3xl">Acadéa</h1>
           <p className="mt-1 break-words text-xs font-medium text-slate-500 sm:mt-2 sm:text-sm">Gestion scolaire sécurisée par école</p>
-          {isSuperAdmin && (
-            <div className="mt-4">
-              <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-ink/20 hover:bg-slate-50">
-                <Upload className="h-4 w-4" />
-                Changer le logo
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) setLogoPreview(URL.createObjectURL(file));
-                  }}
-                />
-              </label>
-            </div>
-          )}
         </div>
 
         <div className="mt-4 text-center sm:mt-6">
@@ -596,6 +627,14 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
           >
             {loading ? "Connexion..." : "Se connecter"}
           </button>
+          <button
+            type="button"
+            disabled={loading}
+            onClick={requestPasswordReset}
+            className="text-sm font-semibold text-slate-600 transition hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Mot de passe oublié
+          </button>
         </form>
 
         <div className="mt-3 flex items-center justify-center gap-2 text-sm font-medium text-slate-500 sm:mt-5">
@@ -604,14 +643,8 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
         </div>
 
         <div className="mt-3 break-words rounded-2xl border border-slate-200 bg-[#F8FAFC] p-2 text-center text-xs leading-5 text-slate-500 sm:mt-5 sm:p-3">
-          Firebase SDK : {firebaseReady ? "configuré" : "mode démonstration local"}
+          Connexion gérée par Firebase Authentication.
         </div>
-
-        {!firebaseReady && (
-          <div className="mt-2 break-words rounded-2xl border border-slate-200 bg-white p-2 text-center text-xs leading-5 text-slate-500 sm:mt-3 sm:p-3">
-            Démo: direction@acadea.demo / ecole123 pour l'école, admin@acadea.demo / admin123 pour la plateforme.
-          </div>
-        )}
       </section>
     </main>
   );
@@ -1044,58 +1077,61 @@ async function exportDashboardReportPdf({
   totalBoys: number;
   totalStudents: number;
 }) {
-  const { default: jsPDF } = await import("jspdf");
-  const doc = new jsPDF();
-  let y = 18;
-
-  doc.setFontSize(16);
-  doc.text(`Dashboard Acadea - ${school.name}`, 14, y);
-  y += 8;
-  doc.setFontSize(10);
-  doc.text(`Annee scolaire: ${year.name}`, 14, y);
-  y += 6;
-  doc.text(`Date d'impression: ${new Date().toLocaleDateString("fr-FR")}`, 14, y);
-  y += 6;
-  doc.text(`Section: ${sectionLabel}`, 14, y);
-  y += 6;
-  doc.text(`Tranche de date: ${dateLabel}`, 14, y);
-  y += 10;
-
-  doc.setFontSize(12);
-  doc.text("KPI financier", 14, y);
-  y += 7;
-  doc.setFontSize(9);
-  doc.text(`Recouvrement: ${recoveryRate}%`, 14, y);
-  y += 5;
-  doc.text(`Encaisse: $${totalPayments.toFixed(2)} | Depenses: $${totalExpenses.toFixed(2)} | Attendu: $${expected.toFixed(2)} | Reste: $${remaining.toFixed(2)}`, 14, y);
-  y += 10;
-
-  doc.setFontSize(12);
-  doc.text("Transactions du jour", 14, y);
-  y += 7;
-  doc.setFontSize(8);
-  transactions.slice(0, 18).forEach((transaction) => {
-    doc.text(`${transaction.date.slice(0, 10)} - ${transaction.type} - ${transaction.label} - $${transaction.amount.toFixed(2)}`, 14, y);
-    y += 5;
+  await renderAcadPdfPreview({
+    filename: `dashboard-${year.name}.pdf`,
+    title: "Dashboard",
+    school,
+    year,
+    subtitle: `Section : ${sectionLabel} | Tranche de date : ${dateLabel}`,
+    sections: [
+      pdfSection(
+        "KPI financier",
+        pdfInfoGrid([
+          { label: "Recouvrement", value: `${recoveryRate}%` },
+          { label: "Encaissé", value: money(totalPayments) },
+          { label: "Dépenses", value: money(totalExpenses) },
+          { label: "Attendu", value: money(expected) },
+          { label: "Reste", value: money(remaining) },
+        ]),
+      ),
+      pdfSection(
+        "Transactions du jour",
+        pdfTable(
+          [
+            { header: "Date", render: (transaction) => transaction.date.slice(0, 10) },
+            { header: "Type", render: (transaction) => transaction.type },
+            { header: "Libellé", render: (transaction) => transaction.label },
+            { header: "Montant", render: (transaction) => money(transaction.amount), align: "right" },
+          ],
+          transactions,
+          "Aucune transaction pour cette période.",
+        ),
+      ),
+      pdfSection(
+        "Élèves par classe",
+        pdfTable(
+          [
+            { header: "Classe", render: (row) => row.className },
+            { header: "Filles", render: (row) => row.girls, align: "center" },
+            { header: "Garçons", render: (row) => row.boys, align: "center" },
+            { header: "Total", render: (row) => row.total, align: "center" },
+          ],
+          classRows,
+          "Aucune classe à afficher.",
+          {
+            footerHtml: `
+              <tr>
+                <td>Totaux</td>
+                <td class="align-center">${totalGirls}</td>
+                <td class="align-center">${totalBoys}</td>
+                <td class="align-center">${totalStudents}</td>
+              </tr>
+            `,
+          },
+        ),
+      ),
+    ],
   });
-  if (transactions.length === 0) {
-    doc.text("Aucune transaction pour cette periode.", 14, y);
-    y += 5;
-  }
-  y += 6;
-
-  doc.setFontSize(12);
-  doc.text("Eleves par classe", 14, y);
-  y += 7;
-  doc.setFontSize(8);
-  classRows.forEach((row) => {
-    doc.text(`${row.className} | Filles: ${row.girls} | Garcons: ${row.boys} | Total: ${row.total}`, 14, y);
-    y += 5;
-  });
-  y += 4;
-  doc.setFontSize(9);
-  doc.text(`Total filles: ${totalGirls} | Total garcons: ${totalBoys} | Total general: ${totalStudents}`, 14, y);
-  doc.save(`dashboard-${year.name}.pdf`);
 }
 
 function PlatformModule({
@@ -1106,7 +1142,7 @@ function PlatformModule({
 }: {
   user: AppUser;
   data: AppData;
-  updateData: (next: Partial<AppData>) => void;
+  updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
   onLogout: () => void;
 }) {
   type PlatformView = "overview" | "schools";
@@ -1134,6 +1170,8 @@ function PlatformModule({
   const [modalAdminPassword, setModalAdminPassword] = useState("");
   const [modalAdminPasswordConfirm, setModalAdminPasswordConfirm] = useState("");
   const [showModalPassword, setShowModalPassword] = useState(false);
+  const [provisioningError, setProvisioningError] = useState("");
+  const [provisioningLoading, setProvisioningLoading] = useState(false);
 
   const totalRevenue = data.schools.reduce((sum, school) => sum + school.subscriptionAmount, 0);
   const totalStudents = data.students.length;
@@ -1177,61 +1215,36 @@ function PlatformModule({
   async function createSchool() {
     if (!schoolName || !adminEmail || !adminPassword) return;
 
-    const schoolId = uid("school");
-    const yearId = uid("year");
-    const fallbackAdminId = uid("u-school-admin");
-    const adminId = await createFirebaseAuthUser(adminEmail, adminPassword, fallbackAdminId);
-    const amount = subscriptionPlan === "Starter" ? 29 : subscriptionPlan === "Premium" ? 99 : 49;
-    const school: School = {
-      id: schoolId,
-      name: schoolName,
-      address: "",
-      phone: "",
-      email: adminEmail,
-      currency: "USD",
-      activeSchoolYearId: yearId,
-      logoUrl: "",
-      acronym: buildAcronym(schoolName),
-      educationLevels: ["Primaire"],
-      schoolType: "Mixte",
-      createdAt: new Date().toISOString(),
-      status: "active",
-      subscriptionPlan,
-      subscriptionStatus: "active",
-      subscriptionAmount: amount,
-    };
-    const year: SchoolYear = {
-      id: yearId,
-      schoolId,
-      name: "2026-2027",
-      startsAt: "2026-09-01",
-      endsAt: "2027-07-15",
-      status: "active",
-    };
-    const adminUser: AppUser = {
-      id: adminId,
-      name: `Admin ${schoolName}`,
-      email: adminEmail,
-      role: "school_admin",
-      schoolId,
-      activeSchoolYearId: yearId,
-      demoPassword: adminPassword,
-      status: "active",
-      createdAt: new Date().toISOString(),
-    };
+    setProvisioningError("");
+    setProvisioningLoading(true);
+    try {
+      const provisioned = await provisionSchoolAdmin({
+        schoolName,
+        adminEmail,
+        adminPassword,
+        subscriptionPlan,
+      });
 
-    updateData({
-      schools: [...data.schools, school],
-      schoolYears: [...data.schoolYears, year],
-      users: [...data.users, adminUser],
-      auditLogs: [writeAudit(schoolId, `Création de l'école ${schoolName}`), ...data.auditLogs],
-    });
-    setSchoolName("");
-    setAdminEmail("");
-    setAdminPassword("");
-    setSelectedSchoolId(schoolId);
-    setPlatformView("schools");
-    setDetailTab("overview");
+      updateData(
+        {
+          schools: [...data.schools, provisioned.school],
+          schoolYears: [...data.schoolYears, provisioned.schoolYear],
+          users: [...data.users, provisioned.adminUser],
+          auditLogs: [provisioned.auditLog, ...data.auditLogs],
+        },
+        { persist: false },
+      );
+      setSchoolName("");
+      setAdminEmail("");
+      setAdminPassword("");
+      setSelectedSchoolId(provisioned.school.id);
+      setPlatformView("schools");
+      setDetailTab("overview");
+    } catch (error) {
+      setProvisioningError(error instanceof Error ? error.message : "Provisionnement impossible.");
+    } finally {
+      setProvisioningLoading(false);
+    }
   }
 
   function updateSchool(schoolId: string, next: Partial<School>) {
@@ -1284,8 +1297,7 @@ function PlatformModule({
         auditLogs: [writeAudit(selectedSchool.id, `Modification de l'administrateur ${adminName}`), ...data.auditLogs],
       });
     } else {
-      const fallbackAdminId = uid("u-school-admin");
-      const adminId = await createFirebaseAuthUser(modalAdminEmail, modalAdminPassword, fallbackAdminId);
+      const adminId = await createFirebaseAuthUser(modalAdminEmail, modalAdminPassword);
       const adminUser: AppUser = {
         id: adminId,
         name: adminName,
@@ -1293,7 +1305,6 @@ function PlatformModule({
         role: "school_admin",
         schoolId: selectedSchool.id,
         activeSchoolYearId: selectedSchool.activeSchoolYearId,
-        demoPassword: modalAdminPassword,
         phone: adminPhone,
         status: "active",
         createdAt: new Date().toISOString(),
@@ -1315,15 +1326,6 @@ function PlatformModule({
     updateData({
       users: data.users.map((item) => (item.id === admin.id ? { ...item, status: nextStatus } : item)),
       auditLogs: [writeAudit(admin.schoolId, `${nextStatus === "inactive" ? "Désactivation" : "Réactivation"} de l'administrateur ${admin.name}`), ...data.auditLogs],
-    });
-  }
-
-  function resetAdminPassword(admin: AppUser) {
-    if (!confirm(`Générer un nouveau mot de passe temporaire pour ${admin.name} ?`)) return;
-    const nextPassword = `Acadea-${Math.random().toString(36).slice(2, 8)}`;
-    updateData({
-      users: data.users.map((item) => (item.id === admin.id ? { ...item, demoPassword: nextPassword } : item)),
-      auditLogs: [writeAudit(admin.schoolId, `Réinitialisation du mot de passe de ${admin.name}`), ...data.auditLogs],
     });
   }
 
@@ -1400,8 +1402,9 @@ function PlatformModule({
                     <option value="Premium">Premium</option>
                   </select>
                 </label>
-                <button onClick={createSchool} className="primary-button">
-                  <Plus className="h-4 w-4" /> Créer
+                {provisioningError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{provisioningError}</p>}
+                <button onClick={createSchool} disabled={provisioningLoading} className="primary-button disabled:cursor-not-allowed disabled:opacity-60">
+                  <Plus className="h-4 w-4" /> {provisioningLoading ? "Création..." : "Créer"}
                 </button>
               </FormPanel>
 
@@ -1582,9 +1585,6 @@ function PlatformModule({
                                 </button>
                                 <button onClick={() => toggleAdminStatus(admin)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
                                   {admin.status === "inactive" ? "Réactiver" : "Désactiver"}
-                                </button>
-                                <button onClick={() => resetAdminPassword(admin)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
-                                  Reset password
                                 </button>
                               </div>
                             </div>
@@ -2230,8 +2230,12 @@ function StudentsModule({
     const existingUser = data.users.find((item) => item.email.toLowerCase() === quickParent.email.toLowerCase());
     let userId = existingUser?.id;
     if (!userId) {
+      if (!quickParent.password) {
+        setSaveError("Mot de passe requis pour créer le compte Firebase Auth du parent.");
+        return;
+      }
       try {
-        userId = await createFirebaseAuthUser(quickParent.email, quickParent.password || "parent123", uid("u-parent"));
+        userId = await createFirebaseAuthUser(quickParent.email, quickParent.password);
       } catch (error) {
         setSaveError(error instanceof Error ? `Création Firebase Auth parent impossible : ${error.message}` : "Création Firebase Auth parent impossible.");
         return;
@@ -2258,7 +2262,6 @@ function StudentsModule({
       activeSchoolYearId: year.id,
       parentId,
       studentIds: [form.id],
-      demoPassword: quickParent.password || undefined,
       status: "active",
       phone: parent.phone,
     };
@@ -2478,7 +2481,7 @@ function StudentDetailPage({
                 <div key={payment.id} className="min-w-0 rounded border border-slate-100 p-3 text-sm">
                   <div className="flex items-center justify-between gap-2">
                     <p className="font-semibold text-ink">{fee?.name ?? "Frais"}</p>
-                    <button onClick={() => fee && generateReceiptPdf(payment, student, fee, school)} className="rounded bg-slate-100 p-2" title="Télécharger le reçu PDF">
+                    <button onClick={() => fee && generateReceiptPdf(payment, student, fee, school)} className="rounded bg-slate-100 p-2" title="Voir le reçu PDF">
                       <Download className="h-4 w-4" />
                     </button>
                   </div>
@@ -2570,7 +2573,11 @@ function ParentsModule({
     const isNew = form.id.startsWith("new");
     const parentId = isNew ? uid("parent") : form.id;
     const existingUser = data.users.find((item) => item.id === form.userId || item.parentId === parentId);
-    const userId = isNew || !existingUser ? await createFirebaseAuthUser(form.email, password || "parent123", uid("u-parent")) : existingUser.id;
+    if ((isNew || !existingUser) && !password) {
+      setParentError("Mot de passe requis pour créer le compte Firebase Auth du parent.");
+      return;
+    }
+    const userId = isNew || !existingUser ? await createFirebaseAuthUser(form.email, password) : existingUser.id;
     const parent: ParentProfile = {
       ...form,
       id: parentId,
@@ -2589,7 +2596,6 @@ function ParentsModule({
       activeSchoolYearId: year.id,
       parentId: parent.id,
       studentIds: parent.studentIds,
-      demoPassword: password || undefined,
       status: parent.status,
       phone: parent.phone,
       address: parent.address,
@@ -2930,117 +2936,46 @@ function ControlModule({
   async function createStudentHistoryPdf(action: "view" | "print") {
     if (!selectedHistoryStudent) return;
 
-    const { default: jsPDF } = await import("jspdf");
-    type StudentHistoryPdfDoc = InstanceType<typeof jsPDF> & {
-      addPage: () => void;
-      splitTextToSize: (text: string, maxWidth: number) => string[];
-      output: (type: "bloburl") => URL | string;
-      internal: InstanceType<typeof jsPDF>["internal"] & { pageSize: { getWidth: () => number; getHeight: () => number } };
-    };
-    const doc = new jsPDF() as StudentHistoryPdfDoc;
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 14;
-    const tableWidth = pageWidth - margin * 2;
-    let y = 18;
-
-    function ensureSpace(height: number) {
-      if (y + height <= pageHeight - 14) return;
-      doc.addPage();
-      y = 18;
-    }
-
-    doc.setFillColor(20, 33, 61);
-    doc.rect(0, 0, pageWidth, 34, "F");
-    doc.setTextColor(255, 255, 255);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(15);
-    doc.text(school.name, margin, 15);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.text(`Annee scolaire : ${year.name}`, margin, 24);
-
-    y = 48;
-    doc.setTextColor(20, 33, 61);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
-    doc.text("Historique individuel des paiements", margin, y);
-    y += 9;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.text(`Date de generation : ${new Date().toLocaleString("fr-FR")}`, margin, y);
-    y += 10;
-
-    const identityRows = [
-      ["Eleve", studentFullName(selectedHistoryStudent)],
-      ["Matricule", selectedHistoryStudent.matricule],
-      ["Classe", selectedHistoryStudent.className],
-    ];
-    identityRows.forEach(([label, value]) => {
-      doc.setFont("helvetica", "bold");
-      doc.text(`${label} :`, margin, y);
-      doc.setFont("helvetica", "normal");
-      doc.text(value, margin + 32, y);
-      y += 6;
+    await renderAcadPdfPreview({
+      filename: `historique-${selectedHistoryStudent.matricule}.pdf`,
+      title: action === "print" ? "Historique individuel des paiements" : "Historique individuel des paiements",
+      school,
+      year,
+      sections: [
+        pdfSection(
+          "Identité de l'élève",
+          pdfInfoGrid([
+            { label: "Nom complet", value: studentFullName(selectedHistoryStudent) },
+            { label: "Matricule", value: selectedHistoryStudent.matricule },
+            { label: "Classe", value: selectedHistoryStudent.className },
+            { label: "Total payé", value: formatMoney(selectedHistoryBalance.paid) },
+            { label: "Total restant", value: formatMoney(selectedHistoryBalance.remaining) },
+          ]),
+        ),
+        pdfSection(
+          "Paiements",
+          pdfTable(
+            [
+              { header: "Date", render: (row) => formatPaymentDate(row.payment.paidAt) },
+              { header: "Type de frais", render: (row) => row.feeName },
+              { header: "Montant payé", render: (row) => formatMoney(row.payment.amount), align: "right" },
+              { header: "Solde restant", render: (row) => formatMoney(row.remaining), align: "right" },
+            ],
+            selectedHistoryRows,
+            "Aucun paiement enregistré pour cet élève.",
+            {
+              footerHtml: `
+                <tr>
+                  <td colspan="2">Totaux</td>
+                  <td class="align-right">${escapePdfHtml(formatMoney(selectedHistoryBalance.paid))}</td>
+                  <td class="align-right">${escapePdfHtml(formatMoney(selectedHistoryBalance.remaining))}</td>
+                </tr>
+              `,
+            },
+          ),
+        ),
+      ],
     });
-    y += 6;
-
-    doc.setFillColor(248, 250, 252);
-    doc.rect(margin, y - 5, tableWidth, 9, "F");
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8);
-    doc.text("Date", margin + 2, y);
-    doc.text("Type de frais", margin + 36, y);
-    doc.text("Montant paye", margin + 106, y);
-    doc.text("Solde restant", margin + 150, y);
-    y += 7;
-
-    doc.setFont("helvetica", "normal");
-    selectedHistoryRows.forEach((row) => {
-      ensureSpace(8);
-      doc.setDrawColor(226, 232, 240);
-      doc.line(margin, y - 4, margin + tableWidth, y - 4);
-      doc.text(formatPaymentDate(row.payment.paidAt), margin + 2, y);
-      doc.text(doc.splitTextToSize(String(row.feeName), 62)[0] ?? String(row.feeName), margin + 36, y);
-      doc.text(formatMoney(row.payment.amount), margin + 106, y);
-      doc.text(formatMoney(row.remaining), margin + 150, y);
-      y += 8;
-    });
-
-    if (selectedHistoryRows.length === 0) {
-      doc.text("Aucun paiement enregistre pour cet eleve.", margin + 2, y);
-      y += 8;
-    }
-
-    y += 6;
-    ensureSpace(24);
-    doc.setFillColor(245, 247, 251);
-    doc.roundedRect(margin, y, tableWidth, 22, 3, 3, "F");
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.text(`Total paye : ${formatMoney(selectedHistoryBalance.paid)}`, margin + 6, y + 9);
-    doc.text(`Total restant : ${formatMoney(selectedHistoryBalance.remaining)}`, margin + 6, y + 17);
-
-    const pdfUrl = doc.output("bloburl").toString();
-    if (action === "view") {
-      window.open(pdfUrl, "_blank", "noopener,noreferrer");
-      return;
-    }
-
-    const frame = document.createElement("iframe");
-    frame.style.position = "fixed";
-    frame.style.right = "0";
-    frame.style.bottom = "0";
-    frame.style.width = "0";
-    frame.style.height = "0";
-    frame.style.border = "0";
-    frame.src = pdfUrl;
-    frame.onload = () => {
-      frame.contentWindow?.focus();
-      frame.contentWindow?.print();
-      window.setTimeout(() => frame.remove(), 60000);
-    };
-    document.body.appendChild(frame);
   }
 
   if (selectedHistoryStudent) {
@@ -3222,7 +3157,7 @@ function ControlModule({
                     <div className="flex min-w-0 items-center justify-between gap-2">
                       <p className="min-w-0 break-words font-semibold text-ink">{student.nom} {student.prenom}</p>
                       <div className="flex shrink-0 gap-1">
-                        <button onClick={() => generateReceiptPdf(payment, student, fee, school)} className="rounded bg-slate-100 p-2" title="Télécharger le reçu PDF">
+                        <button onClick={() => generateReceiptPdf(payment, student, fee, school)} className="rounded bg-slate-100 p-2" title="Voir le reçu PDF">
                           <Download className="h-4 w-4" />
                         </button>
                         {canCorrectPayments && <button onClick={() => correctPayment(payment)} className="rounded bg-slate-100 p-2" title="Corriger"><Edit3 className="h-4 w-4" /></button>}
@@ -3544,7 +3479,7 @@ function MenuModule({
     let cashierId = existingUser?.id;
     if (!cashierId) {
       try {
-        cashierId = await createFirebaseAuthUser(cashierEmail, cashierPassword, uid("u-cashier"));
+        cashierId = await createFirebaseAuthUser(cashierEmail, cashierPassword);
       } catch (error) {
         setCashierError(error instanceof Error ? `Création Firebase Auth caissier impossible : ${error.message}` : "Création Firebase Auth caissier impossible.");
         return;
@@ -3557,7 +3492,6 @@ function MenuModule({
       role: "cashier",
       schoolId: school.id,
       activeSchoolYearId: selectedYear.id,
-      demoPassword: cashierPassword,
       phone: cashierPhone,
       status: "active",
       active: true,
@@ -3945,70 +3879,37 @@ function createAuditLog(user: AppUser, schoolId: string, schoolYearId: string, a
 }
 
 async function exportStudentsPdf(school: School, year: SchoolYear, students: Student[], filters: string[]) {
-  const { default: jsPDF } = await import("jspdf");
-  type StudentsPdfDoc = InstanceType<typeof jsPDF> & {
-    addPage: () => void;
-    splitTextToSize: (text: string, maxWidth: number) => string[];
-    internal: InstanceType<typeof jsPDF>["internal"] & { pageSize: { getWidth: () => number; getHeight: () => number } };
-  };
-  const doc = new jsPDF() as StudentsPdfDoc;
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
-  const margin = 14;
-  let y = 18;
-
-  doc.setFontSize(16);
-  doc.text(`Liste des élèves - ${school.name}`, margin, y);
-  y += 8;
-  doc.setFontSize(10);
-  doc.text(`Année scolaire : ${year.name}`, margin, y);
-  y += 6;
-  doc.text(`Date d'impression : ${new Date().toLocaleDateString("fr-FR")}`, margin, y);
-  y += 6;
-  doc.text(doc.splitTextToSize(`Filtres appliqués : ${filters.join(" | ")}`, pageWidth - margin * 2), margin, y);
-  y += 14;
-
-  const columns = [
-    { label: "Matricule", x: margin },
-    { label: "Nom complet", x: 42 },
-    { label: "Sexe", x: 106 },
-    { label: "Classe", x: 124 },
-    { label: "Téléphone", x: 166 },
-  ];
-
-  function drawHeader() {
-    doc.setFillColor(245, 247, 251);
-    doc.rect(margin, y - 5, pageWidth - margin * 2, 8, "F");
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "bold");
-    columns.forEach((column) => doc.text(column.label, column.x, y));
-    doc.setFont("helvetica", "normal");
-    y += 7;
-  }
-
-  drawHeader();
-  students.forEach((student) => {
-    if (y > pageHeight - 18) {
-      doc.addPage();
-      y = 18;
-      drawHeader();
-    }
-    doc.setFontSize(8);
-    const fullName = `${student.nom} ${student.postnom} ${student.prenom}`.trim();
-    doc.text(student.matricule || "-", margin, y);
-    doc.text(doc.splitTextToSize(fullName || "-", 58)[0] ?? "-", 42, y);
-    doc.text(student.sexe || "-", 106, y);
-    doc.text(doc.splitTextToSize(student.className || "-", 38)[0] ?? "-", 124, y);
-    doc.text(student.phone || "-", 166, y);
-    y += 7;
+  await renderAcadPdfPreview({
+    filename: `eleves-${year.name}.pdf`,
+    title: "Liste des élèves",
+    school,
+    year,
+    subtitle: `Filtres appliqués : ${filters.join(" | ")}`,
+    sections: [
+      pdfSection(
+        "Élèves",
+        pdfTable(
+          [
+            { header: "Matricule", render: (student) => student.matricule || "-" },
+            { header: "Nom complet", render: (student) => `${student.nom} ${student.postnom} ${student.prenom}`.trim() || "-" },
+            { header: "Sexe", render: (student) => student.sexe || "-", align: "center" },
+            { header: "Classe", render: (student) => student.className || "-" },
+            { header: "Téléphone", render: (student) => student.phone || "-" },
+          ],
+          students,
+          "Aucun élève ne correspond aux filtres appliqués.",
+          {
+            footerHtml: `
+              <tr>
+                <td colspan="4">Total élèves</td>
+                <td class="align-right">${students.length}</td>
+              </tr>
+            `,
+          },
+        ),
+      ),
+    ],
   });
-
-  if (students.length === 0) {
-    doc.setFontSize(10);
-    doc.text("Aucun élève ne correspond aux filtres appliqués.", margin, y);
-  }
-
-  doc.save(`eleves-${year.name}.pdf`);
 }
 
 async function exportReportPdf(
@@ -4022,33 +3923,50 @@ async function exportReportPdf(
   payments: Payment[],
   expenses: Expense[],
 ) {
-  const { default: jsPDF } = await import("jspdf");
-  const doc = new jsPDF();
-  doc.setFontSize(16);
-  doc.text(`Rapport Acadéa - ${school.name}`, 14, 18);
-  doc.setFontSize(10);
-  doc.text(`Année scolaire: ${year.name}`, 14, 28);
-  doc.text(`Période: ${startDate} au ${endDate}`, 14, 34);
-  doc.text(`Paiements: $${paid.toFixed(2)} | Dépenses: $${spent.toFixed(2)} | Solde: $${(paid - spent).toFixed(2)} | Recouvrement: ${recovery}%`, 14, 44);
-  let y = 58;
-  doc.setFontSize(12);
-  doc.text("Paiements", 14, y);
-  y += 8;
-  payments.slice(0, 24).forEach((payment) => {
-    doc.setFontSize(9);
-    doc.text(`${payment.paidAt} - ${payment.cashierName} - $${payment.amount.toFixed(2)} - ${payment.receiptNumber ?? payment.id}`, 14, y);
-    y += 6;
+  await renderAcadPdfPreview({
+    filename: `rapport-${startDate}-${endDate}.pdf`,
+    title: "Rapport Acadéa",
+    school,
+    year,
+    subtitle: `Période : ${startDate} au ${endDate}`,
+    sections: [
+      pdfSection(
+        "Synthèse",
+        pdfInfoGrid([
+          { label: "Paiements", value: money(paid) },
+          { label: "Dépenses", value: money(spent) },
+          { label: "Solde", value: money(paid - spent) },
+          { label: "Recouvrement", value: `${recovery}%` },
+        ]),
+      ),
+      pdfSection(
+        "Paiements",
+        pdfTable(
+          [
+            { header: "Date", render: (payment) => payment.paidAt },
+            { header: "Caissier", render: (payment) => payment.cashierName },
+            { header: "Montant", render: (payment) => money(payment.amount), align: "right" },
+            { header: "Reçu", render: (payment) => payment.receiptNumber ?? payment.id },
+          ],
+          payments.slice(0, 24),
+          "Aucun paiement pour cette période.",
+        ),
+      ),
+      pdfSection(
+        "Dépenses",
+        pdfTable(
+          [
+            { header: "Date", render: (expense) => expense.spentAt },
+            { header: "Catégorie", render: (expense) => expense.category },
+            { header: "Montant", render: (expense) => money(expense.amount), align: "right" },
+            { header: "Description", render: (expense) => expense.description },
+          ],
+          expenses.slice(0, 24),
+          "Aucune dépense pour cette période.",
+        ),
+      ),
+    ],
   });
-  y += 4;
-  doc.setFontSize(12);
-  doc.text("Dépenses", 14, y);
-  y += 8;
-  expenses.slice(0, 24).forEach((expense) => {
-    doc.setFontSize(9);
-    doc.text(`${expense.spentAt} - ${expense.category} - $${expense.amount.toFixed(2)} - ${expense.description}`, 14, y);
-    y += 6;
-  });
-  doc.save(`rapport-${startDate}-${endDate}.pdf`);
 }
 
 function emptyStudent(schoolId: string, schoolYearId: string): Student {

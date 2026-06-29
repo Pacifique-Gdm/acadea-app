@@ -10,12 +10,14 @@
     "lint": "eslint .",
     "seed": "tsx scripts/seedDemo.ts",
     "seed:staging": "tsx scripts/seedDemo.ts",
+    "claims:set": "node scripts/setCustomClaims.cjs",
     "import:firestore": "tsx scripts/importLocalDataToFirestore.ts",
     "reset:staging": "tsx scripts/resetStaging.ts"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.4",
     "firebase": "^12.4.0",
+    "firebase-admin": "^14.1.0",
     "jspdf": "^3.0.3",
     "lucide-react": "^0.546.0",
     "react": "^19.1.1",

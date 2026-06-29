@@ -51,10 +51,10 @@ Le projet contient:
 
 - `firebase.json` pour Firebase Hosting et Firestore.
 - `firestore.rules` pour l'isolation par école et année scolaire.
-- `scripts/seedDemo.ts` pour importer les données de démonstration.
+- `scripts/seedDemo.ts` pour importer des données de test sans identifiants de connexion.
 - `scripts/resetStaging.ts` pour réinitialiser uniquement une base de test protégée.
 
-Importer les données de démonstration:
+Importer les données de test:
 
 ```bash
 npm run seed
@@ -67,12 +67,13 @@ $env:ACADEA_ALLOW_STAGING_RESET="true"
 npm run reset:staging
 ```
 
-## Profils de démonstration
+## Comptes utilisateurs
 
-- `admin@acadea.demo`: Super Administrateur
-- `direction@acadea.demo`: Administrateur d'école
-- `caisse@acadea.demo`: Caissier
-- `parent@acadea.demo`: Parent
+Les connexions utilisent exclusivement Firebase Authentication. Chaque compte doit avoir:
+
+- un utilisateur Firebase Authentication;
+- un document Firestore `users/{uid}` correspondant;
+- les custom claims Firebase attendues par les règles Firestore.
 
 ## Modules
 

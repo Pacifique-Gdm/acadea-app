@@ -71,16 +71,17 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if signedIn() && request.auth.uid == userId;
       allow create: if (superAdmin()
+          && request.resource.data.id == userId
           && request.resource.data.role == "school_admin"
           && request.resource.data.schoolId is string)
         || (schoolAdmin()
+          && request.resource.data.id == userId
           && request.resource.data.role == "parent"
           && request.resource.data.schoolId == tenantSchoolId()
           && request.resource.data.parentId is string);
       allow update: if signedIn()
         && request.auth.uid == userId
-        && request.resource.data.role == resource.data.role
-        && request.resource.data.schoolId == resource.data.schoolId;
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["id", "role", "schoolId", "parentId", "studentIds", "status"]);
       allow delete: if false;
     }
 

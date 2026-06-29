@@ -31,7 +31,6 @@ export interface AppUser {
   role: Role;
   schoolId?: string;
   activeSchoolYearId?: string;
-  demoPassword?: string;
   parentId?: string;
   studentIds?: string[];
   status?: "active" | "inactive";

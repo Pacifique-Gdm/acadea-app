@@ -1,6 +1,6 @@
-import { collection, doc, getDocs, setDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, setDoc, where } from "firebase/firestore";
 import { db, firebaseReady } from "../firebase";
-import type { AppData } from "../types";
+import type { AppData, AppUser } from "../types";
 
 type CollectionKey = keyof AppData;
 type PersistableItem = { id: string };
@@ -23,8 +23,110 @@ export function canUseFirestoreData() {
   return firebaseReady && Boolean(db);
 }
 
-export async function loadFirestoreData() {
+function emptyFirestoreData(): AppData {
+  return {
+    users: [],
+    schools: [],
+    schoolYears: [],
+    students: [],
+    parents: [],
+    feeTypes: [],
+    payments: [],
+    expenses: [],
+    messages: [],
+    notifications: [],
+    auditLogs: [],
+  };
+}
+
+function withFirestoreTimeout<T>(operation: Promise<T>, context: string) {
+  return Promise.race([
+    operation,
+    new Promise<T>((_, reject) => {
+      window.setTimeout(() => {
+        reject(new Error(`Chargement Firestore trop long : ${context}.`));
+      }, 15000);
+    }),
+  ]);
+}
+
+function describeFirestoreError(collectionName: string, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return new Error(`Chargement Firestore impossible pour ${collectionName} : ${message}`);
+}
+
+async function loadCollection<T>(collectionName: string, filters: [string, unknown][]) {
+  if (!db) return [];
+
+  const constraints = filters.map(([field, value]) => where(field, "==", value));
+  const snapshot = await withFirestoreTimeout(getDocs(query(collection(db, collectionName), ...constraints)), collectionName).catch((error) => {
+    throw describeFirestoreError(collectionName, error);
+  });
+  return snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as T[];
+}
+
+async function loadDocument<T>(collectionName: string, id?: string) {
+  if (!db || !id) return [];
+
+  const snapshot = await withFirestoreTimeout(getDoc(doc(db, collectionName, id)), `${collectionName}/${id}`).catch((error) => {
+    throw describeFirestoreError(`${collectionName}/${id}`, error);
+  });
+  return snapshot.exists() ? ([{ id: snapshot.id, ...snapshot.data() }] as T[]) : [];
+}
+
+export async function loadFirestoreData(user?: AppUser) {
   if (!canUseFirestoreData() || !db) return null;
+
+  if (user?.role && user.role !== "super_admin") {
+    const scopedData = emptyFirestoreData();
+    const schoolFilter: [string, unknown][] = [["schoolId", user.schoolId]];
+    const parentFilter: [string, unknown][] = [
+      ["schoolId", user.schoolId],
+      ["parentId", user.parentId],
+    ];
+
+    if (!user.schoolId) {
+      throw new Error("Chargement Firestore impossible : schoolId manquant dans les Custom Claims.");
+    }
+
+    scopedData.users = await loadDocument<AppData["users"][number]>("users", user.id);
+    if (scopedData.users.length === 0) {
+      throw new Error("Chargement Firestore impossible : profil users/{uid} introuvable.");
+    }
+
+    scopedData.schools = await loadDocument<AppData["schools"][number]>("schools", user.schoolId);
+    if (scopedData.schools.length === 0) {
+      throw new Error("Chargement Firestore impossible : ecole introuvable pour ce schoolId.");
+    }
+
+    scopedData.schoolYears = await loadCollection<AppData["schoolYears"][number]>("schoolYears", schoolFilter);
+    scopedData.feeTypes = await loadCollection<AppData["feeTypes"][number]>("feeTypes", schoolFilter);
+
+    if (user.role === "parent") {
+      if (!user.parentId) {
+        throw new Error("Chargement Firestore impossible : parentId manquant dans les Custom Claims.");
+      }
+
+      scopedData.students = await loadCollection<AppData["students"][number]>("students", parentFilter);
+      scopedData.parents = await loadDocument<AppData["parents"][number]>("parents", user.parentId);
+      scopedData.payments = await loadCollection<AppData["payments"][number]>("payments", parentFilter);
+      scopedData.messages = await loadCollection<AppData["messages"][number]>("messages", [
+        ["schoolId", user.schoolId],
+        ["threadParentId", user.parentId],
+      ]);
+      scopedData.notifications = await loadCollection<AppData["notifications"][number]>("notifications", parentFilter);
+      return scopedData;
+    }
+
+    scopedData.students = await loadCollection<AppData["students"][number]>("students", schoolFilter);
+    scopedData.parents = await loadCollection<AppData["parents"][number]>("parents", schoolFilter);
+    scopedData.payments = await loadCollection<AppData["payments"][number]>("payments", schoolFilter);
+    scopedData.expenses = await loadCollection<AppData["expenses"][number]>("expenses", schoolFilter);
+    scopedData.messages = await loadCollection<AppData["messages"][number]>("messages", schoolFilter);
+    scopedData.notifications = await loadCollection<AppData["notifications"][number]>("notifications", schoolFilter);
+    scopedData.auditLogs = await loadCollection<AppData["auditLogs"][number]>("auditLogs", schoolFilter);
+    return scopedData;
+  }
 
   const entries = await Promise.all(
     (Object.entries(collectionMap) as [CollectionKey, string][]).map(async ([key, collectionName]) => {
