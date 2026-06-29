@@ -75,8 +75,14 @@ export function pdfInfoGrid(rows: PdfMetric[]) {
 }
 
 export function pdfTable<T>(columns: PdfTableColumn<T>[], rows: T[], emptyLabel: string, options: { footerHtml?: string } = {}) {
+  const renderedRows = rows.map((row, rowIndex) => columns.map((column) => column.render(row, rowIndex)));
+  const columnWidths = buildPdfColumnWidths(columns, renderedRows);
+
   return `
     <table>
+      <colgroup>
+        ${columnWidths.map((width) => `<col style="width:${width}%" />`).join("")}
+      </colgroup>
       <thead>
         <tr>
           ${columns.map((column) => `<th class="${column.align ? `align-${column.align}` : ""}">${escapePdfHtml(column.header)}</th>`).join("")}
@@ -84,13 +90,13 @@ export function pdfTable<T>(columns: PdfTableColumn<T>[], rows: T[], emptyLabel:
       </thead>
       <tbody>
         ${
-          rows.length
-            ? rows
+          renderedRows.length
+            ? renderedRows
                 .map(
-                  (row, index) => `
+                  (row) => `
                     <tr>
                       ${columns
-                        .map((column) => `<td class="${column.align ? `align-${column.align}` : ""}">${escapePdfHtml(column.render(row, index))}</td>`)
+                        .map((column, columnIndex) => `<td class="${column.align ? `align-${column.align}` : ""}">${escapePdfHtml(row[columnIndex])}</td>`)
                         .join("")}
                     </tr>
                   `,
@@ -102,6 +108,24 @@ export function pdfTable<T>(columns: PdfTableColumn<T>[], rows: T[], emptyLabel:
       ${options.footerHtml ? `<tfoot>${options.footerHtml}</tfoot>` : ""}
     </table>
   `;
+}
+
+function buildPdfColumnWidths<T>(columns: PdfTableColumn<T>[], renderedRows: Array<Array<string | number>>) {
+  if (columns.length === 0) return [];
+
+  const weights = columns.map((column, columnIndex) => {
+    const headerWeight = column.header.length * 1.25;
+    const contentWeight = renderedRows.reduce((max, row) => {
+      const value = String(row[columnIndex] ?? "");
+      return Math.max(max, Math.min(value.length, 42));
+    }, 0);
+    const alignWeight = column.align === "right" || column.align === "center" ? 8 : 0;
+
+    return Math.max(10, headerWeight, contentWeight, alignWeight);
+  });
+  const total = weights.reduce((sum, value) => sum + value, 0) || columns.length;
+
+  return weights.map((weight) => Number(((weight / total) * 100).toFixed(2)));
 }
 
 export function pdfSection(title: string, bodyHtml: string) {
@@ -120,30 +144,43 @@ export async function renderAcadPdfPreview({ filename, title, school, year, subt
   const element = document.createElement("div");
   element.className = "acadea-pdf";
   element.innerHTML = buildPdfHtml({ title, school, year, subtitle, generatedAt, logoDataUrl, sections });
-  element.style.position = "fixed";
-  element.style.left = "-10000px";
+  if (!element.textContent?.trim()) {
+    showPdfError(viewer, "Le document PDF ne contient aucune donnée à afficher.");
+    return;
+  }
+  element.style.position = "absolute";
+  element.style.left = "0";
   element.style.top = "0";
+  element.style.zIndex = "-1";
+  element.style.pointerEvents = "none";
   document.body.appendChild(element);
 
   await new Promise<void>((resolve) => {
-    doc.html(element, {
-      margin: [10, 10, 18, 10],
-      autoPaging: "text",
-      width: 190,
-      windowWidth: 794,
-      html2canvas: {
-        scale: 0.24,
-        useCORS: true,
-        backgroundColor: "#ffffff",
-      },
-      callback: (pdf) => {
-        addPdfFooters(pdf, generatedAt);
-        const url = pdf.output("bloburl").toString();
-        showPdfInViewer({ viewer, url, filename, title });
-        element.remove();
-        resolve();
-      },
-    });
+    try {
+      doc.html(element, {
+        margin: [14, 14, 18, 14],
+        autoPaging: "text",
+        width: 182,
+        windowWidth: 688,
+        html2canvas: {
+          useCORS: true,
+          backgroundColor: "#ffffff",
+        },
+        callback: (pdf) => {
+          addPdfFooters(pdf, generatedAt);
+          const blob = pdf.output("blob") as Blob;
+          const url = URL.createObjectURL(blob);
+          showPdfInViewer({ viewer, url, filename, title });
+          element.remove();
+          resolve();
+        },
+      });
+    } catch (error) {
+      console.error("Erreur de génération PDF Acadéa", error);
+      showPdfError(viewer, "La génération du PDF a échoué.");
+      element.remove();
+      resolve();
+    }
   });
 }
 
@@ -222,34 +259,35 @@ function buildPdfHtml({
 function pdfStyles() {
   return `
     .acadea-pdf {
-      width: 794px;
+      width: 688px;
       box-sizing: border-box;
       background: #ffffff;
       color: #14213d;
       font-family: Arial, Helvetica, sans-serif;
-      font-size: 12px;
-      line-height: 1.45;
+      font-size: 11.5px;
+      line-height: 1.38;
       padding: 0;
     }
     .pdf-header {
       display: flex;
-      gap: 18px;
+      gap: 12px;
       align-items: center;
-      padding: 24px 28px;
+      min-height: 54px;
+      padding: 14px 18px;
       color: #ffffff;
       background: #14213d;
-      border-bottom: 5px solid #2a9d8f;
+      border-bottom: 3px solid #2a9d8f;
     }
     .brand-mark {
       display: flex;
       align-items: center;
       justify-content: center;
-      width: 68px;
-      height: 68px;
+      width: 44px;
+      height: 44px;
       border: 2px solid rgba(255,255,255,0.55);
       background: #ffffff;
       color: #14213d;
-      font-size: 28px;
+      font-size: 18px;
       font-weight: 800;
       flex: 0 0 auto;
     }
@@ -259,25 +297,25 @@ function pdfStyles() {
       object-fit: contain;
     }
     .school-block h1 {
-      margin: 0 0 6px;
-      font-size: 25px;
+      margin: 0 0 3px;
+      font-size: 18px;
       line-height: 1.1;
     }
     .school-block p {
       margin: 2px 0;
       color: #e5edf6;
-      font-size: 11px;
+      font-size: 9.5px;
     }
     .document-title {
-      margin: 22px 28px 18px;
-      padding: 16px 18px;
+      margin: 14px 18px 12px;
+      padding: 10px 12px;
       border: 1px solid #dbe4ef;
       background: #f8fafc;
     }
     .document-title p {
-      margin: 0 0 3px;
+      margin: 0 0 2px;
       color: #2a9d8f;
-      font-size: 10px;
+      font-size: 8.5px;
       font-weight: 800;
       letter-spacing: 0.08em;
       text-transform: uppercase;
@@ -285,36 +323,37 @@ function pdfStyles() {
     .document-title h2 {
       margin: 0;
       color: #14213d;
-      font-size: 22px;
+      font-size: 17px;
       line-height: 1.2;
     }
     .document-title span,
     .document-title small {
       display: block;
-      margin-top: 5px;
+      margin-top: 4px;
       color: #526173;
-      font-size: 11px;
+      font-size: 9.5px;
     }
     .pdf-section {
-      margin: 0 28px 18px;
-      page-break-inside: avoid;
+      margin: 0 18px 12px;
+      page-break-inside: auto;
+      break-inside: auto;
     }
     .pdf-section h2 {
-      margin: 0 0 10px;
-      padding-bottom: 6px;
+      margin: 0 0 7px;
+      padding-bottom: 5px;
       border-bottom: 1px solid #dbe4ef;
       color: #14213d;
-      font-size: 15px;
+      font-size: 12.5px;
     }
     .info-grid {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
-      margin-bottom: 14px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 10px;
     }
     .info-box {
-      min-height: 48px;
-      padding: 10px 12px;
+      min-height: 36px;
+      padding: 7px 8px;
       border: 1px solid #dbe4ef;
       background: #ffffff;
       box-sizing: border-box;
@@ -322,38 +361,53 @@ function pdfStyles() {
     .info-box span {
       display: block;
       color: #64748b;
-      font-size: 10px;
+      font-size: 8px;
       text-transform: uppercase;
     }
     .info-box strong {
       display: block;
-      margin-top: 4px;
+      margin-top: 3px;
       color: #14213d;
-      font-size: 13px;
-      word-break: break-word;
+      font-size: 10.5px;
+      overflow-wrap: anywhere;
     }
     table {
       width: 100%;
+      max-width: 100%;
       border-collapse: collapse;
-      table-layout: fixed;
-      margin-top: 8px;
-      font-size: 10px;
+      table-layout: auto;
+      margin-top: 6px;
+      font-size: 9.2px;
+      page-break-inside: auto;
+    }
+    thead {
+      display: table-header-group;
+    }
+    tbody {
+      display: table-row-group;
     }
     th {
-      padding: 8px 7px;
+      padding: 5px 6px;
       border: 1px solid #b8c4d4;
       background: #14213d;
       color: #ffffff;
-      font-size: 9px;
-      line-height: 1.25;
+      font-size: 8px;
+      line-height: 1.2;
       text-transform: uppercase;
+      overflow-wrap: anywhere;
     }
     td {
-      padding: 8px 7px;
+      padding: 5px 6px;
       border: 1px solid #dbe4ef;
       color: #26364b;
       vertical-align: top;
-      word-break: break-word;
+      overflow-wrap: anywhere;
+      word-break: normal;
+      line-height: 1.28;
+    }
+    tr {
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
     tbody tr:nth-child(even) td {
       background: #f8fafc;
@@ -370,31 +424,31 @@ function pdfStyles() {
       text-align: center;
     }
     .empty-cell {
-      padding: 18px;
+      padding: 14px;
       text-align: center;
       color: #64748b;
     }
     .highlight-box {
-      padding: 12px 14px;
+      padding: 9px 11px;
       border: 1px solid #c7d7e5;
       background: #f8fafc;
       color: #14213d;
       font-weight: 700;
     }
     .signature-row {
-      margin: 30px 28px 0;
+      margin: 22px 18px 0;
       display: flex;
       justify-content: flex-end;
     }
     .signature-row div {
-      width: 220px;
+      width: 210px;
       text-align: center;
       color: #475569;
-      font-size: 11px;
+      font-size: 9.5px;
     }
     .signature-row strong {
       display: block;
-      margin-top: 42px;
+      margin-top: 32px;
       border-top: 1px solid #14213d;
       height: 1px;
     }
@@ -409,12 +463,12 @@ function addPdfFooters(doc: PdfDoc, generatedAt: Date) {
   for (let page = 1; page <= pages; page += 1) {
     doc.setPage(page);
     doc.setDrawColor(220, 226, 235);
-    doc.line(10, pageHeight - 12, pageWidth - 10, pageHeight - 12);
+    doc.line(16, pageHeight - 14, pageWidth - 16, pageHeight - 14);
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
+    doc.setFontSize(7.5);
     doc.setTextColor(100, 116, 139);
-    doc.text(`Généré par Acadéa | ${generatedAt.toLocaleString("fr-FR")}`, 10, pageHeight - 7);
-    doc.text(`Page ${page} / ${pages}`, pageWidth - 32, pageHeight - 7);
+    doc.text(`Généré par Acadéa | ${generatedAt.toLocaleString("fr-FR")}`, 16, pageHeight - 8);
+    doc.text(`Page ${page} / ${pages}`, pageWidth - 38, pageHeight - 8);
   }
 }
 
@@ -574,6 +628,13 @@ function showPdfInViewer({
   viewer.printButton?.removeAttribute("disabled");
   viewer.zoomOut?.removeAttribute("disabled");
   viewer.zoomIn?.removeAttribute("disabled");
+}
+
+function showPdfError(viewer: ReturnType<typeof openPdfViewerShell>, message: string) {
+  if (viewer.loading) {
+    viewer.loading.textContent = message;
+    viewer.loading.style.display = "flex";
+  }
 }
 
 async function loadLogoDataUrl(logoUrl?: string) {

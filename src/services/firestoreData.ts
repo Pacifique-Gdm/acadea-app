@@ -98,6 +98,9 @@ export async function loadFirestoreData(user?: AppUser) {
     if (scopedData.schools.length === 0) {
       throw new Error("Chargement Firestore impossible : ecole introuvable pour ce schoolId.");
     }
+    if (scopedData.schools[0].status === "suspended") {
+      throw new Error("Connexion refusee : cette ecole est suspendue.");
+    }
 
     scopedData.schoolYears = await loadCollection<AppData["schoolYears"][number]>("schoolYears", schoolFilter);
     scopedData.feeTypes = await loadCollection<AppData["feeTypes"][number]>("feeTypes", schoolFilter);

@@ -125,24 +125,9 @@ $env:ACADEA_ALLOW_FIRESTORE_SEED="true"
 npm run seed:staging
 ```
 
-## Import localStorage/demoData vers Firestore
+## Données Firebase
 
-La persistance métier utilise Firestore quand Firebase est configuré. `localStorage` reste un cache et un fallback temporaire si Firestore est indisponible.
-
-Importer les données de démonstration:
-
-```powershell
-$env:ACADEA_ALLOW_FIRESTORE_IMPORT="true"
-npm run import:firestore
-```
-
-Importer un export localStorage JSON:
-
-```powershell
-$env:ACADEA_ALLOW_FIRESTORE_IMPORT="true"
-$env:ACADEA_LOCAL_DATA_FILE="C:\chemin\vers\acadea-app-data.json"
-npm run import:firestore
-```
+Les écoles de test doivent être créées dans Firebase comme de vraies écoles. Les anciens imports locaux et les jeux de données de démonstration ont été supprimés.
 
 Protections:
 

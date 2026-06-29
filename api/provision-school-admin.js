@@ -124,6 +124,7 @@ export default async function handler(req, res) {
 
     const school = {
       id: schoolId,
+      schoolId,
       name: schoolName,
       address: "",
       phone: "",
@@ -135,6 +136,8 @@ export default async function handler(req, res) {
       educationLevels: ["Primaire"],
       schoolType: "Mixte",
       createdAt: now,
+      createdBy: caller.uid,
+      mainAdminId: "",
       status: "active",
       subscriptionPlan: plan,
       subscriptionStatus: "active",
@@ -176,6 +179,8 @@ export default async function handler(req, res) {
     await db.doc(`users/${adminUid}`).set(adminUser);
     createdRefs.push(`users/${adminUid}`);
     await auth.setCustomUserClaims(adminUid, { role: "school_admin", schoolId });
+    await db.doc(`schools/${schoolId}`).update({ mainAdminId: adminUid });
+    school.mainAdminId = adminUid;
 
     const auditLog = {
       id: auditId,

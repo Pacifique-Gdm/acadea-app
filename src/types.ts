@@ -42,6 +42,7 @@ export interface AppUser {
 
 export interface School {
   id: string;
+  schoolId?: string;
   name: string;
   address: string;
   phone: string;
@@ -52,6 +53,10 @@ export interface School {
   educationLevels?: string[];
   schoolType?: "Maternelle" | "Primaire" | "Secondaire" | "Mixte";
   createdAt?: string;
+  createdBy?: string;
+  mainAdminId?: string;
+  updatedAt?: string;
+  updatedBy?: string;
   activeSchoolYearId: string;
   status: "active" | "suspended";
   subscriptionPlan: "Starter" | "Standard" | "Premium";

@@ -51,21 +51,9 @@ Le projet contient:
 
 - `firebase.json` pour Firebase Hosting et Firestore.
 - `firestore.rules` pour l'isolation par école et année scolaire.
-- `scripts/seedDemo.ts` pour importer des données de test sans identifiants de connexion.
-- `scripts/resetStaging.ts` pour réinitialiser uniquement une base de test protégée.
+- `scripts/setCustomClaims.cjs` pour attribuer des Custom Claims depuis un environnement serveur autorisé.
 
-Importer les données de test:
-
-```bash
-npm run seed
-```
-
-Réinitialiser staging:
-
-```powershell
-$env:ACADEA_ALLOW_STAGING_RESET="true"
-npm run reset:staging
-```
+Les données d'écoles, y compris en test, doivent être créées dans Firebase.
 
 ## Comptes utilisateurs
 
