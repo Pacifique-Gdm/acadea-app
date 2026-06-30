@@ -2191,7 +2191,7 @@ function ParentPortal({
   }
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-[#f6f8fb]">
+    <div className="flex h-screen flex-col overflow-hidden bg-[#f6f8fb]">
       <EnvironmentBanner />
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-7xl min-w-0 flex-col gap-3 px-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
@@ -2213,7 +2213,7 @@ function ParentPortal({
           </div>
         </div>
       </header>
-      <main className="mx-auto grid max-w-7xl min-w-0 gap-4 px-3 py-5 pb-28 sm:px-6 lg:px-8">
+      <main className="mx-auto grid w-full max-w-7xl min-w-0 flex-1 gap-4 overflow-y-auto px-3 py-5 pb-28 sm:px-6 sm:pb-32 lg:px-8">
         <section className="min-w-0 rounded border border-slate-200 bg-white p-4">
           <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
