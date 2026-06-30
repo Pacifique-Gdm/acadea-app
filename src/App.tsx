@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import type { ChangeEvent, ReactNode } from "react";
 import {
   ArrowUpDown,
   ArrowLeft,
@@ -1169,14 +1169,16 @@ function PlatformModule({
   const [provisioningError, setProvisioningError] = useState("");
   const [provisioningLoading, setProvisioningLoading] = useState(false);
   const [schoolActionError, setSchoolActionError] = useState("");
+  const [schoolActionSuccess, setSchoolActionSuccess] = useState("");
 
-  const totalRevenue = data.schools.reduce((sum, school) => sum + school.subscriptionAmount, 0);
+  const visibleSchools = data.schools.filter((school) => String(school.status) !== "deleted");
+  const totalRevenue = visibleSchools.reduce((sum, school) => sum + school.subscriptionAmount, 0);
   const totalStudents = data.students.length;
   const totalParents = data.parents.length;
   const totalAdmins = data.users.filter((item) => item.role === "school_admin").length;
-  const activeSchools = data.schools.filter((school) => school.status === "active").length;
-  const suspendedSchools = data.schools.filter((school) => school.status === "suspended").length;
-  const selectedSchool = data.schools.find((school) => school.id === selectedSchoolId) ?? data.schools[0];
+  const activeSchools = visibleSchools.filter((school) => school.status === "active").length;
+  const suspendedSchools = visibleSchools.filter((school) => school.status === "suspended").length;
+  const selectedSchool = visibleSchools.find((school) => school.id === selectedSchoolId) ?? visibleSchools[0];
   const selectedStats = selectedSchool ? getPlatformSchoolStats(selectedSchool.id, data) : { students: 0, parents: 0, admins: 0, users: 0 };
   const selectedAdmins = selectedSchool ? data.users.filter((item) => item.role === "school_admin" && item.schoolId === selectedSchool.id) : [];
   const selectedMainAdmin = selectedSchool ? selectedAdmins.find((admin) => admin.id === selectedSchool.mainAdminId) ?? selectedAdmins[0] : undefined;
@@ -1188,7 +1190,7 @@ function PlatformModule({
     modalAdminEmail.includes("@") &&
     (editingAdminId || modalAdminPassword.length >= 6) &&
     (editingAdminId || modalAdminPassword === modalAdminPasswordConfirm);
-  const filteredSchools = data.schools
+  const filteredSchools = visibleSchools
     .filter((school) => school.name.toLowerCase().includes(search.toLowerCase()) || (school.acronym ?? "").toLowerCase().includes(search.toLowerCase()))
     .filter((school) => (statusFilter === "all" ? true : school.status === statusFilter))
     .filter((school) => (subscriptionFilter === "all" ? true : getSubscriptionStatus(school) === subscriptionFilter))
@@ -1268,6 +1270,7 @@ function PlatformModule({
     if (!confirm(`Confirmer: ${label} ${school.name} ?`)) return;
 
     setSchoolActionError("");
+    setSchoolActionSuccess("");
     try {
       const payload = await manageSchool({ action, schoolId: school.id });
       if (!payload.school) throw new Error("Reponse ecole incomplete.");
@@ -1305,9 +1308,13 @@ function PlatformModule({
     if (confirmation !== "SUPPRIMER ECOLE") return;
 
     setSchoolActionError("");
+    setSchoolActionSuccess("");
     try {
-      await manageSchool({ action: "delete", schoolId: school.id, confirmation });
-      const remainingSchools = data.schools.filter((item) => item.id !== school.id);
+      const payload = await manageSchool({ action: "delete", schoolId: school.id, confirmation });
+      if (payload.schoolId !== school.id) {
+        throw new Error("Reponse de suppression ecole incoherente.");
+      }
+      const remainingSchools = data.schools.filter((item) => item.id !== school.id && String(item.status) !== "deleted");
       updateData(
         {
           schools: remainingSchools,
@@ -1325,6 +1332,8 @@ function PlatformModule({
         { persist: false },
       );
       setSelectedSchoolId(remainingSchools[0]?.id ?? "");
+      setPlatformView("schools");
+      setSchoolActionSuccess(`Ecole ${school.name} supprimee avec succes.`);
     } catch (error) {
       setSchoolActionError(error instanceof Error ? error.message : "Suppression ecole impossible.");
     }
@@ -1459,7 +1468,7 @@ function PlatformModule({
               <FormPanel title="Créer une école">
                 <Field label="Nom de l'école" value={schoolName} onChange={setSchoolName} />
                 <Field label="Email admin école" value={adminEmail} onChange={setAdminEmail} type="email" />
-                <Field label="Mot de passe admin" value={adminPassword} onChange={setAdminPassword} type="password" />
+                <PasswordField label="Mot de passe admin" value={adminPassword} onChange={setAdminPassword} />
                 <label className="grid gap-1 text-sm font-medium text-slate-700">
                   Abonnement
                   <select value={subscriptionPlan} onChange={(event) => setSubscriptionPlan(event.target.value as School["subscriptionPlan"])} className="input">
@@ -1503,7 +1512,7 @@ function PlatformModule({
                     </button>
                   </div>
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                    {data.schools.slice(0, 3).map((school) => (
+                    {visibleSchools.slice(0, 3).map((school) => (
                       <SchoolSaasCard
                         key={school.id}
                         school={school}
@@ -1523,6 +1532,7 @@ function PlatformModule({
           {platformView === "schools" && (
             <section className="grid gap-4">
               {schoolActionError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{schoolActionError}</p>}
+              {schoolActionSuccess && <p className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">{schoolActionSuccess}</p>}
               <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_repeat(4,180px)]">
                   <label className="relative">
@@ -1734,21 +1744,8 @@ function PlatformModule({
               <Field label="Téléphone" value={adminPhone} onChange={setAdminPhone} />
               {!editingAdminId && (
                 <>
-                  <label className="grid gap-1 text-sm font-medium text-slate-700">
-                    Mot de passe
-                    <span className="relative">
-                      <input
-                        value={modalAdminPassword}
-                        onChange={(event) => setModalAdminPassword(event.target.value)}
-                        type={showModalPassword ? "text" : "password"}
-                        className="input pr-10"
-                      />
-                      <button type="button" onClick={() => setShowModalPassword(!showModalPassword)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-500">
-                        {showModalPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
-                    </span>
-                  </label>
-                  <Field label="Confirmation" value={modalAdminPasswordConfirm} onChange={setModalAdminPasswordConfirm} type={showModalPassword ? "text" : "password"} />
+                  <PasswordField label="Mot de passe" value={modalAdminPassword} onChange={setModalAdminPassword} visible={showModalPassword} onToggle={() => setShowModalPassword(!showModalPassword)} />
+                  <PasswordField label="Confirmation" value={modalAdminPasswordConfirm} onChange={setModalAdminPasswordConfirm} visible={showModalPassword} onToggle={() => setShowModalPassword(!showModalPassword)} />
                   <p className={`text-xs font-semibold ${modalAdminPassword.length >= 6 ? "text-mint" : "text-amber-700"}`}>
                     Minimum 6 caractères, confirmation identique.
                   </p>
@@ -2283,6 +2280,7 @@ function StudentsModule({
   const [sectionFilter, setSectionFilter] = useState<"all" | "maternelle" | "primaire" | "secondaire">("all");
   const [classFilter, setClassFilter] = useState("");
   const [optionFilter, setOptionFilter] = useState("");
+  const [archiveFilter, setArchiveFilter] = useState<"active" | "archived" | "all">("active");
   const [schoolOptions, setSchoolOptions] = useState<string[]>(["Littéraire", "Pédagogie", "Sciences", "Commerciale"]);
   const [form, setForm] = useState<Student>(() => emptyStudent(school.id, year.id));
   const [quickParent, setQuickParent] = useState({ fullName: "", phone: "", email: "", password: "" });
@@ -2296,8 +2294,9 @@ function StudentsModule({
 
   const students = yearData.students.filter((student) => {
     const text = `${student.matricule} ${student.nom} ${student.postnom} ${student.prenom}`.toLowerCase();
+    const archived = isArchivedStudent(student);
     return (
-      (student.status ?? "ACTIVE") === "ACTIVE" &&
+      (archiveFilter === "all" || (archiveFilter === "archived" ? archived : !archived)) &&
       text.includes(query.toLowerCase()) &&
       (sectionFilter === "all" || getClassSection(student.className) === sectionFilter) &&
       (!classFilter || student.className === classFilter) &&
@@ -2377,7 +2376,7 @@ function StudentsModule({
             }
           : item,
       ),
-      auditLogs: [createAuditLog(user, school.id, year.id, "Soft delete élève", `${student.matricule} - ${reason}`), ...data.auditLogs],
+      auditLogs: [createAuditLog(user, school.id, year.id, "Archivage élève", `${student.matricule} - ${reason}`), ...data.auditLogs],
     });
   }
 
@@ -2448,6 +2447,7 @@ function StudentsModule({
     );
     setForm({ ...form, parentId });
     setQuickParent({ fullName: "", phone: "", email: "", password: "" });
+    setSaveMessage("Compte parent créé avec succès. Il peut maintenant se connecter avec son email et son mot de passe.");
   }
 
   function addSchoolOption(option: string) {
@@ -2460,6 +2460,7 @@ function StudentsModule({
   function printStudentsPdf() {
     const filters = [
       `Recherche: ${query || "Toutes"}`,
+      `Statut: ${archiveFilter === "active" ? "Actifs" : archiveFilter === "archived" ? "Archivés" : "Tous"}`,
       `Section: ${sectionFilter === "all" ? "Toutes les sections" : sectionFilter}`,
       `Classe: ${classFilter || "Toutes les classes"}`,
       `Option: ${optionFilter || "Toutes les options"}`,
@@ -2478,11 +2479,16 @@ function StudentsModule({
             <Plus className="h-4 w-4" /> Ajouter un élève
           </button>
         )}
-        <div className="mb-3 grid min-w-0 gap-2 lg:grid-cols-[minmax(0,1fr)_180px_220px]">
+        <div className="mb-3 grid min-w-0 gap-2 lg:grid-cols-[minmax(0,1fr)_160px_180px_220px]">
           <label className="flex items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
             <Search className="h-4 w-4 text-slate-400" />
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher" className="min-w-0 flex-1 outline-none" />
           </label>
+          <select value={archiveFilter} onChange={(event) => setArchiveFilter(event.target.value as typeof archiveFilter)} className="min-w-0 rounded border border-slate-200 bg-white px-3 py-2">
+            <option value="active">Actifs</option>
+            <option value="archived">Archivés</option>
+            <option value="all">Tous</option>
+          </select>
           <select
             value={sectionFilter}
             onChange={(event) => {
@@ -2515,41 +2521,67 @@ function StudentsModule({
           </button>
         </div>
         <div className="max-w-full overflow-x-auto rounded border border-slate-200 bg-white">
-          <table className="min-w-[820px] w-full text-left text-sm">
+          <table className="min-w-[980px] w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
                 <th className="px-3 py-3">Matricule</th>
                 <th className="px-3 py-3">Nom complet</th>
+                <th className="px-3 py-3">Statut</th>
                 <th className="px-3 py-3">Sexe</th>
                 <th className="px-3 py-3">Classe</th>
                 <th className="px-3 py-3">Téléphone</th>
+                <th className="px-3 py-3">Archivage</th>
                 <th className="px-3 py-3">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {students.map((student) => (
-                <tr key={student.id} className="border-t border-slate-100">
+              {students.map((student) => {
+                const archived = isArchivedStudent(student);
+                return (
+                <tr key={student.id} className={`border-t border-slate-100 ${archived ? "bg-slate-50/70" : ""}`}>
                   <td className="px-3 py-3 font-semibold text-ink">{student.matricule}</td>
                   <td className="px-3 py-3">
                     <button onClick={() => onOpenStudent(student.id)} className="text-left font-semibold text-ink hover:text-blue-700 hover:underline">
                       {student.nom} {student.postnom} {student.prenom}
                     </button>
                   </td>
+                  <td className="px-3 py-3">
+                    <span className={`rounded px-2 py-1 text-xs font-semibold ${archived ? "bg-slate-200 text-slate-700" : "bg-mint/10 text-mint"}`}>
+                      {archived ? "Archivé" : "Actif"}
+                    </span>
+                  </td>
                   <td className="px-3 py-3">{student.sexe}</td>
                   <td className="px-3 py-3">{student.className}</td>
                   <td className="px-3 py-3">{student.phone}</td>
                   <td className="px-3 py-3">
+                    {archived ? (
+                      <div className="max-w-[260px] text-xs text-slate-600">
+                        <p className="break-words font-semibold text-ink">{student.exitReasonDetails ?? student.exitReason ?? "Motif non renseigné"}</p>
+                        <p className="mt-1 text-slate-500">{formatArchiveDate(student.deletedAt)}</p>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-slate-400">-</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-3">
                     {canEdit ? (
                       <div className="flex gap-1">
-                        <IconButton label="Modifier" onClick={() => openEditStudentForm(student)} icon={Edit3} />
-                        <IconButton label="Supprimer" onClick={() => removeStudent(student.id)} icon={Trash2} danger />
+                        {archived ? (
+                          <IconButton label="Consulter" onClick={() => onOpenStudent(student.id)} icon={Eye} />
+                        ) : (
+                          <>
+                            <IconButton label="Modifier" onClick={() => openEditStudentForm(student)} icon={Edit3} />
+                            <IconButton label="Archiver" onClick={() => removeStudent(student.id)} icon={Trash2} danger />
+                          </>
+                        )}
                       </div>
                     ) : (
                       <span className="text-xs text-slate-400">Lecture seule</span>
                     )}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -2605,6 +2637,7 @@ function StudentDetailPage({
   const payments = yearData.payments.filter((payment) => payment.studentId === student.id);
   const parent = yearData.parents.find((item) => item.id === student.parentId);
   const progress = balance.expected > 0 ? Math.min(100, Math.round((balance.paid / balance.expected) * 100)) : 0;
+  const archived = isArchivedStudent(student);
 
   return (
     <section className="grid min-w-0 gap-4">
@@ -2620,19 +2653,27 @@ function StudentDetailPage({
             <p className="break-words text-sm text-slate-500">{student.matricule} | {student.className} | {year.name}</p>
             <div className="mt-2 flex flex-wrap gap-2">
               <span className="rounded bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">{student.className}</span>
-              <span className="rounded bg-mint/10 px-2 py-1 text-xs font-semibold text-mint">{student.status ?? "ACTIVE"}</span>
+              <span className={`rounded px-2 py-1 text-xs font-semibold ${archived ? "bg-slate-200 text-slate-700" : "bg-mint/10 text-mint"}`}>
+                {archived ? "Archivé" : "Actif"}
+              </span>
             </div>
           </div>
         </div>
       </article>
 
-      <section className="grid min-w-0 gap-4 lg:grid-cols-2">
+      <section className="grid min-w-0 gap-4">
         <FormPanel title="Informations générales">
           <Metric label="Sexe" value={student.sexe} />
           <Metric label="Date de naissance" value={student.birthDate} />
           <Metric label="Adresse" value={student.address} />
           <Metric label="Téléphone" value={student.phone} />
           <Metric label="Parent" value={parent?.fullName ?? "Non renseigné"} />
+          {archived && (
+            <>
+              <Metric label="Motif d'archivage" value={student.exitReasonDetails ?? student.exitReason ?? "Motif non renseigné"} />
+              <Metric label="Date d'archivage" value={formatArchiveDate(student.deletedAt)} />
+            </>
+          )}
         </FormPanel>
 
         <FormPanel title="Paiements">
@@ -2662,22 +2703,6 @@ function StudentDetailPage({
               );
             })}
           </div>
-        </FormPanel>
-
-        <FormPanel title="Résultats scolaires">
-          <p className="text-sm text-slate-500">Structure prête pour les résultats scolaires.</p>
-        </FormPanel>
-
-        <FormPanel title="Présences">
-          <p className="text-sm text-slate-500">Structure prête pour les présences.</p>
-        </FormPanel>
-
-        <FormPanel title="Documents">
-          <p className="text-sm text-slate-500">Structure prête pour les documents.</p>
-        </FormPanel>
-
-        <FormPanel title="Observations">
-          <p className="text-sm text-slate-500">{student.exitReasonDetails ?? "Aucune observation enregistrée."}</p>
         </FormPanel>
       </section>
     </section>
@@ -2733,6 +2758,8 @@ function ParentsModule({
   const [password, setPassword] = useState("");
   const [query, setQuery] = useState("");
   const [parentError, setParentError] = useState("");
+  const [parentSuccess, setParentSuccess] = useState("");
+  const [showParentPassword, setShowParentPassword] = useState(false);
   const filteredParents = yearData.parents.filter((parent) => {
     const text = `${parent.fullName} ${parent.email} ${parent.phone}`.toLowerCase();
     return text.includes(query.toLowerCase());
@@ -2740,6 +2767,7 @@ function ParentsModule({
 
   async function saveParentProfile() {
     setParentError("");
+    setParentSuccess("");
     if (!form.fullName || !form.email || !form.phone) return;
 
     const isNew = form.id.startsWith("new");
@@ -2809,6 +2837,9 @@ function ParentsModule({
     }
     setForm(emptyParent(school.id, year.id));
     setPassword("");
+    if (isNew || !existingUser) {
+      setParentSuccess("Compte parent créé avec succès. Il peut maintenant se connecter avec son email et son mot de passe.");
+    }
   }
 
   function toggleParent(parent: ParentProfile) {
@@ -2822,6 +2853,7 @@ function ParentsModule({
   function editParent(parent: ParentProfile) {
     setForm(parent);
     setPassword("");
+    setParentSuccess("");
   }
 
   function deleteParent(parent: ParentProfile) {
@@ -2834,11 +2866,13 @@ function ParentsModule({
     setForm(emptyParent(school.id, year.id));
   }
 
+
   return (
     <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
       <div className="min-w-0">
         <SectionTitle title="Parents" subtitle="Comptes parents, statut et liaison unique avec les élèves." />
         {parentError && <p className="mb-3 rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{parentError}</p>}
+        {parentSuccess && <p className="mb-3 rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{parentSuccess}</p>}
         <label className="mb-3 flex items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
           <Search className="h-4 w-4 text-slate-400" />
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher un parent" className="min-w-0 flex-1 outline-none" />
@@ -2877,7 +2911,15 @@ function ParentsModule({
         <Field label="Téléphone" value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} />
         <Field label="Adresse e-mail" value={form.email} onChange={(value) => setForm({ ...form, email: value })} type="email" />
         <Field label="Adresse" value={form.address} onChange={(value) => setForm({ ...form, address: value })} />
-        {form.id.startsWith("new") && <Field label="Mot de passe temporaire" value={password} onChange={setPassword} type="password" />}
+        {form.id.startsWith("new") && (
+          <PasswordField
+            label="Mot de passe temporaire"
+            value={password}
+            onChange={setPassword}
+            visible={showParentPassword}
+            onToggle={() => setShowParentPassword(!showParentPassword)}
+          />
+        )}
         <label className="grid gap-1 text-sm font-medium text-slate-700">
           Élèves liés
           <select
@@ -3109,65 +3151,35 @@ function ControlModule({
     });
   }
 
-  function printFilteredStudents() {
-    const printedAt = new Date().toLocaleString("fr-FR");
+  async function printFilteredStudents() {
     const filterLabel =
       amountComparator === "all" || !amountThreshold
-        ? "Montant payÃ© : tous"
-        : `Montant payÃ© ${amountComparator} ${amountThreshold}`;
-    const rowsHtml = rows
-      .map(
-        ({ student, balance }) => `
-          <tr>
-            <td>${student.nom} ${student.postnom} ${student.prenom}</td>
-            <td>${student.matricule}</td>
-            <td>${student.className}</td>
-            <td>$${balance.expected}</td>
-            <td>$${balance.paid}</td>
-            <td>$${balance.remaining}</td>
-          </tr>
-        `,
-      )
-      .join("");
-    const printWindow = window.open("", "_blank", "width=1024,height=720");
-    if (!printWindow) return;
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>ContrÃ´le des paiements</title>
-          <style>
-            body { font-family: Arial, sans-serif; color: #14213d; margin: 32px; }
-            h1 { margin: 0 0 8px; font-size: 22px; }
-            p { margin: 4px 0; color: #475569; }
-            table { width: 100%; border-collapse: collapse; margin-top: 24px; font-size: 13px; }
-            th, td { border: 1px solid #e2e8f0; padding: 10px; text-align: left; }
-            th { background: #f8fafc; color: #334155; text-transform: uppercase; font-size: 11px; }
-          </style>
-        </head>
-        <body>
-          <h1>${school.name}</h1>
-          <p>AnnÃ©e scolaire : ${year.name}</p>
-          <p>Date d'impression : ${printedAt}</p>
-          <p>CritÃ¨re : ${filterLabel}</p>
-          <table>
-            <thead>
-              <tr>
-                <th>Nom de l'Ã©lÃ¨ve</th>
-                <th>Matricule</th>
-                <th>Classe</th>
-                <th>Montant prÃ©vu</th>
-                <th>Montant payÃ©</th>
-                <th>Solde restant</th>
-              </tr>
-            </thead>
-            <tbody>${rowsHtml}</tbody>
-          </table>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
+        ? "Montant payé : tous"
+        : `Montant payé ${amountComparator} ${amountThreshold}`;
+    await renderAcadPdfPreview({
+      filename: `controle-paiements-${year.name}.pdf`,
+      title: "Contrôle des paiements",
+      school,
+      year,
+      subtitle: `Critère : ${filterLabel}`,
+      sections: [
+        pdfSection(
+          "Élèves filtrés",
+          pdfTable(
+            [
+              { header: "Nom de l'élève", render: ({ student }) => `${student.nom} ${student.postnom} ${student.prenom}`.trim() },
+              { header: "Matricule", render: ({ student }) => student.matricule },
+              { header: "Classe", render: ({ student }) => student.className },
+              { header: "Montant prévu", render: ({ balance }) => formatMoney(balance.expected), align: "right" },
+              { header: "Montant payé", render: ({ balance }) => formatMoney(balance.paid), align: "right" },
+              { header: "Solde restant", render: ({ balance }) => formatMoney(balance.remaining), align: "right" },
+            ],
+            rows,
+            "Aucun élève ne correspond aux filtres appliqués.",
+          ),
+        ),
+      ],
+    });
   }
 
   async function createStudentHistoryPdf(action: "view" | "print") {
@@ -3730,6 +3742,8 @@ function MenuModule({
   const [cashierEmail, setCashierEmail] = useState("");
   const [cashierPassword, setCashierPassword] = useState("");
   const [cashierError, setCashierError] = useState("");
+  const [cashierSuccess, setCashierSuccess] = useState("");
+  const [showCashierPassword, setShowCashierPassword] = useState(false);
   const [feeName, setFeeName] = useState<FeeKind>("Minerval");
   const [feeClassName, setFeeClassName] = useState<SchoolClass>(CLASSES[0]);
   const [feeAmount, setFeeAmount] = useState("100");
@@ -3768,6 +3782,7 @@ function MenuModule({
 
   async function saveCashier() {
     setCashierError("");
+    setCashierSuccess("");
     if (!cashierName || !cashierEmail || !cashierPassword) return;
 
     const existingUser = data.users.find((item) => item.email.toLowerCase() === cashierEmail.toLowerCase());
@@ -3809,6 +3824,7 @@ function MenuModule({
     setCashierPhone("");
     setCashierEmail("");
     setCashierPassword("");
+    setCashierSuccess("Compte caissier créé avec succès. Il peut maintenant se connecter avec son email et son mot de passe.");
   }
 
   function saveFee() {
@@ -3854,7 +3870,7 @@ function MenuModule({
     if (sectionId === "school") {
       return (
         <div className="grid min-w-0 gap-4">
-          <Field label="Logo URL" value={schoolForm.logoUrl ?? ""} onChange={(value) => setSchoolForm({ ...schoolForm, logoUrl: value })} disabled={!canAdmin} />
+          <ImageUploadField label="Logo de l'école" value={schoolForm.logoUrl ?? ""} onChange={(value) => setSchoolForm({ ...schoolForm, logoUrl: value })} maxWidth={600} maxBytes={200 * 1024} disabled={!canAdmin} />
           <Field label="Nom de l'école" value={schoolForm.name} onChange={(value) => setSchoolForm({ ...schoolForm, name: value })} disabled={!canAdmin} />
           <Field label="Adresse" value={schoolForm.address} onChange={(value) => setSchoolForm({ ...schoolForm, address: value })} disabled={!canAdmin} />
           <Field label="Téléphone" value={schoolForm.phone} onChange={(value) => setSchoolForm({ ...schoolForm, phone: value })} disabled={!canAdmin} />
@@ -3900,10 +3916,17 @@ function MenuModule({
       return (
         <div className="grid min-w-0 gap-4">
           {cashierError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{cashierError}</p>}
+          {cashierSuccess && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{cashierSuccess}</p>}
           <Field label="Nom complet" value={cashierName} onChange={setCashierName} />
           <Field label="Téléphone" value={cashierPhone} onChange={setCashierPhone} />
           <Field label="Email" value={cashierEmail} onChange={setCashierEmail} />
-          <Field label="Mot de passe temporaire" value={cashierPassword} onChange={setCashierPassword} type="password" />
+          <PasswordField
+            label="Mot de passe temporaire"
+            value={cashierPassword}
+            onChange={setCashierPassword}
+            visible={showCashierPassword}
+            onToggle={() => setShowCashierPassword(!showCashierPassword)}
+          />
           <button onClick={saveCashier} disabled={!cashierName || !cashierEmail || !cashierPassword} className="primary-button disabled:opacity-50" type="button">
             <UserRound className="h-4 w-4" /> Créer le caissier
           </button>
@@ -3992,7 +4015,6 @@ function MenuModule({
       );
     }
 
-
     return null;
   }
 
@@ -4066,6 +4088,7 @@ function StudentForm({
 }) {
   const [showOptionForm, setShowOptionForm] = useState(false);
   const [newOption, setNewOption] = useState("");
+  const [showQuickParentPassword, setShowQuickParentPassword] = useState(false);
 
   function submitOption() {
     const trimmed = newOption.trim();
@@ -4106,7 +4129,14 @@ function StudentForm({
           <input value={quickParent.fullName} onChange={(event) => setQuickParent({ ...quickParent, fullName: event.target.value })} className="input" placeholder="Nom complet" />
           <input value={quickParent.phone} onChange={(event) => setQuickParent({ ...quickParent, phone: event.target.value })} className="input" placeholder="Téléphone" />
           <input value={quickParent.email} onChange={(event) => setQuickParent({ ...quickParent, email: event.target.value })} className="input" placeholder="Email" />
-          <input value={quickParent.password} onChange={(event) => setQuickParent({ ...quickParent, password: event.target.value })} type="password" className="input" placeholder="Mot de passe temporaire" />
+          <PasswordField
+            label="Mot de passe temporaire"
+            value={quickParent.password}
+            onChange={(value) => setQuickParent({ ...quickParent, password: value })}
+            visible={showQuickParentPassword}
+            onToggle={() => setShowQuickParentPassword(!showQuickParentPassword)}
+            placeholder="Mot de passe temporaire"
+          />
           <button onClick={onCreateParent} className="secondary-button" type="button"><Plus className="h-4 w-4" /> Créer et sélectionner</button>
         </div>
       </div>
@@ -4153,7 +4183,7 @@ function StudentForm({
           )}
         </div>
       )}
-      <Field label="Photo URL" value={form.photoUrl ?? ""} onChange={(value) => setForm({ ...form, photoUrl: value })} />
+      <ImageUploadField label="Photo de l'élève" value={form.photoUrl ?? ""} onChange={(value) => setForm({ ...form, photoUrl: value })} maxWidth={800} maxBytes={300 * 1024} />
       <div className="grid grid-cols-2 gap-2">
         <button onClick={onReset} className="secondary-button">Réinitialiser</button>
         <button onClick={onSave} className="primary-button"><CheckCircle2 className="h-4 w-4" /> Sauver</button>
@@ -4172,6 +4202,17 @@ function generateMatricule(students: Student[], yearName: string, schoolId: stri
   const year = yearName.slice(2, 4);
   const count = students.filter((student) => student.schoolId === schoolId && student.schoolYearId === schoolYearId).length + 1;
   return `ACD-${year}-${String(count).padStart(4, "0")}`;
+}
+
+function isArchivedStudent(student: Student) {
+  return Boolean(student.deletedAt) || (student.status ?? "ACTIVE") !== "ACTIVE";
+}
+
+function formatArchiveDate(value?: string) {
+  if (!value) return "Date non renseignée";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("fr-FR");
 }
 
 function generateReceiptNumber(payments: Payment[], yearName: string) {
@@ -4370,6 +4411,192 @@ function Field({
     <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
       {label}
       <input value={value} onChange={(event) => onChange(event.target.value)} type={type} disabled={disabled} className="input disabled:bg-slate-100" />
+    </label>
+  );
+}
+
+const acceptedImageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+const acceptedImageExtensions = "JPG, JPEG, PNG, WEBP";
+
+async function compressImageFile(file: File, maxWidth: number, maxBytes: number) {
+  if (!acceptedImageTypes.has(file.type)) {
+    throw new Error(`Format non pris en charge. Utilisez ${acceptedImageExtensions}.`);
+  }
+
+  const image = await loadImage(file);
+  const ratio = image.naturalWidth > maxWidth ? maxWidth / image.naturalWidth : 1;
+  const width = Math.max(1, Math.round(image.naturalWidth * ratio));
+  const height = Math.max(1, Math.round(image.naturalHeight * ratio));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Compression impossible : navigateur non compatible.");
+  context.drawImage(image, 0, 0, width, height);
+
+  const outputType = "image/webp";
+  const qualities = [0.86, 0.78, 0.7, 0.62, 0.54];
+  let bestBlob: Blob | null = null;
+
+  for (const quality of qualities) {
+    const blob = await canvasToBlob(canvas, outputType, quality);
+    if (!bestBlob || blob.size < bestBlob.size) bestBlob = blob;
+    if (blob.size <= maxBytes) return blobToDataUrl(blob);
+  }
+
+  if (bestBlob && bestBlob.size <= maxBytes) return blobToDataUrl(bestBlob);
+  throw new Error(`Image trop lourde après compression. Choisissez une image plus légère (${Math.round(maxBytes / 1024)} Ko maximum recommandé).`);
+}
+
+function loadImage(file: File) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Impossible de lire cette image."));
+    };
+    image.src = url;
+  });
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error("Compression impossible."));
+        return;
+      }
+      resolve(blob);
+    }, type, quality);
+  });
+}
+
+function blobToDataUrl(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Lecture de l'image compressée impossible."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function ImageUploadField({
+  label,
+  value,
+  onChange,
+  maxWidth,
+  maxBytes,
+  disabled = false,
+}: {
+  label: string;
+  value?: string;
+  onChange: (value: string) => void;
+  maxWidth: number;
+  maxBytes: number;
+  disabled?: boolean;
+}) {
+  const inputId = useId();
+  const [error, setError] = useState("");
+  const [processing, setProcessing] = useState(false);
+
+  async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setError("");
+    setProcessing(true);
+    try {
+      const dataUrl = await compressImageFile(file, maxWidth, maxBytes);
+      onChange(dataUrl);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Image impossible à traiter.");
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  return (
+    <div className="grid min-w-0 gap-2 text-sm font-medium text-slate-700">
+      <span>{label}</span>
+      <div className="grid gap-3 rounded border border-slate-200 bg-slate-50 p-3">
+        {value ? (
+          <div className="flex items-center gap-3">
+            <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded border border-slate-200 bg-white">
+              <img src={value} alt="" className="h-full w-full object-cover" />
+            </div>
+            <p className="min-w-0 break-words text-xs font-medium text-slate-500">Image sélectionnée. Les anciennes URL restent compatibles.</p>
+          </div>
+        ) : (
+          <div className="rounded border border-dashed border-slate-300 bg-white p-4 text-center text-xs font-medium text-slate-500">
+            Aucune image sélectionnée
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <input id={inputId} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleFileChange} disabled={disabled || processing} className="sr-only" />
+          <label htmlFor={inputId} className={`secondary-button cursor-pointer ${disabled || processing ? "pointer-events-none opacity-60" : ""}`}>
+            {processing ? "Compression..." : value ? "Remplacer l'image" : "Choisir une image"}
+          </label>
+          {value && !disabled && (
+            <button onClick={() => onChange("")} className="rounded border border-red-200 bg-white px-3 py-2 text-xs font-bold text-red-600 transition hover:bg-red-50" type="button">
+              Supprimer
+            </button>
+          )}
+        </div>
+        <p className="text-xs font-medium text-slate-500">{acceptedImageExtensions} uniquement. Largeur max {maxWidth}px, objectif {Math.round(maxBytes / 1024)} Ko.</p>
+        {error && <p className="rounded bg-red-50 p-2 text-xs font-semibold text-red-700">{error}</p>}
+      </div>
+    </div>
+  );
+}
+
+function PasswordField({
+  label,
+  value,
+  onChange,
+  visible,
+  onToggle,
+  placeholder,
+  disabled = false,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  visible?: boolean;
+  onToggle?: () => void;
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  const [internalVisible, setInternalVisible] = useState(false);
+  const isVisible = visible ?? internalVisible;
+  const toggleVisibility = onToggle ?? (() => setInternalVisible((current) => !current));
+
+  return (
+    <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+      {label}
+      <span className="relative min-w-0">
+        <input
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          type={isVisible ? "text" : "password"}
+          disabled={disabled}
+          className="input pr-10 disabled:bg-slate-100"
+          placeholder={placeholder}
+        />
+        <button
+          type="button"
+          onClick={toggleVisibility}
+          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-500 transition hover:bg-slate-100 hover:text-ink"
+          aria-label={isVisible ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+          title={isVisible ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+        >
+          {isVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+        </button>
+      </span>
     </label>
   );
 }

@@ -172,6 +172,9 @@ export default async function handler(req, res) {
     sendJson(res, 400, { error: "Action invalide." });
   } catch (error) {
     console.error("[Acadea platform] Gestion ecole echouee.", error);
-    sendJson(res, 500, { error: "Operation ecole impossible. Verifiez les informations et reessayez." });
+    sendJson(res, 500, {
+      error: "Operation ecole impossible. Verifiez les informations et reessayez.",
+      details: error instanceof Error ? error.message : String(error),
+    });
   }
 }

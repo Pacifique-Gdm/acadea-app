@@ -41,8 +41,12 @@ function buildColumnWidths(columns, renderedRows) {
     return Math.max(10, headerWeight, contentWeight);
   });
   const total = weights.reduce((sum, value) => sum + value, 0) || columns.length;
+  const minimumWidth = columns.length >= 8 ? 8 : columns.length >= 6 ? 10 : 12;
+  const rawWidths = weights.map((weight) => (weight / total) * 100);
+  const adjustedWidths = rawWidths.map((width) => Math.max(minimumWidth, width));
+  const adjustedTotal = adjustedWidths.reduce((sum, width) => sum + width, 0) || 100;
 
-  return weights.map((weight) => Number(((weight / total) * 100).toFixed(2)));
+  return adjustedWidths.map((width) => Number(((width / adjustedTotal) * 100).toFixed(2)));
 }
 
 function pdfSection(title, bodyHtml) {
@@ -52,15 +56,16 @@ function pdfSection(title, bodyHtml) {
 function buildPdfHtml({ title, school, year, subtitle, sections }) {
   return `
     <style>
-      .acadea-pdf { width: 688px; background: #ffffff; color: #14213d; font-size: 11.5px; line-height: 1.38; }
+      .acadea-pdf { width: 688px; background: #ffffff; color: #14213d; font-size: 11.5px; line-height: 1.44; letter-spacing: normal; word-spacing: 0.04em; }
+      .acadea-pdf * { letter-spacing: normal; word-spacing: inherit; white-space: normal; word-break: normal; overflow-wrap: break-word; hyphens: none; }
       .pdf-header { min-height: 54px; padding: 14px 18px; }
       .document-title { margin: 14px 18px 12px; padding: 10px 12px; }
       .pdf-section { margin: 0 18px 12px; }
       .info-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-      table { width: 100%; max-width: 100%; border-collapse: collapse; table-layout: auto; font-size: 9.2px; }
+      table { width: 100%; max-width: 100%; border-collapse: collapse; table-layout: auto; font-size: 9.5px; line-height: 1.35; }
       thead { display: table-header-group; }
-      th { background: #14213d; color: #ffffff; padding: 5px 6px; overflow-wrap: anywhere; }
-      td { color: #26364b; padding: 5px 6px; overflow-wrap: anywhere; }
+      th { background: #14213d; color: #ffffff; padding: 5px 6px; overflow-wrap: break-word; word-spacing: 0.06em; }
+      td { color: #26364b; padding: 5px 6px; overflow-wrap: break-word; line-height: 1.38; }
     </style>
     <header class="pdf-header">
       <div class="school-block">
@@ -81,8 +86,10 @@ function buildPdfHtml({ title, school, year, subtitle, sections }) {
 function listTemplateIssues(html, { requireTable = false } = {}) {
   const issues = [];
   const text = html.replace(/<style[\s\S]*?<\/style>/gi, "").replace(/<[^>]*>/g, "").trim();
+  const mojibakePattern = new RegExp("[\\u00c3\\u00c2]|\\u00e2\\u20ac|\\u00e2\\u2020");
 
   if (!text) issues.push("Le HTML ne contient aucun texte.");
+  if (mojibakePattern.test(html)) issues.push("Le HTML contient des caractères français mal encodés.");
   if (requireTable && !html.includes("<table")) issues.push("Le HTML ne contient aucun tableau.");
   if (html.includes("<table") && !/table\s*\{[^}]*width:\s*100%/i.test(html)) issues.push("Les tableaux ne sont pas configurés en pleine largeur.");
   if (html.includes("<table") && /table-layout:\s*fixed/i.test(html)) issues.push("Les colonnes de tableau sont forcées au lieu de s'adapter au contenu.");
@@ -96,13 +103,13 @@ function listTemplateIssues(html, { requireTable = false } = {}) {
 }
 
 const school = {
-  name: "Acadéa Test School",
+  name: "Acadéa École Sainte-Thérèse",
   address: "12 Avenue de l'École",
   phone: "+243 000 000",
   email: "contact@acadea.test",
 };
 const year = { name: "2026-2027" };
-const student = { matricule: "MAT-001", nom: "Kabeya", postnom: "Mutombo", prenom: "Aline", sexe: "F", className: "1ère Primaire", phone: "+243 111 111" };
+const student = { matricule: "MAT-001", nom: "Kabeya", postnom: "Noël", prenom: "Chloé", sexe: "F", className: "1ère Primaire", phone: "+243 111 111" };
 const payment = { id: "pay-1", receiptNumber: "REC-001", paidAt: "2026-10-10", amount: 120, cashierName: "Caissier Test" };
 const expense = { spentAt: "2026-10-11", amount: 35, description: "Cahiers" };
 const manyPayments = Array.from({ length: 80 }, (_, index) => ({
@@ -134,7 +141,7 @@ const cases = [
         ]),
       ],
     }),
-    requiredText: [school.name, "Reçu de paiement", "REC-001", "Kabeya", "MAT-001", "$120.00"],
+    requiredText: [school.name, "Reçu de paiement", "REC-001", "Kabeya Noël Chloé", "MAT-001", "$120.00"],
   },
   {
     name: "dashboard",
@@ -158,7 +165,7 @@ const cases = [
       year,
       sections: [pdfSection("Élèves", pdfTable([{ header: "Matricule", render: (item) => item.matricule }, { header: "Nom complet", render: (item) => `${item.nom} ${item.postnom} ${item.prenom}` }], [student], "Aucun élève."))],
     }),
-    requiredText: [school.name, "Liste des élèves", "MAT-001", "Kabeya Mutombo Aline"],
+    requiredText: [school.name, "Liste des élèves", "MAT-001", "Kabeya Noël Chloé"],
     requireTable: true,
   },
   {
@@ -168,11 +175,11 @@ const cases = [
       school,
       year,
       sections: [
-        pdfSection("Identité de l'élève", pdfInfoGrid([{ label: "Nom complet", value: "Kabeya Mutombo Aline" }, { label: "Matricule", value: student.matricule }])),
+        pdfSection("Identité de l'élève", pdfInfoGrid([{ label: "Nom complet", value: "Kabeya Noël Chloé" }, { label: "Matricule", value: student.matricule }])),
         pdfSection("Paiements", pdfTable([{ header: "Date", render: () => payment.paidAt }, { header: "Type de frais", render: () => "Minerval" }, { header: "Montant payé", render: () => money(payment.amount) }], [payment], "Aucun paiement.")),
       ],
     }),
-    requiredText: ["Historique individuel des paiements", "Kabeya Mutombo Aline", "Minerval", "$120.00"],
+    requiredText: ["Historique individuel des paiements", "Kabeya Noël Chloé", "Minerval", "$120.00"],
     requireTable: true,
   },
   {

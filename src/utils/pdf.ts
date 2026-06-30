@@ -50,6 +50,7 @@ export function formatPdfDate(value: string | Date) {
 
 export function escapePdfHtml(value: string | number | undefined | null) {
   return String(value ?? "")
+    .normalize("NFC")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -124,8 +125,13 @@ function buildPdfColumnWidths<T>(columns: PdfTableColumn<T>[], renderedRows: Arr
     return Math.max(10, headerWeight, contentWeight, alignWeight);
   });
   const total = weights.reduce((sum, value) => sum + value, 0) || columns.length;
+  const minimumWidth = columns.length >= 8 ? 8 : columns.length >= 6 ? 10 : 12;
 
-  return weights.map((weight) => Number(((weight / total) * 100).toFixed(2)));
+  const rawWidths = weights.map((weight) => (weight / total) * 100);
+  const adjustedWidths = rawWidths.map((width) => Math.max(minimumWidth, width));
+  const adjustedTotal = adjustedWidths.reduce((sum, width) => sum + width, 0) || 100;
+
+  return adjustedWidths.map((width) => Number(((width / adjustedTotal) * 100).toFixed(2)));
 }
 
 export function pdfSection(title: string, bodyHtml: string) {
@@ -263,10 +269,23 @@ function pdfStyles() {
       box-sizing: border-box;
       background: #ffffff;
       color: #14213d;
-      font-family: Arial, Helvetica, sans-serif;
+      font-family: Arial, "Segoe UI", "Noto Sans", "DejaVu Sans", Helvetica, sans-serif;
       font-size: 11.5px;
-      line-height: 1.38;
+      line-height: 1.44;
+      letter-spacing: normal;
+      word-spacing: 0.04em;
+      text-rendering: geometricPrecision;
+      font-kerning: normal;
       padding: 0;
+    }
+    .acadea-pdf * {
+      box-sizing: border-box;
+      letter-spacing: normal;
+      word-spacing: inherit;
+      white-space: normal;
+      word-break: normal;
+      overflow-wrap: break-word;
+      hyphens: none;
     }
     .pdf-header {
       display: flex;
@@ -317,7 +336,8 @@ function pdfStyles() {
       color: #2a9d8f;
       font-size: 8.5px;
       font-weight: 800;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.04em;
+      word-spacing: 0.08em;
       text-transform: uppercase;
     }
     .document-title h2 {
@@ -369,7 +389,8 @@ function pdfStyles() {
       margin-top: 3px;
       color: #14213d;
       font-size: 10.5px;
-      overflow-wrap: anywhere;
+      line-height: 1.35;
+      overflow-wrap: break-word;
     }
     table {
       width: 100%;
@@ -377,7 +398,8 @@ function pdfStyles() {
       border-collapse: collapse;
       table-layout: auto;
       margin-top: 6px;
-      font-size: 9.2px;
+      font-size: 9.5px;
+      line-height: 1.35;
       page-break-inside: auto;
     }
     thead {
@@ -392,18 +414,19 @@ function pdfStyles() {
       background: #14213d;
       color: #ffffff;
       font-size: 8px;
-      line-height: 1.2;
+      line-height: 1.25;
       text-transform: uppercase;
-      overflow-wrap: anywhere;
+      overflow-wrap: break-word;
+      word-spacing: 0.06em;
     }
     td {
       padding: 5px 6px;
       border: 1px solid #dbe4ef;
       color: #26364b;
       vertical-align: top;
-      overflow-wrap: anywhere;
+      overflow-wrap: break-word;
       word-break: normal;
-      line-height: 1.28;
+      line-height: 1.38;
     }
     tr {
       page-break-inside: avoid;
@@ -483,7 +506,7 @@ function openPdfViewerShell({ filename, title }: { filename: string; title: stri
         z-index: 9999;
         background: #0f172a;
         color: #e2e8f0;
-        font-family: Arial, Helvetica, sans-serif;
+        font-family: "Noto Sans", "DejaVu Sans", "Segoe UI", Arial, Helvetica, sans-serif;
       }
       .acadea-pdf-viewer * { box-sizing: border-box; }
       .acadea-pdf-viewer__toolbar {
@@ -538,6 +561,16 @@ function openPdfViewerShell({ filename, title }: { filename: string; title: stri
         color: #cbd5e1;
         font-size: 15px;
       }
+      .acadea-pdf-viewer__mobile-message {
+        display: none;
+        margin-bottom: 10px;
+        border: 1px solid rgba(255,255,255,0.16);
+        background: rgba(255,255,255,0.08);
+        color: #e2e8f0;
+        padding: 10px 12px;
+        font-size: 13px;
+        line-height: 1.4;
+      }
       .acadea-pdf-viewer iframe {
         display: none;
         width: 100%;
@@ -565,7 +598,8 @@ function openPdfViewerShell({ filename, title }: { filename: string; title: stri
         <span>Aperçu PDF Acadéa</span>
       </div>
       <div class="acadea-pdf-viewer__actions">
-        <a data-pdf-download href="#" download="${escapePdfHtml(filename)}" aria-disabled="true">Télécharger</a>
+        <a data-pdf-open href="#" target="_blank" rel="noopener" aria-disabled="true">Ouvrir le PDF</a>
+        <a data-pdf-download href="#" download="${escapePdfHtml(filename)}" target="_blank" rel="noopener" aria-disabled="true">Télécharger</a>
         <button type="button" data-pdf-print disabled>Imprimer</button>
         <button type="button" data-pdf-zoom-out disabled>-</button>
         <button type="button" data-pdf-zoom-in disabled>+</button>
@@ -574,6 +608,9 @@ function openPdfViewerShell({ filename, title }: { filename: string; title: stri
     </div>
     <div class="acadea-pdf-viewer__body">
       <div class="acadea-pdf-viewer__loading" data-pdf-loading>Génération du PDF...</div>
+      <div class="acadea-pdf-viewer__mobile-message" data-pdf-mobile-message>
+        Si l'aperçu ne s'affiche pas sur ce téléphone, ouvrez le document avec le lecteur PDF de l'appareil ou utilisez le bouton Télécharger.
+      </div>
       <iframe data-pdf-frame title="${escapePdfHtml(title)}"></iframe>
     </div>
   `;
@@ -581,6 +618,8 @@ function openPdfViewerShell({ filename, title }: { filename: string; title: stri
   document.body.appendChild(overlay);
   const frame = overlay.querySelector<HTMLIFrameElement>("[data-pdf-frame]");
   const loading = overlay.querySelector<HTMLElement>("[data-pdf-loading]");
+  const mobileMessage = overlay.querySelector<HTMLElement>("[data-pdf-mobile-message]");
+  const openButton = overlay.querySelector<HTMLAnchorElement>("[data-pdf-open]");
   const download = overlay.querySelector<HTMLAnchorElement>("[data-pdf-download]");
   const printButton = overlay.querySelector<HTMLButtonElement>("[data-pdf-print]");
   const zoomOut = overlay.querySelector<HTMLButtonElement>("[data-pdf-zoom-out]");
@@ -606,7 +645,7 @@ function openPdfViewerShell({ filename, title }: { filename: string; title: stri
     frame.style.width = `${100 / zoom}%`;
   });
 
-  return { overlay, frame, loading, download, printButton, zoomOut, zoomIn };
+  return { overlay, frame, loading, mobileMessage, openButton, download, printButton, zoomOut, zoomIn };
 }
 
 function showPdfInViewer({
@@ -618,16 +657,41 @@ function showPdfInViewer({
   filename: string;
   title: string;
 }) {
+  const isMobile = isMobilePdfDevice();
+  let frameLoaded = false;
+
+  viewer.frame?.addEventListener(
+    "load",
+    () => {
+      frameLoaded = true;
+      if (viewer.mobileMessage && !isMobile) viewer.mobileMessage.style.display = "none";
+    },
+    { once: true },
+  );
   viewer.frame?.setAttribute("src", url);
   if (viewer.frame) viewer.frame.style.display = "block";
   if (viewer.loading) viewer.loading.style.display = "none";
+  if (viewer.openButton) {
+    viewer.openButton.href = url;
+    viewer.openButton.setAttribute("aria-disabled", "false");
+  }
   if (viewer.download) {
     viewer.download.href = url;
     viewer.download.setAttribute("aria-disabled", "false");
   }
-  viewer.printButton?.removeAttribute("disabled");
-  viewer.zoomOut?.removeAttribute("disabled");
-  viewer.zoomIn?.removeAttribute("disabled");
+  if (isMobile) {
+    if (viewer.mobileMessage) viewer.mobileMessage.style.display = "block";
+    window.setTimeout(() => {
+      if (frameLoaded) return;
+      viewer.frame?.style.setProperty("display", "none");
+      viewer.mobileMessage?.style.setProperty("display", "block");
+      window.open(url, "_blank", "noopener");
+    }, 1400);
+  } else {
+    viewer.printButton?.removeAttribute("disabled");
+    viewer.zoomOut?.removeAttribute("disabled");
+    viewer.zoomIn?.removeAttribute("disabled");
+  }
 }
 
 function showPdfError(viewer: ReturnType<typeof openPdfViewerShell>, message: string) {
@@ -635,6 +699,14 @@ function showPdfError(viewer: ReturnType<typeof openPdfViewerShell>, message: st
     viewer.loading.textContent = message;
     viewer.loading.style.display = "flex";
   }
+}
+
+function isMobilePdfDevice() {
+  const userAgent = navigator.userAgent || "";
+  const mobileUserAgent = /Android|iPhone|iPad|iPod|Mobile/i.test(userAgent);
+  const coarsePointer = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
+
+  return mobileUserAgent || (coarsePointer && window.innerWidth <= 900);
 }
 
 async function loadLogoDataUrl(logoUrl?: string) {

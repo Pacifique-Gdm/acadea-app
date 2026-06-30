@@ -60,9 +60,15 @@ type ProvisionParentInput = {
   status: ParentProfile["status"];
 };
 
-async function provisionSchoolAccount<TResponse>(input: Record<string, unknown>) {
+function getProvisionEndpointUrl(endpoint: string) {
+  return typeof window === "undefined" ? endpoint : new URL(endpoint, window.location.origin).href;
+}
+
+async function provisionSchoolAccount<TResponse>(input: Record<string, unknown>, options?: { showEndpointOnNotFound?: boolean }) {
   const token = await getCurrentFirebaseIdToken();
-  const response = await fetch("/api/provision-school-account", {
+  const endpoint = "/api/provision-school-account";
+  const endpointUrl = getProvisionEndpointUrl(endpoint);
+  const response = await fetch(endpoint, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -73,6 +79,9 @@ async function provisionSchoolAccount<TResponse>(input: Record<string, unknown>)
 
   const payload = (await response.json().catch(() => ({}))) as TResponse & { error?: string };
   if (!response.ok) {
+    if (response.status === 404 && options?.showEndpointOnNotFound) {
+      throw new Error(`Endpoint API introuvable (HTTP 404) : ${endpointUrl}. Lancez l'application avec npx vercel dev pour activer les routes /api.`);
+    }
     throw new Error(payload.error ?? "Provisionnement impossible.");
   }
 
@@ -83,7 +92,7 @@ export async function provisionCashier(input: ProvisionCashierInput) {
   const payload = await provisionSchoolAccount<{ user?: AppUser }>({
     role: "cashier",
     ...input,
-  });
+  }, { showEndpointOnNotFound: true });
 
   if (!payload.user) {
     throw new Error("Reponse de provisionnement caissier incomplete.");
@@ -131,9 +140,10 @@ export async function manageSchool(input: ManageSchoolInput) {
     body: JSON.stringify(input),
   });
 
-  const payload = (await response.json().catch(() => ({}))) as ManageSchoolResponse & { error?: string };
+  const payload = (await response.json().catch(() => ({}))) as ManageSchoolResponse & { error?: string; details?: string };
   if (!response.ok) {
-    throw new Error(payload.error ?? "Operation ecole impossible.");
+    const message = payload.error ?? "Operation ecole impossible.";
+    throw new Error(payload.details ? `${message} Detail serveur : ${payload.details}` : message);
   }
 
   return payload;
