@@ -4644,7 +4644,7 @@ function AdminDrawer({
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-ink/30 p-3 backdrop-blur-sm" onMouseDown={onClose} role="presentation">
+    <div className={`fixed inset-0 ${notificationPanel ? "z-[80]" : "z-50"} bg-ink/30 p-3 backdrop-blur-sm`} onMouseDown={onClose} role="presentation">
       <div
         ref={drawerRef}
         className={`ml-auto flex min-h-0 w-full max-w-xl flex-col rounded border border-slate-200 bg-white p-4 shadow-2xl ${notificationPanel ? "" : "h-full"}`}
