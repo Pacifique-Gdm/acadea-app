@@ -38,6 +38,7 @@ import { createFirebaseAuthUser, getDefaultRoute, sendPasswordReset, signIn, sig
 import { canUseFirestoreData, loadFirestoreData, persistFirestorePatch } from "./services/firestoreData";
 import { manageSchool, provisionCashier, provisionParent, provisionSchoolAdmin } from "./services/provisioning";
 import { escapePdfHtml, generateReceiptPdf, money, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./utils/pdf";
+import type { PdfTableColumn } from "./utils/pdf";
 import { buildStats, getStudentBalance } from "./utils/stats";
 import type {
   AppData,
@@ -3342,6 +3343,18 @@ function ControlModule({
       amountComparator === "all" || !amountThreshold
         ? "Montant payé : tous"
         : `Montant payé ${amountComparator} ${amountThreshold}`;
+    const showOptionColumn = rows.some(({ student }) => Boolean(student.option));
+    const studentPaymentColumns: PdfTableColumn<(typeof rows)[number]>[] = [
+      { header: "Nom de l'élève", render: ({ student }) => `${student.nom} ${student.postnom} ${student.prenom}`.trim() },
+      { header: "Matricule", render: ({ student }) => student.matricule },
+      { header: "Classe", render: ({ student }) => student.className },
+      { header: "Montant prévu", render: ({ balance }) => formatMoney(balance.expected), align: "right" },
+      { header: "Montant payé", render: ({ balance }) => formatMoney(balance.paid), align: "right" },
+      { header: "Solde restant", render: ({ balance }) => formatMoney(balance.remaining), align: "right" },
+    ];
+    if (showOptionColumn) {
+      studentPaymentColumns.splice(3, 0, { header: "Option", render: ({ student }) => student.option || "-" });
+    }
     await renderAcadPdfPreview({
       filename: `controle-paiements-${year.name}.pdf`,
       title: "Contrôle des paiements",
@@ -3352,14 +3365,7 @@ function ControlModule({
         pdfSection(
           "Élèves filtrés",
           pdfTable(
-            [
-              { header: "Nom de l'élève", render: ({ student }) => `${student.nom} ${student.postnom} ${student.prenom}`.trim() },
-              { header: "Matricule", render: ({ student }) => student.matricule },
-              { header: "Classe", render: ({ student }) => student.className },
-              { header: "Montant prévu", render: ({ balance }) => formatMoney(balance.expected), align: "right" },
-              { header: "Montant payé", render: ({ balance }) => formatMoney(balance.paid), align: "right" },
-              { header: "Solde restant", render: ({ balance }) => formatMoney(balance.remaining), align: "right" },
-            ],
+            studentPaymentColumns,
             rows,
             "Aucun élève ne correspond aux filtres appliqués.",
           ),
@@ -4466,6 +4472,18 @@ function createAuditLog(user: AppUser, schoolId: string, schoolYearId: string, a
 }
 
 async function exportStudentsPdf(school: School, year: SchoolYear, students: Student[], filters: string[]) {
+  const showOptionColumn = students.some((student) => Boolean(student.option));
+  const totalLabelColspan = showOptionColumn ? 5 : 4;
+  const studentColumns: PdfTableColumn<Student>[] = [
+    { header: "Matricule", render: (student) => student.matricule || "-" },
+    { header: "Nom complet", render: (student) => `${student.nom} ${student.postnom} ${student.prenom}`.trim() || "-" },
+    { header: "Sexe", render: (student) => student.sexe || "-", align: "center" },
+    { header: "Classe", render: (student) => student.className || "-" },
+    { header: "Téléphone", render: (student) => student.phone || "-" },
+  ];
+  if (showOptionColumn) {
+    studentColumns.splice(4, 0, { header: "Option", render: (student) => student.option || "-" });
+  }
   await renderAcadPdfPreview({
     filename: `eleves-${year.name}.pdf`,
     title: "Liste des élèves",
@@ -4476,19 +4494,13 @@ async function exportStudentsPdf(school: School, year: SchoolYear, students: Stu
       pdfSection(
         "Élèves",
         pdfTable(
-          [
-            { header: "Matricule", render: (student) => student.matricule || "-" },
-            { header: "Nom complet", render: (student) => `${student.nom} ${student.postnom} ${student.prenom}`.trim() || "-" },
-            { header: "Sexe", render: (student) => student.sexe || "-", align: "center" },
-            { header: "Classe", render: (student) => student.className || "-" },
-            { header: "Téléphone", render: (student) => student.phone || "-" },
-          ],
+          studentColumns,
           students,
           "Aucun élève ne correspond aux filtres appliqués.",
           {
             footerHtml: `
               <tr>
-                <td colspan="4">Total élèves</td>
+                <td colspan="${totalLabelColspan}">Total élèves</td>
                 <td class="align-right">${students.length}</td>
               </tr>
             `,
