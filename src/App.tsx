@@ -2039,6 +2039,7 @@ function ActivityHistoryContent({
 
 function buildActivityHistoryItems(user: AppUser, data: AppData, yearData: ReturnType<typeof scopeData>, role: "admin" | "cashier" | "parent") {
   const usersById = new Map(data.users.map((item) => [item.id, item]));
+  const parentsById = new Map(yearData.parents.map((item) => [item.id, item]));
   const auditItems = yearData.auditLogs
     .filter((log) => {
       const actor = usersById.get(log.actorId);
@@ -2063,13 +2064,21 @@ function buildActivityHistoryItems(user: AppUser, data: AppData, yearData: Retur
     })
     .map<ActivityHistoryItem>((message) => {
       const sender = usersById.get(message.senderId);
-      const isParentSender = sender?.role === "parent" || message.senderId === user.id;
+      const senderParent = sender?.parentId ? parentsById.get(sender.parentId) : message.threadParentId ? parentsById.get(message.threadParentId) : undefined;
+      const senderName = sender?.role === "parent" ? senderParent?.fullName ?? sender.name : sender?.name ?? (senderParent?.fullName ?? "École");
+      const recipientName =
+        message.recipientParentId === "school"
+          ? "École"
+          : message.recipientParentId === "all"
+            ? "Tous les parents"
+            : parentsById.get(message.recipientParentId)?.fullName ?? "Parent";
+      const isSentByCurrentUser = message.senderId === user.id;
       return {
         id: `message-${message.id}`,
         type: "message",
-        title: role === "parent" && message.senderId === user.id ? `Message envoyé : ${message.subject}` : `Message reçu : ${message.subject}`,
-        actorName: sender?.name ?? (isParentSender ? "Parent" : "École"),
-        details: message.body,
+        title: isSentByCurrentUser ? "Message envoyé" : "Message reçu",
+        actorName: senderName,
+        details: `Expéditeur : ${senderName} · Destinataire : ${recipientName} · Statut : ${isSentByCurrentUser ? "envoyé" : "reçu"}`,
         createdAt: message.createdAt,
       };
     });
