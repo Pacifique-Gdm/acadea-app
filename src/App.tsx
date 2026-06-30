@@ -3130,10 +3130,16 @@ function ControlModule({
   const selectedPaymentBalance = selectedPaymentStudent
     ? getStudentBalance(selectedPaymentStudent.id, yearData.feeTypes, yearData.payments, yearData.students)
     : { expected: 0, paid: 0, remaining: 0 };
-  const isSelectedPaymentComplete = selectedPaymentBalance.expected > 0 && selectedPaymentBalance.paid === selectedPaymentBalance.expected;
-  const isPaymentEntryDisabled = selectedPaymentBalance.expected <= 0 || isSelectedPaymentComplete;
   const payableFeeTypes = selectedPaymentStudent ? yearData.feeTypes.filter((fee) => !fee.className || fee.className === selectedPaymentStudent.className) : [];
   const selectedFeeTypeValue = payableFeeTypes.some((fee) => fee.id === feeTypeId) ? feeTypeId : payableFeeTypes[0]?.id ?? "";
+  const selectedPaymentFee = payableFeeTypes.find((fee) => fee.id === selectedFeeTypeValue);
+  const selectedPaymentFeePaid = selectedPaymentStudent && selectedPaymentFee
+    ? yearData.payments
+        .filter((payment) => payment.studentId === selectedPaymentStudent.id && payment.feeTypeId === selectedPaymentFee.id)
+        .reduce((sum, payment) => sum + payment.amount, 0)
+    : 0;
+  const selectedPaymentFeeRemaining = selectedPaymentFee ? Math.max(selectedPaymentFee.amount - selectedPaymentFeePaid, 0) : 0;
+  const isPaymentEntryDisabled = !selectedPaymentFee || selectedPaymentFeeRemaining <= 0;
   const selectedHistoryStudent = yearData.students.find((student) => student.id === selectedHistoryStudentId);
   const paymentStudentSearch = paymentStudentQuery.trim().toLowerCase();
   const paymentStudentResults = paymentStudentSearch
@@ -3220,8 +3226,15 @@ function ControlModule({
       setPaymentError("Montant de paiement invalide.");
       return;
     }
-    if (selectedPaymentBalance.paid + paymentAmount > selectedPaymentBalance.expected) {
-      setPaymentError("Paiement impossible : ce paiement dépasse le montant total attendu.");
+    if (!selectedPaymentStudent || !selectedPaymentFee) {
+      setPaymentError("Type de frais indisponible pour cet élève.");
+      return;
+    }
+    const feePaid = yearData.payments
+      .filter((payment) => payment.studentId === selectedPaymentStudent.id && payment.feeTypeId === selectedPaymentFee.id)
+      .reduce((sum, payment) => sum + payment.amount, 0);
+    if (feePaid + paymentAmount > selectedPaymentFee.amount) {
+      setPaymentError("Paiement impossible : ce montant dépasse le montant prévu pour ce frais.");
       return;
     }
     const student = data.students.find((item) => item.id === studentId);
@@ -3290,9 +3303,16 @@ function ControlModule({
       return;
     }
     const paymentStudent = yearData.students.find((student) => student.id === payment.studentId);
-    const paymentBalance = paymentStudent ? getStudentBalance(paymentStudent.id, yearData.feeTypes, yearData.payments, yearData.students) : { expected: 0, paid: 0 };
-    if (paymentBalance.paid - payment.amount + correctedAmount > paymentBalance.expected) {
-      alert("Paiement impossible : ce paiement dépasse le montant total attendu.");
+    const paymentFee = paymentStudent
+      ? yearData.feeTypes.find((fee) => fee.id === payment.feeTypeId && (!fee.className || fee.className === paymentStudent.className))
+      : undefined;
+    const paidForFee = paymentStudent && paymentFee
+      ? yearData.payments
+          .filter((item) => item.studentId === paymentStudent.id && item.feeTypeId === paymentFee.id && item.id !== payment.id)
+          .reduce((sum, item) => sum + item.amount, 0)
+      : 0;
+    if (!paymentFee || paidForFee + correctedAmount > paymentFee.amount) {
+      alert("Paiement impossible : ce montant dépasse le montant prévu pour ce frais.");
       return;
     }
     const reason = prompt("Motif obligatoire de correction");
@@ -3544,7 +3564,7 @@ function ControlModule({
                 <option key={fee.id} value={fee.id}>{fee.name} - ${fee.amount}</option>
               ))}
             </select>
-            <input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" min="0" max={selectedPaymentBalance.remaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" placeholder="Montant" />
+            <input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" min="0" max={selectedPaymentFeeRemaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" placeholder="Montant" />
             <button onClick={savePayment} disabled={isPaymentEntryDisabled} className="primary-button disabled:opacity-50"><Plus className="h-4 w-4" /> Enregistrer</button>
           </FormPanel>
         )}
@@ -3618,7 +3638,7 @@ function ControlModule({
                   <option key={fee.id} value={fee.id}>{fee.name} - ${fee.amount}</option>
                 ))}
               </select>
-              <input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" min="0" max={selectedPaymentBalance.remaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" placeholder="Montant" />
+              <input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" min="0" max={selectedPaymentFeeRemaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" placeholder="Montant" />
               <button onClick={savePayment} disabled={isPaymentEntryDisabled} className="primary-button disabled:opacity-50" type="button"><Plus className="h-4 w-4" /> Enregistrer</button>
             </>
           )}
