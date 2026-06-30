@@ -835,6 +835,174 @@ function BottomNavigation({ user, activeTab, onTab }: { user: AppUser; activeTab
   );
 }
 
+type TransactionPeriod = "today" | "last5" | "week";
+type TransactionChartRow = { date: string; label: string; payments: number; expenses: number };
+
+const transactionPeriodLabels: Record<TransactionPeriod, string> = {
+  today: "Aujourd'hui",
+  last5: "5 derniers jours",
+  week: "Semaine en cours",
+};
+
+function toDateKey(date: Date) {
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return localDate.toISOString().slice(0, 10);
+}
+
+function getTransactionPeriodDates(period: TransactionPeriod, now = new Date()) {
+  if (period === "today") return [toDateKey(now)];
+  if (period === "last5") {
+    return Array.from({ length: 5 }, (_, index) => {
+      const date = new Date(now);
+      date.setDate(now.getDate() - (4 - index));
+      return toDateKey(date);
+    });
+  }
+  const monday = new Date(now);
+  const day = monday.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  monday.setDate(now.getDate() + mondayOffset);
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(monday);
+    date.setDate(monday.getDate() + index);
+    return toDateKey(date);
+  });
+}
+
+function formatChartDate(dateKey: string) {
+  return new Intl.DateTimeFormat("fr-FR", { weekday: "short", day: "2-digit" }).format(new Date(`${dateKey}T12:00:00`));
+}
+
+function formatChartTooltipDate(dateKey: string) {
+  return new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" }).format(new Date(`${dateKey}T12:00:00`));
+}
+
+function formatAxisAmount(value: number) {
+  if (value >= 1000000) return `${(value / 1000000).toFixed(value % 1000000 === 0 ? 0 : 1)}M`;
+  if (value >= 1000) return `${(value / 1000).toFixed(value % 1000 === 0 ? 0 : 1)}k`;
+  return value.toString();
+}
+
+function getChartMaxAmount(rows: TransactionChartRow[]) {
+  const maxAmount = Math.max(1, ...rows.map((row) => Math.max(row.payments, row.expenses)));
+  return Math.max(500, Math.ceil(maxAmount / 500) * 500);
+}
+
+function TransactionComboChart({
+  rows,
+  period,
+  onPeriodChange,
+}: {
+  rows: TransactionChartRow[];
+  period: TransactionPeriod;
+  onPeriodChange: (period: TransactionPeriod) => void;
+}) {
+  const chartWidth = Math.max(560, rows.length * 96);
+  const chartHeight = 180;
+  const margin = { top: 16, right: 24, bottom: 34, left: 54 };
+  const plotWidth = chartWidth - margin.left - margin.right;
+  const plotHeight = chartHeight - margin.top - margin.bottom;
+  const chartMax = getChartMaxAmount(rows);
+  const baseline = margin.top + plotHeight;
+  const groupWidth = rows.length > 0 ? plotWidth / rows.length : plotWidth;
+  const barWidth = Math.min(18, groupWidth * 0.22);
+  const barGap = 6;
+  const yFor = (value: number) => baseline - (value / chartMax) * plotHeight;
+  const paymentPoints = rows.map((row, index) => {
+    const centerX = margin.left + groupWidth * index + groupWidth / 2;
+    return { x: centerX - barWidth / 2 - barGap / 2, y: yFor(row.payments) };
+  });
+  const expensePoints = rows.map((row, index) => {
+    const centerX = margin.left + groupWidth * index + groupWidth / 2;
+    return { x: centerX + barWidth / 2 + barGap / 2, y: yFor(row.expenses) };
+  });
+  const pathFromPoints = (points: { x: number; y: number }[]) => points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
+  const ticks = Array.from({ length: chartMax / 500 + 1 }, (_, index) => index * 500);
+
+  return (
+    <section className="rounded border border-slate-200 bg-slate-50/70 p-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="text-sm font-bold text-ink">Mouvement des transactions par jour</h3>
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs font-semibold text-slate-600">
+            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-mint" /> Paiements</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-red-600" /> Dépenses</span>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 overflow-hidden rounded border border-slate-200 bg-white text-xs font-semibold text-slate-600">
+          {(Object.keys(transactionPeriodLabels) as TransactionPeriod[]).map((item) => (
+            <button
+              key={item}
+              type="button"
+              onClick={() => onPeriodChange(item)}
+              className={`px-2 py-2 transition ${period === item ? "bg-ink text-white" : "hover:bg-slate-50"}`}
+            >
+              {transactionPeriodLabels[item]}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="mt-3 overflow-x-auto pb-1">
+        <svg className="min-w-full" style={{ minWidth: chartWidth }} viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label="Mouvement des paiements et dépenses par jour">
+          <rect x="0" y="0" width={chartWidth} height={chartHeight} rx="10" fill="white" />
+          {ticks.map((tick) => {
+            const y = yFor(tick);
+            return (
+              <g key={tick}>
+                <line x1={margin.left} x2={chartWidth - margin.right} y1={y} y2={y} stroke="#e2e8f0" strokeWidth="1" />
+                <text x={margin.left - 10} y={y + 4} textAnchor="end" className="fill-slate-500 text-[11px] font-semibold">
+                  {formatAxisAmount(tick)}
+                </text>
+              </g>
+            );
+          })}
+          <line x1={margin.left} x2={margin.left} y1={margin.top} y2={baseline} stroke="#cbd5e1" strokeWidth="1" />
+          <line x1={margin.left} x2={chartWidth - margin.right} y1={baseline} y2={baseline} stroke="#cbd5e1" strokeWidth="1" />
+          {rows.map((row, index) => {
+            const centerX = margin.left + groupWidth * index + groupWidth / 2;
+            const paymentX = centerX - barWidth - barGap / 2;
+            const expenseX = centerX + barGap / 2;
+            const paymentY = yFor(row.payments);
+            const expenseY = yFor(row.expenses);
+            const paymentHeight = Math.max(0, baseline - paymentY);
+            const expenseHeight = Math.max(0, baseline - expenseY);
+            return (
+              <g key={row.date}>
+                <title>{`${formatChartTooltipDate(row.date)}\nPaiements : ${money(row.payments)}\nDépenses : ${money(row.expenses)}\nTotal : ${money(row.payments + row.expenses)}`}</title>
+                <rect x={paymentX} y={paymentY} width={barWidth} height={paymentHeight} rx="5" fill="#2a9d8f" opacity="0">
+                  <animate attributeName="opacity" values="0;1" dur="0.45s" begin={`${index * 0.04}s`} fill="freeze" />
+                </rect>
+                <rect x={expenseX} y={expenseY} width={barWidth} height={expenseHeight} rx="5" fill="#dc2626" opacity="0">
+                  <animate attributeName="opacity" values="0;1" dur="0.45s" begin={`${index * 0.04 + 0.04}s`} fill="freeze" />
+                </rect>
+                <text x={centerX} y={chartHeight - 13} textAnchor="middle" className="fill-slate-600 text-[11px] font-semibold">
+                  {row.label}
+                </text>
+              </g>
+            );
+          })}
+          <path d={pathFromPoints(paymentPoints)} fill="none" stroke="#2a9d8f" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" opacity="0">
+            <animate attributeName="opacity" values="0;1" dur="0.35s" begin="0.2s" fill="freeze" />
+          </path>
+          <path d={pathFromPoints(expensePoints)} fill="none" stroke="#dc2626" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" opacity="0">
+            <animate attributeName="opacity" values="0;1" dur="0.35s" begin="0.25s" fill="freeze" />
+          </path>
+          {paymentPoints.map((point, index) => (
+            <circle key={`payment-${rows[index].date}`} cx={point.x} cy={point.y} r="4.5" fill="white" stroke="#2a9d8f" strokeWidth="3">
+              <title>{`${formatChartTooltipDate(rows[index].date)}\nPaiements : ${money(rows[index].payments)}`}</title>
+            </circle>
+          ))}
+          {expensePoints.map((point, index) => (
+            <circle key={`expense-${rows[index].date}`} cx={point.x} cy={point.y} r="4.5" fill="white" stroke="#dc2626" strokeWidth="3">
+              <title>{`${formatChartTooltipDate(rows[index].date)}\nDépenses : ${money(rows[index].expenses)}`}</title>
+            </circle>
+          ))}
+        </svg>
+      </div>
+    </section>
+  );
+}
+
 function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>; school: School; year: SchoolYear }) {
   const today = new Date().toISOString().slice(0, 10);
   const [sectionFilter, setSectionFilter] = useState<"all" | "maternelle" | "primaire" | "secondaire">("all");
