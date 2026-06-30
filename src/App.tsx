@@ -1958,6 +1958,125 @@ function AuditTimeline({ logs }: { logs: AuditLog[] }) {
   );
 }
 
+type ActivityHistoryItem = {
+  id: string;
+  type: "activity" | "message";
+  title: string;
+  actorName: string;
+  details: string;
+  createdAt: string;
+};
+
+function ActivityHistoryContent({
+  user,
+  data,
+  yearData,
+  role,
+}: {
+  user: AppUser;
+  data: AppData;
+  yearData: ReturnType<typeof scopeData>;
+  role: "admin" | "cashier" | "parent";
+}) {
+  const [query, setQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState<"all" | ActivityHistoryItem["type"]>("all");
+  const items = buildActivityHistoryItems(user, data, yearData, role);
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredItems = items.filter((item) => {
+    const matchesType = typeFilter === "all" || item.type === typeFilter;
+    const text = `${item.title} ${item.actorName} ${item.details}`.toLowerCase();
+    return matchesType && (!normalizedQuery || text.includes(normalizedQuery));
+  });
+
+  return (
+    <div className="grid min-w-0 gap-4">
+      <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_160px]">
+        <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
+          <Search className="h-4 w-4 shrink-0 text-slate-400" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            className="min-w-0 flex-1 outline-none"
+            placeholder="Rechercher dans l'historique"
+          />
+        </label>
+        <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as typeof typeFilter)} className="input">
+          <option value="all">Tout</option>
+          <option value="activity">Activités</option>
+          <option value="message">Messages</option>
+        </select>
+      </div>
+
+      <div className="space-y-2">
+        {filteredItems.length === 0 && (
+          <p className="rounded border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">Aucun historique trouvé.</p>
+        )}
+        {filteredItems.map((item) => (
+          <article key={item.id} className="min-w-0 rounded border border-slate-200 bg-white p-3 text-sm">
+            <div className="flex min-w-0 items-start gap-3">
+              <div className={`mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded ${item.type === "message" ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-600"}`}>
+                {item.type === "message" ? <MessageSquare className="h-4 w-4" /> : <Clock3 className="h-4 w-4" />}
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="break-words font-semibold text-ink">{item.title}</p>
+                  <span className="rounded bg-slate-100 px-2 py-1 text-[10px] font-bold uppercase text-slate-500">
+                    {item.type === "message" ? "Message" : "Activité"}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  {item.actorName} · {new Date(item.createdAt).toLocaleString("fr-FR")}
+                </p>
+                {item.details && <p className="mt-2 break-words leading-6 text-slate-700">{item.details}</p>}
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function buildActivityHistoryItems(user: AppUser, data: AppData, yearData: ReturnType<typeof scopeData>, role: "admin" | "cashier" | "parent") {
+  const usersById = new Map(data.users.map((item) => [item.id, item]));
+  const auditItems = yearData.auditLogs
+    .filter((log) => {
+      const actor = usersById.get(log.actorId);
+      if (role === "admin") return log.actorId === user.id || actor?.role === "cashier";
+      if (role === "cashier") return log.actorId === user.id;
+      return log.actorId === user.id;
+    })
+    .map<ActivityHistoryItem>((log) => ({
+      id: `audit-${log.id}`,
+      type: "activity",
+      title: log.action,
+      actorName: log.actorName,
+      details: log.details ?? "",
+      createdAt: log.createdAt,
+    }));
+
+  const messageItems = yearData.messages
+    .filter((message) => {
+      if (role === "admin") return message.recipientParentId === "school";
+      if (role === "parent") return message.threadParentId === user.parentId || message.recipientParentId === user.parentId;
+      return false;
+    })
+    .map<ActivityHistoryItem>((message) => {
+      const sender = usersById.get(message.senderId);
+      const isParentSender = sender?.role === "parent" || message.senderId === user.id;
+      return {
+        id: `message-${message.id}`,
+        type: "message",
+        title: role === "parent" && message.senderId === user.id ? `Message envoyé : ${message.subject}` : `Message reçu : ${message.subject}`,
+        actorName: sender?.name ?? (isParentSender ? "Parent" : "École"),
+        details: message.body,
+        createdAt: message.createdAt,
+      };
+    });
+
+  return [...auditItems, ...messageItems].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
 function getPlatformSchoolStats(schoolId: string, data: AppData) {
   const students = data.students.filter((student) => student.schoolId === schoolId).length;
   const parents = data.parents.filter((parent) => parent.schoolId === schoolId).length;
@@ -2028,6 +2147,7 @@ function ParentPortal({
   const [activeParentTab, setActiveParentTab] = useState<ParentTab>("children");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  const [parentHistoryOpen, setParentHistoryOpen] = useState(false);
   const parent = yearData.parents.find((item) => item.id === user.parentId);
   const unread = yearData.notifications.filter((notification) => !notification.read).length;
   const parentMessages = yearData.messages.filter((message) => message.threadParentId === user.parentId);
@@ -2202,6 +2322,22 @@ function ParentPortal({
 
         {activeParentTab === "menu" && (
           <section className="grid min-w-0 gap-4">
+            <button
+              onClick={() => setParentHistoryOpen(true)}
+              className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint"
+              type="button"
+            >
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink">
+                  <Clock3 className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="break-words font-bold text-ink">Historique</h2>
+                  <p className="mt-1 break-words text-sm text-slate-500">Activités et messages liés à ce compte parent.</p>
+                </div>
+              </div>
+            </button>
+
             <FormPanel title="Compte parent">
               <div className="grid gap-3 sm:grid-cols-2">
                 <Metric label="Parent" value={parent?.fullName ?? user.name} />
@@ -2221,6 +2357,12 @@ function ParentPortal({
           </section>
         )}
       </main>
+
+      {parentHistoryOpen && (
+        <AdminDrawer title="Historique" onClose={() => setParentHistoryOpen(false)} closeLabel="Fermer l'historique">
+          <ActivityHistoryContent user={user} data={data} yearData={yearData} role="parent" />
+        </AdminDrawer>
+      )}
 
       <ParentBottomNavigation activeTab={activeParentTab} onTab={setActiveParentTab} />
     </div>
@@ -3735,7 +3877,7 @@ function MenuModule({
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
   onLogout: () => void;
 }) {
-  type MenuSection = "school" | "years" | "accounts" | "fees" | "financial";
+  type MenuSection = "school" | "years" | "accounts" | "fees" | "financial" | "history";
   const [schoolForm, setSchoolForm] = useState(school);
   const [cashierName, setCashierName] = useState("");
   const [cashierPhone, setCashierPhone] = useState("");
@@ -3758,6 +3900,7 @@ function MenuModule({
     { id: "accounts", title: "Créer un caissier", description: "Compte de connexion caissier lié à l'école.", icon: ShieldCheck },
     { id: "fees", title: "Types de frais", description: "Montants et catégories de frais scolaires.", icon: Banknote },
     { id: "financial", title: "Rapport financier", description: "Synthèse et exports des rapports financiers.", icon: BarChart3 },
+    { id: "history", title: "Historique", description: "Activités et messages enregistrés pour ce compte.", icon: Clock3 },
   ] satisfies { id: MenuSection; title: string; description: string; icon: typeof Settings }[];
   const feeKindChoices = Array.from(new Set([...FEE_KINDS, ...yearData.feeTypes.map((fee) => fee.name)]));
 
@@ -4015,10 +4158,21 @@ function MenuModule({
       );
     }
 
+    if (sectionId === "history") {
+      return (
+        <ActivityHistoryContent
+          user={user}
+          data={data}
+          yearData={yearData}
+          role={user.role === "cashier" ? "cashier" : "admin"}
+        />
+      );
+    }
+
     return null;
   }
 
-  const visibleMenuSections = canAdmin ? menuSections : [];
+  const visibleMenuSections = menuSections.filter((section) => (canAdmin ? true : user.role === "cashier" && section.id === "history"));
   const activeMenuSectionConfig = visibleMenuSections.find((section) => section.id === activeMenuSection);
 
   return (
