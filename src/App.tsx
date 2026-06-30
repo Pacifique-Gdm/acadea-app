@@ -1003,11 +1003,180 @@ function TransactionComboChart({
   );
 }
 
+type TransactionPeriod = "today" | "last5" | "week";
+type TransactionChartRow = { date: string; label: string; payments: number; expenses: number };
+
+const transactionPeriodLabels: Record<TransactionPeriod, string> = {
+  today: "Aujourd'hui",
+  last5: "5 derniers jours",
+  week: "Semaine en cours",
+};
+
+function toDateKey(date: Date) {
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return localDate.toISOString().slice(0, 10);
+}
+
+function getTransactionPeriodDates(period: TransactionPeriod, now = new Date()) {
+  if (period === "today") return [toDateKey(now)];
+  if (period === "last5") {
+    return Array.from({ length: 5 }, (_, index) => {
+      const date = new Date(now);
+      date.setDate(now.getDate() - (4 - index));
+      return toDateKey(date);
+    });
+  }
+  const monday = new Date(now);
+  const day = monday.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  monday.setDate(now.getDate() + mondayOffset);
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(monday);
+    date.setDate(monday.getDate() + index);
+    return toDateKey(date);
+  });
+}
+
+function formatChartDate(dateKey: string) {
+  return new Intl.DateTimeFormat("fr-FR", { weekday: "short", day: "2-digit" }).format(new Date(`${dateKey}T12:00:00`));
+}
+
+function formatChartTooltipDate(dateKey: string) {
+  return new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" }).format(new Date(`${dateKey}T12:00:00`));
+}
+
+function formatAxisAmount(value: number) {
+  if (value >= 1000000) return `${(value / 1000000).toFixed(value % 1000000 === 0 ? 0 : 1)}M`;
+  if (value >= 1000) return `${(value / 1000).toFixed(value % 1000 === 0 ? 0 : 1)}k`;
+  return value.toString();
+}
+
+function getChartMaxAmount(rows: TransactionChartRow[]) {
+  const maxAmount = Math.max(1, ...rows.map((row) => Math.max(row.payments, row.expenses)));
+  return Math.max(500, Math.ceil(maxAmount / 500) * 500);
+}
+
+function TransactionComboChart({
+  rows,
+  period,
+  onPeriodChange,
+}: {
+  rows: TransactionChartRow[];
+  period: TransactionPeriod;
+  onPeriodChange: (period: TransactionPeriod) => void;
+}) {
+  const chartWidth = Math.max(560, rows.length * 96);
+  const chartHeight = 180;
+  const margin = { top: 16, right: 24, bottom: 34, left: 54 };
+  const plotWidth = chartWidth - margin.left - margin.right;
+  const plotHeight = chartHeight - margin.top - margin.bottom;
+  const chartMax = getChartMaxAmount(rows);
+  const baseline = margin.top + plotHeight;
+  const groupWidth = rows.length > 0 ? plotWidth / rows.length : plotWidth;
+  const barWidth = Math.min(18, groupWidth * 0.22);
+  const barGap = 6;
+  const yFor = (value: number) => baseline - (value / chartMax) * plotHeight;
+  const paymentPoints = rows.map((row, index) => {
+    const centerX = margin.left + groupWidth * index + groupWidth / 2;
+    return { x: centerX - barWidth / 2 - barGap / 2, y: yFor(row.payments) };
+  });
+  const expensePoints = rows.map((row, index) => {
+    const centerX = margin.left + groupWidth * index + groupWidth / 2;
+    return { x: centerX + barWidth / 2 + barGap / 2, y: yFor(row.expenses) };
+  });
+  const pathFromPoints = (points: { x: number; y: number }[]) => points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
+  const ticks = Array.from({ length: chartMax / 500 + 1 }, (_, index) => index * 500);
+
+  return (
+    <section className="rounded border border-slate-200 bg-slate-50/70 p-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="text-sm font-bold text-ink">Mouvement des transactions par jour</h3>
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs font-semibold text-slate-600">
+            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-mint" /> Paiements</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-red-600" /> Dépenses</span>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 overflow-hidden rounded border border-slate-200 bg-white text-xs font-semibold text-slate-600">
+          {(Object.keys(transactionPeriodLabels) as TransactionPeriod[]).map((item) => (
+            <button
+              key={item}
+              type="button"
+              onClick={() => onPeriodChange(item)}
+              className={`px-2 py-2 transition ${period === item ? "bg-ink text-white" : "hover:bg-slate-50"}`}
+            >
+              {transactionPeriodLabels[item]}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="mt-3 overflow-x-auto pb-1">
+        <svg className="min-w-full" style={{ minWidth: chartWidth }} viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label="Mouvement des paiements et dépenses par jour">
+          <rect x="0" y="0" width={chartWidth} height={chartHeight} rx="10" fill="white" />
+          {ticks.map((tick) => {
+            const y = yFor(tick);
+            return (
+              <g key={tick}>
+                <line x1={margin.left} x2={chartWidth - margin.right} y1={y} y2={y} stroke="#e2e8f0" strokeWidth="1" />
+                <text x={margin.left - 10} y={y + 4} textAnchor="end" className="fill-slate-500 text-[11px] font-semibold">
+                  {formatAxisAmount(tick)}
+                </text>
+              </g>
+            );
+          })}
+          <line x1={margin.left} x2={margin.left} y1={margin.top} y2={baseline} stroke="#cbd5e1" strokeWidth="1" />
+          <line x1={margin.left} x2={chartWidth - margin.right} y1={baseline} y2={baseline} stroke="#cbd5e1" strokeWidth="1" />
+          {rows.map((row, index) => {
+            const centerX = margin.left + groupWidth * index + groupWidth / 2;
+            const paymentX = centerX - barWidth - barGap / 2;
+            const expenseX = centerX + barGap / 2;
+            const paymentY = yFor(row.payments);
+            const expenseY = yFor(row.expenses);
+            const paymentHeight = Math.max(0, baseline - paymentY);
+            const expenseHeight = Math.max(0, baseline - expenseY);
+            return (
+              <g key={row.date}>
+                <title>{`${formatChartTooltipDate(row.date)}\nPaiements : ${money(row.payments)}\nDépenses : ${money(row.expenses)}\nTotal : ${money(row.payments + row.expenses)}`}</title>
+                <rect x={paymentX} y={paymentY} width={barWidth} height={paymentHeight} rx="5" fill="#2a9d8f" opacity="0">
+                  <animate attributeName="opacity" values="0;1" dur="0.45s" begin={`${index * 0.04}s`} fill="freeze" />
+                </rect>
+                <rect x={expenseX} y={expenseY} width={barWidth} height={expenseHeight} rx="5" fill="#dc2626" opacity="0">
+                  <animate attributeName="opacity" values="0;1" dur="0.45s" begin={`${index * 0.04 + 0.04}s`} fill="freeze" />
+                </rect>
+                <text x={centerX} y={chartHeight - 13} textAnchor="middle" className="fill-slate-600 text-[11px] font-semibold">
+                  {row.label}
+                </text>
+              </g>
+            );
+          })}
+          <path d={pathFromPoints(paymentPoints)} fill="none" stroke="#2a9d8f" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" opacity="0">
+            <animate attributeName="opacity" values="0;1" dur="0.35s" begin="0.2s" fill="freeze" />
+          </path>
+          <path d={pathFromPoints(expensePoints)} fill="none" stroke="#dc2626" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" opacity="0">
+            <animate attributeName="opacity" values="0;1" dur="0.35s" begin="0.25s" fill="freeze" />
+          </path>
+          {paymentPoints.map((point, index) => (
+            <circle key={`payment-${rows[index].date}`} cx={point.x} cy={point.y} r="4.5" fill="white" stroke="#2a9d8f" strokeWidth="3">
+              <title>{`${formatChartTooltipDate(rows[index].date)}\nPaiements : ${money(rows[index].payments)}`}</title>
+            </circle>
+          ))}
+          {expensePoints.map((point, index) => (
+            <circle key={`expense-${rows[index].date}`} cx={point.x} cy={point.y} r="4.5" fill="white" stroke="#dc2626" strokeWidth="3">
+              <title>{`${formatChartTooltipDate(rows[index].date)}\nDépenses : ${money(rows[index].expenses)}`}</title>
+            </circle>
+          ))}
+        </svg>
+      </div>
+    </section>
+  );
+}
+
 function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>; school: School; year: SchoolYear }) {
   const today = new Date().toISOString().slice(0, 10);
   const [sectionFilter, setSectionFilter] = useState<"all" | "maternelle" | "primaire" | "secondaire">("all");
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
+  const [transactionPeriod, setTransactionPeriod] = useState<TransactionPeriod>("last5");
   const activeStudents = data.students.filter((student) => (student.status ?? "ACTIVE") === "ACTIVE");
   const filteredStudents = activeStudents.filter((student) => sectionFilter === "all" || getClassSection(student.className) === sectionFilter);
   const filteredStudentIds = new Set(filteredStudents.map((student) => student.id));
@@ -1023,6 +1192,25 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
   const remaining = Math.max(stats.expected - totalPayments, 0);
   const recoveryRate = stats.expected > 0 ? Math.round((totalPayments / stats.expected) * 100) : 0;
   const recoveryTone = recoveryRate >= 80 ? "text-mint bg-mint/10" : recoveryRate >= 50 ? "text-amber-700 bg-amber-100" : "text-red-700 bg-red-50";
+  const feeProgressRows = Array.from(
+    data.feeTypes.reduce<Map<string, { name: string; expected: number; paid: number }>>((items, fee) => {
+      const key = fee.name.trim().toLowerCase();
+      const applicableStudentIds = new Set(activeStudents.filter((student) => !fee.className || fee.className === student.className).map((student) => student.id));
+      const expected = applicableStudentIds.size * fee.amount;
+      const paid = data.payments
+        .filter((payment) => payment.feeTypeId === fee.id && applicableStudentIds.has(payment.studentId) && inDateRange(payment.paidAt))
+        .reduce((sum, payment) => sum + payment.amount, 0);
+      const current = items.get(key) ?? { name: fee.name, expected: 0, paid: 0 };
+      items.set(key, { ...current, expected: current.expected + expected, paid: current.paid + paid });
+      return items;
+    }, new Map()).values(),
+  )
+    .map((row) => {
+      const remaining = Math.max(row.expected - row.paid, 0);
+      const rate = row.expected > 0 ? Math.round((row.paid / row.expected) * 100) : 0;
+      return { ...row, remaining, rate };
+    })
+    .filter((row) => row.expected > 0);
   const admins = data.users.filter((item) => item.role === "school_admin").length;
   const cashiers = data.users.filter((item) => item.role === "cashier").length;
   const classRows = CLASSES.map((className) => {
@@ -1041,17 +1229,16 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
     ...filteredPayments.map((payment) => ({ id: payment.id, type: "Paiement", label: payment.cashierName, amount: payment.amount, date: payment.paidAt })),
     ...filteredExpenses.map((expense) => ({ id: expense.id, type: "D\u00e9pense", label: expense.category, amount: -expense.amount, date: expense.spentAt })),
   ].sort((a, b) => b.date.localeCompare(a.date));
-  const transactionsByDay = transactions.reduce<{ date: string; income: number; outcome: number }[]>((items, transaction) => {
-    const date = transaction.date.slice(0, 10);
-    const existing = items.find((item) => item.date === date);
-    if (existing) {
-      if (transaction.amount >= 0) existing.income += transaction.amount;
-      else existing.outcome += Math.abs(transaction.amount);
-      return items;
-    }
-    return [...items, { date, income: transaction.amount >= 0 ? transaction.amount : 0, outcome: transaction.amount < 0 ? Math.abs(transaction.amount) : 0 }];
-  }, []).sort((a, b) => a.date.localeCompare(b.date));
-  const maxDailyAmount = Math.max(1, ...transactionsByDay.map((item) => Math.max(item.income, item.outcome)));
+  const chartDates = getTransactionPeriodDates(transactionPeriod);
+  const transactionChartRows = chartDates.map((date) => {
+    const payments = data.payments
+      .filter((payment) => filteredStudentIds.has(payment.studentId) && payment.paidAt.slice(0, 10) === date)
+      .reduce((sum, payment) => sum + payment.amount, 0);
+    const expenses = sectionFilter === "all"
+      ? data.expenses.filter((expense) => expense.spentAt.slice(0, 10) === date).reduce((sum, expense) => sum + expense.amount, 0)
+      : 0;
+    return { date, label: formatChartDate(date), payments, expenses };
+  });
   const sectionLabel = sectionFilter === "all" ? "Toutes les sections" : sectionFilter.charAt(0).toUpperCase() + sectionFilter.slice(1);
   const dateLabel = (startDate || "D\u00e9but") + " au " + (endDate || "Fin");
   const cards = [
@@ -1064,6 +1251,13 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
     { label: "Montant restant \u00e0 payer", value: "$" + remaining.toFixed(2), icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
     { label: "Nombre de classes", value: stats.classes, icon: BookOpen, tone: "bg-indigo-100 text-indigo-700" },
   ];
+
+  function progressBarTone(rate: number) {
+    if (rate >= 100) return "bg-emerald-700";
+    if (rate >= 80) return "bg-emerald-400";
+    if (rate >= 50) return "bg-orange-400";
+    return "bg-red-500";
+  }
 
   function exportDashboardPdf() {
     exportDashboardReportPdf({
@@ -1130,13 +1324,35 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
           <span className={"rounded px-3 py-2 text-sm font-bold " + recoveryTone}>{recoveryRate}{"% recouvr\u00e9"}</span>
         </div>
         <div className="mt-4 h-3 overflow-hidden rounded bg-slate-100">
-          <div className="h-full rounded bg-mint" style={{ width: Math.min(100, recoveryRate) + "%" }} />
+          <div className={`h-full rounded ${progressBarTone(recoveryRate)}`} style={{ width: Math.min(100, recoveryRate) + "%" }} />
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-4">
           <Metric label={"Encaiss\u00e9"} value={"$" + totalPayments.toFixed(2)} />
           <Metric label={"D\u00e9penses"} value={"$" + totalExpenses.toFixed(2)} />
           <Metric label="Attendu" value={"$" + stats.expected.toFixed(2)} />
           <Metric label="Reste" value={"$" + remaining.toFixed(2)} />
+        </div>
+        <div className="mt-5 grid gap-3">
+          {feeProgressRows.map((row) => (
+            <div key={row.name} className="rounded border border-slate-100 bg-slate-50 p-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <p className="break-words text-sm font-bold text-ink">{row.name}</p>
+                  <p className="break-words text-xs text-slate-500">Toutes les classes confondues</p>
+                </div>
+                <span className="shrink-0 rounded bg-white px-2.5 py-1 text-xs font-bold text-mint">{row.rate}%</span>
+              </div>
+              <div className="mt-3 h-2.5 overflow-hidden rounded bg-white">
+                <div className={`h-full rounded ${progressBarTone(row.rate)}`} style={{ width: Math.min(100, row.rate) + "%" }} />
+              </div>
+              <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
+                <span className="rounded bg-white px-2 py-1 text-slate-600">Attendu : <strong className="text-ink">${row.expected.toFixed(2)}</strong></span>
+                <span className="rounded bg-white px-2 py-1 text-slate-600">Payé : <strong className="text-ink">${row.paid.toFixed(2)}</strong></span>
+                <span className="rounded bg-white px-2 py-1 text-slate-600">Solde : <strong className="text-ink">${row.remaining.toFixed(2)}</strong></span>
+              </div>
+            </div>
+          ))}
+          {feeProgressRows.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun frais applicable pour les filtres sélectionnés.</p>}
         </div>
       </div>
 
@@ -1156,23 +1372,7 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
           {transactions.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">{"Aucune transaction pour cette p\u00e9riode."}</p>}
         </div>
         <div className="mt-4 border-t border-slate-100 pt-4">
-          <h3 className="mb-3 text-sm font-bold text-ink">Mouvement des transactions par jour</h3>
-          <div className="grid min-w-0 gap-3">
-            {transactionsByDay.map((item) => (
-              <div key={item.date} className="grid min-w-0 gap-2 sm:grid-cols-[110px_minmax(0,1fr)] sm:items-center">
-                <span className="text-xs font-semibold text-slate-500">{item.date}</span>
-                <div className="grid min-w-0 gap-1">
-                  <div className="h-2 rounded bg-slate-100">
-                    <div className="h-full rounded bg-mint" style={{ width: (item.income / maxDailyAmount) * 100 + "%" }} />
-                  </div>
-                  <div className="h-2 rounded bg-slate-100">
-                    <div className="h-full rounded bg-red-400" style={{ width: (item.outcome / maxDailyAmount) * 100 + "%" }} />
-                  </div>
-                </div>
-              </div>
-            ))}
-            {transactionsByDay.length === 0 && <p className="text-sm text-slate-500">{"Aucun mouvement \u00e0 afficher."}</p>}
-          </div>
+          <TransactionComboChart rows={transactionChartRows} period={transactionPeriod} onPeriodChange={setTransactionPeriod} />
         </div>
       </FormPanel>
 
