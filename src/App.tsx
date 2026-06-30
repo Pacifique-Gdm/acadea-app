@@ -811,7 +811,7 @@ function BottomNavigation({ user, activeTab, onTab }: { user: AppUser; activeTab
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 max-w-full overflow-hidden border-t border-slate-200 bg-white/95 px-1 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur sm:px-2">
-      <div className="mx-auto grid max-w-3xl grid-cols-5 gap-1">
+      <div className={user.role === "cashier" ? "mx-auto grid w-full max-w-md grid-cols-4 gap-1" : "mx-auto grid max-w-3xl grid-cols-5 gap-1"}>
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;
@@ -2378,7 +2378,7 @@ function ParentBottomNavigation({ activeTab, onTab }: { activeTab: ParentTab; on
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 max-w-full overflow-hidden border-t border-slate-200 bg-white/95 px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur">
-      <div className="mx-auto grid max-w-md grid-cols-3 gap-1">
+      <div className="mx-auto grid w-full max-w-sm grid-cols-3 gap-1">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;
@@ -3101,7 +3101,8 @@ function ControlModule({
   year: SchoolYear;
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
 }) {
-  const [studentId, setStudentId] = useState(yearData.students[0]?.id ?? "");
+  const [studentId, setStudentId] = useState("");
+  const [paymentStudentQuery, setPaymentStudentQuery] = useState("");
   const [feeTypeId, setFeeTypeId] = useState(yearData.feeTypes[0]?.id ?? "");
   const [amount, setAmount] = useState("100");
   const [expenseAmount, setExpenseAmount] = useState("");
@@ -3122,9 +3123,13 @@ function ControlModule({
     : { expected: 0, paid: 0, remaining: 0 };
   const isSelectedPaymentComplete = selectedPaymentBalance.expected > 0 && selectedPaymentBalance.paid === selectedPaymentBalance.expected;
   const isPaymentEntryDisabled = selectedPaymentBalance.expected <= 0 || isSelectedPaymentComplete;
-  const payableFeeTypes = yearData.feeTypes.filter((fee) => !fee.className || !selectedPaymentStudent || fee.className === selectedPaymentStudent.className);
+  const payableFeeTypes = selectedPaymentStudent ? yearData.feeTypes.filter((fee) => !fee.className || fee.className === selectedPaymentStudent.className) : [];
   const selectedFeeTypeValue = payableFeeTypes.some((fee) => fee.id === feeTypeId) ? feeTypeId : payableFeeTypes[0]?.id ?? "";
   const selectedHistoryStudent = yearData.students.find((student) => student.id === selectedHistoryStudentId);
+  const paymentStudentSearch = paymentStudentQuery.trim().toLowerCase();
+  const paymentStudentResults = paymentStudentSearch
+    ? yearData.students.filter((student) => `${student.nom} ${student.postnom} ${student.prenom} ${student.matricule}`.toLowerCase().includes(paymentStudentSearch)).slice(0, 8)
+    : [];
 
   const rows = yearData.students
     .map((student) => ({ student, balance: getStudentBalance(student.id, yearData.feeTypes, yearData.payments, yearData.students) }))
@@ -3186,6 +3191,16 @@ function ControlModule({
 
   function isStudentPaymentComplete(balance: { expected: number; paid: number }) {
     return balance.expected > 0 && balance.paid === balance.expected;
+  }
+
+  function selectPaymentStudent(student: Student) {
+    setStudentId(student.id);
+    setPaymentStudentQuery(`${student.nom} ${student.postnom} ${student.prenom} | ${student.matricule}`.replace(/\s+/g, " ").trim());
+  }
+
+  function updatePaymentStudentQuery(value: string) {
+    setPaymentStudentQuery(value);
+    setStudentId("");
   }
 
   function savePayment() {
@@ -3544,11 +3559,45 @@ function ControlModule({
         <AdminDrawer title={cashierDrawerTitle} onClose={() => setCashierControlDrawer(null)} closeLabel={`Fermer ${cashierDrawerTitle}`}>
           {cashierControlDrawer === "payment" && (
             <>
-              <select value={studentId} onChange={(event) => setStudentId(event.target.value)} className="input">
-                {yearData.students.map((student) => (
-                  <option key={student.id} value={student.id}>{student.nom} {student.prenom}</option>
-                ))}
-              </select>
+              <div className="grid min-w-0 gap-2">
+                <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
+                  <Search className="h-4 w-4 shrink-0 text-slate-400" />
+                  <input
+                    value={paymentStudentQuery}
+                    onChange={(event) => updatePaymentStudentQuery(event.target.value)}
+                    className="min-w-0 flex-1 outline-none"
+                    placeholder="Rechercher par nom, postnom, prénom ou matricule"
+                  />
+                </label>
+                {paymentStudentQuery.trim() === "" && (
+                  <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Saisissez un nom ou un matricule pour afficher les élèves.</p>
+                )}
+                {paymentStudentQuery.trim() !== "" && paymentStudentResults.length === 0 && (
+                  <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun élève trouvé.</p>
+                )}
+                {!selectedPaymentStudent && paymentStudentResults.length > 0 && (
+                  <div className="max-h-64 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+                    {paymentStudentResults.map((student) => (
+                      <button
+                        key={student.id}
+                        onClick={() => selectPaymentStudent(student)}
+                        className={`w-full rounded border p-3 text-left text-sm transition ${
+                          student.id === studentId ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50 hover:border-slate-200"
+                        }`}
+                        type="button"
+                      >
+                        <p className="break-words font-semibold text-ink">{student.nom} {student.postnom} {student.prenom}</p>
+                        <p className="text-xs text-slate-500">{student.matricule} | {student.className}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {selectedPaymentStudent && (
+                  <p className="rounded bg-mint/10 p-3 text-sm font-semibold text-mint">
+                    Élève sélectionné : {selectedPaymentStudent.nom} {selectedPaymentStudent.postnom} {selectedPaymentStudent.prenom}
+                  </p>
+                )}
+              </div>
               <div className="grid grid-cols-3 gap-2 text-sm">
                 <Metric label="Attendu" value={`$${selectedPaymentBalance.expected}`} />
                 <Metric label="Payé" value={`$${selectedPaymentBalance.paid}`} />
