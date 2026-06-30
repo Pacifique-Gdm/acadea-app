@@ -836,7 +836,9 @@ function BottomNavigation({ user, activeTab, onTab }: { user: AppUser; activeTab
 }
 
 type TransactionPeriod = "today" | "last5" | "week";
-type TransactionChartRow = { date: string; label: string; payments: number; expenses: number };
+type TransactionChartItem = { id: string; type: string; label: string; amount: number; date: string };
+type TransactionChartRow = { date: string; label: string; payments: number; expenses: number; transactions: TransactionChartItem[] };
+const transactionAxisStep = 1500;
 
 const transactionPeriodLabels: Record<TransactionPeriod, string> = {
   today: "Aujourd'hui",
@@ -878,14 +880,12 @@ function formatChartTooltipDate(dateKey: string) {
 }
 
 function formatAxisAmount(value: number) {
-  if (value >= 1000000) return `${(value / 1000000).toFixed(value % 1000000 === 0 ? 0 : 1)}M`;
-  if (value >= 1000) return `${(value / 1000).toFixed(value % 1000 === 0 ? 0 : 1)}k`;
-  return value.toString();
+  return new Intl.NumberFormat("fr-FR").format(value);
 }
 
 function getChartMaxAmount(rows: TransactionChartRow[]) {
   const maxAmount = Math.max(1, ...rows.map((row) => Math.max(row.payments, row.expenses)));
-  return Math.max(500, Math.ceil(maxAmount / 500) * 500);
+  return Math.max(transactionAxisStep, Math.ceil(maxAmount / transactionAxisStep) * transactionAxisStep);
 }
 
 function TransactionComboChart({
@@ -897,6 +897,7 @@ function TransactionComboChart({
   period: TransactionPeriod;
   onPeriodChange: (period: TransactionPeriod) => void;
 }) {
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const chartWidth = Math.max(560, rows.length * 96);
   const chartHeight = 180;
   const margin = { top: 16, right: 24, bottom: 34, left: 54 };
@@ -917,7 +918,8 @@ function TransactionComboChart({
     return { x: centerX + barWidth / 2 + barGap / 2, y: yFor(row.expenses) };
   });
   const pathFromPoints = (points: { x: number; y: number }[]) => points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
-  const ticks = Array.from({ length: chartMax / 500 + 1 }, (_, index) => index * 500);
+  const ticks = Array.from({ length: chartMax / transactionAxisStep + 1 }, (_, index) => index * transactionAxisStep);
+  const selectedRow = selectedDate ? rows.find((row) => row.date === selectedDate) : null;
 
   return (
     <section className="rounded border border-slate-200 bg-slate-50/70 p-3">
@@ -934,7 +936,10 @@ function TransactionComboChart({
             <button
               key={item}
               type="button"
-              onClick={() => onPeriodChange(item)}
+              onClick={() => {
+                setSelectedDate(null);
+                onPeriodChange(item);
+              }}
               className={`px-2 py-2 transition ${period === item ? "bg-ink text-white" : "hover:bg-slate-50"}`}
             >
               {transactionPeriodLabels[item]}
@@ -967,7 +972,20 @@ function TransactionComboChart({
             const paymentHeight = Math.max(0, baseline - paymentY);
             const expenseHeight = Math.max(0, baseline - expenseY);
             return (
-              <g key={row.date}>
+              <g
+                key={row.date}
+                role="button"
+                tabIndex={0}
+                className="cursor-pointer outline-none"
+                onClick={() => setSelectedDate(row.date)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setSelectedDate(row.date);
+                  }
+                }}
+                aria-label={`Afficher les transactions du ${formatChartTooltipDate(row.date)}`}
+              >
                 <title>{`${formatChartTooltipDate(row.date)}\nPaiements : ${money(row.payments)}\nDépenses : ${money(row.expenses)}\nTotal : ${money(row.payments + row.expenses)}`}</title>
                 <rect x={paymentX} y={paymentY} width={barWidth} height={paymentHeight} rx="5" fill="#2a9d8f" opacity="0">
                   <animate attributeName="opacity" values="0;1" dur="0.45s" begin={`${index * 0.04}s`} fill="freeze" />
@@ -999,6 +1017,34 @@ function TransactionComboChart({
           ))}
         </svg>
       </div>
+      {selectedRow && (
+        <div className="mt-3 rounded border border-slate-200 bg-white p-3 text-sm">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="font-bold text-ink">{formatChartTooltipDate(selectedRow.date)}</p>
+              <p className="text-xs text-slate-500">{selectedRow.transactions.length} transaction(s)</p>
+            </div>
+            <div className="grid gap-1 text-xs font-semibold text-slate-600 sm:text-right">
+              <span>Encaissé : <strong className="text-mint">{money(selectedRow.payments)}</strong></span>
+              <span>Dépenses : <strong className="text-red-600">{money(selectedRow.expenses)}</strong></span>
+            </div>
+          </div>
+          <div className="mt-3 grid gap-2">
+            {selectedRow.transactions.map((transaction) => (
+              <div key={transaction.id} className="flex min-w-0 items-center justify-between gap-3 rounded bg-slate-50 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="font-semibold text-ink">{transaction.type}</p>
+                  <p className="break-words text-xs text-slate-500">{transaction.label}</p>
+                </div>
+                <span className={transaction.amount >= 0 ? "shrink-0 font-bold text-mint" : "shrink-0 font-bold text-red-600"}>
+                  {(transaction.amount >= 0 ? "+" : "-") + "$" + Math.abs(transaction.amount).toFixed(2)}
+                </span>
+              </div>
+            ))}
+            {selectedRow.transactions.length === 0 && <p className="rounded bg-slate-50 p-3 text-xs text-slate-500">Aucune transaction pour cette journée.</p>}
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -1237,7 +1283,13 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
     const expenses = sectionFilter === "all"
       ? data.expenses.filter((expense) => expense.spentAt.slice(0, 10) === date).reduce((sum, expense) => sum + expense.amount, 0)
       : 0;
-    return { date, label: formatChartDate(date), payments, expenses };
+    return {
+      date,
+      label: formatChartDate(date),
+      payments,
+      expenses,
+      transactions: transactions.filter((transaction) => transaction.date.slice(0, 10) === date),
+    };
   });
   const sectionLabel = sectionFilter === "all" ? "Toutes les sections" : sectionFilter.charAt(0).toUpperCase() + sectionFilter.slice(1);
   const dateLabel = (startDate || "D\u00e9but") + " au " + (endDate || "Fin");
