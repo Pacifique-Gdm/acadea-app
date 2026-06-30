@@ -2204,7 +2204,7 @@ function ParentPortal({
         </section>
 
         {activeParentTab === "menu" && (
-          <section className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <section className="grid min-w-0 gap-4">
             <FormPanel title="Compte parent">
               <div className="grid gap-3 sm:grid-cols-2">
                 <Metric label="Parent" value={parent?.fullName ?? user.name} />
@@ -2216,11 +2216,11 @@ function ParentPortal({
               </div>
             </FormPanel>
 
-            <FormPanel title="Actions">
+            <div className="mt-2 border-t border-slate-200 pt-4">
               <button onClick={onLogout} className="inline-flex w-full items-center justify-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 transition hover:bg-red-100" type="button">
                 <LogOut className="h-4 w-4" /> Déconnexion
               </button>
-            </FormPanel>
+            </div>
           </section>
         )}
       </main>
@@ -3723,7 +3723,7 @@ function MenuModule({
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
   onLogout: () => void;
 }) {
-  type MenuSection = "school" | "years" | "accounts" | "fees" | "financial" | "session";
+  type MenuSection = "school" | "years" | "accounts" | "fees" | "financial";
   const [schoolForm, setSchoolForm] = useState(school);
   const [cashierName, setCashierName] = useState("");
   const [cashierPhone, setCashierPhone] = useState("");
@@ -3744,7 +3744,6 @@ function MenuModule({
     { id: "accounts", title: "Créer un caissier", description: "Compte de connexion caissier lié à l'école.", icon: ShieldCheck },
     { id: "fees", title: "Types de frais", description: "Montants et catégories de frais scolaires.", icon: Banknote },
     { id: "financial", title: "Rapport financier", description: "Synthèse et exports des rapports financiers.", icon: BarChart3 },
-    { id: "session", title: "Déconnexion", description: "Quitter la session en cours en toute sécurité.", icon: LogOut },
   ] satisfies { id: MenuSection; title: string; description: string; icon: typeof Settings }[];
   const feeKindChoices = Array.from(new Set([...FEE_KINDS, ...yearData.feeTypes.map((fee) => fee.name)]));
 
@@ -3993,21 +3992,11 @@ function MenuModule({
       );
     }
 
-    if (sectionId === "session") {
-      return (
-        <div className="grid min-w-0 gap-3">
-          <p className="rounded bg-slate-50 p-3 text-sm font-semibold text-slate-600">Vous pouvez quitter Acadéa et revenir à l'écran de connexion.</p>
-          <button onClick={onLogout} className="inline-flex w-full items-center justify-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 transition hover:bg-red-100" type="button">
-            <LogOut className="h-4 w-4" /> Déconnexion
-          </button>
-        </div>
-      );
-    }
 
     return null;
   }
 
-  const visibleMenuSections = canAdmin ? menuSections : menuSections.filter((section) => section.id === "session");
+  const visibleMenuSections = canAdmin ? menuSections : [];
   const activeMenuSectionConfig = visibleMenuSections.find((section) => section.id === activeMenuSection);
 
   return (
@@ -4041,6 +4030,11 @@ function MenuModule({
           {renderMenuSectionForm(activeMenuSection)}
         </AdminDrawer>
       )}
+      <div className="mt-2 border-t border-slate-200 pt-4">
+        <button onClick={onLogout} className="inline-flex w-full items-center justify-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 transition hover:bg-red-100" type="button">
+          <LogOut className="h-4 w-4" /> Déconnexion
+        </button>
+      </div>
     </section>
   );
 }
