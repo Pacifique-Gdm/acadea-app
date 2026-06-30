@@ -2927,6 +2927,7 @@ function ControlModule({
   const [amountThreshold, setAmountThreshold] = useState("");
   const [paymentError, setPaymentError] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [cashierControlDrawer, setCashierControlDrawer] = useState<"payment" | "expense" | "history" | null>(null);
   const [historyQuery, setHistoryQuery] = useState("");
   const [selectedHistoryStudentId, setSelectedHistoryStudentId] = useState("");
   const canPay = user.role === "cashier";
@@ -2980,6 +2981,12 @@ function ControlModule({
       remaining: Math.max(selectedHistoryBalance.expected - selectedHistoryRunningPaid, 0),
     };
   });
+  const cashierDrawerTitle =
+    cashierControlDrawer === "payment"
+      ? "Enregistrer un paiement"
+      : cashierControlDrawer === "expense"
+        ? "Enregistrer une dépense"
+        : "Historique des paiements";
 
   function studentFullName(student: Student) {
     return `${student.nom} ${student.postnom} ${student.prenom}`.replace(/\s+/g, " ").trim();
@@ -3298,7 +3305,17 @@ function ControlModule({
           <button onClick={printFilteredStudents} className="secondary-button">
             <Download className="h-4 w-4" /> Imprimer
           </button>
-          <button onClick={() => setHistoryOpen(true)} className="secondary-button">
+          {canPay && user.role === "cashier" && (
+            <>
+              <button onClick={() => setCashierControlDrawer("payment")} className="secondary-button" type="button">
+                Enregistrer un paiement
+              </button>
+              <button onClick={() => setCashierControlDrawer("expense")} className="secondary-button" type="button">
+                Enregistrer une dépense
+              </button>
+            </>
+          )}
+          <button onClick={() => (user.role === "cashier" ? setCashierControlDrawer("history") : setHistoryOpen(true))} className="secondary-button" type="button">
             Historique des paiements
           </button>
         </div>
@@ -3329,6 +3346,7 @@ function ControlModule({
           ))}
         </div>
       </div>
+      {user.role !== "cashier" && (
       <div className="min-w-0 space-y-4">
         {canPay && (
           <FormPanel title="Enregistrer un paiement">
@@ -3367,6 +3385,80 @@ function ControlModule({
           </FormPanel>
         )}
       </div>
+      )}
+      {user.role === "cashier" && cashierControlDrawer && (
+        <AdminDrawer title={cashierDrawerTitle} onClose={() => setCashierControlDrawer(null)} closeLabel={`Fermer ${cashierDrawerTitle}`}>
+          {cashierControlDrawer === "payment" && (
+            <>
+              <select value={studentId} onChange={(event) => setStudentId(event.target.value)} className="input">
+                {yearData.students.map((student) => (
+                  <option key={student.id} value={student.id}>{student.nom} {student.prenom}</option>
+                ))}
+              </select>
+              <div className="grid grid-cols-3 gap-2 text-sm">
+                <Metric label="Attendu" value={`$${selectedPaymentBalance.expected}`} />
+                <Metric label="Payé" value={`$${selectedPaymentBalance.paid}`} />
+                <Metric label="Solde" value={`$${selectedPaymentBalance.remaining}`} />
+              </div>
+              {paymentError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{paymentError}</p>}
+              <select value={selectedFeeTypeValue} onChange={(event) => setFeeTypeId(event.target.value)} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60">
+                {payableFeeTypes.map((fee) => (
+                  <option key={fee.id} value={fee.id}>{fee.name} - ${fee.amount}</option>
+                ))}
+              </select>
+              <input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" min="0" max={selectedPaymentBalance.remaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" placeholder="Montant" />
+              <button onClick={savePayment} disabled={isPaymentEntryDisabled} className="primary-button disabled:opacity-50" type="button"><Plus className="h-4 w-4" /> Enregistrer</button>
+            </>
+          )}
+          {cashierControlDrawer === "expense" && (
+            <>
+              <select value={expenseCategory} onChange={(event) => setExpenseCategory(event.target.value)} className="input">
+                <option>Fournitures</option>
+                <option>Transport</option>
+                <option>Salaire</option>
+                <option>Maintenance</option>
+                <option>Autres</option>
+              </select>
+              <input value={expenseAmount} onChange={(event) => setExpenseAmount(event.target.value)} type="number" min="0" className="input" placeholder="Montant" />
+              <textarea value={expenseDescription} onChange={(event) => setExpenseDescription(event.target.value)} className="input min-h-24" placeholder="Description" />
+              <button onClick={saveExpense} className="primary-button" type="button"><Plus className="h-4 w-4" /> Enregistrer</button>
+            </>
+          )}
+          {cashierControlDrawer === "history" && (
+            <>
+              <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
+                <Search className="h-4 w-4 shrink-0 text-slate-400" />
+                <input
+                  value={historyQuery}
+                  onChange={(event) => setHistoryQuery(event.target.value)}
+                  className="min-w-0 flex-1 outline-none"
+                  placeholder="Rechercher par nom ou matricule"
+                />
+              </label>
+              <div className="space-y-2">
+                {filteredHistoryPayments.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun paiement trouvé</p>}
+                {filteredHistoryPayments.map(({ payment, student, fee }) => {
+                  return (
+                    <div key={payment.id} className="rounded border border-slate-100 p-3 text-sm">
+                      <div className="flex min-w-0 items-center justify-between gap-2">
+                        <p className="min-w-0 break-words font-semibold text-ink">{student.nom} {student.prenom}</p>
+                        <div className="flex shrink-0 gap-1">
+                          <button onClick={() => generateReceiptPdf(payment, student, fee, school)} className="rounded bg-slate-100 p-2" title="Voir le reçu PDF" type="button">
+                            <Download className="h-4 w-4" />
+                          </button>
+                          {canCorrectPayments && <button onClick={() => correctPayment(payment)} className="rounded bg-slate-100 p-2" title="Corriger" type="button"><Edit3 className="h-4 w-4" /></button>}
+                          {canCorrectPayments && <button onClick={() => deletePayment(payment)} className="rounded bg-red-50 p-2 text-red-700" title="Supprimer" type="button"><Trash2 className="h-4 w-4" /></button>}
+                        </div>
+                      </div>
+                      <p className="break-words text-slate-500">{fee.name} | ${payment.amount} | {payment.paidAt}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </AdminDrawer>
+      )}
       {historyOpen && (
         <AdminDrawer title="Historique des paiements" onClose={() => setHistoryOpen(false)} closeLabel="Fermer l'historique">
             <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
