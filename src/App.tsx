@@ -4996,6 +4996,7 @@ function AdminDrawer({
 }) {
   const drawerRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const onCloseRef = useRef(onClose);
   const notificationPanelStyle = notificationPanel
     ? {
         height: "calc(100vh - 72px - 5.75rem - env(safe-area-inset-bottom) - 1.5rem)",
@@ -5003,6 +5004,10 @@ function AdminDrawer({
         marginBottom: "calc(5.75rem + env(safe-area-inset-bottom))",
       }
     : undefined;
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     const previousBodyOverflow = document.body.style.overflow;
@@ -5015,7 +5020,7 @@ function AdminDrawer({
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab") return;
@@ -5041,7 +5046,7 @@ function AdminDrawer({
       document.documentElement.style.overflow = previousHtmlOverflow;
       previousActiveElement?.focus();
     };
-  }, [onClose]);
+  }, []);
 
   return (
     <div className={`fixed inset-0 ${notificationPanel ? "z-[80]" : "z-50"} bg-ink/30 p-3 backdrop-blur-sm`} onMouseDown={onClose} role="presentation">
