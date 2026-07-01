@@ -86,7 +86,7 @@ export function pdfTable<T>(columns: PdfTableColumn<T>[], rows: T[], emptyLabel:
       </colgroup>
       <thead>
         <tr>
-          ${columns.map((column) => `<th class="${column.align ? `align-${column.align}` : ""}">${escapePdfHtml(column.header)}</th>`).join("")}
+          ${columns.map((column) => `<th class="${column.align ? `align-${column.align}` : ""}"><span class="cell-inner">${escapePdfHtml(column.header)}</span></th>`).join("")}
         </tr>
       </thead>
       <tbody>
@@ -97,13 +97,13 @@ export function pdfTable<T>(columns: PdfTableColumn<T>[], rows: T[], emptyLabel:
                   (row) => `
                     <tr>
                       ${columns
-                        .map((column, columnIndex) => `<td class="${column.align ? `align-${column.align}` : ""}">${escapePdfHtml(row[columnIndex])}</td>`)
+                        .map((column, columnIndex) => `<td class="${column.align ? `align-${column.align}` : ""}"><span class="cell-inner">${escapePdfHtml(row[columnIndex])}</span></td>`)
                         .join("")}
                     </tr>
                   `,
                 )
                 .join("")
-            : `<tr><td colspan="${columns.length}" class="empty-cell">${escapePdfHtml(emptyLabel)}</td></tr>`
+            : `<tr><td colspan="${columns.length}" class="empty-cell"><span class="cell-inner">${escapePdfHtml(emptyLabel)}</span></td></tr>`
         }
       </tbody>
       ${options.footerHtml ? `<tfoot>${options.footerHtml}</tfoot>` : ""}
@@ -271,9 +271,9 @@ function pdfStyles() {
       color: #14213d;
       font-family: Arial, "Segoe UI", "Noto Sans", "DejaVu Sans", Helvetica, sans-serif;
       font-size: 11.5px;
-      line-height: 1.44;
+      line-height: 1.48;
       letter-spacing: normal;
-      word-spacing: 0.04em;
+      word-spacing: 0.06em;
       text-rendering: geometricPrecision;
       font-kerning: normal;
       padding: 0;
@@ -284,7 +284,7 @@ function pdfStyles() {
       word-spacing: inherit;
       white-space: normal;
       word-break: normal;
-      overflow-wrap: break-word;
+      overflow-wrap: anywhere;
       hyphens: none;
     }
     .pdf-header {
@@ -318,18 +318,22 @@ function pdfStyles() {
     .school-block h1 {
       margin: 0 0 3px;
       font-size: 18px;
-      line-height: 1.1;
+      line-height: 1.18;
     }
     .school-block p {
       margin: 2px 0;
       color: #e5edf6;
       font-size: 9.5px;
+      line-height: 1.35;
     }
     .document-title {
       margin: 14px 18px 12px;
       padding: 10px 12px;
       border: 1px solid #dbe4ef;
       background: #f8fafc;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
     }
     .document-title p {
       margin: 0 0 2px;
@@ -344,7 +348,7 @@ function pdfStyles() {
       margin: 0;
       color: #14213d;
       font-size: 17px;
-      line-height: 1.2;
+      line-height: 1.28;
     }
     .document-title span,
     .document-title small {
@@ -364,6 +368,7 @@ function pdfStyles() {
       border-bottom: 1px solid #dbe4ef;
       color: #14213d;
       font-size: 12.5px;
+      line-height: 1.35;
     }
     .info-grid {
       display: grid;
@@ -373,15 +378,19 @@ function pdfStyles() {
     }
     .info-box {
       min-height: 36px;
-      padding: 7px 8px;
+      padding: 8px 9px;
       border: 1px solid #dbe4ef;
       background: #ffffff;
       box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
     }
     .info-box span {
       display: block;
       color: #64748b;
       font-size: 8px;
+      line-height: 1.35;
       text-transform: uppercase;
     }
     .info-box strong {
@@ -389,8 +398,8 @@ function pdfStyles() {
       margin-top: 3px;
       color: #14213d;
       font-size: 10.5px;
-      line-height: 1.35;
-      overflow-wrap: break-word;
+      line-height: 1.42;
+      overflow-wrap: anywhere;
     }
     table {
       width: 100%;
@@ -399,7 +408,7 @@ function pdfStyles() {
       table-layout: auto;
       margin-top: 6px;
       font-size: 9.5px;
-      line-height: 1.35;
+      line-height: 1.42;
       page-break-inside: auto;
     }
     thead {
@@ -409,24 +418,40 @@ function pdfStyles() {
       display: table-row-group;
     }
     th {
-      padding: 5px 6px;
+      padding: 6px 7px;
       border: 1px solid #b8c4d4;
       background: #14213d;
       color: #ffffff;
       font-size: 8px;
-      line-height: 1.25;
+      line-height: 1.34;
       text-transform: uppercase;
-      overflow-wrap: break-word;
-      word-spacing: 0.06em;
+      overflow-wrap: anywhere;
+      word-spacing: 0.08em;
+      vertical-align: middle !important;
     }
     td {
-      padding: 5px 6px;
+      padding: 6px 7px;
       border: 1px solid #dbe4ef;
       color: #26364b;
-      vertical-align: top;
-      overflow-wrap: break-word;
+      vertical-align: middle !important;
+      overflow-wrap: anywhere;
       word-break: normal;
-      line-height: 1.38;
+      line-height: 1.45;
+    }
+    .cell-inner {
+      display: flex;
+      min-height: 18px;
+      width: 100%;
+      align-items: center;
+      justify-content: flex-start;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+      word-break: normal;
+      white-space: normal;
+    }
+    th .cell-inner {
+      min-height: 16px;
+      line-height: 1.34;
     }
     tr {
       page-break-inside: avoid;
@@ -439,24 +464,49 @@ function pdfStyles() {
       background: #eef6f4;
       color: #14213d;
       font-weight: 800;
+      text-align: center !important;
+      vertical-align: middle !important;
+      padding-top: 7px;
+      padding-bottom: 7px;
+      line-height: 1.45;
+      word-spacing: 0.08em;
+    }
+    tfoot .cell-inner,
+    tfoot td {
+      align-items: center;
+      justify-content: center;
+      text-align: center !important;
     }
     .align-right {
+      text-align: right;
+    }
+    .align-right .cell-inner {
+      justify-content: flex-end;
       text-align: right;
     }
     .align-center {
       text-align: center;
     }
+    .align-center .cell-inner,
+    .empty-cell .cell-inner {
+      justify-content: center;
+      text-align: center;
+    }
     .empty-cell {
       padding: 14px;
       text-align: center;
+      vertical-align: middle !important;
       color: #64748b;
     }
     .highlight-box {
-      padding: 9px 11px;
+      padding: 10px 12px;
       border: 1px solid #c7d7e5;
       background: #f8fafc;
       color: #14213d;
       font-weight: 700;
+      line-height: 1.45;
+      display: flex;
+      align-items: center;
     }
     .signature-row {
       margin: 22px 18px 0;
