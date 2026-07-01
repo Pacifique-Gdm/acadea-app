@@ -90,6 +90,18 @@ function uid(prefix: string) {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
+function nextSchoolYearDefaults(year: SchoolYear) {
+  const startYear = Number(year.startsAt.slice(0, 4));
+  const fallbackStartYear = new Date().getFullYear();
+  const nextStartYear = Number.isFinite(startYear) ? startYear + 1 : fallbackStartYear;
+  const nextEndYear = nextStartYear + 1;
+  return {
+    name: `${nextStartYear}-${nextEndYear}`,
+    startsAt: `${nextStartYear}-09-01`,
+    endsAt: `${nextEndYear}-07-31`,
+  };
+}
+
 function loadInitialData() {
   return emptyAppData;
 }
@@ -471,13 +483,18 @@ function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: 
       ? data.students.filter((student) => student.parentId === user.parentId && student.schoolId === schoolId && student.schoolYearId === schoolYearId)
       : data.students.filter((student) => student.schoolId === schoolId && student.schoolYearId === schoolYearId);
   const studentIds = students.map((student) => student.id);
+  const parentIds = new Set(students.map((student) => student.parentId).filter(Boolean));
 
   return {
     students,
     parents:
       user.role === "parent"
-        ? data.parents.filter((parent) => parent.id === user.parentId && parent.schoolYearId === schoolYearId)
-        : data.parents.filter((parent) => parent.schoolId === schoolId && parent.schoolYearId === schoolYearId),
+        ? data.parents.filter((parent) => parent.id === user.parentId && parent.schoolId === schoolId)
+        : data.parents.filter(
+            (parent) =>
+              parent.schoolId === schoolId &&
+              (parent.schoolYearId === schoolYearId || parentIds.has(parent.id) || parent.studentIds.some((studentId) => studentIds.includes(studentId))),
+          ),
     users: data.users.filter((item) => item.schoolId === schoolId),
     feeTypes: data.feeTypes.filter((fee) => fee.schoolId === schoolId && fee.schoolYearId === schoolYearId),
     payments: data.payments.filter((payment) => payment.schoolId === schoolId && payment.schoolYearId === schoolYearId && studentIds.includes(payment.studentId)),
@@ -757,6 +774,11 @@ function Header({
             <div className="min-w-0">
               <p className="truncate text-lg font-bold text-ink">{school.name}</p>
               <p className="text-xs text-slate-500">{roleLabels[user.role]}</p>
+              <div className="mt-1 flex max-w-full flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-medium leading-4 text-slate-500">
+                {school.address && <span className="max-w-full truncate">{school.address}</span>}
+                {school.phone && <span className="shrink-0">{school.phone}</span>}
+                {school.email && <span className="max-w-full break-all">{school.email}</span>}
+              </div>
             </div>
           </div>
           <div className="relative flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -821,7 +843,20 @@ function BottomNavigation({ user, activeTab, onTab }: { user: AppUser; activeTab
 }
 
 type TransactionPeriod = "today" | "last5" | "week";
-type TransactionChartItem = { id: string; type: string; label: string; amount: number; date: string };
+type TransactionChartItem = {
+  id: string;
+  kind: "payment" | "expense";
+  type: string;
+  label: string;
+  amount: number;
+  date: string;
+  occurredAt?: string;
+  status?: string;
+  studentName?: string;
+  className?: string;
+  feeName?: string;
+  agentName?: string;
+};
 type TransactionChartRow = { date: string; label: string; payments: number; expenses: number; transactions: TransactionChartItem[] };
 const transactionAxisStep = 1500;
 
@@ -905,6 +940,14 @@ function TransactionComboChart({
   const pathFromPoints = (points: { x: number; y: number }[]) => points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
   const ticks = Array.from({ length: chartMax / transactionAxisStep + 1 }, (_, index) => index * transactionAxisStep);
   const selectedRow = selectedDate ? rows.find((row) => row.date === selectedDate) : null;
+  const selectedTransactions = selectedRow ? [...selectedRow.transactions].sort((a, b) => (b.occurredAt ?? b.date).localeCompare(a.occurredAt ?? a.date)) : [];
+
+  function formatTransactionDateTime(value?: string) {
+    if (!value) return "-";
+    const date = new Date(value.includes("T") ? value : `${value}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
+  }
 
   return (
     <section className="min-w-0 max-w-full rounded border border-slate-200 bg-slate-50/70 p-3">
@@ -1009,30 +1052,55 @@ function TransactionComboChart({
         </svg>
       </div>
       {selectedRow && (
-        <div className="mt-3 rounded border border-slate-200 bg-white p-3 text-sm">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="font-bold text-ink">{formatChartTooltipDate(selectedRow.date)}</p>
-              <p className="text-xs text-slate-500">{selectedRow.transactions.length} transaction(s)</p>
-            </div>
-            <div className="grid gap-1 text-xs font-semibold text-slate-600 sm:text-right">
-              <span>Encaissé : <strong className="text-mint">{money(selectedRow.payments)}</strong></span>
-              <span>Dépenses : <strong className="text-red-600">{money(selectedRow.expenses)}</strong></span>
-            </div>
-          </div>
-          <div className="mt-3 grid gap-2">
-            {selectedRow.transactions.map((transaction) => (
-              <div key={transaction.id} className="flex min-w-0 items-center justify-between gap-3 rounded bg-slate-50 px-3 py-2">
-                <div className="min-w-0">
-                  <p className="font-semibold text-ink">{transaction.type}</p>
-                  <p className="break-words text-xs text-slate-500">{transaction.label}</p>
-                </div>
-                <span className={transaction.amount >= 0 ? "shrink-0 font-bold text-mint" : "shrink-0 font-bold text-red-600"}>
-                  {(transaction.amount >= 0 ? "+" : "-") + "$" + Math.abs(transaction.amount).toFixed(2)}
-                </span>
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/30 px-4 py-6 backdrop-blur-sm" role="dialog" aria-modal="true">
+          <div className="grid max-h-[min(520px,calc(100vh-3rem))] w-full max-w-xl min-w-0 animate-[fadeIn_0.18s_ease-out] grid-rows-[auto_auto_minmax(0,1fr)] rounded border border-slate-200 bg-white p-4 text-sm shadow-2xl">
+            <div className="flex min-w-0 items-start justify-between gap-3 border-b border-slate-100 pb-3">
+              <div className="min-w-0">
+                <p className="break-words font-bold text-ink">{formatChartTooltipDate(selectedRow.date)}</p>
+                <p className="text-xs text-slate-500">{selectedTransactions.length} transaction(s)</p>
               </div>
-            ))}
-            {selectedRow.transactions.length === 0 && <p className="rounded bg-slate-50 p-3 text-xs text-slate-500">Aucune transaction pour cette journée.</p>}
+              <button onClick={() => setSelectedDate(null)} type="button" className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-ink" aria-label="Fermer le détail des transactions">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="my-3 grid gap-2 text-xs font-semibold text-slate-600 sm:grid-cols-2">
+              <span className="rounded bg-mint/10 px-3 py-2">Encaissé : <strong className="text-mint">{money(selectedRow.payments)}</strong></span>
+              <span className="rounded bg-red-50 px-3 py-2">Dépenses : <strong className="text-red-600">{money(selectedRow.expenses)}</strong></span>
+            </div>
+            <div className="min-h-0 max-h-56 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+              {selectedTransactions.length > 0 ? (
+                selectedTransactions.map((transaction) => (
+                  <div key={transaction.id} className="grid min-w-0 gap-2 rounded bg-slate-50 px-3 py-2">
+                    <div className="flex min-w-0 items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className={`font-semibold ${transaction.kind === "payment" ? "text-mint" : "text-red-600"}`}>{transaction.type}</p>
+                        <p className="break-words text-xs text-slate-700">{transaction.label || "Sans libellé"}</p>
+                      </div>
+                      <span className={transaction.kind === "payment" ? "shrink-0 font-bold text-mint" : "shrink-0 font-bold text-red-600"}>
+                        {(transaction.kind === "payment" ? "+" : "-") + "$" + Math.abs(transaction.amount).toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="grid gap-1 text-[11px] font-semibold text-slate-500">
+                      {transaction.kind === "payment" ? (
+                        <>
+                          <span>Élève : {transaction.studentName ?? "Élève non renseigné"}</span>
+                          <span>Classe : {transaction.className ?? "—"} · Frais : {transaction.feeName ?? "—"}</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>Dépense : {transaction.label || "Sans motif"}</span>
+                          <span>Agent : {transaction.agentName ?? "—"}</span>
+                        </>
+                      )}
+                      <span>Date et heure : {formatTransactionDateTime(transaction.occurredAt ?? transaction.date)}</span>
+                      {transaction.status && <span>Statut : {transaction.status}</span>}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="rounded bg-slate-50 p-3 text-xs text-slate-500">Aucune transaction enregistrée pour ce jour.</p>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -1056,18 +1124,26 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
   const filteredPayments = data.payments.filter((payment) => filteredStudentIds.has(payment.studentId) && inDateRange(payment.paidAt));
   const filteredExpenses = data.expenses.filter((expense) => sectionFilter === "all" && inDateRange(expense.spentAt));
   const stats = buildStats(filteredStudents, data.parents, data.feeTypes, filteredPayments);
+  const annualFinancialStudents = activeStudents;
+  const annualFinancialStudentIds = new Set(annualFinancialStudents.map((student) => student.id));
+  const annualFinancialPayments = data.payments.filter((payment) => annualFinancialStudentIds.has(payment.studentId));
+  const annualFinancialStats = buildStats(annualFinancialStudents, data.parents, data.feeTypes, annualFinancialPayments);
+  const annualFinancialPaid = annualFinancialPayments.reduce((sum, payment) => sum + payment.amount, 0);
+  const annualFinancialExpenses = data.expenses.reduce((sum, expense) => sum + expense.amount, 0);
+  const annualFinancialRemaining = Math.max(annualFinancialStats.expected - annualFinancialPaid, 0);
+  const annualFinancialRecoveryRate = annualFinancialStats.expected > 0 ? Math.round((annualFinancialPaid / annualFinancialStats.expected) * 100) : 0;
   const totalPayments = filteredPayments.reduce((sum, payment) => sum + payment.amount, 0);
   const totalExpenses = filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0);
   const remaining = Math.max(stats.expected - totalPayments, 0);
   const recoveryRate = stats.expected > 0 ? Math.round((totalPayments / stats.expected) * 100) : 0;
-  const recoveryTone = recoveryRate >= 80 ? "text-mint bg-mint/10" : recoveryRate >= 50 ? "text-amber-700 bg-amber-100" : "text-red-700 bg-red-50";
+  const recoveryTone = annualFinancialRecoveryRate >= 80 ? "text-mint bg-mint/10" : annualFinancialRecoveryRate >= 50 ? "text-amber-700 bg-amber-100" : "text-red-700 bg-red-50";
   const feeProgressRows = Array.from(
     data.feeTypes.reduce<Map<string, { name: string; expected: number; paid: number }>>((items, fee) => {
       const key = fee.name.trim().toLowerCase();
       const applicableStudentIds = new Set(activeStudents.filter((student) => !fee.className || fee.className === student.className).map((student) => student.id));
       const expected = applicableStudentIds.size * fee.amount;
       const paid = data.payments
-        .filter((payment) => payment.feeTypeId === fee.id && applicableStudentIds.has(payment.studentId) && inDateRange(payment.paidAt))
+        .filter((payment) => payment.feeTypeId === fee.id && applicableStudentIds.has(payment.studentId))
         .reduce((sum, payment) => sum + payment.amount, 0);
       const current = items.get(key) ?? { name: fee.name, expected: 0, paid: 0 };
       items.set(key, { ...current, expected: current.expected + expected, paid: current.paid + paid });
@@ -1094,24 +1170,53 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
   const totalGirls = classRows.reduce((sum, row) => sum + row.girls, 0);
   const totalBoys = classRows.reduce((sum, row) => sum + row.boys, 0);
   const totalStudents = totalGirls + totalBoys;
+  const studentsById = new Map(data.students.map((student) => [student.id, student]));
+  const feeTypesById = new Map(data.feeTypes.map((fee) => [fee.id, fee]));
   const transactions = [
-    ...filteredPayments.map((payment) => ({ id: payment.id, type: "Paiement", label: payment.cashierName, amount: payment.amount, date: payment.paidAt })),
-    ...filteredExpenses.map((expense) => ({ id: expense.id, type: "D\u00e9pense", label: expense.category, amount: -expense.amount, date: expense.spentAt })),
-  ].sort((a, b) => b.date.localeCompare(a.date));
+    ...filteredPayments.map((payment) => ({ id: payment.id, type: "Paiement", label: payment.cashierName, amount: payment.amount, date: payment.paidAt, occurredAt: payment.createdAt ?? payment.paidAt })),
+    ...filteredExpenses.map((expense) => ({ id: expense.id, type: "D\u00e9pense", label: expense.category, amount: -expense.amount, date: expense.spentAt, occurredAt: expense.createdAt ?? expense.spentAt })),
+  ].sort((a, b) => (b.occurredAt ?? b.date).localeCompare(a.occurredAt ?? a.date));
   const chartDates = getTransactionPeriodDates(transactionPeriod);
   const transactionChartRows = chartDates.map((date) => {
-    const payments = data.payments
-      .filter((payment) => filteredStudentIds.has(payment.studentId) && payment.paidAt.slice(0, 10) === date)
-      .reduce((sum, payment) => sum + payment.amount, 0);
-    const expenses = sectionFilter === "all"
-      ? data.expenses.filter((expense) => expense.spentAt.slice(0, 10) === date).reduce((sum, expense) => sum + expense.amount, 0)
-      : 0;
+    const paymentsForDate = data.payments.filter((payment) => filteredStudentIds.has(payment.studentId) && payment.paidAt.slice(0, 10) === date);
+    const expensesForDate = sectionFilter === "all" ? data.expenses.filter((expense) => expense.spentAt.slice(0, 10) === date) : [];
+    const payments = paymentsForDate.reduce((sum, payment) => sum + payment.amount, 0);
+    const expenses = expensesForDate.reduce((sum, expense) => sum + expense.amount, 0);
     return {
       date,
       label: formatChartDate(date),
       payments,
       expenses,
-      transactions: transactions.filter((transaction) => transaction.date.slice(0, 10) === date),
+      transactions: [
+        ...paymentsForDate.map((payment): TransactionChartItem => {
+          const student = studentsById.get(payment.studentId);
+          const fee = feeTypesById.get(payment.feeTypeId);
+          return {
+            id: payment.id,
+            kind: "payment",
+            type: "Paiement",
+            label: student ? `${student.nom} ${student.postnom} ${student.prenom}`.trim() : "Élève non renseigné",
+            amount: payment.amount,
+            date: payment.paidAt,
+            occurredAt: payment.createdAt ?? payment.paidAt,
+            status: payment.receiptNumber ? `Reçu ${payment.receiptNumber}` : undefined,
+            studentName: student ? `${student.nom} ${student.postnom} ${student.prenom}`.trim() : undefined,
+            className: student?.className,
+            feeName: fee?.name,
+            agentName: payment.cashierName,
+          };
+        }),
+        ...expensesForDate.map((expense): TransactionChartItem => ({
+          id: expense.id,
+          kind: "expense",
+          type: "Dépense",
+          label: expense.description || expense.category,
+          amount: expense.amount,
+          date: expense.spentAt,
+          occurredAt: expense.createdAt ?? expense.spentAt,
+          agentName: expense.cashierName,
+        })),
+      ],
     };
   });
   const sectionLabel = sectionFilter === "all" ? "Toutes les sections" : sectionFilter.charAt(0).toUpperCase() + sectionFilter.slice(1);
@@ -1194,18 +1299,18 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="font-bold text-ink">KPI financier</h2>
-            <p className="text-sm text-slate-500">{"Recouvrement selon la section et la p\u00e9riode s\u00e9lectionn\u00e9es."}</p>
+            <p className="text-sm text-slate-500">{"Recouvrement annuel de l'ann\u00e9e scolaire s\u00e9lectionn\u00e9e."}</p>
           </div>
-          <span className={"rounded px-3 py-2 text-sm font-bold " + recoveryTone}>{recoveryRate}{"% recouvr\u00e9"}</span>
+          <span className={"rounded px-3 py-2 text-sm font-bold " + recoveryTone}>{annualFinancialRecoveryRate}{"% recouvr\u00e9"}</span>
         </div>
         <div className="mt-4 h-3 overflow-hidden rounded bg-slate-100">
-          <div className={`h-full rounded ${progressBarTone(recoveryRate)}`} style={{ width: Math.min(100, recoveryRate) + "%" }} />
+          <div className={`h-full rounded ${progressBarTone(annualFinancialRecoveryRate)}`} style={{ width: Math.min(100, annualFinancialRecoveryRate) + "%" }} />
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-4">
-          <Metric label={"Encaiss\u00e9"} value={"$" + totalPayments.toFixed(2)} />
-          <Metric label={"D\u00e9penses"} value={"$" + totalExpenses.toFixed(2)} />
-          <Metric label="Attendu" value={"$" + stats.expected.toFixed(2)} />
-          <Metric label="Reste" value={"$" + remaining.toFixed(2)} />
+          <Metric label={"Encaiss\u00e9"} value={"$" + annualFinancialPaid.toFixed(2)} />
+          <Metric label={"D\u00e9penses"} value={"$" + annualFinancialExpenses.toFixed(2)} />
+          <Metric label="Attendu" value={"$" + annualFinancialStats.expected.toFixed(2)} />
+          <Metric label="Reste" value={"$" + annualFinancialRemaining.toFixed(2)} />
         </div>
         <div className="mt-5 grid gap-3">
           {feeProgressRows.map((row) => (
@@ -2262,22 +2367,39 @@ function MessageDrawerContent({
       return { title: "Tous les parents", subtitle: "Conversation de groupe" };
     }
     const conversationParent = yearData.parents.find((item) => item.id === id) ?? getParentForMessage(messages[0]);
-    const children = conversationParent ? yearData.students.filter((student) => student.parentId === conversationParent.id || conversationParent.studentIds.includes(student.id)) : [];
+    const children = parentChildren(conversationParent);
     return {
       title: conversationParent?.fullName ?? "Interlocuteur",
-      subtitle: children.length ? children.map((student) => `${student.nom} ${student.prenom}`).join(", ") : "Parent",
+      subtitle: children.length ? children.map(childDisplayName).join(" • ") : "Enfant non renseigné",
     };
   }
 
-  function senderLabel(message: Message) {
-    if (message.senderId === user.id) return "Vous";
+  function parentChildren(parentProfile?: ParentProfile) {
+    if (!parentProfile) return [];
+    return yearData.students.filter((student) => student.parentId === parentProfile.id || parentProfile.studentIds.includes(student.id));
+  }
+
+  function senderDetails(message: Message) {
     const sender = data.users.find((item) => item.id === message.senderId) ?? yearData.users.find((item) => item.id === message.senderId);
-    if (sender?.role === "parent") {
-      const senderParent = sender.parentId ? yearData.parents.find((item) => item.id === sender.parentId) : getParentForMessage(message);
-      return senderParent?.fullName ?? sender.name;
+    const senderParent = sender?.parentId ? yearData.parents.find((item) => item.id === sender.parentId) : getParentForMessage(message);
+    if (sender?.role === "parent" || (!sender && senderParent && message.recipientParentId === "school")) {
+      return {
+        type: "parent" as const,
+        name: senderParent?.fullName ?? sender?.name ?? "Parent",
+        role: "Parent",
+        children: parentChildren(senderParent),
+      };
     }
-    if (sender) return sender.name;
-    return getParentForMessage(message)?.fullName ?? school.name;
+    return {
+        type: "school" as const,
+        name: sender?.name ?? school.name,
+        role: sender ? roleLabels[sender.role] : "École",
+        children: [],
+      };
+  }
+
+  function childDisplayName(student: Student) {
+    return `${student.nom} ${student.prenom}${student.matricule ? ` (${student.matricule})` : ""}`;
   }
 
   const conversationMap = yearData.messages.reduce<Record<string, Message[]>>((items, message) => {
@@ -2395,20 +2517,29 @@ function MessageDrawerContent({
         <h3 className="mb-3 text-sm font-bold text-ink">Conversations</h3>
         <div ref={conversationListRef} className="max-h-80 space-y-2 overflow-y-auto pr-1 scrollbar-thin lg:max-h-[calc(100vh-18rem)]">
           {conversations.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucune conversation.</p>}
-          {conversations.map((conversation) => (
-            <button
-              key={conversation.id}
-              onClick={() => openConversation(conversation.id)}
-              className={`w-full rounded border p-3 text-left text-sm transition ${
-                (selectedConversationId || highlightedConversationId) === conversation.id ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50 hover:border-slate-200"
-              }`}
-              type="button"
-            >
-              <p className="break-words font-semibold text-ink">{conversation.title}</p>
-              <p className="mt-1 break-words text-xs text-slate-500">{conversation.subtitle}</p>
-              <p className="mt-2 truncate text-xs text-slate-400">{conversation.lastMessage.body}</p>
-            </button>
-          ))}
+          {conversations.map((conversation) => {
+            const lastSender = senderDetails(conversation.lastMessage);
+            return (
+              <button
+                key={conversation.id}
+                onClick={() => openConversation(conversation.id)}
+                className={`w-full rounded border p-3 text-left text-sm transition ${
+                  (selectedConversationId || highlightedConversationId) === conversation.id ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50 hover:border-slate-200"
+                }`}
+                type="button"
+              >
+                <p className="break-words font-semibold text-ink">{conversation.title}</p>
+                <p className="mt-1 break-words text-xs text-slate-500">{conversation.subtitle}</p>
+                {lastSender.type === "school" && (
+                  <div className="mt-2 rounded bg-white/70 p-2 text-xs">
+                    <p className="break-words font-semibold text-ink">{lastSender.name}</p>
+                    <p className="mt-1 break-words text-[11px] font-medium text-slate-500">{lastSender.role}</p>
+                  </div>
+                )}
+                <p className="mt-2 truncate text-xs text-slate-400">{conversation.lastMessage.body}</p>
+              </button>
+            );
+          })}
         </div>
       </section>
 
@@ -2426,10 +2557,28 @@ function MessageDrawerContent({
             <div className="max-h-[52vh] min-h-56 space-y-3 overflow-y-auto pr-1 scrollbar-thin">
               {selectedConversation.messages.map((message) => {
                 const mine = message.senderId === user.id;
+                const details = senderDetails(message);
                 return (
                   <article key={message.id} className={`max-w-[92%] rounded border p-3 text-sm ${mine ? "ml-auto border-blue-100 bg-blue-50" : "border-slate-100 bg-slate-50"}`}>
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                      <p className="break-words text-xs font-bold text-ink">{senderLabel(message)}</p>
+                      <div className="min-w-0">
+                        <p className="break-words text-xs font-bold text-ink">{mine ? "Vous" : details.name}</p>
+                        {details.type === "parent" ? (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {details.children.length ? (
+                              details.children.map((student) => (
+                                <span key={student.id} className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-blue-700">
+                                  {childDisplayName(student)}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-[11px] text-slate-500">Parent</span>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="mt-1 break-words text-[11px] font-medium text-slate-500">{details.role}</p>
+                        )}
+                      </div>
                       <p className="text-[11px] text-slate-400">{new Date(message.createdAt).toLocaleString("fr-FR")}</p>
                     </div>
                     <p className="break-words font-semibold text-slate-700">{message.subject}</p>
@@ -2944,15 +3093,15 @@ function StudentsModule({
   const [sectionFilter, setSectionFilter] = useState<"all" | "maternelle" | "primaire" | "secondaire">("all");
   const [classFilter, setClassFilter] = useState("");
   const [optionFilter, setOptionFilter] = useState("");
-  const [archiveFilter, setArchiveFilter] = useState<"active" | "archived" | "all">("active");
+  const [archiveFilter, setArchiveFilter] = useState<"active" | "archived" | "all">("all");
   const [schoolOptions, setSchoolOptions] = useState<string[]>(["Littéraire", "Pédagogie", "Sciences", "Commerciale"]);
   const [form, setForm] = useState<Student>(() => emptyStudent(school.id, year.id));
   const [quickParent, setQuickParent] = useState({ fullName: "", phone: "", email: "", password: "" });
   const [saveError, setSaveError] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
   const [showForm, setShowForm] = useState(false);
-  const canEdit = user.role === "school_admin";
-  const studentClassChoices = CLASSES.filter((className) => className !== "Humanités");
+  const canEdit = user.role === "school_admin" && year.status !== "archived";
+  const studentClassChoices = CLASSES;
   const availableClasses = studentClassChoices.filter((className) => sectionFilter === "all" || getClassSection(className) === sectionFilter);
   const optionChoices = Array.from(new Set([...schoolOptions, ...yearData.students.map((student) => student.option).filter(Boolean)])) as string[];
 
@@ -3161,22 +3310,22 @@ function StudentsModule({
         <SectionTitle title="Élèves" subtitle="Ajouter, modifier, rechercher et filtrer par direction puis classe." />
         {saveError && <p className="mb-3 rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{saveError}</p>}
         {saveMessage && <p className="mb-3 rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{saveMessage}</p>}
-        <div className="mb-3 flex flex-wrap gap-2">
+        <div className="mb-3 grid min-w-0 gap-2 sm:flex sm:flex-wrap">
           {canEdit && (
-            <button onClick={openAddStudentForm} type="button" className="primary-button">
+            <button onClick={openAddStudentForm} type="button" className="primary-button w-full justify-center sm:w-auto">
               <Plus className="h-4 w-4" /> Ajouter un élève
             </button>
           )}
-          <button onClick={printAgeHomogeneityPdf} type="button" className="primary-button">
+          <button onClick={printAgeHomogeneityPdf} type="button" className="primary-button w-full justify-center sm:w-auto">
             <Download className="h-4 w-4" /> Tableau d'homogénéité d'âge
           </button>
         </div>
-        <div className="mb-3 grid min-w-0 gap-2 lg:grid-cols-[minmax(0,1fr)_160px_180px_220px]">
-          <label className="flex items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
+        <div className="mb-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_160px_180px_220px]">
+          <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
             <Search className="h-4 w-4 text-slate-400" />
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher" className="min-w-0 flex-1 outline-none" />
           </label>
-          <select value={archiveFilter} onChange={(event) => setArchiveFilter(event.target.value as typeof archiveFilter)} className="min-w-0 rounded border border-slate-200 bg-white px-3 py-2">
+          <select value={archiveFilter} onChange={(event) => setArchiveFilter(event.target.value as typeof archiveFilter)} className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2">
             <option value="active">Actifs</option>
             <option value="archived">Archivés</option>
             <option value="all">Tous</option>
@@ -3187,29 +3336,29 @@ function StudentsModule({
               setSectionFilter(event.target.value as typeof sectionFilter);
               setClassFilter("");
             }}
-            className="min-w-0 rounded border border-slate-200 bg-white px-3 py-2"
+            className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2"
           >
             <option value="all">Toutes les sections</option>
             <option value="maternelle">Maternelle</option>
             <option value="primaire">Primaire</option>
             <option value="secondaire">Secondaire</option>
           </select>
-          <select value={classFilter} onChange={(event) => setClassFilter(event.target.value)} className="min-w-0 rounded border border-slate-200 bg-white px-3 py-2">
+          <select value={classFilter} onChange={(event) => setClassFilter(event.target.value)} className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2">
             <option value="">Toutes les classes</option>
             {availableClasses.map((className) => (
               <option key={className} value={className}>{className}</option>
             ))}
           </select>
         </div>
-        <div className="mb-3 grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-          <select value={optionFilter} onChange={(event) => setOptionFilter(event.target.value)} className="min-w-0 rounded border border-slate-200 bg-white px-3 py-2">
+        <div className="mb-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <select value={optionFilter} onChange={(event) => setOptionFilter(event.target.value)} className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2">
             <option value="">Toutes les options</option>
             {optionChoices.map((option) => (
               <option key={option} value={option}>{option}</option>
             ))}
           </select>
-          <div className="flex flex-wrap gap-2">
-            <button onClick={printStudentsPdf} type="button" className="secondary-button justify-center">
+          <div className="flex min-w-0 flex-wrap gap-2">
+            <button onClick={printStudentsPdf} type="button" className="secondary-button w-full justify-center sm:w-auto">
               <Download className="h-4 w-4" /> Exporter PDF
             </button>
           </div>
@@ -3461,6 +3610,7 @@ function ParentsModule({
     const text = `${parent.fullName} ${parent.email} ${parent.phone}`.toLowerCase();
     return text.includes(query.toLowerCase());
   });
+  const canEdit = year.status !== "archived";
 
   async function saveParentProfile() {
     setParentError("");
@@ -3590,53 +3740,61 @@ function ParentsModule({
                     <p className="break-words text-sm text-slate-500">{parent.phone} | {parent.email}</p>
                     <p className="break-words text-sm text-slate-500">{children.length} enfant(s): {children.map((student) => `${student.nom} ${student.prenom}`).join(", ") || "aucun"}</p>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <IconButton label="Modifier" onClick={() => editParent(parent)} icon={Edit3} />
-                    <IconButton label="Supprimer" onClick={() => deleteParent(parent)} icon={Trash2} danger />
-                    <button onClick={() => toggleParent(parent)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
-                      {parent.status === "active" ? "Désactiver" : "Réactiver"}
-                    </button>
-                  </div>
+                  {canEdit && (
+                    <div className="flex flex-wrap gap-2">
+                      <IconButton label="Modifier" onClick={() => editParent(parent)} icon={Edit3} />
+                      <IconButton label="Supprimer" onClick={() => deleteParent(parent)} icon={Trash2} danger />
+                      <button onClick={() => toggleParent(parent)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
+                        {parent.status === "active" ? "Désactiver" : "Réactiver"}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </article>
             );
           })}
         </div>
       </div>
-      <FormPanel title={form.id.startsWith("new") ? "Créer un parent" : "Modifier le parent"}>
-        <Field label="Nom complet" value={form.fullName} onChange={(value) => setForm({ ...form, fullName: value })} />
-        <Field label="Téléphone" value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} />
-        <Field label="Adresse e-mail" value={form.email} onChange={(value) => setForm({ ...form, email: value })} type="email" />
-        <Field label="Adresse" value={form.address} onChange={(value) => setForm({ ...form, address: value })} />
-        {form.id.startsWith("new") && (
-          <PasswordField
-            label="Mot de passe temporaire"
-            value={password}
-            onChange={setPassword}
-            visible={showParentPassword}
-            onToggle={() => setShowParentPassword(!showParentPassword)}
-          />
-        )}
-        <label className="grid gap-1 text-sm font-medium text-slate-700">
-          Élèves liés
-          <select
-            multiple
-            value={form.studentIds}
-            onChange={(event) => setForm({ ...form, studentIds: Array.from(event.target.selectedOptions).map((option) => option.value) })}
-            className="input min-h-32"
-          >
-            {yearData.students.map((student) => (
-              <option key={student.id} value={student.id}>
-                {student.nom} {student.prenom}{student.parentId && student.parentId !== form.id ? " - déjà lié" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="grid min-w-0 grid-cols-2 gap-2">
-          <button onClick={() => setForm(emptyParent(school.id, year.id))} className="secondary-button">Annuler</button>
-          <button onClick={saveParentProfile} className="primary-button"><CheckCircle2 className="h-4 w-4" /> Enregistrer</button>
-        </div>
-      </FormPanel>
+      {canEdit ? (
+        <FormPanel title={form.id.startsWith("new") ? "Créer un parent" : "Modifier le parent"}>
+          <Field label="Nom complet" value={form.fullName} onChange={(value) => setForm({ ...form, fullName: value })} />
+          <Field label="Téléphone" value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} />
+          <Field label="Adresse e-mail" value={form.email} onChange={(value) => setForm({ ...form, email: value })} type="email" />
+          <Field label="Adresse" value={form.address} onChange={(value) => setForm({ ...form, address: value })} />
+          {form.id.startsWith("new") && (
+            <PasswordField
+              label="Mot de passe temporaire"
+              value={password}
+              onChange={setPassword}
+              visible={showParentPassword}
+              onToggle={() => setShowParentPassword(!showParentPassword)}
+            />
+          )}
+          <label className="grid gap-1 text-sm font-medium text-slate-700">
+            Élèves liés
+            <select
+              multiple
+              value={form.studentIds}
+              onChange={(event) => setForm({ ...form, studentIds: Array.from(event.target.selectedOptions).map((option) => option.value) })}
+              className="input min-h-32"
+            >
+              {yearData.students.map((student) => (
+                <option key={student.id} value={student.id}>
+                  {student.nom} {student.prenom}{student.parentId && student.parentId !== form.id ? " - déjà lié" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="grid min-w-0 grid-cols-2 gap-2">
+            <button onClick={() => setForm(emptyParent(school.id, year.id))} className="secondary-button">Annuler</button>
+            <button onClick={saveParentProfile} className="primary-button"><CheckCircle2 className="h-4 w-4" /> Enregistrer</button>
+          </div>
+        </FormPanel>
+      ) : (
+        <FormPanel title="Archive en lecture seule">
+          <p className="rounded bg-slate-50 p-3 text-sm font-semibold text-slate-600">Les parents de cette année archivée sont consultables, mais aucune modification n'est autorisée.</p>
+        </FormPanel>
+      )}
     </section>
   );
 }
@@ -3679,8 +3837,9 @@ function ControlModule({
   useEffect(() => {
     if (!warningFeeName && feeNameChoices[0]) setWarningFeeName(feeNameChoices[0]);
   }, [feeNameChoices, warningFeeName]);
-  const canPay = user.role === "cashier";
-  const canCorrectPayments = user.role === "school_admin";
+  const isArchivedContext = year.status === "archived";
+  const canPay = user.role === "cashier" && !isArchivedContext;
+  const canCorrectPayments = user.role === "school_admin" && !isArchivedContext;
   const selectedPaymentStudent = yearData.students.find((student) => student.id === studentId);
   const selectedPaymentBalance = selectedPaymentStudent
     ? getStudentBalance(selectedPaymentStudent.id, yearData.feeTypes, yearData.payments, yearData.students)
@@ -3776,6 +3935,10 @@ function ControlModule({
   }
 
   function savePayment() {
+    if (isArchivedContext) {
+      setPaymentError("Cette année scolaire est archivée en lecture seule.");
+      return;
+    }
     if (!studentId || !selectedFeeTypeValue) return;
     setPaymentError("");
     const paymentAmount = Number(amount);
@@ -3831,6 +3994,7 @@ function ControlModule({
   }
 
   function saveExpense() {
+    if (isArchivedContext) return;
     if (!expenseAmount || !expenseDescription) return;
     const expense: Expense = {
       id: uid("expense"),
@@ -3853,6 +4017,10 @@ function ControlModule({
 
   function sendPaymentWarnings() {
     setWarningFeedback(null);
+    if (isArchivedContext) {
+      setWarningFeedback({ type: "error", message: "Cette année scolaire est archivée en lecture seule." });
+      return;
+    }
     const requiredAmount = Number(warningRequiredAmount);
     if (!warningFeeName || !Number.isFinite(requiredAmount) || requiredAmount <= 0 || !warningDeadline) {
       setWarningFeedback({ type: "error", message: "Veuillez renseigner le type de frais, le montant requis et la date limite." });
@@ -4184,30 +4352,30 @@ function ControlModule({
     <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
       <div className="min-w-0">
         <SectionTitle title="Contrôle" subtitle="Frais scolaires, paiements, historique et soldes restants en dollar américain." />
-        <div className="mb-3 flex min-w-0 flex-wrap gap-2">
-          <select value={amountComparator} onChange={(event) => setAmountComparator(event.target.value as typeof amountComparator)} className="rounded border border-slate-200 bg-white px-3 py-2 text-sm">
+        <div className="mb-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:flex-wrap">
+          <select value={amountComparator} onChange={(event) => setAmountComparator(event.target.value as typeof amountComparator)} className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm lg:w-auto">
             <option value="all">Montant payé</option>
             <option value=">=">Payé &gt;=</option>
             <option value="<">Payé &lt;</option>
           </select>
-          <input value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)} type="number" className="w-32 max-w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm" placeholder="Montant" />
-          <button onClick={printFilteredStudents} className="secondary-button">
+          <input value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)} type="number" className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm lg:w-32" placeholder="Montant" />
+          <button onClick={printFilteredStudents} className="secondary-button w-full justify-center lg:w-auto">
             <Download className="h-4 w-4" /> Imprimer
           </button>
           {canPay && user.role === "cashier" && (
             <>
-              <button onClick={() => setCashierControlDrawer("payment")} className="secondary-button" type="button">
+              <button onClick={() => setCashierControlDrawer("payment")} className="secondary-button w-full justify-center lg:w-auto" type="button">
                 Enregistrer un paiement
               </button>
-              <button onClick={() => setCashierControlDrawer("expense")} className="secondary-button" type="button">
+              <button onClick={() => setCashierControlDrawer("expense")} className="secondary-button w-full justify-center lg:w-auto" type="button">
                 Enregistrer une dépense
               </button>
             </>
           )}
-          <button onClick={() => (user.role === "cashier" ? setCashierControlDrawer("history") : setHistoryOpen(true))} className="secondary-button" type="button">
+          <button onClick={() => (user.role === "cashier" ? setCashierControlDrawer("history") : setHistoryOpen(true))} className="secondary-button w-full justify-center lg:w-auto" type="button">
             Historique des paiements
           </button>
-          <button onClick={() => (user.role === "cashier" ? setCashierControlDrawer("warning") : setWarningOpen(true))} className="secondary-button" type="button">
+          <button onClick={() => (user.role === "cashier" ? setCashierControlDrawer("warning") : setWarningOpen(true))} className="secondary-button w-full justify-center lg:w-auto" type="button">
             Avertissement
           </button>
         </div>
@@ -4229,7 +4397,7 @@ function ControlModule({
                   {isStudentPaymentComplete(balance) ? "En ordre" : "Non en ordre"}
                 </span>
               </div>
-              <div className="mt-4 grid grid-cols-3 gap-2 text-sm">
+              <div className="mt-4 grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
                 <Metric label="Prévu" value={`$${balance.expected}`} />
                 <Metric label="Payé" value={`$${balance.paid}`} />
                 <Metric label="Solde" value={`$${balance.remaining}`} />
@@ -4247,7 +4415,7 @@ function ControlModule({
                 <option key={student.id} value={student.id}>{student.nom} {student.prenom}</option>
               ))}
             </select>
-            <div className="grid grid-cols-3 gap-2 text-sm">
+            <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
               <Metric label="Attendu" value={`$${selectedPaymentBalance.expected}`} />
               <Metric label="Payé" value={`$${selectedPaymentBalance.paid}`} />
               <Metric label="Solde" value={`$${selectedPaymentBalance.remaining}`} />
@@ -4259,7 +4427,7 @@ function ControlModule({
               ))}
             </select>
             <input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" min="0" max={selectedPaymentFeeRemaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" placeholder="Montant" />
-            <button onClick={savePayment} disabled={isPaymentEntryDisabled} className="primary-button disabled:opacity-50"><Plus className="h-4 w-4" /> Enregistrer</button>
+            <button onClick={savePayment} disabled={isPaymentEntryDisabled} className="primary-button justify-center disabled:opacity-50"><Plus className="h-4 w-4" /> Enregistrer</button>
           </FormPanel>
         )}
         {canPay && (
@@ -4273,7 +4441,7 @@ function ControlModule({
             </select>
             <input value={expenseAmount} onChange={(event) => setExpenseAmount(event.target.value)} type="number" min="0" className="input" placeholder="Montant" />
             <textarea value={expenseDescription} onChange={(event) => setExpenseDescription(event.target.value)} className="input min-h-24" placeholder="Description" />
-            <button onClick={saveExpense} className="primary-button"><Plus className="h-4 w-4" /> Enregistrer</button>
+            <button onClick={saveExpense} className="primary-button justify-center"><Plus className="h-4 w-4" /> Enregistrer</button>
           </FormPanel>
         )}
       </div>
@@ -4321,7 +4489,7 @@ function ControlModule({
                   </p>
                 )}
               </div>
-              <div className="grid grid-cols-3 gap-2 text-sm">
+              <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
                 <Metric label="Attendu" value={`$${selectedPaymentBalance.expected}`} />
                 <Metric label="Payé" value={`$${selectedPaymentBalance.paid}`} />
                 <Metric label="Solde" value={`$${selectedPaymentBalance.remaining}`} />
@@ -4333,7 +4501,7 @@ function ControlModule({
                 ))}
               </select>
               <input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" min="0" max={selectedPaymentFeeRemaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" placeholder="Montant" />
-              <button onClick={savePayment} disabled={isPaymentEntryDisabled} className="primary-button disabled:opacity-50" type="button"><Plus className="h-4 w-4" /> Enregistrer</button>
+              <button onClick={savePayment} disabled={isPaymentEntryDisabled} className="primary-button justify-center disabled:opacity-50" type="button"><Plus className="h-4 w-4" /> Enregistrer</button>
             </>
           )}
           {cashierControlDrawer === "expense" && (
@@ -4347,7 +4515,7 @@ function ControlModule({
               </select>
               <input value={expenseAmount} onChange={(event) => setExpenseAmount(event.target.value)} type="number" min="0" className="input" placeholder="Montant" />
               <textarea value={expenseDescription} onChange={(event) => setExpenseDescription(event.target.value)} className="input min-h-24" placeholder="Description" />
-              <button onClick={saveExpense} className="primary-button" type="button"><Plus className="h-4 w-4" /> Enregistrer</button>
+              <button onClick={saveExpense} className="primary-button justify-center" type="button"><Plus className="h-4 w-4" /> Enregistrer</button>
             </>
           )}
           {cashierControlDrawer === "history" && (
@@ -4366,9 +4534,9 @@ function ControlModule({
                 {filteredHistoryPayments.map(({ payment, student, fee }) => {
                   return (
                     <div key={payment.id} className="rounded border border-slate-100 p-3 text-sm">
-                      <div className="flex min-w-0 items-center justify-between gap-2">
-                        <p className="min-w-0 break-words font-semibold text-ink">{student.nom} {student.prenom}</p>
-                        <div className="flex shrink-0 gap-1">
+                    <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="min-w-0 break-words font-semibold text-ink">{student.nom} {student.prenom}</p>
+                        <div className="flex shrink-0 flex-wrap gap-1">
                           <button onClick={() => generateReceiptPdf(payment, student, fee, school)} className="rounded bg-slate-100 p-2" title="Voir le reçu PDF" type="button">
                             <Download className="h-4 w-4" />
                           </button>
@@ -4407,9 +4575,9 @@ function ControlModule({
               {filteredHistoryPayments.map(({ payment, student, fee }) => {
                 return (
                   <div key={payment.id} className="rounded border border-slate-100 p-3 text-sm">
-                    <div className="flex min-w-0 items-center justify-between gap-2">
+                    <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <p className="min-w-0 break-words font-semibold text-ink">{student.nom} {student.prenom}</p>
-                      <div className="flex shrink-0 gap-1">
+                      <div className="flex shrink-0 flex-wrap gap-1">
                         <button onClick={() => generateReceiptPdf(payment, student, fee, school)} className="rounded bg-slate-100 p-2" title="Voir le reçu PDF">
                           <Download className="h-4 w-4" />
                         </button>
@@ -4518,7 +4686,7 @@ function MessagesModule({
   const [recipientSearch, setRecipientSearch] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
-  const canSend = user.role !== "parent";
+  const canSend = user.role !== "parent" && year.status !== "archived";
   const recipientCandidates = yearData.parents.reduce<{ parent: ParentProfile; student?: Student }[]>((items, parent) => {
       const children = yearData.students.filter((student) => student.parentId === parent.id);
       if (children.length === 0) return [...items, { parent }];
@@ -4668,13 +4836,18 @@ function MenuModule({
   const [cashierSuccess, setCashierSuccess] = useState("");
   const [showCashierPassword, setShowCashierPassword] = useState(false);
   const [feeName, setFeeName] = useState<FeeKind>("Minerval");
-  const [feeClassName, setFeeClassName] = useState<SchoolClass>(CLASSES[0]);
+  const [feeClassNames, setFeeClassNames] = useState<SchoolClass[]>([CLASSES[0]]);
   const [feeAmount, setFeeAmount] = useState("100");
   const [editingFeeId, setEditingFeeId] = useState("");
   const [showNewFeeForm, setShowNewFeeForm] = useState(false);
   const [newFeeName, setNewFeeName] = useState("");
   const [activeMenuSection, setActiveMenuSection] = useState<MenuSection | null>(null);
-  const canAdmin = user.role === "school_admin";
+  const [newYearOpen, setNewYearOpen] = useState(false);
+  const [newYearForm, setNewYearForm] = useState(() => nextSchoolYearDefaults(selectedYear));
+  const [newYearConfirmation, setNewYearConfirmation] = useState("");
+  const [newYearError, setNewYearError] = useState("");
+  const isArchivedContext = selectedYear.status === "archived";
+  const canAdmin = user.role === "school_admin" && !isArchivedContext;
   const menuSections = [
     { id: "school", title: "Paramètres école", description: "Logo, coordonnées et informations de l'établissement.", icon: Settings },
     { id: "years", title: "Années scolaires", description: "Année active, années archivées et contexte global.", icon: BookOpen },
@@ -4726,6 +4899,84 @@ function MenuModule({
     updateData({ schoolYears: data.schoolYears.map((year) => (year.id === yearId ? { ...year, status: "archived" } : year)) });
   }
 
+  function openNewYearForm() {
+    const defaults = nextSchoolYearDefaults(years.find((year) => year.status === "active") ?? selectedYear);
+    setNewYearForm(defaults);
+    setNewYearConfirmation("");
+    setNewYearError("");
+    setNewYearOpen(true);
+  }
+
+  function createNewSchoolYear() {
+    setNewYearError("");
+    if (newYearConfirmation !== "CREER UNE NOUVELLE ANNEE") {
+      setNewYearError("Veuillez saisir exactement CREER UNE NOUVELLE ANNEE pour confirmer.");
+      return;
+    }
+    if (!newYearForm.name.trim() || !newYearForm.startsAt || !newYearForm.endsAt) {
+      setNewYearError("Veuillez renseigner le nom, la date de début et la date de fin de la nouvelle année.");
+      return;
+    }
+    if (years.some((year) => year.name.trim().toLowerCase() === newYearForm.name.trim().toLowerCase())) {
+      setNewYearError("Une année scolaire avec ce nom existe déjà.");
+      return;
+    }
+
+    const previousActiveYear = years.find((year) => year.status === "active") ?? selectedYear;
+    const newYearId = uid("year");
+    const previousStudents = data.students.filter((student) => student.schoolId === school.id && student.schoolYearId === previousActiveYear.id);
+    const studentIdMap = new Map(previousStudents.map((student) => [student.id, uid("student")]));
+    const nextStudents = previousStudents.map((student) => ({
+      ...student,
+      id: studentIdMap.get(student.id) ?? uid("student"),
+      schoolYearId: newYearId,
+      annee_scolaire_id: newYearId,
+    }));
+    const nextStudentIdsByParent = new Map<string, string[]>();
+    nextStudents.forEach((student) => {
+      if (!student.parentId) return;
+      nextStudentIdsByParent.set(student.parentId, [...(nextStudentIdsByParent.get(student.parentId) ?? []), student.id]);
+    });
+    const nextParents = data.parents.map((parent) => {
+      const nextStudentIds = nextStudentIdsByParent.get(parent.id);
+      if (!nextStudentIds?.length) return parent;
+      return { ...parent, studentIds: Array.from(new Set([...parent.studentIds, ...nextStudentIds])) };
+    });
+    const nextUsers = data.users.map((item) => {
+      if (item.schoolId !== school.id) return item;
+      const nextStudentIds = item.parentId ? nextStudentIdsByParent.get(item.parentId) ?? [] : [];
+      return {
+        ...item,
+        activeSchoolYearId: newYearId,
+        studentIds: nextStudentIds.length ? Array.from(new Set([...(item.studentIds ?? []), ...nextStudentIds])) : item.studentIds,
+      };
+    });
+    const nextYear: SchoolYear = {
+      id: newYearId,
+      schoolId: school.id,
+      name: newYearForm.name.trim(),
+      startsAt: newYearForm.startsAt,
+      endsAt: newYearForm.endsAt,
+      status: "active",
+    };
+
+    updateData({
+      schools: data.schools.map((item) => (item.id === school.id ? { ...item, activeSchoolYearId: newYearId } : item)),
+      schoolYears: [
+        ...data.schoolYears.map((year) =>
+          year.schoolId === school.id && year.status === "active" ? { ...year, status: "archived" as const } : year,
+        ),
+        nextYear,
+      ],
+      students: [...data.students, ...nextStudents],
+      parents: nextParents,
+      users: nextUsers,
+    });
+    onYearChange(newYearId);
+    setSchoolForm({ ...schoolForm, activeSchoolYearId: newYearId });
+    setNewYearOpen(false);
+  }
+
   async function saveCashier() {
     setCashierError("");
     setCashierSuccess("");
@@ -4774,29 +5025,47 @@ function MenuModule({
   }
 
   function saveFee() {
-    if (!feeName || !feeClassName || !feeAmount) return;
-    const fee: FeeType = {
-      id: editingFeeId || uid("fee"),
-      schoolId: school.id,
-      schoolYearId: selectedYear.id,
-      name: feeName,
-      className: feeClassName,
-      amount: Number(feeAmount),
-    };
+    if (!feeName || feeClassNames.length === 0 || !feeAmount) return;
+    const amount = Number(feeAmount);
+    const selectedClasses = Array.from(new Set(feeClassNames));
+    const existingFeeKeys = new Set(
+      data.feeTypes
+        .filter((fee) => fee.schoolId === school.id && fee.schoolYearId === selectedYear.id && fee.id !== editingFeeId)
+        .map((fee) => `${String(fee.name).trim().toLowerCase()}|${fee.className ?? ""}`),
+    );
+    const feesToSave = selectedClasses
+      .filter((className) => !existingFeeKeys.has(`${String(feeName).trim().toLowerCase()}|${className}`))
+      .map((className, index) => ({
+        id: editingFeeId && index === 0 ? editingFeeId : uid("fee"),
+        schoolId: school.id,
+        schoolYearId: selectedYear.id,
+        name: feeName,
+        className,
+        amount,
+      }));
+    if (feesToSave.length === 0) return;
     updateData({
-      feeTypes: editingFeeId ? data.feeTypes.map((item) => (item.id === editingFeeId ? fee : item)) : [...data.feeTypes, fee],
+      feeTypes: editingFeeId
+        ? [...data.feeTypes.map((item) => (item.id === editingFeeId ? feesToSave[0] : item)), ...feesToSave.slice(1)]
+        : [...data.feeTypes, ...feesToSave],
     });
     setEditingFeeId("");
     setFeeName("Minerval");
-    setFeeClassName(CLASSES[0]);
+    setFeeClassNames([CLASSES[0]]);
     setFeeAmount("100");
   }
 
   function editFee(fee: FeeType) {
     setEditingFeeId(fee.id);
     setFeeName(fee.name);
-    setFeeClassName(fee.className ?? CLASSES[0]);
+    setFeeClassNames([fee.className ?? CLASSES[0]]);
     setFeeAmount(String(fee.amount));
+  }
+
+  function toggleFeeClass(className: SchoolClass) {
+    setFeeClassNames((current) =>
+      current.includes(className) ? current.filter((item) => item !== className) : [...current, className],
+    );
   }
 
   function deleteFee(fee: FeeType) {
@@ -4837,6 +5106,46 @@ function MenuModule({
     if (sectionId === "years") {
       return (
         <div className="grid min-w-0 gap-4">
+          {isArchivedContext && (
+            <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">
+              Vous consultez une année scolaire archivée en lecture seule. Revenez à l'année active pour créer ou modifier des données.
+            </p>
+          )}
+          {canAdmin && (
+            <div className="flex justify-end">
+              <button onClick={openNewYearForm} type="button" className="primary-button shadow-sm">
+                <Plus className="h-4 w-4" /> Nouvelle année
+              </button>
+            </div>
+          )}
+          {newYearOpen && canAdmin && (
+            <div className="grid min-w-0 gap-3 rounded border border-amber-200 bg-amber-50 p-4">
+              <div className="min-w-0">
+                <p className="font-bold text-ink">Créer une nouvelle année scolaire</p>
+                <p className="mt-1 text-sm text-amber-800">
+                  Cette opération crée une nouvelle année scolaire active et archive automatiquement l'année active précédente. Les données historiques restent consultables dans leur dossier d'archives.
+                </p>
+              </div>
+              {newYearError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{newYearError}</p>}
+              <Field label="Nom de la nouvelle année" value={newYearForm.name} onChange={(value) => setNewYearForm({ ...newYearForm, name: value })} />
+              <div className="grid min-w-0 gap-2 sm:grid-cols-2">
+                <Field label="Date de début" value={newYearForm.startsAt} onChange={(value) => setNewYearForm({ ...newYearForm, startsAt: value })} type="date" />
+                <Field label="Date de fin" value={newYearForm.endsAt} onChange={(value) => setNewYearForm({ ...newYearForm, endsAt: value })} type="date" />
+              </div>
+              <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+                Confirmation obligatoire
+                <input value={newYearConfirmation} onChange={(event) => setNewYearConfirmation(event.target.value)} className="input" placeholder="CREER UNE NOUVELLE ANNEE" />
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={createNewSchoolYear} type="button" className="primary-button">
+                  <CheckCircle2 className="h-4 w-4" /> Créer l'année
+                </button>
+                <button onClick={() => setNewYearOpen(false)} type="button" className="secondary-button">
+                  Annuler
+                </button>
+              </div>
+            </div>
+          )}
           <div className="space-y-2">
             {years.map((year) => (
               <div key={year.id} className={`flex min-w-0 flex-col gap-2 rounded border p-3 sm:flex-row sm:items-center sm:justify-between ${year.id === selectedYear.id ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-white"}`}>
@@ -4855,7 +5164,7 @@ function MenuModule({
                 {canAdmin && (
                   <div className="flex flex-wrap gap-2">
                     <button onClick={() => activateYear(year.id)} className="rounded bg-mint px-3 py-2 text-xs font-semibold text-white" type="button">Activer</button>
-                    <button onClick={() => archiveYear(year.id)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700" type="button">Archiver</button>
+                    {year.status !== "archived" && <button onClick={() => archiveYear(year.id)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700" type="button">Archiver</button>}
                   </div>
                 )}
               </div>
@@ -4890,7 +5199,7 @@ function MenuModule({
     if (sectionId === "fees" && canAdmin) {
       return (
         <div className="grid min-w-0 gap-4">
-          <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_120px_auto]">
+          <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_120px_auto]">
             <select
               value={feeName}
               onChange={(event) => {
@@ -4907,20 +5216,26 @@ function MenuModule({
               ))}
               <option value="__add_fee__">Ajouter un frais</option>
             </select>
-            <select value={feeClassName} onChange={(event) => setFeeClassName(event.target.value as SchoolClass)} className="input">
-              {CLASSES.map((className) => (
-                <option key={className} value={className}>{className}</option>
-              ))}
-            </select>
+            <fieldset className="max-h-40 min-w-0 overflow-y-auto rounded border border-slate-200 bg-white p-2 text-sm text-slate-700 scrollbar-thin">
+              <legend className="mb-1 px-1 text-xs font-semibold text-slate-500">Classes concernées</legend>
+              <div className="grid gap-1">
+                {CLASSES.map((className) => (
+                  <label key={className} className="flex min-w-0 items-center gap-2 rounded px-2 py-1 hover:bg-slate-50">
+                    <input type="checkbox" checked={feeClassNames.includes(className)} onChange={() => toggleFeeClass(className)} className="h-4 w-4 shrink-0 accent-[#1E3A8A]" />
+                    <span className="min-w-0 break-words">{className}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
             <input value={feeAmount} onChange={(event) => setFeeAmount(event.target.value)} type="number" className="input" />
-            <button onClick={saveFee} className="primary-button" type="button"><Plus className="h-4 w-4" /> {editingFeeId ? "Enregistrer" : "Ajouter"}</button>
+            <button onClick={saveFee} disabled={feeClassNames.length === 0} className="primary-button disabled:opacity-50" type="button"><Plus className="h-4 w-4" /> {editingFeeId ? "Enregistrer" : "Ajouter"}</button>
           </div>
           {editingFeeId && (
             <button
               onClick={() => {
                 setEditingFeeId("");
                 setFeeName("Minerval");
-                setFeeClassName(CLASSES[0]);
+                setFeeClassNames([CLASSES[0]]);
                 setFeeAmount("100");
               }}
               className="secondary-button w-fit"
@@ -5287,7 +5602,6 @@ async function exportAgeHomogeneityPdf(school: School, year: SchoolYear, student
     ["2ème Humanité", 15],
     ["3ème Humanité", 16],
     ["4ème Humanité", 17],
-    ["Humanités", 17],
   ]);
   const schoolOrderByClass = new Map<SchoolClass, { section: number; level: number }>([
     ["Maternelle 1", { section: 1, level: 1 }],
@@ -5305,7 +5619,6 @@ async function exportAgeHomogeneityPdf(school: School, year: SchoolYear, student
     ["2ème Humanité", { section: 3, level: 4 }],
     ["3ème Humanité", { section: 3, level: 5 }],
     ["4ème Humanité", { section: 3, level: 6 }],
-    ["Humanités", { section: 3, level: 6 }],
   ]);
   const sortedStudents = [...students].sort((a, b) => {
     const aOrder = schoolOrderByClass.get(a.className) ?? { section: 99, level: 99 };
@@ -5454,7 +5767,7 @@ async function exportReportPdf(
 
   await renderAcadPdfPreview({
     filename: `rapport-${startDate}-${endDate}.pdf`,
-    title: "Rapport Acadéa",
+    title: "Rapport Financier",
     school,
     year,
     subtitle: `Période : ${startDate} au ${endDate}`,

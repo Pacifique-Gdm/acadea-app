@@ -638,8 +638,11 @@ function openPdfViewerShell({ filename, title }: { filename: string; title: stri
       }
       @media (max-width: 720px) {
         .acadea-pdf-viewer__toolbar { align-items: flex-start; flex-direction: column; }
-        .acadea-pdf-viewer__actions { justify-content: flex-start; }
+        .acadea-pdf-viewer__actions { width: 100%; justify-content: flex-start; }
+        .acadea-pdf-viewer__actions a,
+        .acadea-pdf-viewer__actions button { flex: 1 1 44%; text-align: center; }
         .acadea-pdf-viewer__body { padding: 8px; }
+        .acadea-pdf-viewer iframe { height: calc(100vh - 154px); }
       }
     </style>
     <div class="acadea-pdf-viewer__toolbar">
@@ -708,40 +711,42 @@ function showPdfInViewer({
   title: string;
 }) {
   const isMobile = isMobilePdfDevice();
-  let frameLoaded = false;
-
-  viewer.frame?.addEventListener(
-    "load",
-    () => {
-      frameLoaded = true;
-      if (viewer.mobileMessage && !isMobile) viewer.mobileMessage.style.display = "none";
-    },
-    { once: true },
-  );
-  viewer.frame?.setAttribute("src", url);
-  if (viewer.frame) viewer.frame.style.display = "block";
   if (viewer.loading) viewer.loading.style.display = "none";
   if (viewer.openButton) {
     viewer.openButton.href = url;
     viewer.openButton.setAttribute("aria-disabled", "false");
+    viewer.openButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      const opened = window.open(url, "_blank", "noopener,noreferrer");
+      if (!opened) window.location.href = url;
+    });
   }
   if (viewer.download) {
     viewer.download.href = url;
     viewer.download.setAttribute("aria-disabled", "false");
   }
   if (isMobile) {
+    viewer.frame?.removeAttribute("src");
+    viewer.frame?.style.setProperty("display", "none");
     if (viewer.mobileMessage) viewer.mobileMessage.style.display = "block";
-    window.setTimeout(() => {
-      if (frameLoaded) return;
-      viewer.frame?.style.setProperty("display", "none");
-      viewer.mobileMessage?.style.setProperty("display", "block");
-      window.open(url, "_blank", "noopener");
-    }, 1400);
   } else {
+    viewer.frame?.addEventListener(
+      "load",
+      () => {
+        if (viewer.mobileMessage) viewer.mobileMessage.style.display = "none";
+      },
+      { once: true },
+    );
+    viewer.frame?.setAttribute("src", url);
+    if (viewer.frame) viewer.frame.style.display = "block";
     viewer.printButton?.removeAttribute("disabled");
     viewer.zoomOut?.removeAttribute("disabled");
     viewer.zoomIn?.removeAttribute("disabled");
   }
+  viewer.overlay.addEventListener("click", (event) => {
+    if (!(event.target instanceof HTMLElement) || !event.target.closest("[data-pdf-close]")) return;
+    URL.revokeObjectURL(url);
+  });
 }
 
 function showPdfError(viewer: ReturnType<typeof openPdfViewerShell>, message: string) {

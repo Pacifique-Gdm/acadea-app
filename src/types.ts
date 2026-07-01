@@ -15,8 +15,7 @@ export type SchoolClass =
   | "1ère Humanité"
   | "2ème Humanité"
   | "3ème Humanité"
-  | "4ème Humanité"
-  | "Humanités";
+  | "4ème Humanité";
 
 export type FeeKind = "Minerval" | "Fourniture" | string;
 export type StudentStatus = "ACTIVE" | "TRANSFERRED" | "DROPPED" | "DECEASED";
@@ -216,7 +215,6 @@ export const CLASSES: SchoolClass[] = [
   "2ème Humanité",
   "3ème Humanité",
   "4ème Humanité",
-  "Humanités",
 ];
 
 export const FEE_KINDS: FeeKind[] = ["Minerval", "Fourniture"];
