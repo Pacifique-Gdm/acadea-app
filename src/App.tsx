@@ -3034,6 +3034,25 @@ function StudentsModule({
     });
   }
 
+  function reactivateStudent(id: string) {
+    const student = data.students.find((item) => item.id === id);
+    if (!student) return;
+    updateData({
+      students: data.students.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              status: "ACTIVE",
+              exitReason: undefined,
+              exitReasonDetails: undefined,
+              deletedAt: undefined,
+            }
+          : item,
+      ),
+      auditLogs: [createAuditLog(user, school.id, year.id, "Réactivation élève", `${student.matricule} - ${student.nom} ${student.prenom}`), ...data.auditLogs],
+    });
+  }
+
   async function createParentForStudent() {
     setSaveError("");
     if (!quickParent.fullName || !quickParent.phone || !quickParent.email) return;
@@ -3232,7 +3251,10 @@ function StudentsModule({
                     {canEdit ? (
                       <div className="flex gap-1">
                         {archived ? (
-                          <IconButton label="Consulter" onClick={() => onOpenStudent(student.id)} icon={Eye} />
+                          <>
+                            <IconButton label="Consulter" onClick={() => onOpenStudent(student.id)} icon={Eye} />
+                            <IconButton label="Réactiver l'élève" onClick={() => reactivateStudent(student.id)} icon={RefreshCw} />
+                          </>
                         ) : (
                           <>
                             <IconButton label="Modifier" onClick={() => openEditStudentForm(student)} icon={Edit3} />
