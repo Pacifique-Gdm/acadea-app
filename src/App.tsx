@@ -744,12 +744,16 @@ function Header({
   onRefresh: () => void;
   onToggleNotifications: () => void;
 }) {
+  const schoolLogoUrl = school.logoUrl?.trim();
+
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-white">
       <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-ink font-bold text-white">A</div>
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded bg-ink font-bold text-white">
+              {schoolLogoUrl ? <img src={schoolLogoUrl} alt="" className="h-full w-full object-cover" /> : "A"}
+            </div>
             <div className="min-w-0">
               <p className="truncate text-lg font-bold text-ink">{school.name}</p>
               <p className="text-xs text-slate-500">{roleLabels[user.role]}</p>
