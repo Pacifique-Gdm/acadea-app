@@ -1,5 +1,5 @@
 ﻿import { useCallback, useEffect, useId, useRef, useState } from "react";
-import type { ChangeEvent, ReactNode } from "react";
+import type { CSSProperties, ChangeEvent, ReactNode } from "react";
 import {
   ArrowUpDown,
   ArrowLeft,
@@ -903,7 +903,7 @@ function TransactionComboChart({
   const selectedRow = selectedDate ? rows.find((row) => row.date === selectedDate) : null;
 
   return (
-    <section className="rounded border border-slate-200 bg-slate-50/70 p-3">
+    <section className="min-w-0 max-w-full rounded border border-slate-200 bg-slate-50/70 p-3">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h3 className="text-sm font-bold text-ink">Mouvement des transactions par jour</h3>
@@ -928,8 +928,14 @@ function TransactionComboChart({
           ))}
         </div>
       </div>
-      <div className="mt-3 overflow-x-auto pb-1">
-        <svg className="min-w-full" style={{ minWidth: chartWidth }} viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label="Mouvement des paiements et dépenses par jour">
+      <div className="mt-3 max-w-full overflow-hidden pb-1 sm:overflow-x-auto">
+        <svg
+          className="block h-auto w-full max-w-full sm:min-w-[var(--transaction-chart-width)]"
+          style={{ "--transaction-chart-width": `${chartWidth}px` } as CSSProperties}
+          viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+          role="img"
+          aria-label="Mouvement des paiements et dépenses par jour"
+        >
           <rect x="0" y="0" width={chartWidth} height={chartHeight} rx="10" fill="white" />
           {ticks.map((tick) => {
             const y = yFor(tick);
