@@ -3046,9 +3046,9 @@ function ParentPortal({
                 {messageFeedback && <p className="rounded bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700">{messageFeedback}</p>}
                 <button
                   type="submit"
-                  className="inline-flex w-full items-center justify-center gap-2 rounded bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700 sm:w-auto"
+                  className="primary-button disabled:opacity-50"
                 >
-                  <Send className="h-4 w-4" /> Envoyer
+                  <MessageSquare className="h-4 w-4" /> Envoyer
                 </button>
               </form>
             </FormPanel>
