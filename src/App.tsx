@@ -2872,8 +2872,16 @@ function ParentPortal({
     const subject = messageSubject.trim();
     const body = messageBody.trim();
 
-    if (!user.parentId || !subject || !body) {
+    if (!user.parentId) {
       setMessageFeedback("Veuillez renseigner le destinataire, l'objet et le message.");
+      return;
+    }
+    if (!subject) {
+      setMessageFeedback("L'objet du message est obligatoire. Veuillez le renseigner avant l'envoi.");
+      return;
+    }
+    if (!body) {
+      setMessageFeedback("Veuillez renseigner le contenu du message.");
       return;
     }
 
