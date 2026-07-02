@@ -30,11 +30,12 @@ import {
   Settings,
   ShieldCheck,
   Trash2,
+  Upload,
   X,
   UserRound,
   UsersRound,
 } from "lucide-react";
-import { createFirebaseAuthUser, getDefaultRoute, sendPasswordReset, signIn, signOutUser, subscribeToFirebaseUser, validateParent, validatePlatformAdmin, validateSchoolStaff } from "./services/auth";
+import { createFirebaseAuthUser, getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateParent, validatePlatformAdmin, validateSchoolStaff } from "./services/auth";
 import { canUseFirestoreData, loadFirestoreData, persistFirestorePatch } from "./services/firestoreData";
 import { manageSchool, provisionCashier, provisionParent, provisionSchoolAdmin } from "./services/provisioning";
 import { escapePdfHtml, generateReceiptPdf, money, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./utils/pdf";
@@ -72,6 +73,7 @@ const roleLabels: Record<AppUser["role"], string> = {
 const appEnvironment = import.meta.env.VITE_APP_ENV ?? "development";
 const showStagingBanner = import.meta.env.VITE_STAGING_BANNER === "true" || appEnvironment === "staging" || appEnvironment === "preview";
 const stagingLabel = import.meta.env.VITE_STAGING_LABEL ?? "ENVIRONNEMENT DE TEST";
+const platformLoginLogoStorageKey = "acadea.platform.loginLogo";
 const emptyAppData: AppData = {
   users: [],
   schools: [],
@@ -104,6 +106,20 @@ function nextSchoolYearDefaults(year: SchoolYear) {
 
 function loadInitialData() {
   return emptyAppData;
+}
+
+function loadPlatformLoginLogo() {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem(platformLoginLogoStorageKey) ?? "";
+}
+
+function savePlatformLoginLogo(value: string) {
+  if (typeof window === "undefined") return;
+  if (value) {
+    window.localStorage.setItem(platformLoginLogoStorageKey, value);
+  } else {
+    window.localStorage.removeItem(platformLoginLogoStorageKey);
+  }
 }
 
 function getInitialRoute() {
@@ -529,6 +545,7 @@ function LoginScreen({ onLogin, initialError }: { onLogin: (email: string, passw
   const [error, setError] = useState(initialError ?? "");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [platformLogoUrl] = useState(loadPlatformLoginLogo);
 
   useEffect(() => {
     setError(initialError ?? "");
@@ -537,15 +554,15 @@ function LoginScreen({ onLogin, initialError }: { onLogin: (email: string, passw
   function formatLoginError(loginError: unknown) {
     const message = loginError instanceof Error ? loginError.message : String(loginError);
     if (message.includes("auth/invalid-credential") || message.includes("auth/user-not-found") || message.includes("auth/wrong-password")) {
-      return "Identifiants Firebase invalides. Vérifiez l'email et le mot de passe.";
+      return "Email ou mot de passe incorrect.";
     }
     if (message.includes("auth/too-many-requests")) {
-      return "Trop de tentatives de connexion. Réessayez plus tard ou réinitialisez le mot de passe.";
+      return "Trop de tentatives de connexion. Réessayez plus tard.";
     }
     if (message.includes("auth/network-request-failed")) {
-      return "Connexion Firebase impossible : vérifiez votre connexion internet.";
+      return "Connexion impossible. Vérifiez votre connexion internet.";
     }
-    return loginError instanceof Error ? loginError.message : "Connexion refusée.";
+    return "Email ou mot de passe incorrect.";
   }
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -562,24 +579,6 @@ function LoginScreen({ onLogin, initialError }: { onLogin: (email: string, passw
     }
   }
 
-  async function requestPasswordReset() {
-    setError("");
-    if (!email.trim()) {
-      setError("Renseignez votre email avant de demander la réinitialisation.");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      await sendPasswordReset(email.trim());
-      setError("Un email de réinitialisation Firebase a été envoyé si ce compte existe.");
-    } catch (resetError) {
-      setError(resetError instanceof Error ? resetError.message : "Réinitialisation du mot de passe impossible.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
   return (
     <main className="flex h-dvh w-full flex-col items-center justify-center overflow-hidden bg-[#F5F7FB] px-3 py-2 sm:px-6 sm:py-4">
       <EnvironmentBanner />
@@ -590,17 +589,13 @@ function LoginScreen({ onLogin, initialError }: { onLogin: (email: string, passw
         }
       `}</style>
       <section className="w-full max-w-[460px] overflow-hidden rounded-[22px] border border-white/80 bg-white p-3 shadow-[0_24px_80px_rgba(15,23,42,0.10)] [animation:loginCardIn_520ms_ease-out] sm:rounded-[24px] sm:p-6">
-        <div className="text-center">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center overflow-hidden rounded-[18px] bg-ink text-xl font-bold text-white shadow-[0_14px_30px_rgba(20,33,61,0.22)] sm:h-16 sm:w-16 sm:rounded-[22px] sm:text-2xl">
-            A
-          </div>
-          <h1 className="mt-2 break-words text-2xl font-bold tracking-normal text-ink sm:mt-4 sm:text-3xl">Acadéa</h1>
-          <p className="mt-1 break-words text-xs font-medium text-slate-500 sm:mt-2 sm:text-sm">Gestion scolaire sécurisée par école</p>
+        <div className="mx-auto flex h-16 w-36 items-center justify-center overflow-hidden rounded-2xl border border-dashed border-slate-200 bg-[#F8FAFC] sm:h-20 sm:w-44" aria-hidden={!platformLogoUrl}>
+          {platformLogoUrl && <img src={platformLogoUrl} alt="Logo de l'application" className="h-full w-full object-contain p-2" />}
         </div>
 
-        <div className="mt-4 text-center sm:mt-6">
+        <div className="mt-5 text-center sm:mt-7">
           <h2 className="text-xl font-bold text-ink sm:text-2xl">Connexion</h2>
-          <p className="mt-1 text-xs text-slate-500 sm:mt-2 sm:text-sm">Entrez vos identifiants pour continuer</p>
+          <p className="mt-1 text-xs text-slate-500 sm:mt-2 sm:text-sm">Accédez à votre espace sécurisé</p>
         </div>
 
         <form onSubmit={submit} className="mt-4 grid min-w-0 gap-3 sm:mt-6 sm:gap-4">
@@ -612,6 +607,7 @@ function LoginScreen({ onLogin, initialError }: { onLogin: (email: string, passw
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 type="email"
+                required
                 className="min-w-0 flex-1 bg-transparent text-base text-ink outline-none placeholder:text-slate-400"
                 placeholder="email@ecole.com"
               />
@@ -626,6 +622,7 @@ function LoginScreen({ onLogin, initialError }: { onLogin: (email: string, passw
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 type={showPassword ? "text" : "password"}
+                required
                 className="min-w-0 flex-1 bg-transparent text-base text-ink outline-none placeholder:text-slate-400"
                 placeholder="Votre mot de passe"
               />
@@ -648,23 +645,11 @@ function LoginScreen({ onLogin, initialError }: { onLogin: (email: string, passw
           >
             {loading ? "Connexion..." : "Se connecter"}
           </button>
-          <button
-            type="button"
-            disabled={loading}
-            onClick={requestPasswordReset}
-            className="text-sm font-semibold text-slate-600 transition hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            Mot de passe oublié
-          </button>
         </form>
 
         <div className="mt-3 flex items-center justify-center gap-2 text-sm font-medium text-slate-500 sm:mt-5">
           <ShieldCheck className="h-4 w-4 text-mint" />
           Espace sécurisé
-        </div>
-
-        <div className="mt-3 break-words rounded-2xl border border-slate-200 bg-[#F8FAFC] p-2 text-center text-xs leading-5 text-slate-500 sm:mt-5 sm:p-3">
-          Connexion gérée par Firebase Authentication.
         </div>
       </section>
     </main>
@@ -1141,10 +1126,9 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
     data.feeTypes.reduce<Map<string, { name: string; expected: number; paid: number }>>((items, fee) => {
       const key = fee.name.trim().toLowerCase();
       const applicableStudentIds = new Set(activeStudents.filter((student) => !fee.className || fee.className === student.className).map((student) => student.id));
-      const expected = applicableStudentIds.size * fee.amount;
-      const paid = data.payments
-        .filter((payment) => payment.feeTypeId === fee.id && applicableStudentIds.has(payment.studentId))
-        .reduce((sum, payment) => sum + payment.amount, 0);
+      const feePayments = data.payments.filter((payment) => payment.feeTypeId === fee.id && applicableStudentIds.has(payment.studentId));
+      const expected = new Set(feePayments.map((payment) => payment.studentId)).size * fee.amount;
+      const paid = feePayments.reduce((sum, payment) => sum + payment.amount, 0);
       const current = items.get(key) ?? { name: fee.name, expected: 0, paid: 0 };
       items.set(key, { ...current, expected: current.expected + expected, paid: current.paid + paid });
       return items;
@@ -1201,7 +1185,7 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
             occurredAt: payment.createdAt ?? payment.paidAt,
             status: payment.receiptNumber ? `Reçu ${payment.receiptNumber}` : undefined,
             studentName: student ? `${student.nom} ${student.postnom} ${student.prenom}`.trim() : undefined,
-            className: student?.className,
+            className: student ? formatStudentClassName(student) : undefined,
             feeName: fee?.name,
             agentName: payment.cashierName,
           };
@@ -1519,6 +1503,8 @@ function PlatformModule({
   const [provisioningLoading, setProvisioningLoading] = useState(false);
   const [schoolActionError, setSchoolActionError] = useState("");
   const [schoolActionSuccess, setSchoolActionSuccess] = useState("");
+  const [platformLogoDraft, setPlatformLogoDraft] = useState(loadPlatformLoginLogo);
+  const [platformLogoMessage, setPlatformLogoMessage] = useState("");
 
   const visibleSchools = data.schools.filter((school) => String(school.status) !== "deleted");
   const totalRevenue = visibleSchools.reduce((sum, school) => sum + school.subscriptionAmount, 0);
@@ -1694,6 +1680,11 @@ function PlatformModule({
     }
   }
 
+  function savePlatformLogo() {
+    savePlatformLoginLogo(platformLogoDraft);
+    setPlatformLogoMessage(platformLogoDraft ? "Logo de l'application enregistré avec succès." : "Logo de l'application supprimé.");
+  }
+
   function openCreateAdminModal() {
     setEditingAdminId(null);
     setAdminName("");
@@ -1823,23 +1814,43 @@ function PlatformModule({
 
           {platformView === "overview" && (
             <section className="grid min-w-0 gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
-              <FormPanel title="Créer une école">
-                <Field label="Nom de l'école" value={schoolName} onChange={setSchoolName} />
-                <Field label="Email admin école" value={adminEmail} onChange={setAdminEmail} type="email" />
-                <PasswordField label="Mot de passe admin" value={adminPassword} onChange={setAdminPassword} />
-                <label className="grid gap-1 text-sm font-medium text-slate-700">
-                  Abonnement
-                  <select value={subscriptionPlan} onChange={(event) => setSubscriptionPlan(event.target.value as School["subscriptionPlan"])} className="input">
-                    <option value="Starter">Starter</option>
-                    <option value="Standard">Standard</option>
-                    <option value="Premium">Premium</option>
-                  </select>
-                </label>
-                {provisioningError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{provisioningError}</p>}
-                <button onClick={createSchool} disabled={provisioningLoading} className="primary-button disabled:cursor-not-allowed disabled:opacity-60">
-                  <Plus className="h-4 w-4" /> {provisioningLoading ? "Création..." : "Créer"}
-                </button>
-              </FormPanel>
+              <div className="grid min-w-0 gap-4">
+                <FormPanel title="Logo de l'application">
+                  <ImageUploadField
+                    label="Logo affiché sur l'écran de connexion"
+                    value={platformLogoDraft}
+                    onChange={(value) => {
+                      setPlatformLogoDraft(value);
+                      setPlatformLogoMessage("");
+                    }}
+                    maxWidth={700}
+                    maxBytes={250 * 1024}
+                    acceptSvg
+                  />
+                  {platformLogoMessage && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{platformLogoMessage}</p>}
+                  <button onClick={savePlatformLogo} className="primary-button justify-center" type="button">
+                    <CheckCircle2 className="h-4 w-4" /> Enregistrer le logo
+                  </button>
+                </FormPanel>
+
+                <FormPanel title="Créer une école">
+                  <Field label="Nom de l'école" value={schoolName} onChange={setSchoolName} />
+                  <Field label="Email admin école" value={adminEmail} onChange={setAdminEmail} type="email" />
+                  <PasswordField label="Mot de passe admin" value={adminPassword} onChange={setAdminPassword} />
+                  <label className="grid gap-1 text-sm font-medium text-slate-700">
+                    Abonnement
+                    <select value={subscriptionPlan} onChange={(event) => setSubscriptionPlan(event.target.value as School["subscriptionPlan"])} className="input">
+                      <option value="Starter">Starter</option>
+                      <option value="Standard">Standard</option>
+                      <option value="Premium">Premium</option>
+                    </select>
+                  </label>
+                  {provisioningError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{provisioningError}</p>}
+                  <button onClick={createSchool} disabled={provisioningLoading} className="primary-button disabled:cursor-not-allowed disabled:opacity-60">
+                    <Plus className="h-4 w-4" /> {provisioningLoading ? "Création..." : "Créer"}
+                  </button>
+                </FormPanel>
+              </div>
 
               <section className="grid min-w-0 gap-4">
                 <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
@@ -2962,7 +2973,7 @@ function ParentPortal({
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
                           <h2 className="break-words text-xl font-bold text-ink">{student.nom} {student.postnom} {student.prenom}</h2>
-                          <p className="break-words text-sm text-slate-500">{student.className} | {year.name}</p>
+                          <p className="break-words text-sm text-slate-500">{formatStudentClassName(student)} | {year.name}</p>
                         </div>
                         <span className="shrink-0 rounded bg-mint/10 px-2 py-1 text-xs font-semibold text-mint">{progress}% payé</span>
                       </div>
@@ -3163,10 +3174,21 @@ function StudentsModule({
   const [saveError, setSaveError] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [reactivationStudentId, setReactivationStudentId] = useState<string | null>(null);
+  const [reactivationReason, setReactivationReason] = useState("");
+  const [reactivationError, setReactivationError] = useState("");
+  const [importStudentsOpen, setImportStudentsOpen] = useState(false);
+  const [importSourceYearId, setImportSourceYearId] = useState("");
+  const [importResult, setImportResult] = useState("");
   const canEdit = user.role === "school_admin" && year.status !== "archived";
   const studentClassChoices = CLASSES;
   const availableClasses = studentClassChoices.filter((className) => sectionFilter === "all" || getClassSection(className) === sectionFilter);
   const optionChoices = Array.from(new Set([...schoolOptions, ...yearData.students.map((student) => student.option).filter(Boolean)])) as string[];
+  const archivedYearsForImport = data.schoolYears.filter((item) => item.schoolId === school.id && item.status === "archived");
+  const selectedImportYear = archivedYearsForImport.find((item) => item.id === importSourceYearId);
+  const selectedImportStudents = importSourceYearId
+    ? data.students.filter((student) => student.schoolId === school.id && student.schoolYearId === importSourceYearId)
+    : [];
 
   const students = yearData.students.filter((student) => {
     const text = `${student.matricule} ${student.nom} ${student.postnom} ${student.prenom}`.toLowerCase();
@@ -3179,6 +3201,7 @@ function StudentsModule({
       (!optionFilter || student.option === optionFilter)
     );
   });
+  const reactivationStudent = reactivationStudentId ? data.students.find((student) => student.id === reactivationStudentId) : undefined;
 
   function saveStudent() {
     setSaveError("");
@@ -3256,23 +3279,43 @@ function StudentsModule({
     });
   }
 
-  function reactivateStudent(id: string) {
+  function openReactivateStudentDialog(id: string) {
+    setReactivationStudentId(id);
+    setReactivationReason("");
+    setReactivationError("");
+  }
+
+  function closeReactivateStudentDialog() {
+    setReactivationStudentId(null);
+    setReactivationReason("");
+    setReactivationError("");
+  }
+
+  function reactivateStudent() {
+    const id = reactivationStudentId;
+    const reason = reactivationReason.trim();
+    if (!id) return;
+    if (!reason) {
+      setReactivationError("Le motif de réactivation est obligatoire.");
+      return;
+    }
     const student = data.students.find((item) => item.id === id);
     if (!student) return;
     updateData({
       students: data.students.map((item) =>
         item.id === id
-          ? {
-              ...item,
-              status: "ACTIVE",
-              exitReason: undefined,
-              exitReasonDetails: undefined,
-              deletedAt: undefined,
-            }
+          ? (() => {
+              const activeStudent = { ...item, status: "ACTIVE" as const };
+              delete activeStudent.exitReason;
+              delete activeStudent.exitReasonDetails;
+              delete activeStudent.deletedAt;
+              return activeStudent;
+            })()
           : item,
       ),
-      auditLogs: [createAuditLog(user, school.id, year.id, "Réactivation élève", `${student.matricule} - ${student.nom} ${student.prenom}`), ...data.auditLogs],
+      auditLogs: [createAuditLog(user, school.id, year.id, "Réactivation élève", `${student.matricule} - ${student.nom} ${student.prenom} - ${reason}`), ...data.auditLogs],
     });
+    closeReactivateStudentDialog();
   }
 
   async function createParentForStudent() {
@@ -3367,6 +3410,69 @@ function StudentsModule({
     exportAgeHomogeneityPdf(school, year, students);
   }
 
+  function openImportStudentsDrawer() {
+    setImportSourceYearId(archivedYearsForImport[0]?.id ?? "");
+    setImportResult("");
+    setImportStudentsOpen(true);
+  }
+
+  function closeImportStudentsDrawer() {
+    setImportStudentsOpen(false);
+    setImportSourceYearId("");
+    setImportResult("");
+  }
+
+  function importStudentsFromArchivedYear() {
+    if (!selectedImportYear) return;
+    const currentStudents = data.students.filter((student) => student.schoolId === school.id && student.schoolYearId === year.id);
+    const existingKeys = new Set(currentStudents.map((student) => studentImportKey(student)));
+    let skipped = 0;
+    const importedStudents: Student[] = [];
+
+    selectedImportStudents.forEach((student) => {
+      const key = studentImportKey(student);
+      if (existingKeys.has(key)) {
+        skipped += 1;
+        return;
+      }
+      existingKeys.add(key);
+      const importedStudent: Student = {
+        ...student,
+        id: uid("student"),
+        schoolYearId: year.id,
+        annee_scolaire_id: year.id,
+        status: "ACTIVE",
+      };
+      delete importedStudent.exitReason;
+      delete importedStudent.exitReasonDetails;
+      delete importedStudent.deletedAt;
+      importedStudents.push(importedStudent);
+    });
+
+    const importedStudentIdsByParent = new Map<string, string[]>();
+    importedStudents.forEach((student) => {
+      if (!student.parentId) return;
+      importedStudentIdsByParent.set(student.parentId, [...(importedStudentIdsByParent.get(student.parentId) ?? []), student.id]);
+    });
+    const nextParents = data.parents.map((parent) => {
+      const studentIds = importedStudentIdsByParent.get(parent.id);
+      if (!studentIds?.length) return parent;
+      return { ...parent, studentIds: Array.from(new Set([...parent.studentIds, ...studentIds])) };
+    });
+    const nextUsers = data.users.map((item) => {
+      const studentIds = item.parentId ? importedStudentIdsByParent.get(item.parentId) : undefined;
+      if (!studentIds?.length) return item;
+      return { ...item, studentIds: Array.from(new Set([...(item.studentIds ?? []), ...studentIds])) };
+    });
+
+    updateData({
+      students: [...data.students, ...importedStudents],
+      parents: nextParents,
+      users: nextUsers,
+    });
+    setImportResult(`${importedStudents.length} élève(s) importé(s). ${skipped} élève(s) ignoré(s) pour doublon.`);
+  }
+
   return (
     <section className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
       <div className="min-w-0">
@@ -3377,6 +3483,11 @@ function StudentsModule({
           {canEdit && (
             <button onClick={openAddStudentForm} type="button" className="primary-button w-full justify-center sm:w-auto">
               <Plus className="h-4 w-4" /> Ajouter un élève
+            </button>
+          )}
+          {canEdit && (
+            <button onClick={openImportStudentsDrawer} type="button" className="secondary-button w-full justify-center sm:w-auto">
+              <Upload className="h-4 w-4" /> Importer les élèves d'une année archivée
             </button>
           )}
           <button onClick={printAgeHomogeneityPdf} type="button" className="primary-button w-full justify-center sm:w-auto">
@@ -3452,21 +3563,25 @@ function StudentsModule({
                     </button>
                   </td>
                   <td className="px-3 py-3">
-                    <span className={`rounded px-2 py-1 text-xs font-semibold ${archived ? "bg-slate-200 text-slate-700" : "bg-mint/10 text-mint"}`}>
-                      {archived ? "Archivé" : "Actif"}
-                    </span>
+                    {archived ? (
+                      <span className="inline-block max-w-[260px] break-words text-xs font-semibold text-ink">
+                        {student.exitReasonDetails ?? student.exitReason ?? "Motif non renseigné"}
+                      </span>
+                    ) : (
+                      <span className="rounded bg-mint/10 px-2 py-1 text-xs font-semibold text-mint">Actif</span>
+                    )}
                   </td>
                   <td className="px-3 py-3">{student.sexe}</td>
-                  <td className="px-3 py-3">{student.className}</td>
+                  <td className="px-3 py-3">{formatStudentClassName(student)}</td>
                   <td className="px-3 py-3">{student.phone}</td>
                   <td className="px-3 py-3">
                     {archived ? (
                       <div className="max-w-[260px] text-xs text-slate-600">
-                        <p className="break-words font-semibold text-ink">{student.exitReasonDetails ?? student.exitReason ?? "Motif non renseigné"}</p>
+                        <p className="inline-flex rounded bg-slate-200 px-2 py-1 font-semibold text-slate-700">Archivé</p>
                         <p className="mt-1 text-slate-500">{formatArchiveDate(student.deletedAt)}</p>
                       </div>
                     ) : (
-                      <span className="text-xs text-slate-400">-</span>
+                      <span className="rounded bg-mint/10 px-2 py-1 text-xs font-semibold text-mint">Actif</span>
                     )}
                   </td>
                   <td className="px-3 py-3">
@@ -3475,7 +3590,7 @@ function StudentsModule({
                         {archived ? (
                           <>
                             <IconButton label="Consulter" onClick={() => onOpenStudent(student.id)} icon={Eye} />
-                            <IconButton label="Réactiver l'élève" onClick={() => reactivateStudent(student.id)} icon={RefreshCw} />
+                            <IconButton label="Réactiver l'élève" onClick={() => openReactivateStudentDialog(student.id)} icon={RefreshCw} />
                           </>
                         ) : (
                           <>
@@ -3510,6 +3625,76 @@ function StudentsModule({
             onSave={saveStudent}
             onReset={() => setForm(emptyStudent(school.id, year.id))}
           />
+        </AdminDrawer>
+      )}
+      {canEdit && reactivationStudent && (
+        <AdminDrawer title="Réactiver l'élève" onClose={closeReactivateStudentDialog} closeLabel="Fermer la réactivation">
+          <div className="grid min-w-0 gap-4">
+            <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <p className="font-bold">
+                {reactivationStudent.nom} {reactivationStudent.postnom} {reactivationStudent.prenom}
+              </p>
+              <p className="mt-1">La réactivation nécessite un motif obligatoire et sera enregistrée dans l'historique.</p>
+            </div>
+            {reactivationError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{reactivationError}</p>}
+            <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+              Motif de réactivation
+              <input
+                value={reactivationReason}
+                onChange={(event) => {
+                  setReactivationReason(event.target.value);
+                  setReactivationError("");
+                }}
+                list="reactivation-reasons"
+                className="min-w-0 rounded border border-slate-200 px-3 py-2 text-sm"
+                placeholder="Ex. Retour à l'école"
+              />
+            </label>
+            <datalist id="reactivation-reasons">
+              <option value="Retour à l'école" />
+              <option value="Erreur d'archivage" />
+              <option value="Réinscription" />
+              <option value="Retour après suspension" />
+              <option value="Retour après mutation annulée" />
+              <option value="Autre" />
+            </datalist>
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button type="button" onClick={closeReactivateStudentDialog} className="secondary-button justify-center">
+                Annuler
+              </button>
+              <button type="button" onClick={reactivateStudent} disabled={!reactivationReason.trim()} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50">
+                Réactiver
+              </button>
+            </div>
+          </div>
+        </AdminDrawer>
+      )}
+      {canEdit && importStudentsOpen && (
+        <AdminDrawer title="Importer les élèves" onClose={closeImportStudentsDrawer} closeLabel="Fermer l'import des élèves">
+          <div className="grid min-w-0 gap-4">
+            <p className="rounded border border-blue-100 bg-blue-50 p-3 text-sm font-semibold text-blue-800">
+              Seules les fiches élèves seront importées dans l'année active. Les paiements, reçus, présences, notes, messages, historiques et autres données opérationnelles ne seront pas copiés.
+            </p>
+            {archivedYearsForImport.length === 0 ? (
+              <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucune année archivée disponible pour l'import.</p>
+            ) : (
+              <>
+                <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+                  Année archivée
+                  <select value={importSourceYearId} onChange={(event) => setImportSourceYearId(event.target.value)} className="input">
+                    {archivedYearsForImport.map((archivedYear) => (
+                      <option key={archivedYear.id} value={archivedYear.id}>{archivedYear.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <Metric label="Élèves disponibles" value={String(selectedImportStudents.length)} />
+                {importResult && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{importResult}</p>}
+                <button type="button" onClick={importStudentsFromArchivedYear} disabled={!selectedImportYear || selectedImportStudents.length === 0} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50">
+                  <Upload className="h-4 w-4" /> Importer tous les élèves
+                </button>
+              </>
+            )}
+          </div>
         </AdminDrawer>
       )}
     </section>
@@ -3559,9 +3744,9 @@ function StudentDetailPage({
           </div>
           <div className="min-w-0">
             <h1 className="break-words text-2xl font-bold text-ink">{student.nom} {student.postnom} {student.prenom}</h1>
-            <p className="break-words text-sm text-slate-500">{student.matricule} | {student.className} | {year.name}</p>
+            <p className="break-words text-sm text-slate-500">{student.matricule} | {formatStudentClassName(student)} | {year.name}</p>
             <div className="mt-2 flex flex-wrap gap-2">
-              <span className="rounded bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">{student.className}</span>
+              <span className="rounded bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">{formatStudentClassName(student)}</span>
               <span className={`rounded px-2 py-1 text-xs font-semibold ${archived ? "bg-slate-200 text-slate-700" : "bg-mint/10 text-mint"}`}>
                 {archived ? "Archivé" : "Actif"}
               </span>
@@ -3884,12 +4069,14 @@ function ControlModule({
   const [expenseAmount, setExpenseAmount] = useState("");
   const [expenseCategory, setExpenseCategory] = useState("Fournitures");
   const [expenseDescription, setExpenseDescription] = useState("");
+  const [expenseError, setExpenseError] = useState("");
   const [amountComparator, setAmountComparator] = useState<"all" | ">=" | "<">("all");
   const [amountThreshold, setAmountThreshold] = useState("");
   const [paymentError, setPaymentError] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [warningOpen, setWarningOpen] = useState(false);
   const [cashierControlDrawer, setCashierControlDrawer] = useState<"payment" | "expense" | "history" | "warning" | null>(null);
+  const [cashierControlFeedback, setCashierControlFeedback] = useState("");
   const [historyQuery, setHistoryQuery] = useState("");
   const [selectedHistoryStudentId, setSelectedHistoryStudentId] = useState("");
   const feeNameChoices = Array.from(new Set(yearData.feeTypes.map((fee) => fee.name)));
@@ -3917,6 +4104,7 @@ function ControlModule({
     : 0;
   const selectedPaymentFeeRemaining = selectedPaymentFee ? Math.max(selectedPaymentFee.amount - selectedPaymentFeePaid, 0) : 0;
   const isPaymentEntryDisabled = !selectedPaymentFee || selectedPaymentFeeRemaining <= 0;
+  const isOtherExpenseCategory = expenseCategory === "Autre" || expenseCategory === "Autres";
   const selectedHistoryStudent = yearData.students.find((student) => student.id === selectedHistoryStudentId);
   const paymentStudentSearch = paymentStudentQuery.trim().toLowerCase();
   const paymentStudentResults = paymentStudentSearch
@@ -3998,6 +4186,7 @@ function ControlModule({
   }
 
   function savePayment() {
+    setCashierControlFeedback("");
     if (isArchivedContext) {
       setPaymentError("Cette année scolaire est archivée en lecture seule.");
       return;
@@ -4054,18 +4243,28 @@ function ControlModule({
       auditLogs: [createAuditLog(user, school.id, year.id, "Création paiement", `${payment.receiptNumber} - $${payment.amount}`), ...data.auditLogs],
     });
     setAmount("");
+    if (user.role === "cashier") {
+      setCashierControlDrawer(null);
+      setCashierControlFeedback("Paiement enregistré avec succès.");
+    }
   }
 
   function saveExpense() {
+    setCashierControlFeedback("");
+    setExpenseError("");
     if (isArchivedContext) return;
-    if (!expenseAmount || !expenseDescription) return;
+    if (!expenseAmount) return;
+    if (isOtherExpenseCategory && !expenseDescription.trim()) {
+      setExpenseError("Veuillez préciser la nature de cette dépense.");
+      return;
+    }
     const expense: Expense = {
       id: uid("expense"),
       schoolId: school.id,
       schoolYearId: year.id,
       amount: Number(expenseAmount),
       category: expenseCategory,
-      description: expenseDescription,
+      description: isOtherExpenseCategory ? expenseDescription.trim() : expenseCategory,
       spentAt: new Date().toISOString().slice(0, 10),
       createdAt: new Date().toISOString(),
       cashierName: user.name,
@@ -4076,6 +4275,10 @@ function ControlModule({
     });
     setExpenseAmount("");
     setExpenseDescription("");
+    if (user.role === "cashier") {
+      setCashierControlDrawer(null);
+      setCashierControlFeedback("Dépense enregistrée avec succès.");
+    }
   }
 
   function sendPaymentWarnings() {
@@ -4266,7 +4469,7 @@ function ControlModule({
     const studentPaymentColumns: PdfTableColumn<(typeof rows)[number]>[] = [
       { header: "Nom de l'élève", render: ({ student }) => `${student.nom} ${student.postnom} ${student.prenom}`.trim() },
       { header: "Matricule", render: ({ student }) => student.matricule },
-      { header: "Classe", render: ({ student }) => student.className },
+      { header: "Classe", render: ({ student }) => formatStudentClassName(student) },
       { header: "Montant prévu", render: ({ balance }) => formatMoney(balance.expected), align: "right" },
       { header: "Montant payé", render: ({ balance }) => formatMoney(balance.paid), align: "right" },
       { header: "Solde restant", render: ({ balance }) => formatMoney(balance.remaining), align: "right" },
@@ -4307,7 +4510,7 @@ function ControlModule({
           pdfInfoGrid([
             { label: "Nom complet", value: studentFullName(selectedHistoryStudent) },
             { label: "Matricule", value: selectedHistoryStudent.matricule },
-            { label: "Classe", value: selectedHistoryStudent.className },
+            { label: "Classe", value: formatStudentClassName(selectedHistoryStudent) },
             { label: "Total payé", value: formatMoney(selectedHistoryBalance.paid) },
             { label: "Total restant", value: formatMoney(selectedHistoryBalance.remaining) },
           ]),
@@ -4355,7 +4558,7 @@ function ControlModule({
               <p className="text-sm font-semibold uppercase text-mint">Historique individuel</p>
               <h1 className="break-words text-2xl font-bold text-ink">{studentFullName(selectedHistoryStudent)}</h1>
               <p className="break-words text-sm text-slate-500">
-                {selectedHistoryStudent.matricule} | {selectedHistoryStudent.className}
+                {selectedHistoryStudent.matricule} | {formatStudentClassName(selectedHistoryStudent)}
               </p>
             </div>
           </div>
@@ -4427,10 +4630,10 @@ function ControlModule({
           </button>
           {canPay && user.role === "cashier" && (
             <>
-              <button onClick={() => setCashierControlDrawer("payment")} className="secondary-button w-full justify-center lg:w-auto" type="button">
+              <button onClick={() => { setCashierControlFeedback(""); setCashierControlDrawer("payment"); }} className="primary-button w-full justify-center sm:w-auto" type="button">
                 Enregistrer un paiement
               </button>
-              <button onClick={() => setCashierControlDrawer("expense")} className="secondary-button w-full justify-center lg:w-auto" type="button">
+              <button onClick={() => { setCashierControlFeedback(""); setCashierControlDrawer("expense"); }} className="primary-button w-full justify-center sm:w-auto" type="button">
                 Enregistrer une dépense
               </button>
             </>
@@ -4442,6 +4645,9 @@ function ControlModule({
             Avertissement
           </button>
         </div>
+        {cashierControlFeedback && user.role === "cashier" && (
+          <p className="mb-3 rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{cashierControlFeedback}</p>
+        )}
         <div className="grid min-w-0 gap-3">
           {rows.map(({ student, balance }) => (
             <article key={student.id} className="min-w-0 rounded border border-slate-200 bg-white p-4">
@@ -4454,7 +4660,7 @@ function ControlModule({
                   >
                     {student.nom} {student.prenom}
                   </button>
-                  <p className="break-words text-sm text-slate-500">{student.matricule} | {student.className}</p>
+                  <p className="break-words text-sm text-slate-500">{student.matricule} | {formatStudentClassName(student)}</p>
                 </div>
                 <span className={`shrink-0 rounded px-2 py-1 text-xs font-semibold ${isStudentPaymentComplete(balance) ? "bg-mint/10 text-mint" : "bg-amber-100 text-amber-700"}`}>
                   {isStudentPaymentComplete(balance) ? "En ordre" : "Non en ordre"}
@@ -4541,7 +4747,7 @@ function ControlModule({
                         type="button"
                       >
                         <p className="break-words font-semibold text-ink">{student.nom} {student.postnom} {student.prenom}</p>
-                        <p className="text-xs text-slate-500">{student.matricule} | {student.className}</p>
+                        <p className="text-xs text-slate-500">{student.matricule} | {formatStudentClassName(student)}</p>
                       </button>
                     ))}
                   </div>
@@ -4569,15 +4775,38 @@ function ControlModule({
           )}
           {cashierControlDrawer === "expense" && (
             <>
-              <select value={expenseCategory} onChange={(event) => setExpenseCategory(event.target.value)} className="input">
+              <select
+                value={expenseCategory}
+                onChange={(event) => {
+                  const nextCategory = event.target.value;
+                  setExpenseCategory(nextCategory);
+                  setExpenseError("");
+                  if (nextCategory !== "Autre" && nextCategory !== "Autres") setExpenseDescription("");
+                }}
+                className="input"
+              >
                 <option>Fournitures</option>
                 <option>Transport</option>
                 <option>Salaire</option>
                 <option>Maintenance</option>
-                <option>Autres</option>
+                <option>Autre</option>
               </select>
               <input value={expenseAmount} onChange={(event) => setExpenseAmount(event.target.value)} type="number" min="0" className="input" placeholder="Montant" />
-              <textarea value={expenseDescription} onChange={(event) => setExpenseDescription(event.target.value)} className="input min-h-24" placeholder="Description" />
+              {isOtherExpenseCategory && (
+                <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+                  Préciser la dépense
+                  <textarea
+                    value={expenseDescription}
+                    onChange={(event) => {
+                      setExpenseDescription(event.target.value);
+                      setExpenseError("");
+                    }}
+                    className="input min-h-24"
+                    placeholder="Ex. Réparation de la toiture"
+                  />
+                </label>
+              )}
+              {expenseError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{expenseError}</p>}
               <button onClick={saveExpense} className="primary-button justify-center" type="button"><Plus className="h-4 w-4" /> Enregistrer</button>
             </>
           )}
@@ -4677,7 +4906,7 @@ function ReportsModule({
   const expenses = yearData.expenses.filter((expense) => expense.spentAt >= startDate && expense.spentAt <= endDate);
   const paid = payments.reduce((sum, payment) => sum + payment.amount, 0);
   const spent = expenses.reduce((sum, expense) => sum + expense.amount, 0);
-  const expected = yearData.students.length * yearData.feeTypes.reduce((sum, fee) => sum + fee.amount, 0);
+  const expected = buildStats(yearData.students, yearData.parents, yearData.feeTypes, payments).expected;
   const recovery = expected > 0 ? Math.round((paid / expected) * 100) : 0;
 
   return (
@@ -4985,33 +5214,12 @@ function MenuModule({
       return;
     }
 
-    const previousActiveYear = years.find((year) => year.status === "active") ?? selectedYear;
     const newYearId = uid("year");
-    const previousStudents = data.students.filter((student) => student.schoolId === school.id && student.schoolYearId === previousActiveYear.id);
-    const studentIdMap = new Map(previousStudents.map((student) => [student.id, uid("student")]));
-    const nextStudents = previousStudents.map((student) => ({
-      ...student,
-      id: studentIdMap.get(student.id) ?? uid("student"),
-      schoolYearId: newYearId,
-      annee_scolaire_id: newYearId,
-    }));
-    const nextStudentIdsByParent = new Map<string, string[]>();
-    nextStudents.forEach((student) => {
-      if (!student.parentId) return;
-      nextStudentIdsByParent.set(student.parentId, [...(nextStudentIdsByParent.get(student.parentId) ?? []), student.id]);
-    });
-    const nextParents = data.parents.map((parent) => {
-      const nextStudentIds = nextStudentIdsByParent.get(parent.id);
-      if (!nextStudentIds?.length) return parent;
-      return { ...parent, studentIds: Array.from(new Set([...parent.studentIds, ...nextStudentIds])) };
-    });
     const nextUsers = data.users.map((item) => {
       if (item.schoolId !== school.id) return item;
-      const nextStudentIds = item.parentId ? nextStudentIdsByParent.get(item.parentId) ?? [] : [];
       return {
         ...item,
         activeSchoolYearId: newYearId,
-        studentIds: nextStudentIds.length ? Array.from(new Set([...(item.studentIds ?? []), ...nextStudentIds])) : item.studentIds,
       };
     });
     const nextYear: SchoolYear = {
@@ -5031,8 +5239,6 @@ function MenuModule({
         ),
         nextYear,
       ],
-      students: [...data.students, ...nextStudents],
-      parents: nextParents,
       users: nextUsers,
     });
     onYearChange(newYearId);
@@ -5541,6 +5747,19 @@ function getClassSection(className: SchoolClass): SchoolSection {
   return "primaire";
 }
 
+function formatStudentClassName(student: Pick<Student, "className" | "option">) {
+  if (getClassSection(student.className) !== "secondaire") return student.className;
+  const option = student.option?.trim();
+  if (!option) return student.className;
+  const classLabel = student.className.replace(/\s+Humanit[ée]s?$/i, "").trim();
+  return `${classLabel || student.className} ${option}`;
+}
+
+function studentImportKey(student: Student) {
+  const identity = [student.nom, student.postnom, student.prenom, student.birthDate].map((value) => value.trim().toLowerCase()).join("|");
+  return student.matricule?.trim().toLowerCase() || identity;
+}
+
 function generateMatricule(students: Student[], yearName: string, schoolId: string, schoolYearId: string) {
   const year = yearName.slice(2, 4);
   const count = students.filter((student) => student.schoolId === schoolId && student.schoolYearId === schoolYearId).length + 1;
@@ -5583,7 +5802,7 @@ async function exportStudentsPdf(school: School, year: SchoolYear, students: Stu
     { header: "Matricule", render: (student) => student.matricule || "-" },
     { header: "Nom complet", render: (student) => `${student.nom} ${student.postnom} ${student.prenom}`.trim() || "-" },
     { header: "Sexe", render: (student) => student.sexe || "-", align: "center" },
-    { header: "Classe", render: (student) => student.className || "-" },
+    { header: "Classe", render: (student) => formatStudentClassName(student) || "-" },
     { header: "Téléphone", render: (student) => student.phone || "-" },
   ];
   if (showOptionColumn) {
@@ -5788,7 +6007,7 @@ async function exportAgeHomogeneityPdf(school: School, year: SchoolYear, student
             { header: "Sexe", render: (row) => row.student.sexe, align: "center" },
             { header: "Date de naissance", render: (row) => row.student.birthDate || "—", align: "center" },
             { header: "Âge", render: (row) => formatAge(row.age), align: "center" },
-            { header: "Classe", render: (row) => row.student.className },
+            { header: "Classe", render: (row) => formatStudentClassName(row.student) },
             { header: "Âge théorique", render: (row) => formatAge(row.theoreticalAge), align: "center" },
             { header: "Situation", render: (row) => row.situation },
             { header: "Observation", render: (row) => row.observation },
@@ -6120,6 +6339,7 @@ function ImageUploadField({
   maxWidth,
   maxBytes,
   disabled = false,
+  acceptSvg = false,
 }: {
   label: string;
   value?: string;
@@ -6127,10 +6347,13 @@ function ImageUploadField({
   maxWidth: number;
   maxBytes: number;
   disabled?: boolean;
+  acceptSvg?: boolean;
 }) {
   const inputId = useId();
   const [error, setError] = useState("");
   const [processing, setProcessing] = useState(false);
+  const acceptedExtensions = acceptSvg ? `${acceptedImageExtensions}, SVG` : acceptedImageExtensions;
+  const acceptedMimeTypes = acceptSvg ? "image/jpeg,image/png,image/webp,image/svg+xml" : "image/jpeg,image/png,image/webp";
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -6139,7 +6362,14 @@ function ImageUploadField({
     setError("");
     setProcessing(true);
     try {
-      const dataUrl = await compressImageFile(file, maxWidth, maxBytes);
+      const isSvg = file.type === "image/svg+xml" || file.name.toLowerCase().endsWith(".svg");
+      if (isSvg && !acceptSvg) {
+        throw new Error(`Format non pris en charge. Utilisez ${acceptedExtensions}.`);
+      }
+      if (isSvg && file.size > maxBytes) {
+        throw new Error(`Image trop lourde. Choisissez une image plus légère (${Math.round(maxBytes / 1024)} Ko maximum recommandé).`);
+      }
+      const dataUrl = isSvg ? await blobToDataUrl(file) : await compressImageFile(file, maxWidth, maxBytes);
       onChange(dataUrl);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Image impossible à traiter.");
@@ -6165,7 +6395,7 @@ function ImageUploadField({
           </div>
         )}
         <div className="flex flex-wrap gap-2">
-          <input id={inputId} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleFileChange} disabled={disabled || processing} className="sr-only" />
+          <input id={inputId} type="file" accept={acceptedMimeTypes} onChange={handleFileChange} disabled={disabled || processing} className="sr-only" />
           <label htmlFor={inputId} className={`secondary-button cursor-pointer ${disabled || processing ? "pointer-events-none opacity-60" : ""}`}>
             {processing ? "Compression..." : value ? "Remplacer l'image" : "Choisir une image"}
           </label>
@@ -6175,7 +6405,7 @@ function ImageUploadField({
             </button>
           )}
         </div>
-        <p className="text-xs font-medium text-slate-500">{acceptedImageExtensions} uniquement. Largeur max {maxWidth}px, objectif {Math.round(maxBytes / 1024)} Ko.</p>
+        <p className="text-xs font-medium text-slate-500">{acceptedExtensions} uniquement. Largeur max {maxWidth}px, objectif {Math.round(maxBytes / 1024)} Ko.</p>
         {error && <p className="rounded bg-red-50 p-2 text-xs font-semibold text-red-700">{error}</p>}
       </div>
     </div>

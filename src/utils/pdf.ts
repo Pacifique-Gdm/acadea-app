@@ -39,6 +39,14 @@ type AcadPdfOptions = {
   sections: string[];
 };
 
+function formatStudentClassName(student: Pick<Student, "className" | "option">) {
+  const isSecondary = student.className.includes("Humanité");
+  const option = student.option?.trim();
+  if (!isSecondary || !option) return student.className;
+  const classLabel = student.className.replace(/\s+Humanit[ée]s?$/i, "").trim();
+  return `${classLabel || student.className} ${option}`;
+}
+
 export function money(value: number) {
   return `$${value.toFixed(2)}`;
 }
@@ -202,7 +210,7 @@ export async function generateReceiptPdf(payment: Payment, student: Student, fee
         { label: "Date", value: formatPdfDate(payment.paidAt) },
         { label: "Élève", value: `${student.nom} ${student.postnom} ${student.prenom}`.trim() },
         { label: "Matricule", value: student.matricule },
-        { label: "Classe", value: student.className },
+        { label: "Classe", value: formatStudentClassName(student) },
         { label: "Type de frais", value: feeType.name },
         { label: "Montant payé", value: money(payment.amount) },
         { label: "Caissier", value: payment.cashierName },
