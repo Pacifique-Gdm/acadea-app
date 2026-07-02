@@ -2831,42 +2831,19 @@ function ParentPortal({
   onLogout: () => void;
 }) {
   const [activeParentTab, setActiveParentTab] = useState<ParentTab>("children");
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
   const [parentHistoryOpen, setParentHistoryOpen] = useState(false);
   const [parentMessageDrawerOpen, setParentMessageDrawerOpen] = useState(false);
+  const [messageRecipient, setMessageRecipient] = useState<"admin" | "cashier" | "both">("admin");
+  const [messageSubject, setMessageSubject] = useState("");
+  const [messageBody, setMessageBody] = useState("");
+  const [messageFeedback, setMessageFeedback] = useState("");
   const parent = yearData.parents.find((item) => item.id === user.parentId);
   const unread = yearData.notifications.filter((notification) => !notification.read).length;
-
-  function sendParentMessage() {
-    if (!subject || !body || !user.parentId) return;
-    const message: Message = {
-      id: uid("msg"),
-      schoolId: school.id,
-      schoolYearId: year.id,
-      senderId: user.id,
-      recipientParentId: "school",
-      threadParentId: user.parentId,
-      subject,
-      body,
-      createdAt: new Date().toISOString(),
-    };
-    const notification: AppNotification = {
-      id: uid("notif"),
-      schoolId: school.id,
-      schoolYearId: year.id,
-      recipientRole: "school",
-      messageId: message.id,
-      type: "message",
-      title: "Nouveau message parent",
-      body: `${parent?.fullName ?? user.name}: ${subject}`,
-      createdAt: message.createdAt,
-      read: false,
-    };
-    updateData({ messages: [message, ...data.messages], notifications: [notification, ...data.notifications] });
-    setSubject("");
-    setBody("");
-  }
+  const recipientLabels = {
+    admin: "Administrateur uniquement",
+    cashier: "Caissier uniquement",
+    both: "Administrateur et Caissier",
+  } as const;
 
   function markNotificationsRead() {
     updateData({
@@ -2881,44 +2858,84 @@ function ParentPortal({
     setParentMessageDrawerOpen(true);
   }
 
+  function toggleParentMessagesDrawer() {
+    if (parentMessageDrawerOpen) {
+      setParentMessageDrawerOpen(false);
+      return;
+    }
+    openParentMessagesDrawer();
+  }
+
+  function sendParentMessage(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessageFeedback("");
+    const subject = messageSubject.trim();
+    const body = messageBody.trim();
+
+    if (!user.parentId || !subject || !body) {
+      setMessageFeedback("Veuillez renseigner le destinataire, l'objet et le message.");
+      return;
+    }
+
+    const recipientLabel = recipientLabels[messageRecipient];
+    const createdAt = new Date().toISOString();
+    const message: Message = {
+      id: uid("msg"),
+      schoolId: school.id,
+      schoolYearId: year.id,
+      senderId: user.id,
+      recipientParentId: "school",
+      threadParentId: user.parentId,
+      subject: `${recipientLabel} - ${subject}`,
+      body,
+      createdAt,
+    };
+    const notification: AppNotification = {
+      id: uid("notif"),
+      schoolId: school.id,
+      schoolYearId: year.id,
+      recipientRole: "school",
+      messageId: message.id,
+      type: "message",
+      title: `Nouveau message parent - ${recipientLabel}`,
+      body: `${parent?.fullName ?? user.name} : ${subject}`,
+      createdAt,
+      read: false,
+    };
+
+    updateData({ messages: [message, ...data.messages], notifications: [notification, ...data.notifications] });
+    setMessageSubject("");
+    setMessageBody("");
+    setMessageRecipient("admin");
+    setMessageFeedback("Message envoyé avec succès.");
+  }
+
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#f6f8fb]">
       <EnvironmentBanner />
-      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-7xl min-w-0 flex-col gap-3 px-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded bg-ink font-bold text-white">A</div>
-            <div className="min-w-0">
-              <p className="break-words text-lg font-bold text-ink">{school.name}</p>
-              <p className="break-words text-xs text-slate-500">Espace Parent | {parent?.fullName ?? user.name} | {year.name}</p>
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
-            <button onClick={onRefresh} className="inline-flex h-9 w-9 items-center justify-center text-slate-500 transition hover:text-ink" title="Actualiser" aria-label="Actualiser">
-              <RefreshCw className="h-4 w-4" />
-            </button>
-            <button onClick={openParentMessagesDrawer} className="relative inline-flex h-9 w-9 items-center justify-center text-slate-500 transition hover:text-ink" title="Boîte à Messagerie" aria-label="Boîte à Messagerie">
-              <Bell className="h-4 w-4" />
-              {unread > 0 && <span className="absolute right-0 top-0 min-w-5 rounded-full bg-red-600 px-1 text-center text-[11px] font-bold text-white">{unread}</span>}
-            </button>
-          </div>
-        </div>
-      </header>
+      <Header
+        user={user}
+        data={data}
+        yearData={yearData}
+        school={school}
+        year={year}
+        unreadNotifications={unread}
+        notificationsOpen={parentMessageDrawerOpen}
+        updateData={updateData}
+        onRefresh={onRefresh}
+        onToggleNotifications={toggleParentMessagesDrawer}
+      />
       <main className="mx-auto grid w-full max-w-7xl min-w-0 flex-1 gap-4 overflow-y-auto px-3 py-5 pb-28 sm:px-6 sm:pb-32 lg:px-8">
-        <section className="min-w-0 rounded border border-slate-200 bg-white p-4">
-          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <h1 className="text-2xl font-bold text-ink">{activeParentTab === "children" ? "Mes enfants" : activeParentTab === "messages" ? "Message" : "Menu"}</h1>
-              <p className="break-words text-sm text-slate-500">
-                {activeParentTab === "children"
-                  ? "Consultation limitée aux élèves rattachés à ce parent."
-                  : activeParentTab === "messages"
-                    ? "Notifications et conversation avec l'école."
-                    : "Options du compte parent."}
-              </p>
+        {activeParentTab === "children" && (
+          <section className="min-w-0 rounded border border-slate-200 bg-white p-4">
+            <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <h1 className="text-2xl font-bold text-ink">Mes enfants</h1>
+                <p className="break-words text-sm text-slate-500">Consultation limitée aux élèves rattachés à ce parent.</p>
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        )}
 
         <section className="grid min-w-0 gap-4">
           {activeParentTab === "children" && (
@@ -2957,8 +2974,21 @@ function ParentPortal({
                             const fee = yearData.feeTypes.find((item) => item.id === payment.feeTypeId);
                             return (
                               <div key={payment.id} className="min-w-0 rounded bg-slate-50 p-3 text-sm">
-                                <span className="font-semibold text-ink">${payment.amount}</span>
-                                <span className="break-words text-slate-500"> | {fee?.name ?? "Frais"} | {payment.paidAt}</span>
+                                <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                  <div className="min-w-0">
+                                    <span className="font-semibold text-ink">${payment.amount}</span>
+                                    <span className="break-words text-slate-500"> | {fee?.name ?? "Frais"} | {payment.paidAt}</span>
+                                  </div>
+                                  <button
+                                    onClick={() => fee && generateReceiptPdf(payment, student, fee, school)}
+                                    disabled={!fee}
+                                    className="inline-flex w-full items-center justify-center gap-2 rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                                    title="Télécharger le reçu PDF"
+                                    type="button"
+                                  >
+                                    <Download className="h-4 w-4" /> PDF
+                                  </button>
+                                </div>
                               </div>
                             );
                           })}
@@ -2973,36 +3003,52 @@ function ParentPortal({
           )}
 
           {activeParentTab === "messages" && (
-          <div className="min-w-0 space-y-4">
-            <FormPanel title="Message à l'école">
-              <input value={subject} onChange={(event) => setSubject(event.target.value)} className="input" placeholder="Objet" />
-              <textarea value={body} onChange={(event) => setBody(event.target.value)} className="input min-h-32" placeholder="Message" />
-              <button onClick={sendParentMessage} disabled={!subject || !body} className="primary-button disabled:opacity-50">
-                <Send className="h-4 w-4" /> Envoyer
-              </button>
+            <FormPanel title="Message">
+              <form onSubmit={sendParentMessage} className="grid min-w-0 gap-4">
+                <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+                  Destinataire
+                  <select
+                    value={messageRecipient}
+                    onChange={(event) => setMessageRecipient(event.target.value as "admin" | "cashier" | "both")}
+                    className="min-w-0 rounded border border-slate-200 px-3 py-2 text-sm"
+                  >
+                    <option value="admin">Administrateur uniquement</option>
+                    <option value="cashier">Caissier uniquement</option>
+                    <option value="both">Administrateur et Caissier</option>
+                  </select>
+                </label>
+                <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+                  Objet
+                  <input
+                    value={messageSubject}
+                    onChange={(event) => setMessageSubject(event.target.value)}
+                    className="min-w-0 rounded border border-slate-200 px-3 py-2 text-sm"
+                    placeholder="Objet du message"
+                  />
+                </label>
+                <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+                  Message
+                  <textarea
+                    value={messageBody}
+                    onChange={(event) => setMessageBody(event.target.value)}
+                    className="min-h-36 min-w-0 rounded border border-slate-200 px-3 py-2 text-sm"
+                    placeholder="Rédigez votre message"
+                  />
+                </label>
+                {messageFeedback && <p className="rounded bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700">{messageFeedback}</p>}
+                <button
+                  type="submit"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700 sm:w-auto"
+                >
+                  <Send className="h-4 w-4" /> Envoyer
+                </button>
+              </form>
             </FormPanel>
-          </div>
           )}
         </section>
 
         {activeParentTab === "menu" && (
           <section className="grid min-w-0 gap-4">
-            <button
-              onClick={() => setParentHistoryOpen(true)}
-              className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint"
-              type="button"
-            >
-              <div className="flex min-w-0 items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink">
-                  <Clock3 className="h-5 w-5" />
-                </div>
-                <div className="min-w-0">
-                  <h2 className="break-words font-bold text-ink">Historique</h2>
-                  <p className="mt-1 break-words text-sm text-slate-500">Activités et messages liés à ce compte parent.</p>
-                </div>
-              </div>
-            </button>
-
             <FormPanel title="Compte parent">
               <div className="grid gap-3 sm:grid-cols-2">
                 <Metric label="Parent" value={parent?.fullName ?? user.name} />
@@ -3014,7 +3060,22 @@ function ParentPortal({
               </div>
             </FormPanel>
 
-            <div className="mt-2 border-t border-slate-200 pt-4">
+            <div className="mt-2 grid gap-3 border-t border-slate-200 pt-4">
+              <button
+                onClick={() => setParentHistoryOpen(true)}
+                className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint"
+                type="button"
+              >
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink">
+                    <Clock3 className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="break-words font-bold text-ink">Historique</h2>
+                    <p className="mt-1 break-words text-sm text-slate-500">Activités et messages liés à ce compte parent.</p>
+                  </div>
+                </div>
+              </button>
               <button onClick={onLogout} className="inline-flex w-full items-center justify-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 transition hover:bg-red-100" type="button">
                 <LogOut className="h-4 w-4" /> Déconnexion
               </button>
@@ -3026,12 +3087,6 @@ function ParentPortal({
       {parentHistoryOpen && (
         <AdminDrawer title="Historique" onClose={() => setParentHistoryOpen(false)} closeLabel="Fermer l'historique">
           <ActivityHistoryContent user={user} data={data} yearData={yearData} role="parent" />
-        </AdminDrawer>
-      )}
-
-      {parentMessageDrawerOpen && (
-        <AdminDrawer title="Boîte à Messagerie" onClose={() => setParentMessageDrawerOpen(false)} closeLabel="Fermer la boîte à messagerie" notificationPanel>
-          <MessageDrawerContent user={user} data={data} yearData={yearData} school={school} year={year} updateData={updateData} />
         </AdminDrawer>
       )}
 
