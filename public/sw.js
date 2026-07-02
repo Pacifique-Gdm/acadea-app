@@ -1,6 +1,7 @@
-const CACHE_VERSION = "acadea-pwa-v1";
+const CACHE_VERSION = "acadea-pwa-v2";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const ASSET_CACHE = `${CACHE_VERSION}-assets`;
+const BRAND_CACHE = `${CACHE_VERSION}-brand`;
 const APP_SHELL = [
   "/",
   "/manifest.webmanifest",
@@ -66,7 +67,10 @@ self.addEventListener("fetch", (event) => {
   if (!isStaticAsset) return;
 
   event.respondWith(
-    caches.match(request).then((cached) => {
+    caches.open(BRAND_CACHE).then((brandCache) => brandCache.match(url.pathname)).then((branded) => {
+      if (branded) return branded;
+      return caches.match(request);
+    }).then((cached) => {
       if (cached) return cached;
       return fetch(request).then((response) => {
         if (!response || response.status !== 200) return response;

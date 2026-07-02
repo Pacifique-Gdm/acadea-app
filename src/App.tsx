@@ -22,7 +22,6 @@ import {
   Mail,
   Menu as MenuIcon,
   MessageSquare,
-  MoreHorizontal,
   Plus,
   RefreshCw,
   Search,
@@ -76,6 +75,7 @@ const showStagingBanner = import.meta.env.VITE_STAGING_BANNER === "true" || appE
 const stagingLabel = import.meta.env.VITE_STAGING_LABEL ?? "ENVIRONNEMENT DE TEST";
 const platformLoginLogoStorageKey = "acadea.platform.loginLogo";
 const defaultManifestHref = "/manifest.webmanifest";
+const platformLogoAssetCache = "acadea-pwa-v2-brand";
 let platformManifestObjectUrl: string | null = null;
 const emptyAppData: AppData = {
   users: [],
@@ -165,13 +165,39 @@ async function renderLogoIcon(source: string, size: number) {
   return canvas.toDataURL("image/png");
 }
 
+function platformLogoFaviconSvg(iconDataUrl: string) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="42" fill="#FFFFFF"/><image href="${iconDataUrl}" x="0" y="0" width="192" height="192" preserveAspectRatio="xMidYMid meet"/></svg>`;
+}
+
+async function cachePlatformLogoAssets(manifest: unknown, icon192: string, icon512: string) {
+  if (typeof window === "undefined" || !("caches" in window)) return;
+  const cache = await caches.open(platformLogoAssetCache);
+  await Promise.all([
+    cache.put(defaultManifestHref, new Response(JSON.stringify(manifest), { headers: { "Content-Type": "application/manifest+json" } })),
+    cache.put("/icons/icon-192.png", await fetch(icon192)),
+    cache.put("/icons/icon-512.png", await fetch(icon512)),
+    cache.put("/icons/apple-touch-icon.png", await fetch(icon192)),
+    cache.put("/favicon.svg", new Response(platformLogoFaviconSvg(icon192), { headers: { "Content-Type": "image/svg+xml" } })),
+  ]);
+}
+
+async function clearPlatformLogoAssets() {
+  if (typeof window === "undefined" || !("caches" in window)) return;
+  await caches.delete(platformLogoAssetCache);
+}
+
 async function applyPlatformLogoAssets(logoUrl: string) {
   if (typeof document === "undefined") return;
   const manifestLink = getOrCreateHeadLink('link[rel="manifest"]', "manifest");
   if (!logoUrl) {
     manifestLink.href = defaultManifestHref;
-    getOrCreateHeadLink('link[rel="apple-touch-icon"]', "apple-touch-icon").remove();
-    getOrCreateHeadLink('link[rel="icon"][data-platform-logo="true"]', "icon").remove();
+    const appleIcon = getOrCreateHeadLink('link[rel="apple-touch-icon"]', "apple-touch-icon");
+    appleIcon.href = "/icons/apple-touch-icon.png";
+    const iconLink = getOrCreateHeadLink('link[rel="icon"]', "icon");
+    iconLink.href = "/favicon.svg";
+    iconLink.type = "image/svg+xml";
+    delete iconLink.dataset.platformLogo;
+    void clearPlatformLogoAssets();
     if (platformManifestObjectUrl) {
       URL.revokeObjectURL(platformManifestObjectUrl);
       platformManifestObjectUrl = null;
@@ -190,21 +216,22 @@ async function applyPlatformLogoAssets(logoUrl: string) {
       start_url: "/",
       scope: "/",
       display: "standalone",
-      orientation: "any",
+      orientation: "portrait",
       theme_color: "#1E3A8A",
       background_color: "#FFFFFF",
       categories: ["education", "productivity"],
       icons: [
-        { src: icon192, sizes: "192x192", type: "image/png", purpose: "any maskable" },
-        { src: icon512, sizes: "512x512", type: "image/png", purpose: "any maskable" },
+        { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any maskable" },
+        { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
       ],
     };
+    await cachePlatformLogoAssets(manifest, icon192, icon512);
     const nextUrl = URL.createObjectURL(new Blob([JSON.stringify(manifest)], { type: "application/manifest+json" }));
     manifestLink.href = nextUrl;
     if (platformManifestObjectUrl) URL.revokeObjectURL(platformManifestObjectUrl);
     platformManifestObjectUrl = nextUrl;
     getOrCreateHeadLink('link[rel="apple-touch-icon"]', "apple-touch-icon").href = icon192;
-    const iconLink = getOrCreateHeadLink('link[rel="icon"][data-platform-logo="true"]', "icon");
+    const iconLink = getOrCreateHeadLink('link[rel="icon"]', "icon");
     iconLink.href = icon192;
     iconLink.type = "image/png";
     iconLink.dataset.platformLogo = "true";
@@ -699,6 +726,16 @@ function LoginScreen({ onLogin, initialError }: { onLogin: (email: string, passw
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [platformLogoUrl] = useState(loadPlatformLoginLogo);
+
+  useEffect(() => {
+    const viewport = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
+    if (!viewport) return;
+    const previousContent = viewport.content;
+    viewport.content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no";
+    return () => {
+      viewport.content = previousContent;
+    };
+  }, []);
 
   useEffect(() => {
     setError(initialError ?? "");
@@ -1662,6 +1699,7 @@ function PlatformModule({
   const [adminPassword, setAdminPassword] = useState("");
   const [schoolSections, setSchoolSections] = useState<string[]>(["Primaire"]);
   const [selectedSchoolOptions, setSelectedSchoolOptions] = useState<string[]>([]);
+  const [customSchoolOption, setCustomSchoolOption] = useState("");
   const [platformView, setPlatformView] = useState<PlatformView>("dashboard");
   const [selectedSchoolId, setSelectedSchoolId] = useState(data.schools[0]?.id ?? "");
   const [schoolDrawerId, setSchoolDrawerId] = useState("");
@@ -1691,13 +1729,28 @@ function PlatformModule({
   const totalAdmins = data.users.filter((item) => item.role === "school_admin").length;
   const activeSchools = visibleSchools.filter((school) => school.status === "active").length;
   const suspendedSchools = visibleSchools.filter((school) => school.status === "suspended").length;
+  const schoolStatusChart = [
+    { label: "Actives", value: activeSchools, className: "bg-mint", textClassName: "text-mint" },
+    { label: "Suspendues", value: suspendedSchools, className: "bg-red-600", textClassName: "text-red-600" },
+    { label: "En attente", value: visibleSchools.filter((school) => String(school.status) === "pending").length, className: "bg-amber-500", textClassName: "text-amber-700" },
+    { label: "Désactivées", value: visibleSchools.filter((school) => String(school.status) === "inactive").length, className: "bg-slate-500", textClassName: "text-slate-600" },
+  ];
+  const schoolSectionChart = (["Maternelle", "Primaire", "Secondaire"] as const).map((section) => ({
+    label: section,
+    value: visibleSchools.filter((school) => (school.educationLevels ?? [school.schoolType ?? "Primaire"]).includes(section)).length,
+  }));
+  const maxStatusCount = Math.max(1, ...schoolStatusChart.map((item) => item.value));
+  const maxSectionCount = Math.max(1, ...schoolSectionChart.map((item) => item.value));
+  const hasSecondarySection = schoolSections.includes("Secondaire");
+  const hasCustomSchoolOption = selectedSchoolOptions.includes("Autre");
+  const visibleSchoolOptionChoices = Array.from(new Set([...schoolOptionChoices, ...selectedSchoolOptions.filter((option) => option !== "Autre")]));
   const selectedSchool = visibleSchools.find((school) => school.id === selectedSchoolId) ?? visibleSchools[0];
   const drawerSchool = visibleSchools.find((school) => school.id === schoolDrawerId);
-  const selectedStats = selectedSchool ? getPlatformSchoolStats(selectedSchool.id, data) : { students: 0, parents: 0, admins: 0, users: 0 };
-  const selectedAdmins = selectedSchool ? data.users.filter((item) => item.role === "school_admin" && item.schoolId === selectedSchool.id) : [];
-  const selectedMainAdmin = selectedSchool ? selectedAdmins.find((admin) => admin.id === selectedSchool.mainAdminId) ?? selectedAdmins[0] : undefined;
-  const selectedLogs = selectedSchool
-    ? data.auditLogs.filter((log) => log.schoolId === selectedSchool.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  const drawerStats = drawerSchool ? getPlatformSchoolStats(drawerSchool.id, data) : { students: 0, parents: 0, admins: 0, users: 0 };
+  const drawerAdmins = drawerSchool ? data.users.filter((item) => item.role === "school_admin" && item.schoolId === drawerSchool.id) : [];
+  const drawerMainAdmin = drawerSchool ? drawerAdmins.find((admin) => admin.id === drawerSchool.mainAdminId) ?? drawerAdmins[0] : undefined;
+  const drawerLogs = drawerSchool
+    ? data.auditLogs.filter((log) => log.schoolId === drawerSchool.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     : [];
   const adminFormValid =
     adminName.trim().length >= 2 &&
@@ -1727,6 +1780,17 @@ function PlatformModule({
 
   async function createSchool() {
     if (!schoolName || !adminEmail || !adminPassword || schoolSections.length === 0) return;
+    const trimmedCustomSchoolOption = customSchoolOption.trim();
+    if (hasSecondarySection && hasCustomSchoolOption && !trimmedCustomSchoolOption) {
+      setProvisioningError("Veuillez préciser la nouvelle option scolaire.");
+      return;
+    }
+    const nextSchoolOptions = hasSecondarySection
+      ? [
+          ...selectedSchoolOptions.filter((option) => option !== "Autre"),
+          ...(hasCustomSchoolOption ? [trimmedCustomSchoolOption] : []),
+        ]
+      : [];
 
     setProvisioningError("");
     setProvisioningLoading(true);
@@ -1737,7 +1801,7 @@ function PlatformModule({
         adminPassword,
         educationLevels: schoolSections,
         schoolType: schoolSections.length === 1 ? (schoolSections[0] as School["schoolType"]) : "Mixte",
-        schoolOptions: selectedSchoolOptions,
+        schoolOptions: nextSchoolOptions,
       });
 
       updateData(
@@ -1754,6 +1818,7 @@ function PlatformModule({
       setAdminPassword("");
       setSchoolSections(["Primaire"]);
       setSelectedSchoolOptions([]);
+      setCustomSchoolOption("");
       setSelectedSchoolId(provisioned.school.id);
       setPlatformView("students");
       setDetailTab("overview");
@@ -1773,16 +1838,40 @@ function PlatformModule({
 
   function toggleSchoolSection(section: string) {
     setSchoolSections((current) => {
-      if (current.includes(section)) return current.filter((item) => item !== section);
+      if (current.includes(section)) {
+        if (section === "Secondaire") {
+          setSelectedSchoolOptions([]);
+          setCustomSchoolOption("");
+          setProvisioningError("");
+        }
+        return current.filter((item) => item !== section);
+      }
       return [...current, section];
     });
   }
 
   function toggleSchoolOption(option: string) {
     setSelectedSchoolOptions((current) => {
-      if (current.includes(option)) return current.filter((item) => item !== option);
+      if (current.includes(option)) {
+        if (option === "Autre") {
+          setCustomSchoolOption("");
+          setProvisioningError("");
+        }
+        return current.filter((item) => item !== option);
+      }
       return [...current, option];
     });
+  }
+
+  function addCustomSchoolOption() {
+    const option = customSchoolOption.trim();
+    if (!option) {
+      setProvisioningError("Veuillez préciser la nouvelle option scolaire.");
+      return;
+    }
+    setSelectedSchoolOptions((current) => Array.from(new Set([...current.filter((item) => item !== "Autre"), option])));
+    setCustomSchoolOption("");
+    setProvisioningError("");
   }
 
   async function changeSchoolStatus(school: School) {
@@ -1948,56 +2037,29 @@ function PlatformModule({
     setSchoolDrawerId(schoolId);
   }
 
-  return (
-    <div className="min-h-screen bg-[#f6f8fb] text-ink">
-      <EnvironmentBanner />
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-slate-200 bg-white px-4 py-5 lg:block">
-        <div className="flex items-center gap-3 px-2">
-          <div className="flex h-10 w-10 items-center justify-center rounded bg-ink font-bold text-white">A</div>
-          <div>
-            <p className="font-bold">Acadéa Platform</p>
-            <p className="text-xs text-slate-500">Console SaaS</p>
-          </div>
-        </div>
-        <nav className="mt-8 grid gap-1">
-          <PlatformNavButton active={platformView === "dashboard"} icon={LayoutDashboard} label="Dashboard" onClick={() => setPlatformView("dashboard")} />
-          <PlatformNavButton active={platformView === "students"} icon={Building2} label="Écoles" onClick={() => setPlatformView("students")} />
-          <PlatformNavButton active={platformView === "menu"} icon={MenuIcon} label="Menu" onClick={() => setPlatformView("menu")} />
-        </nav>
-        <div className="absolute bottom-5 left-4 right-4 rounded bg-slate-50 p-3 text-xs text-slate-500">
-          <p className="font-semibold text-ink">Sécurité multi-tenant</p>
-          <p className="mt-1">La plateforme affiche uniquement des statistiques agrégées.</p>
-        </div>
-      </aside>
+  const platformTabs = [
+    { id: "dashboard" as const, label: "Dashboard", icon: LayoutDashboard },
+    { id: "students" as const, label: "Écoles", icon: Building2 },
+    { id: "menu" as const, label: "Menu", icon: MenuIcon },
+  ];
 
-      <div className="min-w-0 lg:pl-64">
-        <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
-          <div className="flex min-w-0 flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+  return (
+    <div className="min-h-screen max-w-full overflow-x-hidden bg-[#f6f8fb] pb-24 text-ink">
+      <EnvironmentBanner />
+      <div className="min-w-0">
+        <header className="sticky top-0 z-20 max-w-full border-b border-slate-200 bg-white">
+          <div className="mx-auto flex w-full max-w-7xl min-w-0 flex-col gap-3 px-3 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded bg-ink font-bold text-white lg:hidden">A</div>
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-ink font-bold text-white">A</div>
             <div className="min-w-0">
-              <p className="break-words text-xl font-bold text-ink">Plateforme Acadéa</p>
+              <p className="break-words text-lg font-bold text-ink">Plateforme Acadéa</p>
               <p className="break-words text-xs text-slate-500">{roleLabels[user.role]} | dashboard SaaS anonymisé</p>
             </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button onClick={() => setPlatformView("dashboard")} className="secondary-button lg:hidden">
-              <LayoutDashboard className="h-4 w-4" /> Dashboard
-            </button>
-            <button onClick={() => setPlatformView("students")} className="secondary-button lg:hidden">
-              <Building2 className="h-4 w-4" /> Écoles
-            </button>
-            <button onClick={() => setPlatformView("menu")} className="secondary-button lg:hidden">
-              <MenuIcon className="h-4 w-4" /> Menu
-            </button>
-            <button onClick={onLogout} className="secondary-button">
-              <LogOut className="h-4 w-4" /> Sortir
-            </button>
           </div>
           </div>
         </header>
 
-        <main className="grid min-w-0 gap-5 px-3 py-5 sm:px-6 lg:px-8">
+        <main className="mx-auto grid w-full max-w-7xl min-w-0 gap-5 overflow-x-hidden px-3 py-5 sm:px-6 lg:px-8">
           {schoolActionError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{schoolActionError}</p>}
           {schoolActionSuccess && <p className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">{schoolActionSuccess}</p>}
 
@@ -2012,42 +2074,48 @@ function PlatformModule({
 
           {platformView === "dashboard" && (
             <section className="grid min-w-0 gap-4">
-              <div className="grid min-w-0 gap-4">
+              <div className="grid min-w-0 gap-4 xl:grid-cols-2">
                 <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
-                  <div className="flex min-w-0 items-center justify-between gap-3">
+                  <div className="flex min-w-0 flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
-                      <h2 className="font-bold text-ink">Activité plateforme</h2>
-                      <p className="text-sm text-slate-500">Vue globale anonymisée des écoles clientes.</p>
+                      <h2 className="font-bold text-ink">Répartition des écoles par statut</h2>
+                      <p className="text-sm text-slate-500">État global des établissements de la plateforme.</p>
                     </div>
-                    <span className="rounded bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">SaaS</span>
+                    <span className="w-fit rounded bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">{visibleSchools.length} école(s)</span>
                   </div>
-                  <div className="mt-5 grid h-48 grid-cols-6 items-end gap-3 rounded bg-slate-50 p-4">
-                    {[42, 58, 52, 70, 64, 86].map((height, index) => (
-                      <div key={index} className="flex h-full items-end">
-                        <div className="w-full rounded-t bg-ink" style={{ height: `${height}%` }} />
+                  <div className="mt-5 grid gap-3">
+                    {schoolStatusChart.map((item) => (
+                      <div key={item.label} className="grid gap-1">
+                        <div className="flex items-center justify-between gap-3 text-sm">
+                          <span className="font-semibold text-slate-700">{item.label}</span>
+                          <span className={`font-bold ${item.textClassName}`}>{item.value}</span>
+                        </div>
+                        <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+                          <div className={`h-full rounded-full ${item.className}`} style={{ width: `${Math.max(4, (item.value / maxStatusCount) * 100)}%` }} />
+                        </div>
                       </div>
                     ))}
                   </div>
                 </div>
-
                 <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
-                  <div className="mb-4 flex min-w-0 items-center justify-between gap-3">
+                  <div className="flex min-w-0 flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
-                      <h2 className="font-bold text-ink">Écoles récentes</h2>
-                      <p className="text-sm text-slate-500">Accès rapide aux comptes école.</p>
+                      <h2 className="font-bold text-ink">Répartition des écoles par section</h2>
+                      <p className="text-sm text-slate-500">Une école mixte est comptabilisée dans chaque section disponible.</p>
                     </div>
+                    <span className="w-fit rounded bg-mint/10 px-3 py-1 text-xs font-semibold text-mint">Sections</span>
                   </div>
-                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                    {visibleSchools.slice(0, 3).map((school) => (
-                      <SchoolSaasCard
-                        key={school.id}
-                        school={school}
-                        stats={getPlatformSchoolStats(school.id, data)}
-                        onSelect={() => openSchoolDrawer(school.id)}
-                        onEdit={() => void editSchool(school)}
-                        onStatus={() => void changeSchoolStatus(school)}
-                        onDelete={() => void deleteSchool(school)}
-                      />
+                  <div className="mt-5 grid gap-4">
+                    {schoolSectionChart.map((item) => (
+                      <div key={item.label} className="grid gap-2 rounded bg-slate-50 p-3">
+                        <div className="flex items-center justify-between gap-3 text-sm">
+                          <span className="font-semibold text-ink">{item.label}</span>
+                          <span className="font-bold text-ink">{item.value}</span>
+                        </div>
+                        <div className="h-4 overflow-hidden rounded-full bg-white">
+                          <div className="h-full rounded-full bg-ink" style={{ width: `${Math.max(4, (item.value / maxSectionCount) * 100)}%` }} />
+                        </div>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -2083,142 +2151,26 @@ function PlatformModule({
                 </div>
               </div>
 
-              <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_460px]">
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  {filteredSchools.length === 0 && (
-                    <div className="rounded border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 md:col-span-2 xl:col-span-3">
-                      Aucune école ne correspond aux filtres.
-                    </div>
-                  )}
-                  {filteredSchools.map((school) => (
-                    <SchoolSaasCard
-                      key={school.id}
-                      school={school}
-                      stats={getPlatformSchoolStats(school.id, data)}
-                      selected={school.id === selectedSchool?.id}
-                      onSelect={() => openSchoolDrawer(school.id)}
-                      onEdit={() => void editSchool(school)}
-                      onStatus={() => void changeSchoolStatus(school)}
-                      onDelete={() => void deleteSchool(school)}
-                    />
-                  ))}
-                </div>
-
-                {selectedSchool && (
-                  <section className="rounded border border-slate-200 bg-white shadow-sm 2xl:sticky 2xl:top-24 2xl:max-h-[calc(100vh-7rem)] 2xl:overflow-y-auto">
-                    <div className="sticky top-0 z-10 border-b border-slate-200 bg-white p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex min-w-0 items-center gap-3">
-                          <SchoolLogo school={selectedSchool} />
-                          <div className="min-w-0">
-                            <h2 className="truncate text-lg font-bold text-ink">{selectedSchool.name}</h2>
-                            <div className="mt-1 flex flex-wrap gap-2">
-                              <StatusBadge status={selectedSchool.status} />
-                            </div>
-                          </div>
-                        </div>
-                        <button className="rounded border border-slate-200 p-2 text-slate-500 hover:bg-slate-50" title="Actions rapides">
-                          <MoreHorizontal className="h-5 w-5" />
-                        </button>
-                      </div>
-                      <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-                        {(["overview", "info", "admins", "history"] as SchoolDetailTab[]).map((tab) => (
-                          <button
-                            key={tab}
-                            onClick={() => setDetailTab(tab)}
-                            className={`shrink-0 rounded px-3 py-2 text-xs font-semibold ${detailTab === tab ? "bg-ink text-white" : "bg-slate-100 text-slate-600"}`}
-                          >
-                            {schoolTabLabel(tab)}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="p-4">
-                      {detailTab === "overview" && (
-                        <div className="grid gap-4">
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            <MiniStat label="Élèves" value={selectedStats.students} />
-                            <MiniStat label="Parents" value={selectedStats.parents} />
-                            <MiniStat label="Administrateurs" value={selectedStats.admins} />
-                            <MiniStat label="Total utilisateurs" value={selectedStats.users} />
-                          </div>
-                          <div className="rounded bg-slate-50 p-4">
-                            <p className="text-sm font-semibold text-ink">Évolution utilisateurs</p>
-                            <div className="mt-4 flex h-32 items-end gap-2">
-                              {[35, 48, 46, 61, 72, 80].map((height, index) => (
-                                <div key={index} className="flex-1 rounded-t bg-mint" style={{ height: `${height}%` }} />
-                              ))}
-                            </div>
-                          </div>
-                          <AuditTimeline logs={selectedLogs.slice(0, 4)} />
-                        </div>
-                      )}
-
-                      {detailTab === "info" && (
-                        <div className="grid gap-3 text-sm">
-                          <InfoRow label="Nom" value={selectedSchool.name} />
-                          <InfoRow label="Sigle" value={selectedSchool.acronym ?? "-"} />
-                          <InfoRow label="Adresse" value={selectedSchool.address || "-"} />
-                          <InfoRow label="Téléphone" value={selectedSchool.phone || "-"} />
-                          <InfoRow label="Email" value={selectedSchool.email || "-"} />
-                          <InfoRow label="Statut" value={selectedSchool.status} />
-                          <InfoRow label="Date de creation" value={selectedSchool.createdAt ? new Date(selectedSchool.createdAt).toLocaleDateString("fr-FR") : "-"} />
-                          <InfoRow label="Administrateur principal" value={selectedMainAdmin?.name ?? "-"} />
-                          <InfoRow label="Nombre d'eleves" value={String(selectedStats.students)} />
-                          <InfoRow label="Nombre d'enseignants" value="0" />
-                          <InfoRow label="Nombre de classes" value="0" />
-                          <InfoRow label="Niveaux" value={(selectedSchool.educationLevels ?? []).join(", ") || "-"} />
-                          <InfoRow label="Options" value={(selectedSchool.schoolOptions ?? []).join(", ") || "-"} />
-                          <InfoRow label="Type" value={selectedSchool.schoolType ?? "-"} />
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <button onClick={() => void editSchool(selectedSchool)} className="secondary-button">Modifier</button>
-                            <button onClick={() => void changeSchoolStatus(selectedSchool)} className="secondary-button">
-                              {selectedSchool.status === "active" ? "Suspendre" : "Reactiver"}
-                            </button>
-                            <button onClick={() => void deleteSchool(selectedSchool)} className="rounded bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">Supprimer</button>
-                          </div>
-                        </div>
-                      )}
-
-                      {detailTab === "admins" && (
-                        <div className="grid gap-3">
-                          <button onClick={openCreateAdminModal} className="primary-button justify-center">
-                            <Plus className="h-4 w-4" /> Ajouter un admin
-                          </button>
-                          {selectedAdmins.map((admin) => (
-                            <div key={admin.id} className="rounded border border-slate-200 p-3">
-                              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                <div>
-                                  <p className="font-semibold text-ink">{admin.name}</p>
-                                  <p className="text-sm text-slate-500">{admin.email}</p>
-                                  <p className="text-xs text-slate-400">{admin.phone ?? "Téléphone non renseigné"}</p>
-                                </div>
-                                <StatusPill active={admin.status !== "inactive"} />
-                              </div>
-                              <div className="mt-3 flex flex-wrap gap-2">
-                                <button onClick={() => openEditAdminModal(admin)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
-                                  Modifier
-                                </button>
-                                <button onClick={() => toggleAdminStatus(admin)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
-                                  {admin.status === "inactive" ? "Réactiver" : "Désactiver"}
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {detailTab === "history" && <AuditTimeline logs={selectedLogs} />}
-                    </div>
-                  </section>
+              <div className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {filteredSchools.length === 0 && (
+                  <div className="rounded border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 md:col-span-2 xl:col-span-3">
+                    Aucune école ne correspond aux filtres.
+                  </div>
                 )}
+                {filteredSchools.map((school) => (
+                  <SchoolSaasCard
+                    key={school.id}
+                    school={school}
+                    selected={school.id === selectedSchool?.id}
+                    onSelect={() => openSchoolDrawer(school.id)}
+                  />
+                ))}
               </div>
             </section>
           )}
 
           {platformView === "menu" && (
-            <section className="grid min-w-0 gap-4 xl:grid-cols-2">
+            <section className="grid min-w-0 gap-4">
               <FormPanel title="Logo de l'application">
                 <ImageUploadField
                   label="Logo affiché sur l'écran de connexion"
@@ -2252,20 +2204,51 @@ function PlatformModule({
                     ))}
                   </div>
                 </fieldset>
-                <fieldset className="grid gap-2 rounded border border-slate-200 p-3">
-                  <legend className="px-1 text-sm font-semibold text-slate-700">Options scolaires</legend>
-                  <div className="flex flex-wrap gap-2">
-                    {schoolOptionChoices.map((option) => (
-                      <label key={option} className="inline-flex items-center gap-2 rounded bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
-                        <input type="checkbox" checked={selectedSchoolOptions.includes(option)} onChange={() => toggleSchoolOption(option)} className="h-4 w-4 accent-ink" />
-                        {option}
+                {hasSecondarySection && (
+                  <fieldset className="grid gap-2 rounded border border-slate-200 p-3">
+                    <legend className="px-1 text-sm font-semibold text-slate-700">Options scolaires</legend>
+                    <div className="flex flex-wrap gap-2">
+                      {visibleSchoolOptionChoices.map((option) => (
+                        <label key={option} className="inline-flex items-center gap-2 rounded bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+                          <input type="checkbox" checked={selectedSchoolOptions.includes(option)} onChange={() => toggleSchoolOption(option)} className="h-4 w-4 accent-ink" />
+                          {option}
+                        </label>
+                      ))}
+                    </div>
+                    {hasCustomSchoolOption && (
+                      <label className="grid gap-1 text-sm font-medium text-slate-700">
+                        Nouvelle option scolaire
+                        <span className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                          <input
+                            value={customSchoolOption}
+                            onChange={(event) => {
+                              setCustomSchoolOption(event.target.value);
+                              setProvisioningError("");
+                            }}
+                            className="input"
+                            placeholder="Ex. Informatique"
+                          />
+                          <button type="button" onClick={addCustomSchoolOption} className="secondary-button justify-center">
+                            <Plus className="h-4 w-4" /> Ajouter
+                          </button>
+                        </span>
                       </label>
-                    ))}
-                  </div>
-                </fieldset>
+                    )}
+                  </fieldset>
+                )}
                 {provisioningError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{provisioningError}</p>}
-                <button onClick={createSchool} disabled={provisioningLoading || schoolSections.length === 0} className="primary-button disabled:cursor-not-allowed disabled:opacity-60">
+                <button
+                  onClick={createSchool}
+                  disabled={provisioningLoading || schoolSections.length === 0 || (hasSecondarySection && hasCustomSchoolOption && !customSchoolOption.trim())}
+                  className="primary-button disabled:cursor-not-allowed disabled:opacity-60"
+                >
                   <Plus className="h-4 w-4" /> {provisioningLoading ? "Création..." : "Créer"}
+                </button>
+              </FormPanel>
+
+              <FormPanel title="Session">
+                <button onClick={onLogout} className="inline-flex w-full items-center justify-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 transition hover:bg-red-100" type="button">
+                  <LogOut className="h-4 w-4" /> Déconnexion
                 </button>
               </FormPanel>
             </section>
@@ -2273,10 +2256,33 @@ function PlatformModule({
         </main>
       </div>
 
+      <nav className="fixed inset-x-0 bottom-0 z-40 max-w-full overflow-hidden border-t border-slate-200 bg-white/95 px-1 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur sm:px-2">
+        <div className="mx-auto grid w-full max-w-md grid-cols-3 gap-1">
+          {platformTabs.map((tab) => {
+            const Icon = tab.icon;
+            const active = platformView === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setPlatformView(tab.id)}
+                className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-2xl px-0.5 py-2 text-[10px] font-semibold transition min-[360px]:text-[11px] sm:px-1 sm:text-xs ${
+                  active ? "bg-blue-50 text-blue-700" : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                }`}
+                aria-current={active ? "page" : undefined}
+                type="button"
+              >
+                <Icon className={`h-5 w-5 shrink-0 ${active ? "text-blue-700" : "text-slate-400"}`} />
+                <span className="max-w-full truncate">{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
       {drawerSchool && (
         <AdminDrawer title={drawerSchool.name} onClose={() => setSchoolDrawerId("")} closeLabel="Fermer les informations de l'école">
           <div className="grid gap-4">
-            <div className="flex items-start gap-3 rounded border border-slate-200 bg-slate-50 p-4">
+            <div className="flex min-w-0 items-start gap-3 rounded border border-slate-200 bg-slate-50 p-4">
               <SchoolLogo school={drawerSchool} />
               <div className="min-w-0">
                 <h2 className="break-words text-lg font-bold text-ink">{drawerSchool.name}</h2>
@@ -2285,29 +2291,115 @@ function PlatformModule({
                 </div>
               </div>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <InfoRow label="Nom" value={drawerSchool.name} />
-              <InfoRow label="Sigle" value={drawerSchool.acronym ?? "-"} />
-              <InfoRow label="Adresse" value={drawerSchool.address || "-"} />
-              <InfoRow label="Téléphone" value={drawerSchool.phone || "-"} />
-              <InfoRow label="Email" value={drawerSchool.email || "-"} />
-              <InfoRow label="Statut" value={drawerSchool.status} />
-              <InfoRow label="Date de création" value={drawerSchool.createdAt ? new Date(drawerSchool.createdAt).toLocaleDateString("fr-FR") : "-"} />
-              <InfoRow label="Niveaux" value={(drawerSchool.educationLevels ?? []).join(", ") || "-"} />
-              <InfoRow label="Options" value={(drawerSchool.schoolOptions ?? []).join(", ") || "-"} />
-              <InfoRow label="Type" value={drawerSchool.schoolType ?? "-"} />
-              <InfoRow label="Élèves" value={String(getPlatformSchoolStats(drawerSchool.id, data).students)} />
-              <InfoRow label="Parents" value={String(getPlatformSchoolStats(drawerSchool.id, data).parents)} />
-              <InfoRow label="Administrateurs" value={String(getPlatformSchoolStats(drawerSchool.id, data).admins)} />
-              <InfoRow label="Utilisateurs" value={String(getPlatformSchoolStats(drawerSchool.id, data).users)} />
+            <div className="grid gap-3 rounded border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="flex min-w-0 gap-2 overflow-x-auto pb-1">
+                {(["overview", "info", "admins", "history"] as SchoolDetailTab[]).map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setDetailTab(tab)}
+                    className={`shrink-0 rounded px-3 py-2 text-xs font-semibold ${detailTab === tab ? "bg-ink text-white" : "bg-slate-100 text-slate-600"}`}
+                    type="button"
+                  >
+                    {schoolTabLabel(tab)}
+                  </button>
+                ))}
+              </div>
+              <div className="grid min-w-0 grid-cols-1 gap-2 border-t border-slate-100 pt-3 sm:flex sm:flex-wrap">
+                <button onClick={() => void editSchool(drawerSchool)} className="secondary-button" type="button">Modifier</button>
+                <button onClick={() => void changeSchoolStatus(drawerSchool)} className="secondary-button" type="button">
+                  {drawerSchool.status === "active" ? "Suspendre" : "Reactiver"}
+                </button>
+                <button onClick={() => void deleteSchool(drawerSchool)} className="inline-flex min-w-0 items-center justify-center rounded bg-red-50 px-3 py-2 text-sm font-semibold text-red-700" type="button">
+                  Supprimer
+                </button>
+              </div>
             </div>
+
+            {detailTab === "overview" && (
+              <div className="grid gap-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <MiniStat label="Élèves" value={drawerStats.students} />
+                  <MiniStat label="Parents" value={drawerStats.parents} />
+                  <MiniStat label="Administrateurs" value={drawerStats.admins} />
+                  <MiniStat label="Total utilisateurs" value={drawerStats.users} />
+                </div>
+                <div className="rounded bg-slate-50 p-4">
+                  <p className="text-sm font-semibold text-ink">Évolution utilisateurs</p>
+                  <div className="mt-4 flex h-32 items-end gap-2">
+                    {[35, 48, 46, 61, 72, 80].map((height, index) => (
+                      <div key={index} className="flex-1 rounded-t bg-mint" style={{ height: `${height}%` }} />
+                    ))}
+                  </div>
+                </div>
+                <AuditTimeline logs={drawerLogs.slice(0, 4)} />
+              </div>
+            )}
+
+            {detailTab === "info" && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <InfoRow label="Nom" value={drawerSchool.name} />
+                <InfoRow label="Sigle" value={drawerSchool.acronym ?? "-"} />
+                <InfoRow label="Adresse" value={drawerSchool.address || "-"} />
+                <InfoRow label="Téléphone" value={drawerSchool.phone || "-"} />
+                <InfoRow label="Email" value={drawerSchool.email || "-"} />
+                <InfoRow label="Statut" value={drawerSchool.status} />
+                <InfoRow label="Date de création" value={drawerSchool.createdAt ? new Date(drawerSchool.createdAt).toLocaleDateString("fr-FR") : "-"} />
+                <InfoRow label="Administrateur principal" value={drawerMainAdmin?.name ?? "-"} />
+                <InfoRow label="Niveaux" value={(drawerSchool.educationLevels ?? []).join(", ") || "-"} />
+                <InfoRow label="Options" value={(drawerSchool.schoolOptions ?? []).join(", ") || "-"} />
+                <InfoRow label="Type" value={drawerSchool.schoolType ?? "-"} />
+                <InfoRow label="Élèves" value={String(drawerStats.students)} />
+                <InfoRow label="Parents" value={String(drawerStats.parents)} />
+                <InfoRow label="Administrateurs" value={String(drawerStats.admins)} />
+                <InfoRow label="Utilisateurs" value={String(drawerStats.users)} />
+              </div>
+            )}
+
+            {detailTab === "admins" && (
+              <div className="grid gap-3">
+                <button
+                  onClick={() => {
+                    setSelectedSchoolId(drawerSchool.id);
+                    openCreateAdminModal();
+                  }}
+                  className="primary-button justify-center"
+                  type="button"
+                >
+                  <Plus className="h-4 w-4" /> Ajouter un admin
+                </button>
+                {drawerAdmins.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun administrateur pour cette école.</p>}
+                {drawerAdmins.map((admin) => (
+                  <div key={admin.id} className="rounded border border-slate-200 p-3">
+                    <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-ink">{admin.name}</p>
+                        <p className="break-words text-sm text-slate-500">{admin.email}</p>
+                        <p className="break-words text-xs text-slate-400">{admin.phone ?? "Téléphone non renseigné"}</p>
+                      </div>
+                      <StatusPill active={admin.status !== "inactive"} />
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button onClick={() => openEditAdminModal(admin)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700" type="button">
+                        Modifier
+                      </button>
+                      <button onClick={() => toggleAdminStatus(admin)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700" type="button">
+                        {admin.status === "inactive" ? "Réactiver" : "Désactiver"}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {detailTab === "history" && <AuditTimeline logs={drawerLogs} />}
+
           </div>
         </AdminDrawer>
       )}
 
       {adminModalOpen && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-4">
-          <section className="w-full max-w-lg rounded border border-slate-200 bg-white p-5 shadow-xl">
+          <section className="max-h-[calc(100vh-2rem)] w-full max-w-lg min-w-0 overflow-y-auto rounded border border-slate-200 bg-white p-4 shadow-xl sm:p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-lg font-bold text-ink">{editingAdminId ? "Modifier administrateur" : "Ajouter administrateur"}</h2>
@@ -2361,74 +2453,38 @@ function PlatformCard({
     amber: "bg-amber-50 text-amber-700",
   };
   return (
-    <article className="rounded border border-slate-200 bg-white p-4 shadow-sm">
+    <article className="min-w-0 max-w-full rounded border border-slate-200 bg-white p-4 shadow-sm">
       <div className={`mb-4 flex h-10 w-10 items-center justify-center rounded ${tones[tone]}`}>
         <Icon className="h-5 w-5" />
       </div>
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="mt-1 text-2xl font-bold text-ink">{value}</p>
-      {description && <p className="mt-2 text-xs text-slate-500">{description}</p>}
+      <p className="break-words text-sm text-slate-500">{label}</p>
+      <p className="mt-1 break-words text-2xl font-bold text-ink">{value}</p>
+      {description && <p className="mt-2 break-words text-xs text-slate-500">{description}</p>}
     </article>
-  );
-}
-
-function PlatformNavButton({ active, icon: Icon, label, onClick }: { active: boolean; icon: typeof BookOpen; label: string; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex items-center gap-3 rounded px-3 py-2 text-sm font-semibold ${active ? "bg-ink text-white" : "text-slate-600 hover:bg-slate-50"}`}
-    >
-      <Icon className="h-4 w-4" /> {label}
-    </button>
   );
 }
 
 function SchoolSaasCard({
   school,
-  stats,
   selected,
   onSelect,
-  onEdit,
-  onStatus,
-  onDelete,
 }: {
   school: School;
-  stats: ReturnType<typeof getPlatformSchoolStats>;
   selected?: boolean;
   onSelect: () => void;
-  onEdit?: () => void;
-  onStatus?: () => void;
-  onDelete?: () => void;
 }) {
   return (
-    <article className={`rounded border bg-white p-4 shadow-sm ${selected ? "border-ink ring-2 ring-ink/10" : "border-slate-200"}`}>
-      <div className="flex items-start gap-3">
+    <article className={`min-w-0 max-w-full rounded border bg-white p-4 shadow-sm ${selected ? "border-ink ring-2 ring-ink/10" : "border-slate-200"}`}>
+      <div className="flex min-w-0 items-center gap-3">
         <SchoolLogo school={school} />
         <div className="min-w-0 flex-1">
-          <button onClick={onSelect} className="max-w-full truncate text-left font-bold text-ink underline decoration-slate-300 underline-offset-4 transition hover:text-sky-700">
+          <button onClick={onSelect} className="max-w-full break-words text-left font-bold text-ink underline decoration-slate-300 underline-offset-4 transition hover:text-sky-700">
             {school.name}
           </button>
-          <p className="text-xs text-slate-500">{school.acronym ?? buildAcronym(school.name)}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <StatusBadge status={school.status} />
+          </div>
         </div>
-      </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <StatusBadge status={school.status} />
-      </div>
-      <p className="mt-3 text-sm text-slate-500">{(school.educationLevels ?? ["Primaire"]).join(" · ")}</p>
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        <MiniStat label="Utilisateurs" value={stats.users} compact />
-        <MiniStat label="Sections" value={(school.educationLevels ?? ["Primaire"]).length} compact />
-      </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <button onClick={onEdit ?? onSelect} className="rounded bg-ink px-3 py-2 text-xs font-semibold text-white">
-          Modifier
-        </button>
-        <button onClick={onStatus ?? onSelect} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
-          {school.status === "active" ? "Suspendre" : "Reactiver"}
-        </button>
-        <button onClick={onDelete ?? onSelect} className="rounded bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
-          Supprimer
-        </button>
       </div>
     </article>
   );
@@ -2486,9 +2542,9 @@ function MiniStat({ label, value, compact }: { label: string; value: string | nu
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded bg-slate-50 p-3">
+    <div className="min-w-0 rounded bg-slate-50 p-3">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="mt-1 font-semibold text-ink">{value}</p>
+      <p className="mt-1 break-words font-semibold text-ink">{value}</p>
     </div>
   );
 }
@@ -2496,23 +2552,23 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 function AuditTimeline({ logs }: { logs: AuditLog[] }) {
   if (logs.length === 0) {
     return (
-      <div className="rounded border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">
+      <div className="min-w-0 rounded border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">
         Aucun historique pour cette école.
       </div>
     );
   }
 
   return (
-    <div className="grid gap-3">
+    <div className="grid min-w-0 gap-3">
       <p className="text-sm font-semibold text-ink">Historique</p>
       {logs.map((log) => (
-        <div key={log.id} className="flex gap-3 rounded border border-slate-200 p-3">
+        <div key={log.id} className="flex min-w-0 gap-3 rounded border border-slate-200 p-3">
           <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded bg-slate-100 text-slate-600">
             <Clock3 className="h-4 w-4" />
           </div>
-          <div>
-            <p className="text-sm font-semibold text-ink">{log.action}</p>
-            <p className="text-xs text-slate-500">
+          <div className="min-w-0">
+            <p className="break-words text-sm font-semibold text-ink">{log.action}</p>
+            <p className="break-words text-xs text-slate-500">
               {log.actorName} · {new Date(log.createdAt).toLocaleString("fr-FR")}
             </p>
           </div>
@@ -2623,6 +2679,7 @@ function MessageDrawerContent({
     })
     .sort((a, b) => b.lastMessage.createdAt.localeCompare(a.lastMessage.createdAt));
   const selectedConversation = conversations.find((conversation) => conversation.id === selectedConversationId);
+  const parentConversationLimitReached = Boolean(isParent && selectedConversation && selectedConversation.messages.length >= 2);
 
   function openConversation(conversationId: string) {
     conversationListScrollTopRef.current = conversationListRef.current?.scrollTop ?? conversationListScrollTopRef.current;
@@ -2645,6 +2702,7 @@ function MessageDrawerContent({
   function sendConversationReply() {
     const content = replyBody.trim();
     if (!content || !selectedConversation) return;
+    if (parentConversationLimitReached) return;
     const lastSubject = selectedConversation.lastMessage.subject || "Message";
     if (isParent) {
       if (!user.parentId) return;
@@ -2796,10 +2854,18 @@ function MessageDrawerContent({
               })}
             </div>
             <div className="grid gap-2 border-t border-slate-100 pt-3">
-              <textarea value={replyBody} onChange={(event) => setReplyBody(event.target.value)} className="input min-h-24" placeholder="Répondre à cette conversation" />
-              <button onClick={sendConversationReply} disabled={!replyBody.trim()} className="primary-button justify-center disabled:opacity-50" type="button">
-                <Send className="h-4 w-4" /> Répondre
-              </button>
+              {parentConversationLimitReached ? (
+                <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold leading-6 text-amber-900">
+                  Cette conversation a atteint sa limite de 2 messages. Pour poursuivre les échanges, veuillez utiliser l'onglet "Message".
+                </p>
+              ) : (
+                <>
+                  <textarea value={replyBody} onChange={(event) => setReplyBody(event.target.value)} className="input min-h-24" placeholder="Répondre à cette conversation" />
+                  <button onClick={sendConversationReply} disabled={!replyBody.trim()} className="primary-button justify-center disabled:opacity-50" type="button">
+                    <Send className="h-4 w-4" /> Répondre
+                  </button>
+                </>
+              )}
             </div>
         </section>
       )}
@@ -3376,6 +3442,8 @@ function StudentsModule({
   const [saveError, setSaveError] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [archiveStudentId, setArchiveStudentId] = useState<string | null>(null);
+  const [archiveReason, setArchiveReason] = useState("");
   const [reactivationStudentId, setReactivationStudentId] = useState<string | null>(null);
   const [reactivationReason, setReactivationReason] = useState("");
   const [reactivationError, setReactivationError] = useState("");
@@ -3406,6 +3474,7 @@ function StudentsModule({
       (!optionFilter || student.option === optionFilter)
     );
   });
+  const archiveStudent = archiveStudentId ? data.students.find((student) => student.id === archiveStudentId) : undefined;
   const reactivationStudent = reactivationStudentId ? data.students.find((student) => student.id === reactivationStudentId) : undefined;
 
   function saveStudent() {
@@ -3462,9 +3531,21 @@ function StudentsModule({
   }
 
   function removeStudent(id: string) {
+    setArchiveStudentId(id);
+    setArchiveReason("");
+  }
+
+  function closeArchiveStudentDialog() {
+    setArchiveStudentId(null);
+    setArchiveReason("");
+  }
+
+  function confirmArchiveStudent() {
+    const id = archiveStudentId;
+    if (!id) return;
     const student = data.students.find((item) => item.id === id);
     if (!student) return;
-    const reason = prompt("Motif obligatoire: Renvoi définitif, Décès, Abandon ou Autre avec précision");
+    const reason = archiveReason.trim();
     if (!reason) return;
     const normalized = reason.toLowerCase();
     const status = normalized.includes("décès") || normalized.includes("deces") ? "DECEASED" : normalized.includes("abandon") ? "DROPPED" : "TRANSFERRED";
@@ -3482,6 +3563,7 @@ function StudentsModule({
       ),
       auditLogs: [createAuditLog(user, school.id, year.id, "Archivage élève", `${student.matricule} - ${reason}`), ...data.auditLogs],
     });
+    closeArchiveStudentDialog();
   }
 
   function openReactivateStudentDialog(id: string) {
@@ -3899,6 +3981,35 @@ function StudentsModule({
             onSave={saveStudent}
             onReset={() => setForm(emptyStudent(school.id, year.id))}
           />
+        </AdminDrawer>
+      )}
+      {canEdit && archiveStudent && (
+        <AdminDrawer title="Archiver l'élève" onClose={closeArchiveStudentDialog} closeLabel="Fermer l'archivage">
+          <div className="grid min-w-0 gap-4">
+            <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <p className="font-bold">
+                {archiveStudent.nom} {archiveStudent.postnom} {archiveStudent.prenom}
+              </p>
+              <p className="mt-1">Motif obligatoire : Renvoi définitif, Décès, Abandon ou Autre avec précision</p>
+            </div>
+            <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+              Motif
+              <input
+                value={archiveReason}
+                onChange={(event) => setArchiveReason(event.target.value)}
+                className="min-w-0 rounded border border-slate-200 px-3 py-2 text-sm"
+                placeholder="Ex. Abandon"
+              />
+            </label>
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button type="button" onClick={closeArchiveStudentDialog} className="secondary-button justify-center">
+                Annuler
+              </button>
+              <button type="button" onClick={confirmArchiveStudent} className="primary-button justify-center">
+                OK
+              </button>
+            </div>
+          </div>
         </AdminDrawer>
       )}
       {canEdit && reactivationStudent && (
