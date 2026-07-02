@@ -50,6 +50,7 @@ export interface School {
   logoUrl?: string;
   acronym?: string;
   educationLevels?: string[];
+  schoolOptions?: string[];
   schoolType?: "Maternelle" | "Primaire" | "Secondaire" | "Mixte";
   createdAt?: string;
   createdBy?: string;

@@ -1652,20 +1652,22 @@ function PlatformModule({
   onLogout: () => void;
 }) {
   type PlatformView = "dashboard" | "students" | "menu";
-  type SchoolDetailTab = "overview" | "info" | "admins" | "subscription" | "history";
-  type SubscriptionFilter = "all" | "active" | "suspended" | "expired";
+  type SchoolDetailTab = "overview" | "info" | "admins" | "history";
   type SchoolSort = "az" | "recent" | "users";
+  const schoolSectionChoices = ["Maternelle", "Primaire", "Secondaire"];
+  const schoolOptionChoices = ["Littéraire", "Scientifique", "Commerciale", "Pédagogie", "Technique", "Nutrition", "Électricité", "Mécanique", "Autre"];
 
   const [schoolName, setSchoolName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
-  const [subscriptionPlan, setSubscriptionPlan] = useState<School["subscriptionPlan"]>("Standard");
+  const [schoolSections, setSchoolSections] = useState<string[]>(["Primaire"]);
+  const [selectedSchoolOptions, setSelectedSchoolOptions] = useState<string[]>([]);
   const [platformView, setPlatformView] = useState<PlatformView>("dashboard");
   const [selectedSchoolId, setSelectedSchoolId] = useState(data.schools[0]?.id ?? "");
+  const [schoolDrawerId, setSchoolDrawerId] = useState("");
   const [detailTab, setDetailTab] = useState<SchoolDetailTab>("overview");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | School["status"]>("all");
-  const [subscriptionFilter, setSubscriptionFilter] = useState<SubscriptionFilter>("all");
   const [typeFilter, setTypeFilter] = useState<"all" | NonNullable<School["schoolType"]>>("all");
   const [sortBy, setSortBy] = useState<SchoolSort>("az");
   const [adminModalOpen, setAdminModalOpen] = useState(false);
@@ -1684,13 +1686,13 @@ function PlatformModule({
   const [platformLogoMessage, setPlatformLogoMessage] = useState("");
 
   const visibleSchools = data.schools.filter((school) => String(school.status) !== "deleted");
-  const totalRevenue = visibleSchools.reduce((sum, school) => sum + school.subscriptionAmount, 0);
   const totalStudents = data.students.length;
   const totalParents = data.parents.length;
   const totalAdmins = data.users.filter((item) => item.role === "school_admin").length;
   const activeSchools = visibleSchools.filter((school) => school.status === "active").length;
   const suspendedSchools = visibleSchools.filter((school) => school.status === "suspended").length;
   const selectedSchool = visibleSchools.find((school) => school.id === selectedSchoolId) ?? visibleSchools[0];
+  const drawerSchool = visibleSchools.find((school) => school.id === schoolDrawerId);
   const selectedStats = selectedSchool ? getPlatformSchoolStats(selectedSchool.id, data) : { students: 0, parents: 0, admins: 0, users: 0 };
   const selectedAdmins = selectedSchool ? data.users.filter((item) => item.role === "school_admin" && item.schoolId === selectedSchool.id) : [];
   const selectedMainAdmin = selectedSchool ? selectedAdmins.find((admin) => admin.id === selectedSchool.mainAdminId) ?? selectedAdmins[0] : undefined;
@@ -1705,7 +1707,6 @@ function PlatformModule({
   const filteredSchools = visibleSchools
     .filter((school) => school.name.toLowerCase().includes(search.toLowerCase()) || (school.acronym ?? "").toLowerCase().includes(search.toLowerCase()))
     .filter((school) => (statusFilter === "all" ? true : school.status === statusFilter))
-    .filter((school) => (subscriptionFilter === "all" ? true : getSubscriptionStatus(school) === subscriptionFilter))
     .filter((school) => (typeFilter === "all" ? true : school.schoolType === typeFilter))
     .sort((a, b) => {
       if (sortBy === "recent") return (b.createdAt ?? "").localeCompare(a.createdAt ?? "");
@@ -1725,7 +1726,7 @@ function PlatformModule({
   }
 
   async function createSchool() {
-    if (!schoolName || !adminEmail || !adminPassword) return;
+    if (!schoolName || !adminEmail || !adminPassword || schoolSections.length === 0) return;
 
     setProvisioningError("");
     setProvisioningLoading(true);
@@ -1734,7 +1735,9 @@ function PlatformModule({
         schoolName,
         adminEmail,
         adminPassword,
-        subscriptionPlan,
+        educationLevels: schoolSections,
+        schoolType: schoolSections.length === 1 ? (schoolSections[0] as School["schoolType"]) : "Mixte",
+        schoolOptions: selectedSchoolOptions,
       });
 
       updateData(
@@ -1749,6 +1752,8 @@ function PlatformModule({
       setSchoolName("");
       setAdminEmail("");
       setAdminPassword("");
+      setSchoolSections(["Primaire"]);
+      setSelectedSchoolOptions([]);
       setSelectedSchoolId(provisioned.school.id);
       setPlatformView("students");
       setDetailTab("overview");
@@ -1766,13 +1771,17 @@ function PlatformModule({
     });
   }
 
-  function updateSubscription(schoolId: string, plan: School["subscriptionPlan"]) {
-    const amount = plan === "Starter" ? 29 : plan === "Premium" ? 99 : 49;
-    updateData({
-      schools: data.schools.map((school) =>
-        school.id === schoolId ? { ...school, subscriptionPlan: plan, subscriptionStatus: "active", subscriptionAmount: amount } : school,
-      ),
-      auditLogs: [writeAudit(schoolId, `Passage au plan ${plan}`), ...data.auditLogs],
+  function toggleSchoolSection(section: string) {
+    setSchoolSections((current) => {
+      if (current.includes(section)) return current.filter((item) => item !== section);
+      return [...current, section];
+    });
+  }
+
+  function toggleSchoolOption(option: string) {
+    setSelectedSchoolOptions((current) => {
+      if (current.includes(option)) return current.filter((item) => item !== option);
+      return [...current, option];
     });
   }
 
@@ -1934,6 +1943,11 @@ function PlatformModule({
     setPlatformView("students");
   }
 
+  function openSchoolDrawer(schoolId: string) {
+    selectSchool(schoolId);
+    setSchoolDrawerId(schoolId);
+  }
+
   return (
     <div className="min-h-screen bg-[#f6f8fb] text-ink">
       <EnvironmentBanner />
@@ -1947,7 +1961,7 @@ function PlatformModule({
         </div>
         <nav className="mt-8 grid gap-1">
           <PlatformNavButton active={platformView === "dashboard"} icon={LayoutDashboard} label="Dashboard" onClick={() => setPlatformView("dashboard")} />
-          <PlatformNavButton active={platformView === "students"} icon={GraduationCap} label="Élèves" onClick={() => setPlatformView("students")} />
+          <PlatformNavButton active={platformView === "students"} icon={Building2} label="Écoles" onClick={() => setPlatformView("students")} />
           <PlatformNavButton active={platformView === "menu"} icon={MenuIcon} label="Menu" onClick={() => setPlatformView("menu")} />
         </nav>
         <div className="absolute bottom-5 left-4 right-4 rounded bg-slate-50 p-3 text-xs text-slate-500">
@@ -1971,7 +1985,7 @@ function PlatformModule({
               <LayoutDashboard className="h-4 w-4" /> Dashboard
             </button>
             <button onClick={() => setPlatformView("students")} className="secondary-button lg:hidden">
-              <GraduationCap className="h-4 w-4" /> Élèves
+              <Building2 className="h-4 w-4" /> Écoles
             </button>
             <button onClick={() => setPlatformView("menu")} className="secondary-button lg:hidden">
               <MenuIcon className="h-4 w-4" /> Menu
@@ -1992,7 +2006,7 @@ function PlatformModule({
               <PlatformCard label="Écoles" value={data.schools.length} icon={BookOpen} description={`${activeSchools} actives, ${suspendedSchools} suspendues`} tone="mint" />
               <PlatformCard label="Élèves totalisés" value={totalStudents} icon={GraduationCap} description="Chiffre agrégé, sans détail individuel" tone="sky" />
               <PlatformCard label="Parents" value={totalParents} icon={UsersRound} description="Comptes rattachés aux écoles" tone="violet" />
-              <PlatformCard label="Revenus globaux" value={`$${totalRevenue.toFixed(2)}`} icon={Banknote} description={`${totalAdmins} administrateurs école`} tone="amber" />
+              <PlatformCard label="Administrateurs" value={totalAdmins} icon={ShieldCheck} description="Comptes administrateurs école" tone="amber" />
             </section>
           )}
 
@@ -2022,9 +2036,6 @@ function PlatformModule({
                       <h2 className="font-bold text-ink">Écoles récentes</h2>
                       <p className="text-sm text-slate-500">Accès rapide aux comptes école.</p>
                     </div>
-                    <button onClick={() => setPlatformView("students")} className="secondary-button">
-                      Voir tout
-                    </button>
                   </div>
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                     {visibleSchools.slice(0, 3).map((school) => (
@@ -2032,7 +2043,7 @@ function PlatformModule({
                         key={school.id}
                         school={school}
                         stats={getPlatformSchoolStats(school.id, data)}
-                        onSelect={() => selectSchool(school.id)}
+                        onSelect={() => openSchoolDrawer(school.id)}
                         onEdit={() => void editSchool(school)}
                         onStatus={() => void changeSchoolStatus(school)}
                         onDelete={() => void deleteSchool(school)}
@@ -2047,7 +2058,7 @@ function PlatformModule({
           {platformView === "students" && (
             <section className="grid gap-4">
               <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_repeat(4,180px)]">
+                <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_repeat(3,180px)]">
                   <label className="relative">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                     <input value={search} onChange={(event) => setSearch(event.target.value)} className="input pl-9" placeholder="Rechercher une école..." />
@@ -2056,12 +2067,6 @@ function PlatformModule({
                     <option value="all">Tous statuts</option>
                     <option value="active">Active</option>
                     <option value="suspended">Suspendue</option>
-                  </FilterSelect>
-                  <FilterSelect icon={ShieldCheck} value={subscriptionFilter} onChange={(value) => setSubscriptionFilter(value as SubscriptionFilter)}>
-                    <option value="all">Tous abonnements</option>
-                    <option value="active">Actif</option>
-                    <option value="suspended">Suspendu</option>
-                    <option value="expired">Expiré</option>
                   </FilterSelect>
                   <FilterSelect icon={Building2} value={typeFilter} onChange={(value) => setTypeFilter(value as typeof typeFilter)}>
                     <option value="all">Tous types</option>
@@ -2091,7 +2096,7 @@ function PlatformModule({
                       school={school}
                       stats={getPlatformSchoolStats(school.id, data)}
                       selected={school.id === selectedSchool?.id}
-                      onSelect={() => selectSchool(school.id)}
+                      onSelect={() => openSchoolDrawer(school.id)}
                       onEdit={() => void editSchool(school)}
                       onStatus={() => void changeSchoolStatus(school)}
                       onDelete={() => void deleteSchool(school)}
@@ -2109,7 +2114,6 @@ function PlatformModule({
                             <h2 className="truncate text-lg font-bold text-ink">{selectedSchool.name}</h2>
                             <div className="mt-1 flex flex-wrap gap-2">
                               <StatusBadge status={selectedSchool.status} />
-                              <SubscriptionBadge status={getSubscriptionStatus(selectedSchool)} />
                             </div>
                           </div>
                         </div>
@@ -2118,7 +2122,7 @@ function PlatformModule({
                         </button>
                       </div>
                       <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-                        {(["overview", "info", "admins", "subscription", "history"] as SchoolDetailTab[]).map((tab) => (
+                        {(["overview", "info", "admins", "history"] as SchoolDetailTab[]).map((tab) => (
                           <button
                             key={tab}
                             onClick={() => setDetailTab(tab)}
@@ -2164,8 +2168,8 @@ function PlatformModule({
                           <InfoRow label="Nombre d'eleves" value={String(selectedStats.students)} />
                           <InfoRow label="Nombre d'enseignants" value="0" />
                           <InfoRow label="Nombre de classes" value="0" />
-                          <InfoRow label="Abonnement" value={selectedSchool.subscriptionPlan} />
                           <InfoRow label="Niveaux" value={(selectedSchool.educationLevels ?? []).join(", ") || "-"} />
+                          <InfoRow label="Options" value={(selectedSchool.schoolOptions ?? []).join(", ") || "-"} />
                           <InfoRow label="Type" value={selectedSchool.schoolType ?? "-"} />
                           <div className="mt-3 flex flex-wrap gap-2">
                             <button onClick={() => void editSchool(selectedSchool)} className="secondary-button">Modifier</button>
@@ -2205,30 +2209,6 @@ function PlatformModule({
                         </div>
                       )}
 
-                      {detailTab === "subscription" && (
-                        <div className="grid gap-4">
-                          <div className="rounded bg-slate-50 p-4">
-                            <p className="text-sm text-slate-500">Plan actuel</p>
-                            <p className="mt-1 text-2xl font-bold text-ink">{selectedSchool.subscriptionPlan}</p>
-                            <p className="text-sm text-slate-500">${selectedSchool.subscriptionAmount}/mois</p>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            {(["Starter", "Standard", "Premium"] as School["subscriptionPlan"][]).map((plan) => (
-                              <button key={plan} onClick={() => updateSubscription(selectedSchool.id, plan)} className="secondary-button">
-                                Upgrade {plan}
-                              </button>
-                            ))}
-                            <button
-                              onClick={() => void changeSchoolStatus(selectedSchool)}
-                              className="rounded bg-red-50 px-3 py-2 text-sm font-semibold text-red-700"
-                            >
-                              {selectedSchool.status === "active" ? "Suspendre" : "Reactiver"}
-                            </button>
-                          </div>
-                          <AuditTimeline logs={selectedLogs} />
-                        </div>
-                      )}
-
                       {detailTab === "history" && <AuditTimeline logs={selectedLogs} />}
                     </div>
                   </section>
@@ -2261,16 +2241,30 @@ function PlatformModule({
                 <Field label="Nom de l'école" value={schoolName} onChange={setSchoolName} />
                 <Field label="Email admin école" value={adminEmail} onChange={setAdminEmail} type="email" />
                 <PasswordField label="Mot de passe admin" value={adminPassword} onChange={setAdminPassword} />
-                <label className="grid gap-1 text-sm font-medium text-slate-700">
-                  Abonnement
-                  <select value={subscriptionPlan} onChange={(event) => setSubscriptionPlan(event.target.value as School["subscriptionPlan"])} className="input">
-                    <option value="Starter">Starter</option>
-                    <option value="Standard">Standard</option>
-                    <option value="Premium">Premium</option>
-                  </select>
-                </label>
+                <fieldset className="grid gap-2 rounded border border-slate-200 p-3">
+                  <legend className="px-1 text-sm font-semibold text-slate-700">Sections disponibles</legend>
+                  <div className="flex flex-wrap gap-2">
+                    {schoolSectionChoices.map((section) => (
+                      <label key={section} className="inline-flex items-center gap-2 rounded bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+                        <input type="checkbox" checked={schoolSections.includes(section)} onChange={() => toggleSchoolSection(section)} className="h-4 w-4 accent-ink" />
+                        {section}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+                <fieldset className="grid gap-2 rounded border border-slate-200 p-3">
+                  <legend className="px-1 text-sm font-semibold text-slate-700">Options scolaires</legend>
+                  <div className="flex flex-wrap gap-2">
+                    {schoolOptionChoices.map((option) => (
+                      <label key={option} className="inline-flex items-center gap-2 rounded bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+                        <input type="checkbox" checked={selectedSchoolOptions.includes(option)} onChange={() => toggleSchoolOption(option)} className="h-4 w-4 accent-ink" />
+                        {option}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
                 {provisioningError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{provisioningError}</p>}
-                <button onClick={createSchool} disabled={provisioningLoading} className="primary-button disabled:cursor-not-allowed disabled:opacity-60">
+                <button onClick={createSchool} disabled={provisioningLoading || schoolSections.length === 0} className="primary-button disabled:cursor-not-allowed disabled:opacity-60">
                   <Plus className="h-4 w-4" /> {provisioningLoading ? "Création..." : "Créer"}
                 </button>
               </FormPanel>
@@ -2278,6 +2272,38 @@ function PlatformModule({
           )}
         </main>
       </div>
+
+      {drawerSchool && (
+        <AdminDrawer title={drawerSchool.name} onClose={() => setSchoolDrawerId("")} closeLabel="Fermer les informations de l'école">
+          <div className="grid gap-4">
+            <div className="flex items-start gap-3 rounded border border-slate-200 bg-slate-50 p-4">
+              <SchoolLogo school={drawerSchool} />
+              <div className="min-w-0">
+                <h2 className="break-words text-lg font-bold text-ink">{drawerSchool.name}</h2>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <StatusBadge status={drawerSchool.status} />
+                </div>
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <InfoRow label="Nom" value={drawerSchool.name} />
+              <InfoRow label="Sigle" value={drawerSchool.acronym ?? "-"} />
+              <InfoRow label="Adresse" value={drawerSchool.address || "-"} />
+              <InfoRow label="Téléphone" value={drawerSchool.phone || "-"} />
+              <InfoRow label="Email" value={drawerSchool.email || "-"} />
+              <InfoRow label="Statut" value={drawerSchool.status} />
+              <InfoRow label="Date de création" value={drawerSchool.createdAt ? new Date(drawerSchool.createdAt).toLocaleDateString("fr-FR") : "-"} />
+              <InfoRow label="Niveaux" value={(drawerSchool.educationLevels ?? []).join(", ") || "-"} />
+              <InfoRow label="Options" value={(drawerSchool.schoolOptions ?? []).join(", ") || "-"} />
+              <InfoRow label="Type" value={drawerSchool.schoolType ?? "-"} />
+              <InfoRow label="Élèves" value={String(getPlatformSchoolStats(drawerSchool.id, data).students)} />
+              <InfoRow label="Parents" value={String(getPlatformSchoolStats(drawerSchool.id, data).parents)} />
+              <InfoRow label="Administrateurs" value={String(getPlatformSchoolStats(drawerSchool.id, data).admins)} />
+              <InfoRow label="Utilisateurs" value={String(getPlatformSchoolStats(drawerSchool.id, data).users)} />
+            </div>
+          </div>
+        </AdminDrawer>
+      )}
 
       {adminModalOpen && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-4">
@@ -2379,7 +2405,7 @@ function SchoolSaasCard({
       <div className="flex items-start gap-3">
         <SchoolLogo school={school} />
         <div className="min-w-0 flex-1">
-          <button onClick={onSelect} className="max-w-full truncate text-left font-bold text-ink underline-offset-4 hover:underline">
+          <button onClick={onSelect} className="max-w-full truncate text-left font-bold text-ink underline decoration-slate-300 underline-offset-4 transition hover:text-sky-700">
             {school.name}
           </button>
           <p className="text-xs text-slate-500">{school.acronym ?? buildAcronym(school.name)}</p>
@@ -2387,12 +2413,11 @@ function SchoolSaasCard({
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
         <StatusBadge status={school.status} />
-        <SubscriptionBadge status={getSubscriptionStatus(school)} />
       </div>
       <p className="mt-3 text-sm text-slate-500">{(school.educationLevels ?? ["Primaire"]).join(" · ")}</p>
       <div className="mt-4 grid grid-cols-2 gap-2">
         <MiniStat label="Utilisateurs" value={stats.users} compact />
-        <MiniStat label="Plan" value={school.subscriptionPlan} compact />
+        <MiniStat label="Sections" value={(school.educationLevels ?? ["Primaire"]).length} compact />
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
         <button onClick={onEdit ?? onSelect} className="rounded bg-ink px-3 py-2 text-xs font-semibold text-white">
@@ -2423,20 +2448,6 @@ function StatusBadge({ status }: { status: School["status"] }) {
       {status === "active" ? "Active" : "Suspendue"}
     </span>
   );
-}
-
-function SubscriptionBadge({ status }: { status: NonNullable<School["subscriptionStatus"]> }) {
-  const classes = {
-    active: "bg-mint/10 text-mint",
-    suspended: "bg-amber-50 text-amber-700",
-    expired: "bg-red-50 text-red-700",
-  };
-  const labels = {
-    active: "Abonnement actif",
-    suspended: "Abonnement suspendu",
-    expired: "Abonnement expiré",
-  };
-  return <span className={`rounded px-2 py-1 text-xs font-semibold ${classes[status]}`}>{labels[status]}</span>;
 }
 
 function StatusPill({ active }: { active: boolean }) {
@@ -2968,10 +2979,6 @@ function getPlatformSchoolStats(schoolId: string, data: AppData) {
   return { students, parents, admins, users };
 }
 
-function getSubscriptionStatus(school: School): NonNullable<School["subscriptionStatus"]> {
-  return school.subscriptionStatus ?? (school.status === "suspended" ? "suspended" : "active");
-}
-
 function buildAcronym(value: string) {
   return value
     .split(" ")
@@ -2981,12 +2988,11 @@ function buildAcronym(value: string) {
     .join("");
 }
 
-function schoolTabLabel(tab: "overview" | "info" | "admins" | "subscription" | "history") {
+function schoolTabLabel(tab: "overview" | "info" | "admins" | "history") {
   const labels = {
     overview: "Overview",
     info: "Informations",
     admins: "Administrateurs",
-    subscription: "Abonnement",
     history: "Historique",
   };
   return labels[tab];

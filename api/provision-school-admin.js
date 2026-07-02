@@ -110,6 +110,15 @@ export default async function handler(req, res) {
     const adminEmail = String(body.adminEmail ?? "").trim().toLowerCase();
     const adminPassword = String(body.adminPassword ?? "");
     const plan = allowedPlans.has(body.subscriptionPlan) ? body.subscriptionPlan : "Standard";
+    const allowedEducationLevels = new Set(["Maternelle", "Primaire", "Secondaire"]);
+    const educationLevels = Array.isArray(body.educationLevels)
+      ? body.educationLevels.map((level) => String(level).trim()).filter((level) => allowedEducationLevels.has(level))
+      : ["Primaire"];
+    const uniqueEducationLevels = [...new Set(educationLevels.length > 0 ? educationLevels : ["Primaire"])];
+    const schoolType = uniqueEducationLevels.length === 1 ? uniqueEducationLevels[0] : "Mixte";
+    const schoolOptions = Array.isArray(body.schoolOptions)
+      ? [...new Set(body.schoolOptions.map((option) => String(option).trim()).filter(Boolean))]
+      : [];
 
     if (!schoolName || !adminEmail || adminPassword.length < 6) {
       sendJson(res, 400, { error: "Nom d'école, email admin et mot de passe valide sont requis." });
@@ -133,8 +142,9 @@ export default async function handler(req, res) {
       activeSchoolYearId: yearId,
       logoUrl: "",
       acronym: buildAcronym(schoolName),
-      educationLevels: ["Primaire"],
-      schoolType: "Mixte",
+      educationLevels: uniqueEducationLevels,
+      schoolOptions,
+      schoolType,
       createdAt: now,
       createdBy: caller.uid,
       mainAdminId: "",

@@ -5,7 +5,10 @@ type ProvisionSchoolAdminInput = {
   schoolName: string;
   adminEmail: string;
   adminPassword: string;
-  subscriptionPlan: School["subscriptionPlan"];
+  subscriptionPlan?: School["subscriptionPlan"];
+  educationLevels?: string[];
+  schoolType?: School["schoolType"];
+  schoolOptions?: string[];
 };
 
 type ProvisionSchoolAdminResponse = {
