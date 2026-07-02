@@ -70,6 +70,9 @@ export interface SchoolYear {
   startsAt: string;
   endsAt: string;
   status: "active" | "archived" | "draft";
+  studentsImportedFromArchivedYear?: boolean;
+  studentsImportedFromYearId?: string;
+  studentsImportedAt?: string;
 }
 
 export interface Student {

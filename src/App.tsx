@@ -49,6 +49,7 @@ import type {
   Expense,
   FeeKind,
   FeeType,
+  HumanityOption,
   Message,
   ParentProfile,
   Payment,
@@ -74,6 +75,8 @@ const appEnvironment = import.meta.env.VITE_APP_ENV ?? "development";
 const showStagingBanner = import.meta.env.VITE_STAGING_BANNER === "true" || appEnvironment === "staging" || appEnvironment === "preview";
 const stagingLabel = import.meta.env.VITE_STAGING_LABEL ?? "ENVIRONNEMENT DE TEST";
 const platformLoginLogoStorageKey = "acadea.platform.loginLogo";
+const defaultManifestHref = "/manifest.webmanifest";
+let platformManifestObjectUrl: string | null = null;
 const emptyAppData: AppData = {
   users: [],
   schools: [],
@@ -122,6 +125,95 @@ function savePlatformLoginLogo(value: string) {
   }
 }
 
+function getOrCreateHeadLink(selector: string, rel: string) {
+  let link = document.head.querySelector<HTMLLinkElement>(selector);
+  if (!link) {
+    link = document.createElement("link");
+    link.rel = rel;
+    document.head.appendChild(link);
+  }
+  return link;
+}
+
+function loadImageFromSource(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Logo impossible à lire."));
+    image.src = src;
+  });
+}
+
+async function renderLogoIcon(source: string, size: number) {
+  const image = await loadImageFromSource(source);
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Icône PWA impossible à générer.");
+  context.clearRect(0, 0, size, size);
+  const padding = Math.round(size * 0.12);
+  const availableSize = size - padding * 2;
+  const sourceWidth = image.naturalWidth || size;
+  const sourceHeight = image.naturalHeight || size;
+  const ratio = Math.min(availableSize / sourceWidth, availableSize / sourceHeight);
+  const width = Math.max(1, Math.round(sourceWidth * ratio));
+  const height = Math.max(1, Math.round(sourceHeight * ratio));
+  const x = Math.round((size - width) / 2);
+  const y = Math.round((size - height) / 2);
+  context.drawImage(image, x, y, width, height);
+  return canvas.toDataURL("image/png");
+}
+
+async function applyPlatformLogoAssets(logoUrl: string) {
+  if (typeof document === "undefined") return;
+  const manifestLink = getOrCreateHeadLink('link[rel="manifest"]', "manifest");
+  if (!logoUrl) {
+    manifestLink.href = defaultManifestHref;
+    getOrCreateHeadLink('link[rel="apple-touch-icon"]', "apple-touch-icon").remove();
+    getOrCreateHeadLink('link[rel="icon"][data-platform-logo="true"]', "icon").remove();
+    if (platformManifestObjectUrl) {
+      URL.revokeObjectURL(platformManifestObjectUrl);
+      platformManifestObjectUrl = null;
+    }
+    return;
+  }
+
+  try {
+    const [icon192, icon512] = await Promise.all([renderLogoIcon(logoUrl, 192), renderLogoIcon(logoUrl, 512)]);
+    const manifest = {
+      name: "Acadéa",
+      short_name: "Acadéa",
+      description: "Plateforme de gestion scolaire Acadéa.",
+      lang: "fr",
+      dir: "ltr",
+      start_url: "/",
+      scope: "/",
+      display: "standalone",
+      orientation: "any",
+      theme_color: "#1E3A8A",
+      background_color: "#FFFFFF",
+      categories: ["education", "productivity"],
+      icons: [
+        { src: icon192, sizes: "192x192", type: "image/png", purpose: "any maskable" },
+        { src: icon512, sizes: "512x512", type: "image/png", purpose: "any maskable" },
+      ],
+    };
+    const nextUrl = URL.createObjectURL(new Blob([JSON.stringify(manifest)], { type: "application/manifest+json" }));
+    manifestLink.href = nextUrl;
+    if (platformManifestObjectUrl) URL.revokeObjectURL(platformManifestObjectUrl);
+    platformManifestObjectUrl = nextUrl;
+    getOrCreateHeadLink('link[rel="apple-touch-icon"]', "apple-touch-icon").href = icon192;
+    const iconLink = getOrCreateHeadLink('link[rel="icon"][data-platform-logo="true"]', "icon");
+    iconLink.href = icon192;
+    iconLink.type = "image/png";
+    iconLink.dataset.platformLogo = "true";
+  } catch (error) {
+    console.warn("Logo PWA dynamique indisponible.", error);
+    manifestLink.href = defaultManifestHref;
+  }
+}
+
 function getInitialRoute() {
   if (typeof window === "undefined") return "/login";
   const path = window.location.pathname;
@@ -141,6 +233,62 @@ function EnvironmentBanner() {
   );
 }
 
+function PlatformLogoSlot({ logoUrl, compact = false }: { logoUrl: string; compact?: boolean }) {
+  const [logoShape, setLogoShape] = useState<"horizontal" | "vertical" | "balanced">("balanced");
+  useEffect(() => {
+    setLogoShape("balanced");
+  }, [logoUrl]);
+
+  const containerClass =
+    logoShape === "horizontal"
+      ? compact
+        ? "max-w-[220px] min-h-14"
+        : "max-w-[320px] min-h-[72px] sm:max-w-[380px] sm:min-h-[88px]"
+      : logoShape === "vertical"
+        ? compact
+          ? "max-w-[120px] min-h-20"
+          : "max-w-[150px] min-h-[112px] sm:max-w-[180px] sm:min-h-[136px]"
+        : compact
+          ? "max-w-[150px] min-h-16"
+          : "max-w-[210px] min-h-[88px] sm:max-w-[240px] sm:min-h-[108px]";
+  const imageClass =
+    logoShape === "horizontal"
+      ? compact
+        ? "max-h-14"
+        : "max-h-20 sm:max-h-24"
+      : logoShape === "vertical"
+        ? compact
+          ? "max-h-20"
+          : "max-h-32 sm:max-h-40"
+        : compact
+          ? "max-h-16"
+          : "max-h-24 sm:max-h-28";
+
+  return (
+    <div
+      className={`mx-auto flex w-full items-center justify-center ${compact ? "mb-4" : ""} ${containerClass}`}
+      aria-hidden={!logoUrl}
+    >
+      {logoUrl && (
+        <img
+          src={logoUrl}
+          alt="Logo de l'application"
+          className={`h-auto w-auto max-w-full object-contain drop-shadow-[0_14px_28px_rgba(15,23,42,0.10)] ${imageClass}`}
+          decoding="async"
+          onLoad={(event) => {
+            const image = event.currentTarget;
+            const width = image.naturalWidth || image.width;
+            const height = image.naturalHeight || image.height;
+            if (!width || !height) return;
+            const ratio = width / height;
+            setLogoShape(ratio >= 1.45 ? "horizontal" : ratio <= 0.72 ? "vertical" : "balanced");
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [data, setData] = useState<AppData>(() => loadInitialData());
   const [user, setUser] = useState<AppUser | null>(null);
@@ -152,6 +300,11 @@ export default function App() {
   const [dataLoading, setDataLoading] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const logoutInProgressRef = useRef(false);
+  const platformLogoUrl = loadPlatformLoginLogo();
+
+  useEffect(() => {
+    void applyPlatformLogoAssets(platformLogoUrl);
+  }, [platformLogoUrl]);
 
   const school = data.schools.find((item) => item.id === user?.schoolId);
   const schoolYears = school ? data.schoolYears.filter((year) => year.schoolId === school.id) : [];
@@ -328,7 +481,7 @@ export default function App() {
     return (
       <main className="grid min-h-screen place-items-center bg-[#F5F7FB] px-4 text-center">
         <div>
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded bg-ink font-bold text-white">A</div>
+          <PlatformLogoSlot logoUrl={platformLogoUrl} compact />
           <p className="font-semibold text-ink">Vérification de la session Firebase...</p>
         </div>
       </main>
@@ -351,8 +504,8 @@ export default function App() {
     return (
       <main className="grid min-h-screen place-items-center bg-[#F5F7FB] px-4 text-center">
         <div>
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded bg-ink font-bold text-white">A</div>
-          <p className="font-semibold text-ink">Chargement des données Firestore...</p>
+          <PlatformLogoSlot logoUrl={platformLogoUrl} compact />
+          <p className="font-semibold text-ink">Bienvenue, préparation de votre espace sécurisé...</p>
         </div>
       </main>
     );
@@ -589,9 +742,7 @@ function LoginScreen({ onLogin, initialError }: { onLogin: (email: string, passw
         }
       `}</style>
       <section className="w-full max-w-[460px] overflow-hidden rounded-[22px] border border-white/80 bg-white p-3 shadow-[0_24px_80px_rgba(15,23,42,0.10)] [animation:loginCardIn_520ms_ease-out] sm:rounded-[24px] sm:p-6">
-        <div className="mx-auto flex h-16 w-36 items-center justify-center overflow-hidden rounded-2xl border border-dashed border-slate-200 bg-[#F8FAFC] sm:h-20 sm:w-44" aria-hidden={!platformLogoUrl}>
-          {platformLogoUrl && <img src={platformLogoUrl} alt="Logo de l'application" className="h-full w-full object-contain p-2" />}
-        </div>
+        <PlatformLogoSlot logoUrl={platformLogoUrl} />
 
         <div className="mt-5 text-center sm:mt-7">
           <h2 className="text-xl font-bold text-ink sm:text-2xl">Connexion</h2>
@@ -747,6 +898,7 @@ function Header({
   onToggleNotifications: () => void;
 }) {
   const schoolLogoUrl = school.logoUrl?.trim();
+  const userDisplayName = user.name.trim();
 
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-white">
@@ -757,7 +909,7 @@ function Header({
               {schoolLogoUrl ? <img src={schoolLogoUrl} alt="" className="h-full w-full object-cover" /> : "A"}
             </div>
             <div className="min-w-0">
-              <p className="truncate text-lg font-bold text-ink">{school.name}</p>
+              <p className="truncate text-lg font-bold text-ink">{userDisplayName ? `Bonjour, ${userDisplayName}` : "Bonjour !"}</p>
               <p className="text-xs text-slate-500">{roleLabels[user.role]}</p>
               <div className="mt-1 flex max-w-full flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-medium leading-4 text-slate-500">
                 {school.address && <span className="max-w-full truncate">{school.address}</span>}
@@ -1151,6 +1303,31 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
       total: students.length,
     };
   }).filter((row) => row.total > 0);
+  const classDisplayRows = Array.from(
+    filteredStudents.reduce<Map<string, { className: string; classOrder: number; optionLabel: string; girls: number; boys: number; total: number }>>((items, student) => {
+      const isSecondary = getClassSection(student.className) === "secondaire";
+      const className = isSecondary ? formatStudentClassName(student) : student.className;
+      const current = items.get(className) ?? {
+        className,
+        classOrder: CLASSES.indexOf(student.className),
+        optionLabel: isSecondary ? student.option?.trim() ?? "" : "",
+        girls: 0,
+        boys: 0,
+        total: 0,
+      };
+      items.set(className, {
+        ...current,
+        girls: current.girls + (student.sexe === "F" ? 1 : 0),
+        boys: current.boys + (student.sexe === "M" ? 1 : 0),
+        total: current.total + 1,
+      });
+      return items;
+    }, new Map()).values(),
+  ).sort((a, b) => {
+    const classOrder = a.classOrder - b.classOrder;
+    if (classOrder !== 0) return classOrder;
+    return a.optionLabel.localeCompare(b.optionLabel, "fr");
+  });
   const totalGirls = classRows.reduce((sum, row) => sum + row.girls, 0);
   const totalBoys = classRows.reduce((sum, row) => sum + row.boys, 0);
   const totalStudents = totalGirls + totalBoys;
@@ -1353,7 +1530,7 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
               </tr>
             </thead>
             <tbody>
-              {classRows.map((row) => (
+              {classDisplayRows.map((row) => (
                 <tr key={row.className} className="border-t border-slate-100">
                   <td className="py-2 font-semibold text-ink">{row.className}</td>
                   <td className="py-2">{row.girls}</td>
@@ -1474,7 +1651,7 @@ function PlatformModule({
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
   onLogout: () => void;
 }) {
-  type PlatformView = "overview" | "schools";
+  type PlatformView = "dashboard" | "students" | "menu";
   type SchoolDetailTab = "overview" | "info" | "admins" | "subscription" | "history";
   type SubscriptionFilter = "all" | "active" | "suspended" | "expired";
   type SchoolSort = "az" | "recent" | "users";
@@ -1483,7 +1660,7 @@ function PlatformModule({
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [subscriptionPlan, setSubscriptionPlan] = useState<School["subscriptionPlan"]>("Standard");
-  const [platformView, setPlatformView] = useState<PlatformView>("overview");
+  const [platformView, setPlatformView] = useState<PlatformView>("dashboard");
   const [selectedSchoolId, setSelectedSchoolId] = useState(data.schools[0]?.id ?? "");
   const [detailTab, setDetailTab] = useState<SchoolDetailTab>("overview");
   const [search, setSearch] = useState("");
@@ -1573,7 +1750,7 @@ function PlatformModule({
       setAdminEmail("");
       setAdminPassword("");
       setSelectedSchoolId(provisioned.school.id);
-      setPlatformView("schools");
+      setPlatformView("students");
       setDetailTab("overview");
     } catch (error) {
       setProvisioningError(error instanceof Error ? error.message : "Provisionnement impossible.");
@@ -1673,7 +1850,7 @@ function PlatformModule({
         { persist: false },
       );
       setSelectedSchoolId(remainingSchools[0]?.id ?? "");
-      setPlatformView("schools");
+      setPlatformView("students");
       setSchoolActionSuccess(`Ecole ${school.name} supprimee avec succes.`);
     } catch (error) {
       setSchoolActionError(error instanceof Error ? error.message : "Suppression ecole impossible.");
@@ -1682,6 +1859,7 @@ function PlatformModule({
 
   function savePlatformLogo() {
     savePlatformLoginLogo(platformLogoDraft);
+    void applyPlatformLogoAssets(platformLogoDraft);
     setPlatformLogoMessage(platformLogoDraft ? "Logo de l'application enregistré avec succès." : "Logo de l'application supprimé.");
   }
 
@@ -1753,7 +1931,7 @@ function PlatformModule({
   function selectSchool(schoolId: string, tab: SchoolDetailTab = "overview") {
     setSelectedSchoolId(schoolId);
     setDetailTab(tab);
-    setPlatformView("schools");
+    setPlatformView("students");
   }
 
   return (
@@ -1768,8 +1946,9 @@ function PlatformModule({
           </div>
         </div>
         <nav className="mt-8 grid gap-1">
-          <PlatformNavButton active={platformView === "overview"} icon={LayoutDashboard} label="Vue globale" onClick={() => setPlatformView("overview")} />
-          <PlatformNavButton active={platformView === "schools"} icon={Building2} label="Écoles" onClick={() => setPlatformView("schools")} />
+          <PlatformNavButton active={platformView === "dashboard"} icon={LayoutDashboard} label="Dashboard" onClick={() => setPlatformView("dashboard")} />
+          <PlatformNavButton active={platformView === "students"} icon={GraduationCap} label="Élèves" onClick={() => setPlatformView("students")} />
+          <PlatformNavButton active={platformView === "menu"} icon={MenuIcon} label="Menu" onClick={() => setPlatformView("menu")} />
         </nav>
         <div className="absolute bottom-5 left-4 right-4 rounded bg-slate-50 p-3 text-xs text-slate-500">
           <p className="font-semibold text-ink">Sécurité multi-tenant</p>
@@ -1788,11 +1967,14 @@ function PlatformModule({
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button onClick={() => setPlatformView("overview")} className="secondary-button lg:hidden">
-              <LayoutDashboard className="h-4 w-4" /> Vue globale
+            <button onClick={() => setPlatformView("dashboard")} className="secondary-button lg:hidden">
+              <LayoutDashboard className="h-4 w-4" /> Dashboard
             </button>
-            <button onClick={() => setPlatformView("schools")} className="secondary-button lg:hidden">
-              <Building2 className="h-4 w-4" /> Écoles
+            <button onClick={() => setPlatformView("students")} className="secondary-button lg:hidden">
+              <GraduationCap className="h-4 w-4" /> Élèves
+            </button>
+            <button onClick={() => setPlatformView("menu")} className="secondary-button lg:hidden">
+              <MenuIcon className="h-4 w-4" /> Menu
             </button>
             <button onClick={onLogout} className="secondary-button">
               <LogOut className="h-4 w-4" /> Sortir
@@ -1805,54 +1987,18 @@ function PlatformModule({
           {schoolActionError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{schoolActionError}</p>}
           {schoolActionSuccess && <p className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">{schoolActionSuccess}</p>}
 
-          <section className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <PlatformCard label="Écoles" value={data.schools.length} icon={BookOpen} description={`${activeSchools} actives, ${suspendedSchools} suspendues`} tone="mint" />
-            <PlatformCard label="Élèves totalisés" value={totalStudents} icon={GraduationCap} description="Chiffre agrégé, sans détail individuel" tone="sky" />
-            <PlatformCard label="Parents" value={totalParents} icon={UsersRound} description="Comptes rattachés aux écoles" tone="violet" />
-            <PlatformCard label="Revenus globaux" value={`$${totalRevenue.toFixed(2)}`} icon={Banknote} description={`${totalAdmins} administrateurs école`} tone="amber" />
-          </section>
+          {platformView === "dashboard" && (
+            <section className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <PlatformCard label="Écoles" value={data.schools.length} icon={BookOpen} description={`${activeSchools} actives, ${suspendedSchools} suspendues`} tone="mint" />
+              <PlatformCard label="Élèves totalisés" value={totalStudents} icon={GraduationCap} description="Chiffre agrégé, sans détail individuel" tone="sky" />
+              <PlatformCard label="Parents" value={totalParents} icon={UsersRound} description="Comptes rattachés aux écoles" tone="violet" />
+              <PlatformCard label="Revenus globaux" value={`$${totalRevenue.toFixed(2)}`} icon={Banknote} description={`${totalAdmins} administrateurs école`} tone="amber" />
+            </section>
+          )}
 
-          {platformView === "overview" && (
-            <section className="grid min-w-0 gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
+          {platformView === "dashboard" && (
+            <section className="grid min-w-0 gap-4">
               <div className="grid min-w-0 gap-4">
-                <FormPanel title="Logo de l'application">
-                  <ImageUploadField
-                    label="Logo affiché sur l'écran de connexion"
-                    value={platformLogoDraft}
-                    onChange={(value) => {
-                      setPlatformLogoDraft(value);
-                      setPlatformLogoMessage("");
-                    }}
-                    maxWidth={700}
-                    maxBytes={250 * 1024}
-                    acceptSvg
-                  />
-                  {platformLogoMessage && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{platformLogoMessage}</p>}
-                  <button onClick={savePlatformLogo} className="primary-button justify-center" type="button">
-                    <CheckCircle2 className="h-4 w-4" /> Enregistrer le logo
-                  </button>
-                </FormPanel>
-
-                <FormPanel title="Créer une école">
-                  <Field label="Nom de l'école" value={schoolName} onChange={setSchoolName} />
-                  <Field label="Email admin école" value={adminEmail} onChange={setAdminEmail} type="email" />
-                  <PasswordField label="Mot de passe admin" value={adminPassword} onChange={setAdminPassword} />
-                  <label className="grid gap-1 text-sm font-medium text-slate-700">
-                    Abonnement
-                    <select value={subscriptionPlan} onChange={(event) => setSubscriptionPlan(event.target.value as School["subscriptionPlan"])} className="input">
-                      <option value="Starter">Starter</option>
-                      <option value="Standard">Standard</option>
-                      <option value="Premium">Premium</option>
-                    </select>
-                  </label>
-                  {provisioningError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{provisioningError}</p>}
-                  <button onClick={createSchool} disabled={provisioningLoading} className="primary-button disabled:cursor-not-allowed disabled:opacity-60">
-                    <Plus className="h-4 w-4" /> {provisioningLoading ? "Création..." : "Créer"}
-                  </button>
-                </FormPanel>
-              </div>
-
-              <section className="grid min-w-0 gap-4">
                 <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
                   <div className="flex min-w-0 items-center justify-between gap-3">
                     <div className="min-w-0">
@@ -1876,7 +2022,7 @@ function PlatformModule({
                       <h2 className="font-bold text-ink">Écoles récentes</h2>
                       <p className="text-sm text-slate-500">Accès rapide aux comptes école.</p>
                     </div>
-                    <button onClick={() => setPlatformView("schools")} className="secondary-button">
+                    <button onClick={() => setPlatformView("students")} className="secondary-button">
                       Voir tout
                     </button>
                   </div>
@@ -1894,11 +2040,11 @@ function PlatformModule({
                     ))}
                   </div>
                 </div>
-              </section>
+              </div>
             </section>
           )}
 
-          {platformView === "schools" && (
+          {platformView === "students" && (
             <section className="grid gap-4">
               <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_repeat(4,180px)]">
@@ -2088,6 +2234,46 @@ function PlatformModule({
                   </section>
                 )}
               </div>
+            </section>
+          )}
+
+          {platformView === "menu" && (
+            <section className="grid min-w-0 gap-4 xl:grid-cols-2">
+              <FormPanel title="Logo de l'application">
+                <ImageUploadField
+                  label="Logo affiché sur l'écran de connexion"
+                  value={platformLogoDraft}
+                  onChange={(value) => {
+                    setPlatformLogoDraft(value);
+                    setPlatformLogoMessage("");
+                  }}
+                  maxWidth={700}
+                  maxBytes={250 * 1024}
+                  acceptSvg
+                />
+                {platformLogoMessage && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{platformLogoMessage}</p>}
+                <button onClick={savePlatformLogo} className="primary-button justify-center" type="button">
+                  <CheckCircle2 className="h-4 w-4" /> Enregistrer le logo
+                </button>
+              </FormPanel>
+
+              <FormPanel title="Créer une école">
+                <Field label="Nom de l'école" value={schoolName} onChange={setSchoolName} />
+                <Field label="Email admin école" value={adminEmail} onChange={setAdminEmail} type="email" />
+                <PasswordField label="Mot de passe admin" value={adminPassword} onChange={setAdminPassword} />
+                <label className="grid gap-1 text-sm font-medium text-slate-700">
+                  Abonnement
+                  <select value={subscriptionPlan} onChange={(event) => setSubscriptionPlan(event.target.value as School["subscriptionPlan"])} className="input">
+                    <option value="Starter">Starter</option>
+                    <option value="Standard">Standard</option>
+                    <option value="Premium">Premium</option>
+                  </select>
+                </label>
+                {provisioningError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{provisioningError}</p>}
+                <button onClick={createSchool} disabled={provisioningLoading} className="primary-button disabled:cursor-not-allowed disabled:opacity-60">
+                  <Plus className="h-4 w-4" /> {provisioningLoading ? "Création..." : "Créer"}
+                </button>
+              </FormPanel>
             </section>
           )}
         </main>
@@ -2850,6 +3036,7 @@ function ParentPortal({
   const [messageFeedback, setMessageFeedback] = useState("");
   const parent = yearData.parents.find((item) => item.id === user.parentId);
   const unread = yearData.notifications.filter((notification) => !notification.read).length;
+  const isParentMessageFormComplete = messageSubject.trim().length > 0 && messageBody.trim().length > 0;
   const recipientLabels = {
     admin: "Administrateur uniquement",
     cashier: "Caissier uniquement",
@@ -3054,10 +3241,19 @@ function ParentPortal({
                     placeholder="Rédigez votre message"
                   />
                 </label>
-                {messageFeedback && <p className="rounded bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700">{messageFeedback}</p>}
+                {messageFeedback && (
+                  <p
+                    className={`rounded px-3 py-2 text-sm font-semibold ${
+                      messageFeedback === "Message envoyé avec succès." ? "bg-mint/10 text-mint" : "border border-red-200 bg-red-50 text-red-700"
+                    }`}
+                  >
+                    {messageFeedback}
+                  </p>
+                )}
                 <button
                   type="submit"
-                  className="primary-button disabled:opacity-50"
+                  disabled={!isParentMessageFormComplete}
+                  className="primary-button transition disabled:cursor-not-allowed disabled:opacity-50 disabled:blur-[0.2px]"
                 >
                   <MessageSquare className="h-4 w-4" /> Envoyer
                 </button>
@@ -3180,6 +3376,8 @@ function StudentsModule({
   const [importStudentsOpen, setImportStudentsOpen] = useState(false);
   const [importSourceYearId, setImportSourceYearId] = useState("");
   const [importResult, setImportResult] = useState("");
+  const [importConfirmation, setImportConfirmation] = useState("");
+  const [importError, setImportError] = useState("");
   const canEdit = user.role === "school_admin" && year.status !== "archived";
   const studentClassChoices = CLASSES;
   const availableClasses = studentClassChoices.filter((className) => sectionFilter === "all" || getClassSection(className) === sectionFilter);
@@ -3189,6 +3387,7 @@ function StudentsModule({
   const selectedImportStudents = importSourceYearId
     ? data.students.filter((student) => student.schoolId === school.id && student.schoolYearId === importSourceYearId)
     : [];
+  const studentsAlreadyImported = Boolean(year.studentsImportedFromArchivedYear);
 
   const students = yearData.students.filter((student) => {
     const text = `${student.matricule} ${student.nom} ${student.postnom} ${student.prenom}`.toLowerCase();
@@ -3411,8 +3610,14 @@ function StudentsModule({
   }
 
   function openImportStudentsDrawer() {
+    if (studentsAlreadyImported) {
+      setImportResult("Les élèves ont déjà été importés pour cette année scolaire. Cette opération ne peut être effectuée qu'une seule fois.");
+      return;
+    }
     setImportSourceYearId(archivedYearsForImport[0]?.id ?? "");
     setImportResult("");
+    setImportConfirmation("");
+    setImportError("");
     setImportStudentsOpen(true);
   }
 
@@ -3420,13 +3625,29 @@ function StudentsModule({
     setImportStudentsOpen(false);
     setImportSourceYearId("");
     setImportResult("");
+    setImportConfirmation("");
+    setImportError("");
   }
 
   function importStudentsFromArchivedYear() {
     if (!selectedImportYear) return;
+    if (studentsAlreadyImported) {
+      setImportError("Les élèves ont déjà été importés pour cette année scolaire. Cette opération ne peut être effectuée qu'une seule fois.");
+      return;
+    }
+    if (importConfirmation !== "IMPORTER LES ELEVES") {
+      setImportError("Phrase de confirmation incorrecte. Veuillez saisir exactement : IMPORTER LES ELEVES");
+      return;
+    }
     const currentStudents = data.students.filter((student) => student.schoolId === school.id && student.schoolYearId === year.id);
     const existingKeys = new Set(currentStudents.map((student) => studentImportKey(student)));
     let skipped = 0;
+    let promoted = 0;
+    let maternelleToPrimaire = 0;
+    let primaireToCteb = 0;
+    let ctebToHumanities = 0;
+    let optionPending = 0;
+    let notPromoted = 0;
     const importedStudents: Student[] = [];
 
     selectedImportStudents.forEach((student) => {
@@ -3436,11 +3657,21 @@ function StudentsModule({
         return;
       }
       existingKeys.add(key);
+      const promotion = promoteStudentForNewYear(student);
+      if (promotion.promoted) promoted += 1;
+      if (promotion.transition === "maternelle-primaire") maternelleToPrimaire += 1;
+      if (promotion.transition === "primaire-cteb") primaireToCteb += 1;
+      if (promotion.transition === "cteb-humanites") ctebToHumanities += 1;
+      if (promotion.optionPending) optionPending += 1;
+      if (!promotion.promoted) notPromoted += 1;
       const importedStudent: Student = {
         ...student,
         id: uid("student"),
         schoolYearId: year.id,
         annee_scolaire_id: year.id,
+        className: promotion.className,
+        section: getClassSection(promotion.className),
+        option: promotion.option,
         status: "ACTIVE",
       };
       delete importedStudent.exitReason;
@@ -3469,8 +3700,34 @@ function StudentsModule({
       students: [...data.students, ...importedStudents],
       parents: nextParents,
       users: nextUsers,
+      schoolYears: data.schoolYears.map((item) =>
+        item.id === year.id
+          ? {
+              ...item,
+              studentsImportedFromArchivedYear: true,
+              studentsImportedFromYearId: selectedImportYear.id,
+              studentsImportedAt: new Date().toISOString(),
+            }
+          : item,
+      ),
+      auditLogs: [
+        createAuditLog(user, school.id, year.id, "Import élèves année archivée", `${selectedImportYear.name} vers ${year.name} - ${importedStudents.length} importés, ${skipped} doublons`),
+        ...data.auditLogs,
+      ],
     });
-    setImportResult(`${importedStudents.length} élève(s) importé(s). ${skipped} élève(s) ignoré(s) pour doublon.`);
+    setImportResult(
+      [
+        `${importedStudents.length} élève(s) importé(s).`,
+        `${promoted} élève(s) promu(s).`,
+        `${maternelleToPrimaire} passage(s) de Maternelle vers Primaire.`,
+        `${primaireToCteb} passage(s) de Primaire vers CTEB.`,
+        `${ctebToHumanities} passage(s) de CTEB vers Humanités.`,
+        `${optionPending} élève(s) en attente d'affectation d'option.`,
+        `${notPromoted} élève(s) non promu(s).`,
+        `${skipped} élève(s) ignoré(s) pour doublon.`,
+      ].join("\n"),
+    );
+    setImportError("");
   }
 
   return (
@@ -3486,7 +3743,13 @@ function StudentsModule({
             </button>
           )}
           {canEdit && (
-            <button onClick={openImportStudentsDrawer} type="button" className="secondary-button w-full justify-center sm:w-auto">
+            <button
+              onClick={openImportStudentsDrawer}
+              type="button"
+              disabled={studentsAlreadyImported}
+              className="secondary-button w-full justify-center disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+              title={studentsAlreadyImported ? "Les élèves ont déjà été importés pour cette année scolaire." : undefined}
+            >
               <Upload className="h-4 w-4" /> Importer les élèves d'une année archivée
             </button>
           )}
@@ -3494,6 +3757,11 @@ function StudentsModule({
             <Download className="h-4 w-4" /> Tableau d'homogénéité d'âge
           </button>
         </div>
+        {studentsAlreadyImported && (
+          <p className="mb-3 rounded border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-600">
+            Les élèves ont déjà été importés pour cette année scolaire. Cette opération ne peut être effectuée qu'une seule fois.
+          </p>
+        )}
         <div className="mb-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_160px_180px_220px]">
           <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
             <Search className="h-4 w-4 text-slate-400" />
@@ -3675,6 +3943,16 @@ function StudentsModule({
             <p className="rounded border border-blue-100 bg-blue-50 p-3 text-sm font-semibold text-blue-800">
               Seules les fiches élèves seront importées dans l'année active. Les paiements, reçus, présences, notes, messages, historiques et autres données opérationnelles ne seront pas copiés.
             </p>
+            <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <p className="font-bold">Confirmation obligatoire</p>
+              <p className="mt-2">
+                Vous êtes sur le point d'importer tous les élèves d'une année scolaire archivée vers la nouvelle année scolaire.
+              </p>
+              <p className="mt-2">
+                Cette opération est importante, ne peut être exécutée qu'une seule fois pour cette année scolaire et déclenchera automatiquement la promotion des élèves selon les règles définies par Acadéa.
+              </p>
+              <p className="mt-2">Veuillez confirmer votre choix.</p>
+            </div>
             {archivedYearsForImport.length === 0 ? (
               <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucune année archivée disponible pour l'import.</p>
             ) : (
@@ -3688,8 +3966,21 @@ function StudentsModule({
                   </select>
                 </label>
                 <Metric label="Élèves disponibles" value={String(selectedImportStudents.length)} />
-                {importResult && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{importResult}</p>}
-                <button type="button" onClick={importStudentsFromArchivedYear} disabled={!selectedImportYear || selectedImportStudents.length === 0} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50">
+                <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+                  Phrase de confirmation
+                  <input
+                    value={importConfirmation}
+                    onChange={(event) => {
+                      setImportConfirmation(event.target.value);
+                      setImportError("");
+                    }}
+                    className="input"
+                    placeholder="IMPORTER LES ELEVES"
+                  />
+                </label>
+                {importError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{importError}</p>}
+                {importResult && <p className="whitespace-pre-line rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{importResult}</p>}
+                <button type="button" onClick={importStudentsFromArchivedYear} disabled={!selectedImportYear || selectedImportStudents.length === 0 || importConfirmation !== "IMPORTER LES ELEVES"} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50">
                   <Upload className="h-4 w-4" /> Importer tous les élèves
                 </button>
               </>
@@ -5758,6 +6049,28 @@ function formatStudentClassName(student: Pick<Student, "className" | "option">) 
 function studentImportKey(student: Student) {
   const identity = [student.nom, student.postnom, student.prenom, student.birthDate].map((value) => value.trim().toLowerCase()).join("|");
   return student.matricule?.trim().toLowerCase() || identity;
+}
+
+function promoteStudentForNewYear(student: Student): { className: SchoolClass; option?: HumanityOption; promoted: boolean; transition?: "maternelle-primaire" | "primaire-cteb" | "cteb-humanites"; optionPending?: boolean } {
+  const classIndex = CLASSES.indexOf(student.className);
+  const nextClass = classIndex >= 0 && classIndex < CLASSES.length - 1 ? CLASSES[classIndex + 1] : student.className;
+  const promoted = nextClass !== student.className;
+  const transition =
+    student.className === CLASSES[2]
+      ? "maternelle-primaire"
+      : student.className === CLASSES[8]
+        ? "primaire-cteb"
+        : student.className === CLASSES[10]
+          ? "cteb-humanites"
+          : undefined;
+  const optionPending = transition === "cteb-humanites";
+  return {
+    className: nextClass,
+    option: optionPending ? undefined : student.option,
+    promoted,
+    transition,
+    optionPending,
+  };
 }
 
 function generateMatricule(students: Student[], yearName: string, schoolId: string, schoolYearId: string) {
