@@ -216,7 +216,6 @@ async function applyPlatformLogoAssets(logoUrl: string) {
       start_url: "/",
       scope: "/",
       display: "standalone",
-      orientation: "portrait",
       theme_color: "#1E3A8A",
       background_color: "#FFFFFF",
       categories: ["education", "productivity"],
