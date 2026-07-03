@@ -74,8 +74,6 @@ const appEnvironment = import.meta.env.VITE_APP_ENV ?? "development";
 const showStagingBanner = import.meta.env.VITE_STAGING_BANNER === "true" || appEnvironment === "staging" || appEnvironment === "preview";
 const stagingLabel = import.meta.env.VITE_STAGING_LABEL ?? "ENVIRONNEMENT DE TEST";
 const defaultManifestHref = "/manifest.webmanifest";
-const platformLogoAssetCache = "acadea-pwa-v2-brand";
-let platformManifestObjectUrl: string | null = null;
 const emptyAppData: AppData = {
   users: [],
   schools: [],
@@ -120,109 +118,16 @@ function getOrCreateHeadLink(selector: string, rel: string) {
   return link;
 }
 
-function loadImageFromSource(src: string) {
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("Logo impossible à lire."));
-    image.src = src;
-  });
-}
-
-async function renderLogoIcon(source: string, size: number) {
-  const image = await loadImageFromSource(source);
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("Icône PWA impossible à générer.");
-  context.clearRect(0, 0, size, size);
-  const padding = Math.round(size * 0.12);
-  const availableSize = size - padding * 2;
-  const sourceWidth = image.naturalWidth || size;
-  const sourceHeight = image.naturalHeight || size;
-  const ratio = Math.min(availableSize / sourceWidth, availableSize / sourceHeight);
-  const width = Math.max(1, Math.round(sourceWidth * ratio));
-  const height = Math.max(1, Math.round(sourceHeight * ratio));
-  const x = Math.round((size - width) / 2);
-  const y = Math.round((size - height) / 2);
-  context.drawImage(image, x, y, width, height);
-  return canvas.toDataURL("image/png");
-}
-
-function platformLogoFaviconSvg(iconDataUrl: string) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="42" fill="#FFFFFF"/><image href="${iconDataUrl}" x="0" y="0" width="192" height="192" preserveAspectRatio="xMidYMid meet"/></svg>`;
-}
-
-async function cachePlatformLogoAssets(manifest: unknown, icon192: string, icon512: string) {
-  if (typeof window === "undefined" || !("caches" in window)) return;
-  const cache = await caches.open(platformLogoAssetCache);
-  await Promise.all([
-    cache.put(defaultManifestHref, new Response(JSON.stringify(manifest), { headers: { "Content-Type": "application/manifest+json" } })),
-    cache.put("/icons/icon-192.png", await fetch(icon192)),
-    cache.put("/icons/icon-512.png", await fetch(icon512)),
-    cache.put("/icons/apple-touch-icon.png", await fetch(icon192)),
-    cache.put("/favicon.svg", new Response(platformLogoFaviconSvg(icon192), { headers: { "Content-Type": "image/svg+xml" } })),
-  ]);
-}
-
-async function clearPlatformLogoAssets() {
-  if (typeof window === "undefined" || !("caches" in window)) return;
-  await caches.delete(platformLogoAssetCache);
-}
-
-async function applyPlatformLogoAssets(logoUrl: string) {
+async function applyPlatformLogoAssets() {
   if (typeof document === "undefined") return;
   const manifestLink = getOrCreateHeadLink('link[rel="manifest"]', "manifest");
-  if (!logoUrl) {
-    manifestLink.href = defaultManifestHref;
-    const appleIcon = getOrCreateHeadLink('link[rel="apple-touch-icon"]', "apple-touch-icon");
-    appleIcon.href = "/icons/apple-touch-icon.png";
-    const iconLink = getOrCreateHeadLink('link[rel="icon"]', "icon");
-    iconLink.href = "/favicon.svg";
-    iconLink.type = "image/svg+xml";
-    delete iconLink.dataset.platformLogo;
-    void clearPlatformLogoAssets();
-    if (platformManifestObjectUrl) {
-      URL.revokeObjectURL(platformManifestObjectUrl);
-      platformManifestObjectUrl = null;
-    }
-    return;
-  }
-
-  try {
-    const [icon192, icon512] = await Promise.all([renderLogoIcon(logoUrl, 192), renderLogoIcon(logoUrl, 512)]);
-    const manifest = {
-      name: "Acadéa",
-      short_name: "Acadéa",
-      description: "Plateforme de gestion scolaire Acadéa.",
-      lang: "fr",
-      dir: "ltr",
-      start_url: "/",
-      scope: "/",
-      display: "standalone",
-      theme_color: "#1E3A8A",
-      background_color: "#FFFFFF",
-      categories: ["education", "productivity"],
-      icons: [
-        { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any maskable" },
-        { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
-      ],
-    };
-    await cachePlatformLogoAssets(manifest, icon192, icon512);
-    const nextUrl = URL.createObjectURL(new Blob([JSON.stringify(manifest)], { type: "application/manifest+json" }));
-    manifestLink.href = nextUrl;
-    if (platformManifestObjectUrl) URL.revokeObjectURL(platformManifestObjectUrl);
-    platformManifestObjectUrl = nextUrl;
-    getOrCreateHeadLink('link[rel="apple-touch-icon"]', "apple-touch-icon").href = icon192;
-    const iconLink = getOrCreateHeadLink('link[rel="icon"]', "icon");
-    iconLink.href = icon192;
-    iconLink.type = "image/png";
-    iconLink.dataset.platformLogo = "true";
-  } catch (error) {
-    console.warn("Logo PWA dynamique indisponible.", error);
-    manifestLink.href = defaultManifestHref;
-  }
+  manifestLink.href = defaultManifestHref;
+  const appleIcon = getOrCreateHeadLink('link[rel="apple-touch-icon"]', "apple-touch-icon");
+  appleIcon.href = "/icons/apple-touch-icon.png";
+  const iconLink = getOrCreateHeadLink('link[rel="icon"]', "icon");
+  iconLink.href = "/favicon.svg";
+  iconLink.type = "image/svg+xml";
+  delete iconLink.dataset.platformLogo;
 }
 
 function getInitialRoute() {
@@ -249,6 +154,7 @@ function PlatformLogoSlot({ logoUrl, compact = false }: { logoUrl: string; compa
   useEffect(() => {
     setLogoShape("balanced");
   }, [logoUrl]);
+  const logoSource = logoUrl || "/logo-acadea.svg";
 
   const containerClass =
     logoShape === "horizontal"
@@ -278,24 +184,26 @@ function PlatformLogoSlot({ logoUrl, compact = false }: { logoUrl: string; compa
   return (
     <div
       className={`mx-auto flex w-full items-center justify-center ${compact ? "mb-4" : ""} ${containerClass}`}
-      aria-hidden={!logoUrl}
     >
-      {logoUrl && (
-        <img
-          src={logoUrl}
-          alt="Logo de l'application"
-          className={`h-auto w-auto max-w-full object-contain drop-shadow-[0_14px_28px_rgba(15,23,42,0.10)] ${imageClass}`}
-          decoding="async"
-          onLoad={(event) => {
-            const image = event.currentTarget;
-            const width = image.naturalWidth || image.width;
-            const height = image.naturalHeight || image.height;
-            if (!width || !height) return;
-            const ratio = width / height;
-            setLogoShape(ratio >= 1.45 ? "horizontal" : ratio <= 0.72 ? "vertical" : "balanced");
-          }}
-        />
-      )}
+      <img
+        src={logoSource}
+        alt="Logo de l'application"
+        className={`h-auto w-auto max-w-full object-contain drop-shadow-[0_14px_28px_rgba(15,23,42,0.10)] ${imageClass}`}
+        decoding="async"
+        onError={(event) => {
+          const image = event.currentTarget;
+          if (image.src.endsWith("/logo-acadea.svg")) return;
+          image.src = "/logo-acadea.svg";
+        }}
+        onLoad={(event) => {
+          const image = event.currentTarget;
+          const width = image.naturalWidth || image.width;
+          const height = image.naturalHeight || image.height;
+          if (!width || !height) return;
+          const ratio = width / height;
+          setLogoShape(ratio >= 1.45 ? "horizontal" : ratio <= 0.72 ? "vertical" : "balanced");
+        }}
+      />
     </div>
   );
 }
@@ -314,8 +222,8 @@ export default function App() {
   const [platformLogoUrl, setPlatformLogoUrl] = useState("");
 
   useEffect(() => {
-    void applyPlatformLogoAssets(platformLogoUrl);
-  }, [platformLogoUrl]);
+    void applyPlatformLogoAssets();
+  }, []);
 
   useEffect(() => {
     if (!canUseFirestoreData()) return;
@@ -323,7 +231,8 @@ export default function App() {
     loadPlatformSettings()
       .then((settings) => {
         if (cancelled || !settings) return;
-        setPlatformLogoUrl(settings.loginLogoUrl ?? "");
+        const officialLogoUrl = settings.loginLogoUrl ?? "";
+        setPlatformLogoUrl(officialLogoUrl);
       })
       .catch((error) => {
         console.warn("Logo officiel Acadéa indisponible.", error);
@@ -1711,7 +1620,9 @@ function PlatformModule({
   type PlatformView = "dashboard" | "students" | "menu";
   type SchoolDetailTab = "overview" | "info" | "admins" | "history";
   type SchoolSort = "az" | "recent" | "users";
-  const schoolOptionChoices = [...defaultSchoolOptions, "Scientifique", "Technique", "Nutrition", "Électricité", "Mécanique", "Autre"];
+  const removedSchoolOptions = new Set(["Scientifique"]);
+  const isAllowedSchoolOption = (option: string) => !removedSchoolOptions.has(option.trim());
+  const schoolOptionChoices = [...defaultSchoolOptions, "Technique", "Nutrition", "Électricité", "Mécanique", "Autre"].filter(isAllowedSchoolOption);
 
   const [schoolName, setSchoolName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
@@ -1723,6 +1634,7 @@ function PlatformModule({
   const [selectedSchoolId, setSelectedSchoolId] = useState(data.schools[0]?.id ?? "");
   const [schoolDrawerId, setSchoolDrawerId] = useState("");
   const [detailTab, setDetailTab] = useState<SchoolDetailTab>("overview");
+  const [platformMenuDrawer, setPlatformMenuDrawer] = useState<"create-school" | "logo" | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | School["status"]>("all");
   const [typeFilter, setTypeFilter] = useState<"all" | NonNullable<School["schoolType"]>>("all");
@@ -1739,6 +1651,9 @@ function PlatformModule({
   const [provisioningLoading, setProvisioningLoading] = useState(false);
   const [schoolActionError, setSchoolActionError] = useState("");
   const [schoolActionSuccess, setSchoolActionSuccess] = useState("");
+  const [schoolDeleteTarget, setSchoolDeleteTarget] = useState<School | null>(null);
+  const [schoolDeleteConfirmation, setSchoolDeleteConfirmation] = useState("");
+  const [schoolDeleteLoading, setSchoolDeleteLoading] = useState(false);
   const [platformLogoDraft, setPlatformLogoDraft] = useState(platformLogoUrl);
   const [platformLogoMessage, setPlatformLogoMessage] = useState("");
 
@@ -1757,9 +1672,10 @@ function PlatformModule({
   const maxStatusCount = Math.max(1, ...schoolStatusChart.map((item) => item.value));
   const hasSecondarySection = schoolSections.includes("Secondaire");
   const hasCustomSchoolOption = selectedSchoolOptions.includes("Autre");
-  const visibleSchoolOptionChoices = Array.from(new Set([...schoolOptionChoices, ...selectedSchoolOptions.filter((option) => option !== "Autre")]));
+  const visibleSchoolOptionChoices = Array.from(new Set([...schoolOptionChoices, ...selectedSchoolOptions.filter((option) => option !== "Autre" && isAllowedSchoolOption(option))]));
   const selectedSchool = visibleSchools.find((school) => school.id === selectedSchoolId) ?? visibleSchools[0];
   const drawerSchool = visibleSchools.find((school) => school.id === schoolDrawerId);
+  const drawerSchoolOptions = (drawerSchool?.schoolOptions ?? []).filter(isAllowedSchoolOption);
   const drawerStats = drawerSchool ? getPlatformSchoolStats(drawerSchool.id, data) : { students: 0, parents: 0, admins: 0, users: 0 };
   const drawerAdmins = drawerSchool ? data.users.filter((item) => item.role === "school_admin" && item.schoolId === drawerSchool.id) : [];
   const drawerMainAdmin = drawerSchool ? drawerAdmins.find((admin) => admin.id === drawerSchool.mainAdminId) ?? drawerAdmins[0] : undefined;
@@ -1793,15 +1709,20 @@ function PlatformModule({
   }
 
   async function createSchool() {
+    if (provisioningLoading) return;
     if (!schoolName || !adminEmail || !adminPassword || schoolSections.length === 0) return;
     const trimmedCustomSchoolOption = customSchoolOption.trim();
     if (hasSecondarySection && hasCustomSchoolOption && !trimmedCustomSchoolOption) {
       setProvisioningError("Veuillez préciser la nouvelle option scolaire.");
       return;
     }
+    if (hasSecondarySection && hasCustomSchoolOption && !isAllowedSchoolOption(trimmedCustomSchoolOption)) {
+      setProvisioningError("Cette option scolaire n'est plus disponible.");
+      return;
+    }
     const nextSchoolOptions = hasSecondarySection
       ? [
-          ...selectedSchoolOptions.filter((option) => option !== "Autre"),
+          ...selectedSchoolOptions.filter((option) => option !== "Autre" && isAllowedSchoolOption(option)),
           ...(hasCustomSchoolOption ? [trimmedCustomSchoolOption] : []),
         ]
       : [];
@@ -1810,8 +1731,8 @@ function PlatformModule({
     setProvisioningLoading(true);
     try {
       const provisioned = await provisionSchoolAdmin({
-        schoolName,
-        adminEmail,
+        schoolName: schoolName.trim(),
+        adminEmail: adminEmail.trim(),
         adminPassword,
         educationLevels: schoolSections,
         schoolType: schoolSections.length === 1 ? (schoolSections[0] as School["schoolType"]) : "Mixte",
@@ -1836,6 +1757,7 @@ function PlatformModule({
       setSelectedSchoolId(provisioned.school.id);
       setPlatformView("students");
       setDetailTab("overview");
+      setPlatformMenuDrawer(null);
     } catch (error) {
       setProvisioningError(error instanceof Error ? error.message : "Provisionnement impossible.");
     } finally {
@@ -1934,10 +1856,23 @@ function PlatformModule({
     });
   }
 
-  async function deleteSchool(school: School) {
-    const confirmation = window.prompt(`Suppression definitive de ${school.name}. Tapez exactement SUPPRIMER ECOLE pour confirmer.`);
-    if (confirmation === null) return;
-    const normalizedConfirmation = confirmation.trim();
+  function openDeleteSchoolDialog(school: School) {
+    setSchoolActionError("");
+    setSchoolActionSuccess("");
+    setSchoolDeleteTarget(school);
+    setSchoolDeleteConfirmation("");
+  }
+
+  function closeDeleteSchoolDialog() {
+    if (schoolDeleteLoading) return;
+    setSchoolDeleteTarget(null);
+    setSchoolDeleteConfirmation("");
+  }
+
+  async function deleteSchool() {
+    if (!schoolDeleteTarget || schoolDeleteLoading) return;
+    const school = schoolDeleteTarget;
+    const normalizedConfirmation = schoolDeleteConfirmation.trim();
     if (normalizedConfirmation !== "SUPPRIMER ECOLE") {
       setSchoolActionSuccess("");
       setSchoolActionError("Confirmation de suppression invalide. Tapez exactement SUPPRIMER ECOLE.");
@@ -1946,6 +1881,7 @@ function PlatformModule({
 
     setSchoolActionError("");
     setSchoolActionSuccess("");
+    setSchoolDeleteLoading(true);
     try {
       const payload = await manageSchool({ action: "delete", schoolId: school.id, confirmation: normalizedConfirmation });
       if (payload.schoolId !== school.id) {
@@ -1970,9 +1906,14 @@ function PlatformModule({
       );
       setSelectedSchoolId(remainingSchools[0]?.id ?? "");
       setPlatformView("students");
+      setSchoolDrawerId("");
+      setSchoolDeleteTarget(null);
+      setSchoolDeleteConfirmation("");
       setSchoolActionSuccess(`Ecole ${school.name} supprimee avec succes.`);
     } catch (error) {
       setSchoolActionError(error instanceof Error ? error.message : "Suppression ecole impossible.");
+    } finally {
+      setSchoolDeleteLoading(false);
     }
   }
 
@@ -1988,7 +1929,7 @@ function PlatformModule({
       });
       if (!saved) throw new Error("Enregistrement Firestore indisponible.");
       onPlatformLogoSaved(platformLogoDraft);
-      void applyPlatformLogoAssets(platformLogoDraft);
+      void applyPlatformLogoAssets();
       setPlatformLogoMessage(platformLogoDraft ? "Logo de l'application enregistré avec succès." : "Logo de l'application supprimé.");
     } catch (error) {
       setPlatformLogoMessage(error instanceof Error ? error.message : "Enregistrement du logo impossible.");
@@ -2077,6 +2018,91 @@ function PlatformModule({
     { id: "menu" as const, label: "Menu", icon: MenuIcon },
   ];
 
+  function renderPlatformLogoForm() {
+    return (
+      <>
+        <ImageUploadField
+          label="Logo affiché sur l'écran de connexion"
+          value={platformLogoDraft}
+          onChange={(value) => {
+            setPlatformLogoDraft(value);
+            setPlatformLogoMessage("");
+          }}
+          maxWidth={700}
+          maxBytes={250 * 1024}
+          acceptSvg
+          previewFit="contain"
+        />
+        {platformLogoMessage && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{platformLogoMessage}</p>}
+        <button onClick={savePlatformLogo} className="primary-button justify-center" type="button">
+          <CheckCircle2 className="h-4 w-4" /> Enregistrer le logo
+        </button>
+      </>
+    );
+  }
+
+  function renderCreateSchoolForm() {
+    return (
+      <>
+        <Field label="Nom de l'école" value={schoolName} onChange={setSchoolName} />
+        <Field label="Email admin école" value={adminEmail} onChange={setAdminEmail} type="email" />
+        <PasswordField label="Mot de passe admin" value={adminPassword} onChange={setAdminPassword} />
+        <fieldset className="grid gap-2 rounded border border-slate-200 p-3">
+          <legend className="px-1 text-sm font-semibold text-slate-700">Sections disponibles</legend>
+          <div className="flex flex-wrap gap-2">
+            {schoolEducationLevelChoices.map((section) => (
+              <label key={section} className="inline-flex items-center gap-2 rounded bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+                <input type="checkbox" checked={schoolSections.includes(section)} onChange={() => toggleSchoolSection(section)} className="h-4 w-4 accent-ink" />
+                {section}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        {hasSecondarySection && (
+          <fieldset className="grid gap-2 rounded border border-slate-200 p-3">
+            <legend className="px-1 text-sm font-semibold text-slate-700">Options scolaires</legend>
+            <div className="flex flex-wrap gap-2">
+              {visibleSchoolOptionChoices.map((option) => (
+                <label key={option} className="inline-flex items-center gap-2 rounded bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+                  <input type="checkbox" checked={selectedSchoolOptions.includes(option)} onChange={() => toggleSchoolOption(option)} className="h-4 w-4 accent-ink" />
+                  {option}
+                </label>
+              ))}
+            </div>
+            {hasCustomSchoolOption && (
+              <label className="grid gap-1 text-sm font-medium text-slate-700">
+                Nouvelle option scolaire
+                <span className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <input
+                    value={customSchoolOption}
+                    onChange={(event) => {
+                      setCustomSchoolOption(event.target.value);
+                      setProvisioningError("");
+                    }}
+                    className="input"
+                    placeholder="Ex. Informatique"
+                  />
+                  <button type="button" onClick={addCustomSchoolOption} className="secondary-button justify-center">
+                    <Plus className="h-4 w-4" /> Ajouter
+                  </button>
+                </span>
+              </label>
+            )}
+          </fieldset>
+        )}
+        {provisioningError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{provisioningError}</p>}
+        <button
+          onClick={createSchool}
+          disabled={provisioningLoading || schoolSections.length === 0 || (hasSecondarySection && hasCustomSchoolOption && !customSchoolOption.trim())}
+          className="primary-button disabled:cursor-not-allowed disabled:opacity-60"
+          type="button"
+        >
+          <Plus className="h-4 w-4" /> {provisioningLoading ? "Création..." : "Créer"}
+        </button>
+      </>
+    );
+  }
+
   return (
     <div className="min-h-screen max-w-full overflow-x-hidden bg-[#f6f8fb] pb-24 text-ink">
       <EnvironmentBanner />
@@ -2140,7 +2166,7 @@ function PlatformModule({
           {platformView === "students" && (
             <section className="grid gap-4">
               <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_repeat(3,180px)]">
+                <div className="grid min-w-0 gap-3">
                   <label className="relative">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                     <input value={search} onChange={(event) => setSearch(event.target.value)} className="input pl-9" placeholder="Rechercher une école..." />
@@ -2165,9 +2191,9 @@ function PlatformModule({
                 </div>
               </div>
 
-              <div className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <div className="grid min-w-0 gap-3">
                 {filteredSchools.length === 0 && (
-                  <div className="rounded border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 md:col-span-2 xl:col-span-3">
+                  <div className="rounded border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
                     Aucune école ne correspond aux filtres.
                   </div>
                 )}
@@ -2185,81 +2211,30 @@ function PlatformModule({
 
           {platformView === "menu" && (
             <section className="grid min-w-0 gap-4">
-              <FormPanel title="Logo de l'application">
-                <ImageUploadField
-                  label="Logo affiché sur l'écran de connexion"
-                  value={platformLogoDraft}
-                  onChange={(value) => {
-                    setPlatformLogoDraft(value);
-                    setPlatformLogoMessage("");
-                  }}
-                  maxWidth={700}
-                  maxBytes={250 * 1024}
-                  acceptSvg
-                  previewFit="contain"
-                />
-                {platformLogoMessage && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{platformLogoMessage}</p>}
-                <button onClick={savePlatformLogo} className="primary-button justify-center" type="button">
-                  <CheckCircle2 className="h-4 w-4" /> Enregistrer le logo
-                </button>
-              </FormPanel>
-
-              <FormPanel title="Créer une école">
-                <Field label="Nom de l'école" value={schoolName} onChange={setSchoolName} />
-                <Field label="Email admin école" value={adminEmail} onChange={setAdminEmail} type="email" />
-                <PasswordField label="Mot de passe admin" value={adminPassword} onChange={setAdminPassword} />
-                <fieldset className="grid gap-2 rounded border border-slate-200 p-3">
-                  <legend className="px-1 text-sm font-semibold text-slate-700">Sections disponibles</legend>
-                  <div className="flex flex-wrap gap-2">
-                    {schoolEducationLevelChoices.map((section) => (
-                      <label key={section} className="inline-flex items-center gap-2 rounded bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
-                        <input type="checkbox" checked={schoolSections.includes(section)} onChange={() => toggleSchoolSection(section)} className="h-4 w-4 accent-ink" />
-                        {section}
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
-                {hasSecondarySection && (
-                  <fieldset className="grid gap-2 rounded border border-slate-200 p-3">
-                    <legend className="px-1 text-sm font-semibold text-slate-700">Options scolaires</legend>
-                    <div className="flex flex-wrap gap-2">
-                      {visibleSchoolOptionChoices.map((option) => (
-                        <label key={option} className="inline-flex items-center gap-2 rounded bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
-                          <input type="checkbox" checked={selectedSchoolOptions.includes(option)} onChange={() => toggleSchoolOption(option)} className="h-4 w-4 accent-ink" />
-                          {option}
-                        </label>
-                      ))}
-                    </div>
-                    {hasCustomSchoolOption && (
-                      <label className="grid gap-1 text-sm font-medium text-slate-700">
-                        Nouvelle option scolaire
-                        <span className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                          <input
-                            value={customSchoolOption}
-                            onChange={(event) => {
-                              setCustomSchoolOption(event.target.value);
-                              setProvisioningError("");
-                            }}
-                            className="input"
-                            placeholder="Ex. Informatique"
-                          />
-                          <button type="button" onClick={addCustomSchoolOption} className="secondary-button justify-center">
-                            <Plus className="h-4 w-4" /> Ajouter
-                          </button>
-                        </span>
-                      </label>
-                    )}
-                  </fieldset>
-                )}
-                {provisioningError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{provisioningError}</p>}
+              <div className="grid min-w-0 gap-3">
                 <button
-                  onClick={createSchool}
-                  disabled={provisioningLoading || schoolSections.length === 0 || (hasSecondarySection && hasCustomSchoolOption && !customSchoolOption.trim())}
-                  className="primary-button disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={() => setPlatformMenuDrawer("create-school")}
+                  className="group flex min-w-0 items-center justify-between gap-3 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-200 hover:bg-blue-50/40"
+                  type="button"
                 >
-                  <Plus className="h-4 w-4" /> {provisioningLoading ? "Création..." : "Créer"}
+                  <span className="min-w-0">
+                    <span className="block break-words font-bold text-ink">Créer une école</span>
+                    <span className="mt-1 block break-words text-sm text-slate-500">Ajouter une école et son administrateur principal.</span>
+                  </span>
+                  <Plus className="h-5 w-5 shrink-0 text-slate-400 transition group-hover:text-blue-700" />
                 </button>
-              </FormPanel>
+                <button
+                  onClick={() => setPlatformMenuDrawer("logo")}
+                  className="group flex min-w-0 items-center justify-between gap-3 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-200 hover:bg-blue-50/40"
+                  type="button"
+                >
+                  <span className="min-w-0">
+                    <span className="block break-words font-bold text-ink">Logo de l'application</span>
+                    <span className="mt-1 block break-words text-sm text-slate-500">Gérer le logo affiché sur l'écran de connexion.</span>
+                  </span>
+                  <Upload className="h-5 w-5 shrink-0 text-slate-400 transition group-hover:text-blue-700" />
+                </button>
+              </div>
 
               <FormPanel title="Session">
                 <button onClick={onLogout} className="inline-flex w-full items-center justify-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 transition hover:bg-red-100" type="button">
@@ -2294,6 +2269,17 @@ function PlatformModule({
         </div>
       </nav>
 
+      {platformMenuDrawer === "create-school" && (
+        <AdminDrawer title="Créer une école" onClose={() => setPlatformMenuDrawer(null)} closeLabel="Fermer la création d'école">
+          {renderCreateSchoolForm()}
+        </AdminDrawer>
+      )}
+      {platformMenuDrawer === "logo" && (
+        <AdminDrawer title="Logo de l'application" onClose={() => setPlatformMenuDrawer(null)} closeLabel="Fermer la gestion du logo">
+          {renderPlatformLogoForm()}
+        </AdminDrawer>
+      )}
+
       {drawerSchool && (
         <AdminDrawer title={drawerSchool.name} onClose={() => setSchoolDrawerId("")} closeLabel="Fermer les informations de l'école">
           <div className="grid gap-4">
@@ -2324,7 +2310,7 @@ function PlatformModule({
                 <button onClick={() => void changeSchoolStatus(drawerSchool)} className="secondary-button" type="button">
                   {drawerSchool.status === "active" ? "Suspendre" : "Reactiver"}
                 </button>
-                <button onClick={() => void deleteSchool(drawerSchool)} className="inline-flex min-w-0 items-center justify-center rounded bg-red-50 px-3 py-2 text-sm font-semibold text-red-700" type="button">
+                <button onClick={() => openDeleteSchoolDialog(drawerSchool)} className="inline-flex min-w-0 items-center justify-center rounded bg-red-50 px-3 py-2 text-sm font-semibold text-red-700" type="button">
                   Supprimer
                 </button>
               </div>
@@ -2373,7 +2359,7 @@ function PlatformModule({
                 <InfoRow label="Date de création" value={drawerSchool.createdAt ? new Date(drawerSchool.createdAt).toLocaleDateString("fr-FR") : "-"} />
                 <InfoRow label="Administrateur principal" value={drawerMainAdmin?.name ?? "-"} />
                 <InfoRow label="Niveaux" value={(drawerSchool.educationLevels ?? []).join(", ") || "-"} />
-                <InfoRow label="Options" value={(drawerSchool.schoolOptions ?? []).join(", ") || "-"} />
+                <InfoRow label="Options" value={drawerSchoolOptions.join(", ") || "-"} />
                 <InfoRow label="Type" value={drawerSchool.schoolType ?? "-"} />
                 <InfoRow label="Élèves" value={String(drawerStats.students)} />
                 <InfoRow label="Parents" value={String(drawerStats.parents)} />
@@ -2420,6 +2406,45 @@ function PlatformModule({
 
             {detailTab === "history" && <AuditTimeline logs={drawerLogs} />}
 
+          </div>
+        </AdminDrawer>
+      )}
+
+      {schoolDeleteTarget && (
+        <AdminDrawer title="Supprimer l'école" onClose={closeDeleteSchoolDialog} closeLabel="Annuler la suppression de l'école">
+          <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+            Cette action supprimera définitivement l'école {schoolDeleteTarget.name} et ses données rattachées. Pour confirmer, saisissez exactement : SUPPRIMER ECOLE
+          </p>
+          <label className="grid gap-1 text-sm font-medium text-slate-700">
+            Phrase de confirmation
+            <input
+              value={schoolDeleteConfirmation}
+              onChange={(event) => {
+                setSchoolDeleteConfirmation(event.target.value);
+                setSchoolActionError("");
+              }}
+              className="input"
+              placeholder="SUPPRIMER ECOLE"
+              disabled={schoolDeleteLoading}
+            />
+          </label>
+          {schoolDeleteConfirmation && schoolDeleteConfirmation.trim() !== "SUPPRIMER ECOLE" && (
+            <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-700">
+              Confirmation incorrecte. Saisissez exactement : SUPPRIMER ECOLE
+            </p>
+          )}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <button onClick={closeDeleteSchoolDialog} disabled={schoolDeleteLoading} className="secondary-button justify-center disabled:cursor-not-allowed disabled:opacity-50" type="button">
+              Annuler
+            </button>
+            <button
+              onClick={() => void deleteSchool()}
+              disabled={schoolDeleteLoading || schoolDeleteConfirmation.trim() !== "SUPPRIMER ECOLE"}
+              className="inline-flex min-w-0 items-center justify-center rounded bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+              type="button"
+            >
+              {schoolDeleteLoading ? "Suppression..." : "Supprimer"}
+            </button>
           </div>
         </AdminDrawer>
       )}
@@ -3559,12 +3584,27 @@ function StudentsModule({
   function saveStudent() {
     setSaveError("");
     setSaveMessage("");
+    const selectedParentId = form.parentId?.trim() ?? "";
+    if (!selectedParentId) {
+      setSaveError("Veuillez lier cet élève à un parent avant d'enregistrer.");
+      return;
+    }
+    const matchingParents = data.parents.filter((parent) => parent.id === selectedParentId && parent.schoolId === school.id);
+    if (matchingParents.length === 0) {
+      setSaveError("Veuillez lier cet élève à un parent avant d'enregistrer.");
+      return;
+    }
+    if (matchingParents.length > 1) {
+      setSaveError("Un élève ne peut être lié qu'à un seul parent.");
+      return;
+    }
     const exists = data.students.some((item) => item.id === form.id);
     const targetYearId = exists ? form.schoolYearId : year.id;
     const targetYearName = exists ? data.schoolYears.find((item) => item.id === form.schoolYearId)?.name ?? year.name : year.name;
     const matricule = exists ? form.matricule : generateMatricule(data.students, targetYearName, school.id, targetYearId);
     const student = {
       ...form,
+      parentId: selectedParentId,
       matricule,
       section: getClassSection(form.className),
       status: form.status ?? "ACTIVE",
@@ -3574,7 +3614,7 @@ function StudentsModule({
     };
     const parents = data.parents.map((parent) => {
       const withoutStudent = parent.studentIds.filter((studentId) => studentId !== student.id);
-      return parent.id === student.parentId ? { ...parent, studentIds: [...withoutStudent, student.id] } : { ...parent, studentIds: withoutStudent };
+      return parent.id === student.parentId ? { ...parent, studentIds: Array.from(new Set([...withoutStudent, student.id])) } : { ...parent, studentIds: withoutStudent };
     });
     const users = data.users.map((item) => {
       if (item.role !== "parent" || !item.parentId) return item;
@@ -4071,6 +4111,7 @@ function StudentsModule({
             onCreateParent={createParentForStudent}
             onSave={saveStudent}
             onReset={() => setForm(emptyStudent(school.id, year.id))}
+            errorMessage={saveError}
           />
         </AdminDrawer>
       )}
@@ -4606,6 +4647,13 @@ function ControlModule({
   const [amountThreshold, setAmountThreshold] = useState("");
   const [paymentError, setPaymentError] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [expenseHistoryOpen, setExpenseHistoryOpen] = useState(false);
+  const [expenseEditTarget, setExpenseEditTarget] = useState<Expense | null>(null);
+  const [expenseEditAmount, setExpenseEditAmount] = useState("");
+  const [expenseEditCategory, setExpenseEditCategory] = useState("Fournitures");
+  const [expenseEditDescription, setExpenseEditDescription] = useState("");
+  const [expenseEditError, setExpenseEditError] = useState("");
+  const [expenseDeleteTarget, setExpenseDeleteTarget] = useState<Expense | null>(null);
   const [warningOpen, setWarningOpen] = useState(false);
   const [cashierControlDrawer, setCashierControlDrawer] = useState<"payment" | "expense" | "history" | "warning" | null>(null);
   const [cashierControlFeedback, setCashierControlFeedback] = useState("");
@@ -4622,6 +4670,7 @@ function ControlModule({
   const isArchivedContext = year.status === "archived";
   const canPay = user.role === "cashier" && !isArchivedContext;
   const canCorrectPayments = user.role === "school_admin" && !isArchivedContext;
+  const canManageExpenses = (user.role === "school_admin" || user.role === "cashier") && !isArchivedContext;
   const selectedPaymentStudent = yearData.students.find((student) => student.id === studentId);
   const selectedPaymentBalance = selectedPaymentStudent
     ? getStudentBalance(selectedPaymentStudent.id, yearData.feeTypes, yearData.payments, yearData.students)
@@ -4656,10 +4705,22 @@ function ControlModule({
       return student && fee ? { payment, student, fee } : null;
     })
     .filter((item): item is { payment: Payment; student: Student; fee: FeeType } => Boolean(item));
-  const filteredHistoryPayments = historyPayments.filter(({ student }) => {
+  const filteredHistoryPayments = historyPayments.filter(({ payment, student, fee }) => {
     const query = historyQuery.trim().toLowerCase();
     if (!query) return true;
-    return `${student.nom} ${student.postnom} ${student.prenom} ${student.matricule}`.toLowerCase().includes(query);
+    const searchableText = [
+      student.nom,
+      student.postnom,
+      student.prenom,
+      student.matricule,
+      formatStudentClassName(student),
+      fee.name,
+      String(payment.amount),
+      payment.paidAt,
+      payment.createdAt ?? "",
+      payment.receiptNumber ?? "",
+    ].join(" ");
+    return searchableText.toLowerCase().includes(query);
   });
   const selectedHistoryBalance = selectedHistoryStudent
     ? getStudentBalance(selectedHistoryStudent.id, yearData.feeTypes, yearData.payments, yearData.students)
@@ -4682,6 +4743,8 @@ function ControlModule({
       remaining: Math.max(selectedHistoryBalance.expected - selectedHistoryRunningPaid, 0),
     };
   });
+  const sortedExpenses = [...yearData.expenses].sort((a, b) => `${b.spentAt}${b.createdAt}`.localeCompare(`${a.spentAt}${a.createdAt}`));
+  const isOtherExpenseEditCategory = expenseEditCategory === "Autre" || expenseEditCategory === "Autres";
   const cashierDrawerTitle =
     cashierControlDrawer === "payment"
       ? "Enregistrer un paiement"
@@ -4701,6 +4764,22 @@ function ControlModule({
 
   function formatPaymentDate(value: string) {
     return new Date(value).toLocaleDateString("fr-FR");
+  }
+
+  function formatExpenseDateTime(expense: Expense) {
+    const value = expense.createdAt || expense.spentAt;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return expense.spentAt;
+    return date.toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
+  }
+
+  function getExpenseField(expense: Expense, keys: string[]) {
+    const record = expense as Expense & Record<string, unknown>;
+    for (const key of keys) {
+      const value = record[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+    return "";
   }
 
   function isStudentPaymentComplete(balance: { expected: number; paid: number }) {
@@ -4811,6 +4890,85 @@ function ControlModule({
       setCashierControlDrawer(null);
       setCashierControlFeedback("Dépense enregistrée avec succès.");
     }
+  }
+
+  function openEditExpense(expense: Expense) {
+    setExpenseEditTarget(expense);
+    setExpenseEditAmount(String(expense.amount));
+    setExpenseEditCategory(expense.category || "Fournitures");
+    setExpenseEditDescription(expense.description || "");
+    setExpenseEditError("");
+  }
+
+  function closeEditExpense() {
+    setExpenseEditTarget(null);
+    setExpenseEditAmount("");
+    setExpenseEditCategory("Fournitures");
+    setExpenseEditDescription("");
+    setExpenseEditError("");
+  }
+
+  function updateExpense() {
+    if (!expenseEditTarget || !canManageExpenses) return;
+    setExpenseEditError("");
+    const nextAmount = Number(expenseEditAmount);
+    if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
+      setExpenseEditError("Montant de dépense invalide.");
+      return;
+    }
+    if (isOtherExpenseEditCategory && !expenseEditDescription.trim()) {
+      setExpenseEditError("Veuillez préciser la nature de cette dépense.");
+      return;
+    }
+    const nextDescription = expenseEditDescription.trim() || expenseEditCategory;
+    updateData({
+      expenses: data.expenses.map((item) =>
+        item.id === expenseEditTarget.id
+          ? { ...item, amount: nextAmount, category: expenseEditCategory, description: nextDescription }
+          : item,
+      ),
+      auditLogs: [
+        createAuditLog(user, school.id, year.id, "Modification dépense", `${expenseEditTarget.category} - ${formatMoney(expenseEditTarget.amount)} → ${expenseEditCategory} - ${formatMoney(nextAmount)}`),
+        ...data.auditLogs,
+      ],
+    });
+    closeEditExpense();
+  }
+
+  function deleteExpense(expense: Expense) {
+    if (!canManageExpenses) return;
+    updateData({
+      expenses: data.expenses.filter((item) => item.id !== expense.id),
+      auditLogs: [createAuditLog(user, school.id, year.id, "Suppression dépense", `${expense.category} - ${formatMoney(expense.amount)}`), ...data.auditLogs],
+    });
+    setExpenseDeleteTarget(null);
+  }
+
+  async function generateExpensePdf(expense: Expense) {
+    const beneficiary = getExpenseField(expense, ["beneficiary", "beneficiaire", "supplier", "fournisseur", "providerName", "payee"]);
+    const paymentMethod = getExpenseField(expense, ["paymentMethod", "modePaiement", "paymentMode", "mode"]);
+    const reference = getExpenseField(expense, ["reference", "referenceNumber", "pieceNumber", "voucherNumber", "receiptNumber"]);
+    await renderAcadPdfPreview({
+      filename: `depense-${expense.spentAt}-${expense.id}.pdf`,
+      title: "Justificatif de dépense",
+      school,
+      year,
+      sections: [
+        pdfSection(
+          "Dépense",
+          pdfInfoGrid([
+            { label: "Date", value: formatExpenseDateTime(expense) },
+            { label: "Libellé / motif", value: expense.description || expense.category },
+            { label: "Catégorie", value: expense.category },
+            { label: "Montant", value: formatMoney(expense.amount) },
+            { label: "Bénéficiaire / fournisseur", value: beneficiary || "-" },
+            { label: "Utilisateur", value: expense.cashierName || "-" },
+            { label: "Mode de paiement", value: paymentMethod || "-" },
+            { label: "Référence / pièce", value: reference || "-" },
+          ]),
+        ),
+      ],
+    });
   }
 
   function sendPaymentWarnings() {
@@ -5073,6 +5231,46 @@ function ControlModule({
     });
   }
 
+  function renderExpenseHistoryContent() {
+    return (
+      <div className="space-y-2">
+        {sortedExpenses.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucune dépense enregistrée.</p>}
+        {sortedExpenses.map((expense) => {
+          const beneficiary = getExpenseField(expense, ["beneficiary", "beneficiaire", "supplier", "fournisseur", "providerName", "payee"]);
+          const paymentMethod = getExpenseField(expense, ["paymentMethod", "modePaiement", "paymentMode", "mode"]);
+          const reference = getExpenseField(expense, ["reference", "referenceNumber", "pieceNumber", "voucherNumber", "receiptNumber"]);
+          return (
+            <div key={expense.id} className="rounded border border-slate-100 p-3 text-sm">
+              <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <p className="break-words font-semibold text-ink">{expense.description || expense.category}</p>
+                  <p className="break-words text-slate-500">{formatExpenseDateTime(expense)} | {expense.category} | {formatMoney(expense.amount)}</p>
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-1">
+                  <button onClick={() => generateExpensePdf(expense)} className="rounded bg-slate-100 p-2" title="Télécharger le justificatif PDF" type="button">
+                    <Download className="h-4 w-4" />
+                  </button>
+                  <button onClick={() => openEditExpense(expense)} disabled={!canManageExpenses} className="rounded bg-slate-100 p-2 disabled:cursor-not-allowed disabled:opacity-50" title="Modifier" type="button">
+                    <Edit3 className="h-4 w-4" />
+                  </button>
+                  <button onClick={() => setExpenseDeleteTarget(expense)} disabled={!canManageExpenses} className="rounded bg-red-50 p-2 text-red-700 disabled:cursor-not-allowed disabled:opacity-50" title="Supprimer" type="button">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+              <dl className="mt-3 grid min-w-0 gap-2 text-xs text-slate-500 sm:grid-cols-2">
+                <div><dt className="font-semibold text-slate-600">Bénéficiaire / fournisseur</dt><dd className="break-words">{beneficiary || "-"}</dd></div>
+                <div><dt className="font-semibold text-slate-600">Enregistré par</dt><dd className="break-words">{expense.cashierName || "-"}</dd></div>
+                <div><dt className="font-semibold text-slate-600">Mode de paiement</dt><dd className="break-words">{paymentMethod || "-"}</dd></div>
+                <div><dt className="font-semibold text-slate-600">Référence / pièce</dt><dd className="break-words">{reference || "-"}</dd></div>
+              </dl>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
   if (selectedHistoryStudent) {
     return (
       <section className="grid min-w-0 gap-4">
@@ -5150,32 +5348,37 @@ function ControlModule({
     <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
       <div className="min-w-0">
         <SectionTitle title="Contrôle" subtitle="Frais scolaires, paiements, historique et soldes restants en dollar américain." />
-        <div className="mb-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:flex-wrap">
-          <select value={amountComparator} onChange={(event) => setAmountComparator(event.target.value as typeof amountComparator)} className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm lg:w-auto">
-            <option value="all">Montant payé</option>
-            <option value=">=">Payé &gt;=</option>
-            <option value="<">Payé &lt;</option>
-          </select>
-          <input value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)} type="number" className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm lg:w-32" placeholder="Montant" />
-          <button onClick={printFilteredStudents} className="secondary-button w-full justify-center lg:w-auto">
-            <Download className="h-4 w-4" /> Imprimer
-          </button>
+        <div className="mb-3 grid min-w-0 gap-2">
+          <div className="flex min-w-0 flex-wrap items-stretch gap-2 xl:flex-nowrap xl:gap-1.5">
+            <select value={amountComparator} onChange={(event) => setAmountComparator(event.target.value as typeof amountComparator)} className="h-10 min-w-0 flex-1 rounded border border-slate-200 bg-white px-3 text-sm sm:flex-none sm:basis-40 xl:basis-32 xl:px-2 xl:text-xs">
+              <option value="all">Montant payé</option>
+              <option value=">=">Payé &gt;=</option>
+              <option value="<">Payé &lt;</option>
+            </select>
+            <input value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)} type="number" className="h-10 min-w-0 flex-1 rounded border border-slate-200 bg-white px-3 text-sm sm:flex-none sm:basis-32 xl:basis-24 xl:px-2 xl:text-xs" placeholder="Montant" />
+            <button onClick={printFilteredStudents} className="secondary-button h-10 min-w-0 flex-1 justify-center sm:flex-none sm:basis-32 xl:basis-28 xl:px-2 xl:text-xs">
+              <Download className="h-4 w-4" /> Imprimer
+            </button>
+            <button onClick={() => (user.role === "cashier" ? setCashierControlDrawer("history") : setHistoryOpen(true))} className="secondary-button h-10 min-w-0 flex-1 justify-center sm:flex-none sm:basis-52 xl:basis-44 xl:px-2 xl:text-xs" type="button">
+              Historique des paiements
+            </button>
+            <button onClick={() => setExpenseHistoryOpen(true)} className="secondary-button h-10 min-w-0 flex-1 justify-center sm:flex-none sm:basis-52 xl:basis-44 xl:px-2 xl:text-xs" type="button">
+              Historique de dépenses
+            </button>
+            <button onClick={() => (user.role === "cashier" ? setCashierControlDrawer("warning") : setWarningOpen(true))} className="secondary-button h-10 min-w-0 flex-1 justify-center sm:flex-none sm:basis-40 xl:basis-32 xl:px-2 xl:text-xs" type="button">
+              Avertissement
+            </button>
+          </div>
           {canPay && user.role === "cashier" && (
-            <>
-              <button onClick={() => { setCashierControlFeedback(""); setCashierControlDrawer("payment"); }} className="primary-button w-full justify-center sm:w-auto" type="button">
+            <div className="flex min-w-0 flex-wrap items-stretch gap-2">
+              <button onClick={() => { setCashierControlFeedback(""); setCashierControlDrawer("payment"); }} className="primary-button min-w-0 flex-1 justify-center sm:flex-none sm:basis-56" type="button">
                 Enregistrer un paiement
               </button>
-              <button onClick={() => { setCashierControlFeedback(""); setCashierControlDrawer("expense"); }} className="primary-button w-full justify-center sm:w-auto" type="button">
+              <button onClick={() => { setCashierControlFeedback(""); setCashierControlDrawer("expense"); }} className="primary-button min-w-0 flex-1 justify-center sm:flex-none sm:basis-56" type="button">
                 Enregistrer une dépense
               </button>
-            </>
+            </div>
           )}
-          <button onClick={() => (user.role === "cashier" ? setCashierControlDrawer("history") : setHistoryOpen(true))} className="secondary-button w-full justify-center lg:w-auto" type="button">
-            Historique des paiements
-          </button>
-          <button onClick={() => (user.role === "cashier" ? setCashierControlDrawer("warning") : setWarningOpen(true))} className="secondary-button w-full justify-center lg:w-auto" type="button">
-            Avertissement
-          </button>
         </div>
         {cashierControlFeedback && user.role === "cashier" && (
           <p className="mb-3 rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{cashierControlFeedback}</p>
@@ -5414,6 +5617,69 @@ function ControlModule({
                 );
               })}
             </div>
+        </AdminDrawer>
+      )}
+      {expenseHistoryOpen && (
+        <AdminDrawer title="Historique de dépenses" onClose={() => setExpenseHistoryOpen(false)} closeLabel="Fermer l'historique des dépenses">
+          {renderExpenseHistoryContent()}
+        </AdminDrawer>
+      )}
+      {expenseEditTarget && (
+        <AdminDrawer title="Modifier la dépense" onClose={closeEditExpense} closeLabel="Fermer la modification de dépense">
+          <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+            Catégorie
+            <select
+              value={expenseEditCategory}
+              onChange={(event) => {
+                setExpenseEditCategory(event.target.value);
+                setExpenseEditError("");
+              }}
+              className="input"
+            >
+              <option>Fournitures</option>
+              <option>Transport</option>
+              <option>Salaire</option>
+              <option>Maintenance</option>
+              <option>Autre</option>
+            </select>
+          </label>
+          <Field label="Montant" value={expenseEditAmount} onChange={setExpenseEditAmount} type="number" />
+          <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+            Libellé ou motif
+            <textarea
+              value={expenseEditDescription}
+              onChange={(event) => {
+                setExpenseEditDescription(event.target.value);
+                setExpenseEditError("");
+              }}
+              className="input min-h-24"
+              placeholder="Description de la dépense"
+            />
+          </label>
+          {expenseEditError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{expenseEditError}</p>}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <button onClick={closeEditExpense} className="secondary-button justify-center" type="button">Annuler</button>
+            <button onClick={updateExpense} disabled={!canManageExpenses} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50" type="button">
+              Enregistrer
+            </button>
+          </div>
+        </AdminDrawer>
+      )}
+      {expenseDeleteTarget && (
+        <AdminDrawer title="Supprimer la dépense" onClose={() => setExpenseDeleteTarget(null)} closeLabel="Annuler la suppression de dépense">
+          <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+            Confirmez-vous la suppression de cette dépense ? Cette action ne supprimera aucune autre donnée.
+          </p>
+          <div className="rounded border border-slate-100 bg-slate-50 p-3 text-sm">
+            <p className="font-semibold text-ink">{expenseDeleteTarget.description || expenseDeleteTarget.category}</p>
+            <p className="text-slate-500">{formatExpenseDateTime(expenseDeleteTarget)} | {formatMoney(expenseDeleteTarget.amount)} | {expenseDeleteTarget.cashierName}</p>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <button onClick={() => setExpenseDeleteTarget(null)} className="secondary-button justify-center" type="button">Annuler</button>
+            <button onClick={() => deleteExpense(expenseDeleteTarget)} disabled={!canManageExpenses} className="rounded bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50" type="button">
+              Supprimer
+            </button>
+          </div>
         </AdminDrawer>
       )}
     </section>
@@ -5662,7 +5928,7 @@ function MenuModule({
   const [cashierSuccess, setCashierSuccess] = useState("");
   const [showCashierPassword, setShowCashierPassword] = useState(false);
   const [feeName, setFeeName] = useState<FeeKind>("Minerval");
-  const [feeClassNames, setFeeClassNames] = useState<string[]>([CLASSES[0]]);
+  const [feeClassNames, setFeeClassNames] = useState<string[]>([]);
   const [feeAmount, setFeeAmount] = useState("100");
   const [editingFeeId, setEditingFeeId] = useState("");
   const [showNewFeeForm, setShowNewFeeForm] = useState(false);
@@ -5689,8 +5955,7 @@ function MenuModule({
   const newFeeFormRef = useRef<HTMLDivElement>(null);
   const schoolFormEducationLevels = getSchoolEducationLevels(schoolForm).filter((level) => level !== "Mixte");
   const schoolFormOptions = schoolForm.schoolOptions ?? [];
-  const currentSchoolClassChoices = getSchoolClassChoices(schoolForm);
-  const feeClassChoices = buildFeeTargetChoices(currentSchoolClassChoices, schoolFormOptions, yearData.students, feeClassNames);
+  const feeClassChoices = buildFeeTargetChoices(yearData.students, feeClassNames);
 
   useEffect(() => {
     if (!showNewFeeForm) return;
@@ -5707,12 +5972,6 @@ function MenuModule({
       document.removeEventListener("pointerdown", handlePointerDown);
     };
   }, [showNewFeeForm]);
-
-  useEffect(() => {
-    const availableTargets = new Set(feeClassChoices.map((choice) => choice.value));
-    if (feeClassNames.some((target) => availableTargets.has(target))) return;
-    setFeeClassNames([feeClassChoices[0]?.value ?? currentSchoolClassChoices[0] ?? CLASSES[0]]);
-  }, [currentSchoolClassChoices, feeClassChoices, feeClassNames]);
 
   async function saveSchool() {
     if (schoolSaving) return;
@@ -5885,14 +6144,15 @@ function MenuModule({
     });
     setEditingFeeId("");
     setFeeName("Minerval");
-    setFeeClassNames([CLASSES[0]]);
+    setFeeClassNames([]);
     setFeeAmount("100");
   }
 
   function editFee(fee: FeeType) {
     setEditingFeeId(fee.id);
     setFeeName(fee.name);
-    setFeeClassNames([fee.classOptionKey ?? fee.className ?? CLASSES[0]]);
+    const feeTarget = fee.classOptionKey ?? fee.className;
+    setFeeClassNames(feeTarget ? [feeTarget] : []);
     setFeeAmount(String(fee.amount));
   }
 
@@ -6147,6 +6407,9 @@ function MenuModule({
                     <span className="min-w-0 break-words">{choice.label}</span>
                   </label>
                 ))}
+                {feeClassChoices.length === 0 && (
+                  <p className="rounded bg-slate-50 p-2 text-xs text-slate-500">Aucune classe n'est disponible pour cette école.</p>
+                )}
               </div>
             </fieldset>
             <input value={feeAmount} onChange={(event) => setFeeAmount(event.target.value)} type="number" className="input" />
@@ -6157,7 +6420,7 @@ function MenuModule({
               onClick={() => {
                 setEditingFeeId("");
                 setFeeName("Minerval");
-                setFeeClassNames([CLASSES[0]]);
+                setFeeClassNames([]);
                 setFeeAmount("100");
               }}
               className="secondary-button w-fit"
@@ -6324,6 +6587,7 @@ function StudentForm({
   onCreateParent,
   onSave,
   onReset,
+  errorMessage,
 }: {
   form: Student;
   setForm: (student: Student) => void;
@@ -6336,6 +6600,7 @@ function StudentForm({
   onCreateParent: () => void;
   onSave: () => void;
   onReset: () => void;
+  errorMessage?: string;
 }) {
   const [showOptionForm, setShowOptionForm] = useState(false);
   const [newOption, setNewOption] = useState("");
@@ -6351,6 +6616,7 @@ function StudentForm({
 
   return (
     <>
+      {errorMessage && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{errorMessage}</p>}
       <Field label="Matricule" value={form.matricule || "Généré automatiquement"} onChange={() => undefined} disabled />
       <Field label="Nom" value={form.nom} onChange={(value) => setForm({ ...form, nom: value })} />
       <Field label="Postnom" value={form.postnom} onChange={(value) => setForm({ ...form, postnom: value })} />
@@ -6367,8 +6633,8 @@ function StudentForm({
       <Field label="Téléphone" value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} />
       <label className="grid gap-1 text-sm font-medium text-slate-700">
         Parent
-        <select value={form.parentId ?? ""} onChange={(event) => setForm({ ...form, parentId: event.target.value || undefined })} className="input">
-          <option value="">Aucun parent</option>
+        <select value={form.parentId ?? ""} onChange={(event) => setForm({ ...form, parentId: event.target.value || undefined })} className="input" required>
+          <option value="" disabled>Sélectionner un parent</option>
           {parents.map((parent) => (
             <option key={parent.id} value={parent.id}>{parent.fullName} - {parent.phone}</option>
           ))}
@@ -6529,17 +6795,26 @@ function feeAppliesToStudent(fee: Pick<FeeType, "className" | "classOptionKey">,
   return !fee.className || fee.className === student.className;
 }
 
-function buildFeeTargetChoices(classChoices: SchoolClass[], schoolOptions: string[], students: Student[], selectedTargets: string[]) {
-  const choices = classChoices.flatMap((className) => {
-    if (getClassSection(className) !== "secondaire") return [{ value: className, label: className }];
-    const studentOptions = students.filter((student) => student.className === className).map((student) => student.option).filter(Boolean) as string[];
-    const options = Array.from(new Set([...schoolOptions, ...studentOptions].map((option) => option.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, "fr"));
-    const optionChoices = options.map((option) => ({
-      value: feeTargetKey(className, option),
-      label: formatStudentClassName({ className, option }),
-    }));
-    return optionChoices.length ? [...optionChoices, { value: className, label: className }] : [{ value: className, label: className }];
-  });
+function buildFeeTargetChoices(students: Student[], selectedTargets: string[]) {
+  const choices = students
+    .filter((student) => student.className)
+    .flatMap((student) => {
+      if (getClassSection(student.className) !== "secondaire") {
+        return [{ value: student.className, label: student.className }];
+      }
+      const option = student.option?.trim();
+      if (!option) return [{ value: student.className, label: student.className }];
+      return [{
+        value: feeTargetKey(student.className, option),
+        label: formatStudentClassName({ className: student.className, option }),
+      }];
+    })
+    .sort((first, second) => {
+      const firstClassIndex = CLASSES.indexOf(feeTargetClassName(first.value));
+      const secondClassIndex = CLASSES.indexOf(feeTargetClassName(second.value));
+      if (firstClassIndex !== secondClassIndex) return firstClassIndex - secondClassIndex;
+      return first.label.localeCompare(second.label, "fr");
+    });
   const legacyChoices = selectedTargets.map((target) => ({ value: target, label: formatFeeTargetValue(target) }));
   return Array.from(new Map([...choices, ...legacyChoices].map((choice) => [choice.value, choice])).values());
 }

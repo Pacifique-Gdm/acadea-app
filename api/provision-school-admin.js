@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
@@ -8,6 +9,14 @@ const allowedPlans = new Set(["Starter", "Standard", "Premium"]);
 function getCredential() {
   if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
     return cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON));
+  }
+
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS && existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
+    return cert(JSON.parse(readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, "utf8")));
+  }
+
+  if (process.env.NODE_ENV !== "production" && existsSync("service-account.json")) {
+    return cert(JSON.parse(readFileSync("service-account.json", "utf8")));
   }
 
   return applicationDefault();
@@ -213,6 +222,9 @@ export default async function handler(req, res) {
       await cleanup({ auth: adminAuth, db: adminDb, adminUid, refs: createdRefs });
     }
     console.error("[Acadéa provisioning] Provisionnement école/admin échoué.", error);
-    sendJson(res, 500, { error: publicError(error) });
+    sendJson(res, 500, {
+      error: publicError(error),
+      details: error instanceof Error ? error.message : String(error),
+    });
   }
 }

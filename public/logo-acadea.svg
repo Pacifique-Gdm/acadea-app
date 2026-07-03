@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Acadéa</title>
+  <desc id="desc">Logo par défaut Acadéa</desc>
+  <rect width="512" height="512" rx="112" fill="#1E3A8A"/>
+  <path d="M137 376 234 136h47l94 240h-55l-20-55H211l-20 55h-54Zm90-99h57l-28-78-29 78Z" fill="#FFFFFF"/>
+  <path d="M179 392h154" stroke="#7DD3FC" stroke-width="24" stroke-linecap="round"/>
+</svg>

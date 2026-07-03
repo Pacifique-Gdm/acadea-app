@@ -29,9 +29,10 @@ export async function provisionSchoolAdmin(input: ProvisionSchoolAdminInput) {
     body: JSON.stringify(input),
   });
 
-  const payload = (await response.json().catch(() => ({}))) as Partial<ProvisionSchoolAdminResponse> & { error?: string };
+  const payload = (await response.json().catch(() => ({}))) as Partial<ProvisionSchoolAdminResponse> & { error?: string; details?: string };
   if (!response.ok) {
-    throw new Error(payload.error ?? "Provisionnement impossible.");
+    const message = payload.error ?? "Provisionnement impossible.";
+    throw new Error(payload.details ? `${message} Détail serveur : ${payload.details}` : message);
   }
 
   if (!payload.school || !payload.schoolYear || !payload.adminUser || !payload.auditLog) {
