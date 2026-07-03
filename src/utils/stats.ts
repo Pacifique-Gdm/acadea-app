@@ -1,7 +1,20 @@
 import type { FeeType, ParentProfile, Payment, Student } from "../types";
 
+const feeTargetSeparator = "::option::";
+
+function studentFeeTargetKey(student: Student) {
+  const option = student.option?.trim();
+  return option && student.className.includes("Humanité") ? `${student.className}${feeTargetSeparator}${option}` : student.className;
+}
+
+function feeAppliesToStudent(fee: FeeType, student: Student | undefined) {
+  if (!student) return true;
+  if (fee.classOptionKey) return fee.classOptionKey === studentFeeTargetKey(student);
+  return !fee.className || fee.className === student.className;
+}
+
 function getApplicableFees(student: Student | undefined, feeTypes: FeeType[]) {
-  return feeTypes.filter((fee) => !fee.className || !student || fee.className === student.className);
+  return feeTypes.filter((fee) => feeAppliesToStudent(fee, student));
 }
 
 function getExpectedFromPaidFees(student: Student | undefined, feeTypes: FeeType[], payments: Payment[]) {

@@ -4,6 +4,10 @@ import type { AppData, AppUser } from "../types";
 
 type CollectionKey = keyof AppData;
 type PersistableItem = { id: string };
+export type PlatformSettings = {
+  loginLogoUrl?: string;
+  updatedAt?: string;
+};
 
 const collectionMap: Record<CollectionKey, string> = {
   users: "users",
@@ -151,6 +155,25 @@ export async function loadFirestoreData(user?: AppUser) {
   );
 
   return Object.fromEntries(entries) as unknown as AppData;
+}
+
+export async function loadPlatformSettings() {
+  if (!canUseFirestoreData() || !db) return null;
+
+  const snapshot = await withFirestoreTimeout(getDoc(doc(db, "platform", "appConfig")), "platform/appConfig").catch((error) => {
+    throw describeFirestoreError("platform/appConfig", error);
+  });
+  return snapshot.exists() ? (snapshot.data() as PlatformSettings) : {};
+}
+
+export async function savePlatformSettings(settings: PlatformSettings) {
+  if (!canUseFirestoreData() || !db) return false;
+
+  const documentRef = doc(db, "platform", "appConfig");
+  const snapshot = await getDoc(documentRef);
+  const currentSettings = snapshot.exists() ? (snapshot.data() as PlatformSettings) : {};
+  await setDoc(documentRef, { ...currentSettings, ...settings });
+  return true;
 }
 
 export async function persistFirestorePatch(patch: Partial<AppData>) {

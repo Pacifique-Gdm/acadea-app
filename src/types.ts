@@ -19,7 +19,7 @@ export type SchoolClass =
 
 export type FeeKind = "Minerval" | "Fourniture" | string;
 export type StudentStatus = "ACTIVE" | "TRANSFERRED" | "DROPPED" | "DECEASED";
-export type StudentExitReason = "Renvoi définitif" | "Décès" | "Abandon" | "Autre";
+export type StudentExitReason = "Abandon" | "Mutation" | "Exclusion" | "Décès" | "Fin de scolarité" | "Erreur administrative" | "Autre";
 export type SchoolSection = "maternelle" | "primaire" | "secondaire";
 export type HumanityOption = "Littéraire" | "Sciences" | "Pédagogique" | "Commerciale" | string;
 
@@ -120,6 +120,7 @@ export interface FeeType {
   name: FeeKind;
   amount: number;
   className?: SchoolClass;
+  classOptionKey?: string;
 }
 
 export interface Payment {
@@ -158,6 +159,7 @@ export interface Message {
   senderId: string;
   recipientParentId: string | "all" | "school";
   threadParentId?: string;
+  threadId?: string;
   subject: string;
   body: string;
   createdAt: string;

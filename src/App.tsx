@@ -35,7 +35,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import { createFirebaseAuthUser, getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateParent, validatePlatformAdmin, validateSchoolStaff } from "./services/auth";
-import { canUseFirestoreData, loadFirestoreData, persistFirestorePatch } from "./services/firestoreData";
+import { canUseFirestoreData, loadFirestoreData, loadPlatformSettings, persistFirestorePatch, savePlatformSettings } from "./services/firestoreData";
 import { manageSchool, provisionCashier, provisionParent, provisionSchoolAdmin } from "./services/provisioning";
 import { escapePdfHtml, generateReceiptPdf, money, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./utils/pdf";
 import type { PdfTableColumn } from "./utils/pdf";
@@ -73,7 +73,6 @@ const roleLabels: Record<AppUser["role"], string> = {
 const appEnvironment = import.meta.env.VITE_APP_ENV ?? "development";
 const showStagingBanner = import.meta.env.VITE_STAGING_BANNER === "true" || appEnvironment === "staging" || appEnvironment === "preview";
 const stagingLabel = import.meta.env.VITE_STAGING_LABEL ?? "ENVIRONNEMENT DE TEST";
-const platformLoginLogoStorageKey = "acadea.platform.loginLogo";
 const defaultManifestHref = "/manifest.webmanifest";
 const platformLogoAssetCache = "acadea-pwa-v2-brand";
 let platformManifestObjectUrl: string | null = null;
@@ -109,20 +108,6 @@ function nextSchoolYearDefaults(year: SchoolYear) {
 
 function loadInitialData() {
   return emptyAppData;
-}
-
-function loadPlatformLoginLogo() {
-  if (typeof window === "undefined") return "";
-  return window.localStorage.getItem(platformLoginLogoStorageKey) ?? "";
-}
-
-function savePlatformLoginLogo(value: string) {
-  if (typeof window === "undefined") return;
-  if (value) {
-    window.localStorage.setItem(platformLoginLogoStorageKey, value);
-  } else {
-    window.localStorage.removeItem(platformLoginLogoStorageKey);
-  }
 }
 
 function getOrCreateHeadLink(selector: string, rel: string) {
@@ -326,11 +311,27 @@ export default function App() {
   const [dataLoading, setDataLoading] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const logoutInProgressRef = useRef(false);
-  const platformLogoUrl = loadPlatformLoginLogo();
+  const [platformLogoUrl, setPlatformLogoUrl] = useState("");
 
   useEffect(() => {
     void applyPlatformLogoAssets(platformLogoUrl);
   }, [platformLogoUrl]);
+
+  useEffect(() => {
+    if (!canUseFirestoreData()) return;
+    let cancelled = false;
+    loadPlatformSettings()
+      .then((settings) => {
+        if (cancelled || !settings) return;
+        setPlatformLogoUrl(settings.loginLogoUrl ?? "");
+      })
+      .catch((error) => {
+        console.warn("Logo officiel Acadéa indisponible.", error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const school = data.schools.find((item) => item.id === user?.schoolId);
   const schoolYears = school ? data.schoolYears.filter((year) => year.schoolId === school.id) : [];
@@ -515,7 +516,7 @@ export default function App() {
   }
 
   if (!user || route === "/login") {
-    return <LoginScreen onLogin={loginWithCredentials} initialError={authError} />;
+    return <LoginScreen onLogin={loginWithCredentials} initialError={authError} platformLogoUrl={platformLogoUrl} />;
   }
 
   if (route === "/platform") {
@@ -523,7 +524,7 @@ export default function App() {
       return <AccessDenied onLogout={logout} />;
     }
 
-    return <PlatformModule user={user} data={data} updateData={updateData} onLogout={logout} />;
+    return <PlatformModule user={user} data={data} updateData={updateData} platformLogoUrl={platformLogoUrl} onPlatformLogoSaved={setPlatformLogoUrl} onLogout={logout} />;
   }
 
   if (dataLoading) {
@@ -718,13 +719,20 @@ function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: 
   };
 }
 
-function LoginScreen({ onLogin, initialError }: { onLogin: (email: string, password: string) => Promise<void>; initialError?: string }) {
+function LoginScreen({
+  onLogin,
+  initialError,
+  platformLogoUrl,
+}: {
+  onLogin: (email: string, password: string) => Promise<void>;
+  initialError?: string;
+  platformLogoUrl: string;
+}) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState(initialError ?? "");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [platformLogoUrl] = useState(loadPlatformLoginLogo);
 
   useEffect(() => {
     const viewport = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
@@ -1287,6 +1295,15 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
   const [transactionPeriod, setTransactionPeriod] = useState<TransactionPeriod>("last5");
+  const dashboardClassChoices = getSchoolClassChoices(school);
+  const dashboardSectionChoices = getSchoolEducationLevels(school)
+    .map((level) => (level === "Maternelle" ? "maternelle" : level === "Primaire" ? "primaire" : level === "Secondaire" ? "secondaire" : ""))
+    .filter(Boolean) as SchoolSection[];
+  useEffect(() => {
+    if (sectionFilter !== "all" && !dashboardSectionChoices.includes(sectionFilter)) {
+      setSectionFilter("all");
+    }
+  }, [dashboardSectionChoices, sectionFilter]);
   const activeStudents = data.students.filter((student) => (student.status ?? "ACTIVE") === "ACTIVE");
   const filteredStudents = activeStudents.filter((student) => sectionFilter === "all" || getClassSection(student.className) === sectionFilter);
   const filteredStudentIds = new Set(filteredStudents.map((student) => student.id));
@@ -1313,7 +1330,7 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
   const feeProgressRows = Array.from(
     data.feeTypes.reduce<Map<string, { name: string; expected: number; paid: number }>>((items, fee) => {
       const key = fee.name.trim().toLowerCase();
-      const applicableStudentIds = new Set(activeStudents.filter((student) => !fee.className || fee.className === student.className).map((student) => student.id));
+      const applicableStudentIds = new Set(activeStudents.filter((student) => feeAppliesToStudent(fee, student)).map((student) => student.id));
       const feePayments = data.payments.filter((payment) => payment.feeTypeId === fee.id && applicableStudentIds.has(payment.studentId));
       const expected = new Set(feePayments.map((payment) => payment.studentId)).size * fee.amount;
       const paid = feePayments.reduce((sum, payment) => sum + payment.amount, 0);
@@ -1330,7 +1347,7 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
     .filter((row) => row.expected > 0);
   const admins = data.users.filter((item) => item.role === "school_admin").length;
   const cashiers = data.users.filter((item) => item.role === "cashier").length;
-  const classRows = CLASSES.map((className) => {
+  const classRows = dashboardClassChoices.map((className) => {
     const students = filteredStudents.filter((student) => student.className === className);
     return {
       className,
@@ -1465,9 +1482,9 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
         <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-[180px_150px_150px_auto]">
           <select value={sectionFilter} onChange={(event) => setSectionFilter(event.target.value as typeof sectionFilter)} className="input">
             <option value="all">Toutes les sections</option>
-            <option value="maternelle">Maternelle</option>
-            <option value="primaire">Primaire</option>
-            <option value="secondaire">Secondaire</option>
+            {dashboardSectionChoices.includes("maternelle") && <option value="maternelle">Maternelle</option>}
+            {dashboardSectionChoices.includes("primaire") && <option value="primaire">Primaire</option>}
+            {dashboardSectionChoices.includes("secondaire") && <option value="secondaire">Secondaire</option>}
           </select>
           <input value={startDate} onChange={(event) => setStartDate(event.target.value)} type="date" className="input" />
           <input value={endDate} onChange={(event) => setEndDate(event.target.value)} type="date" className="input" />
@@ -1680,18 +1697,21 @@ function PlatformModule({
   user,
   data,
   updateData,
+  platformLogoUrl,
+  onPlatformLogoSaved,
   onLogout,
 }: {
   user: AppUser;
   data: AppData;
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
+  platformLogoUrl: string;
+  onPlatformLogoSaved: (logoUrl: string) => void;
   onLogout: () => void;
 }) {
   type PlatformView = "dashboard" | "students" | "menu";
   type SchoolDetailTab = "overview" | "info" | "admins" | "history";
   type SchoolSort = "az" | "recent" | "users";
-  const schoolSectionChoices = ["Maternelle", "Primaire", "Secondaire"];
-  const schoolOptionChoices = ["Littéraire", "Scientifique", "Commerciale", "Pédagogie", "Technique", "Nutrition", "Électricité", "Mécanique", "Autre"];
+  const schoolOptionChoices = [...defaultSchoolOptions, "Scientifique", "Technique", "Nutrition", "Électricité", "Mécanique", "Autre"];
 
   const [schoolName, setSchoolName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
@@ -1719,7 +1739,7 @@ function PlatformModule({
   const [provisioningLoading, setProvisioningLoading] = useState(false);
   const [schoolActionError, setSchoolActionError] = useState("");
   const [schoolActionSuccess, setSchoolActionSuccess] = useState("");
-  const [platformLogoDraft, setPlatformLogoDraft] = useState(loadPlatformLoginLogo);
+  const [platformLogoDraft, setPlatformLogoDraft] = useState(platformLogoUrl);
   const [platformLogoMessage, setPlatformLogoMessage] = useState("");
 
   const visibleSchools = data.schools.filter((school) => String(school.status) !== "deleted");
@@ -1734,12 +1754,7 @@ function PlatformModule({
     { label: "En attente", value: visibleSchools.filter((school) => String(school.status) === "pending").length, className: "bg-amber-500", textClassName: "text-amber-700" },
     { label: "Désactivées", value: visibleSchools.filter((school) => String(school.status) === "inactive").length, className: "bg-slate-500", textClassName: "text-slate-600" },
   ];
-  const schoolSectionChart = (["Maternelle", "Primaire", "Secondaire"] as const).map((section) => ({
-    label: section,
-    value: visibleSchools.filter((school) => (school.educationLevels ?? [school.schoolType ?? "Primaire"]).includes(section)).length,
-  }));
   const maxStatusCount = Math.max(1, ...schoolStatusChart.map((item) => item.value));
-  const maxSectionCount = Math.max(1, ...schoolSectionChart.map((item) => item.value));
   const hasSecondarySection = schoolSections.includes("Secondaire");
   const hasCustomSchoolOption = selectedSchoolOptions.includes("Autre");
   const visibleSchoolOptionChoices = Array.from(new Set([...schoolOptionChoices, ...selectedSchoolOptions.filter((option) => option !== "Autre")]));
@@ -1832,6 +1847,13 @@ function PlatformModule({
     updateData({
       schools: data.schools.map((school) => (school.id === schoolId ? { ...school, ...next } : school)),
       auditLogs: [writeAudit(schoolId, "Mise à jour des informations école"), ...data.auditLogs],
+    });
+  }
+
+  async function updateSchoolLevel(school: School, level: "Maternelle" | "Primaire" | "Secondaire") {
+    await updateSchool(school.id, {
+      schoolType: level,
+      educationLevels: educationLevelsForSchoolLevel(level),
     });
   }
 
@@ -1954,10 +1976,23 @@ function PlatformModule({
     }
   }
 
-  function savePlatformLogo() {
-    savePlatformLoginLogo(platformLogoDraft);
-    void applyPlatformLogoAssets(platformLogoDraft);
-    setPlatformLogoMessage(platformLogoDraft ? "Logo de l'application enregistré avec succès." : "Logo de l'application supprimé.");
+  useEffect(() => {
+    setPlatformLogoDraft(platformLogoUrl);
+  }, [platformLogoUrl]);
+
+  async function savePlatformLogo() {
+    try {
+      const saved = await savePlatformSettings({
+        loginLogoUrl: platformLogoDraft,
+        updatedAt: new Date().toISOString(),
+      });
+      if (!saved) throw new Error("Enregistrement Firestore indisponible.");
+      onPlatformLogoSaved(platformLogoDraft);
+      void applyPlatformLogoAssets(platformLogoDraft);
+      setPlatformLogoMessage(platformLogoDraft ? "Logo de l'application enregistré avec succès." : "Logo de l'application supprimé.");
+    } catch (error) {
+      setPlatformLogoMessage(error instanceof Error ? error.message : "Enregistrement du logo impossible.");
+    }
   }
 
   function openCreateAdminModal() {
@@ -2045,11 +2080,13 @@ function PlatformModule({
   return (
     <div className="min-h-screen max-w-full overflow-x-hidden bg-[#f6f8fb] pb-24 text-ink">
       <EnvironmentBanner />
-      <div className="min-w-0">
-        <header className="sticky top-0 z-20 max-w-full border-b border-slate-200 bg-white">
+      <div className="min-w-0 pt-[68px]">
+        <header className={`fixed inset-x-0 ${showStagingBanner ? "top-9 sm:top-10" : "top-0"} z-20 max-w-full border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur`}>
           <div className="mx-auto flex w-full max-w-7xl min-w-0 flex-col gap-3 px-3 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-ink font-bold text-white">A</div>
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded border border-slate-200 bg-white font-bold text-ink">
+              {platformLogoUrl ? <img src={platformLogoUrl} alt="" className="h-full w-full object-contain p-1" /> : "A"}
+            </div>
             <div className="min-w-0">
               <p className="break-words text-lg font-bold text-ink">Plateforme Acadéa</p>
               <p className="break-words text-xs text-slate-500">{roleLabels[user.role]} | dashboard SaaS anonymisé</p>
@@ -2073,7 +2110,7 @@ function PlatformModule({
 
           {platformView === "dashboard" && (
             <section className="grid min-w-0 gap-4">
-              <div className="grid min-w-0 gap-4 xl:grid-cols-2">
+              <div className="grid min-w-0 gap-4">
                 <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
                   <div className="flex min-w-0 flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
@@ -2091,28 +2128,6 @@ function PlatformModule({
                         </div>
                         <div className="h-3 overflow-hidden rounded-full bg-slate-100">
                           <div className={`h-full rounded-full ${item.className}`} style={{ width: `${Math.max(4, (item.value / maxStatusCount) * 100)}%` }} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
-                  <div className="flex min-w-0 flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0">
-                      <h2 className="font-bold text-ink">Répartition des écoles par section</h2>
-                      <p className="text-sm text-slate-500">Une école mixte est comptabilisée dans chaque section disponible.</p>
-                    </div>
-                    <span className="w-fit rounded bg-mint/10 px-3 py-1 text-xs font-semibold text-mint">Sections</span>
-                  </div>
-                  <div className="mt-5 grid gap-4">
-                    {schoolSectionChart.map((item) => (
-                      <div key={item.label} className="grid gap-2 rounded bg-slate-50 p-3">
-                        <div className="flex items-center justify-between gap-3 text-sm">
-                          <span className="font-semibold text-ink">{item.label}</span>
-                          <span className="font-bold text-ink">{item.value}</span>
-                        </div>
-                        <div className="h-4 overflow-hidden rounded-full bg-white">
-                          <div className="h-full rounded-full bg-ink" style={{ width: `${Math.max(4, (item.value / maxSectionCount) * 100)}%` }} />
                         </div>
                       </div>
                     ))}
@@ -2181,6 +2196,7 @@ function PlatformModule({
                   maxWidth={700}
                   maxBytes={250 * 1024}
                   acceptSvg
+                  previewFit="contain"
                 />
                 {platformLogoMessage && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{platformLogoMessage}</p>}
                 <button onClick={savePlatformLogo} className="primary-button justify-center" type="button">
@@ -2195,7 +2211,7 @@ function PlatformModule({
                 <fieldset className="grid gap-2 rounded border border-slate-200 p-3">
                   <legend className="px-1 text-sm font-semibold text-slate-700">Sections disponibles</legend>
                   <div className="flex flex-wrap gap-2">
-                    {schoolSectionChoices.map((section) => (
+                    {schoolEducationLevelChoices.map((section) => (
                       <label key={section} className="inline-flex items-center gap-2 rounded bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
                         <input type="checkbox" checked={schoolSections.includes(section)} onChange={() => toggleSchoolSection(section)} className="h-4 w-4 accent-ink" />
                         {section}
@@ -2341,6 +2357,18 @@ function PlatformModule({
                 <InfoRow label="Adresse" value={drawerSchool.address || "-"} />
                 <InfoRow label="Téléphone" value={drawerSchool.phone || "-"} />
                 <InfoRow label="Email" value={drawerSchool.email || "-"} />
+                <label className="grid gap-1 rounded bg-slate-50 p-3 text-sm">
+                  <span className="font-semibold text-slate-500">Niveau de l'école</span>
+                  <select
+                    value={schoolLevelFromConfig(drawerSchool)}
+                    onChange={(event) => void updateSchoolLevel(drawerSchool, event.target.value as "Maternelle" | "Primaire" | "Secondaire")}
+                    className="min-w-0 rounded border border-slate-200 bg-white px-3 py-2 font-semibold text-ink"
+                  >
+                    <option value="Maternelle">Maternelle</option>
+                    <option value="Primaire">Primaire</option>
+                    <option value="Secondaire">Secondaire</option>
+                  </select>
+                </label>
                 <InfoRow label="Statut" value={drawerSchool.status} />
                 <InfoRow label="Date de création" value={drawerSchool.createdAt ? new Date(drawerSchool.createdAt).toLocaleDateString("fr-FR") : "-"} />
                 <InfoRow label="Administrateur principal" value={drawerMainAdmin?.name ?? "-"} />
@@ -2595,6 +2623,7 @@ function MessageDrawerContent({
   type Conversation = {
     id: string;
     parentId?: string;
+    threadId?: string;
     title: string;
     subtitle: string;
     messages: Message[];
@@ -2617,16 +2646,15 @@ function MessageDrawerContent({
   }
 
   function conversationKey(message: Message) {
-    if (isParent) return "school";
-    if (message.recipientParentId === "all") return "all";
-    return getParentForMessage(message)?.id ?? "school";
+    const parentKey = isParent ? "school" : message.recipientParentId === "all" ? "all" : getParentForMessage(message)?.id ?? "school";
+    return `${parentKey}:${message.threadId ?? "legacy"}`;
   }
 
   function conversationMeta(id: string, messages: Message[]) {
     if (isParent) {
       return { title: school.name, subtitle: "Conversation avec l'école" };
     }
-    if (id === "all") {
+    if (id.startsWith("all:")) {
       return { title: "Tous les parents", subtitle: "Conversation de groupe" };
     }
     const conversationParent = yearData.parents.find((item) => item.id === id) ?? getParentForMessage(messages[0]);
@@ -2669,16 +2697,17 @@ function MessageDrawerContent({
     const key = conversationKey(message);
     return { ...items, [key]: [...(items[key] ?? []), message] };
   }, {});
+
   const conversations: Conversation[] = Object.entries(conversationMap)
     .map(([id, messages]) => {
       const sortedMessages = [...messages].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
       const lastMessage = sortedMessages[sortedMessages.length - 1];
       const meta = conversationMeta(id, sortedMessages);
-      return { id, parentId: id !== "all" && id !== "school" ? id : undefined, ...meta, messages: sortedMessages, lastMessage };
+      const conversationParent = getParentForMessage(sortedMessages[0]);
+      return { id, parentId: conversationParent?.id, threadId: sortedMessages[0]?.threadId, ...meta, messages: sortedMessages, lastMessage };
     })
     .sort((a, b) => b.lastMessage.createdAt.localeCompare(a.lastMessage.createdAt));
   const selectedConversation = conversations.find((conversation) => conversation.id === selectedConversationId);
-  const parentConversationLimitReached = Boolean(isParent && selectedConversation && selectedConversation.messages.length >= 2);
 
   function openConversation(conversationId: string) {
     conversationListScrollTopRef.current = conversationListRef.current?.scrollTop ?? conversationListScrollTopRef.current;
@@ -2701,10 +2730,10 @@ function MessageDrawerContent({
   function sendConversationReply() {
     const content = replyBody.trim();
     if (!content || !selectedConversation) return;
-    if (parentConversationLimitReached) return;
     const lastSubject = selectedConversation.lastMessage.subject || "Message";
     if (isParent) {
       if (!user.parentId) return;
+      const nextThreadId = nextMessageThreadId(yearData.messages, user.id, "school", user.parentId, selectedConversation.threadId);
       const message: Message = {
         id: uid("msg"),
         schoolId: school.id,
@@ -2712,6 +2741,7 @@ function MessageDrawerContent({
         senderId: user.id,
         recipientParentId: "school",
         threadParentId: user.parentId,
+        threadId: nextThreadId,
         subject: lastSubject,
         body: content,
         createdAt: new Date().toISOString(),
@@ -2729,9 +2759,11 @@ function MessageDrawerContent({
         read: false,
       };
       updateData({ messages: [message, ...data.messages], notifications: [notification, ...data.notifications] });
+      if (nextThreadId && nextThreadId !== selectedConversation.threadId) setSelectedConversationId(`school:${nextThreadId}`);
     } else {
-      const recipientParentId = selectedConversation.id === "all" ? "all" : selectedConversation.parentId ?? "all";
+      const recipientParentId = selectedConversation.id.startsWith("all:") ? "all" : selectedConversation.parentId ?? "all";
       const threadParentId = recipientParentId !== "all" ? recipientParentId : undefined;
+      const nextThreadId = nextMessageThreadId(yearData.messages, user.id, recipientParentId, threadParentId, selectedConversation.threadId);
       const message: Message = {
         id: uid("msg"),
         schoolId: school.id,
@@ -2739,6 +2771,7 @@ function MessageDrawerContent({
         senderId: user.id,
         recipientParentId,
         threadParentId,
+        threadId: nextThreadId,
         subject: lastSubject,
         body: content,
         createdAt: new Date().toISOString(),
@@ -2758,6 +2791,7 @@ function MessageDrawerContent({
         read: false,
       }));
       updateData({ messages: [message, ...data.messages], notifications: [...notifications, ...data.notifications] });
+      if (nextThreadId && nextThreadId !== selectedConversation.threadId) setSelectedConversationId(`${recipientParentId}:${nextThreadId}`);
     }
     setReplyBody("");
   }
@@ -2853,18 +2887,10 @@ function MessageDrawerContent({
               })}
             </div>
             <div className="grid gap-2 border-t border-slate-100 pt-3">
-              {parentConversationLimitReached ? (
-                <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold leading-6 text-amber-900">
-                  Cette conversation a atteint sa limite de 2 messages. Pour poursuivre les échanges, veuillez utiliser l'onglet "Message".
-                </p>
-              ) : (
-                <>
-                  <textarea value={replyBody} onChange={(event) => setReplyBody(event.target.value)} className="input min-h-24" placeholder="Répondre à cette conversation" />
-                  <button onClick={sendConversationReply} disabled={!replyBody.trim()} className="primary-button justify-center disabled:opacity-50" type="button">
-                    <Send className="h-4 w-4" /> Répondre
-                  </button>
-                </>
-              )}
+              <textarea value={replyBody} onChange={(event) => setReplyBody(event.target.value)} className="input min-h-24" placeholder="Répondre à cette conversation" />
+              <button onClick={sendConversationReply} disabled={!replyBody.trim()} className="primary-button justify-center disabled:opacity-50" type="button">
+                <Send className="h-4 w-4" /> Répondre
+              </button>
             </div>
         </section>
       )}
@@ -3063,6 +3089,39 @@ function schoolTabLabel(tab: "overview" | "info" | "admins" | "history") {
   return labels[tab];
 }
 
+function messageConversationScope(message: Pick<Message, "recipientParentId" | "threadParentId">) {
+  if (message.recipientParentId === "all") return "all";
+  const parentId = message.threadParentId ?? (message.recipientParentId !== "school" ? message.recipientParentId : undefined);
+  return parentId ? `parent:${parentId}` : "school";
+}
+
+function targetConversationScope(recipientParentId: Message["recipientParentId"], threadParentId?: string) {
+  return messageConversationScope({ recipientParentId, threadParentId });
+}
+
+function nextMessageThreadId(messages: Message[], senderId: string, recipientParentId: Message["recipientParentId"], threadParentId?: string, preferredThreadId?: string) {
+  const scope = targetConversationScope(recipientParentId, threadParentId);
+  const scopedMessages = messages.filter((message) => messageConversationScope(message) === scope);
+  const threadGroups = scopedMessages.reduce<Record<string, Message[]>>((groups, message) => {
+    const key = message.threadId ?? "legacy";
+    return { ...groups, [key]: [...(groups[key] ?? []), message] };
+  }, {});
+  const selectedMessages = preferredThreadId ? threadGroups[preferredThreadId] ?? [] : [];
+  const activeMessages = selectedMessages.length
+    ? selectedMessages
+    : Object.values(threadGroups).sort((a, b) => {
+        const lastA = [...a].sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.createdAt ?? "";
+        const lastB = [...b].sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.createdAt ?? "";
+        return lastB.localeCompare(lastA);
+      })[0] ?? [];
+  const lastMessages = [...activeMessages].sort((a, b) => a.createdAt.localeCompare(b.createdAt)).slice(-2);
+  if (lastMessages.length >= 2 && lastMessages.every((message) => message.senderId === senderId)) {
+    return uid("thread");
+  }
+  if (preferredThreadId) return preferredThreadId;
+  return activeMessages[0]?.threadId;
+}
+
 function AccessDenied({ onLogout }: { onLogout: () => void }) {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-[#f6f8fb] p-4">
@@ -3156,6 +3215,7 @@ function ParentPortal({
 
     const recipientLabel = recipientLabels[messageRecipient];
     const createdAt = new Date().toISOString();
+    const threadId = nextMessageThreadId(yearData.messages, user.id, "school", user.parentId);
     const message: Message = {
       id: uid("msg"),
       schoolId: school.id,
@@ -3163,6 +3223,7 @@ function ParentPortal({
       senderId: user.id,
       recipientParentId: "school",
       threadParentId: user.parentId,
+      threadId,
       subject: `${recipientLabel} - ${subject}`,
       body,
       createdAt,
@@ -3435,7 +3496,6 @@ function StudentsModule({
   const [classFilter, setClassFilter] = useState("");
   const [optionFilter, setOptionFilter] = useState("");
   const [archiveFilter, setArchiveFilter] = useState<"active" | "archived" | "all">("all");
-  const [schoolOptions, setSchoolOptions] = useState<string[]>(["Littéraire", "Pédagogie", "Sciences", "Commerciale"]);
   const [form, setForm] = useState<Student>(() => emptyStudent(school.id, year.id));
   const [quickParent, setQuickParent] = useState({ fullName: "", phone: "", email: "", password: "" });
   const [saveError, setSaveError] = useState("");
@@ -3443,8 +3503,11 @@ function StudentsModule({
   const [showForm, setShowForm] = useState(false);
   const [archiveStudentId, setArchiveStudentId] = useState<string | null>(null);
   const [archiveReason, setArchiveReason] = useState("");
+  const [archiveOtherReason, setArchiveOtherReason] = useState("");
+  const [archiveError, setArchiveError] = useState("");
   const [reactivationStudentId, setReactivationStudentId] = useState<string | null>(null);
   const [reactivationReason, setReactivationReason] = useState("");
+  const [reactivationOtherReason, setReactivationOtherReason] = useState("");
   const [reactivationError, setReactivationError] = useState("");
   const [importStudentsOpen, setImportStudentsOpen] = useState(false);
   const [importSourceYearId, setImportSourceYearId] = useState("");
@@ -3452,15 +3515,28 @@ function StudentsModule({
   const [importConfirmation, setImportConfirmation] = useState("");
   const [importError, setImportError] = useState("");
   const canEdit = user.role === "school_admin" && year.status !== "archived";
-  const studentClassChoices = CLASSES;
+  const studentClassChoices = getSchoolClassChoices(school);
+  const studentSectionChoices = getSchoolEducationLevels(school)
+    .map((level) => (level === "Maternelle" ? "maternelle" : level === "Primaire" ? "primaire" : level === "Secondaire" ? "secondaire" : ""))
+    .filter(Boolean) as SchoolSection[];
   const availableClasses = studentClassChoices.filter((className) => sectionFilter === "all" || getClassSection(className) === sectionFilter);
-  const optionChoices = Array.from(new Set([...schoolOptions, ...yearData.students.map((student) => student.option).filter(Boolean)])) as string[];
+  const optionChoices = Array.from(new Set([...(school.schoolOptions ?? []), ...yearData.students.map((student) => student.option).filter(Boolean)])) as string[];
+  const emptyCurrentStudent = () => {
+    const className = studentClassChoices[0] ?? CLASSES[0];
+    return { ...emptyStudent(school.id, year.id), className, section: getClassSection(className) };
+  };
   const archivedYearsForImport = data.schoolYears.filter((item) => item.schoolId === school.id && item.status === "archived");
   const selectedImportYear = archivedYearsForImport.find((item) => item.id === importSourceYearId);
   const selectedImportStudents = importSourceYearId
     ? data.students.filter((student) => student.schoolId === school.id && student.schoolYearId === importSourceYearId)
     : [];
   const studentsAlreadyImported = Boolean(year.studentsImportedFromArchivedYear);
+
+  useEffect(() => {
+    if (sectionFilter !== "all" && !studentSectionChoices.includes(sectionFilter)) {
+      setSectionFilter("all");
+    }
+  }, [studentSectionChoices, sectionFilter]);
 
   const students = yearData.students.filter((student) => {
     const text = `${student.matricule} ${student.nom} ${student.postnom} ${student.prenom}`.toLowerCase();
@@ -3475,6 +3551,10 @@ function StudentsModule({
   });
   const archiveStudent = archiveStudentId ? data.students.find((student) => student.id === archiveStudentId) : undefined;
   const reactivationStudent = reactivationStudentId ? data.students.find((student) => student.id === reactivationStudentId) : undefined;
+  const archiveReasonChoices = ["Abandon", "Mutation", "Exclusion", "Décès", "Fin de scolarité", "Erreur administrative", "Autre"] as const;
+  const reactivationReasonChoices = ["Retour à l'école", "Erreur d'archivage", "Réinscription", "Mutation annulée", "Suspension levée", "Décision administrative", "Autre"] as const;
+  const finalArchiveReason = archiveReason === "Autre" ? archiveOtherReason.trim() : archiveReason;
+  const finalReactivationReason = reactivationReason === "Autre" ? reactivationOtherReason.trim() : reactivationReason;
 
   function saveStudent() {
     setSaveError("");
@@ -3510,13 +3590,13 @@ function StudentsModule({
         ...data.auditLogs,
       ],
     });
-    setForm(emptyStudent(school.id, year.id));
+    setForm(emptyCurrentStudent());
     setShowForm(false);
     setSaveMessage(exists ? "Élève modifié avec succès." : "Élève enregistré avec succès.");
   }
 
   function openAddStudentForm() {
-    setForm(emptyStudent(school.id, year.id));
+    setForm(emptyCurrentStudent());
     setSaveError("");
     setSaveMessage("");
     setShowForm(true);
@@ -3532,11 +3612,15 @@ function StudentsModule({
   function removeStudent(id: string) {
     setArchiveStudentId(id);
     setArchiveReason("");
+    setArchiveOtherReason("");
+    setArchiveError("");
   }
 
   function closeArchiveStudentDialog() {
     setArchiveStudentId(null);
     setArchiveReason("");
+    setArchiveOtherReason("");
+    setArchiveError("");
   }
 
   function confirmArchiveStudent() {
@@ -3544,8 +3628,11 @@ function StudentsModule({
     if (!id) return;
     const student = data.students.find((item) => item.id === id);
     if (!student) return;
-    const reason = archiveReason.trim();
-    if (!reason) return;
+    const reason = finalArchiveReason;
+    if (!archiveReason || !reason) {
+      setArchiveError(archiveReason === "Autre" ? "Veuillez préciser le motif d'archivage." : "Le motif d'archivage est obligatoire.");
+      return;
+    }
     const normalized = reason.toLowerCase();
     const status = normalized.includes("décès") || normalized.includes("deces") ? "DECEASED" : normalized.includes("abandon") ? "DROPPED" : "TRANSFERRED";
     updateData({
@@ -3554,7 +3641,7 @@ function StudentsModule({
           ? {
               ...item,
               status,
-              exitReason: reason.includes("Autre") ? "Autre" : normalized.includes("décès") || normalized.includes("deces") ? "Décès" : normalized.includes("abandon") ? "Abandon" : "Renvoi définitif",
+              exitReason: archiveReason as Student["exitReason"],
               exitReasonDetails: reason,
               deletedAt: new Date().toISOString(),
             }
@@ -3568,21 +3655,23 @@ function StudentsModule({
   function openReactivateStudentDialog(id: string) {
     setReactivationStudentId(id);
     setReactivationReason("");
+    setReactivationOtherReason("");
     setReactivationError("");
   }
 
   function closeReactivateStudentDialog() {
     setReactivationStudentId(null);
     setReactivationReason("");
+    setReactivationOtherReason("");
     setReactivationError("");
   }
 
   function reactivateStudent() {
     const id = reactivationStudentId;
-    const reason = reactivationReason.trim();
+    const reason = finalReactivationReason;
     if (!id) return;
-    if (!reason) {
-      setReactivationError("Le motif de réactivation est obligatoire.");
+    if (!reactivationReason || !reason) {
+      setReactivationError(reactivationReason === "Autre" ? "Veuillez préciser la raison de réactivation." : "Le motif de réactivation est obligatoire.");
       return;
     }
     const student = data.students.find((item) => item.id === id);
@@ -3677,7 +3766,10 @@ function StudentsModule({
   function addSchoolOption(option: string) {
     const trimmed = option.trim();
     if (!trimmed) return;
-    setSchoolOptions((current) => (current.some((item) => item.toLowerCase() === trimmed.toLowerCase()) ? current : [...current, trimmed]));
+    const nextOptions = (school.schoolOptions ?? []).some((item) => item.toLowerCase() === trimmed.toLowerCase())
+      ? school.schoolOptions ?? []
+      : [...(school.schoolOptions ?? []), trimmed];
+    updateData({ schools: data.schools.map((item) => (item.id === school.id ? { ...item, schoolOptions: nextOptions } : item)) });
     setForm({ ...form, option: trimmed });
   }
 
@@ -3868,9 +3960,9 @@ function StudentsModule({
             className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2"
           >
             <option value="all">Toutes les sections</option>
-            <option value="maternelle">Maternelle</option>
-            <option value="primaire">Primaire</option>
-            <option value="secondaire">Secondaire</option>
+            {studentSectionChoices.includes("maternelle") && <option value="maternelle">Maternelle</option>}
+            {studentSectionChoices.includes("primaire") && <option value="primaire">Primaire</option>}
+            {studentSectionChoices.includes("secondaire") && <option value="secondaire">Secondaire</option>}
           </select>
           <select value={classFilter} onChange={(event) => setClassFilter(event.target.value)} className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2">
             <option value="">Toutes les classes</option>
@@ -3989,22 +4081,45 @@ function StudentsModule({
               <p className="font-bold">
                 {archiveStudent.nom} {archiveStudent.postnom} {archiveStudent.prenom}
               </p>
-              <p className="mt-1">Motif obligatoire : Renvoi définitif, Décès, Abandon ou Autre avec précision</p>
+              <p className="mt-1">Motif obligatoire : choisissez un motif d'archivage dans la liste.</p>
             </div>
+            {archiveError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{archiveError}</p>}
             <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
-              Motif
-              <input
+              Motif d'archivage
+              <select
                 value={archiveReason}
-                onChange={(event) => setArchiveReason(event.target.value)}
+                onChange={(event) => {
+                  setArchiveReason(event.target.value);
+                  setArchiveOtherReason("");
+                  setArchiveError("");
+                }}
                 className="min-w-0 rounded border border-slate-200 px-3 py-2 text-sm"
-                placeholder="Ex. Abandon"
-              />
+              >
+                <option value="" disabled hidden>Sélectionner un motif</option>
+                {archiveReasonChoices.map((reason) => (
+                  <option key={reason} value={reason}>{reason}</option>
+                ))}
+              </select>
             </label>
+            {archiveReason === "Autre" && (
+              <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+                Précisez le motif
+                <input
+                  value={archiveOtherReason}
+                  onChange={(event) => {
+                    setArchiveOtherReason(event.target.value);
+                    setArchiveError("");
+                  }}
+                  className="min-w-0 rounded border border-slate-200 px-3 py-2 text-sm"
+                  placeholder="Motif personnalisé"
+                />
+              </label>
+            )}
             <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
               <button type="button" onClick={closeArchiveStudentDialog} className="secondary-button justify-center">
                 Annuler
               </button>
-              <button type="button" onClick={confirmArchiveStudent} className="primary-button justify-center">
+              <button type="button" onClick={confirmArchiveStudent} disabled={!archiveReason || !finalArchiveReason} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50">
                 OK
               </button>
             </div>
@@ -4023,30 +4138,40 @@ function StudentsModule({
             {reactivationError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{reactivationError}</p>}
             <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
               Motif de réactivation
-              <input
+              <select
                 value={reactivationReason}
                 onChange={(event) => {
                   setReactivationReason(event.target.value);
+                  setReactivationOtherReason("");
                   setReactivationError("");
                 }}
-                list="reactivation-reasons"
                 className="min-w-0 rounded border border-slate-200 px-3 py-2 text-sm"
-                placeholder="Ex. Retour à l'école"
-              />
+              >
+                <option value="" disabled hidden>Sélectionner un motif</option>
+                {reactivationReasonChoices.map((reason) => (
+                  <option key={reason} value={reason}>{reason}</option>
+                ))}
+              </select>
             </label>
-            <datalist id="reactivation-reasons">
-              <option value="Retour à l'école" />
-              <option value="Erreur d'archivage" />
-              <option value="Réinscription" />
-              <option value="Retour après suspension" />
-              <option value="Retour après mutation annulée" />
-              <option value="Autre" />
-            </datalist>
+            {reactivationReason === "Autre" && (
+              <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+                Précisez la raison
+                <input
+                  value={reactivationOtherReason}
+                  onChange={(event) => {
+                    setReactivationOtherReason(event.target.value);
+                    setReactivationError("");
+                  }}
+                  className="min-w-0 rounded border border-slate-200 px-3 py-2 text-sm"
+                  placeholder="Raison personnalisée"
+                />
+              </label>
+            )}
             <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
               <button type="button" onClick={closeReactivateStudentDialog} className="secondary-button justify-center">
                 Annuler
               </button>
-              <button type="button" onClick={reactivateStudent} disabled={!reactivationReason.trim()} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50">
+              <button type="button" onClick={reactivateStudent} disabled={!reactivationReason || !finalReactivationReason} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50">
                 Réactiver
               </button>
             </div>
@@ -4501,7 +4626,7 @@ function ControlModule({
   const selectedPaymentBalance = selectedPaymentStudent
     ? getStudentBalance(selectedPaymentStudent.id, yearData.feeTypes, yearData.payments, yearData.students)
     : { expected: 0, paid: 0, remaining: 0 };
-  const payableFeeTypes = selectedPaymentStudent ? yearData.feeTypes.filter((fee) => !fee.className || fee.className === selectedPaymentStudent.className) : [];
+  const payableFeeTypes = selectedPaymentStudent ? yearData.feeTypes.filter((fee) => feeAppliesToStudent(fee, selectedPaymentStudent)) : [];
   const selectedFeeTypeValue = payableFeeTypes.some((fee) => fee.id === feeTypeId) ? feeTypeId : payableFeeTypes[0]?.id ?? "";
   const selectedPaymentFee = payableFeeTypes.find((fee) => fee.id === selectedFeeTypeValue);
   const selectedPaymentFeePaid = selectedPaymentStudent && selectedPaymentFee
@@ -4800,7 +4925,7 @@ function ControlModule({
     }
     const paymentStudent = yearData.students.find((student) => student.id === payment.studentId);
     const paymentFee = paymentStudent
-      ? yearData.feeTypes.find((fee) => fee.id === payment.feeTypeId && (!fee.className || fee.className === paymentStudent.className))
+      ? yearData.feeTypes.find((fee) => fee.id === payment.feeTypeId && feeAppliesToStudent(fee, paymentStudent))
       : undefined;
     const paidForFee = paymentStudent && paymentFee
       ? yearData.payments
@@ -5403,6 +5528,7 @@ function MessagesModule({
   function sendMessage() {
     const threadParentId = recipientParentId !== "all" ? recipientParentId : undefined;
     const createdAt = new Date().toISOString();
+    const threadId = nextMessageThreadId(yearData.messages, user.id, recipientParentId, threadParentId);
     const message: Message = {
       id: uid("msg"),
       schoolId: school.id,
@@ -5410,6 +5536,7 @@ function MessagesModule({
       senderId: user.id,
       recipientParentId,
       threadParentId,
+      threadId,
       subject,
       body,
       createdAt,
@@ -5535,11 +5662,14 @@ function MenuModule({
   const [cashierSuccess, setCashierSuccess] = useState("");
   const [showCashierPassword, setShowCashierPassword] = useState(false);
   const [feeName, setFeeName] = useState<FeeKind>("Minerval");
-  const [feeClassNames, setFeeClassNames] = useState<SchoolClass[]>([CLASSES[0]]);
+  const [feeClassNames, setFeeClassNames] = useState<string[]>([CLASSES[0]]);
   const [feeAmount, setFeeAmount] = useState("100");
   const [editingFeeId, setEditingFeeId] = useState("");
   const [showNewFeeForm, setShowNewFeeForm] = useState(false);
   const [newFeeName, setNewFeeName] = useState("");
+  const [schoolOptionDraft, setSchoolOptionDraft] = useState("");
+  const [feeDeleteTarget, setFeeDeleteTarget] = useState<FeeType | null>(null);
+  const [feeDeleteConfirmation, setFeeDeleteConfirmation] = useState("");
   const [activeMenuSection, setActiveMenuSection] = useState<MenuSection | null>(null);
   const [newYearOpen, setNewYearOpen] = useState(false);
   const [newYearForm, setNewYearForm] = useState(() => nextSchoolYearDefaults(selectedYear));
@@ -5556,6 +5686,33 @@ function MenuModule({
     { id: "history", title: "Historique", description: "Activités et messages enregistrés pour ce compte.", icon: Clock3 },
   ] satisfies { id: MenuSection; title: string; description: string; icon: typeof Settings }[];
   const feeKindChoices = Array.from(new Set([...FEE_KINDS, ...yearData.feeTypes.map((fee) => fee.name)]));
+  const newFeeFormRef = useRef<HTMLDivElement>(null);
+  const schoolFormEducationLevels = getSchoolEducationLevels(schoolForm).filter((level) => level !== "Mixte");
+  const schoolFormOptions = schoolForm.schoolOptions ?? [];
+  const currentSchoolClassChoices = getSchoolClassChoices(schoolForm);
+  const feeClassChoices = buildFeeTargetChoices(currentSchoolClassChoices, schoolFormOptions, yearData.students, feeClassNames);
+
+  useEffect(() => {
+    if (!showNewFeeForm) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (newFeeFormRef.current?.contains(target)) return;
+      setShowNewFeeForm(false);
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [showNewFeeForm]);
+
+  useEffect(() => {
+    const availableTargets = new Set(feeClassChoices.map((choice) => choice.value));
+    if (feeClassNames.some((target) => availableTargets.has(target))) return;
+    setFeeClassNames([feeClassChoices[0]?.value ?? currentSchoolClassChoices[0] ?? CLASSES[0]]);
+  }, [currentSchoolClassChoices, feeClassChoices, feeClassNames]);
 
   async function saveSchool() {
     if (schoolSaving) return;
@@ -5707,16 +5864,17 @@ function MenuModule({
     const existingFeeKeys = new Set(
       data.feeTypes
         .filter((fee) => fee.schoolId === school.id && fee.schoolYearId === selectedYear.id && fee.id !== editingFeeId)
-        .map((fee) => `${String(fee.name).trim().toLowerCase()}|${fee.className ?? ""}`),
+        .map((fee) => `${String(fee.name).trim().toLowerCase()}|${fee.classOptionKey ?? fee.className ?? ""}`),
     );
     const feesToSave = selectedClasses
-      .filter((className) => !existingFeeKeys.has(`${String(feeName).trim().toLowerCase()}|${className}`))
-      .map((className, index) => ({
+      .filter((target) => !existingFeeKeys.has(`${String(feeName).trim().toLowerCase()}|${target}`))
+      .map((target, index) => ({
         id: editingFeeId && index === 0 ? editingFeeId : uid("fee"),
         schoolId: school.id,
         schoolYearId: selectedYear.id,
         name: feeName,
-        className,
+        className: feeTargetClassName(target),
+        classOptionKey: feeTargetHasOption(target) ? target : undefined,
         amount,
       }));
     if (feesToSave.length === 0) return;
@@ -5734,19 +5892,31 @@ function MenuModule({
   function editFee(fee: FeeType) {
     setEditingFeeId(fee.id);
     setFeeName(fee.name);
-    setFeeClassNames([fee.className ?? CLASSES[0]]);
+    setFeeClassNames([fee.classOptionKey ?? fee.className ?? CLASSES[0]]);
     setFeeAmount(String(fee.amount));
   }
 
-  function toggleFeeClass(className: SchoolClass) {
+  function toggleFeeClass(className: string) {
     setFeeClassNames((current) =>
       current.includes(className) ? current.filter((item) => item !== className) : [...current, className],
     );
   }
 
   function deleteFee(fee: FeeType) {
-    if (!confirm(`Supprimer le frais ${fee.name} ?`)) return;
+    setFeeDeleteTarget(fee);
+    setFeeDeleteConfirmation("");
+  }
+
+  function closeFeeDeleteDialog() {
+    setFeeDeleteTarget(null);
+    setFeeDeleteConfirmation("");
+  }
+
+  function confirmDeleteFee() {
+    if (!feeDeleteTarget || feeDeleteConfirmation !== "SUPPRIMER LE FRAIS") return;
+    const fee = feeDeleteTarget;
     updateData({ feeTypes: data.feeTypes.filter((item) => item.id !== fee.id) });
+    closeFeeDeleteDialog();
   }
 
   function addFeeKind() {
@@ -5755,6 +5925,39 @@ function MenuModule({
     setFeeName(trimmed);
     setNewFeeName("");
     setShowNewFeeForm(false);
+  }
+
+  function toggleSchoolFormEducationLevel(level: string) {
+    setSchoolForm((current) => {
+      const currentLevels = getSchoolEducationLevels(current).filter((item) => item !== "Mixte");
+      const nextLevels = currentLevels.includes(level)
+        ? currentLevels.filter((item) => item !== level)
+        : [...currentLevels, level];
+      const normalizedLevels = nextLevels.length > 0 ? nextLevels : currentLevels;
+      return {
+        ...current,
+        educationLevels: normalizedLevels,
+        schoolType: normalizedLevels.length === 1 ? (normalizedLevels[0] as School["schoolType"]) : "Mixte",
+      };
+    });
+  }
+
+  function addSchoolFormOption() {
+    const trimmed = schoolOptionDraft.trim();
+    if (!trimmed) return;
+    setSchoolForm((current) => {
+      const currentOptions = current.schoolOptions ?? [];
+      const exists = currentOptions.some((option) => option.toLowerCase() === trimmed.toLowerCase());
+      return exists ? current : { ...current, schoolOptions: [...currentOptions, trimmed] };
+    });
+    setSchoolOptionDraft("");
+  }
+
+  function removeSchoolFormOption(option: string) {
+    setSchoolForm((current) => ({
+      ...current,
+      schoolOptions: (current.schoolOptions ?? []).filter((item) => item !== option),
+    }));
   }
 
   function renderMenuSectionForm(sectionId: MenuSection) {
@@ -5766,6 +5969,49 @@ function MenuModule({
           <Field label="Adresse" value={schoolForm.address} onChange={(value) => setSchoolForm({ ...schoolForm, address: value })} disabled={!canAdmin} />
           <Field label="Téléphone" value={schoolForm.phone} onChange={(value) => setSchoolForm({ ...schoolForm, phone: value })} disabled={!canAdmin} />
           <Field label="Email" value={schoolForm.email} onChange={(value) => setSchoolForm({ ...schoolForm, email: value })} disabled={!canAdmin} />
+          <fieldset className="grid gap-2 rounded border border-slate-200 p-3">
+            <legend className="px-1 text-sm font-semibold text-slate-700">Sections actuelles de l'école</legend>
+            <div className="flex flex-wrap gap-2">
+              {schoolEducationLevelChoices.map((level) => (
+                <label key={level} className="inline-flex items-center gap-2 rounded bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={schoolFormEducationLevels.includes(level)}
+                    onChange={() => toggleSchoolFormEducationLevel(level)}
+                    disabled={!canAdmin || (schoolFormEducationLevels.length === 1 && schoolFormEducationLevels.includes(level))}
+                    className="h-4 w-4 accent-ink disabled:opacity-50"
+                  />
+                  {level}
+                </label>
+              ))}
+            </div>
+            <p className="text-xs font-medium text-slate-500">Ces sections peuvent évoluer après la création de l'école.</p>
+          </fieldset>
+          <fieldset className="grid gap-2 rounded border border-slate-200 p-3">
+            <legend className="px-1 text-sm font-semibold text-slate-700">Options actuelles de l'école</legend>
+            <div className="flex flex-wrap gap-2">
+              {schoolFormOptions.length === 0 && <p className="text-sm text-slate-500">Aucune option configurée.</p>}
+              {schoolFormOptions.map((option) => (
+                <span key={option} className="inline-flex items-center gap-2 rounded bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+                  {option}
+                  {canAdmin && (
+                    <button onClick={() => removeSchoolFormOption(option)} type="button" className="text-red-600 hover:text-red-700" aria-label={`Retirer l'option ${option}`}>
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </span>
+              ))}
+            </div>
+            {canAdmin && (
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                <input value={schoolOptionDraft} onChange={(event) => setSchoolOptionDraft(event.target.value)} className="input" placeholder="Nouvelle option" />
+                <button onClick={addSchoolFormOption} type="button" className="secondary-button justify-center">
+                  <Plus className="h-4 w-4" /> Ajouter
+                </button>
+              </div>
+            )}
+            <p className="text-xs font-medium text-slate-500">Les options configurées ici alimentent les élèves, filtres et listes de l'école.</p>
+          </fieldset>
           <p className="rounded bg-slate-50 p-3 text-sm font-semibold text-slate-600">Année scolaire : {selectedYear.name}</p>
           {schoolSaveStatus === "error" && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{schoolSaveMessage}</p>}
           {canAdmin && (
@@ -5895,10 +6141,10 @@ function MenuModule({
             <fieldset className="max-h-40 min-w-0 overflow-y-auto rounded border border-slate-200 bg-white p-2 text-sm text-slate-700 scrollbar-thin">
               <legend className="mb-1 px-1 text-xs font-semibold text-slate-500">Classes concernées</legend>
               <div className="grid gap-1">
-                {CLASSES.map((className) => (
-                  <label key={className} className="flex min-w-0 items-center gap-2 rounded px-2 py-1 hover:bg-slate-50">
-                    <input type="checkbox" checked={feeClassNames.includes(className)} onChange={() => toggleFeeClass(className)} className="h-4 w-4 shrink-0 accent-[#1E3A8A]" />
-                    <span className="min-w-0 break-words">{className}</span>
+                {feeClassChoices.map((choice) => (
+                  <label key={choice.value} className="flex min-w-0 items-center gap-2 rounded px-2 py-1 hover:bg-slate-50">
+                    <input type="checkbox" checked={feeClassNames.includes(choice.value)} onChange={() => toggleFeeClass(choice.value)} className="h-4 w-4 shrink-0 accent-[#1E3A8A]" />
+                    <span className="min-w-0 break-words">{choice.label}</span>
                   </label>
                 ))}
               </div>
@@ -5921,7 +6167,7 @@ function MenuModule({
             </button>
           )}
           {showNewFeeForm && (
-            <div className="rounded border border-slate-100 bg-slate-50 p-3">
+            <div ref={newFeeFormRef} className="rounded border border-slate-100 bg-slate-50 p-3">
               <p className="mb-2 text-sm font-semibold text-ink">Nouveau frais</p>
               <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                 <input value={newFeeName} onChange={(event) => setNewFeeName(event.target.value)} className="input" placeholder="Nom du frais" />
@@ -5934,7 +6180,7 @@ function MenuModule({
           <div className="space-y-2">
             {yearData.feeTypes.map((fee) => (
               <div key={fee.id} className="flex min-w-0 flex-col gap-3 rounded bg-slate-50 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-                <span className="min-w-0 break-words font-semibold text-ink">{fee.name} - {fee.className ?? "Toutes les classes"}</span>
+                <span className="min-w-0 break-words font-semibold text-ink">{fee.name} - {formatFeeTargetLabel(fee)}</span>
                 <div className="flex shrink-0 flex-wrap items-center gap-2">
                   <strong>${fee.amount}</strong>
                   <button onClick={() => editFee(fee)} type="button" className="rounded bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100">
@@ -5947,6 +6193,55 @@ function MenuModule({
               </div>
             ))}
           </div>
+          {feeDeleteTarget && (
+            <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-4" role="dialog" aria-modal="true" aria-labelledby="fee-delete-title">
+              <section className="w-full max-w-md rounded border border-slate-200 bg-white p-4 shadow-2xl">
+                <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
+                  <div className="min-w-0">
+                    <h2 id="fee-delete-title" className="break-words text-lg font-bold text-ink">Supprimer le frais</h2>
+                    <p className="mt-1 break-words text-sm text-slate-500">
+                      {feeDeleteTarget.name} - {formatFeeTargetLabel(feeDeleteTarget)}
+                    </p>
+                  </div>
+                  <button onClick={closeFeeDeleteDialog} type="button" className="rounded bg-slate-100 p-2 text-slate-700" aria-label="Annuler la suppression du frais">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="mt-4 grid gap-3">
+                  <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">
+                    Pour confirmer la suppression, saisissez exactement : SUPPRIMER LE FRAIS
+                  </p>
+                  <label className="grid gap-1 text-sm font-semibold text-slate-700">
+                    Phrase de confirmation
+                    <input
+                      value={feeDeleteConfirmation}
+                      onChange={(event) => setFeeDeleteConfirmation(event.target.value)}
+                      className="input"
+                      placeholder="SUPPRIMER LE FRAIS"
+                    />
+                  </label>
+                  {feeDeleteConfirmation && feeDeleteConfirmation !== "SUPPRIMER LE FRAIS" && (
+                    <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+                      Phrase incorrecte. Veuillez saisir exactement : SUPPRIMER LE FRAIS
+                    </p>
+                  )}
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <button onClick={closeFeeDeleteDialog} type="button" className="secondary-button justify-center">
+                      Annuler
+                    </button>
+                    <button
+                      onClick={confirmDeleteFee}
+                      disabled={feeDeleteConfirmation !== "SUPPRIMER LE FRAIS"}
+                      type="button"
+                      className="inline-flex items-center justify-center gap-2 rounded bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Trash2 className="h-4 w-4" /> Supprimer
+                    </button>
+                  </div>
+                </div>
+              </section>
+            </div>
+          )}
         </div>
       );
     }
@@ -6152,6 +6447,101 @@ function getClassSection(className: SchoolClass): SchoolSection {
   if (className.includes("Maternelle")) return "maternelle";
   if (className.includes("Humanité")) return "secondaire";
   return "primaire";
+}
+
+const schoolEducationLevelChoices = ["Maternelle", "Primaire", "Secondaire"];
+const defaultSchoolOptions = ["Littéraire", "Pédagogie", "Sciences", "Commerciale"];
+
+function educationLevelsForSchoolLevel(level: "Maternelle" | "Primaire" | "Secondaire") {
+  if (level === "Maternelle") return ["Maternelle"];
+  if (level === "Primaire") return ["Maternelle", "Primaire"];
+  return ["Maternelle", "Primaire", "Secondaire"];
+}
+
+function normalizeEducationLevel(level: string): string {
+  const normalized = level.trim().toLowerCase();
+  if (normalized === "maternelle") return "Maternelle";
+  if (normalized === "primaire") return "Primaire";
+  if (normalized === "secondaire") return "Secondaire";
+  if (normalized === "mixte") return "Mixte";
+  return level.trim();
+}
+
+function getSchoolEducationLevels(school: Pick<School, "educationLevels" | "schoolType">) {
+  const levels = (school.educationLevels ?? []).map(normalizeEducationLevel).filter(Boolean);
+  if (levels.length > 0) return Array.from(new Set(levels));
+  if (school.schoolType === "Mixte") return schoolEducationLevelChoices;
+  return school.schoolType ? [school.schoolType] : schoolEducationLevelChoices;
+}
+
+function getSchoolClassChoices(school: Pick<School, "educationLevels" | "schoolType">) {
+  const levels = getSchoolEducationLevels(school);
+  if (levels.includes("Mixte")) return CLASSES;
+  const sections = levels
+    .map((level) => (level === "Maternelle" ? "maternelle" : level === "Primaire" ? "primaire" : level === "Secondaire" ? "secondaire" : ""))
+    .filter(Boolean);
+  return sections.length > 0 ? CLASSES.filter((className) => sections.includes(getClassSection(className))) : CLASSES;
+}
+
+function schoolLevelFromConfig(school: Pick<School, "educationLevels" | "schoolType">): "Maternelle" | "Primaire" | "Secondaire" {
+  const levels = getSchoolEducationLevels(school);
+  if (levels.includes("Secondaire")) return "Secondaire";
+  if (levels.includes("Primaire")) return "Primaire";
+  return "Maternelle";
+}
+
+const feeTargetSeparator = "::option::";
+
+function feeTargetKey(className: SchoolClass, option?: string) {
+  const normalizedOption = option?.trim();
+  return normalizedOption ? `${className}${feeTargetSeparator}${normalizedOption}` : className;
+}
+
+function feeTargetHasOption(target: string) {
+  return target.includes(feeTargetSeparator);
+}
+
+function feeTargetClassName(target: string) {
+  return target.split(feeTargetSeparator)[0] as SchoolClass;
+}
+
+function feeTargetOption(target?: string) {
+  return target?.includes(feeTargetSeparator) ? target.split(feeTargetSeparator).slice(1).join(feeTargetSeparator) : "";
+}
+
+function formatFeeTargetValue(target?: string) {
+  if (!target) return "Toutes les classes";
+  const className = feeTargetClassName(target);
+  const option = feeTargetOption(target);
+  return option ? formatStudentClassName({ className, option }) : className;
+}
+
+function formatFeeTargetLabel(fee: Pick<FeeType, "className" | "classOptionKey">) {
+  return formatFeeTargetValue(fee.classOptionKey ?? fee.className);
+}
+
+function studentFeeTargetKey(student: Pick<Student, "className" | "option">) {
+  return getClassSection(student.className) === "secondaire" ? feeTargetKey(student.className, student.option) : student.className;
+}
+
+function feeAppliesToStudent(fee: Pick<FeeType, "className" | "classOptionKey">, student: Pick<Student, "className" | "option">) {
+  if (fee.classOptionKey) return fee.classOptionKey === studentFeeTargetKey(student);
+  return !fee.className || fee.className === student.className;
+}
+
+function buildFeeTargetChoices(classChoices: SchoolClass[], schoolOptions: string[], students: Student[], selectedTargets: string[]) {
+  const choices = classChoices.flatMap((className) => {
+    if (getClassSection(className) !== "secondaire") return [{ value: className, label: className }];
+    const studentOptions = students.filter((student) => student.className === className).map((student) => student.option).filter(Boolean) as string[];
+    const options = Array.from(new Set([...schoolOptions, ...studentOptions].map((option) => option.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, "fr"));
+    const optionChoices = options.map((option) => ({
+      value: feeTargetKey(className, option),
+      label: formatStudentClassName({ className, option }),
+    }));
+    return optionChoices.length ? [...optionChoices, { value: className, label: className }] : [{ value: className, label: className }];
+  });
+  const legacyChoices = selectedTargets.map((target) => ({ value: target, label: formatFeeTargetValue(target) }));
+  return Array.from(new Map([...choices, ...legacyChoices].map((choice) => [choice.value, choice])).values());
 }
 
 function formatStudentClassName(student: Pick<Student, "className" | "option">) {
@@ -6769,6 +7159,7 @@ function ImageUploadField({
   maxBytes,
   disabled = false,
   acceptSvg = false,
+  previewFit = "cover",
 }: {
   label: string;
   value?: string;
@@ -6777,6 +7168,7 @@ function ImageUploadField({
   maxBytes: number;
   disabled?: boolean;
   acceptSvg?: boolean;
+  previewFit?: "cover" | "contain";
 }) {
   const inputId = useId();
   const [error, setError] = useState("");
@@ -6814,7 +7206,7 @@ function ImageUploadField({
         {value ? (
           <div className="flex items-center gap-3">
             <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded border border-slate-200 bg-white">
-              <img src={value} alt="" className="h-full w-full object-cover" />
+              <img src={value} alt="" className={`h-full w-full ${previewFit === "contain" ? "object-contain p-1" : "object-cover"}`} />
             </div>
             <p className="min-w-0 break-words text-xs font-medium text-slate-500">Image sélectionnée. Les anciennes URL restent compatibles.</p>
           </div>

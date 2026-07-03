@@ -58,6 +58,11 @@ service cloud.firestore {
         || request.resource.data.schoolYearId == resource.data.schoolYearId;
     }
 
+    match /platform/appConfig {
+      allow read: if true;
+      allow write: if superAdmin();
+    }
+
     match /platform/{document=**} {
       allow read, write: if superAdmin();
     }
