@@ -1349,9 +1349,9 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
     { label: "Nombre total de parents", value: stats.parents, icon: UsersRound, tone: "bg-coral/10 text-coral" },
     { label: "Administrateurs", value: admins, icon: ShieldCheck, tone: "bg-blue-100 text-blue-700" },
     { label: "Caissiers", value: cashiers, icon: UserRound, tone: "bg-pink-100 text-pink-700" },
-    { label: "Montant total encaiss\u00e9", value: "$" + totalPayments.toFixed(2), icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
-    { label: "Montant attendu", value: "$" + stats.expected.toFixed(2), icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
-    { label: "Montant restant \u00e0 payer", value: "$" + remaining.toFixed(2), icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
+    { label: "Montant total encaiss\u00e9", value: "$" + annualFinancialPaid.toFixed(2), icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
+    { label: "Montant attendu", value: "$" + annualFinancialStats.expected.toFixed(2), icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
+    { label: "Montant restant \u00e0 payer", value: "$" + annualFinancialRemaining.toFixed(2), icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
     { label: "Nombre de classes", value: stats.classes, icon: BookOpen, tone: "bg-indigo-100 text-indigo-700" },
   ];
 
@@ -1397,7 +1397,7 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
           </select>
           <input value={startDate} onChange={(event) => setStartDate(event.target.value)} type="date" className="input" />
           <input value={endDate} onChange={(event) => setEndDate(event.target.value)} type="date" className="input" />
-          <button onClick={exportDashboardPdf} type="button" className="secondary-button justify-center">
+          <button onClick={exportDashboardPdf} type="button" className="primary-button w-full justify-center sm:w-auto">
             <Download className="h-4 w-4" /> Exporter PDF
           </button>
         </div>
@@ -4019,7 +4019,7 @@ function StudentsModule({
             ))}
           </select>
           <div className="flex min-w-0 flex-wrap gap-2">
-            <button onClick={printStudentsPdf} type="button" className="secondary-button w-full justify-center sm:w-auto">
+            <button onClick={printStudentsPdf} type="button" className="primary-button w-full justify-center sm:w-auto">
               <Download className="h-4 w-4" /> Exporter PDF
             </button>
           </div>
