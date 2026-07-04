@@ -6221,6 +6221,7 @@ function MenuModule({
     setCashierPhone("");
     setCashierEmail("");
     setCashierPassword("");
+    setShowCashierPassword(false);
     setCashierSuccess("Compte caissier créé avec succès. Il peut maintenant se connecter avec son email et son mot de passe.");
     window.setTimeout(() => {
       setActiveMenuSection((current) => (current === "accounts" ? null : current));
