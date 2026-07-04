@@ -2653,6 +2653,7 @@ function MessageDrawerContent({
     subtitle: string;
     messages: Message[];
     lastMessage: Message;
+    replyLimitReached?: boolean;
   };
 
   const [selectedConversationId, setSelectedConversationId] = useState("");
@@ -2735,12 +2736,34 @@ function MessageDrawerContent({
   }, {});
 
   const conversations: Conversation[] = Object.entries(conversationMap)
-    .map(([id, messages]) => {
+    .flatMap(([id, messages]) => {
+      if (isParent) {
+        const newestMessages = [...messages].sort((a, b) => messageTimestamp(b.createdAt) - messageTimestamp(a.createdAt));
+        const meta = conversationMeta(id, newestMessages);
+        return newestMessages.reduce<Conversation[]>((items, _message, index) => {
+          if (index % 2 !== 0) return items;
+          const chunk = newestMessages.slice(index, index + 2);
+          if (!chunk.length) return items;
+          const conversationParent = getParentForMessage(chunk[0]);
+          return [
+            ...items,
+            {
+              id: index === 0 ? id : `${id}:box-${index / 2}`,
+              parentId: conversationParent?.id,
+              threadId: chunk[0]?.threadId,
+              ...meta,
+              messages: chunk,
+              lastMessage: chunk[0],
+              replyLimitReached: chunk.length >= 2,
+            },
+          ];
+        }, []);
+      }
       const sortedMessages = [...messages].sort((a, b) => messageTimestamp(a.createdAt) - messageTimestamp(b.createdAt));
       const lastMessage = sortedMessages[sortedMessages.length - 1];
       const meta = conversationMeta(id, sortedMessages);
       const conversationParent = getParentForMessage(sortedMessages[0]);
-      return { id, parentId: conversationParent?.id, threadId: sortedMessages[0]?.threadId, ...meta, messages: sortedMessages, lastMessage };
+      return [{ id, parentId: conversationParent?.id, threadId: sortedMessages[0]?.threadId, ...meta, messages: sortedMessages, lastMessage }];
     })
     .sort((a, b) => messageTimestamp(b.lastMessage.createdAt) - messageTimestamp(a.lastMessage.createdAt));
   const selectedConversation = conversations.find((conversation) => conversation.id === selectedConversationId);
@@ -2922,12 +2945,18 @@ function MessageDrawerContent({
                 );
               })}
             </div>
-            <div className="grid gap-2 border-t border-slate-100 pt-3">
-              <textarea value={replyBody} onChange={(event) => setReplyBody(event.target.value)} className="input min-h-24" placeholder="Répondre à cette conversation" />
-              <button onClick={sendConversationReply} disabled={!replyBody.trim()} className="primary-button justify-center disabled:opacity-50" type="button">
-                <Send className="h-4 w-4" /> Répondre
-              </button>
-            </div>
+            {selectedConversation.replyLimitReached ? (
+              <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">
+                Pour poursuivre cette conversation, veuillez utiliser l'onglet « Messages ».
+              </p>
+            ) : (
+              <div className="grid gap-2 border-t border-slate-100 pt-3">
+                <textarea value={replyBody} onChange={(event) => setReplyBody(event.target.value)} className="input min-h-24" placeholder="Répondre à cette conversation" />
+                <button onClick={sendConversationReply} disabled={!replyBody.trim()} className="primary-button justify-center disabled:opacity-50" type="button">
+                  <Send className="h-4 w-4" /> Répondre
+                </button>
+              </div>
+            )}
         </section>
       )}
     </div>
@@ -3573,6 +3602,14 @@ function StudentsModule({
       setSectionFilter("all");
     }
   }, [studentSectionChoices, sectionFilter]);
+  useEffect(() => {
+    if (!saveError && !saveMessage) return;
+    const timer = window.setTimeout(() => {
+      setSaveError("");
+      setSaveMessage("");
+    }, 4000);
+    return () => window.clearTimeout(timer);
+  }, [saveError, saveMessage]);
 
   const students = yearData.students.filter((student) => {
     const text = `${student.matricule} ${student.nom} ${student.postnom} ${student.prenom}`.toLowerCase();
@@ -3964,7 +4001,6 @@ function StudentsModule({
     <section className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
       <div className="min-w-0">
         <SectionTitle title="Élèves" subtitle="Ajouter, modifier, rechercher et filtrer par direction puis classe." />
-        {saveError && <p className="mb-3 rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{saveError}</p>}
         {saveMessage && <p className="mb-3 rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{saveMessage}</p>}
         <div className="mb-3 grid min-w-0 gap-2 sm:flex sm:flex-wrap">
           {canEdit && (
@@ -5371,33 +5407,35 @@ function ControlModule({
     <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
       <div className="min-w-0">
         <SectionTitle title="Contrôle" subtitle="Frais scolaires, paiements, historique et soldes restants en dollar américain." />
-        <div className="mb-3 grid min-w-0 gap-2">
-          <div className="flex min-w-0 flex-wrap items-stretch gap-2 xl:flex-nowrap xl:gap-1.5">
-            <select value={amountComparator} onChange={(event) => setAmountComparator(event.target.value as typeof amountComparator)} className="h-10 min-w-0 flex-1 rounded border border-slate-200 bg-white px-3 text-sm sm:flex-none sm:basis-40 xl:basis-32 xl:px-2 xl:text-xs">
+        <div className="mb-3 grid min-w-0 max-w-full gap-2 xl:flex xl:flex-nowrap xl:items-stretch xl:gap-1.5">
+          <div className="flex min-w-0 flex-nowrap items-stretch gap-1.5 xl:contents">
+            <select value={amountComparator} onChange={(event) => setAmountComparator(event.target.value as typeof amountComparator)} className="h-10 min-w-0 flex-[1.1] rounded border border-slate-200 bg-white px-2 text-xs sm:text-sm xl:flex-none xl:basis-32">
               <option value="all">Montant payé</option>
               <option value=">=">Payé &gt;=</option>
               <option value="<">Payé &lt;</option>
             </select>
-            <input value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)} type="number" className="h-10 min-w-0 flex-1 rounded border border-slate-200 bg-white px-3 text-sm sm:flex-none sm:basis-32 xl:basis-24 xl:px-2 xl:text-xs" placeholder="Montant" />
-            <button onClick={printFilteredStudents} className="secondary-button h-10 min-w-0 flex-1 justify-center sm:flex-none sm:basis-32 xl:basis-28 xl:px-2 xl:text-xs">
+            <input value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)} type="number" className="h-10 min-w-0 flex-1 rounded border border-slate-200 bg-white px-2 text-xs sm:text-sm xl:flex-none xl:basis-24" placeholder="Filtre" />
+            <button onClick={printFilteredStudents} className="primary-button h-10 min-w-0 flex-1 justify-center px-2 text-xs sm:text-sm xl:flex-none xl:basis-28">
               <Download className="h-4 w-4" /> Imprimer
             </button>
-            <button onClick={() => (user.role === "cashier" ? setCashierControlDrawer("history") : setHistoryOpen(true))} className="secondary-button h-10 min-w-0 flex-1 justify-center sm:flex-none sm:basis-52 xl:basis-44 xl:px-2 xl:text-xs" type="button">
+          </div>
+          <div className="grid min-w-0 gap-2 xl:contents">
+            <button onClick={() => (user.role === "cashier" ? setCashierControlDrawer("history") : setHistoryOpen(true))} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm xl:w-auto xl:flex-none xl:basis-44 xl:text-xs" type="button">
               Historique des paiements
             </button>
-            <button onClick={() => setExpenseHistoryOpen(true)} className="secondary-button h-10 min-w-0 flex-1 justify-center sm:flex-none sm:basis-52 xl:basis-44 xl:px-2 xl:text-xs" type="button">
+            <button onClick={() => setExpenseHistoryOpen(true)} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm xl:w-auto xl:flex-none xl:basis-44 xl:text-xs" type="button">
               Historique de dépenses
             </button>
-            <button onClick={() => (user.role === "cashier" ? setCashierControlDrawer("warning") : setWarningOpen(true))} className="secondary-button h-10 min-w-0 flex-1 justify-center sm:flex-none sm:basis-40 xl:basis-32 xl:px-2 xl:text-xs" type="button">
+            <button onClick={() => (user.role === "cashier" ? setCashierControlDrawer("warning") : setWarningOpen(true))} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm xl:w-auto xl:flex-none xl:basis-32 xl:text-xs" type="button">
               Avertissement
             </button>
           </div>
           {canPay && user.role === "cashier" && (
-            <div className="flex min-w-0 flex-wrap items-stretch gap-2">
-              <button onClick={() => { setCashierControlFeedback(""); setCashierControlDrawer("payment"); }} className="primary-button min-w-0 flex-1 justify-center sm:flex-none sm:basis-56" type="button">
+            <div className="flex min-w-0 flex-wrap items-stretch gap-2 xl:basis-full">
+              <button onClick={() => { setCashierControlFeedback(""); setCashierControlFeedbackDrawer(null); setCashierControlDrawer("payment"); }} className="primary-button min-w-0 flex-1 justify-center sm:flex-none sm:basis-56" type="button">
                 Enregistrer un paiement
               </button>
-              <button onClick={() => { setCashierControlFeedback(""); setCashierControlDrawer("expense"); }} className="primary-button min-w-0 flex-1 justify-center sm:flex-none sm:basis-56" type="button">
+              <button onClick={() => { setCashierControlFeedback(""); setCashierControlFeedbackDrawer(null); setCashierControlDrawer("expense"); }} className="primary-button min-w-0 flex-1 justify-center sm:flex-none sm:basis-56" type="button">
                 Enregistrer une dépense
               </button>
             </div>
@@ -5995,6 +6033,22 @@ function MenuModule({
       document.removeEventListener("pointerdown", handlePointerDown);
     };
   }, [showNewFeeForm]);
+  useEffect(() => {
+    if (!schoolSaveStatus) return;
+    const timer = window.setTimeout(() => {
+      setSchoolSaveStatus("");
+      setSchoolSaveMessage("");
+    }, 4000);
+    return () => window.clearTimeout(timer);
+  }, [schoolSaveStatus, schoolSaveMessage]);
+  useEffect(() => {
+    if (!cashierError && !cashierSuccess) return;
+    const timer = window.setTimeout(() => {
+      setCashierError("");
+      setCashierSuccess("");
+    }, 4000);
+    return () => window.clearTimeout(timer);
+  }, [cashierError, cashierSuccess]);
 
   async function saveSchool() {
     if (schoolSaving) return;
@@ -6137,6 +6191,9 @@ function MenuModule({
     setCashierEmail("");
     setCashierPassword("");
     setCashierSuccess("Compte caissier créé avec succès. Il peut maintenant se connecter avec son email et son mot de passe.");
+    window.setTimeout(() => {
+      setActiveMenuSection((current) => (current === "accounts" ? null : current));
+    }, 2000);
   }
 
   function saveFee() {
