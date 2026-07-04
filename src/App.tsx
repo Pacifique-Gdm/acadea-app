@@ -4690,7 +4690,7 @@ function ControlModule({
   const [expenseCategory, setExpenseCategory] = useState("Fournitures");
   const [expenseDescription, setExpenseDescription] = useState("");
   const [expenseError, setExpenseError] = useState("");
-  const [amountComparator, setAmountComparator] = useState<"all" | ">=" | "<">("all");
+  const [amountComparator, setAmountComparator] = useState("all");
   const [amountThreshold, setAmountThreshold] = useState("");
   const [paymentError, setPaymentError] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -4708,6 +4708,10 @@ function ControlModule({
   const [historyQuery, setHistoryQuery] = useState("");
   const [selectedHistoryStudentId, setSelectedHistoryStudentId] = useState("");
   const feeNameChoices = Array.from(new Set(yearData.feeTypes.map((fee) => fee.name)));
+  const amountFeeOptions = yearData.feeTypes.flatMap((fee) => [
+    { value: `fee:${fee.id}:gte`, label: `${fee.name} ≥` },
+    { value: `fee:${fee.id}:lt`, label: `${fee.name} <` },
+  ]);
   const [warningFeeName, setWarningFeeName] = useState(feeNameChoices[0] ?? "");
   const [warningRequiredAmount, setWarningRequiredAmount] = useState("");
   const [warningDeadline, setWarningDeadline] = useState("");
@@ -4715,6 +4719,12 @@ function ControlModule({
   useEffect(() => {
     if (!warningFeeName && feeNameChoices[0]) setWarningFeeName(feeNameChoices[0]);
   }, [feeNameChoices, warningFeeName]);
+  useEffect(() => {
+    const match = amountComparator.match(/^fee:(.+):(gte|lt)$/);
+    if (match && !yearData.feeTypes.some((fee) => fee.id === match[1])) {
+      setAmountComparator("all");
+    }
+  }, [amountComparator, yearData.feeTypes]);
   useEffect(() => {
     if (!cashierControlFeedback || !cashierControlFeedbackDrawer) return;
     const feedbackDrawer = cashierControlFeedbackDrawer;
@@ -4754,7 +4764,14 @@ function ControlModule({
     .map((student) => ({ student, balance: getStudentBalance(student.id, yearData.feeTypes, yearData.payments, yearData.students) }))
     .filter((row) => {
       if (amountComparator === "all" || !amountThreshold) return true;
-      return amountComparator === ">=" ? row.balance.paid >= Number(amountThreshold) : row.balance.paid < Number(amountThreshold);
+      const feeFilter = amountComparator.match(/^fee:(.+):(gte|lt)$/);
+      const paidAmount = feeFilter
+        ? yearData.payments
+            .filter((payment) => payment.studentId === row.student.id && payment.feeTypeId === feeFilter[1])
+            .reduce((sum, payment) => sum + payment.amount, 0)
+        : row.balance.paid;
+      const isGreaterOrEqual = feeFilter ? feeFilter[2] === "gte" : amountComparator === ">=";
+      return isGreaterOrEqual ? paidAmount >= Number(amountThreshold) : paidAmount < Number(amountThreshold);
     });
   const historyPayments = yearData.payments
     .map((payment) => {
@@ -5409,10 +5426,13 @@ function ControlModule({
         <SectionTitle title="Contrôle" subtitle="Frais scolaires, paiements, historique et soldes restants en dollar américain." />
         <div className="mb-3 grid min-w-0 max-w-full gap-2 xl:flex xl:flex-nowrap xl:items-stretch xl:gap-1.5">
           <div className="flex min-w-0 flex-nowrap items-stretch gap-1.5 xl:contents">
-            <select value={amountComparator} onChange={(event) => setAmountComparator(event.target.value as typeof amountComparator)} className="h-10 min-w-0 flex-[1.1] rounded border border-slate-200 bg-white px-2 text-xs sm:text-sm xl:flex-none xl:basis-32">
+            <select value={amountComparator} onChange={(event) => setAmountComparator(event.target.value)} className="h-10 min-w-0 flex-[1.1] rounded border border-slate-200 bg-white px-2 text-xs sm:text-sm xl:flex-none xl:basis-32">
               <option value="all">Montant payé</option>
-              <option value=">=">Payé &gt;=</option>
-              <option value="<">Payé &lt;</option>
+              {amountFeeOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
             <input value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)} type="number" className="h-10 min-w-0 flex-1 rounded border border-slate-200 bg-white px-2 text-xs sm:text-sm xl:flex-none xl:basis-24" placeholder="Filtre" />
             <button onClick={printFilteredStudents} className="primary-button h-10 min-w-0 flex-1 justify-center px-2 text-xs sm:text-sm xl:flex-none xl:basis-28">
