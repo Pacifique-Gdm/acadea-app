@@ -5368,7 +5368,7 @@ function ControlModule({
               </p>
             </div>
           </div>
-          <div className="flex shrink-0 flex-wrap gap-2">
+          <div className="flex shrink-0 flex-wrap justify-center gap-2 sm:justify-start">
             <button onClick={() => createStudentHistoryPdf("print")} className="primary-button justify-center" type="button">
               <Download className="h-4 w-4" /> Imprimer PDF
             </button>
@@ -6754,7 +6754,7 @@ function StudentForm({
             onToggle={() => setShowQuickParentPassword(!showQuickParentPassword)}
             placeholder="Mot de passe temporaire"
           />
-          <button onClick={onCreateParent} className="secondary-button" type="button"><Plus className="h-4 w-4" /> Créer et sélectionner</button>
+          <button onClick={onCreateParent} className="primary-button" type="button"><Plus className="h-4 w-4" /> Créer et sélectionner</button>
         </div>
       </div>
       <label className="grid gap-1 text-sm font-medium text-slate-700">
