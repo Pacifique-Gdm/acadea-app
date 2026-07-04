@@ -4657,6 +4657,7 @@ function ControlModule({
   const [warningOpen, setWarningOpen] = useState(false);
   const [cashierControlDrawer, setCashierControlDrawer] = useState<"payment" | "expense" | "history" | "warning" | null>(null);
   const [cashierControlFeedback, setCashierControlFeedback] = useState("");
+  const [cashierControlFeedbackDrawer, setCashierControlFeedbackDrawer] = useState<"payment" | "expense" | null>(null);
   const [historyQuery, setHistoryQuery] = useState("");
   const [selectedHistoryStudentId, setSelectedHistoryStudentId] = useState("");
   const feeNameChoices = Array.from(new Set(yearData.feeTypes.map((fee) => fee.name)));
@@ -4667,6 +4668,16 @@ function ControlModule({
   useEffect(() => {
     if (!warningFeeName && feeNameChoices[0]) setWarningFeeName(feeNameChoices[0]);
   }, [feeNameChoices, warningFeeName]);
+  useEffect(() => {
+    if (!cashierControlFeedback || !cashierControlFeedbackDrawer) return;
+    const feedbackDrawer = cashierControlFeedbackDrawer;
+    const timer = window.setTimeout(() => {
+      setCashierControlFeedback("");
+      setCashierControlFeedbackDrawer(null);
+      setCashierControlDrawer((current) => (current === feedbackDrawer ? null : current));
+    }, 3000);
+    return () => window.clearTimeout(timer);
+  }, [cashierControlFeedback, cashierControlFeedbackDrawer]);
   const isArchivedContext = year.status === "archived";
   const canPay = user.role === "cashier" && !isArchivedContext;
   const canCorrectPayments = user.role === "school_admin" && !isArchivedContext;
@@ -4798,6 +4809,7 @@ function ControlModule({
 
   function savePayment() {
     setCashierControlFeedback("");
+    setCashierControlFeedbackDrawer(null);
     if (isArchivedContext) {
       setPaymentError("Cette année scolaire est archivée en lecture seule.");
       return;
@@ -4855,13 +4867,14 @@ function ControlModule({
     });
     setAmount("");
     if (user.role === "cashier") {
-      setCashierControlDrawer(null);
       setCashierControlFeedback("Paiement enregistré avec succès.");
+      setCashierControlFeedbackDrawer("payment");
     }
   }
 
   function saveExpense() {
     setCashierControlFeedback("");
+    setCashierControlFeedbackDrawer(null);
     setExpenseError("");
     if (isArchivedContext) return;
     if (!expenseAmount) return;
@@ -4887,8 +4900,8 @@ function ControlModule({
     setExpenseAmount("");
     setExpenseDescription("");
     if (user.role === "cashier") {
-      setCashierControlDrawer(null);
       setCashierControlFeedback("Dépense enregistrée avec succès.");
+      setCashierControlFeedbackDrawer("expense");
     }
   }
 
@@ -4985,8 +4998,11 @@ function ControlModule({
 
     const matchingFees = yearData.feeTypes.filter((fee) => fee.name === warningFeeName);
     const matchingFeeIds = new Set(matchingFees.map((fee) => fee.id));
+    const warningFeeLabels = Array.from(new Set(matchingFees.map((fee) => String(fee.name).trim()).filter(Boolean)));
+    const warningFeeSummary = warningFeeLabels.length ? warningFeeLabels.join(", ") : warningFeeName;
     const parentById = new Map(yearData.parents.map((parent) => [parent.id, parent]));
     const now = new Date().toISOString();
+    const sentAtLabel = new Date(now).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
     const affectedStudents = yearData.students.filter((student) => {
       const paid = yearData.payments
         .filter((payment) => payment.studentId === student.id && matchingFeeIds.has(payment.feeTypeId))
@@ -5001,21 +5017,17 @@ function ControlModule({
         const body = [
           "Cher Parent,",
           "",
-          `Nous vous informons que le paiement des ${warningFeeName} relatif à votre enfant ${studentName} n'a pas encore atteint le montant requis par l'établissement.`,
+          `Nous vous informons que le paiement de ${warningFeeSummary} relatif à votre enfant ${studentName} n'a pas encore atteint le montant requis par l'établissement.`,
           "",
-          "Détails",
-          `Type de frais : ${warningFeeName}`,
+          `Détails Type de frais : ${warningFeeSummary}.`,
           `Montant requis : $${requiredAmount.toFixed(2)}`,
-          `Date limite de régularisation : ${warningDeadline}`,
+          `Date limite de régularisation : ${warningDeadline}.`,
           "",
           "Nous vous invitons à régulariser votre situation avant cette échéance afin d'éviter tout désagrément et de permettre à votre enfant de poursuivre sa scolarité dans les meilleures conditions.",
           "",
-          "Si vous avez déjà effectué le paiement récemment, nous vous remercions de bien vouloir ignorer ce message. Dans le cas contraire, nous vous prions de prendre les dispositions nécessaires dans les meilleurs délais.",
+          `Cordialement, L'Administration de ${school.name}.`,
           "",
-          "Nous vous remercions de votre compréhension, de votre confiance et de votre précieuse collaboration.",
-          "",
-          "Cordialement,",
-          `L'Administration de ${school.name}`,
+          sentAtLabel,
         ].join("\n");
         return {
           parent,
@@ -5380,9 +5392,6 @@ function ControlModule({
             </div>
           )}
         </div>
-        {cashierControlFeedback && user.role === "cashier" && (
-          <p className="mb-3 rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{cashierControlFeedback}</p>
-        )}
         <div className="grid min-w-0 gap-3">
           {rows.map(({ student, balance }) => (
             <article key={student.id} className="min-w-0 rounded border border-slate-200 bg-white p-4">
@@ -5452,6 +5461,9 @@ function ControlModule({
       )}
       {user.role === "cashier" && cashierControlDrawer && (
         <AdminDrawer title={cashierDrawerTitle} onClose={() => setCashierControlDrawer(null)} closeLabel={`Fermer ${cashierDrawerTitle}`}>
+          {cashierControlFeedback && cashierControlFeedbackDrawer === cashierControlDrawer && (
+            <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{cashierControlFeedback}</p>
+          )}
           {cashierControlDrawer === "payment" && (
             <>
               <div className="grid min-w-0 gap-2">
