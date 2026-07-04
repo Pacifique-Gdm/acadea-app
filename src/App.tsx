@@ -2662,7 +2662,18 @@ function MessageDrawerContent({
   const conversationListScrollTopRef = useRef(0);
   const isParent = user.role === "parent";
   const parent = isParent ? yearData.parents.find((item) => item.id === user.parentId) : undefined;
-  const systemNotifications = isParent ? yearData.notifications.filter((notification) => notification.type !== "message") : [];
+
+  function messageTimestamp(value?: string) {
+    if (!value) return 0;
+    const timestamp = new Date(value).getTime();
+    return Number.isFinite(timestamp) ? timestamp : 0;
+  }
+
+  const systemNotifications = isParent
+    ? yearData.notifications
+        .filter((notification) => notification.type !== "message")
+        .sort((a, b) => messageTimestamp(b.createdAt) - messageTimestamp(a.createdAt))
+    : [];
 
   function getParentForMessage(message: Message) {
     const senderParentId = data.users.find((item) => item.id === message.senderId)?.parentId;
@@ -2725,13 +2736,13 @@ function MessageDrawerContent({
 
   const conversations: Conversation[] = Object.entries(conversationMap)
     .map(([id, messages]) => {
-      const sortedMessages = [...messages].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      const sortedMessages = [...messages].sort((a, b) => messageTimestamp(a.createdAt) - messageTimestamp(b.createdAt));
       const lastMessage = sortedMessages[sortedMessages.length - 1];
       const meta = conversationMeta(id, sortedMessages);
       const conversationParent = getParentForMessage(sortedMessages[0]);
       return { id, parentId: conversationParent?.id, threadId: sortedMessages[0]?.threadId, ...meta, messages: sortedMessages, lastMessage };
     })
-    .sort((a, b) => b.lastMessage.createdAt.localeCompare(a.lastMessage.createdAt));
+    .sort((a, b) => messageTimestamp(b.lastMessage.createdAt) - messageTimestamp(a.lastMessage.createdAt));
   const selectedConversation = conversations.find((conversation) => conversation.id === selectedConversationId);
 
   function openConversation(conversationId: string) {
@@ -2826,7 +2837,7 @@ function MessageDrawerContent({
       <section className={`min-w-0 rounded border border-slate-200 bg-white p-3 shadow-sm ${selectedConversation ? "hidden lg:block" : ""}`}>
         {systemNotifications.length > 0 && (
           <div className="mb-4 rounded border border-amber-200 bg-amber-50 p-3">
-            <h3 className="mb-2 text-sm font-bold text-ink">Notifications système</h3>
+            <h3 className="mb-2 text-sm font-bold text-ink">Notifications</h3>
             <div className="max-h-56 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
               {systemNotifications.map((notification) => (
                 <article key={notification.id} className="rounded bg-white p-3 text-sm">
