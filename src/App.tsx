@@ -1654,6 +1654,8 @@ function PlatformModule({
   const [schoolDeleteTarget, setSchoolDeleteTarget] = useState<School | null>(null);
   const [schoolDeleteConfirmation, setSchoolDeleteConfirmation] = useState("");
   const [schoolDeleteLoading, setSchoolDeleteLoading] = useState(false);
+  const [schoolLevelChangeTarget, setSchoolLevelChangeTarget] = useState<{ school: School; level: "Maternelle" | "Primaire" | "Secondaire" } | null>(null);
+  const [schoolLevelConfirmation, setSchoolLevelConfirmation] = useState("");
   const [platformLogoDraft, setPlatformLogoDraft] = useState(platformLogoUrl);
   const [platformLogoMessage, setPlatformLogoMessage] = useState("");
 
@@ -1777,6 +1779,23 @@ function PlatformModule({
       schoolType: level,
       educationLevels: educationLevelsForSchoolLevel(level),
     });
+  }
+
+  function openSchoolLevelChangeDialog(school: School, level: "Maternelle" | "Primaire" | "Secondaire") {
+    if (schoolLevelFromConfig(school) === level) return;
+    setSchoolLevelChangeTarget({ school, level });
+    setSchoolLevelConfirmation("");
+  }
+
+  function closeSchoolLevelChangeDialog() {
+    setSchoolLevelChangeTarget(null);
+    setSchoolLevelConfirmation("");
+  }
+
+  async function confirmSchoolLevelChange() {
+    if (!schoolLevelChangeTarget || schoolLevelConfirmation !== "CHANGER LE NIVEAU DE L'ECOLE") return;
+    await updateSchoolLevel(schoolLevelChangeTarget.school, schoolLevelChangeTarget.level);
+    closeSchoolLevelChangeDialog();
   }
 
   function toggleSchoolSection(section: string) {
@@ -2347,7 +2366,7 @@ function PlatformModule({
                   <span className="font-semibold text-slate-500">Niveau de l'école</span>
                   <select
                     value={schoolLevelFromConfig(drawerSchool)}
-                    onChange={(event) => void updateSchoolLevel(drawerSchool, event.target.value as "Maternelle" | "Primaire" | "Secondaire")}
+                    onChange={(event) => openSchoolLevelChangeDialog(drawerSchool, event.target.value as "Maternelle" | "Primaire" | "Secondaire")}
                     className="min-w-0 rounded border border-slate-200 bg-white px-3 py-2 font-semibold text-ink"
                   >
                     <option value="Maternelle">Maternelle</option>
@@ -2444,6 +2463,41 @@ function PlatformModule({
               type="button"
             >
               {schoolDeleteLoading ? "Suppression..." : "Supprimer"}
+            </button>
+          </div>
+        </AdminDrawer>
+      )}
+
+      {schoolLevelChangeTarget && (
+        <AdminDrawer title="Changer le niveau de l'école" onClose={closeSchoolLevelChangeDialog} closeLabel="Annuler le changement de niveau">
+          <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">
+            Cette modification est importante et peut avoir un impact sur le fonctionnement de l'école {schoolLevelChangeTarget.school.name}. Pour confirmer le passage au niveau {schoolLevelChangeTarget.level}, saisissez exactement : CHANGER LE NIVEAU DE L'ECOLE
+          </p>
+          <label className="grid gap-1 text-sm font-medium text-slate-700">
+            Phrase de confirmation
+            <input
+              value={schoolLevelConfirmation}
+              onChange={(event) => setSchoolLevelConfirmation(event.target.value)}
+              className="input"
+              placeholder="CHANGER LE NIVEAU DE L'ECOLE"
+            />
+          </label>
+          {schoolLevelConfirmation && schoolLevelConfirmation !== "CHANGER LE NIVEAU DE L'ECOLE" && (
+            <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+              Confirmation incorrecte. Saisissez exactement : CHANGER LE NIVEAU DE L'ECOLE
+            </p>
+          )}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <button onClick={closeSchoolLevelChangeDialog} className="secondary-button justify-center" type="button">
+              Annuler
+            </button>
+            <button
+              onClick={() => void confirmSchoolLevelChange()}
+              disabled={schoolLevelConfirmation !== "CHANGER LE NIVEAU DE L'ECOLE"}
+              className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50"
+              type="button"
+            >
+              Confirmer
             </button>
           </div>
         </AdminDrawer>
