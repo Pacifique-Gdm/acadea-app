@@ -4708,9 +4708,19 @@ function ControlModule({
   const [historyQuery, setHistoryQuery] = useState("");
   const [selectedHistoryStudentId, setSelectedHistoryStudentId] = useState("");
   const feeNameChoices = Array.from(new Set(yearData.feeTypes.map((fee) => fee.name)));
-  const amountFeeOptions = yearData.feeTypes.flatMap((fee) => [
-    { value: `fee:${fee.id}:gte`, label: `${fee.name} ≥` },
-    { value: `fee:${fee.id}:lt`, label: `${fee.name} <` },
+  const amountFeeGroups = Array.from(
+    yearData.feeTypes.reduce<Map<string, { key: string; name: string; ids: string[] }>>((items, fee) => {
+      const name = fee.name.trim();
+      const key = name.toLowerCase();
+      if (!key) return items;
+      const existing = items.get(key);
+      items.set(key, existing ? { ...existing, ids: [...existing.ids, fee.id] } : { key, name, ids: [fee.id] });
+      return items;
+    }, new Map()).values(),
+  );
+  const amountFeeOptions = amountFeeGroups.flatMap((fee) => [
+    { value: `fee:${fee.key}:gte`, label: `${fee.name} >=` },
+    { value: `fee:${fee.key}:lt`, label: `${fee.name} <` },
   ]);
   const [warningFeeName, setWarningFeeName] = useState(feeNameChoices[0] ?? "");
   const [warningRequiredAmount, setWarningRequiredAmount] = useState("");
@@ -4721,10 +4731,10 @@ function ControlModule({
   }, [feeNameChoices, warningFeeName]);
   useEffect(() => {
     const match = amountComparator.match(/^fee:(.+):(gte|lt)$/);
-    if (match && !yearData.feeTypes.some((fee) => fee.id === match[1])) {
+    if (match && !amountFeeGroups.some((fee) => fee.key === match[1])) {
       setAmountComparator("all");
     }
-  }, [amountComparator, yearData.feeTypes]);
+  }, [amountComparator, amountFeeGroups]);
   useEffect(() => {
     if (!cashierControlFeedback || !cashierControlFeedbackDrawer) return;
     const feedbackDrawer = cashierControlFeedbackDrawer;
@@ -4765,9 +4775,10 @@ function ControlModule({
     .filter((row) => {
       if (amountComparator === "all" || !amountThreshold) return true;
       const feeFilter = amountComparator.match(/^fee:(.+):(gte|lt)$/);
+      const feeGroup = feeFilter ? amountFeeGroups.find((fee) => fee.key === feeFilter[1]) : undefined;
       const paidAmount = feeFilter
         ? yearData.payments
-            .filter((payment) => payment.studentId === row.student.id && payment.feeTypeId === feeFilter[1])
+            .filter((payment) => payment.studentId === row.student.id && Boolean(feeGroup?.ids.includes(payment.feeTypeId)))
             .reduce((sum, payment) => sum + payment.amount, 0)
         : row.balance.paid;
       const isGreaterOrEqual = feeFilter ? feeFilter[2] === "gte" : amountComparator === ">=";
