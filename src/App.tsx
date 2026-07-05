@@ -4817,7 +4817,6 @@ function ControlModule({
     : 0;
   const selectedPaymentFeeRemaining = selectedPaymentFee ? Math.max(selectedPaymentFee.amount - selectedPaymentFeePaid, 0) : 0;
   const isPaymentEntryDisabled = !selectedPaymentFee || selectedPaymentFeeRemaining <= 0;
-  const isOtherExpenseCategory = expenseCategory === "Autre" || expenseCategory === "Autres";
   const selectedHistoryStudent = yearData.students.find((student) => student.id === selectedHistoryStudentId);
   const paymentStudentSearch = paymentStudentQuery.trim().toLowerCase();
   const paymentStudentResults = paymentStudentSearch
@@ -5007,8 +5006,8 @@ function ControlModule({
     setExpenseError("");
     if (isArchivedContext) return;
     if (!expenseAmount) return;
-    if (isOtherExpenseCategory && !expenseDescription.trim()) {
-      setExpenseError("Veuillez préciser la nature de cette dépense.");
+    if (!expenseDescription.trim()) {
+      setExpenseError("La description de la dépense est obligatoire.");
       return;
     }
     const expense: Expense = {
@@ -5017,7 +5016,7 @@ function ControlModule({
       schoolYearId: year.id,
       amount: Number(expenseAmount),
       category: expenseCategory,
-      description: isOtherExpenseCategory ? expenseDescription.trim() : expenseCategory,
+      description: expenseDescription.trim(),
       spentAt: new Date().toISOString().slice(0, 10),
       createdAt: new Date().toISOString(),
       cashierName: user.name,
@@ -5662,7 +5661,6 @@ function ControlModule({
                   const nextCategory = event.target.value;
                   setExpenseCategory(nextCategory);
                   setExpenseError("");
-                  if (nextCategory !== "Autre" && nextCategory !== "Autres") setExpenseDescription("");
                 }}
                 className="input"
               >
@@ -5673,20 +5671,18 @@ function ControlModule({
                 <option>Autre</option>
               </select>
               <input value={expenseAmount} onChange={(event) => setExpenseAmount(event.target.value)} type="number" min="0" className="input" placeholder="Montant" />
-              {isOtherExpenseCategory && (
-                <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
-                  Préciser la dépense
-                  <textarea
-                    value={expenseDescription}
-                    onChange={(event) => {
-                      setExpenseDescription(event.target.value);
-                      setExpenseError("");
-                    }}
-                    className="input min-h-24"
-                    placeholder="Ex. Réparation de la toiture"
-                  />
-                </label>
-              )}
+              <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+                Description
+                <textarea
+                  value={expenseDescription}
+                  onChange={(event) => {
+                    setExpenseDescription(event.target.value);
+                    setExpenseError("");
+                  }}
+                  className="input min-h-24"
+                  placeholder="Ex. Réparation de la toiture"
+                />
+              </label>
               {expenseError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{expenseError}</p>}
               <button onClick={saveExpense} className="primary-button justify-center" type="button"><Plus className="h-4 w-4" /> Enregistrer</button>
             </>
