@@ -5510,12 +5510,15 @@ function ControlModule({
             <button onClick={() => setExpenseHistoryOpen(true)} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm xl:w-auto xl:flex-none xl:basis-44 xl:text-xs" type="button">
               Historique de dépenses
             </button>
-            <button onClick={() => (user.role === "cashier" ? setCashierControlDrawer("warning") : setWarningOpen(true))} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm xl:w-auto xl:flex-none xl:basis-32 xl:text-xs" type="button">
+            <button onClick={() => (user.role === "cashier" ? setCashierControlDrawer("warning") : setWarningOpen(true))} className={`secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm xl:w-auto xl:flex-none xl:basis-32 xl:text-xs ${user.role === "cashier" ? "xl:hidden" : ""}`} type="button">
               Avertissement
             </button>
           </div>
           {canPay && user.role === "cashier" && (
             <div className="flex min-w-0 flex-wrap items-stretch gap-2 xl:basis-full">
+              <button onClick={() => setCashierControlDrawer("warning")} className="secondary-button hidden h-10 min-w-0 justify-center px-2 text-xs xl:flex xl:flex-none xl:basis-32" type="button">
+                Avertissement
+              </button>
               <button onClick={() => { setCashierControlFeedback(""); setCashierControlFeedbackDrawer(null); setCashierControlDrawer("payment"); }} className="primary-button min-w-0 flex-1 justify-center sm:flex-none sm:basis-56" type="button">
                 Enregistrer un paiement
               </button>
@@ -5680,7 +5683,7 @@ function ControlModule({
                     setExpenseError("");
                   }}
                   className="input min-h-24"
-                  placeholder="Ex. Réparation de la toiture"
+                  placeholder="Écrivez la description"
                 />
               </label>
               {expenseError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{expenseError}</p>}
