@@ -6293,15 +6293,20 @@ function MenuModule({
     );
     const feesToSave = selectedClasses
       .filter((target) => !existingFeeKeys.has(`${String(feeName).trim().toLowerCase()}|${target}`))
-      .map((target, index) => ({
-        id: editingFeeId && index === 0 ? editingFeeId : uid("fee"),
-        schoolId: school.id,
-        schoolYearId: selectedYear.id,
-        name: feeName,
-        className: feeTargetClassName(target),
-        classOptionKey: feeTargetHasOption(target) ? target : undefined,
-        amount,
-      }));
+      .map((target, index) => {
+        const fee: FeeType = {
+          id: editingFeeId && index === 0 ? editingFeeId : uid("fee"),
+          schoolId: school.id,
+          schoolYearId: selectedYear.id,
+          name: feeName,
+          className: feeTargetClassName(target),
+          amount,
+        };
+        if (feeTargetHasOption(target)) {
+          fee.classOptionKey = target;
+        }
+        return fee;
+      });
     if (feesToSave.length === 0) return;
     updateData({
       feeTypes: editingFeeId
