@@ -6079,6 +6079,7 @@ function MenuModule({
   const [editingFeeId, setEditingFeeId] = useState("");
   const [showNewFeeForm, setShowNewFeeForm] = useState(false);
   const [newFeeName, setNewFeeName] = useState("");
+  const [customFeeKindChoices, setCustomFeeKindChoices] = useState<FeeKind[]>([]);
   const [schoolOptionDraft, setSchoolOptionDraft] = useState("");
   const [feeDeleteTarget, setFeeDeleteTarget] = useState<FeeType | null>(null);
   const [feeDeleteConfirmation, setFeeDeleteConfirmation] = useState("");
@@ -6097,7 +6098,7 @@ function MenuModule({
     { id: "financial", title: "Rapport financier", description: "Synthèse et exports des rapports financiers.", icon: BarChart3 },
     { id: "history", title: "Historique", description: "Activités et messages enregistrés pour ce compte.", icon: Clock3 },
   ] satisfies { id: MenuSection; title: string; description: string; icon: typeof Settings }[];
-  const feeKindChoices = Array.from(new Set([...FEE_KINDS, ...yearData.feeTypes.map((fee) => fee.name)]));
+  const feeKindChoices = Array.from(new Set([...FEE_KINDS, ...yearData.feeTypes.map((fee) => fee.name), ...customFeeKindChoices]));
   const newFeeFormRef = useRef<HTMLDivElement>(null);
   const schoolFormEducationLevels = getSchoolEducationLevels(schoolForm).filter((level) => level !== "Mixte");
   const schoolFormOptions = schoolForm.schoolOptions ?? [];
@@ -6353,6 +6354,11 @@ function MenuModule({
   function addFeeKind() {
     const trimmed = newFeeName.trim();
     if (!trimmed) return;
+    setCustomFeeKindChoices((current) =>
+      [...FEE_KINDS, ...yearData.feeTypes.map((fee) => fee.name), ...current].some((kind) => kind.trim().toLowerCase() === trimmed.toLowerCase())
+        ? current
+        : [...current, trimmed],
+    );
     setFeeName(trimmed);
     setNewFeeName("");
     setShowNewFeeForm(false);
