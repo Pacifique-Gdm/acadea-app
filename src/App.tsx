@@ -6080,6 +6080,7 @@ function MenuModule({
   const [showNewFeeForm, setShowNewFeeForm] = useState(false);
   const [newFeeName, setNewFeeName] = useState("");
   const [customFeeKindChoices, setCustomFeeKindChoices] = useState<FeeKind[]>([]);
+  const [newFeeError, setNewFeeError] = useState("");
   const [schoolOptionDraft, setSchoolOptionDraft] = useState("");
   const [feeDeleteTarget, setFeeDeleteTarget] = useState<FeeType | null>(null);
   const [feeDeleteConfirmation, setFeeDeleteConfirmation] = useState("");
@@ -6098,7 +6099,8 @@ function MenuModule({
     { id: "financial", title: "Rapport financier", description: "Synthèse et exports des rapports financiers.", icon: BarChart3 },
     { id: "history", title: "Historique", description: "Activités et messages enregistrés pour ce compte.", icon: Clock3 },
   ] satisfies { id: MenuSection; title: string; description: string; icon: typeof Settings }[];
-  const feeKindChoices = Array.from(new Set([...FEE_KINDS, ...yearData.feeTypes.map((fee) => fee.name), ...customFeeKindChoices]));
+  const persistedCustomFeeKindChoices = selectedYear.customFeeKindChoices ?? [];
+  const feeKindChoices = Array.from(new Set([...FEE_KINDS, ...yearData.feeTypes.map((fee) => fee.name), ...persistedCustomFeeKindChoices, ...customFeeKindChoices]));
   const newFeeFormRef = useRef<HTMLDivElement>(null);
   const schoolFormEducationLevels = getSchoolEducationLevels(schoolForm).filter((level) => level !== "Mixte");
   const schoolFormOptions = schoolForm.schoolOptions ?? [];
@@ -6354,13 +6356,23 @@ function MenuModule({
   function addFeeKind() {
     const trimmed = newFeeName.trim();
     if (!trimmed) return;
-    setCustomFeeKindChoices((current) =>
-      [...FEE_KINDS, ...yearData.feeTypes.map((fee) => fee.name), ...current].some((kind) => kind.trim().toLowerCase() === trimmed.toLowerCase())
-        ? current
-        : [...current, trimmed],
-    );
+    const normalized = trimmed.toLowerCase();
+    const feeKindExists = [...FEE_KINDS, ...yearData.feeTypes.map((fee) => fee.name), ...persistedCustomFeeKindChoices, ...customFeeKindChoices]
+      .some((kind) => kind.trim().toLowerCase() === normalized);
+    if (feeKindExists) {
+      setNewFeeError("Ce type de frais existe déjà.");
+      return;
+    }
+    const nextCustomFeeKindChoices = [...persistedCustomFeeKindChoices, trimmed];
+    updateData({
+      schoolYears: data.schoolYears.map((year) =>
+        year.id === selectedYear.id ? { ...year, customFeeKindChoices: nextCustomFeeKindChoices } : year,
+      ),
+    });
+    setCustomFeeKindChoices((current) => [...current, trimmed]);
     setFeeName(trimmed);
     setNewFeeName("");
+    setNewFeeError("");
     setShowNewFeeForm(false);
   }
 
@@ -6609,8 +6621,17 @@ function MenuModule({
           {showNewFeeForm && (
             <div ref={newFeeFormRef} className="rounded border border-slate-100 bg-slate-50 p-3">
               <p className="mb-2 text-sm font-semibold text-ink">Nouveau frais</p>
+              {newFeeError && <p className="mb-2 rounded border border-red-200 bg-red-50 p-2 text-sm font-semibold text-red-700">{newFeeError}</p>}
               <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                <input value={newFeeName} onChange={(event) => setNewFeeName(event.target.value)} className="input" placeholder="Nom du frais" />
+                <input
+                  value={newFeeName}
+                  onChange={(event) => {
+                    setNewFeeName(event.target.value);
+                    setNewFeeError("");
+                  }}
+                  className="input"
+                  placeholder="Nom du frais"
+                />
                 <button onClick={addFeeKind} type="button" className="secondary-button justify-center">
                   <Plus className="h-4 w-4" /> Ajouter le frais
                 </button>

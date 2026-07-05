@@ -74,6 +74,7 @@ export interface SchoolYear {
   studentsImportedFromArchivedYear?: boolean;
   studentsImportedFromYearId?: string;
   studentsImportedAt?: string;
+  customFeeKindChoices?: FeeKind[];
 }
 
 export interface Student {
