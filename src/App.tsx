@@ -6602,7 +6602,7 @@ function MenuModule({
               </div>
             </fieldset>
             <input value={feeAmount} onChange={(event) => setFeeAmount(event.target.value)} type="number" className="input" />
-            <button onClick={saveFee} disabled={feeClassNames.length === 0} className="primary-button disabled:opacity-50" type="button"><Plus className="h-4 w-4" /> {editingFeeId ? "Enregistrer" : "Ajouter"}</button>
+            <button onClick={saveFee} disabled={feeClassNames.length === 0} className="primary-button w-full justify-center disabled:opacity-50 sm:w-auto" type="button"><Plus className="h-4 w-4" /> {editingFeeId ? "Enregistrer" : "Ajouter"}</button>
           </div>
           {editingFeeId && (
             <button
@@ -6632,7 +6632,7 @@ function MenuModule({
                   className="input"
                   placeholder="Nom du frais"
                 />
-                <button onClick={addFeeKind} type="button" className="secondary-button justify-center">
+                <button onClick={addFeeKind} type="button" className="primary-button w-full justify-center sm:w-auto">
                   <Plus className="h-4 w-4" /> Ajouter le frais
                 </button>
               </div>
