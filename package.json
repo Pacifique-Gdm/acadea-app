@@ -21,6 +21,9 @@
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },
+  "overrides": {
+    "jwks-rsa": "3.2.0"
+  },
   "devDependencies": {
     "@eslint/js": "^9.37.0",
     "@types/node": "^24.7.2",
