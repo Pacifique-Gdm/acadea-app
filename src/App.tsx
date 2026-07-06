@@ -1316,17 +1316,19 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
   const activeStudents = data.students.filter((student) => (student.status ?? "ACTIVE") === "ACTIVE");
   const filteredStudents = activeStudents.filter((student) => sectionFilter === "all" || getClassSection(student.className) === sectionFilter);
   const filteredStudentIds = new Set(filteredStudents.map((student) => student.id));
+  const filteredParentIds = new Set(filteredStudents.map((student) => student.parentId).filter(Boolean));
+  const filteredParents = data.parents.filter((parent) => filteredParentIds.has(parent.id) || parent.studentIds.some((studentId) => filteredStudentIds.has(studentId)));
   const inDateRange = (date: string) => {
     const normalized = date.slice(0, 10);
     return (!startDate || normalized >= startDate) && (!endDate || normalized <= endDate);
   };
   const filteredPayments = data.payments.filter((payment) => filteredStudentIds.has(payment.studentId) && inDateRange(payment.paidAt));
   const filteredExpenses = data.expenses.filter((expense) => sectionFilter === "all" && inDateRange(expense.spentAt));
-  const stats = buildStats(filteredStudents, data.parents, data.feeTypes, filteredPayments);
-  const annualFinancialStudents = activeStudents;
+  const stats = buildStats(filteredStudents, filteredParents, data.feeTypes, filteredPayments);
+  const annualFinancialStudents = filteredStudents;
   const annualFinancialStudentIds = new Set(annualFinancialStudents.map((student) => student.id));
   const annualFinancialPayments = data.payments.filter((payment) => annualFinancialStudentIds.has(payment.studentId));
-  const annualFinancialStats = buildStats(annualFinancialStudents, data.parents, data.feeTypes, annualFinancialPayments);
+  const annualFinancialStats = buildStats(annualFinancialStudents, filteredParents, data.feeTypes, annualFinancialPayments);
   const annualFinancialPaid = annualFinancialPayments.reduce((sum, payment) => sum + payment.amount, 0);
   const annualFinancialExpenses = data.expenses.reduce((sum, expense) => sum + expense.amount, 0);
   const annualFinancialRemaining = Math.max(annualFinancialStats.expected - annualFinancialPaid, 0);
@@ -1339,8 +1341,8 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
   const feeProgressRows = Array.from(
     data.feeTypes.reduce<Map<string, { name: string; expected: number; paid: number }>>((items, fee) => {
       const key = fee.name.trim().toLowerCase();
-      const applicableStudentIds = new Set(activeStudents.filter((student) => feeAppliesToStudent(fee, student)).map((student) => student.id));
-      const feePayments = data.payments.filter((payment) => payment.feeTypeId === fee.id && applicableStudentIds.has(payment.studentId));
+      const applicableStudentIds = new Set(filteredStudents.filter((student) => feeAppliesToStudent(fee, student)).map((student) => student.id));
+      const feePayments = data.payments.filter((payment) => payment.feeTypeId === fee.id && filteredStudentIds.has(payment.studentId) && applicableStudentIds.has(payment.studentId));
       const expected = new Set(feePayments.map((payment) => payment.studentId)).size * fee.amount;
       const paid = feePayments.reduce((sum, payment) => sum + payment.amount, 0);
       const current = items.get(key) ?? { name: fee.name, expected: 0, paid: 0 };
