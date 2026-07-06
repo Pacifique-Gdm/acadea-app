@@ -63,6 +63,11 @@ import { CLASSES, FEE_KINDS } from "./types";
 type Tab = "dashboard" | "students" | "parents" | "control" | "reports" | "messages" | "menu";
 type ParentTab = "children" | "messages" | "menu";
 
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+};
+
 const roleLabels: Record<AppUser["role"], string> = {
   super_admin: "Super Administrateur",
   school_admin: "Administrateur d'école",
@@ -208,6 +213,25 @@ function PlatformLogoSlot({ logoUrl, compact = false }: { logoUrl: string; compa
   );
 }
 
+function isStandaloneDisplayMode() {
+  if (typeof window === "undefined") return false;
+  const navigatorWithStandalone = window.navigator as Navigator & { standalone?: boolean };
+  return window.matchMedia?.("(display-mode: standalone)").matches || navigatorWithStandalone.standalone === true;
+}
+
+function InstallPwaNavButton({ onInstall }: { onInstall: () => void }) {
+  return (
+    <button
+      onClick={onInstall}
+      className="flex min-w-0 flex-col items-center justify-center gap-1 rounded-2xl px-0.5 py-2 text-[10px] font-semibold text-mint transition hover:bg-mint/10 hover:text-mint min-[360px]:text-[11px] sm:px-1 sm:text-xs"
+      type="button"
+    >
+      <span className="text-lg leading-none" aria-hidden="true">📲</span>
+      <span className="max-w-full truncate">Installer Acadéa</span>
+    </button>
+  );
+}
+
 export default function App() {
   const [data, setData] = useState<AppData>(() => loadInitialData());
   const [user, setUser] = useState<AppUser | null>(null);
@@ -220,9 +244,51 @@ export default function App() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const logoutInProgressRef = useRef(false);
   const [platformLogoUrl, setPlatformLogoUrl] = useState("");
+  const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [pwaInstalled, setPwaInstalled] = useState(() => isStandaloneDisplayMode());
 
   useEffect(() => {
     void applyPlatformLogoAssets();
+  }, []);
+
+  useEffect(() => {
+    function handleBeforeInstallPrompt(event: Event) {
+      event.preventDefault();
+      if (!isStandaloneDisplayMode()) {
+        setDeferredInstallPrompt(event as BeforeInstallPromptEvent);
+        setPwaInstalled(false);
+      }
+    }
+
+    function handleAppInstalled() {
+      setDeferredInstallPrompt(null);
+      setPwaInstalled(true);
+    }
+
+    const standaloneQuery = window.matchMedia?.("(display-mode: standalone)");
+    function handleStandaloneChange(event: MediaQueryListEvent) {
+      if (event.matches) {
+        setDeferredInstallPrompt(null);
+        setPwaInstalled(true);
+      } else {
+        setPwaInstalled(false);
+      }
+    }
+
+    if (isStandaloneDisplayMode()) {
+      setDeferredInstallPrompt(null);
+      setPwaInstalled(true);
+    }
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener("appinstalled", handleAppInstalled);
+    standaloneQuery?.addEventListener("change", handleStandaloneChange);
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", handleAppInstalled);
+      standaloneQuery?.removeEventListener("change", handleStandaloneChange);
+    };
   }, []);
 
   useEffect(() => {
@@ -413,6 +479,23 @@ export default function App() {
     }
   }
 
+  async function installPwa() {
+    if (!deferredInstallPrompt || pwaInstalled) return;
+
+    const promptEvent = deferredInstallPrompt;
+    try {
+      await promptEvent.prompt();
+      const choice = await promptEvent.userChoice;
+      if (choice.outcome === "accepted") {
+        setPwaInstalled(true);
+      }
+    } finally {
+      setDeferredInstallPrompt(null);
+    }
+  }
+
+  const showInstallPwaButton = Boolean(deferredInstallPrompt) && !pwaInstalled;
+
   if (!authReady) {
     return (
       <main className="grid min-h-screen place-items-center bg-[#F5F7FB] px-4 text-center">
@@ -433,7 +516,7 @@ export default function App() {
       return <AccessDenied onLogout={logout} />;
     }
 
-    return <PlatformModule user={user} data={data} updateData={updateData} platformLogoUrl={platformLogoUrl} onPlatformLogoSaved={setPlatformLogoUrl} onLogout={logout} />;
+    return <PlatformModule user={user} data={data} updateData={updateData} platformLogoUrl={platformLogoUrl} onPlatformLogoSaved={setPlatformLogoUrl} onLogout={logout} showInstallButton={showInstallPwaButton} onInstallPwa={installPwa} />;
   }
 
   if (dataLoading) {
@@ -489,7 +572,7 @@ export default function App() {
   }
 
   if (validateParent(user)) {
-    return <ParentPortal user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} onRefresh={refreshData} onLogout={logout} />;
+    return <ParentPortal user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} onRefresh={refreshData} onLogout={logout} showInstallButton={showInstallPwaButton} onInstallPwa={installPwa} />;
   }
 
   return (
@@ -573,6 +656,8 @@ export default function App() {
       <BottomNavigation
         user={user}
         activeTab={activeTab}
+        showInstallButton={showInstallPwaButton}
+        onInstallPwa={installPwa}
         onTab={(tab) => {
           setActiveTab(tab);
           navigate("/dashboard");
@@ -898,7 +983,19 @@ function Header({
   );
 }
 
-function BottomNavigation({ user, activeTab, onTab }: { user: AppUser; activeTab: Tab; onTab: (tab: Tab) => void }) {
+function BottomNavigation({
+  user,
+  activeTab,
+  showInstallButton,
+  onInstallPwa,
+  onTab,
+}: {
+  user: AppUser;
+  activeTab: Tab;
+  showInstallButton: boolean;
+  onInstallPwa: () => void;
+  onTab: (tab: Tab) => void;
+}) {
   const tabs = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { id: "students", label: "Élèves", icon: GraduationCap },
@@ -909,7 +1006,7 @@ function BottomNavigation({ user, activeTab, onTab }: { user: AppUser; activeTab
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 max-w-full overflow-hidden border-t border-slate-200 bg-white/95 px-1 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur sm:px-2">
-      <div className={user.role === "cashier" ? "mx-auto grid w-full max-w-md grid-cols-4 gap-1" : "mx-auto grid max-w-3xl grid-cols-5 gap-1"}>
+      <div className={user.role === "cashier" ? `mx-auto grid w-full max-w-lg ${showInstallButton ? "grid-cols-5" : "grid-cols-4"} gap-1` : `mx-auto grid max-w-4xl ${showInstallButton ? "grid-cols-6" : "grid-cols-5"} gap-1`}>
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;
@@ -927,6 +1024,7 @@ function BottomNavigation({ user, activeTab, onTab }: { user: AppUser; activeTab
             </button>
           );
         })}
+        {showInstallButton && <InstallPwaNavButton onInstall={onInstallPwa} />}
       </div>
     </nav>
   );
@@ -1608,6 +1706,8 @@ function PlatformModule({
   updateData,
   platformLogoUrl,
   onPlatformLogoSaved,
+  showInstallButton,
+  onInstallPwa,
   onLogout,
 }: {
   user: AppUser;
@@ -1615,6 +1715,8 @@ function PlatformModule({
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
   platformLogoUrl: string;
   onPlatformLogoSaved: (logoUrl: string) => void;
+  showInstallButton: boolean;
+  onInstallPwa: () => void;
   onLogout: () => void;
 }) {
   type PlatformView = "dashboard" | "students" | "menu";
@@ -2266,7 +2368,7 @@ function PlatformModule({
       </div>
 
       <nav className="fixed inset-x-0 bottom-0 z-40 max-w-full overflow-hidden border-t border-slate-200 bg-white/95 px-1 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur sm:px-2">
-        <div className="mx-auto grid w-full max-w-md grid-cols-3 gap-1">
+        <div className={`mx-auto grid w-full max-w-lg ${showInstallButton ? "grid-cols-4" : "grid-cols-3"} gap-1`}>
           {platformTabs.map((tab) => {
             const Icon = tab.icon;
             const active = platformView === tab.id;
@@ -2285,6 +2387,7 @@ function PlatformModule({
               </button>
             );
           })}
+          {showInstallButton && <InstallPwaNavButton onInstall={onInstallPwa} />}
         </div>
       </nav>
 
@@ -3265,6 +3368,8 @@ function ParentPortal({
   year,
   updateData,
   onRefresh,
+  showInstallButton,
+  onInstallPwa,
   onLogout,
 }: {
   user: AppUser;
@@ -3274,6 +3379,8 @@ function ParentPortal({
   year: SchoolYear;
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
   onRefresh: () => void;
+  showInstallButton: boolean;
+  onInstallPwa: () => void;
   onLogout: () => void;
 }) {
   const [activeParentTab, setActiveParentTab] = useState<ParentTab>("children");
@@ -3556,12 +3663,22 @@ function ParentPortal({
         </AdminDrawer>
       )}
 
-      <ParentBottomNavigation activeTab={activeParentTab} onTab={setActiveParentTab} />
+      <ParentBottomNavigation activeTab={activeParentTab} showInstallButton={showInstallButton} onInstallPwa={onInstallPwa} onTab={setActiveParentTab} />
     </div>
   );
 }
 
-function ParentBottomNavigation({ activeTab, onTab }: { activeTab: ParentTab; onTab: (tab: ParentTab) => void }) {
+function ParentBottomNavigation({
+  activeTab,
+  showInstallButton,
+  onInstallPwa,
+  onTab,
+}: {
+  activeTab: ParentTab;
+  showInstallButton: boolean;
+  onInstallPwa: () => void;
+  onTab: (tab: ParentTab) => void;
+}) {
   const tabs = [
     { id: "children", label: "Enfants", icon: GraduationCap },
     { id: "messages", label: "Message", icon: MessageSquare },
@@ -3570,7 +3687,7 @@ function ParentBottomNavigation({ activeTab, onTab }: { activeTab: ParentTab; on
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 max-w-full overflow-hidden border-t border-slate-200 bg-white/95 px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur">
-      <div className="mx-auto grid w-full max-w-sm grid-cols-3 gap-1">
+      <div className={`mx-auto grid w-full max-w-md ${showInstallButton ? "grid-cols-4" : "grid-cols-3"} gap-1`}>
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;
@@ -3588,6 +3705,7 @@ function ParentBottomNavigation({ activeTab, onTab }: { activeTab: ParentTab; on
             </button>
           );
         })}
+        {showInstallButton && <InstallPwaNavButton onInstall={onInstallPwa} />}
       </div>
     </nav>
   );
