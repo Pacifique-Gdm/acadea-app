@@ -923,6 +923,7 @@ function Header({
   updateData,
   onRefresh,
   onToggleNotifications,
+  onCloseNotifications,
 }: {
   user: AppUser;
   data: AppData;
@@ -934,6 +935,7 @@ function Header({
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
   onRefresh: () => void;
   onToggleNotifications: () => void;
+  onCloseNotifications?: () => void;
 }) {
   const schoolLogoUrl = school.logoUrl?.trim();
   const userDisplayName = user.name.trim();
@@ -975,7 +977,7 @@ function Header({
         </div>
       </div>
       {notificationsOpen && (
-        <AdminDrawer title="Boîte à Messagerie" onClose={onToggleNotifications} closeLabel="Fermer la boîte à messagerie" notificationPanel>
+        <AdminDrawer title="Boîte à Messagerie" onClose={onCloseNotifications ?? onToggleNotifications} closeLabel="Fermer la boîte à messagerie" notificationPanel>
           <MessageDrawerContent user={user} data={data} yearData={yearData} school={school} year={year} updateData={updateData} />
         </AdminDrawer>
       )}
@@ -3412,6 +3414,10 @@ function ParentPortal({
     setParentMessageDrawerOpen(true);
   }
 
+  function closeParentMessagesDrawer() {
+    setParentMessageDrawerOpen(false);
+  }
+
   function toggleParentMessagesDrawer() {
     if (parentMessageDrawerOpen) {
       setParentMessageDrawerOpen(false);
@@ -3488,6 +3494,7 @@ function ParentPortal({
         updateData={updateData}
         onRefresh={onRefresh}
         onToggleNotifications={toggleParentMessagesDrawer}
+        onCloseNotifications={closeParentMessagesDrawer}
       />
       <main className="mx-auto grid w-full max-w-7xl min-w-0 flex-1 gap-4 overflow-y-auto px-3 py-5 pb-28 sm:px-6 sm:pb-32 lg:px-8">
         {activeParentTab === "children" && (
