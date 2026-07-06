@@ -2889,7 +2889,14 @@ function MessageDrawerContent({
     return `${student.nom} ${student.prenom}${student.matricule ? ` (${student.matricule})` : ""}`;
   }
 
-  const conversationMap = yearData.messages.reduce<Record<string, Message[]>>((items, message) => {
+  function canShowMessageInConversation(message: Message) {
+    if (isParent || message.recipientParentId !== "school" || !message.schoolRecipient) return true;
+    if (user.role === "school_admin") return message.schoolRecipient === "admin" || message.schoolRecipient === "both";
+    if (user.role === "cashier") return message.schoolRecipient === "cashier" || message.schoolRecipient === "both";
+    return true;
+  }
+
+  const conversationMap = yearData.messages.filter(canShowMessageInConversation).reduce<Record<string, Message[]>>((items, message) => {
     const key = conversationKey(message);
     return { ...items, [key]: [...(items[key] ?? []), message] };
   }, {});
@@ -3454,6 +3461,7 @@ function ParentPortal({
       schoolYearId: year.id,
       senderId: user.id,
       recipientParentId: "school",
+      schoolRecipient: messageRecipient,
       threadParentId: user.parentId,
       threadId,
       subject: `${recipientLabel} - ${subject}`,

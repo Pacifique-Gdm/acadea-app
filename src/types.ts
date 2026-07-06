@@ -159,6 +159,7 @@ export interface Message {
   schoolYearId: string;
   senderId: string;
   recipientParentId: string | "all" | "school";
+  schoolRecipient?: "admin" | "cashier" | "both";
   threadParentId?: string;
   threadId?: string;
   subject: string;
