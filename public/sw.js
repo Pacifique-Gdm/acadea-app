@@ -1,4 +1,4 @@
-const CACHE_VERSION = "acadea-pwa-v3";
+const CACHE_VERSION = "acadea-pwa-v4";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const ASSET_CACHE = `${CACHE_VERSION}-assets`;
 const BRAND_CACHE = `${CACHE_VERSION}-brand`;
