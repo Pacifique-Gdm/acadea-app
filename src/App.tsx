@@ -6057,15 +6057,14 @@ function MessagesModule({
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const canSend = user.role !== "parent" && year.status !== "archived";
-  const recipientCandidates = yearData.parents.reduce<{ parent: ParentProfile; student?: Student }[]>((items, parent) => {
-      const children = yearData.students.filter((student) => student.parentId === parent.id);
-      if (children.length === 0) return [...items, { parent }];
-      return [...items, ...children.map((student) => ({ parent, student }))];
-    }, []);
-  const recipientResults = recipientCandidates.filter(({ parent, student }) => {
+  const recipientCandidates = yearData.parents.map((parent) => ({
+    parent,
+    children: yearData.students.filter((student) => student.parentId === parent.id || parent.studentIds.includes(student.id)),
+  }));
+  const recipientResults = recipientCandidates.filter(({ parent, children }) => {
       const search = recipientSearch.trim().toLowerCase();
       if (!search) return false;
-      const studentText = student ? `${student.nom} ${student.postnom} ${student.prenom} ${student.matricule}` : "";
+      const studentText = children.map((student) => `${student.nom} ${student.postnom} ${student.prenom} ${student.matricule}`).join(" ");
       return `${parent.fullName} ${studentText}`.toLowerCase().includes(search);
     });
   const hasRecipientSearch = recipientSearch.trim().length > 0;
@@ -6134,16 +6133,18 @@ function MessagesModule({
                 <p className="font-semibold text-ink">Tous les parents</p>
                 <p className="text-xs text-slate-500">Envoyer à tous les parents</p>
               </button>
-              {hasRecipientSearch && recipientResults.map(({ parent, student }) => (
+              {hasRecipientSearch && recipientResults.map(({ parent, children }) => (
                 <button
-                  key={`${parent.id}-${student?.id ?? "none"}`}
+                  key={parent.id}
                   onClick={() => setRecipientParentId(parent.id)}
                   type="button"
                   className={`w-full rounded border p-3 text-left text-sm transition ${recipientParentId === parent.id ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50 hover:border-slate-200"}`}
                 >
                   <p className="font-semibold text-ink">{parent.fullName}</p>
                   <p className="text-xs text-slate-500">
-                    {student ? `${student.nom} ${student.prenom} | ${student.matricule}` : "Aucun enfant associé"}
+                    {children.length
+                      ? children.map((student) => `${student.nom} ${student.prenom}${student.matricule ? ` | ${student.matricule}` : ""}`).join(" • ")
+                      : "Aucun enfant associé"}
                   </p>
                 </button>
               ))}
