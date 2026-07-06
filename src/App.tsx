@@ -5488,9 +5488,9 @@ function ControlModule({
     <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
       <div className="min-w-0">
         <SectionTitle title="Contrôle" subtitle="Frais scolaires, paiements, historique et soldes restants en dollar américain." />
-        <div className="mb-3 grid min-w-0 max-w-full gap-2 xl:flex xl:flex-nowrap xl:items-stretch xl:gap-1.5">
-          <div className="flex min-w-0 flex-nowrap items-stretch gap-1.5 xl:contents">
-            <select value={amountComparator} onChange={(event) => setAmountComparator(event.target.value)} className="h-10 min-w-0 flex-[1.1] rounded border border-slate-200 bg-white px-2 text-xs sm:text-sm xl:flex-none xl:basis-32">
+        <div className="mb-3 grid min-w-0 max-w-full gap-2 lg:flex lg:flex-wrap lg:items-stretch lg:gap-1.5">
+          <div className="flex min-w-0 flex-nowrap items-stretch gap-1.5 lg:contents">
+            <select value={amountComparator} onChange={(event) => setAmountComparator(event.target.value)} className="h-10 min-w-0 flex-[1.1] rounded border border-slate-200 bg-white px-2 text-xs sm:text-sm lg:flex-none lg:basis-32">
               <option value="all">Montant payé</option>
               {amountFeeOptions.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -5498,25 +5498,25 @@ function ControlModule({
                 </option>
               ))}
             </select>
-            <input value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)} type="number" className="h-10 min-w-0 flex-1 rounded border border-slate-200 bg-white px-2 text-xs sm:text-sm xl:flex-none xl:basis-24" placeholder="Filtre" />
-            <button onClick={printFilteredStudents} className="primary-button h-10 min-w-0 flex-1 justify-center px-2 text-xs sm:text-sm xl:flex-none xl:basis-28">
+            <input value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)} type="number" className="h-10 min-w-0 flex-1 rounded border border-slate-200 bg-white px-2 text-xs sm:text-sm lg:flex-none lg:basis-24" placeholder="Filtre" />
+            <button onClick={printFilteredStudents} className="primary-button h-10 min-w-0 flex-1 justify-center px-2 text-xs sm:text-sm lg:flex-none lg:basis-28">
               <Download className="h-4 w-4" /> Imprimer
             </button>
           </div>
-          <div className="grid min-w-0 gap-2 xl:contents">
-            <button onClick={() => (user.role === "cashier" ? setCashierControlDrawer("history") : setHistoryOpen(true))} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm xl:w-auto xl:flex-none xl:basis-44 xl:text-xs" type="button">
+          <div className="grid min-w-0 gap-2 lg:contents">
+            <button onClick={() => (user.role === "cashier" ? setCashierControlDrawer("history") : setHistoryOpen(true))} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:w-auto lg:flex-none lg:basis-44 lg:text-xs" type="button">
               Historique des paiements
             </button>
-            <button onClick={() => setExpenseHistoryOpen(true)} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm xl:w-auto xl:flex-none xl:basis-44 xl:text-xs" type="button">
+            <button onClick={() => setExpenseHistoryOpen(true)} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:w-auto lg:flex-none lg:basis-44 lg:text-xs" type="button">
               Historique de dépenses
             </button>
-            <button onClick={() => (user.role === "cashier" ? setCashierControlDrawer("warning") : setWarningOpen(true))} className={`secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm xl:w-auto xl:flex-none xl:basis-32 xl:text-xs ${user.role === "cashier" ? "xl:hidden" : ""}`} type="button">
+            <button onClick={() => (user.role === "cashier" ? setCashierControlDrawer("warning") : setWarningOpen(true))} className={`secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:w-auto lg:flex-none lg:basis-32 lg:text-xs ${user.role === "cashier" ? "lg:hidden" : ""}`} type="button">
               Avertissement
             </button>
           </div>
           {canPay && user.role === "cashier" && (
-            <div className="flex min-w-0 flex-wrap items-stretch gap-2 xl:basis-full">
-              <button onClick={() => setCashierControlDrawer("warning")} className="secondary-button hidden h-10 min-w-0 justify-center px-2 text-xs xl:flex xl:flex-none xl:basis-32" type="button">
+            <div className="flex min-w-0 flex-wrap items-stretch gap-2 lg:basis-full lg:flex-nowrap">
+              <button onClick={() => setCashierControlDrawer("warning")} className="secondary-button hidden h-10 min-w-0 justify-center px-2 text-xs lg:flex lg:flex-none lg:basis-32" type="button">
                 Avertissement
               </button>
               <button onClick={() => { setCashierControlFeedback(""); setCashierControlFeedbackDrawer(null); setCashierControlDrawer("payment"); }} className="primary-button min-w-0 flex-1 justify-center sm:flex-none sm:basis-56" type="button">
