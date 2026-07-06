@@ -6088,6 +6088,9 @@ function MenuModule({
   const [newYearForm, setNewYearForm] = useState(() => nextSchoolYearDefaults(selectedYear));
   const [newYearConfirmation, setNewYearConfirmation] = useState("");
   const [newYearError, setNewYearError] = useState("");
+  const [yearAction, setYearAction] = useState<{ type: "activate" | "archive"; yearId: string } | null>(null);
+  const [yearActionConfirmation, setYearActionConfirmation] = useState("");
+  const [yearActionError, setYearActionError] = useState("");
   const isArchivedContext = selectedYear.status === "archived";
   const canAdmin = user.role === "school_admin" && !isArchivedContext;
   const menuSections = [
@@ -6176,6 +6179,62 @@ function MenuModule({
 
   function archiveYear(yearId: string) {
     updateData({ schoolYears: data.schoolYears.map((year) => (year.id === yearId ? { ...year, status: "archived" } : year)) });
+  }
+
+  function openYearAction(type: "activate" | "archive", yearId: string) {
+    setYearActionConfirmation("");
+    setYearActionError("");
+
+    if (type === "archive") {
+      const targetYear = years.find((year) => year.id === yearId);
+      const activeYearsCount = years.filter((year) => year.status === "active").length;
+
+      if (years.length === 1) {
+        setYearActionError("Impossible d’archiver l’unique année scolaire de l’école.");
+        return;
+      }
+
+      if (targetYear?.status === "active" && activeYearsCount <= 1) {
+        setYearActionError("Impossible d’archiver la dernière année scolaire active.");
+        return;
+      }
+    }
+
+    setYearAction({ type, yearId });
+  }
+
+  function closeYearAction() {
+    setYearAction(null);
+    setYearActionConfirmation("");
+    setYearActionError("");
+  }
+
+  function confirmYearAction() {
+    if (!yearAction) return;
+
+    const expectedConfirmation = yearAction.type === "archive" ? "ARCHIVER ECOLE" : "ACTIVER ECOLE";
+    if (yearActionConfirmation !== expectedConfirmation) return;
+
+    if (yearAction.type === "archive") {
+      const targetYear = years.find((year) => year.id === yearAction.yearId);
+      const activeYearsCount = years.filter((year) => year.status === "active").length;
+
+      if (years.length === 1) {
+        setYearActionError("Impossible d’archiver l’unique année scolaire de l’école.");
+        return;
+      }
+
+      if (targetYear?.status === "active" && activeYearsCount <= 1) {
+        setYearActionError("Impossible d’archiver la dernière année scolaire active.");
+        return;
+      }
+
+      archiveYear(yearAction.yearId);
+    } else {
+      activateYear(yearAction.yearId);
+    }
+
+    closeYearAction();
   }
 
   function openNewYearForm() {
@@ -6488,6 +6547,7 @@ function MenuModule({
               </button>
             </div>
           )}
+          {yearActionError && !yearAction && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{yearActionError}</p>}
           {newYearOpen && canAdmin && (
             <div className="grid min-w-0 gap-3 rounded border border-amber-200 bg-amber-50 p-4">
               <div className="min-w-0">
@@ -6533,13 +6593,48 @@ function MenuModule({
                 </div>
                 {canAdmin && (
                   <div className="flex flex-wrap gap-2">
-                    <button onClick={() => activateYear(year.id)} className="rounded bg-mint px-3 py-2 text-xs font-semibold text-white" type="button">Activer</button>
-                    {year.status !== "archived" && <button onClick={() => archiveYear(year.id)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700" type="button">Archiver</button>}
+                    <button onClick={() => openYearAction("activate", year.id)} className="rounded bg-mint px-3 py-2 text-xs font-semibold text-white" type="button">Activer</button>
+                    {year.status !== "archived" && <button onClick={() => openYearAction("archive", year.id)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700" type="button">Archiver</button>}
                   </div>
                 )}
               </div>
             ))}
           </div>
+          {yearAction && (
+            <div className="grid min-w-0 gap-3 rounded border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="min-w-0">
+                <p className="font-bold text-ink">{yearAction.type === "archive" ? "Confirmer l'archivage" : "Confirmer l'activation"}</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  {yearAction.type === "archive"
+                    ? "Cette action archive l'année scolaire sélectionnée. Les données restent conservées et consultables."
+                    : "Cette action définit l'année scolaire sélectionnée comme année active de l'école."}
+                </p>
+              </div>
+              {yearActionError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{yearActionError}</p>}
+              <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+                Confirmation obligatoire
+                <input
+                  value={yearActionConfirmation}
+                  onChange={(event) => setYearActionConfirmation(event.target.value)}
+                  className="input"
+                  placeholder={yearAction.type === "archive" ? "ARCHIVER ECOLE" : "ACTIVER ECOLE"}
+                />
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={confirmYearAction}
+                  disabled={yearActionConfirmation !== (yearAction.type === "archive" ? "ARCHIVER ECOLE" : "ACTIVER ECOLE")}
+                  className="primary-button disabled:cursor-not-allowed disabled:opacity-50"
+                  type="button"
+                >
+                  <CheckCircle2 className="h-4 w-4" /> Confirmer
+                </button>
+                <button onClick={closeYearAction} type="button" className="secondary-button">
+                  Annuler
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       );
     }
