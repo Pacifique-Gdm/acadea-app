@@ -1,6 +1,11 @@
 ﻿import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { CSSProperties, ChangeEvent, ReactNode } from "react";
 import {
+  doc,
+  getDoc,
+  setDoc,
+} from "firebase/firestore";
+import {
   ArrowUpDown,
   ArrowLeft,
   Banknote,
@@ -36,6 +41,7 @@ import {
 } from "lucide-react";
 import { createFirebaseAuthUser, getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateParent, validatePlatformAdmin, validateSchoolStaff } from "./services/auth";
 import { canUseFirestoreData, loadFirestoreData, loadPlatformSettings, persistFirestorePatch, savePlatformSettings } from "./services/firestoreData";
+import { db } from "./firebase";
 import { manageSchool, provisionCashier, provisionParent, provisionSchoolAdmin } from "./services/provisioning";
 import { escapePdfHtml, generateReceiptPdf, money, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./utils/pdf";
 import type { PdfTableColumn } from "./utils/pdf";
@@ -3435,7 +3441,7 @@ function ParentPortal({
     openParentMessagesDrawer();
   }
 
-  function sendParentMessage(event: React.FormEvent<HTMLFormElement>) {
+  async function sendParentMessage(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMessageFeedback("");
     const subject = messageSubject.trim();
@@ -3465,11 +3471,13 @@ function ParentPortal({
       recipientParentId: "school",
       schoolRecipient: messageRecipient,
       threadParentId: user.parentId,
-      threadId,
       subject: `${recipientLabel} - ${subject}`,
       body,
       createdAt,
     };
+    if (threadId) {
+      message.threadId = threadId;
+    }
     const notification: AppNotification = {
       id: uid("notif"),
       schoolId: school.id,
@@ -3483,7 +3491,39 @@ function ParentPortal({
       read: false,
     };
 
-    updateData({ messages: [message, ...data.messages], notifications: [notification, ...data.notifications] });
+    if (canUseFirestoreData()) {
+      if (!db) {
+        setMessageFeedback("Message non envoyé. Veuillez réessayer.");
+        return;
+      }
+      try {
+        const messageRef = doc(db, "messages", message.id);
+        const notificationRef = doc(db, "notifications", notification.id);
+        await setDoc(messageRef, message);
+
+        const messageSnapshot = await getDoc(messageRef);
+        if (!messageSnapshot.exists()) {
+          throw new Error("Verification Firestore incomplete apres l'envoi du message.");
+        }
+
+        await setDoc(notificationRef, notification);
+        const notificationSnapshot = await getDoc(notificationRef);
+        if (!notificationSnapshot.exists()) {
+          throw new Error("Verification Firestore incomplete apres l'envoi du message.");
+        }
+
+        updateData(
+          { messages: [message, ...data.messages], notifications: [notification, ...data.notifications] },
+          { persist: false },
+        );
+      } catch (error) {
+        console.warn("Envoi du message parent impossible.", error);
+        setMessageFeedback("Message non envoyé. Veuillez réessayer.");
+        return;
+      }
+    } else {
+      updateData({ messages: [message, ...data.messages], notifications: [notification, ...data.notifications] });
+    }
     setMessageSubject("");
     setMessageBody("");
     setMessageRecipient("admin");
