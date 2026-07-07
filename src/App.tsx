@@ -5205,7 +5205,7 @@ function ControlModule({
             { label: "Catégorie", value: expense.category },
             { label: "Montant", value: formatMoney(expense.amount) },
             { label: "Bénéficiaire / fournisseur", value: beneficiary || "-" },
-            { label: "Utilisateur", value: expense.cashierName || "-" },
+            { label: "Caissier", value: expense.cashierName || "-" },
             { label: "Mode de paiement", value: paymentMethod || "-" },
             { label: "Référence / pièce", value: reference || "-" },
           ]),
