@@ -3994,7 +3994,7 @@ function StudentsModule({
       `Classe: ${classFilter || "Toutes les classes"}`,
       `Option: ${optionFilter || "Toutes les options"}`,
     ];
-    exportStudentsPdf(school, year, students, filters);
+    exportStudentsPdf(school, year, sortStudentsForPdfByClass(students), filters);
   }
 
   function printAgeHomogeneityPdf() {
@@ -5422,7 +5422,7 @@ function ControlModule({
           "Élèves filtrés",
           pdfTable(
             studentPaymentColumns,
-            rows,
+            [...rows].sort((first, second) => compareStudentsForPdfByClass(first.student, second.student)),
             "Aucun élève ne correspond aux filtres appliqués.",
           ),
         ),
@@ -7306,6 +7306,34 @@ function formatStudentClassName(student: Pick<Student, "className" | "option">) 
 
 function formatStudentPdfClassName(student: Pick<Student, "className" | "option">) {
   return student.className;
+}
+
+const studentPdfClassOrder: SchoolClass[] = [
+  "Maternelle 1",
+  "Maternelle 2",
+  "Maternelle 3",
+  "1ère Primaire",
+  "2ème Primaire",
+  "3ème Primaire",
+  "4ème Primaire",
+  "5ème Primaire",
+  "6ème Primaire",
+  "1ère Humanité",
+  "2ème Humanité",
+  "3ème Humanité",
+  "4ème Humanité",
+];
+
+function compareStudentsForPdfByClass(first: Pick<Student, "className">, second: Pick<Student, "className">) {
+  const firstIndex = studentPdfClassOrder.indexOf(first.className);
+  const secondIndex = studentPdfClassOrder.indexOf(second.className);
+  const firstOrder = firstIndex === -1 ? Number.MAX_SAFE_INTEGER : firstIndex;
+  const secondOrder = secondIndex === -1 ? Number.MAX_SAFE_INTEGER : secondIndex;
+  return firstOrder - secondOrder;
+}
+
+function sortStudentsForPdfByClass<T extends Pick<Student, "className">>(students: T[]) {
+  return [...students].sort(compareStudentsForPdfByClass);
 }
 
 function studentImportKey(student: Student) {
