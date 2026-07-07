@@ -7305,11 +7305,7 @@ function formatStudentClassName(student: Pick<Student, "className" | "option">) 
 }
 
 function formatStudentPdfClassName(student: Pick<Student, "className" | "option">) {
-  if (getClassSection(student.className) !== "secondaire") return student.className;
-  const option = student.option?.trim();
-  if (!option) return student.className;
-  const classLabel = student.className.replace(/\s+Humanit[ée]s?$/i, "").trim();
-  return `${classLabel || student.className} ${option}`;
+  return student.className;
 }
 
 function studentImportKey(student: Student) {
