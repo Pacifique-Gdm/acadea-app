@@ -318,6 +318,7 @@ export default function App() {
   const selectedYear = schoolYears.find((year) => year.id === selectedYearId);
 
   const navigate = useCallback((nextRoute: string) => {
+    setNotificationsOpen(false);
     window.history.pushState({}, "", nextRoute);
     setRoute(nextRoute);
   }, []);
@@ -576,6 +577,10 @@ export default function App() {
     if (!notificationsOpen) markNotificationsRead();
   }
 
+  function closeNotifications() {
+    setNotificationsOpen(false);
+  }
+
   if (validateParent(user)) {
     return <ParentPortal user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} onRefresh={refreshData} onLogout={logout} showInstallButton={showInstallPwaButton} onInstallPwa={installPwa} />;
   }
@@ -593,6 +598,7 @@ export default function App() {
         notificationsOpen={notificationsOpen}
         onRefresh={() => window.location.reload()}
         onToggleNotifications={openNotifications}
+        onCloseNotifications={closeNotifications}
       />
 
       <main className="mx-auto w-full max-w-7xl min-w-0 flex-1 overflow-y-auto px-3 py-5 pb-28 sm:px-6 sm:pb-32 lg:px-8">
@@ -663,6 +669,7 @@ export default function App() {
         showInstallButton={showInstallPwaButton}
         onInstallPwa={installPwa}
         onTab={(tab) => {
+          closeNotifications();
           setActiveTab(tab);
           navigate("/dashboard");
         }}
@@ -3572,7 +3579,15 @@ function ParentPortal({
         </AdminDrawer>
       )}
 
-      <ParentBottomNavigation activeTab={activeParentTab} showInstallButton={showInstallButton} onInstallPwa={onInstallPwa} onTab={setActiveParentTab} />
+      <ParentBottomNavigation
+        activeTab={activeParentTab}
+        showInstallButton={showInstallButton}
+        onInstallPwa={onInstallPwa}
+        onTab={(tab) => {
+          closeParentMessagesDrawer();
+          setActiveParentTab(tab);
+        }}
+      />
     </div>
   );
 }
