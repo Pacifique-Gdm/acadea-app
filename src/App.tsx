@@ -4938,6 +4938,7 @@ function ControlModule({
   const canPay = user.role === "cashier" && !isArchivedContext;
   const canCorrectPayments = user.role === "school_admin" && !isArchivedContext;
   const canManageExpenses = user.role === "school_admin" && !isArchivedContext;
+  const canShowExpenseActions = user.role !== "cashier" && canManageExpenses;
   const selectedPaymentStudent = yearData.students.find((student) => student.id === studentId);
   const selectedPaymentBalance = selectedPaymentStudent
     ? getStudentBalance(selectedPaymentStudent.id, yearData.feeTypes, yearData.payments, yearData.students)
@@ -5169,6 +5170,7 @@ function ControlModule({
   }
 
   function openEditExpense(expense: Expense) {
+    if (!canManageExpenses) return;
     setExpenseEditTarget(expense);
     setExpenseEditAmount(String(expense.amount));
     setExpenseEditCategory(expense.category || "Fournitures");
@@ -5527,10 +5529,10 @@ function ControlModule({
                   <button onClick={() => generateExpensePdf(expense)} className="rounded bg-slate-100 p-2" title="Télécharger le justificatif PDF" type="button">
                     <Download className="h-4 w-4" />
                   </button>
-                  {canManageExpenses && <button onClick={() => openEditExpense(expense)} className="rounded bg-slate-100 p-2" title="Modifier" type="button">
+                  {canShowExpenseActions && <button onClick={() => openEditExpense(expense)} className="rounded bg-slate-100 p-2" title="Modifier" type="button">
                     <Edit3 className="h-4 w-4" />
                   </button>}
-                  {canManageExpenses && <button onClick={() => setExpenseDeleteTarget(expense)} className="rounded bg-red-50 p-2 text-red-700" title="Supprimer" type="button">
+                  {canShowExpenseActions && <button onClick={() => setExpenseDeleteTarget(expense)} className="rounded bg-red-50 p-2 text-red-700" title="Supprimer" type="button">
                     <Trash2 className="h-4 w-4" />
                   </button>}
                 </div>
