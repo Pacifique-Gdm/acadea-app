@@ -148,6 +148,9 @@ export interface Expense {
   amount: number;
   category: string;
   description: string;
+  beneficiary?: string;
+  paymentMethod?: string;
+  reference?: string;
   spentAt: string;
   createdAt: string;
   cashierName: string;

@@ -4878,6 +4878,9 @@ function ControlModule({
   const [expenseAmount, setExpenseAmount] = useState("");
   const [expenseCategory, setExpenseCategory] = useState("Fournitures");
   const [expenseDescription, setExpenseDescription] = useState("");
+  const [expenseBeneficiary, setExpenseBeneficiary] = useState("");
+  const [expensePaymentMethod, setExpensePaymentMethod] = useState("");
+  const [expenseReference, setExpenseReference] = useState("");
   const [expenseError, setExpenseError] = useState("");
   const [amountComparator, setAmountComparator] = useState("all");
   const [amountThreshold, setAmountThreshold] = useState("");
@@ -5140,18 +5143,42 @@ function ControlModule({
     setCashierControlFeedbackDrawer(null);
     setExpenseError("");
     if (isArchivedContext) return;
-    if (!expenseAmount) return;
-    if (!expenseDescription.trim()) {
+    const trimmedCategory = expenseCategory.trim();
+    const trimmedDescription = expenseDescription.trim();
+    const trimmedBeneficiary = expenseBeneficiary.trim();
+    const trimmedPaymentMethod = expensePaymentMethod.trim();
+    const trimmedReference = expenseReference.trim();
+    const nextAmount = Number(expenseAmount);
+    if (!trimmedCategory) {
+      setExpenseError("Le type de dépense est obligatoire.");
+      return;
+    }
+    if (!expenseAmount.trim() || !Number.isFinite(nextAmount) || nextAmount <= 0) {
+      setExpenseError("Le montant de la dépense est obligatoire.");
+      return;
+    }
+    if (!trimmedDescription) {
       setExpenseError("La description de la dépense est obligatoire.");
+      return;
+    }
+    if (!trimmedBeneficiary) {
+      setExpenseError("Le bénéficiaire ou fournisseur est obligatoire.");
+      return;
+    }
+    if (!trimmedPaymentMethod) {
+      setExpenseError("Le mode de paiement est obligatoire.");
       return;
     }
     const expense: Expense = {
       id: uid("expense"),
       schoolId: school.id,
       schoolYearId: year.id,
-      amount: Number(expenseAmount),
-      category: expenseCategory,
-      description: expenseDescription.trim(),
+      amount: nextAmount,
+      category: trimmedCategory,
+      description: trimmedDescription,
+      beneficiary: trimmedBeneficiary,
+      paymentMethod: trimmedPaymentMethod,
+      reference: trimmedReference,
       spentAt: new Date().toISOString().slice(0, 10),
       createdAt: new Date().toISOString(),
       cashierName: user.name,
@@ -5162,6 +5189,9 @@ function ControlModule({
     });
     setExpenseAmount("");
     setExpenseDescription("");
+    setExpenseBeneficiary("");
+    setExpensePaymentMethod("");
+    setExpenseReference("");
     if (user.role === "cashier") {
       setCashierControlFeedback("Dépense enregistrée avec succès.");
       setCashierControlFeedbackDrawer("expense");
@@ -5824,6 +5854,33 @@ function ControlModule({
                   placeholder="Écrivez la description"
                 />
               </label>
+              <input
+                value={expenseBeneficiary}
+                onChange={(event) => {
+                  setExpenseBeneficiary(event.target.value);
+                  setExpenseError("");
+                }}
+                className="input"
+                placeholder="Bénéficiaire / fournisseur"
+              />
+              <input
+                value={expensePaymentMethod}
+                onChange={(event) => {
+                  setExpensePaymentMethod(event.target.value);
+                  setExpenseError("");
+                }}
+                className="input"
+                placeholder="Mode de paiement"
+              />
+              <input
+                value={expenseReference}
+                onChange={(event) => {
+                  setExpenseReference(event.target.value);
+                  setExpenseError("");
+                }}
+                className="input"
+                placeholder="Référence / pièce (facultatif)"
+              />
               {expenseError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{expenseError}</p>}
               <button onClick={saveExpense} className="primary-button justify-center" type="button"><Plus className="h-4 w-4" /> Enregistrer</button>
             </>
