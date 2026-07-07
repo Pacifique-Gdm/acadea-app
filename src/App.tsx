@@ -5403,7 +5403,7 @@ function ControlModule({
     const studentPaymentColumns: PdfTableColumn<(typeof rows)[number]>[] = [
       { header: "Nom de l'élève", render: ({ student }) => `${student.nom} ${student.postnom} ${student.prenom}`.trim() },
       { header: "Matricule", render: ({ student }) => student.matricule },
-      { header: "Classe", render: ({ student }) => formatStudentClassName(student) },
+      { header: "Classe", render: ({ student }) => formatStudentPdfClassName(student) },
       { header: "Montant prévu", render: ({ balance }) => formatMoney(balance.expected), align: "right" },
       { header: "Montant payé", render: ({ balance }) => formatMoney(balance.paid), align: "right" },
       { header: "Solde restant", render: ({ balance }) => formatMoney(balance.remaining), align: "right" },
@@ -7304,6 +7304,14 @@ function formatStudentClassName(student: Pick<Student, "className" | "option">) 
   return `${classLabel || student.className} ${option}`;
 }
 
+function formatStudentPdfClassName(student: Pick<Student, "className" | "option">) {
+  if (getClassSection(student.className) !== "secondaire") return student.className;
+  const option = student.option?.trim();
+  if (!option) return student.className;
+  const classLabel = student.className.replace(/\s+Humanit[ée]s?$/i, "").trim();
+  return `${classLabel || student.className} ${option}`;
+}
+
 function studentImportKey(student: Student) {
   const identity = [student.nom, student.postnom, student.prenom, student.birthDate].map((value) => value.trim().toLowerCase()).join("|");
   return student.matricule?.trim().toLowerCase() || identity;
@@ -7373,7 +7381,7 @@ async function exportStudentsPdf(school: School, year: SchoolYear, students: Stu
     { header: "Matricule", render: (student) => student.matricule || "-" },
     { header: "Nom complet", render: (student) => `${student.nom} ${student.postnom} ${student.prenom}`.trim() || "-" },
     { header: "Sexe", render: (student) => student.sexe || "-", align: "center" },
-    { header: "Classe", render: (student) => formatStudentClassName(student) || "-" },
+    { header: "Classe", render: (student) => formatStudentPdfClassName(student) || "-" },
     { header: "Téléphone", render: (student) => student.phone || "-" },
   ];
   if (showOptionColumn) {
