@@ -2929,7 +2929,7 @@ function MessageDrawerContent({
   }
 
   function feedItemClassName(item: FeedItem) {
-    if (item.parentRelated) return "border-slate-700 bg-slate-800";
+    if (item.senderType === "parent") return "border-slate-700 bg-slate-800";
     if (item.tone === "warning") return "border-red-200 bg-red-50";
     if (item.tone === "payment") return "border-emerald-200 bg-emerald-50";
     return item.unread ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50";
@@ -2972,7 +2972,7 @@ function MessageDrawerContent({
                       </p>
                     </div>
                   ) : item.sender ? (
-                    <p className={`break-words font-semibold ${item.parentRelated ? "text-white" : "text-ink"}`}>
+                    <p className="break-words font-semibold text-ink">
                       {item.senderRole && item.senderRole !== "École" ? `${item.senderRole} : ${item.sender}` : item.sender}
                     </p>
                   ) : null}
@@ -2986,9 +2986,9 @@ function MessageDrawerContent({
                   </span>
                 </div>
               </div>
-              <p className={`mt-3 break-words text-sm font-semibold ${item.parentRelated ? "text-white" : "text-slate-700"}`}>{item.title || "Sans titre"}</p>
-              <p className={`mt-1 whitespace-pre-wrap break-words text-sm leading-6 ${item.parentRelated ? "text-slate-100" : "text-slate-600"}`}>{item.preview}</p>
-              <p className={`mt-2 text-xs ${item.parentRelated ? "text-slate-300" : "text-slate-500"}`}>{new Date(item.createdAt).toLocaleString("fr-FR")}</p>
+              <p className={`mt-3 break-words text-sm font-semibold ${item.senderType === "parent" ? "text-white" : "text-slate-700"}`}>{item.title || "Sans titre"}</p>
+              <p className={`mt-1 whitespace-pre-wrap break-words text-sm leading-6 ${item.senderType === "parent" ? "text-slate-100" : "text-slate-600"}`}>{item.preview}</p>
+              <p className={`mt-2 text-xs ${item.senderType === "parent" ? "text-slate-300" : "text-slate-500"}`}>{new Date(item.createdAt).toLocaleString("fr-FR")}</p>
             </article>
           ))}
         </div>
