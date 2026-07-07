@@ -2857,9 +2857,15 @@ function MessageDrawerContent({
   }
 
   function canShowMessageInConversation(message: Message) {
-    if (isParent || message.recipientParentId !== "school" || !message.schoolRecipient) return true;
-    if (user.role === "school_admin") return message.schoolRecipient === "admin" || message.schoolRecipient === "both";
-    if (user.role === "cashier") return message.schoolRecipient === "cashier" || message.schoolRecipient === "both";
+    if (isParent) return true;
+    if (message.schoolRecipient) {
+      if (user.role === "school_admin") return message.schoolRecipient === "admin" || message.schoolRecipient === "both";
+      if (user.role === "cashier") return message.schoolRecipient === "cashier" || message.schoolRecipient === "both";
+      return true;
+    }
+    const sender = data.users.find((item) => item.id === message.senderId) ?? yearData.users.find((item) => item.id === message.senderId);
+    if (sender?.role === "school_admin") return user.role === "school_admin";
+    if (sender?.role === "cashier") return user.role === "cashier";
     return true;
   }
 
@@ -5988,6 +5994,7 @@ function MessagesModule({
       return;
     }
     const createdAt = new Date().toISOString();
+    const schoolRecipient = user.role === "school_admin" ? "admin" : user.role === "cashier" ? "cashier" : undefined;
     const messages: Message[] = recipientParents.map((parent) => {
       const threadId = nextMessageThreadId(yearData.messages, user.id, parent.id, parent.id);
       const message: Message = {
@@ -6001,6 +6008,9 @@ function MessagesModule({
         body,
         createdAt,
       };
+      if (schoolRecipient) {
+        message.schoolRecipient = schoolRecipient;
+      }
       if (threadId) {
         message.threadId = threadId;
       }
