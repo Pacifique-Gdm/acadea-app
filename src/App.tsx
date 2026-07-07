@@ -30,7 +30,6 @@ import {
   Plus,
   RefreshCw,
   Search,
-  Send,
   Settings,
   ShieldCheck,
   Trash2,
@@ -592,7 +591,6 @@ export default function App() {
         year={selectedYear}
         unreadNotifications={unreadNotifications}
         notificationsOpen={notificationsOpen}
-        updateData={updateData}
         onRefresh={() => window.location.reload()}
         onToggleNotifications={openNotifications}
       />
@@ -926,7 +924,6 @@ function Header({
   year,
   unreadNotifications,
   notificationsOpen,
-  updateData,
   onRefresh,
   onToggleNotifications,
   onCloseNotifications,
@@ -938,7 +935,6 @@ function Header({
   year: SchoolYear;
   unreadNotifications: number;
   notificationsOpen: boolean;
-  updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
   onRefresh: () => void;
   onToggleNotifications: () => void;
   onCloseNotifications?: () => void;
@@ -984,7 +980,7 @@ function Header({
       </div>
       {notificationsOpen && (
         <AdminDrawer title="Boîte à Messagerie" onClose={onCloseNotifications ?? onToggleNotifications} closeLabel="Fermer la boîte à messagerie" notificationPanel>
-          <MessageDrawerContent user={user} data={data} yearData={yearData} school={school} year={year} updateData={updateData} />
+          <MessageDrawerContent user={user} data={data} yearData={yearData} school={school} />
         </AdminDrawer>
       )}
     </header>
@@ -2802,15 +2798,11 @@ function MessageDrawerContent({
   data,
   yearData,
   school,
-  year,
-  updateData,
 }: {
   user: AppUser;
   data: AppData;
   yearData: ReturnType<typeof scopeData>;
   school: School;
-  year: SchoolYear;
-  updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
 }) {
   type Conversation = {
     id: string;
@@ -2820,16 +2812,10 @@ function MessageDrawerContent({
     subtitle: string;
     messages: Message[];
     lastMessage: Message;
-    replyLimitReached?: boolean;
+    unread?: boolean;
   };
 
-  const [selectedConversationId, setSelectedConversationId] = useState("");
-  const [highlightedConversationId, setHighlightedConversationId] = useState("");
-  const [replyBody, setReplyBody] = useState("");
-  const conversationListRef = useRef<HTMLDivElement>(null);
-  const conversationListScrollTopRef = useRef(0);
   const isParent = user.role === "parent";
-  const parent = isParent ? yearData.parents.find((item) => item.id === user.parentId) : undefined;
 
   function messageTimestamp(value?: string) {
     if (!value) return 0;
@@ -2837,11 +2823,7 @@ function MessageDrawerContent({
     return Number.isFinite(timestamp) ? timestamp : 0;
   }
 
-  const systemNotifications = isParent
-    ? yearData.notifications
-        .filter((notification) => notification.type !== "message")
-        .sort((a, b) => messageTimestamp(b.createdAt) - messageTimestamp(a.createdAt))
-    : [];
+  const notifications = [...yearData.notifications].sort((a, b) => messageTimestamp(b.createdAt) - messageTimestamp(a.createdAt));
 
   function getParentForMessage(message: Message) {
     const senderParentId = data.users.find((item) => item.id === message.senderId)?.parentId;
@@ -2904,235 +2886,78 @@ function MessageDrawerContent({
     return true;
   }
 
-  const conversationMap = yearData.messages.filter(canShowMessageInConversation).reduce<Record<string, Message[]>>((items, message) => {
+  const receivedMessages = yearData.messages.filter((message) => canShowMessageInConversation(message) && message.senderId !== user.id);
+  const conversationMap = receivedMessages.reduce<Record<string, Message[]>>((items, message) => {
     const key = conversationKey(message);
     return { ...items, [key]: [...(items[key] ?? []), message] };
   }, {});
 
   const conversations: Conversation[] = Object.entries(conversationMap)
-    .flatMap(([id, messages]) => {
-      if (isParent) {
-        const newestMessages = [...messages].sort((a, b) => messageTimestamp(b.createdAt) - messageTimestamp(a.createdAt));
-        const meta = conversationMeta(id, newestMessages);
-        return newestMessages.reduce<Conversation[]>((items, _message, index) => {
-          if (index % 2 !== 0) return items;
-          const chunk = newestMessages.slice(index, index + 2);
-          if (!chunk.length) return items;
-          const conversationParent = getParentForMessage(chunk[0]);
-          return [
-            ...items,
-            {
-              id: index === 0 ? id : `${id}:box-${index / 2}`,
-              parentId: conversationParent?.id,
-              threadId: chunk[0]?.threadId,
-              ...meta,
-              messages: chunk,
-              lastMessage: chunk[0],
-              replyLimitReached: chunk.length >= 2,
-            },
-          ];
-        }, []);
-      }
+    .map(([id, messages]) => {
       const sortedMessages = [...messages].sort((a, b) => messageTimestamp(a.createdAt) - messageTimestamp(b.createdAt));
       const lastMessage = sortedMessages[sortedMessages.length - 1];
       const meta = conversationMeta(id, sortedMessages);
       const conversationParent = getParentForMessage(sortedMessages[0]);
-      return [{ id, parentId: conversationParent?.id, threadId: sortedMessages[0]?.threadId, ...meta, messages: sortedMessages, lastMessage }];
+      const unread = notifications.some((notification) => notification.messageId === lastMessage.id && !notification.read);
+      return { id, parentId: conversationParent?.id, threadId: sortedMessages[0]?.threadId, ...meta, messages: sortedMessages, lastMessage, unread };
     })
     .sort((a, b) => messageTimestamp(b.lastMessage.createdAt) - messageTimestamp(a.lastMessage.createdAt));
-  const selectedConversation = conversations.find((conversation) => conversation.id === selectedConversationId);
-
-  function openConversation(conversationId: string) {
-    conversationListScrollTopRef.current = conversationListRef.current?.scrollTop ?? conversationListScrollTopRef.current;
-    setSelectedConversationId(conversationId);
-    setHighlightedConversationId(conversationId);
-    setReplyBody("");
-  }
-
-  function closeConversation() {
-    conversationListScrollTopRef.current = conversationListRef.current?.scrollTop ?? conversationListScrollTopRef.current;
-    setSelectedConversationId("");
-    setReplyBody("");
-    requestAnimationFrame(() => {
-      if (conversationListRef.current) {
-        conversationListRef.current.scrollTop = conversationListScrollTopRef.current;
-      }
-    });
-  }
-
-  function sendConversationReply() {
-    const content = replyBody.trim();
-    if (!content || !selectedConversation) return;
-    const lastSubject = selectedConversation.lastMessage.subject || "Message";
-    if (isParent) {
-      if (!user.parentId) return;
-      const nextThreadId = nextMessageThreadId(yearData.messages, user.id, "school", user.parentId, selectedConversation.threadId);
-      const message: Message = {
-        id: uid("msg"),
-        schoolId: school.id,
-        schoolYearId: year.id,
-        senderId: user.id,
-        recipientParentId: "school",
-        threadParentId: user.parentId,
-        threadId: nextThreadId,
-        subject: lastSubject,
-        body: content,
-        createdAt: new Date().toISOString(),
-      };
-      const notification: AppNotification = {
-        id: uid("notif"),
-        schoolId: school.id,
-        schoolYearId: year.id,
-        recipientRole: "school",
-        messageId: message.id,
-        type: "message",
-        title: "Nouveau message parent",
-        body: `${parent?.fullName ?? user.name}: ${lastSubject}`,
-        createdAt: message.createdAt,
-        read: false,
-      };
-      updateData({ messages: [message, ...data.messages], notifications: [notification, ...data.notifications] });
-      if (nextThreadId && nextThreadId !== selectedConversation.threadId) setSelectedConversationId(`school:${nextThreadId}`);
-    } else {
-      const recipientParentId = selectedConversation.id.startsWith("all:") ? "all" : selectedConversation.parentId ?? "all";
-      const threadParentId = recipientParentId !== "all" ? recipientParentId : undefined;
-      const nextThreadId = nextMessageThreadId(yearData.messages, user.id, recipientParentId, threadParentId, selectedConversation.threadId);
-      const message: Message = {
-        id: uid("msg"),
-        schoolId: school.id,
-        schoolYearId: year.id,
-        senderId: user.id,
-        recipientParentId,
-        threadParentId,
-        threadId: nextThreadId,
-        subject: lastSubject,
-        body: content,
-        createdAt: new Date().toISOString(),
-      };
-      const recipientParents = recipientParentId === "all" ? yearData.parents : yearData.parents.filter((parent) => parent.id === recipientParentId);
-      const notifications: AppNotification[] = recipientParents.map((parent) => ({
-        id: uid("notif"),
-        schoolId: school.id,
-        schoolYearId: year.id,
-        recipientRole: "parent",
-        parentId: parent.id,
-        messageId: message.id,
-        type: "message",
-        title: lastSubject,
-        body: content,
-        createdAt: message.createdAt,
-        read: false,
-      }));
-      updateData({ messages: [message, ...data.messages], notifications: [...notifications, ...data.notifications] });
-      if (nextThreadId && nextThreadId !== selectedConversation.threadId) setSelectedConversationId(`${recipientParentId}:${nextThreadId}`);
-    }
-    setReplyBody("");
-  }
 
   return (
-    <div className={`grid min-h-0 min-w-0 gap-4 ${selectedConversation ? "lg:grid-cols-[260px_minmax(0,1fr)]" : ""}`}>
-      <section className={`min-w-0 rounded border border-slate-200 bg-white p-3 shadow-sm ${selectedConversation ? "hidden lg:block" : ""}`}>
-        {systemNotifications.length > 0 && (
-          <div className="mb-4 rounded border border-amber-200 bg-amber-50 p-3">
-            <h3 className="mb-2 text-sm font-bold text-ink">Notifications</h3>
-            <div className="max-h-56 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
-              {systemNotifications.map((notification) => (
-                <article key={notification.id} className="rounded bg-white p-3 text-sm">
-                  <p className="break-words font-semibold text-ink">{notification.title}</p>
-                  <p className="mt-1 break-words leading-6 text-slate-700">{notification.body}</p>
-                  <p className="mt-2 text-xs text-slate-500">{new Date(notification.createdAt).toLocaleString("fr-FR")}</p>
-                </article>
-              ))}
-            </div>
-          </div>
-        )}
-        <h3 className="mb-3 text-sm font-bold text-ink">Conversations</h3>
-        <div ref={conversationListRef} className="max-h-80 space-y-2 overflow-y-auto pr-1 scrollbar-thin lg:max-h-[calc(100vh-18rem)]">
+    <div className="grid min-h-0 min-w-0 gap-4 lg:grid-cols-2">
+      <section className="min-w-0 rounded border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h3 className="text-sm font-bold text-ink">Conversations</h3>
+          <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-500">{conversations.length}</span>
+        </div>
+        <div className="max-h-[62vh] space-y-2 overflow-y-auto pr-1 scrollbar-thin">
           {conversations.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucune conversation.</p>}
           {conversations.map((conversation) => {
             const lastSender = senderDetails(conversation.lastMessage);
             return (
-              <button
+              <article
                 key={conversation.id}
-                onClick={() => openConversation(conversation.id)}
-                className={`w-full rounded border p-3 text-left text-sm transition ${
-                  (selectedConversationId || highlightedConversationId) === conversation.id ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50 hover:border-slate-200"
-                }`}
-                type="button"
+                className={`rounded border p-3 text-sm ${conversation.unread ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50"}`}
               >
-                <p className="break-words font-semibold text-ink">{conversation.title}</p>
-                <p className="mt-1 break-words text-xs text-slate-500">{conversation.subtitle}</p>
-                {lastSender.type === "school" && (
-                  <div className="mt-2 rounded bg-white/70 p-2 text-xs">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
                     <p className="break-words font-semibold text-ink">{lastSender.name}</p>
-                    <p className="mt-1 break-words text-[11px] font-medium text-slate-500">{lastSender.role}</p>
+                    <p className="mt-1 break-words text-xs text-slate-500">{conversation.title} · {conversation.subtitle}</p>
                   </div>
-                )}
-                <p className="mt-2 truncate text-xs text-slate-400">{conversation.lastMessage.body}</p>
-              </button>
+                  <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold ${conversation.unread ? "bg-blue-600 text-white" : "bg-white text-slate-500"}`}>
+                    {conversation.unread ? "Non lu" : "Lu"}
+                  </span>
+                </div>
+                <p className="mt-3 break-words text-sm font-semibold text-slate-700">{conversation.lastMessage.subject || "Message"}</p>
+                <p className="mt-1 line-clamp-2 break-words text-sm leading-6 text-slate-600">{conversation.lastMessage.body}</p>
+                <p className="mt-2 text-xs text-slate-400">{new Date(conversation.lastMessage.createdAt).toLocaleString("fr-FR")}</p>
+              </article>
             );
           })}
         </div>
       </section>
 
-      {selectedConversation && (
-        <section className="grid min-h-0 min-w-0 gap-3 rounded border border-slate-200 bg-white p-3 shadow-sm">
-            <div className="flex min-w-0 items-start gap-3 border-b border-slate-100 pb-3">
-              <button onClick={closeConversation} className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 hover:text-ink" type="button" aria-label="Retour aux conversations" title="Retour">
-                <ArrowLeft className="h-4 w-4" />
-              </button>
-              <div className="min-w-0">
-                <h3 className="break-words text-base font-bold text-ink">{selectedConversation.title}</h3>
-                <p className="break-words text-xs text-slate-500">{selectedConversation.subtitle}</p>
+      <section className="min-w-0 rounded border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h3 className="text-sm font-bold text-ink">Notifications</h3>
+          <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-500">{notifications.length}</span>
+        </div>
+        <div className="max-h-[62vh] space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+          {notifications.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucune notification.</p>}
+          {notifications.map((notification) => (
+            <article key={notification.id} className={`rounded border p-3 text-sm ${notification.read ? "border-slate-100 bg-slate-50" : "border-amber-200 bg-amber-50"}`}>
+              <div className="flex items-start justify-between gap-3">
+                <p className="min-w-0 break-words font-semibold text-ink">{notification.title}</p>
+                <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold ${notification.read ? "bg-white text-slate-500" : "bg-amber-500 text-white"}`}>
+                  {notification.read ? "Lu" : "Non lu"}
+                </span>
               </div>
-            </div>
-            <div className="max-h-[52vh] min-h-56 space-y-3 overflow-y-auto pr-1 scrollbar-thin">
-              {selectedConversation.messages.map((message) => {
-                const mine = message.senderId === user.id;
-                const details = senderDetails(message);
-                return (
-                  <article key={message.id} className={`max-w-[92%] rounded border p-3 text-sm ${mine ? "ml-auto border-blue-100 bg-blue-50" : "border-slate-100 bg-slate-50"}`}>
-                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="break-words text-xs font-bold text-ink">{mine ? "Vous" : details.name}</p>
-                        {details.type === "parent" ? (
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            {details.children.length ? (
-                              details.children.map((student) => (
-                                <span key={student.id} className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-blue-700">
-                                  {childDisplayName(student)}
-                                </span>
-                              ))
-                            ) : (
-                              <span className="text-[11px] text-slate-500">Parent</span>
-                            )}
-                          </div>
-                        ) : (
-                          <p className="mt-1 break-words text-[11px] font-medium text-slate-500">{details.role}</p>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-slate-400">{new Date(message.createdAt).toLocaleString("fr-FR")}</p>
-                    </div>
-                    <p className="break-words font-semibold text-slate-700">{message.subject}</p>
-                    <p className="mt-2 break-words leading-6 text-slate-700">{message.body}</p>
-                  </article>
-                );
-              })}
-            </div>
-            {selectedConversation.replyLimitReached ? (
-              <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">
-                Pour poursuivre cette conversation, veuillez utiliser l'onglet « Messages ».
-              </p>
-            ) : (
-              <div className="grid gap-2 border-t border-slate-100 pt-3">
-                <textarea value={replyBody} onChange={(event) => setReplyBody(event.target.value)} className="input min-h-24" placeholder="Répondre à cette conversation" />
-                <button onClick={sendConversationReply} disabled={!replyBody.trim()} className="primary-button justify-center disabled:opacity-50" type="button">
-                  <Send className="h-4 w-4" /> Répondre
-                </button>
-              </div>
-            )}
-        </section>
-      )}
+              <p className="mt-2 break-words leading-6 text-slate-700">{notification.body}</p>
+              <p className="mt-2 text-xs text-slate-500">{new Date(notification.createdAt).toLocaleString("fr-FR")}</p>
+            </article>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }
@@ -3541,7 +3366,6 @@ function ParentPortal({
         year={year}
         unreadNotifications={unread}
         notificationsOpen={parentMessageDrawerOpen}
-        updateData={updateData}
         onRefresh={onRefresh}
         onToggleNotifications={toggleParentMessagesDrawer}
         onCloseNotifications={closeParentMessagesDrawer}
