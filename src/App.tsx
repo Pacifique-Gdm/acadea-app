@@ -5965,6 +5965,7 @@ function MessagesModule({
   const [recipientSearch, setRecipientSearch] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  const [messageFeedback, setMessageFeedback] = useState("");
   const canSend = user.role !== "parent" && year.status !== "archived";
   const recipientCandidates = yearData.parents.map((parent) => ({
     parent,
@@ -5979,29 +5980,38 @@ function MessagesModule({
   const hasRecipientSearch = recipientSearch.trim().length > 0;
   const selectedParent = yearData.parents.find((parent) => parent.id === recipientParentId);
 
-  function sendMessage() {
-    const threadParentId = recipientParentId !== "all" ? recipientParentId : undefined;
-    const createdAt = new Date().toISOString();
-    const threadId = nextMessageThreadId(yearData.messages, user.id, recipientParentId, threadParentId);
-    const message: Message = {
-      id: uid("msg"),
-      schoolId: school.id,
-      schoolYearId: year.id,
-      senderId: user.id,
-      recipientParentId,
-      threadParentId,
-      threadId,
-      subject,
-      body,
-      createdAt,
-    };
+  async function sendMessage() {
+    setMessageFeedback("");
     const recipientParents = recipientParentId === "all" ? yearData.parents : yearData.parents.filter((parent) => parent.id === recipientParentId);
-    const notifications: AppNotification[] = recipientParents.map((parent) => ({
+    if (recipientParents.length === 0) {
+      setMessageFeedback("Message non envoyé. Aucun parent destinataire n'a été trouvé.");
+      return;
+    }
+    const createdAt = new Date().toISOString();
+    const messages: Message[] = recipientParents.map((parent) => {
+      const threadId = nextMessageThreadId(yearData.messages, user.id, parent.id, parent.id);
+      const message: Message = {
+        id: uid("msg"),
+        schoolId: school.id,
+        schoolYearId: year.id,
+        senderId: user.id,
+        recipientParentId: parent.id,
+        threadParentId: parent.id,
+        subject,
+        body,
+        createdAt,
+      };
+      if (threadId) {
+        message.threadId = threadId;
+      }
+      return message;
+    });
+    const notifications: AppNotification[] = messages.map((message) => ({
       id: uid("notif"),
       schoolId: school.id,
       schoolYearId: year.id,
       recipientRole: "parent",
-      parentId: parent.id,
+      parentId: message.threadParentId,
       messageId: message.id,
       type: "message",
       title: "Nouveau message de l'école",
@@ -6009,9 +6019,39 @@ function MessagesModule({
       createdAt,
       read: false,
     }));
-    updateData({ messages: [message, ...data.messages], notifications: [...notifications, ...data.notifications] });
+    if (canUseFirestoreData()) {
+      if (!db) {
+        setMessageFeedback("Message non envoyé. Veuillez réessayer.");
+        return;
+      }
+      try {
+        for (const message of messages) {
+          const messageRef = doc(db, "messages", message.id);
+          await setDoc(messageRef, message);
+          const messageSnapshot = await getDoc(messageRef);
+          if (!messageSnapshot.exists()) {
+            throw new Error("Verification Firestore incomplete apres l'envoi du message.");
+          }
+          const notification = notifications.find((item) => item.messageId === message.id);
+          if (notification) {
+            await setDoc(doc(db, "notifications", notification.id), notification);
+          }
+        }
+        updateData(
+          { messages: [...messages, ...data.messages], notifications: [...notifications, ...data.notifications] },
+          { persist: false },
+        );
+      } catch (error) {
+        console.warn("Envoi du message impossible.", error);
+        setMessageFeedback("Message non envoyé. Veuillez réessayer.");
+        return;
+      }
+    } else {
+      updateData({ messages: [...messages, ...data.messages], notifications: [...notifications, ...data.notifications] });
+    }
     setSubject("");
     setBody("");
+    setMessageFeedback("Message envoyé avec succès.");
   }
 
   function clearSelectedRecipient() {
@@ -6075,6 +6115,15 @@ function MessagesModule({
           </div>
           <input value={subject} onChange={(event) => setSubject(event.target.value)} className="input" placeholder="Objet" />
           <textarea value={body} onChange={(event) => setBody(event.target.value)} className="input min-h-32" placeholder="Message" />
+          {messageFeedback && (
+            <p
+              className={`rounded px-3 py-2 text-sm font-semibold ${
+                messageFeedback === "Message envoyé avec succès." ? "bg-mint/10 text-mint" : "border border-red-200 bg-red-50 text-red-700"
+              }`}
+            >
+              {messageFeedback}
+            </p>
+          )}
           <button onClick={sendMessage} disabled={!subject || !body} className="primary-button disabled:opacity-50">
             <MessageSquare className="h-4 w-4" /> Envoyer
           </button>
