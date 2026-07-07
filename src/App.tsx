@@ -2825,6 +2825,7 @@ function MessageDrawerContent({
     unread?: boolean;
     direction: "sent" | "received";
     tone?: "warning" | "payment";
+    notificationSenderLabel?: string;
   };
 
   const isParent = user.role === "parent";
@@ -2908,17 +2909,21 @@ function MessageDrawerContent({
   });
   const notificationItems: FeedItem[] = notifications
     .filter((notification) => notification.type !== "message")
-    .map((notification) => ({
-      id: `notification-${notification.id}`,
-      kind: "notification",
-      sender: "",
-      title: notification.title,
-      preview: notification.body,
-      createdAt: notification.createdAt,
-      unread: !notification.read,
-      direction: "received" as const,
-      tone: messageTextTone(notification.title, notification.body),
-    }));
+    .map((notification) => {
+      const tone = messageTextTone(notification.title, notification.body);
+      return {
+        id: `notification-${notification.id}`,
+        kind: "notification",
+        sender: "",
+        title: notification.title,
+        preview: notification.body,
+        createdAt: notification.createdAt,
+        unread: !notification.read,
+        direction: "received" as const,
+        tone,
+        notificationSenderLabel: tone === "warning" ? warningNotificationSenderLabel(notification) : undefined,
+      };
+    });
   const feedItems = [...messageItems, ...notificationItems].sort((a, b) => messageTimestamp(b.createdAt) - messageTimestamp(a.createdAt));
 
   function messageTextTone(title?: string, preview?: string): FeedItem["tone"] {
@@ -2933,6 +2938,29 @@ function MessageDrawerContent({
     if (item.tone === "warning") return "border-red-200 bg-red-50";
     if (item.tone === "payment") return "border-emerald-200 bg-emerald-50";
     return item.unread ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50";
+  }
+
+  function warningNotificationSenderLabel(notification: AppNotification) {
+    const notificationTime = messageTimestamp(notification.createdAt);
+    const matchingWarningLog = yearData.auditLogs
+      .filter((log) => log.action === "Avertissement paiement")
+      .map((log) => ({ log, delta: Math.abs(messageTimestamp(log.createdAt) - notificationTime) }))
+      .filter((item) => item.delta <= 15000)
+      .sort((a, b) => a.delta - b.delta)[0]?.log;
+    if (!matchingWarningLog) return undefined;
+
+    const actor = data.users.find((item) => item.id === matchingWarningLog.actorId) ?? yearData.users.find((item) => item.id === matchingWarningLog.actorId);
+    let roleLabel = actor?.role === "cashier" ? "Caissier" : actor?.role === "school_admin" ? "Administrateur" : "";
+    if (!roleLabel) {
+      try {
+        const details = JSON.parse(matchingWarningLog.details ?? "{}") as { actorRole?: string };
+        roleLabel = details.actorRole ?? "";
+      } catch {
+        roleLabel = "";
+      }
+    }
+    if (!roleLabel || !matchingWarningLog.actorName) return undefined;
+    return `${roleLabel} : ${matchingWarningLog.actorName}`;
   }
 
   function cleanMessageSubject(subject?: string) {
@@ -2987,6 +3015,7 @@ function MessageDrawerContent({
                 </div>
               </div>
               <p className={`mt-3 break-words text-sm font-semibold ${item.senderType === "parent" ? "text-white" : "text-slate-700"}`}>{item.title || "Sans titre"}</p>
+              {item.notificationSenderLabel && <p className="mt-1 break-words text-sm font-semibold text-slate-700">{item.notificationSenderLabel}</p>}
               <p className={`mt-1 whitespace-pre-wrap break-words text-sm leading-6 ${item.senderType === "parent" ? "text-slate-100" : "text-slate-600"}`}>{item.preview}</p>
               <p className={`mt-2 text-xs ${item.senderType === "parent" ? "text-slate-300" : "text-slate-500"}`}>{new Date(item.createdAt).toLocaleString("fr-FR")}</p>
             </article>
