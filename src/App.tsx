@@ -2889,7 +2889,7 @@ function MessageDrawerContent({
     .map((notification) => ({
       id: `notification-${notification.id}`,
       kind: "notification",
-      sender: "Système",
+      sender: "",
       title: notification.title,
       preview: notification.body,
       createdAt: notification.createdAt,
@@ -2925,7 +2925,7 @@ function MessageDrawerContent({
             <article key={item.id} className={`rounded border p-3 text-sm ${feedItemClassName(item)}`}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="break-words font-semibold text-ink">{item.sender}</p>
+                  {item.sender && <p className="break-words font-semibold text-ink">{item.sender}</p>}
                 </div>
                 <div className="flex shrink-0 flex-wrap justify-end gap-1">
                   <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${item.direction === "sent" ? "bg-ink text-white" : "bg-white text-slate-600"}`}>
@@ -2937,7 +2937,7 @@ function MessageDrawerContent({
                 </div>
               </div>
               <p className="mt-3 break-words text-sm font-semibold text-slate-700">{item.title || "Sans titre"}</p>
-              <p className="mt-1 line-clamp-2 break-words text-sm leading-6 text-slate-600">{item.preview}</p>
+              <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-slate-600">{item.preview}</p>
               <p className="mt-2 text-xs text-slate-500">{new Date(item.createdAt).toLocaleString("fr-FR")}</p>
             </article>
           ))}
