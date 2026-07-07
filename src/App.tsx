@@ -4937,7 +4937,7 @@ function ControlModule({
   const isArchivedContext = year.status === "archived";
   const canPay = user.role === "cashier" && !isArchivedContext;
   const canCorrectPayments = user.role === "school_admin" && !isArchivedContext;
-  const canManageExpenses = (user.role === "school_admin" || user.role === "cashier") && !isArchivedContext;
+  const canManageExpenses = user.role === "school_admin" && !isArchivedContext;
   const selectedPaymentStudent = yearData.students.find((student) => student.id === studentId);
   const selectedPaymentBalance = selectedPaymentStudent
     ? getStudentBalance(selectedPaymentStudent.id, yearData.feeTypes, yearData.payments, yearData.students)
@@ -5349,6 +5349,7 @@ function ControlModule({
   }
 
   function correctPayment(payment: Payment) {
+    if (!canCorrectPayments) return;
     const nextAmount = prompt("Nouveau montant du paiement", String(payment.amount));
     if (!nextAmount) return;
     const correctedAmount = Number(nextAmount);
@@ -5383,6 +5384,7 @@ function ControlModule({
   }
 
   function deletePayment(payment: Payment) {
+    if (!canCorrectPayments) return;
     const reason = prompt("Motif obligatoire de suppression du paiement");
     if (!reason) return;
     updateData({
@@ -5525,12 +5527,12 @@ function ControlModule({
                   <button onClick={() => generateExpensePdf(expense)} className="rounded bg-slate-100 p-2" title="Télécharger le justificatif PDF" type="button">
                     <Download className="h-4 w-4" />
                   </button>
-                  <button onClick={() => openEditExpense(expense)} disabled={!canManageExpenses} className="rounded bg-slate-100 p-2 disabled:cursor-not-allowed disabled:opacity-50" title="Modifier" type="button">
+                  {canManageExpenses && <button onClick={() => openEditExpense(expense)} className="rounded bg-slate-100 p-2" title="Modifier" type="button">
                     <Edit3 className="h-4 w-4" />
-                  </button>
-                  <button onClick={() => setExpenseDeleteTarget(expense)} disabled={!canManageExpenses} className="rounded bg-red-50 p-2 text-red-700 disabled:cursor-not-allowed disabled:opacity-50" title="Supprimer" type="button">
+                  </button>}
+                  {canManageExpenses && <button onClick={() => setExpenseDeleteTarget(expense)} className="rounded bg-red-50 p-2 text-red-700" title="Supprimer" type="button">
                     <Trash2 className="h-4 w-4" />
-                  </button>
+                  </button>}
                 </div>
               </div>
               <dl className="mt-3 grid min-w-0 gap-2 text-xs text-slate-500 sm:grid-cols-2">
