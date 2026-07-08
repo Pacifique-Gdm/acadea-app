@@ -7400,9 +7400,9 @@ function nearestCreationLog(auditLogs: AuditLog[], action: string, createdAt: st
 }
 
 function resolvePaymentCashierName(payment: Payment, auditLogs: AuditLog[]) {
-  const receiptKey = payment.receiptNumber ?? payment.id;
+  const paymentKeys = [payment.receiptNumber, payment.id].filter(Boolean);
   const matchingLog = nearestCreationLog(auditLogs, "Création paiement", payment.createdAt ?? payment.paidAt, (details) =>
-    Boolean(receiptKey && details.includes(receiptKey)) || details.includes(`$${payment.amount}`),
+    paymentKeys.some((key) => details.includes(String(key))),
   );
   return matchingLog?.actorName || payment.cashierName || "-";
 }
