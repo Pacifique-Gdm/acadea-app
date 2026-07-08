@@ -3729,6 +3729,33 @@ function StudentsModule({
     const className = studentClassChoices[0] ?? CLASSES[0];
     return { ...emptyStudent(school.id, year.id), className, section: getClassSection(className) };
   };
+  const parentEmailDomain = () => {
+    const cleanedName = school.name
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/^(c\.?\s*s\.?|ecole|institut|complexe\s+scolaire|groupe\s+scolaire|college|lycee)\s+/i, "")
+      .replace(/[^a-zA-Z0-9]/g, "")
+      .toLowerCase();
+    return `${cleanedName || "acadea"}.com`;
+  };
+  const parentEmailExists = (email: string) => {
+    const normalizedEmail = email.trim().toLowerCase();
+    return [...data.users, ...data.parents].some((item) => item.email.toLowerCase() === normalizedEmail);
+  };
+  const nextParentEmail = () => {
+    const domain = parentEmailDomain();
+    const usedNumbers = new Set<number>();
+    [...data.users, ...data.parents].forEach((item) => {
+      if (item.schoolId !== school.id) return;
+      const match = item.email.toLowerCase().match(new RegExp(`^parent(\\d{4})@${domain.replace(/\./g, "\\.")}$`));
+      if (match) usedNumbers.add(Number(match[1]));
+    });
+    let nextNumber = 1;
+    while (usedNumbers.has(nextNumber) || parentEmailExists(`parent${String(nextNumber).padStart(4, "0")}@${domain}`)) {
+      nextNumber += 1;
+    }
+    return `parent${String(nextNumber).padStart(4, "0")}@${domain}`;
+  };
   const archivedYearsForImport = data.schoolYears.filter((item) => item.schoolId === school.id && item.status === "archived");
   const selectedImportYear = archivedYearsForImport.find((item) => item.id === importSourceYearId);
   const selectedImportStudents = importSourceYearId
@@ -3824,6 +3851,7 @@ function StudentsModule({
 
   function openAddStudentForm() {
     setForm(emptyCurrentStudent());
+    setQuickParent({ fullName: "", phone: "", email: nextParentEmail(), password: "" });
     setSaveError("");
     setSaveMessage("");
     setShowForm(true);
@@ -3924,11 +3952,7 @@ function StudentsModule({
     setSaveError("");
     if (!quickParent.fullName || !quickParent.phone || !quickParent.email) return;
     const parentId = uid("parent");
-    const existingUser = data.users.find((item) => item.email.toLowerCase() === quickParent.email.toLowerCase());
-    if (existingUser) {
-      setSaveError("Un compte existe deja avec cet email.");
-      return;
-    }
+    const resolvedEmail = parentEmailExists(quickParent.email) ? nextParentEmail() : quickParent.email.trim();
     let userId: string | undefined;
     if (!userId) {
       if (!quickParent.password) {
@@ -3941,7 +3965,7 @@ function StudentsModule({
           schoolYearId: year.id,
           parentId,
           name: quickParent.fullName,
-          email: quickParent.email,
+          email: resolvedEmail,
           password: quickParent.password,
           phone: quickParent.phone,
           address: "",
@@ -3961,7 +3985,7 @@ function StudentsModule({
       userId,
       fullName: quickParent.fullName,
       phone: quickParent.phone,
-      email: quickParent.email,
+      email: resolvedEmail,
       address: "",
       studentIds: [form.id],
       status: "active",
@@ -7147,7 +7171,15 @@ function StudentForm({
         <p className="mb-2 text-sm font-semibold text-ink">Créer un parent sans quitter la fiche</p>
         <div className="grid gap-2">
           <input value={quickParent.fullName} onChange={(event) => setQuickParent({ ...quickParent, fullName: event.target.value })} className="input" placeholder="Nom complet" />
-          <input value={quickParent.phone} onChange={(event) => setQuickParent({ ...quickParent, phone: event.target.value })} className="input" placeholder="Téléphone" />
+          <input
+            value={quickParent.phone}
+            onChange={(event) => {
+              const phone = event.target.value;
+              setQuickParent({ ...quickParent, phone, password: !quickParent.password || quickParent.password === quickParent.phone ? phone : quickParent.password });
+            }}
+            className="input"
+            placeholder="Téléphone"
+          />
           <input value={quickParent.email} onChange={(event) => setQuickParent({ ...quickParent, email: event.target.value })} className="input" placeholder="Email" />
           <PasswordField
             label="Mot de passe temporaire"
