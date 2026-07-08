@@ -3489,7 +3489,7 @@ function ParentPortal({
                                     <span className="break-words text-slate-500"> | {fee?.name ?? "Frais"} | {payment.paidAt}</span>
                                   </div>
                                   <button
-                                    onClick={() => fee && generateReceiptPdf(payment, student, fee, school)}
+                                    onClick={() => fee && generateReceiptPdf(payment, student, fee, school, resolvePaymentCashierName(payment, yearData.auditLogs))}
                                     disabled={!fee}
                                     className="inline-flex w-full items-center justify-center gap-2 rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
                                     title="Télécharger le reçu PDF"
@@ -4533,7 +4533,7 @@ function StudentDetailPage({
                 <div key={payment.id} className="min-w-0 rounded border border-slate-100 p-3 text-sm">
                   <div className="flex items-center justify-between gap-2">
                     <p className="font-semibold text-ink">{fee?.name ?? "Frais"}</p>
-                    <button onClick={() => fee && generateReceiptPdf(payment, student, fee, school)} className="rounded bg-slate-100 p-2" title="Voir le reçu PDF">
+                    <button onClick={() => fee && generateReceiptPdf(payment, student, fee, school, resolvePaymentCashierName(payment, yearData.auditLogs))} className="rounded bg-slate-100 p-2" title="Voir le reçu PDF">
                       <Download className="h-4 w-4" />
                     </button>
                   </div>
@@ -5205,7 +5205,7 @@ function ControlModule({
             { label: "Catégorie", value: expense.category },
             { label: "Montant", value: formatMoney(expense.amount) },
             { label: "Bénéficiaire / fournisseur", value: beneficiary || "-" },
-            { label: "Caissier", value: expense.cashierName || "-" },
+            { label: "Caissier", value: resolveExpenseCashierName(expense, yearData.auditLogs) },
             { label: "Mode de paiement", value: paymentMethod || "-" },
             { label: "Référence / pièce", value: reference || "-" },
           ]),
@@ -5840,7 +5840,7 @@ function ControlModule({
                     <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <p className="min-w-0 break-words font-semibold text-ink">{student.nom} {student.prenom}</p>
                         <div className="flex shrink-0 flex-wrap gap-1">
-                          <button onClick={() => generateReceiptPdf(payment, student, fee, school)} className="rounded bg-slate-100 p-2" title="Voir le reçu PDF" type="button">
+                          <button onClick={() => generateReceiptPdf(payment, student, fee, school, resolvePaymentCashierName(payment, yearData.auditLogs))} className="rounded bg-slate-100 p-2" title="Voir le reçu PDF" type="button">
                             <Download className="h-4 w-4" />
                           </button>
                           {canCorrectPayments && <button onClick={() => correctPayment(payment)} className="rounded bg-slate-100 p-2" title="Corriger" type="button"><Edit3 className="h-4 w-4" /></button>}
@@ -5881,7 +5881,7 @@ function ControlModule({
                     <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <p className="min-w-0 break-words font-semibold text-ink">{student.nom} {student.prenom}</p>
                       <div className="flex shrink-0 flex-wrap gap-1">
-                        <button onClick={() => generateReceiptPdf(payment, student, fee, school)} className="rounded bg-slate-100 p-2" title="Voir le reçu PDF">
+                        <button onClick={() => generateReceiptPdf(payment, student, fee, school, resolvePaymentCashierName(payment, yearData.auditLogs))} className="rounded bg-slate-100 p-2" title="Voir le reçu PDF">
                           <Download className="h-4 w-4" />
                         </button>
                         {canCorrectPayments && <button onClick={() => correctPayment(payment)} className="rounded bg-slate-100 p-2" title="Corriger"><Edit3 className="h-4 w-4" /></button>}
@@ -7383,6 +7383,35 @@ function formatArchiveDate(value?: string) {
 function generateReceiptNumber(payments: Payment[], yearName: string) {
   const year = yearName.slice(0, 4);
   return `REC-${year}-${String(payments.length + 1).padStart(4, "0")}`;
+}
+
+function operationTimestamp(value?: string) {
+  if (!value) return 0;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function nearestCreationLog(auditLogs: AuditLog[], action: string, createdAt: string | undefined, matchesDetails: (details: string) => boolean) {
+  const operationTime = operationTimestamp(createdAt);
+  return auditLogs
+    .filter((log) => log.action === action && matchesDetails(log.details ?? ""))
+    .map((log) => ({ log, delta: Math.abs(operationTimestamp(log.createdAt) - operationTime) }))
+    .sort((first, second) => first.delta - second.delta)[0]?.log;
+}
+
+function resolvePaymentCashierName(payment: Payment, auditLogs: AuditLog[]) {
+  const receiptKey = payment.receiptNumber ?? payment.id;
+  const matchingLog = nearestCreationLog(auditLogs, "Création paiement", payment.createdAt ?? payment.paidAt, (details) =>
+    Boolean(receiptKey && details.includes(receiptKey)) || details.includes(`$${payment.amount}`),
+  );
+  return matchingLog?.actorName || payment.cashierName || "-";
+}
+
+function resolveExpenseCashierName(expense: Expense, auditLogs: AuditLog[]) {
+  const matchingLog = nearestCreationLog(auditLogs, "Création dépense", expense.createdAt ?? expense.spentAt, (details) =>
+    details.includes(expense.category) && details.includes(`$${expense.amount}`),
+  );
+  return matchingLog?.actorName || expense.cashierName || "-";
 }
 
 function createAuditLog(user: AppUser, schoolId: string, schoolYearId: string, action: string, details: string): AuditLog {

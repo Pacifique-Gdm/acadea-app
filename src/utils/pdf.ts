@@ -198,7 +198,7 @@ export async function renderAcadPdfPreview({ filename, title, school, year, subt
   });
 }
 
-export async function generateReceiptPdf(payment: Payment, student: Student, feeType: FeeType, school: School) {
+export async function generateReceiptPdf(payment: Payment, student: Student, feeType: FeeType, school: School, cashierName = payment.cashierName) {
   await renderAcadPdfPreview({
     filename: `recu-${student.matricule}-${payment.id}.pdf`,
     title: "Reçu de paiement",
@@ -213,7 +213,7 @@ export async function generateReceiptPdf(payment: Payment, student: Student, fee
         { label: "Classe", value: formatStudentClassName(student) },
         { label: "Type de frais", value: feeType.name },
         { label: "Montant payé", value: money(payment.amount) },
-        { label: "Caissier", value: payment.cashierName },
+        { label: "Caissier", value: cashierName || "-" },
       ]),
       `
         <section class="signature-row">
