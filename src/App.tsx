@@ -685,6 +685,15 @@ function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: 
       : data.students.filter((student) => student.schoolId === schoolId && student.schoolYearId === schoolYearId);
   const studentIds = students.map((student) => student.id);
   const parentIds = new Set(students.map((student) => student.parentId).filter(Boolean));
+  const canShowSchoolNotification = (notification: AppNotification) => {
+    if (notification.parentId || notification.recipientRole !== "school") return !notification.parentId || notification.recipientRole === "school";
+    if (!notification.messageId) return true;
+    const linkedMessage = data.messages.find((message) => message.id === notification.messageId);
+    if (!linkedMessage?.schoolRecipient) return true;
+    if (user.role === "school_admin") return linkedMessage.schoolRecipient === "admin" || linkedMessage.schoolRecipient === "both";
+    if (user.role === "cashier") return linkedMessage.schoolRecipient === "cashier" || linkedMessage.schoolRecipient === "both";
+    return true;
+  };
 
   return {
     students,
@@ -719,7 +728,7 @@ function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: 
             (notification) =>
               notification.schoolId === schoolId &&
               notification.schoolYearId === schoolYearId &&
-              (!notification.parentId || notification.recipientRole === "school"),
+              canShowSchoolNotification(notification),
           ),
   };
 }
