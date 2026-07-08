@@ -5413,14 +5413,26 @@ function ControlModule({
       amountComparator === "all" || !amountThreshold
         ? "Montant payé : tous"
         : `Montant payé ${amountComparator} ${amountThreshold}`;
+    const feeFilter = amountComparator.match(/^fee:(.+):(gte|lt)$/);
+    const selectedPdfFeeGroup = feeFilter ? amountFeeGroups.find((fee) => fee.key === feeFilter[1]) : undefined;
+    const pdfBalanceForRow = (row: (typeof rows)[number]) => {
+      if (!selectedPdfFeeGroup) return row.balance;
+      const expected = yearData.feeTypes
+        .filter((fee) => selectedPdfFeeGroup.ids.includes(fee.id) && feeAppliesToStudent(fee, row.student))
+        .reduce((sum, fee) => sum + fee.amount, 0);
+      const paid = yearData.payments
+        .filter((payment) => payment.studentId === row.student.id && selectedPdfFeeGroup.ids.includes(payment.feeTypeId))
+        .reduce((sum, payment) => sum + payment.amount, 0);
+      return { expected, paid, remaining: Math.max(expected - paid, 0) };
+    };
     const showOptionColumn = rows.some(({ student }) => Boolean(student.option));
     const studentPaymentColumns: PdfTableColumn<(typeof rows)[number]>[] = [
       { header: "Nom de l'élève", render: ({ student }) => `${student.nom} ${student.postnom} ${student.prenom}`.trim() },
       { header: "Matricule", render: ({ student }) => student.matricule },
       { header: "Classe", render: ({ student }) => formatStudentPdfClassName(student) },
-      { header: "Montant prévu", render: ({ balance }) => formatMoney(balance.expected), align: "right" },
-      { header: "Montant payé", render: ({ balance }) => formatMoney(balance.paid), align: "right" },
-      { header: "Solde restant", render: ({ balance }) => formatMoney(balance.remaining), align: "right" },
+      { header: "Montant prévu", render: (row) => formatMoney(pdfBalanceForRow(row).expected), align: "right" },
+      { header: "Montant payé", render: (row) => formatMoney(pdfBalanceForRow(row).paid), align: "right" },
+      { header: "Solde restant", render: (row) => formatMoney(pdfBalanceForRow(row).remaining), align: "right" },
     ];
     if (showOptionColumn) {
       studentPaymentColumns.splice(3, 0, { header: "Option", render: ({ student }) => student.option || "-" });
