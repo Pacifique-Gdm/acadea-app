@@ -2979,6 +2979,11 @@ function MessageDrawerContent({
     return `${student.prenom} ${student.nom}`.trim();
   }
 
+  function feedItemTitle(item: FeedItem) {
+    const title = item.title || "Sans titre";
+    return item.kind === "message" && item.senderType === "parent" ? `Objet : ${title}` : title;
+  }
+
   return (
     <div className="grid min-h-0 min-w-0 gap-4">
       <section className="min-w-0 rounded border border-slate-200 bg-white p-3 shadow-sm">
@@ -3014,7 +3019,7 @@ function MessageDrawerContent({
                   </span>
                 </div>
               </div>
-              <p className={`mt-3 break-words text-sm font-semibold ${item.senderType === "parent" ? "text-white" : "text-slate-700"}`}>{item.title || "Sans titre"}</p>
+              <p className={`mt-3 break-words text-sm font-semibold ${item.senderType === "parent" ? "text-white" : "text-slate-700"}`}>{feedItemTitle(item)}</p>
               {item.notificationSenderLabel && <p className="mt-1 break-words text-sm font-semibold text-slate-700">{item.notificationSenderLabel}</p>}
               <p className={`mt-1 whitespace-pre-wrap break-words text-sm leading-6 ${item.senderType === "parent" ? "text-slate-100" : "text-slate-600"}`}>{item.preview}</p>
               <p className={`mt-2 text-xs ${item.senderType === "parent" ? "text-slate-300" : "text-slate-500"}`}>{new Date(item.createdAt).toLocaleString("fr-FR")}</p>
@@ -7318,6 +7323,8 @@ const studentPdfClassOrder: SchoolClass[] = [
   "4ème Primaire",
   "5ème Primaire",
   "6ème Primaire",
+  "7ème CTEB",
+  "8ème CTEB",
   "1ère Humanité",
   "2ème Humanité",
   "3ème Humanité",
