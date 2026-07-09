@@ -1,11 +1,11 @@
-const CACHE_VERSION = "acadea-pwa-v4";
+const CACHE_VERSION = "acadea-pwa-v5";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const ASSET_CACHE = `${CACHE_VERSION}-assets`;
 const BRAND_CACHE = `${CACHE_VERSION}-brand`;
 const APP_SHELL = [
   "/",
   "/manifest.webmanifest",
-  "/favicon.svg",
+  "/favicon.png",
   "/logo-acadea.svg",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
@@ -63,7 +63,7 @@ self.addEventListener("fetch", (event) => {
     url.pathname.startsWith("/assets/") ||
     url.pathname.startsWith("/icons/") ||
     url.pathname === "/manifest.webmanifest" ||
-    url.pathname === "/favicon.svg" ||
+    url.pathname === "/favicon.png" ||
     url.pathname === "/logo-acadea.svg";
 
   if (!isStaticAsset) return;

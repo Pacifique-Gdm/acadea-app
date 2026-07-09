@@ -140,8 +140,8 @@ async function applyPlatformLogoAssets() {
   const appleIcon = getOrCreateHeadLink('link[rel="apple-touch-icon"]', "apple-touch-icon");
   appleIcon.href = "/icons/apple-touch-icon.png";
   const iconLink = getOrCreateHeadLink('link[rel="icon"]', "icon");
-  iconLink.href = "/favicon.svg";
-  iconLink.type = "image/svg+xml";
+  iconLink.href = "/favicon.png";
+  iconLink.type = "image/png";
   delete iconLink.dataset.platformLogo;
 }
 
