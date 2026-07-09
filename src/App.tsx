@@ -46,6 +46,7 @@ import { escapePdfHtml, generateReceiptPdf, money, pdfInfoGrid, pdfSection, pdfT
 import type { PdfTableColumn } from "./utils/pdf";
 import { buildStats, getStudentBalance } from "./utils/stats";
 import { buildValveClassChoices, formatValveClassChoiceLabel, getValvePublicationParents, normalizeValveVisibility, parentCanViewValvePublication } from "./utils/valves";
+import { prepareValveAttachment } from "./utils/valvesMedia";
 import type {
   AppData,
   AppNotification,
@@ -3190,18 +3191,16 @@ function ValvesDrawerContent({
     setEditingId("");
   }
 
-  function readAttachment(file?: File) {
+  async function readAttachment(file?: File) {
     if (!file) {
       setAttachment(null);
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        setAttachment({ name: file.name, type: file.type || "application/octet-stream", dataUrl: reader.result });
-      }
-    };
-    reader.readAsDataURL(file);
+    try {
+      setAttachment(await prepareValveAttachment(file));
+    } catch {
+      setFeedback("Impossible de lire le fichier joint. Veuillez réessayer.");
+    }
   }
 
   function savePublication() {
