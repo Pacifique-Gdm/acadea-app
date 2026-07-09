@@ -5953,15 +5953,14 @@ function ControlModule({
             <button onClick={() => setExpenseHistoryOpen(true)} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:w-auto lg:flex-none lg:basis-44 lg:text-xs" type="button">
               Historique de dépenses
             </button>
-            <button onClick={() => (user.role === "cashier" ? setCashierControlDrawer("warning") : setWarningOpen(true))} className={`secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:w-auto lg:flex-none lg:basis-32 lg:text-xs ${user.role === "cashier" ? "lg:hidden" : ""}`} type="button">
-              Avertissement
-            </button>
+            {user.role !== "cashier" && (
+              <button onClick={() => setWarningOpen(true)} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:w-auto lg:flex-none lg:basis-32 lg:text-xs" type="button">
+                Avertissement
+              </button>
+            )}
           </div>
           {canPay && user.role === "cashier" && (
             <div className="flex min-w-0 flex-wrap items-stretch gap-2 lg:basis-full lg:flex-nowrap">
-              <button onClick={() => setCashierControlDrawer("warning")} className="secondary-button hidden h-10 min-w-0 justify-center px-2 text-xs lg:flex lg:flex-none lg:basis-32" type="button">
-                Avertissement
-              </button>
               <button onClick={() => { setCashierControlFeedback(""); setCashierControlFeedbackDrawer(null); setCashierControlDrawer("payment"); }} className="primary-button min-w-0 flex-1 justify-center sm:flex-none sm:basis-56" type="button">
                 Enregistrer un paiement
               </button>
