@@ -197,7 +197,7 @@ export interface AuditLog {
 }
 
 export type ValvePublicationKind = "communique" | "palmares" | "points" | "image" | "liste" | "pdf" | "document" | "autre";
-export type ValveVisibility = "parents" | "staff" | "all";
+export type ValveVisibility = "all_parents" | "maternelle" | "primaire" | "secondaire" | "class";
 
 export interface ValvePublication {
   id: string;
@@ -206,6 +206,7 @@ export interface ValvePublication {
   title: string;
   kind: ValvePublicationKind;
   visibility: ValveVisibility;
+  targetClassKey?: string;
   body: string;
   attachmentName?: string;
   attachmentType?: string;

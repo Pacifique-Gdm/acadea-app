@@ -3137,10 +3137,17 @@ const valveKindLabels: Record<ValvePublicationKind, string> = {
 };
 
 const valveVisibilityLabels: Record<ValveVisibility, string> = {
-  parents: "Parents",
-  staff: "Personnel",
-  all: "Toute l'école",
+  all_parents: "Tous les parents",
+  maternelle: "Maternelle",
+  primaire: "Primaire",
+  secondaire: "Secondaire",
+  class: "Classe précise",
 };
+
+function normalizeValveVisibility(value: ValvePublication["visibility"] | "parents" | "all" | "staff"): ValveVisibility {
+  if (value === "parents" || value === "all" || value === "staff") return "all_parents";
+  return value;
+}
 
 function ValvesDrawerContent({
   user,
@@ -3161,19 +3168,35 @@ function ValvesDrawerContent({
 }) {
   const [title, setTitle] = useState("");
   const [kind, setKind] = useState<ValvePublicationKind>("communique");
-  const [visibility, setVisibility] = useState<ValveVisibility>("parents");
+  const [visibility, setVisibility] = useState<ValveVisibility>("all_parents");
+  const [targetClassKey, setTargetClassKey] = useState("");
   const [body, setBody] = useState("");
   const [attachment, setAttachment] = useState<{ name: string; type: string; dataUrl: string } | null>(null);
   const [editingId, setEditingId] = useState("");
   const [feedback, setFeedback] = useState("");
+  const parentChildren = user.parentId
+    ? yearData.students.filter((student) => student.parentId === user.parentId)
+    : [];
+  const valveClassChoices = buildFeeTargetChoices(yearData.students, targetClassKey ? [targetClassKey] : []);
+  const visibleToCurrentParent = (publication: ValvePublication) => {
+    const publicationVisibility = publication.visibility as ValveVisibility | "parents" | "all" | "staff";
+    if (publicationVisibility === "all_parents" || publicationVisibility === "parents" || publicationVisibility === "all") return true;
+    if (publicationVisibility === "staff") return false;
+    if (publicationVisibility === "class") {
+      if (!publication.targetClassKey) return false;
+      return parentChildren.some((student) => studentFeeTargetKey(student) === publication.targetClassKey);
+    }
+    return parentChildren.some((student) => getClassSection(student.className) === publicationVisibility);
+  };
   const visiblePublications = [...yearData.valves]
-    .filter((publication) => canManage || publication.visibility === "parents" || publication.visibility === "all")
+    .filter((publication) => canManage || visibleToCurrentParent(publication))
     .sort((first, second) => second.createdAt.localeCompare(first.createdAt));
 
   function resetForm() {
     setTitle("");
     setKind("communique");
-    setVisibility("parents");
+    setVisibility("all_parents");
+    setTargetClassKey("");
     setBody("");
     setAttachment(null);
     setEditingId("");
@@ -3201,6 +3224,10 @@ function ValvesDrawerContent({
       setFeedback("Veuillez renseigner le titre et le contenu de la publication.");
       return;
     }
+    if (visibility === "class" && !targetClassKey) {
+      setFeedback("Veuillez sélectionner une classe précise.");
+      return;
+    }
     const now = new Date().toISOString();
     const existingPublication = yearData.valves.find((publication) => publication.id === editingId);
     const publication: ValvePublication = {
@@ -3210,6 +3237,7 @@ function ValvesDrawerContent({
       title: trimmedTitle,
       kind,
       visibility,
+      ...(visibility === "class" ? { targetClassKey } : {}),
       body: trimmedBody,
       attachmentName: attachment?.name,
       attachmentType: attachment?.type,
@@ -3231,7 +3259,8 @@ function ValvesDrawerContent({
     setEditingId(publication.id);
     setTitle(publication.title);
     setKind(publication.kind);
-    setVisibility(publication.visibility);
+    setVisibility(normalizeValveVisibility(publication.visibility));
+    setTargetClassKey(publication.targetClassKey ?? "");
     setBody(publication.body);
     setAttachment(
       publication.attachmentDataUrl
@@ -3266,12 +3295,31 @@ function ValvesDrawerContent({
           </label>
           <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
             Visibilité
-            <select value={visibility} onChange={(event) => setVisibility(event.target.value as ValveVisibility)} className="input">
+            <select
+              value={visibility}
+              onChange={(event) => {
+                const nextVisibility = event.target.value as ValveVisibility;
+                setVisibility(nextVisibility);
+                if (nextVisibility !== "class") setTargetClassKey("");
+              }}
+              className="input"
+            >
               {(Object.keys(valveVisibilityLabels) as ValveVisibility[]).map((item) => (
                 <option key={item} value={item}>{valveVisibilityLabels[item]}</option>
               ))}
             </select>
           </label>
+          {visibility === "class" && (
+            <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+              Classe précise
+              <select value={targetClassKey} onChange={(event) => setTargetClassKey(event.target.value)} className="input">
+                <option value="">Sélectionner une classe</option>
+                {valveClassChoices.map((choice) => (
+                  <option key={choice.value} value={choice.value}>{choice.label}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
             Contenu
             <textarea value={body} onChange={(event) => setBody(event.target.value)} className="input min-h-28" placeholder="Rédigez la publication" />
@@ -3304,7 +3352,13 @@ function ValvesDrawerContent({
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="break-words font-bold text-ink">{publication.title}</h3>
                   <span className="rounded bg-blue-50 px-2 py-1 text-[10px] font-bold uppercase text-blue-700">{valveKindLabels[publication.kind]}</span>
-                  {canManage && <span className="rounded bg-slate-100 px-2 py-1 text-[10px] font-bold uppercase text-slate-500">{valveVisibilityLabels[publication.visibility]}</span>}
+                  {canManage && (
+                    <span className="rounded bg-slate-100 px-2 py-1 text-[10px] font-bold uppercase text-slate-500">
+                      {publication.visibility === "class" && publication.targetClassKey
+                        ? `${valveVisibilityLabels[publication.visibility]} · ${formatFeeTargetValue(publication.targetClassKey)}`
+                        : valveVisibilityLabels[normalizeValveVisibility(publication.visibility)]}
+                    </span>
+                  )}
                 </div>
                 <p className="mt-1 text-xs text-slate-500">{publication.authorName} · {new Date(publication.createdAt).toLocaleString("fr-FR")}</p>
                 <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{publication.body}</p>
