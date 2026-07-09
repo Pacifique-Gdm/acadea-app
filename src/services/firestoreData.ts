@@ -4,6 +4,9 @@ import type { AppData, AppUser } from "../types";
 
 type CollectionKey = keyof AppData;
 type PersistableItem = { id: string };
+type PersistFirestorePatchOptions = {
+  throwOnError?: boolean;
+};
 export type PlatformSettings = {
   loginLogoUrl?: string;
   updatedAt?: string;
@@ -182,7 +185,7 @@ export async function savePlatformSettings(settings: PlatformSettings) {
   return true;
 }
 
-export async function persistFirestorePatch(patch: Partial<AppData>) {
+export async function persistFirestorePatch(patch: Partial<AppData>, options: PersistFirestorePatchOptions = {}) {
   if (!canUseFirestoreData() || !db) return false;
 
   await Promise.all(
@@ -193,6 +196,9 @@ export async function persistFirestorePatch(patch: Partial<AppData>) {
         await Promise.all(
           (items as PersistableItem[]).map((item) =>
             setDoc(doc(db, collectionName, item.id), item).catch((error) => {
+              if (options.throwOnError) {
+                throw error;
+              }
               console.warn(`Document Firestore ignoré (${collectionName}/${item.id}).`, error);
             }),
           ),

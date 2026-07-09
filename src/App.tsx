@@ -3151,6 +3151,12 @@ const valveVisibilityLabels: Record<ValveVisibility, string> = {
   class: "Classe précise",
 };
 
+const MAX_VALVE_DOCUMENT_BYTES = 900 * 1024;
+
+function getApproximateValveDocumentSize(publication: ValvePublication) {
+  return new TextEncoder().encode(JSON.stringify(publication)).length;
+}
+
 function ValvesDrawerContent({
   user,
   data,
@@ -3208,7 +3214,7 @@ function ValvesDrawerContent({
     }
   }
 
-  function savePublication() {
+  async function savePublication() {
     setFeedback("");
     const trimmedTitle = title.trim();
     const trimmedBody = body.trim();
@@ -3241,6 +3247,10 @@ function ValvesDrawerContent({
       ...(attachment ? { attachmentName: attachment.name, attachmentType: attachment.type, attachmentDataUrl: attachment.dataUrl } : {}),
       ...(existingPublication ? { updatedAt: now } : {}),
     };
+    if (getApproximateValveDocumentSize(publication) > MAX_VALVE_DOCUMENT_BYTES) {
+      setFeedback("Le fichier joint est trop volumineux pour être publié.");
+      return;
+    }
     const valveNotifications: AppNotification[] = existingPublication
       ? []
       : [
@@ -3271,6 +3281,16 @@ function ValvesDrawerContent({
         ];
     const auditLog = createAuditLog(user, school.id, year.id, editingId ? "Modification valves" : "Publication valves", trimmedTitle);
     const nextValves = editingId ? data.valves.map((item) => (item.id === editingId ? publication : item)) : [publication, ...data.valves];
+    try {
+      const valvesPersisted = await persistFirestorePatch({ valves: [publication] }, { throwOnError: true });
+      if (!valvesPersisted) {
+        setFeedback("Sauvegarde Firestore indisponible.");
+        return;
+      }
+    } catch {
+      setFeedback("Le fichier joint est trop volumineux pour être publié.");
+      return;
+    }
     updateData(
       {
         valves: nextValves,
@@ -3280,7 +3300,6 @@ function ValvesDrawerContent({
       { persist: false },
     );
     void persistFirestorePatch({
-      valves: [publication],
       notifications: valveNotifications,
       auditLogs: [auditLog],
     }).catch((error) => {
