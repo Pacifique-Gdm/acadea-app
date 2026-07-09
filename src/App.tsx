@@ -692,6 +692,10 @@ function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: 
   const parentIds = new Set(students.map((student) => student.parentId).filter(Boolean));
   const canShowSchoolNotification = (notification: AppNotification) => {
     if (notification.parentId || notification.recipientRole !== "school") return !notification.parentId || notification.recipientRole === "school";
+    if (notification.schoolRecipient) {
+      if (user.role === "school_admin") return notification.schoolRecipient === "admin" || notification.schoolRecipient === "both";
+      if (user.role === "cashier") return notification.schoolRecipient === "cashier" || notification.schoolRecipient === "both";
+    }
     if (!notification.messageId) return true;
     const linkedMessage = data.messages.find((message) => message.id === notification.messageId);
     if (!linkedMessage?.schoolRecipient) return true;
@@ -3173,7 +3177,7 @@ function ValvesDrawerContent({
   const currentParent = user.parentId ? yearData.parents.find((parent) => parent.id === user.parentId) : undefined;
   const valveClassChoices = buildValveClassChoices(yearData.students, targetClassKey);
   const visiblePublications = [...yearData.valves]
-    .filter((publication) => canManage || (currentParent ? parentCanViewValvePublication(publication, currentParent, yearData.students) : false))
+    .filter((publication) => canManage || user.role === "cashier" || (currentParent ? parentCanViewValvePublication(publication, currentParent, yearData.students) : false))
     .sort((first, second) => second.createdAt.localeCompare(first.createdAt));
 
   function resetForm() {
@@ -3233,18 +3237,32 @@ function ValvesDrawerContent({
     };
     const valveNotifications: AppNotification[] = existingPublication
       ? []
-      : getValvePublicationParents(publication, yearData.parents, yearData.students).map((parent) => ({
-          id: uid("notif"),
-          schoolId: school.id,
-          schoolYearId: year.id,
-          recipientRole: "parent",
-          parentId: parent.id,
-          type: "valve",
-          title: "Nouvelle publication Valves",
-          body: trimmedTitle,
-          createdAt: now,
-          read: false,
-        }));
+      : [
+          ...getValvePublicationParents(publication, yearData.parents, yearData.students).map((parent) => ({
+            id: uid("notif"),
+            schoolId: school.id,
+            schoolYearId: year.id,
+            recipientRole: "parent" as const,
+            parentId: parent.id,
+            type: "valve" as const,
+            title: "Nouvelle publication Valves",
+            body: trimmedTitle,
+            createdAt: now,
+            read: false,
+          })),
+          {
+            id: uid("notif"),
+            schoolId: school.id,
+            schoolYearId: year.id,
+            recipientRole: "school",
+            schoolRecipient: "cashier",
+            type: "valve",
+            title: "Nouvelle publication Valves",
+            body: trimmedTitle,
+            createdAt: now,
+            read: false,
+          },
+        ];
     updateData({
       valves: editingId ? data.valves.map((item) => (item.id === editingId ? publication : item)) : [publication, ...data.valves],
       notifications: valveNotifications.length > 0 ? [...valveNotifications, ...data.notifications] : data.notifications,
@@ -7333,7 +7351,7 @@ function MenuModule({
       );
     }
 
-    if (sectionId === "valves" && canAdmin) {
+    if (sectionId === "valves" && (canAdmin || user.role === "cashier")) {
       return (
         <ValvesDrawerContent
           user={user}
@@ -7342,7 +7360,7 @@ function MenuModule({
           school={school}
           year={selectedYear}
           updateData={updateData}
-          canManage
+          canManage={canAdmin}
         />
       );
     }
@@ -7361,7 +7379,7 @@ function MenuModule({
     return null;
   }
 
-  const visibleMenuSections = menuSections.filter((section) => (canAdmin ? true : user.role === "cashier" && section.id === "history"));
+  const visibleMenuSections = menuSections.filter((section) => (canAdmin ? true : user.role === "cashier" && (section.id === "valves" || section.id === "history")));
   const activeMenuSectionConfig = visibleMenuSections.find((section) => section.id === activeMenuSection);
 
   return (

@@ -178,6 +178,7 @@ export interface AppNotification {
   parentId?: string;
   studentId?: string;
   messageId?: string;
+  schoolRecipient?: "admin" | "cashier" | "both";
   type: "payment" | "message" | "valve";
   title: string;
   body: string;
