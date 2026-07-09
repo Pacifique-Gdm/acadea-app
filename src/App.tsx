@@ -3175,6 +3175,9 @@ function ValvesDrawerContent({
   const [body, setBody] = useState("");
   const [attachment, setAttachment] = useState<{ name: string; type: string; dataUrl: string } | null>(null);
   const [editingId, setEditingId] = useState("");
+  const [modifyConfirmation, setModifyConfirmation] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<ValvePublication | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [feedback, setFeedback] = useState("");
   const currentParent = user.parentId ? yearData.parents.find((parent) => parent.id === user.parentId) : undefined;
   const valveClassChoices = buildValveClassChoices(yearData.students, targetClassKey);
@@ -3190,6 +3193,7 @@ function ValvesDrawerContent({
     setBody("");
     setAttachment(null);
     setEditingId("");
+    setModifyConfirmation("");
   }
 
   async function readAttachment(file?: File) {
@@ -3214,6 +3218,10 @@ function ValvesDrawerContent({
     }
     if (visibility === "class" && !targetClassKey) {
       setFeedback("Veuillez sélectionner une classe précise.");
+      return;
+    }
+    if (editingId && modifyConfirmation !== "MODIFIER LA PUBLICATION") {
+      setFeedback("Veuillez saisir exactement MODIFIER LA PUBLICATION pour confirmer la modification.");
       return;
     }
     const now = new Date().toISOString();
@@ -3284,15 +3292,30 @@ function ValvesDrawerContent({
         ? { name: publication.attachmentName ?? "document", type: publication.attachmentType ?? "application/octet-stream", dataUrl: publication.attachmentDataUrl }
         : null,
     );
+    setModifyConfirmation("");
     setFeedback("");
   }
 
-  function deletePublication(publication: ValvePublication) {
+  function openDeletePublication(publication: ValvePublication) {
+    setDeleteTarget(publication);
+    setDeleteConfirmation("");
+    setFeedback("");
+  }
+
+  function closeDeletePublication() {
+    setDeleteTarget(null);
+    setDeleteConfirmation("");
+  }
+
+  function confirmDeletePublication() {
+    if (!deleteTarget || deleteConfirmation !== "SUPPRIMER LA PUBLICATION") return;
+    const publication = deleteTarget;
     updateData({
       valves: data.valves.filter((item) => item.id !== publication.id),
       auditLogs: [createAuditLog(user, school.id, year.id, "Suppression valves", publication.title), ...data.auditLogs],
     });
     if (editingId === publication.id) resetForm();
+    closeDeletePublication();
   }
 
   return (
@@ -3351,8 +3374,22 @@ function ValvesDrawerContent({
               <button onClick={() => setAttachment(null)} type="button" className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">Retirer</button>
             </div>
           )}
+          {editingId && (
+            <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+              Phrase de confirmation
+              <input
+                value={modifyConfirmation}
+                onChange={(event) => setModifyConfirmation(event.target.value)}
+                className="input"
+                placeholder="MODIFIER LA PUBLICATION"
+              />
+              {modifyConfirmation && modifyConfirmation !== "MODIFIER LA PUBLICATION" && (
+                <span className="text-xs font-semibold text-red-600">Phrase incorrecte. Veuillez saisir exactement : MODIFIER LA PUBLICATION</span>
+              )}
+            </label>
+          )}
           <div className="flex flex-wrap gap-2">
-            <button onClick={savePublication} type="button" className="primary-button">
+            <button onClick={savePublication} type="button" className="primary-button" disabled={Boolean(editingId) && modifyConfirmation !== "MODIFIER LA PUBLICATION"}>
               <Upload className="h-4 w-4" /> {editingId ? "Enregistrer" : "Publier"}
             </button>
             {editingId && <button onClick={resetForm} type="button" className="secondary-button">Annuler</button>}
@@ -3390,7 +3427,7 @@ function ValvesDrawerContent({
                   <button onClick={() => editPublication(publication)} type="button" className="rounded bg-slate-100 p-2 text-slate-700" title="Modifier">
                     <Edit3 className="h-4 w-4" />
                   </button>
-                  <button onClick={() => deletePublication(publication)} type="button" className="rounded bg-red-50 p-2 text-red-700" title="Supprimer">
+                  <button onClick={() => openDeletePublication(publication)} type="button" className="rounded bg-red-50 p-2 text-red-700" title="Supprimer">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
@@ -3399,6 +3436,46 @@ function ValvesDrawerContent({
           </article>
         ))}
       </div>
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-4" role="dialog" aria-modal="true" aria-labelledby="valve-delete-title">
+          <div className="w-full max-w-md rounded bg-white p-5 shadow-xl">
+            <div className="grid gap-4">
+              <div>
+                <h2 id="valve-delete-title" className="break-words text-lg font-bold text-ink">Supprimer la publication</h2>
+                <p className="mt-2 break-words text-sm text-slate-600">
+                  Cette action supprimera la publication {deleteTarget.title}. Pour confirmer, saisissez exactement : SUPPRIMER LA PUBLICATION
+                </p>
+              </div>
+              <label className="grid gap-1 text-sm font-medium text-slate-700">
+                Phrase de confirmation
+                <input
+                  value={deleteConfirmation}
+                  onChange={(event) => setDeleteConfirmation(event.target.value)}
+                  className="input"
+                  placeholder="SUPPRIMER LA PUBLICATION"
+                />
+              </label>
+              {deleteConfirmation && deleteConfirmation !== "SUPPRIMER LA PUBLICATION" && (
+                <p className="rounded bg-red-50 p-3 text-sm font-semibold text-red-700">
+                  Phrase incorrecte. Veuillez saisir exactement : SUPPRIMER LA PUBLICATION
+                </p>
+              )}
+              <div className="flex flex-wrap justify-end gap-2">
+                <button onClick={closeDeletePublication} type="button" className="secondary-button">Annuler</button>
+                <button
+                  onClick={confirmDeletePublication}
+                  type="button"
+                  className="rounded bg-red-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+                  disabled={deleteConfirmation !== "SUPPRIMER LA PUBLICATION"}
+                >
+                  Supprimer
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
