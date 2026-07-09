@@ -1,6 +1,7 @@
 ﻿import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { CSSProperties, ChangeEvent, ReactNode } from "react";
 import {
+  deleteDoc,
   doc,
   getDoc,
   setDoc,
@@ -3392,15 +3393,26 @@ function ValvesDrawerContent({
     setDeleteConfirmation("");
   }
 
-  function confirmDeletePublication() {
+  async function confirmDeletePublication() {
     if (!deleteTarget || deleteConfirmation !== "SUPPRIMER LA PUBLICATION") return;
     const publication = deleteTarget;
+    if (!db) {
+      setFeedback("Suppression impossible : base de données indisponible.");
+      return;
+    }
+    try {
+      await deleteDoc(doc(db, "valves", publication.id));
+      if (publication.attachmentPath) {
+        await deleteValveAttachment(publication.attachmentPath);
+      }
+    } catch (error) {
+      console.warn("Suppression de la publication Valves impossible.", error);
+      setFeedback("Suppression impossible. Veuillez réessayer.");
+      return;
+    }
     updateData({
       valves: data.valves.filter((item) => item.id !== publication.id),
       auditLogs: [createAuditLog(user, school.id, year.id, "Suppression valves", publication.title), ...data.auditLogs],
-    });
-    void deleteValveAttachment(publication.attachmentPath).catch((error) => {
-      console.warn("Suppression de la pièce jointe Valves indisponible.", error);
     });
     if (editingId === publication.id) resetForm();
     closeDeletePublication();
