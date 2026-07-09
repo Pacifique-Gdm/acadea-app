@@ -3782,6 +3782,13 @@ function ParentPortal({
     both: "Administrateur et Caissier",
   } as const;
 
+  function progressBarTone(percent: number) {
+    if (percent >= 100) return "bg-mint";
+    if (percent >= 75) return "bg-lime-400";
+    if (percent >= 50) return "bg-amber-400";
+    return "bg-red-500";
+  }
+
   function markNotificationsRead() {
     updateData({
       notifications: data.notifications.map((notification) =>
@@ -3927,8 +3934,17 @@ function ParentPortal({
           {activeParentTab === "children" && (
           <div className="grid min-w-0 gap-4">
             {yearData.students.map((student) => {
-              const balance = getStudentBalance(student.id, yearData.feeTypes, yearData.payments, yearData.students);
-              const progress = balance.expected > 0 ? Math.min(100, Math.round((balance.paid / balance.expected) * 100)) : 0;
+              const feeSummaries = getStudentFeeSummaries(student, yearData.feeTypes, yearData.payments);
+              const feeTotals = feeSummaries.reduce(
+                (totals, summary) => ({
+                  expected: totals.expected + summary.expected,
+                  paid: totals.paid + summary.paid,
+                  remaining: totals.remaining + summary.remaining,
+                }),
+                { expected: 0, paid: 0, remaining: 0 },
+              );
+              const progress = feeTotals.expected > 0 ? Math.min(100, Math.round((feeTotals.paid / feeTotals.expected) * 100)) : 0;
+              const progressTone = progressBarTone(progress);
               const payments = yearData.payments.filter((payment) => payment.studentId === student.id);
               return (
                 <article key={student.id} className="min-w-0 rounded border border-slate-200 bg-white p-4">
@@ -3945,12 +3961,40 @@ function ParentPortal({
                         <span className="shrink-0 rounded bg-mint/10 px-2 py-1 text-xs font-semibold text-mint">{progress}% payé</span>
                       </div>
                       <div className="mt-4 h-3 overflow-hidden rounded bg-slate-100">
-                        <div className="h-full rounded bg-mint" style={{ width: `${progress}%` }} />
+                        <div className={`h-full rounded transition-colors ${progressTone}`} style={{ width: `${progress}%` }} />
                       </div>
                       <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                        <Metric label="Total frais" value={`$${balance.expected}`} />
-                        <Metric label="Total payé" value={`$${balance.paid}`} />
-                        <Metric label="Solde" value={`$${balance.remaining}`} />
+                        <Metric label="Total frais" value={money(feeTotals.expected)} />
+                        <Metric label="Total payé" value={money(feeTotals.paid)} />
+                        <Metric label="Solde" value={money(feeTotals.remaining)} />
+                      </div>
+                      <div className="mt-4 rounded border border-slate-100 bg-slate-50 p-3">
+                        <p className="mb-3 text-sm font-semibold text-ink">Progression par type de frais</p>
+                        <div className="grid gap-3">
+                          {feeSummaries.length === 0 && <p className="text-sm text-slate-500">Aucun frais défini pour cette classe.</p>}
+                          {feeSummaries.map((summary) => {
+                            const summaryProgress = summary.expected > 0 ? Math.min(100, Math.round((summary.paid / summary.expected) * 100)) : 0;
+                            const summaryProgressTone = progressBarTone(summaryProgress);
+                            return (
+                              <div key={summary.feeTypeId} className="min-w-0 rounded bg-white p-3 shadow-sm">
+                                <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                                  <p className="break-words text-sm font-bold text-ink">{summary.feeName}</p>
+                                  <p className="break-words text-xs font-semibold text-slate-500">
+                                    {money(summary.paid)} / {money(summary.expected)}
+                                  </p>
+                                </div>
+                                <div className="mt-2 h-2 overflow-hidden rounded bg-slate-100">
+                                  <div className={`h-full rounded transition-colors ${summaryProgressTone}`} style={{ width: `${summaryProgress}%` }} />
+                                </div>
+                                <div className="mt-2 grid gap-2 text-xs text-slate-600 sm:grid-cols-3">
+                                  <span>Attendu : <strong>{money(summary.expected)}</strong></span>
+                                  <span>Payé : <strong>{money(summary.paid)}</strong></span>
+                                  <span>Solde : <strong>{money(summary.remaining)}</strong></span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                       <div className="mt-4">
                         <p className="mb-2 text-sm font-semibold text-ink">Historique des paiements</p>
@@ -4100,7 +4144,7 @@ function ParentPortal({
 
       {parentAccountOpen && (
         <AdminDrawer title="Compte parent" onClose={() => setParentAccountOpen(false)} closeLabel="Fermer le compte parent">
-          <FormPanel title="Compte parent">
+          <div className="rounded border border-slate-200 bg-white p-4">
             <div className="grid gap-3 sm:grid-cols-2">
               <Metric label="Parent" value={parent?.fullName ?? user.name} />
               <Metric label="Email" value={user.email} />
@@ -4109,7 +4153,7 @@ function ParentPortal({
               <Metric label="Enfant(s)" value={String(yearData.students.length)} />
               <Metric label="Notification(s)" value={String(unread)} />
             </div>
-          </FormPanel>
+          </div>
         </AdminDrawer>
       )}
       {parentHistoryOpen && (
