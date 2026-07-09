@@ -46,6 +46,7 @@ import { formatSchoolRecipientLabel } from "./utils/messages";
 import { escapePdfHtml, generateReceiptPdf, money, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./utils/pdf";
 import type { PdfTableColumn } from "./utils/pdf";
 import { buildStats, getStudentBalance } from "./utils/stats";
+import { getStudentFeeSummaries } from "./utils/studentFeeSummary";
 import { buildValveClassChoices, formatValveClassChoiceLabel, getValvePublicationParents, normalizeValveVisibility, parentCanViewValvePublication } from "./utils/valves";
 import { prepareValveAttachment } from "./utils/valvesMedia";
 import { deleteValveAttachment, uploadValveAttachment } from "./services/valvesStorage";
@@ -5464,6 +5465,17 @@ function ControlModule({
   const selectedHistoryBalance = selectedHistoryStudent
     ? getStudentBalance(selectedHistoryStudent.id, yearData.feeTypes, yearData.payments, yearData.students)
     : { expected: 0, paid: 0, remaining: 0 };
+  const selectedHistoryFeeSummaries = selectedHistoryStudent
+    ? getStudentFeeSummaries(selectedHistoryStudent, yearData.feeTypes, yearData.payments)
+    : [];
+  const selectedHistoryFeeTotals = selectedHistoryFeeSummaries.reduce(
+    (totals, summary) => ({
+      expected: totals.expected + summary.expected,
+      paid: totals.paid + summary.paid,
+      remaining: totals.remaining + summary.remaining,
+    }),
+    { expected: 0, paid: 0, remaining: 0 },
+  );
   const selectedHistoryPayments = selectedHistoryStudent
     ? yearData.payments
         .filter((payment) => payment.studentId === selectedHistoryStudent.id)
@@ -5985,9 +5997,33 @@ function ControlModule({
             { label: "Nom complet", value: studentFullName(selectedHistoryStudent) },
             { label: "Matricule", value: selectedHistoryStudent.matricule },
             { label: "Classe", value: formatStudentClassName(selectedHistoryStudent) },
-            { label: "Total payé", value: formatMoney(selectedHistoryBalance.paid) },
-            { label: "Total restant", value: formatMoney(selectedHistoryBalance.remaining) },
+            { label: "Total attendu", value: formatMoney(selectedHistoryFeeTotals.expected) },
+            { label: "Total payé", value: formatMoney(selectedHistoryFeeTotals.paid) },
+            { label: "Total restant", value: formatMoney(selectedHistoryFeeTotals.remaining) },
           ]),
+        ),
+        pdfSection(
+          "Résumé par type de frais",
+          pdfTable(
+            [
+              { header: "Type de frais", render: (row) => row.feeName },
+              { header: "Total attendu", render: (row) => formatMoney(row.expected), align: "right" },
+              { header: "Total payé", render: (row) => formatMoney(row.paid), align: "right" },
+              { header: "Total restant", render: (row) => formatMoney(row.remaining), align: "right" },
+            ],
+            selectedHistoryFeeSummaries,
+            "Aucun type de frais applicable pour cet élève.",
+            {
+              footerHtml: `
+                <tr>
+                  <td>Totaux généraux</td>
+                  <td class="align-right">${escapePdfHtml(formatMoney(selectedHistoryFeeTotals.expected))}</td>
+                  <td class="align-right">${escapePdfHtml(formatMoney(selectedHistoryFeeTotals.paid))}</td>
+                  <td class="align-right">${escapePdfHtml(formatMoney(selectedHistoryFeeTotals.remaining))}</td>
+                </tr>
+              `,
+            },
+          ),
         ),
         pdfSection(
           "Paiements",
@@ -6084,9 +6120,55 @@ function ControlModule({
         </div>
 
         <div className="grid min-w-0 gap-3 sm:grid-cols-3">
-          <Metric label="Total attendu" value={formatMoney(selectedHistoryBalance.expected)} />
-          <Metric label="Total paye" value={formatMoney(selectedHistoryBalance.paid)} />
-          <Metric label="Total restant" value={formatMoney(selectedHistoryBalance.remaining)} />
+          <Metric label="Total attendu" value={formatMoney(selectedHistoryFeeTotals.expected)} />
+          <Metric label="Total payé" value={formatMoney(selectedHistoryFeeTotals.paid)} />
+          <Metric label="Total restant" value={formatMoney(selectedHistoryFeeTotals.remaining)} />
+        </div>
+
+        <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="mb-4 min-w-0">
+            <h2 className="break-words text-lg font-bold text-ink">Résumé par type de frais</h2>
+            <p className="text-sm text-slate-500">Montants attendus, payés et restants pour les frais applicables à cet élève.</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="px-3 py-2">Type de frais</th>
+                  <th className="px-3 py-2 text-right">Total attendu</th>
+                  <th className="px-3 py-2 text-right">Total payé</th>
+                  <th className="px-3 py-2 text-right">Total restant</th>
+                </tr>
+              </thead>
+              <tbody>
+                {selectedHistoryFeeSummaries.map((summary) => (
+                  <tr key={summary.feeTypeId} className="border-t border-slate-100">
+                    <td className="px-3 py-3 font-medium text-ink">{summary.feeName}</td>
+                    <td className="px-3 py-3 text-right font-semibold text-slate-700">{formatMoney(summary.expected)}</td>
+                    <td className="px-3 py-3 text-right font-semibold text-mint">{formatMoney(summary.paid)}</td>
+                    <td className="px-3 py-3 text-right font-semibold text-ink">{formatMoney(summary.remaining)}</td>
+                  </tr>
+                ))}
+                {selectedHistoryFeeSummaries.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-3 py-6 text-center text-slate-500">
+                      Aucun type de frais applicable pour cet élève.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+              {selectedHistoryFeeSummaries.length > 0 && (
+                <tfoot className="border-t border-slate-200 bg-slate-50 font-bold text-ink">
+                  <tr>
+                    <td className="px-3 py-3">Totaux généraux</td>
+                    <td className="px-3 py-3 text-right">{formatMoney(selectedHistoryFeeTotals.expected)}</td>
+                    <td className="px-3 py-3 text-right">{formatMoney(selectedHistoryFeeTotals.paid)}</td>
+                    <td className="px-3 py-3 text-right">{formatMoney(selectedHistoryFeeTotals.remaining)}</td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
         </div>
 
         <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">

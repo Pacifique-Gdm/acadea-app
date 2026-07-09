@@ -7,19 +7,19 @@ function studentFeeTargetKey(student: Student) {
   return option && student.className.includes("Humanité") ? `${student.className}${feeTargetSeparator}${option}` : student.className;
 }
 
-function feeAppliesToStudent(fee: FeeType, student: Student | undefined) {
+export function feeAppliesToStudent(fee: FeeType, student: Student | undefined) {
   if (!student) return true;
   if (fee.classOptionKey) return fee.classOptionKey === studentFeeTargetKey(student);
   return !fee.className || fee.className === student.className;
 }
 
-function getApplicableFees(student: Student | undefined, feeTypes: FeeType[]) {
+export function getApplicableFeeTypes(student: Student | undefined, feeTypes: FeeType[]) {
   return feeTypes.filter((fee) => feeAppliesToStudent(fee, student));
 }
 
 function getExpectedFromPaidFees(student: Student | undefined, feeTypes: FeeType[], payments: Payment[]) {
   const paidFeeIds = new Set(payments.map((payment) => payment.feeTypeId));
-  return getApplicableFees(student, feeTypes)
+  return getApplicableFeeTypes(student, feeTypes)
     .filter((fee) => paidFeeIds.has(fee.id))
     .reduce((sum, fee) => sum + fee.amount, 0);
 }
