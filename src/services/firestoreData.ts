@@ -134,7 +134,9 @@ export async function loadFirestoreData(user?: AppUser) {
     scopedData.expenses = await loadCollection<AppData["expenses"][number]>("expenses", schoolFilter);
     scopedData.messages = await loadCollection<AppData["messages"][number]>("messages", schoolFilter);
     scopedData.notifications = await loadCollection<AppData["notifications"][number]>("notifications", schoolFilter);
-    scopedData.auditLogs = await loadCollection<AppData["auditLogs"][number]>("auditLogs", schoolFilter);
+    if (user.role === "school_admin") {
+      scopedData.auditLogs = await loadCollection<AppData["auditLogs"][number]>("auditLogs", schoolFilter);
+    }
     scopedData.valves = await loadCollection<AppData["valves"][number]>("valves", schoolFilter);
     return scopedData;
   }
