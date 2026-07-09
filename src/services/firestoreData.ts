@@ -21,6 +21,7 @@ const collectionMap: Record<CollectionKey, string> = {
   messages: "messages",
   notifications: "notifications",
   auditLogs: "auditLogs",
+  valves: "valves",
 };
 
 export function canUseFirestoreData() {
@@ -40,6 +41,7 @@ function emptyFirestoreData(): AppData {
     messages: [],
     notifications: [],
     auditLogs: [],
+    valves: [],
   };
 }
 
@@ -122,6 +124,7 @@ export async function loadFirestoreData(user?: AppUser) {
         ["threadParentId", user.parentId],
       ]);
       scopedData.notifications = await loadCollection<AppData["notifications"][number]>("notifications", parentFilter);
+      scopedData.valves = await loadCollection<AppData["valves"][number]>("valves", schoolFilter);
       return scopedData;
     }
 
@@ -132,6 +135,7 @@ export async function loadFirestoreData(user?: AppUser) {
     scopedData.messages = await loadCollection<AppData["messages"][number]>("messages", schoolFilter);
     scopedData.notifications = await loadCollection<AppData["notifications"][number]>("notifications", schoolFilter);
     scopedData.auditLogs = await loadCollection<AppData["auditLogs"][number]>("auditLogs", schoolFilter);
+    scopedData.valves = await loadCollection<AppData["valves"][number]>("valves", schoolFilter);
     return scopedData;
   }
 

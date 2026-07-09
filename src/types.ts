@@ -196,6 +196,26 @@ export interface AuditLog {
   createdAt: string;
 }
 
+export type ValvePublicationKind = "communique" | "palmares" | "points" | "image" | "liste" | "pdf" | "document" | "autre";
+export type ValveVisibility = "parents" | "staff" | "all";
+
+export interface ValvePublication {
+  id: string;
+  schoolId: string;
+  schoolYearId: string;
+  title: string;
+  kind: ValvePublicationKind;
+  visibility: ValveVisibility;
+  body: string;
+  attachmentName?: string;
+  attachmentType?: string;
+  attachmentDataUrl?: string;
+  authorId: string;
+  authorName: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface AppData {
   users: AppUser[];
   schools: School[];
@@ -208,6 +228,7 @@ export interface AppData {
   messages: Message[];
   notifications: AppNotification[];
   auditLogs: AuditLog[];
+  valves: ValvePublication[];
 }
 
 export const CLASSES: SchoolClass[] = [

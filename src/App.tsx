@@ -62,6 +62,9 @@ import type {
   SchoolSection,
   SchoolYear,
   Student,
+  ValvePublication,
+  ValvePublicationKind,
+  ValveVisibility,
 } from "./types";
 import { CLASSES, FEE_KINDS } from "./types";
 
@@ -96,6 +99,7 @@ const emptyAppData: AppData = {
   messages: [],
   notifications: [],
   auditLogs: [],
+  valves: [],
 };
 
 function uid(prefix: string) {
@@ -710,6 +714,7 @@ function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: 
     payments: data.payments.filter((payment) => payment.schoolId === schoolId && payment.schoolYearId === schoolYearId && studentIds.includes(payment.studentId)),
     expenses: data.expenses.filter((expense) => expense.schoolId === schoolId && expense.schoolYearId === schoolYearId),
     auditLogs: data.auditLogs.filter((log) => log.schoolId === schoolId && log.schoolYearId === schoolYearId),
+    valves: data.valves.filter((publication) => publication.schoolId === schoolId && publication.schoolYearId === schoolYearId),
     messages: data.messages.filter((message) => {
       const sameScope = message.schoolId === schoolId && message.schoolYearId === schoolYearId;
       if (!sameScope) return false;
@@ -3120,6 +3125,213 @@ function ActivityHistoryContent({
   );
 }
 
+const valveKindLabels: Record<ValvePublicationKind, string> = {
+  communique: "Communiqué",
+  palmares: "Palmarès",
+  points: "Points",
+  image: "Image",
+  liste: "Liste",
+  pdf: "PDF",
+  document: "Document",
+  autre: "Autre",
+};
+
+const valveVisibilityLabels: Record<ValveVisibility, string> = {
+  parents: "Parents",
+  staff: "Personnel",
+  all: "Toute l'école",
+};
+
+function ValvesDrawerContent({
+  user,
+  data,
+  yearData,
+  school,
+  year,
+  updateData,
+  canManage,
+}: {
+  user: AppUser;
+  data: AppData;
+  yearData: ReturnType<typeof scopeData>;
+  school: School;
+  year: SchoolYear;
+  updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
+  canManage: boolean;
+}) {
+  const [title, setTitle] = useState("");
+  const [kind, setKind] = useState<ValvePublicationKind>("communique");
+  const [visibility, setVisibility] = useState<ValveVisibility>("parents");
+  const [body, setBody] = useState("");
+  const [attachment, setAttachment] = useState<{ name: string; type: string; dataUrl: string } | null>(null);
+  const [editingId, setEditingId] = useState("");
+  const [feedback, setFeedback] = useState("");
+  const visiblePublications = [...yearData.valves]
+    .filter((publication) => canManage || publication.visibility === "parents" || publication.visibility === "all")
+    .sort((first, second) => second.createdAt.localeCompare(first.createdAt));
+
+  function resetForm() {
+    setTitle("");
+    setKind("communique");
+    setVisibility("parents");
+    setBody("");
+    setAttachment(null);
+    setEditingId("");
+  }
+
+  function readAttachment(file?: File) {
+    if (!file) {
+      setAttachment(null);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setAttachment({ name: file.name, type: file.type || "application/octet-stream", dataUrl: reader.result });
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function savePublication() {
+    setFeedback("");
+    const trimmedTitle = title.trim();
+    const trimmedBody = body.trim();
+    if (!trimmedTitle || !trimmedBody) {
+      setFeedback("Veuillez renseigner le titre et le contenu de la publication.");
+      return;
+    }
+    const now = new Date().toISOString();
+    const existingPublication = yearData.valves.find((publication) => publication.id === editingId);
+    const publication: ValvePublication = {
+      id: existingPublication?.id ?? uid("valve"),
+      schoolId: school.id,
+      schoolYearId: year.id,
+      title: trimmedTitle,
+      kind,
+      visibility,
+      body: trimmedBody,
+      attachmentName: attachment?.name,
+      attachmentType: attachment?.type,
+      attachmentDataUrl: attachment?.dataUrl,
+      authorId: existingPublication?.authorId ?? user.id,
+      authorName: existingPublication?.authorName ?? user.name,
+      createdAt: existingPublication?.createdAt ?? now,
+      updatedAt: existingPublication ? now : undefined,
+    };
+    updateData({
+      valves: editingId ? data.valves.map((item) => (item.id === editingId ? publication : item)) : [publication, ...data.valves],
+      auditLogs: [createAuditLog(user, school.id, year.id, editingId ? "Modification valves" : "Publication valves", trimmedTitle), ...data.auditLogs],
+    });
+    resetForm();
+    setFeedback(editingId ? "Publication modifiée avec succès." : "Publication ajoutée avec succès.");
+  }
+
+  function editPublication(publication: ValvePublication) {
+    setEditingId(publication.id);
+    setTitle(publication.title);
+    setKind(publication.kind);
+    setVisibility(publication.visibility);
+    setBody(publication.body);
+    setAttachment(
+      publication.attachmentDataUrl
+        ? { name: publication.attachmentName ?? "document", type: publication.attachmentType ?? "application/octet-stream", dataUrl: publication.attachmentDataUrl }
+        : null,
+    );
+    setFeedback("");
+  }
+
+  function deletePublication(publication: ValvePublication) {
+    updateData({
+      valves: data.valves.filter((item) => item.id !== publication.id),
+      auditLogs: [createAuditLog(user, school.id, year.id, "Suppression valves", publication.title), ...data.auditLogs],
+    });
+    if (editingId === publication.id) resetForm();
+  }
+
+  return (
+    <div className="grid min-w-0 gap-4">
+      {canManage && (
+        <div className="grid min-w-0 gap-3 rounded border border-slate-100 bg-slate-50 p-3">
+          <p className="text-sm font-bold text-ink">{editingId ? "Modifier la publication" : "Ajouter une publication"}</p>
+          {feedback && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{feedback}</p>}
+          <Field label="Titre" value={title} onChange={setTitle} />
+          <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+            Type
+            <select value={kind} onChange={(event) => setKind(event.target.value as ValvePublicationKind)} className="input">
+              {(Object.keys(valveKindLabels) as ValvePublicationKind[]).map((item) => (
+                <option key={item} value={item}>{valveKindLabels[item]}</option>
+              ))}
+            </select>
+          </label>
+          <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+            Visibilité
+            <select value={visibility} onChange={(event) => setVisibility(event.target.value as ValveVisibility)} className="input">
+              {(Object.keys(valveVisibilityLabels) as ValveVisibility[]).map((item) => (
+                <option key={item} value={item}>{valveVisibilityLabels[item]}</option>
+              ))}
+            </select>
+          </label>
+          <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+            Contenu
+            <textarea value={body} onChange={(event) => setBody(event.target.value)} className="input min-h-28" placeholder="Rédigez la publication" />
+          </label>
+          <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+            Fichier joint
+            <input onChange={(event: ChangeEvent<HTMLInputElement>) => readAttachment(event.target.files?.[0])} type="file" className="input" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt" />
+          </label>
+          {attachment && (
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded bg-white p-2 text-sm">
+              <span className="min-w-0 break-words text-slate-700">{attachment.name}</span>
+              <button onClick={() => setAttachment(null)} type="button" className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">Retirer</button>
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <button onClick={savePublication} type="button" className="primary-button">
+              <Upload className="h-4 w-4" /> {editingId ? "Enregistrer" : "Publier"}
+            </button>
+            {editingId && <button onClick={resetForm} type="button" className="secondary-button">Annuler</button>}
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {visiblePublications.length === 0 && <p className="rounded border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">Aucune publication disponible.</p>}
+        {visiblePublications.map((publication) => (
+          <article key={publication.id} className="min-w-0 rounded border border-slate-200 bg-white p-3 shadow-sm">
+            <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="break-words font-bold text-ink">{publication.title}</h3>
+                  <span className="rounded bg-blue-50 px-2 py-1 text-[10px] font-bold uppercase text-blue-700">{valveKindLabels[publication.kind]}</span>
+                  {canManage && <span className="rounded bg-slate-100 px-2 py-1 text-[10px] font-bold uppercase text-slate-500">{valveVisibilityLabels[publication.visibility]}</span>}
+                </div>
+                <p className="mt-1 text-xs text-slate-500">{publication.authorName} · {new Date(publication.createdAt).toLocaleString("fr-FR")}</p>
+                <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{publication.body}</p>
+                {publication.attachmentDataUrl && (
+                  <a href={publication.attachmentDataUrl} download={publication.attachmentName ?? "document"} className="mt-3 inline-flex items-center gap-2 rounded bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-200">
+                    <Download className="h-4 w-4" /> Télécharger {publication.attachmentName ?? "le fichier"}
+                  </a>
+                )}
+              </div>
+              {canManage && (
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <button onClick={() => editPublication(publication)} type="button" className="rounded bg-slate-100 p-2 text-slate-700" title="Modifier">
+                    <Edit3 className="h-4 w-4" />
+                  </button>
+                  <button onClick={() => deletePublication(publication)} type="button" className="rounded bg-red-50 p-2 text-red-700" title="Supprimer">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function buildActivityHistoryItems(user: AppUser, data: AppData, yearData: ReturnType<typeof scopeData>, role: "admin" | "cashier" | "parent") {
   const usersById = new Map(data.users.map((item) => [item.id, item]));
   const parentsById = new Map(yearData.parents.map((item) => [item.id, item]));
@@ -3305,6 +3517,7 @@ function ParentPortal({
 }) {
   const [activeParentTab, setActiveParentTab] = useState<ParentTab>("children");
   const [parentHistoryOpen, setParentHistoryOpen] = useState(false);
+  const [parentValvesOpen, setParentValvesOpen] = useState(false);
   const [parentMessageDrawerOpen, setParentMessageDrawerOpen] = useState(false);
   const [messageRecipient, setMessageRecipient] = useState<"admin" | "cashier" | "both">("admin");
   const [messageSubject, setMessageSubject] = useState("");
@@ -3608,6 +3821,21 @@ function ParentPortal({
                   </div>
                 </div>
               </button>
+              <button
+                onClick={() => setParentValvesOpen(true)}
+                className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint"
+                type="button"
+              >
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink">
+                    <BookOpen className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="break-words font-bold text-ink">Valves</h2>
+                    <p className="mt-1 break-words text-sm text-slate-500">Consulter les communiqués et documents publiés par l'école.</p>
+                  </div>
+                </div>
+              </button>
               <button onClick={onLogout} className="inline-flex w-full items-center justify-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 transition hover:bg-red-100" type="button">
                 <LogOut className="h-4 w-4" /> Déconnexion
               </button>
@@ -3621,6 +3849,13 @@ function ParentPortal({
           <ActivityHistoryContent user={user} data={data} yearData={yearData} role="parent" />
         </AdminDrawer>
       )}
+      {parentValvesOpen && (
+        <AdminDrawer title="Valves" onClose={() => setParentValvesOpen(false)} closeLabel="Fermer les valves">
+          <ValvesDrawerContent user={user} data={data} yearData={yearData} school={school} year={year} updateData={updateData} canManage={false} />
+        </AdminDrawer>
+      )}
+
+
 
       <ParentBottomNavigation
         activeTab={activeParentTab}
@@ -6295,7 +6530,7 @@ function MenuModule({
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
   onLogout: () => void;
 }) {
-  type MenuSection = "school" | "years" | "accounts" | "fees" | "financial" | "history";
+  type MenuSection = "school" | "years" | "accounts" | "fees" | "financial" | "valves" | "history";
   const [schoolForm, setSchoolForm] = useState(school);
   const [schoolSaveStatus, setSchoolSaveStatus] = useState<"success" | "error" | "">("");
   const [schoolSaveMessage, setSchoolSaveMessage] = useState("");
@@ -6334,6 +6569,7 @@ function MenuModule({
     { id: "accounts", title: "Créer un caissier", description: "Compte de connexion caissier lié à l'école.", icon: ShieldCheck },
     { id: "fees", title: "Types de frais", description: "Montants et catégories de frais scolaires.", icon: Banknote },
     { id: "financial", title: "Rapport financier", description: "Synthèse et exports des rapports financiers.", icon: BarChart3 },
+    { id: "valves", title: "Valves", description: "Communiques, palmares, points, images et documents.", icon: BookOpen },
     { id: "history", title: "Historique", description: "Activités et messages enregistrés pour ce compte.", icon: Clock3 },
   ] satisfies { id: MenuSection; title: string; description: string; icon: typeof Settings }[];
   const persistedCustomFeeKindChoices = selectedYear.customFeeKindChoices ?? [];
@@ -7043,6 +7279,22 @@ function MenuModule({
         </div>
       );
     }
+
+    if (sectionId === "valves" && canAdmin) {
+      return (
+        <ValvesDrawerContent
+          user={user}
+          data={data}
+          yearData={yearData}
+          school={school}
+          year={selectedYear}
+          updateData={updateData}
+          canManage
+        />
+      );
+    }
+
+
 
     if (sectionId === "history") {
       return (
