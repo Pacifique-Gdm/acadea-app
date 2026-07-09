@@ -5481,7 +5481,19 @@ function ControlModule({
     : [];
 
   const rows = yearData.students
-    .map((student) => ({ student, balance: getStudentBalance(student.id, yearData.feeTypes, yearData.payments, yearData.students) }))
+    .map((student) => {
+      const feeSummaries = getStudentFeeSummaries(student, yearData.feeTypes, yearData.payments);
+      const balance = feeSummaries.reduce(
+        (totals, summary) => ({
+          expected: totals.expected + summary.expected,
+          paid: totals.paid + summary.paid,
+          remaining: totals.remaining + summary.remaining,
+        }),
+        { expected: 0, paid: 0, remaining: 0 },
+      );
+      const progress = balance.expected > 0 ? Math.min(100, Math.round((balance.paid / balance.expected) * 100)) : 0;
+      return { student, balance, progress, hasApplicableFees: feeSummaries.length > 0 };
+    })
     .filter((row) => {
       if (amountComparator === "all" || !amountThreshold) return true;
       const feeFilter = amountComparator.match(/^fee:(.+):(gte|lt)$/);
@@ -5589,8 +5601,15 @@ function ControlModule({
     return "";
   }
 
+  function progressBarTone(percent: number) {
+    if (percent >= 100) return "bg-mint";
+    if (percent >= 75) return "bg-lime-400";
+    if (percent >= 50) return "bg-amber-400";
+    return "bg-red-500";
+  }
+
   function isStudentPaymentComplete(balance: { expected: number; paid: number }) {
-    return balance.expected > 0 && balance.paid === balance.expected;
+    return balance.expected > 0 && balance.paid >= balance.expected;
   }
 
   function selectPaymentStudent(student: Student) {
@@ -6310,7 +6329,7 @@ function ControlModule({
           )}
         </div>
         <div className="grid min-w-0 gap-3">
-          {rows.map(({ student, balance }) => (
+          {rows.map(({ student, balance, progress, hasApplicableFees }) => (
             <article key={student.id} className="min-w-0 rounded border border-slate-200 bg-white p-4">
               <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
@@ -6328,9 +6347,16 @@ function ControlModule({
                 </span>
               </div>
               <div className="mt-4 grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
-                <Metric label="Prévu" value={`$${balance.expected}`} />
-                <Metric label="Payé" value={`$${balance.paid}`} />
-                <Metric label="Solde" value={`$${balance.remaining}`} />
+                <Metric label="Prévu" value={formatMoney(balance.expected)} />
+                <Metric label="Payé" value={formatMoney(balance.paid)} />
+                <Metric label="Solde" value={formatMoney(balance.remaining)} />
+              </div>
+              <div className="mt-4 h-3 overflow-hidden rounded bg-slate-100">
+                <div className={`h-full rounded transition-colors ${progressBarTone(progress)}`} style={{ width: `${progress}%` }} />
+              </div>
+              <div className="mt-2 flex min-w-0 flex-col gap-1 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+                <span>{progress}% payé</span>
+                {!hasApplicableFees && <span className="font-semibold text-slate-500">Aucun frais défini pour cette classe.</span>}
               </div>
             </article>
           ))}
