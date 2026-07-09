@@ -3235,13 +3235,11 @@ function ValvesDrawerContent({
       visibility,
       ...(visibility === "class" ? { targetClassKey } : {}),
       body: trimmedBody,
-      attachmentName: attachment?.name,
-      attachmentType: attachment?.type,
-      attachmentDataUrl: attachment?.dataUrl,
       authorId: existingPublication?.authorId ?? user.id,
       authorName: existingPublication?.authorName ?? user.name,
       createdAt: existingPublication?.createdAt ?? now,
-      updatedAt: existingPublication ? now : undefined,
+      ...(attachment ? { attachmentName: attachment.name, attachmentType: attachment.type, attachmentDataUrl: attachment.dataUrl } : {}),
+      ...(existingPublication ? { updatedAt: now } : {}),
     };
     const valveNotifications: AppNotification[] = existingPublication
       ? []
