@@ -1,0 +1,24 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function role() {
+      return request.auth.token.role;
+    }
+
+    function tenantSchoolId() {
+      return request.auth.token.schoolId;
+    }
+
+    match /valves/{schoolId}/{schoolYearId}/{publicationId}/{fileName=**} {
+      allow read: if signedIn() && tenantSchoolId() == schoolId;
+      allow write: if signedIn()
+        && role() == "school_admin"
+        && tenantSchoolId() == schoolId;
+    }
+  }
+}

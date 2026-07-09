@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { indexedDBLocalPersistence, initializeAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 
 export const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -16,3 +17,4 @@ export const firebaseReady = Boolean(firebaseConfig.apiKey && firebaseConfig.pro
 export const app = firebaseReady ? initializeApp(firebaseConfig) : undefined;
 export const auth = app ? initializeAuth(app, { persistence: indexedDBLocalPersistence }) : undefined;
 export const db = app ? getFirestore(app) : undefined;
+export const storage = app ? getStorage(app) : undefined;

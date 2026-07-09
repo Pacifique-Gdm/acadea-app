@@ -48,6 +48,7 @@ import type { PdfTableColumn } from "./utils/pdf";
 import { buildStats, getStudentBalance } from "./utils/stats";
 import { buildValveClassChoices, formatValveClassChoiceLabel, getValvePublicationParents, normalizeValveVisibility, parentCanViewValvePublication } from "./utils/valves";
 import { prepareValveAttachment } from "./utils/valvesMedia";
+import { deleteValveAttachment, uploadValveAttachment } from "./services/valvesStorage";
 import type {
   AppData,
   AppNotification,
@@ -3153,6 +3154,15 @@ const valveVisibilityLabels: Record<ValveVisibility, string> = {
 
 const MAX_VALVE_DOCUMENT_BYTES = 900 * 1024;
 
+type ValveAttachmentDraft = {
+  name: string;
+  type: string;
+  dataUrl?: string;
+  url?: string;
+  path?: string;
+  size?: number;
+};
+
 function getApproximateValveDocumentSize(publication: ValvePublication) {
   return new TextEncoder().encode(JSON.stringify(publication)).length;
 }
@@ -3179,7 +3189,7 @@ function ValvesDrawerContent({
   const [visibility, setVisibility] = useState<ValveVisibility>("all_parents");
   const [targetClassKey, setTargetClassKey] = useState("");
   const [body, setBody] = useState("");
-  const [attachment, setAttachment] = useState<{ name: string; type: string; dataUrl: string } | null>(null);
+  const [attachment, setAttachment] = useState<ValveAttachmentDraft | null>(null);
   const [editingId, setEditingId] = useState("");
   const [modifyConfirmation, setModifyConfirmation] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<ValvePublication | null>(null);
@@ -3232,8 +3242,40 @@ function ValvesDrawerContent({
     }
     const now = new Date().toISOString();
     const existingPublication = yearData.valves.find((publication) => publication.id === editingId);
+    const publicationId = existingPublication?.id ?? uid("valve");
+    let attachmentMetadata: Pick<ValvePublication, "attachmentName" | "attachmentType" | "attachmentUrl" | "attachmentPath" | "attachmentSize" | "attachmentDataUrl"> = {};
+    let oldAttachmentPathToDelete = "";
+    if (attachment?.dataUrl) {
+      try {
+        const uploadedAttachment = await uploadValveAttachment({
+          schoolId: school.id,
+          schoolYearId: year.id,
+          publicationId,
+          attachment: { name: attachment.name, type: attachment.type, dataUrl: attachment.dataUrl },
+        });
+        attachmentMetadata = uploadedAttachment;
+        oldAttachmentPathToDelete = existingPublication?.attachmentPath ?? "";
+      } catch {
+        setFeedback("Impossible d'envoyer le fichier joint. Veuillez réessayer.");
+        return;
+      }
+    } else if (attachment?.url || attachment?.path) {
+      attachmentMetadata = {
+        attachmentName: attachment.name,
+        attachmentType: attachment.type,
+        attachmentUrl: attachment.url,
+        attachmentPath: attachment.path,
+        attachmentSize: attachment.size,
+      };
+    } else if (existingPublication?.attachmentDataUrl && !attachment) {
+      attachmentMetadata = {
+        attachmentName: existingPublication.attachmentName,
+        attachmentType: existingPublication.attachmentType,
+        attachmentDataUrl: existingPublication.attachmentDataUrl,
+      };
+    }
     const publication: ValvePublication = {
-      id: existingPublication?.id ?? uid("valve"),
+      id: publicationId,
       schoolId: school.id,
       schoolYearId: year.id,
       title: trimmedTitle,
@@ -3244,7 +3286,7 @@ function ValvesDrawerContent({
       authorId: existingPublication?.authorId ?? user.id,
       authorName: existingPublication?.authorName ?? user.name,
       createdAt: existingPublication?.createdAt ?? now,
-      ...(attachment ? { attachmentName: attachment.name, attachmentType: attachment.type, attachmentDataUrl: attachment.dataUrl } : {}),
+      ...attachmentMetadata,
       ...(existingPublication ? { updatedAt: now } : {}),
     };
     if (getApproximateValveDocumentSize(publication) > MAX_VALVE_DOCUMENT_BYTES) {
@@ -3291,6 +3333,11 @@ function ValvesDrawerContent({
       setFeedback("Le fichier joint est trop volumineux pour être publié.");
       return;
     }
+    if (oldAttachmentPathToDelete) {
+      void deleteValveAttachment(oldAttachmentPathToDelete).catch((error) => {
+        console.warn("Suppression de l'ancienne pièce jointe Valves indisponible.", error);
+      });
+    }
     updateData(
       {
         valves: nextValves,
@@ -3317,8 +3364,16 @@ function ValvesDrawerContent({
     setTargetClassKey(publication.targetClassKey ?? "");
     setBody(publication.body);
     setAttachment(
-      publication.attachmentDataUrl
-        ? { name: publication.attachmentName ?? "document", type: publication.attachmentType ?? "application/octet-stream", dataUrl: publication.attachmentDataUrl }
+      publication.attachmentUrl || publication.attachmentPath
+        ? {
+            name: publication.attachmentName ?? "document",
+            type: publication.attachmentType ?? "application/octet-stream",
+            url: publication.attachmentUrl,
+            path: publication.attachmentPath,
+            size: publication.attachmentSize,
+          }
+        : publication.attachmentDataUrl
+          ? { name: publication.attachmentName ?? "document", type: publication.attachmentType ?? "application/octet-stream", dataUrl: publication.attachmentDataUrl }
         : null,
     );
     setModifyConfirmation("");
@@ -3342,6 +3397,9 @@ function ValvesDrawerContent({
     updateData({
       valves: data.valves.filter((item) => item.id !== publication.id),
       auditLogs: [createAuditLog(user, school.id, year.id, "Suppression valves", publication.title), ...data.auditLogs],
+    });
+    void deleteValveAttachment(publication.attachmentPath).catch((error) => {
+      console.warn("Suppression de la pièce jointe Valves indisponible.", error);
     });
     if (editingId === publication.id) resetForm();
     closeDeletePublication();
@@ -3445,8 +3503,8 @@ function ValvesDrawerContent({
                 </div>
                 <p className="mt-1 text-xs text-slate-500">{publication.authorName} · {new Date(publication.createdAt).toLocaleString("fr-FR")}</p>
                 <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{publication.body}</p>
-                {publication.attachmentDataUrl && (
-                  <a href={publication.attachmentDataUrl} download={publication.attachmentName ?? "document"} className="mt-3 inline-flex items-center gap-2 rounded bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-200">
+                {(publication.attachmentUrl || publication.attachmentDataUrl) && (
+                  <a href={publication.attachmentUrl ?? publication.attachmentDataUrl} download={publication.attachmentName ?? "document"} className="mt-3 inline-flex items-center gap-2 rounded bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-200">
                     <Download className="h-4 w-4" /> Télécharger {publication.attachmentName ?? "le fichier"}
                   </a>
                 )}

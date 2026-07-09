@@ -212,6 +212,9 @@ export interface ValvePublication {
   attachmentName?: string;
   attachmentType?: string;
   attachmentDataUrl?: string;
+  attachmentUrl?: string;
+  attachmentPath?: string;
+  attachmentSize?: number;
   authorId: string;
   authorName: string;
   createdAt: string;
