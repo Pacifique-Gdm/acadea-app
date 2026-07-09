@@ -42,6 +42,7 @@ import { createFirebaseAuthUser, getDefaultRoute, signIn, signOutUser, subscribe
 import { canUseFirestoreData, loadFirestoreData, loadPlatformSettings, persistFirestorePatch, savePlatformSettings } from "./services/firestoreData";
 import { db } from "./firebase";
 import { manageSchool, provisionCashier, provisionParent, provisionSchoolAdmin } from "./services/provisioning";
+import { formatSchoolRecipientLabel } from "./utils/messages";
 import { escapePdfHtml, generateReceiptPdf, money, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./utils/pdf";
 import type { PdfTableColumn } from "./utils/pdf";
 import { buildStats, getStudentBalance } from "./utils/stats";
@@ -3469,7 +3470,7 @@ function buildActivityHistoryItems(user: AppUser, data: AppData, yearData: Retur
       const senderName = sender?.role === "parent" ? senderParent?.fullName ?? sender.name : sender?.name ?? (senderParent?.fullName ?? "École");
       const recipientName =
         message.recipientParentId === "school"
-          ? "École"
+          ? formatSchoolRecipientLabel(message.schoolRecipient)
           : message.recipientParentId === "all"
             ? "Tous les parents"
             : parentsById.get(message.recipientParentId)?.fullName ?? "Parent";
