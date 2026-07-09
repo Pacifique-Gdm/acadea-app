@@ -178,7 +178,7 @@ export interface AppNotification {
   parentId?: string;
   studentId?: string;
   messageId?: string;
-  type: "payment" | "message";
+  type: "payment" | "message" | "valve";
   title: string;
   body: string;
   createdAt: string;

@@ -45,6 +45,7 @@ import { manageSchool, provisionCashier, provisionParent, provisionSchoolAdmin }
 import { escapePdfHtml, generateReceiptPdf, money, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./utils/pdf";
 import type { PdfTableColumn } from "./utils/pdf";
 import { buildStats, getStudentBalance } from "./utils/stats";
+import { buildValveClassChoices, formatValveClassChoiceLabel, getValvePublicationParents, normalizeValveVisibility, parentCanViewValvePublication } from "./utils/valves";
 import type {
   AppData,
   AppNotification,
@@ -3144,11 +3145,6 @@ const valveVisibilityLabels: Record<ValveVisibility, string> = {
   class: "Classe précise",
 };
 
-function normalizeValveVisibility(value: ValvePublication["visibility"] | "parents" | "all" | "staff"): ValveVisibility {
-  if (value === "parents" || value === "all" || value === "staff") return "all_parents";
-  return value;
-}
-
 function ValvesDrawerContent({
   user,
   data,
@@ -3174,22 +3170,10 @@ function ValvesDrawerContent({
   const [attachment, setAttachment] = useState<{ name: string; type: string; dataUrl: string } | null>(null);
   const [editingId, setEditingId] = useState("");
   const [feedback, setFeedback] = useState("");
-  const parentChildren = user.parentId
-    ? yearData.students.filter((student) => student.parentId === user.parentId)
-    : [];
-  const valveClassChoices = buildFeeTargetChoices(yearData.students, targetClassKey ? [targetClassKey] : []);
-  const visibleToCurrentParent = (publication: ValvePublication) => {
-    const publicationVisibility = publication.visibility as ValveVisibility | "parents" | "all" | "staff";
-    if (publicationVisibility === "all_parents" || publicationVisibility === "parents" || publicationVisibility === "all") return true;
-    if (publicationVisibility === "staff") return false;
-    if (publicationVisibility === "class") {
-      if (!publication.targetClassKey) return false;
-      return parentChildren.some((student) => studentFeeTargetKey(student) === publication.targetClassKey);
-    }
-    return parentChildren.some((student) => getClassSection(student.className) === publicationVisibility);
-  };
+  const currentParent = user.parentId ? yearData.parents.find((parent) => parent.id === user.parentId) : undefined;
+  const valveClassChoices = buildValveClassChoices(yearData.students, targetClassKey);
   const visiblePublications = [...yearData.valves]
-    .filter((publication) => canManage || visibleToCurrentParent(publication))
+    .filter((publication) => canManage || (currentParent ? parentCanViewValvePublication(publication, currentParent, yearData.students) : false))
     .sort((first, second) => second.createdAt.localeCompare(first.createdAt));
 
   function resetForm() {
@@ -3247,8 +3231,23 @@ function ValvesDrawerContent({
       createdAt: existingPublication?.createdAt ?? now,
       updatedAt: existingPublication ? now : undefined,
     };
+    const valveNotifications: AppNotification[] = existingPublication
+      ? []
+      : getValvePublicationParents(publication, yearData.parents, yearData.students).map((parent) => ({
+          id: uid("notif"),
+          schoolId: school.id,
+          schoolYearId: year.id,
+          recipientRole: "parent",
+          parentId: parent.id,
+          type: "valve",
+          title: "Nouvelle publication Valves",
+          body: trimmedTitle,
+          createdAt: now,
+          read: false,
+        }));
     updateData({
       valves: editingId ? data.valves.map((item) => (item.id === editingId ? publication : item)) : [publication, ...data.valves],
+      notifications: valveNotifications.length > 0 ? [...valveNotifications, ...data.notifications] : data.notifications,
       auditLogs: [createAuditLog(user, school.id, year.id, editingId ? "Modification valves" : "Publication valves", trimmedTitle), ...data.auditLogs],
     });
     resetForm();
@@ -3355,8 +3354,8 @@ function ValvesDrawerContent({
                   {canManage && (
                     <span className="rounded bg-slate-100 px-2 py-1 text-[10px] font-bold uppercase text-slate-500">
                       {publication.visibility === "class" && publication.targetClassKey
-                        ? `${valveVisibilityLabels[publication.visibility]} · ${formatFeeTargetValue(publication.targetClassKey)}`
-                        : valveVisibilityLabels[normalizeValveVisibility(publication.visibility)]}
+                        ? `${valveVisibilityLabels[publication.visibility]} · ${formatValveClassChoiceLabel(publication.targetClassKey)}`
+                        : valveVisibilityLabels[normalizeValveVisibility(publication.visibility as ValvePublication["visibility"] | "parents" | "all" | "staff")]}
                     </span>
                   )}
                 </div>
@@ -3862,21 +3861,6 @@ function ParentPortal({
 
             <div className="mt-2 grid gap-3 border-t border-slate-200 pt-4">
               <button
-                onClick={() => setParentHistoryOpen(true)}
-                className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint"
-                type="button"
-              >
-                <div className="flex min-w-0 items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink">
-                    <Clock3 className="h-5 w-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <h2 className="break-words font-bold text-ink">Historique</h2>
-                    <p className="mt-1 break-words text-sm text-slate-500">Activités et messages liés à ce compte parent.</p>
-                  </div>
-                </div>
-              </button>
-              <button
                 onClick={() => setParentValvesOpen(true)}
                 className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint"
                 type="button"
@@ -3888,6 +3872,21 @@ function ParentPortal({
                   <div className="min-w-0">
                     <h2 className="break-words font-bold text-ink">Valves</h2>
                     <p className="mt-1 break-words text-sm text-slate-500">Consulter les communiqués et documents publiés par l'école.</p>
+                  </div>
+                </div>
+              </button>
+              <button
+                onClick={() => setParentHistoryOpen(true)}
+                className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint"
+                type="button"
+              >
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink">
+                    <Clock3 className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="break-words font-bold text-ink">Historique</h2>
+                    <p className="mt-1 break-words text-sm text-slate-500">Activités et messages liés à ce compte parent.</p>
                   </div>
                 </div>
               </button>
@@ -6619,13 +6618,13 @@ function MenuModule({
   const isArchivedContext = selectedYear.status === "archived";
   const canAdmin = user.role === "school_admin" && !isArchivedContext;
   const menuSections = [
-    { id: "school", title: "Paramètres école", description: "Logo, coordonnées et informations de l'établissement.", icon: Settings },
+    { id: "valves", title: "Valves", description: "Communiqués, palmarès, points, images et documents.", icon: BookOpen },
     { id: "years", title: "Années scolaires", description: "Année active, années archivées et contexte global.", icon: BookOpen },
     { id: "accounts", title: "Créer un caissier", description: "Compte de connexion caissier lié à l'école.", icon: ShieldCheck },
     { id: "fees", title: "Types de frais", description: "Montants et catégories de frais scolaires.", icon: Banknote },
     { id: "financial", title: "Rapport financier", description: "Synthèse et exports des rapports financiers.", icon: BarChart3 },
-    { id: "valves", title: "Valves", description: "Communiqués, palmarès, points, images et documents.", icon: BookOpen },
     { id: "history", title: "Historique", description: "Activités et messages enregistrés pour ce compte.", icon: Clock3 },
+    { id: "school", title: "Paramètres école", description: "Logo, coordonnées et informations de l'établissement.", icon: Settings },
   ] satisfies { id: MenuSection; title: string; description: string; icon: typeof Settings }[];
   const persistedCustomFeeKindChoices = selectedYear.customFeeKindChoices ?? [];
   const feeKindChoices = Array.from(new Set([...FEE_KINDS, ...yearData.feeTypes.map((fee) => fee.name), ...persistedCustomFeeKindChoices, ...customFeeKindChoices]));
