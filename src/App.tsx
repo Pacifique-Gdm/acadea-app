@@ -3752,6 +3752,7 @@ function ParentPortal({
   onLogout: () => void;
 }) {
   const [activeParentTab, setActiveParentTab] = useState<ParentTab>("children");
+  const [parentAccountOpen, setParentAccountOpen] = useState(false);
   const [parentHistoryOpen, setParentHistoryOpen] = useState(false);
   const [parentValvesOpen, setParentValvesOpen] = useState(false);
   const [parentMessageDrawerOpen, setParentMessageDrawerOpen] = useState(false);
@@ -4030,18 +4031,7 @@ function ParentPortal({
 
         {activeParentTab === "menu" && (
           <section className="grid min-w-0 gap-4">
-            <FormPanel title="Compte parent">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Metric label="Parent" value={parent?.fullName ?? user.name} />
-                <Metric label="Email" value={user.email} />
-                <Metric label="École" value={school.name} />
-                <Metric label="Année scolaire" value={year.name} />
-                <Metric label="Enfant(s)" value={String(yearData.students.length)} />
-                <Metric label="Notification(s)" value={String(unread)} />
-              </div>
-            </FormPanel>
-
-            <div className="mt-2 grid gap-3 border-t border-slate-200 pt-4">
+            <div className="mt-2 grid gap-3">
               <button
                 onClick={() => setParentValvesOpen(true)}
                 className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint"
@@ -4054,6 +4044,21 @@ function ParentPortal({
                   <div className="min-w-0">
                     <h2 className="break-words font-bold text-ink">Valves</h2>
                     <p className="mt-1 break-words text-sm text-slate-500">Consulter les communiqués et documents publiés par l'école.</p>
+                  </div>
+                </div>
+              </button>
+              <button
+                onClick={() => setParentAccountOpen(true)}
+                className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint"
+                type="button"
+              >
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink">
+                    <UserRound className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="break-words font-bold text-ink">Compte parent</h2>
+                    <p className="mt-1 break-words text-sm text-slate-500">Consulter les informations du compte parent.</p>
                   </div>
                 </div>
               </button>
@@ -4080,6 +4085,20 @@ function ParentPortal({
         )}
       </main>
 
+      {parentAccountOpen && (
+        <AdminDrawer title="Compte parent" onClose={() => setParentAccountOpen(false)} closeLabel="Fermer le compte parent">
+          <FormPanel title="Compte parent">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Metric label="Parent" value={parent?.fullName ?? user.name} />
+              <Metric label="Email" value={user.email} />
+              <Metric label="École" value={school.name} />
+              <Metric label="Année scolaire" value={year.name} />
+              <Metric label="Enfant(s)" value={String(yearData.students.length)} />
+              <Metric label="Notification(s)" value={String(unread)} />
+            </div>
+          </FormPanel>
+        </AdminDrawer>
+      )}
       {parentHistoryOpen && (
         <AdminDrawer title="Historique" onClose={() => setParentHistoryOpen(false)} closeLabel="Fermer l'historique">
           <ActivityHistoryContent user={user} data={data} yearData={yearData} role="parent" />
