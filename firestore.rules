@@ -198,6 +198,13 @@ service cloud.firestore {
       allow delete: if schoolAdmin() && sameTenantResource();
     }
 
+    match /valves/{valveId} {
+      allow read: if superAdmin() || sameTenantResource();
+      allow create: if schoolAdmin() && sameTenantCreate();
+      allow update: if schoolAdmin() && sameTenantUpdate() && sameYearUpdate();
+      allow delete: if schoolAdmin() && sameTenantResource();
+    }
+
     match /messages/{messageId} {
       allow read: if superAdmin()
         || (role() in ["school_admin", "cashier"] && sameTenantResource())
