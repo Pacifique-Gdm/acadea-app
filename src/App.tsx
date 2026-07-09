@@ -713,7 +713,7 @@ function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: 
     feeTypes: data.feeTypes.filter((fee) => fee.schoolId === schoolId && fee.schoolYearId === schoolYearId),
     payments: data.payments.filter((payment) => payment.schoolId === schoolId && payment.schoolYearId === schoolYearId && studentIds.includes(payment.studentId)),
     expenses: data.expenses.filter((expense) => expense.schoolId === schoolId && expense.schoolYearId === schoolYearId),
-    auditLogs: data.auditLogs.filter((log) => log.schoolId === schoolId && log.schoolYearId === schoolYearId),
+    auditLogs: data.auditLogs.filter((log) => log.schoolId === schoolId && log.schoolYearId === schoolYearId && !isSessionAuditAction(log.action)),
     valves: data.valves.filter((publication) => publication.schoolId === schoolId && publication.schoolYearId === schoolYearId),
     messages: data.messages.filter((message) => {
       const sameScope = message.schoolId === schoolId && message.schoolYearId === schoolYearId;
@@ -1811,7 +1811,7 @@ function PlatformModule({
   const drawerAdmins = drawerSchool ? data.users.filter((item) => item.role === "school_admin" && item.schoolId === drawerSchool.id) : [];
   const drawerMainAdmin = drawerSchool ? drawerAdmins.find((admin) => admin.id === drawerSchool.mainAdminId) ?? drawerAdmins[0] : undefined;
   const drawerLogs = drawerSchool
-    ? data.auditLogs.filter((log) => log.schoolId === drawerSchool.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    ? data.auditLogs.filter((log) => log.schoolId === drawerSchool.id && !isSessionAuditAction(log.action)).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     : [];
   const adminFormValid =
     adminName.trim().length >= 2 &&
@@ -3356,6 +3356,7 @@ function buildActivityHistoryItems(user: AppUser, data: AppData, yearData: Retur
   };
   const auditItems = yearData.auditLogs
     .filter((log) => {
+      if (isSessionAuditAction(log.action)) return false;
       const actor = usersById.get(log.actorId);
       const warningDetails = parseWarningDetails(log.details);
       if (warningDetails && role === "parent") return false;
@@ -3854,8 +3855,6 @@ function ParentPortal({
           <ValvesDrawerContent user={user} data={data} yearData={yearData} school={school} year={year} updateData={updateData} canManage={false} />
         </AdminDrawer>
       )}
-
-
 
       <ParentBottomNavigation
         activeTab={activeParentTab}
@@ -5668,12 +5667,14 @@ function ControlModule({
   }
 
   async function printFilteredStudents() {
+    const feeFilter = amountComparator.match(/^fee:(.+):(gte|lt)$/);
+    const selectedPdfFeeGroup = feeFilter ? amountFeeGroups.find((fee) => fee.key === feeFilter[1]) : undefined;
     const filterLabel =
       amountComparator === "all" || !amountThreshold
         ? "Montant payé : tous"
-        : `Montant payé ${amountComparator} ${amountThreshold}`;
-    const feeFilter = amountComparator.match(/^fee:(.+):(gte|lt)$/);
-    const selectedPdfFeeGroup = feeFilter ? amountFeeGroups.find((fee) => fee.key === feeFilter[1]) : undefined;
+        : selectedPdfFeeGroup && feeFilter
+          ? `${selectedPdfFeeGroup.name} ${feeFilter[2] === "gte" ? ">=" : "<"} ${amountThreshold}`
+          : `Montant payé ${amountComparator} ${amountThreshold}`;
     const pdfBalanceForRow = (row: (typeof rows)[number]) => {
       if (!selectedPdfFeeGroup) return row.balance;
       const expected = yearData.feeTypes
@@ -6569,7 +6570,7 @@ function MenuModule({
     { id: "accounts", title: "Créer un caissier", description: "Compte de connexion caissier lié à l'école.", icon: ShieldCheck },
     { id: "fees", title: "Types de frais", description: "Montants et catégories de frais scolaires.", icon: Banknote },
     { id: "financial", title: "Rapport financier", description: "Synthèse et exports des rapports financiers.", icon: BarChart3 },
-    { id: "valves", title: "Valves", description: "Communiques, palmares, points, images et documents.", icon: BookOpen },
+    { id: "valves", title: "Valves", description: "Communiqués, palmarès, points, images et documents.", icon: BookOpen },
     { id: "history", title: "Historique", description: "Activités et messages enregistrés pour ce compte.", icon: Clock3 },
   ] satisfies { id: MenuSection; title: string; description: string; icon: typeof Settings }[];
   const persistedCustomFeeKindChoices = selectedYear.customFeeKindChoices ?? [];
@@ -7294,8 +7295,6 @@ function MenuModule({
       );
     }
 
-
-
     if (sectionId === "history") {
       return (
         <ActivityHistoryContent
@@ -7724,6 +7723,15 @@ function resolveExpenseCashierName(expense: Expense, auditLogs: AuditLog[]) {
     details.includes(expense.category) && details.includes(`$${expense.amount}`),
   );
   return matchingLog?.actorName || expense.cashierName || "-";
+}
+
+function isSessionAuditAction(action: string) {
+  const normalizedAction = action
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+  return ["connexion", "deconnexion", "login", "logout", "sign in", "sign out"].some((sessionAction) => normalizedAction.includes(sessionAction));
 }
 
 function createAuditLog(user: AppUser, schoolId: string, schoolYearId: string, action: string, details: string): AuditLog {
