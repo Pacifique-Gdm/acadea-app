@@ -3269,10 +3269,22 @@ function ValvesDrawerContent({
             read: false,
           },
         ];
-    updateData({
-      valves: editingId ? data.valves.map((item) => (item.id === editingId ? publication : item)) : [publication, ...data.valves],
-      notifications: valveNotifications.length > 0 ? [...valveNotifications, ...data.notifications] : data.notifications,
-      auditLogs: [createAuditLog(user, school.id, year.id, editingId ? "Modification valves" : "Publication valves", trimmedTitle), ...data.auditLogs],
+    const auditLog = createAuditLog(user, school.id, year.id, editingId ? "Modification valves" : "Publication valves", trimmedTitle);
+    const nextValves = editingId ? data.valves.map((item) => (item.id === editingId ? publication : item)) : [publication, ...data.valves];
+    updateData(
+      {
+        valves: nextValves,
+        notifications: valveNotifications.length > 0 ? [...valveNotifications, ...data.notifications] : data.notifications,
+        auditLogs: [auditLog, ...data.auditLogs],
+      },
+      { persist: false },
+    );
+    void persistFirestorePatch({
+      valves: [publication],
+      notifications: valveNotifications,
+      auditLogs: [auditLog],
+    }).catch((error) => {
+      console.warn("Sauvegarde Firestore indisponible.", error);
     });
     resetForm();
     setFeedback(editingId ? "Publication modifiée avec succès." : "Publication ajoutée avec succès.");
