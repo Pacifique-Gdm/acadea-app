@@ -6636,11 +6636,11 @@ function MenuModule({
   const canAdmin = user.role === "school_admin" && !isArchivedContext;
   const menuSections = [
     { id: "valves", title: "Valves", description: "Communiqués, palmarès, points, images et documents.", icon: BookOpen },
-    { id: "years", title: "Années scolaires", description: "Année active, années archivées et contexte global.", icon: BookOpen },
-    { id: "accounts", title: "Créer un caissier", description: "Compte de connexion caissier lié à l'école.", icon: ShieldCheck },
     { id: "fees", title: "Types de frais", description: "Montants et catégories de frais scolaires.", icon: Banknote },
     { id: "financial", title: "Rapport financier", description: "Synthèse et exports des rapports financiers.", icon: BarChart3 },
     { id: "history", title: "Historique", description: "Activités et messages enregistrés pour ce compte.", icon: Clock3 },
+    { id: "accounts", title: "Créer un caissier", description: "Compte de connexion caissier lié à l'école.", icon: ShieldCheck },
+    { id: "years", title: "Années scolaires", description: "Année active, années archivées et contexte global.", icon: BookOpen },
     { id: "school", title: "Paramètres école", description: "Logo, coordonnées et informations de l'établissement.", icon: Settings },
   ] satisfies { id: MenuSection; title: string; description: string; icon: typeof Settings }[];
   const persistedCustomFeeKindChoices = selectedYear.customFeeKindChoices ?? [];
@@ -6911,10 +6911,14 @@ function MenuModule({
         return fee;
       });
     if (feesToSave.length === 0) return;
+    const feeAction = editingFeeId ? "Modification type de frais" : "Ajout type de frais";
+    const feeActionVerb = editingFeeId ? "modifié" : "ajouté";
+    const feeAuditDetails = `Admin ${user.name} a ${feeActionVerb} le type de frais ${feeName}.`;
     updateData({
       feeTypes: editingFeeId
         ? [...data.feeTypes.map((item) => (item.id === editingFeeId ? feesToSave[0] : item)), ...feesToSave.slice(1)]
         : [...data.feeTypes, ...feesToSave],
+      auditLogs: [createAuditLog(user, school.id, selectedYear.id, feeAction, feeAuditDetails), ...data.auditLogs],
     });
     setEditingFeeId("");
     setFeeName("Minerval");
@@ -6949,7 +6953,13 @@ function MenuModule({
   function confirmDeleteFee() {
     if (!feeDeleteTarget || feeDeleteConfirmation !== "SUPPRIMER LE FRAIS") return;
     const fee = feeDeleteTarget;
-    updateData({ feeTypes: data.feeTypes.filter((item) => item.id !== fee.id) });
+    updateData({
+      feeTypes: data.feeTypes.filter((item) => item.id !== fee.id),
+      auditLogs: [
+        createAuditLog(user, school.id, selectedYear.id, "Suppression type de frais", `Admin ${user.name} a supprimé le type de frais ${fee.name}.`),
+        ...data.auditLogs,
+      ],
+    });
     closeFeeDeleteDialog();
   }
 
