@@ -7722,6 +7722,8 @@ function MenuModule({
         <ParentsDirectoryDrawer
           parents={yearData.parents}
           students={yearData.students}
+          school={school}
+          year={selectedYear}
           schoolId={school.id}
           schoolYearId={selectedYear.id}
         />

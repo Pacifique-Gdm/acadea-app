@@ -1,26 +1,38 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Mail, Phone, Search, UserRound, UsersRound } from "lucide-react";
-import type { ParentProfile, Student } from "../../types";
-import { buildParentsDirectory, fallbackText, filterParentsDirectory } from "../../utils/parentsDirectory";
+import { ArrowLeft, Download, Mail, Phone, Search, UserRound, UsersRound } from "lucide-react";
+import type { ParentProfile, School, SchoolYear, Student } from "../../types";
+import {
+  buildParentsDirectory,
+  buildParentsDirectoryClassChoices,
+  fallbackText,
+  filterParentsDirectory,
+} from "../../utils/parentsDirectory";
+import { printParentsDirectoryPdf } from "../../utils/parentsDirectoryPdf";
 
 type ParentsDirectoryDrawerProps = {
   parents: ParentProfile[];
   students: Student[];
+  school: School;
+  year: SchoolYear;
   schoolId: string;
   schoolYearId: string;
 };
 
-export function ParentsDirectoryDrawer({ parents, students, schoolId, schoolYearId }: ParentsDirectoryDrawerProps) {
+export function ParentsDirectoryDrawer({ parents, students, school, year, schoolId, schoolYearId }: ParentsDirectoryDrawerProps) {
   const [query, setQuery] = useState("");
+  const [classFilter, setClassFilter] = useState("");
   const [selectedParentId, setSelectedParentId] = useState("");
   const [listScrollTop, setListScrollTop] = useState(0);
+  const [printError, setPrintError] = useState("");
+  const [printing, setPrinting] = useState(false);
   const listScrollRef = useRef<HTMLDivElement>(null);
 
   const entries = useMemo(
     () => buildParentsDirectory(parents, students, { schoolId, schoolYearId }),
     [parents, schoolId, schoolYearId, students],
   );
-  const filteredEntries = useMemo(() => filterParentsDirectory(entries, query), [entries, query]);
+  const classChoices = useMemo(() => buildParentsDirectoryClassChoices(entries), [entries]);
+  const filteredEntries = useMemo(() => filterParentsDirectory(entries, query, classFilter), [classFilter, entries, query]);
   const selectedEntry = entries.find((entry) => entry.parent.id === selectedParentId);
 
   useEffect(() => {
@@ -33,6 +45,28 @@ export function ParentsDirectoryDrawer({ parents, students, schoolId, schoolYear
   function openParent(parentId: string) {
     setListScrollTop(listScrollRef.current?.scrollTop ?? 0);
     setSelectedParentId(parentId);
+  }
+
+  async function printDirectory() {
+    setPrintError("");
+    if (filteredEntries.length === 0) {
+      setPrintError("Aucun parent ou tuteur à imprimer pour les filtres actuels.");
+      return;
+    }
+    setPrinting(true);
+    try {
+      await printParentsDirectoryPdf({
+        school,
+        year,
+        entries: filteredEntries,
+        classFilterLabel: classFilter || undefined,
+      });
+    } catch (error) {
+      console.warn("Impression de l'annuaire Parents / Tuteurs impossible.", error);
+      setPrintError("Impossible de générer le PDF. Veuillez réessayer.");
+    } finally {
+      setPrinting(false);
+    }
   }
 
   if (selectedEntry) {
@@ -101,26 +135,62 @@ export function ParentsDirectoryDrawer({ parents, students, schoolId, schoolYear
   }
 
   return (
-    <div className="grid min-w-0 gap-4">
-      <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
-        Recherche
-        <span className="relative block min-w-0">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            className="input pl-9"
-            placeholder="Nom, téléphone, e-mail, enfant, matricule, classe..."
-          />
-        </span>
-      </label>
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <div className="shrink-0 space-y-3 border-b border-slate-100 bg-white pb-3">
+        <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+          Recherche
+          <span className="relative block min-w-0">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setPrintError("");
+              }}
+              className="input pl-9"
+              placeholder="Nom, téléphone, e-mail, enfant, matricule, classe..."
+            />
+          </span>
+        </label>
 
-      <div className="flex min-w-0 items-center justify-between gap-3 rounded bg-slate-50 p-3">
-        <p className="text-sm font-semibold text-slate-700">{filteredEntries.length} parent(s) / tuteur(s)</p>
-        <p className="text-xs font-medium text-slate-500">{entries.length} au total</p>
+        <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+            Classe
+            <select
+              value={classFilter}
+              onChange={(event) => {
+                setClassFilter(event.target.value);
+                setPrintError("");
+              }}
+              className="input"
+            >
+              <option value="">Toutes les classes</option>
+              {classChoices.map((choice) => (
+                <option key={choice.value} value={choice.value}>
+                  {choice.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            onClick={printDirectory}
+            disabled={printing || filteredEntries.length === 0}
+            type="button"
+            className="primary-button w-full justify-center self-end disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+          >
+            <Download className="h-4 w-4" /> {printing ? "Préparation..." : "Imprimer"}
+          </button>
+        </div>
+
+        {printError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{printError}</p>}
+
+        <div className="flex min-w-0 items-center justify-between gap-3 rounded bg-slate-50 p-3">
+          <p className="text-sm font-semibold text-slate-700">{filteredEntries.length} parent(s) / tuteur(s)</p>
+          <p className="text-xs font-medium text-slate-500">{entries.length} au total</p>
+        </div>
       </div>
 
-      <div ref={listScrollRef} className="grid max-h-[68vh] min-w-0 gap-2 overflow-y-auto pr-1 scrollbar-thin">
+      <div ref={listScrollRef} className="grid min-h-0 flex-1 content-start gap-2 overflow-y-auto pr-1 scrollbar-thin">
         {filteredEntries.length === 0 && (
           <p className="rounded border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-500">
             Aucun parent ou tuteur ne correspond à cette recherche.

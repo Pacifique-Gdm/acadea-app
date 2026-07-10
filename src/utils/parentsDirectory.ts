@@ -13,6 +13,11 @@ export type ParentsDirectoryEntry = {
   searchableText: string;
 };
 
+export type ParentsDirectoryClassChoice = {
+  value: string;
+  label: string;
+};
+
 type DirectoryScope = {
   schoolId: string;
   schoolYearId: string;
@@ -122,8 +127,45 @@ export function buildParentsDirectory(parents: ParentProfile[], students: Studen
   return entries;
 }
 
-export function filterParentsDirectory(entries: ParentsDirectoryEntry[], query: string) {
+export function buildParentsDirectoryClassChoices(entries: ParentsDirectoryEntry[]) {
+  const choices = new Map<string, ParentsDirectoryClassChoice>();
+
+  for (const entry of entries) {
+    for (const child of entry.children) {
+      if (!child.classLabel) continue;
+      choices.set(child.classLabel, { value: child.classLabel, label: child.classLabel });
+    }
+  }
+
+  return Array.from(choices.values()).sort((first, second) => {
+    const firstIndex = classChoiceOrder(first.value);
+    const secondIndex = classChoiceOrder(second.value);
+    if (firstIndex !== secondIndex) return firstIndex - secondIndex;
+    return first.label.localeCompare(second.label, "fr");
+  });
+}
+
+export function getParentsDirectoryEntryChildren(entry: ParentsDirectoryEntry, classFilter = "") {
+  if (!classFilter) return entry.children;
+  return entry.children.filter((child) => child.classLabel === classFilter);
+}
+
+export function filterParentsDirectory(entries: ParentsDirectoryEntry[], query: string, classFilter = "") {
   const normalizedQuery = normalizeParentsDirectorySearch(query);
-  if (!normalizedQuery) return entries;
-  return entries.filter((entry) => entry.searchableText.includes(normalizedQuery));
+  return entries.filter((entry) => {
+    const matchesQuery = !normalizedQuery || entry.searchableText.includes(normalizedQuery);
+    const matchesClass = !classFilter || entry.children.some((child) => child.classLabel === classFilter);
+    return matchesQuery && matchesClass;
+  });
+}
+
+function classChoiceOrder(classLabel: string) {
+  const exactIndex = CLASSES.indexOf(classLabel as SchoolClass);
+  if (exactIndex >= 0) return exactIndex;
+  const matchingHumanity = CLASSES.findIndex((className) => {
+    if (!className.includes("Humanité")) return false;
+    const classPrefix = className.replace(/\s+Humanit[ée]s?$/i, "").trim();
+    return classPrefix ? classLabel.startsWith(`${classPrefix} `) : false;
+  });
+  return matchingHumanity >= 0 ? matchingHumanity : Number.MAX_SAFE_INTEGER;
 }
