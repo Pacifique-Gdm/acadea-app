@@ -5055,7 +5055,15 @@ function StudentDetailPage({
     );
   }
 
-  const balance = getStudentBalance(student.id, yearData.feeTypes, yearData.payments, yearData.students);
+  const feeSummaries = getStudentFeeSummaries(student, yearData.feeTypes, yearData.payments);
+  const balance = feeSummaries.reduce(
+    (totals, summary) => ({
+      expected: totals.expected + summary.expected,
+      paid: totals.paid + summary.paid,
+      remaining: totals.remaining + summary.remaining,
+    }),
+    { expected: 0, paid: 0, remaining: 0 },
+  );
   const payments = yearData.payments.filter((payment) => payment.studentId === student.id);
   const parent = yearData.parents.find((item) => item.id === student.parentId);
   const progress = balance.expected > 0 ? Math.min(100, Math.round((balance.paid / balance.expected) * 100)) : 0;
