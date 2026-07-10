@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useId, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ChangeEvent, ReactNode } from "react";
 import {
   deleteDoc,
@@ -49,6 +49,7 @@ import { buildDashboardFeeProgressRows, buildDashboardFinancialStats } from "./u
 import { formatSchoolRecipientLabel } from "./utils/messages";
 import { escapePdfHtml, generateReceiptPdf, money, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./utils/pdf";
 import type { PdfTableColumn } from "./utils/pdf";
+import { resolveDefaultSchoolYear } from "./utils/schoolYears";
 import { buildStats, getStudentBalance } from "./utils/stats";
 import { getStudentFeeSummaries } from "./utils/studentFeeSummary";
 import { buildValveClassChoices, formatValveClassChoiceLabel, getValvePublicationParents, normalizeValveVisibility, parentCanViewValvePublication } from "./utils/valves";
@@ -328,7 +329,7 @@ export default function App() {
   }, []);
 
   const school = data.schools.find((item) => item.id === user?.schoolId);
-  const schoolYears = school ? data.schoolYears.filter((year) => year.schoolId === school.id) : [];
+  const schoolYears = useMemo(() => (school ? data.schoolYears.filter((year) => year.schoolId === school.id) : []), [data.schoolYears, school]);
   const selectedYear = schoolYears.find((year) => year.id === selectedYearId);
 
   const navigate = useCallback((nextRoute: string) => {
@@ -350,13 +351,10 @@ export default function App() {
       return;
     }
 
-    const nextRoute = getDefaultRoute(nextUser.role);
-    const nextYearId = nextRoute === "/dashboard" ? nextUser.activeSchoolYearId ?? "" : "";
-
     setUser(nextUser);
-    setSelectedYearId(nextYearId);
+    setSelectedYearId("");
     setActiveTab("dashboard");
-    navigate(nextRoute);
+    navigate(getDefaultRoute(nextUser.role));
   }, [navigate]);
 
   useEffect(() => {
@@ -411,8 +409,7 @@ export default function App() {
         setData(firestoreData);
         const nextSchool = firestoreData.schools.find((item) => item.id === user.schoolId);
         const nextSchoolYears = nextSchool ? firestoreData.schoolYears.filter((year) => year.schoolId === nextSchool.id) : [];
-        const nextActiveYear = nextSchoolYears.find((year) => year.status === "active");
-        setSelectedYearId(user.activeSchoolYearId && nextSchoolYears.some((year) => year.id === user.activeSchoolYearId) ? user.activeSchoolYearId : nextActiveYear?.id ?? "");
+        setSelectedYearId(resolveDefaultSchoolYear(nextSchool, nextSchoolYears)?.id ?? "");
       })
       .catch((error) => {
         if (cancelled || logoutInProgressRef.current) return;
@@ -438,6 +435,11 @@ export default function App() {
       setDataLoading(false);
     };
   }, [navigate, user]);
+
+  useEffect(() => {
+    if (!user || !school || selectedYearId) return;
+    setSelectedYearId(resolveDefaultSchoolYear(school, schoolYears)?.id ?? "");
+  }, [school, schoolYears, selectedYearId, user]);
 
   function enterSchoolYear(yearId: string) {
     setSelectedYearId(yearId);
