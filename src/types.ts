@@ -200,6 +200,14 @@ export interface AuditLog {
 export type ValvePublicationKind = "communique" | "palmares" | "points" | "image" | "liste" | "pdf" | "document" | "autre";
 export type ValveVisibility = "all_parents" | "maternelle" | "primaire" | "secondaire" | "class";
 
+export interface ValvePublicationAttachment {
+  name: string;
+  type: string;
+  url: string;
+  path: string;
+  size: number;
+}
+
 export interface ValvePublication {
   id: string;
   schoolId: string;
@@ -215,6 +223,7 @@ export interface ValvePublication {
   attachmentUrl?: string;
   attachmentPath?: string;
   attachmentSize?: number;
+  attachments?: ValvePublicationAttachment[];
   authorId: string;
   authorName: string;
   createdAt: string;

@@ -1,5 +1,6 @@
 import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { storage } from "../firebase";
+import type { ValvePublicationAttachment } from "../types";
 
 export type ValveAttachmentUploadInput = {
   name: string;
@@ -64,7 +65,51 @@ export async function uploadValveAttachment(params: {
   };
 }
 
+export async function uploadValveAttachments(params: {
+  schoolId: string;
+  schoolYearId: string;
+  publicationId: string;
+  attachments: ValveAttachmentUploadInput[];
+}): Promise<ValvePublicationAttachment[]> {
+  const uploadedAttachments: ValvePublicationAttachment[] = [];
+
+  try {
+    for (const attachment of params.attachments) {
+      const uploadedAttachment = await uploadValveAttachment({
+        schoolId: params.schoolId,
+        schoolYearId: params.schoolYearId,
+        publicationId: params.publicationId,
+        attachment,
+      });
+      uploadedAttachments.push({
+        name: uploadedAttachment.attachmentName,
+        type: uploadedAttachment.attachmentType,
+        url: uploadedAttachment.attachmentUrl,
+        path: uploadedAttachment.attachmentPath,
+        size: uploadedAttachment.attachmentSize,
+      });
+    }
+  } catch (error) {
+    await deleteValveAttachments(uploadedAttachments.map((attachment) => attachment.path));
+    throw error;
+  }
+
+  return uploadedAttachments;
+}
+
 export async function deleteValveAttachment(attachmentPath?: string) {
   if (!attachmentPath || !storage) return;
   await deleteObject(ref(storage, attachmentPath));
+}
+
+export async function deleteValveAttachments(attachmentPaths: Array<string | undefined>) {
+  await Promise.all(
+    attachmentPaths
+      .filter((attachmentPath): attachmentPath is string => Boolean(attachmentPath))
+      .map((attachmentPath) =>
+        deleteValveAttachment(attachmentPath).catch((error) => {
+          console.warn("Suppression de la pièce jointe Valves indisponible.", error);
+        }),
+      ),
+  );
 }
