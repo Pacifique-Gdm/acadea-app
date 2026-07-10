@@ -43,6 +43,7 @@ import { createFirebaseAuthUser, getDefaultRoute, signIn, signOutUser, subscribe
 import { canUseFirestoreData, loadFirestoreData, loadPlatformSettings, persistFirestorePatch, savePlatformSettings } from "./services/firestoreData";
 import { db } from "./firebase";
 import { manageSchool, provisionCashier, provisionParent, provisionSchoolAdmin } from "./services/provisioning";
+import { buildDashboardFeeProgressRows, buildDashboardFinancialStats } from "./utils/dashboardStats";
 import { formatSchoolRecipientLabel } from "./utils/messages";
 import { escapePdfHtml, generateReceiptPdf, money, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./utils/pdf";
 import type { PdfTableColumn } from "./utils/pdf";
@@ -1358,37 +1359,21 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
   const filteredPayments = data.payments.filter((payment) => filteredStudentIds.has(payment.studentId) && inDateRange(payment.paidAt));
   const filteredExpenses = data.expenses.filter((expense) => sectionFilter === "all" && inDateRange(expense.spentAt));
   const stats = buildStats(filteredStudents, filteredParents, data.feeTypes, filteredPayments);
+  const dashboardFinancialStats = buildDashboardFinancialStats(filteredStudents, data.feeTypes, filteredPayments);
   const annualFinancialStudents = filteredStudents;
   const annualFinancialStudentIds = new Set(annualFinancialStudents.map((student) => student.id));
   const annualFinancialPayments = data.payments.filter((payment) => annualFinancialStudentIds.has(payment.studentId));
-  const annualFinancialStats = buildStats(annualFinancialStudents, filteredParents, data.feeTypes, annualFinancialPayments);
-  const annualFinancialPaid = annualFinancialPayments.reduce((sum, payment) => sum + payment.amount, 0);
+  const annualFinancialStats = buildDashboardFinancialStats(annualFinancialStudents, data.feeTypes, annualFinancialPayments);
+  const annualFinancialPaid = annualFinancialStats.paid;
   const annualFinancialExpenses = data.expenses.reduce((sum, expense) => sum + expense.amount, 0);
-  const annualFinancialRemaining = Math.max(annualFinancialStats.expected - annualFinancialPaid, 0);
+  const annualFinancialRemaining = annualFinancialStats.remaining;
   const annualFinancialRecoveryRate = annualFinancialStats.expected > 0 ? Math.round((annualFinancialPaid / annualFinancialStats.expected) * 100) : 0;
-  const totalPayments = filteredPayments.reduce((sum, payment) => sum + payment.amount, 0);
+  const totalPayments = dashboardFinancialStats.paid;
   const totalExpenses = filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0);
-  const remaining = Math.max(stats.expected - totalPayments, 0);
-  const recoveryRate = stats.expected > 0 ? Math.round((totalPayments / stats.expected) * 100) : 0;
+  const remaining = dashboardFinancialStats.remaining;
+  const recoveryRate = dashboardFinancialStats.expected > 0 ? Math.round((totalPayments / dashboardFinancialStats.expected) * 100) : 0;
   const recoveryTone = annualFinancialRecoveryRate >= 80 ? "text-mint bg-mint/10" : annualFinancialRecoveryRate >= 50 ? "text-amber-700 bg-amber-100" : "text-red-700 bg-red-50";
-  const feeProgressRows = Array.from(
-    data.feeTypes.reduce<Map<string, { name: string; expected: number; paid: number }>>((items, fee) => {
-      const key = fee.name.trim().toLowerCase();
-      const applicableStudentIds = new Set(filteredStudents.filter((student) => feeAppliesToStudent(fee, student)).map((student) => student.id));
-      const feePayments = data.payments.filter((payment) => payment.feeTypeId === fee.id && filteredStudentIds.has(payment.studentId) && applicableStudentIds.has(payment.studentId));
-      const expected = new Set(feePayments.map((payment) => payment.studentId)).size * fee.amount;
-      const paid = feePayments.reduce((sum, payment) => sum + payment.amount, 0);
-      const current = items.get(key) ?? { name: fee.name, expected: 0, paid: 0 };
-      items.set(key, { ...current, expected: current.expected + expected, paid: current.paid + paid });
-      return items;
-    }, new Map()).values(),
-  )
-    .map((row) => {
-      const remaining = Math.max(row.expected - row.paid, 0);
-      const rate = row.expected > 0 ? Math.round((row.paid / row.expected) * 100) : 0;
-      return { ...row, remaining, rate };
-    })
-    .filter((row) => row.expected > 0);
+  const feeProgressRows = buildDashboardFeeProgressRows(filteredStudents, data.feeTypes, data.payments);
   const admins = data.users.filter((item) => item.role === "school_admin").length;
   const cashiers = data.users.filter((item) => item.role === "cashier").length;
   const classRows = dashboardClassChoices.map((className) => {
