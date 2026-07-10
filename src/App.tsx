@@ -5507,23 +5507,33 @@ function ControlModule({
       return student && fee ? { payment, student, fee } : null;
     })
     .filter((item): item is { payment: Payment; student: Student; fee: FeeType } => Boolean(item));
-  const filteredHistoryPayments = historyPayments.filter(({ payment, student, fee }) => {
-    const query = historyQuery.trim().toLowerCase();
-    if (!query) return true;
-    const searchableText = [
-      student.nom,
-      student.postnom,
-      student.prenom,
-      student.matricule,
-      formatStudentClassName(student),
-      fee.name,
-      String(payment.amount),
-      payment.paidAt,
-      payment.createdAt ?? "",
-      payment.receiptNumber ?? "",
-    ].join(" ");
-    return searchableText.toLowerCase().includes(query);
-  });
+  function historyTimestamp(dateValue?: string, fallbackDateValue?: string) {
+    const primaryDate = dateValue ? new Date(dateValue) : null;
+    if (primaryDate && !Number.isNaN(primaryDate.getTime())) return primaryDate.getTime();
+    const fallbackDate = fallbackDateValue ? new Date(fallbackDateValue) : null;
+    if (fallbackDate && !Number.isNaN(fallbackDate.getTime())) return fallbackDate.getTime();
+    return 0;
+  }
+
+  const filteredHistoryPayments = historyPayments
+    .filter(({ payment, student, fee }) => {
+      const query = historyQuery.trim().toLowerCase();
+      if (!query) return true;
+      const searchableText = [
+        student.nom,
+        student.postnom,
+        student.prenom,
+        student.matricule,
+        formatStudentClassName(student),
+        fee.name,
+        String(payment.amount),
+        payment.paidAt,
+        payment.createdAt ?? "",
+        payment.receiptNumber ?? "",
+      ].join(" ");
+      return searchableText.toLowerCase().includes(query);
+    })
+    .sort((first, second) => historyTimestamp(second.payment.createdAt, second.payment.paidAt) - historyTimestamp(first.payment.createdAt, first.payment.paidAt));
   const selectedHistoryBalance = selectedHistoryStudent
     ? getStudentBalance(selectedHistoryStudent.id, yearData.feeTypes, yearData.payments, yearData.students)
     : { expected: 0, paid: 0, remaining: 0 };
@@ -5556,7 +5566,7 @@ function ControlModule({
       remaining: Math.max(selectedHistoryBalance.expected - selectedHistoryRunningPaid, 0),
     };
   });
-  const sortedExpenses = [...yearData.expenses].sort((a, b) => `${b.spentAt}${b.createdAt}`.localeCompare(`${a.spentAt}${a.createdAt}`));
+  const sortedExpenses = [...yearData.expenses].sort((first, second) => historyTimestamp(second.createdAt, second.spentAt) - historyTimestamp(first.createdAt, first.spentAt));
   const isOtherExpenseEditCategory = expenseEditCategory === "Autre" || expenseEditCategory === "Autres";
   const cashierDrawerTitle =
     cashierControlDrawer === "payment"

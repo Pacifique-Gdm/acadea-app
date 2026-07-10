@@ -144,7 +144,8 @@ function buildPdfColumnWidths<T>(columns: PdfTableColumn<T>[], renderedRows: Arr
 
 export function pdfSection(title: string, bodyHtml: string, options: { pageBreakBefore?: boolean } = {}) {
   return `
-    <section class="pdf-section${options.pageBreakBefore ? " pdf-page-break-before" : ""}">
+    ${options.pageBreakBefore ? '<div class="pdf-page-break" aria-hidden="true"></div>' : ""}
+    <section class="pdf-section">
       <h2>${escapePdfHtml(title)}</h2>
       ${bodyHtml}
     </section>
@@ -168,6 +169,7 @@ export async function renderAcadPdfPreview({ filename, title, school, year, subt
   element.style.zIndex = "-1";
   element.style.pointerEvents = "none";
   document.body.appendChild(element);
+  applyPdfPageBreakSpacers(element);
 
   await new Promise<void>((resolve) => {
     try {
@@ -196,6 +198,19 @@ export async function renderAcadPdfPreview({ filename, title, school, year, subt
       resolve();
     }
   });
+}
+
+function applyPdfPageBreakSpacers(element: HTMLElement) {
+  const pageBreaks = Array.from(element.querySelectorAll<HTMLElement>(".pdf-page-break"));
+  if (pageBreaks.length === 0) return;
+
+  const contentHeightMm = 297 - 14 - 18;
+  const pageHeightPx = (688 / 182) * contentHeightMm;
+  for (const pageBreak of pageBreaks) {
+    const offsetInPage = pageBreak.offsetTop % pageHeightPx;
+    const spacerHeight = offsetInPage < 1 ? 0 : pageHeightPx - offsetInPage;
+    pageBreak.style.height = `${spacerHeight}px`;
+  }
 }
 
 export async function generateReceiptPdf(payment: Payment, student: Student, feeType: FeeType, school: School, cashierName = payment.cashierName) {
@@ -370,7 +385,12 @@ function pdfStyles() {
       page-break-inside: auto;
       break-inside: auto;
     }
-    .pdf-page-break-before {
+    .pdf-page-break {
+      display: block;
+      height: 0;
+      margin: 0;
+      padding: 0;
+      line-height: 0;
       page-break-before: always;
       break-before: page;
     }
