@@ -3162,6 +3162,9 @@ function getApproximateValveDocumentSize(publication: ValvePublication) {
 function getValvePublicationErrorMessage(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : String(error);
   const normalized = message.toLowerCase();
+  if (normalized.includes("upload_timeout")) {
+    return "L'envoi du fichier a expiré. Vérifiez votre connexion et réessayez.";
+  }
   if (normalized.includes("too large") || normalized.includes("taille") || normalized.includes("quota") || normalized.includes("payload") || normalized.includes("bytes")) {
     return "Le fichier joint est trop volumineux pour être publié.";
   }
@@ -3269,6 +3272,7 @@ function ValvesDrawerContent({
   const [feedback, setFeedback] = useState("");
   const [isPreparingAttachment, setIsPreparingAttachment] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [publishProgress, setPublishProgress] = useState("");
   const attachmentReadIdRef = useRef(0);
   const isPublishingRef = useRef(false);
   const currentParent = user.parentId ? yearData.parents.find((parent) => parent.id === user.parentId) : undefined;
@@ -3286,6 +3290,7 @@ function ValvesDrawerContent({
     setBody("");
     setAttachments([]);
     setIsPreparingAttachment(false);
+    setPublishProgress("");
     setEditingId("");
     setModifyConfirmation("");
   }
@@ -3367,6 +3372,7 @@ function ValvesDrawerContent({
         setFeedback(attachmentValidationError);
         return;
       }
+      setPublishProgress("Préparation des fichiers");
       const attachmentsToUpload = attachments.filter((attachment) => attachment.dataUrl);
       const retainedAttachments: ValvePublicationAttachment[] = attachments
         .filter((attachment) => attachment.url)
@@ -3389,6 +3395,9 @@ function ValvesDrawerContent({
               type: attachment.type,
               dataUrl: attachment.dataUrl ?? "",
             })),
+            onProgress: (progress) => {
+              setPublishProgress(`Envoi du fichier ${progress.currentFile} sur ${progress.totalFiles} - ${progress.percent} %`);
+            },
           });
         } catch (error) {
           setFeedback(getValvePublicationErrorMessage(error, "Erreur Storage pendant l'envoi du fichier joint. Veuillez réessayer."));
@@ -3396,6 +3405,7 @@ function ValvesDrawerContent({
         }
         uploadedAttachmentPathsToRollback = uploadedAttachments.map((attachment) => attachment.path);
       }
+      setPublishProgress("Finalisation de la publication");
       const publicationAttachments = [...retainedAttachments, ...uploadedAttachments];
       const publication: ValvePublication = {
         id: publicationId,
@@ -3514,6 +3524,7 @@ function ValvesDrawerContent({
     } finally {
       isPublishingRef.current = false;
       setIsPublishing(false);
+      setPublishProgress("");
     }
   }
 
@@ -3630,6 +3641,7 @@ function ValvesDrawerContent({
             />
           </label>
           {isPreparingAttachment && <p className="text-sm font-semibold text-slate-600">Préparation du fichier...</p>}
+          {publishProgress && <p className="text-sm font-semibold text-slate-600">{publishProgress}</p>}
           <AttachmentsList attachments={attachments} onRemove={isPublishing || isPreparingAttachment ? undefined : removeAttachment} />
           {attachments.length > 0 && (
             <button onClick={clearAttachment} type="button" className="w-fit rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50" disabled={isPublishing || isPreparingAttachment}>

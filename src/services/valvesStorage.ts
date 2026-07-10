@@ -1,4 +1,4 @@
-import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from "firebase/storage";
 import { storage } from "../firebase";
 import type { ValvePublicationAttachment } from "../types";
 
@@ -15,6 +15,15 @@ export type ValveAttachmentUploadResult = {
   attachmentPath: string;
   attachmentSize: number;
 };
+
+export type ValveAttachmentUploadProgress = {
+  currentFile: number;
+  totalFiles: number;
+  fileName: string;
+  percent: number;
+};
+
+const VALVE_ATTACHMENT_UPLOAD_TIMEOUT_MS = 60_000;
 
 function sanitizeStorageSegment(value: string) {
   return value
@@ -44,6 +53,7 @@ export async function uploadValveAttachment(params: {
   schoolYearId: string;
   publicationId: string;
   attachment: ValveAttachmentUploadInput;
+  onProgress?: (progress: Omit<ValveAttachmentUploadProgress, "currentFile" | "totalFiles">) => void;
 }): Promise<ValveAttachmentUploadResult> {
   if (!storage) {
     throw new Error("Firebase Storage indisponible.");
@@ -53,8 +63,46 @@ export async function uploadValveAttachment(params: {
   const fileName = sanitizeStorageSegment(params.attachment.name);
   const attachmentPath = `valves/${params.schoolId}/${params.schoolYearId}/${params.publicationId}/${Date.now()}-${fileName}`;
   const attachmentRef = ref(storage, attachmentPath);
-  const snapshot = await uploadBytes(attachmentRef, blob, { contentType: params.attachment.type });
-  const attachmentUrl = await getDownloadURL(attachmentRef);
+  const uploadTask = uploadBytesResumable(attachmentRef, blob, { contentType: params.attachment.type });
+  const snapshot = await new Promise<import("firebase/storage").UploadTaskSnapshot>((resolve, reject) => {
+    let settled = false;
+    let unsubscribe = () => {};
+    const timeoutId = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      unsubscribe();
+      uploadTask.cancel();
+      reject(new Error("UPLOAD_TIMEOUT"));
+    }, VALVE_ATTACHMENT_UPLOAD_TIMEOUT_MS);
+    const cleanup = () => {
+      settled = true;
+      window.clearTimeout(timeoutId);
+      unsubscribe();
+    };
+
+    unsubscribe = uploadTask.on(
+      "state_changed",
+      (progressSnapshot) => {
+        const percent = progressSnapshot.totalBytes > 0 ? Math.round((progressSnapshot.bytesTransferred / progressSnapshot.totalBytes) * 100) : 0;
+        params.onProgress?.({
+          fileName: params.attachment.name,
+          percent: Math.min(100, Math.max(0, percent)),
+        });
+      },
+      (error) => {
+        if (settled) return;
+        cleanup();
+        reject(error);
+      },
+      () => {
+        if (settled) return;
+        cleanup();
+        resolve(uploadTask.snapshot);
+      },
+    );
+  });
+  const attachmentUrl = await getDownloadURL(snapshot.ref);
 
   return {
     attachmentName: params.attachment.name,
@@ -70,16 +118,24 @@ export async function uploadValveAttachments(params: {
   schoolYearId: string;
   publicationId: string;
   attachments: ValveAttachmentUploadInput[];
+  onProgress?: (progress: ValveAttachmentUploadProgress) => void;
 }): Promise<ValvePublicationAttachment[]> {
   const uploadedAttachments: ValvePublicationAttachment[] = [];
 
   try {
-    for (const attachment of params.attachments) {
+    for (const [index, attachment] of params.attachments.entries()) {
       const uploadedAttachment = await uploadValveAttachment({
         schoolId: params.schoolId,
         schoolYearId: params.schoolYearId,
         publicationId: params.publicationId,
         attachment,
+        onProgress: (progress) => {
+          params.onProgress?.({
+            ...progress,
+            currentFile: index + 1,
+            totalFiles: params.attachments.length,
+          });
+        },
       });
       uploadedAttachments.push({
         name: uploadedAttachment.attachmentName,
