@@ -40,6 +40,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import { createFirebaseAuthUser, getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateParent, validatePlatformAdmin, validateSchoolStaff } from "./services/auth";
+import { ParentsDirectoryDrawer } from "./components/parents/ParentsDirectoryDrawer";
 import { canUseFirestoreData, loadFirestoreData, loadPlatformSettings, persistFirestorePatch, savePlatformSettings } from "./services/firestoreData";
 import { db } from "./firebase";
 import { manageSchool, provisionCashier, provisionParent, provisionSchoolAdmin } from "./services/provisioning";
@@ -6941,7 +6942,7 @@ function MenuModule({
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
   onLogout: () => void;
 }) {
-  type MenuSection = "school" | "years" | "accounts" | "fees" | "financial" | "valves" | "history";
+  type MenuSection = "school" | "years" | "accounts" | "fees" | "financial" | "valves" | "parentsDirectory" | "history";
   const [schoolForm, setSchoolForm] = useState(school);
   const [schoolSaveStatus, setSchoolSaveStatus] = useState<"success" | "error" | "">("");
   const [schoolSaveMessage, setSchoolSaveMessage] = useState("");
@@ -6976,6 +6977,7 @@ function MenuModule({
   const canAdmin = user.role === "school_admin" && !isArchivedContext;
   const menuSections = [
     { id: "valves", title: "Valves", description: "Communiqués, palmarès, points, images et documents.", icon: BookOpen },
+    { id: "parentsDirectory", title: "Parents / Tuteurs", description: "Annuaire interne des parents liés aux élèves.", icon: UsersRound },
     { id: "fees", title: "Types de frais", description: "Montants et catégories de frais scolaires.", icon: Banknote },
     { id: "financial", title: "Rapport financier", description: "Synthèse et exports des rapports financiers.", icon: BarChart3 },
     { id: "history", title: "Historique", description: "Activités et messages enregistrés pour ce compte.", icon: Clock3 },
@@ -7711,6 +7713,17 @@ function MenuModule({
           year={selectedYear}
           updateData={updateData}
           canManage={canAdmin}
+        />
+      );
+    }
+
+    if (sectionId === "parentsDirectory" && canAdmin) {
+      return (
+        <ParentsDirectoryDrawer
+          parents={yearData.parents}
+          students={yearData.students}
+          schoolId={school.id}
+          schoolYearId={selectedYear.id}
         />
       );
     }
