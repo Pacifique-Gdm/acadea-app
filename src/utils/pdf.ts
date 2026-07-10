@@ -142,9 +142,9 @@ function buildPdfColumnWidths<T>(columns: PdfTableColumn<T>[], renderedRows: Arr
   return adjustedWidths.map((width) => Number(((width / adjustedTotal) * 100).toFixed(2)));
 }
 
-export function pdfSection(title: string, bodyHtml: string) {
+export function pdfSection(title: string, bodyHtml: string, options: { pageBreakBefore?: boolean } = {}) {
   return `
-    <section class="pdf-section">
+    <section class="pdf-section${options.pageBreakBefore ? " pdf-page-break-before" : ""}">
       <h2>${escapePdfHtml(title)}</h2>
       ${bodyHtml}
     </section>
@@ -369,6 +369,10 @@ function pdfStyles() {
       margin: 0 18px 12px;
       page-break-inside: auto;
       break-inside: auto;
+    }
+    .pdf-page-break-before {
+      page-break-before: always;
+      break-before: page;
     }
     .pdf-section h2 {
       margin: 0 0 7px;

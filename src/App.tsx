@@ -8400,6 +8400,7 @@ async function exportAgeHomogeneityPdf(school: School, year: SchoolYear, student
           detailRows,
           "Aucun élève ne correspond aux filtres appliqués.",
         ),
+        { pageBreakBefore: true },
       ),
     ],
   });
