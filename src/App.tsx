@@ -59,6 +59,7 @@ import type { PdfTableColumn } from "./utils/pdf";
 import { resolveDefaultSchoolYear } from "./utils/schoolYears";
 import { buildStats, getStudentBalance } from "./utils/stats";
 import { getStudentFeeSummaries } from "./utils/studentFeeSummary";
+import { buildSchoolYearDataIndexes, sumPaymentsForStudentFee } from "./utils/dataIndexes";
 import { buildValveClassChoices, formatValveClassChoiceLabel, getValvePublicationParents, normalizeValveVisibility, parentCanViewValvePublication } from "./utils/valves";
 import { formatValveAttachmentSize, MAX_VALVE_ATTACHMENTS, MAX_VALVE_ATTACHMENTS_TOTAL_SIZE, prepareValveAttachments, validateValveAttachments } from "./utils/valvesMedia";
 import { deleteValveAttachments, uploadValveAttachments } from "./services/valvesStorage";
@@ -1441,6 +1442,7 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
       setSectionFilter("all");
     }
   }, [dashboardSectionChoices, sectionFilter]);
+  const yearIndexes = useMemo(() => buildSchoolYearDataIndexes(data.students, data.feeTypes, data.payments), [data.students, data.feeTypes, data.payments]);
   const activeStudents = data.students.filter((student) => (student.status ?? "ACTIVE") === "ACTIVE");
   const filteredStudents = activeStudents.filter((student) => sectionFilter === "all" || getClassSection(student.className) === sectionFilter);
   const filteredStudentIds = new Set(filteredStudents.map((student) => student.id));
@@ -1452,12 +1454,14 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
   };
   const filteredPayments = data.payments.filter((payment) => filteredStudentIds.has(payment.studentId) && inDateRange(payment.paidAt));
   const filteredExpenses = data.expenses.filter((expense) => sectionFilter === "all" && inDateRange(expense.spentAt));
+  const filteredPaymentIndexes = useMemo(() => buildSchoolYearDataIndexes(filteredStudents, data.feeTypes, filteredPayments), [filteredStudents, data.feeTypes, filteredPayments]);
   const stats = buildStats(filteredStudents, filteredParents, data.feeTypes, filteredPayments);
-  const dashboardFinancialStats = buildDashboardFinancialStats(filteredStudents, data.feeTypes, filteredPayments);
+  const dashboardFinancialStats = buildDashboardFinancialStats(filteredStudents, data.feeTypes, filteredPayments, filteredPaymentIndexes);
   const annualFinancialStudents = filteredStudents;
   const annualFinancialStudentIds = new Set(annualFinancialStudents.map((student) => student.id));
   const annualFinancialPayments = data.payments.filter((payment) => annualFinancialStudentIds.has(payment.studentId));
-  const annualFinancialStats = buildDashboardFinancialStats(annualFinancialStudents, data.feeTypes, annualFinancialPayments);
+  const annualFinancialIndexes = useMemo(() => buildSchoolYearDataIndexes(annualFinancialStudents, data.feeTypes, annualFinancialPayments), [annualFinancialStudents, data.feeTypes, annualFinancialPayments]);
+  const annualFinancialStats = buildDashboardFinancialStats(annualFinancialStudents, data.feeTypes, annualFinancialPayments, annualFinancialIndexes);
   const annualFinancialPaid = annualFinancialStats.paid;
   const annualFinancialExpenses = data.expenses.reduce((sum, expense) => sum + expense.amount, 0);
   const annualFinancialRemaining = annualFinancialStats.remaining;
@@ -1467,7 +1471,7 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
   const remaining = dashboardFinancialStats.remaining;
   const recoveryRate = dashboardFinancialStats.expected > 0 ? Math.round((totalPayments / dashboardFinancialStats.expected) * 100) : 0;
   const recoveryTone = annualFinancialRecoveryRate >= 80 ? "text-mint bg-mint/10" : annualFinancialRecoveryRate >= 50 ? "text-amber-700 bg-amber-100" : "text-red-700 bg-red-50";
-  const feeProgressRows = buildDashboardFeeProgressRows(filteredStudents, data.feeTypes, data.payments);
+  const feeProgressRows = buildDashboardFeeProgressRows(filteredStudents, data.feeTypes, data.payments, yearIndexes);
   const admins = data.users.filter((item) => item.role === "school_admin").length;
   const cashiers = data.users.filter((item) => item.role === "cashier").length;
   const classRows = dashboardClassChoices.map((className) => {
@@ -1507,8 +1511,8 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
   const totalGirls = classRows.reduce((sum, row) => sum + row.girls, 0);
   const totalBoys = classRows.reduce((sum, row) => sum + row.boys, 0);
   const totalStudents = totalGirls + totalBoys;
-  const studentsById = new Map(data.students.map((student) => [student.id, student]));
-  const feeTypesById = new Map(data.feeTypes.map((fee) => [fee.id, fee]));
+  const studentsById = yearIndexes.studentsById;
+  const feeTypesById = yearIndexes.feeTypesById;
   const transactions = [
     ...filteredPayments.map((payment) => ({ id: payment.id, type: "Paiement", label: payment.cashierName, amount: payment.amount, date: payment.paidAt, occurredAt: payment.createdAt ?? payment.paidAt })),
     ...filteredExpenses.map((expense) => ({ id: expense.id, type: "D\u00e9pense", label: expense.category, amount: -expense.amount, date: expense.spentAt, occurredAt: expense.createdAt ?? expense.spentAt })),
@@ -4152,6 +4156,7 @@ function ParentPortal({
   const parent = yearData.parents.find((item) => item.id === user.parentId);
   const unread = yearData.notifications.filter((notification) => !notification.read).length;
   const isParentMessageFormComplete = messageSubject.trim().length > 0 && messageBody.trim().length > 0;
+  const parentIndexes = useMemo(() => buildSchoolYearDataIndexes(yearData.students, yearData.feeTypes, yearData.payments), [yearData.students, yearData.feeTypes, yearData.payments]);
   const recipientLabels = {
     admin: "Administrateur uniquement",
     cashier: "Caissier uniquement",
@@ -4310,7 +4315,7 @@ function ParentPortal({
           {activeParentTab === "children" && (
           <div className="grid min-w-0 gap-4">
             {yearData.students.map((student) => {
-              const feeSummaries = getStudentFeeSummaries(student, yearData.feeTypes, yearData.payments);
+              const feeSummaries = getStudentFeeSummaries(student, yearData.feeTypes, yearData.payments, parentIndexes);
               const feeTotals = feeSummaries.reduce(
                 (totals, summary) => ({
                   expected: totals.expected + summary.expected,
@@ -4321,7 +4326,7 @@ function ParentPortal({
               );
               const progress = feeTotals.expected > 0 ? Math.min(100, Math.round((feeTotals.paid / feeTotals.expected) * 100)) : 0;
               const progressTone = progressBarTone(progress);
-              const payments = yearData.payments.filter((payment) => payment.studentId === student.id);
+              const payments = parentIndexes.paymentsByStudentId.get(student.id) ?? [];
               return (
                 <article key={student.id} className="min-w-0 rounded border border-slate-200 bg-white p-4">
                   <div className="flex min-w-0 flex-col gap-4 md:flex-row">
@@ -4377,7 +4382,7 @@ function ParentPortal({
                         <div className="max-h-48 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
                           {payments.length === 0 && <p className="text-sm text-slate-500">Aucun paiement enregistré.</p>}
                           {payments.map((payment) => {
-                            const fee = yearData.feeTypes.find((item) => item.id === payment.feeTypeId);
+                            const fee = parentIndexes.feeTypesById.get(payment.feeTypeId);
                             return (
                               <div key={payment.id} className="min-w-0 rounded bg-slate-50 p-3 text-sm">
                                 <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -5418,7 +5423,8 @@ function StudentDetailPage({
   school: School;
   onBack: () => void;
 }) {
-  const student = yearData.students.find((item) => item.id === studentId);
+  const detailIndexes = useMemo(() => buildSchoolYearDataIndexes(yearData.students, yearData.feeTypes, yearData.payments), [yearData.students, yearData.feeTypes, yearData.payments]);
+  const student = detailIndexes.studentsById.get(studentId);
 
   if (!student) {
     return (
@@ -5431,7 +5437,7 @@ function StudentDetailPage({
     );
   }
 
-  const feeSummaries = getStudentFeeSummaries(student, yearData.feeTypes, yearData.payments);
+  const feeSummaries = getStudentFeeSummaries(student, yearData.feeTypes, yearData.payments, detailIndexes);
   const balance = feeSummaries.reduce(
     (totals, summary) => ({
       expected: totals.expected + summary.expected,
@@ -5440,7 +5446,7 @@ function StudentDetailPage({
     }),
     { expected: 0, paid: 0, remaining: 0 },
   );
-  const payments = yearData.payments.filter((payment) => payment.studentId === student.id);
+  const payments = detailIndexes.paymentsByStudentId.get(student.id) ?? [];
   const parent = yearData.parents.find((item) => item.id === student.parentId);
   const progress = balance.expected > 0 ? Math.min(100, Math.round((balance.paid / balance.expected) * 100)) : 0;
   const archived = isArchivedStudent(student);
@@ -5495,7 +5501,7 @@ function StudentDetailPage({
           <div className="max-h-80 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
             {payments.length === 0 && <p className="text-sm text-slate-500">Aucun paiement enregistré.</p>}
             {payments.map((payment) => {
-              const fee = yearData.feeTypes.find((item) => item.id === payment.feeTypeId);
+              const fee = detailIndexes.feeTypesById.get(payment.feeTypeId);
               return (
                 <div key={payment.id} className="min-w-0 rounded border border-slate-100 p-3 text-sm">
                   <div className="flex items-center justify-between gap-2">
@@ -5802,6 +5808,7 @@ function ControlModule({
   const [cashierControlFeedbackDrawer, setCashierControlFeedbackDrawer] = useState<"payment" | "expense" | null>(null);
   const [historyQuery, setHistoryQuery] = useState("");
   const [selectedHistoryStudentId, setSelectedHistoryStudentId] = useState("");
+  const controlIndexes = useMemo(() => buildSchoolYearDataIndexes(yearData.students, yearData.feeTypes, yearData.payments), [yearData.students, yearData.feeTypes, yearData.payments]);
   const feeNameChoices = Array.from(new Set(yearData.feeTypes.map((fee) => fee.name)));
   const amountFeeGroups = Array.from(
     yearData.feeTypes.reduce<Map<string, { key: string; name: string; ids: string[] }>>((items, fee) => {
@@ -5844,21 +5851,19 @@ function ControlModule({
   const canPay = user.role === "cashier" && !isArchivedContext;
   const canCorrectPayments = user.role === "school_admin" && !isArchivedContext;
   const canManageExpenses = user.role === "school_admin" && !isArchivedContext;
-  const selectedPaymentStudent = yearData.students.find((student) => student.id === studentId);
+  const selectedPaymentStudent = controlIndexes.studentsById.get(studentId);
   const selectedPaymentBalance = selectedPaymentStudent
     ? getStudentBalance(selectedPaymentStudent.id, yearData.feeTypes, yearData.payments, yearData.students)
     : { expected: 0, paid: 0, remaining: 0 };
-  const payableFeeTypes = selectedPaymentStudent ? yearData.feeTypes.filter((fee) => feeAppliesToStudent(fee, selectedPaymentStudent)) : [];
+  const payableFeeTypes = selectedPaymentStudent ? controlIndexes.applicableFeeTypesByStudentId.get(selectedPaymentStudent.id) ?? [] : [];
   const selectedFeeTypeValue = payableFeeTypes.some((fee) => fee.id === feeTypeId) ? feeTypeId : payableFeeTypes[0]?.id ?? "";
   const selectedPaymentFee = payableFeeTypes.find((fee) => fee.id === selectedFeeTypeValue);
   const selectedPaymentFeePaid = selectedPaymentStudent && selectedPaymentFee
-    ? yearData.payments
-        .filter((payment) => payment.studentId === selectedPaymentStudent.id && payment.feeTypeId === selectedPaymentFee.id)
-        .reduce((sum, payment) => sum + payment.amount, 0)
+    ? sumPaymentsForStudentFee(controlIndexes, selectedPaymentStudent.id, selectedPaymentFee.id)
     : 0;
   const selectedPaymentFeeRemaining = selectedPaymentFee ? Math.max(selectedPaymentFee.amount - selectedPaymentFeePaid, 0) : 0;
   const isPaymentEntryDisabled = !selectedPaymentFee || selectedPaymentFeeRemaining <= 0;
-  const selectedHistoryStudent = yearData.students.find((student) => student.id === selectedHistoryStudentId);
+  const selectedHistoryStudent = controlIndexes.studentsById.get(selectedHistoryStudentId);
   const paymentStudentSearch = paymentStudentQuery.trim().toLowerCase();
   const paymentStudentResults = paymentStudentSearch
     ? yearData.students.filter((student) => `${student.nom} ${student.postnom} ${student.prenom} ${student.matricule}`.toLowerCase().includes(paymentStudentSearch)).slice(0, 8)
@@ -5866,7 +5871,7 @@ function ControlModule({
 
   const rows = yearData.students
     .map((student) => {
-      const feeSummaries = getStudentFeeSummaries(student, yearData.feeTypes, yearData.payments);
+      const feeSummaries = getStudentFeeSummaries(student, yearData.feeTypes, yearData.payments, controlIndexes);
       const balance = feeSummaries.reduce(
         (totals, summary) => ({
           expected: totals.expected + summary.expected,
@@ -5883,17 +5888,15 @@ function ControlModule({
       const feeFilter = amountComparator.match(/^fee:(.+):(gte|lt)$/);
       const feeGroup = feeFilter ? amountFeeGroups.find((fee) => fee.key === feeFilter[1]) : undefined;
       const paidAmount = feeFilter
-        ? yearData.payments
-            .filter((payment) => payment.studentId === row.student.id && Boolean(feeGroup?.ids.includes(payment.feeTypeId)))
-            .reduce((sum, payment) => sum + payment.amount, 0)
+        ? (feeGroup?.ids ?? []).reduce((sum, feeId) => sum + sumPaymentsForStudentFee(controlIndexes, row.student.id, feeId), 0)
         : row.balance.paid;
       const isGreaterOrEqual = feeFilter ? feeFilter[2] === "gte" : amountComparator === ">=";
       return isGreaterOrEqual ? paidAmount >= Number(amountThreshold) : paidAmount < Number(amountThreshold);
     });
   const historyPayments = yearData.payments
     .map((payment) => {
-      const student = yearData.students.find((item) => item.id === payment.studentId);
-      const fee = yearData.feeTypes.find((item) => item.id === payment.feeTypeId);
+      const student = controlIndexes.studentsById.get(payment.studentId);
+      const fee = controlIndexes.feeTypesById.get(payment.feeTypeId);
       return student && fee ? { payment, student, fee } : null;
     })
     .filter((item): item is { payment: Payment; student: Student; fee: FeeType } => Boolean(item));
@@ -5928,7 +5931,7 @@ function ControlModule({
     ? getStudentBalance(selectedHistoryStudent.id, yearData.feeTypes, yearData.payments, yearData.students)
     : { expected: 0, paid: 0, remaining: 0 };
   const selectedHistoryFeeSummaries = selectedHistoryStudent
-    ? getStudentFeeSummaries(selectedHistoryStudent, yearData.feeTypes, yearData.payments)
+    ? getStudentFeeSummaries(selectedHistoryStudent, yearData.feeTypes, yearData.payments, controlIndexes)
     : [];
   const selectedHistoryFeeTotals = selectedHistoryFeeSummaries.reduce(
     (totals, summary) => ({
@@ -5939,11 +5942,10 @@ function ControlModule({
     { expected: 0, paid: 0, remaining: 0 },
   );
   const selectedHistoryPayments = selectedHistoryStudent
-    ? yearData.payments
-        .filter((payment) => payment.studentId === selectedHistoryStudent.id)
+    ? (controlIndexes.paymentsByStudentId.get(selectedHistoryStudent.id) ?? [])
         .map((payment) => ({
           payment,
-          fee: yearData.feeTypes.find((item) => item.id === payment.feeTypeId),
+          fee: controlIndexes.feeTypesById.get(payment.feeTypeId),
         }))
         .sort((a, b) => `${a.payment.paidAt}${a.payment.createdAt ?? ""}`.localeCompare(`${b.payment.paidAt}${b.payment.createdAt ?? ""}`))
     : [];
@@ -6331,14 +6333,15 @@ function ControlModule({
       alert("Montant de paiement invalide.");
       return;
     }
-    const paymentStudent = yearData.students.find((student) => student.id === payment.studentId);
+    const paymentStudent = controlIndexes.studentsById.get(payment.studentId);
     const paymentFee = paymentStudent
-      ? yearData.feeTypes.find((fee) => fee.id === payment.feeTypeId && feeAppliesToStudent(fee, paymentStudent))
+      ? (() => {
+          const fee = controlIndexes.feeTypesById.get(payment.feeTypeId);
+          return fee && feeAppliesToStudent(fee, paymentStudent) ? fee : undefined;
+        })()
       : undefined;
     const paidForFee = paymentStudent && paymentFee
-      ? yearData.payments
-          .filter((item) => item.studentId === paymentStudent.id && item.feeTypeId === paymentFee.id && item.id !== payment.id)
-          .reduce((sum, item) => sum + item.amount, 0)
+      ? Math.max(0, sumPaymentsForStudentFee(controlIndexes, paymentStudent.id, paymentFee.id) - payment.amount)
       : 0;
     if (!paymentFee || paidForFee + correctedAmount > paymentFee.amount) {
       alert("Paiement impossible : ce montant dépasse le montant prévu pour ce frais.");
@@ -6415,9 +6418,7 @@ function ControlModule({
       const expected = yearData.feeTypes
         .filter((fee) => selectedPdfFeeGroup.ids.includes(fee.id) && feeAppliesToStudent(fee, row.student))
         .reduce((sum, fee) => sum + fee.amount, 0);
-      const paid = yearData.payments
-        .filter((payment) => payment.studentId === row.student.id && selectedPdfFeeGroup.ids.includes(payment.feeTypeId))
-        .reduce((sum, payment) => sum + payment.amount, 0);
+      const paid = selectedPdfFeeGroup.ids.reduce((sum, feeId) => sum + sumPaymentsForStudentFee(controlIndexes, row.student.id, feeId), 0);
       return { expected, paid, remaining: Math.max(expected - paid, 0) };
     };
     const showOptionColumn = rows.some(({ student }) => Boolean(student.option));

@@ -1,4 +1,6 @@
 import type { FeeType, Payment, Student } from "../types";
+import { buildSchoolYearDataIndexes, getPaymentsForStudentFee, sumPayments } from "./dataIndexes";
+import type { SchoolYearDataIndexes } from "./dataIndexes";
 import { feeAppliesToStudent } from "./stats";
 
 export type DashboardFinancialStats = {
@@ -12,21 +14,22 @@ export type DashboardFeeProgressRow = DashboardFinancialStats & {
   rate: number;
 };
 
-function paymentsForStudentFee(payments: Payment[], studentId: string, feeTypeId: string) {
-  return payments.filter((payment) => payment.studentId === studentId && payment.feeTypeId === feeTypeId);
+function resolveIndexes(students: Student[], feeTypes: FeeType[], payments: Payment[], indexes?: SchoolYearDataIndexes) {
+  return indexes ?? buildSchoolYearDataIndexes(students, feeTypes, payments);
 }
 
-export function buildDashboardFinancialStats(students: Student[], feeTypes: FeeType[], payments: Payment[]): DashboardFinancialStats {
+export function buildDashboardFinancialStats(students: Student[], feeTypes: FeeType[], payments: Payment[], indexes?: SchoolYearDataIndexes): DashboardFinancialStats {
+  const dataIndexes = resolveIndexes(students, feeTypes, payments, indexes);
   const totals = students.reduce(
     (currentTotals, student) => {
-      const studentTotals = feeTypes
-        .filter((fee) => feeAppliesToStudent(fee, student))
+      const applicableFeeTypes = dataIndexes.applicableFeeTypesByStudentId.get(student.id) ?? feeTypes.filter((fee) => feeAppliesToStudent(fee, student));
+      const studentTotals = applicableFeeTypes
         .reduce(
           (feeTotals, fee) => {
-            const feePayments = paymentsForStudentFee(payments, student.id, fee.id);
+            const feePayments = getPaymentsForStudentFee(dataIndexes, student.id, fee.id);
             if (feePayments.length === 0) return feeTotals;
 
-            const paid = feePayments.reduce((sum, payment) => sum + payment.amount, 0);
+            const paid = sumPayments(feePayments);
             return {
               expected: feeTotals.expected + fee.amount,
               paid: feeTotals.paid + paid,
@@ -49,16 +52,17 @@ export function buildDashboardFinancialStats(students: Student[], feeTypes: FeeT
   };
 }
 
-export function buildDashboardFeeProgressRows(students: Student[], feeTypes: FeeType[], payments: Payment[]): DashboardFeeProgressRow[] {
+export function buildDashboardFeeProgressRows(students: Student[], feeTypes: FeeType[], payments: Payment[], indexes?: SchoolYearDataIndexes): DashboardFeeProgressRow[] {
+  const dataIndexes = resolveIndexes(students, feeTypes, payments, indexes);
   const rowsByFeeName = students.reduce<Map<string, { name: string; expected: number; paid: number }>>((items, student) => {
-    feeTypes
-      .filter((fee) => feeAppliesToStudent(fee, student))
+    const applicableFeeTypes = dataIndexes.applicableFeeTypesByStudentId.get(student.id) ?? feeTypes.filter((fee) => feeAppliesToStudent(fee, student));
+    applicableFeeTypes
       .forEach((fee) => {
-        const feePayments = paymentsForStudentFee(payments, student.id, fee.id);
+        const feePayments = getPaymentsForStudentFee(dataIndexes, student.id, fee.id);
         if (feePayments.length === 0) return;
 
         const key = fee.name.trim().toLowerCase();
-        const paid = feePayments.reduce((sum, payment) => sum + payment.amount, 0);
+        const paid = sumPayments(feePayments);
         const current = items.get(key) ?? { name: fee.name, expected: 0, paid: 0 };
         items.set(key, {
           ...current,
