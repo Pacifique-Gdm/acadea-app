@@ -8,6 +8,7 @@ type PersistableItem = { id: string };
 type PersistFirestorePatchOptions = {
   throwOnError?: boolean;
 };
+export type FirestoreYearData = Pick<AppData, "students" | "feeTypes" | "payments" | "expenses" | "messages" | "notifications" | "valves">;
 export type PlatformSettings = {
   loginLogoUrl?: string;
   updatedAt?: string;
@@ -175,6 +176,33 @@ export async function loadFirestoreData(user?: AppUser, schoolYearId?: string) {
   );
 
   return Object.fromEntries(entries) as unknown as AppData;
+}
+
+export async function loadFirestoreYearData(user: AppUser, schoolYearId: string) {
+  if (!canUseFirestoreData() || !db) return null;
+  if (!user.schoolId) {
+    throw new Error("Chargement Firestore impossible : schoolId manquant dans les Custom Claims.");
+  }
+  if (!schoolYearId) {
+    throw new Error("Chargement Firestore impossible : schoolYearId manquant.");
+  }
+
+  const annualFilter: [string, unknown][] = [
+    ["schoolId", user.schoolId],
+    ["schoolYearId", schoolYearId],
+  ];
+
+  const yearData: FirestoreYearData = {
+    students: await loadCollection<AppData["students"][number]>("students", annualFilter),
+    feeTypes: await loadCollection<AppData["feeTypes"][number]>("feeTypes", annualFilter),
+    payments: await loadCollection<AppData["payments"][number]>("payments", annualFilter),
+    expenses: await loadCollection<AppData["expenses"][number]>("expenses", annualFilter),
+    messages: await loadCollection<AppData["messages"][number]>("messages", annualFilter),
+    notifications: await loadCollection<AppData["notifications"][number]>("notifications", annualFilter),
+    valves: await loadCollection<AppData["valves"][number]>("valves", annualFilter),
+  };
+
+  return yearData;
 }
 
 export async function loadPlatformSettings() {

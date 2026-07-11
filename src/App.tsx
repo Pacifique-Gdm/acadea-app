@@ -47,7 +47,7 @@ import type { ValveAttachmentListItem } from "./components/valves/AttachmentsLis
 import { AttachmentViewer } from "./components/valves/AttachmentViewer";
 import { useBillingControls } from "./hooks/useBillingControls";
 import type { UseBillingControlsResult } from "./hooks/useBillingControls";
-import { canUseFirestoreData, loadFirestoreData, loadPlatformSettings, persistFirestorePatch, savePlatformSettings } from "./services/firestoreData";
+import { canUseFirestoreData, loadFirestoreData, loadFirestoreYearData, loadPlatformSettings, persistFirestorePatch, savePlatformSettings } from "./services/firestoreData";
 import { db } from "./firebase";
 import { manageSchool, provisionCashier, provisionParent, provisionSchoolAdmin } from "./services/provisioning";
 import { buildDashboardFeeProgressRows, buildDashboardFinancialStats } from "./utils/dashboardStats";
@@ -266,6 +266,9 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
   const [authError, setAuthError] = useState("");
   const [dataLoading, setDataLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshMessage, setRefreshMessage] = useState("");
+  const [refreshError, setRefreshError] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const logoutInProgressRef = useRef(false);
   const [platformLogoUrl, setPlatformLogoUrl] = useState("");
@@ -524,6 +527,30 @@ export default function App() {
     }
   }
 
+  async function refreshCurrentYearData() {
+    if (isRefreshing || !user || !selectedYearId || !canUseFirestoreData()) return;
+
+    setIsRefreshing(true);
+    setRefreshMessage("");
+    setRefreshError("");
+    try {
+      const firestoreYearData = await loadFirestoreYearData(user, selectedYearId);
+      if (!firestoreYearData) {
+        throw new Error("Actualisation Firestore indisponible.");
+      }
+      setData((prev) => ({
+        ...prev,
+        ...firestoreYearData,
+      }));
+      setRefreshMessage("Données actualisées.");
+    } catch (error) {
+      console.warn("Actualisation ciblée Firestore indisponible.", error);
+      setRefreshError("Impossible d'actualiser les données. Veuillez réessayer.");
+    } finally {
+      setIsRefreshing(false);
+    }
+  }
+
   async function installPwa() {
     if (!deferredInstallPrompt || pwaInstalled) return;
 
@@ -635,7 +662,10 @@ export default function App() {
         year={selectedYear}
         unreadNotifications={unreadNotifications}
         notificationsOpen={notificationsOpen}
-        onRefresh={() => window.location.reload()}
+        isRefreshing={isRefreshing}
+        refreshMessage={refreshMessage}
+        refreshError={refreshError}
+        onRefresh={refreshCurrentYearData}
         onToggleNotifications={openNotifications}
         onCloseNotifications={closeNotifications}
       />
@@ -985,6 +1015,9 @@ function Header({
   year,
   unreadNotifications,
   notificationsOpen,
+  isRefreshing,
+  refreshMessage,
+  refreshError,
   onRefresh,
   onToggleNotifications,
   onCloseNotifications,
@@ -996,12 +1029,16 @@ function Header({
   year: SchoolYear;
   unreadNotifications: number;
   notificationsOpen: boolean;
+  isRefreshing?: boolean;
+  refreshMessage?: string;
+  refreshError?: string;
   onRefresh: () => void;
   onToggleNotifications: () => void;
   onCloseNotifications?: () => void;
 }) {
   const schoolLogoUrl = school.logoUrl?.trim();
   const userDisplayName = user.name.trim();
+  const refreshStatus = isRefreshing ? "Actualisation..." : refreshError || refreshMessage;
 
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-white">
@@ -1024,9 +1061,20 @@ function Header({
           <div className="relative flex flex-col gap-2 sm:flex-row sm:items-center">
             <div className="flex items-center justify-end gap-3">
             <span className="rounded bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600">Année scolaire : {year.name}</span>
-            <button onClick={onRefresh} className="inline-flex h-8 w-8 items-center justify-center text-slate-500 transition hover:text-ink" title="Actualiser" aria-label="Actualiser">
-              <RefreshCw className="h-4 w-4" />
+            <button
+              onClick={onRefresh}
+              disabled={isRefreshing}
+              className="inline-flex h-8 w-8 items-center justify-center text-slate-500 transition hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+              title="Actualiser"
+              aria-label="Actualiser"
+            >
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
             </button>
+            {refreshStatus && (
+              <span className={`text-xs font-semibold ${refreshError ? "text-red-600" : "text-slate-500"}`}>
+                {refreshStatus}
+              </span>
+            )}
             <button onClick={onToggleNotifications} className="relative inline-flex h-8 w-8 items-center justify-center text-slate-500 transition hover:text-ink" title="Boîte à Messagerie" aria-label="Boîte à Messagerie">
               <Bell className="h-4 w-4" />
               {unreadNotifications > 0 && (
