@@ -165,9 +165,32 @@ export interface Message {
   schoolRecipient?: "admin" | "cashier" | "both";
   threadParentId?: string;
   threadId?: string;
+  conversationId?: string;
   subject: string;
   body: string;
   createdAt: string;
+}
+
+export interface Conversation {
+  id: string;
+  schoolId: string;
+  schoolYearId: string;
+  threadId: string;
+  threadParentId: string;
+  parentId: string;
+  parentName?: string;
+  schoolRecipient?: "admin" | "cashier" | "both";
+  lastMessage: string;
+  lastMessageAt: string;
+  lastSenderId: string;
+  lastSenderRole: "parent" | "school_admin" | "cashier";
+  messageCount: number;
+  unreadParentCount: number;
+  unreadAdminCount: number;
+  unreadCashierCount: number;
+  createdAt: string;
+  updatedAt: string;
+  status: "active";
 }
 
 export interface AppNotification {

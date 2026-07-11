@@ -3,8 +3,6 @@ import type { CSSProperties, ChangeEvent, ReactNode } from "react";
 import {
   deleteDoc,
   doc,
-  getDoc,
-  setDoc,
 } from "firebase/firestore";
 import {
   ArrowUpDown,
@@ -50,6 +48,7 @@ import type { UseBillingControlsResult } from "./hooks/useBillingControls";
 import { usePaginatedControlHistory } from "./hooks/usePaginatedControlHistory";
 import { usePaginatedNotifications } from "./hooks/usePaginatedNotifications";
 import { canUseFirestoreData, loadFirestoreData, loadFirestoreYearData, loadPlatformSettings, persistFirestorePatch, savePlatformSettings } from "./services/firestoreData";
+import { markConversationUnreadCountRead, persistMessageWithConversation } from "./services/conversations";
 import { loadSuperAdminInitialData, loadSuperAdminSchoolData } from "./services/superAdminData";
 import type { SuperAdminGlobalCounts } from "./services/superAdminData";
 import { db } from "./firebase";
@@ -656,6 +655,11 @@ export default function App() {
           : notification,
       ),
     });
+    if (user) {
+      void markConversationUnreadCountRead(user, currentSchool.id, currentYear.id).catch((error) => {
+        console.warn("Remise à zéro des compteurs de conversation impossible.", error);
+      });
+    }
   }
 
   function openNotifications() {
@@ -4236,6 +4240,9 @@ function ParentPortal({
         notification.parentId === user.parentId && notification.schoolYearId === year.id ? { ...notification, read: true } : notification,
       ),
     });
+    void markConversationUnreadCountRead(user, school.id, year.id).catch((error) => {
+      console.warn("Remise à zéro des compteurs de conversation impossible.", error);
+    });
   }
 
   function openParentMessagesDrawer() {
@@ -4276,7 +4283,7 @@ function ParentPortal({
 
     const recipientLabel = recipientLabels[messageRecipient];
     const createdAt = new Date().toISOString();
-    const threadId = nextMessageThreadId(yearData.messages, user.id, "school", user.parentId);
+    const threadId = nextMessageThreadId(yearData.messages, user.id, "school", user.parentId) ?? uid("thread");
     const message: Message = {
       id: uid("msg"),
       schoolId: school.id,
@@ -4285,18 +4292,17 @@ function ParentPortal({
       recipientParentId: "school",
       schoolRecipient: messageRecipient,
       threadParentId: user.parentId,
+      threadId,
       subject: `${recipientLabel} - ${subject}`,
       body,
       createdAt,
     };
-    if (threadId) {
-      message.threadId = threadId;
-    }
     const notification: AppNotification = {
       id: uid("notif"),
       schoolId: school.id,
       schoolYearId: year.id,
       recipientRole: "school",
+      schoolRecipient: messageRecipient,
       messageId: message.id,
       type: "message",
       title: `Nouveau message parent - ${recipientLabel}`,
@@ -4311,23 +4317,15 @@ function ParentPortal({
         return;
       }
       try {
-        const messageRef = doc(db, "messages", message.id);
-        const notificationRef = doc(db, "notifications", notification.id);
-        await setDoc(messageRef, message);
-
-        const messageSnapshot = await getDoc(messageRef);
-        if (!messageSnapshot.exists()) {
-          throw new Error("Verification Firestore incomplete apres l'envoi du message.");
-        }
-
-        await setDoc(notificationRef, notification);
-        const notificationSnapshot = await getDoc(notificationRef);
-        if (!notificationSnapshot.exists()) {
-          throw new Error("Verification Firestore incomplete apres l'envoi du message.");
-        }
+        const savedMessage = await persistMessageWithConversation({
+          user,
+          message,
+          notification,
+          parentName: parent?.fullName ?? user.name,
+        });
 
         updateData(
-          { messages: [message, ...data.messages], notifications: [notification, ...data.notifications] },
+          { messages: [savedMessage, ...data.messages], notifications: [notification, ...data.notifications] },
           { persist: false },
         );
       } catch (error) {
@@ -7304,7 +7302,7 @@ function MessagesModule({
     const createdAt = new Date().toISOString();
     const schoolRecipient = user.role === "school_admin" ? "admin" : user.role === "cashier" ? "cashier" : undefined;
     const messages: Message[] = recipientParents.map((parent) => {
-      const threadId = nextMessageThreadId(yearData.messages, user.id, parent.id, parent.id);
+      const threadId = nextMessageThreadId(yearData.messages, user.id, parent.id, parent.id) ?? uid("thread");
       const message: Message = {
         id: uid("msg"),
         schoolId: school.id,
@@ -7312,15 +7310,13 @@ function MessagesModule({
         senderId: user.id,
         recipientParentId: parent.id,
         threadParentId: parent.id,
+        threadId,
         subject,
         body,
         createdAt,
       };
       if (schoolRecipient) {
         message.schoolRecipient = schoolRecipient;
-      }
-      if (threadId) {
-        message.threadId = threadId;
       }
       return message;
     });
@@ -7343,20 +7339,17 @@ function MessagesModule({
         return;
       }
       try {
+        const savedMessages: Message[] = [];
         for (const message of messages) {
-          const messageRef = doc(db, "messages", message.id);
-          await setDoc(messageRef, message);
-          const messageSnapshot = await getDoc(messageRef);
-          if (!messageSnapshot.exists()) {
-            throw new Error("Verification Firestore incomplete apres l'envoi du message.");
-          }
           const notification = notifications.find((item) => item.messageId === message.id);
           if (notification) {
-            await setDoc(doc(db, "notifications", notification.id), notification);
+            const parentName = recipientParents.find((parent) => parent.id === message.threadParentId)?.fullName;
+            const savedMessage = await persistMessageWithConversation({ user, message, notification, parentName });
+            savedMessages.push(savedMessage);
           }
         }
         updateData(
-          { messages: [...messages, ...data.messages], notifications: [...notifications, ...data.notifications] },
+          { messages: [...savedMessages, ...data.messages], notifications: [...notifications, ...data.notifications] },
           { persist: false },
         );
       } catch (error) {

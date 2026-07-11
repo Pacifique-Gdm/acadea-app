@@ -233,6 +233,54 @@ service cloud.firestore {
       allow update, delete: if schoolAdmin() && sameTenantResource();
     }
 
+    match /conversations/{conversationId} {
+      allow read: if superAdmin()
+        || (schoolAdmin() && sameTenantResource() && resource.data.schoolRecipient in ["admin", "both"])
+        || (signedIn() && role() == "cashier" && sameTenantResource() && resource.data.schoolRecipient in ["cashier", "both"])
+        || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.parentId == tenantParentId());
+      allow create: if (schoolAdmin()
+          && sameTenantCreate()
+          && request.resource.data.schoolRecipient == "admin")
+        || (signedIn()
+          && role() == "cashier"
+          && sameTenantCreate()
+          && request.resource.data.schoolRecipient == "cashier")
+        || (parentUser()
+          && request.resource.data.schoolId == tenantSchoolId()
+          && request.resource.data.parentId == tenantParentId()
+          && request.resource.data.threadParentId == tenantParentId()
+          && request.resource.data.schoolRecipient in ["admin", "cashier", "both"]);
+      allow update: if (schoolAdmin()
+          && sameTenantUpdate()
+          && resource.data.schoolRecipient in ["admin", "both"]
+          && request.resource.data.schoolId == resource.data.schoolId
+          && request.resource.data.schoolYearId == resource.data.schoolYearId
+          && request.resource.data.parentId == resource.data.parentId
+          && request.resource.data.threadId == resource.data.threadId
+          && request.resource.data.threadParentId == resource.data.threadParentId
+          && request.resource.data.schoolRecipient == resource.data.schoolRecipient)
+        || (signedIn()
+          && role() == "cashier"
+          && sameTenantUpdate()
+          && resource.data.schoolRecipient in ["cashier", "both"]
+          && request.resource.data.schoolId == resource.data.schoolId
+          && request.resource.data.schoolYearId == resource.data.schoolYearId
+          && request.resource.data.parentId == resource.data.parentId
+          && request.resource.data.threadId == resource.data.threadId
+          && request.resource.data.threadParentId == resource.data.threadParentId
+          && request.resource.data.schoolRecipient == resource.data.schoolRecipient)
+        || (parentUser()
+          && resource.data.schoolId == tenantSchoolId()
+          && resource.data.parentId == tenantParentId()
+          && request.resource.data.schoolId == resource.data.schoolId
+          && request.resource.data.schoolYearId == resource.data.schoolYearId
+          && request.resource.data.parentId == resource.data.parentId
+          && request.resource.data.threadId == resource.data.threadId
+          && request.resource.data.threadParentId == resource.data.threadParentId
+          && request.resource.data.schoolRecipient == resource.data.schoolRecipient);
+      allow delete: if false;
+    }
+
     match /notifications/{notificationId} {
       allow read: if superAdmin()
         || (role() in ["school_admin", "cashier"] && sameTenantResource())
