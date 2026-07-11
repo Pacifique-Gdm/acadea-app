@@ -42,6 +42,8 @@ import {
 import { createFirebaseAuthUser, getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateParent, validatePlatformAdmin, validateSchoolStaff } from "./services/auth";
 import { ParentsDirectoryDrawer } from "./components/parents/ParentsDirectoryDrawer";
 import { AttachmentsList } from "./components/valves/AttachmentsList";
+import type { ValveAttachmentListItem } from "./components/valves/AttachmentsList";
+import { AttachmentViewer } from "./components/valves/AttachmentViewer";
 import { canUseFirestoreData, loadFirestoreData, loadPlatformSettings, persistFirestorePatch, savePlatformSettings } from "./services/firestoreData";
 import { db } from "./firebase";
 import { manageSchool, provisionCashier, provisionParent, provisionSchoolAdmin } from "./services/provisioning";
@@ -3273,6 +3275,7 @@ function ValvesDrawerContent({
   const [isPreparingAttachment, setIsPreparingAttachment] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishProgress, setPublishProgress] = useState("");
+  const [selectedAttachment, setSelectedAttachment] = useState<ValveAttachmentListItem | null>(null);
   const attachmentReadIdRef = useRef(0);
   const isPublishingRef = useRef(false);
   const currentParent = user.parentId ? yearData.parents.find((parent) => parent.id === user.parentId) : undefined;
@@ -3692,7 +3695,7 @@ function ValvesDrawerContent({
                 <p className="mt-1 text-xs text-slate-500">{publication.authorName} · {new Date(publication.createdAt).toLocaleString("fr-FR")}</p>
                 <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{publication.body}</p>
                 <div className="mt-3">
-                  <AttachmentsList attachments={getPublicationDownloadAttachments(publication)} />
+                  <AttachmentsList attachments={getPublicationDownloadAttachments(publication)} onView={setSelectedAttachment} />
                 </div>
               </div>
               {canManage && (
@@ -3749,6 +3752,7 @@ function ValvesDrawerContent({
           </div>
         </div>
       )}
+      <AttachmentViewer attachment={selectedAttachment} onClose={() => setSelectedAttachment(null)} />
     </div>
   );
 }
