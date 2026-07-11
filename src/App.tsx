@@ -457,6 +457,23 @@ export default function App() {
       };
       return updated;
     });
+    if (user && canUseFirestoreData()) {
+      setDataLoading(true);
+      loadFirestoreData(user, yearId)
+        .then((firestoreData) => {
+          if (!firestoreData) return;
+          setData({
+            ...firestoreData,
+            users: firestoreData.users.map((item) => (item.id === user.id ? { ...item, activeSchoolYearId: yearId } : item)),
+          });
+        })
+        .catch((error) => {
+          console.warn("Chargement Firestore indisponible pour cette année scolaire.", error);
+        })
+        .finally(() => {
+          setDataLoading(false);
+        });
+    }
   }
 
   async function loginWithCredentials(email: string, password: string) {
@@ -496,7 +513,7 @@ export default function App() {
   async function refreshData() {
     if (user && canUseFirestoreData()) {
       try {
-        const firestoreData = await loadFirestoreData(user);
+        const firestoreData = await loadFirestoreData(user, selectedYearId || undefined);
         if (firestoreData) {
           setData(firestoreData);
           return;

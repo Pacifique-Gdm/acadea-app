@@ -1,6 +1,7 @@
 import { collection, doc, getDoc, getDocs, query, setDoc, where } from "firebase/firestore";
 import { db, firebaseReady } from "../firebase";
 import type { AppData, AppUser } from "../types";
+import { resolveDefaultSchoolYear } from "../utils/schoolYears";
 
 type CollectionKey = keyof AppData;
 type PersistableItem = { id: string };
@@ -83,7 +84,7 @@ async function loadDocument<T>(collectionName: string, id?: string) {
   return snapshot.exists() ? ([{ id: snapshot.id, ...snapshot.data() }] as T[]) : [];
 }
 
-export async function loadFirestoreData(user?: AppUser) {
+export async function loadFirestoreData(user?: AppUser, schoolYearId?: string) {
   if (!canUseFirestoreData() || !db) return null;
 
   if (user?.role && user.role !== "super_admin") {
@@ -112,9 +113,18 @@ export async function loadFirestoreData(user?: AppUser) {
     }
 
     scopedData.schoolYears = await loadCollection<AppData["schoolYears"][number]>("schoolYears", schoolFilter);
-    scopedData.feeTypes = await loadCollection<AppData["feeTypes"][number]>("feeTypes", schoolFilter);
+    const requestedYear = schoolYearId ? scopedData.schoolYears.find((year) => year.id === schoolYearId && year.schoolId === user.schoolId) : undefined;
+    const defaultYear = resolveDefaultSchoolYear(scopedData.schools[0], scopedData.schoolYears);
+    const targetSchoolYearId = requestedYear?.id ?? defaultYear?.id;
+    const annualFilter: [string, unknown][] = targetSchoolYearId
+      ? [
+          ["schoolId", user.schoolId],
+          ["schoolYearId", targetSchoolYearId],
+        ]
+      : schoolFilter;
 
     if (user.role === "parent") {
+      scopedData.feeTypes = await loadCollection<AppData["feeTypes"][number]>("feeTypes", schoolFilter);
       if (!user.parentId) {
         throw new Error("Chargement Firestore impossible : parentId manquant dans les Custom Claims.");
       }
@@ -131,16 +141,17 @@ export async function loadFirestoreData(user?: AppUser) {
       return scopedData;
     }
 
-    scopedData.students = await loadCollection<AppData["students"][number]>("students", schoolFilter);
+    scopedData.feeTypes = await loadCollection<AppData["feeTypes"][number]>("feeTypes", annualFilter);
+    scopedData.students = await loadCollection<AppData["students"][number]>("students", annualFilter);
     scopedData.parents = await loadCollection<AppData["parents"][number]>("parents", schoolFilter);
-    scopedData.payments = await loadCollection<AppData["payments"][number]>("payments", schoolFilter);
-    scopedData.expenses = await loadCollection<AppData["expenses"][number]>("expenses", schoolFilter);
-    scopedData.messages = await loadCollection<AppData["messages"][number]>("messages", schoolFilter);
-    scopedData.notifications = await loadCollection<AppData["notifications"][number]>("notifications", schoolFilter);
+    scopedData.payments = await loadCollection<AppData["payments"][number]>("payments", annualFilter);
+    scopedData.expenses = await loadCollection<AppData["expenses"][number]>("expenses", annualFilter);
+    scopedData.messages = await loadCollection<AppData["messages"][number]>("messages", annualFilter);
+    scopedData.notifications = await loadCollection<AppData["notifications"][number]>("notifications", annualFilter);
     if (user.role === "school_admin") {
       scopedData.auditLogs = await loadCollection<AppData["auditLogs"][number]>("auditLogs", schoolFilter);
     }
-    scopedData.valves = await loadCollection<AppData["valves"][number]>("valves", schoolFilter);
+    scopedData.valves = await loadCollection<AppData["valves"][number]>("valves", annualFilter);
     return scopedData;
   }
 
