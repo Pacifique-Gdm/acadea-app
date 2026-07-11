@@ -1,5 +1,6 @@
 import { collection, doc, getDoc, getDocs, query, setDoc, where } from "firebase/firestore";
 import { db, firebaseReady } from "../firebase";
+import { loadSuperAdminInitialData } from "./superAdminData";
 import type { AppData, AppUser } from "../types";
 import { resolveDefaultSchoolYear } from "../utils/schoolYears";
 
@@ -88,7 +89,12 @@ async function loadDocument<T>(collectionName: string, id?: string) {
 export async function loadFirestoreData(user?: AppUser, schoolYearId?: string) {
   if (!canUseFirestoreData() || !db) return null;
 
-  if (user?.role && user.role !== "super_admin") {
+  if (user?.role === "super_admin") {
+    const { data } = await loadSuperAdminInitialData(user.id);
+    return data;
+  }
+
+  if (user?.role) {
     const scopedData = emptyFirestoreData();
     const schoolFilter: [string, unknown][] = [["schoolId", user.schoolId]];
     const parentFilter: [string, unknown][] = [
@@ -156,26 +162,8 @@ export async function loadFirestoreData(user?: AppUser, schoolYearId?: string) {
     return scopedData;
   }
 
-  const entries = await Promise.all(
-    (Object.entries(collectionMap) as [CollectionKey, string][]).map(async ([key, collectionName]) => {
-      const snapshot = await getDocs(collection(db, collectionName)).catch((error) => {
-        console.error("[Acadéa Firestore] Erreur getDocs collection.", {
-          collectionName,
-          error,
-        });
-        throw error;
-      });
-      console.log("[Acadéa Firestore] Collection chargée.", {
-        collectionName,
-        snapshotSize: snapshot.size,
-        ids: snapshot.docs.map((item) => item.id),
-      });
-      const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
-      return [key, items] as const;
-    }),
-  );
+  return emptyFirestoreData();
 
-  return Object.fromEntries(entries) as unknown as AppData;
 }
 
 export async function loadFirestoreYearData(user: AppUser, schoolYearId: string) {

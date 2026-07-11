@@ -48,6 +48,8 @@ import { AttachmentViewer } from "./components/valves/AttachmentViewer";
 import { useBillingControls } from "./hooks/useBillingControls";
 import type { UseBillingControlsResult } from "./hooks/useBillingControls";
 import { canUseFirestoreData, loadFirestoreData, loadFirestoreYearData, loadPlatformSettings, persistFirestorePatch, savePlatformSettings } from "./services/firestoreData";
+import { loadSuperAdminInitialData, loadSuperAdminSchoolData } from "./services/superAdminData";
+import type { SuperAdminGlobalCounts } from "./services/superAdminData";
 import { db } from "./firebase";
 import { manageSchool, provisionCashier, provisionParent, provisionSchoolAdmin } from "./services/provisioning";
 import { buildDashboardFeeProgressRows, buildDashboardFinancialStats } from "./utils/dashboardStats";
@@ -266,6 +268,7 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
   const [authError, setAuthError] = useState("");
   const [dataLoading, setDataLoading] = useState(false);
+  const [platformCounts, setPlatformCounts] = useState<SuperAdminGlobalCounts | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState("");
   const [refreshError, setRefreshError] = useState("");
@@ -355,6 +358,7 @@ export default function App() {
       setSelectedYearId("");
       setActiveTab("dashboard");
       setDataLoading(false);
+      setPlatformCounts(null);
       setData(loadInitialData());
       navigate("/login");
       return;
@@ -385,6 +389,7 @@ export default function App() {
         setUser(null);
         setSelectedYearId("");
         setActiveTab("dashboard");
+        setPlatformCounts(null);
         setData(loadInitialData());
         setAuthReady(true);
         navigate("/login");
@@ -412,7 +417,17 @@ export default function App() {
     let cancelled = false;
     setDataLoading(true);
 
-    loadFirestoreData(user)
+    const loadData =
+      user.role === "super_admin"
+        ? loadSuperAdminInitialData(user.id).then(({ data: firestoreData, counts }) => {
+            if (!cancelled) {
+              setPlatformCounts(counts);
+            }
+            return firestoreData;
+          })
+        : loadFirestoreData(user);
+
+    loadData
       .then((firestoreData) => {
         if (!firestoreData || cancelled) return;
         setData(firestoreData);
@@ -427,6 +442,7 @@ export default function App() {
         setUser(null);
         setSelectedYearId("");
         setActiveTab("dashboard");
+        setPlatformCounts(null);
         setData(loadInitialData());
         navigate("/login");
         void signOutUser().catch((signOutError) => {
@@ -488,6 +504,7 @@ export default function App() {
     setUser(null);
     setSelectedYearId("");
     setActiveTab("dashboard");
+    setPlatformCounts(null);
     setData(loadInitialData());
     setDataLoading(false);
     setAuthError("");
@@ -588,7 +605,7 @@ export default function App() {
       return <AccessDenied onLogout={logout} />;
     }
 
-    return <PlatformModule user={user} data={data} updateData={updateData} platformLogoUrl={platformLogoUrl} onPlatformLogoSaved={setPlatformLogoUrl} onLogout={logout} showInstallButton={showInstallPwaButton} onInstallPwa={installPwa} billingControls={billingControls} />;
+    return <PlatformModule user={user} data={data} updateData={updateData} platformCounts={platformCounts} platformLogoUrl={platformLogoUrl} onPlatformLogoSaved={setPlatformLogoUrl} onLogout={logout} showInstallButton={showInstallPwaButton} onInstallPwa={installPwa} billingControls={billingControls} />;
   }
 
   if (dataLoading) {
@@ -1803,6 +1820,7 @@ function PlatformModule({
   user,
   data,
   updateData,
+  platformCounts,
   platformLogoUrl,
   onPlatformLogoSaved,
   showInstallButton,
@@ -1813,6 +1831,7 @@ function PlatformModule({
   user: AppUser;
   data: AppData;
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
+  platformCounts: SuperAdminGlobalCounts | null;
   platformLogoUrl: string;
   onPlatformLogoSaved: (logoUrl: string) => void;
   showInstallButton: boolean;
@@ -1861,11 +1880,14 @@ function PlatformModule({
   const [schoolLevelConfirmation, setSchoolLevelConfirmation] = useState("");
   const [platformLogoDraft, setPlatformLogoDraft] = useState(platformLogoUrl);
   const [platformLogoMessage, setPlatformLogoMessage] = useState("");
+  const [schoolDetailLoading, setSchoolDetailLoading] = useState(false);
+  const [schoolDetailError, setSchoolDetailError] = useState("");
+  const schoolDetailRequestRef = useRef(0);
 
   const visibleSchools = data.schools.filter((school) => String(school.status) !== "deleted");
-  const totalStudents = data.students.length;
-  const totalParents = data.parents.length;
-  const totalAdmins = data.users.filter((item) => item.role === "school_admin").length;
+  const totalStudents = platformCounts?.students ?? data.students.length;
+  const totalParents = platformCounts?.parents ?? data.parents.length;
+  const totalAdmins = platformCounts?.admins ?? data.users.filter((item) => item.role === "school_admin").length;
   const activeSchools = visibleSchools.filter((school) => school.status === "active").length;
   const suspendedSchools = visibleSchools.filter((school) => school.status === "suspended").length;
   const schoolStatusChart = [
@@ -2230,8 +2252,63 @@ function PlatformModule({
   }
 
   function openSchoolDrawer(schoolId: string) {
+    const requestId = schoolDetailRequestRef.current + 1;
+    schoolDetailRequestRef.current = requestId;
     selectSchool(schoolId);
     setSchoolDrawerId(schoolId);
+    setSchoolDetailError("");
+    setSchoolDetailLoading(true);
+    loadSuperAdminSchoolData(schoolId)
+      .then((schoolData) => {
+        if (schoolDetailRequestRef.current !== requestId) return;
+        updateData(
+          {
+            users: [...data.users.filter((item) => item.role === "super_admin" || !item.schoolId), ...schoolData.admins],
+            students: schoolData.students,
+            parents: schoolData.parents,
+            feeTypes: schoolData.feeTypes,
+            payments: schoolData.payments,
+            expenses: schoolData.expenses,
+            messages: schoolData.messages,
+            notifications: schoolData.notifications,
+            auditLogs: schoolData.auditLogs,
+            valves: schoolData.valves,
+          },
+          { persist: false },
+        );
+      })
+      .catch((error) => {
+        if (schoolDetailRequestRef.current !== requestId) return;
+        console.warn("Chargement des données de l'école indisponible.", error);
+        setSchoolDetailError("Impossible de charger les données de cette école. Veuillez réessayer.");
+      })
+      .finally(() => {
+        if (schoolDetailRequestRef.current === requestId) {
+          setSchoolDetailLoading(false);
+        }
+      });
+  }
+
+  function closeSchoolDrawer() {
+    schoolDetailRequestRef.current += 1;
+    setSchoolDrawerId("");
+    setSchoolDetailLoading(false);
+    setSchoolDetailError("");
+    updateData(
+      {
+        users: data.users.filter((item) => item.role === "super_admin" || !item.schoolId),
+        students: [],
+        parents: [],
+        feeTypes: [],
+        payments: [],
+        expenses: [],
+        messages: [],
+        notifications: [],
+        auditLogs: [],
+        valves: [],
+      },
+      { persist: false },
+    );
   }
 
   const platformTabs = [
@@ -2526,7 +2603,7 @@ function PlatformModule({
       )}
 
       {drawerSchool && (
-        <AdminDrawer title={drawerSchool.name} onClose={() => setSchoolDrawerId("")} closeLabel="Fermer les informations de l'école">
+        <AdminDrawer title={drawerSchool.name} onClose={closeSchoolDrawer} closeLabel="Fermer les informations de l'école">
           <div className="grid gap-4">
             <div className="flex min-w-0 items-start gap-3 rounded border border-slate-200 bg-slate-50 p-4">
               <SchoolLogo school={drawerSchool} />
@@ -2560,6 +2637,16 @@ function PlatformModule({
                 </button>
               </div>
             </div>
+            {schoolDetailLoading && (
+              <p className="rounded border border-blue-100 bg-blue-50 p-3 text-sm font-semibold text-blue-700">
+                Chargement des données de cette école...
+              </p>
+            )}
+            {schoolDetailError && (
+              <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+                {schoolDetailError}
+              </p>
+            )}
 
             {detailTab === "overview" && (
               <div className="grid gap-4">
