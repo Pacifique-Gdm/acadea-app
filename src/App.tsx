@@ -3164,8 +3164,8 @@ function getApproximateValveDocumentSize(publication: ValvePublication) {
 function getValvePublicationErrorMessage(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : String(error);
   const normalized = message.toLowerCase();
-  if (normalized.includes("upload_timeout")) {
-    return "L'envoi du fichier a expiré. Vérifiez votre connexion et réessayez.";
+  if (normalized.includes("upload_inactivity_timeout") || normalized.includes("upload_timeout")) {
+    return "L'envoi est interrompu faute de progression. Vérifiez votre connexion et réessayez.";
   }
   if (normalized.includes("too large") || normalized.includes("taille") || normalized.includes("quota") || normalized.includes("payload") || normalized.includes("bytes")) {
     return "Le fichier joint est trop volumineux pour être publié.";
@@ -3586,7 +3586,9 @@ function ValvesDrawerContent({
   return (
     <div className="grid min-w-0 gap-4">
       {canManage && (
-        <div className="grid min-w-0 gap-3 rounded border border-slate-100 bg-slate-50 p-3">
+        <>
+        {isPublishing && <p className="rounded border border-blue-100 bg-blue-50 p-3 text-sm font-semibold text-blue-700">Publication en cours. Veuillez patienter...</p>}
+        <fieldset disabled={isPublishing} aria-busy={isPublishing} className={`grid min-w-0 gap-3 rounded border border-slate-100 bg-slate-50 p-3 transition ${isPublishing ? "pointer-events-none opacity-60 blur-[1px]" : ""}`}>
           <p className="text-sm font-bold text-ink">{editingId ? "Modifier la publication" : "Ajouter une publication"}</p>
           {feedback && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{feedback}</p>}
           <Field label="Titre" value={title} onChange={setTitle} />
@@ -3672,7 +3674,8 @@ function ValvesDrawerContent({
             </button>
             {editingId && <button onClick={resetForm} type="button" className="secondary-button" disabled={isPublishing}>Annuler</button>}
           </div>
-        </div>
+        </fieldset>
+        </>
       )}
 
       <div className="space-y-3">

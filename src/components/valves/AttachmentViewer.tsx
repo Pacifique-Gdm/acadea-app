@@ -68,8 +68,9 @@ export function AttachmentViewer({
             <p className="break-words text-base font-bold text-ink">{attachment.name}</p>
             <p className="text-xs font-semibold text-slate-500">Consultation uniquement</p>
           </div>
-          <button onClick={onClose} type="button" className="rounded bg-slate-100 p-2 text-slate-700 hover:bg-slate-200" title="Fermer">
+          <button onClick={onClose} type="button" className="inline-flex items-center gap-2 rounded bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-200" title="Fermer">
             <X className="h-4 w-4" />
+            Fermer
           </button>
         </div>
 
