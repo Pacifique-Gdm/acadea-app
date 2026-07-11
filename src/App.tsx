@@ -181,7 +181,7 @@ function PlatformLogoSlot({ logoUrl, compact = false }: { logoUrl: string; compa
   useEffect(() => {
     setLogoShape("balanced");
   }, [logoUrl]);
-  const logoSource = logoUrl || "/logo-acadea.svg";
+  const logoSource = logoUrl || "/acadea-icon.png";
 
   const containerClass =
     logoShape === "horizontal"
@@ -219,8 +219,8 @@ function PlatformLogoSlot({ logoUrl, compact = false }: { logoUrl: string; compa
         decoding="async"
         onError={(event) => {
           const image = event.currentTarget;
-          if (image.src.endsWith("/logo-acadea.svg")) return;
-          image.src = "/logo-acadea.svg";
+          if (image.src.endsWith("/acadea-icon.png")) return;
+          image.src = "/acadea-icon.png";
         }}
         onLoad={(event) => {
           const image = event.currentTarget;
