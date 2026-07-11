@@ -47,6 +47,7 @@ import type { ValveAttachmentListItem } from "./components/valves/AttachmentsLis
 import { AttachmentViewer } from "./components/valves/AttachmentViewer";
 import { useBillingControls } from "./hooks/useBillingControls";
 import type { UseBillingControlsResult } from "./hooks/useBillingControls";
+import { usePaginatedControlHistory } from "./hooks/usePaginatedControlHistory";
 import { canUseFirestoreData, loadFirestoreData, loadFirestoreYearData, loadPlatformSettings, persistFirestorePatch, savePlatformSettings } from "./services/firestoreData";
 import { loadSuperAdminInitialData, loadSuperAdminSchoolData } from "./services/superAdminData";
 import type { SuperAdminGlobalCounts } from "./services/superAdminData";
@@ -5809,6 +5810,18 @@ function ControlModule({
   const [historyQuery, setHistoryQuery] = useState("");
   const [selectedHistoryStudentId, setSelectedHistoryStudentId] = useState("");
   const controlIndexes = useMemo(() => buildSchoolYearDataIndexes(yearData.students, yearData.feeTypes, yearData.payments), [yearData.students, yearData.feeTypes, yearData.payments]);
+  const paymentHistory = usePaginatedControlHistory<Payment>({
+    kind: "payments",
+    schoolId: school.id,
+    schoolYearId: year.id,
+    enabled: historyOpen || cashierControlDrawer === "history",
+  });
+  const expenseHistory = usePaginatedControlHistory<Expense>({
+    kind: "expenses",
+    schoolId: school.id,
+    schoolYearId: year.id,
+    enabled: expenseHistoryOpen,
+  });
   const feeNameChoices = Array.from(new Set(yearData.feeTypes.map((fee) => fee.name)));
   const amountFeeGroups = Array.from(
     yearData.feeTypes.reduce<Map<string, { key: string; name: string; ids: string[] }>>((items, fee) => {
@@ -5893,7 +5906,7 @@ function ControlModule({
       const isGreaterOrEqual = feeFilter ? feeFilter[2] === "gte" : amountComparator === ">=";
       return isGreaterOrEqual ? paidAmount >= Number(amountThreshold) : paidAmount < Number(amountThreshold);
     });
-  const historyPayments = yearData.payments
+  const historyPayments = paymentHistory.items
     .map((payment) => {
       const student = controlIndexes.studentsById.get(payment.studentId);
       const fee = controlIndexes.feeTypesById.get(payment.feeTypeId);
@@ -5958,7 +5971,7 @@ function ControlModule({
       remaining: Math.max(selectedHistoryBalance.expected - selectedHistoryRunningPaid, 0),
     };
   });
-  const sortedExpenses = [...yearData.expenses].sort((first, second) => historyTimestamp(second.createdAt, second.spentAt) - historyTimestamp(first.createdAt, first.spentAt));
+  const sortedExpenses = [...expenseHistory.items].sort((first, second) => historyTimestamp(second.createdAt, second.spentAt) - historyTimestamp(first.createdAt, first.spentAt));
   const isOtherExpenseEditCategory = expenseEditCategory === "Autre" || expenseEditCategory === "Autres";
   const cashierDrawerTitle =
     cashierControlDrawer === "payment"
@@ -6076,6 +6089,7 @@ function ControlModule({
       notifications: notification ? [notification, ...data.notifications] : data.notifications,
       auditLogs: [createAuditLog(user, school.id, year.id, "Création paiement", `${payment.receiptNumber} - $${payment.amount}`), ...data.auditLogs],
     });
+    paymentHistory.prependItem(payment);
     setAmount("");
     if (user.role === "cashier") {
       setCashierControlFeedback("Paiement enregistré avec succès.");
@@ -6132,6 +6146,7 @@ function ControlModule({
       expenses: [expense, ...data.expenses],
       auditLogs: [createAuditLog(user, school.id, year.id, "Création dépense", `${expense.category} - $${expense.amount}`), ...data.auditLogs],
     });
+    expenseHistory.prependItem(expense);
     setExpenseAmount("");
     setExpenseDescription("");
     setExpenseBeneficiary("");
@@ -6173,10 +6188,11 @@ function ControlModule({
       return;
     }
     const nextDescription = expenseEditDescription.trim() || expenseEditCategory;
+    const updatedExpense: Expense = { ...expenseEditTarget, amount: nextAmount, category: expenseEditCategory, description: nextDescription };
     updateData({
       expenses: data.expenses.map((item) =>
         item.id === expenseEditTarget.id
-          ? { ...item, amount: nextAmount, category: expenseEditCategory, description: nextDescription }
+          ? updatedExpense
           : item,
       ),
       auditLogs: [
@@ -6184,6 +6200,7 @@ function ControlModule({
         ...data.auditLogs,
       ],
     });
+    expenseHistory.updateItem(updatedExpense);
     closeEditExpense();
   }
 
@@ -6193,6 +6210,7 @@ function ControlModule({
       expenses: data.expenses.filter((item) => item.id !== expense.id),
       auditLogs: [createAuditLog(user, school.id, year.id, "Suppression dépense", `${expense.category} - ${formatMoney(expense.amount)}`), ...data.auditLogs],
     });
+    expenseHistory.removeItem(expense.id);
     setExpenseDeleteTarget(null);
   }
 
@@ -6349,15 +6367,17 @@ function ControlModule({
     }
     const reason = prompt("Motif obligatoire de correction");
     if (!reason) return;
+    const correctedPayment: Payment = { ...payment, amount: correctedAmount, updatedAt: new Date().toISOString(), correctionReason: reason };
     updateData({
       payments: data.payments.map((item) =>
-        item.id === payment.id ? { ...item, amount: correctedAmount, updatedAt: new Date().toISOString(), correctionReason: reason } : item,
+        item.id === payment.id ? correctedPayment : item,
       ),
       auditLogs: [
         createAuditLog(user, school.id, year.id, "Correction paiement", `${payment.receiptNumber ?? payment.id}: ancien $${payment.amount}, nouveau $${correctedAmount}. Motif: ${reason}`),
         ...data.auditLogs,
       ],
     });
+    paymentHistory.updateItem(correctedPayment);
   }
 
   function deletePayment(payment: Payment) {
@@ -6368,6 +6388,7 @@ function ControlModule({
       payments: data.payments.filter((item) => item.id !== payment.id),
       auditLogs: [createAuditLog(user, school.id, year.id, "Suppression paiement", `${payment.receiptNumber ?? payment.id}: $${payment.amount}. Motif: ${reason}`), ...data.auditLogs],
     });
+    paymentHistory.removeItem(payment.id);
   }
 
   function renderPaymentWarningForm() {
@@ -6521,10 +6542,47 @@ function ControlModule({
     });
   }
 
+  function renderPaymentHistoryPagination() {
+    return (
+      <>
+        <p className="rounded bg-slate-50 p-3 text-xs font-semibold text-slate-500">
+          Recherche appliquée aux paiements déjà chargés. Utilisez Charger plus pour afficher les pages suivantes.
+        </p>
+        {paymentHistory.isInitialLoading && <p className="rounded bg-blue-50 p-3 text-sm font-semibold text-blue-700">Chargement de l'historique...</p>}
+        {paymentHistory.loadError && (
+          <div className="grid gap-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <p className="font-semibold">{paymentHistory.loadError}</p>
+            <button onClick={() => void paymentHistory.loadFirstPage()} className="secondary-button w-fit" type="button">Réessayer</button>
+          </div>
+        )}
+        {paymentHistory.hasMore && (
+          <button
+            onClick={() => void paymentHistory.loadMore()}
+            disabled={paymentHistory.isLoadingMore}
+            className="secondary-button w-full justify-center disabled:cursor-not-allowed disabled:opacity-50"
+            type="button"
+          >
+            {paymentHistory.isLoadingMore ? "Chargement..." : "Charger plus"}
+          </button>
+        )}
+      </>
+    );
+  }
+
   function renderExpenseHistoryContent() {
     return (
       <div className="space-y-2">
-        {sortedExpenses.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucune dépense enregistrée.</p>}
+        <p className="rounded bg-slate-50 p-3 text-xs font-semibold text-slate-500">
+          Historique chargé par pages de 50 éléments, du plus récent au plus ancien.
+        </p>
+        {expenseHistory.isInitialLoading && <p className="rounded bg-blue-50 p-3 text-sm font-semibold text-blue-700">Chargement de l'historique...</p>}
+        {expenseHistory.loadError && (
+          <div className="grid gap-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <p className="font-semibold">{expenseHistory.loadError}</p>
+            <button onClick={() => void expenseHistory.loadFirstPage()} className="secondary-button w-fit" type="button">Réessayer</button>
+          </div>
+        )}
+        {sortedExpenses.length === 0 && !expenseHistory.isInitialLoading && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucune dépense enregistrée.</p>}
         {sortedExpenses.map((expense) => {
           const beneficiary = getExpenseField(expense, ["beneficiary", "beneficiaire", "supplier", "fournisseur", "providerName", "payee"]);
           const paymentMethod = getExpenseField(expense, ["paymentMethod", "modePaiement", "paymentMode", "mode"]);
@@ -6557,6 +6615,16 @@ function ControlModule({
             </div>
           );
         })}
+        {expenseHistory.hasMore && (
+          <button
+            onClick={() => void expenseHistory.loadMore()}
+            disabled={expenseHistory.isLoadingMore}
+            className="secondary-button w-full justify-center disabled:cursor-not-allowed disabled:opacity-50"
+            type="button"
+          >
+            {expenseHistory.isLoadingMore ? "Chargement..." : "Charger plus"}
+          </button>
+        )}
       </div>
     );
   }
@@ -6931,7 +6999,7 @@ function ControlModule({
                 />
               </label>
               <div className="space-y-2">
-                {filteredHistoryPayments.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun paiement trouvé</p>}
+                {filteredHistoryPayments.length === 0 && !paymentHistory.isInitialLoading && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun paiement trouvé</p>}
                 {filteredHistoryPayments.map(({ payment, student, fee }) => {
                   return (
                     <div key={payment.id} className="rounded border border-slate-100 p-3 text-sm">
@@ -6950,6 +7018,7 @@ function ControlModule({
                   );
                 })}
               </div>
+              {renderPaymentHistoryPagination()}
             </>
           )}
           {cashierControlDrawer === "warning" && renderPaymentWarningForm()}
@@ -6972,7 +7041,7 @@ function ControlModule({
               />
             </label>
             <div className="space-y-2">
-              {filteredHistoryPayments.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun paiement trouvé</p>}
+              {filteredHistoryPayments.length === 0 && !paymentHistory.isInitialLoading && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun paiement trouvé</p>}
               {filteredHistoryPayments.map(({ payment, student, fee }) => {
                 return (
                   <div key={payment.id} className="rounded border border-slate-100 p-3 text-sm">
@@ -6991,6 +7060,7 @@ function ControlModule({
                 );
               })}
             </div>
+            {renderPaymentHistoryPagination()}
         </AdminDrawer>
       )}
       {expenseHistoryOpen && (
