@@ -23,6 +23,11 @@ export type ValveAttachmentUploadProgress = {
   percent: number;
 };
 
+export type ValveAttachmentDeleteFailure = {
+  path: string;
+  error: unknown;
+};
+
 const VALVE_ATTACHMENT_UPLOAD_TIMEOUT_MS = 60_000;
 
 function sanitizeStorageSegment(value: string) {
@@ -67,23 +72,40 @@ export async function uploadValveAttachment(params: {
   const snapshot = await new Promise<import("firebase/storage").UploadTaskSnapshot>((resolve, reject) => {
     let settled = false;
     let unsubscribe = () => {};
-    const timeoutId = window.setTimeout(() => {
+    let lastBytesTransferred = 0;
+    let inactivityTimeoutId = 0;
+    const clearInactivityTimeout = () => {
+      if (inactivityTimeoutId) {
+        window.clearTimeout(inactivityTimeoutId);
+        inactivityTimeoutId = 0;
+      }
+    };
+    const startInactivityTimeout = () => {
+      clearInactivityTimeout();
+      inactivityTimeoutId = window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        clearInactivityTimeout();
+        unsubscribe();
+        uploadTask.cancel();
+        reject(new Error("UPLOAD_INACTIVITY_TIMEOUT"));
+      }, VALVE_ATTACHMENT_UPLOAD_TIMEOUT_MS);
+    };
+    startInactivityTimeout();
+    const cleanup = () => {
       if (settled) return;
       settled = true;
-      window.clearTimeout(timeoutId);
-      unsubscribe();
-      uploadTask.cancel();
-      reject(new Error("UPLOAD_TIMEOUT"));
-    }, VALVE_ATTACHMENT_UPLOAD_TIMEOUT_MS);
-    const cleanup = () => {
-      settled = true;
-      window.clearTimeout(timeoutId);
+      clearInactivityTimeout();
       unsubscribe();
     };
 
     unsubscribe = uploadTask.on(
       "state_changed",
       (progressSnapshot) => {
+        if (progressSnapshot.bytesTransferred > lastBytesTransferred) {
+          lastBytesTransferred = progressSnapshot.bytesTransferred;
+          startInactivityTimeout();
+        }
         const percent = progressSnapshot.totalBytes > 0 ? Math.round((progressSnapshot.bytesTransferred / progressSnapshot.totalBytes) * 100) : 0;
         params.onProgress?.({
           fileName: params.attachment.name,
@@ -102,15 +124,22 @@ export async function uploadValveAttachment(params: {
       },
     );
   });
-  const attachmentUrl = await getDownloadURL(snapshot.ref);
+  const uploadedPath = snapshot.metadata.fullPath;
 
-  return {
-    attachmentName: params.attachment.name,
-    attachmentType: params.attachment.type,
-    attachmentUrl,
-    attachmentPath: snapshot.metadata.fullPath,
-    attachmentSize: snapshot.metadata.size,
-  };
+  try {
+    const attachmentUrl = await getDownloadURL(snapshot.ref);
+    return {
+      attachmentName: params.attachment.name,
+      attachmentType: params.attachment.type,
+      attachmentUrl,
+      attachmentPath: uploadedPath,
+      attachmentSize: snapshot.metadata.size,
+    };
+  } catch (error) {
+    // A brutal browser close or reload after upload but before Firestore cannot be fully recovered client-side.
+    await deleteValveAttachment(uploadedPath);
+    throw error;
+  }
 }
 
 export async function uploadValveAttachments(params: {
@@ -159,13 +188,18 @@ export async function deleteValveAttachment(attachmentPath?: string) {
 }
 
 export async function deleteValveAttachments(attachmentPaths: Array<string | undefined>) {
+  const failures: ValveAttachmentDeleteFailure[] = [];
+
   await Promise.all(
     attachmentPaths
       .filter((attachmentPath): attachmentPath is string => Boolean(attachmentPath))
       .map((attachmentPath) =>
         deleteValveAttachment(attachmentPath).catch((error) => {
-          console.warn("Suppression de la pièce jointe Valves indisponible.", error);
+          console.warn("Suppression de la pièce jointe Valves indisponible.", { attachmentPath, error });
+          failures.push({ path: attachmentPath, error });
         }),
       ),
   );
+
+  return failures;
 }
