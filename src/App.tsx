@@ -48,6 +48,7 @@ import { AttachmentViewer } from "./components/valves/AttachmentViewer";
 import { useBillingControls } from "./hooks/useBillingControls";
 import type { UseBillingControlsResult } from "./hooks/useBillingControls";
 import { usePaginatedControlHistory } from "./hooks/usePaginatedControlHistory";
+import { usePaginatedNotifications } from "./hooks/usePaginatedNotifications";
 import { canUseFirestoreData, loadFirestoreData, loadFirestoreYearData, loadPlatformSettings, persistFirestorePatch, savePlatformSettings } from "./services/firestoreData";
 import { loadSuperAdminInitialData, loadSuperAdminSchoolData } from "./services/superAdminData";
 import type { SuperAdminGlobalCounts } from "./services/superAdminData";
@@ -1058,6 +1059,50 @@ function Header({
   const schoolLogoUrl = school.logoUrl?.trim();
   const userDisplayName = user.name.trim();
   const refreshStatus = isRefreshing ? "Actualisation..." : refreshError || refreshMessage;
+  const notificationHistory = usePaginatedNotifications({
+    user,
+    schoolId: school.id,
+    schoolYearId: year.id,
+    enabled: notificationsOpen,
+    scopedNotifications: yearData.notifications,
+    messages: data.messages,
+  });
+  const displayedUnreadNotifications =
+    notificationsOpen && unreadNotifications === 0
+      ? 0
+      : notificationHistory.unreadCount ?? unreadNotifications;
+  const markPaginatedNotificationsRead = notificationHistory.markAllRead;
+
+  useEffect(() => {
+    if (notificationsOpen && unreadNotifications === 0) {
+      markPaginatedNotificationsRead();
+    }
+  }, [markPaginatedNotificationsRead, notificationsOpen, unreadNotifications]);
+
+  const notificationPagination = (
+    <div className="grid gap-2">
+      <p className="rounded bg-slate-50 p-3 text-xs font-semibold text-slate-500">
+        Notifications chargées par pages de 30 éléments, du plus récent au plus ancien.
+      </p>
+      {notificationHistory.isInitialLoading && <p className="rounded bg-blue-50 p-3 text-sm font-semibold text-blue-700">Chargement des notifications...</p>}
+      {notificationHistory.loadError && (
+        <div className="grid gap-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <p className="font-semibold">{notificationHistory.loadError}</p>
+          <button onClick={() => void notificationHistory.loadFirstPage()} className="secondary-button w-fit" type="button">Réessayer</button>
+        </div>
+      )}
+      {notificationHistory.hasMore && (
+        <button
+          onClick={() => void notificationHistory.loadMore()}
+          disabled={notificationHistory.isLoadingMore}
+          className="secondary-button w-full justify-center disabled:cursor-not-allowed disabled:opacity-50"
+          type="button"
+        >
+          {notificationHistory.isLoadingMore ? "Chargement..." : "Charger plus de notifications"}
+        </button>
+      )}
+    </div>
+  );
 
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-white">
@@ -1096,9 +1141,9 @@ function Header({
             )}
             <button onClick={onToggleNotifications} className="relative inline-flex h-8 w-8 items-center justify-center text-slate-500 transition hover:text-ink" title="Boîte à Messagerie" aria-label="Boîte à Messagerie">
               <Bell className="h-4 w-4" />
-              {unreadNotifications > 0 && (
+              {displayedUnreadNotifications > 0 && (
                 <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-600 px-1 text-center text-[11px] font-bold text-white">
-                  {unreadNotifications}
+                  {displayedUnreadNotifications}
                 </span>
               )}
             </button>
@@ -1108,7 +1153,14 @@ function Header({
       </div>
       {notificationsOpen && (
         <AdminDrawer title="Boîte à Messagerie" onClose={onCloseNotifications ?? onToggleNotifications} closeLabel="Fermer la boîte à messagerie" notificationPanel>
-          <MessageDrawerContent user={user} data={data} yearData={yearData} school={school} />
+          <MessageDrawerContent
+            user={user}
+            data={data}
+            yearData={yearData}
+            school={school}
+            notifications={notificationHistory.items}
+            notificationPagination={notificationPagination}
+          />
         </AdminDrawer>
       )}
     </header>
@@ -3007,11 +3059,15 @@ function MessageDrawerContent({
   data,
   yearData,
   school,
+  notifications: paginatedNotifications,
+  notificationPagination,
 }: {
   user: AppUser;
   data: AppData;
   yearData: ReturnType<typeof scopeData>;
   school: School;
+  notifications?: AppNotification[];
+  notificationPagination?: ReactNode;
 }) {
   type FeedItem = {
     id: string;
@@ -3038,7 +3094,9 @@ function MessageDrawerContent({
     return Number.isFinite(timestamp) ? timestamp : 0;
   }
 
-  const notifications = [...yearData.notifications].sort((a, b) => messageTimestamp(b.createdAt) - messageTimestamp(a.createdAt));
+  const notifications = [...(paginatedNotifications ?? yearData.notifications)].sort((a, b) => messageTimestamp(b.createdAt) - messageTimestamp(a.createdAt));
+  const notificationReadState = new Map(yearData.notifications.map((notification) => [notification.id, notification.read]));
+  const allNotifications = [...yearData.notifications].sort((a, b) => messageTimestamp(b.createdAt) - messageTimestamp(a.createdAt));
 
   function getParentForMessage(message: Message) {
     const senderParentId = data.users.find((item) => item.id === message.senderId)?.parentId;
@@ -3092,7 +3150,7 @@ function MessageDrawerContent({
   const messageItems: FeedItem[] = yearData.messages.filter(canShowMessageInFeed).map((message) => {
     const sender = senderDetails(message);
     const relatedParent = getParentForMessage(message);
-    const unread = notifications.some((notification) => notification.messageId === message.id && !notification.read);
+    const unread = allNotifications.some((notification) => notification.messageId === message.id && !notification.read);
     return {
       id: `message-${message.id}`,
       kind: "message",
@@ -3120,7 +3178,7 @@ function MessageDrawerContent({
         title: notification.title,
         preview: notification.body,
         createdAt: notification.createdAt,
-        unread: !notification.read,
+        unread: !(notificationReadState.get(notification.id) ?? notification.read),
         direction: "received" as const,
         tone,
         notificationSenderLabel: tone === "warning" ? warningNotificationSenderLabel(notification) : undefined,
@@ -3227,6 +3285,7 @@ function MessageDrawerContent({
               <p className={`mt-2 text-xs ${item.senderType === "parent" ? "text-slate-300" : "text-slate-500"}`}>{new Date(item.createdAt).toLocaleString("fr-FR")}</p>
             </article>
           ))}
+          {notificationPagination}
         </div>
       </section>
     </div>
