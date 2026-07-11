@@ -40,10 +40,13 @@ import {
   UsersRound,
 } from "lucide-react";
 import { createFirebaseAuthUser, getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateParent, validatePlatformAdmin, validateSchoolStaff } from "./services/auth";
+import { BillingControlsDrawer } from "./components/platform/BillingControlsDrawer";
 import { ParentsDirectoryDrawer } from "./components/parents/ParentsDirectoryDrawer";
 import { AttachmentsList } from "./components/valves/AttachmentsList";
 import type { ValveAttachmentListItem } from "./components/valves/AttachmentsList";
 import { AttachmentViewer } from "./components/valves/AttachmentViewer";
+import { useBillingControls } from "./hooks/useBillingControls";
+import type { UseBillingControlsResult } from "./hooks/useBillingControls";
 import { canUseFirestoreData, loadFirestoreData, loadPlatformSettings, persistFirestorePatch, savePlatformSettings } from "./services/firestoreData";
 import { db } from "./firebase";
 import { manageSchool, provisionCashier, provisionParent, provisionSchoolAdmin } from "./services/provisioning";
@@ -268,6 +271,7 @@ export default function App() {
   const [platformLogoUrl, setPlatformLogoUrl] = useState("");
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [pwaInstalled, setPwaInstalled] = useState(() => isStandaloneDisplayMode());
+  const billingControls = useBillingControls(Boolean(user));
 
   useEffect(() => {
     void applyPlatformLogoAssets();
@@ -540,7 +544,7 @@ export default function App() {
       return <AccessDenied onLogout={logout} />;
     }
 
-    return <PlatformModule user={user} data={data} updateData={updateData} platformLogoUrl={platformLogoUrl} onPlatformLogoSaved={setPlatformLogoUrl} onLogout={logout} showInstallButton={showInstallPwaButton} onInstallPwa={installPwa} />;
+    return <PlatformModule user={user} data={data} updateData={updateData} platformLogoUrl={platformLogoUrl} onPlatformLogoSaved={setPlatformLogoUrl} onLogout={logout} showInstallButton={showInstallPwaButton} onInstallPwa={installPwa} billingControls={billingControls} />;
   }
 
   if (dataLoading) {
@@ -678,6 +682,7 @@ export default function App() {
             onYearChange={enterSchoolYear}
             updateData={updateData}
             onLogout={logout}
+            valvesUploadsEnabled={billingControls.controls.valvesUploadsEnabled}
           />
         )}
       </main>
@@ -1738,6 +1743,7 @@ function PlatformModule({
   showInstallButton,
   onInstallPwa,
   onLogout,
+  billingControls,
 }: {
   user: AppUser;
   data: AppData;
@@ -1747,6 +1753,7 @@ function PlatformModule({
   showInstallButton: boolean;
   onInstallPwa: () => void;
   onLogout: () => void;
+  billingControls: UseBillingControlsResult;
 }) {
   type PlatformView = "dashboard" | "students" | "menu";
   type SchoolDetailTab = "overview" | "info" | "admins" | "history";
@@ -1765,7 +1772,7 @@ function PlatformModule({
   const [selectedSchoolId, setSelectedSchoolId] = useState(data.schools[0]?.id ?? "");
   const [schoolDrawerId, setSchoolDrawerId] = useState("");
   const [detailTab, setDetailTab] = useState<SchoolDetailTab>("overview");
-  const [platformMenuDrawer, setPlatformMenuDrawer] = useState<"create-school" | "logo" | null>(null);
+  const [platformMenuDrawer, setPlatformMenuDrawer] = useState<"create-school" | "logo" | "billing-controls" | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | School["status"]>("all");
   const [typeFilter, setTypeFilter] = useState<"all" | NonNullable<School["schoolType"]>>("all");
@@ -2384,6 +2391,17 @@ function PlatformModule({
                   </span>
                   <Upload className="h-5 w-5 shrink-0 text-slate-400 transition group-hover:text-blue-700" />
                 </button>
+                <button
+                  onClick={() => setPlatformMenuDrawer("billing-controls")}
+                  className="group flex min-w-0 items-center justify-between gap-3 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-200 hover:bg-blue-50/40"
+                  type="button"
+                >
+                  <span className="min-w-0">
+                    <span className="block break-words font-bold text-ink">Contrôle des pièces jointes Valves</span>
+                    <span className="mt-1 block break-words text-sm text-slate-500">Suspendre ou réactiver les nouveaux uploads Valves.</span>
+                  </span>
+                  <ShieldCheck className="h-5 w-5 shrink-0 text-slate-400 transition group-hover:text-blue-700" />
+                </button>
               </div>
 
               <FormPanel title="Session">
@@ -2428,6 +2446,17 @@ function PlatformModule({
       {platformMenuDrawer === "logo" && (
         <AdminDrawer title="Logo de l'application" onClose={() => setPlatformMenuDrawer(null)} closeLabel="Fermer la gestion du logo">
           {renderPlatformLogoForm()}
+        </AdminDrawer>
+      )}
+      {platformMenuDrawer === "billing-controls" && (
+        <AdminDrawer title="Contrôle des pièces jointes Valves" onClose={() => setPlatformMenuDrawer(null)} closeLabel="Fermer le contrôle des pièces jointes Valves">
+          <BillingControlsDrawer
+            controls={billingControls.controls}
+            loading={billingControls.loading}
+            error={billingControls.error}
+            updatedBy={user.id}
+            onSetValvesUploadsEnabled={billingControls.setValvesUploadsEnabled}
+          />
         </AdminDrawer>
       )}
 
@@ -3252,6 +3281,7 @@ function ValvesDrawerContent({
   year,
   updateData,
   canManage,
+  valvesUploadsEnabled = true,
 }: {
   user: AppUser;
   data: AppData;
@@ -3260,6 +3290,7 @@ function ValvesDrawerContent({
   year: SchoolYear;
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
   canManage: boolean;
+  valvesUploadsEnabled?: boolean;
 }) {
   const [title, setTitle] = useState("");
   const [kind, setKind] = useState<ValvePublicationKind>("communique");
@@ -3312,6 +3343,10 @@ function ValvesDrawerContent({
     const readId = attachmentReadIdRef.current + 1;
     attachmentReadIdRef.current = readId;
     setFeedback("");
+    if (!valvesUploadsEnabled) {
+      setFeedback("Les nouvelles pièces jointes sont temporairement suspendues pour maîtriser les coûts de stockage.");
+      return;
+    }
     const files = Array.from(fileList ?? []);
     if (files.length === 0) {
       setIsPreparingAttachment(false);
@@ -3373,6 +3408,10 @@ function ValvesDrawerContent({
       const attachmentValidationError = validateValveAttachmentDrafts(attachments);
       if (attachmentValidationError) {
         setFeedback(attachmentValidationError);
+        return;
+      }
+      if (!valvesUploadsEnabled && attachments.some((attachment) => attachment.dataUrl)) {
+        setFeedback("Les nouvelles pièces jointes sont temporairement suspendues pour maîtriser les coûts de stockage.");
         return;
       }
       setPublishProgress("Préparation des fichiers");
@@ -3642,9 +3681,14 @@ function ValvesDrawerContent({
               className="input"
               accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
               multiple
-              disabled={isPublishing || isPreparingAttachment}
+              disabled={isPublishing || isPreparingAttachment || !valvesUploadsEnabled}
             />
           </label>
+          {!valvesUploadsEnabled && (
+            <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">
+              Les nouvelles pièces jointes sont temporairement suspendues pour maîtriser les coûts de stockage.
+            </p>
+          )}
           {isPreparingAttachment && <p className="text-sm font-semibold text-slate-600">Préparation du fichier...</p>}
           {publishProgress && <p className="text-sm font-semibold text-slate-600">{publishProgress}</p>}
           <AttachmentsList attachments={attachments} onRemove={isPublishing || isPreparingAttachment ? undefined : removeAttachment} />
@@ -7135,6 +7179,7 @@ function MenuModule({
   onYearChange,
   updateData,
   onLogout,
+  valvesUploadsEnabled,
 }: {
   user: AppUser;
   data: AppData;
@@ -7145,6 +7190,7 @@ function MenuModule({
   onYearChange: (id: string) => void;
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
   onLogout: () => void;
+  valvesUploadsEnabled: boolean;
 }) {
   type MenuSection = "school" | "years" | "accounts" | "fees" | "financial" | "valves" | "parentsDirectory" | "history";
   const [schoolForm, setSchoolForm] = useState(school);
@@ -7917,6 +7963,7 @@ function MenuModule({
           year={selectedYear}
           updateData={updateData}
           canManage={canAdmin}
+          valvesUploadsEnabled={valvesUploadsEnabled}
         />
       );
     }

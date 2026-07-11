@@ -21,6 +21,14 @@ service cloud.firestore {
       return signedIn() && role() == "super_admin";
     }
 
+    function billingControlsShape() {
+      return request.resource.data.keys().hasOnly(["valvesUploadsEnabled", "reason", "updatedAt", "updatedBy"])
+        && request.resource.data.valvesUploadsEnabled is bool
+        && request.resource.data.updatedAt is string
+        && (!("reason" in request.resource.data) || request.resource.data.reason is string)
+        && (!("updatedBy" in request.resource.data) || request.resource.data.updatedBy is string);
+    }
+
     function schoolUser() {
       return signedIn()
         && role() in ["school_admin", "cashier", "parent"]
@@ -65,6 +73,12 @@ service cloud.firestore {
 
     match /platform/{document=**} {
       allow read, write: if superAdmin();
+    }
+
+    match /platformSettings/billingControls {
+      allow read: if signedIn();
+      allow create, update: if superAdmin() && billingControlsShape();
+      allow delete: if false;
     }
 
     match /schools/{schoolId} {
