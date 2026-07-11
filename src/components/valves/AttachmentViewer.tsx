@@ -23,6 +23,7 @@ export function AttachmentViewer({
   onClose: () => void;
 }) {
   const [textContent, setTextContent] = useState("");
+  const [pdfObjectUrl, setPdfObjectUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -30,35 +31,63 @@ export function AttachmentViewer({
 
   useEffect(() => {
     let cancelled = false;
+    let objectUrl = "";
     setTextContent("");
+    setPdfObjectUrl("");
     setError("");
 
-    if (!attachment || kind !== "text" || !attachment.url) return;
+    if (!attachment?.url || (kind !== "pdf" && kind !== "text")) {
+      setLoading(false);
+      return undefined;
+    }
 
     setLoading(true);
-    fetch(attachment.url)
-      .then((response) => {
-        if (!response.ok) throw new Error("Lecture impossible.");
-        return response.text();
-      })
-      .then((content) => {
-        if (!cancelled) setTextContent(content);
-      })
-      .catch(() => {
-        if (!cancelled) setError("Impossible de charger ce fichier texte.");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+
+    if (kind === "pdf") {
+      fetch(attachment.url)
+        .then((response) => {
+          if (!response.ok) throw new Error("Lecture impossible.");
+          return response.blob();
+        })
+        .then((blob) => {
+          if (cancelled) return;
+          objectUrl = URL.createObjectURL(blob);
+          setPdfObjectUrl(objectUrl);
+        })
+        .catch(() => {
+          if (!cancelled) setError("Impossible de charger ce PDF.");
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    }
+
+    if (kind === "text") {
+      fetch(attachment.url)
+        .then((response) => {
+          if (!response.ok) throw new Error("Lecture impossible.");
+          return response.text();
+        })
+        .then((content) => {
+          if (!cancelled) setTextContent(content);
+        })
+        .catch(() => {
+          if (!cancelled) setError("Impossible de charger ce fichier texte.");
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    }
 
     return () => {
       cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [attachment, kind]);
 
   if (!attachment) return null;
 
-  const pdfSource = attachment.url ? `${attachment.url}#toolbar=0&navpanes=0&scrollbar=1` : "";
+  const pdfSource = pdfObjectUrl ? `${pdfObjectUrl}#toolbar=0&navpanes=0&scrollbar=1` : "";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3">
@@ -75,7 +104,10 @@ export function AttachmentViewer({
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto bg-slate-50 p-4">
-          {kind === "pdf" && attachment.url && (
+          {loading && <p className="rounded border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-600">Chargement du document...</p>}
+          {error && <p className="rounded border border-red-100 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</p>}
+
+          {kind === "pdf" && pdfSource && !loading && !error && (
             <iframe title={attachment.name} src={pdfSource} className="h-[72vh] w-full rounded border border-slate-200 bg-white" />
           )}
 
@@ -85,11 +117,9 @@ export function AttachmentViewer({
             </div>
           )}
 
-          {kind === "text" && (
+          {kind === "text" && !loading && !error && (
             <div className="rounded border border-slate-200 bg-white p-4">
-              {loading && <p className="text-sm font-semibold text-slate-600">Chargement...</p>}
-              {error && <p className="text-sm font-semibold text-red-600">{error}</p>}
-              {!loading && !error && <pre className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{textContent}</pre>}
+              <pre className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{textContent}</pre>
             </div>
           )}
 
