@@ -9,10 +9,28 @@ export type ValveAttachmentViewerItem = {
 
 function getAttachmentKind(attachment: ValveAttachmentViewerItem) {
   const lowerName = attachment.name.toLowerCase();
+  const type = attachment.type ?? "";
   if (attachment.type?.startsWith("image/")) return "image";
-  if (attachment.type === "application/pdf" || lowerName.endsWith(".pdf")) return "pdf";
+  if (type === "application/pdf" || lowerName.endsWith(".pdf")) return "pdf";
   if (attachment.type === "text/plain" || lowerName.endsWith(".txt")) return "text";
+  if (type.includes("word") || type === "application/msword" || lowerName.endsWith(".doc") || lowerName.endsWith(".docx")) return "document";
+  if (type.includes("excel") || type.includes("spreadsheet") || lowerName.endsWith(".xls") || lowerName.endsWith(".xlsx")) return "document";
+  if (type.includes("powerpoint") || type.includes("presentation") || lowerName.endsWith(".ppt") || lowerName.endsWith(".pptx")) return "document";
   return "unsupported";
+}
+
+function isMobileDocumentContext() {
+  if (typeof window === "undefined" || typeof navigator === "undefined") return false;
+  const userAgent = navigator.userAgent || "";
+  const isMobileUserAgent = /Android|iPhone|iPad|iPod|IEMobile|Opera Mini|Mobile/i.test(userAgent);
+  const isTouchMac = /Macintosh/i.test(userAgent) && navigator.maxTouchPoints > 1;
+  const hasCoarsePointer = window.matchMedia?.("(pointer: coarse)").matches ?? false;
+  const hasDesktopPointer = window.matchMedia?.("(hover: hover) and (pointer: fine)").matches ?? false;
+  return isMobileUserAgent || isTouchMac || (hasCoarsePointer && !hasDesktopPointer);
+}
+
+function isDataUrl(url?: string) {
+  return Boolean(url?.startsWith("data:"));
 }
 
 export function AttachmentViewer({
@@ -28,6 +46,8 @@ export function AttachmentViewer({
   const [error, setError] = useState("");
 
   const kind = attachment ? getAttachmentKind(attachment) : "unsupported";
+  const shouldUseNativeMobileDocumentViewer = Boolean(attachment?.url) && (kind === "pdf" || kind === "document") && isMobileDocumentContext();
+  const mobileDocumentUrl = shouldUseNativeMobileDocumentViewer && !isDataUrl(attachment?.url) ? attachment?.url : "";
 
   useEffect(() => {
     let cancelled = false;
@@ -36,7 +56,7 @@ export function AttachmentViewer({
     setPdfObjectUrl("");
     setError("");
 
-    if (!attachment?.url || (kind !== "pdf" && kind !== "text")) {
+    if (!attachment?.url || shouldUseNativeMobileDocumentViewer || (kind !== "pdf" && kind !== "text")) {
       setLoading(false);
       return undefined;
     }
@@ -83,7 +103,7 @@ export function AttachmentViewer({
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [attachment, kind]);
+  }, [attachment, kind, shouldUseNativeMobileDocumentViewer]);
 
   if (!attachment) return null;
 
@@ -107,6 +127,24 @@ export function AttachmentViewer({
           {loading && <p className="rounded border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-600">Chargement du document...</p>}
           {error && <p className="rounded border border-red-100 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</p>}
 
+          {shouldUseNativeMobileDocumentViewer && (
+            <div className="flex min-h-[45vh] flex-col items-center justify-center gap-3 rounded border border-dashed border-slate-300 bg-white p-6 text-center">
+              <FileText className="h-8 w-8 text-slate-400" />
+              <p className="max-w-md text-sm font-semibold text-slate-600">
+                Ouvrez ce document avec le lecteur disponible sur votre téléphone.
+              </p>
+              {mobileDocumentUrl ? (
+                <a href={mobileDocumentUrl} target="_blank" rel="noopener noreferrer" className="primary-button justify-center">
+                  Ouvrir le document
+                </a>
+              ) : (
+                <p className="max-w-md rounded bg-slate-50 p-3 text-sm font-semibold text-slate-600">
+                  Cette ancienne pièce jointe intégrée ne peut pas toujours être ouverte par une application mobile.
+                </p>
+              )}
+            </div>
+          )}
+
           {kind === "pdf" && pdfSource && !loading && !error && (
             <iframe title={attachment.name} src={pdfSource} className="h-[72vh] w-full rounded border border-slate-200 bg-white" />
           )}
@@ -123,7 +161,7 @@ export function AttachmentViewer({
             </div>
           )}
 
-          {kind === "unsupported" && (
+          {(kind === "unsupported" || (kind === "document" && !shouldUseNativeMobileDocumentViewer)) && (
             <div className="flex min-h-[45vh] flex-col items-center justify-center gap-3 rounded border border-dashed border-slate-300 bg-white p-6 text-center">
               <FileText className="h-8 w-8 text-slate-400" />
               <p className="max-w-md text-sm font-semibold text-slate-600">La prévisualisation de ce type de fichier n'est pas disponible dans Acadéa.</p>
