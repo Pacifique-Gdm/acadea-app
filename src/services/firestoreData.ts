@@ -9,7 +9,7 @@ type PersistableItem = { id: string };
 type PersistFirestorePatchOptions = {
   throwOnError?: boolean;
 };
-export type FirestoreYearData = Pick<AppData, "students" | "feeTypes" | "payments" | "expenses" | "messages" | "notifications" | "valves">;
+export type FirestoreYearData = Pick<AppData, "students" | "feeTypes" | "payments" | "expenses" | "messages" | "valves">;
 export type PlatformSettings = {
   loginLogoUrl?: string;
   updatedAt?: string;
@@ -143,7 +143,6 @@ export async function loadFirestoreData(user?: AppUser, schoolYearId?: string) {
         ["schoolId", user.schoolId],
         ["threadParentId", user.parentId],
       ]);
-      scopedData.notifications = await loadCollection<AppData["notifications"][number]>("notifications", parentFilter);
       scopedData.valves = await loadCollection<AppData["valves"][number]>("valves", schoolFilter);
       return scopedData;
     }
@@ -154,7 +153,6 @@ export async function loadFirestoreData(user?: AppUser, schoolYearId?: string) {
     scopedData.payments = await loadCollection<AppData["payments"][number]>("payments", annualFilter);
     scopedData.expenses = await loadCollection<AppData["expenses"][number]>("expenses", annualFilter);
     scopedData.messages = await loadCollection<AppData["messages"][number]>("messages", annualFilter);
-    scopedData.notifications = await loadCollection<AppData["notifications"][number]>("notifications", annualFilter);
     if (user.role === "school_admin") {
       scopedData.auditLogs = await loadCollection<AppData["auditLogs"][number]>("auditLogs", schoolFilter);
     }
@@ -186,7 +184,6 @@ export async function loadFirestoreYearData(user: AppUser, schoolYearId: string)
     payments: await loadCollection<AppData["payments"][number]>("payments", annualFilter),
     expenses: await loadCollection<AppData["expenses"][number]>("expenses", annualFilter),
     messages: await loadCollection<AppData["messages"][number]>("messages", annualFilter),
-    notifications: await loadCollection<AppData["notifications"][number]>("notifications", annualFilter),
     valves: await loadCollection<AppData["valves"][number]>("valves", annualFilter),
   };
 

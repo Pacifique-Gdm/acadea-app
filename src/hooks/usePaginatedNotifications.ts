@@ -8,7 +8,6 @@ type UsePaginatedNotificationsOptions = {
   schoolId: string;
   schoolYearId: string;
   enabled: boolean;
-  scopedNotifications: AppNotification[];
   messages: Message[];
 };
 
@@ -39,7 +38,6 @@ export function usePaginatedNotifications({
   schoolId,
   schoolYearId,
   enabled,
-  scopedNotifications,
   messages,
 }: UsePaginatedNotificationsOptions) {
   const [items, setItems] = useState<AppNotification[]>([]);
@@ -59,16 +57,12 @@ export function usePaginatedNotifications({
   const refreshUnreadCount = useCallback(async () => {
     try {
       const directUnreadCount = await countUnreadNotifications(user, schoolId, schoolYearId);
-      const legacyUnreadCount =
-        user.role === "parent"
-          ? 0
-          : scopedNotifications.filter((notification) => !notification.read && notification.recipientRole === "school" && !notification.schoolRecipient).length;
-      setUnreadCount(directUnreadCount + legacyUnreadCount);
+      setUnreadCount(directUnreadCount);
     } catch (error) {
       console.warn("Comptage des notifications non lues impossible.", error);
-      setUnreadCount(scopedNotifications.filter((notification) => !notification.read).length);
+      setUnreadCount(0);
     }
-  }, [schoolId, schoolYearId, scopedNotifications, user]);
+  }, [schoolId, schoolYearId, user]);
 
   const loadFirstPage = useCallback(async () => {
     if (!enabled || !schoolId || !schoolYearId || isInitialLoading) return;

@@ -1,4 +1,4 @@
-import { collection, getCountFromServer, getDocs, limit, orderBy, query, startAfter, where } from "@firebase/firestore";
+import { collection, doc, getCountFromServer, getDocs, limit, orderBy, query, startAfter, updateDoc, where, writeBatch } from "@firebase/firestore";
 import type { DocumentSnapshot, Firestore, QueryConstraint } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
 import type { AppNotification, AppUser } from "../types";
@@ -64,8 +64,60 @@ export async function countUnreadNotifications(user: AppUser, schoolId: string, 
   }
 
   const schoolRecipient = user.role === "cashier" ? "cashier" : "admin";
-  const snapshot = await getCountFromServer(
-    query(collection(database, "notifications"), ...baseConstraints, where("schoolRecipient", "in", [schoolRecipient, "both"])),
-  );
-  return snapshot.data().count;
+  const [visibleSnapshot, allSchoolSnapshot, adminSnapshot, cashierSnapshot, bothSnapshot] = await Promise.all([
+    getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("schoolRecipient", "in", [schoolRecipient, "both"]))),
+    getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("recipientRole", "==", "school"))),
+    getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("schoolRecipient", "==", "admin"))),
+    getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("schoolRecipient", "==", "cashier"))),
+    getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("schoolRecipient", "==", "both"))),
+  ]);
+  const explicitSchoolUnread = adminSnapshot.data().count + cashierSnapshot.data().count + bothSnapshot.data().count;
+  const legacySchoolUnread = Math.max(0, allSchoolSnapshot.data().count - explicitSchoolUnread);
+  return visibleSnapshot.data().count + legacySchoolUnread;
+}
+
+function canMarkSchoolNotificationRead(user: AppUser, notification: AppNotification) {
+  if (notification.parentId || notification.recipientRole !== "school") return false;
+  if (!notification.schoolRecipient) return true;
+  if (user.role === "school_admin") return notification.schoolRecipient === "admin" || notification.schoolRecipient === "both";
+  if (user.role === "cashier") return notification.schoolRecipient === "cashier" || notification.schoolRecipient === "both";
+  return false;
+}
+
+async function commitReadUpdates(database: Firestore, notificationIds: string[]) {
+  for (let index = 0; index < notificationIds.length; index += 450) {
+    const batch = writeBatch(database);
+    notificationIds.slice(index, index + 450).forEach((notificationId) => {
+      batch.update(doc(database, "notifications", notificationId), { read: true });
+    });
+    await batch.commit();
+  }
+}
+
+export async function markNotificationsReadTargeted(user: AppUser, schoolId: string, schoolYearId: string, notificationId?: string) {
+  const database = requireFirestore();
+  if (notificationId) {
+    await updateDoc(doc(database, "notifications", notificationId), { read: true });
+    return 1;
+  }
+
+  const baseConstraints = [
+    where("schoolId", "==", schoolId),
+    where("schoolYearId", "==", schoolYearId),
+    where("read", "==", false),
+  ];
+
+  if (user.role === "parent") {
+    const snapshot = await getDocs(query(collection(database, "notifications"), ...baseConstraints, where("parentId", "==", user.parentId)));
+    const notificationIds = snapshot.docs.map((item) => item.id);
+    await commitReadUpdates(database, notificationIds);
+    return notificationIds.length;
+  }
+
+  const snapshot = await getDocs(query(collection(database, "notifications"), ...baseConstraints, where("recipientRole", "==", "school")));
+  const notificationIds = snapshot.docs
+    .filter((item) => canMarkSchoolNotificationRead(user, { id: item.id, ...item.data() } as AppNotification))
+    .map((item) => item.id);
+  await commitReadUpdates(database, notificationIds);
+  return notificationIds.length;
 }

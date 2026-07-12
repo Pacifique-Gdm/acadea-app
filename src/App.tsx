@@ -49,6 +49,7 @@ import { usePaginatedConversationMessages } from "./hooks/usePaginatedConversati
 import { usePaginatedConversations } from "./hooks/usePaginatedConversations";
 import { usePaginatedControlHistory } from "./hooks/usePaginatedControlHistory";
 import { usePaginatedNotifications } from "./hooks/usePaginatedNotifications";
+import { markNotificationsReadTargeted } from "./services/notificationsPagination";
 import { canUseFirestoreData, loadFirestoreData, loadFirestoreYearData, loadPlatformSettings, persistFirestorePatch, savePlatformSettings } from "./services/firestoreData";
 import { markConversationUnreadCountRead, markSingleConversationUnreadCountRead, persistMessageWithConversation } from "./services/conversations";
 import { loadSuperAdminInitialData, loadSuperAdminSchoolData } from "./services/superAdminData";
@@ -648,15 +649,21 @@ export default function App() {
   const unreadNotifications = yearData.notifications.filter((notification) => !notification.read).length;
 
   function markNotificationsRead(notificationId?: string) {
-    const visibleNotificationIds = new Set(yearData.notifications.map((notification) => notification.id));
-    updateData({
-      notifications: data.notifications.map((notification) =>
-        notification.schoolId === currentSchool.id &&
-        notification.schoolYearId === currentYear.id &&
-        (notificationId ? notification.id === notificationId : visibleNotificationIds.has(notification.id))
-          ? { ...notification, read: true }
-          : notification,
-      ),
+    if (!user) return;
+    updateData(
+      {
+        notifications: data.notifications.map((notification) =>
+          notification.schoolId === currentSchool.id &&
+          notification.schoolYearId === currentYear.id &&
+          (notificationId ? notification.id === notificationId : true)
+            ? { ...notification, read: true }
+            : notification,
+        ),
+      },
+      { persist: false },
+    );
+    void markNotificationsReadTargeted(user, currentSchool.id, currentYear.id, notificationId).catch((error) => {
+      console.warn("Marquage ciblé des notifications impossible.", error);
     });
     if (user) {
       void markConversationUnreadCountRead(user, currentSchool.id, currentYear.id).catch((error) => {
@@ -1071,7 +1078,6 @@ function Header({
     schoolId: school.id,
     schoolYearId: year.id,
     enabled: notificationsOpen,
-    scopedNotifications: yearData.notifications,
     messages: data.messages,
   });
   const displayedUnreadNotifications =
@@ -4462,10 +4468,16 @@ function ParentPortal({
   }
 
   function markNotificationsRead() {
-    updateData({
-      notifications: data.notifications.map((notification) =>
-        notification.parentId === user.parentId && notification.schoolYearId === year.id ? { ...notification, read: true } : notification,
-      ),
+    updateData(
+      {
+        notifications: data.notifications.map((notification) =>
+          notification.parentId === user.parentId && notification.schoolYearId === year.id ? { ...notification, read: true } : notification,
+        ),
+      },
+      { persist: false },
+    );
+    void markNotificationsReadTargeted(user, school.id, year.id).catch((error) => {
+      console.warn("Marquage ciblé des notifications parent impossible.", error);
     });
     void markConversationUnreadCountRead(user, school.id, year.id).catch((error) => {
       console.warn("Remise à zéro des compteurs de conversation impossible.", error);
