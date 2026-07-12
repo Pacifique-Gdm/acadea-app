@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Download, Mail, Phone, Search, UserRound, UsersRound } from "lucide-react";
+import { ArrowLeft, Download, Mail, Phone, Search, UsersRound } from "lucide-react";
 import type { ParentProfile, School, SchoolYear, Student } from "../../types";
 import {
   buildParentsDirectory,
@@ -198,20 +198,15 @@ export function ParentsDirectoryDrawer({ parents, students, school, year, school
         )}
         {filteredEntries.map((entry) => (
           <article key={entry.parent.id} className="grid min-w-0 gap-3 rounded border border-slate-200 bg-white p-3 shadow-sm">
-            <div className="flex min-w-0 items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink">
-                <UserRound className="h-5 w-5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <button
-                  onClick={() => openParent(entry.parent.id)}
-                  type="button"
-                  className="break-words text-left font-bold text-ink underline-offset-2 hover:text-blue-700 hover:underline"
-                >
-                  {fallbackText(entry.parent.fullName)}
-                </button>
-                <p className="mt-1 text-sm text-slate-500">{entry.children.length} enfant(s) lié(s)</p>
-              </div>
+            <div className="min-w-0">
+              <button
+                onClick={() => openParent(entry.parent.id)}
+                type="button"
+                className="break-words text-left font-bold text-ink underline-offset-2 hover:text-blue-700 hover:underline"
+              >
+                {fallbackText(entry.parent.fullName)}
+              </button>
+              <p className="mt-1 text-sm text-slate-500">{entry.children.length} enfant(s) lié(s)</p>
             </div>
             <div className="grid min-w-0 gap-2 text-sm text-slate-600 sm:grid-cols-2">
               <p className="flex min-w-0 items-center gap-2">
