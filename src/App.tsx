@@ -7252,24 +7252,48 @@ function ReportsModule({
   const today = new Date().toISOString().slice(0, 10);
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
-  const payments = yearData.payments.filter((payment) => payment.paidAt >= startDate && payment.paidAt <= endDate);
+  const [sectionFilter, setSectionFilter] = useState<"all" | SchoolSection>("all");
+  const sectionLabels: Record<"all" | SchoolSection, string> = {
+    all: "Toutes les sections",
+    maternelle: "Maternelle",
+    primaire: "Primaire",
+    secondaire: "Secondaire",
+  };
+  const filteredStudents = yearData.students.filter((student) => sectionFilter === "all" || getClassSection(student.className) === sectionFilter);
+  const filteredStudentIds = new Set(filteredStudents.map((student) => student.id));
+  const payments = yearData.payments.filter((payment) => payment.paidAt >= startDate && payment.paidAt <= endDate && filteredStudentIds.has(payment.studentId));
   const expenses = yearData.expenses.filter((expense) => expense.spentAt >= startDate && expense.spentAt <= endDate);
   const paid = payments.reduce((sum, payment) => sum + payment.amount, 0);
   const spent = expenses.reduce((sum, expense) => sum + expense.amount, 0);
-  const expected = buildStats(yearData.students, yearData.parents, yearData.feeTypes, payments).expected;
+  const expected = buildStats(filteredStudents, yearData.parents, yearData.feeTypes, payments).expected;
   const recovery = expected > 0 ? Math.round((paid / expected) * 100) : 0;
+  const usesSectionFilter = sectionFilter !== "all";
 
   return (
     <section className="grid min-w-0 gap-4">
       <SectionTitle title="Rapports" subtitle="Rapports journaliers et globaux limités à l'année scolaire sélectionnée." />
       <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="grid min-w-0 gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+        <div className="grid min-w-0 gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
           <Field label="Date début" value={startDate} onChange={setStartDate} type="date" />
           <Field label="Date fin" value={endDate} onChange={setEndDate} type="date" />
-          <button onClick={() => exportReportPdf(school, year, startDate, endDate, paid, spent, recovery, payments, expenses, yearData.students)} className="primary-button self-end">
+          <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+            Section
+            <select value={sectionFilter} onChange={(event) => setSectionFilter(event.target.value as "all" | SchoolSection)} className="input">
+              <option value="all">Toutes les sections</option>
+              <option value="maternelle">Maternelle</option>
+              <option value="primaire">Primaire</option>
+              <option value="secondaire">Secondaire</option>
+            </select>
+          </label>
+          <button onClick={() => exportReportPdf(school, year, startDate, endDate, sectionLabels[sectionFilter], usesSectionFilter, paid, spent, recovery, payments, expenses, filteredStudents)} className="primary-button self-end">
             <Download className="h-4 w-4" /> Export PDF
           </button>
         </div>
+        {usesSectionFilter && (
+          <p className="mt-3 rounded bg-amber-50 p-3 text-sm font-semibold text-amber-700">
+            Les dépenses présentées sont globales pour l'école, car elles ne sont pas rattachées à une section.
+          </p>
+        )}
       </div>
       <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric label="Paiements" value={`$${paid.toFixed(2)}`} />
@@ -7281,7 +7305,7 @@ function ReportsModule({
         <FormPanel title="Paiements">
           <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
             {payments.map((payment) => {
-              const student = yearData.students.find((item) => item.id === payment.studentId);
+              const student = filteredStudents.find((item) => item.id === payment.studentId);
               return (
                 <div key={payment.id} className="min-w-0 rounded bg-slate-50 p-3 text-sm">
                   <p className="break-words font-semibold text-ink">{student ? `${student.nom} ${student.prenom}` : "Élève"}</p>
@@ -8990,6 +9014,8 @@ async function exportReportPdf(
   year: SchoolYear,
   startDate: string,
   endDate: string,
+  sectionLabel: string,
+  showGlobalExpenseNote: boolean,
   paid: number,
   spent: number,
   recovery: number,
@@ -8999,6 +9025,25 @@ async function exportReportPdf(
 ) {
   const studentById = new Map(students.map((student) => [student.id, student]));
   const fallback = "—";
+  const timestampForSort = (value?: string) => {
+    if (!value) return Number.POSITIVE_INFINITY;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? Number.POSITIVE_INFINITY : date.getTime();
+  };
+  const compareByPrimaryThenCreatedAt = (
+    first: { id: string; createdAt?: string },
+    second: { id: string; createdAt?: string },
+    firstPrimary?: string,
+    secondPrimary?: string,
+  ) => {
+    const primaryDiff = timestampForSort(firstPrimary) - timestampForSort(secondPrimary);
+    if (primaryDiff !== 0) return primaryDiff;
+    const createdDiff = timestampForSort(first.createdAt) - timestampForSort(second.createdAt);
+    if (createdDiff !== 0) return createdDiff;
+    return first.id.localeCompare(second.id, "fr");
+  };
+  const sortedPayments = [...payments].sort((first, second) => compareByPrimaryThenCreatedAt(first, second, first.paidAt, second.paidAt));
+  const sortedExpenses = [...expenses].sort((first, second) => compareByPrimaryThenCreatedAt(first, second, first.spentAt, second.spentAt));
   const studentNameForPayment = (payment: Payment) => {
     const student = studentById.get(payment.studentId);
     if (!student) return fallback;
@@ -9022,10 +9067,14 @@ async function exportReportPdf(
       pdfSection(
         "Synthèse",
         pdfInfoGrid([
+          { label: "Section", value: sectionLabel },
           { label: "Paiements", value: money(paid) },
           { label: "Dépenses", value: money(spent) },
           { label: "Solde", value: money(paid - spent) },
           { label: "Recouvrement", value: `${recovery}%` },
+          ...(showGlobalExpenseNote
+            ? [{ label: "Note dépenses", value: "Les dépenses présentées sont globales pour l'école, car elles ne sont pas rattachées à une section." }]
+            : []),
         ]),
       ),
       pdfSection(
@@ -9039,7 +9088,7 @@ async function exportReportPdf(
             { header: "Montant", render: (payment) => money(payment.amount), align: "right" },
             { header: "Reçu", render: (payment) => payment.receiptNumber ?? payment.id },
           ],
-          payments.slice(0, 24),
+          sortedPayments.slice(0, 24),
           "Aucun paiement pour cette période.",
         ),
       ),
@@ -9054,9 +9103,10 @@ async function exportReportPdf(
             { header: "Montant", render: (expense) => money(expense.amount), align: "right" },
             { header: "Description", render: (expense) => expense.description },
           ],
-          expenses.slice(0, 24),
+          sortedExpenses.slice(0, 24),
           "Aucune dépense pour cette période.",
         ),
+        { pageBreakBefore: true },
       ),
     ],
   });
