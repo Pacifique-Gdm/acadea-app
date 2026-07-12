@@ -70,59 +70,64 @@ export function NewSanctionDrawer({ students, sanctions, onCancel, onSave }: New
   }
 
   return (
-    <div className="grid min-w-0 gap-4">
-      <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
-        Élève
-        <select value={studentId} onChange={(event) => setStudentId(event.target.value)} className="input">
-          <option value="">Sélectionner un élève</option>
-          {sortedStudents.map((student) => (
-            <option key={student.id} value={student.id}>{studentName(student)} - {student.matricule}</option>
-          ))}
-        </select>
-      </label>
-      {selectedStudent && (
-        <div className="rounded bg-slate-50 p-3 text-sm">
-          <p className="font-semibold text-ink">Classe automatique</p>
-          <p className="text-slate-600">{classLabel(selectedStudent)}</p>
+    <aside className="min-w-0 max-w-full rounded border border-slate-200 bg-white p-4 shadow-sm">
+      <h2 className="mb-3 break-words text-lg font-bold text-ink">Informations de sanction</h2>
+      <div className="grid min-w-0 gap-3">
+        <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+          Élève
+          <select value={studentId} onChange={(event) => setStudentId(event.target.value)} className="input">
+            <option value="">Sélectionner un élève</option>
+            {sortedStudents.map((student) => (
+              <option key={student.id} value={student.id}>{studentName(student)} - {student.matricule}</option>
+            ))}
+          </select>
+        </label>
+        {selectedStudent && (
+          <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm">
+            <p className="font-semibold text-ink">Classe automatique</p>
+            <p className="mt-1 text-slate-600">{classLabel(selectedStudent)}</p>
+          </div>
+        )}
+        {hasActiveSanction && (
+          <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-700">
+            Cet élève possède déjà une sanction en cours.
+          </p>
+        )}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+            Date de début
+            <input value={startDate} onChange={(event) => setStartDate(event.target.value)} type="date" className="input" />
+          </label>
+          <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+            Durée en jours
+            <input value={duration} onChange={(event) => setDuration(event.target.value)} type="number" min="1" className="input" />
+          </label>
         </div>
-      )}
-      {hasActiveSanction && (
-        <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-700">
-          Cet élève possède déjà une sanction en cours.
-        </p>
-      )}
-      <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
-        Date de début
-        <input value={startDate} onChange={(event) => setStartDate(event.target.value)} type="date" className="input" />
-      </label>
-      <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
-        Motif
-        <input value={reason} onChange={(event) => setReason(event.target.value)} className="input" />
-      </label>
-      <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
-        Description
-        <textarea value={description} onChange={(event) => setDescription(event.target.value)} className="input min-h-24" />
-      </label>
-      <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
-        Type de sanction
-        <input value={sanctionType} onChange={(event) => setSanctionType(event.target.value)} className="input" placeholder="Exclusion temporaire, retenue..." />
-      </label>
-      <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
-        Durée en jours
-        <input value={duration} onChange={(event) => setDuration(event.target.value)} type="number" min="1" className="input" />
-      </label>
-      <div className="rounded bg-slate-50 p-3 text-sm">
-        <p className="font-semibold text-ink">Date prévue de fin</p>
-        <p className="text-slate-600">{expectedEndDate || "Durée invalide"}</p>
+        <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm">
+          <p className="font-semibold text-ink">Date prévue de fin</p>
+          <p className="mt-1 text-slate-600">{expectedEndDate || "Durée invalide"}</p>
+        </div>
+        <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+          Motif
+          <input value={reason} onChange={(event) => setReason(event.target.value)} className="input" />
+        </label>
+        <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+          Type de sanction
+          <input value={sanctionType} onChange={(event) => setSanctionType(event.target.value)} className="input" placeholder="Exclusion temporaire, retenue..." />
+        </label>
+        <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+          Description
+          <textarea value={description} onChange={(event) => setDescription(event.target.value)} className="input min-h-24" />
+        </label>
+        <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+          Observation
+          <textarea value={observation} onChange={(event) => setObservation(event.target.value)} className="input min-h-20" />
+        </label>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <button onClick={onCancel} className="secondary-button justify-center" type="button">Annuler</button>
+          <button onClick={submit} disabled={!canSave} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50" type="button">Enregistrer</button>
+        </div>
       </div>
-      <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
-        Observation
-        <textarea value={observation} onChange={(event) => setObservation(event.target.value)} className="input min-h-20" />
-      </label>
-      <div className="grid gap-2 sm:grid-cols-2">
-        <button onClick={onCancel} className="secondary-button justify-center" type="button">Annuler</button>
-        <button onClick={submit} disabled={!canSave} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50" type="button">Enregistrer</button>
-      </div>
-    </div>
+    </aside>
   );
 }

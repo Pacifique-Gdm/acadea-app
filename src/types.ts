@@ -166,6 +166,7 @@ export interface Message {
   threadParentId?: string;
   threadId?: string;
   conversationId?: string;
+  disciplineSanctionId?: string;
   subject: string;
   body: string;
   createdAt: string;
@@ -202,6 +203,7 @@ export interface AppNotification {
   parentId?: string;
   studentId?: string;
   messageId?: string;
+  disciplineSanctionId?: string;
   schoolRecipient?: "admin" | "cashier" | "discipline" | "both";
   type: "payment" | "message" | "valve";
   title: string;

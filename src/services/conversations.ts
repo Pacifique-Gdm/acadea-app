@@ -11,6 +11,8 @@ type PersistConversationMessageInput = {
   parentName?: string;
 };
 
+type PersistedConversationMessage = Message & { alreadyExisted?: boolean };
+
 function messageSenderRole(user: AppUser): Conversation["lastSenderRole"] {
   if (user.role === "parent" || user.role === "school_admin" || user.role === "cashier" || user.role === "discipline_director") return user.role;
   throw new Error("Rôle non autorisé pour la conversation.");
@@ -26,7 +28,7 @@ export async function persistMessageWithConversation({
   message,
   notification,
   parentName,
-}: PersistConversationMessageInput) {
+}: PersistConversationMessageInput): Promise<PersistedConversationMessage> {
   if (!firebaseReady || !db) {
     throw new Error("Firestore indisponible pour la conversation.");
   }
@@ -44,7 +46,12 @@ export async function persistMessageWithConversation({
   const messageRef = doc(database, "messages", message.id);
   const notificationRef = doc(database, "notifications", notification.id);
 
-  await runTransaction(database, async (transaction) => {
+  return runTransaction(database, async (transaction): Promise<PersistedConversationMessage> => {
+    const messageSnapshot = await transaction.get(messageRef);
+    if (messageSnapshot.exists()) {
+      return { ...(messageSnapshot.data() as Message), alreadyExisted: true };
+    }
+
     const conversationSnapshot = await transaction.get(conversationRef);
     const existingConversation = conversationSnapshot.exists() ? (conversationSnapshot.data() as Conversation) : undefined;
     const schoolRecipient = existingConversation?.schoolRecipient ?? conversationRecipient(message);
@@ -100,9 +107,9 @@ export async function persistMessageWithConversation({
     transaction.set(conversationRef, nextConversation);
     transaction.set(messageRef, messageWithConversation);
     transaction.set(notificationRef, notification);
+    return messageWithConversation;
   });
 
-  return messageWithConversation;
 }
 
 export async function markConversationUnreadCountRead(user: AppUser, schoolId: string, schoolYearId: string) {
