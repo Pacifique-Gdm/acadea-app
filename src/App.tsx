@@ -55,7 +55,7 @@ import { loadSuperAdminInitialData, loadSuperAdminSchoolData } from "./services/
 import type { SuperAdminGlobalCounts } from "./services/superAdminData";
 import { db } from "./firebase";
 import { manageSchool, provisionCashier, provisionParent, provisionSchoolAdmin } from "./services/provisioning";
-import { buildDashboardFeeProgressRows, buildDashboardFinancialStats } from "./utils/dashboardStats";
+import { buildDashboardFinancialAggregates, buildDashboardTransactionDayRows } from "./utils/dashboardStats";
 import { formatSchoolRecipientLabel } from "./utils/messages";
 import { escapePdfHtml, generateReceiptPdf, money, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./utils/pdf";
 import type { PdfTableColumn } from "./utils/pdf";
@@ -1494,133 +1494,174 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
   const [transactionPeriod, setTransactionPeriod] = useState<TransactionPeriod>("last5");
-  const dashboardClassChoices = getSchoolClassChoices(school);
-  const dashboardSectionChoices = getSchoolEducationLevels(school)
-    .map((level) => (level === "Maternelle" ? "maternelle" : level === "Primaire" ? "primaire" : level === "Secondaire" ? "secondaire" : ""))
-    .filter(Boolean) as SchoolSection[];
+  const dashboardClassChoices = useMemo(() => getSchoolClassChoices(school), [school]);
+  const dashboardSectionChoices = useMemo(
+    () =>
+      getSchoolEducationLevels(school)
+        .map((level) => (level === "Maternelle" ? "maternelle" : level === "Primaire" ? "primaire" : level === "Secondaire" ? "secondaire" : ""))
+        .filter(Boolean) as SchoolSection[],
+    [school],
+  );
   useEffect(() => {
     if (sectionFilter !== "all" && !dashboardSectionChoices.includes(sectionFilter)) {
       setSectionFilter("all");
     }
   }, [dashboardSectionChoices, sectionFilter]);
   const yearIndexes = useMemo(() => buildSchoolYearDataIndexes(data.students, data.feeTypes, data.payments), [data.students, data.feeTypes, data.payments]);
-  const activeStudents = data.students.filter((student) => (student.status ?? "ACTIVE") === "ACTIVE");
-  const filteredStudents = activeStudents.filter((student) => sectionFilter === "all" || getClassSection(student.className) === sectionFilter);
-  const filteredStudentIds = new Set(filteredStudents.map((student) => student.id));
-  const filteredParentIds = new Set(filteredStudents.map((student) => student.parentId).filter(Boolean));
-  const filteredParents = data.parents.filter((parent) => filteredParentIds.has(parent.id) || parent.studentIds.some((studentId) => filteredStudentIds.has(studentId)));
-  const inDateRange = (date: string) => {
-    const normalized = date.slice(0, 10);
-    return (!startDate || normalized >= startDate) && (!endDate || normalized <= endDate);
-  };
-  const filteredPayments = data.payments.filter((payment) => filteredStudentIds.has(payment.studentId) && inDateRange(payment.paidAt));
-  const filteredExpenses = data.expenses.filter((expense) => sectionFilter === "all" && inDateRange(expense.spentAt));
+  const activeStudents = useMemo(() => data.students.filter((student) => (student.status ?? "ACTIVE") === "ACTIVE"), [data.students]);
+  const filteredStudents = useMemo(() => activeStudents.filter((student) => sectionFilter === "all" || getClassSection(student.className) === sectionFilter), [activeStudents, sectionFilter]);
+  const filteredStudentIds = useMemo(() => new Set(filteredStudents.map((student) => student.id)), [filteredStudents]);
+  const filteredParents = useMemo(() => {
+    const filteredParentIds = new Set(filteredStudents.map((student) => student.parentId).filter(Boolean));
+    return data.parents.filter((parent) => filteredParentIds.has(parent.id) || parent.studentIds.some((studentId) => filteredStudentIds.has(studentId)));
+  }, [data.parents, filteredStudentIds, filteredStudents]);
+  const filteredPayments = useMemo(
+    () =>
+      data.payments.filter((payment) => {
+        const normalized = payment.paidAt.slice(0, 10);
+        return filteredStudentIds.has(payment.studentId) && (!startDate || normalized >= startDate) && (!endDate || normalized <= endDate);
+      }),
+    [data.payments, endDate, filteredStudentIds, startDate],
+  );
+  const filteredExpenses = useMemo(
+    () =>
+      data.expenses.filter((expense) => {
+        const normalized = expense.spentAt.slice(0, 10);
+        return sectionFilter === "all" && (!startDate || normalized >= startDate) && (!endDate || normalized <= endDate);
+      }),
+    [data.expenses, endDate, sectionFilter, startDate],
+  );
   const filteredPaymentIndexes = useMemo(() => buildSchoolYearDataIndexes(filteredStudents, data.feeTypes, filteredPayments), [filteredStudents, data.feeTypes, filteredPayments]);
-  const stats = buildStats(filteredStudents, filteredParents, data.feeTypes, filteredPayments);
-  const dashboardFinancialStats = buildDashboardFinancialStats(filteredStudents, data.feeTypes, filteredPayments, filteredPaymentIndexes);
-  const annualFinancialStudents = filteredStudents;
-  const annualFinancialStudentIds = new Set(annualFinancialStudents.map((student) => student.id));
-  const annualFinancialPayments = data.payments.filter((payment) => annualFinancialStudentIds.has(payment.studentId));
-  const annualFinancialIndexes = useMemo(() => buildSchoolYearDataIndexes(annualFinancialStudents, data.feeTypes, annualFinancialPayments), [annualFinancialStudents, data.feeTypes, annualFinancialPayments]);
-  const annualFinancialStats = buildDashboardFinancialStats(annualFinancialStudents, data.feeTypes, annualFinancialPayments, annualFinancialIndexes);
+  const stats = useMemo(() => buildStats(filteredStudents, filteredParents, data.feeTypes, filteredPayments), [data.feeTypes, filteredParents, filteredPayments, filteredStudents]);
+  const dashboardFinancialAggregates = useMemo(
+    () => buildDashboardFinancialAggregates(filteredStudents, data.feeTypes, filteredPayments, filteredPaymentIndexes),
+    [data.feeTypes, filteredPaymentIndexes, filteredPayments, filteredStudents],
+  );
+  const dashboardFinancialStats = dashboardFinancialAggregates.financialStats;
+  const annualFinancialAggregates = useMemo(
+    () => buildDashboardFinancialAggregates(filteredStudents, data.feeTypes, data.payments, yearIndexes),
+    [data.feeTypes, data.payments, filteredStudents, yearIndexes],
+  );
+  const annualFinancialStats = annualFinancialAggregates.financialStats;
   const annualFinancialPaid = annualFinancialStats.paid;
-  const annualFinancialExpenses = data.expenses.reduce((sum, expense) => sum + expense.amount, 0);
+  const annualFinancialExpenses = useMemo(() => data.expenses.reduce((sum, expense) => sum + expense.amount, 0), [data.expenses]);
   const annualFinancialRemaining = annualFinancialStats.remaining;
   const annualFinancialRecoveryRate = annualFinancialStats.expected > 0 ? Math.round((annualFinancialPaid / annualFinancialStats.expected) * 100) : 0;
   const totalPayments = dashboardFinancialStats.paid;
-  const totalExpenses = filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0);
+  const totalExpenses = useMemo(() => filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0), [filteredExpenses]);
   const remaining = dashboardFinancialStats.remaining;
   const recoveryRate = dashboardFinancialStats.expected > 0 ? Math.round((totalPayments / dashboardFinancialStats.expected) * 100) : 0;
   const recoveryTone = annualFinancialRecoveryRate >= 80 ? "text-mint bg-mint/10" : annualFinancialRecoveryRate >= 50 ? "text-amber-700 bg-amber-100" : "text-red-700 bg-red-50";
-  const feeProgressRows = buildDashboardFeeProgressRows(filteredStudents, data.feeTypes, data.payments, yearIndexes);
-  const admins = data.users.filter((item) => item.role === "school_admin").length;
-  const cashiers = data.users.filter((item) => item.role === "cashier").length;
-  const classRows = dashboardClassChoices.map((className) => {
-    const students = filteredStudents.filter((student) => student.className === className);
-    return {
-      className,
-      girls: students.filter((student) => student.sexe === "F").length,
-      boys: students.filter((student) => student.sexe === "M").length,
-      total: students.length,
-    };
-  }).filter((row) => row.total > 0);
-  const classDisplayRows = Array.from(
-    filteredStudents.reduce<Map<string, { className: string; classOrder: number; optionLabel: string; girls: number; boys: number; total: number }>>((items, student) => {
-      const isSecondary = getClassSection(student.className) === "secondaire";
-      const className = isSecondary ? formatStudentClassName(student) : student.className;
-      const current = items.get(className) ?? {
-        className,
-        classOrder: CLASSES.indexOf(student.className),
-        optionLabel: isSecondary ? student.option?.trim() ?? "" : "",
-        girls: 0,
-        boys: 0,
-        total: 0,
-      };
-      items.set(className, {
-        ...current,
-        girls: current.girls + (student.sexe === "F" ? 1 : 0),
-        boys: current.boys + (student.sexe === "M" ? 1 : 0),
-        total: current.total + 1,
-      });
-      return items;
-    }, new Map()).values(),
-  ).sort((a, b) => {
-    const classOrder = a.classOrder - b.classOrder;
-    if (classOrder !== 0) return classOrder;
-    return a.optionLabel.localeCompare(b.optionLabel, "fr");
-  });
-  const totalGirls = classRows.reduce((sum, row) => sum + row.girls, 0);
-  const totalBoys = classRows.reduce((sum, row) => sum + row.boys, 0);
+  const feeProgressRows = annualFinancialAggregates.feeProgressRows;
+  const admins = useMemo(() => data.users.filter((item) => item.role === "school_admin").length, [data.users]);
+  const cashiers = useMemo(() => data.users.filter((item) => item.role === "cashier").length, [data.users]);
+  const classRows = useMemo(
+    () =>
+      dashboardClassChoices.map((className) => {
+        const students = filteredStudents.filter((student) => student.className === className);
+        return {
+          className,
+          girls: students.filter((student) => student.sexe === "F").length,
+          boys: students.filter((student) => student.sexe === "M").length,
+          total: students.length,
+        };
+      }).filter((row) => row.total > 0),
+    [dashboardClassChoices, filteredStudents],
+  );
+  const classDisplayRows = useMemo(
+    () =>
+      Array.from(
+        filteredStudents.reduce<Map<string, { className: string; classOrder: number; optionLabel: string; girls: number; boys: number; total: number }>>((items, student) => {
+          const isSecondary = getClassSection(student.className) === "secondaire";
+          const className = isSecondary ? formatStudentClassName(student) : student.className;
+          const current = items.get(className) ?? {
+            className,
+            classOrder: CLASSES.indexOf(student.className),
+            optionLabel: isSecondary ? student.option?.trim() ?? "" : "",
+            girls: 0,
+            boys: 0,
+            total: 0,
+          };
+          items.set(className, {
+            ...current,
+            girls: current.girls + (student.sexe === "F" ? 1 : 0),
+            boys: current.boys + (student.sexe === "M" ? 1 : 0),
+            total: current.total + 1,
+          });
+          return items;
+        }, new Map()).values(),
+      ).sort((a, b) => {
+        const classOrder = a.classOrder - b.classOrder;
+        if (classOrder !== 0) return classOrder;
+        return a.optionLabel.localeCompare(b.optionLabel, "fr");
+      }),
+    [filteredStudents],
+  );
+  const totalGirls = useMemo(() => classRows.reduce((sum, row) => sum + row.girls, 0), [classRows]);
+  const totalBoys = useMemo(() => classRows.reduce((sum, row) => sum + row.boys, 0), [classRows]);
   const totalStudents = totalGirls + totalBoys;
   const studentsById = yearIndexes.studentsById;
   const feeTypesById = yearIndexes.feeTypesById;
-  const transactions = [
-    ...filteredPayments.map((payment) => ({ id: payment.id, type: "Paiement", label: payment.cashierName, amount: payment.amount, date: payment.paidAt, occurredAt: payment.createdAt ?? payment.paidAt })),
-    ...filteredExpenses.map((expense) => ({ id: expense.id, type: "D\u00e9pense", label: expense.category, amount: -expense.amount, date: expense.spentAt, occurredAt: expense.createdAt ?? expense.spentAt })),
-  ].sort((a, b) => (b.occurredAt ?? b.date).localeCompare(a.occurredAt ?? a.date));
-  const chartDates = getTransactionPeriodDates(transactionPeriod);
-  const transactionChartRows = chartDates.map((date) => {
-    const paymentsForDate = data.payments.filter((payment) => filteredStudentIds.has(payment.studentId) && payment.paidAt.slice(0, 10) === date);
-    const expensesForDate = sectionFilter === "all" ? data.expenses.filter((expense) => expense.spentAt.slice(0, 10) === date) : [];
-    const payments = paymentsForDate.reduce((sum, payment) => sum + payment.amount, 0);
-    const expenses = expensesForDate.reduce((sum, expense) => sum + expense.amount, 0);
-    return {
-      date,
-      label: formatChartDate(date),
-      payments,
-      expenses,
-      transactions: [
-        ...paymentsForDate.map((payment): TransactionChartItem => {
-          const student = studentsById.get(payment.studentId);
-          const fee = feeTypesById.get(payment.feeTypeId);
-          return {
-            id: payment.id,
-            kind: "payment",
-            type: "Paiement",
-            label: student ? `${student.nom} ${student.postnom} ${student.prenom}`.trim() : "Élève non renseigné",
-            amount: payment.amount,
-            date: payment.paidAt,
-            occurredAt: payment.createdAt ?? payment.paidAt,
-            status: payment.receiptNumber ? `Reçu ${payment.receiptNumber}` : undefined,
-            studentName: student ? `${student.nom} ${student.postnom} ${student.prenom}`.trim() : undefined,
-            className: student ? formatStudentClassName(student) : undefined,
-            feeName: fee?.name,
-            agentName: payment.cashierName,
-          };
-        }),
-        ...expensesForDate.map((expense): TransactionChartItem => ({
-          id: expense.id,
-          kind: "expense",
-          type: "Dépense",
-          label: expense.description || expense.category,
-          amount: expense.amount,
-          date: expense.spentAt,
-          occurredAt: expense.createdAt ?? expense.spentAt,
-          agentName: expense.cashierName,
-        })),
-      ],
-    };
-  });
+  const transactions = useMemo(
+    () =>
+      [
+        ...filteredPayments.map((payment) => ({ id: payment.id, type: "Paiement", label: payment.cashierName, amount: payment.amount, date: payment.paidAt, occurredAt: payment.createdAt ?? payment.paidAt })),
+        ...filteredExpenses.map((expense) => ({ id: expense.id, type: "D\u00e9pense", label: expense.category, amount: -expense.amount, date: expense.spentAt, occurredAt: expense.createdAt ?? expense.spentAt })),
+      ].sort((a, b) => (b.occurredAt ?? b.date).localeCompare(a.occurredAt ?? a.date)),
+    [filteredExpenses, filteredPayments],
+  );
+  const chartDates = useMemo(() => getTransactionPeriodDates(transactionPeriod), [transactionPeriod]);
+  const transactionDayRows = useMemo(
+    () =>
+      buildDashboardTransactionDayRows({
+        dates: chartDates,
+        payments: data.payments,
+        expenses: data.expenses,
+        studentIds: filteredStudentIds,
+        includeExpenses: sectionFilter === "all",
+      }),
+    [chartDates, data.expenses, data.payments, filteredStudentIds, sectionFilter],
+  );
+  const transactionChartRows = useMemo(
+    () =>
+      transactionDayRows.map((row) => ({
+        date: row.date,
+        label: formatChartDate(row.date),
+        payments: row.payments,
+        expenses: row.expenses,
+        transactions: [
+          ...row.paymentsForDate.map((payment): TransactionChartItem => {
+            const student = studentsById.get(payment.studentId);
+            const fee = feeTypesById.get(payment.feeTypeId);
+            return {
+              id: payment.id,
+              kind: "payment",
+              type: "Paiement",
+              label: student ? `${student.nom} ${student.postnom} ${student.prenom}`.trim() : "Élève non renseigné",
+              amount: payment.amount,
+              date: payment.paidAt,
+              occurredAt: payment.createdAt ?? payment.paidAt,
+              status: payment.receiptNumber ? `Reçu ${payment.receiptNumber}` : undefined,
+              studentName: student ? `${student.nom} ${student.postnom} ${student.prenom}`.trim() : undefined,
+              className: student ? formatStudentClassName(student) : undefined,
+              feeName: fee?.name,
+              agentName: payment.cashierName,
+            };
+          }),
+          ...row.expensesForDate.map((expense): TransactionChartItem => ({
+            id: expense.id,
+            kind: "expense",
+            type: "Dépense",
+            label: expense.description || expense.category,
+            amount: expense.amount,
+            date: expense.spentAt,
+            occurredAt: expense.createdAt ?? expense.spentAt,
+            agentName: expense.cashierName,
+          })),
+        ],
+      })),
+    [feeTypesById, studentsById, transactionDayRows],
+  );
   const sectionLabel = sectionFilter === "all" ? "Toutes les sections" : sectionFilter.charAt(0).toUpperCase() + sectionFilter.slice(1);
   const dateLabel = (startDate || "D\u00e9but") + " au " + (endDate || "Fin");
   const cards = [

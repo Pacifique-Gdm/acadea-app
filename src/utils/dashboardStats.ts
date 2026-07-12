@@ -1,4 +1,4 @@
-import type { FeeType, Payment, Student } from "../types";
+import type { Expense, FeeType, Payment, Student } from "../types";
 import { buildSchoolYearDataIndexes, getPaymentsForStudentFee, sumPayments } from "./dataIndexes";
 import type { SchoolYearDataIndexes } from "./dataIndexes";
 import { feeAppliesToStudent } from "./stats";
@@ -14,71 +14,109 @@ export type DashboardFeeProgressRow = DashboardFinancialStats & {
   rate: number;
 };
 
+export type DashboardFinancialAggregates = {
+  financialStats: DashboardFinancialStats;
+  feeProgressRows: DashboardFeeProgressRow[];
+};
+
+export type DashboardTransactionDayRow = {
+  date: string;
+  payments: number;
+  expenses: number;
+  paymentsForDate: Payment[];
+  expensesForDate: Expense[];
+};
+
 function resolveIndexes(students: Student[], feeTypes: FeeType[], payments: Payment[], indexes?: SchoolYearDataIndexes) {
   return indexes ?? buildSchoolYearDataIndexes(students, feeTypes, payments);
 }
 
-export function buildDashboardFinancialStats(students: Student[], feeTypes: FeeType[], payments: Payment[], indexes?: SchoolYearDataIndexes): DashboardFinancialStats {
+export function buildDashboardFinancialAggregates(students: Student[], feeTypes: FeeType[], payments: Payment[], indexes?: SchoolYearDataIndexes): DashboardFinancialAggregates {
   const dataIndexes = resolveIndexes(students, feeTypes, payments, indexes);
-  const totals = students.reduce(
-    (currentTotals, student) => {
-      const applicableFeeTypes = dataIndexes.applicableFeeTypesByStudentId.get(student.id) ?? feeTypes.filter((fee) => feeAppliesToStudent(fee, student));
-      const studentTotals = applicableFeeTypes
-        .reduce(
-          (feeTotals, fee) => {
-            const feePayments = getPaymentsForStudentFee(dataIndexes, student.id, fee.id);
-            if (feePayments.length === 0) return feeTotals;
+  const rowsByFeeName = new Map<string, { name: string; expected: number; paid: number }>();
+  const totals = { expected: 0, paid: 0 };
 
-            const paid = sumPayments(feePayments);
-            return {
-              expected: feeTotals.expected + fee.amount,
-              paid: feeTotals.paid + paid,
-            };
-          },
-          { expected: 0, paid: 0 },
-        );
-
-      return {
-        expected: currentTotals.expected + studentTotals.expected,
-        paid: currentTotals.paid + studentTotals.paid,
-      };
-    },
-    { expected: 0, paid: 0 },
-  );
-
-  return {
-    ...totals,
-    remaining: Math.max(totals.expected - totals.paid, 0),
-  };
-}
-
-export function buildDashboardFeeProgressRows(students: Student[], feeTypes: FeeType[], payments: Payment[], indexes?: SchoolYearDataIndexes): DashboardFeeProgressRow[] {
-  const dataIndexes = resolveIndexes(students, feeTypes, payments, indexes);
-  const rowsByFeeName = students.reduce<Map<string, { name: string; expected: number; paid: number }>>((items, student) => {
+  students.forEach((student) => {
     const applicableFeeTypes = dataIndexes.applicableFeeTypesByStudentId.get(student.id) ?? feeTypes.filter((fee) => feeAppliesToStudent(fee, student));
-    applicableFeeTypes
-      .forEach((fee) => {
-        const feePayments = getPaymentsForStudentFee(dataIndexes, student.id, fee.id);
-        if (feePayments.length === 0) return;
 
-        const key = fee.name.trim().toLowerCase();
-        const paid = sumPayments(feePayments);
-        const current = items.get(key) ?? { name: fee.name, expected: 0, paid: 0 };
-        items.set(key, {
-          ...current,
-          expected: current.expected + fee.amount,
-          paid: current.paid + paid,
-        });
+    applicableFeeTypes.forEach((fee) => {
+      const feePayments = getPaymentsForStudentFee(dataIndexes, student.id, fee.id);
+      if (feePayments.length === 0) return;
+
+      const paid = sumPayments(feePayments);
+      totals.expected += fee.amount;
+      totals.paid += paid;
+
+      const key = fee.name.trim().toLowerCase();
+      const current = rowsByFeeName.get(key) ?? { name: fee.name, expected: 0, paid: 0 };
+      rowsByFeeName.set(key, {
+        ...current,
+        expected: current.expected + fee.amount,
+        paid: current.paid + paid,
       });
+    });
+  });
 
-    return items;
-  }, new Map());
-
-  return Array.from(rowsByFeeName.values())
+  const feeProgressRows = Array.from(rowsByFeeName.values())
     .map((row) => {
       const remaining = Math.max(row.expected - row.paid, 0);
       const rate = row.expected > 0 ? Math.round((row.paid / row.expected) * 100) : 0;
       return { ...row, remaining, rate };
     })
     .filter((row) => row.expected > 0);
+
+  return {
+    financialStats: {
+      ...totals,
+      remaining: Math.max(totals.expected - totals.paid, 0),
+    },
+    feeProgressRows,
+  };
+}
+
+export function buildDashboardFinancialStats(students: Student[], feeTypes: FeeType[], payments: Payment[], indexes?: SchoolYearDataIndexes): DashboardFinancialStats {
+  return buildDashboardFinancialAggregates(students, feeTypes, payments, indexes).financialStats;
+}
+
+export function buildDashboardFeeProgressRows(students: Student[], feeTypes: FeeType[], payments: Payment[], indexes?: SchoolYearDataIndexes): DashboardFeeProgressRow[] {
+  return buildDashboardFinancialAggregates(students, feeTypes, payments, indexes).feeProgressRows;
+}
+
+export function buildDashboardTransactionDayRows({
+  dates,
+  payments,
+  expenses,
+  studentIds,
+  includeExpenses,
+}: {
+  dates: string[];
+  payments: Payment[];
+  expenses: Expense[];
+  studentIds: Set<string>;
+  includeExpenses: boolean;
+}): DashboardTransactionDayRow[] {
+  const rowsByDate = new Map<string, DashboardTransactionDayRow>();
+
+  dates.forEach((date) => {
+    rowsByDate.set(date, { date, payments: 0, expenses: 0, paymentsForDate: [], expensesForDate: [] });
+  });
+
+  payments.forEach((payment) => {
+    if (!studentIds.has(payment.studentId)) return;
+    const row = rowsByDate.get(payment.paidAt.slice(0, 10));
+    if (!row) return;
+    row.payments += payment.amount;
+    row.paymentsForDate.push(payment);
+  });
+
+  if (includeExpenses) {
+    expenses.forEach((expense) => {
+      const row = rowsByDate.get(expense.spentAt.slice(0, 10));
+      if (!row) return;
+      row.expenses += expense.amount;
+      row.expensesForDate.push(expense);
+    });
+  }
+
+  return dates.map((date) => rowsByDate.get(date) ?? { date, payments: 0, expenses: 0, paymentsForDate: [], expensesForDate: [] });
 }
