@@ -66,6 +66,13 @@ async function checkForDeployedVersion(registration: ServiceWorkerRegistration) 
 export function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
 
+  if (import.meta.env.DEV) {
+    window.addEventListener("load", () => {
+      void clearDevelopmentPwaState();
+    });
+    return;
+  }
+
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js").then(watchRegistration).catch((error) => {
       console.warn("Service worker Acadéa indisponible.", error);
@@ -94,4 +101,14 @@ async function clearPwaCaches() {
   if (!("caches" in window)) return;
   const keys = await caches.keys();
   await Promise.all(keys.filter((key) => key.startsWith("acadea-pwa-")).map((key) => caches.delete(key)));
+}
+
+async function clearDevelopmentPwaState() {
+  try {
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(registrations.map((registration) => registration.unregister()));
+    await clearPwaCaches();
+  } catch (error) {
+    console.warn("Nettoyage du Service Worker Acadéa en développement impossible.", error);
+  }
 }
