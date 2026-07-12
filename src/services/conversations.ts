@@ -133,3 +133,19 @@ export async function markConversationUnreadCountRead(user: AppUser, schoolId: s
   });
   await batch.commit();
 }
+
+export async function markSingleConversationUnreadCountRead(user: AppUser, conversationId: string) {
+  if (!firebaseReady || !db) return;
+
+  const database = db as unknown as Firestore;
+  const conversationRef = doc(database, "conversations", conversationId);
+  const batch = writeBatch(database);
+  if (user.role === "parent") {
+    batch.update(conversationRef, { unreadParentCount: 0 });
+  } else if (user.role === "cashier") {
+    batch.update(conversationRef, { unreadCashierCount: 0 });
+  } else {
+    batch.update(conversationRef, { unreadAdminCount: 0 });
+  }
+  await batch.commit();
+}

@@ -45,10 +45,12 @@ import type { ValveAttachmentListItem } from "./components/valves/AttachmentsLis
 import { AttachmentViewer } from "./components/valves/AttachmentViewer";
 import { useBillingControls } from "./hooks/useBillingControls";
 import type { UseBillingControlsResult } from "./hooks/useBillingControls";
+import { usePaginatedConversationMessages } from "./hooks/usePaginatedConversationMessages";
+import { usePaginatedConversations } from "./hooks/usePaginatedConversations";
 import { usePaginatedControlHistory } from "./hooks/usePaginatedControlHistory";
 import { usePaginatedNotifications } from "./hooks/usePaginatedNotifications";
 import { canUseFirestoreData, loadFirestoreData, loadFirestoreYearData, loadPlatformSettings, persistFirestorePatch, savePlatformSettings } from "./services/firestoreData";
-import { markConversationUnreadCountRead, persistMessageWithConversation } from "./services/conversations";
+import { markConversationUnreadCountRead, markSingleConversationUnreadCountRead, persistMessageWithConversation } from "./services/conversations";
 import { loadSuperAdminInitialData, loadSuperAdminSchoolData } from "./services/superAdminData";
 import type { SuperAdminGlobalCounts } from "./services/superAdminData";
 import { db } from "./firebase";
@@ -69,6 +71,7 @@ import type {
   AppNotification,
   AppUser,
   AuditLog,
+  Conversation,
   Expense,
   FeeKind,
   FeeType,
@@ -1162,6 +1165,7 @@ function Header({
             data={data}
             yearData={yearData}
             school={school}
+            year={year}
             notifications={notificationHistory.items}
             notificationPagination={notificationPagination}
           />
@@ -3063,6 +3067,7 @@ function MessageDrawerContent({
   data,
   yearData,
   school,
+  year,
   notifications: paginatedNotifications,
   notificationPagination,
 }: {
@@ -3070,27 +3075,40 @@ function MessageDrawerContent({
   data: AppData;
   yearData: ReturnType<typeof scopeData>;
   school: School;
+  year: SchoolYear;
   notifications?: AppNotification[];
   notificationPagination?: ReactNode;
 }) {
-  type FeedItem = {
+  type NotificationFeedItem = {
     id: string;
-    kind: "message" | "notification";
-    sender: string;
-    senderType?: "parent" | "school";
-    senderRole?: string;
-    children?: Student[];
-    parentRelated?: boolean;
     title: string;
     preview: string;
     createdAt: string;
     unread?: boolean;
-    direction: "sent" | "received";
     tone?: "warning" | "payment";
     notificationSenderLabel?: string;
   };
+  type LegacyThread = {
+    id: string;
+    title: string;
+    preview: string;
+    createdAt: string;
+    messages: Message[];
+    parent?: ParentProfile;
+  };
 
   const isParent = user.role === "parent";
+  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
+  const [selectedLegacyThreadId, setSelectedLegacyThreadId] = useState("");
+  const messageScrollRef = useRef<HTMLDivElement | null>(null);
+  const pendingScrollRestoreRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
+  const conversationHistory = usePaginatedConversations({
+    user,
+    schoolId: school.id,
+    schoolYearId: year.id,
+    enabled: !selectedConversation && !selectedLegacyThreadId,
+  });
+  const conversationMessages = usePaginatedConversationMessages({ user, conversation: selectedConversation });
 
   function messageTimestamp(value?: string) {
     if (!value) return 0;
@@ -3100,7 +3118,6 @@ function MessageDrawerContent({
 
   const notifications = [...(paginatedNotifications ?? yearData.notifications)].sort((a, b) => messageTimestamp(b.createdAt) - messageTimestamp(a.createdAt));
   const notificationReadState = new Map(yearData.notifications.map((notification) => [notification.id, notification.read]));
-  const allNotifications = [...yearData.notifications].sort((a, b) => messageTimestamp(b.createdAt) - messageTimestamp(a.createdAt));
 
   function getParentForMessage(message: Message) {
     const senderParentId = data.users.find((item) => item.id === message.senderId)?.parentId;
@@ -3151,34 +3168,12 @@ function MessageDrawerContent({
     return message.senderId === user.id || message.threadParentId === user.parentId || message.recipientParentId === user.parentId || message.recipientParentId === "all";
   }
 
-  const messageItems: FeedItem[] = yearData.messages.filter(canShowMessageInFeed).map((message) => {
-    const sender = senderDetails(message);
-    const relatedParent = getParentForMessage(message);
-    const unread = allNotifications.some((notification) => notification.messageId === message.id && !notification.read);
-    return {
-      id: `message-${message.id}`,
-      kind: "message",
-      sender: sender.name,
-      senderType: sender.type,
-      senderRole: sender.role,
-      children: sender.children,
-      parentRelated: Boolean(relatedParent) || message.recipientParentId === "all",
-      title: cleanMessageSubject(message.subject) || "Message",
-      preview: message.body,
-      createdAt: message.createdAt,
-      unread,
-      direction: message.senderId === user.id ? "sent" : "received",
-      tone: messageTextTone(message.subject, message.body),
-    };
-  });
-  const notificationItems: FeedItem[] = notifications
+  const notificationItems: NotificationFeedItem[] = notifications
     .filter((notification) => notification.type !== "message")
     .map((notification) => {
       const tone = messageTextTone(notification.title, notification.body);
       return {
         id: `notification-${notification.id}`,
-        kind: "notification",
-        sender: "",
         title: notification.title,
         preview: notification.body,
         createdAt: notification.createdAt,
@@ -3188,17 +3183,39 @@ function MessageDrawerContent({
         notificationSenderLabel: tone === "warning" ? warningNotificationSenderLabel(notification) : undefined,
       };
     });
-  const feedItems = [...messageItems, ...notificationItems].sort((a, b) => messageTimestamp(b.createdAt) - messageTimestamp(a.createdAt));
+  const legacyThreads = Array.from(
+    yearData.messages
+      .filter((message) => !message.conversationId && canShowMessageInFeed(message))
+      .reduce<Map<string, Message[]>>((threads, message) => {
+        const key = `${message.threadParentId ?? message.recipientParentId}:${message.threadId ?? "legacy"}`;
+        threads.set(key, [...(threads.get(key) ?? []), message]);
+        return threads;
+      }, new Map()),
+  )
+    .map<LegacyThread>(([id, messages]) => {
+      const sortedMessages = [...messages].sort((a, b) => messageTimestamp(a.createdAt) - messageTimestamp(b.createdAt));
+      const lastMessage = sortedMessages.at(-1);
+      const parent = lastMessage ? getParentForMessage(lastMessage) : undefined;
+      return {
+        id,
+        title: parent?.fullName ?? cleanMessageSubject(lastMessage?.subject) ?? "Ancien fil",
+        preview: lastMessage?.body ?? "",
+        createdAt: lastMessage?.createdAt ?? "",
+        messages: sortedMessages,
+        parent,
+      };
+    })
+    .sort((a, b) => messageTimestamp(b.createdAt) - messageTimestamp(a.createdAt));
+  const selectedLegacyThread = legacyThreads.find((thread) => thread.id === selectedLegacyThreadId);
 
-  function messageTextTone(title?: string, preview?: string): FeedItem["tone"] {
+  function messageTextTone(title?: string, preview?: string): NotificationFeedItem["tone"] {
     const text = `${title ?? ""} ${preview ?? ""}`.toLowerCase();
     if (text.includes("avertissement de paiement")) return "warning";
     if (text.includes("paiement enregistré")) return "payment";
     return undefined;
   }
 
-  function feedItemClassName(item: FeedItem) {
-    if (item.senderType === "parent") return "border-slate-700 bg-slate-800";
+  function notificationItemClassName(item: NotificationFeedItem) {
     if (item.tone === "warning") return "border-red-200 bg-red-50";
     if (item.tone === "payment") return "border-emerald-200 bg-emerald-50";
     return item.unread ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50";
@@ -3243,52 +3260,221 @@ function MessageDrawerContent({
     return `${student.prenom} ${student.nom}`.trim();
   }
 
-  function feedItemTitle(item: FeedItem) {
-    const title = item.title || "Sans titre";
-    return item.kind === "message" && item.senderType === "parent" ? `Objet : ${title}` : title;
+  function conversationUnreadCount(conversation: Conversation) {
+    if (user.role === "parent") return conversation.unreadParentCount;
+    if (user.role === "cashier") return conversation.unreadCashierCount;
+    return conversation.unreadAdminCount;
+  }
+
+  function conversationTitle(conversation: Conversation) {
+    if (isParent) {
+      return conversation.schoolRecipient === "cashier"
+        ? "Caissier"
+        : conversation.schoolRecipient === "both"
+          ? "Administrateur et Caissier"
+          : "Administrateur";
+    }
+    return conversation.parentName ?? yearData.parents.find((parent) => parent.id === conversation.parentId)?.fullName ?? "Parent";
+  }
+
+  function openConversation(conversation: Conversation) {
+    setSelectedLegacyThreadId("");
+    setSelectedConversation(conversation);
+    conversationHistory.markConversationRead(conversation.id, user.role);
+    void markSingleConversationUnreadCountRead(user, conversation.id).catch((error) => {
+      console.warn("Remise à zéro du compteur de conversation impossible.", error);
+    });
+  }
+
+  function openLegacyThread(thread: LegacyThread) {
+    setSelectedConversation(null);
+    setSelectedLegacyThreadId(thread.id);
+  }
+
+  function backToConversationList() {
+    setSelectedConversation(null);
+    setSelectedLegacyThreadId("");
+  }
+
+  function loadOlderMessages() {
+    if (messageScrollRef.current) {
+      pendingScrollRestoreRef.current = {
+        scrollHeight: messageScrollRef.current.scrollHeight,
+        scrollTop: messageScrollRef.current.scrollTop,
+      };
+    }
+    void conversationMessages.loadOlder();
+  }
+
+  useEffect(() => {
+    const pendingScroll = pendingScrollRestoreRef.current;
+    const container = messageScrollRef.current;
+    if (!pendingScroll || !container) return;
+    container.scrollTop = pendingScroll.scrollTop + (container.scrollHeight - pendingScroll.scrollHeight);
+    pendingScrollRestoreRef.current = null;
+  }, [conversationMessages.items.length]);
+
+  function renderMessage(message: Message) {
+    const sender = senderDetails(message);
+    const senderIsParent = sender.type === "parent";
+    return (
+      <article key={message.id} className={`rounded border p-3 text-sm ${senderIsParent ? "border-slate-700 bg-slate-800" : "border-slate-100 bg-slate-50"}`}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className={`break-words font-semibold ${senderIsParent ? "text-white" : "text-ink"}`}>
+              {sender.role && sender.role !== "École" ? `${sender.role} : ${sender.name}` : sender.name}
+            </p>
+            {sender.children.length > 0 && (
+              <p className={`break-words text-xs font-semibold ${senderIsParent ? "text-slate-200" : "text-slate-500"}`}>
+                Parent de : {sender.children.map(childShortName).join(", ")}
+              </p>
+            )}
+          </div>
+          <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold ${message.senderId === user.id ? "bg-ink text-white" : "bg-white text-slate-600"}`}>
+            {message.senderId === user.id ? "Envoyé" : "Reçu"}
+          </span>
+        </div>
+        <p className={`mt-3 break-words text-sm font-semibold ${senderIsParent ? "text-white" : "text-slate-700"}`}>{cleanMessageSubject(message.subject) || "Sans titre"}</p>
+        <p className={`mt-1 whitespace-pre-wrap break-words text-sm leading-6 ${senderIsParent ? "text-slate-100" : "text-slate-600"}`}>{message.body}</p>
+        <p className={`mt-2 text-xs ${senderIsParent ? "text-slate-300" : "text-slate-500"}`}>{new Date(message.createdAt).toLocaleString("fr-FR")}</p>
+      </article>
+    );
+  }
+
+  if (selectedConversation) {
+    return (
+      <div className="grid min-h-0 min-w-0 gap-4">
+        <section className="flex min-h-0 min-w-0 flex-col rounded border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <button type="button" onClick={backToConversationList} className="secondary-button">
+              <ArrowLeft className="h-4 w-4" /> Retour
+            </button>
+            <h3 className="min-w-0 flex-1 truncate text-sm font-bold text-ink">{conversationTitle(selectedConversation)}</h3>
+          </div>
+          <div ref={messageScrollRef} className="max-h-[68vh] space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+            {conversationMessages.hasOlderMessages && (
+              <button
+                type="button"
+                onClick={loadOlderMessages}
+                disabled={conversationMessages.isLoadingOlderMessages}
+                className="secondary-button w-full justify-center disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {conversationMessages.isLoadingOlderMessages ? "Chargement..." : "Afficher les messages précédents"}
+              </button>
+            )}
+            {conversationMessages.isLoadingMessages && <p className="rounded bg-blue-50 p-3 text-sm font-semibold text-blue-700">Chargement des messages...</p>}
+            {conversationMessages.messagesError && (
+              <div className="grid gap-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                <p className="font-semibold">{conversationMessages.messagesError}</p>
+                <button type="button" onClick={() => void conversationMessages.loadFirstPage()} className="secondary-button w-fit">Réessayer</button>
+              </div>
+            )}
+            {conversationMessages.items.length === 0 && !conversationMessages.isLoadingMessages && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun message à afficher.</p>}
+            {conversationMessages.items.map(renderMessage)}
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  if (selectedLegacyThread) {
+    return (
+      <div className="grid min-h-0 min-w-0 gap-4">
+        <section className="flex min-h-0 min-w-0 flex-col rounded border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <button type="button" onClick={backToConversationList} className="secondary-button">
+              <ArrowLeft className="h-4 w-4" /> Retour
+            </button>
+            <h3 className="min-w-0 flex-1 truncate text-sm font-bold text-ink">{selectedLegacyThread.title}</h3>
+          </div>
+          <div className="max-h-[68vh] space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+            {selectedLegacyThread.messages.map(renderMessage)}
+          </div>
+        </section>
+      </div>
+    );
   }
 
   return (
     <div className="grid min-h-0 min-w-0 gap-4">
       <section className="min-w-0 rounded border border-slate-200 bg-white p-3 shadow-sm">
         <div className="mb-3 flex items-center justify-between gap-2">
-          <h3 className="text-sm font-bold text-ink">Fil chronologique</h3>
-          <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-500">{feedItems.length}</span>
+          <h3 className="text-sm font-bold text-ink">Conversations</h3>
+          <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-500">{conversationHistory.items.length}</span>
         </div>
         <div className="max-h-[68vh] space-y-2 overflow-y-auto pr-1 scrollbar-thin">
-          {feedItems.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun élément à afficher.</p>}
-          {feedItems.map((item) => (
-            <article key={item.id} className={`rounded border p-3 text-sm ${feedItemClassName(item)}`}>
+          {conversationHistory.isLoadingConversations && <p className="rounded bg-blue-50 p-3 text-sm font-semibold text-blue-700">Chargement des conversations...</p>}
+          {conversationHistory.conversationError && (
+            <div className="grid gap-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              <p className="font-semibold">{conversationHistory.conversationError}</p>
+              <button type="button" onClick={() => void conversationHistory.loadFirstPage()} className="secondary-button w-fit">Réessayer</button>
+            </div>
+          )}
+          {conversationHistory.items.length === 0 && !conversationHistory.isLoadingConversations && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucune conversation moderne à afficher.</p>}
+          {conversationHistory.items.map((conversation) => (
+            <button
+              key={conversation.id}
+              type="button"
+              onClick={() => openConversation(conversation)}
+              className="w-full rounded border border-slate-100 bg-slate-50 p-3 text-left text-sm transition hover:border-blue-200 hover:bg-blue-50"
+            >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  {item.senderType === "parent" ? (
-                    <div className="grid gap-1">
-                      <p className="break-words font-semibold text-white">{item.sender}</p>
-                      <p className="break-words text-xs font-semibold text-slate-200">
-                        Parent de : {item.children?.length ? item.children.map(childShortName).join(", ") : "enfant non renseigné"}
-                      </p>
-                    </div>
-                  ) : item.sender ? (
-                    <p className="break-words font-semibold text-ink">
-                      {item.senderRole && item.senderRole !== "École" ? `${item.senderRole} : ${item.sender}` : item.sender}
-                    </p>
-                  ) : null}
+                  <p className="break-words font-semibold text-ink">{conversationTitle(conversation)}</p>
+                  <p className="mt-1 line-clamp-2 break-words text-slate-600">{conversation.lastMessage}</p>
                 </div>
-                <div className="flex shrink-0 flex-wrap justify-end gap-1">
-                  <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${item.direction === "sent" ? "bg-ink text-white" : "bg-white text-slate-600"}`}>
-                    {item.direction === "sent" ? "Envoyé" : "Reçu"}
-                  </span>
-                  <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${item.unread ? "bg-blue-600 text-white" : "bg-white text-slate-500"}`}>
-                    {item.unread ? "Non lu" : "Lu"}
-                  </span>
-                </div>
+                {conversationUnreadCount(conversation) > 0 && (
+                  <span className="shrink-0 rounded-full bg-blue-600 px-2 py-1 text-[11px] font-bold text-white">{conversationUnreadCount(conversation)}</span>
+                )}
               </div>
-              <p className={`mt-3 break-words text-sm font-semibold ${item.senderType === "parent" ? "text-white" : "text-slate-700"}`}>{feedItemTitle(item)}</p>
-              {item.notificationSenderLabel && <p className="mt-1 break-words text-sm font-semibold text-slate-700">{item.notificationSenderLabel}</p>}
-              <p className={`mt-1 whitespace-pre-wrap break-words text-sm leading-6 ${item.senderType === "parent" ? "text-slate-100" : "text-slate-600"}`}>{item.preview}</p>
-              <p className={`mt-2 text-xs ${item.senderType === "parent" ? "text-slate-300" : "text-slate-500"}`}>{new Date(item.createdAt).toLocaleString("fr-FR")}</p>
-            </article>
+              <p className="mt-2 text-xs text-slate-500">{new Date(conversation.lastMessageAt).toLocaleString("fr-FR")}</p>
+            </button>
           ))}
+          {conversationHistory.hasMoreConversations && (
+            <button
+              type="button"
+              onClick={() => void conversationHistory.loadMore()}
+              disabled={conversationHistory.isLoadingMoreConversations}
+              className="secondary-button w-full justify-center disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {conversationHistory.isLoadingMoreConversations ? "Chargement..." : "Charger plus de conversations"}
+            </button>
+          )}
+          {legacyThreads.length > 0 && (
+            <div className="mt-4 grid gap-2 border-t border-slate-100 pt-3">
+              <h4 className="text-xs font-bold uppercase text-slate-400">Anciens fils</h4>
+              {legacyThreads.map((thread) => (
+                <button
+                  key={thread.id}
+                  type="button"
+                  onClick={() => openLegacyThread(thread)}
+                  className="w-full rounded border border-slate-100 bg-white p-3 text-left text-sm transition hover:border-slate-200 hover:bg-slate-50"
+                >
+                  <p className="break-words font-semibold text-ink">{thread.title}</p>
+                  <p className="mt-1 line-clamp-2 break-words text-slate-600">{thread.preview}</p>
+                  <p className="mt-2 text-xs text-slate-500">{new Date(thread.createdAt).toLocaleString("fr-FR")}</p>
+                </button>
+              ))}
+            </div>
+          )}
+          {notificationItems.length > 0 && (
+            <div className="mt-4 grid gap-2 border-t border-slate-100 pt-3">
+              <h4 className="text-xs font-bold uppercase text-slate-400">Notifications</h4>
+              {notificationItems.map((item) => (
+                <article key={item.id} className={`rounded border p-3 text-sm ${notificationItemClassName(item)}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="break-words font-semibold text-slate-700">{item.title}</p>
+                    <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold ${item.unread ? "bg-blue-600 text-white" : "bg-white text-slate-500"}`}>
+                      {item.unread ? "Non lu" : "Lu"}
+                    </span>
+                  </div>
+                  {item.notificationSenderLabel && <p className="mt-1 break-words text-sm font-semibold text-slate-700">{item.notificationSenderLabel}</p>}
+                  <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-slate-600">{item.preview}</p>
+                  <p className="mt-2 text-xs text-slate-500">{new Date(item.createdAt).toLocaleString("fr-FR")}</p>
+                </article>
+              ))}
+            </div>
+          )}
           {notificationPagination}
         </div>
       </section>
