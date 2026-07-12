@@ -276,7 +276,6 @@ export default function App() {
   const [dataLoading, setDataLoading] = useState(false);
   const [platformCounts, setPlatformCounts] = useState<SuperAdminGlobalCounts | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [refreshMessage, setRefreshMessage] = useState("");
   const [refreshError, setRefreshError] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const logoutInProgressRef = useRef(false);
@@ -554,7 +553,6 @@ export default function App() {
     if (isRefreshing || !user || !selectedYearId || !canUseFirestoreData()) return;
 
     setIsRefreshing(true);
-    setRefreshMessage("");
     setRefreshError("");
     try {
       const firestoreYearData = await loadFirestoreYearData(user, selectedYearId);
@@ -565,7 +563,6 @@ export default function App() {
         ...prev,
         ...firestoreYearData,
       }));
-      setRefreshMessage("Données actualisées.");
     } catch (error) {
       console.warn("Actualisation ciblée Firestore indisponible.", error);
       setRefreshError("Impossible d'actualiser les données. Veuillez réessayer.");
@@ -697,7 +694,6 @@ export default function App() {
         unreadNotifications={unreadNotifications}
         notificationsOpen={notificationsOpen}
         isRefreshing={isRefreshing}
-        refreshMessage={refreshMessage}
         refreshError={refreshError}
         onRefresh={refreshCurrentYearData}
         onToggleNotifications={openNotifications}
@@ -1050,7 +1046,6 @@ function Header({
   unreadNotifications,
   notificationsOpen,
   isRefreshing,
-  refreshMessage,
   refreshError,
   onRefresh,
   onToggleNotifications,
@@ -1064,7 +1059,6 @@ function Header({
   unreadNotifications: number;
   notificationsOpen: boolean;
   isRefreshing?: boolean;
-  refreshMessage?: string;
   refreshError?: string;
   onRefresh: () => void;
   onToggleNotifications: () => void;
@@ -1072,7 +1066,7 @@ function Header({
 }) {
   const schoolLogoUrl = school.logoUrl?.trim();
   const userDisplayName = user.name.trim();
-  const refreshStatus = isRefreshing ? "Actualisation..." : refreshError || refreshMessage;
+  const refreshStatus = isRefreshing ? "Actualisation..." : refreshError;
   const notificationHistory = usePaginatedNotifications({
     user,
     schoolId: school.id,
