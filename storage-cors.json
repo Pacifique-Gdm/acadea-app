@@ -1,0 +1,17 @@
+[
+  {
+    "origin": [
+      "http://localhost:5173",
+      "http://127.0.0.1:5173",
+      "https://acadea-app.vercel.app"
+    ],
+    "method": ["GET", "HEAD"],
+    "responseHeader": [
+      "Content-Type",
+      "Content-Length",
+      "Content-Disposition",
+      "ETag"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]
