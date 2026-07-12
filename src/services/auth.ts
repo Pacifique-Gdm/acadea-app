@@ -50,7 +50,7 @@ function assertFirebaseAuthReady() {
 }
 
 function isRole(role: unknown): role is AppUser["role"] | "admin" | "superadmin" {
-  return ["super_admin", "school_admin", "cashier", "parent", "admin", "superadmin"].includes(String(role));
+  return ["super_admin", "school_admin", "cashier", "discipline_director", "parent", "admin", "superadmin"].includes(String(role));
 }
 
 function normalizeUserProfile(user: RawAppUser): AppUser {
@@ -95,7 +95,7 @@ async function loadFirebaseUserProfile(firebaseUser: FirebaseUser, authModule: F
     throw new Error("Connexion refusée : le rôle Firebase Custom Claims est manquant ou invalide.");
   }
 
-  if (["school_admin", "cashier", "admin"].includes(String(claims.role)) && typeof claims.schoolId !== "string") {
+  if (["school_admin", "cashier", "discipline_director", "admin"].includes(String(claims.role)) && typeof claims.schoolId !== "string") {
     throw new Error("Connexion refusée : le Custom Claim schoolId est manquant.");
   }
 
@@ -202,7 +202,7 @@ export async function subscribeToFirebaseUser(
 export function canEnterRoute(user: AppUser | null, route: string) {
   if (!user) return false;
   if (route === "/platform") return user.role === "super_admin";
-  if (route === "/dashboard") return ["school_admin", "cashier"].includes(user.role) && Boolean(user.schoolId);
+  if (route === "/dashboard") return ["school_admin", "cashier", "discipline_director"].includes(user.role) && Boolean(user.schoolId);
 
   return false;
 }
@@ -213,6 +213,10 @@ export function validateSchoolAdmin(user: AppUser) {
 
 export function validateSchoolStaff(user: AppUser) {
   return ["school_admin", "cashier"].includes(user.role) && Boolean(user.schoolId);
+}
+
+export function validateDisciplineDirector(user: AppUser) {
+  return user.role === "discipline_director" && Boolean(user.schoolId);
 }
 
 export function validateParent(user: AppUser) {

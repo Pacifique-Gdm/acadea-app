@@ -37,8 +37,12 @@ import {
   UserRound,
   UsersRound,
 } from "lucide-react";
-import { createFirebaseAuthUser, getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateParent, validatePlatformAdmin, validateSchoolStaff } from "./services/auth";
+import { createFirebaseAuthUser, getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff } from "./services/auth";
 import { BillingControlsDrawer } from "./components/platform/BillingControlsDrawer";
+import { DisciplineHistoryDrawer } from "./components/discipline/DisciplineHistoryDrawer";
+import { DisciplineStatistics } from "./components/discipline/DisciplineStatistics";
+import { DisciplineStatus } from "./components/discipline/DisciplineStatus";
+import { NewSanctionDrawer } from "./components/discipline/NewSanctionDrawer";
 import { ParentsDirectoryDrawer } from "./components/parents/ParentsDirectoryDrawer";
 import { AttachmentsList } from "./components/valves/AttachmentsList";
 import type { ValveAttachmentListItem } from "./components/valves/AttachmentsList";
@@ -48,12 +52,13 @@ import type { UseBillingControlsResult } from "./hooks/useBillingControls";
 import { usePaginatedControlHistory } from "./hooks/usePaginatedControlHistory";
 import { usePaginatedNotifications } from "./hooks/usePaginatedNotifications";
 import { markNotificationsReadTargeted } from "./services/notificationsPagination";
-import { canUseFirestoreData, loadFirestoreData, loadFirestoreYearData, loadPlatformSettings, persistFirestorePatch, savePlatformSettings } from "./services/firestoreData";
+import { canUseFirestoreData, loadDisciplineYearData, loadFirestoreData, loadFirestoreYearData, loadPlatformSettings, persistFirestorePatch, savePlatformSettings } from "./services/firestoreData";
 import { markConversationUnreadCountRead, persistMessageWithConversation } from "./services/conversations";
 import { loadSuperAdminInitialData, loadSuperAdminSchoolData } from "./services/superAdminData";
 import type { SuperAdminGlobalCounts } from "./services/superAdminData";
+import { completeDisciplineSanction, createDisciplineSanction, saveDisciplineAuditLog } from "./services/discipline";
 import { db } from "./firebase";
-import { manageSchool, provisionCashier, provisionParent, provisionSchoolAdmin } from "./services/provisioning";
+import { manageSchool, provisionParent, provisionSchoolAdmin, provisionSchoolUser } from "./services/provisioning";
 import { buildDashboardFinancialAggregates, buildDashboardTransactionDayRows } from "./utils/dashboardStats";
 import { formatSchoolRecipientLabel } from "./utils/messages";
 import { escapePdfHtml, generateReceiptPdf, money, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./utils/pdf";
@@ -62,6 +67,7 @@ import { resolveDefaultSchoolYear } from "./utils/schoolYears";
 import { buildStats, getStudentBalance } from "./utils/stats";
 import { getStudentFeeSummaries } from "./utils/studentFeeSummary";
 import { buildSchoolYearDataIndexes, sumPaymentsForStudentFee } from "./utils/dataIndexes";
+import { buildDisciplineStats } from "./utils/disciplineStats";
 import { buildValveClassChoices, formatValveClassChoiceLabel, getValvePublicationParents, normalizeValveVisibility, parentCanViewValvePublication } from "./utils/valves";
 import { formatValveAttachmentSize, MAX_VALVE_ATTACHMENTS, MAX_VALVE_ATTACHMENTS_TOTAL_SIZE, prepareValveAttachments, validateValveAttachments } from "./utils/valvesMedia";
 import { deleteValveAttachments, uploadValveAttachments } from "./services/valvesStorage";
@@ -70,6 +76,7 @@ import type {
   AppNotification,
   AppUser,
   AuditLog,
+  DisciplineSanction,
   Expense,
   FeeKind,
   FeeType,
@@ -91,6 +98,18 @@ import { CLASSES, FEE_KINDS } from "./types";
 
 type Tab = "dashboard" | "students" | "parents" | "control" | "reports" | "messages" | "menu";
 type ParentTab = "children" | "messages" | "menu";
+type DisciplineTab = "status" | "messages" | "menu";
+type SchoolUserProvisionRole = "cashier" | "discipline_director";
+type NewDisciplineSanctionFormInput = {
+  student: Student;
+  reason: string;
+  description: string;
+  sanctionType: string;
+  duration: number;
+  startDate: string;
+  expectedEndDate: string;
+  observation?: string;
+};
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -101,7 +120,13 @@ const roleLabels: Record<AppUser["role"], string> = {
   super_admin: "Super Administrateur",
   school_admin: "Administrateur d'école",
   cashier: "Caissier",
+  discipline_director: "Directeur de Discipline",
   parent: "Parent",
+};
+
+const schoolUserProvisionLabels: Record<SchoolUserProvisionRole, string> = {
+  cashier: "Caissier",
+  discipline_director: "Directeur de Discipline",
 };
 
 const appEnvironment = import.meta.env.VITE_APP_ENV ?? "development";
@@ -121,6 +146,7 @@ const emptyAppData: AppData = {
   notifications: [],
   auditLogs: [],
   valves: [],
+  disciplineSanctions: [],
 };
 
 function uid(prefix: string) {
@@ -568,6 +594,28 @@ export default function App() {
     }
   }
 
+  async function refreshDisciplineData() {
+    if (isRefreshing || !user || !selectedYearId || !canUseFirestoreData()) return;
+
+    setIsRefreshing(true);
+    setRefreshError("");
+    try {
+      const disciplineYearData = await loadDisciplineYearData(user, selectedYearId);
+      if (!disciplineYearData) {
+        throw new Error("Actualisation Firestore indisponible.");
+      }
+      setData((prev) => ({
+        ...prev,
+        ...disciplineYearData,
+      }));
+    } catch (error) {
+      console.warn("Actualisation discipline Firestore indisponible.", error);
+      setRefreshError("Impossible d'actualiser les données. Veuillez réessayer.");
+    } finally {
+      setIsRefreshing(false);
+    }
+  }
+
   async function installPwa() {
     if (!deferredInstallPrompt || pwaInstalled) return;
 
@@ -619,7 +667,7 @@ export default function App() {
     );
   }
 
-  if ((!validateSchoolStaff(user) && !validateParent(user)) || !school) {
+  if ((!validateSchoolStaff(user) && !validateParent(user) && !validateDisciplineDirector(user)) || !school) {
     return <AccessDenied onLogout={logout} />;
   }
 
@@ -677,6 +725,25 @@ export default function App() {
 
   if (validateParent(user)) {
     return <ParentPortal user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} onRefresh={refreshData} onLogout={logout} showInstallButton={showInstallPwaButton} onInstallPwa={installPwa} />;
+  }
+
+  if (validateDisciplineDirector(user)) {
+    return (
+      <DisciplinePortal
+        user={user}
+        data={data}
+        yearData={yearData}
+        school={school}
+        year={selectedYear}
+        updateData={updateData}
+        onRefresh={refreshDisciplineData}
+        isRefreshing={isRefreshing}
+        refreshError={refreshError}
+        onLogout={logout}
+        showInstallButton={showInstallPwaButton}
+        onInstallPwa={installPwa}
+      />
+    );
   }
 
   return (
@@ -787,12 +854,14 @@ function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: 
     if (notification.schoolRecipient) {
       if (user.role === "school_admin") return notification.schoolRecipient === "admin" || notification.schoolRecipient === "both";
       if (user.role === "cashier") return notification.schoolRecipient === "cashier" || notification.schoolRecipient === "both";
+      if (user.role === "discipline_director") return notification.schoolRecipient === "discipline";
     }
     if (!notification.messageId) return true;
     const linkedMessage = data.messages.find((message) => message.id === notification.messageId);
     if (!linkedMessage?.schoolRecipient) return true;
     if (user.role === "school_admin") return linkedMessage.schoolRecipient === "admin" || linkedMessage.schoolRecipient === "both";
     if (user.role === "cashier") return linkedMessage.schoolRecipient === "cashier" || linkedMessage.schoolRecipient === "both";
+    if (user.role === "discipline_director") return linkedMessage.schoolRecipient === "discipline";
     return true;
   };
 
@@ -812,6 +881,7 @@ function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: 
     expenses: data.expenses.filter((expense) => expense.schoolId === schoolId && expense.schoolYearId === schoolYearId),
     auditLogs: data.auditLogs.filter((log) => log.schoolId === schoolId && log.schoolYearId === schoolYearId && !isSessionAuditAction(log.action)),
     valves: data.valves.filter((publication) => publication.schoolId === schoolId && publication.schoolYearId === schoolYearId),
+    disciplineSanctions: data.disciplineSanctions.filter((sanction) => sanction.schoolId === schoolId && sanction.schoolYearId === schoolYearId),
     messages: data.messages.filter((message) => {
       const sameScope = message.schoolId === schoolId && message.schoolYearId === schoolYearId;
       if (!sameScope) return false;
@@ -1481,6 +1551,50 @@ function TransactionComboChart({
         </div>
       )}
     </section>
+  );
+}
+
+function DisciplineBottomNavigation({
+  activeTab,
+  showInstallButton,
+  onInstallPwa,
+  onTab,
+}: {
+  activeTab: DisciplineTab;
+  showInstallButton: boolean;
+  onInstallPwa: () => void;
+  onTab: (tab: DisciplineTab) => void;
+}) {
+  const tabs = [
+    { id: "status", label: "Statut", icon: CheckCircle2 },
+    { id: "messages", label: "Message", icon: MessageSquare },
+    { id: "menu", label: "Menu", icon: MenuIcon },
+  ] satisfies { id: DisciplineTab; label: string; icon: typeof BookOpen }[];
+
+  return (
+    <nav className="fixed inset-x-0 bottom-0 z-40 max-w-full overflow-hidden border-t border-slate-200 bg-white/95 px-1 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur sm:px-2">
+      <div className={`mx-auto grid w-full max-w-md ${showInstallButton ? "grid-cols-4" : "grid-cols-3"} gap-1`}>
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const active = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => onTab(tab.id)}
+              className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-2xl px-0.5 py-2 text-[10px] font-semibold transition min-[360px]:text-[11px] sm:px-1 sm:text-xs ${
+                active ? "bg-blue-50 text-blue-700" : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+              }`}
+              aria-current={active ? "page" : undefined}
+              type="button"
+            >
+              <Icon className={`h-5 w-5 shrink-0 ${active ? "text-blue-700" : "text-slate-400"}`} />
+              <span className="max-w-full truncate">{tab.label}</span>
+            </button>
+          );
+        })}
+        {showInstallButton && <InstallPwaNavButton onInstall={onInstallPwa} />}
+      </div>
+    </nav>
   );
 }
 
@@ -2247,6 +2361,7 @@ function PlatformModule({
           messages: data.messages.filter((item) => item.schoolId !== school.id),
           notifications: data.notifications.filter((item) => item.schoolId !== school.id),
           auditLogs: data.auditLogs.filter((item) => item.schoolId !== school.id),
+          disciplineSanctions: data.disciplineSanctions.filter((item) => item.schoolId !== school.id),
         },
         { persist: false },
       );
@@ -2375,6 +2490,7 @@ function PlatformModule({
             notifications: schoolData.notifications,
             auditLogs: schoolData.auditLogs,
             valves: schoolData.valves,
+            disciplineSanctions: [],
           },
           { persist: false },
         );
@@ -2408,6 +2524,7 @@ function PlatformModule({
         notifications: [],
         auditLogs: [],
         valves: [],
+        disciplineSanctions: [],
       },
       { persist: false },
     );
@@ -3184,11 +3301,13 @@ function MessageDrawerContent({
     if (message.schoolRecipient) {
       if (user.role === "school_admin") return message.schoolRecipient === "admin" || message.schoolRecipient === "both";
       if (user.role === "cashier") return message.schoolRecipient === "cashier" || message.schoolRecipient === "both";
+      if (user.role === "discipline_director") return message.schoolRecipient === "discipline";
       return true;
     }
     const sender = data.users.find((item) => item.id === message.senderId) ?? yearData.users.find((item) => item.id === message.senderId);
     if (sender?.role === "school_admin") return user.role === "school_admin";
     if (sender?.role === "cashier") return user.role === "cashier";
+    if (sender?.role === "discipline_director") return user.role === "discipline_director";
     return true;
   }
 
@@ -4666,6 +4785,299 @@ function ParentPortal({
           setActiveParentTab(tab);
         }}
       />
+    </div>
+  );
+}
+
+function disciplineStudentName(student: Student) {
+  return `${student.nom} ${student.postnom} ${student.prenom}`.replace(/\s+/g, " ").trim();
+}
+
+function disciplineClassName(student: Pick<Student, "className" | "option">) {
+  const option = student.option?.trim();
+  return option ? `${student.className} ${option}` : student.className;
+}
+
+function DisciplinePortal({
+  user,
+  data,
+  yearData,
+  school,
+  year,
+  updateData,
+  onRefresh,
+  isRefreshing,
+  refreshError,
+  showInstallButton,
+  onInstallPwa,
+  onLogout,
+}: {
+  user: AppUser;
+  data: AppData;
+  yearData: ReturnType<typeof scopeData>;
+  school: School;
+  year: SchoolYear;
+  updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
+  onRefresh: () => void;
+  isRefreshing: boolean;
+  refreshError: string;
+  showInstallButton: boolean;
+  onInstallPwa: () => void;
+  onLogout: () => void;
+}) {
+  const [activeDisciplineTab, setActiveDisciplineTab] = useState<DisciplineTab>("status");
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [newSanctionOpen, setNewSanctionOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const unread = yearData.notifications.filter((notification) => !notification.read).length;
+  const stats = useMemo(() => buildDisciplineStats(yearData.disciplineSanctions), [yearData.disciplineSanctions]);
+
+  function createDisciplineAudit(action: string, details: string) {
+    return createAuditLog(user, school.id, year.id, action, details);
+  }
+
+  async function markNotificationsRead(notificationId?: string) {
+    updateData(
+      {
+        notifications: data.notifications.map((notification) =>
+          notification.schoolId === school.id &&
+          notification.schoolYearId === year.id &&
+          (notificationId ? notification.id === notificationId : true)
+            ? { ...notification, read: true }
+            : notification,
+        ),
+      },
+      { persist: false },
+    );
+    await markNotificationsReadTargeted(user, school.id, year.id, notificationId).catch((error) => {
+      console.warn("Marquage ciblé des notifications discipline impossible.", error);
+    });
+    await markConversationUnreadCountRead(user, school.id, year.id).catch((error) => {
+      console.warn("Remise à zéro des compteurs de conversation discipline impossible.", error);
+    });
+  }
+
+  function toggleNotifications() {
+    setNotificationsOpen((current) => !current);
+    if (!notificationsOpen) void markNotificationsRead();
+  }
+
+  async function saveNewSanction(input: NewDisciplineSanctionFormInput) {
+    const now = new Date().toISOString();
+    const sanctionBase: Omit<DisciplineSanction, "recurrenceNumber"> = {
+      id: uid("discipline"),
+      schoolId: school.id,
+      schoolYearId: year.id,
+      studentId: input.student.id,
+      studentName: disciplineStudentName(input.student),
+      className: disciplineClassName(input.student),
+      reason: input.reason,
+      description: input.description,
+      sanctionType: input.sanctionType,
+      duration: input.duration,
+      startDate: input.startDate,
+      expectedEndDate: input.expectedEndDate,
+      status: "active",
+      createdBy: user.id,
+      createdByName: user.name,
+      createdAt: now,
+      ...(input.observation ? { observation: input.observation } : {}),
+    };
+    const auditLog = createDisciplineAudit("Création sanction disciplinaire", `${sanctionBase.studentName} - ${sanctionBase.sanctionType}`);
+
+    try {
+      let savedSanction: DisciplineSanction;
+      if (canUseFirestoreData()) {
+        savedSanction = await createDisciplineSanction({ sanction: sanctionBase, auditLog });
+        updateData({ disciplineSanctions: [savedSanction, ...data.disciplineSanctions], auditLogs: [auditLog, ...data.auditLogs] }, { persist: false });
+      } else {
+        savedSanction = {
+          ...sanctionBase,
+          recurrenceNumber: data.disciplineSanctions.filter(
+            (sanction) => sanction.schoolId === school.id && sanction.schoolYearId === year.id && sanction.studentId === input.student.id,
+          ).length,
+        };
+        updateData({ disciplineSanctions: [savedSanction, ...data.disciplineSanctions], auditLogs: [auditLog, ...data.auditLogs] });
+      }
+      setFeedback("Sanction enregistrée avec succès.");
+      setNewSanctionOpen(false);
+    } catch (error) {
+      console.warn("Création de sanction impossible.", error);
+      setFeedback("Sanction non enregistrée. Veuillez réessayer.");
+    }
+  }
+
+  async function completeSanction(sanction: DisciplineSanction) {
+    if (sanction.status !== "active") {
+      setFeedback("Cette sanction est déjà purgée.");
+      return;
+    }
+    if (!confirm(`Marquer comme purgée la sanction de ${sanction.studentName} ?`)) return;
+    const completedAt = new Date().toISOString();
+    const auditLog = createDisciplineAudit("Clôture sanction disciplinaire", `${sanction.studentName} - ${sanction.sanctionType}`);
+    try {
+      let completedSanction: DisciplineSanction;
+      if (canUseFirestoreData()) {
+        completedSanction = await completeDisciplineSanction({
+          sanction,
+          completedAt,
+          completedBy: user.id,
+          completedByName: user.name,
+          auditLog,
+        });
+        updateData(
+          {
+            disciplineSanctions: data.disciplineSanctions.map((item) => (item.id === completedSanction.id ? completedSanction : item)),
+            auditLogs: [auditLog, ...data.auditLogs],
+          },
+          { persist: false },
+        );
+      } else {
+        completedSanction = {
+          ...sanction,
+          status: "completed",
+          actualEndDate: completedAt.slice(0, 10),
+          completedAt,
+          completedBy: user.id,
+          completedByName: user.name,
+        };
+        updateData({
+          disciplineSanctions: data.disciplineSanctions.map((item) => (item.id === completedSanction.id ? completedSanction : item)),
+          auditLogs: [auditLog, ...data.auditLogs],
+        });
+      }
+      setFeedback("Sanction marquée comme purgée.");
+    } catch (error) {
+      console.warn("Clôture de sanction impossible.", error);
+      setFeedback("Impossible de clôturer la sanction. Veuillez réessayer.");
+    }
+  }
+
+  async function exportDisciplinePdf() {
+    const sortedSanctions = [...yearData.disciplineSanctions].sort((first, second) => first.createdAt.localeCompare(second.createdAt));
+    await renderAcadPdfPreview({
+      filename: `discipline-${year.name}.pdf`,
+      title: "Rapport disciplinaire",
+      school,
+      year,
+      subtitle: `Export du ${new Date().toLocaleString("fr-FR")}`,
+      sections: [
+        pdfSection(
+          "Synthèse",
+          pdfInfoGrid([
+            { label: "Total sanctions", value: stats.total },
+            { label: "Sanctions en cours", value: stats.active },
+            { label: "Sanctions purgées", value: stats.completed },
+            { label: "Élèves sanctionnés", value: stats.sanctionedStudents },
+            { label: "Récidives", value: stats.recurrences },
+          ]),
+        ),
+        pdfSection(
+          "Sanctions",
+          pdfTable(
+            [
+              { header: "Élève", render: (sanction) => sanction.studentName },
+              { header: "Classe", render: (sanction) => sanction.className },
+              { header: "Motif", render: (sanction) => sanction.reason },
+              { header: "Type", render: (sanction) => sanction.sanctionType },
+              { header: "Début", render: (sanction) => sanction.startDate },
+              { header: "Fin prévue", render: (sanction) => sanction.expectedEndDate },
+              { header: "Durée", render: (sanction) => `${sanction.duration} jour(s)`, align: "center" },
+              { header: "Statut", render: (sanction) => (sanction.status === "completed" ? "Purgée" : "Sanction en cours") },
+              { header: "Récidive", render: (sanction) => sanction.recurrenceNumber, align: "center" },
+              { header: "Auteur", render: (sanction) => sanction.createdByName },
+              { header: "Clôture", render: (sanction) => sanction.completedByName ?? "—" },
+            ],
+            sortedSanctions,
+            "Aucune sanction enregistrée.",
+          ),
+        ),
+      ],
+    });
+    if (canUseFirestoreData()) {
+      const auditLog = createDisciplineAudit("Export PDF discipline", `${sortedSanctions.length} sanction(s) exportée(s)`);
+      try {
+        await saveDisciplineAuditLog(auditLog);
+        updateData({ auditLogs: [auditLog, ...data.auditLogs] }, { persist: false });
+      } catch (error) {
+        console.warn("Audit export discipline impossible.", error);
+      }
+    }
+  }
+
+  return (
+    <div className="flex h-screen flex-col overflow-hidden bg-[#f6f8fb]">
+      <EnvironmentBanner />
+      <Header
+        user={user}
+        data={data}
+        yearData={yearData}
+        school={school}
+        year={year}
+        unreadNotifications={unread}
+        notificationsOpen={notificationsOpen}
+        isRefreshing={isRefreshing}
+        refreshError={refreshError}
+        onRefresh={onRefresh}
+        onToggleNotifications={toggleNotifications}
+        onCloseNotifications={() => setNotificationsOpen(false)}
+      />
+      <main className="mx-auto grid w-full max-w-7xl min-w-0 flex-1 gap-4 overflow-y-auto px-3 py-5 pb-28 sm:px-6 sm:pb-32 lg:px-8">
+        {feedback && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{feedback}</p>}
+        {activeDisciplineTab === "status" && (
+          <DisciplineStatus sanctions={yearData.disciplineSanctions} onNewSanction={() => setNewSanctionOpen(true)} onCompleteSanction={completeSanction} />
+        )}
+        {activeDisciplineTab === "messages" && (
+          <MessagesModule user={user} data={data} yearData={yearData} school={school} year={year} updateData={updateData} />
+        )}
+        {activeDisciplineTab === "menu" && (
+          <section className="grid min-w-0 gap-3">
+            <button onClick={() => setHistoryOpen(true)} className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint" type="button">
+              <h2 className="font-bold text-ink">Historique</h2>
+              <p className="mt-1 text-sm text-slate-500">Sanctions en cours et purgées.</p>
+            </button>
+            <button onClick={exportDisciplinePdf} className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint" type="button">
+              <h2 className="font-bold text-ink">Export PDF</h2>
+              <p className="mt-1 text-sm text-slate-500">Exporter les sanctions du périmètre courant.</p>
+            </button>
+            <button onClick={() => setStatsOpen(true)} className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint" type="button">
+              <h2 className="font-bold text-ink">Statistiques</h2>
+              <p className="mt-1 text-sm text-slate-500">Synthèse locale des sanctions chargées.</p>
+            </button>
+            <div className="mt-2 border-t border-slate-200 pt-4">
+              <button onClick={onLogout} className="inline-flex w-full items-center justify-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 transition hover:bg-red-100" type="button">
+                <LogOut className="h-4 w-4" /> Déconnexion
+              </button>
+            </div>
+          </section>
+        )}
+      </main>
+      <DisciplineBottomNavigation
+        activeTab={activeDisciplineTab}
+        showInstallButton={showInstallButton}
+        onInstallPwa={onInstallPwa}
+        onTab={(tab) => {
+          setNotificationsOpen(false);
+          setActiveDisciplineTab(tab);
+        }}
+      />
+      {newSanctionOpen && (
+        <AdminDrawer title="Nouvelle sanction" onClose={() => setNewSanctionOpen(false)} closeLabel="Fermer la nouvelle sanction">
+          <NewSanctionDrawer students={yearData.students} sanctions={yearData.disciplineSanctions} onCancel={() => setNewSanctionOpen(false)} onSave={saveNewSanction} />
+        </AdminDrawer>
+      )}
+      {historyOpen && (
+        <AdminDrawer title="Historique disciplinaire" onClose={() => setHistoryOpen(false)} closeLabel="Fermer l'historique disciplinaire">
+          <DisciplineHistoryDrawer sanctions={yearData.disciplineSanctions} />
+        </AdminDrawer>
+      )}
+      {statsOpen && (
+        <AdminDrawer title="Statistiques disciplinaires" onClose={() => setStatsOpen(false)} closeLabel="Fermer les statistiques disciplinaires">
+          <DisciplineStatistics stats={stats} />
+        </AdminDrawer>
+      )}
     </div>
   );
 }
@@ -7354,6 +7766,7 @@ function MessagesModule({
   const [body, setBody] = useState("");
   const [messageFeedback, setMessageFeedback] = useState("");
   const canSend = user.role !== "parent" && year.status !== "archived";
+  const disciplineMessageSubjects = ["Avertissement disciplinaire", "Convocation", "Décision disciplinaire", "Notification de fin de sanction"];
   const recipientCandidates = yearData.parents.map((parent) => ({
     parent,
     children: yearData.students.filter((student) => student.parentId === parent.id || parent.studentIds.includes(student.id)),
@@ -7375,7 +7788,7 @@ function MessagesModule({
       return;
     }
     const createdAt = new Date().toISOString();
-    const schoolRecipient = user.role === "school_admin" ? "admin" : user.role === "cashier" ? "cashier" : undefined;
+    const schoolRecipient = user.role === "school_admin" ? "admin" : user.role === "cashier" ? "cashier" : user.role === "discipline_director" ? "discipline" : undefined;
     const messages: Message[] = recipientParents.map((parent) => {
       const threadId = nextMessageThreadId(yearData.messages, user.id, parent.id, parent.id) ?? uid("thread");
       const message: Message = {
@@ -7403,7 +7816,7 @@ function MessagesModule({
       parentId: message.threadParentId,
       messageId: message.id,
       type: "message",
-      title: "Nouveau message de l'école",
+      title: user.role === "discipline_director" ? "Nouveau message discipline" : "Nouveau message de l'école",
       body: `${school.name}: ${subject}`,
       createdAt,
       read: false,
@@ -7499,7 +7912,16 @@ function MessagesModule({
               </div>
             )}
           </div>
-          <input value={subject} onChange={(event) => setSubject(event.target.value)} className="input" placeholder="Objet" />
+          {user.role === "discipline_director" ? (
+            <select value={subject} onChange={(event) => setSubject(event.target.value)} className="input">
+              <option value="">Choisir le type de message</option>
+              {disciplineMessageSubjects.map((item) => (
+                <option key={item} value={item}>{item}</option>
+              ))}
+            </select>
+          ) : (
+            <input value={subject} onChange={(event) => setSubject(event.target.value)} className="input" placeholder="Objet" />
+          )}
           <textarea value={body} onChange={(event) => setBody(event.target.value)} className="input min-h-32" placeholder="Message" />
           {messageFeedback && (
             <p
@@ -7547,6 +7969,7 @@ function MenuModule({
   const [schoolSaveStatus, setSchoolSaveStatus] = useState<"success" | "error" | "">("");
   const [schoolSaveMessage, setSchoolSaveMessage] = useState("");
   const [schoolSaving, setSchoolSaving] = useState(false);
+  const [schoolUserRole, setSchoolUserRole] = useState<SchoolUserProvisionRole>("cashier");
   const [cashierName, setCashierName] = useState("");
   const [cashierPhone, setCashierPhone] = useState("");
   const [cashierEmail, setCashierEmail] = useState("");
@@ -7581,7 +8004,7 @@ function MenuModule({
     { id: "fees", title: "Types de frais", description: "Montants et catégories de frais scolaires.", icon: Banknote },
     { id: "financial", title: "Rapport financier", description: "Synthèse et exports des rapports financiers.", icon: BarChart3 },
     { id: "history", title: "Historique", description: "Activités et messages enregistrés pour ce compte.", icon: Clock3 },
-    { id: "accounts", title: "Créer un caissier", description: "Compte de connexion caissier lié à l'école.", icon: ShieldCheck },
+    { id: "accounts", title: "Créer un utilisateur", description: "Compte de connexion caissier ou discipline lié à l'école.", icon: ShieldCheck },
     { id: "years", title: "Années scolaires", description: "Année active, années archivées et contexte global.", icon: BookOpen },
     { id: "school", title: "Paramètres école", description: "Logo, coordonnées et informations de l'établissement.", icon: Settings },
   ] satisfies { id: MenuSection; title: string; description: string; icon: typeof Settings }[];
@@ -7776,7 +8199,7 @@ function MenuModule({
     setNewYearOpen(false);
   }
 
-  async function saveCashier() {
+  async function saveSchoolUser() {
     setCashierError("");
     setCashierSuccess("");
     if (!cashierName || !cashierEmail || !cashierPassword) return;
@@ -7786,42 +8209,30 @@ function MenuModule({
       setCashierError("Un compte existe deja avec cet email.");
       return;
     }
-    let cashierId: string | undefined;
-    if (!cashierId) {
-      try {
-        const provisioned = await provisionCashier({
-          schoolId: school.id,
-          schoolYearId: selectedYear.id,
-          name: cashierName,
-          email: cashierEmail,
-          password: cashierPassword,
-          phone: cashierPhone,
-        });
-        cashierId = provisioned.id;
-      } catch (error) {
-        setCashierError(error instanceof Error ? `Création Firebase Auth caissier impossible : ${error.message}` : "Création Firebase Auth caissier impossible.");
-        return;
-      }
+    let provisionedUser: AppUser | undefined;
+    try {
+      provisionedUser = await provisionSchoolUser({
+        role: schoolUserRole,
+        schoolId: school.id,
+        schoolYearId: selectedYear.id,
+        name: cashierName,
+        email: cashierEmail,
+        password: cashierPassword,
+        phone: cashierPhone,
+      });
+    } catch (error) {
+      setCashierError(error instanceof Error ? `Création Firebase Auth impossible : ${error.message}` : "Création Firebase Auth impossible.");
+      return;
     }
-    const cashierUser: AppUser & { active: boolean } = {
-      id: cashierId,
-      name: cashierName,
-      email: cashierEmail,
-      role: "cashier",
-      schoolId: school.id,
-      activeSchoolYearId: selectedYear.id,
-      phone: cashierPhone,
-      status: "active",
-      active: true,
-      createdAt: new Date().toISOString(),
-    };
-    updateData({ users: [...data.users, cashierUser] }, { persist: false });
+    const auditLog = createAuditLog(user, school.id, selectedYear.id, `Création ${schoolUserProvisionLabels[schoolUserRole]}`, `${cashierName} - ${cashierEmail}`);
+    updateData({ users: [...data.users, provisionedUser], auditLogs: [auditLog, ...data.auditLogs] });
     setCashierName("");
     setCashierPhone("");
     setCashierEmail("");
     setCashierPassword("");
     setShowCashierPassword(false);
-    setCashierSuccess("Compte caissier créé avec succès. Il peut maintenant se connecter avec son email et son mot de passe.");
+    setSchoolUserRole("cashier");
+    setCashierSuccess(`Compte ${schoolUserProvisionLabels[schoolUserRole].toLowerCase()} créé avec succès. Il peut maintenant se connecter avec son email et son mot de passe.`);
     window.setTimeout(() => {
       setActiveMenuSection((current) => (current === "accounts" ? null : current));
     }, 2000);
@@ -8138,6 +8549,13 @@ function MenuModule({
         <div className="grid min-w-0 gap-4">
           {cashierError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{cashierError}</p>}
           {cashierSuccess && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{cashierSuccess}</p>}
+          <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+            Type d'utilisateur
+            <select value={schoolUserRole} onChange={(event) => setSchoolUserRole(event.target.value as SchoolUserProvisionRole)} className="input">
+              <option value="cashier">Caissier</option>
+              <option value="discipline_director">Directeur de Discipline</option>
+            </select>
+          </label>
           <Field label="Nom complet" value={cashierName} onChange={setCashierName} />
           <Field label="Téléphone" value={cashierPhone} onChange={setCashierPhone} />
           <Field label="Email" value={cashierEmail} onChange={setCashierEmail} />
@@ -8148,8 +8566,8 @@ function MenuModule({
             visible={showCashierPassword}
             onToggle={() => setShowCashierPassword(!showCashierPassword)}
           />
-          <button onClick={saveCashier} disabled={!cashierName || !cashierEmail || !cashierPassword} className="primary-button disabled:opacity-50" type="button">
-            <UserRound className="h-4 w-4" /> Créer le caissier
+          <button onClick={saveSchoolUser} disabled={!cashierName || !cashierEmail || !cashierPassword} className="primary-button disabled:opacity-50" type="button">
+            <UserRound className="h-4 w-4" /> Créer l'utilisateur
           </button>
         </div>
       );

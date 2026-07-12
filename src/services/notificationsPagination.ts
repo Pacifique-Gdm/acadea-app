@@ -26,6 +26,9 @@ function notificationRecipientConstraints(user: AppUser, schoolId: string, schoo
   if (user.role === "parent") {
     return [...constraints, where("parentId", "==", user.parentId)];
   }
+  if (user.role === "discipline_director") {
+    return [...constraints, where("recipientRole", "==", "school"), where("schoolRecipient", "==", "discipline")];
+  }
   return [...constraints, where("recipientRole", "==", "school")];
 }
 
@@ -63,16 +66,19 @@ export async function countUnreadNotifications(user: AppUser, schoolId: string, 
     return snapshot.data().count;
   }
 
-  const schoolRecipient = user.role === "cashier" ? "cashier" : "admin";
-  const [visibleSnapshot, allSchoolSnapshot, adminSnapshot, cashierSnapshot, bothSnapshot] = await Promise.all([
-    getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("schoolRecipient", "in", [schoolRecipient, "both"]))),
+  const schoolRecipient = user.role === "cashier" ? "cashier" : user.role === "discipline_director" ? "discipline" : "admin";
+  const visibleRecipients = user.role === "discipline_director" ? ["discipline"] : [schoolRecipient, "both"];
+  const [visibleSnapshot, allSchoolSnapshot, adminSnapshot, cashierSnapshot, disciplineSnapshot, bothSnapshot] = await Promise.all([
+    getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("recipientRole", "==", "school"), where("schoolRecipient", "in", visibleRecipients))),
     getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("recipientRole", "==", "school"))),
     getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("schoolRecipient", "==", "admin"))),
     getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("schoolRecipient", "==", "cashier"))),
+    getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("schoolRecipient", "==", "discipline"))),
     getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("schoolRecipient", "==", "both"))),
   ]);
-  const explicitSchoolUnread = adminSnapshot.data().count + cashierSnapshot.data().count + bothSnapshot.data().count;
+  const explicitSchoolUnread = adminSnapshot.data().count + cashierSnapshot.data().count + disciplineSnapshot.data().count + bothSnapshot.data().count;
   const legacySchoolUnread = Math.max(0, allSchoolSnapshot.data().count - explicitSchoolUnread);
+  if (user.role === "discipline_director") return visibleSnapshot.data().count;
   return visibleSnapshot.data().count + legacySchoolUnread;
 }
 
@@ -81,6 +87,7 @@ function canMarkSchoolNotificationRead(user: AppUser, notification: AppNotificat
   if (!notification.schoolRecipient) return true;
   if (user.role === "school_admin") return notification.schoolRecipient === "admin" || notification.schoolRecipient === "both";
   if (user.role === "cashier") return notification.schoolRecipient === "cashier" || notification.schoolRecipient === "both";
+  if (user.role === "discipline_director") return notification.schoolRecipient === "discipline";
   return false;
 }
 
@@ -114,7 +121,11 @@ export async function markNotificationsReadTargeted(user: AppUser, schoolId: str
     return notificationIds.length;
   }
 
-  const snapshot = await getDocs(query(collection(database, "notifications"), ...baseConstraints, where("recipientRole", "==", "school")));
+  const notificationQuery =
+    user.role === "discipline_director"
+      ? query(collection(database, "notifications"), ...baseConstraints, where("recipientRole", "==", "school"), where("schoolRecipient", "==", "discipline"))
+      : query(collection(database, "notifications"), ...baseConstraints, where("recipientRole", "==", "school"));
+  const snapshot = await getDocs(notificationQuery);
   const notificationIds = snapshot.docs
     .filter((item) => canMarkSchoolNotificationRead(user, { id: item.id, ...item.data() } as AppNotification))
     .map((item) => item.id);

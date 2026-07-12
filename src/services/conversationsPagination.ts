@@ -26,6 +26,9 @@ function conversationRecipientConstraints(user: AppUser, schoolId: string, schoo
   if (user.role === "parent") {
     return [...constraints, where("parentId", "==", user.parentId)];
   }
+  if (user.role === "discipline_director") {
+    return [...constraints, where("schoolRecipient", "==", "discipline")];
+  }
   return [...constraints, where("schoolRecipient", "in", [user.role === "cashier" ? "cashier" : "admin", "both"])];
 }
 

@@ -51,6 +51,11 @@ type ProvisionCashierInput = {
   phone: string;
 };
 
+type ProvisionSchoolUserRole = "cashier" | "discipline_director";
+type ProvisionSchoolUserInput = ProvisionCashierInput & {
+  role: ProvisionSchoolUserRole;
+};
+
 type ProvisionParentInput = {
   schoolId: string;
   schoolYearId: string;
@@ -92,17 +97,20 @@ async function provisionSchoolAccount<TResponse>(input: Record<string, unknown>,
   return payload;
 }
 
-export async function provisionCashier(input: ProvisionCashierInput) {
+export async function provisionSchoolUser(input: ProvisionSchoolUserInput) {
   const payload = await provisionSchoolAccount<{ user?: AppUser }>({
-    role: "cashier",
     ...input,
   }, { showEndpointOnNotFound: true });
 
   if (!payload.user) {
-    throw new Error("Reponse de provisionnement caissier incomplete.");
+    throw new Error("Reponse de provisionnement utilisateur incomplete.");
   }
 
   return payload.user;
+}
+
+export async function provisionCashier(input: ProvisionCashierInput) {
+  return provisionSchoolUser({ role: "cashier", ...input });
 }
 
 export async function provisionParent(input: ProvisionParentInput) {

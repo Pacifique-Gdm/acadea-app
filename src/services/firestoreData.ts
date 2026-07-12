@@ -10,6 +10,7 @@ type PersistFirestorePatchOptions = {
   throwOnError?: boolean;
 };
 export type FirestoreYearData = Pick<AppData, "students" | "feeTypes" | "payments" | "expenses" | "messages" | "valves">;
+export type DisciplineYearData = Pick<AppData, "students" | "parents" | "messages" | "notifications" | "disciplineSanctions">;
 export type PlatformSettings = {
   loginLogoUrl?: string;
   updatedAt?: string;
@@ -28,6 +29,7 @@ const collectionMap: Record<CollectionKey, string> = {
   notifications: "notifications",
   auditLogs: "auditLogs",
   valves: "valves",
+  disciplineSanctions: "disciplineSanctions",
 };
 
 export function canUseFirestoreData() {
@@ -48,6 +50,7 @@ function emptyFirestoreData(): AppData {
     notifications: [],
     auditLogs: [],
     valves: [],
+    disciplineSanctions: [],
   };
 }
 
@@ -147,6 +150,15 @@ export async function loadFirestoreData(user?: AppUser, schoolYearId?: string) {
       return scopedData;
     }
 
+    if (user.role === "discipline_director") {
+      scopedData.students = await loadCollection<AppData["students"][number]>("students", annualFilter);
+      scopedData.parents = await loadCollection<AppData["parents"][number]>("parents", schoolFilter);
+      scopedData.messages = await loadCollection<AppData["messages"][number]>("messages", [...annualFilter, ["schoolRecipient", "discipline"]]);
+      scopedData.notifications = await loadCollection<AppData["notifications"][number]>("notifications", [...annualFilter, ["recipientRole", "school"], ["schoolRecipient", "discipline"]]);
+      scopedData.disciplineSanctions = await loadCollection<AppData["disciplineSanctions"][number]>("disciplineSanctions", annualFilter);
+      return scopedData;
+    }
+
     scopedData.feeTypes = await loadCollection<AppData["feeTypes"][number]>("feeTypes", annualFilter);
     scopedData.students = await loadCollection<AppData["students"][number]>("students", annualFilter);
     scopedData.parents = await loadCollection<AppData["parents"][number]>("parents", schoolFilter);
@@ -162,6 +174,32 @@ export async function loadFirestoreData(user?: AppUser, schoolYearId?: string) {
 
   return emptyFirestoreData();
 
+}
+
+export async function loadDisciplineYearData(user: AppUser, schoolYearId: string) {
+  if (!canUseFirestoreData() || !db) return null;
+  if (!user.schoolId) {
+    throw new Error("Chargement Firestore impossible : schoolId manquant dans les Custom Claims.");
+  }
+  if (!schoolYearId) {
+    throw new Error("Chargement Firestore impossible : schoolYearId manquant.");
+  }
+
+  const annualFilter: [string, unknown][] = [
+    ["schoolId", user.schoolId],
+    ["schoolYearId", schoolYearId],
+  ];
+  const schoolFilter: [string, unknown][] = [["schoolId", user.schoolId]];
+
+  const yearData: DisciplineYearData = {
+    students: await loadCollection<AppData["students"][number]>("students", annualFilter),
+    parents: await loadCollection<AppData["parents"][number]>("parents", schoolFilter),
+    messages: await loadCollection<AppData["messages"][number]>("messages", [...annualFilter, ["schoolRecipient", "discipline"]]),
+    notifications: await loadCollection<AppData["notifications"][number]>("notifications", [...annualFilter, ["recipientRole", "school"], ["schoolRecipient", "discipline"]]),
+    disciplineSanctions: await loadCollection<AppData["disciplineSanctions"][number]>("disciplineSanctions", annualFilter),
+  };
+
+  return yearData;
 }
 
 export async function loadFirestoreYearData(user: AppUser, schoolYearId: string) {

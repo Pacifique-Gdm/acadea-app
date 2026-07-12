@@ -21,6 +21,7 @@ const schoolScopedCollections = [
   "messages",
   "notifications",
   "auditLogs",
+  "disciplineSanctions",
 ];
 
 function getCredential() {

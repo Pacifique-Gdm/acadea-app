@@ -1,4 +1,4 @@
-export type Role = "super_admin" | "school_admin" | "cashier" | "parent";
+export type Role = "super_admin" | "school_admin" | "cashier" | "discipline_director" | "parent";
 
 export type SchoolClass =
   | "Maternelle 1"
@@ -162,7 +162,7 @@ export interface Message {
   schoolYearId: string;
   senderId: string;
   recipientParentId: string | "all" | "school";
-  schoolRecipient?: "admin" | "cashier" | "both";
+  schoolRecipient?: "admin" | "cashier" | "discipline" | "both";
   threadParentId?: string;
   threadId?: string;
   conversationId?: string;
@@ -179,15 +179,16 @@ export interface Conversation {
   threadParentId: string;
   parentId: string;
   parentName?: string;
-  schoolRecipient?: "admin" | "cashier" | "both";
+  schoolRecipient?: "admin" | "cashier" | "discipline" | "both";
   lastMessage: string;
   lastMessageAt: string;
   lastSenderId: string;
-  lastSenderRole: "parent" | "school_admin" | "cashier";
+  lastSenderRole: "parent" | "school_admin" | "cashier" | "discipline_director";
   messageCount: number;
   unreadParentCount: number;
   unreadAdminCount: number;
   unreadCashierCount: number;
+  unreadDisciplineCount?: number;
   createdAt: string;
   updatedAt: string;
   status: "active";
@@ -201,7 +202,7 @@ export interface AppNotification {
   parentId?: string;
   studentId?: string;
   messageId?: string;
-  schoolRecipient?: "admin" | "cashier" | "both";
+  schoolRecipient?: "admin" | "cashier" | "discipline" | "both";
   type: "payment" | "message" | "valve";
   title: string;
   body: string;
@@ -218,6 +219,32 @@ export interface AuditLog {
   action: string;
   details?: string;
   createdAt: string;
+}
+
+export interface DisciplineSanction {
+  id: string;
+  schoolId: string;
+  schoolYearId: string;
+  studentId: string;
+  studentName: string;
+  classId?: string;
+  className: string;
+  reason: string;
+  description: string;
+  sanctionType: string;
+  duration: number;
+  startDate: string;
+  expectedEndDate: string;
+  actualEndDate?: string;
+  observation?: string;
+  status: "active" | "completed";
+  recurrenceNumber: number;
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+  completedBy?: string;
+  completedByName?: string;
+  completedAt?: string;
 }
 
 export type ValvePublicationKind = "communique" | "palmares" | "points" | "image" | "liste" | "pdf" | "document" | "autre";
@@ -266,6 +293,7 @@ export interface AppData {
   notifications: AppNotification[];
   auditLogs: AuditLog[];
   valves: ValvePublication[];
+  disciplineSanctions: DisciplineSanction[];
 }
 
 export const CLASSES: SchoolClass[] = [

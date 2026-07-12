@@ -4,7 +4,7 @@ import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 
-const allowedRoles = new Set(["cashier", "parent"]);
+const allowedRoles = new Set(["cashier", "discipline_director", "parent"]);
 
 function getCredential() {
   if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
@@ -155,12 +155,12 @@ export default async function handler(req, res) {
     });
     createdAuthUid = authUser.uid;
 
-    if (role === "cashier") {
-      const cashierUser = {
+    if (role === "cashier" || role === "discipline_director") {
+      const schoolUser = {
         id: authUser.uid,
         name,
         email,
-        role: "cashier",
+        role,
         schoolId,
         activeSchoolYearId: schoolYearId,
         phone,
@@ -169,11 +169,11 @@ export default async function handler(req, res) {
         createdAt: now,
       };
 
-      await db.doc(`users/${authUser.uid}`).set(cashierUser);
+      await db.doc(`users/${authUser.uid}`).set(schoolUser);
       createdRefs.push(`users/${authUser.uid}`);
-      await auth.setCustomUserClaims(authUser.uid, { role: "cashier", schoolId });
+      await auth.setCustomUserClaims(authUser.uid, { role, schoolId });
 
-      sendJson(res, 200, { user: cashierUser });
+      sendJson(res, 200, { user: schoolUser });
       return;
     }
 

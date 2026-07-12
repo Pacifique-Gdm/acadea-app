@@ -24,12 +24,14 @@ function canShowSchoolNotification(user: AppUser, notification: AppNotification,
   if (notification.schoolRecipient) {
     if (user.role === "school_admin") return notification.schoolRecipient === "admin" || notification.schoolRecipient === "both";
     if (user.role === "cashier") return notification.schoolRecipient === "cashier" || notification.schoolRecipient === "both";
+    if (user.role === "discipline_director") return notification.schoolRecipient === "discipline";
   }
   if (!notification.messageId) return true;
   const linkedMessage = messages.find((message) => message.id === notification.messageId);
   if (!linkedMessage?.schoolRecipient) return true;
   if (user.role === "school_admin") return linkedMessage.schoolRecipient === "admin" || linkedMessage.schoolRecipient === "both";
   if (user.role === "cashier") return linkedMessage.schoolRecipient === "cashier" || linkedMessage.schoolRecipient === "both";
+  if (user.role === "discipline_director") return linkedMessage.schoolRecipient === "discipline";
   return true;
 }
 

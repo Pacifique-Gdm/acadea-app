@@ -68,6 +68,7 @@ export function usePaginatedConversations({ user, schoolId, schoolYearId, enable
         if (item.id !== conversationId) return item;
         if (role === "parent") return { ...item, unreadParentCount: 0 };
         if (role === "cashier") return { ...item, unreadCashierCount: 0 };
+        if (role === "discipline_director") return { ...item, unreadDisciplineCount: 0 };
         return { ...item, unreadAdminCount: 0 };
       }),
     );

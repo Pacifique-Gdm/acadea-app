@@ -12,7 +12,7 @@ type PersistConversationMessageInput = {
 };
 
 function messageSenderRole(user: AppUser): Conversation["lastSenderRole"] {
-  if (user.role === "parent" || user.role === "school_admin" || user.role === "cashier") return user.role;
+  if (user.role === "parent" || user.role === "school_admin" || user.role === "cashier" || user.role === "discipline_director") return user.role;
   throw new Error("Rôle non autorisé pour la conversation.");
 }
 
@@ -67,6 +67,7 @@ export async function persistMessageWithConversation({
       unreadParentCount: 0,
       unreadAdminCount: 0,
       unreadCashierCount: 0,
+      unreadDisciplineCount: 0,
       createdAt,
       updatedAt: message.createdAt,
       status: "active",
@@ -83,6 +84,9 @@ export async function persistMessageWithConversation({
       unreadCashierCount:
         baseConversation.unreadCashierCount +
         (senderRole === "parent" && (message.schoolRecipient === "cashier" || message.schoolRecipient === "both") ? 1 : 0),
+      unreadDisciplineCount:
+        (baseConversation.unreadDisciplineCount ?? 0) +
+        (senderRole === "parent" && message.schoolRecipient === "discipline" ? 1 : 0),
       updatedAt: message.createdAt,
     };
 
@@ -112,6 +116,11 @@ export async function markConversationUnreadCountRead(user: AppUser, schoolId: s
   const recipientConstraints =
     user.role === "parent"
       ? [...constraints, where("parentId", "==", user.parentId)]
+      : user.role === "discipline_director"
+        ? [
+            ...constraints,
+            where("schoolRecipient", "==", "discipline"),
+          ]
       : [
           ...constraints,
           where("schoolRecipient", "in", [user.role === "cashier" ? "cashier" : "admin", "both"]),
@@ -129,6 +138,10 @@ export async function markConversationUnreadCountRead(user: AppUser, schoolId: s
       batch.update(conversationSnapshot.ref, { unreadCashierCount: 0 });
       return;
     }
+    if (user.role === "discipline_director") {
+      batch.update(conversationSnapshot.ref, { unreadDisciplineCount: 0 });
+      return;
+    }
     batch.update(conversationSnapshot.ref, { unreadAdminCount: 0 });
   });
   await batch.commit();
@@ -144,6 +157,8 @@ export async function markSingleConversationUnreadCountRead(user: AppUser, conve
     batch.update(conversationRef, { unreadParentCount: 0 });
   } else if (user.role === "cashier") {
     batch.update(conversationRef, { unreadCashierCount: 0 });
+  } else if (user.role === "discipline_director") {
+    batch.update(conversationRef, { unreadDisciplineCount: 0 });
   } else {
     batch.update(conversationRef, { unreadAdminCount: 0 });
   }
