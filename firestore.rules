@@ -288,11 +288,7 @@ service cloud.firestore {
           && role() in ["school_admin", "cashier"]
           && sameTenantCreate())
         || (disciplineTenantCreate()
-          && request.resource.data.schoolRecipient == "discipline")
-        || (parentUser()
-          && request.resource.data.schoolId == tenantSchoolId()
-          && request.resource.data.threadParentId == tenantParentId()
-          && request.resource.data.recipientParentId == "school");
+          && request.resource.data.schoolRecipient == "discipline");
       allow update, delete: if schoolAdmin() && sameTenantResource();
     }
 
@@ -310,12 +306,7 @@ service cloud.firestore {
           && sameTenantCreate()
           && request.resource.data.schoolRecipient == "cashier")
         || (disciplineTenantCreate()
-          && request.resource.data.schoolRecipient == "discipline")
-        || (parentUser()
-          && request.resource.data.schoolId == tenantSchoolId()
-          && request.resource.data.parentId == tenantParentId()
-          && request.resource.data.threadParentId == tenantParentId()
-          && request.resource.data.schoolRecipient in ["admin", "cashier", "both"]);
+          && request.resource.data.schoolRecipient == "discipline");
       allow update: if (schoolAdmin()
           && sameTenantUpdate()
           && resource.data.schoolRecipient in ["admin", "both"]
@@ -365,11 +356,7 @@ service cloud.firestore {
         && ((role() in ["school_admin", "cashier"] && sameTenantCreate())
           || (disciplineTenantCreate()
             && ((request.resource.data.recipientRole == "school" && request.resource.data.schoolRecipient == "discipline")
-              || (request.resource.data.recipientRole == "parent" && request.resource.data.parentId is string))))
-        || (parentUser()
-          && request.resource.data.schoolId == tenantSchoolId()
-          && request.resource.data.recipientRole == "school"
-          && request.resource.data.type == "message");
+              || (request.resource.data.recipientRole == "parent" && request.resource.data.parentId is string))));
       allow update: if (role() in ["school_admin", "cashier"] && sameTenantUpdate())
         || (disciplineDirector()
           && disciplineTenantResource()
@@ -383,6 +370,38 @@ service cloud.firestore {
         && request.resource.data.parentId == resource.data.parentId
         && request.resource.data.schoolId == resource.data.schoolId);
       allow delete: if false;
+    }
+
+    match /messageIdempotency/{schoolId}/signals/{signalId} {
+      allow get: if disciplineDirector() && schoolId == tenantSchoolId();
+      allow list: if false;
+      allow create: if disciplineDirector()
+        && schoolId == tenantSchoolId()
+        && request.resource.data.schoolId == tenantSchoolId()
+        && request.resource.data.schoolYearId is string
+        && request.resource.data.sanctionId is string
+        && request.resource.data.messageId is string
+        && request.resource.data.notificationId is string
+        && request.resource.data.createdAt is string
+        && request.resource.data.type == "discipline-sanction-signal"
+        && request.resource.data.keys().hasOnly([
+          "schoolId",
+          "schoolYearId",
+          "sanctionId",
+          "messageId",
+          "notificationId",
+          "createdAt",
+          "type"
+        ]);
+      allow update, delete: if false;
+    }
+
+    match /parentDailyMessageLimits/{limitId} {
+      allow get: if parentUser()
+        && resource.data.schoolId == tenantSchoolId()
+        && resource.data.parentId == tenantParentId();
+      allow list: if false;
+      allow create, update, delete: if false;
     }
 
     match /{document=**} {

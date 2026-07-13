@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { DocumentSnapshot } from "@firebase/firestore";
+import { collection, onSnapshot, query, where } from "@firebase/firestore";
+import type { DocumentSnapshot, Firestore } from "@firebase/firestore";
+import { db, firebaseReady } from "../firebase";
 import { countUnreadNotifications, loadNotificationsPage } from "../services/notificationsPagination";
 import type { AppNotification, AppUser, Message } from "../types";
 
@@ -118,6 +120,28 @@ export function usePaginatedNotifications({
   useEffect(() => {
     void refreshUnreadCount();
   }, [refreshUnreadCount]);
+
+  useEffect(() => {
+    if (user.role !== "discipline_director" || !firebaseReady || !db || !schoolId || !schoolYearId) return undefined;
+    const unreadDisciplineNotificationsQuery = query(
+      collection(db as unknown as Firestore, "notifications"),
+      where("schoolId", "==", schoolId),
+      where("schoolYearId", "==", schoolYearId),
+      where("recipientRole", "==", "school"),
+      where("schoolRecipient", "==", "discipline"),
+      where("read", "==", false),
+    );
+    const unsubscribe = onSnapshot(
+      unreadDisciplineNotificationsQuery,
+      (snapshot) => {
+        setUnreadCount(snapshot.size);
+      },
+      (error) => {
+        console.warn("Ecoute des notifications discipline non lues impossible.", error);
+      },
+    );
+    return unsubscribe;
+  }, [schoolId, schoolYearId, user.id, user.role]);
 
   useEffect(() => {
     if (!enabled || hasLoaded || isInitialLoading || loadError) return;

@@ -59,6 +59,8 @@ import type { SuperAdminGlobalCounts } from "./services/superAdminData";
 import { completeDisciplineSanction, createDisciplineSanction, saveDisciplineAuditLog } from "./services/discipline";
 import { db } from "./firebase";
 import { manageSchool, provisionParent, provisionSchoolAdmin, provisionSchoolUser } from "./services/provisioning";
+import { fetchParentMessageQuota, sendParentMessageWithQuota } from "./services/parentMessaging";
+import type { ParentMessageQuota } from "./services/parentMessaging";
 import { buildDashboardFinancialAggregates, buildDashboardTransactionDayRows } from "./utils/dashboardStats";
 import { formatSchoolRecipientLabel } from "./utils/messages";
 import { escapePdfHtml, generateReceiptPdf, money, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./utils/pdf";
@@ -1495,6 +1497,27 @@ function TransactionComboChart({
               <title>{`${formatChartTooltipDate(rows[index].date)}\nDépenses : ${money(rows[index].expenses)}`}</title>
             </circle>
           ))}
+          {rows.map((row, index) => {
+            const centerX = margin.left + groupWidth * index + groupWidth / 2;
+            const hitWidth = Math.max(barWidth * 2 + barGap + 16, Math.min(groupWidth - 4, 54));
+            const hitX = centerX - hitWidth / 2;
+            return (
+              <rect
+                key={`hit-${row.date}`}
+                x={hitX}
+                y={margin.top}
+                width={hitWidth}
+                height={plotHeight}
+                fill="transparent"
+                className="cursor-pointer"
+                onClick={() => setSelectedDate(row.date)}
+                onTouchStart={() => setSelectedDate(row.date)}
+                aria-label={`Afficher les transactions du ${formatChartTooltipDate(row.date)}`}
+              >
+                <title>{`${formatChartTooltipDate(row.date)}\nPaiements : ${money(row.payments)}\nDépenses : ${money(row.expenses)}\nTotal : ${money(row.payments + row.expenses)}`}</title>
+              </rect>
+            );
+          })}
         </svg>
       </div>
       {selectedRow && (
@@ -3277,7 +3300,19 @@ function MessageDrawerContent({
     return yearData.students.filter((student) => student.parentId === parentProfile.id || parentProfile.studentIds.includes(student.id));
   }
 
+  function isParentDisciplineMessage(message: Message) {
+    return isParent && message.schoolRecipient === "discipline" && message.recipientParentId !== "school";
+  }
+
   function senderDetails(message: Message) {
+    if (isParentDisciplineMessage(message)) {
+      return {
+        type: "school" as const,
+        name: "Directeur de Discipline",
+        role: "École",
+        children: [],
+      };
+    }
     const sender = data.users.find((item) => item.id === message.senderId) ?? yearData.users.find((item) => item.id === message.senderId);
     const senderParent = sender?.parentId ? yearData.parents.find((item) => item.id === sender.parentId) : getParentForMessage(message);
     if (sender?.role === "parent" || (!sender && senderParent && message.recipientParentId === "school")) {
@@ -3384,7 +3419,7 @@ function MessageDrawerContent({
 
   function cleanMessageSubject(subject?: string) {
     const trimmed = (subject ?? "").trim();
-    const recipientLabelsToHide = ["Administrateur uniquement", "Caissier uniquement", "Administrateur et Caissier"];
+    const recipientLabelsToHide = ["Administrateur uniquement", "Caissier uniquement", "Administrateur et Caissier", "Directeur de Discipline"];
     const hiddenLabel = recipientLabelsToHide.find((label) => trimmed.toLowerCase().startsWith(label.toLowerCase()));
     if (!hiddenLabel) return trimmed;
     let cleaned = trimmed.slice(hiddenLabel.length).trimStart();
@@ -3401,8 +3436,15 @@ function MessageDrawerContent({
   function renderMessage(message: Message) {
     const sender = senderDetails(message);
     const senderIsParent = sender.type === "parent";
+    const parentDisciplineMessage = isParentDisciplineMessage(message);
+    const messageSubject = cleanMessageSubject(message.subject) || "Sans objet";
+    const messageCardClassName = parentDisciplineMessage
+      ? "border-red-200 bg-red-50"
+      : senderIsParent
+        ? "border-slate-700 bg-slate-800"
+        : "border-slate-100 bg-slate-50";
     return (
-      <article className={`rounded border p-3 text-sm ${senderIsParent ? "border-slate-700 bg-slate-800" : "border-slate-100 bg-slate-50"}`}>
+      <article className={`rounded border p-3 text-sm ${messageCardClassName}`}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className={`break-words font-semibold ${senderIsParent ? "text-white" : "text-ink"}`}>
@@ -3418,7 +3460,9 @@ function MessageDrawerContent({
             {message.senderId === user.id ? "Envoyé" : "Reçu"}
           </span>
         </div>
-        <p className={`mt-3 break-words text-sm font-semibold ${senderIsParent ? "text-white" : "text-slate-700"}`}>{cleanMessageSubject(message.subject) || "Sans titre"}</p>
+        <p className={`mt-3 break-words text-sm font-semibold ${senderIsParent ? "text-white" : "text-slate-700"}`}>
+          {senderIsParent || parentDisciplineMessage ? `Objet : ${messageSubject}` : messageSubject}
+        </p>
         <p className={`mt-1 whitespace-pre-wrap break-words text-sm leading-6 ${senderIsParent ? "text-slate-100" : "text-slate-600"}`}>{message.body}</p>
         <p className={`mt-2 text-xs ${senderIsParent ? "text-slate-300" : "text-slate-500"}`}>{formatFeedDate(message.createdAt)}</p>
       </article>
@@ -4377,18 +4421,23 @@ function ParentPortal({
   const [parentHistoryOpen, setParentHistoryOpen] = useState(false);
   const [parentValvesOpen, setParentValvesOpen] = useState(false);
   const [parentMessageDrawerOpen, setParentMessageDrawerOpen] = useState(false);
-  const [messageRecipient, setMessageRecipient] = useState<"admin" | "cashier" | "both">("admin");
+  const [messageRecipient, setMessageRecipient] = useState<"admin" | "cashier" | "both" | "discipline">("admin");
   const [messageSubject, setMessageSubject] = useState("");
   const [messageBody, setMessageBody] = useState("");
   const [messageFeedback, setMessageFeedback] = useState("");
+  const [parentMessageQuota, setParentMessageQuota] = useState<ParentMessageQuota | null>(null);
+  const [isParentMessageQuotaLoading, setIsParentMessageQuotaLoading] = useState(false);
+  const [isSendingParentMessage, setIsSendingParentMessage] = useState(false);
   const parent = yearData.parents.find((item) => item.id === user.parentId);
   const unread = yearData.notifications.filter((notification) => !notification.read).length;
   const isParentMessageFormComplete = messageSubject.trim().length > 0 && messageBody.trim().length > 0;
+  const parentMessageQuotaReached = parentMessageQuota ? parentMessageQuota.messageCount >= parentMessageQuota.limit : false;
   const parentIndexes = useMemo(() => buildSchoolYearDataIndexes(yearData.students, yearData.feeTypes, yearData.payments), [yearData.students, yearData.feeTypes, yearData.payments]);
   const recipientLabels = {
     admin: "Administrateur uniquement",
     cashier: "Caissier uniquement",
     both: "Administrateur et Caissier",
+    discipline: "Directeur de Discipline",
   } as const;
 
   function progressBarTone(percent: number) {
@@ -4397,6 +4446,28 @@ function ParentPortal({
     if (percent >= 50) return "bg-amber-400";
     return "bg-red-500";
   }
+
+  useEffect(() => {
+    if (!canUseFirestoreData() || !user.parentId || !year.id) {
+      setParentMessageQuota(null);
+      return undefined;
+    }
+    let cancelled = false;
+    setIsParentMessageQuotaLoading(true);
+    fetchParentMessageQuota(year.id)
+      .then((quota) => {
+        if (!cancelled) setParentMessageQuota(quota);
+      })
+      .catch((error) => {
+        console.warn("Chargement du quota messages parent impossible.", error);
+      })
+      .finally(() => {
+        if (!cancelled) setIsParentMessageQuotaLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user.parentId, year.id]);
 
   function markNotificationsRead() {
     updateData(
@@ -4434,6 +4505,7 @@ function ParentPortal({
 
   async function sendParentMessage(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSendingParentMessage) return;
     setMessageFeedback("");
     const subject = messageSubject.trim();
     const body = messageBody.trim();
@@ -4448,6 +4520,10 @@ function ParentPortal({
     }
     if (!body) {
       setMessageFeedback("Veuillez renseigner le contenu du message.");
+      return;
+    }
+    if (parentMessageQuotaReached) {
+      setMessageFeedback("Vous avez atteint la limite de 3 messages pour aujourd'hui.");
       return;
     }
 
@@ -4486,22 +4562,34 @@ function ParentPortal({
         setMessageFeedback("Message non envoyé. Veuillez réessayer.");
         return;
       }
+      setIsSendingParentMessage(true);
       try {
-        const savedMessage = await persistMessageWithConversation({
-          user,
-          message,
-          notification,
-          parentName: parent?.fullName ?? user.name,
+        const result = await sendParentMessageWithQuota({
+          schoolYearId: year.id,
+          recipient: messageRecipient,
+          subject,
+          body,
         });
 
         updateData(
-          { messages: [savedMessage, ...data.messages], notifications: [notification, ...data.notifications] },
+          { messages: [result.message, ...data.messages], notifications: [result.notification, ...data.notifications] },
           { persist: false },
         );
+        setParentMessageQuota(result.quota);
       } catch (error) {
         console.warn("Envoi du message parent impossible.", error);
-        setMessageFeedback("Message non envoyé. Veuillez réessayer.");
+        const code = typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code) : "";
+        if (code === "quota-exceeded") {
+          setMessageFeedback("Vous avez atteint la limite de 3 messages pour aujourd'hui.");
+          void fetchParentMessageQuota(year.id).then(setParentMessageQuota).catch(() => undefined);
+        } else if (code === "not-authorized") {
+          setMessageFeedback("Envoi refusé. Veuillez vous reconnecter.");
+        } else {
+          setMessageFeedback("Connexion indisponible. Veuillez réessayer.");
+        }
         return;
+      } finally {
+        setIsSendingParentMessage(false);
       }
     } else {
       updateData({ messages: [message, ...data.messages], notifications: [notification, ...data.notifications] });
@@ -4648,12 +4736,13 @@ function ParentPortal({
                   Destinataire
                   <select
                     value={messageRecipient}
-                    onChange={(event) => setMessageRecipient(event.target.value as "admin" | "cashier" | "both")}
+                    onChange={(event) => setMessageRecipient(event.target.value as "admin" | "cashier" | "both" | "discipline")}
                     className="min-w-0 rounded border border-slate-200 px-3 py-2 text-sm"
                   >
                     <option value="admin">Administrateur uniquement</option>
                     <option value="cashier">Caissier uniquement</option>
                     <option value="both">Administrateur et Caissier</option>
+                    <option value="discipline">Directeur de Discipline</option>
                   </select>
                 </label>
                 <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
@@ -4683,12 +4772,21 @@ function ParentPortal({
                     {messageFeedback}
                   </p>
                 )}
+                <div className="grid gap-1 rounded bg-slate-50 p-3 text-sm text-slate-600">
+                  <p className="font-semibold">
+                    Messages envoyés aujourd'hui : {parentMessageQuota ? parentMessageQuota.messageCount : 0}/3
+                    {isParentMessageQuotaLoading ? " · Chargement..." : ""}
+                  </p>
+                  {parentMessageQuotaReached && (
+                    <p className="text-red-600">Vous avez atteint la limite de 3 messages pour aujourd'hui. L'envoi sera de nouveau possible demain.</p>
+                  )}
+                </div>
                 <button
                   type="submit"
-                  disabled={!isParentMessageFormComplete}
+                  disabled={!isParentMessageFormComplete || parentMessageQuotaReached || isSendingParentMessage}
                   className="primary-button transition disabled:cursor-not-allowed disabled:opacity-50 disabled:blur-[0.2px]"
                 >
-                  <MessageSquare className="h-4 w-4" /> Envoyer
+                  <MessageSquare className="h-4 w-4" /> {isSendingParentMessage ? "Envoi..." : "Envoyer"}
                 </button>
               </form>
             </FormPanel>
@@ -4847,9 +4945,20 @@ function DisciplinePortal({
   const [newSanctionOpen, setNewSanctionOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
+  const [selectedDisciplineStudentId, setSelectedDisciplineStudentId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
   const unread = yearData.notifications.filter((notification) => !notification.read).length;
   const stats = useMemo(() => buildDisciplineStats(yearData.disciplineSanctions), [yearData.disciplineSanctions]);
+
+  useEffect(() => {
+    if (!feedback) return undefined;
+    const blockingFeedback = ["Impossible", "Échec", "Echec", "n'a pas pu", "n’a pas pu", "non enregistrée"].some((marker) =>
+      feedback.toLowerCase().includes(marker.toLowerCase()),
+    );
+    if (blockingFeedback) return undefined;
+    const timer = window.setTimeout(() => setFeedback(""), 4000);
+    return () => window.clearTimeout(timer);
+  }, [feedback]);
 
   function createDisciplineAudit(action: string, details: string) {
     return createAuditLog(user, school.id, year.id, action, details);
@@ -5112,8 +5221,12 @@ function DisciplinePortal({
     }
   }
 
-  async function exportDisciplinePdf() {
-    const sortedSanctions = [...yearData.disciplineSanctions].sort((first, second) => first.createdAt.localeCompare(second.createdAt));
+  async function exportDisciplinePdf(filteredSanctions: DisciplineSanction[]) {
+    const studentsById = new Map(yearData.students.map((student) => [student.id, student]));
+    const sortedSanctions = [...filteredSanctions].sort(
+      (first, second) => (second.createdAt || second.startDate).localeCompare(first.createdAt || first.startDate),
+    );
+    const filteredStats = buildDisciplineStats(sortedSanctions);
     await renderAcadPdfPreview({
       filename: `discipline-${year.name}.pdf`,
       title: "Rapport disciplinaire",
@@ -5124,11 +5237,11 @@ function DisciplinePortal({
         pdfSection(
           "Synthèse",
           pdfInfoGrid([
-            { label: "Total sanctions", value: stats.total },
-            { label: "Sanctions en cours", value: stats.active },
-            { label: "Sanctions purgées", value: stats.completed },
-            { label: "Élèves sanctionnés", value: stats.sanctionedStudents },
-            { label: "Récidives", value: stats.recurrences },
+            { label: "Total sanctions", value: filteredStats.total },
+            { label: "Sanctions en cours", value: filteredStats.active },
+            { label: "Sanctions purgées", value: filteredStats.completed },
+            { label: "Élèves sanctionnés", value: filteredStats.sanctionedStudents },
+            { label: "Récidives", value: filteredStats.recurrences },
           ]),
         ),
         pdfSection(
@@ -5136,11 +5249,14 @@ function DisciplinePortal({
           pdfTable(
             [
               { header: "Élève", render: (sanction) => sanction.studentName },
+              { header: "Matricule", render: (sanction) => studentsById.get(sanction.studentId)?.matricule ?? "—" },
               { header: "Classe", render: (sanction) => sanction.className },
               { header: "Motif", render: (sanction) => sanction.reason },
               { header: "Type", render: (sanction) => sanction.sanctionType },
+              { header: "Description", render: (sanction) => sanction.description || "—" },
               { header: "Début", render: (sanction) => sanction.startDate },
               { header: "Fin prévue", render: (sanction) => sanction.expectedEndDate },
+              { header: "Fin réelle", render: (sanction) => sanction.actualEndDate ?? "—" },
               { header: "Durée", render: (sanction) => `${sanction.duration} jour(s)`, align: "center" },
               { header: "Statut", render: (sanction) => (sanction.status === "completed" ? "Purgée" : "Sanction en cours") },
               { header: "Récidive", render: (sanction) => sanction.recurrenceNumber, align: "center" },
@@ -5179,13 +5295,6 @@ function DisciplinePortal({
       onClick: () => setHistoryOpen(true),
     },
     {
-      id: "export",
-      title: "Export PDF",
-      description: "Exporter les sanctions du périmètre courant.",
-      icon: Download,
-      onClick: exportDisciplinePdf,
-    },
-    {
       id: "stats",
       title: "Statistiques",
       description: "Synthèse locale des sanctions chargées.",
@@ -5193,6 +5302,12 @@ function DisciplinePortal({
       onClick: () => setStatsOpen(true),
     },
   ];
+  const selectedDisciplineStudentSanctions = selectedDisciplineStudentId
+    ? yearData.disciplineSanctions
+        .filter((sanction) => sanction.studentId === selectedDisciplineStudentId)
+        .sort((first, second) => (second.createdAt || second.startDate).localeCompare(first.createdAt || first.startDate))
+    : [];
+  const selectedDisciplineStudentName = selectedDisciplineStudentSanctions[0]?.studentName ?? "Élève";
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#f6f8fb]">
@@ -5214,7 +5329,7 @@ function DisciplinePortal({
       <main className="mx-auto grid w-full max-w-7xl min-w-0 flex-1 gap-4 overflow-y-auto px-3 py-5 pb-28 sm:px-6 sm:pb-32 lg:px-8">
         {feedback && <p className={`rounded border p-3 text-sm font-semibold ${feedbackTone}`}>{feedback}</p>}
         {activeDisciplineTab === "status" && (
-          <DisciplineStatus sanctions={yearData.disciplineSanctions} onNewSanction={() => setNewSanctionOpen(true)} onCompleteSanction={completeSanction} />
+          <DisciplineStatus students={yearData.students} sanctions={yearData.disciplineSanctions} onNewSanction={() => setNewSanctionOpen(true)} onOpenStudent={setSelectedDisciplineStudentId} onExportPdf={exportDisciplinePdf} />
         )}
         {activeDisciplineTab === "messages" && (
           <MessagesModule user={user} data={data} yearData={yearData} school={school} year={year} updateData={updateData} />
@@ -5257,6 +5372,48 @@ function DisciplinePortal({
       {newSanctionOpen && (
         <AdminDrawer title="Nouvelle sanction" onClose={() => setNewSanctionOpen(false)} closeLabel="Fermer la nouvelle sanction">
           <NewSanctionDrawer students={yearData.students} sanctions={yearData.disciplineSanctions} onCancel={() => setNewSanctionOpen(false)} onSave={saveNewSanction} />
+        </AdminDrawer>
+      )}
+      {selectedDisciplineStudentId && (
+        <AdminDrawer title={`Dossier disciplinaire - ${selectedDisciplineStudentName}`} onClose={() => setSelectedDisciplineStudentId(null)} closeLabel="Fermer le dossier disciplinaire">
+          <div className="grid min-w-0 gap-3">
+            {selectedDisciplineStudentSanctions.length === 0 && (
+              <p className="rounded border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-500">Aucune sanction enregistrée pour cet élève.</p>
+            )}
+            {selectedDisciplineStudentSanctions.map((sanction) => (
+              <article key={sanction.id} className="min-w-0 rounded border border-slate-200 bg-white p-4 text-sm shadow-sm">
+                <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="break-words font-bold text-ink">{sanction.sanctionType}</h2>
+                      <span className={`rounded px-2 py-1 text-xs font-bold ${sanction.status === "completed" ? "bg-mint/10 text-mint" : "bg-amber-100 text-amber-700"}`}>
+                        {sanction.status === "completed" ? "Purgée" : "Sanction en cours"}
+                      </span>
+                    </div>
+                    <p className="mt-1 break-words text-sm font-semibold text-slate-500">{sanction.className}</p>
+                  </div>
+                  {sanction.status === "active" && (
+                    <button onClick={() => completeSanction(sanction)} className="primary-button w-full justify-center lg:w-auto" type="button">
+                      <CheckCircle2 className="h-4 w-4" /> Marquer comme purgée
+                    </button>
+                  )}
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded bg-slate-50 p-3"><span className="font-semibold text-slate-600">Date</span><p className="mt-1 break-words text-ink">{(sanction.createdAt || sanction.startDate).slice(0, 10)}</p></div>
+                  <div className="rounded bg-slate-50 p-3"><span className="font-semibold text-slate-600">Motif</span><p className="mt-1 break-words text-ink">{sanction.reason}</p></div>
+                  <div className="rounded bg-slate-50 p-3 sm:col-span-2"><span className="font-semibold text-slate-600">Description</span><p className="mt-1 whitespace-pre-wrap break-words text-ink">{sanction.description || "Non renseigné"}</p></div>
+                  <div className="rounded bg-slate-50 p-3"><span className="font-semibold text-slate-600">Type</span><p className="mt-1 break-words text-ink">{sanction.sanctionType}</p></div>
+                  <div className="rounded bg-slate-50 p-3"><span className="font-semibold text-slate-600">Durée</span><p className="mt-1 break-words text-ink">{sanction.duration} jour(s)</p></div>
+                  <div className="rounded bg-slate-50 p-3"><span className="font-semibold text-slate-600">Date de début</span><p className="mt-1 break-words text-ink">{sanction.startDate}</p></div>
+                  <div className="rounded bg-slate-50 p-3"><span className="font-semibold text-slate-600">Date prévue de fin</span><p className="mt-1 break-words text-ink">{sanction.expectedEndDate}</p></div>
+                  {sanction.actualEndDate && <div className="rounded bg-slate-50 p-3"><span className="font-semibold text-slate-600">Date réelle de fin</span><p className="mt-1 break-words text-ink">{sanction.actualEndDate}</p></div>}
+                  <div className="rounded bg-slate-50 p-3"><span className="font-semibold text-slate-600">Statut</span><p className="mt-1 break-words text-ink">{sanction.status === "completed" ? "Purgée" : "Sanction en cours"}</p></div>
+                  <div className="rounded bg-slate-50 p-3"><span className="font-semibold text-slate-600">Récidive</span><p className="mt-1 break-words text-ink">{sanction.recurrenceNumber}</p></div>
+                  <div className="rounded bg-slate-50 p-3 sm:col-span-2"><span className="font-semibold text-slate-600">Observation</span><p className="mt-1 whitespace-pre-wrap break-words text-ink">{sanction.observation || "Non renseigné"}</p></div>
+                </div>
+              </article>
+            ))}
+          </div>
         </AdminDrawer>
       )}
       {historyOpen && (
@@ -7952,17 +8109,26 @@ function MessagesModule({
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
 }) {
   const [recipientParentId, setRecipientParentId] = useState<string>("all");
+  const [selectedDisciplineParentIds, setSelectedDisciplineParentIds] = useState<string[]>([]);
   const [recipientSearch, setRecipientSearch] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [messageFeedback, setMessageFeedback] = useState("");
   const canSend = user.role !== "parent" && year.status !== "archived";
+  const isDisciplineDirector = user.role === "discipline_director";
   const disciplineMessageSubjects = ["Avertissement disciplinaire", "Convocation", "Décision disciplinaire", "Notification de fin de sanction"];
   const recipientCandidates = yearData.parents.map((parent) => ({
     parent,
     children: yearData.students.filter((student) => student.parentId === parent.id || parent.studentIds.includes(student.id)),
   }));
+  const disciplineRecipientCandidates = recipientCandidates.filter(({ children }) => children.length > 0);
   const recipientResults = recipientCandidates.filter(({ parent, children }) => {
+      const search = recipientSearch.trim().toLowerCase();
+      if (!search) return false;
+      const studentText = children.map((student) => `${student.nom} ${student.postnom} ${student.prenom} ${student.matricule}`).join(" ");
+      return `${parent.fullName} ${studentText}`.toLowerCase().includes(search);
+    });
+  const disciplineRecipientResults = disciplineRecipientCandidates.filter(({ parent, children }) => {
       const search = recipientSearch.trim().toLowerCase();
       if (!search) return false;
       const studentText = children.map((student) => `${student.nom} ${student.postnom} ${student.prenom} ${student.matricule}`).join(" ");
@@ -7970,10 +8136,33 @@ function MessagesModule({
     });
   const hasRecipientSearch = recipientSearch.trim().length > 0;
   const selectedParent = yearData.parents.find((parent) => parent.id === recipientParentId);
+  const selectedDisciplineParents = yearData.parents.filter((parent) => selectedDisciplineParentIds.includes(parent.id));
+
+  useEffect(() => {
+    if (!isDisciplineDirector || !messageFeedback) return undefined;
+    const persistentErrorMarkers = ["Impossible", "Échec", "Echec", "non envoyé", "permission", "connexion indisponible"];
+    if (persistentErrorMarkers.some((marker) => messageFeedback.includes(marker))) return undefined;
+    const timer = window.setTimeout(() => setMessageFeedback(""), 4000);
+    return () => window.clearTimeout(timer);
+  }, [isDisciplineDirector, messageFeedback]);
+
+  function toggleDisciplineParent(parentId: string) {
+    setSelectedDisciplineParentIds((current) =>
+      current.includes(parentId) ? current.filter((id) => id !== parentId) : [...current, parentId],
+    );
+  }
+
+  function removeDisciplineParent(parentId: string) {
+    setSelectedDisciplineParentIds((current) => current.filter((id) => id !== parentId));
+  }
 
   async function sendMessage() {
     setMessageFeedback("");
-    const recipientParents = recipientParentId === "all" ? yearData.parents : yearData.parents.filter((parent) => parent.id === recipientParentId);
+    const recipientParents = isDisciplineDirector
+      ? selectedDisciplineParents
+      : recipientParentId === "all"
+        ? yearData.parents
+        : yearData.parents.filter((parent) => parent.id === recipientParentId);
     if (recipientParents.length === 0) {
       setMessageFeedback("Message non envoyé. Aucun parent destinataire n'a été trouvé.");
       return;
@@ -8017,6 +8206,44 @@ function MessagesModule({
         setMessageFeedback("Message non envoyé. Veuillez réessayer.");
         return;
       }
+      if (isDisciplineDirector) {
+        const savedMessages: Message[] = [];
+        const savedNotifications: AppNotification[] = [];
+        const failedParentIds: string[] = [];
+        for (const message of messages) {
+          const notification = notifications.find((item) => item.messageId === message.id);
+          if (!notification) continue;
+          const parentName = recipientParents.find((parent) => parent.id === message.threadParentId)?.fullName;
+          try {
+            const savedMessage = await persistMessageWithConversation({ user, message, notification, parentName });
+            savedMessages.push(savedMessage);
+            savedNotifications.push(notification);
+          } catch (error) {
+            console.warn("Envoi du message discipline impossible pour un parent.", { parentId: message.threadParentId, error });
+            if (message.threadParentId) failedParentIds.push(message.threadParentId);
+          }
+        }
+        if (savedMessages.length > 0) {
+          updateData(
+            { messages: [...savedMessages, ...data.messages], notifications: [...savedNotifications, ...data.notifications] },
+            { persist: false },
+          );
+        }
+        if (failedParentIds.length === 0) {
+          setSubject("");
+          setBody("");
+          setSelectedDisciplineParentIds([]);
+          setMessageFeedback(`${savedMessages.length} message(s) envoyé(s).`);
+          return;
+        }
+        setSelectedDisciplineParentIds(failedParentIds);
+        setMessageFeedback(
+          savedMessages.length > 0
+            ? `${savedMessages.length} message(s) envoyé(s), ${failedParentIds.length} échec(s).`
+            : "Message non envoyé. Veuillez réessayer.",
+        );
+        return;
+      }
       try {
         const savedMessages: Message[] = [];
         for (const message of messages) {
@@ -8041,6 +8268,11 @@ function MessagesModule({
     }
     setSubject("");
     setBody("");
+    if (isDisciplineDirector) {
+      setSelectedDisciplineParentIds([]);
+      setMessageFeedback(`${messages.length} message(s) envoyé(s).`);
+      return;
+    }
     setMessageFeedback("Message envoyé avec succès.");
   }
 
@@ -8064,32 +8296,57 @@ function MessagesModule({
               />
             </label>
             <div className="max-h-60 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
-              <button
-                onClick={() => setRecipientParentId("all")}
-                type="button"
-                className={`w-full rounded border p-3 text-left text-sm transition ${recipientParentId === "all" ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50 hover:border-slate-200"}`}
-              >
-                <p className="font-semibold text-ink">Tous les parents</p>
-                <p className="text-xs text-slate-500">Envoyer à tous les parents</p>
-              </button>
-              {hasRecipientSearch && recipientResults.map(({ parent, children }) => (
+              {!isDisciplineDirector && (
                 <button
-                  key={parent.id}
-                  onClick={() => setRecipientParentId(parent.id)}
+                  onClick={() => setRecipientParentId("all")}
                   type="button"
-                  className={`w-full rounded border p-3 text-left text-sm transition ${recipientParentId === parent.id ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50 hover:border-slate-200"}`}
+                  className={`w-full rounded border p-3 text-left text-sm transition ${recipientParentId === "all" ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50 hover:border-slate-200"}`}
                 >
-                  <p className="font-semibold text-ink">{parent.fullName}</p>
-                  <p className="text-xs text-slate-500">
-                    {children.length
-                      ? children.map((student) => `${student.nom} ${student.prenom}${student.matricule ? ` | ${student.matricule}` : ""}`).join(" • ")
-                      : "Aucun enfant associé"}
-                  </p>
+                  <p className="font-semibold text-ink">Tous les parents</p>
+                  <p className="text-xs text-slate-500">Envoyer à tous les parents</p>
                 </button>
-              ))}
+              )}
+              {(isDisciplineDirector ? disciplineRecipientResults : hasRecipientSearch ? recipientResults : []).map(({ parent, children }) => {
+                const selected = isDisciplineDirector ? selectedDisciplineParentIds.includes(parent.id) : recipientParentId === parent.id;
+                return (
+                  <button
+                    key={parent.id}
+                    onClick={() => (isDisciplineDirector ? toggleDisciplineParent(parent.id) : setRecipientParentId(parent.id))}
+                    type="button"
+                    className={`w-full rounded border p-3 text-left text-sm transition ${selected ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50 hover:border-slate-200"}`}
+                  >
+                    <p className="font-semibold text-ink">{parent.fullName}</p>
+                    <p className="text-xs text-slate-500">
+                      {children.length
+                        ? children.map((student) => `${student.nom} ${student.prenom}${student.matricule ? ` | ${student.matricule}` : ""}`).join(" • ")
+                        : "Aucun enfant associé"}
+                    </p>
+                  </button>
+                );
+              })}
               {hasRecipientSearch && recipientResults.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun parent trouvé.</p>}
             </div>
-            {recipientParentId !== "all" && selectedParent && (
+            {isDisciplineDirector && selectedDisciplineParents.length > 0 && (
+              <div className="grid gap-2 rounded bg-blue-50 p-3 text-sm font-semibold text-blue-700">
+                <p>{selectedDisciplineParents.length} parent(s) sélectionné(s)</p>
+                <div className="flex flex-wrap gap-2">
+                  {selectedDisciplineParents.map((parent) => (
+                    <span key={parent.id} className="inline-flex max-w-full items-center gap-2 rounded-full bg-white px-3 py-1 text-xs text-blue-700">
+                      <span className="min-w-0 truncate">{parent.fullName}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeDisciplineParent(parent.id)}
+                        className="shrink-0 rounded-full p-0.5 transition hover:bg-blue-100"
+                        aria-label={`Retirer ${parent.fullName}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {!isDisciplineDirector && recipientParentId !== "all" && selectedParent && (
               <div className="flex min-w-0 items-center justify-between gap-3 rounded bg-blue-50 p-3 text-sm font-semibold text-blue-700">
                 <p className="min-w-0 truncate">Destinataire : {selectedParent.fullName}</p>
                 <button
@@ -8117,13 +8374,17 @@ function MessagesModule({
           {messageFeedback && (
             <p
               className={`rounded px-3 py-2 text-sm font-semibold ${
-                messageFeedback === "Message envoyé avec succès." ? "bg-mint/10 text-mint" : "border border-red-200 bg-red-50 text-red-700"
+                messageFeedback === "Message envoyé avec succès." || messageFeedback.endsWith("message(s) envoyé(s).")
+                  ? "bg-mint/10 text-mint"
+                  : messageFeedback.includes("échec")
+                    ? "border border-amber-200 bg-amber-50 text-amber-700"
+                    : "border border-red-200 bg-red-50 text-red-700"
               }`}
             >
               {messageFeedback}
             </p>
           )}
-          <button onClick={sendMessage} disabled={!subject || !body} className="primary-button disabled:opacity-50">
+          <button onClick={sendMessage} disabled={!subject || !body || (isDisciplineDirector && selectedDisciplineParentIds.length === 0)} className="primary-button disabled:opacity-50">
             <MessageSquare className="h-4 w-4" /> Envoyer
           </button>
         </FormPanel>

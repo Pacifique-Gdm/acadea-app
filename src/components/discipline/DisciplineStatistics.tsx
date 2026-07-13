@@ -16,14 +16,14 @@ function MetricCard({ label, value }: { label: string; value: string | number })
 export function DisciplineStatistics({ stats }: DisciplineStatisticsProps) {
   return (
     <div className="grid min-w-0 gap-4">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-3">
         <MetricCard label="Total sanctions" value={stats.total} />
         <MetricCard label="En cours" value={stats.active} />
         <MetricCard label="Purgées" value={stats.completed} />
         <MetricCard label="Élèves sanctionnés" value={stats.sanctionedStudents} />
         <MetricCard label="Récidives" value={stats.recurrences} />
       </div>
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4">
         <section className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
           <h3 className="break-words text-lg font-bold text-ink">Répartition par type</h3>
           <div className="mt-3 grid gap-2">

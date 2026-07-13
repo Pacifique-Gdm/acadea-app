@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type { DisciplineSanction } from "../../types";
 
 type DisciplineHistoryDrawerProps = {
@@ -11,38 +11,22 @@ function statusLabel(status: DisciplineSanction["status"]) {
 
 export function DisciplineHistoryDrawer({ sanctions }: DisciplineHistoryDrawerProps) {
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<"all" | DisciplineSanction["status"]>("all");
-  const [className, setClassName] = useState("all");
-  const classChoices = useMemo(() => Array.from(new Set(sanctions.map((sanction) => sanction.className).filter(Boolean))).sort((a, b) => a.localeCompare(b, "fr")), [sanctions]);
   const filteredSanctions = sanctions
     .filter((sanction) => {
       const search = query.trim().toLowerCase();
       const matchesSearch = !search || `${sanction.studentName} ${sanction.reason} ${sanction.sanctionType}`.toLowerCase().includes(search);
-      const matchesStatus = status === "all" || sanction.status === status;
-      const matchesClass = className === "all" || sanction.className === className;
-      return matchesSearch && matchesStatus && matchesClass;
+      return matchesSearch;
     })
     .sort((first, second) => second.createdAt.localeCompare(first.createdAt));
 
   return (
     <div className="grid min-w-0 gap-4">
       <div className="rounded border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="mb-3 break-words text-lg font-bold text-ink">Filtres</h2>
-        <div className="grid gap-2 sm:grid-cols-3">
+        <h2 className="mb-3 break-words text-lg font-bold text-ink">Recherche</h2>
         <input value={query} onChange={(event) => setQuery(event.target.value)} className="input" placeholder="Rechercher un élève" />
-        <select value={status} onChange={(event) => setStatus(event.target.value as "all" | DisciplineSanction["status"])} className="input">
-          <option value="all">Tous les statuts</option>
-          <option value="active">Sanction en cours</option>
-          <option value="completed">Purgée</option>
-        </select>
-        <select value={className} onChange={(event) => setClassName(event.target.value)} className="input">
-          <option value="all">Toutes les classes</option>
-          {classChoices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}
-        </select>
-        </div>
       </div>
       <div className="grid max-h-[70vh] min-w-0 gap-3 overflow-y-auto pr-1 scrollbar-thin">
-        {filteredSanctions.length === 0 && <p className="rounded border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-500">Aucune sanction ne correspond aux filtres.</p>}
+        {filteredSanctions.length === 0 && <p className="rounded border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-500">Aucune sanction ne correspond à la recherche.</p>}
         {filteredSanctions.map((sanction) => (
           <article key={sanction.id} className="min-w-0 rounded border border-slate-200 bg-white p-4 text-sm shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">

@@ -1,4 +1,4 @@
-import { collection, doc, getDocs, query, runTransaction, where, writeBatch } from "@firebase/firestore";
+import { collection, doc, getDocs, increment, query, runTransaction, where, writeBatch } from "@firebase/firestore";
 import type { Firestore } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
 import type { AppNotification, AppUser, Conversation, Message } from "../types";
@@ -13,14 +13,17 @@ type PersistConversationMessageInput = {
 
 type PersistedConversationMessage = Message & { alreadyExisted?: boolean };
 
+function createDisciplineSignalIdempotencyId(sanctionId: string) {
+  return `disciplineSanction__${encodeURIComponent(sanctionId)}`;
+}
+
 function messageSenderRole(user: AppUser): Conversation["lastSenderRole"] {
   if (user.role === "parent" || user.role === "school_admin" || user.role === "cashier" || user.role === "discipline_director") return user.role;
   throw new Error("Rôle non autorisé pour la conversation.");
 }
 
 function conversationRecipient(message: Message) {
-  if (message.recipientParentId === "school") return message.schoolRecipient ?? "admin";
-  return undefined;
+  return message.schoolRecipient ?? (message.recipientParentId === "school" ? "admin" : undefined);
 }
 
 export async function persistMessageWithConversation({
@@ -45,19 +48,20 @@ export async function persistMessageWithConversation({
   const conversationRef = doc(database, "conversations", conversationId);
   const messageRef = doc(database, "messages", message.id);
   const notificationRef = doc(database, "notifications", notification.id);
+  const idempotencyRef = message.disciplineSanctionId
+    ? doc(database, "messageIdempotency", message.schoolId, "signals", createDisciplineSignalIdempotencyId(message.disciplineSanctionId))
+    : undefined;
 
   return runTransaction(database, async (transaction): Promise<PersistedConversationMessage> => {
-    const messageSnapshot = await transaction.get(messageRef);
-    if (messageSnapshot.exists()) {
-      return { ...(messageSnapshot.data() as Message), alreadyExisted: true };
+    if (idempotencyRef) {
+      const idempotencySnapshot = await transaction.get(idempotencyRef);
+      if (idempotencySnapshot.exists()) {
+        return { ...messageWithConversation, alreadyExisted: true };
+      }
     }
 
-    const conversationSnapshot = await transaction.get(conversationRef);
-    const existingConversation = conversationSnapshot.exists() ? (conversationSnapshot.data() as Conversation) : undefined;
-    const schoolRecipient = existingConversation?.schoolRecipient ?? conversationRecipient(message);
-    const createdAt = existingConversation?.createdAt ?? message.createdAt;
-    const shouldUpdateLastMessage = !existingConversation || message.createdAt >= existingConversation.lastMessageAt;
-    const baseConversation: Conversation = existingConversation ?? {
+    const schoolRecipient = conversationRecipient(message);
+    const nextConversation = {
       id: conversationId,
       schoolId: message.schoolId,
       schoolYearId: message.schoolYearId,
@@ -70,43 +74,30 @@ export async function persistMessageWithConversation({
       lastMessageAt: message.createdAt,
       lastSenderId: message.senderId,
       lastSenderRole: senderRole,
-      messageCount: 0,
-      unreadParentCount: 0,
-      unreadAdminCount: 0,
-      unreadCashierCount: 0,
-      unreadDisciplineCount: 0,
-      createdAt,
+      messageCount: increment(1),
+      unreadParentCount: increment(senderRole === "parent" ? 0 : 1),
+      unreadAdminCount: increment(senderRole === "parent" && (message.schoolRecipient === "admin" || message.schoolRecipient === "both") ? 1 : 0),
+      unreadCashierCount: increment(senderRole === "parent" && (message.schoolRecipient === "cashier" || message.schoolRecipient === "both") ? 1 : 0),
+      unreadDisciplineCount: increment(senderRole === "parent" && message.schoolRecipient === "discipline" ? 1 : 0),
+      createdAt: message.createdAt,
       updatedAt: message.createdAt,
       status: "active",
     };
-    const nextConversation: Conversation = {
-      ...baseConversation,
-      parentName: parentName ?? baseConversation.parentName,
-      schoolRecipient,
-      messageCount: (existingConversation?.messageCount ?? 0) + 1,
-      unreadParentCount: baseConversation.unreadParentCount + (senderRole === "parent" ? 0 : 1),
-      unreadAdminCount:
-        baseConversation.unreadAdminCount +
-        (senderRole === "parent" && (message.schoolRecipient === "admin" || message.schoolRecipient === "both") ? 1 : 0),
-      unreadCashierCount:
-        baseConversation.unreadCashierCount +
-        (senderRole === "parent" && (message.schoolRecipient === "cashier" || message.schoolRecipient === "both") ? 1 : 0),
-      unreadDisciplineCount:
-        (baseConversation.unreadDisciplineCount ?? 0) +
-        (senderRole === "parent" && message.schoolRecipient === "discipline" ? 1 : 0),
-      updatedAt: message.createdAt,
-    };
 
-    if (shouldUpdateLastMessage) {
-      nextConversation.lastMessage = message.body;
-      nextConversation.lastMessageAt = message.createdAt;
-      nextConversation.lastSenderId = message.senderId;
-      nextConversation.lastSenderRole = senderRole;
-    }
-
-    transaction.set(conversationRef, nextConversation);
+    transaction.set(conversationRef, nextConversation, { merge: true });
     transaction.set(messageRef, messageWithConversation);
     transaction.set(notificationRef, notification);
+    if (idempotencyRef && message.disciplineSanctionId) {
+      transaction.set(idempotencyRef, {
+        schoolId: message.schoolId,
+        schoolYearId: message.schoolYearId,
+        sanctionId: message.disciplineSanctionId,
+        messageId: message.id,
+        notificationId: notification.id,
+        createdAt: message.createdAt,
+        type: "discipline-sanction-signal",
+      });
+    }
     return messageWithConversation;
   });
 

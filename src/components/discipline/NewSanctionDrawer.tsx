@@ -19,6 +19,31 @@ type NewSanctionDrawerProps = {
   onSave: (input: NewSanctionInput) => void;
 };
 
+const defaultReasonChoices = [
+  "Retard",
+  "Absence injustifiée",
+  "Indiscipline",
+  "Insolence",
+  "Violence",
+  "Tricherie",
+  "Dégradation du matériel",
+  "Tenue non conforme",
+  "Non-respect du règlement",
+  "Autre",
+];
+
+const defaultSanctionTypeChoices = [
+  "Avertissement",
+  "Blâme",
+  "Retenue",
+  "Travail d’intérêt scolaire",
+  "Exclusion temporaire",
+  "Convocation du parent",
+  "Autre",
+];
+
+type ChoiceKind = "reason" | "sanctionType";
+
 function addDays(value: string, days: number) {
   const date = new Date(`${value}T00:00:00`);
   if (Number.isNaN(date.getTime())) return "";
@@ -45,6 +70,11 @@ export function NewSanctionDrawer({ students, sanctions, onCancel, onSave }: New
   const [duration, setDuration] = useState("1");
   const [startDate, setStartDate] = useState(today);
   const [observation, setObservation] = useState("");
+  const [reasonChoices, setReasonChoices] = useState(defaultReasonChoices);
+  const [sanctionTypeChoices, setSanctionTypeChoices] = useState(defaultSanctionTypeChoices);
+  const [choicePanel, setChoicePanel] = useState<ChoiceKind | null>(null);
+  const [choiceDraft, setChoiceDraft] = useState("");
+  const [choiceError, setChoiceError] = useState("");
   const selectedStudent = students.find((student) => student.id === studentId);
   const durationValue = Number(duration);
   const expectedEndDate = Number.isFinite(durationValue) && durationValue > 0 ? addDays(startDate, durationValue) : "";
@@ -67,6 +97,41 @@ export function NewSanctionDrawer({ students, sanctions, onCancel, onSave }: New
       expectedEndDate,
       observation: observation.trim() || undefined,
     });
+  }
+
+  function openChoicePanel(kind: ChoiceKind) {
+    setChoicePanel(kind);
+    setChoiceDraft("");
+    setChoiceError("");
+  }
+
+  function closeChoicePanel() {
+    setChoicePanel(null);
+    setChoiceDraft("");
+    setChoiceError("");
+  }
+
+  function addChoice() {
+    if (!choicePanel) return;
+    const value = choiceDraft.trim();
+    if (!value) {
+      setChoiceError("Veuillez renseigner une valeur.");
+      return;
+    }
+    const choices = choicePanel === "reason" ? reasonChoices : sanctionTypeChoices;
+    const exists = choices.some((choice) => choice.trim().toLowerCase() === value.toLowerCase());
+    if (exists) {
+      setChoiceError("Cette valeur existe déjà.");
+      return;
+    }
+    if (choicePanel === "reason") {
+      setReasonChoices((current) => [...current, value]);
+      setReason(value);
+    } else {
+      setSanctionTypeChoices((current) => [...current, value]);
+      setSanctionType(value);
+    }
+    closeChoicePanel();
   }
 
   return (
@@ -107,14 +172,42 @@ export function NewSanctionDrawer({ students, sanctions, onCancel, onSave }: New
           <p className="font-semibold text-ink">Date prévue de fin</p>
           <p className="mt-1 text-slate-600">{expectedEndDate || "Durée invalide"}</p>
         </div>
-        <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
-          Motif
-          <input value={reason} onChange={(event) => setReason(event.target.value)} className="input" />
-        </label>
-        <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
-          Type de sanction
-          <input value={sanctionType} onChange={(event) => setSanctionType(event.target.value)} className="input" placeholder="Exclusion temporaire, retenue..." />
-        </label>
+        <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+          <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+            Motif
+            <select value={reason} onChange={(event) => setReason(event.target.value)} className="input">
+              <option value="" disabled hidden>Choisir un motif</option>
+              {reasonChoices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}
+            </select>
+          </label>
+          <button onClick={() => openChoicePanel("reason")} className="secondary-button justify-center" type="button">Ajouter</button>
+        </div>
+        <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+          <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+            Type de sanction
+            <select value={sanctionType} onChange={(event) => setSanctionType(event.target.value)} className="input">
+              <option value="" disabled hidden>Choisir un type</option>
+              {sanctionTypeChoices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}
+            </select>
+          </label>
+          <button onClick={() => openChoicePanel("sanctionType")} className="secondary-button justify-center" type="button">Ajouter</button>
+        </div>
+        {choicePanel && (
+          <div className="grid min-w-0 gap-3 rounded border border-slate-200 bg-slate-50 p-3">
+            <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+              {choicePanel === "reason" ? "Nouveau motif" : "Nouveau type de sanction"}
+              <input value={choiceDraft} onChange={(event) => {
+                setChoiceDraft(event.target.value);
+                setChoiceError("");
+              }} className="input bg-white" />
+            </label>
+            {choiceError && <p className="text-sm font-semibold text-red-600">{choiceError}</p>}
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button onClick={closeChoicePanel} className="secondary-button justify-center" type="button">Annuler</button>
+              <button onClick={addChoice} className="primary-button justify-center" type="button">Ajouter</button>
+            </div>
+          </div>
+        )}
         <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
           Description
           <textarea value={description} onChange={(event) => setDescription(event.target.value)} className="input min-h-24" />
