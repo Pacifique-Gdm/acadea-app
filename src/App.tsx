@@ -103,14 +103,14 @@ type ParentTab = "children" | "messages" | "menu";
 type DisciplineTab = "status" | "messages" | "menu";
 type SchoolUserProvisionRole = "cashier" | "discipline_director";
 type NewDisciplineSanctionFormInput = {
-  student: Student;
+  students: Student[];
   reason: string;
   description: string;
   sanctionType: string;
   duration: number;
   startDate: string;
   expectedEndDate: string;
-  observation?: string;
+  observation: string;
 };
 
 type BeforeInstallPromptEvent = Event & {
@@ -4582,10 +4582,16 @@ function ParentPortal({
         if (code === "quota-exceeded") {
           setMessageFeedback("Vous avez atteint la limite de 3 messages pour aujourd'hui.");
           void fetchParentMessageQuota(year.id).then(setParentMessageQuota).catch(() => undefined);
+        } else if (code === "api-unavailable") {
+          setMessageFeedback("Service d'envoi indisponible dans cet environnement. Lancez Acadéa avec npx vercel dev.");
         } else if (code === "not-authorized") {
-          setMessageFeedback("Envoi refusé. Veuillez vous reconnecter.");
-        } else {
+          setMessageFeedback("Votre session ou vos permissions ne permettent pas cet envoi. Reconnectez-vous.");
+        } else if (code === "server-error") {
+          setMessageFeedback("Une erreur serveur empêche l'envoi. Veuillez réessayer.");
+        } else if (code === "network-error") {
           setMessageFeedback("Connexion indisponible. Veuillez réessayer.");
+        } else {
+          setMessageFeedback("Message non envoyé. Veuillez réessayer.");
         }
         return;
       } finally {
@@ -4891,6 +4897,10 @@ function disciplineStudentName(student: Student) {
   return `${student.nom} ${student.postnom} ${student.prenom}`.replace(/\s+/g, " ").trim();
 }
 
+function normalizeDisciplineReason(value: string) {
+  return value.trim().toLocaleLowerCase("fr");
+}
+
 function disciplineClassName(student: Pick<Student, "className" | "option">) {
   const option = student.option?.trim();
   return option ? `${student.className} ${option}` : student.className;
@@ -4952,10 +4962,6 @@ function DisciplinePortal({
 
   useEffect(() => {
     if (!feedback) return undefined;
-    const blockingFeedback = ["Impossible", "Échec", "Echec", "n'a pas pu", "n’a pas pu", "non enregistrée"].some((marker) =>
-      feedback.toLowerCase().includes(marker.toLowerCase()),
-    );
-    if (blockingFeedback) return undefined;
     const timer = window.setTimeout(() => setFeedback(""), 4000);
     return () => window.clearTimeout(timer);
   }, [feedback]);
@@ -5098,81 +5104,100 @@ function DisciplinePortal({
   }
 
   async function saveNewSanction(input: NewDisciplineSanctionFormInput) {
-    const now = new Date().toISOString();
-    const sanctionBase: Omit<DisciplineSanction, "recurrenceNumber"> = {
-      id: uid("discipline"),
-      schoolId: school.id,
-      schoolYearId: year.id,
-      studentId: input.student.id,
-      studentName: disciplineStudentName(input.student),
-      className: disciplineClassName(input.student),
-      reason: input.reason,
-      description: input.description,
-      sanctionType: input.sanctionType,
-      duration: input.duration,
-      startDate: input.startDate,
-      expectedEndDate: input.expectedEndDate,
-      status: "active",
-      createdBy: user.id,
-      createdByName: user.name,
-      createdAt: now,
-      ...(input.observation ? { observation: input.observation } : {}),
-    };
-    const auditLog = createDisciplineAudit("Création sanction disciplinaire", `${sanctionBase.studentName} - ${sanctionBase.sanctionType}`);
+    const persistWithFirestore = canUseFirestoreData();
+    const createdSanctions: DisciplineSanction[] = [];
+    const createdMessages: Message[] = [];
+    const createdNotifications: AppNotification[] = [];
+    const createdAuditLogs: AuditLog[] = [];
+    const failedStudentIds: string[] = [];
+    let notifiedParents = 0;
+    let missingParents = 0;
+    let failedSignals = 0;
+    let existingSignals = 0;
 
-    try {
-      let savedSanction: DisciplineSanction;
-      if (canUseFirestoreData()) {
-        savedSanction = await createDisciplineSanction({ sanction: sanctionBase, auditLog });
-        const signalResult = await sendDisciplineSignalToParent(savedSanction, input.student, true);
-        const nextAuditLogs = [auditLog, ...(signalResult.auditLog ? [signalResult.auditLog] : []), ...data.auditLogs];
-        updateData(
-          {
-            disciplineSanctions: [savedSanction, ...data.disciplineSanctions],
-            messages: signalResult.status === "sent" && signalResult.message ? [signalResult.message, ...data.messages] : data.messages,
-            notifications: signalResult.status === "sent" && signalResult.notification ? [signalResult.notification, ...data.notifications] : data.notifications,
-            auditLogs: nextAuditLogs,
-          },
-          { persist: false },
-        );
+    for (const student of input.students) {
+      const now = new Date().toISOString();
+      const sanctionBase: Omit<DisciplineSanction, "recurrenceNumber"> = {
+        id: uid("discipline"),
+        schoolId: school.id,
+        schoolYearId: year.id,
+        studentId: student.id,
+        studentName: disciplineStudentName(student),
+        className: disciplineClassName(student),
+        reason: input.reason,
+        description: input.description,
+        sanctionType: input.sanctionType,
+        duration: input.duration,
+        startDate: input.startDate,
+        expectedEndDate: input.expectedEndDate,
+        status: "active",
+        createdBy: user.id,
+        createdByName: user.name,
+        createdAt: now,
+        ...(input.observation ? { observation: input.observation } : {}),
+      };
+      const auditLog = createDisciplineAudit("Création sanction disciplinaire", `${sanctionBase.studentName} - ${sanctionBase.sanctionType}`);
+
+      try {
+        const savedSanction = persistWithFirestore
+          ? await createDisciplineSanction({ sanction: sanctionBase, auditLog })
+          : {
+              ...sanctionBase,
+              recurrenceNumber: [...data.disciplineSanctions, ...createdSanctions].filter(
+                (sanction) =>
+                  sanction.schoolId === school.id &&
+                  sanction.schoolYearId === year.id &&
+                  sanction.studentId === student.id &&
+                  normalizeDisciplineReason(sanction.reason) === normalizeDisciplineReason(sanctionBase.reason),
+              ).length,
+            };
+        const signalResult = await sendDisciplineSignalToParent(savedSanction, student, persistWithFirestore);
+        createdSanctions.push(savedSanction);
+        createdAuditLogs.push(auditLog);
+        if (signalResult.auditLog) createdAuditLogs.push(signalResult.auditLog);
         if (signalResult.status === "sent") {
-          setFeedback("Sanction enregistrée et parent notifié.");
-        } else if (signalResult.status === "already-exists") {
-          setFeedback("Sanction enregistrée. Le signalement au parent existait déjà.");
+          notifiedParents += 1;
+          if (signalResult.message) createdMessages.push(signalResult.message);
+          if (signalResult.notification) createdNotifications.push(signalResult.notification);
         } else if (signalResult.status === "missing-parent") {
-          setFeedback("Sanction enregistrée, mais aucun parent lié n'a pu être notifié.");
-        } else {
-          setFeedback("Sanction enregistrée, mais le signalement au parent n'a pas pu être envoyé.");
-        }
-      } else {
-        savedSanction = {
-          ...sanctionBase,
-          recurrenceNumber: data.disciplineSanctions.filter(
-            (sanction) => sanction.schoolId === school.id && sanction.schoolYearId === year.id && sanction.studentId === input.student.id,
-          ).length,
-        };
-        const signalResult = await sendDisciplineSignalToParent(savedSanction, input.student, false);
-        updateData({
-          disciplineSanctions: [savedSanction, ...data.disciplineSanctions],
-          messages: signalResult.status === "sent" && signalResult.message ? [signalResult.message, ...data.messages] : data.messages,
-          notifications: signalResult.status === "sent" && signalResult.notification ? [signalResult.notification, ...data.notifications] : data.notifications,
-          auditLogs: [auditLog, ...(signalResult.auditLog ? [signalResult.auditLog] : []), ...data.auditLogs],
-        });
-        if (signalResult.status === "sent") {
-          setFeedback("Sanction enregistrée et parent notifié.");
+          missingParents += 1;
         } else if (signalResult.status === "already-exists") {
-          setFeedback("Sanction enregistrée. Le signalement au parent existait déjà.");
-        } else if (signalResult.status === "missing-parent") {
-          setFeedback("Sanction enregistrée, mais aucun parent lié n'a pu être notifié.");
+          existingSignals += 1;
         } else {
-          setFeedback("Sanction enregistrée, mais le signalement au parent n'a pas pu être envoyé.");
+          failedSignals += 1;
         }
+      } catch (error) {
+        console.warn("Création de sanction impossible pour un élève.", { studentId: student.id, error });
+        failedStudentIds.push(student.id);
       }
-      setNewSanctionOpen(false);
-    } catch (error) {
-      console.warn("Création de sanction impossible.", error);
-      setFeedback("Sanction non enregistrée. Veuillez réessayer.");
     }
+
+    if (createdSanctions.length > 0 || createdMessages.length > 0 || createdNotifications.length > 0 || createdAuditLogs.length > 0) {
+      updateData(
+        {
+          disciplineSanctions: [...createdSanctions, ...data.disciplineSanctions],
+          messages: [...createdMessages, ...data.messages],
+          notifications: [...createdNotifications, ...data.notifications],
+          auditLogs: [...createdAuditLogs, ...data.auditLogs],
+        },
+        persistWithFirestore ? { persist: false } : undefined,
+      );
+    }
+
+    const summaryParts = [];
+    if (createdSanctions.length > 0) summaryParts.push(`${createdSanctions.length} sanction(s) enregistrée(s)`);
+    if (notifiedParents > 0) summaryParts.push(`${notifiedParents} parent(s) notifié(s)`);
+    if (existingSignals > 0) summaryParts.push(`${existingSignals} signalement(s) déjà existant(s)`);
+    if (missingParents > 0) summaryParts.push(`${missingParents} parent(s) introuvable(s)`);
+    if (failedSignals > 0) summaryParts.push(`${failedSignals} signalement(s) en échec`);
+    if (failedStudentIds.length > 0) summaryParts.push(`${failedStudentIds.length} échec(s) de création`);
+    setFeedback(summaryParts.length > 0 ? `${summaryParts.join(", ")}.` : "Sanction non enregistrée. Veuillez réessayer.");
+
+    if (failedStudentIds.length === 0) {
+      setNewSanctionOpen(false);
+      return [];
+    }
+    return failedStudentIds;
   }
 
   async function completeSanction(sanction: DisciplineSanction) {

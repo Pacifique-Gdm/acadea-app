@@ -31,6 +31,10 @@ function hasText(value: string) {
   return value.trim().length > 0;
 }
 
+function normalizeDisciplineReason(value: string) {
+  return value.trim().toLocaleLowerCase("fr");
+}
+
 function validateNewSanction(sanction: Omit<DisciplineSanction, "recurrenceNumber">) {
   if (
     !hasText(sanction.schoolId) ||
@@ -66,10 +70,15 @@ export async function createDisciplineSanction({ sanction, auditLog }: CreateDis
 
   let createdSanction: DisciplineSanction | null = null;
   const existingSnapshot = await getDocs(existingQuery);
+  const normalizedReason = normalizeDisciplineReason(sanction.reason);
+  const matchingReasonCount = existingSnapshot.docs.filter((item) => {
+    const existingReason = item.data().reason;
+    return typeof existingReason === "string" && normalizeDisciplineReason(existingReason) === normalizedReason;
+  }).length;
   await runTransaction(database, async (transaction) => {
     createdSanction = {
       ...sanction,
-      recurrenceNumber: existingSnapshot.size,
+      recurrenceNumber: matchingReasonCount,
     };
     transaction.set(sanctionRef, removeUndefined(createdSanction as unknown as Record<string, unknown>));
     transaction.set(auditRef, auditLog);

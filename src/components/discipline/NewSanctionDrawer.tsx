@@ -2,21 +2,21 @@ import { useMemo, useState } from "react";
 import type { DisciplineSanction, Student } from "../../types";
 
 type NewSanctionInput = {
-  student: Student;
+  students: Student[];
   reason: string;
   description: string;
   sanctionType: string;
   duration: number;
   startDate: string;
   expectedEndDate: string;
-  observation?: string;
+  observation: string;
 };
 
 type NewSanctionDrawerProps = {
   students: Student[];
   sanctions: DisciplineSanction[];
   onCancel: () => void;
-  onSave: (input: NewSanctionInput) => void;
+  onSave: (input: NewSanctionInput) => Promise<string[] | void> | string[] | void;
 };
 
 const defaultReasonChoices = [
@@ -63,7 +63,8 @@ function classLabel(student: Pick<Student, "className" | "option">) {
 
 export function NewSanctionDrawer({ students, sanctions, onCancel, onSave }: NewSanctionDrawerProps) {
   const today = new Date().toISOString().slice(0, 10);
-  const [studentId, setStudentId] = useState("");
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [studentSearch, setStudentSearch] = useState("");
   const [reason, setReason] = useState("");
   const [description, setDescription] = useState("");
   const [sanctionType, setSanctionType] = useState("");
@@ -75,28 +76,68 @@ export function NewSanctionDrawer({ students, sanctions, onCancel, onSave }: New
   const [choicePanel, setChoicePanel] = useState<ChoiceKind | null>(null);
   const [choiceDraft, setChoiceDraft] = useState("");
   const [choiceError, setChoiceError] = useState("");
-  const selectedStudent = students.find((student) => student.id === studentId);
+  const [isSaving, setIsSaving] = useState(false);
+
   const durationValue = Number(duration);
   const expectedEndDate = Number.isFinite(durationValue) && durationValue > 0 ? addDays(startDate, durationValue) : "";
-  const hasActiveSanction = Boolean(selectedStudent && sanctions.some((sanction) => sanction.studentId === selectedStudent.id && sanction.status === "active"));
+  const studentsById = useMemo(() => new Map(students.map((student) => [student.id, student])), [students]);
+  const selectedStudents = selectedStudentIds.map((id) => studentsById.get(id)).filter((student): student is Student => Boolean(student));
+  const activeSanctionStudentIds = useMemo(
+    () => new Set(sanctions.filter((sanction) => sanction.status === "active").map((sanction) => sanction.studentId)),
+    [sanctions],
+  );
   const sortedStudents = useMemo(
     () => [...students].sort((first, second) => studentName(first).localeCompare(studentName(second), "fr")),
     [students],
   );
-  const canSave = Boolean(selectedStudent && reason.trim() && sanctionType.trim() && Number.isFinite(durationValue) && durationValue > 0 && startDate && expectedEndDate);
-
-  function submit() {
-    if (!selectedStudent || !canSave) return;
-    onSave({
-      student: selectedStudent,
-      reason: reason.trim(),
-      description: description.trim(),
-      sanctionType: sanctionType.trim(),
-      duration: durationValue,
-      startDate,
-      expectedEndDate,
-      observation: observation.trim() || undefined,
+  const normalizedSearch = studentSearch.trim().toLowerCase();
+  const searchResults = useMemo(() => {
+    if (!normalizedSearch) return [];
+    return sortedStudents.filter((student) => {
+      if (selectedStudentIds.includes(student.id)) return false;
+      const haystack = [
+        student.nom,
+        student.postnom,
+        student.prenom,
+        studentName(student),
+        student.matricule,
+        classLabel(student),
+      ].join(" ").toLowerCase();
+      return haystack.includes(normalizedSearch);
     });
+  }, [normalizedSearch, selectedStudentIds, sortedStudents]);
+  const selectedStudentsWithActiveSanction = selectedStudents.filter((student) => activeSanctionStudentIds.has(student.id));
+  const canSave = Boolean(selectedStudents.length > 0 && reason.trim() && sanctionType.trim() && Number.isFinite(durationValue) && durationValue > 0 && startDate && expectedEndDate && !isSaving);
+
+  function selectStudent(studentId: string) {
+    setSelectedStudentIds((current) => (current.includes(studentId) ? current : [...current, studentId]));
+    setStudentSearch("");
+  }
+
+  function removeStudent(studentId: string) {
+    setSelectedStudentIds((current) => current.filter((id) => id !== studentId));
+  }
+
+  async function submit() {
+    if (!canSave) return;
+    setIsSaving(true);
+    try {
+      const failedStudentIds = await onSave({
+        students: selectedStudents,
+        reason: reason.trim(),
+        description: description.trim(),
+        sanctionType: sanctionType.trim(),
+        duration: durationValue,
+        startDate,
+        expectedEndDate,
+        observation: observation.trim(),
+      });
+      if (Array.isArray(failedStudentIds)) {
+        setSelectedStudentIds(failedStudentIds);
+      }
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   function openChoicePanel(kind: ChoiceKind) {
@@ -139,23 +180,58 @@ export function NewSanctionDrawer({ students, sanctions, onCancel, onSave }: New
       <h2 className="mb-3 break-words text-lg font-bold text-ink">Informations de sanction</h2>
       <div className="grid min-w-0 gap-3">
         <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
-          Élève
-          <select value={studentId} onChange={(event) => setStudentId(event.target.value)} className="input">
-            <option value="">Sélectionner un élève</option>
-            {sortedStudents.map((student) => (
-              <option key={student.id} value={student.id}>{studentName(student)} - {student.matricule}</option>
-            ))}
-          </select>
+          Rechercher un élève
+          <input
+            value={studentSearch}
+            onChange={(event) => setStudentSearch(event.target.value)}
+            className="input"
+            placeholder="Nom, postnom, prénom, matricule ou classe"
+          />
         </label>
-        {selectedStudent && (
-          <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm">
-            <p className="font-semibold text-ink">Classe automatique</p>
-            <p className="mt-1 text-slate-600">{classLabel(selectedStudent)}</p>
+        {normalizedSearch && (
+          <div className="max-h-56 space-y-2 overflow-y-auto rounded border border-slate-200 bg-white p-2 scrollbar-thin">
+            {searchResults.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun élève trouvé.</p>}
+            {searchResults.map((student) => (
+              <button
+                key={student.id}
+                onClick={() => selectStudent(student.id)}
+                className="w-full rounded border border-slate-100 bg-slate-50 p-3 text-left text-sm transition hover:border-blue-200 hover:bg-blue-50"
+                type="button"
+              >
+                <p className="font-semibold text-ink">{studentName(student)}</p>
+                <p className="text-xs text-slate-500">{classLabel(student)}{student.matricule ? ` · ${student.matricule}` : ""}</p>
+              </button>
+            ))}
           </div>
         )}
-        {hasActiveSanction && (
+        {selectedStudents.length > 0 && (
+          <div className="grid gap-2 rounded border border-slate-200 bg-slate-50 p-3 text-sm">
+            <p className="font-semibold text-ink">{selectedStudents.length} élève(s) sélectionné(s)</p>
+            <div className="grid gap-2">
+              {selectedStudents.map((student) => (
+                <div key={student.id} className="flex min-w-0 items-center justify-between gap-3 rounded bg-white px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-ink">{studentName(student)}</p>
+                    <p className="truncate text-xs text-slate-500">{classLabel(student)}{student.matricule ? ` · ${student.matricule}` : ""}</p>
+                  </div>
+                  <button
+                    onClick={() => removeStudent(student.id)}
+                    className="shrink-0 rounded-full p-1 text-slate-500 transition hover:bg-slate-100 hover:text-red-600"
+                    type="button"
+                    aria-label={`Retirer ${studentName(student)}`}
+                  >
+                    X
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {selectedStudentsWithActiveSanction.length > 0 && (
           <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-700">
-            Cet élève possède déjà une sanction en cours.
+            {selectedStudentsWithActiveSanction.length === 1
+              ? "Cet élève possède déjà une sanction en cours."
+              : `${selectedStudentsWithActiveSanction.length} élèves possèdent déjà une sanction en cours.`}
           </p>
         )}
         <div className="grid gap-3 sm:grid-cols-2">
@@ -218,7 +294,9 @@ export function NewSanctionDrawer({ students, sanctions, onCancel, onSave }: New
         </label>
         <div className="grid gap-2 sm:grid-cols-2">
           <button onClick={onCancel} className="secondary-button justify-center" type="button">Annuler</button>
-          <button onClick={submit} disabled={!canSave} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50" type="button">Enregistrer</button>
+          <button onClick={submit} disabled={!canSave} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50" type="button">
+            {isSaving ? "Enregistrement..." : "Enregistrer"}
+          </button>
         </div>
       </div>
     </aside>
