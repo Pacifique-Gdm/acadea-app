@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Download, Mail, Phone, Search, UsersRound } from "lucide-react";
+import { ArrowLeft, Download, Edit3, Mail, Phone, Plus, Search, UsersRound } from "lucide-react";
 import type { ParentProfile, School, SchoolYear, Student } from "../../types";
 import {
   buildParentsDirectory,
@@ -16,9 +16,11 @@ type ParentsDirectoryDrawerProps = {
   year: SchoolYear;
   schoolId: string;
   schoolYearId: string;
+  onCreateParent?: () => void;
+  onEditParent?: (parent: ParentProfile) => void;
 };
 
-export function ParentsDirectoryDrawer({ parents, students, school, year, schoolId, schoolYearId }: ParentsDirectoryDrawerProps) {
+export function ParentsDirectoryDrawer({ parents, students, school, year, schoolId, schoolYearId, onCreateParent, onEditParent }: ParentsDirectoryDrawerProps) {
   const [query, setQuery] = useState("");
   const [classFilter, setClassFilter] = useState("");
   const [selectedParentId, setSelectedParentId] = useState("");
@@ -72,9 +74,18 @@ export function ParentsDirectoryDrawer({ parents, students, school, year, school
   if (selectedEntry) {
     return (
       <div className="grid min-w-0 gap-4">
-        <button onClick={() => setSelectedParentId("")} type="button" className="secondary-button w-fit">
-          <ArrowLeft className="h-4 w-4" /> Retour
-        </button>
+        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <button onClick={() => setSelectedParentId("")} type="button" className="secondary-button w-fit">
+            <ArrowLeft className="h-4 w-4" /> Retour
+          </button>
+          <div className="flex min-w-0 flex-wrap gap-2">
+            {onEditParent && (
+              <button onClick={() => onEditParent(selectedEntry.parent)} type="button" className="primary-button w-full justify-center sm:w-auto">
+                <Edit3 className="h-4 w-4" /> Modifier le parent
+              </button>
+            )}
+          </div>
+        </div>
 
         <section className="grid min-w-0 gap-4 rounded border border-slate-200 bg-white p-4">
           <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -137,21 +148,28 @@ export function ParentsDirectoryDrawer({ parents, students, school, year, school
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="shrink-0 space-y-3 border-b border-slate-100 bg-white pb-3">
-        <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
-          Recherche
-          <span className="relative block min-w-0">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setPrintError("");
-              }}
-              className="input pl-9"
-              placeholder="Nom, téléphone, e-mail, enfant, matricule, classe..."
-            />
-          </span>
-        </label>
+        <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+            Recherche
+            <span className="relative block min-w-0">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setPrintError("");
+                }}
+                className="input pl-9"
+                placeholder="Nom, téléphone, e-mail, enfant, matricule, classe..."
+              />
+            </span>
+          </label>
+          {onCreateParent && (
+            <button onClick={onCreateParent} type="button" className="primary-button w-full justify-center self-end sm:w-auto">
+              <Plus className="h-4 w-4" /> Créer un parent
+            </button>
+          )}
+        </div>
 
         <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
           <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">

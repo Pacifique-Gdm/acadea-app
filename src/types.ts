@@ -43,6 +43,7 @@ export interface School {
   id: string;
   schoolId?: string;
   name: string;
+  motto?: string;
   address: string;
   phone: string;
   email: string;

@@ -295,6 +295,7 @@ export default function App() {
   const [user, setUser] = useState<AppUser | null>(null);
   const [selectedYearId, setSelectedYearId] = useState("");
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
+  const [parentFormRequest, setParentFormRequest] = useState<{ parentId?: string; requestId: number } | null>(null);
   const [route, setRoute] = useState(() => getInitialRoute());
   const [authReady, setAuthReady] = useState(false);
   const [authError, setAuthError] = useState("");
@@ -725,6 +726,10 @@ export default function App() {
     setNotificationsOpen(false);
   }
 
+  function openParentFormFromDirectory(parentId?: string) {
+    setParentFormRequest({ parentId, requestId: Date.now() });
+  }
+
   if (validateParent(user)) {
     return <ParentPortal user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} onRefresh={refreshData} onLogout={logout} showInstallButton={showInstallPwaButton} onInstallPwa={installPwa} />;
   }
@@ -803,7 +808,14 @@ export default function App() {
           />
         )}
         {!studentDetailMatch && route !== "/admin/rapport-financier" && activeTab === "parents" && (
-          <ParentsModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} />
+          <ParentsModule
+            user={user}
+            data={data}
+            yearData={yearData}
+            school={school}
+            year={selectedYear}
+            updateData={updateData}
+          />
         )}
         {!studentDetailMatch && route !== "/admin/rapport-financier" && activeTab === "control" && (
           <ControlModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} />
@@ -826,9 +838,30 @@ export default function App() {
             updateData={updateData}
             onLogout={logout}
             valvesUploadsEnabled={billingControls.controls.valvesUploadsEnabled}
+            onCreateParentFromDirectory={() => openParentFormFromDirectory()}
+            onEditParentFromDirectory={(parent) => openParentFormFromDirectory(parent.id)}
           />
         )}
       </main>
+      {parentFormRequest && (
+        <AdminDrawer
+          title={parentFormRequest.parentId ? "Modifier le parent" : "Créer un parent"}
+          onClose={() => setParentFormRequest(null)}
+          closeLabel="Fermer le formulaire parent"
+        >
+          <ParentFormEditor
+            data={data}
+            yearData={yearData}
+            school={school}
+            year={selectedYear}
+            updateData={updateData}
+            initialParentId={parentFormRequest.parentId}
+            requestId={parentFormRequest.requestId}
+            onBack={() => setParentFormRequest(null)}
+            showBackButton
+          />
+        </AdminDrawer>
+      )}
       <BottomNavigation
         user={user}
         activeTab={activeTab}
@@ -5608,12 +5641,32 @@ function StudentsModule({
       (!optionFilter || student.option === optionFilter)
     );
   });
+  const parentsById = useMemo(
+    () => new Map(yearData.parents.filter((parent) => parent.schoolId === school.id).map((parent) => [parent.id, parent])),
+    [school.id, yearData.parents],
+  );
+  const parentByStudentId = useMemo(() => {
+    const index = new Map<string, ParentProfile>();
+    yearData.parents.forEach((parent) => {
+      if (parent.schoolId !== school.id) return;
+      parent.studentIds.forEach((studentId) => {
+        if (!index.has(studentId)) index.set(studentId, parent);
+      });
+    });
+    return index;
+  }, [school.id, yearData.parents]);
   const archiveStudent = archiveStudentId ? data.students.find((student) => student.id === archiveStudentId) : undefined;
   const reactivationStudent = reactivationStudentId ? data.students.find((student) => student.id === reactivationStudentId) : undefined;
   const archiveReasonChoices = ["Abandon", "Mutation", "Exclusion", "Décès", "Fin de scolarité", "Erreur administrative", "Autre"] as const;
   const reactivationReasonChoices = ["Retour à l'école", "Erreur d'archivage", "Réinscription", "Mutation annulée", "Suspension levée", "Décision administrative", "Autre"] as const;
   const finalArchiveReason = archiveReason === "Autre" ? archiveOtherReason.trim() : archiveReason;
   const finalReactivationReason = reactivationReason === "Autre" ? reactivationOtherReason.trim() : reactivationReason;
+
+  function studentParentPhone(student: Student) {
+    const directParent = student.parentId ? parentsById.get(student.parentId) : undefined;
+    const parent = directParent ?? parentByStudentId.get(student.id);
+    return parent?.phone?.trim() || "—";
+  }
 
   function saveStudent() {
     setSaveError("");
@@ -6090,7 +6143,7 @@ function StudentsModule({
                   </td>
                   <td className="px-3 py-3">{student.sexe}</td>
                   <td className="px-3 py-3">{formatStudentClassName(student)}</td>
-                  <td className="px-3 py-3">{student.phone}</td>
+                  <td className="px-3 py-3">{studentParentPhone(student)}</td>
                   <td className="px-3 py-3">
                     {archived ? (
                       <div className="max-w-[260px] text-xs text-slate-600">
@@ -6460,17 +6513,130 @@ function ParentsModule({
   year: SchoolYear;
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
 }) {
-  const [form, setForm] = useState<ParentProfile>(() => emptyParent(school.id, year.id));
-  const [password, setPassword] = useState("");
+  const [parentEditorRequest, setParentEditorRequest] = useState<{ parentId?: string; requestId: number }>(() => ({ requestId: Date.now() }));
   const [query, setQuery] = useState("");
-  const [parentError, setParentError] = useState("");
-  const [parentSuccess, setParentSuccess] = useState("");
-  const [showParentPassword, setShowParentPassword] = useState(false);
   const filteredParents = yearData.parents.filter((parent) => {
     const text = `${parent.fullName} ${parent.email} ${parent.phone}`.toLowerCase();
     return text.includes(query.toLowerCase());
   });
   const canEdit = year.status !== "archived";
+
+  function toggleParent(parent: ParentProfile) {
+    const status = parent.status === "active" ? "inactive" : "active";
+    updateData({
+      parents: data.parents.map((item) => (item.id === parent.id ? { ...item, status } : item)),
+      users: data.users.map((item) => (item.parentId === parent.id ? { ...item, status } : item)),
+    });
+  }
+
+  function editParent(parent: ParentProfile) {
+    setParentEditorRequest({ parentId: parent.id, requestId: Date.now() });
+  }
+
+  function deleteParent(parent: ParentProfile) {
+    if (!confirm(`Supprimer le parent ${parent.fullName} et détacher ses élèves ?`)) return;
+    updateData({
+      parents: data.parents.filter((item) => item.id !== parent.id),
+      users: data.users.filter((item) => item.parentId !== parent.id && item.id !== parent.userId),
+      students: data.students.map((student) => (student.parentId === parent.id ? { ...student, parentId: undefined } : student)),
+    });
+    setParentEditorRequest({ requestId: Date.now() });
+  }
+
+
+  return (
+    <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="min-w-0">
+        <SectionTitle title="Parents" subtitle="Comptes parents, statut et liaison unique avec les élèves." />
+        <label className="mb-3 flex items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
+          <Search className="h-4 w-4 text-slate-400" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher un parent" className="min-w-0 flex-1 outline-none" />
+        </label>
+        <div className="grid gap-3">
+          {filteredParents.map((parent) => {
+            const children = yearData.students.filter((student) => student.parentId === parent.id);
+            return (
+              <article key={parent.id} className="min-w-0 rounded border border-slate-200 bg-white p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="font-bold text-ink">{parent.fullName}</h2>
+                      <span className={`rounded px-2 py-1 text-xs font-semibold ${parent.status === "active" ? "bg-mint/10 text-mint" : "bg-slate-100 text-slate-500"}`}>
+                        {parent.status === "active" ? "Actif" : "Inactif"}
+                      </span>
+                    </div>
+                    <p className="break-words text-sm text-slate-500">{parent.phone} | {parent.email}</p>
+                    <p className="break-words text-sm text-slate-500">{children.length} enfant(s): {children.map((student) => `${student.nom} ${student.prenom}`).join(", ") || "aucun"}</p>
+                  </div>
+                  {canEdit && (
+                    <div className="flex flex-wrap gap-2">
+                      <IconButton label="Modifier" onClick={() => editParent(parent)} icon={Edit3} />
+                      <IconButton label="Supprimer" onClick={() => deleteParent(parent)} icon={Trash2} danger />
+                      <button onClick={() => toggleParent(parent)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
+                        {parent.status === "active" ? "Désactiver" : "Réactiver"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </div>
+      {canEdit ? (
+        <ParentFormEditor
+          data={data}
+          yearData={yearData}
+          school={school}
+          year={year}
+          updateData={updateData}
+          initialParentId={parentEditorRequest.parentId}
+          requestId={parentEditorRequest.requestId}
+        />
+      ) : (
+        <FormPanel title="Archive en lecture seule">
+          <p className="rounded bg-slate-50 p-3 text-sm font-semibold text-slate-600">Les parents de cette année archivée sont consultables, mais aucune modification n'est autorisée.</p>
+        </FormPanel>
+      )}
+    </section>
+  );
+}
+
+function ParentFormEditor({
+  data,
+  yearData,
+  school,
+  year,
+  updateData,
+  initialParentId,
+  requestId,
+  onBack,
+  showBackButton = false,
+}: {
+  data: AppData;
+  yearData: ReturnType<typeof scopeData>;
+  school: School;
+  year: SchoolYear;
+  updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
+  initialParentId?: string;
+  requestId: number;
+  onBack?: () => void;
+  showBackButton?: boolean;
+}) {
+  const [form, setForm] = useState<ParentProfile>(() => emptyParent(school.id, year.id));
+  const [password, setPassword] = useState("");
+  const [parentError, setParentError] = useState("");
+  const [parentSuccess, setParentSuccess] = useState("");
+  const [showParentPassword, setShowParentPassword] = useState(false);
+
+  useEffect(() => {
+    const parent = initialParentId ? yearData.parents.find((item) => item.id === initialParentId) : undefined;
+    setForm(parent ?? emptyParent(school.id, year.id));
+    setPassword("");
+    setParentError("");
+    setParentSuccess("");
+    setShowParentPassword(false);
+  }, [initialParentId, requestId, school.id, year.id, yearData.parents]);
 
   async function saveParentProfile() {
     setParentError("");
@@ -6549,113 +6715,50 @@ function ParentsModule({
     }
   }
 
-  function toggleParent(parent: ParentProfile) {
-    const status = parent.status === "active" ? "inactive" : "active";
-    updateData({
-      parents: data.parents.map((item) => (item.id === parent.id ? { ...item, status } : item)),
-      users: data.users.map((item) => (item.parentId === parent.id ? { ...item, status } : item)),
-    });
-  }
-
-  function editParent(parent: ParentProfile) {
-    setForm(parent);
-    setPassword("");
-    setParentSuccess("");
-  }
-
-  function deleteParent(parent: ParentProfile) {
-    if (!confirm(`Supprimer le parent ${parent.fullName} et détacher ses élèves ?`)) return;
-    updateData({
-      parents: data.parents.filter((item) => item.id !== parent.id),
-      users: data.users.filter((item) => item.parentId !== parent.id && item.id !== parent.userId),
-      students: data.students.map((student) => (student.parentId === parent.id ? { ...student, parentId: undefined } : student)),
-    });
-    setForm(emptyParent(school.id, year.id));
-  }
-
-
   return (
-    <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-      <div className="min-w-0">
-        <SectionTitle title="Parents" subtitle="Comptes parents, statut et liaison unique avec les élèves." />
-        {parentError && <p className="mb-3 rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{parentError}</p>}
-        {parentSuccess && <p className="mb-3 rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{parentSuccess}</p>}
-        <label className="mb-3 flex items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
-          <Search className="h-4 w-4 text-slate-400" />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher un parent" className="min-w-0 flex-1 outline-none" />
-        </label>
-        <div className="grid gap-3">
-          {filteredParents.map((parent) => {
-            const children = yearData.students.filter((student) => student.parentId === parent.id);
-            return (
-              <article key={parent.id} className="min-w-0 rounded border border-slate-200 bg-white p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="font-bold text-ink">{parent.fullName}</h2>
-                      <span className={`rounded px-2 py-1 text-xs font-semibold ${parent.status === "active" ? "bg-mint/10 text-mint" : "bg-slate-100 text-slate-500"}`}>
-                        {parent.status === "active" ? "Actif" : "Inactif"}
-                      </span>
-                    </div>
-                    <p className="break-words text-sm text-slate-500">{parent.phone} | {parent.email}</p>
-                    <p className="break-words text-sm text-slate-500">{children.length} enfant(s): {children.map((student) => `${student.nom} ${student.prenom}`).join(", ") || "aucun"}</p>
-                  </div>
-                  {canEdit && (
-                    <div className="flex flex-wrap gap-2">
-                      <IconButton label="Modifier" onClick={() => editParent(parent)} icon={Edit3} />
-                      <IconButton label="Supprimer" onClick={() => deleteParent(parent)} icon={Trash2} danger />
-                      <button onClick={() => toggleParent(parent)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
-                        {parent.status === "active" ? "Désactiver" : "Réactiver"}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      </div>
-      {canEdit ? (
-        <FormPanel title={form.id.startsWith("new") ? "Créer un parent" : "Modifier le parent"}>
-          <Field label="Nom complet" value={form.fullName} onChange={(value) => setForm({ ...form, fullName: value })} />
-          <Field label="Téléphone" value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} />
-          <Field label="Adresse e-mail" value={form.email} onChange={(value) => setForm({ ...form, email: value })} type="email" />
-          <Field label="Adresse" value={form.address} onChange={(value) => setForm({ ...form, address: value })} />
-          {form.id.startsWith("new") && (
-            <PasswordField
-              label="Mot de passe temporaire"
-              value={password}
-              onChange={setPassword}
-              visible={showParentPassword}
-              onToggle={() => setShowParentPassword(!showParentPassword)}
-            />
-          )}
-          <label className="grid gap-1 text-sm font-medium text-slate-700">
-            Élèves liés
-            <select
-              multiple
-              value={form.studentIds}
-              onChange={(event) => setForm({ ...form, studentIds: Array.from(event.target.selectedOptions).map((option) => option.value) })}
-              className="input min-h-32"
-            >
-              {yearData.students.map((student) => (
-                <option key={student.id} value={student.id}>
-                  {student.nom} {student.prenom}{student.parentId && student.parentId !== form.id ? " - déjà lié" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="grid min-w-0 grid-cols-2 gap-2">
-            <button onClick={() => setForm(emptyParent(school.id, year.id))} className="secondary-button">Annuler</button>
-            <button onClick={saveParentProfile} className="primary-button"><CheckCircle2 className="h-4 w-4" /> Enregistrer</button>
-          </div>
-        </FormPanel>
-      ) : (
-        <FormPanel title="Archive en lecture seule">
-          <p className="rounded bg-slate-50 p-3 text-sm font-semibold text-slate-600">Les parents de cette année archivée sont consultables, mais aucune modification n'est autorisée.</p>
-        </FormPanel>
+    <div className="grid min-w-0 gap-3">
+      {showBackButton && onBack && (
+        <button onClick={onBack} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded bg-white text-slate-600 transition hover:bg-slate-50 hover:text-ink" aria-label="Retour aux Parents / Tuteurs" title="Retour aux Parents / Tuteurs">
+          <ArrowLeft className="h-5 w-5" />
+        </button>
       )}
-    </section>
+      {parentError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{parentError}</p>}
+      {parentSuccess && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{parentSuccess}</p>}
+      <FormPanel title={form.id.startsWith("new") ? "Créer un parent" : "Modifier le parent"}>
+        <Field label="Nom complet" value={form.fullName} onChange={(value) => setForm({ ...form, fullName: value })} />
+        <Field label="Téléphone" value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} />
+        <Field label="Adresse e-mail" value={form.email} onChange={(value) => setForm({ ...form, email: value })} type="email" />
+        <Field label="Adresse physique" value={form.address} onChange={(value) => setForm({ ...form, address: value })} />
+        {form.id.startsWith("new") && (
+          <PasswordField
+            label="Mot de passe temporaire"
+            value={password}
+            onChange={setPassword}
+            visible={showParentPassword}
+            onToggle={() => setShowParentPassword(!showParentPassword)}
+          />
+        )}
+        <label className="grid gap-1 text-sm font-medium text-slate-700">
+          Élèves liés
+          <select
+            multiple
+            value={form.studentIds}
+            onChange={(event) => setForm({ ...form, studentIds: Array.from(event.target.selectedOptions).map((option) => option.value) })}
+            className="input min-h-32"
+          >
+            {yearData.students.map((student) => (
+              <option key={student.id} value={student.id}>
+                {student.nom} {student.prenom}{student.parentId && student.parentId !== form.id ? " - déjà lié" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="grid min-w-0 grid-cols-2 gap-2">
+          <button onClick={() => setForm(emptyParent(school.id, year.id))} className="secondary-button">Annuler</button>
+          <button onClick={saveParentProfile} className="primary-button"><CheckCircle2 className="h-4 w-4" /> Enregistrer</button>
+        </div>
+      </FormPanel>
+    </div>
   );
 }
 
@@ -8429,6 +8532,8 @@ function MenuModule({
   updateData,
   onLogout,
   valvesUploadsEnabled,
+  onCreateParentFromDirectory,
+  onEditParentFromDirectory,
 }: {
   user: AppUser;
   data: AppData;
@@ -8440,6 +8545,8 @@ function MenuModule({
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
   onLogout: () => void;
   valvesUploadsEnabled: boolean;
+  onCreateParentFromDirectory: () => void;
+  onEditParentFromDirectory: (parent: ParentProfile) => void;
 }) {
   type MenuSection = "school" | "years" | "accounts" | "fees" | "financial" | "valves" | "parentsDirectory" | "history";
   const [schoolForm, setSchoolForm] = useState(school);
@@ -8855,6 +8962,7 @@ function MenuModule({
         <div className="grid min-w-0 gap-4">
           <ImageUploadField label="Logo de l'école" value={schoolForm.logoUrl ?? ""} onChange={(value) => setSchoolForm({ ...schoolForm, logoUrl: value })} maxWidth={600} maxBytes={200 * 1024} disabled={!canAdmin} />
           <Field label="Nom de l'école" value={schoolForm.name} onChange={(value) => setSchoolForm({ ...schoolForm, name: value })} disabled={!canAdmin} />
+          <Field label="Devise" value={schoolForm.motto ?? ""} onChange={(value) => setSchoolForm({ ...schoolForm, motto: value })} disabled={!canAdmin} />
           <Field label="Adresse" value={schoolForm.address} onChange={(value) => setSchoolForm({ ...schoolForm, address: value })} disabled={!canAdmin} />
           <Field label="Téléphone" value={schoolForm.phone} onChange={(value) => setSchoolForm({ ...schoolForm, phone: value })} disabled={!canAdmin} />
           <Field label="Email" value={schoolForm.email} onChange={(value) => setSchoolForm({ ...schoolForm, email: value })} disabled={!canAdmin} />
@@ -9222,6 +9330,8 @@ function MenuModule({
           year={selectedYear}
           schoolId={school.id}
           schoolYearId={selectedYear.id}
+          onCreateParent={onCreateParentFromDirectory}
+          onEditParent={onEditParentFromDirectory}
         />
       );
     }
@@ -9339,7 +9449,6 @@ function StudentForm({
       </label>
       <Field label="Date de naissance" value={form.birthDate} onChange={(value) => setForm({ ...form, birthDate: value })} type="date" />
       <Field label="Adresse" value={form.address} onChange={(value) => setForm({ ...form, address: value })} />
-      <Field label="Téléphone" value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} />
       <label className="grid gap-1 text-sm font-medium text-slate-700">
         Parent
         <select value={form.parentId ?? ""} onChange={(event) => setForm({ ...form, parentId: event.target.value || undefined })} className="input" required>
