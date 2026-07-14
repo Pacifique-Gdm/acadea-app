@@ -21,6 +21,9 @@ const schoolScopedCollections = [
   "messages",
   "notifications",
   "auditLogs",
+  "valves",
+  "conversations",
+  "parentDailyMessageLimits",
   "disciplineSanctions",
 ];
 
@@ -71,6 +74,25 @@ function normalizeText(value) {
   return String(value ?? "").trim();
 }
 
+function isValidUid(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function addAuthCandidate(candidates, uid, source, data = {}) {
+  const normalizedUid = normalizeText(uid);
+  if (!normalizedUid) return;
+  const current = candidates.get(normalizedUid) ?? {
+    uid: normalizedUid,
+    sources: new Set(),
+    schoolIdConfirmed: false,
+    superAdmin: false,
+  };
+  current.sources.add(source);
+  current.schoolIdConfirmed = current.schoolIdConfirmed || data.schoolIdConfirmed === true;
+  current.superAdmin = current.superAdmin || data.superAdmin === true;
+  candidates.set(normalizedUid, current);
+}
+
 function pickSchoolPatch(body) {
   const patch = {};
   for (const key of ["name", "address", "phone", "email", "subscriptionPlan", "subscriptionStatus", "subscriptionAmount"]) {
@@ -89,13 +111,123 @@ async function deleteQueryBatch(db, query, batchSize = 250) {
   return snapshot.size + (snapshot.size >= batchSize ? await deleteQueryBatch(db, query, batchSize) : 0);
 }
 
+async function collectSchoolAuthUsers(db, schoolId, schoolData) {
+  const candidates = new Map();
+  const skipped = [];
+
+  const usersSnapshot = await db.collection("users").where("schoolId", "==", schoolId).get();
+  usersSnapshot.docs.forEach((document) => {
+    const user = document.data() ?? {};
+    const superAdmin = user.role === "super_admin";
+    const schoolIdConfirmed = user.schoolId === schoolId;
+    if (isValidUid(document.id)) {
+      addAuthCandidate(candidates, document.id, "users.docId", { schoolIdConfirmed, superAdmin });
+    }
+    if (isValidUid(user.id) && user.id !== document.id) {
+      addAuthCandidate(candidates, user.id, "users.id", { schoolIdConfirmed, superAdmin });
+    }
+  });
+
+  const parentsSnapshot = await db.collection("parents").where("schoolId", "==", schoolId).get();
+  parentsSnapshot.docs.forEach((document) => {
+    const parent = document.data() ?? {};
+    if (isValidUid(parent.userId)) {
+      addAuthCandidate(candidates, parent.userId, "parents.userId", { schoolIdConfirmed: parent.schoolId === schoolId });
+    }
+  });
+
+  if (isValidUid(schoolData?.mainAdminId)) {
+    addAuthCandidate(candidates, schoolData.mainAdminId, "schools.mainAdminId", { schoolIdConfirmed: true });
+  }
+
+  const authUsers = [];
+  candidates.forEach((candidate) => {
+    if (!candidate.schoolIdConfirmed) {
+      skipped.push({
+        uid: candidate.uid,
+        reason: "schoolId non confirme",
+        sources: Array.from(candidate.sources),
+      });
+      return;
+    }
+    if (candidate.superAdmin) {
+      skipped.push({
+        uid: candidate.uid,
+        reason: "super_admin protege",
+        sources: Array.from(candidate.sources),
+      });
+      return;
+    }
+    authUsers.push({
+      uid: candidate.uid,
+      sources: Array.from(candidate.sources),
+    });
+  });
+
+  return { authUsers, skipped };
+}
+
+async function deleteSchoolAuthUsers(auth, authUsers, schoolId) {
+  const result = {
+    found: authUsers.length,
+    deleted: 0,
+    alreadyMissing: 0,
+    failed: [],
+    skipped: [],
+  };
+
+  for (const entry of authUsers) {
+    if (!isValidUid(entry.uid)) {
+      result.skipped.push({ uid: entry.uid ?? "", reason: "UID invalide", sources: entry.sources ?? [] });
+      continue;
+    }
+
+    try {
+      const authUser = await auth.getUser(entry.uid);
+      const claims = authUser.customClaims ?? {};
+      if (claims.role === "super_admin") {
+        result.skipped.push({ uid: entry.uid, reason: "super_admin protege", sources: entry.sources });
+        continue;
+      }
+      if (claims.schoolId && claims.schoolId !== schoolId) {
+        result.skipped.push({ uid: entry.uid, reason: "schoolId Auth different", sources: entry.sources });
+        continue;
+      }
+
+      await auth.deleteUser(entry.uid);
+      result.deleted += 1;
+    } catch (error) {
+      if (error?.code === "auth/user-not-found") {
+        result.alreadyMissing += 1;
+        continue;
+      }
+      result.failed.push({
+        uid: entry.uid,
+        code: error?.code ?? "unknown",
+        message: error instanceof Error ? error.message : String(error),
+        sources: entry.sources,
+      });
+    }
+  }
+
+  return result;
+}
+
 async function deleteSchoolData(db, schoolId) {
+  const collections = [];
   let deleted = 0;
   for (const collectionName of schoolScopedCollections) {
-    deleted += await deleteQueryBatch(db, db.collection(collectionName).where("schoolId", "==", schoolId));
+    const deletedCount = await deleteQueryBatch(db, db.collection(collectionName).where("schoolId", "==", schoolId));
+    deleted += deletedCount;
+    collections.push({ collection: collectionName, deletedCount });
   }
+  const idempotencySignalsCount = await deleteQueryBatch(db, db.collection("messageIdempotency").doc(schoolId).collection("signals"));
+  deleted += idempotencySignalsCount;
+  collections.push({ collection: `messageIdempotency/${schoolId}/signals`, deletedCount: idempotencySignalsCount });
+  await db.doc(`messageIdempotency/${schoolId}`).delete();
   await db.doc(`schools/${schoolId}`).delete();
-  return deleted + 1;
+  collections.push({ collection: "schools", deletedCount: 1 });
+  return { deletedCount: deleted + 1, collections };
 }
 
 export default async function handler(req, res) {
@@ -167,15 +299,39 @@ export default async function handler(req, res) {
         sendJson(res, 400, { error: "Confirmation de suppression invalide." });
         return;
       }
-      const deletedCount = await deleteSchoolData(db, schoolId);
+      const schoolData = schoolSnapshot.data();
+      const collectedAuthUsers = await collectSchoolAuthUsers(db, schoolId, schoolData);
+      const authDeletion = await deleteSchoolAuthUsers(auth, collectedAuthUsers.authUsers, schoolId);
+      authDeletion.skipped.push(...collectedAuthUsers.skipped);
+      const firestoreDeletion = await deleteSchoolData(db, schoolId);
+      const status = authDeletion.failed.length > 0 ? "partial" : "complete";
       await db.collection("platform").doc("schoolDeletionLog").collection("entries").add({
         schoolId,
         actorId: caller.uid,
         actorName: caller.email ?? "Super administrateur",
-        deletedCount,
+        deletedCount: firestoreDeletion.deletedCount,
+        authUsersFound: authDeletion.found,
+        authDeleted: authDeletion.deleted,
+        authAlreadyMissing: authDeletion.alreadyMissing,
+        authFailed: authDeletion.failed.length,
+        authSkipped: authDeletion.skipped.length,
+        status,
         deletedAt: FieldValue.serverTimestamp(),
       });
-      sendJson(res, 200, { schoolId, deletedCount });
+      sendJson(res, 200, {
+        schoolId,
+        deletedCount: firestoreDeletion.deletedCount,
+        firestoreDeletedCount: firestoreDeletion.deletedCount,
+        authUsersFound: authDeletion.found,
+        authDeleted: authDeletion.deleted,
+        authAlreadyMissing: authDeletion.alreadyMissing,
+        authFailed: authDeletion.failed.length,
+        authSkipped: authDeletion.skipped.length,
+        authFailures: authDeletion.failed,
+        authSkippedUsers: authDeletion.skipped,
+        collections: firestoreDeletion.collections,
+        status,
+      });
       return;
     }
 
