@@ -806,9 +806,12 @@ export default function App() {
         {studentDetailMatch ? (
           <StudentDetailPage
             studentId={studentDetailMatch[1]}
+            user={user}
+            data={data}
             yearData={yearData}
             year={selectedYear}
             school={school}
+            updateData={updateData}
             onBack={() => {
               setActiveTab("students");
               navigate("/dashboard");
@@ -4807,7 +4810,11 @@ function ParentPortal({
               );
               const progress = feeTotals.expected > 0 ? Math.min(100, Math.round((feeTotals.paid / feeTotals.expected) * 100)) : 0;
               const progressTone = progressBarTone(progress);
-              const payments = parentIndexes.paymentsByStudentId.get(student.id) ?? [];
+              const payments = [...(parentIndexes.paymentsByStudentId.get(student.id) ?? [])].sort((first, second) => {
+                const firstTime = new Date(first.createdAt ?? first.paidAt).getTime();
+                const secondTime = new Date(second.createdAt ?? second.paidAt).getTime();
+                return (Number.isNaN(secondTime) ? 0 : secondTime) - (Number.isNaN(firstTime) ? 0 : firstTime);
+              });
               return (
                 <article key={student.id} className="min-w-0 rounded border border-slate-200 bg-white p-4">
                   <div className="flex min-w-0 flex-col gap-4 md:flex-row">
@@ -5779,12 +5786,8 @@ function StudentsModule({
     setSaveError("");
     setSaveMessage("");
     const selectedParentId = form.parentId?.trim() ?? "";
-    if (!selectedParentId) {
-      setSaveError("Veuillez lier cet élève à un parent avant d'enregistrer.");
-      return;
-    }
     const matchingParents = data.parents.filter((parent) => parent.id === selectedParentId && parent.schoolId === school.id);
-    if (matchingParents.length === 0) {
+    if (selectedParentId && matchingParents.length === 0) {
       setSaveError("Veuillez lier cet élève à un parent avant d'enregistrer.");
       return;
     }
@@ -5798,7 +5801,7 @@ function StudentsModule({
     const matricule = exists ? form.matricule : generateMatricule(data.students, targetYearName, school.id, targetYearId);
     const student = {
       ...form,
-      parentId: selectedParentId,
+      parentId: selectedParentId || undefined,
       matricule,
       section: getClassSection(form.className),
       status: form.status ?? "ACTIVE",
@@ -6462,19 +6465,60 @@ function StudentsModule({
 
 function StudentDetailPage({
   studentId,
+  user,
+  data,
   yearData,
   year,
   school,
+  updateData,
   onBack,
 }: {
   studentId: string;
+  user: AppUser;
+  data: AppData;
   yearData: ReturnType<typeof scopeData>;
   year: SchoolYear;
   school: School;
+  updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
   onBack: () => void;
 }) {
+  const [parentLinkOpen, setParentLinkOpen] = useState(false);
+  const [parentLinkSearch, setParentLinkSearch] = useState("");
   const detailIndexes = useMemo(() => buildSchoolYearDataIndexes(yearData.students, yearData.feeTypes, yearData.payments), [yearData.students, yearData.feeTypes, yearData.payments]);
   const student = detailIndexes.studentsById.get(studentId);
+  const parentLinkResults = useMemo(() => {
+    const search = parentLinkSearch.trim().toLocaleLowerCase("fr");
+    if (!search) return [];
+    return yearData.parents.filter((parent) => {
+      if (parent.schoolId !== school.id) return false;
+      const text = `${parent.fullName} ${parent.phone} ${parent.email} ${parent.address}`.toLocaleLowerCase("fr");
+      return text.includes(search);
+    });
+  }, [parentLinkSearch, school.id, yearData.parents]);
+
+  function linkStudentToParent(parent: ParentProfile) {
+    if (!student || parent.schoolId !== school.id) return;
+    const parents = data.parents.map((item) => {
+      const withoutStudent = item.studentIds.filter((studentId) => studentId !== student.id);
+      return item.id === parent.id ? { ...item, studentIds: Array.from(new Set([...withoutStudent, student.id])) } : { ...item, studentIds: withoutStudent };
+    });
+    const users = data.users.map((item) => {
+      if (item.role !== "parent" || !item.parentId) return item;
+      const nextParent = parents.find((parentItem) => parentItem.id === item.parentId);
+      return nextParent ? { ...item, studentIds: nextParent.studentIds } : item;
+    });
+    updateData({
+      students: data.students.map((item) => (item.id === student.id ? { ...item, parentId: parent.id } : item)),
+      parents,
+      users,
+      auditLogs: [
+        createAuditLog(user, school.id, student.schoolYearId, "Liaison parent élève", `${student.matricule} - ${student.nom} ${student.prenom} → ${parent.fullName}`),
+        ...data.auditLogs,
+      ],
+    });
+    setParentLinkOpen(false);
+    setParentLinkSearch("");
+  }
 
   if (!student) {
     return (
@@ -6529,7 +6573,19 @@ function StudentDetailPage({
           <Metric label="Date de naissance" value={student.birthDate} />
           <Metric label="Adresse" value={student.address} />
           <Metric label="Téléphone" value={student.phone} />
-          <Metric label="Parent" value={parent?.fullName ?? "Non renseigné"} />
+          {parent ? (
+            <Metric label="Parent" value={parent.fullName} />
+          ) : (
+            <div className="min-w-0 rounded border border-slate-100 p-3">
+              <p className="text-xs uppercase tracking-wide text-slate-400">Parent</p>
+              <div className="mt-1 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="break-words font-semibold text-ink">Non renseigné</p>
+                <button onClick={() => setParentLinkOpen(true)} className="secondary-button w-full justify-center sm:w-auto" type="button">
+                  <Plus className="h-4 w-4" /> Lier à un parent
+                </button>
+              </div>
+            </div>
+          )}
           {archived && (
             <>
               <Metric label="Motif d'archivage" value={student.exitReasonDetails ?? student.exitReason ?? "Motif non renseigné"} />
@@ -6567,6 +6623,37 @@ function StudentDetailPage({
           </div>
         </FormPanel>
       </section>
+      {parentLinkOpen && (
+        <AdminDrawer title="Lier à un parent" onClose={() => setParentLinkOpen(false)} closeLabel="Fermer la liaison parent">
+          <div className="grid gap-3">
+            <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
+              <Search className="h-4 w-4 text-slate-400" />
+              <input
+                value={parentLinkSearch}
+                onChange={(event) => setParentLinkSearch(event.target.value)}
+                className="min-w-0 flex-1 outline-none"
+                placeholder="Rechercher un parent"
+              />
+            </label>
+            {!parentLinkSearch.trim() && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Saisissez un nom, téléphone, email ou adresse pour rechercher un parent.</p>}
+            {parentLinkSearch.trim() && parentLinkResults.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun parent trouvé.</p>}
+            <div className="grid gap-2">
+              {parentLinkResults.map((parentItem) => (
+                <button
+                  key={parentItem.id}
+                  onClick={() => linkStudentToParent(parentItem)}
+                  className="min-w-0 rounded border border-slate-200 bg-white p-3 text-left transition hover:border-ink hover:bg-slate-50"
+                  type="button"
+                >
+                  <span className="block break-words font-semibold text-ink">{parentItem.fullName}</span>
+                  <span className="mt-1 block break-words text-sm text-slate-500">{parentItem.phone || "Téléphone non renseigné"} · {parentItem.email || "Email non renseigné"}</span>
+                  {parentItem.address && <span className="mt-1 block break-words text-xs text-slate-400">{parentItem.address}</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        </AdminDrawer>
+      )}
     </section>
   );
 }
@@ -7286,10 +7373,19 @@ function ControlModule({
       setPaymentError("Type de frais indisponible pour cet élève.");
       return;
     }
-    const feePaid = yearData.payments
-      .filter((payment) => payment.studentId === selectedPaymentStudent.id && payment.feeTypeId === selectedPaymentFee.id)
+    const alreadyPaidForFee = yearData.payments
+      .filter(
+        (payment) =>
+          payment.schoolId === school.id &&
+          payment.schoolYearId === year.id &&
+          payment.studentId === selectedPaymentStudent.id &&
+          payment.feeTypeId === selectedPaymentFee.id,
+      )
       .reduce((sum, payment) => sum + payment.amount, 0);
-    if (feePaid + paymentAmount > selectedPaymentFee.amount) {
+    const totalPaidAfterPayment = alreadyPaidForFee + paymentAmount;
+    const remainingAfterPayment = Math.max(selectedPaymentFee.amount - totalPaidAfterPayment, 0);
+    const isFeePaidOff = remainingAfterPayment === 0;
+    if (totalPaidAfterPayment > selectedPaymentFee.amount) {
       setPaymentError("Paiement impossible : ce montant dépasse le montant prévu pour ce frais.");
       return;
     }
@@ -7316,7 +7412,13 @@ function ControlModule({
           studentId,
           type: "payment",
           title: "Paiement enregistré",
-          body: `Un paiement de $${paymentAmount.toFixed(2)} a été enregistré pour ${student.nom} ${student.prenom}.`,
+          body: [
+            `Élève : ${student.nom} ${student.postnom} ${student.prenom}`.replace(/\s+/g, " ").trim(),
+            `Type de frais : ${selectedPaymentFee.name}`,
+            `Montant payé : ${money(paymentAmount)}`,
+            ...(isFeePaidOff ? ["Statut : Soldé"] : []),
+            `Reste à payer : ${money(remainingAfterPayment)}`,
+          ].join("\n"),
           createdAt: new Date().toISOString(),
           read: false,
         }
@@ -9736,8 +9838,8 @@ function StudentForm({
       <Field label="Adresse" value={form.address} onChange={(value) => setForm({ ...form, address: value })} />
       <label className="grid gap-1 text-sm font-medium text-slate-700">
         Parent
-        <select value={form.parentId ?? ""} onChange={(event) => setForm({ ...form, parentId: event.target.value || undefined })} className="input" required>
-          <option value="" disabled>Sélectionner un parent</option>
+        <select value={form.parentId ?? ""} onChange={(event) => setForm({ ...form, parentId: event.target.value || undefined })} className="input">
+          <option value="">Aucun parent lié</option>
           {parents.map((parent) => (
             <option key={parent.id} value={parent.id}>{parent.fullName} - {parent.phone}</option>
           ))}
