@@ -4,7 +4,7 @@ import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 
-const allowedRoles = new Set(["cashier", "discipline_director", "parent"]);
+const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "parent"]);
 
 function getCredential() {
   if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
@@ -155,7 +155,7 @@ export default async function handler(req, res) {
     });
     createdAuthUid = authUser.uid;
 
-    if (role === "cashier" || role === "discipline_director") {
+    if (role === "school_admin" || role === "cashier" || role === "discipline_director") {
       const schoolUser = {
         id: authUser.uid,
         name,

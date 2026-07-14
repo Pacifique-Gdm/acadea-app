@@ -37,7 +37,7 @@ import {
   UserRound,
   UsersRound,
 } from "lucide-react";
-import { createFirebaseAuthUser, getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff } from "./services/auth";
+import { getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff } from "./services/auth";
 import { BillingControlsDrawer } from "./components/platform/BillingControlsDrawer";
 import { DisciplineHistoryDrawer } from "./components/discipline/DisciplineHistoryDrawer";
 import { DisciplineStatistics } from "./components/discipline/DisciplineStatistics";
@@ -2528,18 +2528,15 @@ function PlatformModule({
         auditLogs: [writeAudit(selectedSchool.id, `Modification de l'administrateur ${adminName}`), ...data.auditLogs],
       });
     } else {
-      const adminId = await createFirebaseAuthUser(modalAdminEmail, modalAdminPassword);
-      const adminUser: AppUser = {
-        id: adminId,
-        name: adminName,
-        email: modalAdminEmail,
+      const adminUser = await provisionSchoolUser({
         role: "school_admin",
         schoolId: selectedSchool.id,
-        activeSchoolYearId: selectedSchool.activeSchoolYearId,
+        schoolYearId: selectedSchool.activeSchoolYearId,
+        name: adminName,
+        email: modalAdminEmail,
+        password: modalAdminPassword,
         phone: adminPhone,
-        status: "active",
-        createdAt: new Date().toISOString(),
-      };
+      });
       updateData({
         users: [...data.users, adminUser],
         auditLogs: [writeAudit(selectedSchool.id, `Ajout de l'administrateur ${adminName}`), ...data.auditLogs],
@@ -8565,8 +8562,26 @@ function MessagesModule({
     }
     const createdAt = new Date().toISOString();
     const schoolRecipient = user.role === "school_admin" ? "admin" : user.role === "cashier" ? "cashier" : user.role === "discipline_director" ? "discipline" : undefined;
+    const visibleSchoolRecipients =
+      user.role === "school_admin"
+        ? ["admin", "both"]
+        : user.role === "cashier"
+          ? ["cashier", "both"]
+          : user.role === "discipline_director"
+            ? ["discipline"]
+            : [];
+    const threadMessages = schoolRecipient
+      ? yearData.messages.filter((message) => !message.schoolRecipient || visibleSchoolRecipients.includes(message.schoolRecipient))
+      : yearData.messages;
     const messages: Message[] = recipientParents.map((parent) => {
-      const threadId = nextMessageThreadId(yearData.messages, user.id, parent.id, parent.id) ?? uid("thread");
+      const threadId = nextMessageThreadId(threadMessages, user.id, parent.id, parent.id) ?? uid("thread");
+      const existingThreadRecipient = threadMessages.find(
+        (message) =>
+          message.threadId === threadId &&
+          message.threadParentId === parent.id &&
+          message.schoolRecipient &&
+          visibleSchoolRecipients.includes(message.schoolRecipient),
+      )?.schoolRecipient;
       const message: Message = {
         id: uid("msg"),
         schoolId: school.id,
@@ -8580,7 +8595,7 @@ function MessagesModule({
         createdAt,
       };
       if (schoolRecipient) {
-        message.schoolRecipient = schoolRecipient;
+        message.schoolRecipient = existingThreadRecipient ?? schoolRecipient;
       }
       return message;
     });
