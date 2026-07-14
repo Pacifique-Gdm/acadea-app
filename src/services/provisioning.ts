@@ -3,6 +3,7 @@ import type { AppUser, AuditLog, ParentProfile, School, SchoolYear } from "../ty
 
 type ProvisionSchoolAdminInput = {
   schoolName: string;
+  adminName: string;
   adminEmail: string;
   adminPassword: string;
   subscriptionPlan?: School["subscriptionPlan"];

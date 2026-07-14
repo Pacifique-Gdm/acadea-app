@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { collection, onSnapshot, query, where } from "@firebase/firestore";
-import type { DocumentSnapshot, Firestore } from "@firebase/firestore";
+import { collection, limit, onSnapshot, orderBy, query, where } from "@firebase/firestore";
+import type { DocumentSnapshot, Firestore, Query } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
 import { countUnreadNotifications, loadNotificationsPage } from "../services/notificationsPagination";
 import type { AppNotification, AppUser, Message } from "../types";
@@ -19,6 +19,72 @@ function mergeById(currentItems: AppNotification[], nextItems: AppNotification[]
     itemsById.set(item.id, item);
   });
   return Array.from(itemsById.values()).sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+}
+
+function baseNotificationQuery(database: Firestore) {
+  return collection(database, "notifications");
+}
+
+function schoolNotificationValues(user: AppUser) {
+  if (user.role === "cashier") return ["cashier", "both"];
+  if (user.role === "discipline_director") return ["discipline"];
+  return ["admin", "both"];
+}
+
+function realtimeNotificationQueries(
+  database: Firestore,
+  user: AppUser,
+  schoolId: string,
+  schoolYearId: string,
+  options: { unreadOnly?: boolean; recentOnly?: boolean } = {},
+): Query[] {
+  const notificationCollection = baseNotificationQuery(database);
+  const constraints = [
+    where("schoolId", "==", schoolId),
+    where("schoolYearId", "==", schoolYearId),
+  ];
+  const readConstraint = options.unreadOnly ? [where("read", "==", false)] : [];
+  const recentConstraints = options.recentOnly ? [orderBy("createdAt", "desc"), limit(30)] : [];
+
+  if (user.role === "parent") {
+    if (!user.parentId) return [];
+    return [
+      query(
+        notificationCollection,
+        ...constraints,
+        where("parentId", "==", user.parentId),
+        ...readConstraint,
+        ...recentConstraints,
+      ),
+    ];
+  }
+
+  const recipientValues = schoolNotificationValues(user);
+  const explicitQuery = query(
+    notificationCollection,
+    ...constraints,
+    where("recipientRole", "==", "school"),
+    recipientValues.length === 1 ? where("schoolRecipient", "==", recipientValues[0]) : where("schoolRecipient", "in", recipientValues),
+    ...readConstraint,
+    ...recentConstraints,
+  );
+
+  if (user.role === "discipline_director") return [explicitQuery];
+
+  const legacyQuery = query(
+    notificationCollection,
+    ...constraints,
+    where("recipientRole", "==", "school"),
+    ...readConstraint,
+    ...recentConstraints,
+  );
+  return [explicitQuery, legacyQuery];
+}
+
+function mergeRealtimeNotifications(user: AppUser, messages: Message[], snapshots: AppNotification[][]) {
+  const merged = mergeById([], snapshots.flat());
+  if (user.role === "parent" || user.role === "discipline_director") return merged;
+  return merged.filter((notification) => canShowSchoolNotification(user, notification, messages));
 }
 
 function canShowSchoolNotification(user: AppUser, notification: AppNotification, messages: Message[]) {
@@ -118,35 +184,58 @@ export function usePaginatedNotifications({
   }, [schoolId, schoolYearId, user.id, user.role, user.parentId]);
 
   useEffect(() => {
+    if (user.role === "discipline_director") return;
     void refreshUnreadCount();
-  }, [refreshUnreadCount]);
-
-  useEffect(() => {
-    if (user.role !== "discipline_director" || !firebaseReady || !db || !schoolId || !schoolYearId) return undefined;
-    const unreadDisciplineNotificationsQuery = query(
-      collection(db as unknown as Firestore, "notifications"),
-      where("schoolId", "==", schoolId),
-      where("schoolYearId", "==", schoolYearId),
-      where("recipientRole", "==", "school"),
-      where("schoolRecipient", "==", "discipline"),
-      where("read", "==", false),
-    );
-    const unsubscribe = onSnapshot(
-      unreadDisciplineNotificationsQuery,
-      (snapshot) => {
-        setUnreadCount(snapshot.size);
-      },
-      (error) => {
-        console.warn("Ecoute des notifications discipline non lues impossible.", error);
-      },
-    );
-    return unsubscribe;
-  }, [schoolId, schoolYearId, user.id, user.role]);
+  }, [refreshUnreadCount, user.role]);
 
   useEffect(() => {
     if (!enabled || hasLoaded || isInitialLoading || loadError) return;
     void loadFirstPage();
   }, [enabled, hasLoaded, isInitialLoading, loadError, loadFirstPage]);
+
+  useEffect(() => {
+    if (!firebaseReady || !db || !schoolId || !schoolYearId) return undefined;
+    const database = db as unknown as Firestore;
+    const queries = realtimeNotificationQueries(database, user, schoolId, schoolYearId, { unreadOnly: true });
+    const snapshots = new Array<AppNotification[]>(queries.length).fill([]);
+    const unsubscribes = queries.map((notificationQuery, index) =>
+      onSnapshot(
+        notificationQuery,
+        (snapshot) => {
+          snapshots[index] = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as AppNotification);
+          setUnreadCount(mergeRealtimeNotifications(user, messages, snapshots).length);
+        },
+        (error) => {
+          console.warn("Ecoute des notifications non lues impossible.", error);
+        },
+      ),
+    );
+    return () => {
+      unsubscribes.forEach((unsubscribe) => unsubscribe());
+    };
+  }, [messages, schoolId, schoolYearId, user]);
+
+  useEffect(() => {
+    if (!enabled || !firebaseReady || !db || !schoolId || !schoolYearId) return undefined;
+    const database = db as unknown as Firestore;
+    const queries = realtimeNotificationQueries(database, user, schoolId, schoolYearId, { recentOnly: true });
+    const snapshots = new Array<AppNotification[]>(queries.length).fill([]);
+    const unsubscribes = queries.map((notificationQuery, index) =>
+      onSnapshot(
+        notificationQuery,
+        (snapshot) => {
+          snapshots[index] = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as AppNotification);
+          setItems((current) => mergeById(current, mergeRealtimeNotifications(user, messages, snapshots)));
+        },
+        (error) => {
+          console.warn("Ecoute des notifications recentes impossible.", error);
+        },
+      ),
+    );
+    return () => {
+      unsubscribes.forEach((unsubscribe) => unsubscribe());
+    };
+  }, [enabled, messages, schoolId, schoolYearId, user]);
 
   return {
     items: visibleItems,

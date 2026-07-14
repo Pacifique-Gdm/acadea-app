@@ -218,7 +218,6 @@ export async function generateReceiptPdf(payment: Payment, student: Student, fee
     filename: `recu-${student.matricule}-${payment.id}.pdf`,
     title: "Reçu de paiement",
     school,
-    subtitle: `Devise : Dollar américain (${school.currency})`,
     sections: [
       pdfInfoGrid([
         { label: "Reçu", value: payment.receiptNumber ?? payment.id.toUpperCase() },
@@ -259,6 +258,7 @@ function buildPdfHtml({
   logoDataUrl: string;
   sections: string[];
 }) {
+  const schoolMotto = school.motto?.trim();
   return `
     <style>${pdfStyles()}</style>
     <header class="pdf-header">
@@ -271,6 +271,7 @@ function buildPdfHtml({
       </div>
       <div class="school-block">
         <h1>${escapePdfHtml(school.name)}</h1>
+        ${schoolMotto ? `<p class="school-motto">Devise : ${escapePdfHtml(schoolMotto)}</p>` : ""}
         <p>${escapePdfHtml([school.address, school.phone, school.email].filter(Boolean).join(" | "))}</p>
         ${year ? `<p>Année scolaire : <strong>${escapePdfHtml(year.name)}</strong></p>` : ""}
       </div>
@@ -348,6 +349,9 @@ function pdfStyles() {
       color: #e5edf6;
       font-size: 9.5px;
       line-height: 1.35;
+    }
+    .school-block .school-motto {
+      font-weight: 700;
     }
     .document-title {
       margin: 14px 18px 12px;

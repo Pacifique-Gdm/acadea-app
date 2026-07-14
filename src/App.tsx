@@ -51,6 +51,7 @@ import { useBillingControls } from "./hooks/useBillingControls";
 import type { UseBillingControlsResult } from "./hooks/useBillingControls";
 import { usePaginatedControlHistory } from "./hooks/usePaginatedControlHistory";
 import { usePaginatedNotifications } from "./hooks/usePaginatedNotifications";
+import { useRealtimeMessageFeed } from "./hooks/useRealtimeMessageFeed";
 import { markNotificationsReadTargeted } from "./services/notificationsPagination";
 import { canUseFirestoreData, loadDisciplineYearData, loadFirestoreData, loadFirestoreYearData, loadPlatformSettings, persistFirestorePatch, savePlatformSettings } from "./services/firestoreData";
 import { markConversationUnreadCountRead, persistMessageWithConversation } from "./services/conversations";
@@ -153,6 +154,36 @@ const emptyAppData: AppData = {
 
 function uid(prefix: string) {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
+}
+
+function parentEmailDomain(school: School) {
+  const cleanedName = school.name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/^(c\.?\s*s\.?|ecole|institut|complexe\s+scolaire|groupe\s+scolaire|college|lycee)\s+/i, "")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .toLowerCase();
+  return `${cleanedName || "acadea"}.com`;
+}
+
+function parentEmailExists(email: string, users: AppUser[], parents: ParentProfile[]) {
+  const normalizedEmail = email.trim().toLowerCase();
+  return [...users, ...parents].some((item) => item.email.toLowerCase() === normalizedEmail);
+}
+
+function nextParentEmail(school: School, users: AppUser[], parents: ParentProfile[]) {
+  const domain = parentEmailDomain(school);
+  const usedNumbers = new Set<number>();
+  [...users, ...parents].forEach((item) => {
+    if (item.schoolId !== school.id) return;
+    const match = item.email.toLowerCase().match(new RegExp(`^parent(\\d{4})@${domain.replace(/\./g, "\\.")}$`));
+    if (match) usedNumbers.add(Number(match[1]));
+  });
+  let nextNumber = 1;
+  while (usedNumbers.has(nextNumber) || parentEmailExists(`parent${String(nextNumber).padStart(4, "0")}@${domain}`, users, parents)) {
+    nextNumber += 1;
+  }
+  return `parent${String(nextNumber).padStart(4, "0")}@${domain}`;
 }
 
 function nextSchoolYearDefaults(year: SchoolYear) {
@@ -1168,6 +1199,7 @@ function Header({
 }) {
   const schoolLogoUrl = school.logoUrl?.trim();
   const userDisplayName = user.name.trim();
+  const schoolMotto = school.motto?.trim();
   const refreshStatus = isRefreshing ? "Actualisation..." : refreshError;
   const notificationHistory = usePaginatedNotifications({
     user,
@@ -1176,17 +1208,20 @@ function Header({
     enabled: notificationsOpen,
     messages: data.messages,
   });
-  const displayedUnreadNotifications =
-    notificationsOpen && unreadNotifications === 0
-      ? 0
-      : notificationHistory.unreadCount ?? unreadNotifications;
+  const realtimeMessages = useRealtimeMessageFeed({
+    user,
+    schoolId: school.id,
+    schoolYearId: year.id,
+    enabled: notificationsOpen,
+  });
+  const displayedUnreadNotifications = user.role === "discipline_director" ? (notificationHistory.unreadCount ?? 0) : (notificationHistory.unreadCount ?? unreadNotifications);
   const markPaginatedNotificationsRead = notificationHistory.markAllRead;
 
   useEffect(() => {
-    if (notificationsOpen && unreadNotifications === 0) {
+    if (user.role !== "discipline_director" && notificationsOpen && unreadNotifications === 0) {
       markPaginatedNotificationsRead();
     }
-  }, [markPaginatedNotificationsRead, notificationsOpen, unreadNotifications]);
+  }, [markPaginatedNotificationsRead, notificationsOpen, unreadNotifications, user.role]);
 
   const notificationPagination = (
     <div className="grid gap-2">
@@ -1200,6 +1235,7 @@ function Header({
           <button onClick={() => void notificationHistory.loadFirstPage()} className="secondary-button w-fit" type="button">Réessayer</button>
         </div>
       )}
+      {realtimeMessages.error && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-700">{realtimeMessages.error}</p>}
       {notificationHistory.hasMore && (
         <button
           onClick={() => void notificationHistory.loadMore()}
@@ -1224,6 +1260,8 @@ function Header({
             <div className="min-w-0">
               <p className="truncate text-lg font-bold text-ink">{userDisplayName ? `Bonjour, ${userDisplayName}` : "Bonjour !"}</p>
               <p className="text-xs text-slate-500">{roleLabels[user.role]}</p>
+              <p className="mt-1 truncate text-sm font-semibold text-ink">{school.name}</p>
+              {schoolMotto && <p className="truncate text-xs italic text-slate-500">{schoolMotto}</p>}
               <div className="mt-1 flex max-w-full flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-medium leading-4 text-slate-500">
                 {school.address && <span className="max-w-full truncate">{school.address}</span>}
                 {school.phone && <span className="shrink-0">{school.phone}</span>}
@@ -1268,6 +1306,7 @@ function Header({
             yearData={yearData}
             school={school}
             notifications={notificationHistory.items}
+            realtimeMessages={realtimeMessages.messages}
             notificationPagination={notificationPagination}
           />
         </AdminDrawer>
@@ -2114,11 +2153,12 @@ function PlatformModule({
   type PlatformView = "dashboard" | "students" | "menu";
   type SchoolDetailTab = "overview" | "info" | "admins" | "history";
   type SchoolSort = "az" | "recent" | "users";
-  const removedSchoolOptions = new Set(["Scientifique"]);
+  const removedSchoolOptions = new Set<string>();
   const isAllowedSchoolOption = (option: string) => !removedSchoolOptions.has(option.trim());
-  const schoolOptionChoices = [...defaultSchoolOptions, "Technique", "Nutrition", "Électricité", "Mécanique", "Autre"].filter(isAllowedSchoolOption);
+  const schoolOptionChoices = defaultSchoolOptions.filter(isAllowedSchoolOption);
 
   const [schoolName, setSchoolName] = useState("");
+  const [mainAdminName, setMainAdminName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [schoolSections, setSchoolSections] = useState<string[]>(["Primaire"]);
@@ -2209,7 +2249,7 @@ function PlatformModule({
 
   async function createSchool() {
     if (provisioningLoading) return;
-    if (!schoolName || !adminEmail || !adminPassword || schoolSections.length === 0) return;
+    if (!schoolName || !mainAdminName || !adminEmail || !adminPassword || schoolSections.length === 0) return;
     const trimmedCustomSchoolOption = customSchoolOption.trim();
     if (hasSecondarySection && hasCustomSchoolOption && !trimmedCustomSchoolOption) {
       setProvisioningError("Veuillez préciser la nouvelle option scolaire.");
@@ -2231,6 +2271,7 @@ function PlatformModule({
     try {
       const provisioned = await provisionSchoolAdmin({
         schoolName: schoolName.trim(),
+        adminName: mainAdminName.trim(),
         adminEmail: adminEmail.trim(),
         adminPassword,
         educationLevels: schoolSections,
@@ -2248,6 +2289,7 @@ function PlatformModule({
         { persist: false },
       );
       setSchoolName("");
+      setMainAdminName("");
       setAdminEmail("");
       setAdminPassword("");
       setSchoolSections(["Primaire"]);
@@ -2619,6 +2661,7 @@ function PlatformModule({
     return (
       <>
         <Field label="Nom de l'école" value={schoolName} onChange={setSchoolName} />
+        <Field label="Nom de l'Administrateur" value={mainAdminName} onChange={setMainAdminName} />
         <Field label="Email admin école" value={adminEmail} onChange={setAdminEmail} type="email" />
         <PasswordField label="Mot de passe admin" value={adminPassword} onChange={setAdminPassword} />
         <fieldset className="grid gap-2 rounded border border-slate-200 p-3">
@@ -2635,11 +2678,11 @@ function PlatformModule({
         {hasSecondarySection && (
           <fieldset className="grid gap-2 rounded border border-slate-200 p-3">
             <legend className="px-1 text-sm font-semibold text-slate-700">Options scolaires</legend>
-            <div className="flex flex-wrap gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {visibleSchoolOptionChoices.map((option) => (
-                <label key={option} className="inline-flex items-center gap-2 rounded bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
-                  <input type="checkbox" checked={selectedSchoolOptions.includes(option)} onChange={() => toggleSchoolOption(option)} className="h-4 w-4 accent-ink" />
-                  {option}
+                <label key={option} className="flex min-w-0 items-center gap-2 rounded bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+                  <input type="checkbox" checked={selectedSchoolOptions.includes(option)} onChange={() => toggleSchoolOption(option)} className="h-4 w-4 shrink-0 accent-ink" />
+                  <span className="min-w-0 break-words">{option}</span>
                 </label>
               ))}
             </div>
@@ -2667,7 +2710,7 @@ function PlatformModule({
         {provisioningError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{provisioningError}</p>}
         <button
           onClick={createSchool}
-          disabled={provisioningLoading || schoolSections.length === 0 || (hasSecondarySection && hasCustomSchoolOption && !customSchoolOption.trim())}
+          disabled={provisioningLoading || !mainAdminName.trim() || schoolSections.length === 0 || (hasSecondarySection && hasCustomSchoolOption && !customSchoolOption.trim())}
           className="primary-button disabled:cursor-not-allowed disabled:opacity-60"
           type="button"
         >
@@ -3278,6 +3321,7 @@ function MessageDrawerContent({
   yearData,
   school,
   notifications: paginatedNotifications,
+  realtimeMessages = [],
   notificationPagination,
 }: {
   user: AppUser;
@@ -3285,6 +3329,7 @@ function MessageDrawerContent({
   yearData: ReturnType<typeof scopeData>;
   school: School;
   notifications?: AppNotification[];
+  realtimeMessages?: Message[];
   notificationPagination?: ReactNode;
 }) {
   type NotificationFeedItem = {
@@ -3402,7 +3447,8 @@ function MessageDrawerContent({
         notificationSenderLabel: tone === "warning" ? warningNotificationSenderLabel(notification) : undefined,
       };
     });
-  const messageItems: MessageFeedItem[] = yearData.messages
+  const messages = Array.from(new Map<string, Message>([...yearData.messages, ...realtimeMessages].map((message) => [message.id, message])).values());
+  const messageItems: MessageFeedItem[] = messages
     .filter(canShowMessageInFeed)
     .map((message) => ({
       key: `message-${message.id}`,
@@ -3519,13 +3565,13 @@ function MessageDrawerContent({
   }
 
   return (
-    <div className="grid min-h-0 min-w-0 gap-4">
-      <section className="min-w-0 rounded border border-slate-200 bg-white p-3 shadow-sm">
-        <div className="mb-3 flex items-center justify-between gap-2">
+    <div className="flex h-full min-h-0 min-w-0 flex-col">
+      <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded border border-slate-200 bg-white shadow-sm">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-100 p-3">
           <h3 className="text-sm font-bold text-ink">Messages et notifications</h3>
           <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-500">{feedItems.length}</span>
         </div>
-        <div className="max-h-[68vh] space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3 pr-2 scrollbar-thin">
           {feedItems.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun message ou notification à afficher.</p>}
           {feedItems.map((item) => (
             <div key={item.key}>{item.type === "message" ? renderMessage(item.message) : renderNotification(item)}</div>
@@ -3539,7 +3585,7 @@ function MessageDrawerContent({
 
 type ActivityHistoryItem = {
   id: string;
-  type: "activity" | "message" | "warning";
+  type: "activity" | "message" | "warning" | "payment" | "expense" | "discipline";
   title: string;
   actorName: string;
   details: string;
@@ -3559,13 +3605,39 @@ function ActivityHistoryContent({
 }) {
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | ActivityHistoryItem["type"]>("all");
-  const items = buildActivityHistoryItems(user, data, yearData, role);
+  const items = useMemo(() => buildActivityHistoryItems(user, data, yearData, role), [data, role, user, yearData]);
   const normalizedQuery = query.trim().toLowerCase();
   const filteredItems = items.filter((item) => {
     const matchesType = typeFilter === "all" || item.type === typeFilter;
     const text = `${item.title} ${item.actorName} ${item.details}`.toLowerCase();
     return matchesType && (!normalizedQuery || text.includes(normalizedQuery));
   });
+  const historyTypeLabels: Record<ActivityHistoryItem["type"], string> = {
+    activity: "Activité",
+    message: "Message",
+    warning: "Avertissement",
+    payment: "Paiement",
+    expense: "Dépense",
+    discipline: "Sanction",
+  };
+
+  function historyIconTone(type: ActivityHistoryItem["type"]) {
+    if (type === "message") return "bg-blue-50 text-blue-700";
+    if (type === "warning") return "bg-amber-100 text-amber-700";
+    if (type === "payment") return "bg-mint/10 text-mint";
+    if (type === "expense") return "bg-red-50 text-red-700";
+    if (type === "discipline") return "bg-purple-50 text-purple-700";
+    return "bg-slate-100 text-slate-600";
+  }
+
+  function historyIcon(type: ActivityHistoryItem["type"]) {
+    if (type === "message") return <MessageSquare className="h-4 w-4" />;
+    if (type === "warning") return <Bell className="h-4 w-4" />;
+    if (type === "payment") return <Banknote className="h-4 w-4" />;
+    if (type === "expense") return <ArrowUpDown className="h-4 w-4" />;
+    if (type === "discipline") return <ShieldCheck className="h-4 w-4" />;
+    return <Clock3 className="h-4 w-4" />;
+  }
 
   return (
     <div className="grid min-w-0 gap-4">
@@ -3584,6 +3656,9 @@ function ActivityHistoryContent({
           <option value="activity">Activités</option>
           <option value="message">Messages</option>
           {role !== "parent" && <option value="warning">Avertissements</option>}
+          {role === "admin" && <option value="payment">Paiements</option>}
+          {role === "admin" && <option value="expense">Dépenses</option>}
+          {role === "admin" && <option value="discipline">Sanctions</option>}
         </select>
       </div>
 
@@ -3594,14 +3669,14 @@ function ActivityHistoryContent({
         {filteredItems.map((item) => (
           <article key={item.id} className="min-w-0 rounded border border-slate-200 bg-white p-3 text-sm">
             <div className="flex min-w-0 items-start gap-3">
-              <div className={`mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded ${item.type === "message" ? "bg-blue-50 text-blue-700" : item.type === "warning" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"}`}>
-                {item.type === "message" ? <MessageSquare className="h-4 w-4" /> : item.type === "warning" ? <Bell className="h-4 w-4" /> : <Clock3 className="h-4 w-4" />}
+              <div className={`mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded ${historyIconTone(item.type)}`}>
+                {historyIcon(item.type)}
               </div>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="break-words font-semibold text-ink">{item.title}</p>
                   <span className="rounded bg-slate-100 px-2 py-1 text-[10px] font-bold uppercase text-slate-500">
-                    {item.type === "message" ? "Message" : item.type === "warning" ? "Avertissement" : "Activité"}
+                    {historyTypeLabels[item.type]}
                   </span>
                 </div>
                 <p className="mt-1 text-xs text-slate-500">
@@ -4268,6 +4343,8 @@ function ValvesDrawerContent({
 function buildActivityHistoryItems(user: AppUser, data: AppData, yearData: ReturnType<typeof scopeData>, role: "admin" | "cashier" | "parent") {
   const usersById = new Map(data.users.map((item) => [item.id, item]));
   const parentsById = new Map(yearData.parents.map((item) => [item.id, item]));
+  const indexes = buildSchoolYearDataIndexes(yearData.students, yearData.feeTypes, yearData.payments);
+  const auditActionsRepresentedByBusinessData = new Set(["Création paiement", "Création dépense", "Création sanction disciplinaire"]);
   const parseWarningDetails = (details?: string) => {
     if (!details) return null;
     try {
@@ -4290,6 +4367,7 @@ function buildActivityHistoryItems(user: AppUser, data: AppData, yearData: Retur
   const auditItems = yearData.auditLogs
     .filter((log) => {
       if (isSessionAuditAction(log.action)) return false;
+      if (role === "admin" && auditActionsRepresentedByBusinessData.has(log.action)) return false;
       const actor = usersById.get(log.actorId);
       const warningDetails = parseWarningDetails(log.details);
       if (warningDetails && role === "parent") return false;
@@ -4320,6 +4398,50 @@ function buildActivityHistoryItems(user: AppUser, data: AppData, yearData: Retur
       };
     });
 
+  const paymentItems =
+    role === "admin"
+      ? yearData.payments.map<ActivityHistoryItem>((payment) => {
+          const student = indexes.studentsById.get(payment.studentId);
+          const fee = indexes.feeTypesById.get(payment.feeTypeId);
+          const studentName = student ? `${student.nom} ${student.postnom} ${student.prenom}`.replace(/\s+/g, " ").trim() : "Élève non renseigné";
+          return {
+            id: `payment-${payment.id}`,
+            type: "payment",
+            title: "Paiement",
+            actorName: payment.cashierName || "Caissier",
+            details:
+              `Élève : ${studentName} · Classe : ${student ? formatStudentClassName(student) : "-"} · Frais : ${fee?.name ?? "Frais"} · Montant : ${money(payment.amount)} · Date : ${payment.paidAt} · Heure : ${payment.createdAt ? new Date(payment.createdAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "-"} · Enregistré par : ${payment.cashierName || "-"} · Référence : ${payment.receiptNumber ?? payment.id}`,
+            createdAt: payment.createdAt ?? payment.paidAt,
+          };
+        })
+      : [];
+
+  const expenseItems =
+    role === "admin"
+      ? yearData.expenses.map<ActivityHistoryItem>((expense) => ({
+          id: `expense-${expense.id}`,
+          type: "expense",
+          title: "Dépense",
+          actorName: expense.cashierName || "Caissier",
+          details:
+            `Motif : ${expense.category} · Description : ${expense.description || "-"} · Montant : ${money(expense.amount)} · Date : ${expense.spentAt} · Heure : ${expense.createdAt ? new Date(expense.createdAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "-"} · Enregistrée par : ${expense.cashierName || "-"} · Référence : ${expense.reference ?? expense.id}`,
+          createdAt: expense.createdAt ?? expense.spentAt,
+        }))
+      : [];
+
+  const disciplineItems =
+    role === "admin"
+      ? yearData.disciplineSanctions.map<ActivityHistoryItem>((sanction) => ({
+          id: `discipline-${sanction.id}`,
+          type: "discipline",
+          title: "Sanction disciplinaire",
+          actorName: sanction.createdByName || "Directeur de Discipline",
+          details:
+            `Élève : ${sanction.studentName} · Classe : ${sanction.className} · Motif : ${sanction.reason} · Type : ${sanction.sanctionType} · Début : ${sanction.startDate} · Fin prévue : ${sanction.expectedEndDate} · Fin réelle : ${sanction.actualEndDate ?? "-"} · Statut : ${sanction.status === "completed" ? "Purgée" : "Sanction en cours"} · Récidive : ${sanction.recurrenceNumber} · Créée par : ${sanction.createdByName || "-"} · Clôturée par : ${sanction.completedByName ?? "-"}`,
+          createdAt: sanction.createdAt ?? sanction.startDate,
+        }))
+      : [];
+
   const messageItems = yearData.messages
     .filter((message) => {
       if (role === "admin") return message.recipientParentId === "school";
@@ -4347,7 +4469,14 @@ function buildActivityHistoryItems(user: AppUser, data: AppData, yearData: Retur
       };
     });
 
-  return [...auditItems, ...messageItems].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  function itemTimestamp(item: ActivityHistoryItem) {
+    const timestamp = new Date(item.createdAt).getTime();
+    return Number.isNaN(timestamp) ? 0 : timestamp;
+  }
+
+  return [...auditItems, ...messageItems, ...paymentItems, ...expenseItems, ...disciplineItems].sort(
+    (a, b) => itemTimestamp(b) - itemTimestamp(a) || b.createdAt.localeCompare(a.createdAt),
+  );
 }
 
 function getPlatformSchoolStats(schoolId: string, data: AppData) {
@@ -5131,9 +5260,17 @@ function DisciplinePortal({
     });
   }
 
+  function closeNotifications() {
+    setNotificationsOpen(false);
+    void markNotificationsRead();
+  }
+
   function toggleNotifications() {
-    setNotificationsOpen((current) => !current);
-    if (!notificationsOpen) void markNotificationsRead();
+    if (notificationsOpen) {
+      closeNotifications();
+      return;
+    }
+    setNotificationsOpen(true);
   }
 
   async function saveNewSanction(input: NewDisciplineSanctionFormInput) {
@@ -5382,7 +5519,7 @@ function DisciplinePortal({
         refreshError={refreshError}
         onRefresh={onRefresh}
         onToggleNotifications={toggleNotifications}
-        onCloseNotifications={() => setNotificationsOpen(false)}
+        onCloseNotifications={closeNotifications}
       />
       <main className="mx-auto grid w-full max-w-7xl min-w-0 flex-1 gap-4 overflow-y-auto px-3 py-5 pb-28 sm:px-6 sm:pb-32 lg:px-8">
         {feedback && <p className={`rounded border p-3 text-sm font-semibold ${feedbackTone}`}>{feedback}</p>}
@@ -5582,33 +5719,6 @@ function StudentsModule({
     const className = studentClassChoices[0] ?? CLASSES[0];
     return { ...emptyStudent(school.id, year.id), className, section: getClassSection(className) };
   };
-  const parentEmailDomain = () => {
-    const cleanedName = school.name
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/^(c\.?\s*s\.?|ecole|institut|complexe\s+scolaire|groupe\s+scolaire|college|lycee)\s+/i, "")
-      .replace(/[^a-zA-Z0-9]/g, "")
-      .toLowerCase();
-    return `${cleanedName || "acadea"}.com`;
-  };
-  const parentEmailExists = (email: string) => {
-    const normalizedEmail = email.trim().toLowerCase();
-    return [...data.users, ...data.parents].some((item) => item.email.toLowerCase() === normalizedEmail);
-  };
-  const nextParentEmail = () => {
-    const domain = parentEmailDomain();
-    const usedNumbers = new Set<number>();
-    [...data.users, ...data.parents].forEach((item) => {
-      if (item.schoolId !== school.id) return;
-      const match = item.email.toLowerCase().match(new RegExp(`^parent(\\d{4})@${domain.replace(/\./g, "\\.")}$`));
-      if (match) usedNumbers.add(Number(match[1]));
-    });
-    let nextNumber = 1;
-    while (usedNumbers.has(nextNumber) || parentEmailExists(`parent${String(nextNumber).padStart(4, "0")}@${domain}`)) {
-      nextNumber += 1;
-    }
-    return `parent${String(nextNumber).padStart(4, "0")}@${domain}`;
-  };
   const archivedYearsForImport = data.schoolYears.filter((item) => item.schoolId === school.id && item.status === "archived");
   const selectedImportYear = archivedYearsForImport.find((item) => item.id === importSourceYearId);
   const selectedImportStudents = importSourceYearId
@@ -5724,7 +5834,7 @@ function StudentsModule({
 
   function openAddStudentForm() {
     setForm(emptyCurrentStudent());
-    setQuickParent({ fullName: "", phone: "", email: nextParentEmail(), password: "" });
+    setQuickParent({ fullName: "", phone: "", email: nextParentEmail(school, data.users, data.parents), password: "" });
     setSaveError("");
     setSaveMessage("");
     setShowForm(true);
@@ -5825,7 +5935,7 @@ function StudentsModule({
     setSaveError("");
     if (!quickParent.fullName || !quickParent.phone || !quickParent.email) return;
     const parentId = uid("parent");
-    const resolvedEmail = parentEmailExists(quickParent.email) ? nextParentEmail() : quickParent.email.trim();
+    const resolvedEmail = parentEmailExists(quickParent.email, data.users, data.parents) ? nextParentEmail(school, data.users, data.parents) : quickParent.email.trim();
     let userId: string | undefined;
     if (!userId) {
       if (!quickParent.password) {
@@ -6038,9 +6148,9 @@ function StudentsModule({
       <div className="min-w-0">
         <SectionTitle title="Élèves" subtitle="Ajouter, modifier, rechercher et filtrer par direction puis classe." />
         {saveMessage && <p className="mb-3 rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{saveMessage}</p>}
-        <div className="mb-3 grid min-w-0 gap-2 sm:flex sm:flex-wrap">
+        <div className={`mb-3 grid min-w-0 gap-2 sm:grid-cols-2 lg:w-full ${canEdit ? "lg:grid-cols-4" : "lg:grid-cols-2"}`}>
           {canEdit && (
-            <button onClick={openAddStudentForm} type="button" className="primary-button w-full justify-center sm:w-auto">
+            <button onClick={openAddStudentForm} type="button" className="primary-button w-full justify-center">
               <Plus className="h-4 w-4" /> Ajouter un élève
             </button>
           )}
@@ -6049,14 +6159,17 @@ function StudentsModule({
               onClick={openImportStudentsDrawer}
               type="button"
               disabled={studentsAlreadyImported}
-              className="secondary-button w-full justify-center disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+              className="secondary-button w-full justify-center disabled:cursor-not-allowed disabled:opacity-50"
               title={studentsAlreadyImported ? "Les élèves ont déjà été importés pour cette année scolaire." : undefined}
             >
               <Upload className="h-4 w-4" /> Importer les élèves d'une année archivée
             </button>
           )}
-          <button onClick={printAgeHomogeneityPdf} type="button" className="primary-button w-full justify-center sm:w-auto">
+          <button onClick={printAgeHomogeneityPdf} type="button" className="primary-button w-full justify-center">
             <Download className="h-4 w-4" /> Tableau d'homogénéité d'âge
+          </button>
+          <button onClick={printStudentsPdf} type="button" className="primary-button w-full justify-center">
+            <Download className="h-4 w-4" /> Exporter PDF
           </button>
         </div>
         {studentsAlreadyImported && (
@@ -6064,7 +6177,7 @@ function StudentsModule({
             Les élèves ont déjà été importés pour cette année scolaire. Cette opération ne peut être effectuée qu'une seule fois.
           </p>
         )}
-        <div className="mb-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_160px_180px_220px]">
+        <div className="mb-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:w-full lg:grid-cols-[minmax(0,2fr)_minmax(0,0.7fr)_minmax(0,0.8fr)_minmax(0,0.9fr)_minmax(0,0.9fr)]">
           <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
             <Search className="h-4 w-4 text-slate-400" />
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher" className="min-w-0 flex-1 outline-none" />
@@ -6093,19 +6206,12 @@ function StudentsModule({
               <option key={className} value={className}>{className}</option>
             ))}
           </select>
-        </div>
-        <div className="mb-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
           <select value={optionFilter} onChange={(event) => setOptionFilter(event.target.value)} className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2">
             <option value="">Toutes les options</option>
             {optionChoices.map((option) => (
               <option key={option} value={option}>{option}</option>
             ))}
           </select>
-          <div className="flex min-w-0 flex-wrap gap-2">
-            <button onClick={printStudentsPdf} type="button" className="primary-button w-full justify-center sm:w-auto">
-              <Download className="h-4 w-4" /> Exporter PDF
-            </button>
-          </div>
         </div>
         <div className="max-w-full overflow-x-auto rounded border border-slate-200 bg-white">
           <table className="min-w-[980px] w-full text-left text-sm">
@@ -6628,15 +6734,60 @@ function ParentFormEditor({
   const [parentError, setParentError] = useState("");
   const [parentSuccess, setParentSuccess] = useState("");
   const [showParentPassword, setShowParentPassword] = useState(false);
+  const [emailManuallyEdited, setEmailManuallyEdited] = useState(false);
+  const [passwordManuallyEdited, setPasswordManuallyEdited] = useState(false);
+  const [studentLinkSearch, setStudentLinkSearch] = useState("");
+  const initializedRequestIdRef = useRef<number | null>(null);
+  const generatedParentEmail = useMemo(() => nextParentEmail(school, data.users, data.parents), [data.parents, data.users, school]);
+  const studentsById = useMemo(() => new Map(yearData.students.map((student) => [student.id, student])), [yearData.students]);
+  const selectedLinkedStudents = useMemo(
+    () => form.studentIds.map((studentId) => studentsById.get(studentId)).filter((student): student is Student => Boolean(student)),
+    [form.studentIds, studentsById],
+  );
+  const sortedLinkStudents = useMemo(
+    () =>
+      [...yearData.students].sort((first, second) =>
+        `${first.nom} ${first.postnom} ${first.prenom}`.replace(/\s+/g, " ").trim().localeCompare(`${second.nom} ${second.postnom} ${second.prenom}`.replace(/\s+/g, " ").trim(), "fr"),
+      ),
+    [yearData.students],
+  );
+  const normalizedStudentLinkSearch = studentLinkSearch.trim().toLocaleLowerCase("fr");
+  const studentLinkSearchResults = useMemo(() => {
+    if (!normalizedStudentLinkSearch) return [];
+    return sortedLinkStudents.filter((student) => {
+      const classLabel = student.option?.trim() ? `${student.className} ${student.option}` : student.className;
+      const haystack = [
+        student.nom,
+        student.postnom,
+        student.prenom,
+        `${student.nom} ${student.postnom} ${student.prenom}`.replace(/\s+/g, " ").trim(),
+        student.matricule,
+        classLabel,
+      ]
+        .join(" ")
+        .toLocaleLowerCase("fr");
+      return haystack.includes(normalizedStudentLinkSearch);
+    });
+  }, [normalizedStudentLinkSearch, sortedLinkStudents]);
 
   useEffect(() => {
+    if (initializedRequestIdRef.current === requestId) return;
+    initializedRequestIdRef.current = requestId;
     const parent = initialParentId ? yearData.parents.find((item) => item.id === initialParentId) : undefined;
-    setForm(parent ?? emptyParent(school.id, year.id));
+    setForm(parent ?? { ...emptyParent(school.id, year.id), email: generatedParentEmail });
     setPassword("");
     setParentError("");
     setParentSuccess("");
     setShowParentPassword(false);
-  }, [initialParentId, requestId, school.id, year.id, yearData.parents]);
+    setEmailManuallyEdited(false);
+    setPasswordManuallyEdited(false);
+    setStudentLinkSearch("");
+  }, [generatedParentEmail, initialParentId, requestId, school.id, year.id, yearData.parents]);
+
+  useEffect(() => {
+    if (!form.id.startsWith("new") || emailManuallyEdited || form.email) return;
+    setForm((current) => (current.id.startsWith("new") && !current.email ? { ...current, email: generatedParentEmail } : current));
+  }, [emailManuallyEdited, form.email, form.id, generatedParentEmail]);
 
   async function saveParentProfile() {
     setParentError("");
@@ -6646,12 +6797,12 @@ function ParentFormEditor({
     const isNew = form.id.startsWith("new");
     const parentId = isNew ? uid("parent") : form.id;
     const existingUser = data.users.find((item) => item.id === form.userId || item.parentId === parentId);
-    if ((isNew || !existingUser) && !password) {
+    if (isNew && !password) {
       setParentError("Mot de passe requis pour créer le compte Firebase Auth du parent.");
       return;
     }
-    let userId = existingUser?.id;
-    if (isNew || !existingUser) {
+    let userId = existingUser?.id ?? form.userId;
+    if (isNew) {
       try {
         const provisioned = await provisionParent({
           schoolId: school.id,
@@ -6671,7 +6822,10 @@ function ParentFormEditor({
         return;
       }
     }
-    if (!userId) return;
+    if (!userId) {
+      setParentError("Compte utilisateur parent introuvable. Modification du parent impossible sans recréer le compte.");
+      return;
+    }
     const parent: ParentProfile = {
       ...form,
       id: parentId,
@@ -6695,24 +6849,38 @@ function ParentFormEditor({
       address: parent.address,
     };
     const nextParents = isNew ? [...data.parents, parent] : data.parents.map((item) => (item.id === parent.id ? parent : item));
-    const nextUsers = isNew || !existingUser ? [...data.users, parentUser] : data.users.map((item) => (item.id === userId ? { ...item, ...parentUser } : item));
+    const nextUsers = isNew ? [...data.users, parentUser] : existingUser ? data.users.map((item) => (item.id === userId ? { ...item, ...parentUser } : item)) : data.users;
     const nextStudents = data.students.map((student) => {
       if (parent.studentIds.includes(student.id)) return { ...student, parentId: parent.id };
       if (student.parentId === parent.id) return { ...student, parentId: undefined };
       return student;
     });
 
-    if (isNew || !existingUser) {
+    if (isNew) {
       updateData({ parents: nextParents, users: nextUsers }, { persist: false });
       updateData({ students: nextStudents });
     } else {
       updateData({ parents: nextParents, users: nextUsers, students: nextStudents });
     }
-    setForm(emptyParent(school.id, year.id));
+    setForm({ ...emptyParent(school.id, year.id), email: generatedParentEmail });
     setPassword("");
-    if (isNew || !existingUser) {
+    setEmailManuallyEdited(false);
+    setPasswordManuallyEdited(false);
+    setStudentLinkSearch("");
+    if (isNew) {
       setParentSuccess("Compte parent créé avec succès. Il peut maintenant se connecter avec son email et son mot de passe.");
     }
+  }
+
+  function toggleLinkedStudent(studentId: string) {
+    setForm((current) => ({
+      ...current,
+      studentIds: current.studentIds.includes(studentId) ? current.studentIds.filter((id) => id !== studentId) : [...current.studentIds, studentId],
+    }));
+  }
+
+  function removeLinkedStudent(studentId: string) {
+    setForm((current) => ({ ...current, studentIds: current.studentIds.filter((id) => id !== studentId) }));
   }
 
   return (
@@ -6724,37 +6892,113 @@ function ParentFormEditor({
       )}
       {parentError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{parentError}</p>}
       {parentSuccess && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{parentSuccess}</p>}
-      <FormPanel title={form.id.startsWith("new") ? "Créer un parent" : "Modifier le parent"}>
+      <FormPanel title="">
         <Field label="Nom complet" value={form.fullName} onChange={(value) => setForm({ ...form, fullName: value })} />
-        <Field label="Téléphone" value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} />
-        <Field label="Adresse e-mail" value={form.email} onChange={(value) => setForm({ ...form, email: value })} type="email" />
+        <Field
+          label="Téléphone"
+          value={form.phone}
+          onChange={(value) => {
+            setForm({ ...form, phone: value });
+            if (form.id.startsWith("new") && !passwordManuallyEdited) {
+              setPassword(value);
+            }
+          }}
+        />
+        <Field
+          label="Adresse e-mail"
+          value={form.email}
+          onChange={(value) => {
+            setForm({ ...form, email: value });
+            if (form.id.startsWith("new")) setEmailManuallyEdited(true);
+          }}
+          type="email"
+        />
         <Field label="Adresse physique" value={form.address} onChange={(value) => setForm({ ...form, address: value })} />
         {form.id.startsWith("new") && (
           <PasswordField
             label="Mot de passe temporaire"
             value={password}
-            onChange={setPassword}
+            onChange={(value) => {
+              setPassword(value);
+              setPasswordManuallyEdited(true);
+            }}
             visible={showParentPassword}
             onToggle={() => setShowParentPassword(!showParentPassword)}
           />
         )}
         <label className="grid gap-1 text-sm font-medium text-slate-700">
           Élèves liés
-          <select
-            multiple
-            value={form.studentIds}
-            onChange={(event) => setForm({ ...form, studentIds: Array.from(event.target.selectedOptions).map((option) => option.value) })}
-            className="input min-h-32"
-          >
-            {yearData.students.map((student) => (
-              <option key={student.id} value={student.id}>
-                {student.nom} {student.prenom}{student.parentId && student.parentId !== form.id ? " - déjà lié" : ""}
-              </option>
-            ))}
-          </select>
+          <input
+            value={studentLinkSearch}
+            onChange={(event) => setStudentLinkSearch(event.target.value)}
+            className="input"
+            placeholder="Nom, postnom, prénom, matricule ou classe"
+          />
         </label>
+        {normalizedStudentLinkSearch && (
+          <div className="max-h-56 space-y-2 overflow-y-auto rounded border border-slate-200 bg-white p-2 scrollbar-thin">
+            {studentLinkSearchResults.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun élève trouvé.</p>}
+            {studentLinkSearchResults.map((student) => {
+              const isSelected = form.studentIds.includes(student.id);
+              const classLabel = student.option?.trim() ? `${student.className} ${student.option}` : student.className;
+              return (
+                <button
+                  key={student.id}
+                  onClick={() => toggleLinkedStudent(student.id)}
+                  className={`w-full rounded border p-3 text-left text-sm transition ${
+                    isSelected ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50 hover:border-blue-200 hover:bg-blue-50"
+                  }`}
+                  type="button"
+                >
+                  <p className="font-semibold text-ink">{`${student.nom} ${student.postnom} ${student.prenom}`.replace(/\s+/g, " ").trim()}</p>
+                  <p className="text-xs text-slate-500">
+                    {classLabel}{student.matricule ? ` · ${student.matricule}` : ""}{student.parentId && student.parentId !== form.id ? " · déjà lié" : ""}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {selectedLinkedStudents.length > 0 && (
+          <div className="grid gap-2 rounded border border-slate-200 bg-slate-50 p-3 text-sm">
+            <p className="font-semibold text-ink">{selectedLinkedStudents.length} élève(s) lié(s)</p>
+            <div className="grid gap-2">
+              {selectedLinkedStudents.map((student) => {
+                const classLabel = student.option?.trim() ? `${student.className} ${student.option}` : student.className;
+                const studentLabel = `${student.nom} ${student.postnom} ${student.prenom}`.replace(/\s+/g, " ").trim();
+                return (
+                  <div key={student.id} className="flex min-w-0 items-center justify-between gap-3 rounded bg-white px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-ink">{studentLabel}</p>
+                      <p className="truncate text-xs text-slate-500">{classLabel}{student.matricule ? ` · ${student.matricule}` : ""}</p>
+                    </div>
+                    <button
+                      onClick={() => removeLinkedStudent(student.id)}
+                      className="shrink-0 rounded-full p-1 text-slate-500 transition hover:bg-slate-100 hover:text-red-600"
+                      type="button"
+                      aria-label={`Retirer ${studentLabel}`}
+                    >
+                      X
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <div className="grid min-w-0 grid-cols-2 gap-2">
-          <button onClick={() => setForm(emptyParent(school.id, year.id))} className="secondary-button">Annuler</button>
+          <button
+            onClick={() => {
+              setForm({ ...emptyParent(school.id, year.id), email: generatedParentEmail });
+              setPassword("");
+              setEmailManuallyEdited(false);
+              setPasswordManuallyEdited(false);
+              setStudentLinkSearch("");
+            }}
+            className="secondary-button"
+          >
+            Annuler
+          </button>
           <button onClick={saveParentProfile} className="primary-button"><CheckCircle2 className="h-4 w-4" /> Enregistrer</button>
         </div>
       </FormPanel>
@@ -7748,45 +7992,70 @@ function ControlModule({
     <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
       <div className="min-w-0">
         <SectionTitle title="Contrôle" subtitle="Frais scolaires, paiements, historique et soldes restants en dollar américain." />
-        <div className="mb-3 grid min-w-0 max-w-full gap-2 lg:flex lg:flex-wrap lg:items-stretch lg:gap-1.5">
-          <div className="flex min-w-0 flex-nowrap items-stretch gap-1.5 lg:contents">
-            <select value={amountComparator} onChange={(event) => setAmountComparator(event.target.value)} className="h-10 min-w-0 flex-[1.1] rounded border border-slate-200 bg-white px-2 text-xs sm:text-sm lg:flex-none lg:basis-32">
-              <option value="all">Montant payé</option>
-              {amountFeeOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <input value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)} type="number" className="h-10 min-w-0 flex-1 rounded border border-slate-200 bg-white px-2 text-xs sm:text-sm lg:flex-none lg:basis-24" placeholder="Filtre" />
-            <button onClick={printFilteredStudents} className="primary-button h-10 min-w-0 flex-1 justify-center px-2 text-xs sm:text-sm lg:flex-none lg:basis-28">
-              <Download className="h-4 w-4" /> Imprimer
-            </button>
-          </div>
-          <div className="grid min-w-0 gap-2 lg:contents">
-            <button onClick={() => (user.role === "cashier" ? setCashierControlDrawer("history") : setHistoryOpen(true))} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:w-auto lg:flex-none lg:basis-44 lg:text-xs" type="button">
-              Historique des paiements
-            </button>
-            <button onClick={() => setExpenseHistoryOpen(true)} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:w-auto lg:flex-none lg:basis-44 lg:text-xs" type="button">
-              Historique de dépenses
-            </button>
-            {user.role !== "cashier" && (
-              <button onClick={() => setWarningOpen(true)} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:w-auto lg:flex-none lg:basis-32 lg:text-xs" type="button">
-                Avertissement
-              </button>
-            )}
-          </div>
-          {canPay && user.role === "cashier" && (
-            <div className="flex min-w-0 flex-wrap items-stretch gap-2 lg:basis-full lg:flex-nowrap">
-              <button onClick={() => { setCashierControlFeedback(""); setCashierControlFeedbackDrawer(null); setCashierControlDrawer("payment"); }} className="primary-button min-w-0 flex-1 justify-center sm:flex-none sm:basis-56" type="button">
-                Enregistrer un paiement
-              </button>
-              <button onClick={() => { setCashierControlFeedback(""); setCashierControlFeedbackDrawer(null); setCashierControlDrawer("expense"); }} className="primary-button min-w-0 flex-1 justify-center sm:flex-none sm:basis-56" type="button">
-                Enregistrer une dépense
+        {user.role === "cashier" ? (
+          <div className="mb-3 grid min-w-0 max-w-full gap-2 lg:w-full">
+            <div className="flex min-w-0 flex-nowrap items-stretch gap-1.5 lg:grid lg:w-full lg:grid-cols-3 lg:gap-2">
+              <select value={amountComparator} onChange={(event) => setAmountComparator(event.target.value)} className="h-10 min-w-0 flex-[1.1] rounded border border-slate-200 bg-white px-2 text-xs sm:text-sm lg:w-full">
+                <option value="all">Montant payé</option>
+                {amountFeeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <input value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)} type="number" className="h-10 min-w-0 flex-1 rounded border border-slate-200 bg-white px-2 text-xs sm:text-sm lg:w-full" placeholder="Filtre" />
+              <button onClick={printFilteredStudents} className="primary-button h-10 min-w-0 flex-1 justify-center px-2 text-xs sm:text-sm lg:w-full">
+                <Download className="h-4 w-4" /> Imprimer
               </button>
             </div>
-          )}
-        </div>
+            <div className={`grid min-w-0 gap-2 sm:grid-cols-2 lg:w-full ${canPay ? "lg:grid-cols-4" : "lg:grid-cols-2"}`}>
+              <button onClick={() => setCashierControlDrawer("history")} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:text-xs" type="button">
+                Historique des paiements
+              </button>
+              <button onClick={() => setExpenseHistoryOpen(true)} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:text-xs" type="button">
+                Historique de dépenses
+              </button>
+              {canPay && (
+                <>
+                  <button onClick={() => { setCashierControlFeedback(""); setCashierControlFeedbackDrawer(null); setCashierControlDrawer("payment"); }} className="primary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:text-xs" type="button">
+                    Enregistrer un paiement
+                  </button>
+                  <button onClick={() => { setCashierControlFeedback(""); setCashierControlFeedbackDrawer(null); setCashierControlDrawer("expense"); }} className="primary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:text-xs" type="button">
+                    Enregistrer une dépense
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="mb-3 grid min-w-0 max-w-full gap-2 lg:w-full">
+            <div className="flex min-w-0 flex-nowrap items-stretch gap-1.5 lg:grid lg:w-full lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(160px,220px)] lg:gap-2">
+              <select value={amountComparator} onChange={(event) => setAmountComparator(event.target.value)} className="h-10 min-w-0 flex-[1.1] rounded border border-slate-200 bg-white px-2 text-xs sm:text-sm lg:w-full">
+                <option value="all">Montant payé</option>
+                {amountFeeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <input value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)} type="number" className="h-10 min-w-0 flex-1 rounded border border-slate-200 bg-white px-2 text-xs sm:text-sm lg:w-full" placeholder="Filtre" />
+              <button onClick={printFilteredStudents} className="primary-button h-10 min-w-0 flex-1 justify-center px-2 text-xs sm:text-sm lg:w-full">
+                <Download className="h-4 w-4" /> Imprimer
+              </button>
+            </div>
+            <div className="grid min-w-0 gap-2 lg:w-full lg:grid-cols-3">
+              <button onClick={() => setHistoryOpen(true)} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:text-xs" type="button">
+                Historique des paiements
+              </button>
+              <button onClick={() => setExpenseHistoryOpen(true)} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:text-xs" type="button">
+                Historique de dépenses
+              </button>
+              <button onClick={() => setWarningOpen(true)} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:text-xs" type="button">
+                Avertissement
+              </button>
+            </div>
+          </div>
+        )}
         <div className="grid min-w-0 gap-3">
           {rows.map(({ student, balance, progress, hasApplicableFees }) => (
             <article key={student.id} className="min-w-0 rounded border border-slate-200 bg-white p-4">
@@ -8159,7 +8428,6 @@ function ReportsModule({
 
   return (
     <section className="grid min-w-0 gap-4">
-      <SectionTitle title="Rapports" subtitle="Rapports journaliers et globaux limités à l'année scolaire sélectionnée." />
       <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
         <div className="grid min-w-0 gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
           <Field label="Date début" value={startDate} onChange={setStartDate} type="date" />
@@ -8167,7 +8435,7 @@ function ReportsModule({
           <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
             Section
             <select value={sectionFilter} onChange={(event) => setSectionFilter(event.target.value as "all" | SchoolSection)} className="input">
-              <option value="all">Toutes les sections</option>
+              <option value="all">Toutes</option>
               <option value="maternelle">Maternelle</option>
               <option value="primaire">Primaire</option>
               <option value="secondaire">Secondaire</option>
@@ -8636,10 +8904,12 @@ function MenuModule({
     setSchoolSaving(true);
     setSchoolSaveStatus("");
     setSchoolSaveMessage("");
-    const savedSchool = { ...schoolForm };
+    const nextMotto = schoolForm.motto?.trim();
+    const existingMotto = school.motto?.trim();
+    const savedSchool = { ...schoolForm, motto: nextMotto || existingMotto || "" };
     const nextSchools = data.schools.map((item) => (item.id === school.id ? savedSchool : item));
     try {
-      const persisted = await persistFirestorePatch({ schools: nextSchools });
+      const persisted = await persistFirestorePatch({ schools: nextSchools }, { throwOnError: true });
       if (canUseFirestoreData() && persisted === false) {
         throw new Error("Persistance Firestore indisponible.");
       }
@@ -9542,7 +9812,16 @@ function getClassSection(className: SchoolClass): SchoolSection {
 }
 
 const schoolEducationLevelChoices = ["Maternelle", "Primaire", "Secondaire"];
-const defaultSchoolOptions = ["Littéraire", "Pédagogie", "Sciences", "Commerciale"];
+const defaultSchoolOptions = [
+  "Sciences",
+  "Littéraire",
+  "Commerciale et Gestion",
+  "Pédagogie générale",
+  "Électricité générale",
+  "Mécanique générale",
+  "Coupe et Couture",
+  "Électronique",
+];
 
 function educationLevelsForSchoolLevel(level: "Maternelle" | "Primaire" | "Secondaire") {
   if (level === "Maternelle") return ["Maternelle"];
@@ -10245,7 +10524,7 @@ function AdminDrawer({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 scrollbar-thin">{children}</div>
+        <div className={notificationPanel ? "min-h-0 flex-1 overflow-hidden" : "min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 scrollbar-thin"}>{children}</div>
       </div>
     </div>
   );

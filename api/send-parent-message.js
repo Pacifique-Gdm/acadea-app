@@ -149,10 +149,12 @@ async function legacySentCount({ db, schoolId, schoolYearId, parentId, localDate
     .where("schoolYearId", "==", schoolYearId)
     .where("threadParentId", "==", parentId)
     .where("recipientParentId", "==", "school")
-    .where("createdAt", ">=", startIso)
-    .where("createdAt", "<", endIso)
     .get();
-  return snapshot.size;
+  // Filtrage local de la journée pour éviter un index composite Firestore dédié.
+  return snapshot.docs.filter((doc) => {
+    const createdAt = String(doc.data().createdAt ?? "");
+    return createdAt >= startIso && createdAt < endIso;
+  }).length;
 }
 
 async function currentQuota({ db, caller, schoolYearId, localDate }) {

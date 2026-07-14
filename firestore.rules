@@ -82,6 +82,27 @@ service cloud.firestore {
         || request.resource.data.schoolYearId == resource.data.schoolYearId;
     }
 
+    function schoolSettingsUpdate(schoolId) {
+      return schoolAdmin()
+        && schoolId == tenantSchoolId()
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          "name",
+          "motto",
+          "address",
+          "phone",
+          "email",
+          "logoUrl",
+          "acronym",
+          "educationLevels",
+          "schoolOptions",
+          "schoolType",
+          "activeSchoolYearId",
+          "updatedAt",
+          "updatedBy"
+        ]);
+    }
+
     match /platform/appConfig {
       allow read: if true;
       allow write: if superAdmin();
@@ -99,7 +120,8 @@ service cloud.firestore {
 
     match /schools/{schoolId} {
       allow read: if superAdmin() || (schoolUser() && schoolId == tenantSchoolId()) || (disciplineDirector() && schoolId == tenantSchoolId());
-      allow create, update: if superAdmin();
+      allow create: if superAdmin();
+      allow update: if superAdmin() || schoolSettingsUpdate(schoolId);
       allow delete: if superAdmin();
     }
 

@@ -116,6 +116,7 @@ export default async function handler(req, res) {
 
     const body = await readBody(req);
     const schoolName = String(body.schoolName ?? "").trim();
+    const adminName = String(body.adminName ?? "").trim();
     const adminEmail = String(body.adminEmail ?? "").trim().toLowerCase();
     const adminPassword = String(body.adminPassword ?? "");
     const plan = allowedPlans.has(body.subscriptionPlan) ? body.subscriptionPlan : "Standard";
@@ -129,7 +130,7 @@ export default async function handler(req, res) {
       ? [...new Set(body.schoolOptions.map((option) => String(option).trim()).filter(Boolean))]
       : [];
 
-    if (!schoolName || !adminEmail || adminPassword.length < 6) {
+    if (!schoolName || !adminName || !adminEmail || adminPassword.length < 6) {
       sendJson(res, 400, { error: "Nom d'école, email admin et mot de passe valide sont requis." });
       return;
     }
@@ -179,14 +180,14 @@ export default async function handler(req, res) {
     const adminUserRecord = await auth.createUser({
       email: adminEmail,
       password: adminPassword,
-      displayName: `Admin ${schoolName}`,
+      displayName: adminName,
       disabled: false,
     });
     adminUid = adminUserRecord.uid;
 
     const adminUser = {
       id: adminUid,
-      name: `Admin ${schoolName}`,
+      name: adminName,
       email: adminEmail,
       role: "school_admin",
       schoolId,
