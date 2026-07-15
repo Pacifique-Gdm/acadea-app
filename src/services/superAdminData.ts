@@ -57,10 +57,28 @@ async function loadCollection<T>(collectionName: string) {
   return snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as T[];
 }
 
+async function loadOptionalCollection<T>(collectionName: string) {
+  try {
+    return await loadCollection<T>(collectionName);
+  } catch (error) {
+    console.warn(`Chargement optionnel ignore (${collectionName}).`, error);
+    return [];
+  }
+}
+
 async function loadSchoolCollection<T>(collectionName: string, schoolId: string) {
   const database = ensureFirestore();
   const snapshot = await getDocs(query(collection(database, collectionName), where("schoolId", "==", schoolId)));
   return snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as T[];
+}
+
+async function loadOptionalSchoolCollection<T>(collectionName: string, schoolId: string) {
+  try {
+    return await loadSchoolCollection<T>(collectionName, schoolId);
+  } catch (error) {
+    console.warn(`Chargement optionnel ignore (${collectionName}) pour l'ecole ${schoolId}.`, error);
+    return [];
+  }
 }
 
 async function loadGlobalCount(collectionName: string, filters: [string, unknown][] = []) {
@@ -80,7 +98,7 @@ export async function loadSuperAdminInitialData(userId: string) {
   const [schools, schoolYears, biometricTerminals, studentsCount, parentsCount, adminsCount] = await Promise.all([
     loadCollection<School>("schools"),
     loadCollection<SchoolYear>("schoolYears"),
-    loadCollection<BiometricTerminal>("biometricTerminals"),
+    loadOptionalCollection<BiometricTerminal>("biometricTerminals"),
     loadGlobalCount("students"),
     loadGlobalCount("parents"),
     loadGlobalCount("users", [["role", "school_admin"]]),
@@ -113,7 +131,7 @@ export async function loadSuperAdminSchoolData(schoolId: string): Promise<SuperA
     loadSchoolCollection<AppData["notifications"][number]>("notifications", schoolId),
     loadSchoolCollection<AuditLog>("auditLogs", schoolId),
     loadSchoolCollection<ValvePublication>("valves", schoolId),
-    loadSchoolCollection<BiometricTerminal>("biometricTerminals", schoolId),
+    loadOptionalSchoolCollection<BiometricTerminal>("biometricTerminals", schoolId),
     loadSchoolCollection<AppUser>("users", schoolId),
   ]);
 

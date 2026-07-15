@@ -558,6 +558,12 @@ export default function App() {
         if (cancelled || logoutInProgressRef.current) return;
         console.warn("Chargement Firestore indisponible.", error);
         setAuthError(error instanceof Error ? error.message : "Chargement Firestore impossible après connexion.");
+        if (user.role === "super_admin") {
+          setPlatformCounts(null);
+          setData({ ...loadInitialData(), users: [user] });
+          navigate("/platform");
+          return;
+        }
         setUser(null);
         setSelectedYearId("");
         setActiveTab("dashboard");
