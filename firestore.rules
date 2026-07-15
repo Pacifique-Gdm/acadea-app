@@ -298,6 +298,11 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /biometricTerminals/{terminalId} {
+      allow read, create, update: if superAdmin();
+      allow delete: if false;
+    }
+
     match /bulletins/{bulletinId} {
       allow read: if superAdmin() || sameTenantResource();
       allow create: if schoolAdmin() && sameTenantCreate();

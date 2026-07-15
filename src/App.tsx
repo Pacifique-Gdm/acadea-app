@@ -84,6 +84,8 @@ import type {
   AttendanceSettings,
   AttendanceStatus,
   AuditLog,
+  BiometricTerminal,
+  BiometricTerminalStatus,
   DisciplineSanction,
   Expense,
   FeeKind,
@@ -157,6 +159,7 @@ const emptyAppData: AppData = {
   disciplineSanctions: [],
   attendance: [],
   attendanceSettings: [],
+  biometricTerminals: [],
 };
 
 function uid(prefix: string) {
@@ -2254,6 +2257,12 @@ function PlatformModule({
   const [schoolDeleteLoading, setSchoolDeleteLoading] = useState(false);
   const [schoolLevelChangeTarget, setSchoolLevelChangeTarget] = useState<{ school: School; level: "Maternelle" | "Primaire" | "Secondaire" } | null>(null);
   const [schoolLevelConfirmation, setSchoolLevelConfirmation] = useState("");
+  const [biometricSchoolId, setBiometricSchoolId] = useState("");
+  const [terminalFormOpen, setTerminalFormOpen] = useState(false);
+  const [editingTerminalId, setEditingTerminalId] = useState("");
+  const [terminalForm, setTerminalForm] = useState({ name: "", brand: "", model: "", serialNumber: "", deviceId: "", location: "", notes: "" });
+  const [terminalError, setTerminalError] = useState("");
+  const [terminalMessage, setTerminalMessage] = useState("");
   const [platformLogoDraft, setPlatformLogoDraft] = useState(platformLogoUrl);
   const [platformLogoMessage, setPlatformLogoMessage] = useState("");
   const [schoolDetailLoading, setSchoolDetailLoading] = useState(false);
@@ -2278,6 +2287,8 @@ function PlatformModule({
   const visibleSchoolOptionChoices = Array.from(new Set([...schoolOptionChoices, ...selectedSchoolOptions.filter((option) => option !== "Autre" && isAllowedSchoolOption(option))]));
   const selectedSchool = visibleSchools.find((school) => school.id === selectedSchoolId) ?? visibleSchools[0];
   const drawerSchool = visibleSchools.find((school) => school.id === schoolDrawerId);
+  const biometricSchool = visibleSchools.find((school) => school.id === biometricSchoolId);
+  const biometricSchoolTerminals = biometricSchool ? data.biometricTerminals.filter((terminal) => terminal.schoolId === biometricSchool.id).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")) : [];
   const drawerSchoolOptions = (drawerSchool?.schoolOptions ?? []).filter(isAllowedSchoolOption);
   const drawerStats = drawerSchool ? getPlatformSchoolStats(drawerSchool.id, data) : { students: 0, parents: 0, admins: 0, users: 0 };
   const drawerAdmins = drawerSchool ? data.users.filter((item) => item.role === "school_admin" && item.schoolId === drawerSchool.id) : [];
@@ -2478,6 +2489,132 @@ function PlatformModule({
     });
   }
 
+  function resetTerminalForm() {
+    setTerminalForm({ name: "", brand: "", model: "", serialNumber: "", deviceId: "", location: "", notes: "" });
+    setEditingTerminalId("");
+    setTerminalFormOpen(false);
+    setTerminalError("");
+  }
+
+  function openBiometricDrawer(school: School) {
+    setBiometricSchoolId(school.id);
+    setTerminalMessage("");
+    resetTerminalForm();
+  }
+
+  function closeBiometricDrawer() {
+    setBiometricSchoolId("");
+    setTerminalMessage("");
+    resetTerminalForm();
+  }
+
+  function openCreateTerminalForm() {
+    setEditingTerminalId("");
+    setTerminalForm({ name: "", brand: "", model: "", serialNumber: "", deviceId: "", location: "", notes: "" });
+    setTerminalError("");
+    setTerminalMessage("");
+    setTerminalFormOpen(true);
+  }
+
+  function openEditTerminalForm(terminal: BiometricTerminal) {
+    setEditingTerminalId(terminal.id);
+    setTerminalForm({
+      name: terminal.name,
+      brand: terminal.brand,
+      model: terminal.model,
+      serialNumber: terminal.serialNumber,
+      deviceId: terminal.deviceId ?? "",
+      location: terminal.location,
+      notes: terminal.notes ?? "",
+    });
+    setTerminalError("");
+    setTerminalMessage("");
+    setTerminalFormOpen(true);
+  }
+
+  function saveTerminal() {
+    if (!biometricSchool) return;
+    const now = new Date().toISOString();
+    const serialNumber = terminalForm.serialNumber.trim();
+    const requiredFields = [terminalForm.name, terminalForm.brand, terminalForm.model, serialNumber, terminalForm.location];
+    if (requiredFields.some((value) => !value.trim())) {
+      setTerminalError("Veuillez renseigner le nom, la marque, le modèle, le numéro de série et l'emplacement.");
+      return;
+    }
+    const normalizedSerial = serialNumber.toLowerCase();
+    const duplicate = data.biometricTerminals.find(
+      (terminal) => terminal.id !== editingTerminalId && terminal.serialNumber.trim().toLowerCase() === normalizedSerial,
+    );
+    if (duplicate) {
+      setTerminalError("Ce numéro de série est déjà associé à une école.");
+      return;
+    }
+
+    const existing = editingTerminalId ? data.biometricTerminals.find((terminal) => terminal.id === editingTerminalId && terminal.schoolId === biometricSchool.id) : undefined;
+    const terminalId = existing?.terminalId ?? uid("terminal");
+    const nextTerminal: BiometricTerminal = {
+      id: existing?.id ?? terminalId,
+      terminalId,
+      schoolId: biometricSchool.id,
+      name: terminalForm.name.trim(),
+      brand: terminalForm.brand.trim(),
+      model: terminalForm.model.trim(),
+      serialNumber,
+      location: terminalForm.location.trim(),
+      status: existing?.status ?? "unconfigured",
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      createdBy: existing?.createdBy ?? user.id,
+      updatedBy: user.id,
+    };
+    const deviceId = terminalForm.deviceId.trim();
+    const notes = terminalForm.notes.trim();
+    if (deviceId) nextTerminal.deviceId = deviceId;
+    if (notes) nextTerminal.notes = notes;
+    if (existing?.lastSyncAt) nextTerminal.lastSyncAt = existing.lastSyncAt;
+    if (existing?.replacedByTerminalId) nextTerminal.replacedByTerminalId = existing.replacedByTerminalId;
+    updateData({
+      biometricTerminals: [nextTerminal, ...data.biometricTerminals.filter((terminal) => terminal.id !== nextTerminal.id)],
+      auditLogs: [writeAudit(biometricSchool.id, `${existing ? "Modification" : "Ajout"} terminal biométrique ${nextTerminal.serialNumber}`), ...data.auditLogs],
+    });
+    setTerminalMessage(existing ? "Terminal biométrique mis à jour." : "Terminal biométrique ajouté.");
+    resetTerminalForm();
+  }
+
+  function setTerminalStatus(terminal: BiometricTerminal, status: BiometricTerminalStatus) {
+    const nextTerminal = {
+      ...terminal,
+      status,
+      updatedAt: new Date().toISOString(),
+      updatedBy: user.id,
+    };
+    updateData({
+      biometricTerminals: [nextTerminal, ...data.biometricTerminals.filter((item) => item.id !== terminal.id)],
+      auditLogs: [writeAudit(terminal.schoolId, `Statut terminal biométrique ${terminal.serialNumber}: ${status}`), ...data.auditLogs],
+    });
+    setTerminalMessage(status === "disabled" ? "Terminal désactivé." : "Terminal mis à jour.");
+  }
+
+  function replaceTerminal(terminal: BiometricTerminal) {
+    setTerminalStatus(terminal, "disabled");
+    setEditingTerminalId("");
+    setTerminalForm({
+      name: `${terminal.name} - remplacement`,
+      brand: terminal.brand,
+      model: terminal.model,
+      serialNumber: "",
+      deviceId: "",
+      location: terminal.location,
+      notes: `Remplace le terminal ${terminal.serialNumber}`,
+    });
+    setTerminalError("");
+    setTerminalFormOpen(true);
+  }
+
+  function testTerminalConnection() {
+    setTerminalMessage("Le test de connexion sera disponible lorsque l'intégration technique du terminal sera activée.");
+  }
+
   function openDeleteSchoolDialog(school: School) {
     setSchoolActionError("");
     setSchoolActionSuccess("");
@@ -2523,6 +2660,7 @@ function PlatformModule({
           messages: data.messages.filter((item) => item.schoolId !== school.id),
           notifications: data.notifications.filter((item) => item.schoolId !== school.id),
           auditLogs: data.auditLogs.filter((item) => item.schoolId !== school.id),
+          biometricTerminals: data.biometricTerminals.filter((item) => item.schoolId !== school.id),
           disciplineSanctions: data.disciplineSanctions.filter((item) => item.schoolId !== school.id),
         },
         { persist: false },
@@ -2649,6 +2787,7 @@ function PlatformModule({
             notifications: schoolData.notifications,
             auditLogs: schoolData.auditLogs,
             valves: schoolData.valves,
+            biometricTerminals: [...data.biometricTerminals.filter((terminal) => terminal.schoolId !== schoolId), ...schoolData.biometricTerminals],
             disciplineSanctions: [],
           },
           { persist: false },
@@ -2669,8 +2808,10 @@ function PlatformModule({
   function closeSchoolDrawer() {
     schoolDetailRequestRef.current += 1;
     setSchoolDrawerId("");
+    setBiometricSchoolId("");
     setSchoolDetailLoading(false);
     setSchoolDetailError("");
+    resetTerminalForm();
     updateData(
       {
         users: data.users.filter((item) => item.role === "super_admin" || !item.schoolId),
@@ -3011,6 +3152,9 @@ function PlatformModule({
                 <button onClick={() => void changeSchoolStatus(drawerSchool)} className="secondary-button" type="button">
                   {drawerSchool.status === "active" ? "Suspendre" : "Reactiver"}
                 </button>
+                <button onClick={() => openBiometricDrawer(drawerSchool)} className="secondary-button" type="button">
+                  Terminal biométrique
+                </button>
                 <button onClick={() => openDeleteSchoolDialog(drawerSchool)} className="inline-flex min-w-0 items-center justify-center rounded bg-red-50 px-3 py-2 text-sm font-semibold text-red-700" type="button">
                   Supprimer
                 </button>
@@ -3117,6 +3261,116 @@ function PlatformModule({
 
             {detailTab === "history" && <AuditTimeline logs={drawerLogs} />}
 
+          </div>
+        </AdminDrawer>
+      )}
+
+      {biometricSchool && (
+        <AdminDrawer title="Terminal biométrique" onClose={closeBiometricDrawer} closeLabel="Fermer les terminaux biométriques">
+          <div className="grid min-w-0 gap-4">
+            <div className="rounded border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-semibold text-slate-500">École</p>
+              <h2 className="mt-1 break-words text-lg font-bold text-ink">{biometricSchool.name}</h2>
+              <p className="mt-2 text-sm text-slate-500">Acadéa enregistre et rattache les terminaux compatibles. Aucun secret matériel n'est stocké dans cette interface.</p>
+            </div>
+            {terminalMessage && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{terminalMessage}</p>}
+            {terminalError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{terminalError}</p>}
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-bold text-ink">Terminaux liés</p>
+                <p className="text-sm text-slate-500">{biometricSchoolTerminals.length} terminal(aux) enregistré(s)</p>
+              </div>
+              <button onClick={openCreateTerminalForm} className="primary-button justify-center" type="button">
+                <Plus className="h-4 w-4" /> Ajouter un terminal
+              </button>
+            </div>
+
+            {terminalFormOpen && (
+              <div className="grid gap-3 rounded border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-bold text-ink">{editingTerminalId ? "Modifier le terminal" : "Ajouter un terminal"}</h3>
+                    <p className="text-sm text-slate-500">Le terminal sera rattaché uniquement à cette école.</p>
+                  </div>
+                  <button onClick={resetTerminalForm} className="rounded bg-slate-100 p-2 text-slate-500 hover:text-ink" type="button" aria-label="Fermer le formulaire terminal">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="grid gap-1 text-sm font-semibold text-slate-600">
+                    Nom du terminal
+                    <input value={terminalForm.name} onChange={(event) => setTerminalForm((current) => ({ ...current, name: event.target.value }))} className="input" />
+                  </label>
+                  <label className="grid gap-1 text-sm font-semibold text-slate-600">
+                    Marque
+                    <input value={terminalForm.brand} onChange={(event) => setTerminalForm((current) => ({ ...current, brand: event.target.value }))} className="input" />
+                  </label>
+                  <label className="grid gap-1 text-sm font-semibold text-slate-600">
+                    Modèle
+                    <input value={terminalForm.model} onChange={(event) => setTerminalForm((current) => ({ ...current, model: event.target.value }))} className="input" />
+                  </label>
+                  <label className="grid gap-1 text-sm font-semibold text-slate-600">
+                    Numéro de série
+                    <input value={terminalForm.serialNumber} onChange={(event) => setTerminalForm((current) => ({ ...current, serialNumber: event.target.value }))} className="input" />
+                  </label>
+                  <label className="grid gap-1 text-sm font-semibold text-slate-600">
+                    Device ID
+                    <input value={terminalForm.deviceId} onChange={(event) => setTerminalForm((current) => ({ ...current, deviceId: event.target.value }))} className="input" placeholder="Optionnel" />
+                  </label>
+                  <label className="grid gap-1 text-sm font-semibold text-slate-600">
+                    Emplacement
+                    <input value={terminalForm.location} onChange={(event) => setTerminalForm((current) => ({ ...current, location: event.target.value }))} className="input" placeholder="Entrée principale" />
+                  </label>
+                  <label className="grid gap-1 text-sm font-semibold text-slate-600 sm:col-span-2">
+                    Notes facultatives
+                    <textarea value={terminalForm.notes} onChange={(event) => setTerminalForm((current) => ({ ...current, notes: event.target.value }))} className="input min-h-24" />
+                  </label>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <button onClick={resetTerminalForm} className="secondary-button justify-center" type="button">Annuler</button>
+                  <button onClick={saveTerminal} className="primary-button justify-center" type="button">
+                    <CheckCircle2 className="h-4 w-4" /> Enregistrer le terminal
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {biometricSchoolTerminals.length === 0 ? (
+              <p className="rounded border border-dashed border-slate-300 bg-white p-5 text-center text-sm font-semibold text-slate-500">
+                Aucun terminal biométrique enregistré pour cette école.
+              </p>
+            ) : (
+              <div className="grid gap-3">
+                {biometricSchoolTerminals.map((terminal) => (
+                  <article key={terminal.id} className="rounded border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="break-words font-bold text-ink">{terminal.name}</h3>
+                          <BiometricTerminalStatusBadge status={terminal.status} />
+                        </div>
+                        <p className="mt-1 break-words text-sm font-semibold text-slate-500">{terminal.brand} · {terminal.model}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button onClick={() => openEditTerminalForm(terminal)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700" type="button">Modifier</button>
+                        <button onClick={() => setTerminalStatus(terminal, "disabled")} className="rounded bg-red-50 px-3 py-2 text-xs font-semibold text-red-700" type="button">Désactiver</button>
+                        <button onClick={() => replaceTerminal(terminal)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700" type="button">Remplacer</button>
+                        <button onClick={testTerminalConnection} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700" type="button">Tester la connexion</button>
+                      </div>
+                    </div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <InfoRow label="Numéro de série" value={terminal.serialNumber} />
+                      <InfoRow label="Device ID" value={terminal.deviceId || "-"} />
+                      <InfoRow label="Emplacement" value={terminal.location || "-"} />
+                      <InfoRow label="Terminal ID" value={terminal.terminalId} />
+                      <InfoRow label="Date d'ajout" value={new Date(terminal.createdAt).toLocaleDateString("fr-FR")} />
+                      <InfoRow label="Dernière synchronisation" value={terminal.lastSyncAt ? new Date(terminal.lastSyncAt).toLocaleString("fr-FR") : "-"} />
+                      {terminal.notes && <InfoRow label="Notes" value={terminal.notes} />}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
           </div>
         </AdminDrawer>
       )}
@@ -3306,6 +3560,22 @@ function StatusBadge({ status }: { status: School["status"] }) {
 
 function StatusPill({ active }: { active: boolean }) {
   return <span className={`rounded px-2 py-1 text-xs font-semibold ${active ? "bg-mint/10 text-mint" : "bg-slate-100 text-slate-500"}`}>{active ? "Actif" : "Inactif"}</span>;
+}
+
+function BiometricTerminalStatusBadge({ status }: { status: BiometricTerminalStatus }) {
+  const labels: Record<BiometricTerminalStatus, string> = {
+    unconfigured: "Non configuré",
+    connected: "Connecté",
+    offline: "Hors ligne",
+    disabled: "Désactivé",
+  };
+  const classNames: Record<BiometricTerminalStatus, string> = {
+    unconfigured: "bg-amber-100 text-amber-700",
+    connected: "bg-mint/10 text-mint",
+    offline: "bg-slate-100 text-slate-600",
+    disabled: "bg-red-50 text-red-700",
+  };
+  return <span className={`rounded px-2 py-1 text-xs font-semibold ${classNames[status]}`}>{labels[status]}</span>;
 }
 
 function FilterSelect({

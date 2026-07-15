@@ -1,7 +1,7 @@
 import { collection, doc, getCountFromServer, getDoc, getDocs, query, where } from "@firebase/firestore";
 import type { Firestore } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
-import type { AppData, AppUser, AuditLog, Expense, FeeType, Message, ParentProfile, Payment, School, SchoolYear, Student, ValvePublication } from "../types";
+import type { AppData, AppUser, AuditLog, BiometricTerminal, Expense, FeeType, Message, ParentProfile, Payment, School, SchoolYear, Student, ValvePublication } from "../types";
 
 export type SuperAdminGlobalCounts = {
   students: number;
@@ -19,6 +19,7 @@ export type SuperAdminSchoolData = {
   notifications: AppData["notifications"];
   auditLogs: AuditLog[];
   valves: ValvePublication[];
+  biometricTerminals: BiometricTerminal[];
   admins: AppUser[];
 };
 
@@ -39,6 +40,7 @@ function emptySuperAdminData(): AppData {
     disciplineSanctions: [],
     attendance: [],
     attendanceSettings: [],
+    biometricTerminals: [],
   };
 }
 
@@ -75,9 +77,10 @@ export async function loadSuperAdminInitialData(userId: string) {
     throw new Error("Chargement Firestore impossible : profil Super Administrateur introuvable.");
   }
 
-  const [schools, schoolYears, studentsCount, parentsCount, adminsCount] = await Promise.all([
+  const [schools, schoolYears, biometricTerminals, studentsCount, parentsCount, adminsCount] = await Promise.all([
     loadCollection<School>("schools"),
     loadCollection<SchoolYear>("schoolYears"),
+    loadCollection<BiometricTerminal>("biometricTerminals"),
     loadGlobalCount("students"),
     loadGlobalCount("parents"),
     loadGlobalCount("users", [["role", "school_admin"]]),
@@ -87,6 +90,7 @@ export async function loadSuperAdminInitialData(userId: string) {
   data.users = [{ id: userSnapshot.id, ...userSnapshot.data() } as AppUser];
   data.schools = schools;
   data.schoolYears = schoolYears;
+  data.biometricTerminals = biometricTerminals;
 
   return {
     data,
@@ -99,7 +103,7 @@ export async function loadSuperAdminInitialData(userId: string) {
 }
 
 export async function loadSuperAdminSchoolData(schoolId: string): Promise<SuperAdminSchoolData> {
-  const [students, parents, feeTypes, payments, expenses, messages, notifications, auditLogs, valves, users] = await Promise.all([
+  const [students, parents, feeTypes, payments, expenses, messages, notifications, auditLogs, valves, biometricTerminals, users] = await Promise.all([
     loadSchoolCollection<Student>("students", schoolId),
     loadSchoolCollection<ParentProfile>("parents", schoolId),
     loadSchoolCollection<FeeType>("feeTypes", schoolId),
@@ -109,6 +113,7 @@ export async function loadSuperAdminSchoolData(schoolId: string): Promise<SuperA
     loadSchoolCollection<AppData["notifications"][number]>("notifications", schoolId),
     loadSchoolCollection<AuditLog>("auditLogs", schoolId),
     loadSchoolCollection<ValvePublication>("valves", schoolId),
+    loadSchoolCollection<BiometricTerminal>("biometricTerminals", schoolId),
     loadSchoolCollection<AppUser>("users", schoolId),
   ]);
 
@@ -122,6 +127,7 @@ export async function loadSuperAdminSchoolData(schoolId: string): Promise<SuperA
     notifications,
     auditLogs,
     valves,
+    biometricTerminals,
     admins: users.filter((item) => item.role === "school_admin"),
   };
 }

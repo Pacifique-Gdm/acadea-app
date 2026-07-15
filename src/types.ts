@@ -311,6 +311,28 @@ export interface AttendanceSettings {
   updatedBy?: string;
 }
 
+export type BiometricTerminalStatus = "unconfigured" | "connected" | "offline" | "disabled";
+
+export interface BiometricTerminal {
+  id: string;
+  terminalId: string;
+  schoolId: string;
+  serialNumber: string;
+  deviceId?: string;
+  brand: string;
+  model: string;
+  name: string;
+  location: string;
+  status: BiometricTerminalStatus;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string;
+  updatedBy?: string;
+  lastSyncAt?: string;
+  replacedByTerminalId?: string;
+}
+
 export interface AppData {
   users: AppUser[];
   schools: School[];
@@ -327,6 +349,7 @@ export interface AppData {
   disciplineSanctions: DisciplineSanction[];
   attendance: AttendanceRecord[];
   attendanceSettings: AttendanceSettings[];
+  biometricTerminals: BiometricTerminal[];
 }
 
 export const CLASSES: SchoolClass[] = [

@@ -32,6 +32,7 @@ const collectionMap: Record<CollectionKey, string> = {
   disciplineSanctions: "disciplineSanctions",
   attendance: "attendance",
   attendanceSettings: "attendanceSettings",
+  biometricTerminals: "biometricTerminals",
 };
 
 export function canUseFirestoreData() {
@@ -55,6 +56,7 @@ function emptyFirestoreData(): AppData {
     disciplineSanctions: [],
     attendance: [],
     attendanceSettings: [],
+    biometricTerminals: [],
   };
 }
 
