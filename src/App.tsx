@@ -40,6 +40,7 @@ import {
 } from "lucide-react";
 import { getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff } from "./services/auth";
 import { BillingControlsDrawer } from "./components/platform/BillingControlsDrawer";
+import { AuditTimeline, BiometricTerminalStatusBadge, InfoRow, MiniStat, PlatformCard, SchoolLogo, SchoolSaasCard, StatusBadge } from "./components/platform";
 import { DisciplineHistoryDrawer } from "./components/discipline/DisciplineHistoryDrawer";
 import { DisciplineStatistics } from "./components/discipline/DisciplineStatistics";
 import { DisciplineStatus } from "./components/discipline/DisciplineStatus";
@@ -3546,97 +3547,8 @@ function PlatformModule({
   );
 }
 
-function PlatformCard({
-  label,
-  value,
-  icon: Icon,
-  description,
-  tone = "mint",
-}: {
-  label: string;
-  value: string | number;
-  icon: typeof BookOpen;
-  description?: string;
-  tone?: "mint" | "sky" | "violet" | "amber";
-}) {
-  const tones = {
-    mint: "bg-mint/10 text-mint",
-    sky: "bg-sky-50 text-sky-700",
-    violet: "bg-violet-50 text-violet-700",
-    amber: "bg-amber-50 text-amber-700",
-  };
-  return (
-    <article className="min-w-0 max-w-full rounded border border-slate-200 bg-white p-4 shadow-sm">
-      <div className={`mb-4 flex h-10 w-10 items-center justify-center rounded ${tones[tone]}`}>
-        <Icon className="h-5 w-5" />
-      </div>
-      <p className="break-words text-sm text-slate-500">{label}</p>
-      <p className="mt-1 break-words text-2xl font-bold text-ink">{value}</p>
-      {description && <p className="mt-2 break-words text-xs text-slate-500">{description}</p>}
-    </article>
-  );
-}
-
-function SchoolSaasCard({
-  school,
-  selected,
-  onSelect,
-}: {
-  school: School;
-  selected?: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <article className={`min-w-0 max-w-full rounded border bg-white p-4 shadow-sm ${selected ? "border-ink ring-2 ring-ink/10" : "border-slate-200"}`}>
-      <div className="flex min-w-0 items-center gap-3">
-        <SchoolLogo school={school} />
-        <div className="min-w-0 flex-1">
-          <button onClick={onSelect} className="max-w-full break-words text-left font-bold text-ink underline decoration-slate-300 underline-offset-4 transition hover:text-sky-700">
-            {school.name}
-          </button>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <StatusBadge status={school.status} />
-          </div>
-        </div>
-      </div>
-    </article>
-  );
-}
-
-function SchoolLogo({ school }: { school: School }) {
-  return (
-    <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded border border-slate-200 bg-slate-50 text-sm font-bold text-ink">
-      {school.logoUrl ? <img src={school.logoUrl} alt="" className="h-full w-full object-cover" /> : school.acronym ?? buildAcronym(school.name)}
-    </div>
-  );
-}
-
-function StatusBadge({ status }: { status: School["status"] }) {
-  return (
-    <span className={`rounded px-2 py-1 text-xs font-semibold ${status === "active" ? "bg-mint/10 text-mint" : "bg-red-50 text-red-700"}`}>
-      {status === "active" ? "Active" : "Suspendue"}
-    </span>
-  );
-}
-
 function StatusPill({ active }: { active: boolean }) {
   return <span className={`rounded px-2 py-1 text-xs font-semibold ${active ? "bg-mint/10 text-mint" : "bg-slate-100 text-slate-500"}`}>{active ? "Actif" : "Inactif"}</span>;
-}
-
-function BiometricTerminalStatusBadge({ status }: { status: BiometricTerminalStatus }) {
-  const labels: Record<BiometricTerminalStatus, string> = {
-    unconfigured: "Non configuré",
-    connected: "Connecté",
-    offline: "Hors ligne",
-    disabled: "Désactivé",
-  };
-  const classNames: Record<BiometricTerminalStatus, string> = {
-    unconfigured: "bg-amber-100 text-amber-700",
-    connected: "bg-mint/10 text-mint",
-    offline: "bg-slate-100 text-slate-600",
-    disabled: "bg-red-50 text-red-700",
-  };
-  return <span className={`rounded px-2 py-1 text-xs font-semibold ${classNames[status]}`}>{labels[status]}</span>;
 }
 
 function FilterSelect({
@@ -3657,53 +3569,6 @@ function FilterSelect({
         {children}
       </select>
     </label>
-  );
-}
-
-function MiniStat({ label, value, compact }: { label: string; value: string | number; compact?: boolean }) {
-  return (
-    <div className={`rounded bg-slate-50 ${compact ? "p-3" : "p-4"}`}>
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-      <p className={`${compact ? "text-lg" : "text-2xl"} mt-1 font-bold text-ink`}>{value}</p>
-    </div>
-  );
-}
-
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0 rounded bg-slate-50 p-3">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="mt-1 break-words font-semibold text-ink">{value}</p>
-    </div>
-  );
-}
-
-function AuditTimeline({ logs }: { logs: AuditLog[] }) {
-  if (logs.length === 0) {
-    return (
-      <div className="min-w-0 rounded border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">
-        Aucun historique pour cette école.
-      </div>
-    );
-  }
-
-  return (
-    <div className="grid min-w-0 gap-3">
-      <p className="text-sm font-semibold text-ink">Historique</p>
-      {logs.map((log) => (
-        <div key={log.id} className="flex min-w-0 gap-3 rounded border border-slate-200 p-3">
-          <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded bg-slate-100 text-slate-600">
-            <Clock3 className="h-4 w-4" />
-          </div>
-          <div className="min-w-0">
-            <p className="break-words text-sm font-semibold text-ink">{log.action}</p>
-            <p className="break-words text-xs text-slate-500">
-              {log.actorName} · {new Date(log.createdAt).toLocaleString("fr-FR")}
-            </p>
-          </div>
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -4879,15 +4744,6 @@ function getPlatformSchoolStats(schoolId: string, data: AppData) {
   const admins = data.users.filter((item) => item.role === "school_admin" && item.schoolId === schoolId).length;
   const users = data.users.filter((item) => item.schoolId === schoolId).length;
   return { students, parents, admins, users };
-}
-
-function buildAcronym(value: string) {
-  return value
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 3)
-    .map((part) => part.slice(0, 1).toUpperCase())
-    .join("");
 }
 
 function schoolTabLabel(tab: "overview" | "info" | "admins" | "history") {
