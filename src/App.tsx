@@ -74,8 +74,13 @@ import { buildStats, getStudentBalance } from "./utils/stats";
 import { getStudentFeeSummaries } from "./utils/studentFeeSummary";
 import { buildSchoolYearDataIndexes, sumPaymentsForStudentFee } from "./utils/dataIndexes";
 import { buildDisciplineStats } from "./utils/disciplineStats";
+import { buildFeeTargetChoices, feeAppliesToStudent, feeTargetClassName, formatFeeTargetValue } from "./utils/feeTargets";
 import { buildValveClassChoices, formatValveClassChoiceLabel, getValvePublicationParents, normalizeValveVisibility, parentCanViewValvePublication } from "./utils/valves";
 import { formatValveAttachmentSize, MAX_VALVE_ATTACHMENTS, MAX_VALVE_ATTACHMENTS_TOTAL_SIZE, prepareValveAttachments, validateValveAttachments } from "./utils/valvesMedia";
+import { educationLevelsForSchoolLevel, getSchoolClassChoices, getSchoolEducationLevels, schoolLevelFromConfig } from "./utils/schoolConfig";
+import type { SchoolLevelChoice } from "./utils/schoolConfig";
+import { formatStudentClassName, getClassSection, promoteStudentForNewYear } from "./utils/studentClasses";
+import { emptyStudent, generateMatricule, isArchivedStudent } from "./utils/studentUtils";
 import { deleteValveAttachments, uploadValveAttachments } from "./services/valvesStorage";
 import type {
   AppData,
@@ -91,7 +96,6 @@ import type {
   Expense,
   FeeKind,
   FeeType,
-  HumanityOption,
   Message,
   ParentProfile,
   Payment,
@@ -11028,14 +11032,6 @@ function StudentForm({
   );
 }
 
-function getClassSection(className: SchoolClass): SchoolSection {
-  if (className.includes("Maternelle")) return "maternelle";
-  if (className.includes("Humanité")) return "secondaire";
-  return "primaire";
-}
-
-type SchoolLevelChoice = "Maternelle" | "Primaire" | "Secondaire" | "Primaire uniquement" | "Secondaire uniquement";
-
 const schoolEducationLevelChoices = ["Maternelle", "Primaire", "Secondaire"];
 const schoolLevelChoices: SchoolLevelChoice[] = ["Maternelle", "Primaire", "Secondaire", "Primaire uniquement", "Secondaire uniquement"];
 const defaultSchoolOptions = [
@@ -11049,132 +11045,14 @@ const defaultSchoolOptions = [
   "Électronique",
 ];
 
-function educationLevelsForSchoolLevel(level: SchoolLevelChoice) {
-  if (level === "Maternelle") return ["Maternelle"];
-  if (level === "Primaire uniquement") return ["Primaire"];
-  if (level === "Secondaire uniquement") return ["Secondaire"];
-  if (level === "Primaire") return ["Maternelle", "Primaire"];
-  return ["Maternelle", "Primaire", "Secondaire"];
-}
-
-function normalizeEducationLevel(level: string): string {
-  const normalized = level.trim().toLowerCase();
-  if (normalized === "maternelle") return "Maternelle";
-  if (normalized === "primaire") return "Primaire";
-  if (normalized === "secondaire") return "Secondaire";
-  if (normalized === "primaire uniquement") return "Primaire uniquement";
-  if (normalized === "secondaire uniquement") return "Secondaire uniquement";
-  if (normalized === "mixte") return "Mixte";
-  return level.trim();
-}
-
-function getSchoolEducationLevels(school: Pick<School, "educationLevels" | "schoolType">) {
-  const levels = (school.educationLevels ?? [])
-    .map(normalizeEducationLevel)
-    .flatMap((level) => {
-      if (level === "Primaire uniquement") return ["Primaire"];
-      if (level === "Secondaire uniquement") return ["Secondaire"];
-      if (level === "Mixte") return schoolEducationLevelChoices;
-      return [level];
-    })
-    .filter(Boolean);
-  if (levels.length > 0) return Array.from(new Set(levels));
-  if (school.schoolType === "Mixte") return schoolEducationLevelChoices;
-  if (school.schoolType === "Primaire uniquement") return ["Primaire"];
-  if (school.schoolType === "Secondaire uniquement") return ["Secondaire"];
-  return school.schoolType ? [school.schoolType] : schoolEducationLevelChoices;
-}
-
-function getSchoolClassChoices(school: Pick<School, "educationLevels" | "schoolType">) {
-  const levels = getSchoolEducationLevels(school);
-  if (levels.includes("Mixte")) return CLASSES;
-  const sections = levels
-    .map((level) => (level === "Maternelle" ? "maternelle" : level === "Primaire" ? "primaire" : level === "Secondaire" ? "secondaire" : ""))
-    .filter(Boolean);
-  return sections.length > 0 ? CLASSES.filter((className) => sections.includes(getClassSection(className))) : CLASSES;
-}
-
-function schoolLevelFromConfig(school: Pick<School, "educationLevels" | "schoolType">): SchoolLevelChoice {
-  const levels = getSchoolEducationLevels(school);
-  const hasMaternelle = levels.includes("Maternelle");
-  const hasPrimaire = levels.includes("Primaire");
-  const hasSecondaire = levels.includes("Secondaire");
-  if (hasSecondaire && !hasMaternelle && !hasPrimaire) return "Secondaire uniquement";
-  if (hasPrimaire && !hasMaternelle && !hasSecondaire) return "Primaire uniquement";
-  if (hasSecondaire) return "Secondaire";
-  if (hasPrimaire) return "Primaire";
-  return "Maternelle";
-}
-
 const feeTargetSeparator = "::option::";
-
-function feeTargetKey(className: SchoolClass, option?: string) {
-  const normalizedOption = option?.trim();
-  return normalizedOption ? `${className}${feeTargetSeparator}${normalizedOption}` : className;
-}
 
 function feeTargetHasOption(target: string) {
   return target.includes(feeTargetSeparator);
 }
 
-function feeTargetClassName(target: string) {
-  return target.split(feeTargetSeparator)[0] as SchoolClass;
-}
-
-function feeTargetOption(target?: string) {
-  return target?.includes(feeTargetSeparator) ? target.split(feeTargetSeparator).slice(1).join(feeTargetSeparator) : "";
-}
-
-function formatFeeTargetValue(target?: string) {
-  if (!target) return "Toutes les classes";
-  const className = feeTargetClassName(target);
-  const option = feeTargetOption(target);
-  return option ? formatStudentClassName({ className, option }) : className;
-}
-
 function formatFeeTargetLabel(fee: Pick<FeeType, "className" | "classOptionKey">) {
   return formatFeeTargetValue(fee.classOptionKey ?? fee.className);
-}
-
-function studentFeeTargetKey(student: Pick<Student, "className" | "option">) {
-  return getClassSection(student.className) === "secondaire" ? feeTargetKey(student.className, student.option) : student.className;
-}
-
-function feeAppliesToStudent(fee: Pick<FeeType, "className" | "classOptionKey">, student: Pick<Student, "className" | "option">) {
-  if (fee.classOptionKey) return fee.classOptionKey === studentFeeTargetKey(student);
-  return !fee.className || fee.className === student.className;
-}
-
-function buildFeeTargetChoices(students: Student[], selectedTargets: string[]) {
-  const choices = students
-    .filter((student) => student.className)
-    .flatMap((student) => {
-      if (getClassSection(student.className) !== "secondaire") {
-        return [{ value: student.className, label: student.className }];
-      }
-      const option = student.option?.trim();
-      if (!option) return [{ value: student.className, label: student.className }];
-      return [{
-        value: feeTargetKey(student.className, option),
-        label: formatStudentClassName({ className: student.className, option }),
-      }];
-    })
-    .sort((first, second) => {
-      const firstClassIndex = CLASSES.indexOf(feeTargetClassName(first.value));
-      const secondClassIndex = CLASSES.indexOf(feeTargetClassName(second.value));
-      if (firstClassIndex !== secondClassIndex) return firstClassIndex - secondClassIndex;
-      return first.label.localeCompare(second.label, "fr");
-    });
-  const legacyChoices = selectedTargets.map((target) => ({ value: target, label: formatFeeTargetValue(target) }));
-  return Array.from(new Map([...choices, ...legacyChoices].map((choice) => [choice.value, choice])).values());
-}
-
-function formatStudentClassName(student: Pick<Student, "className" | "option">) {
-  if (getClassSection(student.className) !== "secondaire") return student.className;
-  const option = student.option?.trim();
-  if (!option) return student.className;
-  const classLabel = student.className.replace(/\s+Humanit[ée]s?$/i, "").trim();
-  return `${classLabel || student.className} ${option}`;
 }
 
 function formatStudentPdfClassName(student: Pick<Student, "className" | "option">) {
@@ -11214,38 +11092,6 @@ function sortStudentsForPdfByClass<T extends Pick<Student, "className">>(student
 function studentImportKey(student: Student) {
   const identity = [student.nom, student.postnom, student.prenom, student.birthDate].map((value) => value.trim().toLowerCase()).join("|");
   return student.matricule?.trim().toLowerCase() || identity;
-}
-
-function promoteStudentForNewYear(student: Student): { className: SchoolClass; option?: HumanityOption; promoted: boolean; transition?: "maternelle-primaire" | "primaire-cteb" | "cteb-humanites"; optionPending?: boolean } {
-  const classIndex = CLASSES.indexOf(student.className);
-  const nextClass = classIndex >= 0 && classIndex < CLASSES.length - 1 ? CLASSES[classIndex + 1] : student.className;
-  const promoted = nextClass !== student.className;
-  const transition =
-    student.className === CLASSES[2]
-      ? "maternelle-primaire"
-      : student.className === CLASSES[8]
-        ? "primaire-cteb"
-        : student.className === CLASSES[10]
-          ? "cteb-humanites"
-          : undefined;
-  const optionPending = transition === "cteb-humanites";
-  return {
-    className: nextClass,
-    option: optionPending ? undefined : student.option,
-    promoted,
-    transition,
-    optionPending,
-  };
-}
-
-function generateMatricule(students: Student[], yearName: string, schoolId: string, schoolYearId: string) {
-  const year = yearName.slice(2, 4);
-  const count = students.filter((student) => student.schoolId === schoolId && student.schoolYearId === schoolYearId).length + 1;
-  return `ACD-${year}-${String(count).padStart(4, "0")}`;
-}
-
-function isArchivedStudent(student: Student) {
-  return Boolean(student.deletedAt) || (student.status ?? "ACTIVE") !== "ACTIVE";
 }
 
 function formatArchiveDate(value?: string) {
@@ -11638,27 +11484,6 @@ async function exportReportPdf(
       ),
     ],
   });
-}
-
-function emptyStudent(schoolId: string, schoolYearId: string): Student {
-  return {
-    id: `new-${crypto.randomUUID()}`,
-    schoolId,
-    schoolYearId,
-    annee_scolaire_id: schoolYearId,
-    matricule: "",
-    nom: "",
-    postnom: "",
-    prenom: "",
-    sexe: "M",
-    birthDate: "",
-    address: "",
-    phone: "",
-    className: "1ère Primaire",
-    section: "primaire",
-    status: "ACTIVE",
-    photoUrl: "",
-  };
 }
 
 function emptyParent(schoolId: string, schoolYearId: string): ParentProfile {
