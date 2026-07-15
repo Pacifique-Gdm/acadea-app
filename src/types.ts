@@ -52,7 +52,7 @@ export interface School {
   acronym?: string;
   educationLevels?: string[];
   schoolOptions?: string[];
-  schoolType?: "Maternelle" | "Primaire" | "Secondaire" | "Mixte";
+  schoolType?: "Maternelle" | "Primaire" | "Secondaire" | "Primaire uniquement" | "Secondaire uniquement" | "Mixte";
   createdAt?: string;
   createdBy?: string;
   mainAdminId?: string;

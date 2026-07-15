@@ -2261,7 +2261,7 @@ function PlatformModule({
   const [schoolDeleteTarget, setSchoolDeleteTarget] = useState<School | null>(null);
   const [schoolDeleteConfirmation, setSchoolDeleteConfirmation] = useState("");
   const [schoolDeleteLoading, setSchoolDeleteLoading] = useState(false);
-  const [schoolLevelChangeTarget, setSchoolLevelChangeTarget] = useState<{ school: School; level: "Maternelle" | "Primaire" | "Secondaire" } | null>(null);
+  const [schoolLevelChangeTarget, setSchoolLevelChangeTarget] = useState<{ school: School; level: SchoolLevelChoice } | null>(null);
   const [schoolLevelConfirmation, setSchoolLevelConfirmation] = useState("");
   const [biometricSchoolId, setBiometricSchoolId] = useState("");
   const [terminalFormOpen, setTerminalFormOpen] = useState(false);
@@ -2419,14 +2419,14 @@ function PlatformModule({
     });
   }
 
-  async function updateSchoolLevel(school: School, level: "Maternelle" | "Primaire" | "Secondaire") {
+  async function updateSchoolLevel(school: School, level: SchoolLevelChoice) {
     await updateSchool(school.id, {
       schoolType: level,
       educationLevels: educationLevelsForSchoolLevel(level),
     });
   }
 
-  function openSchoolLevelChangeDialog(school: School, level: "Maternelle" | "Primaire" | "Secondaire") {
+  function openSchoolLevelChangeDialog(school: School, level: SchoolLevelChoice) {
     if (schoolLevelFromConfig(school) === level) return;
     setSchoolLevelChangeTarget({ school, level });
     setSchoolLevelConfirmation("");
@@ -3031,6 +3031,8 @@ function PlatformModule({
                     <option value="Maternelle">Maternelle</option>
                     <option value="Primaire">Primaire</option>
                     <option value="Secondaire">Secondaire</option>
+                    <option value="Primaire uniquement">Primaire uniquement</option>
+                    <option value="Secondaire uniquement">Secondaire uniquement</option>
                     <option value="Mixte">Mixte</option>
                   </FilterSelect>
                   <FilterSelect icon={ArrowUpDown} value={sortBy} onChange={(value) => setSortBy(value as SchoolSort)}>
@@ -3249,12 +3251,12 @@ function PlatformModule({
                   <span className="font-semibold text-slate-500">Niveau de l'école</span>
                   <select
                     value={schoolLevelFromConfig(drawerSchool)}
-                    onChange={(event) => openSchoolLevelChangeDialog(drawerSchool, event.target.value as "Maternelle" | "Primaire" | "Secondaire")}
+                    onChange={(event) => openSchoolLevelChangeDialog(drawerSchool, event.target.value as SchoolLevelChoice)}
                     className="min-w-0 rounded border border-slate-200 bg-white px-3 py-2 font-semibold text-ink"
                   >
-                    <option value="Maternelle">Maternelle</option>
-                    <option value="Primaire">Primaire</option>
-                    <option value="Secondaire">Secondaire</option>
+                    {schoolLevelChoices.map((level) => (
+                      <option key={level} value={level}>{level}</option>
+                    ))}
                   </select>
                 </label>
                 <InfoRow label="Statut" value={drawerSchool.status} />
@@ -10962,7 +10964,10 @@ function getClassSection(className: SchoolClass): SchoolSection {
   return "primaire";
 }
 
+type SchoolLevelChoice = "Maternelle" | "Primaire" | "Secondaire" | "Primaire uniquement" | "Secondaire uniquement";
+
 const schoolEducationLevelChoices = ["Maternelle", "Primaire", "Secondaire"];
+const schoolLevelChoices: SchoolLevelChoice[] = ["Maternelle", "Primaire", "Secondaire", "Primaire uniquement", "Secondaire uniquement"];
 const defaultSchoolOptions = [
   "Sciences",
   "Littéraire",
@@ -10974,8 +10979,10 @@ const defaultSchoolOptions = [
   "Électronique",
 ];
 
-function educationLevelsForSchoolLevel(level: "Maternelle" | "Primaire" | "Secondaire") {
+function educationLevelsForSchoolLevel(level: SchoolLevelChoice) {
   if (level === "Maternelle") return ["Maternelle"];
+  if (level === "Primaire uniquement") return ["Primaire"];
+  if (level === "Secondaire uniquement") return ["Secondaire"];
   if (level === "Primaire") return ["Maternelle", "Primaire"];
   return ["Maternelle", "Primaire", "Secondaire"];
 }
@@ -10985,14 +10992,26 @@ function normalizeEducationLevel(level: string): string {
   if (normalized === "maternelle") return "Maternelle";
   if (normalized === "primaire") return "Primaire";
   if (normalized === "secondaire") return "Secondaire";
+  if (normalized === "primaire uniquement") return "Primaire uniquement";
+  if (normalized === "secondaire uniquement") return "Secondaire uniquement";
   if (normalized === "mixte") return "Mixte";
   return level.trim();
 }
 
 function getSchoolEducationLevels(school: Pick<School, "educationLevels" | "schoolType">) {
-  const levels = (school.educationLevels ?? []).map(normalizeEducationLevel).filter(Boolean);
+  const levels = (school.educationLevels ?? [])
+    .map(normalizeEducationLevel)
+    .flatMap((level) => {
+      if (level === "Primaire uniquement") return ["Primaire"];
+      if (level === "Secondaire uniquement") return ["Secondaire"];
+      if (level === "Mixte") return schoolEducationLevelChoices;
+      return [level];
+    })
+    .filter(Boolean);
   if (levels.length > 0) return Array.from(new Set(levels));
   if (school.schoolType === "Mixte") return schoolEducationLevelChoices;
+  if (school.schoolType === "Primaire uniquement") return ["Primaire"];
+  if (school.schoolType === "Secondaire uniquement") return ["Secondaire"];
   return school.schoolType ? [school.schoolType] : schoolEducationLevelChoices;
 }
 
@@ -11005,10 +11024,15 @@ function getSchoolClassChoices(school: Pick<School, "educationLevels" | "schoolT
   return sections.length > 0 ? CLASSES.filter((className) => sections.includes(getClassSection(className))) : CLASSES;
 }
 
-function schoolLevelFromConfig(school: Pick<School, "educationLevels" | "schoolType">): "Maternelle" | "Primaire" | "Secondaire" {
+function schoolLevelFromConfig(school: Pick<School, "educationLevels" | "schoolType">): SchoolLevelChoice {
   const levels = getSchoolEducationLevels(school);
-  if (levels.includes("Secondaire")) return "Secondaire";
-  if (levels.includes("Primaire")) return "Primaire";
+  const hasMaternelle = levels.includes("Maternelle");
+  const hasPrimaire = levels.includes("Primaire");
+  const hasSecondaire = levels.includes("Secondaire");
+  if (hasSecondaire && !hasMaternelle && !hasPrimaire) return "Secondaire uniquement";
+  if (hasPrimaire && !hasMaternelle && !hasSecondaire) return "Primaire uniquement";
+  if (hasSecondaire) return "Secondaire";
+  if (hasPrimaire) return "Primaire";
   return "Maternelle";
 }
 
