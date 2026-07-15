@@ -390,24 +390,24 @@ export function DisciplineAttendanceDrawer({ students, attendance, school, year,
   return (
     <div className="grid min-w-0 gap-4">
       <div className="grid gap-3 rounded border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
             <p className="text-sm font-semibold text-slate-500">Semaine</p>
             <h2 className="break-words text-lg font-bold text-ink">{periodLabel}</h2>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button onClick={() => setWeekStart(formatDateKey(addDays(parseLocalDate(weekStart), -7)))} className="secondary-button" type="button">
+          <div className="grid gap-2 md:flex md:flex-nowrap">
+            <button onClick={() => setWeekStart(formatDateKey(addDays(parseLocalDate(weekStart), -7)))} className="secondary-button w-full justify-center md:w-auto" type="button">
               <ChevronLeft className="h-4 w-4" /> Précédente
             </button>
-            <button onClick={() => setWeekStart(formatDateKey(startOfWeek(new Date())))} className="secondary-button" type="button">
+            <button onClick={() => setWeekStart(formatDateKey(startOfWeek(new Date())))} className="secondary-button w-full justify-center md:w-auto" type="button">
               <RotateCcw className="h-4 w-4" /> Semaine actuelle
             </button>
-            <button onClick={() => setWeekStart(formatDateKey(addDays(parseLocalDate(weekStart), 7)))} className="secondary-button" type="button">
+            <button onClick={() => setWeekStart(formatDateKey(addDays(parseLocalDate(weekStart), 7)))} className="secondary-button w-full justify-center md:w-auto" type="button">
               Suivante <ChevronRight className="h-4 w-4" />
             </button>
           </div>
         </div>
-        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[minmax(220px,0.9fr)_minmax(150px,0.65fr)_minmax(150px,0.65fr)_minmax(190px,0.85fr)_auto]">
+        <div className="grid gap-2 md:grid-cols-[minmax(220px,0.9fr)_minmax(150px,0.65fr)_minmax(150px,0.65fr)_minmax(190px,0.85fr)_auto]">
           <label className="relative min-w-0">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
@@ -446,7 +446,7 @@ export function DisciplineAttendanceDrawer({ students, attendance, school, year,
               ))}
             </select>
           )}
-          {!showOptionFilter && <div className="hidden xl:block" aria-hidden="true" />}
+          {!showOptionFilter && <div className="hidden md:block" aria-hidden="true" />}
           <button onClick={exportAttendancePdf} className="primary-button justify-center" type="button">
             <Download className="h-4 w-4" /> Exporter PDF
           </button>
@@ -459,7 +459,7 @@ export function DisciplineAttendanceDrawer({ students, attendance, school, year,
           <h2 className="font-bold text-ink">Présence manuelle exceptionnelle</h2>
         </div>
         <div className="grid gap-3">
-          <div className="grid gap-2 xl:grid-cols-[minmax(220px,0.9fr)_minmax(150px,0.65fr)_minmax(150px,0.65fr)_minmax(190px,0.85fr)_auto]">
+          <div className="grid gap-2 md:grid-cols-[minmax(220px,0.9fr)_minmax(150px,0.65fr)_minmax(150px,0.65fr)_minmax(190px,0.85fr)_auto]">
             <label className="relative min-w-0">
               <span className="sr-only">La recherche affiche les résultats disponibles pour la sélection manuelle.</span>
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
