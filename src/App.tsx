@@ -74,6 +74,7 @@ import { buildStats, getStudentBalance } from "./utils/stats";
 import { getStudentFeeSummaries } from "./utils/studentFeeSummary";
 import { buildSchoolYearDataIndexes, sumPaymentsForStudentFee } from "./utils/dataIndexes";
 import { buildDisciplineStats } from "./utils/disciplineStats";
+import { attendanceClassRuleKey, attendanceRecordId, attendanceSettingsId, attendanceStatusText, resolveAttendanceStatusForArrival } from "./utils/attendance";
 import { buildFeeTargetChoices, feeAppliesToStudent, feeTargetClassName, formatFeeTargetValue } from "./utils/feeTargets";
 import { buildValveClassChoices, formatValveClassChoiceLabel, getValvePublicationParents, normalizeValveVisibility, parentCanViewValvePublication } from "./utils/valves";
 import { formatValveAttachmentSize, MAX_VALVE_ATTACHMENTS, MAX_VALVE_ATTACHMENTS_TOTAL_SIZE, prepareValveAttachments, validateValveAttachments } from "./utils/valvesMedia";
@@ -169,53 +170,6 @@ const emptyAppData: AppData = {
 
 function uid(prefix: string) {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
-}
-
-function attendanceRecordId(schoolId: string, schoolYearId: string, studentId: string, attendanceDate: string) {
-  return `attendance__${[schoolId, schoolYearId, studentId, attendanceDate]
-    .map((part) => part.replace(/[^a-zA-Z0-9_-]/g, "_"))
-    .join("__")}`;
-}
-
-function attendanceSettingsId(schoolId: string, schoolYearId: string) {
-  return `attendance-settings__${[schoolId, schoolYearId].map((part) => part.replace(/[^a-zA-Z0-9_-]/g, "_")).join("__")}`;
-}
-
-function attendanceClassRuleKey(className: string, option?: string) {
-  return option ? `${className}__${option}` : className;
-}
-
-function parseTimeToMinutes(value?: string) {
-  if (!value) return null;
-  const match = value.match(/^(\d{2}):(\d{2})$/);
-  if (!match) return null;
-  const hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  if (!Number.isInteger(hours) || !Number.isInteger(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
-  return hours * 60 + minutes;
-}
-
-function resolveLateAfterTime(student: Student, settings?: AttendanceSettings) {
-  if (!settings) return undefined;
-  const classRule = settings.classLateAfter?.[attendanceClassRuleKey(student.className, student.option)];
-  if (classRule) return classRule;
-  const sectionRule = settings.sectionLateAfter?.[getClassSection(student.className)];
-  return sectionRule || settings.defaultLateAfter;
-}
-
-function resolveAttendanceStatusForArrival(student: Student, selectedStatus: AttendanceStatus, settings: AttendanceSettings | undefined, recordedAt: Date) {
-  if (selectedStatus !== "present") return selectedStatus;
-  const lateAfterMinutes = parseTimeToMinutes(resolveLateAfterTime(student, settings));
-  if (lateAfterMinutes === null) return selectedStatus;
-  const arrivalMinutes = recordedAt.getHours() * 60 + recordedAt.getMinutes();
-  return arrivalMinutes <= lateAfterMinutes ? "present" : "late";
-}
-
-function attendanceStatusText(status: AttendanceStatus) {
-  if (status === "late") return "En retard";
-  if (status === "excused") return "Absence justifiée";
-  if (status === "absent") return "Absent";
-  return "Présent à l'heure";
 }
 
 function parentEmailDomain(school: School) {
