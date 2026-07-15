@@ -130,7 +130,6 @@ export function usePaginatedNotifications({
       setUnreadCount(directUnreadCount);
     } catch (error) {
       console.warn("Comptage des notifications non lues impossible.", error);
-      setUnreadCount(0);
     }
   }, [schoolId, schoolYearId, user]);
 

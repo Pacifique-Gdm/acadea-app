@@ -259,6 +259,22 @@ function loadInitialData() {
   return emptyAppData;
 }
 
+function mergeNotificationsById(currentItems: AppNotification[], nextItems: AppNotification[]) {
+  const itemsById = new Map<string, AppNotification>();
+  [...currentItems, ...nextItems].forEach((item) => {
+    itemsById.set(item.id, item);
+  });
+  return Array.from(itemsById.values()).sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+}
+
+function mergeMessagesById(currentItems: Message[], nextItems: Message[]) {
+  const itemsById = new Map<string, Message>();
+  [...currentItems, ...nextItems].forEach((item) => {
+    itemsById.set(item.id, item);
+  });
+  return Array.from(itemsById.values()).sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+}
+
 function getOrCreateHeadLink(selector: string, rel: string) {
   let link = document.head.querySelector<HTMLLinkElement>(selector);
   if (!link) {
@@ -812,12 +828,16 @@ export default function App() {
   }
 
   function openNotifications() {
-    setNotificationsOpen((current) => !current);
-    if (!notificationsOpen) markNotificationsRead();
+    if (notificationsOpen) {
+      closeNotifications();
+      return;
+    }
+    setNotificationsOpen(true);
   }
 
   function closeNotifications() {
     setNotificationsOpen(false);
+    markNotificationsRead();
   }
 
   function openParentFormFromDirectory(parentId?: string) {
@@ -863,6 +883,14 @@ export default function App() {
         onRefresh={refreshCurrentYearData}
         onToggleNotifications={openNotifications}
         onCloseNotifications={closeNotifications}
+        onRealtimeNotifications={(notifications) => {
+          if (notifications.length === 0) return;
+          updateData({ notifications: mergeNotificationsById(data.notifications, notifications) }, { persist: false });
+        }}
+        onRealtimeMessages={(messages) => {
+          if (messages.length === 0) return;
+          updateData({ messages: mergeMessagesById(data.messages, messages) }, { persist: false });
+        }}
       />
 
       <main className="mx-auto w-full max-w-7xl min-w-0 flex-1 overflow-y-auto px-3 py-5 pb-28 sm:px-6 sm:pb-32 lg:px-8">
@@ -1251,6 +1279,8 @@ function Header({
   onRefresh,
   onToggleNotifications,
   onCloseNotifications,
+  onRealtimeNotifications,
+  onRealtimeMessages,
 }: {
   user: AppUser;
   data: AppData;
@@ -1264,6 +1294,8 @@ function Header({
   onRefresh: () => void;
   onToggleNotifications: () => void;
   onCloseNotifications?: () => void;
+  onRealtimeNotifications?: (notifications: AppNotification[]) => void;
+  onRealtimeMessages?: (messages: Message[]) => void;
 }) {
   const schoolLogoUrl = school.logoUrl?.trim();
   const userDisplayName = user.name.trim();
@@ -1282,14 +1314,35 @@ function Header({
     schoolYearId: year.id,
     enabled: notificationsOpen,
   });
+  const realtimeHandlersRef = useRef({ onRealtimeNotifications, onRealtimeMessages });
+  useEffect(() => {
+    realtimeHandlersRef.current = { onRealtimeNotifications, onRealtimeMessages };
+  }, [onRealtimeMessages, onRealtimeNotifications]);
+  const pushedRealtimeSignatureRef = useRef("");
+  const realtimeSignature = useMemo(() => {
+    const notificationSignature = notificationHistory.items
+      .map((notification) => `${notification.id}:${notification.read ? "1" : "0"}:${notification.createdAt ?? ""}`)
+      .join("|");
+    const messageSignature = realtimeMessages.messages
+      .map((message) => `${message.id}:${message.createdAt ?? ""}`)
+      .join("|");
+    return `${notificationSignature}::${messageSignature}`;
+  }, [notificationHistory.items, realtimeMessages.messages]);
+
+  useEffect(() => {
+    if (!realtimeSignature || pushedRealtimeSignatureRef.current === realtimeSignature) return;
+    pushedRealtimeSignatureRef.current = realtimeSignature;
+    realtimeHandlersRef.current.onRealtimeNotifications?.(notificationHistory.items);
+    realtimeHandlersRef.current.onRealtimeMessages?.(realtimeMessages.messages);
+  }, [notificationHistory.items, realtimeMessages.messages, realtimeSignature]);
   const displayedUnreadNotifications = user.role === "discipline_director" ? (notificationHistory.unreadCount ?? 0) : (notificationHistory.unreadCount ?? unreadNotifications);
   const markPaginatedNotificationsRead = notificationHistory.markAllRead;
 
   useEffect(() => {
-    if (user.role !== "discipline_director" && notificationsOpen && unreadNotifications === 0) {
+    if (user.role !== "discipline_director" && notificationsOpen && unreadNotifications === 0 && notificationHistory.unreadCount === 0) {
       markPaginatedNotificationsRead();
     }
-  }, [markPaginatedNotificationsRead, notificationsOpen, unreadNotifications, user.role]);
+  }, [markPaginatedNotificationsRead, notificationHistory.unreadCount, notificationsOpen, unreadNotifications, user.role]);
 
   const notificationPagination = (
     <div className="grid gap-2">
@@ -5031,17 +5084,17 @@ function ParentPortal({
   }
 
   function openParentMessagesDrawer() {
-    markNotificationsRead();
     setParentMessageDrawerOpen(true);
   }
 
   function closeParentMessagesDrawer() {
     setParentMessageDrawerOpen(false);
+    markNotificationsRead();
   }
 
   function toggleParentMessagesDrawer() {
     if (parentMessageDrawerOpen) {
-      setParentMessageDrawerOpen(false);
+      closeParentMessagesDrawer();
       return;
     }
     openParentMessagesDrawer();
@@ -5164,6 +5217,14 @@ function ParentPortal({
         onRefresh={onRefresh}
         onToggleNotifications={toggleParentMessagesDrawer}
         onCloseNotifications={closeParentMessagesDrawer}
+        onRealtimeNotifications={(notifications) => {
+          if (notifications.length === 0) return;
+          updateData({ notifications: mergeNotificationsById(data.notifications, notifications) }, { persist: false });
+        }}
+        onRealtimeMessages={(messages) => {
+          if (messages.length === 0) return;
+          updateData({ messages: mergeMessagesById(data.messages, messages) }, { persist: false });
+        }}
       />
       <main className="mx-auto grid w-full max-w-7xl min-w-0 flex-1 gap-4 overflow-y-auto px-3 py-5 pb-28 sm:px-6 sm:pb-32 lg:px-8">
         {activeParentTab === "children" && (
@@ -6018,6 +6079,14 @@ function DisciplinePortal({
         onRefresh={onRefresh}
         onToggleNotifications={toggleNotifications}
         onCloseNotifications={closeNotifications}
+        onRealtimeNotifications={(notifications) => {
+          if (notifications.length === 0) return;
+          updateData({ notifications: mergeNotificationsById(data.notifications, notifications) }, { persist: false });
+        }}
+        onRealtimeMessages={(messages) => {
+          if (messages.length === 0) return;
+          updateData({ messages: mergeMessagesById(data.messages, messages) }, { persist: false });
+        }}
       />
       <main className="mx-auto grid w-full max-w-7xl min-w-0 flex-1 gap-4 overflow-y-auto px-3 py-5 pb-28 sm:px-6 sm:pb-32 lg:px-8">
         {feedback && <p className={`rounded border p-3 text-sm font-semibold ${feedbackTone}`}>{feedback}</p>}
