@@ -267,9 +267,21 @@ service cloud.firestore {
     }
 
     match /attendance/{attendanceId} {
-      allow read: if superAdmin() || sameTenantResource();
-      allow create: if schoolAdmin() && sameTenantCreate();
-      allow update: if schoolAdmin() && sameTenantUpdate() && sameYearUpdate();
+      allow read: if superAdmin()
+        || sameTenantResource()
+        || disciplineTenantResource();
+      allow create: if (schoolAdmin() && sameTenantCreate())
+        || (
+          disciplineTenantCreate()
+          && request.resource.data.schoolYearId is string
+          && request.resource.data.schoolYearId.size() > 0
+        );
+      allow update: if (schoolAdmin() && sameTenantUpdate() && sameYearUpdate())
+        || (
+          disciplineTenantResource()
+          && request.resource.data.schoolId == resource.data.schoolId
+          && request.resource.data.schoolYearId == resource.data.schoolYearId
+        );
       allow delete: if schoolAdmin() && sameTenantResource();
     }
 

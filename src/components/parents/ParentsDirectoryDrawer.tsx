@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Download, Edit3, Mail, Phone, Plus, Search, UsersRound } from "lucide-react";
+import { ArrowLeft, Download, Edit3, Mail, Phone, Plus, Search, Trash2, UsersRound } from "lucide-react";
 import type { ParentProfile, School, SchoolYear, Student } from "../../types";
 import {
   buildParentsDirectory,
@@ -18,9 +18,10 @@ type ParentsDirectoryDrawerProps = {
   schoolYearId: string;
   onCreateParent?: () => void;
   onEditParent?: (parent: ParentProfile) => void;
+  onDeleteParent?: () => void;
 };
 
-export function ParentsDirectoryDrawer({ parents, students, school, year, schoolId, schoolYearId, onCreateParent, onEditParent }: ParentsDirectoryDrawerProps) {
+export function ParentsDirectoryDrawer({ parents, students, school, year, schoolId, schoolYearId, onCreateParent, onEditParent, onDeleteParent }: ParentsDirectoryDrawerProps) {
   const [query, setQuery] = useState("");
   const [classFilter, setClassFilter] = useState("");
   const [selectedParentId, setSelectedParentId] = useState("");
@@ -164,10 +165,19 @@ export function ParentsDirectoryDrawer({ parents, students, school, year, school
               />
             </span>
           </label>
-          {onCreateParent && (
-            <button onClick={onCreateParent} type="button" className="primary-button w-full justify-center self-end sm:w-auto">
-              <Plus className="h-4 w-4" /> Créer un parent
-            </button>
+          {(onCreateParent || onDeleteParent) && (
+            <div className="flex min-w-0 flex-col gap-2 self-end sm:flex-row sm:items-center sm:justify-end">
+              {onCreateParent && (
+                <button onClick={onCreateParent} type="button" className="primary-button w-full justify-center whitespace-nowrap sm:w-auto">
+                  <Plus className="h-4 w-4" /> Créer un parent
+                </button>
+              )}
+              {onDeleteParent && (
+                <button onClick={onDeleteParent} type="button" className="inline-flex w-full items-center justify-center gap-2 whitespace-nowrap rounded bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 sm:w-auto">
+                  <Trash2 className="h-4 w-4" /> Supprimer un parent
+                </button>
+              )}
+            </div>
           )}
         </div>
 

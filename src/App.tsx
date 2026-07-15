@@ -12,6 +12,7 @@ import {
   Bell,
   BookOpen,
   Building2,
+  CalendarDays,
   CheckCircle2,
   Clock3,
   Download,
@@ -42,6 +43,7 @@ import { BillingControlsDrawer } from "./components/platform/BillingControlsDraw
 import { DisciplineHistoryDrawer } from "./components/discipline/DisciplineHistoryDrawer";
 import { DisciplineStatistics } from "./components/discipline/DisciplineStatistics";
 import { DisciplineStatus } from "./components/discipline/DisciplineStatus";
+import { DisciplineAttendanceDrawer } from "./components/discipline/DisciplineAttendanceDrawer";
 import { NewSanctionDrawer } from "./components/discipline/NewSanctionDrawer";
 import { ParentsDirectoryDrawer } from "./components/parents/ParentsDirectoryDrawer";
 import { AttachmentsList } from "./components/valves/AttachmentsList";
@@ -59,7 +61,7 @@ import { loadSuperAdminInitialData, loadSuperAdminSchoolData } from "./services/
 import type { SuperAdminGlobalCounts } from "./services/superAdminData";
 import { completeDisciplineSanction, createDisciplineSanction, saveDisciplineAuditLog } from "./services/discipline";
 import { db } from "./firebase";
-import { manageSchool, provisionParent, provisionSchoolAdmin, provisionSchoolUser } from "./services/provisioning";
+import { deleteParentAccount, manageSchool, provisionParent, provisionSchoolAdmin, provisionSchoolUser } from "./services/provisioning";
 import { fetchParentMessageQuota, sendParentMessageWithQuota } from "./services/parentMessaging";
 import type { ParentMessageQuota } from "./services/parentMessaging";
 import { buildDashboardFinancialAggregates, buildDashboardTransactionDayRows } from "./utils/dashboardStats";
@@ -78,6 +80,8 @@ import type {
   AppData,
   AppNotification,
   AppUser,
+  AttendanceRecord,
+  AttendanceStatus,
   AuditLog,
   DisciplineSanction,
   Expense,
@@ -101,7 +105,7 @@ import { CLASSES, FEE_KINDS } from "./types";
 
 type Tab = "dashboard" | "students" | "parents" | "control" | "reports" | "messages" | "menu";
 type ParentTab = "children" | "messages" | "menu";
-type DisciplineTab = "status" | "messages" | "menu";
+type DisciplineTab = "status" | "attendance" | "messages" | "menu";
 type SchoolUserProvisionRole = "cashier" | "discipline_director";
 type NewDisciplineSanctionFormInput = {
   students: Student[];
@@ -150,10 +154,17 @@ const emptyAppData: AppData = {
   auditLogs: [],
   valves: [],
   disciplineSanctions: [],
+  attendance: [],
 };
 
 function uid(prefix: string) {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
+}
+
+function attendanceRecordId(schoolId: string, schoolYearId: string, studentId: string, attendanceDate: string) {
+  return `attendance__${[schoolId, schoolYearId, studentId, attendanceDate]
+    .map((part) => part.replace(/[^a-zA-Z0-9_-]/g, "_"))
+    .join("__")}`;
 }
 
 function parentEmailDomain(school: School) {
@@ -951,6 +962,7 @@ function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: 
     auditLogs: data.auditLogs.filter((log) => log.schoolId === schoolId && log.schoolYearId === schoolYearId && !isSessionAuditAction(log.action)),
     valves: data.valves.filter((publication) => publication.schoolId === schoolId && publication.schoolYearId === schoolYearId),
     disciplineSanctions: data.disciplineSanctions.filter((sanction) => sanction.schoolId === schoolId && sanction.schoolYearId === schoolYearId),
+    attendance: data.attendance.filter((record) => record.schoolId === schoolId && record.schoolYearId === schoolYearId),
     messages: data.messages.filter((message) => {
       const sameScope = message.schoolId === schoolId && message.schoolYearId === schoolYearId;
       if (!sameScope) return false;
@@ -1665,13 +1677,14 @@ function DisciplineBottomNavigation({
 }) {
   const tabs = [
     { id: "status", label: "Statut", icon: CheckCircle2 },
-    { id: "messages", label: "Message", icon: MessageSquare },
+    { id: "attendance", label: "Présence des élèves", icon: CalendarDays },
+    { id: "messages", label: "Messages", icon: MessageSquare },
     { id: "menu", label: "Menu", icon: MenuIcon },
   ] satisfies { id: DisciplineTab; label: string; icon: typeof BookOpen }[];
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 max-w-full overflow-hidden border-t border-slate-200 bg-white/95 px-1 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur sm:px-2">
-      <div className={`mx-auto grid w-full max-w-md ${showInstallButton ? "grid-cols-4" : "grid-cols-3"} gap-1`}>
+      <div className={`mx-auto grid w-full max-w-2xl ${showInstallButton ? "grid-cols-5" : "grid-cols-4"} gap-1`}>
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;
@@ -1761,8 +1774,11 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
   const recoveryRate = dashboardFinancialStats.expected > 0 ? Math.round((totalPayments / dashboardFinancialStats.expected) * 100) : 0;
   const recoveryTone = annualFinancialRecoveryRate >= 80 ? "text-mint bg-mint/10" : annualFinancialRecoveryRate >= 50 ? "text-amber-700 bg-amber-100" : "text-red-700 bg-red-50";
   const feeProgressRows = annualFinancialAggregates.feeProgressRows;
-  const admins = useMemo(() => data.users.filter((item) => item.role === "school_admin").length, [data.users]);
-  const cashiers = useMemo(() => data.users.filter((item) => item.role === "cashier").length, [data.users]);
+  const totalActiveStudents = useMemo(() => data.students.filter((student) => student.schoolId === school.id && student.schoolYearId === year.id && !isArchivedStudent(student)).length, [data.students, school.id, year.id]);
+  const totalUniqueParents = useMemo(() => new Set(data.parents.filter((parent) => parent.schoolId === school.id).map((parent) => parent.id)).size, [data.parents, school.id]);
+  const admins = useMemo(() => data.users.filter((item) => item.schoolId === school.id && item.role === "school_admin").length, [data.users, school.id]);
+  const cashiers = useMemo(() => data.users.filter((item) => item.schoolId === school.id && item.role === "cashier").length, [data.users, school.id]);
+  const disciplineDirectors = useMemo(() => data.users.filter((item) => item.schoolId === school.id && item.role === "discipline_director").length, [data.users, school.id]);
   const classRows = useMemo(
     () =>
       dashboardClassChoices.map((className) => {
@@ -1873,14 +1889,15 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
   const sectionLabel = sectionFilter === "all" ? "Toutes les sections" : sectionFilter.charAt(0).toUpperCase() + sectionFilter.slice(1);
   const dateLabel = (startDate || "D\u00e9but") + " au " + (endDate || "Fin");
   const cards = [
-    { label: "Nombre total d'\u00e9l\u00e8ves", value: stats.students, icon: GraduationCap, tone: "bg-mint/10 text-mint" },
-    { label: "Nombre total de parents", value: stats.parents, icon: UsersRound, tone: "bg-coral/10 text-coral" },
+    { label: "Nombre total d'\u00e9l\u00e8ves", value: totalActiveStudents, icon: GraduationCap, tone: "bg-mint/10 text-mint" },
+    { label: "Nombre de classes", value: stats.classes, icon: BookOpen, tone: "bg-indigo-100 text-indigo-700" },
+    { label: "Nombre total de parents", value: totalUniqueParents, icon: UsersRound, tone: "bg-coral/10 text-coral" },
     { label: "Administrateurs", value: admins, icon: ShieldCheck, tone: "bg-blue-100 text-blue-700" },
     { label: "Caissiers", value: cashiers, icon: UserRound, tone: "bg-pink-100 text-pink-700" },
-    { label: "Montant total encaiss\u00e9", value: "$" + annualFinancialPaid.toFixed(2), icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
+    { label: "Directeurs de Discipline", value: disciplineDirectors, icon: ShieldCheck, tone: "bg-violet-100 text-violet-700" },
     { label: "Montant attendu", value: "$" + annualFinancialStats.expected.toFixed(2), icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
+    { label: "Montant total encaiss\u00e9", value: "$" + annualFinancialPaid.toFixed(2), icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
     { label: "Montant restant \u00e0 payer", value: "$" + annualFinancialRemaining.toFixed(2), icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
-    { label: "Nombre de classes", value: stats.classes, icon: BookOpen, tone: "bg-indigo-100 text-indigo-700" },
   ];
 
   function progressBarTone(rate: number) {
@@ -1931,7 +1948,7 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
         </div>
       </div>
 
-      <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {cards.map((card) => {
           const Icon = card.icon;
           return (
@@ -5420,6 +5437,52 @@ function DisciplinePortal({
     }
   }
 
+  async function saveManualAttendance(input: { studentId: string; attendanceDate: string; status: AttendanceStatus; manualReason: string }) {
+    const student = yearData.students.find((item) => item.id === input.studentId && item.schoolId === school.id && item.schoolYearId === year.id);
+    if (!student) {
+      throw new Error("Élève introuvable pour cette école et cette année scolaire.");
+    }
+    if (!input.manualReason.trim()) {
+      throw new Error("Le motif de présence manuelle est obligatoire.");
+    }
+
+    const now = new Date().toISOString();
+    const record: AttendanceRecord = {
+      id: attendanceRecordId(school.id, year.id, student.id, input.attendanceDate),
+      schoolId: school.id,
+      schoolYearId: year.id,
+      studentId: student.id,
+      attendanceDate: input.attendanceDate,
+      status: input.status,
+      recordedAt: now,
+      recordedBy: user.id,
+      source: "manual",
+      manualReason: input.manualReason,
+    };
+    const existingRecord = data.attendance.some((item) => item.id === record.id);
+    const auditLog = createDisciplineAudit(
+      existingRecord ? "Mise à jour présence manuelle" : "Présence manuelle élève",
+      `${disciplineStudentName(student)} - ${input.attendanceDate} - ${input.manualReason}`,
+    );
+
+    if (canUseFirestoreData()) {
+      await persistFirestorePatch({ attendance: [record], auditLogs: [auditLog] }, { throwOnError: true });
+      updateData(
+        {
+          attendance: [record, ...data.attendance.filter((item) => item.id !== record.id)],
+          auditLogs: [auditLog, ...data.auditLogs],
+        },
+        { persist: false },
+      );
+    } else {
+      updateData({
+        attendance: [record, ...data.attendance.filter((item) => item.id !== record.id)],
+        auditLogs: [auditLog, ...data.auditLogs],
+      });
+    }
+    setFeedback(existingRecord ? "Présence manuelle mise à jour." : "Présence manuelle enregistrée.");
+  }
+
   async function exportDisciplinePdf(filteredSanctions: DisciplineSanction[]) {
     const studentsById = new Map(yearData.students.map((student) => [student.id, student]));
     const sortedSanctions = [...filteredSanctions].sort(
@@ -5529,6 +5592,15 @@ function DisciplinePortal({
         {feedback && <p className={`rounded border p-3 text-sm font-semibold ${feedbackTone}`}>{feedback}</p>}
         {activeDisciplineTab === "status" && (
           <DisciplineStatus students={yearData.students} sanctions={yearData.disciplineSanctions} onNewSanction={() => setNewSanctionOpen(true)} onOpenStudent={setSelectedDisciplineStudentId} onExportPdf={exportDisciplinePdf} />
+        )}
+        {activeDisciplineTab === "attendance" && (
+          <DisciplineAttendanceDrawer
+            students={yearData.students}
+            attendance={yearData.attendance}
+            school={school}
+            year={year}
+            onSaveManualAttendance={saveManualAttendance}
+          />
         )}
         {activeDisciplineTab === "messages" && (
           <MessagesModule user={user} data={data} yearData={yearData} school={school} year={year} updateData={updateData} />
@@ -5782,7 +5854,7 @@ function StudentsModule({
     return parent?.phone?.trim() || "—";
   }
 
-  function saveStudent() {
+  async function saveStudent() {
     setSaveError("");
     setSaveMessage("");
     const selectedParentId = form.parentId?.trim() ?? "";
@@ -5799,9 +5871,8 @@ function StudentsModule({
     const targetYearId = exists ? form.schoolYearId : year.id;
     const targetYearName = exists ? data.schoolYears.find((item) => item.id === form.schoolYearId)?.name ?? year.name : year.name;
     const matricule = exists ? form.matricule : generateMatricule(data.students, targetYearName, school.id, targetYearId);
-    const student = {
+    const student: Student = {
       ...form,
-      parentId: selectedParentId || undefined,
       matricule,
       section: getClassSection(form.className),
       status: form.status ?? "ACTIVE",
@@ -5809,6 +5880,11 @@ function StudentsModule({
       schoolYearId: targetYearId,
       annee_scolaire_id: targetYearId,
     };
+    if (selectedParentId) {
+      student.parentId = selectedParentId;
+    } else {
+      delete student.parentId;
+    }
     const parents = data.parents.map((parent) => {
       const withoutStudent = parent.studentIds.filter((studentId) => studentId !== student.id);
       return parent.id === student.parentId ? { ...parent, studentIds: Array.from(new Set([...withoutStudent, student.id])) } : { ...parent, studentIds: withoutStudent };
@@ -5818,15 +5894,31 @@ function StudentsModule({
       const parent = parents.find((parentItem) => parentItem.id === item.parentId);
       return parent ? { ...item, studentIds: parent.studentIds } : item;
     });
+    const nextStudents = exists ? data.students.map((item) => (item.id === student.id ? student : item)) : [...data.students, student];
+    const changedParents = parents.filter((parent) => {
+      const previousParent = data.parents.find((item) => item.id === parent.id);
+      return previousParent && previousParent.studentIds.join("|") !== parent.studentIds.join("|");
+    });
+    const auditLog = createAuditLog(user, school.id, targetYearId, exists ? "Modification élève" : "Création élève", `${student.matricule} - ${student.nom} ${student.prenom}`);
+    try {
+      await persistFirestorePatch(
+        {
+          students: [student],
+          ...(changedParents.length ? { parents: changedParents } : {}),
+          auditLogs: [auditLog],
+        },
+        { throwOnError: true },
+      );
+    } catch (error) {
+      setSaveError(error instanceof Error ? `Impossible d'enregistrer l'élève dans Firestore : ${error.message}` : "Impossible d'enregistrer l'élève dans Firestore.");
+      return;
+    }
     updateData({
-      students: exists ? data.students.map((item) => (item.id === student.id ? student : item)) : [...data.students, student],
+      students: nextStudents,
       parents,
       users,
-      auditLogs: [
-        createAuditLog(user, school.id, targetYearId, exists ? "Modification élève" : "Création élève", `${student.matricule} - ${student.nom} ${student.prenom}`),
-        ...data.auditLogs,
-      ],
-    });
+      auditLogs: [auditLog, ...data.auditLogs],
+    }, { persist: false });
     setForm(emptyCurrentStudent());
     setShowForm(false);
     setSaveMessage(exists ? "Élève modifié avec succès." : "Élève enregistré avec succès.");
@@ -6144,11 +6236,11 @@ function StudentsModule({
   }
 
   return (
-    <section className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+    <section className="grid min-w-0 gap-4">
       <div className="min-w-0">
         <SectionTitle title="Élèves" subtitle="Ajouter, modifier, rechercher et filtrer par direction puis classe." />
         {saveMessage && <p className="mb-3 rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{saveMessage}</p>}
-        <div className={`mb-3 grid min-w-0 gap-2 sm:grid-cols-2 lg:w-full ${canEdit ? "lg:grid-cols-4" : "lg:grid-cols-2"}`}>
+        <div className={`mb-3 grid min-w-0 gap-2 sm:grid-cols-2 lg:w-full ${canEdit ? "lg:grid-cols-[minmax(130px,0.75fr)_minmax(280px,1.35fr)_minmax(230px,1.1fr)_minmax(220px,1fr)]" : "lg:grid-cols-2"}`}>
           {canEdit && (
             <button onClick={openAddStudentForm} type="button" className="primary-button w-full justify-center">
               <Plus className="h-4 w-4" /> Ajouter un élève
@@ -6159,7 +6251,7 @@ function StudentsModule({
               onClick={openImportStudentsDrawer}
               type="button"
               disabled={studentsAlreadyImported}
-              className="secondary-button w-full justify-center disabled:cursor-not-allowed disabled:opacity-50"
+              className="secondary-button w-full justify-center whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50"
               title={studentsAlreadyImported ? "Les élèves ont déjà été importés pour cette année scolaire." : undefined}
             >
               <Upload className="h-4 w-4" /> Importer les élèves d'une année archivée
@@ -6168,20 +6260,17 @@ function StudentsModule({
           <button onClick={printAgeHomogeneityPdf} type="button" className="primary-button w-full justify-center">
             <Download className="h-4 w-4" /> Tableau d'homogénéité d'âge
           </button>
-          <button onClick={printStudentsPdf} type="button" className="primary-button w-full justify-center">
-            <Download className="h-4 w-4" /> Exporter PDF
-          </button>
+          <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
+            <Search className="h-4 w-4 text-slate-400" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher" className="min-w-0 flex-1 outline-none" />
+          </label>
         </div>
         {studentsAlreadyImported && (
           <p className="mb-3 rounded border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-600">
             Les élèves ont déjà été importés pour cette année scolaire. Cette opération ne peut être effectuée qu'une seule fois.
           </p>
         )}
-        <div className="mb-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:w-full lg:grid-cols-[minmax(0,2fr)_minmax(0,0.7fr)_minmax(0,0.8fr)_minmax(0,0.9fr)_minmax(0,0.9fr)]">
-          <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
-            <Search className="h-4 w-4 text-slate-400" />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher" className="min-w-0 flex-1 outline-none" />
-          </label>
+        <div className="mb-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:w-full lg:grid-cols-[minmax(0,0.8fr)_minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(150px,0.9fr)]">
           <select value={archiveFilter} onChange={(event) => setArchiveFilter(event.target.value as typeof archiveFilter)} className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2">
             <option value="active">Actifs</option>
             <option value="archived">Archivés</option>
@@ -6212,6 +6301,9 @@ function StudentsModule({
               <option key={option} value={option}>{option}</option>
             ))}
           </select>
+          <button onClick={printStudentsPdf} type="button" className="primary-button w-full justify-center">
+            <Download className="h-4 w-4" /> Exporter PDF
+          </button>
         </div>
         <div className="max-w-full overflow-x-auto rounded border border-slate-200 bg-white">
           <table className="min-w-[980px] w-full text-left text-sm">
@@ -6572,7 +6664,6 @@ function StudentDetailPage({
           <Metric label="Sexe" value={student.sexe} />
           <Metric label="Date de naissance" value={student.birthDate} />
           <Metric label="Adresse" value={student.address} />
-          <Metric label="Téléphone" value={student.phone} />
           {parent ? (
             <Metric label="Parent" value={parent.fullName} />
           ) : (
@@ -6580,7 +6671,7 @@ function StudentDetailPage({
               <p className="text-xs uppercase tracking-wide text-slate-400">Parent</p>
               <div className="mt-1 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <p className="break-words font-semibold text-ink">Non renseigné</p>
-                <button onClick={() => setParentLinkOpen(true)} className="secondary-button w-full justify-center sm:w-auto" type="button">
+                <button onClick={() => setParentLinkOpen(true)} className="primary-button w-full justify-center sm:w-auto" type="button">
                   <Plus className="h-4 w-4" /> Lier à un parent
                 </button>
               </div>
@@ -8088,12 +8179,12 @@ function ControlModule({
   }
 
   return (
-    <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+    <section className="grid min-w-0 gap-4">
       <div className="min-w-0">
         <SectionTitle title="Contrôle" subtitle="Frais scolaires, paiements, historique et soldes restants en dollar américain." />
         {user.role === "cashier" ? (
-          <div className="mb-3 grid min-w-0 max-w-full gap-2 lg:w-full">
-            <div className="flex min-w-0 flex-nowrap items-stretch gap-1.5 lg:grid lg:w-full lg:grid-cols-3 lg:gap-2">
+          <div className={`mb-3 grid min-w-0 max-w-full gap-2 lg:w-full lg:gap-2 ${canPay ? "lg:grid-cols-[minmax(105px,0.8fr)_minmax(70px,0.6fr)_repeat(5,minmax(0,1fr))]" : "lg:grid-cols-[minmax(120px,1fr)_minmax(90px,0.8fr)_repeat(3,minmax(0,1fr))]"}`}>
+            <div className="flex min-w-0 flex-nowrap items-stretch gap-1.5 lg:contents">
               <select value={amountComparator} onChange={(event) => setAmountComparator(event.target.value)} className="h-10 min-w-0 flex-[1.1] rounded border border-slate-200 bg-white px-2 text-xs sm:text-sm lg:w-full">
                 <option value="all">Montant payé</option>
                 {amountFeeOptions.map((option) => (
@@ -8107,19 +8198,19 @@ function ControlModule({
                 <Download className="h-4 w-4" /> Imprimer
               </button>
             </div>
-            <div className={`grid min-w-0 gap-2 sm:grid-cols-2 lg:w-full ${canPay ? "lg:grid-cols-4" : "lg:grid-cols-2"}`}>
-              <button onClick={() => setCashierControlDrawer("history")} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:text-xs" type="button">
+            <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:contents">
+              <button onClick={() => setCashierControlDrawer("history")} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:px-1 lg:text-[11px] lg:whitespace-nowrap xl:px-2 xl:text-xs" type="button">
                 Historique des paiements
               </button>
-              <button onClick={() => setExpenseHistoryOpen(true)} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:text-xs" type="button">
+              <button onClick={() => setExpenseHistoryOpen(true)} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:px-1 lg:text-[11px] lg:whitespace-nowrap xl:px-2 xl:text-xs" type="button">
                 Historique de dépenses
               </button>
               {canPay && (
                 <>
-                  <button onClick={() => { setCashierControlFeedback(""); setCashierControlFeedbackDrawer(null); setCashierControlDrawer("payment"); }} className="primary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:text-xs" type="button">
+                  <button onClick={() => { setCashierControlFeedback(""); setCashierControlFeedbackDrawer(null); setCashierControlDrawer("payment"); }} className="primary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:px-1 lg:text-[11px] lg:whitespace-nowrap xl:px-2 xl:text-xs" type="button">
                     Enregistrer un paiement
                   </button>
-                  <button onClick={() => { setCashierControlFeedback(""); setCashierControlFeedbackDrawer(null); setCashierControlDrawer("expense"); }} className="primary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:text-xs" type="button">
+                  <button onClick={() => { setCashierControlFeedback(""); setCashierControlFeedbackDrawer(null); setCashierControlDrawer("expense"); }} className="primary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:px-1 lg:text-[11px] lg:whitespace-nowrap xl:px-2 xl:text-xs" type="button">
                     Enregistrer une dépense
                   </button>
                 </>
@@ -8127,8 +8218,8 @@ function ControlModule({
             </div>
           </div>
         ) : (
-          <div className="mb-3 grid min-w-0 max-w-full gap-2 lg:w-full">
-            <div className="flex min-w-0 flex-nowrap items-stretch gap-1.5 lg:grid lg:w-full lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(160px,220px)] lg:gap-2">
+          <div className="mb-3 grid min-w-0 max-w-full gap-2 lg:w-full lg:grid-cols-[minmax(120px,1fr)_minmax(90px,0.8fr)_repeat(4,minmax(0,1fr))] lg:gap-2">
+            <div className="flex min-w-0 flex-nowrap items-stretch gap-1.5 lg:contents">
               <select value={amountComparator} onChange={(event) => setAmountComparator(event.target.value)} className="h-10 min-w-0 flex-[1.1] rounded border border-slate-200 bg-white px-2 text-xs sm:text-sm lg:w-full">
                 <option value="all">Montant payé</option>
                 {amountFeeOptions.map((option) => (
@@ -8142,14 +8233,14 @@ function ControlModule({
                 <Download className="h-4 w-4" /> Imprimer
               </button>
             </div>
-            <div className="grid min-w-0 gap-2 lg:w-full lg:grid-cols-3">
-              <button onClick={() => setHistoryOpen(true)} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:text-xs" type="button">
+            <div className="grid min-w-0 gap-2 lg:contents">
+              <button onClick={() => setHistoryOpen(true)} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:px-1 lg:text-[11px] lg:whitespace-nowrap xl:px-2 xl:text-xs" type="button">
                 Historique des paiements
               </button>
-              <button onClick={() => setExpenseHistoryOpen(true)} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:text-xs" type="button">
+              <button onClick={() => setExpenseHistoryOpen(true)} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:px-1 lg:text-[11px] lg:whitespace-nowrap xl:px-2 xl:text-xs" type="button">
                 Historique de dépenses
               </button>
-              <button onClick={() => setWarningOpen(true)} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:text-xs" type="button">
+              <button onClick={() => setWarningOpen(true)} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:px-1 lg:text-[11px] lg:whitespace-nowrap xl:px-2 xl:text-xs" type="button">
                 Avertissement
               </button>
             </div>
@@ -8515,6 +8606,18 @@ function ReportsModule({
     primaire: "Primaire",
     secondaire: "Secondaire",
   };
+  const reportSectionChoices = useMemo(
+    () =>
+      getSchoolEducationLevels(school)
+        .map((level) => (level === "Maternelle" ? "maternelle" : level === "Primaire" ? "primaire" : level === "Secondaire" ? "secondaire" : ""))
+        .filter(Boolean) as SchoolSection[],
+    [school],
+  );
+  useEffect(() => {
+    if (sectionFilter !== "all" && !reportSectionChoices.includes(sectionFilter)) {
+      setSectionFilter("all");
+    }
+  }, [reportSectionChoices, sectionFilter]);
   const filteredStudents = yearData.students.filter((student) => sectionFilter === "all" || getClassSection(student.className) === sectionFilter);
   const filteredStudentIds = new Set(filteredStudents.map((student) => student.id));
   const payments = yearData.payments.filter((payment) => payment.paidAt >= startDate && payment.paidAt <= endDate && filteredStudentIds.has(payment.studentId));
@@ -8535,9 +8638,9 @@ function ReportsModule({
             Section
             <select value={sectionFilter} onChange={(event) => setSectionFilter(event.target.value as "all" | SchoolSection)} className="input">
               <option value="all">Toutes</option>
-              <option value="maternelle">Maternelle</option>
-              <option value="primaire">Primaire</option>
-              <option value="secondaire">Secondaire</option>
+              {reportSectionChoices.map((section) => (
+                <option key={section} value={section}>{sectionLabels[section]}</option>
+              ))}
             </select>
           </label>
           <button onClick={() => exportReportPdf(school, year, startDate, endDate, sectionLabels[sectionFilter], usesSectionFilter, paid, spent, recovery, payments, expenses, filteredStudents)} className="primary-button self-end">
@@ -8604,24 +8707,38 @@ function MessagesModule({
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
 }) {
   const [recipientParentId, setRecipientParentId] = useState<string>("all");
+  const [adminRecipientMode, setAdminRecipientMode] = useState<"all" | "parents" | "sections" | "classes">("all");
+  const [selectedAdminParentIds, setSelectedAdminParentIds] = useState<string[]>([]);
+  const [selectedAdminSection, setSelectedAdminSection] = useState<SchoolSection | "">("");
+  const [selectedAdminClass, setSelectedAdminClass] = useState<SchoolClass | "">("");
   const [selectedDisciplineParentIds, setSelectedDisciplineParentIds] = useState<string[]>([]);
   const [recipientSearch, setRecipientSearch] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [messageFeedback, setMessageFeedback] = useState("");
   const canSend = user.role !== "parent" && year.status !== "archived";
+  const isSchoolAdmin = user.role === "school_admin";
   const isDisciplineDirector = user.role === "discipline_director";
   const disciplineMessageSubjects = ["Avertissement disciplinaire", "Convocation", "Décision disciplinaire", "Notification de fin de sanction"];
-  const recipientCandidates = yearData.parents.map((parent) => ({
+  const sameSchoolParents = yearData.parents.filter((parent) => parent.schoolId === school.id);
+  const sameSchoolStudents = yearData.students.filter((student) => student.schoolId === school.id);
+  const sectionLabels: Record<SchoolSection, string> = {
+    maternelle: "Maternelle",
+    primaire: "Primaire",
+    secondaire: "Secondaire",
+  };
+  const adminSectionChoices = Array.from(new Set(sameSchoolStudents.map((student) => getClassSection(student.className))));
+  const adminClassChoices = Array.from(new Set(sameSchoolStudents.map((student) => student.className))).sort((first, second) => first.localeCompare(second, "fr"));
+  const recipientCandidates = sameSchoolParents.map((parent) => ({
     parent,
-    children: yearData.students.filter((student) => student.parentId === parent.id || parent.studentIds.includes(student.id)),
+    children: sameSchoolStudents.filter((student) => student.parentId === parent.id || parent.studentIds.includes(student.id)),
   }));
   const disciplineRecipientCandidates = recipientCandidates.filter(({ children }) => children.length > 0);
   const recipientResults = recipientCandidates.filter(({ parent, children }) => {
       const search = recipientSearch.trim().toLowerCase();
       if (!search) return false;
       const studentText = children.map((student) => `${student.nom} ${student.postnom} ${student.prenom} ${student.matricule}`).join(" ");
-      return `${parent.fullName} ${studentText}`.toLowerCase().includes(search);
+      return `${parent.fullName} ${parent.phone} ${parent.email} ${parent.address} ${studentText}`.toLowerCase().includes(search);
     });
   const disciplineRecipientResults = disciplineRecipientCandidates.filter(({ parent, children }) => {
       const search = recipientSearch.trim().toLowerCase();
@@ -8631,7 +8748,34 @@ function MessagesModule({
     });
   const hasRecipientSearch = recipientSearch.trim().length > 0;
   const selectedParent = yearData.parents.find((parent) => parent.id === recipientParentId);
+  const selectedAdminParents = sameSchoolParents.filter((parent) => selectedAdminParentIds.includes(parent.id));
   const selectedDisciplineParents = yearData.parents.filter((parent) => selectedDisciplineParentIds.includes(parent.id));
+
+  function uniqueParents(parents: ParentProfile[]) {
+    return Array.from(new Map(parents.filter((parent) => parent.schoolId === school.id).map((parent) => [parent.id, parent])).values());
+  }
+
+  function parentForStudent(student: Student) {
+    const directParent = student.parentId ? sameSchoolParents.find((parent) => parent.id === student.parentId) : undefined;
+    return directParent ?? sameSchoolParents.find((parent) => parent.studentIds.includes(student.id));
+  }
+
+  function resolveParentsForStudents(students: Student[]) {
+    return uniqueParents(students.map(parentForStudent).filter((parent): parent is ParentProfile => Boolean(parent)));
+  }
+
+  function resolveAdminRecipientParents() {
+    if (adminRecipientMode === "all") return uniqueParents(sameSchoolParents);
+    if (adminRecipientMode === "parents") return uniqueParents(selectedAdminParents);
+    if (adminRecipientMode === "sections") {
+      if (!selectedAdminSection) return [];
+      return resolveParentsForStudents(sameSchoolStudents.filter((student) => getClassSection(student.className) === selectedAdminSection));
+    }
+    if (!selectedAdminClass) return [];
+    return resolveParentsForStudents(sameSchoolStudents.filter((student) => student.className === selectedAdminClass));
+  }
+
+  const adminResolvedParents = isSchoolAdmin ? resolveAdminRecipientParents() : [];
 
   useEffect(() => {
     if (!isDisciplineDirector || !messageFeedback) return undefined;
@@ -8651,15 +8795,47 @@ function MessagesModule({
     setSelectedDisciplineParentIds((current) => current.filter((id) => id !== parentId));
   }
 
+  function changeAdminRecipientMode(mode: "all" | "parents" | "sections" | "classes") {
+    setAdminRecipientMode(mode);
+    setRecipientSearch("");
+    setSelectedAdminParentIds([]);
+    setSelectedAdminSection("");
+    setSelectedAdminClass("");
+  }
+
+  function toggleAdminParent(parentId: string) {
+    setSelectedAdminParentIds((current) =>
+      current.includes(parentId) ? current.filter((id) => id !== parentId) : [...current, parentId],
+    );
+  }
+
+  function removeAdminParent(parentId: string) {
+    setSelectedAdminParentIds((current) => current.filter((id) => id !== parentId));
+  }
+
   async function sendMessage() {
     setMessageFeedback("");
-    const recipientParents = isDisciplineDirector
+    if (isSchoolAdmin && adminRecipientMode === "parents" && selectedAdminParentIds.length === 0) {
+      setMessageFeedback("Message non envoyé. Aucun parent sélectionné.");
+      return;
+    }
+    if (isSchoolAdmin && adminRecipientMode === "sections" && !selectedAdminSection) {
+      setMessageFeedback("Message non envoyé. Aucune section sélectionnée.");
+      return;
+    }
+    if (isSchoolAdmin && adminRecipientMode === "classes" && !selectedAdminClass) {
+      setMessageFeedback("Message non envoyé. Aucune classe sélectionnée.");
+      return;
+    }
+    const recipientParents = isSchoolAdmin
+      ? adminResolvedParents
+      : isDisciplineDirector
       ? selectedDisciplineParents
       : recipientParentId === "all"
-        ? yearData.parents
+        ? sameSchoolParents
         : yearData.parents.filter((parent) => parent.id === recipientParentId);
     if (recipientParents.length === 0) {
-      setMessageFeedback("Message non envoyé. Aucun parent destinataire n'a été trouvé.");
+      setMessageFeedback("Aucun parent destinataire n'a été trouvé pour cette sélection.");
       return;
     }
     const createdAt = new Date().toISOString();
@@ -8786,6 +8962,10 @@ function MessagesModule({
       setMessageFeedback(`${messages.length} message(s) envoyé(s).`);
       return;
     }
+    if (isSchoolAdmin) {
+      setSelectedAdminParentIds([]);
+      setRecipientSearch("");
+    }
     setMessageFeedback("Message envoyé avec succès.");
   }
 
@@ -8799,46 +8979,144 @@ function MessagesModule({
       {canSend && (
         <FormPanel title="Envoyer un message">
           <div className="grid min-w-0 gap-2">
-            <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
-              <Search className="h-4 w-4 shrink-0 text-slate-400" />
-              <input
-                value={recipientSearch}
-                onChange={(event) => setRecipientSearch(event.target.value)}
-                className="min-w-0 flex-1 outline-none"
-                placeholder="Rechercher parent, enfant ou matricule"
-              />
-            </label>
-            <div className="max-h-60 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
-              {!isDisciplineDirector && (
-                <button
-                  onClick={() => setRecipientParentId("all")}
-                  type="button"
-                  className={`w-full rounded border p-3 text-left text-sm transition ${recipientParentId === "all" ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50 hover:border-slate-200"}`}
-                >
-                  <p className="font-semibold text-ink">Tous les parents</p>
-                  <p className="text-xs text-slate-500">Envoyer à tous les parents</p>
-                </button>
-              )}
-              {(isDisciplineDirector ? disciplineRecipientResults : hasRecipientSearch ? recipientResults : []).map(({ parent, children }) => {
-                const selected = isDisciplineDirector ? selectedDisciplineParentIds.includes(parent.id) : recipientParentId === parent.id;
-                return (
-                  <button
-                    key={parent.id}
-                    onClick={() => (isDisciplineDirector ? toggleDisciplineParent(parent.id) : setRecipientParentId(parent.id))}
-                    type="button"
-                    className={`w-full rounded border p-3 text-left text-sm transition ${selected ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50 hover:border-slate-200"}`}
-                  >
-                    <p className="font-semibold text-ink">{parent.fullName}</p>
-                    <p className="text-xs text-slate-500">
-                      {children.length
-                        ? children.map((student) => `${student.nom} ${student.prenom}${student.matricule ? ` | ${student.matricule}` : ""}`).join(" • ")
-                        : "Aucun enfant associé"}
-                    </p>
-                  </button>
-                );
-              })}
-              {hasRecipientSearch && recipientResults.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun parent trouvé.</p>}
-            </div>
+            {isSchoolAdmin ? (
+              <>
+                <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+                  Destinataires
+                  <select value={adminRecipientMode} onChange={(event) => changeAdminRecipientMode(event.target.value as "all" | "parents" | "sections" | "classes")} className="input">
+                    <option value="all">Tous les parents</option>
+                    <option value="parents">Sélection parent</option>
+                    <option value="sections">Sections</option>
+                    <option value="classes">Classes</option>
+                  </select>
+                </label>
+                {adminRecipientMode === "parents" && (
+                  <>
+                    <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
+                      <Search className="h-4 w-4 shrink-0 text-slate-400" />
+                      <input
+                        value={recipientSearch}
+                        onChange={(event) => setRecipientSearch(event.target.value)}
+                        className="min-w-0 flex-1 outline-none"
+                        placeholder="Rechercher parent, téléphone ou email"
+                      />
+                    </label>
+                    <div className="max-h-60 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+                      {hasRecipientSearch &&
+                        recipientResults.map(({ parent, children }) => {
+                          const selected = selectedAdminParentIds.includes(parent.id);
+                          return (
+                            <button
+                              key={parent.id}
+                              onClick={() => toggleAdminParent(parent.id)}
+                              type="button"
+                              className={`w-full rounded border p-3 text-left text-sm transition ${selected ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50 hover:border-slate-200"}`}
+                            >
+                              <p className="font-semibold text-ink">{parent.fullName}</p>
+                              <p className="text-xs text-slate-500">{parent.phone || "Téléphone non renseigné"} | {parent.email || "Email non renseigné"}</p>
+                              <p className="text-xs text-slate-500">
+                                {children.length
+                                  ? children.map((student) => `${student.nom} ${student.prenom}${student.matricule ? ` | ${student.matricule}` : ""}`).join(" • ")
+                                  : "Aucun enfant associé"}
+                              </p>
+                            </button>
+                          );
+                        })}
+                      {!hasRecipientSearch && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Saisissez un nom, téléphone ou email pour rechercher un parent.</p>}
+                      {hasRecipientSearch && recipientResults.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun parent trouvé.</p>}
+                    </div>
+                  </>
+                )}
+                {adminRecipientMode === "sections" && (
+                  <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+                    Section
+                    <select value={selectedAdminSection} onChange={(event) => setSelectedAdminSection(event.target.value as SchoolSection | "")} className="input">
+                      <option value="">Sélectionner une section</option>
+                      {adminSectionChoices.map((section) => (
+                        <option key={section} value={section}>{sectionLabels[section]}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {adminRecipientMode === "classes" && (
+                  <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+                    Classe
+                    <select value={selectedAdminClass} onChange={(event) => setSelectedAdminClass(event.target.value as SchoolClass | "")} className="input">
+                      <option value="">Sélectionner une classe</option>
+                      {adminClassChoices.map((className) => (
+                        <option key={className} value={className}>{className}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {selectedAdminParents.length > 0 && (
+                  <div className="grid gap-2 rounded bg-blue-50 p-3 text-sm font-semibold text-blue-700">
+                    <p>{selectedAdminParents.length} parent(s) sélectionné(s)</p>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedAdminParents.map((parent) => (
+                        <span key={parent.id} className="inline-flex max-w-full items-center gap-2 rounded-full bg-white px-3 py-1 text-xs text-blue-700">
+                          <span className="min-w-0 truncate">{parent.fullName}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeAdminParent(parent.id)}
+                            className="shrink-0 rounded-full p-0.5 transition hover:bg-blue-100"
+                            aria-label={`Retirer ${parent.fullName}`}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <p className="rounded bg-slate-50 p-3 text-sm font-semibold text-slate-600">
+                  {adminResolvedParents.length} parent{adminResolvedParents.length > 1 ? "s" : ""} destinataire{adminResolvedParents.length > 1 ? "s" : ""}
+                </p>
+              </>
+            ) : (
+              <>
+                <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
+                  <Search className="h-4 w-4 shrink-0 text-slate-400" />
+                  <input
+                    value={recipientSearch}
+                    onChange={(event) => setRecipientSearch(event.target.value)}
+                    className="min-w-0 flex-1 outline-none"
+                    placeholder="Rechercher parent, enfant ou matricule"
+                  />
+                </label>
+                <div className="max-h-60 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+                  {!isDisciplineDirector && (
+                    <button
+                      onClick={() => setRecipientParentId("all")}
+                      type="button"
+                      className={`w-full rounded border p-3 text-left text-sm transition ${recipientParentId === "all" ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50 hover:border-slate-200"}`}
+                    >
+                      <p className="font-semibold text-ink">Tous les parents</p>
+                      <p className="text-xs text-slate-500">Envoyer à tous les parents</p>
+                    </button>
+                  )}
+                  {(isDisciplineDirector ? disciplineRecipientResults : hasRecipientSearch ? recipientResults : []).map(({ parent, children }) => {
+                    const selected = isDisciplineDirector ? selectedDisciplineParentIds.includes(parent.id) : recipientParentId === parent.id;
+                    return (
+                      <button
+                        key={parent.id}
+                        onClick={() => (isDisciplineDirector ? toggleDisciplineParent(parent.id) : setRecipientParentId(parent.id))}
+                        type="button"
+                        className={`w-full rounded border p-3 text-left text-sm transition ${selected ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50 hover:border-slate-200"}`}
+                      >
+                        <p className="font-semibold text-ink">{parent.fullName}</p>
+                        <p className="text-xs text-slate-500">
+                          {children.length
+                            ? children.map((student) => `${student.nom} ${student.prenom}${student.matricule ? ` | ${student.matricule}` : ""}`).join(" • ")
+                            : "Aucun enfant associé"}
+                        </p>
+                      </button>
+                    );
+                  })}
+                  {hasRecipientSearch && recipientResults.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun parent trouvé.</p>}
+                </div>
+              </>
+            )}
             {isDisciplineDirector && selectedDisciplineParents.length > 0 && (
               <div className="grid gap-2 rounded bg-blue-50 p-3 text-sm font-semibold text-blue-700">
                 <p>{selectedDisciplineParents.length} parent(s) sélectionné(s)</p>
@@ -8859,7 +9137,7 @@ function MessagesModule({
                 </div>
               </div>
             )}
-            {!isDisciplineDirector && recipientParentId !== "all" && selectedParent && (
+            {!isSchoolAdmin && !isDisciplineDirector && recipientParentId !== "all" && selectedParent && (
               <div className="flex min-w-0 items-center justify-between gap-3 rounded bg-blue-50 p-3 text-sm font-semibold text-blue-700">
                 <p className="min-w-0 truncate">Destinataire : {selectedParent.fullName}</p>
                 <button
@@ -8965,6 +9243,11 @@ function MenuModule({
   const [yearAction, setYearAction] = useState<{ type: "activate" | "archive"; yearId: string } | null>(null);
   const [yearActionConfirmation, setYearActionConfirmation] = useState("");
   const [yearActionError, setYearActionError] = useState("");
+  const [parentDeleteOpen, setParentDeleteOpen] = useState(false);
+  const [parentDeleteId, setParentDeleteId] = useState("");
+  const [parentDeleteConfirmation, setParentDeleteConfirmation] = useState("");
+  const [parentDeleteError, setParentDeleteError] = useState("");
+  const [parentDeleteSaving, setParentDeleteSaving] = useState(false);
   const isArchivedContext = selectedYear.status === "archived";
   const canAdmin = user.role === "school_admin" && !isArchivedContext;
   const menuSections = [
@@ -8983,6 +9266,10 @@ function MenuModule({
   const schoolFormEducationLevels = getSchoolEducationLevels(schoolForm).filter((level) => level !== "Mixte");
   const schoolFormOptions = schoolForm.schoolOptions ?? [];
   const feeClassChoices = buildFeeTargetChoices(yearData.students, feeClassNames);
+  const parentDeleteTarget = yearData.parents.find((parent) => parent.id === parentDeleteId && parent.schoolId === school.id);
+  const parentDeleteChildren = parentDeleteTarget
+    ? yearData.students.filter((student) => student.parentId === parentDeleteTarget.id || parentDeleteTarget.studentIds.includes(student.id))
+    : [];
 
   useEffect(() => {
     if (!showNewFeeForm) return;
@@ -9015,6 +9302,68 @@ function MenuModule({
     }, 4000);
     return () => window.clearTimeout(timer);
   }, [cashierError, cashierSuccess]);
+
+  function openParentDeleteDrawer() {
+    setParentDeleteOpen(true);
+    setParentDeleteId("");
+    setParentDeleteConfirmation("");
+    setParentDeleteError("");
+  }
+
+  function closeParentDeleteDrawer() {
+    if (parentDeleteSaving) return;
+    setParentDeleteOpen(false);
+    setParentDeleteId("");
+    setParentDeleteConfirmation("");
+    setParentDeleteError("");
+  }
+
+  async function confirmDeleteParent() {
+    setParentDeleteError("");
+    if (!parentDeleteTarget) {
+      setParentDeleteError("Veuillez sélectionner un parent à supprimer.");
+      return;
+    }
+    if (parentDeleteTarget.schoolId !== school.id) {
+      setParentDeleteError("Suppression refusée : ce parent n'appartient pas à cette école.");
+      return;
+    }
+    if (parentDeleteConfirmation !== "SUPPRIMER LE PARENT") {
+      setParentDeleteError("Veuillez saisir exactement SUPPRIMER LE PARENT pour confirmer.");
+      return;
+    }
+
+    setParentDeleteSaving(true);
+    try {
+      const result = await deleteParentAccount({
+        schoolId: school.id,
+        parentId: parentDeleteTarget.id,
+        confirmation: parentDeleteConfirmation,
+      });
+      updateData(
+        {
+          parents: data.parents.filter((parent) => parent.id !== parentDeleteTarget.id),
+          users: data.users.filter((item) => item.parentId !== parentDeleteTarget.id && item.id !== parentDeleteTarget.userId),
+          students: data.students.map((student) => (student.parentId === parentDeleteTarget.id ? { ...student, parentId: undefined } : student)),
+        },
+        { persist: false },
+      );
+      setSchoolSaveStatus(result.status === "partial" ? "error" : "success");
+      setSchoolSaveMessage(
+        result.status === "partial"
+          ? "Parent supprimé, mais le compte Firebase Authentication n'a pas pu être supprimé. Vérifiez le compte concerné."
+          : "Parent supprimé avec succès.",
+      );
+      setParentDeleteOpen(false);
+      setParentDeleteId("");
+      setParentDeleteConfirmation("");
+      setParentDeleteError("");
+    } catch (error) {
+      setParentDeleteError(error instanceof Error ? error.message : "Suppression du parent impossible. Veuillez réessayer.");
+    } finally {
+      setParentDeleteSaving(false);
+    }
+  }
 
   async function saveSchool() {
     if (schoolSaving) return;
@@ -9719,6 +10068,7 @@ function MenuModule({
           schoolYearId={selectedYear.id}
           onCreateParent={onCreateParentFromDirectory}
           onEditParent={onEditParentFromDirectory}
+          onDeleteParent={openParentDeleteDrawer}
         />
       );
     }
@@ -9742,7 +10092,11 @@ function MenuModule({
 
   return (
     <section className="grid min-w-0 gap-3">
-      {schoolSaveStatus === "success" && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{schoolSaveMessage}</p>}
+      {schoolSaveStatus && (
+        <p className={`rounded border p-3 text-sm font-semibold ${schoolSaveStatus === "success" ? "border-mint/30 bg-mint/10 text-mint" : "border-red-200 bg-red-50 text-red-700"}`}>
+          {schoolSaveMessage}
+        </p>
+      )}
       {visibleMenuSections.map((section) => {
         const Icon = section.icon;
         const active = activeMenuSection === section.id;
@@ -9770,6 +10124,79 @@ function MenuModule({
       {activeMenuSection && activeMenuSectionConfig && (
         <AdminDrawer title={activeMenuSectionConfig.title} onClose={() => setActiveMenuSection(null)} closeLabel={`Fermer ${activeMenuSectionConfig.title}`}>
           {renderMenuSectionForm(activeMenuSection)}
+        </AdminDrawer>
+      )}
+      {parentDeleteOpen && (
+        <AdminDrawer title="Supprimer un parent" onClose={closeParentDeleteDrawer} closeLabel="Annuler la suppression du parent">
+          <div className="grid min-w-0 gap-4">
+            <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+              Cette action supprime le compte parent et détache ses élèves sans supprimer les élèves ni leurs données scolaires.
+            </p>
+            <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+              Parent à supprimer
+              <select
+                value={parentDeleteId}
+                onChange={(event) => {
+                  setParentDeleteId(event.target.value);
+                  setParentDeleteConfirmation("");
+                  setParentDeleteError("");
+                }}
+                className="input"
+              >
+                <option value="">Sélectionner un parent</option>
+                {yearData.parents
+                  .filter((parent) => parent.schoolId === school.id)
+                  .map((parent) => (
+                    <option key={parent.id} value={parent.id}>
+                      {parent.fullName} - {parent.phone || parent.email}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            {parentDeleteTarget && (
+              <div className="grid min-w-0 gap-3 rounded border border-slate-200 bg-white p-3 text-sm">
+                <div>
+                  <p className="font-bold text-ink">{parentDeleteTarget.fullName}</p>
+                  <p className="break-words text-slate-500">{parentDeleteTarget.phone || "Téléphone non renseigné"} | {parentDeleteTarget.email || "Email non renseigné"}</p>
+                  <p className="break-words text-slate-500">Compte utilisateur : {parentDeleteTarget.userId || "Non renseigné"}</p>
+                </div>
+                <div className="rounded bg-slate-50 p-3">
+                  <p className="font-semibold text-slate-700">{parentDeleteChildren.length} enfant(s) lié(s)</p>
+                  <p className="mt-1 break-words text-slate-500">
+                    {parentDeleteChildren.length
+                      ? parentDeleteChildren.map((student) => `${student.nom} ${student.prenom} (${formatStudentClassName(student)})`).join(", ")
+                      : "Aucun enfant lié dans cette année scolaire."}
+                  </p>
+                </div>
+              </div>
+            )}
+            <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+              Confirmation obligatoire
+              <input
+                value={parentDeleteConfirmation}
+                onChange={(event) => {
+                  setParentDeleteConfirmation(event.target.value);
+                  setParentDeleteError("");
+                }}
+                className="input"
+                placeholder="SUPPRIMER LE PARENT"
+              />
+            </label>
+            {parentDeleteError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{parentDeleteError}</p>}
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button onClick={closeParentDeleteDrawer} type="button" className="secondary-button justify-center" disabled={parentDeleteSaving}>
+                Annuler
+              </button>
+              <button
+                onClick={confirmDeleteParent}
+                type="button"
+                disabled={!parentDeleteTarget || parentDeleteConfirmation !== "SUPPRIMER LE PARENT" || parentDeleteSaving}
+                className="inline-flex items-center justify-center gap-2 rounded bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Trash2 className="h-4 w-4" /> {parentDeleteSaving ? "Suppression..." : "Supprimer"}
+              </button>
+            </div>
+          </div>
         </AdminDrawer>
       )}
       <div className="mt-2 border-t border-slate-200 pt-4">

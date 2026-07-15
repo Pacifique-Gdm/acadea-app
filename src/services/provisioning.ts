@@ -127,6 +127,35 @@ export async function provisionParent(input: ProvisionParentInput) {
   return { parent: payload.parent, user: payload.user };
 }
 
+type DeleteParentAccountInput = {
+  schoolId: string;
+  parentId: string;
+  confirmation: string;
+};
+
+export type DeleteParentAccountResponse = {
+  status: "complete" | "partial";
+  parentId: string;
+  authUid?: string;
+  authStatus: "deleted" | "already-missing" | "failed" | "skipped" | "missing-uid";
+  authError?: string;
+  firestoreDeletedCount: number;
+  firestoreUpdatedCount: number;
+};
+
+export async function deleteParentAccount(input: DeleteParentAccountInput) {
+  const payload = await provisionSchoolAccount<DeleteParentAccountResponse & { error?: string }>({
+    action: "delete-parent",
+    ...input,
+  }, { showEndpointOnNotFound: true });
+
+  if (!payload.parentId || !payload.status) {
+    throw new Error("Reponse de suppression parent incomplete.");
+  }
+
+  return payload;
+}
+
 type ManageSchoolAction = "update" | "suspend" | "reactivate" | "delete";
 
 type ManageSchoolInput = {

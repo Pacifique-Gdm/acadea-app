@@ -283,6 +283,22 @@ export interface ValvePublication {
   updatedAt?: string;
 }
 
+export type AttendanceSource = "biometric" | "manual";
+export type AttendanceStatus = "present" | "absent" | "late" | "excused";
+
+export interface AttendanceRecord {
+  id: string;
+  schoolId: string;
+  schoolYearId: string;
+  studentId: string;
+  attendanceDate: string;
+  status: AttendanceStatus;
+  recordedAt: string;
+  recordedBy: string;
+  source: AttendanceSource;
+  manualReason?: string;
+}
+
 export interface AppData {
   users: AppUser[];
   schools: School[];
@@ -297,6 +313,7 @@ export interface AppData {
   auditLogs: AuditLog[];
   valves: ValvePublication[];
   disciplineSanctions: DisciplineSanction[];
+  attendance: AttendanceRecord[];
 }
 
 export const CLASSES: SchoolClass[] = [

@@ -5,6 +5,7 @@ import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 
 const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "parent"]);
+const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
 
 function getCredential() {
   if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
@@ -69,6 +70,19 @@ function publicError(error) {
   return "Provisionnement impossible. Verifiez les informations et reessayez.";
 }
 
+async function commitBatches(db, refs, buildUpdate) {
+  let deletedCount = 0;
+  for (let index = 0; index < refs.length; index += 450) {
+    const batch = db.batch();
+    refs.slice(index, index + 450).forEach((ref) => {
+      buildUpdate(batch, ref);
+      deletedCount += 1;
+    });
+    await batch.commit();
+  }
+  return deletedCount;
+}
+
 async function cleanup({ auth, db, authUid, refs }) {
   const tasks = [];
   if (authUid) tasks.push(auth.deleteUser(authUid));
@@ -89,6 +103,79 @@ async function assertAuthorizedCaller({ db, caller, schoolId }) {
   if (!schoolSnapshot.exists) {
     throw Object.assign(new Error("Ecole introuvable."), { statusCode: 400 });
   }
+}
+
+async function deleteParentAccount({ auth, db, caller, body }) {
+  const schoolId = normalizeText(body.schoolId);
+  const parentId = normalizeText(body.parentId);
+  const confirmation = normalizeText(body.confirmation);
+
+  if (!schoolId || !parentId) {
+    throw Object.assign(new Error("Ecole et parent requis."), { statusCode: 400 });
+  }
+  if (confirmation !== parentDeleteConfirmation) {
+    throw Object.assign(new Error("Confirmation de suppression invalide."), { statusCode: 400 });
+  }
+
+  await assertAuthorizedCaller({ db, caller, schoolId });
+
+  const parentRef = db.doc(`parents/${parentId}`);
+  const parentSnapshot = await parentRef.get();
+  if (!parentSnapshot.exists) {
+    throw Object.assign(new Error("Parent introuvable."), { statusCode: 404 });
+  }
+  const parent = parentSnapshot.data();
+  if (parent.schoolId !== schoolId) {
+    throw Object.assign(new Error("Parent hors de cette ecole."), { statusCode: 403 });
+  }
+
+  const authUid = normalizeText(parent.userId);
+  let authStatus = authUid ? "skipped" : "missing-uid";
+  let authError = "";
+  if (authUid) {
+    try {
+      await auth.deleteUser(authUid);
+      authStatus = "deleted";
+    } catch (error) {
+      if (error?.code === "auth/user-not-found") {
+        authStatus = "already-missing";
+      } else {
+        authStatus = "failed";
+        authError = error?.code ?? error?.message ?? "auth-delete-failed";
+      }
+    }
+  }
+
+  const userRefs = [];
+  if (authUid) userRefs.push(db.doc(`users/${authUid}`));
+  const linkedUserSnapshots = await db.collection("users").where("schoolId", "==", schoolId).where("parentId", "==", parentId).get();
+  linkedUserSnapshots.docs.forEach((docSnapshot) => {
+    if (!userRefs.some((ref) => ref.path === docSnapshot.ref.path)) userRefs.push(docSnapshot.ref);
+  });
+
+  const studentSnapshots = await db.collection("students").where("schoolId", "==", schoolId).where("parentId", "==", parentId).get();
+  let firestoreUpdatedCount = 0;
+  if (!studentSnapshots.empty) {
+    firestoreUpdatedCount += await commitBatches(db, studentSnapshots.docs.map((docSnapshot) => docSnapshot.ref), (batch, ref) => {
+      batch.update(ref, { parentId: null });
+    });
+  }
+
+  const deleteRefs = [parentRef, ...userRefs];
+  firestoreUpdatedCount += await commitBatches(db, deleteRefs, (batch, ref) => {
+    batch.delete(ref);
+  });
+
+  const status = authStatus === "failed" ? "partial" : "complete";
+  return {
+    status,
+    parentId,
+    authUid: authUid || undefined,
+    authStatus,
+    authError: authError || undefined,
+    firestoreDeletedCount: deleteRefs.length,
+    firestoreUpdatedCount,
+  };
 }
 
 async function createAuthUser(auth, { email, password, displayName }) {
@@ -126,6 +213,14 @@ export default async function handler(req, res) {
 
     const caller = await auth.verifyIdToken(token, true);
     const body = await readBody(req);
+    const action = normalizeText(body.action);
+
+    if (action === "delete-parent") {
+      const result = await deleteParentAccount({ auth, db, caller, body });
+      sendJson(res, result.status === "partial" ? 207 : 200, result);
+      return;
+    }
+
     const role = normalizeText(body.role);
     const schoolId = normalizeText(body.schoolId);
     const schoolYearId = normalizeText(body.schoolYearId);

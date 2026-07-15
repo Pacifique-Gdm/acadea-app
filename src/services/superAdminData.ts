@@ -37,6 +37,7 @@ function emptySuperAdminData(): AppData {
     auditLogs: [],
     valves: [],
     disciplineSanctions: [],
+    attendance: [],
   };
 }
 

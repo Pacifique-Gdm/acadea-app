@@ -9,8 +9,8 @@ type PersistableItem = { id: string };
 type PersistFirestorePatchOptions = {
   throwOnError?: boolean;
 };
-export type FirestoreYearData = Pick<AppData, "students" | "feeTypes" | "payments" | "expenses" | "messages" | "valves">;
-export type DisciplineYearData = Pick<AppData, "students" | "parents" | "messages" | "notifications" | "disciplineSanctions">;
+export type FirestoreYearData = Pick<AppData, "students" | "feeTypes" | "payments" | "expenses" | "messages" | "valves" | "attendance">;
+export type DisciplineYearData = Pick<AppData, "students" | "parents" | "messages" | "notifications" | "disciplineSanctions" | "attendance">;
 export type PlatformSettings = {
   loginLogoUrl?: string;
   updatedAt?: string;
@@ -30,6 +30,7 @@ const collectionMap: Record<CollectionKey, string> = {
   auditLogs: "auditLogs",
   valves: "valves",
   disciplineSanctions: "disciplineSanctions",
+  attendance: "attendance",
 };
 
 export function canUseFirestoreData() {
@@ -51,6 +52,7 @@ function emptyFirestoreData(): AppData {
     auditLogs: [],
     valves: [],
     disciplineSanctions: [],
+    attendance: [],
   };
 }
 
@@ -78,6 +80,15 @@ async function loadCollection<T>(collectionName: string, filters: [string, unkno
     throw describeFirestoreError(collectionName, error);
   });
   return snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as T[];
+}
+
+async function loadAttendanceCollection(filters: [string, unknown][]) {
+  try {
+    return await loadCollection<AppData["attendance"][number]>("attendance", filters);
+  } catch (error) {
+    console.warn("Chargement des présences impossible. Vérifiez le déploiement des règles Firestore attendance.", error);
+    return [];
+  }
 }
 
 async function loadDocument<T>(collectionName: string, id?: string) {
@@ -156,6 +167,7 @@ export async function loadFirestoreData(user?: AppUser, schoolYearId?: string) {
       scopedData.messages = await loadCollection<AppData["messages"][number]>("messages", [...annualFilter, ["schoolRecipient", "discipline"]]);
       scopedData.notifications = await loadCollection<AppData["notifications"][number]>("notifications", [...annualFilter, ["recipientRole", "school"], ["schoolRecipient", "discipline"]]);
       scopedData.disciplineSanctions = await loadCollection<AppData["disciplineSanctions"][number]>("disciplineSanctions", annualFilter);
+      scopedData.attendance = await loadAttendanceCollection(annualFilter);
       return scopedData;
     }
 
@@ -167,6 +179,7 @@ export async function loadFirestoreData(user?: AppUser, schoolYearId?: string) {
     scopedData.messages = await loadCollection<AppData["messages"][number]>("messages", annualFilter);
     if (user.role === "school_admin") {
       scopedData.auditLogs = await loadCollection<AppData["auditLogs"][number]>("auditLogs", schoolFilter);
+      scopedData.attendance = await loadAttendanceCollection(annualFilter);
     }
     scopedData.valves = await loadCollection<AppData["valves"][number]>("valves", annualFilter);
     return scopedData;
@@ -197,6 +210,7 @@ export async function loadDisciplineYearData(user: AppUser, schoolYearId: string
     messages: await loadCollection<AppData["messages"][number]>("messages", [...annualFilter, ["schoolRecipient", "discipline"]]),
     notifications: await loadCollection<AppData["notifications"][number]>("notifications", [...annualFilter, ["recipientRole", "school"], ["schoolRecipient", "discipline"]]),
     disciplineSanctions: await loadCollection<AppData["disciplineSanctions"][number]>("disciplineSanctions", annualFilter),
+    attendance: await loadAttendanceCollection(annualFilter),
   };
 
   return yearData;
@@ -223,6 +237,7 @@ export async function loadFirestoreYearData(user: AppUser, schoolYearId: string)
     expenses: await loadCollection<AppData["expenses"][number]>("expenses", annualFilter),
     messages: await loadCollection<AppData["messages"][number]>("messages", annualFilter),
     valves: await loadCollection<AppData["valves"][number]>("valves", annualFilter),
+    attendance: await loadAttendanceCollection(annualFilter),
   };
 
   return yearData;
