@@ -203,10 +203,11 @@ export interface AppNotification {
   recipientRole?: "parent" | "school";
   parentId?: string;
   studentId?: string;
+  studentName?: string;
   messageId?: string;
   disciplineSanctionId?: string;
   schoolRecipient?: "admin" | "cashier" | "discipline" | "both";
-  type: "payment" | "message" | "valve";
+  type: "payment" | "message" | "valve" | "attendance";
   title: string;
   body: string;
   createdAt: string;
@@ -299,6 +300,17 @@ export interface AttendanceRecord {
   manualReason?: string;
 }
 
+export interface AttendanceSettings {
+  id: string;
+  schoolId: string;
+  schoolYearId: string;
+  defaultLateAfter?: string;
+  sectionLateAfter?: Partial<Record<SchoolSection, string>>;
+  classLateAfter?: Record<string, string>;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
 export interface AppData {
   users: AppUser[];
   schools: School[];
@@ -314,6 +326,7 @@ export interface AppData {
   valves: ValvePublication[];
   disciplineSanctions: DisciplineSanction[];
   attendance: AttendanceRecord[];
+  attendanceSettings: AttendanceSettings[];
 }
 
 export const CLASSES: SchoolClass[] = [

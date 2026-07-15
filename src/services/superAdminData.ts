@@ -38,6 +38,7 @@ function emptySuperAdminData(): AppData {
     valves: [],
     disciplineSanctions: [],
     attendance: [],
+    attendanceSettings: [],
   };
 }
 

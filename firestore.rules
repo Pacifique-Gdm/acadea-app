@@ -270,19 +270,32 @@ service cloud.firestore {
       allow read: if superAdmin()
         || sameTenantResource()
         || disciplineTenantResource();
-      allow create: if (schoolAdmin() && sameTenantCreate())
-        || (
-          disciplineTenantCreate()
-          && request.resource.data.schoolYearId is string
-          && request.resource.data.schoolYearId.size() > 0
-        );
-      allow update: if (schoolAdmin() && sameTenantUpdate() && sameYearUpdate())
-        || (
-          disciplineTenantResource()
-          && request.resource.data.schoolId == resource.data.schoolId
-          && request.resource.data.schoolYearId == resource.data.schoolYearId
-        );
-      allow delete: if schoolAdmin() && sameTenantResource();
+      allow create: if disciplineTenantCreate()
+        && request.resource.data.schoolYearId is string
+        && exists(/databases/$(database)/documents/schoolYears/$(request.resource.data.schoolYearId))
+        && get(/databases/$(database)/documents/schoolYears/$(request.resource.data.schoolYearId)).data.schoolId == tenantSchoolId();
+      allow update: if disciplineTenantResource()
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.schoolYearId == resource.data.schoolYearId
+        && exists(/databases/$(database)/documents/schoolYears/$(resource.data.schoolYearId))
+        && get(/databases/$(database)/documents/schoolYears/$(resource.data.schoolYearId)).data.schoolId == tenantSchoolId();
+      allow delete: if false;
+    }
+
+    match /attendanceSettings/{settingsId} {
+      allow read: if superAdmin()
+        || (schoolAdmin() && sameTenantResource())
+        || disciplineTenantResource();
+      allow create: if disciplineTenantCreate()
+        && request.resource.data.schoolYearId is string
+        && exists(/databases/$(database)/documents/schoolYears/$(request.resource.data.schoolYearId))
+        && get(/databases/$(database)/documents/schoolYears/$(request.resource.data.schoolYearId)).data.schoolId == tenantSchoolId();
+      allow update: if disciplineTenantResource()
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.schoolYearId == resource.data.schoolYearId
+        && exists(/databases/$(database)/documents/schoolYears/$(resource.data.schoolYearId))
+        && get(/databases/$(database)/documents/schoolYears/$(resource.data.schoolYearId)).data.schoolId == tenantSchoolId();
+      allow delete: if false;
     }
 
     match /bulletins/{bulletinId} {

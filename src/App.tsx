@@ -81,6 +81,7 @@ import type {
   AppNotification,
   AppUser,
   AttendanceRecord,
+  AttendanceSettings,
   AttendanceStatus,
   AuditLog,
   DisciplineSanction,
@@ -155,6 +156,7 @@ const emptyAppData: AppData = {
   valves: [],
   disciplineSanctions: [],
   attendance: [],
+  attendanceSettings: [],
 };
 
 function uid(prefix: string) {
@@ -165,6 +167,47 @@ function attendanceRecordId(schoolId: string, schoolYearId: string, studentId: s
   return `attendance__${[schoolId, schoolYearId, studentId, attendanceDate]
     .map((part) => part.replace(/[^a-zA-Z0-9_-]/g, "_"))
     .join("__")}`;
+}
+
+function attendanceSettingsId(schoolId: string, schoolYearId: string) {
+  return `attendance-settings__${[schoolId, schoolYearId].map((part) => part.replace(/[^a-zA-Z0-9_-]/g, "_")).join("__")}`;
+}
+
+function attendanceClassRuleKey(className: string, option?: string) {
+  return option ? `${className}__${option}` : className;
+}
+
+function parseTimeToMinutes(value?: string) {
+  if (!value) return null;
+  const match = value.match(/^(\d{2}):(\d{2})$/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return hours * 60 + minutes;
+}
+
+function resolveLateAfterTime(student: Student, settings?: AttendanceSettings) {
+  if (!settings) return undefined;
+  const classRule = settings.classLateAfter?.[attendanceClassRuleKey(student.className, student.option)];
+  if (classRule) return classRule;
+  const sectionRule = settings.sectionLateAfter?.[getClassSection(student.className)];
+  return sectionRule || settings.defaultLateAfter;
+}
+
+function resolveAttendanceStatusForArrival(student: Student, selectedStatus: AttendanceStatus, settings: AttendanceSettings | undefined, recordedAt: Date) {
+  if (selectedStatus !== "present") return selectedStatus;
+  const lateAfterMinutes = parseTimeToMinutes(resolveLateAfterTime(student, settings));
+  if (lateAfterMinutes === null) return selectedStatus;
+  const arrivalMinutes = recordedAt.getHours() * 60 + recordedAt.getMinutes();
+  return arrivalMinutes <= lateAfterMinutes ? "present" : "late";
+}
+
+function attendanceStatusText(status: AttendanceStatus) {
+  if (status === "late") return "En retard";
+  if (status === "excused") return "Absence justifiée";
+  if (status === "absent") return "Absent";
+  return "Présent à l'heure";
 }
 
 function parentEmailDomain(school: School) {
@@ -963,6 +1006,7 @@ function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: 
     valves: data.valves.filter((publication) => publication.schoolId === schoolId && publication.schoolYearId === schoolYearId),
     disciplineSanctions: data.disciplineSanctions.filter((sanction) => sanction.schoolId === schoolId && sanction.schoolYearId === schoolYearId),
     attendance: data.attendance.filter((record) => record.schoolId === schoolId && record.schoolYearId === schoolYearId),
+    attendanceSettings: data.attendanceSettings.filter((settings) => settings.schoolId === schoolId && settings.schoolYearId === schoolYearId),
     messages: data.messages.filter((message) => {
       const sameScope = message.schoolId === schoolId && message.schoolYearId === schoolYearId;
       if (!sameScope) return false;
@@ -1677,7 +1721,7 @@ function DisciplineBottomNavigation({
 }) {
   const tabs = [
     { id: "status", label: "Statut", icon: CheckCircle2 },
-    { id: "attendance", label: "Présence des élèves", icon: CalendarDays },
+    { id: "attendance", label: "Présence", icon: CalendarDays },
     { id: "messages", label: "Messages", icon: MessageSquare },
     { id: "menu", label: "Menu", icon: MenuIcon },
   ] satisfies { id: DisciplineTab; label: string; icon: typeof BookOpen }[];
@@ -3357,7 +3401,7 @@ function MessageDrawerContent({
     preview: string;
     createdAt: string;
     unread?: boolean;
-    tone?: "warning" | "payment";
+    tone?: "warning" | "payment" | "attendance";
     notificationSenderLabel?: string;
   };
   type MessageFeedItem = {
@@ -3479,6 +3523,7 @@ function MessageDrawerContent({
 
   function messageTextTone(title?: string, preview?: string): NotificationFeedItem["tone"] {
     const text = `${title ?? ""} ${preview ?? ""}`.toLowerCase();
+    if (text.includes("présence enregistrée")) return "attendance";
     if (text.includes("avertissement de paiement")) return "warning";
     if (text.includes("paiement enregistré")) return "payment";
     return undefined;
@@ -3487,6 +3532,7 @@ function MessageDrawerContent({
   function notificationItemClassName(item: NotificationFeedItem) {
     if (item.tone === "warning") return "border-red-200 bg-red-50";
     if (item.tone === "payment") return "border-emerald-200 bg-emerald-50";
+    if (item.tone === "attendance") return "border-blue-200 bg-blue-50";
     return item.unread ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50";
   }
 
@@ -5138,6 +5184,7 @@ function DisciplinePortal({
   const [newSanctionOpen, setNewSanctionOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
+  const [attendanceSettingsOpen, setAttendanceSettingsOpen] = useState(false);
   const [selectedDisciplineStudentId, setSelectedDisciplineStudentId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
   const unread = yearData.notifications.filter((notification) => !notification.read).length;
@@ -5437,50 +5484,108 @@ function DisciplinePortal({
     }
   }
 
-  async function saveManualAttendance(input: { studentId: string; attendanceDate: string; status: AttendanceStatus; manualReason: string }) {
-    const student = yearData.students.find((item) => item.id === input.studentId && item.schoolId === school.id && item.schoolYearId === year.id);
-    if (!student) {
-      throw new Error("Élève introuvable pour cette école et cette année scolaire.");
-    }
-    if (!input.manualReason.trim()) {
-      throw new Error("Le motif de présence manuelle est obligatoire.");
-    }
-
+  async function saveManualAttendance(inputs: { studentId: string; attendanceDate: string; status: AttendanceStatus; manualReason: string }[]) {
     const now = new Date().toISOString();
-    const record: AttendanceRecord = {
-      id: attendanceRecordId(school.id, year.id, student.id, input.attendanceDate),
-      schoolId: school.id,
-      schoolYearId: year.id,
-      studentId: student.id,
-      attendanceDate: input.attendanceDate,
-      status: input.status,
-      recordedAt: now,
-      recordedBy: user.id,
-      source: "manual",
-      manualReason: input.manualReason,
-    };
-    const existingRecord = data.attendance.some((item) => item.id === record.id);
-    const auditLog = createDisciplineAudit(
-      existingRecord ? "Mise à jour présence manuelle" : "Présence manuelle élève",
-      `${disciplineStudentName(student)} - ${input.attendanceDate} - ${input.manualReason}`,
-    );
+    const recordedAt = new Date(now);
+    const attendanceSettings = yearData.attendanceSettings.find((settings) => settings.schoolId === school.id && settings.schoolYearId === year.id);
+    const existingAttendanceIds = new Set(data.attendance.map((item) => item.id));
+    const existingNotificationIds = new Set(data.notifications.map((item) => item.id));
+    const records: AttendanceRecord[] = [];
+    const notifications: AppNotification[] = [];
+    const auditLogs: AuditLog[] = [];
+    let existing = 0;
+    let failed = 0;
 
+    for (const input of inputs) {
+      const student = yearData.students.find((item) => item.id === input.studentId && item.schoolId === school.id && item.schoolYearId === year.id);
+      if (!student || !input.manualReason.trim()) {
+        failed += 1;
+        continue;
+      }
+
+      const recordId = attendanceRecordId(school.id, year.id, student.id, input.attendanceDate);
+      if (existingAttendanceIds.has(recordId)) {
+        existing += 1;
+        continue;
+      }
+      const resolvedStatus = resolveAttendanceStatusForArrival(student, input.status, attendanceSettings, recordedAt);
+
+      const record: AttendanceRecord = {
+        id: recordId,
+        schoolId: school.id,
+        schoolYearId: year.id,
+        studentId: student.id,
+        attendanceDate: input.attendanceDate,
+        status: resolvedStatus,
+        recordedAt: now,
+        recordedBy: user.id,
+        source: "manual",
+        manualReason: input.manualReason,
+      };
+      records.push(record);
+      existingAttendanceIds.add(recordId);
+      auditLogs.push(createDisciplineAudit("Présence manuelle élève", `${disciplineStudentName(student)} - ${input.attendanceDate} - ${input.manualReason}`));
+
+      const parent = findDisciplineSignalParent(student);
+      const notificationId = `notif-${recordId}`;
+      if (parent && !existingNotificationIds.has(notificationId)) {
+        const attendanceDate = new Date(`${input.attendanceDate}T00:00:00`);
+        const statusText = attendanceStatusText(resolvedStatus);
+        notifications.push({
+          id: notificationId,
+          schoolId: school.id,
+          schoolYearId: year.id,
+          recipientRole: "parent",
+          parentId: parent.id,
+          studentId: student.id,
+          studentName: disciplineStudentName(student),
+          type: "attendance",
+          title: "Présence enregistrée",
+          body: `Votre enfant ${disciplineStudentName(student)} a été enregistré ${statusText} le ${attendanceDate.toLocaleDateString("fr-FR")} à ${recordedAt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}.`,
+          createdAt: now,
+          read: false,
+        });
+        existingNotificationIds.add(notificationId);
+      }
+    }
+
+    if (records.length > 0 || auditLogs.length > 0 || notifications.length > 0) {
+      if (canUseFirestoreData()) {
+        await persistFirestorePatch({ attendance: records, auditLogs, notifications }, { throwOnError: true });
+        updateData(
+          {
+            attendance: [...records, ...data.attendance.filter((item) => !records.some((record) => record.id === item.id))],
+            notifications: [...notifications, ...data.notifications.filter((item) => !notifications.some((notification) => notification.id === item.id))],
+            auditLogs: [...auditLogs, ...data.auditLogs],
+          },
+          { persist: false },
+        );
+      } else {
+        updateData({
+          attendance: [...records, ...data.attendance.filter((item) => !records.some((record) => record.id === item.id))],
+          notifications: [...notifications, ...data.notifications.filter((item) => !notifications.some((notification) => notification.id === item.id))],
+          auditLogs: [...auditLogs, ...data.auditLogs],
+        });
+      }
+    }
+
+    return { created: records.length, existing, failed };
+  }
+
+  async function saveAttendanceSettings(settings: AttendanceSettings) {
     if (canUseFirestoreData()) {
-      await persistFirestorePatch({ attendance: [record], auditLogs: [auditLog] }, { throwOnError: true });
+      await persistFirestorePatch({ attendanceSettings: [settings] }, { throwOnError: true });
       updateData(
         {
-          attendance: [record, ...data.attendance.filter((item) => item.id !== record.id)],
-          auditLogs: [auditLog, ...data.auditLogs],
+          attendanceSettings: [settings, ...data.attendanceSettings.filter((item) => item.id !== settings.id)],
         },
         { persist: false },
       );
-    } else {
-      updateData({
-        attendance: [record, ...data.attendance.filter((item) => item.id !== record.id)],
-        auditLogs: [auditLog, ...data.auditLogs],
-      });
+      return;
     }
-    setFeedback(existingRecord ? "Présence manuelle mise à jour." : "Présence manuelle enregistrée.");
+    updateData({
+      attendanceSettings: [settings, ...data.attendanceSettings.filter((item) => item.id !== settings.id)],
+    });
   }
 
   async function exportDisciplinePdf(filteredSanctions: DisciplineSanction[]) {
@@ -5562,6 +5667,13 @@ function DisciplinePortal({
       description: "Synthèse locale des sanctions chargées.",
       icon: BarChart3,
       onClick: () => setStatsOpen(true),
+    },
+    {
+      id: "attendance-settings",
+      title: "Paramètres présence",
+      description: "Heures limites de retard par section ou classe.",
+      icon: Settings,
+      onClick: () => setAttendanceSettingsOpen(true),
     },
   ];
   const selectedDisciplineStudentSanctions = selectedDisciplineStudentId
@@ -5697,6 +5809,184 @@ function DisciplinePortal({
           <DisciplineStatistics stats={stats} />
         </AdminDrawer>
       )}
+      {attendanceSettingsOpen && (
+        <AdminDrawer title="Paramètres présence" onClose={() => setAttendanceSettingsOpen(false)} closeLabel="Fermer les paramètres de présence">
+          <AttendanceSettingsDrawer
+            school={school}
+            year={year}
+            user={user}
+            students={yearData.students}
+            settings={yearData.attendanceSettings.find((item) => item.schoolId === school.id && item.schoolYearId === year.id)}
+            onSave={saveAttendanceSettings}
+          />
+        </AdminDrawer>
+      )}
+    </div>
+  );
+}
+
+function AttendanceSettingsDrawer({
+  school,
+  year,
+  user,
+  students,
+  settings,
+  onSave,
+}: {
+  school: School;
+  year: SchoolYear;
+  user: AppUser;
+  students: Student[];
+  settings?: AttendanceSettings;
+  onSave: (settings: AttendanceSettings) => Promise<void>;
+}) {
+  const [defaultLateAfter, setDefaultLateAfter] = useState(settings?.defaultLateAfter ?? "");
+  const [sectionLateAfter, setSectionLateAfter] = useState<Partial<Record<SchoolSection, string>>>(settings?.sectionLateAfter ?? {});
+  const [classLateAfter, setClassLateAfter] = useState<Record<string, string>>(settings?.classLateAfter ?? {});
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState("");
+
+  useEffect(() => {
+    setDefaultLateAfter(settings?.defaultLateAfter ?? "");
+    setSectionLateAfter(settings?.sectionLateAfter ?? {});
+    setClassLateAfter(settings?.classLateAfter ?? {});
+  }, [settings]);
+
+  useEffect(() => {
+    if (!feedback) return undefined;
+    const timer = window.setTimeout(() => setFeedback(""), 3500);
+    return () => window.clearTimeout(timer);
+  }, [feedback]);
+
+  const sectionLabels: Record<SchoolSection, string> = {
+    maternelle: "Maternelle",
+    primaire: "Primaire",
+    secondaire: "Secondaire",
+  };
+  const sections = useMemo(() => {
+    const levels = getSchoolEducationLevels(school);
+    const choices = [
+      levels.includes("Maternelle") ? "maternelle" : "",
+      levels.includes("Primaire") ? "primaire" : "",
+      levels.includes("Secondaire") ? "secondaire" : "",
+    ].filter(Boolean) as SchoolSection[];
+    return choices.length > 0 ? choices : (["maternelle", "primaire", "secondaire"] as SchoolSection[]);
+  }, [school]);
+  const classRules = useMemo(() => {
+    const rules = new Map<string, { key: string; className: SchoolClass; option?: string; section: SchoolSection }>();
+    students
+      .filter((student) => student.schoolId === school.id && student.schoolYearId === year.id)
+      .forEach((student) => {
+        const key = attendanceClassRuleKey(student.className, student.option);
+        if (!rules.has(key)) {
+          rules.set(key, {
+            key,
+            className: student.className,
+            option: student.option,
+            section: getClassSection(student.className),
+          });
+        }
+      });
+    return Array.from(rules.values()).sort((first, second) => {
+      const sectionOrder: Record<SchoolSection, number> = { maternelle: 0, primaire: 1, secondaire: 2 };
+      const sectionDiff = sectionOrder[first.section] - sectionOrder[second.section];
+      if (sectionDiff !== 0) return sectionDiff;
+      const classDiff = CLASSES.indexOf(first.className) - CLASSES.indexOf(second.className);
+      if (classDiff !== 0) return classDiff;
+      return (first.option ?? "").localeCompare(second.option ?? "", "fr");
+    });
+  }, [school.id, students, year.id]);
+
+  async function saveSettings() {
+    setSaving(true);
+    setFeedback("");
+    try {
+      const cleanedSections = Object.fromEntries(Object.entries(sectionLateAfter).filter(([, value]) => Boolean(value))) as Partial<Record<SchoolSection, string>>;
+      const cleanedClasses = Object.fromEntries(Object.entries(classLateAfter).filter(([, value]) => Boolean(value)));
+      const nextSettings: AttendanceSettings = {
+        id: attendanceSettingsId(school.id, year.id),
+        schoolId: school.id,
+        schoolYearId: year.id,
+        sectionLateAfter: cleanedSections,
+        classLateAfter: cleanedClasses,
+        updatedAt: new Date().toISOString(),
+        updatedBy: user.id,
+      };
+      if (defaultLateAfter) {
+        nextSettings.defaultLateAfter = defaultLateAfter;
+      }
+      await onSave(nextSettings);
+      setFeedback("Paramètres de présence enregistrés.");
+    } catch (error) {
+      console.warn("Enregistrement des paramètres de présence impossible.", error);
+      setFeedback("Impossible d'enregistrer les paramètres de présence.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="grid min-w-0 gap-5">
+      {feedback && (
+        <p className={`rounded border p-3 text-sm font-semibold ${feedback.includes("Impossible") ? "border-red-200 bg-red-50 text-red-700" : "border-mint/30 bg-mint/10 text-mint"}`}>
+          {feedback}
+        </p>
+      )}
+      <section className="grid min-w-0 gap-3 rounded border border-slate-200 bg-white p-4 shadow-sm">
+        <div>
+          <h2 className="font-bold text-ink">Règle générale</h2>
+          <p className="mt-1 text-sm text-slate-500">Utilisée quand aucune règle de classe ou de section ne s'applique.</p>
+        </div>
+        <input type="time" value={defaultLateAfter} onChange={(event) => setDefaultLateAfter(event.target.value)} className="input max-w-xs" aria-label="Heure générale de retard" />
+      </section>
+
+      <section className="grid min-w-0 gap-3 rounded border border-slate-200 bg-white p-4 shadow-sm">
+        <div>
+          <h2 className="font-bold text-ink">Par section</h2>
+          <p className="mt-1 text-sm text-slate-500">La règle de section est utilisée si aucune règle précise de classe n'existe.</p>
+        </div>
+        <div className="grid gap-3 md:grid-cols-3">
+          {sections.map((section) => (
+            <label key={section} className="grid gap-1 text-sm font-semibold text-slate-600">
+              {sectionLabels[section]}
+              <input
+                type="time"
+                value={sectionLateAfter[section] ?? ""}
+                onChange={(event) => setSectionLateAfter((current) => ({ ...current, [section]: event.target.value }))}
+                className="input"
+              />
+            </label>
+          ))}
+        </div>
+      </section>
+
+      <section className="grid min-w-0 gap-3 rounded border border-slate-200 bg-white p-4 shadow-sm">
+        <div>
+          <h2 className="font-bold text-ink">Par classe</h2>
+          <p className="mt-1 text-sm text-slate-500">Une règle de classe est prioritaire sur la règle de sa section.</p>
+        </div>
+        {classRules.length === 0 ? (
+          <p className="rounded border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-500">Aucune classe avec élève n'est disponible pour cette année.</p>
+        ) : (
+          <div className="grid gap-2">
+            {classRules.map((rule) => (
+              <label key={rule.key} className="grid gap-2 rounded border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-600 sm:grid-cols-[minmax(0,1fr)_10rem] sm:items-center">
+                <span className="min-w-0 break-words">{rule.option ? `${rule.className} - ${rule.option}` : rule.className}</span>
+                <input
+                  type="time"
+                  value={classLateAfter[rule.key] ?? ""}
+                  onChange={(event) => setClassLateAfter((current) => ({ ...current, [rule.key]: event.target.value }))}
+                  className="input"
+                />
+              </label>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <button onClick={saveSettings} disabled={saving} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50" type="button">
+        <CheckCircle2 className="h-4 w-4" /> {saving ? "Enregistrement..." : "Enregistrer les paramètres"}
+      </button>
     </div>
   );
 }

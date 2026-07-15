@@ -9,8 +9,8 @@ type PersistableItem = { id: string };
 type PersistFirestorePatchOptions = {
   throwOnError?: boolean;
 };
-export type FirestoreYearData = Pick<AppData, "students" | "feeTypes" | "payments" | "expenses" | "messages" | "valves" | "attendance">;
-export type DisciplineYearData = Pick<AppData, "students" | "parents" | "messages" | "notifications" | "disciplineSanctions" | "attendance">;
+export type FirestoreYearData = Pick<AppData, "students" | "feeTypes" | "payments" | "expenses" | "messages" | "valves" | "attendance" | "attendanceSettings">;
+export type DisciplineYearData = Pick<AppData, "students" | "parents" | "messages" | "notifications" | "disciplineSanctions" | "attendance" | "attendanceSettings">;
 export type PlatformSettings = {
   loginLogoUrl?: string;
   updatedAt?: string;
@@ -31,6 +31,7 @@ const collectionMap: Record<CollectionKey, string> = {
   valves: "valves",
   disciplineSanctions: "disciplineSanctions",
   attendance: "attendance",
+  attendanceSettings: "attendanceSettings",
 };
 
 export function canUseFirestoreData() {
@@ -53,6 +54,7 @@ function emptyFirestoreData(): AppData {
     valves: [],
     disciplineSanctions: [],
     attendance: [],
+    attendanceSettings: [],
   };
 }
 
@@ -87,6 +89,15 @@ async function loadAttendanceCollection(filters: [string, unknown][]) {
     return await loadCollection<AppData["attendance"][number]>("attendance", filters);
   } catch (error) {
     console.warn("Chargement des présences impossible. Vérifiez le déploiement des règles Firestore attendance.", error);
+    return [];
+  }
+}
+
+async function loadAttendanceSettingsCollection(filters: [string, unknown][]) {
+  try {
+    return await loadCollection<AppData["attendanceSettings"][number]>("attendanceSettings", filters);
+  } catch (error) {
+    console.warn("Chargement des paramÃ¨tres de prÃ©sence impossible. VÃ©rifiez le dÃ©ploiement des rÃ¨gles Firestore attendanceSettings.", error);
     return [];
   }
 }
@@ -168,6 +179,7 @@ export async function loadFirestoreData(user?: AppUser, schoolYearId?: string) {
       scopedData.notifications = await loadCollection<AppData["notifications"][number]>("notifications", [...annualFilter, ["recipientRole", "school"], ["schoolRecipient", "discipline"]]);
       scopedData.disciplineSanctions = await loadCollection<AppData["disciplineSanctions"][number]>("disciplineSanctions", annualFilter);
       scopedData.attendance = await loadAttendanceCollection(annualFilter);
+      scopedData.attendanceSettings = await loadAttendanceSettingsCollection(annualFilter);
       return scopedData;
     }
 
@@ -180,6 +192,7 @@ export async function loadFirestoreData(user?: AppUser, schoolYearId?: string) {
     if (user.role === "school_admin") {
       scopedData.auditLogs = await loadCollection<AppData["auditLogs"][number]>("auditLogs", schoolFilter);
       scopedData.attendance = await loadAttendanceCollection(annualFilter);
+      scopedData.attendanceSettings = await loadAttendanceSettingsCollection(annualFilter);
     }
     scopedData.valves = await loadCollection<AppData["valves"][number]>("valves", annualFilter);
     return scopedData;
@@ -211,6 +224,7 @@ export async function loadDisciplineYearData(user: AppUser, schoolYearId: string
     notifications: await loadCollection<AppData["notifications"][number]>("notifications", [...annualFilter, ["recipientRole", "school"], ["schoolRecipient", "discipline"]]),
     disciplineSanctions: await loadCollection<AppData["disciplineSanctions"][number]>("disciplineSanctions", annualFilter),
     attendance: await loadAttendanceCollection(annualFilter),
+    attendanceSettings: await loadAttendanceSettingsCollection(annualFilter),
   };
 
   return yearData;
@@ -238,6 +252,7 @@ export async function loadFirestoreYearData(user: AppUser, schoolYearId: string)
     messages: await loadCollection<AppData["messages"][number]>("messages", annualFilter),
     valves: await loadCollection<AppData["valves"][number]>("valves", annualFilter),
     attendance: await loadAttendanceCollection(annualFilter),
+    attendanceSettings: await loadAttendanceSettingsCollection(annualFilter),
   };
 
   return yearData;
