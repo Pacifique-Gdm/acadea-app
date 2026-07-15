@@ -2302,6 +2302,31 @@ function PlatformModule({
   const drawerLogs = drawerSchool
     ? data.auditLogs.filter((log) => log.schoolId === drawerSchool.id && !isSessionAuditAction(log.action)).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     : [];
+  const drawerClassEnrollment = useMemo(() => {
+    if (!drawerSchool) return [];
+    const counts = new Map<string, { label: string; className: SchoolClass; count: number }>();
+    data.students
+      .filter((student) => student.schoolId === drawerSchool.id)
+      .filter((student) => (drawerSchool.activeSchoolYearId ? student.schoolYearId === drawerSchool.activeSchoolYearId : true))
+      .filter((student) => !isArchivedStudent(student))
+      .forEach((student) => {
+        const label = formatStudentClassName(student);
+        const key = `${student.className}::${student.option ?? ""}`;
+        const current = counts.get(key);
+        counts.set(key, {
+          label,
+          className: student.className,
+          count: (current?.count ?? 0) + 1,
+        });
+      });
+    return Array.from(counts.values()).sort((first, second) => {
+      const firstClassIndex = CLASSES.indexOf(first.className);
+      const secondClassIndex = CLASSES.indexOf(second.className);
+      if (firstClassIndex !== secondClassIndex) return firstClassIndex - secondClassIndex;
+      return first.label.localeCompare(second.label, "fr");
+    });
+  }, [data.students, drawerSchool]);
+  const maxDrawerClassEnrollment = Math.max(1, ...drawerClassEnrollment.map((item) => item.count));
   const adminFormValid =
     adminName.trim().length >= 2 &&
     modalAdminEmail.includes("@") &&
@@ -3141,27 +3166,33 @@ function PlatformModule({
               </div>
             </div>
             <div className="grid gap-3 rounded border border-slate-200 bg-white p-3 shadow-sm">
-              <div className="flex min-w-0 gap-2 overflow-x-auto pb-1">
+              <div className="flex min-w-0 flex-wrap gap-2">
                 {(["overview", "info", "admins", "history"] as SchoolDetailTab[]).map((tab) => (
                   <button
                     key={tab}
                     onClick={() => setDetailTab(tab)}
-                    className={`shrink-0 rounded px-3 py-2 text-xs font-semibold ${detailTab === tab ? "bg-ink text-white" : "bg-slate-100 text-slate-600"}`}
+                    className={`inline-flex shrink-0 items-center justify-center rounded px-3 py-2 text-xs font-semibold transition ${
+                      detailTab === tab ? "bg-ink text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
                     type="button"
                   >
                     {schoolTabLabel(tab)}
                   </button>
                 ))}
-              </div>
-              <div className="grid min-w-0 grid-cols-1 gap-2 border-t border-slate-100 pt-3 sm:flex sm:flex-wrap">
-                <button onClick={() => void editSchool(drawerSchool)} className="secondary-button" type="button">Modifier</button>
-                <button onClick={() => void changeSchoolStatus(drawerSchool)} className="secondary-button" type="button">
-                  {drawerSchool.status === "active" ? "Suspendre" : "Reactiver"}
-                </button>
-                <button onClick={() => openBiometricDrawer(drawerSchool)} className="secondary-button" type="button">
+                <button
+                  onClick={() => openBiometricDrawer(drawerSchool)}
+                  className="inline-flex shrink-0 items-center justify-center rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-200"
+                  type="button"
+                >
                   Terminal biométrique
                 </button>
-                <button onClick={() => openDeleteSchoolDialog(drawerSchool)} className="inline-flex min-w-0 items-center justify-center rounded bg-red-50 px-3 py-2 text-sm font-semibold text-red-700" type="button">
+              </div>
+              <div className="grid min-w-0 grid-cols-1 gap-2 border-t border-slate-100 pt-3 sm:flex sm:flex-wrap sm:items-center">
+                <button onClick={() => void editSchool(drawerSchool)} className="secondary-button justify-center sm:w-auto" type="button">Modifier</button>
+                <button onClick={() => void changeSchoolStatus(drawerSchool)} className="secondary-button justify-center sm:w-auto" type="button">
+                  {drawerSchool.status === "active" ? "Suspendre" : "Reactiver"}
+                </button>
+                <button onClick={() => openDeleteSchoolDialog(drawerSchool)} className="inline-flex min-w-0 items-center justify-center rounded bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100 sm:w-auto" type="button">
                   Supprimer
                 </button>
               </div>
@@ -3186,10 +3217,24 @@ function PlatformModule({
                   <MiniStat label="Total utilisateurs" value={drawerStats.users} />
                 </div>
                 <div className="rounded bg-slate-50 p-4">
-                  <p className="text-sm font-semibold text-ink">Évolution utilisateurs</p>
-                  <div className="mt-4 flex h-32 items-end gap-2">
-                    {[35, 48, 46, 61, 72, 80].map((height, index) => (
-                      <div key={index} className="flex-1 rounded-t bg-mint" style={{ height: `${height}%` }} />
+                  <p className="text-sm font-semibold text-ink">Effectif des élèves par classe</p>
+                  <p className="mt-1 text-xs text-slate-500">Répartition des élèves inscrits dans les différentes classes de l'établissement.</p>
+                  <div className="mt-4 grid gap-3">
+                    {drawerClassEnrollment.length === 0 && (
+                      <p className="rounded border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
+                        Aucun élève actif chargé pour l'année scolaire de cette école.
+                      </p>
+                    )}
+                    {drawerClassEnrollment.map((item) => (
+                      <div key={item.label} className="grid gap-1">
+                        <div className="flex items-center justify-between gap-3 text-sm">
+                          <span className="min-w-0 break-words font-semibold text-slate-700">{item.label}</span>
+                          <span className="shrink-0 font-bold text-ink">{item.count}</span>
+                        </div>
+                        <div className="h-3 overflow-hidden rounded-full bg-white">
+                          <div className="h-full rounded-full bg-mint" style={{ width: `${Math.max(4, (item.count / maxDrawerClassEnrollment) * 100)}%` }} />
+                        </div>
+                      </div>
                     ))}
                   </div>
                 </div>
