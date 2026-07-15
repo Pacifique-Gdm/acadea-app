@@ -3166,12 +3166,12 @@ function PlatformModule({
               </div>
             </div>
             <div className="grid gap-3 rounded border border-slate-200 bg-white p-3 shadow-sm">
-              <div className="flex min-w-0 flex-wrap gap-2">
+              <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4">
                 {(["overview", "info", "admins", "history"] as SchoolDetailTab[]).map((tab) => (
                   <button
                     key={tab}
                     onClick={() => setDetailTab(tab)}
-                    className={`inline-flex shrink-0 items-center justify-center rounded px-3 py-2 text-xs font-semibold transition ${
+                    className={`inline-flex min-w-0 items-center justify-center rounded px-2 py-2 text-center text-xs font-semibold transition sm:px-3 ${
                       detailTab === tab ? "bg-ink text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                     }`}
                     type="button"
@@ -3179,20 +3179,16 @@ function PlatformModule({
                     {schoolTabLabel(tab)}
                   </button>
                 ))}
-                <button
-                  onClick={() => openBiometricDrawer(drawerSchool)}
-                  className="inline-flex shrink-0 items-center justify-center rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-200"
-                  type="button"
-                >
-                  Terminal biométrique
-                </button>
               </div>
-              <div className="grid min-w-0 grid-cols-1 gap-2 border-t border-slate-100 pt-3 sm:flex sm:flex-wrap sm:items-center">
-                <button onClick={() => void editSchool(drawerSchool)} className="secondary-button justify-center sm:w-auto" type="button">Modifier</button>
-                <button onClick={() => void changeSchoolStatus(drawerSchool)} className="secondary-button justify-center sm:w-auto" type="button">
+              <div className="grid min-w-0 grid-cols-2 gap-2 border-t border-slate-100 pt-3 sm:grid-cols-4">
+                <button onClick={() => void editSchool(drawerSchool)} className="secondary-button justify-center px-2 text-xs sm:px-3 sm:text-sm" type="button">Modifier</button>
+                <button onClick={() => void changeSchoolStatus(drawerSchool)} className="secondary-button justify-center px-2 text-xs sm:px-3 sm:text-sm" type="button">
                   {drawerSchool.status === "active" ? "Suspendre" : "Reactiver"}
                 </button>
-                <button onClick={() => openDeleteSchoolDialog(drawerSchool)} className="inline-flex min-w-0 items-center justify-center rounded bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100 sm:w-auto" type="button">
+                <button onClick={() => openBiometricDrawer(drawerSchool)} className="secondary-button justify-center px-2 text-xs sm:px-3 sm:text-sm" type="button">
+                  Terminal biométrique
+                </button>
+                <button onClick={() => openDeleteSchoolDialog(drawerSchool)} className="inline-flex min-w-0 items-center justify-center rounded bg-red-50 px-2 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-100 sm:px-3 sm:text-sm" type="button">
                   Supprimer
                 </button>
               </div>
