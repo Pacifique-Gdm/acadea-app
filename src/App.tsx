@@ -5660,7 +5660,7 @@ function MessagesModule({
   year: SchoolYear;
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
 }) {
-  const [recipientParentId, setRecipientParentId] = useState<string>("all");
+  const [recipientParentId, setRecipientParentId] = useState<string>("");
   const [adminRecipientMode, setAdminRecipientMode] = useState<"all" | "parents" | "sections" | "classes">("all");
   const [selectedAdminParentIds, setSelectedAdminParentIds] = useState<string[]>([]);
   const [selectedAdminSection, setSelectedAdminSection] = useState<SchoolSection | "">("");
@@ -5672,6 +5672,7 @@ function MessagesModule({
   const [messageFeedback, setMessageFeedback] = useState("");
   const canSend = user.role !== "parent" && year.status !== "archived";
   const isSchoolAdmin = user.role === "school_admin";
+  const isCashier = user.role === "cashier";
   const isDisciplineDirector = user.role === "discipline_director";
   const disciplineMessageSubjects = ["Avertissement disciplinaire", "Convocation", "Décision disciplinaire", "Notification de fin de sanction"];
   const sameSchoolParents = yearData.parents.filter((parent) => parent.schoolId === school.id);
@@ -5691,7 +5692,7 @@ function MessagesModule({
   const recipientResults = recipientCandidates.filter(({ parent, children }) => {
       const search = recipientSearch.trim().toLowerCase();
       if (!search) return false;
-      const studentText = children.map((student) => `${student.nom} ${student.postnom} ${student.prenom} ${student.matricule}`).join(" ");
+      const studentText = children.map((student) => `${student.nom} ${student.postnom} ${student.prenom} ${student.matricule} ${formatStudentClassName(student)}`).join(" ");
       return `${parent.fullName} ${parent.phone} ${parent.email} ${parent.address} ${studentText}`.toLowerCase().includes(search);
     });
   const disciplineRecipientResults = disciplineRecipientCandidates.filter(({ parent, children }) => {
@@ -5785,9 +5786,7 @@ function MessagesModule({
       ? adminResolvedParents
       : isDisciplineDirector
       ? selectedDisciplineParents
-      : recipientParentId === "all"
-        ? sameSchoolParents
-        : yearData.parents.filter((parent) => parent.id === recipientParentId);
+      : yearData.parents.filter((parent) => parent.id === recipientParentId && parent.schoolId === school.id);
     if (recipientParents.length === 0) {
       setMessageFeedback("Aucun parent destinataire n'a été trouvé pour cette sélection.");
       return;
@@ -5924,7 +5923,7 @@ function MessagesModule({
   }
 
   function clearSelectedRecipient() {
-    setRecipientParentId("all");
+    setRecipientParentId("");
     setRecipientSearch("");
   }
 
@@ -6039,16 +6038,6 @@ function MessagesModule({
                   />
                 </label>
                 <div className="max-h-60 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
-                  {!isDisciplineDirector && (
-                    <button
-                      onClick={() => setRecipientParentId("all")}
-                      type="button"
-                      className={`w-full rounded border p-3 text-left text-sm transition ${recipientParentId === "all" ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50 hover:border-slate-200"}`}
-                    >
-                      <p className="font-semibold text-ink">Tous les parents</p>
-                      <p className="text-xs text-slate-500">Envoyer à tous les parents</p>
-                    </button>
-                  )}
                   {(isDisciplineDirector ? disciplineRecipientResults : hasRecipientSearch ? recipientResults : []).map(({ parent, children }) => {
                     const selected = isDisciplineDirector ? selectedDisciplineParentIds.includes(parent.id) : recipientParentId === parent.id;
                     return (
@@ -6061,12 +6050,13 @@ function MessagesModule({
                         <p className="font-semibold text-ink">{parent.fullName}</p>
                         <p className="text-xs text-slate-500">
                           {children.length
-                            ? children.map((student) => `${student.nom} ${student.prenom}${student.matricule ? ` | ${student.matricule}` : ""}`).join(" • ")
+                            ? children.map((student) => `${student.nom} ${student.prenom}${student.matricule ? ` | ${student.matricule}` : ""} | ${formatStudentClassName(student)}`).join(" • ")
                             : "Aucun enfant associé"}
                         </p>
                       </button>
                     );
                   })}
+                  {!hasRecipientSearch && !isDisciplineDirector && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Saisissez le nom d'un parent, d'un enfant ou un matricule.</p>}
                   {hasRecipientSearch && recipientResults.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun parent trouvé.</p>}
                 </div>
               </>
@@ -6091,7 +6081,7 @@ function MessagesModule({
                 </div>
               </div>
             )}
-            {!isSchoolAdmin && !isDisciplineDirector && recipientParentId !== "all" && selectedParent && (
+            {!isSchoolAdmin && !isDisciplineDirector && selectedParent && (
               <div className="flex min-w-0 items-center justify-between gap-3 rounded bg-blue-50 p-3 text-sm font-semibold text-blue-700">
                 <p className="min-w-0 truncate">Destinataire : {selectedParent.fullName}</p>
                 <button
@@ -6129,7 +6119,7 @@ function MessagesModule({
               {messageFeedback}
             </p>
           )}
-          <button onClick={sendMessage} disabled={!subject || !body || (isDisciplineDirector && selectedDisciplineParentIds.length === 0)} className="primary-button disabled:opacity-50">
+          <button onClick={sendMessage} disabled={!subject || !body || (isDisciplineDirector && selectedDisciplineParentIds.length === 0) || (isCashier && !recipientParentId)} className="primary-button disabled:opacity-50">
             <MessageSquare className="h-4 w-4" /> Envoyer
           </button>
         </FormPanel>
