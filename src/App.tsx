@@ -2959,6 +2959,38 @@ function ParentPortal({
                 const secondTime = new Date(second.createdAt ?? second.paidAt).getTime();
                 return (Number.isNaN(secondTime) ? 0 : secondTime) - (Number.isNaN(firstTime) ? 0 : firstTime);
               });
+              if (selectedParentChild) {
+                return (
+                  <article key={student.id} className="min-w-0 rounded border border-slate-200 bg-white p-4">
+                    <p className="mb-2 text-sm font-semibold text-ink">Historique des paiements</p>
+                    <div className="max-h-[60vh] space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+                      {payments.length === 0 && <p className="text-sm text-slate-500">Aucun paiement enregistré.</p>}
+                      {payments.map((payment) => {
+                        const fee = parentIndexes.feeTypesById.get(payment.feeTypeId);
+                        return (
+                          <div key={payment.id} className="min-w-0 rounded bg-slate-50 p-3 text-sm">
+                            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                              <div className="min-w-0">
+                                <span className="font-semibold text-ink">${payment.amount}</span>
+                                <span className="break-words text-slate-500"> | {fee?.name ?? "Frais"} | {payment.paidAt}</span>
+                              </div>
+                              <button
+                                onClick={() => fee && generateReceiptPdf(payment, student, fee, school, resolvePaymentCashierName(payment, yearData.auditLogs))}
+                                disabled={!fee}
+                                className="inline-flex w-full items-center justify-center gap-2 rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                                title="Télécharger le reçu PDF"
+                                type="button"
+                              >
+                                <Download className="h-4 w-4" /> PDF
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </article>
+                );
+              }
               return (
                 <article key={student.id} className="min-w-0 rounded border border-slate-200 bg-white p-4">
                   <div className="flex min-w-0 flex-col gap-4 md:flex-row">
@@ -2968,17 +3000,13 @@ function ParentPortal({
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
-                          {selectedParentChild ? (
-                            <h2 className="break-words text-xl font-bold text-ink">{student.nom} {student.postnom} {student.prenom}</h2>
-                          ) : (
-                            <button
-                              onClick={() => setSelectedParentChildId(student.id)}
-                              className="break-words text-left text-xl font-bold text-ink transition hover:text-mint"
-                              type="button"
-                            >
-                              {student.nom} {student.postnom} {student.prenom}
-                            </button>
-                          )}
+                          <button
+                            onClick={() => setSelectedParentChildId(student.id)}
+                            className="break-words text-left text-xl font-bold text-ink transition hover:text-mint"
+                            type="button"
+                          >
+                            {student.nom} {student.postnom} {student.prenom}
+                          </button>
                           <p className="break-words text-sm text-slate-500">{formatStudentClassName(student)} | {year.name}</p>
                         </div>
                         <span className="shrink-0 rounded bg-mint/10 px-2 py-1 text-xs font-semibold text-mint">{progress}% payé</span>
@@ -3019,36 +3047,6 @@ function ParentPortal({
                           })}
                         </div>
                       </div>
-                      {selectedParentChild && (
-                      <div className="mt-4">
-                        <p className="mb-2 text-sm font-semibold text-ink">Historique des paiements</p>
-                        <div className="max-h-48 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
-                          {payments.length === 0 && <p className="text-sm text-slate-500">Aucun paiement enregistré.</p>}
-                          {payments.map((payment) => {
-                            const fee = parentIndexes.feeTypesById.get(payment.feeTypeId);
-                            return (
-                              <div key={payment.id} className="min-w-0 rounded bg-slate-50 p-3 text-sm">
-                                <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                  <div className="min-w-0">
-                                    <span className="font-semibold text-ink">${payment.amount}</span>
-                                    <span className="break-words text-slate-500"> | {fee?.name ?? "Frais"} | {payment.paidAt}</span>
-                                  </div>
-                                  <button
-                                    onClick={() => fee && generateReceiptPdf(payment, student, fee, school, resolvePaymentCashierName(payment, yearData.auditLogs))}
-                                    disabled={!fee}
-                                    className="inline-flex w-full items-center justify-center gap-2 rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-                                    title="Télécharger le reçu PDF"
-                                    type="button"
-                                  >
-                                    <Download className="h-4 w-4" /> PDF
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                      )}
                     </div>
                   </div>
                 </article>
