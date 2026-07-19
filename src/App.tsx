@@ -6034,7 +6034,7 @@ function MessagesModule({
                     value={recipientSearch}
                     onChange={(event) => setRecipientSearch(event.target.value)}
                     className="min-w-0 flex-1 outline-none"
-                    placeholder="Rechercher parent, enfant ou matricule"
+                    placeholder={isCashier ? "Saisissez le nom d'un parent, d'un enfant ou un matricule." : "Rechercher parent, enfant ou matricule"}
                   />
                 </label>
                 <div className="max-h-60 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
@@ -6056,7 +6056,7 @@ function MessagesModule({
                       </button>
                     );
                   })}
-                  {!hasRecipientSearch && !isDisciplineDirector && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Saisissez le nom d'un parent, d'un enfant ou un matricule.</p>}
+                  {!hasRecipientSearch && !isDisciplineDirector && !isCashier && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Saisissez le nom d'un parent, d'un enfant ou un matricule.</p>}
                   {hasRecipientSearch && recipientResults.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun parent trouvé.</p>}
                 </div>
               </>
