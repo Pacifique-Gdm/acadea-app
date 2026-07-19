@@ -1803,10 +1803,9 @@ function DisciplineBottomNavigation({
 }
 
 function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>; school: School; year: SchoolYear }) {
-  const today = new Date().toISOString().slice(0, 10);
   const [sectionFilter, setSectionFilter] = useState<"all" | "maternelle" | "primaire" | "secondaire">("all");
-  const [startDate, setStartDate] = useState(today);
-  const [endDate, setEndDate] = useState(today);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [transactionPeriod, setTransactionPeriod] = useState<TransactionPeriod>("last5");
   const dashboardClassChoices = useMemo(() => getSchoolClassChoices(school), [school]);
   const dashboardSectionChoices = useMemo(
@@ -1851,13 +1850,21 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
     () => buildDashboardFinancialAggregates(filteredStudents, data.feeTypes, filteredPayments, filteredPaymentIndexes),
     [data.feeTypes, filteredPaymentIndexes, filteredPayments, filteredStudents],
   );
-  const dashboardFinancialStats = dashboardFinancialAggregates.financialStats;
+  const fullYearFinancialAggregates = useMemo(
+    () => buildDashboardFinancialAggregates(activeStudents, data.feeTypes, data.payments, yearIndexes),
+    [activeStudents, data.feeTypes, data.payments, yearIndexes],
+  );
+  const hasDashboardFinancialFilter = sectionFilter !== "all" || Boolean(startDate) || Boolean(endDate);
+  const activeFinancialAggregates = hasDashboardFinancialFilter ? dashboardFinancialAggregates : fullYearFinancialAggregates;
+  const dashboardFinancialStats = activeFinancialAggregates.financialStats;
   const totalPayments = dashboardFinancialStats.paid;
-  const totalExpenses = useMemo(() => filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0), [filteredExpenses]);
+  const fullYearExpenses = useMemo(() => data.expenses.reduce((sum, expense) => sum + expense.amount, 0), [data.expenses]);
+  const filteredExpensesTotal = useMemo(() => filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0), [filteredExpenses]);
+  const totalExpenses = hasDashboardFinancialFilter ? filteredExpensesTotal : fullYearExpenses;
   const remaining = dashboardFinancialStats.remaining;
   const recoveryRate = dashboardFinancialStats.expected > 0 ? Math.round((totalPayments / dashboardFinancialStats.expected) * 100) : 0;
   const recoveryTone = recoveryRate >= 80 ? "text-mint bg-mint/10" : recoveryRate >= 50 ? "text-amber-700 bg-amber-100" : "text-red-700 bg-red-50";
-  const feeProgressRows = dashboardFinancialAggregates.feeProgressRows;
+  const feeProgressRows = activeFinancialAggregates.feeProgressRows;
   const totalActiveStudents = filteredStudents.length;
   const totalUniqueParents = filteredParents.length;
   const admins = useMemo(() => data.users.filter((item) => item.schoolId === school.id && item.role === "school_admin").length, [data.users, school.id]);
