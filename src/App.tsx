@@ -2750,6 +2750,20 @@ function ParentPortal({
     return () => window.clearTimeout(timer);
   }, [messageFeedback]);
 
+  useEffect(() => {
+    if (!parentMessageQuota?.windowExpiresAt || !user.parentId || !year.id) return undefined;
+    const expiresAt = new Date(parentMessageQuota.windowExpiresAt).getTime();
+    const delay = expiresAt - Date.now();
+    if (!Number.isFinite(delay) || delay <= 0) {
+      void fetchParentMessageQuota(year.id).then(setParentMessageQuota).catch(() => undefined);
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      void fetchParentMessageQuota(year.id).then(setParentMessageQuota).catch(() => undefined);
+    }, delay + 1000);
+    return () => window.clearTimeout(timer);
+  }, [parentMessageQuota?.windowExpiresAt, user.parentId, year.id]);
+
   function markNotificationsRead() {
     updateData(
       {
@@ -2804,7 +2818,7 @@ function ParentPortal({
       return;
     }
     if (parentMessageQuotaReached) {
-      setMessageFeedback("Vous avez atteint la limite de 3 messages pour aujourd'hui.");
+      setMessageFeedback("Vous avez atteint la limite de 3 messages pour 12 heures.");
       return;
     }
 
@@ -2861,7 +2875,7 @@ function ParentPortal({
         console.warn("Envoi du message parent impossible.", error);
         const code = typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code) : "";
         if (code === "quota-exceeded") {
-          setMessageFeedback("Vous avez atteint la limite de 3 messages pour aujourd'hui.");
+          setMessageFeedback("Vous avez atteint la limite de 3 messages pour 12 heures.");
           void fetchParentMessageQuota(year.id).then(setParentMessageQuota).catch(() => undefined);
         } else if (code === "api-unavailable") {
           setMessageFeedback("Service d'envoi indisponible dans cet environnement. Lancez Acadéa avec npx vercel dev.");
@@ -2911,7 +2925,7 @@ function ParentPortal({
         }}
       />
       <main className="mx-auto grid w-full max-w-7xl min-w-0 flex-1 gap-4 overflow-y-auto px-3 py-5 pb-28 sm:px-6 sm:pb-32 lg:px-8">
-        {activeParentTab === "children" && (
+        {activeParentTab === "children" && !selectedParentChild && (
           <section className="min-w-0 rounded border border-slate-200 bg-white p-4">
             <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
@@ -3100,11 +3114,11 @@ function ParentPortal({
                 )}
                 <div className="grid gap-1 rounded bg-slate-50 p-3 text-sm text-slate-600">
                   <p className="font-semibold">
-                    Messages envoyés aujourd'hui : {parentMessageQuota ? parentMessageQuota.messageCount : 0}/3
+                    Messages envoyés sur 12 heures : {parentMessageQuota ? parentMessageQuota.messageCount : 0}/3
                     {isParentMessageQuotaLoading ? " · Chargement..." : ""}
                   </p>
                   {parentMessageQuotaReached && (
-                    <p className="text-red-600">Vous avez atteint la limite de 3 messages pour aujourd'hui. L'envoi sera de nouveau possible demain.</p>
+                    <p className="text-red-600">Vous avez atteint la limite de 3 messages pour 12 heures. L'envoi sera de nouveau possible à la fin de cette période.</p>
                   )}
                 </div>
                 <button

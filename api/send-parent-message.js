@@ -5,8 +5,8 @@ import { getAuth } from "firebase-admin/auth";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 
 const allowedRecipients = new Set(["admin", "cashier", "both", "discipline"]);
-const dailyLimit = 3;
-const quotaTimeZone = "Africa/Kinshasa";
+const messageLimit = 3;
+const quotaWindowMs = 12 * 60 * 60 * 1000;
 
 function getCredential() {
   if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
@@ -72,24 +72,6 @@ function createConversationId(schoolId, schoolYearId, parentId, threadId) {
   return ["conv", schoolId, schoolYearId, parentId, threadId].map(normalizeConversationSegment).join("_");
 }
 
-function localDateInKinshasa(date = new Date()) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: quotaTimeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date);
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${values.year}-${values.month}-${values.day}`;
-}
-
-function kinshasaDayBounds(localDate) {
-  const [year, month, day] = localDate.split("-").map(Number);
-  const start = new Date(Date.UTC(year, month - 1, day, -1, 0, 0, 0));
-  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
-  return { startIso: start.toISOString(), endIso: end.toISOString() };
-}
-
 function messageConversationScope(message) {
   if (message.recipientParentId === "all") return "all";
   const parentId = message.threadParentId ?? (message.recipientParentId !== "school" ? message.recipientParentId : undefined);
@@ -142,32 +124,60 @@ async function requireParentContext({ auth, db, token }) {
   return { caller, user, parent: parentSnapshot.data() };
 }
 
-async function legacySentCount({ db, schoolId, schoolYearId, parentId, localDate }) {
-  const { startIso, endIso } = kinshasaDayBounds(localDate);
+function quotaFromCounter(counter, nowMs) {
+  const windowStartedAt = String(counter.windowStartedAt ?? "");
+  const windowExpiresAt = String(counter.windowExpiresAt ?? "");
+  const windowExpiresMs = Date.parse(windowExpiresAt);
+  if (!windowStartedAt || !windowExpiresAt || Number.isNaN(windowExpiresMs) || nowMs >= windowExpiresMs) {
+    return { messageCount: 0, windowStartedAt: "", windowExpiresAt: "" };
+  }
+  return {
+    messageCount: Math.min(Number(counter.messageCount ?? 0), messageLimit),
+    windowStartedAt,
+    windowExpiresAt,
+  };
+}
+
+async function legacyActiveQuotaWindow({ db, schoolId, schoolYearId, parentId, now = new Date() }) {
   const snapshot = await db.collection("messages")
     .where("schoolId", "==", schoolId)
     .where("schoolYearId", "==", schoolYearId)
     .where("threadParentId", "==", parentId)
     .where("recipientParentId", "==", "school")
     .get();
-  // Filtrage local de la journée pour éviter un index composite Firestore dédié.
-  return snapshot.docs.filter((doc) => {
-    const createdAt = String(doc.data().createdAt ?? "");
-    return createdAt >= startIso && createdAt < endIso;
-  }).length;
+  const activeMessages = snapshot.docs
+    .map((doc) => String(doc.data().createdAt ?? ""))
+    .filter((createdAt) => {
+      const createdMs = Date.parse(createdAt);
+      return !Number.isNaN(createdMs) && now.getTime() < createdMs + quotaWindowMs;
+    })
+    .sort((first, second) => first.localeCompare(second));
+
+  if (activeMessages.length === 0) {
+    return { messageCount: 0, windowStartedAt: "", windowExpiresAt: "" };
+  }
+
+  const windowStartedAt = activeMessages[0];
+  const windowExpiresAt = new Date(Date.parse(windowStartedAt) + quotaWindowMs).toISOString();
+  const messageCount = activeMessages.filter((createdAt) => createdAt >= windowStartedAt && createdAt < windowExpiresAt).length;
+  return {
+    messageCount: Math.min(messageCount, messageLimit),
+    windowStartedAt,
+    windowExpiresAt,
+  };
 }
 
-async function currentQuota({ db, caller, schoolYearId, localDate }) {
-  const counterId = `${caller.schoolId}__${caller.parentId}__${localDate}`;
+async function currentQuota({ db, caller, schoolYearId, now = new Date() }) {
+  const counterId = `${caller.schoolId}__${caller.parentId}__${schoolYearId}`;
   const counterSnapshot = await db.doc(`parentDailyMessageLimits/${counterId}`).get();
   if (counterSnapshot.exists) {
-    return Math.min(Number(counterSnapshot.data().messageCount ?? 0), dailyLimit);
+    return quotaFromCounter(counterSnapshot.data(), now.getTime());
   }
-  return Math.min(await legacySentCount({ db, schoolId: caller.schoolId, schoolYearId, parentId: caller.parentId, localDate }), dailyLimit);
+  return legacyActiveQuotaWindow({ db, schoolId: caller.schoolId, schoolYearId, parentId: caller.parentId, now });
 }
 
 function publicError(error) {
-  if (error?.code === "quota-exceeded") return { statusCode: 429, body: { error: "quota-exceeded", message: "Vous avez atteint la limite de 3 messages pour aujourd'hui." } };
+  if (error?.code === "quota-exceeded") return { statusCode: 429, body: { error: "quota-exceeded", message: "Vous avez atteint la limite de 3 messages pour 12 heures." } };
   if (error?.code === "not-authorized") return { statusCode: error.statusCode ?? 403, body: { error: "not-authorized", message: "Action non autorisee." } };
   if (error?.code === "invalid-recipient") return { statusCode: 400, body: { error: "invalid-recipient", message: "Destinataire invalide." } };
   return { statusCode: error?.statusCode ?? 500, body: { error: "server-error", message: "Message non envoye. Veuillez reessayer." } };
@@ -197,10 +207,18 @@ export default async function handler(req, res) {
       return;
     }
 
-    const localDate = localDateInKinshasa();
     if (req.method === "GET") {
-      const messageCount = await currentQuota({ db, caller, schoolYearId, localDate });
-      sendJson(res, 200, { quota: { limit: dailyLimit, messageCount, remaining: Math.max(0, dailyLimit - messageCount), localDate, timeZone: quotaTimeZone } });
+      const quota = await currentQuota({ db, caller, schoolYearId });
+      sendJson(res, 200, {
+        quota: {
+          limit: messageLimit,
+          messageCount: quota.messageCount,
+          remaining: Math.max(0, messageLimit - quota.messageCount),
+          windowStartedAt: quota.windowStartedAt,
+          windowExpiresAt: quota.windowExpiresAt,
+          windowHours: 12,
+        },
+      });
       return;
     }
 
@@ -223,17 +241,20 @@ export default async function handler(req, res) {
       discipline: "Directeur de Discipline",
     };
     const createdAt = new Date().toISOString();
-    const counterId = `${caller.schoolId}__${caller.parentId}__${localDate}`;
+    const counterId = `${caller.schoolId}__${caller.parentId}__${schoolYearId}`;
     const counterRef = db.doc(`parentDailyMessageLimits/${counterId}`);
     const messageId = uid("msg");
     const notificationId = uid("notif");
     const saved = await db.runTransaction(async (transaction) => {
       const counterSnapshot = await transaction.get(counterRef);
-      const existingCount = counterSnapshot.exists
-        ? Number(counterSnapshot.data().messageCount ?? 0)
-        : await legacySentCount({ db, schoolId: caller.schoolId, schoolYearId, parentId: caller.parentId, localDate });
+      const quota = counterSnapshot.exists
+        ? quotaFromCounter(counterSnapshot.data(), Date.parse(createdAt))
+        : await legacyActiveQuotaWindow({ db, schoolId: caller.schoolId, schoolYearId, parentId: caller.parentId, now: new Date(createdAt) });
+      const existingCount = quota.messageCount;
+      const windowStartedAt = quota.windowStartedAt || createdAt;
+      const windowExpiresAt = quota.windowExpiresAt || new Date(Date.parse(windowStartedAt) + quotaWindowMs).toISOString();
 
-      if (existingCount >= dailyLimit) {
+      if (existingCount >= messageLimit) {
         throw Object.assign(new Error("Quota parent atteint."), { code: "quota-exceeded", statusCode: 429 });
       }
 
@@ -303,11 +324,24 @@ export default async function handler(req, res) {
         schoolId: caller.schoolId,
         schoolYearId,
         parentId: caller.parentId,
-        localDate,
+        windowStartedAt,
+        windowExpiresAt,
+        windowHours: 12,
         messageCount: existingCount + 1,
         updatedAt: createdAt,
       }, { merge: true });
-      return { message, notification, quota: { limit: dailyLimit, messageCount: existingCount + 1, remaining: Math.max(0, dailyLimit - existingCount - 1), localDate, timeZone: quotaTimeZone } };
+      return {
+        message,
+        notification,
+        quota: {
+          limit: messageLimit,
+          messageCount: existingCount + 1,
+          remaining: Math.max(0, messageLimit - existingCount - 1),
+          windowStartedAt,
+          windowExpiresAt,
+          windowHours: 12,
+        },
+      };
     });
 
     sendJson(res, 200, saved);

@@ -8,8 +8,9 @@ export type ParentMessageQuota = {
   limit: number;
   messageCount: number;
   remaining: number;
-  localDate: string;
-  timeZone: string;
+  windowStartedAt?: string;
+  windowExpiresAt?: string;
+  windowHours?: number;
 };
 
 type ParentMessageResponse = {
