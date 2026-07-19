@@ -75,7 +75,6 @@ import { formatValveAttachmentSize, MAX_VALVE_ATTACHMENTS, MAX_VALVE_ATTACHMENTS
 import { getSchoolClassChoices, getSchoolEducationLevels } from "./utils/schoolConfig";
 import type { SchoolLevelChoice } from "./utils/schoolConfig";
 import { formatStudentClassName, getClassSection } from "./utils/studentClasses";
-import { isArchivedStudent } from "./utils/studentUtils";
 import type {
   AppData,
   AppNotification,
@@ -1853,23 +1852,14 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
     [data.feeTypes, filteredPaymentIndexes, filteredPayments, filteredStudents],
   );
   const dashboardFinancialStats = dashboardFinancialAggregates.financialStats;
-  const annualFinancialAggregates = useMemo(
-    () => buildDashboardFinancialAggregates(filteredStudents, data.feeTypes, data.payments, yearIndexes),
-    [data.feeTypes, data.payments, filteredStudents, yearIndexes],
-  );
-  const annualFinancialStats = annualFinancialAggregates.financialStats;
-  const annualFinancialPaid = annualFinancialStats.paid;
-  const annualFinancialExpenses = useMemo(() => data.expenses.reduce((sum, expense) => sum + expense.amount, 0), [data.expenses]);
-  const annualFinancialRemaining = annualFinancialStats.remaining;
-  const annualFinancialRecoveryRate = annualFinancialStats.expected > 0 ? Math.round((annualFinancialPaid / annualFinancialStats.expected) * 100) : 0;
   const totalPayments = dashboardFinancialStats.paid;
   const totalExpenses = useMemo(() => filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0), [filteredExpenses]);
   const remaining = dashboardFinancialStats.remaining;
   const recoveryRate = dashboardFinancialStats.expected > 0 ? Math.round((totalPayments / dashboardFinancialStats.expected) * 100) : 0;
-  const recoveryTone = annualFinancialRecoveryRate >= 80 ? "text-mint bg-mint/10" : annualFinancialRecoveryRate >= 50 ? "text-amber-700 bg-amber-100" : "text-red-700 bg-red-50";
-  const feeProgressRows = annualFinancialAggregates.feeProgressRows;
-  const totalActiveStudents = useMemo(() => data.students.filter((student) => student.schoolId === school.id && student.schoolYearId === year.id && !isArchivedStudent(student)).length, [data.students, school.id, year.id]);
-  const totalUniqueParents = useMemo(() => new Set(data.parents.filter((parent) => parent.schoolId === school.id).map((parent) => parent.id)).size, [data.parents, school.id]);
+  const recoveryTone = recoveryRate >= 80 ? "text-mint bg-mint/10" : recoveryRate >= 50 ? "text-amber-700 bg-amber-100" : "text-red-700 bg-red-50";
+  const feeProgressRows = dashboardFinancialAggregates.feeProgressRows;
+  const totalActiveStudents = filteredStudents.length;
+  const totalUniqueParents = filteredParents.length;
   const admins = useMemo(() => data.users.filter((item) => item.schoolId === school.id && item.role === "school_admin").length, [data.users, school.id]);
   const cashiers = useMemo(() => data.users.filter((item) => item.schoolId === school.id && item.role === "cashier").length, [data.users, school.id]);
   const disciplineDirectors = useMemo(() => data.users.filter((item) => item.schoolId === school.id && item.role === "discipline_director").length, [data.users, school.id]);
@@ -1989,9 +1979,9 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
     { label: "Administrateurs", value: admins, icon: ShieldCheck, tone: "bg-blue-100 text-blue-700" },
     { label: "Caissiers", value: cashiers, icon: UserRound, tone: "bg-pink-100 text-pink-700" },
     { label: "Directeurs de Discipline", value: disciplineDirectors, icon: ShieldCheck, tone: "bg-violet-100 text-violet-700" },
-    { label: "Montant attendu", value: "$" + annualFinancialStats.expected.toFixed(2), icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
-    { label: "Montant total encaiss\u00e9", value: "$" + annualFinancialPaid.toFixed(2), icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
-    { label: "Montant restant \u00e0 payer", value: "$" + annualFinancialRemaining.toFixed(2), icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
+    { label: "Montant attendu", value: "$" + dashboardFinancialStats.expected.toFixed(2), icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
+    { label: "Montant total encaiss\u00e9", value: "$" + totalPayments.toFixed(2), icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
+    { label: "Montant restant \u00e0 payer", value: "$" + remaining.toFixed(2), icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
   ];
 
   function progressBarTone(rate: number) {
@@ -2010,7 +2000,7 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
       recoveryRate,
       totalPayments,
       totalExpenses,
-      expected: stats.expected,
+      expected: dashboardFinancialStats.expected,
       remaining,
       transactions,
       classRows,
@@ -2061,18 +2051,18 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="font-bold text-ink">KPI financier</h2>
-            <p className="text-sm text-slate-500">{"Recouvrement annuel de l'ann\u00e9e scolaire s\u00e9lectionn\u00e9e."}</p>
+            <p className="text-sm text-slate-500">Recouvrement selon les filtres sélectionnés.</p>
           </div>
-          <span className={"rounded px-3 py-2 text-sm font-bold " + recoveryTone}>{annualFinancialRecoveryRate}{"% recouvr\u00e9"}</span>
+          <span className={"rounded px-3 py-2 text-sm font-bold " + recoveryTone}>{recoveryRate}{"% recouvr\u00e9"}</span>
         </div>
         <div className="mt-4 h-3 overflow-hidden rounded bg-slate-100">
-          <div className={`h-full rounded ${progressBarTone(annualFinancialRecoveryRate)}`} style={{ width: Math.min(100, annualFinancialRecoveryRate) + "%" }} />
+          <div className={`h-full rounded ${progressBarTone(recoveryRate)}`} style={{ width: Math.min(100, recoveryRate) + "%" }} />
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-4">
-          <Metric label={"Encaiss\u00e9"} value={"$" + annualFinancialPaid.toFixed(2)} />
-          <Metric label={"D\u00e9penses"} value={"$" + annualFinancialExpenses.toFixed(2)} />
-          <Metric label="Attendu" value={"$" + annualFinancialStats.expected.toFixed(2)} />
-          <Metric label="Reste" value={"$" + annualFinancialRemaining.toFixed(2)} />
+          <Metric label="Attendu" value={"$" + dashboardFinancialStats.expected.toFixed(2)} />
+          <Metric label={"Encaiss\u00e9"} value={"$" + totalPayments.toFixed(2)} />
+          <Metric label={"D\u00e9penses"} value={"$" + totalExpenses.toFixed(2)} />
+          <Metric label="Reste" value={"$" + remaining.toFixed(2)} />
         </div>
         <div className="mt-5 grid gap-3">
           {feeProgressRows.map((row) => (
