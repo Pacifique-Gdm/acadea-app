@@ -2686,6 +2686,7 @@ function ParentPortal({
   const [messageSubject, setMessageSubject] = useState("");
   const [messageBody, setMessageBody] = useState("");
   const [messageFeedback, setMessageFeedback] = useState("");
+  const [selectedParentChildId, setSelectedParentChildId] = useState<string | null>(null);
   const [parentMessageQuota, setParentMessageQuota] = useState<ParentMessageQuota | null>(null);
   const [isParentMessageQuotaLoading, setIsParentMessageQuotaLoading] = useState(false);
   const [isSendingParentMessage, setIsSendingParentMessage] = useState(false);
@@ -2694,6 +2695,7 @@ function ParentPortal({
   const isParentMessageFormComplete = messageSubject.trim().length > 0 && messageBody.trim().length > 0;
   const parentMessageQuotaReached = parentMessageQuota ? parentMessageQuota.messageCount >= parentMessageQuota.limit : false;
   const parentIndexes = useMemo(() => buildSchoolYearDataIndexes(yearData.students, yearData.feeTypes, yearData.payments), [yearData.students, yearData.feeTypes, yearData.payments]);
+  const selectedParentChild = yearData.students.find((student) => student.id === selectedParentChildId);
   const recipientLabels = {
     admin: "Administrateur uniquement",
     cashier: "Caissier uniquement",
@@ -2729,6 +2731,24 @@ function ParentPortal({
       cancelled = true;
     };
   }, [user.parentId, year.id]);
+
+  useEffect(() => {
+    if (activeParentTab !== "children") {
+      setSelectedParentChildId(null);
+    }
+  }, [activeParentTab]);
+
+  useEffect(() => {
+    if (selectedParentChildId && !yearData.students.some((student) => student.id === selectedParentChildId)) {
+      setSelectedParentChildId(null);
+    }
+  }, [selectedParentChildId, yearData.students]);
+
+  useEffect(() => {
+    if (messageFeedback !== "Message envoyé avec succès.") return undefined;
+    const timer = window.setTimeout(() => setMessageFeedback(""), 4000);
+    return () => window.clearTimeout(timer);
+  }, [messageFeedback]);
 
   function markNotificationsRead() {
     updateData(
@@ -2905,7 +2925,24 @@ function ParentPortal({
         <section className="grid min-w-0 gap-4">
           {activeParentTab === "children" && (
           <div className="grid min-w-0 gap-4">
-            {yearData.students.map((student) => {
+            {selectedParentChild && (
+              <section className="min-w-0 rounded border border-slate-200 bg-white p-4">
+                <button
+                  onClick={() => setSelectedParentChildId(null)}
+                  className="inline-flex items-center gap-2 rounded bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-200"
+                  type="button"
+                >
+                  <ArrowLeft className="h-4 w-4" /> Retour aux enfants
+                </button>
+                <div className="mt-4 min-w-0">
+                  <h2 className="break-words text-xl font-bold text-ink">
+                    {selectedParentChild.nom} {selectedParentChild.postnom} {selectedParentChild.prenom}
+                  </h2>
+                  <p className="break-words text-sm text-slate-500">Fiche détaillée et historique des paiements.</p>
+                </div>
+              </section>
+            )}
+            {(selectedParentChild ? [selectedParentChild] : yearData.students).map((student) => {
               const feeSummaries = getStudentFeeSummaries(student, yearData.feeTypes, yearData.payments, parentIndexes);
               const feeTotals = feeSummaries.reduce(
                 (totals, summary) => ({
@@ -2931,7 +2968,17 @@ function ParentPortal({
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
-                          <h2 className="break-words text-xl font-bold text-ink">{student.nom} {student.postnom} {student.prenom}</h2>
+                          {selectedParentChild ? (
+                            <h2 className="break-words text-xl font-bold text-ink">{student.nom} {student.postnom} {student.prenom}</h2>
+                          ) : (
+                            <button
+                              onClick={() => setSelectedParentChildId(student.id)}
+                              className="break-words text-left text-xl font-bold text-ink transition hover:text-mint"
+                              type="button"
+                            >
+                              {student.nom} {student.postnom} {student.prenom}
+                            </button>
+                          )}
                           <p className="break-words text-sm text-slate-500">{formatStudentClassName(student)} | {year.name}</p>
                         </div>
                         <span className="shrink-0 rounded bg-mint/10 px-2 py-1 text-xs font-semibold text-mint">{progress}% payé</span>
@@ -2972,6 +3019,7 @@ function ParentPortal({
                           })}
                         </div>
                       </div>
+                      {selectedParentChild && (
                       <div className="mt-4">
                         <p className="mb-2 text-sm font-semibold text-ink">Historique des paiements</p>
                         <div className="max-h-48 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
@@ -3000,6 +3048,7 @@ function ParentPortal({
                           })}
                         </div>
                       </div>
+                      )}
                     </div>
                   </div>
                 </article>
