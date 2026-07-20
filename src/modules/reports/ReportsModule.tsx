@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Download } from "lucide-react";
 import { Field, FormPanel, Metric } from "../../components/ui";
+import { exportReportPdf } from "../../utils/reportPdf";
 import { getSchoolEducationLevels } from "../../utils/schoolConfig";
 import { buildStats } from "../../utils/stats";
 import { getClassSection } from "../../utils/studentClasses";
@@ -14,31 +15,15 @@ type ReportsYearData = {
   expenses: Expense[];
 };
 
-type ExportReportPdf = (
-  school: School,
-  year: SchoolYear,
-  startDate: string,
-  endDate: string,
-  sectionLabel: string,
-  usesSectionFilter: boolean,
-  paid: number,
-  spent: number,
-  recovery: number,
-  payments: Payment[],
-  expenses: Expense[],
-  students: Student[],
-) => void | Promise<void>;
-
 type ReportsModuleProps = {
   user: AppUser;
   data: AppData;
   yearData: ReportsYearData;
   school: School;
   year: SchoolYear;
-  exportReportPdf: ExportReportPdf;
 };
 
-export function ReportsModule({ yearData, school, year, exportReportPdf }: ReportsModuleProps) {
+export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
   const today = new Date().toISOString().slice(0, 10);
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);

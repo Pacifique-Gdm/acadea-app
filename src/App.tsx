@@ -42,7 +42,7 @@ import { loadSuperAdminInitialData } from "./services/superAdminData";
 import type { SuperAdminGlobalCounts } from "./services/superAdminData";
 import { isSessionAuditAction } from "./utils/audit";
 import { formatSchoolRecipientLabel } from "./utils/messages";
-import { money, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./utils/pdf";
+import { money } from "./utils/pdf";
 import { resolveDefaultSchoolYear } from "./utils/schoolYears";
 import { buildSchoolYearDataIndexes } from "./utils/dataIndexes";
 import { attendanceSettingsId } from "./utils/attendance";
@@ -55,13 +55,10 @@ import type {
   AppUser,
   AttendanceSettings,
   DisciplineSanction,
-  Expense,
   FeeType,
   Message,
   ParentProfile,
-  Payment,
   School,
-  SchoolClass,
   SchoolYear,
   Student,
 } from "./types";
@@ -785,7 +782,7 @@ export default function App() {
               navigate("/dashboard");
             }}
           />
-        ) : activeTab === "dashboard" && <Dashboard data={yearData} school={school} year={selectedYear} exportDashboardReportPdf={exportDashboardReportPdf} />}
+        ) : activeTab === "dashboard" && <Dashboard data={yearData} school={school} year={selectedYear} />}
         {!studentDetailMatch && route !== "/admin/rapport-financier" && activeTab === "students" && (
           <StudentsModule
             user={user}
@@ -822,7 +819,7 @@ export default function App() {
           />
         )}
         {!studentDetailMatch && route !== "/admin/rapport-financier" && activeTab === "reports" && (
-          <ReportsModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} exportReportPdf={exportReportPdf} />
+          <ReportsModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} />
         )}
         {!studentDetailMatch && route !== "/admin/rapport-financier" && activeTab === "messages" && (
           <MessagesModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} createId={uid} />
@@ -846,7 +843,7 @@ export default function App() {
             schoolEducationLevelChoices={schoolEducationLevelChoices}
             feeTargetHasOption={feeTargetHasOption}
             formatFeeTargetLabel={formatFeeTargetLabel}
-            renderFinancialReport={() => <ReportsModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} exportReportPdf={exportReportPdf} />}
+            renderFinancialReport={() => <ReportsModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} />}
             renderActivityHistory={(role) => <ActivityHistoryContent user={user} data={data} yearData={yearData} role={role} />}
             maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES}
           />
@@ -950,94 +947,6 @@ function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: 
               canShowSchoolNotification(notification),
           ),
   };
-}
-
-async function exportDashboardReportPdf({
-  school,
-  year,
-  sectionLabel,
-  dateLabel,
-  recoveryRate,
-  totalPayments,
-  totalExpenses,
-  expected,
-  remaining,
-  transactions,
-  classRows,
-  totalGirls,
-  totalBoys,
-  totalStudents,
-}: {
-  school: School;
-  year: SchoolYear;
-  sectionLabel: string;
-  dateLabel: string;
-  recoveryRate: number;
-  totalPayments: number;
-  totalExpenses: number;
-  expected: number;
-  remaining: number;
-  transactions: { id: string; type: string; label: string; amount: number; date: string }[];
-  classRows: { className: SchoolClass; girls: number; boys: number; total: number }[];
-  totalGirls: number;
-  totalBoys: number;
-  totalStudents: number;
-}) {
-  await renderAcadPdfPreview({
-    filename: `dashboard-${year.name}.pdf`,
-    title: "Dashboard",
-    school,
-    year,
-    subtitle: `Section : ${sectionLabel} | Tranche de date : ${dateLabel}`,
-    sections: [
-      pdfSection(
-        "KPI financier",
-        pdfInfoGrid([
-          { label: "Recouvrement", value: `${recoveryRate}%` },
-          { label: "Encaissé", value: money(totalPayments) },
-          { label: "Dépenses", value: money(totalExpenses) },
-          { label: "Attendu", value: money(expected) },
-          { label: "Reste", value: money(remaining) },
-        ]),
-      ),
-      pdfSection(
-        "Transactions du jour",
-        pdfTable(
-          [
-            { header: "Date", render: (transaction) => transaction.date.slice(0, 10) },
-            { header: "Type", render: (transaction) => transaction.type },
-            { header: "Libellé", render: (transaction) => transaction.label },
-            { header: "Montant", render: (transaction) => money(transaction.amount), align: "right" },
-          ],
-          transactions,
-          "Aucune transaction pour cette période.",
-        ),
-      ),
-      pdfSection(
-        "Élèves par classe",
-        pdfTable(
-          [
-            { header: "Classe", render: (row) => row.className },
-            { header: "Filles", render: (row) => row.girls, align: "center" },
-            { header: "Garçons", render: (row) => row.boys, align: "center" },
-            { header: "Total", render: (row) => row.total, align: "center" },
-          ],
-          classRows,
-          "Aucune classe à afficher.",
-          {
-            footerHtml: `
-              <tr>
-                <td>Totaux</td>
-                <td class="align-center">${totalGirls}</td>
-                <td class="align-center">${totalBoys}</td>
-                <td class="align-center">${totalStudents}</td>
-              </tr>
-            `,
-          },
-        ),
-      ),
-    ],
-  });
 }
 
 type ActivityHistoryItem = {
@@ -1371,7 +1280,7 @@ function FinancialReportPage({
         </div>
         <p className="mt-1 break-words text-sm text-slate-500">Rapports financiers dédiés à l'année scolaire sélectionnée.</p>
       </div>
-      <ReportsModule user={user} data={data} yearData={yearData} school={school} year={year} exportReportPdf={exportReportPdf} />
+      <ReportsModule user={user} data={data} yearData={yearData} school={school} year={year} />
     </section>
   );
 }
@@ -1513,107 +1422,4 @@ function formatArchiveDate(value?: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString("fr-FR");
-}
-
-async function exportReportPdf(
-  school: School,
-  year: SchoolYear,
-  startDate: string,
-  endDate: string,
-  sectionLabel: string,
-  showGlobalExpenseNote: boolean,
-  paid: number,
-  spent: number,
-  recovery: number,
-  payments: Payment[],
-  expenses: Expense[],
-  students: Student[],
-) {
-  const studentById = new Map(students.map((student) => [student.id, student]));
-  const fallback = "—";
-  const timestampForSort = (value?: string) => {
-    if (!value) return Number.POSITIVE_INFINITY;
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? Number.POSITIVE_INFINITY : date.getTime();
-  };
-  const compareByPrimaryThenCreatedAt = (
-    first: { id: string; createdAt?: string },
-    second: { id: string; createdAt?: string },
-    firstPrimary?: string,
-    secondPrimary?: string,
-  ) => {
-    const primaryDiff = timestampForSort(firstPrimary) - timestampForSort(secondPrimary);
-    if (primaryDiff !== 0) return primaryDiff;
-    const createdDiff = timestampForSort(first.createdAt) - timestampForSort(second.createdAt);
-    if (createdDiff !== 0) return createdDiff;
-    return first.id.localeCompare(second.id, "fr");
-  };
-  const sortedPayments = [...payments].sort((first, second) => compareByPrimaryThenCreatedAt(first, second, first.paidAt, second.paidAt));
-  const sortedExpenses = [...expenses].sort((first, second) => compareByPrimaryThenCreatedAt(first, second, first.spentAt, second.spentAt));
-  const studentNameForPayment = (payment: Payment) => {
-    const student = studentById.get(payment.studentId);
-    if (!student) return fallback;
-    return `${student.nom} ${student.postnom} ${student.prenom}`.trim() || fallback;
-  };
-  const studentOptionForPayment = (payment: Payment) => studentById.get(payment.studentId)?.option || fallback;
-  const timeFromDate = (value?: string) => {
-    if (!value) return fallback;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return fallback;
-    return new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
-  };
-
-  await renderAcadPdfPreview({
-    filename: `rapport-${startDate}-${endDate}.pdf`,
-    title: "Rapport Financier",
-    school,
-    year,
-    subtitle: `Période : ${startDate} au ${endDate}`,
-    sections: [
-      pdfSection(
-        "Synthèse",
-        pdfInfoGrid([
-          { label: "Section", value: sectionLabel },
-          { label: "Paiements", value: money(paid) },
-          { label: "Dépenses", value: money(spent) },
-          { label: "Solde", value: money(paid - spent) },
-          { label: "Recouvrement", value: `${recovery}%` },
-          ...(showGlobalExpenseNote
-            ? [{ label: "Note dépenses", value: "Les dépenses présentées sont globales pour l'école, car elles ne sont pas rattachées à une section." }]
-            : []),
-        ]),
-      ),
-      pdfSection(
-        "Paiements",
-        pdfTable(
-          [
-            { header: "Date", render: (payment) => payment.paidAt },
-            { header: "Nom de l'élève", render: studentNameForPayment },
-            { header: "Option", render: studentOptionForPayment },
-            { header: "Caissier", render: (payment) => payment.cashierName },
-            { header: "Montant", render: (payment) => money(payment.amount), align: "right" },
-            { header: "Reçu", render: (payment) => payment.receiptNumber ?? payment.id },
-          ],
-          sortedPayments.slice(0, 24),
-          "Aucun paiement pour cette période.",
-        ),
-      ),
-      pdfSection(
-        "Dépenses",
-        pdfTable(
-          [
-            { header: "Date", render: (expense) => expense.spentAt },
-            { header: "Heure", render: (expense) => timeFromDate(expense.spentAt), align: "center" },
-            { header: "Catégorie", render: (expense) => expense.category },
-            { header: "Caissier", render: (expense) => expense.cashierName || fallback },
-            { header: "Montant", render: (expense) => money(expense.amount), align: "right" },
-            { header: "Description", render: (expense) => expense.description },
-          ],
-          sortedExpenses.slice(0, 24),
-          "Aucune dépense pour cette période.",
-        ),
-        { pageBreakBefore: true },
-      ),
-    ],
-  });
 }

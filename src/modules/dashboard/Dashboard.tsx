@@ -4,11 +4,12 @@ import { Banknote, BarChart3, BookOpen, Download, GraduationCap, ShieldCheck, Us
 import { FormPanel, Metric } from "../../components/ui";
 import { buildDashboardFinancialAggregates, buildDashboardTransactionDayRows } from "../../utils/dashboardStats";
 import { buildSchoolYearDataIndexes } from "../../utils/dataIndexes";
+import { exportDashboardReportPdf } from "../../utils/dashboardPdf";
 import { money } from "../../utils/pdf";
 import { getSchoolClassChoices, getSchoolEducationLevels } from "../../utils/schoolConfig";
 import { buildStats } from "../../utils/stats";
 import { formatStudentClassName, getClassSection } from "../../utils/studentClasses";
-import type { AppUser, Expense, FeeType, ParentProfile, Payment, School, SchoolClass, SchoolSection, SchoolYear, Student } from "../../types";
+import type { AppUser, Expense, FeeType, ParentProfile, Payment, School, SchoolSection, SchoolYear, Student } from "../../types";
 import { CLASSES } from "../../types";
 
 type DashboardData = {
@@ -20,30 +21,10 @@ type DashboardData = {
   expenses: Expense[];
 };
 
-type DashboardTransaction = { id: string; type: string; label: string; amount: number; date: string };
-
-type ExportDashboardReportPdf = (payload: {
-  school: School;
-  year: SchoolYear;
-  sectionLabel: string;
-  dateLabel: string;
-  recoveryRate: number;
-  totalPayments: number;
-  totalExpenses: number;
-  expected: number;
-  remaining: number;
-  transactions: DashboardTransaction[];
-  classRows: { className: SchoolClass; girls: number; boys: number; total: number }[];
-  totalGirls: number;
-  totalBoys: number;
-  totalStudents: number;
-}) => void | Promise<void>;
-
 type DashboardProps = {
   data: DashboardData;
   school: School;
   year: SchoolYear;
-  exportDashboardReportPdf: ExportDashboardReportPdf;
 };
 
 type TransactionPeriod = "today" | "last5" | "week";
@@ -333,7 +314,7 @@ function TransactionComboChart({
   );
 }
 
-export function Dashboard({ data, school, year, exportDashboardReportPdf }: DashboardProps) {
+export function Dashboard({ data, school, year }: DashboardProps) {
   const today = toDateKey(new Date());
   const [sectionFilter, setSectionFilter] = useState<"all" | "maternelle" | "primaire" | "secondaire">("all");
   const [startDate, setStartDate] = useState(today);
