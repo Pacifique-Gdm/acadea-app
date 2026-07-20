@@ -3862,6 +3862,13 @@ function DisciplinePortal({
         : "border-mint/30 bg-mint/10 text-mint";
   const disciplineMenuSections = [
     {
+      id: "valves",
+      title: "Valves",
+      description: "Communiqués publiés par l'administration.",
+      icon: BookOpen,
+      onClick: () => setDisciplineValvesOpen(true),
+    },
+    {
       id: "history",
       title: "Historique",
       description: "Sanctions en cours et purgées.",
@@ -3881,13 +3888,6 @@ function DisciplinePortal({
       description: "Heures limites de retard par section ou classe.",
       icon: Settings,
       onClick: () => setAttendanceSettingsOpen(true),
-    },
-    {
-      id: "valves",
-      title: "Valves",
-      description: "Communiqués publiés par l'administration.",
-      icon: BookOpen,
-      onClick: () => setDisciplineValvesOpen(true),
     },
   ];
   const selectedDisciplineStudentSanctions = selectedDisciplineStudentId
