@@ -8,6 +8,14 @@ import { getClassSection } from "../../utils/studentClasses";
 
 const resetConfirmationPhrase = "REINITIALISER LES HORAIRES";
 const schoolDaysConfirmationPhrase = "MODIFIER LES JOURS SCOLAIRES";
+const shortDayLabels: Record<AttendanceSchoolDay, string> = {
+  monday: "Lun",
+  tuesday: "Mar",
+  wednesday: "Mer",
+  thursday: "Jeu",
+  friday: "Ven",
+  saturday: "Sam",
+};
 
 type ResetTarget =
   | { scope: "default"; day: AttendanceSchoolDay; label: string }
@@ -219,11 +227,40 @@ export function AttendanceSettingsDrawer({
             6 jours par semaine
           </button>
         </div>
+        {schoolDaysChangeTarget && (
+          <section className="grid gap-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            <p className="font-bold">Confirmer la modification des jours scolaires</p>
+            <p>Vous êtes sur le point de modifier les jours scolaires de {weekMode} jours à {pendingWeekMode} jours.</p>
+            <p>
+              Les jours affichés deviendront : {formatSchoolDayList(schoolDaysChangeTarget)}. Les présences historiques ne seront pas supprimées et les horaires des jours retirés resteront conservés.
+            </p>
+            <label className="grid gap-1 font-semibold">
+              Pour confirmer, saisissez : {schoolDaysConfirmationPhrase}
+              <input value={schoolDaysConfirmation} onChange={(event) => setSchoolDaysConfirmation(event.target.value)} className="input bg-white" />
+            </label>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <button onClick={saveSchoolDaysChange} disabled={saving || schoolDaysConfirmation !== schoolDaysConfirmationPhrase} className="rounded bg-amber-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50" type="button">
+                Confirmer la modification
+              </button>
+              <button
+                onClick={() => {
+                  setSchoolDaysChangeTarget(null);
+                  setSchoolDaysConfirmation("");
+                }}
+                disabled={saving}
+                className="rounded border border-amber-200 bg-white px-4 py-2 text-sm font-bold text-amber-800 transition hover:bg-amber-100"
+                type="button"
+              >
+                Annuler
+              </button>
+            </div>
+          </section>
+        )}
         <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
           {attendanceSchoolDays.map((day) => (
             <label key={day} className="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600">
               <input checked={schoolDaySet.has(day)} onChange={() => toggleSchoolDay(day)} type="checkbox" className="h-4 w-4 accent-mint" />
-              {attendanceSchoolDayLabels[day]}
+              {shortDayLabels[day]}
             </label>
           ))}
         </div>
@@ -239,6 +276,15 @@ export function AttendanceSettingsDrawer({
           schedule={defaultSchedule}
           onChange={updateDefaultSchedule}
           onReset={(day) => openResetConfirmation({ scope: "default", day, label: "Règle générale" })}
+          resetTarget={resetTarget?.scope === "default" ? resetTarget : null}
+          resetConfirmation={resetConfirmation}
+          saving={saving}
+          onResetConfirmationChange={setResetConfirmation}
+          onConfirmReset={resetDaySchedules}
+          onCancelReset={() => {
+            setResetTarget(null);
+            setResetConfirmation("");
+          }}
         />
       </section>
 
@@ -256,6 +302,15 @@ export function AttendanceSettingsDrawer({
                 schedule={sectionSchedule[section] ?? {}}
                 onChange={(day, field, value) => updateSectionSchedule(section, day, field, value)}
                 onReset={(day) => openResetConfirmation({ scope: "section", day, section, label: `Par section - ${sectionLabels[section]}` })}
+                resetTarget={resetTarget?.scope === "section" && resetTarget.section === section ? resetTarget : null}
+                resetConfirmation={resetConfirmation}
+                saving={saving}
+                onResetConfirmationChange={setResetConfirmation}
+                onConfirmReset={resetDaySchedules}
+                onCancelReset={() => {
+                  setResetTarget(null);
+                  setResetConfirmation("");
+                }}
               />
             </div>
           ))}
@@ -279,6 +334,15 @@ export function AttendanceSettingsDrawer({
                   schedule={classSchedule[rule.key] ?? {}}
                   onChange={(day, field, value) => updateClassSchedule(rule.key, day, field, value)}
                   onReset={(day) => openResetConfirmation({ scope: "class", day, classKey: rule.key, label: `Par classe - ${rule.option ? `${rule.className} - ${rule.option}` : rule.className}` })}
+                  resetTarget={resetTarget?.scope === "class" && resetTarget.classKey === rule.key ? resetTarget : null}
+                  resetConfirmation={resetConfirmation}
+                  saving={saving}
+                  onResetConfirmationChange={setResetConfirmation}
+                  onConfirmReset={resetDaySchedules}
+                  onCancelReset={() => {
+                    setResetTarget(null);
+                    setResetConfirmation("");
+                  }}
                 />
               </div>
             ))}
@@ -286,62 +350,6 @@ export function AttendanceSettingsDrawer({
         )}
       </section>
 
-      {schoolDaysChangeTarget && (
-        <section className="grid gap-3 rounded border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          <p className="font-bold">Confirmer la modification des jours scolaires</p>
-          <p>Vous êtes sur le point de modifier les jours scolaires de {weekMode} jours à {pendingWeekMode} jours.</p>
-          <p>
-            Les jours affichés deviendront : {formatSchoolDayList(schoolDaysChangeTarget)}. Les présences historiques ne seront pas supprimées et les horaires des jours retirés resteront conservés.
-          </p>
-          <label className="grid gap-1 font-semibold">
-            Pour confirmer, saisissez : {schoolDaysConfirmationPhrase}
-            <input value={schoolDaysConfirmation} onChange={(event) => setSchoolDaysConfirmation(event.target.value)} className="input bg-white" />
-          </label>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <button onClick={saveSchoolDaysChange} disabled={saving || schoolDaysConfirmation !== schoolDaysConfirmationPhrase} className="rounded bg-amber-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50" type="button">
-              Confirmer la modification
-            </button>
-            <button
-              onClick={() => {
-                setSchoolDaysChangeTarget(null);
-                setSchoolDaysConfirmation("");
-              }}
-              disabled={saving}
-              className="rounded border border-amber-200 bg-white px-4 py-2 text-sm font-bold text-amber-800 transition hover:bg-amber-100"
-              type="button"
-            >
-              Annuler
-            </button>
-          </div>
-        </section>
-      )}
-
-      {resetTarget && (
-        <section className="grid gap-3 rounded border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          <p className="font-bold">Confirmer la réinitialisation des horaires du {attendanceSchoolDayLabels[resetTarget.day]}</p>
-          <p>Vous êtes sur le point de réinitialiser les horaires du {attendanceSchoolDayLabels[resetTarget.day]} dans {resetTarget.label}. Les autres jours, les autres niveaux de règle et les présences existantes ne seront pas modifiés.</p>
-          <label className="grid gap-1 font-semibold">
-            Pour confirmer, saisissez : {resetConfirmationPhrase}
-            <input value={resetConfirmation} onChange={(event) => setResetConfirmation(event.target.value)} className="input bg-white" />
-          </label>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <button onClick={resetDaySchedules} disabled={saving || resetConfirmation !== resetConfirmationPhrase} className="rounded bg-amber-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50" type="button">
-              Confirmer la réinitialisation
-            </button>
-            <button
-              onClick={() => {
-                setResetTarget(null);
-                setResetConfirmation("");
-              }}
-              disabled={saving}
-              className="rounded border border-amber-200 bg-white px-4 py-2 text-sm font-bold text-amber-800 transition hover:bg-amber-100"
-              type="button"
-            >
-              Annuler
-            </button>
-          </div>
-        </section>
-      )}
 
       <button onClick={saveSettings} disabled={saving} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50" type="button">
         <CheckCircle2 className="h-4 w-4" /> {saving ? "Enregistrement..." : "Enregistrer les paramètres"}
@@ -355,24 +363,56 @@ function ScheduleGrid({
   schedule,
   onChange,
   onReset,
+  resetTarget,
+  resetConfirmation,
+  saving,
+  onResetConfirmationChange,
+  onConfirmReset,
+  onCancelReset,
 }: {
   days: AttendanceSchoolDay[];
   schedule: Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>;
   onChange: (day: AttendanceSchoolDay, field: keyof AttendanceDaySchedule, value: string) => void;
   onReset: (day: AttendanceSchoolDay) => void;
+  resetTarget: ResetTarget | null;
+  resetConfirmation: string;
+  saving: boolean;
+  onResetConfirmationChange: (value: string) => void;
+  onConfirmReset: () => void;
+  onCancelReset: () => void;
 }) {
   return (
     <div className="grid gap-2">
       {days.map((day) => (
-        <div key={day} className="grid gap-2 rounded border border-slate-200 bg-white p-3 sm:grid-cols-[8rem_minmax(0,1fr)_minmax(0,1fr)] sm:items-center">
-          <span className="inline-flex min-w-0 items-center gap-2 text-sm font-bold text-slate-600">
-            <button onClick={() => onReset(day)} type="button" className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-mint hover:text-mint" aria-label={`Réinitialiser ${attendanceSchoolDayLabels[day]}`}>
-              <RotateCcw className="h-3.5 w-3.5" />
-            </button>
-            <span>{attendanceSchoolDayLabels[day]}</span>
-          </span>
-          <input type="time" value={schedule[day]?.normalArrival ?? ""} onChange={(event) => onChange(day, "normalArrival", event.target.value)} className="input" aria-label={`Heure normale ${attendanceSchoolDayLabels[day]}`} />
-          <input type="time" value={schedule[day]?.lateAfter ?? ""} onChange={(event) => onChange(day, "lateAfter", event.target.value)} className="input" aria-label={`Seuil de retard ${attendanceSchoolDayLabels[day]}`} />
+        <div key={day} className="grid gap-2">
+          <div className="grid gap-2 rounded border border-slate-200 bg-white p-3 sm:grid-cols-[8rem_minmax(0,1fr)_minmax(0,1fr)] sm:items-center">
+            <span className="inline-flex min-w-0 items-center gap-2 text-sm font-bold text-slate-600">
+              <button onClick={() => onReset(day)} type="button" className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-mint hover:text-mint" aria-label={`Réinitialiser ${attendanceSchoolDayLabels[day]}`}>
+                <RotateCcw className="h-3.5 w-3.5" />
+              </button>
+              <span>{shortDayLabels[day]}</span>
+            </span>
+            <input type="time" value={schedule[day]?.normalArrival ?? ""} onChange={(event) => onChange(day, "normalArrival", event.target.value)} className="input" aria-label={`Heure normale ${attendanceSchoolDayLabels[day]}`} />
+            <input type="time" value={schedule[day]?.lateAfter ?? ""} onChange={(event) => onChange(day, "lateAfter", event.target.value)} className="input" aria-label={`Seuil de retard ${attendanceSchoolDayLabels[day]}`} />
+          </div>
+          {resetTarget?.day === day && (
+            <section className="grid gap-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <p className="font-bold">Réinitialiser les horaires du {attendanceSchoolDayLabels[day]} dans {resetTarget.label}</p>
+              <p>Cette action ne modifie pas les autres jours, les autres niveaux de règle ni les présences existantes.</p>
+              <label className="grid gap-1 font-semibold">
+                Pour confirmer, saisissez : {resetConfirmationPhrase}
+                <input value={resetConfirmation} onChange={(event) => onResetConfirmationChange(event.target.value)} className="input bg-white" />
+              </label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <button onClick={onConfirmReset} disabled={saving || resetConfirmation !== resetConfirmationPhrase} className="rounded bg-amber-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50" type="button">
+                  Confirmer
+                </button>
+                <button onClick={onCancelReset} disabled={saving} className="rounded border border-amber-200 bg-white px-4 py-2 text-sm font-bold text-amber-800 transition hover:bg-amber-100" type="button">
+                  Annuler
+                </button>
+              </div>
+            </section>
+          )}
         </div>
       ))}
     </div>
