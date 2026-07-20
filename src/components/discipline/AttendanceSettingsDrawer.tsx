@@ -390,7 +390,7 @@ function ScheduleGrid({
               <button onClick={() => onReset(day)} type="button" className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-mint hover:text-mint" aria-label={`Réinitialiser ${attendanceSchoolDayLabels[day]}`}>
                 <RotateCcw className="h-3.5 w-3.5" />
               </button>
-              <span>{shortDayLabels[day]}</span>
+              <span>{attendanceSchoolDayLabels[day]}</span>
             </span>
             <label className="grid gap-1 text-xs font-semibold text-slate-500">
               Heure limite
