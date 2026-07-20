@@ -58,12 +58,25 @@ export function buildDashboardFinancialAggregates(students: Student[], feeTypes:
   });
 
   const feeProgressRows = Array.from(rowsByFeeName.values())
-    .map((row) => {
+    .map((row, index) => {
       const remaining = Math.max(row.expected - row.paid, 0);
       const rate = row.expected > 0 ? Math.round((row.paid / row.expected) * 100) : 0;
-      return { ...row, remaining, rate };
+      return { ...row, remaining, rate, originalIndex: index };
     })
-    .filter((row) => row.expected > 0);
+    .filter((row) => row.expected > 0)
+    .sort((first, second) => {
+      const firstIsMinerval = first.name.trim().toLowerCase() === "minerval";
+      const secondIsMinerval = second.name.trim().toLowerCase() === "minerval";
+      if (firstIsMinerval !== secondIsMinerval) return firstIsMinerval ? -1 : 1;
+      return first.originalIndex - second.originalIndex;
+    })
+    .map((row) => ({
+      name: row.name,
+      expected: row.expected,
+      paid: row.paid,
+      remaining: row.remaining,
+      rate: row.rate,
+    }));
 
   return {
     financialStats: {
