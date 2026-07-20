@@ -10,7 +10,7 @@ type PersistFirestorePatchOptions = {
   throwOnError?: boolean;
 };
 export type FirestoreYearData = Pick<AppData, "students" | "feeTypes" | "payments" | "expenses" | "messages" | "valves" | "attendance" | "attendanceSettings">;
-export type DisciplineYearData = Pick<AppData, "students" | "parents" | "messages" | "notifications" | "disciplineSanctions" | "attendance" | "attendanceSettings">;
+export type DisciplineYearData = Pick<AppData, "students" | "parents" | "messages" | "notifications" | "disciplineSanctions" | "attendance" | "attendanceSettings" | "valves">;
 export type ParentPortalData = Pick<AppData, "feeTypes" | "students" | "parents" | "payments" | "messages" | "valves">;
 export type PlatformSettings = {
   loginLogoUrl?: string;
@@ -183,6 +183,7 @@ export async function loadFirestoreData(user?: AppUser, schoolYearId?: string) {
       scopedData.disciplineSanctions = await loadCollection<AppData["disciplineSanctions"][number]>("disciplineSanctions", annualFilter);
       scopedData.attendance = await loadAttendanceCollection(annualFilter);
       scopedData.attendanceSettings = await loadAttendanceSettingsCollection(annualFilter);
+      scopedData.valves = await loadCollection<AppData["valves"][number]>("valves", annualFilter);
       return scopedData;
     }
 
@@ -228,6 +229,7 @@ export async function loadDisciplineYearData(user: AppUser, schoolYearId: string
     disciplineSanctions: await loadCollection<AppData["disciplineSanctions"][number]>("disciplineSanctions", annualFilter),
     attendance: await loadAttendanceCollection(annualFilter),
     attendanceSettings: await loadAttendanceSettingsCollection(annualFilter),
+    valves: await loadCollection<AppData["valves"][number]>("valves", annualFilter),
   };
 
   return yearData;

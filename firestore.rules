@@ -325,7 +325,7 @@ service cloud.firestore {
     }
 
     match /valves/{valveId} {
-      allow read: if superAdmin() || sameTenantResource();
+      allow read: if superAdmin() || sameTenantResource() || disciplineTenantResource();
       allow create: if schoolAdmin() && sameTenantCreate();
       allow update: if schoolAdmin() && sameTenantUpdate() && sameYearUpdate();
       allow delete: if schoolAdmin() && sameTenantResource();

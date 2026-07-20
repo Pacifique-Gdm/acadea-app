@@ -3386,6 +3386,7 @@ function DisciplinePortal({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [attendanceSettingsOpen, setAttendanceSettingsOpen] = useState(false);
+  const [disciplineValvesOpen, setDisciplineValvesOpen] = useState(false);
   const [selectedDisciplineStudentId, setSelectedDisciplineStudentId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
   const unread = yearData.notifications.filter((notification) => !notification.read).length;
@@ -3881,6 +3882,13 @@ function DisciplinePortal({
       icon: Settings,
       onClick: () => setAttendanceSettingsOpen(true),
     },
+    {
+      id: "valves",
+      title: "Valves",
+      description: "Communiqués publiés par l'administration.",
+      icon: BookOpen,
+      onClick: () => setDisciplineValvesOpen(true),
+    },
   ];
   const selectedDisciplineStudentSanctions = selectedDisciplineStudentId
     ? yearData.disciplineSanctions
@@ -4033,6 +4041,29 @@ function DisciplinePortal({
             students={yearData.students}
             settings={attendanceSettings}
             onSave={saveAttendanceSettings}
+          />
+        </AdminDrawer>
+      )}
+      {disciplineValvesOpen && (
+        <AdminDrawer title="Valves" onClose={() => setDisciplineValvesOpen(false)} closeLabel="Fermer les valves">
+          <ValvesDrawerContent
+            user={user}
+            data={data}
+            yearData={yearData}
+            school={school}
+            year={year}
+            updateData={updateData}
+            canManage={false}
+            valvesUploadsEnabled={false}
+            createId={uid}
+            createAuditLog={createAuditLog}
+            getPublicationAttachmentDrafts={getPublicationAttachmentDrafts}
+            getPublicationDownloadAttachments={getPublicationDownloadAttachments}
+            getValveAttachmentKey={getValveAttachmentKey}
+            validateValveAttachmentDrafts={validateValveAttachmentDrafts}
+            getValvePublicationErrorMessage={getValvePublicationErrorMessage}
+            getApproximateValveDocumentSize={getApproximateValveDocumentSize}
+            maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES}
           />
         </AdminDrawer>
       )}
