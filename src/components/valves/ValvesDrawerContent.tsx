@@ -23,7 +23,20 @@ import type {
   ValvePublicationKind,
   ValveVisibility,
 } from "../../types";
-import { buildValveClassChoices, formatValveClassChoiceLabel, getValvePublicationParents, normalizeValveVisibility, parentCanViewValvePublication } from "../../utils/valves";
+import {
+  buildValveClassChoices,
+  formatValveClassChoiceLabel,
+  getApproximateValveDocumentSize,
+  getPublicationAttachmentDrafts,
+  getPublicationDownloadAttachments,
+  getValveAttachmentKey,
+  getValvePublicationErrorMessage,
+  getValvePublicationParents,
+  normalizeValveVisibility,
+  parentCanViewValvePublication,
+  validateValveAttachmentDrafts,
+} from "../../utils/valves";
+import type { ValveAttachmentDraft } from "../../utils/valves";
 import { prepareValveAttachments } from "../../utils/valvesMedia";
 
 const valveKindLabels: Record<ValvePublicationKind, string> = {
@@ -45,15 +58,6 @@ const valveVisibilityLabels: Record<ValveVisibility, string> = {
   class: "Classe précise",
 };
 
-export type ValveAttachmentDraft = {
-  name: string;
-  type: string;
-  dataUrl?: string;
-  url?: string;
-  path?: string;
-  size: number;
-};
-
 type ValvesYearData = {
   parents: ParentProfile[];
   students: Student[];
@@ -71,12 +75,6 @@ export function ValvesDrawerContent({
   valvesUploadsEnabled = true,
   createId,
   createAuditLog,
-  getPublicationAttachmentDrafts,
-  getPublicationDownloadAttachments,
-  getValveAttachmentKey,
-  validateValveAttachmentDrafts,
-  getValvePublicationErrorMessage,
-  getApproximateValveDocumentSize,
   maxValveDocumentBytes,
 }: {
   user: AppUser;
@@ -89,12 +87,6 @@ export function ValvesDrawerContent({
   valvesUploadsEnabled?: boolean;
   createId: (prefix: string) => string;
   createAuditLog: (user: AppUser, schoolId: string, schoolYearId: string, action: string, details: string) => AuditLog;
-  getPublicationAttachmentDrafts: (publication: ValvePublication) => ValveAttachmentDraft[];
-  getPublicationDownloadAttachments: (publication: ValvePublication) => ValveAttachmentListItem[];
-  getValveAttachmentKey: (attachment: Pick<ValveAttachmentDraft, "name" | "size" | "path" | "url">) => string;
-  validateValveAttachmentDrafts: (attachments: ValveAttachmentDraft[]) => string;
-  getValvePublicationErrorMessage: (error: unknown, fallback: string) => string;
-  getApproximateValveDocumentSize: (publication: ValvePublication) => number;
   maxValveDocumentBytes: number;
 }) {
   const [title, setTitle] = useState("");

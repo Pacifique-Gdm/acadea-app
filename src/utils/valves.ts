@@ -1,5 +1,6 @@
 import type { ParentProfile, SchoolClass, SchoolSection, Student, ValvePublication, ValveVisibility } from "../types";
 import { CLASSES } from "../types";
+import { formatValveAttachmentSize, MAX_VALVE_ATTACHMENTS, MAX_VALVE_ATTACHMENTS_TOTAL_SIZE, validateValveAttachments } from "./valvesMedia";
 
 const valveClassSeparator = "::option::";
 
@@ -8,6 +9,15 @@ type LegacyValveVisibility = ValveVisibility | "parents" | "all" | "staff";
 export type ValveClassChoice = {
   value: string;
   label: string;
+};
+
+export type ValveAttachmentDraft = {
+  name: string;
+  type: string;
+  dataUrl?: string;
+  url?: string;
+  path?: string;
+  size: number;
 };
 
 export function normalizeValveVisibility(value: LegacyValveVisibility): ValveVisibility {
@@ -87,4 +97,91 @@ export function getValvePublicationParents(publication: ValvePublication, parent
     }
   });
   return Array.from(parentMap.values());
+}
+
+export function getApproximateValveDocumentSize(publication: ValvePublication) {
+  return new TextEncoder().encode(JSON.stringify(publication)).length;
+}
+
+export function getValvePublicationErrorMessage(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.toLowerCase();
+  if (normalized.includes("upload_inactivity_timeout") || normalized.includes("upload_timeout")) {
+    return "L'envoi est interrompu faute de progression. Vérifiez votre connexion et réessayez.";
+  }
+  if (normalized.includes("too large") || normalized.includes("taille") || normalized.includes("quota") || normalized.includes("payload") || normalized.includes("bytes")) {
+    return "Le fichier joint est trop volumineux pour être publié.";
+  }
+  if (normalized.includes("permission") || normalized.includes("unauthorized") || normalized.includes("forbidden") || normalized.includes("denied")) {
+    return "Permissions Firebase insuffisantes pour publier cette Valve.";
+  }
+  if (normalized.includes("network") || normalized.includes("offline") || normalized.includes("unavailable") || normalized.includes("failed to fetch")) {
+    return "Erreur réseau pendant la publication. Vérifiez la connexion puis réessayez.";
+  }
+  if (normalized.includes("storage") || normalized.includes("bucket") || normalized.includes("object")) {
+    return "Erreur Storage pendant l'envoi du fichier joint. Veuillez réessayer.";
+  }
+  if (normalized.includes("firestore") || normalized.includes("document") || normalized.includes("setdoc")) {
+    return "Erreur Firestore pendant l'enregistrement de la publication. Veuillez réessayer.";
+  }
+  return fallback;
+}
+
+export function getPublicationAttachmentDrafts(publication: ValvePublication): ValveAttachmentDraft[] {
+  if (publication.attachments?.length) {
+    return publication.attachments.map((attachment) => ({
+      name: attachment.name,
+      type: attachment.type,
+      url: attachment.url,
+      path: attachment.path,
+      size: attachment.size,
+    }));
+  }
+
+  if (publication.attachmentUrl || publication.attachmentPath) {
+    return [
+      {
+        name: publication.attachmentName ?? "document",
+        type: publication.attachmentType ?? "application/octet-stream",
+        url: publication.attachmentUrl,
+        path: publication.attachmentPath,
+        size: publication.attachmentSize ?? 0,
+      },
+    ];
+  }
+
+  if (publication.attachmentDataUrl) {
+    return [
+      {
+        name: publication.attachmentName ?? "document",
+        type: publication.attachmentType ?? "application/octet-stream",
+        dataUrl: publication.attachmentDataUrl,
+        size: publication.attachmentSize ?? 0,
+      },
+    ];
+  }
+
+  return [];
+}
+
+export function getPublicationDownloadAttachments(publication: ValvePublication) {
+  const attachments = publication.attachments?.length
+    ? publication.attachments.map((attachment) => ({ name: attachment.name, type: attachment.type, size: attachment.size, url: attachment.url }))
+    : getPublicationAttachmentDrafts(publication).map((attachment) => ({ name: attachment.name, type: attachment.type, size: attachment.size, url: attachment.url ?? attachment.dataUrl }));
+  return attachments.filter((attachment) => Boolean(attachment.url));
+}
+
+export function getValveAttachmentKey(attachment: Pick<ValveAttachmentDraft, "name" | "size" | "path" | "url">) {
+  return `${attachment.path ?? attachment.url ?? ""}|${attachment.name.trim().toLowerCase()}|${attachment.size ?? 0}`;
+}
+
+export function validateValveAttachmentDrafts(attachments: ValveAttachmentDraft[]) {
+  if (attachments.length > MAX_VALVE_ATTACHMENTS) {
+    return `Vous pouvez joindre au maximum ${MAX_VALVE_ATTACHMENTS} fichiers par publication.`;
+  }
+  const totalSize = attachments.reduce((sum, attachment) => sum + (attachment.size ?? 0), 0);
+  if (totalSize > MAX_VALVE_ATTACHMENTS_TOTAL_SIZE) {
+    return `La taille totale des pièces jointes dépasse ${formatValveAttachmentSize(MAX_VALVE_ATTACHMENTS_TOTAL_SIZE)}.`;
+  }
+  return validateValveAttachments(attachments.filter((attachment) => attachment.dataUrl));
 }

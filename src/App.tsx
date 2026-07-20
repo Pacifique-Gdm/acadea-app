@@ -47,7 +47,6 @@ import { resolveDefaultSchoolYear } from "./utils/schoolYears";
 import { buildSchoolYearDataIndexes } from "./utils/dataIndexes";
 import { attendanceSettingsId } from "./utils/attendance";
 import { formatFeeTargetValue } from "./utils/feeTargets";
-import { formatValveAttachmentSize, MAX_VALVE_ATTACHMENTS, MAX_VALVE_ATTACHMENTS_TOTAL_SIZE, validateValveAttachments } from "./utils/valvesMedia";
 import type { SchoolLevelChoice } from "./utils/schoolConfig";
 import { formatStudentClassName } from "./utils/studentClasses";
 import type {
@@ -66,7 +65,6 @@ import type {
   SchoolClass,
   SchoolYear,
   Student,
-  ValvePublication,
 } from "./types";
 import { CLASSES } from "./types";
 
@@ -700,12 +698,6 @@ export default function App() {
         mergeNotificationsById={mergeNotificationsById}
         mergeMessagesById={mergeMessagesById}
         resolvePaymentCashierName={resolvePaymentCashierName}
-        getPublicationAttachmentDrafts={getPublicationAttachmentDrafts}
-        getPublicationDownloadAttachments={getPublicationDownloadAttachments}
-        getValveAttachmentKey={getValveAttachmentKey}
-        validateValveAttachmentDrafts={validateValveAttachmentDrafts}
-        getValvePublicationErrorMessage={getValvePublicationErrorMessage}
-        getApproximateValveDocumentSize={getApproximateValveDocumentSize}
         maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES}
       />
     );
@@ -740,12 +732,6 @@ export default function App() {
         normalizeDisciplineReason={normalizeDisciplineReason}
         mergeNotificationsById={mergeNotificationsById}
         mergeMessagesById={mergeMessagesById}
-        getPublicationAttachmentDrafts={getPublicationAttachmentDrafts}
-        getPublicationDownloadAttachments={getPublicationDownloadAttachments}
-        getValveAttachmentKey={getValveAttachmentKey}
-        validateValveAttachmentDrafts={validateValveAttachmentDrafts}
-        getValvePublicationErrorMessage={getValvePublicationErrorMessage}
-        getApproximateValveDocumentSize={getApproximateValveDocumentSize}
         maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES}
       />
     );
@@ -882,12 +868,6 @@ export default function App() {
             formatFeeTargetLabel={formatFeeTargetLabel}
             renderFinancialReport={() => <ReportsModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} exportReportPdf={exportReportPdf} />}
             renderActivityHistory={(role) => <ActivityHistoryContent user={user} data={data} yearData={yearData} role={role} />}
-            getPublicationAttachmentDrafts={getPublicationAttachmentDrafts}
-            getPublicationDownloadAttachments={getPublicationDownloadAttachments}
-            getValveAttachmentKey={getValveAttachmentKey}
-            validateValveAttachmentDrafts={validateValveAttachmentDrafts}
-            getValvePublicationErrorMessage={getValvePublicationErrorMessage}
-            getApproximateValveDocumentSize={getApproximateValveDocumentSize}
             maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES}
           />
         )}
@@ -1190,102 +1170,6 @@ function ActivityHistoryContent({
 }
 
 const MAX_VALVE_DOCUMENT_BYTES = 900 * 1024;
-
-type ValveAttachmentDraft = {
-  name: string;
-  type: string;
-  dataUrl?: string;
-  url?: string;
-  path?: string;
-  size: number;
-};
-
-function getApproximateValveDocumentSize(publication: ValvePublication) {
-  return new TextEncoder().encode(JSON.stringify(publication)).length;
-}
-
-function getValvePublicationErrorMessage(error: unknown, fallback: string) {
-  const message = error instanceof Error ? error.message : String(error);
-  const normalized = message.toLowerCase();
-  if (normalized.includes("upload_inactivity_timeout") || normalized.includes("upload_timeout")) {
-    return "L'envoi est interrompu faute de progression. Vérifiez votre connexion et réessayez.";
-  }
-  if (normalized.includes("too large") || normalized.includes("taille") || normalized.includes("quota") || normalized.includes("payload") || normalized.includes("bytes")) {
-    return "Le fichier joint est trop volumineux pour être publié.";
-  }
-  if (normalized.includes("permission") || normalized.includes("unauthorized") || normalized.includes("forbidden") || normalized.includes("denied")) {
-    return "Permissions Firebase insuffisantes pour publier cette Valve.";
-  }
-  if (normalized.includes("network") || normalized.includes("offline") || normalized.includes("unavailable") || normalized.includes("failed to fetch")) {
-    return "Erreur réseau pendant la publication. Vérifiez la connexion puis réessayez.";
-  }
-  if (normalized.includes("storage") || normalized.includes("bucket") || normalized.includes("object")) {
-    return "Erreur Storage pendant l'envoi du fichier joint. Veuillez réessayer.";
-  }
-  if (normalized.includes("firestore") || normalized.includes("document") || normalized.includes("setdoc")) {
-    return "Erreur Firestore pendant l'enregistrement de la publication. Veuillez réessayer.";
-  }
-  return fallback;
-}
-
-function getPublicationAttachmentDrafts(publication: ValvePublication): ValveAttachmentDraft[] {
-  if (publication.attachments?.length) {
-    return publication.attachments.map((attachment) => ({
-      name: attachment.name,
-      type: attachment.type,
-      url: attachment.url,
-      path: attachment.path,
-      size: attachment.size,
-    }));
-  }
-
-  if (publication.attachmentUrl || publication.attachmentPath) {
-    return [
-      {
-        name: publication.attachmentName ?? "document",
-        type: publication.attachmentType ?? "application/octet-stream",
-        url: publication.attachmentUrl,
-        path: publication.attachmentPath,
-        size: publication.attachmentSize ?? 0,
-      },
-    ];
-  }
-
-  if (publication.attachmentDataUrl) {
-    return [
-      {
-        name: publication.attachmentName ?? "document",
-        type: publication.attachmentType ?? "application/octet-stream",
-        dataUrl: publication.attachmentDataUrl,
-        size: publication.attachmentSize ?? 0,
-      },
-    ];
-  }
-
-  return [];
-}
-
-function getPublicationDownloadAttachments(publication: ValvePublication) {
-  const attachments = publication.attachments?.length
-    ? publication.attachments.map((attachment) => ({ name: attachment.name, type: attachment.type, size: attachment.size, url: attachment.url }))
-    : getPublicationAttachmentDrafts(publication).map((attachment) => ({ name: attachment.name, type: attachment.type, size: attachment.size, url: attachment.url ?? attachment.dataUrl }));
-  return attachments.filter((attachment) => Boolean(attachment.url));
-}
-
-function getValveAttachmentKey(attachment: Pick<ValveAttachmentDraft, "name" | "size" | "path" | "url">) {
-  return `${attachment.path ?? attachment.url ?? ""}|${attachment.name.trim().toLowerCase()}|${attachment.size ?? 0}`;
-}
-
-function validateValveAttachmentDrafts(attachments: ValveAttachmentDraft[]) {
-  if (attachments.length > MAX_VALVE_ATTACHMENTS) {
-    return `Vous pouvez joindre au maximum ${MAX_VALVE_ATTACHMENTS} fichiers par publication.`;
-  }
-  const totalSize = attachments.reduce((sum, attachment) => sum + (attachment.size ?? 0), 0);
-  if (totalSize > MAX_VALVE_ATTACHMENTS_TOTAL_SIZE) {
-    return `La taille totale des pièces jointes dépasse ${formatValveAttachmentSize(MAX_VALVE_ATTACHMENTS_TOTAL_SIZE)}.`;
-  }
-  return validateValveAttachments(attachments.filter((attachment) => attachment.dataUrl));
-}
 
 function buildActivityHistoryItems(user: AppUser, data: AppData, yearData: ReturnType<typeof scopeData>, role: "admin" | "cashier" | "parent") {
   const usersById = new Map(data.users.map((item) => [item.id, item]));

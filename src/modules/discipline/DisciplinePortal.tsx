@@ -8,8 +8,6 @@ import { DisciplineStatistics } from "../../components/discipline/DisciplineStat
 import { DisciplineStatus } from "../../components/discipline/DisciplineStatus";
 import { NewSanctionDrawer } from "../../components/discipline/NewSanctionDrawer";
 import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent";
-import type { ValveAttachmentDraft } from "../../components/valves/ValvesDrawerContent";
-import type { ValveAttachmentListItem } from "../../components/valves/AttachmentsList";
 import { AdminDrawer } from "../../components/ui";
 import { completeDisciplineSanction, createDisciplineSanction, saveDisciplineAuditLog } from "../../services/discipline";
 import { markConversationUnreadCountRead, persistMessageWithConversation } from "../../services/conversations";
@@ -18,7 +16,7 @@ import { markNotificationsReadTargeted } from "../../services/notificationsPagin
 import { attendanceRecordId, attendanceStatusText, resolveAttendanceStatusForArrival } from "../../utils/attendance";
 import { buildDisciplineStats } from "../../utils/disciplineStats";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
-import type { AppData, AppNotification, AppUser, AttendanceRecord, AttendanceSettings, AttendanceStatus, AuditLog, DisciplineSanction, Message, School, SchoolYear, Student, ValvePublication } from "../../types";
+import type { AppData, AppNotification, AppUser, AttendanceRecord, AttendanceSettings, AttendanceStatus, AuditLog, DisciplineSanction, Message, School, SchoolYear, Student } from "../../types";
 
 type DisciplineTab = "status" | "attendance" | "messages" | "menu";
 
@@ -110,12 +108,6 @@ export function DisciplinePortal({
   normalizeDisciplineReason,
   mergeNotificationsById,
   mergeMessagesById,
-  getPublicationAttachmentDrafts,
-  getPublicationDownloadAttachments,
-  getValveAttachmentKey,
-  validateValveAttachmentDrafts,
-  getValvePublicationErrorMessage,
-  getApproximateValveDocumentSize,
   maxValveDocumentBytes,
 }: {
   user: AppUser;
@@ -144,12 +136,6 @@ export function DisciplinePortal({
   normalizeDisciplineReason: (value: string) => string;
   mergeNotificationsById: (currentItems: AppNotification[], nextItems: AppNotification[]) => AppNotification[];
   mergeMessagesById: (currentItems: Message[], nextItems: Message[]) => Message[];
-  getPublicationAttachmentDrafts: (publication: ValvePublication) => ValveAttachmentDraft[];
-  getPublicationDownloadAttachments: (publication: ValvePublication) => ValveAttachmentListItem[];
-  getValveAttachmentKey: (attachment: Pick<ValveAttachmentDraft, "name" | "size" | "path" | "url">) => string;
-  validateValveAttachmentDrafts: (attachments: ValveAttachmentDraft[]) => string;
-  getValvePublicationErrorMessage: (error: unknown, fallback: string) => string;
-  getApproximateValveDocumentSize: (publication: ValvePublication) => number;
   maxValveDocumentBytes: number;
 }) {
   const [activeDisciplineTab, setActiveDisciplineTab] = useState<DisciplineTab>("status");
@@ -829,12 +815,6 @@ export function DisciplinePortal({
             valvesUploadsEnabled={false}
             createId={createId}
             createAuditLog={createAuditLog}
-            getPublicationAttachmentDrafts={getPublicationAttachmentDrafts}
-            getPublicationDownloadAttachments={getPublicationDownloadAttachments}
-            getValveAttachmentKey={getValveAttachmentKey}
-            validateValveAttachmentDrafts={validateValveAttachmentDrafts}
-            getValvePublicationErrorMessage={getValvePublicationErrorMessage}
-            getApproximateValveDocumentSize={getApproximateValveDocumentSize}
             maxValveDocumentBytes={maxValveDocumentBytes}
           />
         </AdminDrawer>

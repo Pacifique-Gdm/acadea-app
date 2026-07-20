@@ -3,7 +3,6 @@ import type { FormEvent, ReactNode } from "react";
 import { ArrowLeft, BookOpen, Clock3, Download, LogOut, MessageSquare, UserRound } from "lucide-react";
 import { AdminDrawer, FormPanel, Metric } from "../../components/ui";
 import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent";
-import type { ValveAttachmentDraft } from "../../components/valves/ValvesDrawerContent";
 import { db } from "../../firebase";
 import { markConversationUnreadCountRead } from "../../services/conversations";
 import { canUseFirestoreData } from "../../services/firestoreData";
@@ -27,13 +26,6 @@ type ParentYearData = {
   messages: Message[];
   auditLogs: AuditLog[];
   valves: ValvePublication[];
-};
-
-type ValveDownloadAttachment = {
-  name: string;
-  type: string;
-  size: number;
-  url?: string;
 };
 
 type ParentHeaderRenderProps = {
@@ -63,12 +55,6 @@ type ParentPortalProps = {
   mergeNotificationsById: (currentItems: AppNotification[], nextItems: AppNotification[]) => AppNotification[];
   mergeMessagesById: (currentItems: Message[], nextItems: Message[]) => Message[];
   resolvePaymentCashierName: (payment: Payment, auditLogs: AuditLog[]) => string;
-  getPublicationAttachmentDrafts: (publication: ValvePublication) => ValveAttachmentDraft[];
-  getPublicationDownloadAttachments: (publication: ValvePublication) => ValveDownloadAttachment[];
-  getValveAttachmentKey: (attachment: Pick<ValveAttachmentDraft, "name" | "size" | "path" | "url">) => string;
-  validateValveAttachmentDrafts: (attachments: ValveAttachmentDraft[]) => string;
-  getValvePublicationErrorMessage: (error: unknown, fallback: string) => string;
-  getApproximateValveDocumentSize: (publication: ValvePublication) => number;
   maxValveDocumentBytes: number;
 };
 
@@ -90,12 +76,6 @@ export function ParentPortal({
   mergeNotificationsById,
   mergeMessagesById,
   resolvePaymentCashierName,
-  getPublicationAttachmentDrafts,
-  getPublicationDownloadAttachments,
-  getValveAttachmentKey,
-  validateValveAttachmentDrafts,
-  getValvePublicationErrorMessage,
-  getApproximateValveDocumentSize,
   maxValveDocumentBytes,
 }: ParentPortalProps) {
   const [activeParentTab, setActiveParentTab] = useState<ParentTab>("children");
@@ -635,12 +615,6 @@ export function ParentPortal({
             canManage={false}
             createId={createId}
             createAuditLog={createAuditLog}
-            getPublicationAttachmentDrafts={getPublicationAttachmentDrafts}
-            getPublicationDownloadAttachments={getPublicationDownloadAttachments}
-            getValveAttachmentKey={getValveAttachmentKey}
-            validateValveAttachmentDrafts={validateValveAttachmentDrafts}
-            getValvePublicationErrorMessage={getValvePublicationErrorMessage}
-            getApproximateValveDocumentSize={getApproximateValveDocumentSize}
             maxValveDocumentBytes={maxValveDocumentBytes}
           />
         </AdminDrawer>

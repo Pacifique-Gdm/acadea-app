@@ -4,7 +4,6 @@ import { Banknote, BarChart3, BookOpen, CheckCircle2, Clock3, LogOut, Plus, Refr
 import { AdminDrawer, Field, ImageUploadField, PasswordField } from "../../components/ui";
 import { ParentsDirectoryDrawer } from "../../components/parents/ParentsDirectoryDrawer";
 import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent";
-import type { ValveAttachmentDraft } from "../../components/valves/ValvesDrawerContent";
 import { canUseFirestoreData, persistFirestorePatch } from "../../services/firestoreData";
 import { deleteParentAccount, provisionSchoolUser } from "../../services/provisioning";
 import { buildFeeTargetChoices, feeTargetClassName } from "../../utils/feeTargets";
@@ -20,13 +19,6 @@ type MenuYearData = {
   parents: ParentProfile[];
   feeTypes: FeeType[];
   valves: ValvePublication[];
-};
-
-type ValveDownloadAttachment = {
-  name: string;
-  type: string;
-  size: number;
-  url?: string;
 };
 
 type MenuModuleProps = {
@@ -50,12 +42,6 @@ type MenuModuleProps = {
   formatFeeTargetLabel: (fee: Pick<FeeType, "className" | "classOptionKey">) => string;
   renderFinancialReport: () => ReactNode;
   renderActivityHistory: (role: "admin" | "cashier") => ReactNode;
-  getPublicationAttachmentDrafts: (publication: ValvePublication) => ValveAttachmentDraft[];
-  getPublicationDownloadAttachments: (publication: ValvePublication) => ValveDownloadAttachment[];
-  getValveAttachmentKey: (attachment: Pick<ValveAttachmentDraft, "name" | "size" | "path" | "url">) => string;
-  validateValveAttachmentDrafts: (attachments: ValveAttachmentDraft[]) => string;
-  getValvePublicationErrorMessage: (error: unknown, fallback: string) => string;
-  getApproximateValveDocumentSize: (publication: ValvePublication) => number;
   maxValveDocumentBytes: number;
 };
 
@@ -85,12 +71,6 @@ export function MenuModule({
   formatFeeTargetLabel,
   renderFinancialReport,
   renderActivityHistory,
-  getPublicationAttachmentDrafts,
-  getPublicationDownloadAttachments,
-  getValveAttachmentKey,
-  validateValveAttachmentDrafts,
-  getValvePublicationErrorMessage,
-  getApproximateValveDocumentSize,
   maxValveDocumentBytes,
 }: MenuModuleProps) {
   type MenuSection = "school" | "years" | "accounts" | "fees" | "financial" | "valves" | "parentsDirectory" | "history";
@@ -937,12 +917,6 @@ export function MenuModule({
           valvesUploadsEnabled={valvesUploadsEnabled}
           createId={createId}
           createAuditLog={createAuditLog}
-          getPublicationAttachmentDrafts={getPublicationAttachmentDrafts}
-          getPublicationDownloadAttachments={getPublicationDownloadAttachments}
-          getValveAttachmentKey={getValveAttachmentKey}
-          validateValveAttachmentDrafts={validateValveAttachmentDrafts}
-          getValvePublicationErrorMessage={getValvePublicationErrorMessage}
-          getApproximateValveDocumentSize={getApproximateValveDocumentSize}
           maxValveDocumentBytes={maxValveDocumentBytes}
         />
       );
