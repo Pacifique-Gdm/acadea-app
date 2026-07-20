@@ -732,8 +732,6 @@ export default function App() {
           />
         ) : route === "/admin/rapport-financier" ? (
           <FinancialReportPage
-            user={user}
-            data={data}
             yearData={yearData}
             school={school}
             year={selectedYear}
@@ -779,7 +777,7 @@ export default function App() {
           />
         )}
         {!studentDetailMatch && route !== "/admin/rapport-financier" && activeTab === "reports" && (
-          <ReportsModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} />
+          <ReportsModule yearData={yearData} school={school} year={selectedYear} />
         )}
         {!studentDetailMatch && route !== "/admin/rapport-financier" && activeTab === "messages" && (
           <MessagesModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} createId={uid} />
@@ -803,7 +801,7 @@ export default function App() {
             schoolEducationLevelChoices={schoolEducationLevelChoices}
             feeTargetHasOption={feeTargetHasOption}
             formatFeeTargetLabel={formatFeeTargetLabel}
-            renderFinancialReport={() => <ReportsModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} />}
+            renderFinancialReport={() => <ReportsModule yearData={yearData} school={school} year={selectedYear} />}
             renderActivityHistory={(role) => <ActivityHistoryContent user={user} data={data} yearData={yearData} role={role} />}
             maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES}
           />

@@ -5,7 +5,7 @@ import { exportReportPdf } from "../../utils/reportPdf";
 import { getSchoolEducationLevels } from "../../utils/schoolConfig";
 import { buildStats } from "../../utils/stats";
 import { getClassSection } from "../../utils/studentClasses";
-import type { AppData, AppUser, Expense, FeeType, ParentProfile, Payment, School, SchoolSection, SchoolYear, Student } from "../../types";
+import type { Expense, FeeType, ParentProfile, Payment, School, SchoolSection, SchoolYear, Student } from "../../types";
 
 type ReportsYearData = {
   students: Student[];
@@ -16,8 +16,6 @@ type ReportsYearData = {
 };
 
 type ReportsModuleProps = {
-  user: AppUser;
-  data: AppData;
   yearData: ReportsYearData;
   school: School;
   year: SchoolYear;

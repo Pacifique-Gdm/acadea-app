@@ -1,6 +1,6 @@
 import { ArrowLeft } from "lucide-react";
 import { ReportsModule } from "./ReportsModule";
-import type { AppData, AppUser, Expense, FeeType, ParentProfile, Payment, School, SchoolYear, Student } from "../../types";
+import type { Expense, FeeType, ParentProfile, Payment, School, SchoolYear, Student } from "../../types";
 
 type FinancialReportYearData = {
   students: Student[];
@@ -11,15 +11,13 @@ type FinancialReportYearData = {
 };
 
 type FinancialReportPageProps = {
-  user: AppUser;
-  data: AppData;
   yearData: FinancialReportYearData;
   school: School;
   year: SchoolYear;
   onBack: () => void;
 };
 
-export function FinancialReportPage({ user, data, yearData, school, year, onBack }: FinancialReportPageProps) {
+export function FinancialReportPage({ yearData, school, year, onBack }: FinancialReportPageProps) {
   return (
     <section className="grid min-w-0 gap-4">
       <div className="mb-4 min-w-0">
@@ -31,7 +29,7 @@ export function FinancialReportPage({ user, data, yearData, school, year, onBack
         </div>
         <p className="mt-1 break-words text-sm text-slate-500">Rapports financiers dédiés à l'année scolaire sélectionnée.</p>
       </div>
-      <ReportsModule user={user} data={data} yearData={yearData} school={school} year={year} />
+      <ReportsModule yearData={yearData} school={school} year={year} />
     </section>
   );
 }
