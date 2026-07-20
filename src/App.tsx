@@ -8,7 +8,6 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock3,
-  Download,
   Edit3,
   Eye,
   EyeOff,
@@ -37,7 +36,8 @@ import { ControlModule } from "./modules/control/ControlModule";
 import { MenuModule } from "./modules/menu/MenuModule";
 import { ParentPortal } from "./modules/parent/ParentPortal";
 import { Dashboard } from "./modules/dashboard/Dashboard";
-import { AdminDrawer, Field, FormPanel, IconButton, Metric, SectionTitle } from "./components/ui";
+import { ReportsModule } from "./modules/reports/ReportsModule";
+import { AdminDrawer, FormPanel, IconButton, SectionTitle } from "./components/ui";
 import { useBillingControls } from "./hooks/useBillingControls";
 import { usePaginatedNotifications } from "./hooks/usePaginatedNotifications";
 import { useRealtimeMessageFeed } from "./hooks/useRealtimeMessageFeed";
@@ -51,12 +51,10 @@ import { formatSchoolRecipientLabel } from "./utils/messages";
 import { money, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./utils/pdf";
 import type { PdfTableColumn } from "./utils/pdf";
 import { resolveDefaultSchoolYear } from "./utils/schoolYears";
-import { buildStats } from "./utils/stats";
 import { buildSchoolYearDataIndexes } from "./utils/dataIndexes";
 import { attendanceSettingsId } from "./utils/attendance";
 import { formatFeeTargetValue } from "./utils/feeTargets";
 import { formatValveAttachmentSize, MAX_VALVE_ATTACHMENTS, MAX_VALVE_ATTACHMENTS_TOTAL_SIZE, validateValveAttachments } from "./utils/valvesMedia";
-import { getSchoolEducationLevels } from "./utils/schoolConfig";
 import type { SchoolLevelChoice } from "./utils/schoolConfig";
 import { formatStudentClassName, getClassSection } from "./utils/studentClasses";
 import type {
@@ -982,7 +980,7 @@ export default function App() {
           />
         )}
         {!studentDetailMatch && route !== "/admin/rapport-financier" && activeTab === "reports" && (
-          <ReportsModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} />
+          <ReportsModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} exportReportPdf={exportReportPdf} />
         )}
         {!studentDetailMatch && route !== "/admin/rapport-financier" && activeTab === "messages" && (
           <MessagesModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} />
@@ -1007,7 +1005,7 @@ export default function App() {
             schoolEducationLevelChoices={schoolEducationLevelChoices}
             feeTargetHasOption={feeTargetHasOption}
             formatFeeTargetLabel={formatFeeTargetLabel}
-            renderFinancialReport={() => <ReportsModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} />}
+            renderFinancialReport={() => <ReportsModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} exportReportPdf={exportReportPdf} />}
             renderActivityHistory={(role) => <ActivityHistoryContent user={user} data={data} yearData={yearData} role={role} />}
             getPublicationAttachmentDrafts={getPublicationAttachmentDrafts}
             getPublicationDownloadAttachments={getPublicationDownloadAttachments}
@@ -2190,7 +2188,7 @@ function FinancialReportPage({
         </div>
         <p className="mt-1 break-words text-sm text-slate-500">Rapports financiers dédiés à l'année scolaire sélectionnée.</p>
       </div>
-      <ReportsModule user={user} data={data} yearData={yearData} school={school} year={year} />
+      <ReportsModule user={user} data={data} yearData={yearData} school={school} year={year} exportReportPdf={exportReportPdf} />
     </section>
   );
 }
@@ -2297,112 +2295,6 @@ function ParentsModule({
           <p className="rounded bg-slate-50 p-3 text-sm font-semibold text-slate-600">Les parents de cette année archivée sont consultables, mais aucune modification n'est autorisée.</p>
         </FormPanel>
       )}
-    </section>
-  );
-}
-
-function ReportsModule({
-  yearData,
-  school,
-  year,
-}: {
-  user: AppUser;
-  data: AppData;
-  yearData: ReturnType<typeof scopeData>;
-  school: School;
-  year: SchoolYear;
-}) {
-  const today = new Date().toISOString().slice(0, 10);
-  const [startDate, setStartDate] = useState(today);
-  const [endDate, setEndDate] = useState(today);
-  const [sectionFilter, setSectionFilter] = useState<"all" | SchoolSection>("all");
-  const sectionLabels: Record<"all" | SchoolSection, string> = {
-    all: "Toutes les sections",
-    maternelle: "Maternelle",
-    primaire: "Primaire",
-    secondaire: "Secondaire",
-  };
-  const reportSectionChoices = useMemo(
-    () =>
-      getSchoolEducationLevels(school)
-        .map((level) => (level === "Maternelle" ? "maternelle" : level === "Primaire" ? "primaire" : level === "Secondaire" ? "secondaire" : ""))
-        .filter(Boolean) as SchoolSection[],
-    [school],
-  );
-  useEffect(() => {
-    if (sectionFilter !== "all" && !reportSectionChoices.includes(sectionFilter)) {
-      setSectionFilter("all");
-    }
-  }, [reportSectionChoices, sectionFilter]);
-  const filteredStudents = yearData.students.filter((student) => sectionFilter === "all" || getClassSection(student.className) === sectionFilter);
-  const filteredStudentIds = new Set(filteredStudents.map((student) => student.id));
-  const payments = yearData.payments.filter((payment) => payment.paidAt >= startDate && payment.paidAt <= endDate && filteredStudentIds.has(payment.studentId));
-  const expenses = yearData.expenses.filter((expense) => expense.spentAt >= startDate && expense.spentAt <= endDate);
-  const paid = payments.reduce((sum, payment) => sum + payment.amount, 0);
-  const spent = expenses.reduce((sum, expense) => sum + expense.amount, 0);
-  const expected = buildStats(filteredStudents, yearData.parents, yearData.feeTypes, payments).expected;
-  const recovery = expected > 0 ? Math.round((paid / expected) * 100) : 0;
-  const usesSectionFilter = sectionFilter !== "all";
-
-  return (
-    <section className="grid min-w-0 gap-4">
-      <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="grid min-w-0 gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
-          <Field label="Date début" value={startDate} onChange={setStartDate} type="date" />
-          <Field label="Date fin" value={endDate} onChange={setEndDate} type="date" />
-          <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
-            Section
-            <select value={sectionFilter} onChange={(event) => setSectionFilter(event.target.value as "all" | SchoolSection)} className="input">
-              <option value="all">Toutes</option>
-              {reportSectionChoices.map((section) => (
-                <option key={section} value={section}>{sectionLabels[section]}</option>
-              ))}
-            </select>
-          </label>
-          <button onClick={() => exportReportPdf(school, year, startDate, endDate, sectionLabels[sectionFilter], usesSectionFilter, paid, spent, recovery, payments, expenses, filteredStudents)} className="primary-button self-end">
-            <Download className="h-4 w-4" /> Export PDF
-          </button>
-        </div>
-        {usesSectionFilter && (
-          <p className="mt-3 rounded bg-amber-50 p-3 text-sm font-semibold text-amber-700">
-            Les dépenses présentées sont globales pour l'école, car elles ne sont pas rattachées à une section.
-          </p>
-        )}
-      </div>
-      <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Metric label="Paiements" value={`$${paid.toFixed(2)}`} />
-        <Metric label="Dépenses" value={`$${spent.toFixed(2)}`} />
-        <Metric label="Solde net" value={`$${(paid - spent).toFixed(2)}`} />
-        <Metric label="Recouvrement période" value={`${recovery}%`} />
-      </div>
-      <div className="grid min-w-0 gap-4 xl:grid-cols-2">
-        <FormPanel title="Paiements">
-          <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
-            {payments.map((payment) => {
-              const student = filteredStudents.find((item) => item.id === payment.studentId);
-              return (
-                <div key={payment.id} className="min-w-0 rounded bg-slate-50 p-3 text-sm">
-                  <p className="break-words font-semibold text-ink">{student ? `${student.nom} ${student.prenom}` : "Élève"}</p>
-                  <p className="break-words text-slate-500">${payment.amount} | {payment.paidAt} | {payment.cashierName}</p>
-                </div>
-              );
-            })}
-            {payments.length === 0 && <p className="text-sm text-slate-500">Aucun paiement sur cette période.</p>}
-          </div>
-        </FormPanel>
-        <FormPanel title="Dépenses">
-          <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
-            {expenses.map((expense) => (
-              <div key={expense.id} className="min-w-0 rounded bg-slate-50 p-3 text-sm">
-                <p className="break-words font-semibold text-ink">{expense.category}</p>
-                <p className="break-words text-slate-500">${expense.amount} | {expense.spentAt} | {expense.cashierName}</p>
-                <p className="break-words text-slate-500">{expense.description}</p>
-              </div>
-            ))}
-            {expenses.length === 0 && <p className="text-sm text-slate-500">Aucune dépense sur cette période.</p>}
-          </div>
-        </FormPanel>
-      </div>
     </section>
   );
 }
