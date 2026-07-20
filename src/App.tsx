@@ -51,7 +51,7 @@ import { usePaginatedControlHistory } from "./hooks/usePaginatedControlHistory";
 import { usePaginatedNotifications } from "./hooks/usePaginatedNotifications";
 import { useRealtimeMessageFeed } from "./hooks/useRealtimeMessageFeed";
 import { markNotificationsReadTargeted } from "./services/notificationsPagination";
-import { canUseFirestoreData, loadDisciplineYearData, loadFirestoreData, loadFirestoreYearData, loadPlatformSettings, persistFirestorePatch } from "./services/firestoreData";
+import { canUseFirestoreData, loadDisciplineYearData, loadFirestoreData, loadFirestoreYearData, loadParentPortalData, loadPlatformSettings, persistFirestorePatch } from "./services/firestoreData";
 import { markConversationUnreadCountRead, persistMessageWithConversation } from "./services/conversations";
 import { loadSuperAdminInitialData } from "./services/superAdminData";
 import type { SuperAdminGlobalCounts } from "./services/superAdminData";
@@ -617,20 +617,6 @@ export default function App() {
     });
   }
 
-  async function refreshData() {
-    if (user && canUseFirestoreData()) {
-      try {
-        const firestoreData = await loadFirestoreData(user, selectedYearId || undefined);
-        if (firestoreData) {
-          setData(firestoreData);
-          return;
-        }
-      } catch (error) {
-        console.warn("Actualisation Firestore indisponible.", error);
-      }
-    }
-  }
-
   async function refreshCurrentYearData() {
     if (isRefreshing || !user || !selectedYearId || !canUseFirestoreData()) return;
 
@@ -669,6 +655,28 @@ export default function App() {
       }));
     } catch (error) {
       console.warn("Actualisation discipline Firestore indisponible.", error);
+      setRefreshError("Impossible d'actualiser les données. Veuillez réessayer.");
+    } finally {
+      setIsRefreshing(false);
+    }
+  }
+
+  async function refreshParentPortalData() {
+    if (isRefreshing || !user || !canUseFirestoreData()) return;
+
+    setIsRefreshing(true);
+    setRefreshError("");
+    try {
+      const parentData = await loadParentPortalData(user);
+      if (!parentData) {
+        throw new Error("Actualisation Firestore indisponible.");
+      }
+      setData((prev) => ({
+        ...prev,
+        ...parentData,
+      }));
+    } catch (error) {
+      console.warn("Actualisation parent Firestore indisponible.", error);
       setRefreshError("Impossible d'actualiser les données. Veuillez réessayer.");
     } finally {
       setIsRefreshing(false);
@@ -816,7 +824,7 @@ export default function App() {
   }
 
   if (validateParent(user)) {
-    return <ParentPortal user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} onRefresh={refreshData} onLogout={logout} showInstallButton={showInstallPwaButton} onInstallPwa={installPwa} />;
+    return <ParentPortal user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} onRefresh={refreshParentPortalData} isRefreshing={isRefreshing} refreshError={refreshError} onLogout={logout} showInstallButton={showInstallPwaButton} onInstallPwa={installPwa} />;
   }
 
   if (validateDisciplineDirector(user)) {
@@ -2687,6 +2695,8 @@ function ParentPortal({
   year,
   updateData,
   onRefresh,
+  isRefreshing,
+  refreshError,
   showInstallButton,
   onInstallPwa,
   onLogout,
@@ -2698,6 +2708,8 @@ function ParentPortal({
   year: SchoolYear;
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
   onRefresh: () => void;
+  isRefreshing?: boolean;
+  refreshError?: string;
   showInstallButton: boolean;
   onInstallPwa: () => void;
   onLogout: () => void;
@@ -2937,6 +2949,8 @@ function ParentPortal({
         year={year}
         unreadNotifications={unread}
         notificationsOpen={parentMessageDrawerOpen}
+        isRefreshing={isRefreshing}
+        refreshError={refreshError}
         onRefresh={onRefresh}
         onToggleNotifications={toggleParentMessagesDrawer}
         onCloseNotifications={closeParentMessagesDrawer}

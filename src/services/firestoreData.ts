@@ -11,6 +11,7 @@ type PersistFirestorePatchOptions = {
 };
 export type FirestoreYearData = Pick<AppData, "students" | "feeTypes" | "payments" | "expenses" | "messages" | "valves" | "attendance" | "attendanceSettings">;
 export type DisciplineYearData = Pick<AppData, "students" | "parents" | "messages" | "notifications" | "disciplineSanctions" | "attendance" | "attendanceSettings">;
+export type ParentPortalData = Pick<AppData, "feeTypes" | "students" | "parents" | "payments" | "messages" | "valves">;
 export type PlatformSettings = {
   loginLogoUrl?: string;
   updatedAt?: string;
@@ -230,6 +231,36 @@ export async function loadDisciplineYearData(user: AppUser, schoolYearId: string
   };
 
   return yearData;
+}
+
+export async function loadParentPortalData(user: AppUser) {
+  if (!canUseFirestoreData() || !db) return null;
+  if (!user.schoolId) {
+    throw new Error("Chargement Firestore impossible : schoolId manquant dans les Custom Claims.");
+  }
+  if (!user.parentId) {
+    throw new Error("Chargement Firestore impossible : parentId manquant dans les Custom Claims.");
+  }
+
+  const schoolFilter: [string, unknown][] = [["schoolId", user.schoolId]];
+  const parentFilter: [string, unknown][] = [
+    ["schoolId", user.schoolId],
+    ["parentId", user.parentId],
+  ];
+
+  const parentData: ParentPortalData = {
+    feeTypes: await loadCollection<AppData["feeTypes"][number]>("feeTypes", schoolFilter),
+    students: await loadCollection<AppData["students"][number]>("students", parentFilter),
+    parents: await loadDocument<AppData["parents"][number]>("parents", user.parentId),
+    payments: await loadCollection<AppData["payments"][number]>("payments", parentFilter),
+    messages: await loadCollection<AppData["messages"][number]>("messages", [
+      ["schoolId", user.schoolId],
+      ["threadParentId", user.parentId],
+    ]),
+    valves: await loadCollection<AppData["valves"][number]>("valves", schoolFilter),
+  };
+
+  return parentData;
 }
 
 export async function loadFirestoreYearData(user: AppUser, schoolYearId: string) {
