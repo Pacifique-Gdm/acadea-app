@@ -1803,9 +1803,11 @@ function DisciplineBottomNavigation({
 }
 
 function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>; school: School; year: SchoolYear }) {
+  const today = toDateKey(new Date());
   const [sectionFilter, setSectionFilter] = useState<"all" | "maternelle" | "primaire" | "secondaire">("all");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const [startDate, setStartDate] = useState(today);
+  const [endDate, setEndDate] = useState(today);
+  const [dateFilterActive, setDateFilterActive] = useState(false);
   const [transactionPeriod, setTransactionPeriod] = useState<TransactionPeriod>("last5");
   const dashboardClassChoices = useMemo(() => getSchoolClassChoices(school), [school]);
   const dashboardSectionChoices = useMemo(
@@ -1832,17 +1834,17 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
     () =>
       data.payments.filter((payment) => {
         const normalized = payment.paidAt.slice(0, 10);
-        return filteredStudentIds.has(payment.studentId) && (!startDate || normalized >= startDate) && (!endDate || normalized <= endDate);
+        return filteredStudentIds.has(payment.studentId) && (!dateFilterActive || ((!startDate || normalized >= startDate) && (!endDate || normalized <= endDate)));
       }),
-    [data.payments, endDate, filteredStudentIds, startDate],
+    [data.payments, dateFilterActive, endDate, filteredStudentIds, startDate],
   );
   const filteredExpenses = useMemo(
     () =>
       data.expenses.filter((expense) => {
         const normalized = expense.spentAt.slice(0, 10);
-        return sectionFilter === "all" && (!startDate || normalized >= startDate) && (!endDate || normalized <= endDate);
+        return sectionFilter === "all" && (!dateFilterActive || ((!startDate || normalized >= startDate) && (!endDate || normalized <= endDate)));
       }),
-    [data.expenses, endDate, sectionFilter, startDate],
+    [data.expenses, dateFilterActive, endDate, sectionFilter, startDate],
   );
   const filteredPaymentIndexes = useMemo(() => buildSchoolYearDataIndexes(filteredStudents, data.feeTypes, filteredPayments), [filteredStudents, data.feeTypes, filteredPayments]);
   const stats = useMemo(() => buildStats(filteredStudents, filteredParents, data.feeTypes, filteredPayments), [data.feeTypes, filteredParents, filteredPayments, filteredStudents]);
@@ -1854,7 +1856,7 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
     () => buildDashboardFinancialAggregates(activeStudents, data.feeTypes, data.payments, yearIndexes),
     [activeStudents, data.feeTypes, data.payments, yearIndexes],
   );
-  const hasDashboardFinancialFilter = sectionFilter !== "all" || Boolean(startDate) || Boolean(endDate);
+  const hasDashboardFinancialFilter = sectionFilter !== "all" || dateFilterActive;
   const activeFinancialAggregates = hasDashboardFinancialFilter ? dashboardFinancialAggregates : fullYearFinancialAggregates;
   const dashboardFinancialStats = activeFinancialAggregates.financialStats;
   const totalPayments = dashboardFinancialStats.paid;
@@ -1978,7 +1980,7 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
     [feeTypesById, studentsById, transactionDayRows],
   );
   const sectionLabel = sectionFilter === "all" ? "Toutes les sections" : sectionFilter.charAt(0).toUpperCase() + sectionFilter.slice(1);
-  const dateLabel = (startDate || "D\u00e9but") + " au " + (endDate || "Fin");
+  const dateLabel = dateFilterActive ? (startDate || "D\u00e9but") + " au " + (endDate || "Fin") : "Année scolaire complète";
   const cards = [
     { label: "Nombre total d'\u00e9l\u00e8ves", value: totalActiveStudents, icon: GraduationCap, tone: "bg-mint/10 text-mint" },
     { label: "Nombre de classes", value: stats.classes, icon: BookOpen, tone: "bg-indigo-100 text-indigo-700" },
@@ -2017,6 +2019,13 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
     });
   }
 
+  function resetDashboardDateFilter() {
+    const currentToday = toDateKey(new Date());
+    setStartDate(currentToday);
+    setEndDate(currentToday);
+    setDateFilterActive(false);
+  }
+
   return (
     <section className="grid min-w-0 gap-4">
       <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -2024,15 +2033,34 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
           <h1 className="text-2xl font-bold text-ink">Dashboard</h1>
           <p className="text-sm text-slate-500">{"Statistiques limit\u00e9es \u00e0 l'ann\u00e9e scolaire s\u00e9lectionn\u00e9e."}</p>
         </div>
-        <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-[180px_150px_150px_auto]">
+        <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-[180px_150px_150px_auto_auto]">
           <select value={sectionFilter} onChange={(event) => setSectionFilter(event.target.value as typeof sectionFilter)} className="input">
             <option value="all">Toutes les sections</option>
             {dashboardSectionChoices.includes("maternelle") && <option value="maternelle">Maternelle</option>}
             {dashboardSectionChoices.includes("primaire") && <option value="primaire">Primaire</option>}
             {dashboardSectionChoices.includes("secondaire") && <option value="secondaire">Secondaire</option>}
           </select>
-          <input value={startDate} onChange={(event) => setStartDate(event.target.value)} type="date" className="input" />
-          <input value={endDate} onChange={(event) => setEndDate(event.target.value)} type="date" className="input" />
+          <input
+            value={startDate}
+            onChange={(event) => {
+              setStartDate(event.target.value);
+              setDateFilterActive(true);
+            }}
+            type="date"
+            className="input"
+          />
+          <input
+            value={endDate}
+            onChange={(event) => {
+              setEndDate(event.target.value);
+              setDateFilterActive(true);
+            }}
+            type="date"
+            className="input"
+          />
+          <button onClick={resetDashboardDateFilter} type="button" className="rounded border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:border-mint hover:text-mint">
+            Réinitialiser
+          </button>
           <button onClick={exportDashboardPdf} type="button" className="primary-button w-full justify-center sm:w-auto">
             <Download className="h-4 w-4" /> Exporter PDF
           </button>
