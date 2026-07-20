@@ -1816,6 +1816,7 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
   const [dateFilterActive, setDateFilterActive] = useState(false);
+  const [dateFilterError, setDateFilterError] = useState("");
   const [transactionPeriod, setTransactionPeriod] = useState<TransactionPeriod>("last5");
   const dashboardClassChoices = useMemo(() => getSchoolClassChoices(school), [school]);
   const dashboardSectionChoices = useMemo(
@@ -1927,13 +1928,31 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
   const totalStudents = totalGirls + totalBoys;
   const studentsById = yearIndexes.studentsById;
   const feeTypesById = yearIndexes.feeTypesById;
+  const transactionStartDate = dateFilterActive ? startDate : today;
+  const transactionEndDate = dateFilterActive ? endDate : today;
+  const transactionPayments = useMemo(
+    () =>
+      data.payments.filter((payment) => {
+        const normalized = payment.paidAt.slice(0, 10);
+        return filteredStudentIds.has(payment.studentId) && (!transactionStartDate || normalized >= transactionStartDate) && (!transactionEndDate || normalized <= transactionEndDate);
+      }),
+    [data.payments, filteredStudentIds, transactionEndDate, transactionStartDate],
+  );
+  const transactionExpenses = useMemo(
+    () =>
+      data.expenses.filter((expense) => {
+        const normalized = expense.spentAt.slice(0, 10);
+        return sectionFilter === "all" && (!transactionStartDate || normalized >= transactionStartDate) && (!transactionEndDate || normalized <= transactionEndDate);
+      }),
+    [data.expenses, sectionFilter, transactionEndDate, transactionStartDate],
+  );
   const transactions = useMemo(
     () =>
       [
-        ...filteredPayments.map((payment) => ({ id: payment.id, type: "Paiement", label: payment.cashierName, amount: payment.amount, date: payment.paidAt, occurredAt: payment.createdAt ?? payment.paidAt })),
-        ...filteredExpenses.map((expense) => ({ id: expense.id, type: "D\u00e9pense", label: expense.category, amount: -expense.amount, date: expense.spentAt, occurredAt: expense.createdAt ?? expense.spentAt })),
+        ...transactionPayments.map((payment) => ({ id: payment.id, type: "Paiement", label: payment.cashierName, amount: payment.amount, date: payment.paidAt, occurredAt: payment.createdAt ?? payment.paidAt })),
+        ...transactionExpenses.map((expense) => ({ id: expense.id, type: "D\u00e9pense", label: expense.category, amount: -expense.amount, date: expense.spentAt, occurredAt: expense.createdAt ?? expense.spentAt })),
       ].sort((a, b) => (b.occurredAt ?? b.date).localeCompare(a.occurredAt ?? a.date)),
-    [filteredExpenses, filteredPayments],
+    [transactionExpenses, transactionPayments],
   );
   const chartDates = useMemo(() => getTransactionPeriodDates(transactionPeriod), [transactionPeriod]);
   const transactionDayRows = useMemo(
@@ -2032,6 +2051,23 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
     setStartDate(currentToday);
     setEndDate(currentToday);
     setDateFilterActive(false);
+    setDateFilterError("");
+  }
+
+  function updateDashboardDateFilter(boundary: "start" | "end", value: string) {
+    const currentToday = toDateKey(new Date());
+    if (value && value > currentToday) {
+      setDateFilterError("Une date future n'est pas autorisée.");
+      return;
+    }
+
+    setDateFilterError("");
+    if (boundary === "start") {
+      setStartDate(value);
+    } else {
+      setEndDate(value);
+    }
+    setDateFilterActive(true);
   }
 
   return (
@@ -2050,20 +2086,16 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
           </select>
           <input
             value={startDate}
-            onChange={(event) => {
-              setStartDate(event.target.value);
-              setDateFilterActive(true);
-            }}
+            onChange={(event) => updateDashboardDateFilter("start", event.target.value)}
             type="date"
+            max={today}
             className="input"
           />
           <input
             value={endDate}
-            onChange={(event) => {
-              setEndDate(event.target.value);
-              setDateFilterActive(true);
-            }}
+            onChange={(event) => updateDashboardDateFilter("end", event.target.value)}
             type="date"
+            max={today}
             className="input"
           />
           <button onClick={resetDashboardDateFilter} type="button" className="rounded border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:border-mint hover:text-mint">
@@ -2072,6 +2104,7 @@ function Dashboard({ data, school, year }: { data: ReturnType<typeof scopeData>;
           <button onClick={exportDashboardPdf} type="button" className="primary-button w-full justify-center sm:w-auto">
             <Download className="h-4 w-4" /> Exporter PDF
           </button>
+          {dateFilterError && <p className="text-xs font-semibold text-red-600 sm:col-span-2 lg:col-span-5">{dateFilterError}</p>}
         </div>
       </div>
 
