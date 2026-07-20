@@ -1,12 +1,14 @@
 import { useMemo, useState } from "react";
 import { Download, Plus, Search } from "lucide-react";
 import { AdminDrawer, FormPanel, Metric } from "../ui";
+import { createAuditLog } from "../../utils/audit";
 import { buildSchoolYearDataIndexes } from "../../utils/dataIndexes";
+import { resolvePaymentCashierName } from "../../utils/finance";
 import { generateReceiptPdf } from "../../utils/pdf";
 import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import { isArchivedStudent } from "../../utils/studentUtils";
-import type { AppData, AppUser, AuditLog, ParentProfile, Payment, School, SchoolYear } from "../../types";
+import type { AppData, AppUser, ParentProfile, School, SchoolYear } from "../../types";
 
 type StudentDetailYearData = Pick<AppData, "students" | "parents" | "feeTypes" | "payments" | "auditLogs">;
 
@@ -19,9 +21,8 @@ export function StudentDetailPage({
   school,
   updateData,
   onBack,
-  createAuditLog,
+  createId,
   formatArchiveDate,
-  resolvePaymentCashierName,
 }: {
   studentId: string;
   user: AppUser;
@@ -31,9 +32,8 @@ export function StudentDetailPage({
   school: School;
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
   onBack: () => void;
-  createAuditLog: (user: AppUser, schoolId: string, schoolYearId: string, action: string, details: string) => AuditLog;
+  createId: (prefix: string) => string;
   formatArchiveDate: (value?: string) => string;
-  resolvePaymentCashierName: (payment: Payment, auditLogs: AuditLog[]) => string;
 }) {
   const [parentLinkOpen, setParentLinkOpen] = useState(false);
   const [parentLinkSearch, setParentLinkSearch] = useState("");
@@ -65,7 +65,7 @@ export function StudentDetailPage({
       parents,
       users,
       auditLogs: [
-        createAuditLog(user, school.id, student.schoolYearId, "Liaison parent élève", `${student.matricule} - ${student.nom} ${student.prenom} → ${parent.fullName}`),
+        createAuditLog(user, school.id, student.schoolYearId, "Liaison parent élève", `${student.matricule} - ${student.nom} ${student.prenom} → ${parent.fullName}`, createId),
         ...data.auditLogs,
       ],
     });

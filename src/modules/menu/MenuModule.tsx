@@ -6,10 +6,11 @@ import { ParentsDirectoryDrawer } from "../../components/parents/ParentsDirector
 import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent";
 import { canUseFirestoreData, persistFirestorePatch } from "../../services/firestoreData";
 import { deleteParentAccount, provisionSchoolUser } from "../../services/provisioning";
+import { createAuditLog } from "../../utils/audit";
 import { buildFeeTargetChoices, feeTargetClassName } from "../../utils/feeTargets";
 import { getSchoolEducationLevels } from "../../utils/schoolConfig";
 import { formatStudentClassName } from "../../utils/studentClasses";
-import type { AppData, AppUser, AuditLog, FeeKind, FeeType, ParentProfile, School, SchoolYear, Student, ValvePublication } from "../../types";
+import type { AppData, AppUser, FeeKind, FeeType, ParentProfile, School, SchoolYear, Student, ValvePublication } from "../../types";
 import { FEE_KINDS } from "../../types";
 
 type SchoolUserProvisionRole = "cashier" | "discipline_director";
@@ -35,7 +36,6 @@ type MenuModuleProps = {
   onCreateParentFromDirectory: () => void;
   onEditParentFromDirectory: (parent: ParentProfile) => void;
   createId: (prefix: string) => string;
-  createAuditLog: (user: AppUser, schoolId: string, schoolYearId: string, action: string, details: string) => AuditLog;
   nextSchoolYearDefaults: (year: SchoolYear) => { name: string; startsAt: string; endsAt: string };
   schoolEducationLevelChoices: string[];
   feeTargetHasOption: (target: string) => boolean;
@@ -64,7 +64,6 @@ export function MenuModule({
   onCreateParentFromDirectory,
   onEditParentFromDirectory,
   createId,
-  createAuditLog,
   nextSchoolYearDefaults,
   schoolEducationLevelChoices,
   feeTargetHasOption,
@@ -406,7 +405,7 @@ export function MenuModule({
       setCashierError(error instanceof Error ? `Création Firebase Auth impossible : ${error.message}` : "Création Firebase Auth impossible.");
       return;
     }
-    const auditLog = createAuditLog(user, school.id, selectedYear.id, `Création ${schoolUserProvisionLabels[schoolUserRole]}`, `${cashierName} - ${cashierEmail}`);
+    const auditLog = createAuditLog(user, school.id, selectedYear.id, `Création ${schoolUserProvisionLabels[schoolUserRole]}`, `${cashierName} - ${cashierEmail}`, createId);
     updateData({ users: [...data.users, provisionedUser], auditLogs: [auditLog, ...data.auditLogs] });
     setCashierName("");
     setCashierPhone("");
@@ -453,7 +452,7 @@ export function MenuModule({
       feeTypes: editingFeeId
         ? [...data.feeTypes.map((item) => (item.id === editingFeeId ? feesToSave[0] : item)), ...feesToSave.slice(1)]
         : [...data.feeTypes, ...feesToSave],
-      auditLogs: [createAuditLog(user, school.id, selectedYear.id, feeAction, feeAuditDetails), ...data.auditLogs],
+      auditLogs: [createAuditLog(user, school.id, selectedYear.id, feeAction, feeAuditDetails, createId), ...data.auditLogs],
     });
     setEditingFeeId("");
     setFeeName("Minerval");
@@ -491,7 +490,7 @@ export function MenuModule({
     updateData({
       feeTypes: data.feeTypes.filter((item) => item.id !== fee.id),
       auditLogs: [
-        createAuditLog(user, school.id, selectedYear.id, "Suppression type de frais", `Admin ${user.name} a supprimé le type de frais ${fee.name}.`),
+        createAuditLog(user, school.id, selectedYear.id, "Suppression type de frais", `Admin ${user.name} a supprimé le type de frais ${fee.name}.`, createId),
         ...data.auditLogs,
       ],
     });
@@ -916,7 +915,6 @@ export function MenuModule({
           canManage={canAdmin}
           valvesUploadsEnabled={valvesUploadsEnabled}
           createId={createId}
-          createAuditLog={createAuditLog}
           maxValveDocumentBytes={maxValveDocumentBytes}
         />
       );

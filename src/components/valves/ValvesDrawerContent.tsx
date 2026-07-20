@@ -9,11 +9,11 @@ import { AttachmentViewer } from "./AttachmentViewer";
 import { db } from "../../firebase";
 import { persistFirestorePatch } from "../../services/firestoreData";
 import { deleteValveAttachments, uploadValveAttachments } from "../../services/valvesStorage";
+import { createAuditLog } from "../../utils/audit";
 import type {
   AppData,
   AppNotification,
   AppUser,
-  AuditLog,
   ParentProfile,
   School,
   SchoolYear,
@@ -74,7 +74,6 @@ export function ValvesDrawerContent({
   canManage,
   valvesUploadsEnabled = true,
   createId,
-  createAuditLog,
   maxValveDocumentBytes,
 }: {
   user: AppUser;
@@ -86,7 +85,6 @@ export function ValvesDrawerContent({
   canManage: boolean;
   valvesUploadsEnabled?: boolean;
   createId: (prefix: string) => string;
-  createAuditLog: (user: AppUser, schoolId: string, schoolYearId: string, action: string, details: string) => AuditLog;
   maxValveDocumentBytes: number;
 }) {
   const [title, setTitle] = useState("");
@@ -313,7 +311,7 @@ export function ValvesDrawerContent({
               read: false,
             },
           ];
-      const auditLog = createAuditLog(user, school.id, year.id, editingId ? "Modification valves" : "Publication valves", trimmedTitle);
+      const auditLog = createAuditLog(user, school.id, year.id, editingId ? "Modification valves" : "Publication valves", trimmedTitle, createId);
       try {
         const sideEffectsPersisted = await persistFirestorePatch({
           notifications: valveNotifications,
@@ -412,7 +410,7 @@ export function ValvesDrawerContent({
     }
     updateData({
       valves: data.valves.filter((item) => item.id !== publication.id),
-      auditLogs: [createAuditLog(user, school.id, year.id, "Suppression valves", publication.title), ...data.auditLogs],
+      auditLogs: [createAuditLog(user, school.id, year.id, "Suppression valves", publication.title, createId), ...data.auditLogs],
     });
     if (editingId === publication.id) resetForm();
     closeDeletePublication();

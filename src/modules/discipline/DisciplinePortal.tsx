@@ -14,6 +14,7 @@ import { markConversationUnreadCountRead, persistMessageWithConversation } from 
 import { canUseFirestoreData, persistFirestorePatch } from "../../services/firestoreData";
 import { markNotificationsReadTargeted } from "../../services/notificationsPagination";
 import { attendanceRecordId, attendanceStatusText, resolveAttendanceStatusForArrival } from "../../utils/attendance";
+import { createAuditLog } from "../../utils/audit";
 import { buildDisciplineStats } from "../../utils/disciplineStats";
 import { nextMessageThreadId } from "../../utils/messageThreads";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
@@ -100,7 +101,6 @@ export function DisciplinePortal({
   DisciplineBottomNavigationComponent,
   MessagesModuleComponent,
   createId,
-  createAuditLog,
   disciplineStudentName,
   disciplineClassName,
   disciplineSignalBody,
@@ -127,7 +127,6 @@ export function DisciplinePortal({
   DisciplineBottomNavigationComponent: ComponentType<DisciplineBottomNavigationComponentProps>;
   MessagesModuleComponent: ComponentType<MessagesModuleComponentProps>;
   createId: (prefix: string) => string;
-  createAuditLog: (user: AppUser, schoolId: string, schoolYearId: string, action: string, details: string) => AuditLog;
   disciplineStudentName: (student: Student) => string;
   disciplineClassName: (student: Pick<Student, "className" | "option">) => string;
   disciplineSignalBody: (sanction: DisciplineSanction) => string;
@@ -160,7 +159,7 @@ export function DisciplinePortal({
   }, [feedback]);
 
   function createDisciplineAudit(action: string, details: string) {
-    return createAuditLog(user, school.id, year.id, action, details);
+    return createAuditLog(user, school.id, year.id, action, details, createId);
   }
 
   function findDisciplineSignalParent(student: Student) {
@@ -813,7 +812,6 @@ export function DisciplinePortal({
             canManage={false}
             valvesUploadsEnabled={false}
             createId={createId}
-            createAuditLog={createAuditLog}
             maxValveDocumentBytes={maxValveDocumentBytes}
           />
         </AdminDrawer>

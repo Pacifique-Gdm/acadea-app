@@ -10,6 +10,7 @@ import { markNotificationsReadTargeted } from "../../services/notificationsPagin
 import { fetchParentMessageQuota, sendParentMessageWithQuota } from "../../services/parentMessaging";
 import type { ParentMessageQuota } from "../../services/parentMessaging";
 import { buildSchoolYearDataIndexes } from "../../utils/dataIndexes";
+import { resolvePaymentCashierName } from "../../utils/finance";
 import { nextMessageThreadId } from "../../utils/messageThreads";
 import { generateReceiptPdf, money } from "../../utils/pdf";
 import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
@@ -51,10 +52,8 @@ type ParentPortalProps = {
   renderBottomNavigation: (activeTab: ParentTab, onTab: (tab: ParentTab) => void) => ReactNode;
   renderActivityHistory: () => ReactNode;
   createId: (prefix: string) => string;
-  createAuditLog: (user: AppUser, schoolId: string, schoolYearId: string, action: string, details: string) => AuditLog;
   mergeNotificationsById: (currentItems: AppNotification[], nextItems: AppNotification[]) => AppNotification[];
   mergeMessagesById: (currentItems: Message[], nextItems: Message[]) => Message[];
-  resolvePaymentCashierName: (payment: Payment, auditLogs: AuditLog[]) => string;
   maxValveDocumentBytes: number;
 };
 
@@ -71,10 +70,8 @@ export function ParentPortal({
   renderBottomNavigation,
   renderActivityHistory,
   createId,
-  createAuditLog,
   mergeNotificationsById,
   mergeMessagesById,
-  resolvePaymentCashierName,
   maxValveDocumentBytes,
 }: ParentPortalProps) {
   const [activeParentTab, setActiveParentTab] = useState<ParentTab>("children");
@@ -613,7 +610,6 @@ export function ParentPortal({
             updateData={updateData}
             canManage={false}
             createId={createId}
-            createAuditLog={createAuditLog}
             maxValveDocumentBytes={maxValveDocumentBytes}
           />
         </AdminDrawer>

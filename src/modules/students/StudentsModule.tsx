@@ -4,11 +4,12 @@ import { StudentForm } from "../../components/students/StudentForm";
 import { AdminDrawer, IconButton, Metric, SectionTitle } from "../../components/ui";
 import { persistFirestorePatch } from "../../services/firestoreData";
 import { provisionParent } from "../../services/provisioning";
+import { createAuditLog } from "../../utils/audit";
 import { nextParentEmail, parentEmailExists } from "../../utils/parents";
 import { getSchoolClassChoices, getSchoolEducationLevels } from "../../utils/schoolConfig";
 import { formatStudentClassName, getClassSection, promoteStudentForNewYear } from "../../utils/studentClasses";
 import { emptyStudent, generateMatricule, isArchivedStudent } from "../../utils/studentUtils";
-import type { AppData, AppUser, AuditLog, ParentProfile, School, SchoolSection, SchoolYear, Student } from "../../types";
+import type { AppData, AppUser, ParentProfile, School, SchoolSection, SchoolYear, Student } from "../../types";
 import { CLASSES } from "../../types";
 
 export function StudentsModule({
@@ -20,7 +21,6 @@ export function StudentsModule({
   updateData,
   onOpenStudent,
   uid,
-  createAuditLog,
   formatArchiveDate,
   exportStudentsPdf,
   exportAgeHomogeneityPdf,
@@ -35,7 +35,6 @@ export function StudentsModule({
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
   onOpenStudent: (studentId: string) => void;
   uid: (prefix: string) => string;
-  createAuditLog: (user: AppUser, schoolId: string, schoolYearId: string, action: string, details: string) => AuditLog;
   formatArchiveDate: (value?: string) => string;
   exportStudentsPdf: (school: School, year: SchoolYear, students: Student[], filters: string[]) => void | Promise<void>;
   exportAgeHomogeneityPdf: (school: School, year: SchoolYear, students: Student[]) => void | Promise<void>;
@@ -180,7 +179,7 @@ export function StudentsModule({
       const previousParent = data.parents.find((item) => item.id === parent.id);
       return previousParent && previousParent.studentIds.join("|") !== parent.studentIds.join("|");
     });
-    const auditLog = createAuditLog(user, school.id, targetYearId, exists ? "Modification élève" : "Création élève", `${student.matricule} - ${student.nom} ${student.prenom}`);
+    const auditLog = createAuditLog(user, school.id, targetYearId, exists ? "Modification élève" : "Création élève", `${student.matricule} - ${student.nom} ${student.prenom}`, uid);
     try {
       await persistFirestorePatch(
         {
@@ -258,7 +257,7 @@ export function StudentsModule({
             }
           : item,
       ),
-      auditLogs: [createAuditLog(user, school.id, year.id, "Archivage élève", `${student.matricule} - ${reason}`), ...data.auditLogs],
+      auditLogs: [createAuditLog(user, school.id, year.id, "Archivage élève", `${student.matricule} - ${reason}`, uid), ...data.auditLogs],
     });
     closeArchiveStudentDialog();
   }
@@ -299,7 +298,7 @@ export function StudentsModule({
             })()
           : item,
       ),
-      auditLogs: [createAuditLog(user, school.id, year.id, "Réactivation élève", `${student.matricule} - ${student.nom} ${student.prenom} - ${reason}`), ...data.auditLogs],
+      auditLogs: [createAuditLog(user, school.id, year.id, "Réactivation élève", `${student.matricule} - ${student.nom} ${student.prenom} - ${reason}`, uid), ...data.auditLogs],
     });
     closeReactivateStudentDialog();
   }
@@ -497,7 +496,7 @@ export function StudentsModule({
           : item,
       ),
       auditLogs: [
-        createAuditLog(user, school.id, year.id, "Import élèves année archivée", `${selectedImportYear.name} vers ${year.name} - ${importedStudents.length} importés, ${skipped} doublons`),
+        createAuditLog(user, school.id, year.id, "Import élèves année archivée", `${selectedImportYear.name} vers ${year.name} - ${importedStudents.length} importés, ${skipped} doublons`, uid),
         ...data.auditLogs,
       ],
     });

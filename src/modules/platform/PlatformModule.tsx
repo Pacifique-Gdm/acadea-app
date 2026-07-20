@@ -9,6 +9,7 @@ import { savePlatformSettings } from "../../services/firestoreData";
 import { loadSuperAdminSchoolData } from "../../services/superAdminData";
 import type { SuperAdminGlobalCounts } from "../../services/superAdminData";
 import { manageSchool, provisionSchoolAdmin, provisionSchoolUser } from "../../services/provisioning";
+import { isSessionAuditAction } from "../../utils/audit";
 import { educationLevelsForSchoolLevel, schoolLevelFromConfig } from "../../utils/schoolConfig";
 import type { SchoolLevelChoice } from "../../utils/schoolConfig";
 import { formatStudentClassName } from "../../utils/studentClasses";
@@ -31,7 +32,6 @@ export function PlatformModule({
   schoolEducationLevelChoices,
   schoolLevelChoices,
   defaultSchoolOptions,
-  isSessionAuditAction,
   getPlatformSchoolStats,
   applyPlatformLogoAssets,
   EnvironmentBanner,
@@ -54,7 +54,6 @@ export function PlatformModule({
   schoolEducationLevelChoices: string[];
   schoolLevelChoices: SchoolLevelChoice[];
   defaultSchoolOptions: string[];
-  isSessionAuditAction: (action: string) => boolean;
   getPlatformSchoolStats: (schoolId: string, data: AppData) => { students: number; parents: number; admins: number; users: number };
   applyPlatformLogoAssets: () => Promise<void>;
   EnvironmentBanner: () => ReactNode;

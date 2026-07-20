@@ -40,6 +40,7 @@ import { canUseFirestoreData, loadDisciplineYearData, loadFirestoreData, loadFir
 import { markConversationUnreadCountRead } from "./services/conversations";
 import { loadSuperAdminInitialData } from "./services/superAdminData";
 import type { SuperAdminGlobalCounts } from "./services/superAdminData";
+import { isSessionAuditAction } from "./utils/audit";
 import { formatSchoolRecipientLabel } from "./utils/messages";
 import { money, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./utils/pdf";
 import type { PdfTableColumn } from "./utils/pdf";
@@ -54,7 +55,6 @@ import type {
   AppNotification,
   AppUser,
   AttendanceSettings,
-  AuditLog,
   DisciplineSanction,
   Expense,
   FeeType,
@@ -570,7 +570,6 @@ export default function App() {
         schoolEducationLevelChoices={schoolEducationLevelChoices}
         schoolLevelChoices={schoolLevelChoices}
         defaultSchoolOptions={defaultSchoolOptions}
-        isSessionAuditAction={isSessionAuditAction}
         getPlatformSchoolStats={getPlatformSchoolStats}
         applyPlatformLogoAssets={applyPlatformLogoAssets}
         EnvironmentBanner={EnvironmentBanner}
@@ -693,10 +692,8 @@ export default function App() {
         )}
         renderActivityHistory={() => <ActivityHistoryContent user={user} data={data} yearData={yearData} role="parent" />}
         createId={uid}
-        createAuditLog={createAuditLog}
         mergeNotificationsById={mergeNotificationsById}
         mergeMessagesById={mergeMessagesById}
-        resolvePaymentCashierName={resolvePaymentCashierName}
         maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES}
       />
     );
@@ -722,7 +719,6 @@ export default function App() {
         DisciplineBottomNavigationComponent={DisciplineBottomNavigation}
         MessagesModuleComponent={(props) => <MessagesModule {...props} createId={uid} />}
         createId={uid}
-        createAuditLog={createAuditLog}
         disciplineStudentName={disciplineStudentName}
         disciplineClassName={disciplineClassName}
         disciplineSignalBody={disciplineSignalBody}
@@ -776,9 +772,8 @@ export default function App() {
               setActiveTab("students");
               navigate("/dashboard");
             }}
-            createAuditLog={createAuditLog}
+            createId={uid}
             formatArchiveDate={formatArchiveDate}
-            resolvePaymentCashierName={resolvePaymentCashierName}
           />
         ) : route === "/admin/rapport-financier" ? (
           <FinancialReportPage
@@ -803,7 +798,6 @@ export default function App() {
             updateData={updateData}
             onOpenStudent={(studentId) => navigate(`/admin/eleves/${studentId}`)}
             uid={uid}
-            createAuditLog={createAuditLog}
             formatArchiveDate={formatArchiveDate}
             exportStudentsPdf={exportStudentsPdf}
             exportAgeHomogeneityPdf={exportAgeHomogeneityPdf}
@@ -830,10 +824,6 @@ export default function App() {
             year={selectedYear}
             updateData={updateData}
             createId={uid}
-            createAuditLog={createAuditLog}
-            generateReceiptNumber={generateReceiptNumber}
-            resolvePaymentCashierName={resolvePaymentCashierName}
-            resolveExpenseCashierName={resolveExpenseCashierName}
             formatStudentPdfClassName={formatStudentPdfClassName}
             compareStudentsForPdfByClass={compareStudentsForPdfByClass}
           />
@@ -859,7 +849,6 @@ export default function App() {
             onCreateParentFromDirectory={() => openParentFormFromDirectory()}
             onEditParentFromDirectory={(parent) => openParentFormFromDirectory(parent.id)}
             createId={uid}
-            createAuditLog={createAuditLog}
             nextSchoolYearDefaults={nextSchoolYearDefaults}
             schoolEducationLevelChoices={schoolEducationLevelChoices}
             feeTargetHasOption={feeTargetHasOption}
@@ -1565,62 +1554,6 @@ function formatArchiveDate(value?: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString("fr-FR");
-}
-
-function generateReceiptNumber(payments: Payment[], yearName: string) {
-  const year = yearName.slice(0, 4);
-  return `REC-${year}-${String(payments.length + 1).padStart(4, "0")}`;
-}
-
-function operationTimestamp(value?: string) {
-  if (!value) return 0;
-  const timestamp = new Date(value).getTime();
-  return Number.isFinite(timestamp) ? timestamp : 0;
-}
-
-function nearestCreationLog(auditLogs: AuditLog[], action: string, createdAt: string | undefined, matchesDetails: (details: string) => boolean) {
-  const operationTime = operationTimestamp(createdAt);
-  return auditLogs
-    .filter((log) => log.action === action && matchesDetails(log.details ?? ""))
-    .map((log) => ({ log, delta: Math.abs(operationTimestamp(log.createdAt) - operationTime) }))
-    .sort((first, second) => first.delta - second.delta)[0]?.log;
-}
-
-function resolvePaymentCashierName(payment: Payment, auditLogs: AuditLog[]) {
-  const paymentKeys = [payment.receiptNumber, payment.id].filter(Boolean);
-  const matchingLog = nearestCreationLog(auditLogs, "Création paiement", payment.createdAt ?? payment.paidAt, (details) =>
-    paymentKeys.some((key) => details.includes(String(key))),
-  );
-  return matchingLog?.actorName || payment.cashierName || "-";
-}
-
-function resolveExpenseCashierName(expense: Expense, auditLogs: AuditLog[]) {
-  const matchingLog = nearestCreationLog(auditLogs, "Création dépense", expense.createdAt ?? expense.spentAt, (details) =>
-    details.includes(expense.category) && details.includes(`$${expense.amount}`),
-  );
-  return matchingLog?.actorName || expense.cashierName || "-";
-}
-
-function isSessionAuditAction(action: string) {
-  const normalizedAction = action
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
-  return ["connexion", "deconnexion", "login", "logout", "sign in", "sign out"].some((sessionAction) => normalizedAction.includes(sessionAction));
-}
-
-function createAuditLog(user: AppUser, schoolId: string, schoolYearId: string, action: string, details: string): AuditLog {
-  return {
-    id: uid("audit"),
-    schoolId,
-    schoolYearId,
-    actorId: user.id,
-    actorName: user.name,
-    action,
-    details,
-    createdAt: new Date().toISOString(),
-  };
 }
 
 async function exportStudentsPdf(school: School, year: SchoolYear, students: Student[], filters: string[]) {

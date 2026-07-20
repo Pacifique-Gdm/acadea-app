@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Bell, Download, Edit3, Plus, Search, Trash2 } from "lucide-react";
 import { AdminDrawer, Field, FormPanel, Metric, SectionTitle } from "../../components/ui";
 import { usePaginatedControlHistory } from "../../hooks/usePaginatedControlHistory";
+import { createAuditLog } from "../../utils/audit";
 import { buildSchoolYearDataIndexes, sumPaymentsForStudentFee } from "../../utils/dataIndexes";
+import { generateReceiptNumber, resolveExpenseCashierName, resolvePaymentCashierName } from "../../utils/finance";
 import { escapePdfHtml, generateReceiptPdf, money, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import type { PdfTableColumn } from "../../utils/pdf";
 import { getStudentBalance } from "../../utils/stats";
@@ -28,10 +30,6 @@ type ControlModuleProps = {
   year: SchoolYear;
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
   createId: (prefix: string) => string;
-  createAuditLog: (user: AppUser, schoolId: string, schoolYearId: string, action: string, details: string) => AuditLog;
-  generateReceiptNumber: (payments: Payment[], yearName: string) => string;
-  resolvePaymentCashierName: (payment: Payment, auditLogs: AuditLog[]) => string;
-  resolveExpenseCashierName: (expense: Expense, auditLogs: AuditLog[]) => string;
   formatStudentPdfClassName: (student: Pick<Student, "className" | "option">) => string;
   compareStudentsForPdfByClass: (first: Pick<Student, "className">, second: Pick<Student, "className">) => number;
 };
@@ -44,10 +42,6 @@ export function ControlModule({
   year,
   updateData,
   createId,
-  createAuditLog,
-  generateReceiptNumber,
-  resolvePaymentCashierName,
-  resolveExpenseCashierName,
   formatStudentPdfClassName,
   compareStudentsForPdfByClass,
 }: ControlModuleProps) {
@@ -372,7 +366,7 @@ export function ControlModule({
     updateData({
       payments: [...data.payments, payment],
       notifications: notification ? [notification, ...data.notifications] : data.notifications,
-      auditLogs: [createAuditLog(user, school.id, year.id, "Création paiement", `${payment.receiptNumber} - $${payment.amount}`), ...data.auditLogs],
+      auditLogs: [createAuditLog(user, school.id, year.id, "Création paiement", `${payment.receiptNumber} - $${payment.amount}`, createId), ...data.auditLogs],
     });
     paymentHistory.prependItem(payment);
     setAmount("");
@@ -429,7 +423,7 @@ export function ControlModule({
     };
     updateData({
       expenses: [expense, ...data.expenses],
-      auditLogs: [createAuditLog(user, school.id, year.id, "Création dépense", `${expense.category} - $${expense.amount}`), ...data.auditLogs],
+      auditLogs: [createAuditLog(user, school.id, year.id, "Création dépense", `${expense.category} - $${expense.amount}`, createId), ...data.auditLogs],
     });
     expenseHistory.prependItem(expense);
     setExpenseAmount("");
@@ -481,7 +475,7 @@ export function ControlModule({
           : item,
       ),
       auditLogs: [
-        createAuditLog(user, school.id, year.id, "Modification dépense", `${expenseEditTarget.category} - ${formatMoney(expenseEditTarget.amount)} → ${expenseEditCategory} - ${formatMoney(nextAmount)}`),
+        createAuditLog(user, school.id, year.id, "Modification dépense", `${expenseEditTarget.category} - ${formatMoney(expenseEditTarget.amount)} → ${expenseEditCategory} - ${formatMoney(nextAmount)}`, createId),
         ...data.auditLogs,
       ],
     });
@@ -493,7 +487,7 @@ export function ControlModule({
     if (!canManageExpenses) return;
     updateData({
       expenses: data.expenses.filter((item) => item.id !== expense.id),
-      auditLogs: [createAuditLog(user, school.id, year.id, "Suppression dépense", `${expense.category} - ${formatMoney(expense.amount)}`), ...data.auditLogs],
+      auditLogs: [createAuditLog(user, school.id, year.id, "Suppression dépense", `${expense.category} - ${formatMoney(expense.amount)}`, createId), ...data.auditLogs],
     });
     expenseHistory.removeItem(expense.id);
     setExpenseDeleteTarget(null);
@@ -616,6 +610,7 @@ export function ControlModule({
         sentMessages: warnings.length,
         status,
       }),
+      createId,
     );
     updateData({
       notifications: [...warnings.map((item) => item.notification), ...data.notifications],
@@ -658,7 +653,7 @@ export function ControlModule({
         item.id === payment.id ? correctedPayment : item,
       ),
       auditLogs: [
-        createAuditLog(user, school.id, year.id, "Correction paiement", `${payment.receiptNumber ?? payment.id}: ancien $${payment.amount}, nouveau $${correctedAmount}. Motif: ${reason}`),
+        createAuditLog(user, school.id, year.id, "Correction paiement", `${payment.receiptNumber ?? payment.id}: ancien $${payment.amount}, nouveau $${correctedAmount}. Motif: ${reason}`, createId),
         ...data.auditLogs,
       ],
     });
@@ -671,7 +666,7 @@ export function ControlModule({
     if (!reason) return;
     updateData({
       payments: data.payments.filter((item) => item.id !== payment.id),
-      auditLogs: [createAuditLog(user, school.id, year.id, "Suppression paiement", `${payment.receiptNumber ?? payment.id}: $${payment.amount}. Motif: ${reason}`), ...data.auditLogs],
+      auditLogs: [createAuditLog(user, school.id, year.id, "Suppression paiement", `${payment.receiptNumber ?? payment.id}: $${payment.amount}. Motif: ${reason}`, createId), ...data.auditLogs],
     });
     paymentHistory.removeItem(payment.id);
   }
