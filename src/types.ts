@@ -286,6 +286,12 @@ export interface ValvePublication {
 
 export type AttendanceSource = "biometric" | "manual";
 export type AttendanceStatus = "present" | "absent" | "late" | "excused";
+export type AttendanceSchoolDay = "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday";
+
+export interface AttendanceDaySchedule {
+  normalArrival?: string;
+  lateAfter?: string;
+}
 
 export interface AttendanceRecord {
   id: string;
@@ -304,6 +310,10 @@ export interface AttendanceSettings {
   id: string;
   schoolId: string;
   schoolYearId: string;
+  schoolDays?: AttendanceSchoolDay[];
+  defaultSchedule?: Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>;
+  sectionSchedule?: Partial<Record<SchoolSection, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>>;
+  classSchedule?: Record<string, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>;
   defaultLateAfter?: string;
   sectionLateAfter?: Partial<Record<SchoolSection, string>>;
   classLateAfter?: Record<string, string>;

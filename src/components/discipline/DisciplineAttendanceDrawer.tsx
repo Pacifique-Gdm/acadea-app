@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, Download, Plus, RotateCcw, Search } from "lucide-react";
-import type { AttendanceRecord, AttendanceStatus, School, SchoolSection, SchoolYear, Student } from "../../types";
+import type { AttendanceRecord, AttendanceSettings, AttendanceStatus, School, SchoolSection, SchoolYear, Student } from "../../types";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
+import { attendanceSchoolDayFromDate, attendanceSchoolDayLabels, resolveAttendanceSchoolDays } from "../../utils/attendance";
 
 type ManualAttendanceInput = {
   studentId: string;
@@ -28,12 +29,12 @@ type AttendanceSectionFilter = "all" | SchoolSection;
 type DisciplineAttendanceDrawerProps = {
   students: Student[];
   attendance: AttendanceRecord[];
+  settings?: AttendanceSettings;
   school: School;
   year: SchoolYear;
   onSaveManualAttendance: (input: ManualAttendanceInput[]) => Promise<ManualAttendanceSaveResult>;
 };
 
-const weekDayLabels = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
 const manualReasons = ["panne du terminal", "coupure d'électricité", "doigt blessé", "empreinte non reconnue", "élève non enrôlé", "autre"];
 const statusLabels: Record<AttendanceStatus, string> = {
   present: "Présent",
@@ -171,7 +172,7 @@ function groupStudents(students: Student[]) {
     .sort(compareAttendanceGroups);
 }
 
-export function DisciplineAttendanceDrawer({ students, attendance, school, year, onSaveManualAttendance }: DisciplineAttendanceDrawerProps) {
+export function DisciplineAttendanceDrawer({ students, attendance, settings, school, year, onSaveManualAttendance }: DisciplineAttendanceDrawerProps) {
   const [weekStart, setWeekStart] = useState(() => formatDateKey(startOfWeek(new Date())));
   const [selectedSection, setSelectedSection] = useState<AttendanceSectionFilter>("all");
   const [selectedClass, setSelectedClass] = useState("");
@@ -187,10 +188,14 @@ export function DisciplineAttendanceDrawer({ students, attendance, school, year,
   const [success, setSuccess] = useState("");
   const todayKey = formatDateKey(new Date());
 
+  const activeSchoolDays = useMemo(() => resolveAttendanceSchoolDays(settings), [settings]);
   const weekDates = useMemo(() => {
     const start = parseLocalDate(weekStart);
-    return Array.from({ length: 6 }, (_, index) => addDays(start, index));
-  }, [weekStart]);
+    return Array.from({ length: 6 }, (_, index) => addDays(start, index)).filter((date) => {
+      const schoolDay = attendanceSchoolDayFromDate(date);
+      return Boolean(schoolDay && activeSchoolDays.includes(schoolDay));
+    });
+  }, [activeSchoolDays, weekStart]);
   const weekDateKeys = useMemo(() => weekDates.map(formatDateKey), [weekDates]);
 
   const sectionChoices = useMemo(() => configuredSchoolSections(school), [school]);
@@ -279,7 +284,7 @@ export function DisciplineAttendanceDrawer({ students, attendance, school, year,
     () => manualStudentIds.map((studentId) => students.find((student) => student.id === studentId)).filter((student): student is Student => Boolean(student)),
     [manualStudentIds, students],
   );
-  const periodLabel = `${weekDates[0]?.toLocaleDateString("fr-FR") ?? ""} - ${weekDates[5]?.toLocaleDateString("fr-FR") ?? ""}`;
+  const periodLabel = `${weekDates[0]?.toLocaleDateString("fr-FR") ?? ""} - ${weekDates[weekDates.length - 1]?.toLocaleDateString("fr-FR") ?? ""}`;
 
   useEffect(() => {
     if (selectedClass && !classes.includes(selectedClass)) {
@@ -362,7 +367,7 @@ export function DisciplineAttendanceDrawer({ students, attendance, school, year,
               { header: "N°", render: (_student, studentIndex) => studentIndex + 1, align: "center" },
               { header: "Nom et postnom", render: (student) => studentFullName(student) },
               ...weekDateKeys.map((dateKey, dayIndex) => ({
-                header: `${weekDayLabels[dayIndex]} ${weekDates[dayIndex].toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })}`,
+                header: `${attendanceSchoolDayLabels[attendanceSchoolDayFromDate(weekDates[dayIndex]) ?? "monday"]} ${weekDates[dayIndex].toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })}`,
                 render: (student: Student) => {
                   const record = attendanceByStudentDate.get(`${student.id}__${dateKey}`);
                   return record ? statusLabels[record.status] : "—";
@@ -546,9 +551,9 @@ export function DisciplineAttendanceDrawer({ students, attendance, school, year,
                     <th className="px-3 py-3">Nom et postnom</th>
                     <th className="px-3 py-3">Classe</th>
                     <th className="px-3 py-3">Option</th>
-                    {weekDates.map((date, index) => (
+                    {weekDates.map((date) => (
                       <th key={formatDateKey(date)} className="px-3 py-3 text-center">
-                        {weekDayLabels[index]}
+                        {attendanceSchoolDayLabels[attendanceSchoolDayFromDate(date) ?? "monday"]}
                         <span className="block font-semibold normal-case text-slate-400">{date.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })}</span>
                       </th>
                     ))}

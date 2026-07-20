@@ -3702,7 +3702,8 @@ function DisciplinePortal({
         existing += 1;
         continue;
       }
-      const resolvedStatus = resolveAttendanceStatusForArrival(student, input.status, attendanceSettings, recordedAt);
+      const attendanceDateForStatus = new Date(`${input.attendanceDate}T${recordedAt.toTimeString().slice(0, 8)}`);
+      const resolvedStatus = resolveAttendanceStatusForArrival(student, input.status, attendanceSettings, attendanceDateForStatus);
 
       const record: AttendanceRecord = {
         id: recordId,
@@ -3911,6 +3912,7 @@ function DisciplinePortal({
           <DisciplineAttendanceDrawer
             students={yearData.students}
             attendance={yearData.attendance}
+            settings={yearData.attendanceSettings.find((item) => item.schoolId === school.id && item.schoolYearId === year.id)}
             school={school}
             year={year}
             onSaveManualAttendance={saveManualAttendance}

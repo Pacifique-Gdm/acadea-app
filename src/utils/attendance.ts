@@ -1,5 +1,27 @@
-import type { AttendanceSettings, AttendanceStatus, Student } from "../types";
+import type { AttendanceDaySchedule, AttendanceSchoolDay, AttendanceSettings, AttendanceStatus, Student } from "../types";
 import { getClassSection } from "./studentClasses";
+
+export const attendanceSchoolDays: AttendanceSchoolDay[] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+export const defaultFiveSchoolDays: AttendanceSchoolDay[] = ["monday", "tuesday", "wednesday", "thursday", "friday"];
+export const defaultSixSchoolDays: AttendanceSchoolDay[] = [...attendanceSchoolDays];
+
+export const attendanceSchoolDayLabels: Record<AttendanceSchoolDay, string> = {
+  monday: "Lundi",
+  tuesday: "Mardi",
+  wednesday: "Mercredi",
+  thursday: "Jeudi",
+  friday: "Vendredi",
+  saturday: "Samedi",
+};
+
+const dateDayToAttendanceDay: Record<number, AttendanceSchoolDay | undefined> = {
+  1: "monday",
+  2: "tuesday",
+  3: "wednesday",
+  4: "thursday",
+  5: "friday",
+  6: "saturday",
+};
 
 export function attendanceRecordId(schoolId: string, schoolYearId: string, studentId: string, attendanceDate: string) {
   return `attendance__${[schoolId, schoolYearId, studentId, attendanceDate]
@@ -25,17 +47,45 @@ export function parseTimeToMinutes(value?: string) {
   return hours * 60 + minutes;
 }
 
-export function resolveLateAfterTime(student: Student, settings?: AttendanceSettings) {
+export function attendanceSchoolDayFromDate(date: Date) {
+  return dateDayToAttendanceDay[date.getDay()];
+}
+
+export function resolveAttendanceSchoolDays(settings?: AttendanceSettings): AttendanceSchoolDay[] {
+  const configuredDays = settings?.schoolDays?.filter((day): day is AttendanceSchoolDay => attendanceSchoolDays.includes(day)) ?? [];
+  return configuredDays.length > 0 ? attendanceSchoolDays.filter((day) => configuredDays.includes(day)) : defaultSixSchoolDays;
+}
+
+export function resolveAttendanceDaySchedule(student: Student, settings: AttendanceSettings | undefined, date?: Date): AttendanceDaySchedule | undefined {
   if (!settings) return undefined;
-  const classRule = settings.classLateAfter?.[attendanceClassRuleKey(student.className, student.option)];
-  if (classRule) return classRule;
-  const sectionRule = settings.sectionLateAfter?.[getClassSection(student.className)];
-  return sectionRule || settings.defaultLateAfter;
+  const schoolDay = date ? attendanceSchoolDayFromDate(date) : undefined;
+  const section = getClassSection(student.className);
+  const classKey = attendanceClassRuleKey(student.className, student.option);
+
+  if (schoolDay) {
+    if (!resolveAttendanceSchoolDays(settings).includes(schoolDay)) return undefined;
+    const classSchedule = settings.classSchedule?.[classKey]?.[schoolDay];
+    if (classSchedule?.lateAfter || classSchedule?.normalArrival) return classSchedule;
+    const sectionSchedule = settings.sectionSchedule?.[section]?.[schoolDay];
+    if (sectionSchedule?.lateAfter || sectionSchedule?.normalArrival) return sectionSchedule;
+    const defaultSchedule = settings.defaultSchedule?.[schoolDay];
+    if (defaultSchedule?.lateAfter || defaultSchedule?.normalArrival) return defaultSchedule;
+  }
+
+  const legacyClassRule = settings.classLateAfter?.[classKey];
+  if (legacyClassRule) return { lateAfter: legacyClassRule };
+  const legacySectionRule = settings.sectionLateAfter?.[section];
+  if (legacySectionRule) return { lateAfter: legacySectionRule };
+  return settings.defaultLateAfter ? { lateAfter: settings.defaultLateAfter } : undefined;
+}
+
+export function resolveLateAfterTime(student: Student, settings?: AttendanceSettings, date?: Date) {
+  return resolveAttendanceDaySchedule(student, settings, date)?.lateAfter;
 }
 
 export function resolveAttendanceStatusForArrival(student: Student, selectedStatus: AttendanceStatus, settings: AttendanceSettings | undefined, recordedAt: Date) {
   if (selectedStatus !== "present") return selectedStatus;
-  const lateAfterMinutes = parseTimeToMinutes(resolveLateAfterTime(student, settings));
+  const lateAfterMinutes = parseTimeToMinutes(resolveLateAfterTime(student, settings, recordedAt));
   if (lateAfterMinutes === null) return selectedStatus;
   const arrivalMinutes = recordedAt.getHours() * 60 + recordedAt.getMinutes();
   return arrivalMinutes <= lateAfterMinutes ? "present" : "late";
