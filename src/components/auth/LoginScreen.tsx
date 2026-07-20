@@ -1,19 +1,17 @@
 import { useEffect, useState } from "react";
-import type { FormEvent, ReactNode } from "react";
+import type { FormEvent } from "react";
 import { Eye, EyeOff, Lock, Mail, ShieldCheck } from "lucide-react";
+import { EnvironmentBanner } from "../layout/EnvironmentBanner";
+import { PlatformLogoSlot } from "../layout/PlatformLogoSlot";
 
 export function LoginScreen({
   onLogin,
   initialError,
   platformLogoUrl,
-  EnvironmentBanner,
-  PlatformLogoSlot,
 }: {
   onLogin: (email: string, password: string) => Promise<void>;
   initialError?: string;
   platformLogoUrl: string;
-  EnvironmentBanner: () => ReactNode;
-  PlatformLogoSlot: ({ logoUrl, compact }: { logoUrl: string; compact?: boolean }) => ReactNode;
 }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

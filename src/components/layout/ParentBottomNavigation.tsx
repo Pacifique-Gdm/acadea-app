@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
 import { BookOpen, GraduationCap, Menu as MenuIcon, MessageSquare } from "lucide-react";
+import { InstallPwaNavButton } from "./InstallPwaNavButton";
 
 type ParentTab = "children" | "messages" | "menu";
 
@@ -8,13 +8,11 @@ export function ParentBottomNavigation({
   showInstallButton,
   onInstallPwa,
   onTab,
-  InstallPwaNavButton,
 }: {
   activeTab: ParentTab;
   showInstallButton: boolean;
   onInstallPwa: () => void;
   onTab: (tab: ParentTab) => void;
-  InstallPwaNavButton: ({ onInstall }: { onInstall: () => void }) => ReactNode;
 }) {
   const tabs = [
     { id: "children", label: "Enfants", icon: GraduationCap },

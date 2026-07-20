@@ -1,6 +1,6 @@
 import { useState } from "react";
-import type { ReactNode } from "react";
 import { LogOut, Plus } from "lucide-react";
+import { EnvironmentBanner } from "../layout/EnvironmentBanner";
 import type { AppUser, SchoolYear } from "../../types";
 
 export function YearScreen({
@@ -11,7 +11,6 @@ export function YearScreen({
   onLogout,
   onCreate,
   createId,
-  EnvironmentBanner,
 }: {
   user: AppUser;
   years: SchoolYear[];
@@ -20,7 +19,6 @@ export function YearScreen({
   onLogout: () => void;
   onCreate: (year: SchoolYear) => void;
   createId: (prefix: string) => string;
-  EnvironmentBanner: () => ReactNode;
 }) {
   const [name, setName] = useState("2026-2027");
   const canEdit = user.role === "school_admin";

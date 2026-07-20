@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
 import { BookOpen, CalendarDays, CheckCircle2, Menu as MenuIcon, MessageSquare } from "lucide-react";
+import { InstallPwaNavButton } from "./InstallPwaNavButton";
 
 type DisciplineTab = "status" | "attendance" | "messages" | "menu";
 
@@ -8,13 +8,11 @@ export function DisciplineBottomNavigation({
   showInstallButton,
   onInstallPwa,
   onTab,
-  InstallPwaNavButton,
 }: {
   activeTab: DisciplineTab;
   showInstallButton: boolean;
   onInstallPwa: () => void;
   onTab: (tab: DisciplineTab) => void;
-  InstallPwaNavButton: ({ onInstall }: { onInstall: () => void }) => ReactNode;
 }) {
   const tabs = [
     { id: "status", label: "Statut", icon: CheckCircle2 },

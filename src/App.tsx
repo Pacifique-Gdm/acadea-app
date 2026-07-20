@@ -6,18 +6,21 @@ import {
   Bell,
   Clock3,
   Edit3,
-  LogOut,
   MessageSquare,
   Search,
   ShieldCheck,
   Trash2,
 } from "lucide-react";
 import { getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff } from "./services/auth";
+import { AccessDenied } from "./components/auth/AccessDenied";
 import { LoginScreen } from "./components/auth/LoginScreen";
 import { Header } from "./components/layout/Header";
 import { BottomNavigation } from "./components/layout/BottomNavigation";
 import { DisciplineBottomNavigation } from "./components/layout/DisciplineBottomNavigation";
+import { EnvironmentBanner } from "./components/layout/EnvironmentBanner";
+import { InstallPwaNavButton } from "./components/layout/InstallPwaNavButton";
 import { ParentBottomNavigation } from "./components/layout/ParentBottomNavigation";
+import { PlatformLogoSlot } from "./components/layout/PlatformLogoSlot";
 import { YearScreen } from "./components/school/YearScreen";
 import { ParentFormEditor } from "./components/parents/ParentFormEditor";
 import { StudentDetailPage } from "./components/students/StudentDetailPage";
@@ -83,7 +86,6 @@ const roleLabels: Record<AppUser["role"], string> = {
 
 const appEnvironment = import.meta.env.VITE_APP_ENV ?? "development";
 const showStagingBanner = import.meta.env.VITE_STAGING_BANNER === "true" || appEnvironment === "staging" || appEnvironment === "preview";
-const stagingLabel = import.meta.env.VITE_STAGING_LABEL ?? "ENVIRONNEMENT DE TEST";
 const defaultManifestHref = "/manifest.webmanifest";
 const emptyAppData: AppData = {
   users: [],
@@ -198,95 +200,10 @@ function getInitialRoute() {
   return path === "/platform" ? "/platform" : "/login";
 }
 
-function EnvironmentBanner() {
-  if (!showStagingBanner) return null;
-
-  return (
-    <>
-      <div className="fixed inset-x-0 top-0 z-[70] bg-amber-500 px-3 py-2 text-center text-xs font-extrabold uppercase tracking-wide text-ink shadow-sm sm:text-sm">
-        {stagingLabel}
-      </div>
-      <div className="h-9 sm:h-10" />
-    </>
-  );
-}
-
-function PlatformLogoSlot({ logoUrl, compact = false }: { logoUrl: string; compact?: boolean }) {
-  const [logoShape, setLogoShape] = useState<"horizontal" | "vertical" | "balanced">("balanced");
-  useEffect(() => {
-    setLogoShape("balanced");
-  }, [logoUrl]);
-  const logoSource = logoUrl || "/acadea-icon.png";
-
-  const containerClass =
-    logoShape === "horizontal"
-      ? compact
-        ? "max-w-[220px] min-h-14"
-        : "max-w-[320px] min-h-[72px] sm:max-w-[380px] sm:min-h-[88px]"
-      : logoShape === "vertical"
-        ? compact
-          ? "max-w-[120px] min-h-20"
-          : "max-w-[150px] min-h-[112px] sm:max-w-[180px] sm:min-h-[136px]"
-        : compact
-          ? "max-w-[150px] min-h-16"
-          : "max-w-[210px] min-h-[88px] sm:max-w-[240px] sm:min-h-[108px]";
-  const imageClass =
-    logoShape === "horizontal"
-      ? compact
-        ? "max-h-14"
-        : "max-h-20 sm:max-h-24"
-      : logoShape === "vertical"
-        ? compact
-          ? "max-h-20"
-          : "max-h-32 sm:max-h-40"
-        : compact
-          ? "max-h-16"
-          : "max-h-24 sm:max-h-28";
-
-  return (
-    <div
-      className={`mx-auto flex w-full items-center justify-center ${compact ? "mb-4" : ""} ${containerClass}`}
-    >
-      <img
-        src={logoSource}
-        alt="Logo de l'application"
-        className={`h-auto w-auto max-w-full object-contain drop-shadow-[0_14px_28px_rgba(15,23,42,0.10)] ${imageClass}`}
-        decoding="async"
-        onError={(event) => {
-          const image = event.currentTarget;
-          if (image.src.endsWith("/acadea-icon.png")) return;
-          image.src = "/acadea-icon.png";
-        }}
-        onLoad={(event) => {
-          const image = event.currentTarget;
-          const width = image.naturalWidth || image.width;
-          const height = image.naturalHeight || image.height;
-          if (!width || !height) return;
-          const ratio = width / height;
-          setLogoShape(ratio >= 1.45 ? "horizontal" : ratio <= 0.72 ? "vertical" : "balanced");
-        }}
-      />
-    </div>
-  );
-}
-
 function isStandaloneDisplayMode() {
   if (typeof window === "undefined") return false;
   const navigatorWithStandalone = window.navigator as Navigator & { standalone?: boolean };
   return window.matchMedia?.("(display-mode: standalone)").matches || navigatorWithStandalone.standalone === true;
-}
-
-function InstallPwaNavButton({ onInstall }: { onInstall: () => void }) {
-  return (
-    <button
-      onClick={onInstall}
-      className="flex min-w-0 flex-col items-center justify-center gap-1 rounded-2xl px-0.5 py-2 text-[10px] font-semibold text-mint transition hover:bg-mint/10 hover:text-mint min-[360px]:text-[11px] sm:px-1 sm:text-xs"
-      type="button"
-    >
-      <span className="text-lg leading-none" aria-hidden="true">📲</span>
-      <span className="max-w-full truncate">Installer Acadéa</span>
-    </button>
-  );
 }
 
 export default function App() {
@@ -661,7 +578,7 @@ export default function App() {
   }
 
   if (!user || route === "/login") {
-    return <LoginScreen onLogin={loginWithCredentials} initialError={authError} platformLogoUrl={platformLogoUrl} EnvironmentBanner={EnvironmentBanner} PlatformLogoSlot={PlatformLogoSlot} />;
+    return <LoginScreen onLogin={loginWithCredentials} initialError={authError} platformLogoUrl={platformLogoUrl} />;
   }
 
   if (route === "/platform") {
@@ -722,7 +639,6 @@ export default function App() {
         onLogout={logout}
         onCreate={(year) => setData((prev) => ({ ...prev, schoolYears: [...prev.schoolYears, year] }))}
         createId={uid}
-        EnvironmentBanner={EnvironmentBanner}
       />
     );
   }
@@ -805,7 +721,7 @@ export default function App() {
           />
         )}
         renderBottomNavigation={(activeTab, onTab) => (
-          <ParentBottomNavigation activeTab={activeTab} showInstallButton={showInstallPwaButton} onInstallPwa={installPwa} onTab={onTab} InstallPwaNavButton={InstallPwaNavButton} />
+          <ParentBottomNavigation activeTab={activeTab} showInstallButton={showInstallPwaButton} onInstallPwa={installPwa} onTab={onTab} />
         )}
         renderActivityHistory={() => <ActivityHistoryContent user={user} data={data} yearData={yearData} role="parent" />}
         createId={uid}
@@ -842,7 +758,7 @@ export default function App() {
         onInstallPwa={installPwa}
         EnvironmentBannerComponent={EnvironmentBanner}
         HeaderComponent={(props) => <Header {...props} roleLabels={roleLabels} />}
-        DisciplineBottomNavigationComponent={(props) => <DisciplineBottomNavigation {...props} InstallPwaNavButton={InstallPwaNavButton} />}
+        DisciplineBottomNavigationComponent={DisciplineBottomNavigation}
         MessagesModuleComponent={(props) => <MessagesModule {...props} createId={uid} nextMessageThreadId={nextMessageThreadId} />}
         createId={uid}
         createAuditLog={createAuditLog}
@@ -1040,7 +956,6 @@ export default function App() {
           setActiveTab(tab);
           navigate("/dashboard");
         }}
-        InstallPwaNavButton={InstallPwaNavButton}
       />
     </div>
   );
@@ -1594,22 +1509,6 @@ function nextMessageThreadId(messages: Message[], senderId: string, recipientPar
   }
   if (preferredThreadId) return preferredThreadId;
   return activeMessages[0]?.threadId;
-}
-
-function AccessDenied({ onLogout }: { onLogout: () => void }) {
-  return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-[#f6f8fb] p-4">
-      <EnvironmentBanner />
-      <section className="w-full max-w-md rounded border border-slate-200 bg-white p-6 text-center shadow-sm">
-        <ShieldCheck className="mx-auto mb-3 h-10 w-10 text-red-600" />
-        <h1 className="text-2xl font-bold text-ink">Accès refusé</h1>
-        <p className="mt-2 text-sm text-slate-500">Votre rôle ou votre école ne permet pas d'ouvrir cet espace.</p>
-        <button onClick={onLogout} className="primary-button mt-5">
-          <LogOut className="h-4 w-4" /> Retour à la connexion
-        </button>
-      </section>
-    </main>
-  );
 }
 
 function disciplineStudentName(student: Student) {

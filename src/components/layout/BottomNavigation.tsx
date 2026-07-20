@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
 import { Banknote, BookOpen, GraduationCap, LayoutDashboard, Menu as MenuIcon, MessageSquare } from "lucide-react";
+import { InstallPwaNavButton } from "./InstallPwaNavButton";
 import type { AppUser } from "../../types";
 
 type Tab = "dashboard" | "students" | "parents" | "control" | "reports" | "messages" | "menu";
@@ -10,14 +10,12 @@ export function BottomNavigation({
   showInstallButton,
   onInstallPwa,
   onTab,
-  InstallPwaNavButton,
 }: {
   user: AppUser;
   activeTab: Tab;
   showInstallButton: boolean;
   onInstallPwa: () => void;
   onTab: (tab: Tab) => void;
-  InstallPwaNavButton: ({ onInstall }: { onInstall: () => void }) => ReactNode;
 }) {
   const tabs = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
