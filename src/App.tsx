@@ -110,36 +110,6 @@ function uid(prefix: string) {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
-function parentEmailDomain(school: School) {
-  const cleanedName = school.name
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/^(c\.?\s*s\.?|ecole|institut|complexe\s+scolaire|groupe\s+scolaire|college|lycee)\s+/i, "")
-    .replace(/[^a-zA-Z0-9]/g, "")
-    .toLowerCase();
-  return `${cleanedName || "acadea"}.com`;
-}
-
-function parentEmailExists(email: string, users: AppUser[], parents: ParentProfile[]) {
-  const normalizedEmail = email.trim().toLowerCase();
-  return [...users, ...parents].some((item) => item.email.toLowerCase() === normalizedEmail);
-}
-
-function nextParentEmail(school: School, users: AppUser[], parents: ParentProfile[]) {
-  const domain = parentEmailDomain(school);
-  const usedNumbers = new Set<number>();
-  [...users, ...parents].forEach((item) => {
-    if (item.schoolId !== school.id) return;
-    const match = item.email.toLowerCase().match(new RegExp(`^parent(\\d{4})@${domain.replace(/\./g, "\\.")}$`));
-    if (match) usedNumbers.add(Number(match[1]));
-  });
-  let nextNumber = 1;
-  while (usedNumbers.has(nextNumber) || parentEmailExists(`parent${String(nextNumber).padStart(4, "0")}@${domain}`, users, parents)) {
-    nextNumber += 1;
-  }
-  return `parent${String(nextNumber).padStart(4, "0")}@${domain}`;
-}
-
 function nextSchoolYearDefaults(year: SchoolYear) {
   const startYear = Number(year.startsAt.slice(0, 4));
   const fallbackStartYear = new Date().getFullYear();
@@ -851,8 +821,6 @@ export default function App() {
             uid={uid}
             createAuditLog={createAuditLog}
             formatArchiveDate={formatArchiveDate}
-            parentEmailExists={parentEmailExists}
-            nextParentEmail={nextParentEmail}
             exportStudentsPdf={exportStudentsPdf}
             exportAgeHomogeneityPdf={exportAgeHomogeneityPdf}
             sortStudentsForPdfByClass={sortStudentsForPdfByClass}
@@ -941,8 +909,6 @@ export default function App() {
             onBack={() => setParentFormRequest(null)}
             showBackButton
             createId={uid}
-            emptyParent={emptyParent}
-            nextParentEmail={nextParentEmail}
           />
         </AdminDrawer>
       )}
@@ -1673,8 +1639,6 @@ function ParentsModule({
           initialParentId={parentEditorRequest.parentId}
           requestId={parentEditorRequest.requestId}
           createId={uid}
-          emptyParent={emptyParent}
-          nextParentEmail={nextParentEmail}
         />
       ) : (
         <FormPanel title="Archive en lecture seule">
@@ -1849,7 +1813,6 @@ async function exportStudentsPdf(school: School, year: SchoolYear, students: Stu
     ],
   });
 }
-
 function calculateStudentAge(birthDate?: string) {
   if (!birthDate) return null;
   const date = new Date(`${birthDate.slice(0, 10)}T12:00:00`);
@@ -2137,19 +2100,4 @@ async function exportReportPdf(
       ),
     ],
   });
-}
-
-function emptyParent(schoolId: string, schoolYearId: string): ParentProfile {
-  return {
-    id: `new-${crypto.randomUUID()}`,
-    schoolId,
-    schoolYearId,
-    userId: "",
-    fullName: "",
-    phone: "",
-    email: "",
-    address: "",
-    studentIds: [],
-    status: "active",
-  };
 }

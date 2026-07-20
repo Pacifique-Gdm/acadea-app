@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, CheckCircle2 } from "lucide-react";
 import { Field, FormPanel, PasswordField } from "../ui";
 import { provisionParent } from "../../services/provisioning";
+import { emptyParent, nextParentEmail } from "../../utils/parents";
 import type { AppData, AppUser, ParentProfile, School, SchoolYear, Student } from "../../types";
 
 type ParentFormYearData = {
@@ -20,8 +21,6 @@ export function ParentFormEditor({
   onBack,
   showBackButton = false,
   createId,
-  emptyParent,
-  nextParentEmail,
 }: {
   data: AppData;
   yearData: ParentFormYearData;
@@ -33,8 +32,6 @@ export function ParentFormEditor({
   onBack?: () => void;
   showBackButton?: boolean;
   createId: (prefix: string) => string;
-  emptyParent: (schoolId: string, schoolYearId: string) => ParentProfile;
-  nextParentEmail: (school: School, users: AppUser[], parents: ParentProfile[]) => string;
 }) {
   const [form, setForm] = useState<ParentProfile>(() => emptyParent(school.id, year.id));
   const [password, setPassword] = useState("");
@@ -45,7 +42,7 @@ export function ParentFormEditor({
   const [passwordManuallyEdited, setPasswordManuallyEdited] = useState(false);
   const [studentLinkSearch, setStudentLinkSearch] = useState("");
   const initializedRequestIdRef = useRef<number | null>(null);
-  const generatedParentEmail = useMemo(() => nextParentEmail(school, data.users, data.parents), [data.parents, data.users, nextParentEmail, school]);
+  const generatedParentEmail = useMemo(() => nextParentEmail(school, data.users, data.parents), [data.parents, data.users, school]);
   const studentsById = useMemo(() => new Map(yearData.students.map((student) => [student.id, student])), [yearData.students]);
   const selectedLinkedStudents = useMemo(
     () => form.studentIds.map((studentId) => studentsById.get(studentId)).filter((student): student is Student => Boolean(student)),
@@ -89,7 +86,7 @@ export function ParentFormEditor({
     setEmailManuallyEdited(false);
     setPasswordManuallyEdited(false);
     setStudentLinkSearch("");
-  }, [emptyParent, generatedParentEmail, initialParentId, requestId, school.id, year.id, yearData.parents]);
+  }, [generatedParentEmail, initialParentId, requestId, school.id, year.id, yearData.parents]);
 
   useEffect(() => {
     if (!form.id.startsWith("new") || emailManuallyEdited || form.email) return;

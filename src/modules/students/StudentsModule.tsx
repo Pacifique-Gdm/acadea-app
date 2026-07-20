@@ -4,6 +4,7 @@ import { StudentForm } from "../../components/students/StudentForm";
 import { AdminDrawer, IconButton, Metric, SectionTitle } from "../../components/ui";
 import { persistFirestorePatch } from "../../services/firestoreData";
 import { provisionParent } from "../../services/provisioning";
+import { nextParentEmail, parentEmailExists } from "../../utils/parents";
 import { getSchoolClassChoices, getSchoolEducationLevels } from "../../utils/schoolConfig";
 import { formatStudentClassName, getClassSection, promoteStudentForNewYear } from "../../utils/studentClasses";
 import { emptyStudent, generateMatricule, isArchivedStudent } from "../../utils/studentUtils";
@@ -21,8 +22,6 @@ export function StudentsModule({
   uid,
   createAuditLog,
   formatArchiveDate,
-  parentEmailExists,
-  nextParentEmail,
   exportStudentsPdf,
   exportAgeHomogeneityPdf,
   sortStudentsForPdfByClass,
@@ -38,8 +37,6 @@ export function StudentsModule({
   uid: (prefix: string) => string;
   createAuditLog: (user: AppUser, schoolId: string, schoolYearId: string, action: string, details: string) => AuditLog;
   formatArchiveDate: (value?: string) => string;
-  parentEmailExists: (email: string, users: AppUser[], parents: ParentProfile[]) => boolean;
-  nextParentEmail: (school: School, users: AppUser[], parents: ParentProfile[]) => string;
   exportStudentsPdf: (school: School, year: SchoolYear, students: Student[], filters: string[]) => void | Promise<void>;
   exportAgeHomogeneityPdf: (school: School, year: SchoolYear, students: Student[]) => void | Promise<void>;
   sortStudentsForPdfByClass: (students: Student[]) => Student[];
