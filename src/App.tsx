@@ -4,19 +4,13 @@ import {
   ArrowLeft,
   Banknote,
   Bell,
-  BookOpen,
-  CalendarDays,
-  CheckCircle2,
   Clock3,
   Edit3,
   Eye,
   EyeOff,
-  GraduationCap,
-  LayoutDashboard,
   Lock,
   LogOut,
   Mail,
-  Menu as MenuIcon,
   MessageSquare,
   Plus,
   Search,
@@ -25,6 +19,9 @@ import {
 } from "lucide-react";
 import { getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff } from "./services/auth";
 import { Header } from "./components/layout/Header";
+import { BottomNavigation } from "./components/layout/BottomNavigation";
+import { DisciplineBottomNavigation } from "./components/layout/DisciplineBottomNavigation";
+import { ParentBottomNavigation } from "./components/layout/ParentBottomNavigation";
 import { ParentFormEditor } from "./components/parents/ParentFormEditor";
 import { StudentDetailPage } from "./components/students/StudentDetailPage";
 import { StudentsModule } from "./modules/students/StudentsModule";
@@ -74,8 +71,6 @@ import type {
 import { CLASSES } from "./types";
 
 type Tab = "dashboard" | "students" | "parents" | "control" | "reports" | "messages" | "menu";
-type ParentTab = "children" | "messages" | "menu";
-type DisciplineTab = "status" | "attendance" | "messages" | "menu";
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
@@ -811,7 +806,7 @@ export default function App() {
           />
         )}
         renderBottomNavigation={(activeTab, onTab) => (
-          <ParentBottomNavigation activeTab={activeTab} showInstallButton={showInstallPwaButton} onInstallPwa={installPwa} onTab={onTab} />
+          <ParentBottomNavigation activeTab={activeTab} showInstallButton={showInstallPwaButton} onInstallPwa={installPwa} onTab={onTab} InstallPwaNavButton={InstallPwaNavButton} />
         )}
         renderActivityHistory={() => <ActivityHistoryContent user={user} data={data} yearData={yearData} role="parent" />}
         createId={uid}
@@ -848,7 +843,7 @@ export default function App() {
         onInstallPwa={installPwa}
         EnvironmentBannerComponent={EnvironmentBanner}
         HeaderComponent={(props) => <Header {...props} roleLabels={roleLabels} />}
-        DisciplineBottomNavigationComponent={DisciplineBottomNavigation}
+        DisciplineBottomNavigationComponent={(props) => <DisciplineBottomNavigation {...props} InstallPwaNavButton={InstallPwaNavButton} />}
         MessagesModuleComponent={(props) => <MessagesModule {...props} createId={uid} nextMessageThreadId={nextMessageThreadId} />}
         createId={uid}
         createAuditLog={createAuditLog}
@@ -1046,6 +1041,7 @@ export default function App() {
           setActiveTab(tab);
           navigate("/dashboard");
         }}
+        InstallPwaNavButton={InstallPwaNavButton}
       />
     </div>
   );
@@ -1312,98 +1308,6 @@ function YearScreen({
         )}
       </section>
     </main>
-  );
-}
-
-function BottomNavigation({
-  user,
-  activeTab,
-  showInstallButton,
-  onInstallPwa,
-  onTab,
-}: {
-  user: AppUser;
-  activeTab: Tab;
-  showInstallButton: boolean;
-  onInstallPwa: () => void;
-  onTab: (tab: Tab) => void;
-}) {
-  const tabs = [
-    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { id: "students", label: "Élèves", icon: GraduationCap },
-    { id: "control", label: "Contrôle", icon: Banknote },
-    { id: "messages", label: "Message", icon: MessageSquare },
-    { id: "menu", label: "Menu", icon: MenuIcon },
-  ].filter((tab) => (user.role === "cashier" ? ["dashboard", "control", "messages", "menu"].includes(tab.id) : true)) as { id: Tab; label: string; icon: typeof BookOpen }[];
-
-  return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 max-w-full overflow-hidden border-t border-slate-200 bg-white/95 px-1 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur sm:px-2">
-      <div className={user.role === "cashier" ? `mx-auto grid w-full max-w-lg ${showInstallButton ? "grid-cols-5" : "grid-cols-4"} gap-1` : `mx-auto grid max-w-4xl ${showInstallButton ? "grid-cols-6" : "grid-cols-5"} gap-1`}>
-        {tabs.map((tab) => {
-          const Icon = tab.icon;
-          const active = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => onTab(tab.id)}
-              className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-2xl px-0.5 py-2 text-[10px] font-semibold transition min-[360px]:text-[11px] sm:px-1 sm:text-xs ${
-                active ? "bg-blue-50 text-blue-700" : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-              }`}
-              aria-current={active ? "page" : undefined}
-            >
-              <Icon className={`h-5 w-5 shrink-0 ${active ? "text-blue-700" : "text-slate-400"}`} />
-              <span className="max-w-full truncate">{tab.label}</span>
-            </button>
-          );
-        })}
-        {showInstallButton && <InstallPwaNavButton onInstall={onInstallPwa} />}
-      </div>
-    </nav>
-  );
-}
-
-function DisciplineBottomNavigation({
-  activeTab,
-  showInstallButton,
-  onInstallPwa,
-  onTab,
-}: {
-  activeTab: DisciplineTab;
-  showInstallButton: boolean;
-  onInstallPwa: () => void;
-  onTab: (tab: DisciplineTab) => void;
-}) {
-  const tabs = [
-    { id: "status", label: "Statut", icon: CheckCircle2 },
-    { id: "attendance", label: "Présence", icon: CalendarDays },
-    { id: "messages", label: "Messages", icon: MessageSquare },
-    { id: "menu", label: "Menu", icon: MenuIcon },
-  ] satisfies { id: DisciplineTab; label: string; icon: typeof BookOpen }[];
-
-  return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 max-w-full overflow-hidden border-t border-slate-200 bg-white/95 px-1 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur sm:px-2">
-      <div className={`mx-auto grid w-full max-w-2xl ${showInstallButton ? "grid-cols-5" : "grid-cols-4"} gap-1`}>
-        {tabs.map((tab) => {
-          const Icon = tab.icon;
-          const active = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => onTab(tab.id)}
-              className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-2xl px-0.5 py-2 text-[10px] font-semibold transition min-[360px]:text-[11px] sm:px-1 sm:text-xs ${
-                active ? "bg-blue-50 text-blue-700" : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-              }`}
-              aria-current={active ? "page" : undefined}
-              type="button"
-            >
-              <Icon className={`h-5 w-5 shrink-0 ${active ? "text-blue-700" : "text-slate-400"}`} />
-              <span className="max-w-full truncate">{tab.label}</span>
-            </button>
-          );
-        })}
-        {showInstallButton && <InstallPwaNavButton onInstall={onInstallPwa} />}
-      </div>
-    </nav>
   );
 }
 
@@ -1943,49 +1847,6 @@ function selectAttendanceSettingsForYear(settings: AttendanceSettings[], schoolI
   if (scopedSettings.length === 0) return undefined;
   const deterministicId = attendanceSettingsId(schoolId, schoolYearId);
   return scopedSettings.find((item) => item.id === deterministicId) ?? [...scopedSettings].sort((first, second) => (second.updatedAt ?? "").localeCompare(first.updatedAt ?? ""))[0];
-}
-
-function ParentBottomNavigation({
-  activeTab,
-  showInstallButton,
-  onInstallPwa,
-  onTab,
-}: {
-  activeTab: ParentTab;
-  showInstallButton: boolean;
-  onInstallPwa: () => void;
-  onTab: (tab: ParentTab) => void;
-}) {
-  const tabs = [
-    { id: "children", label: "Enfants", icon: GraduationCap },
-    { id: "messages", label: "Message", icon: MessageSquare },
-    { id: "menu", label: "Menu", icon: MenuIcon },
-  ] satisfies { id: ParentTab; label: string; icon: typeof BookOpen }[];
-
-  return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 max-w-full overflow-hidden border-t border-slate-200 bg-white/95 px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur">
-      <div className={`mx-auto grid w-full max-w-md ${showInstallButton ? "grid-cols-4" : "grid-cols-3"} gap-1`}>
-        {tabs.map((tab) => {
-          const Icon = tab.icon;
-          const active = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => onTab(tab.id)}
-              className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-2xl px-1 py-2 text-[11px] font-semibold transition sm:text-xs ${
-                active ? "bg-blue-50 text-blue-700" : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-              }`}
-              aria-current={active ? "page" : undefined}
-            >
-              <Icon className={`h-5 w-5 shrink-0 ${active ? "text-blue-700" : "text-slate-400"}`} />
-              <span className="max-w-full truncate">{tab.label}</span>
-            </button>
-          );
-        })}
-        {showInstallButton && <InstallPwaNavButton onInstall={onInstallPwa} />}
-      </div>
-    </nav>
-  );
 }
 
 function FinancialReportPage({
