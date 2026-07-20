@@ -1,5 +1,4 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft } from "lucide-react";
 import { getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff } from "./services/auth";
 import { AccessDenied } from "./components/auth/AccessDenied";
 import { ActivityHistoryContent } from "./components/history/ActivityHistoryContent";
@@ -23,6 +22,7 @@ import { ParentsModule } from "./modules/parents/ParentsModule";
 import { ParentPortal } from "./modules/parent/ParentPortal";
 import { Dashboard } from "./modules/dashboard/Dashboard";
 import { ReportsModule } from "./modules/reports/ReportsModule";
+import { FinancialReportPage } from "./modules/reports/FinancialReportPage";
 import { MessagesModule } from "./modules/messages/MessagesModule";
 import { AdminDrawer } from "./components/ui";
 import { useBillingControls } from "./hooks/useBillingControls";
@@ -44,7 +44,6 @@ import type {
   DisciplineSanction,
   FeeType,
   Message,
-  School,
   SchoolYear,
   Student,
 } from "./types";
@@ -990,37 +989,6 @@ function selectAttendanceSettingsForYear(settings: AttendanceSettings[], schoolI
   if (scopedSettings.length === 0) return undefined;
   const deterministicId = attendanceSettingsId(schoolId, schoolYearId);
   return scopedSettings.find((item) => item.id === deterministicId) ?? [...scopedSettings].sort((first, second) => (second.updatedAt ?? "").localeCompare(first.updatedAt ?? ""))[0];
-}
-
-function FinancialReportPage({
-  user,
-  data,
-  yearData,
-  school,
-  year,
-  onBack,
-}: {
-  user: AppUser;
-  data: AppData;
-  yearData: ReturnType<typeof scopeData>;
-  school: School;
-  year: SchoolYear;
-  onBack: () => void;
-}) {
-  return (
-    <section className="grid min-w-0 gap-4">
-      <div className="mb-4 min-w-0">
-        <div className="flex min-w-0 items-center gap-2">
-          <button onClick={onBack} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded bg-white text-slate-600 transition hover:bg-slate-50 hover:text-ink" aria-label="Retour au menu" title="Retour au menu">
-            <ArrowLeft className="h-5 w-5" />
-          </button>
-          <h1 className="break-words text-2xl font-bold text-ink">Rapport financier</h1>
-        </div>
-        <p className="mt-1 break-words text-sm text-slate-500">Rapports financiers dédiés à l'année scolaire sélectionnée.</p>
-      </div>
-      <ReportsModule user={user} data={data} yearData={yearData} school={school} year={year} />
-    </section>
-  );
 }
 
 const schoolEducationLevelChoices = ["Maternelle", "Primaire", "Secondaire"];
