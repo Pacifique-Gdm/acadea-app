@@ -9,6 +9,11 @@ import { getClassSection } from "../../utils/studentClasses";
 const resetConfirmationPhrase = "REINITIALISER LES HORAIRES";
 const schoolDaysConfirmationPhrase = "MODIFIER LES JOURS SCOLAIRES";
 
+type ResetTarget =
+  | { scope: "default"; day: AttendanceSchoolDay; label: string }
+  | { scope: "section"; day: AttendanceSchoolDay; section: SchoolSection; label: string }
+  | { scope: "class"; day: AttendanceSchoolDay; classKey: string; label: string };
+
 export function AttendanceSettingsDrawer({
   school,
   year,
@@ -32,7 +37,7 @@ export function AttendanceSettingsDrawer({
   const [classSchedule, setClassSchedule] = useState<Record<string, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>>(() => buildClassSchedule(settings));
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState("");
-  const [resetDayTarget, setResetDayTarget] = useState<AttendanceSchoolDay | null>(null);
+  const [resetTarget, setResetTarget] = useState<ResetTarget | null>(null);
   const [resetConfirmation, setResetConfirmation] = useState("");
   const [schoolDaysChangeTarget, setSchoolDaysChangeTarget] = useState<AttendanceSchoolDay[] | null>(null);
   const [schoolDaysConfirmation, setSchoolDaysConfirmation] = useState("");
@@ -88,8 +93,10 @@ export function AttendanceSettingsDrawer({
       return (first.option ?? "").localeCompare(second.option ?? "", "fr");
     });
   }, [school.id, students, year.id]);
-  const schoolDaySet = useMemo(() => new Set(schoolDays), [schoolDays]);
+  const displayedSchoolDays = schoolDaysChangeTarget ?? schoolDays;
+  const schoolDaySet = useMemo(() => new Set(displayedSchoolDays), [displayedSchoolDays]);
   const weekMode = schoolDays.includes("saturday") ? "6" : "5";
+  const displayedWeekMode = displayedSchoolDays.includes("saturday") ? "6" : "5";
   const pendingWeekMode = schoolDaysChangeTarget?.includes("saturday") ? "6" : "5";
 
   async function saveSettings() {
@@ -126,22 +133,23 @@ export function AttendanceSettingsDrawer({
   }
 
   async function resetDaySchedules() {
-    if (!resetDayTarget || resetConfirmation !== resetConfirmationPhrase) return;
+    if (!resetTarget || resetConfirmation !== resetConfirmationPhrase) return;
 
     setSaving(true);
     setFeedback("");
     try {
-      const nextDefaultSchedule = removeScheduleDay(defaultSchedule, resetDayTarget);
-      const nextSectionSchedule = removeSectionScheduleDay(sectionSchedule, resetDayTarget);
-      const nextClassSchedule = removeClassScheduleDay(classSchedule, resetDayTarget);
+      const nextDefaultSchedule = resetTarget.scope === "default" ? removeScheduleDay(defaultSchedule, resetTarget.day) : defaultSchedule;
+      const nextSectionSchedule = resetTarget.scope === "section" ? removeSectionScheduleDay(sectionSchedule, resetTarget.section, resetTarget.day) : sectionSchedule;
+      const nextClassSchedule = resetTarget.scope === "class" ? removeClassScheduleDay(classSchedule, resetTarget.classKey, resetTarget.day) : classSchedule;
       await onSave(buildSettings(schoolDays, nextDefaultSchedule, nextSectionSchedule, nextClassSchedule, school.id, year.id, user.id));
       setDefaultSchedule(nextDefaultSchedule);
       setSectionSchedule(nextSectionSchedule);
       setClassSchedule(nextClassSchedule);
-      const dayLabel = attendanceSchoolDayLabels[resetDayTarget];
-      setResetDayTarget(null);
+      const dayLabel = attendanceSchoolDayLabels[resetTarget.day];
+      const scopeLabel = resetTarget.label;
+      setResetTarget(null);
       setResetConfirmation("");
-      setFeedback(`Horaires du ${dayLabel} réinitialisés.`);
+      setFeedback(`Horaires du ${dayLabel} réinitialisés dans ${scopeLabel}.`);
     } catch (error) {
       console.warn("Réinitialisation des horaires de présence impossible.", error);
       setFeedback("Impossible de réinitialiser les horaires de présence.");
@@ -163,12 +171,12 @@ export function AttendanceSettingsDrawer({
   }
 
   function toggleSchoolDay(day: AttendanceSchoolDay) {
-    const next = schoolDays.includes(day) ? schoolDays.filter((item) => item !== day) : attendanceSchoolDays.filter((item) => schoolDays.includes(item) || item === day);
+    const next = displayedSchoolDays.includes(day) ? displayedSchoolDays.filter((item) => item !== day) : attendanceSchoolDays.filter((item) => displayedSchoolDays.includes(item) || item === day);
     requestSchoolDaysChange(next.length > 0 ? next : schoolDays);
   }
 
-  function openResetDayConfirmation(day: AttendanceSchoolDay) {
-    setResetDayTarget(day);
+  function openResetConfirmation(target: ResetTarget) {
+    setResetTarget(target);
     setResetConfirmation("");
     setFeedback("");
   }
@@ -204,10 +212,10 @@ export function AttendanceSettingsDrawer({
           <p className="mt-1 text-sm text-slate-500">Cette configuration pilote la fiche hebdomadaire et l'export PDF.</p>
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
-          <button onClick={() => applyWeekMode("5")} type="button" className={`rounded border px-3 py-2 text-sm font-bold transition ${weekMode === "5" ? "border-mint bg-mint/10 text-mint" : "border-slate-200 bg-white text-slate-600 hover:border-mint"}`}>
+          <button onClick={() => applyWeekMode("5")} type="button" className={`rounded border px-3 py-2 text-sm font-bold transition ${displayedWeekMode === "5" ? "border-mint bg-mint/10 text-mint" : "border-slate-200 bg-white text-slate-600 hover:border-mint"}`}>
             5 jours par semaine
           </button>
-          <button onClick={() => applyWeekMode("6")} type="button" className={`rounded border px-3 py-2 text-sm font-bold transition ${weekMode === "6" ? "border-mint bg-mint/10 text-mint" : "border-slate-200 bg-white text-slate-600 hover:border-mint"}`}>
+          <button onClick={() => applyWeekMode("6")} type="button" className={`rounded border px-3 py-2 text-sm font-bold transition ${displayedWeekMode === "6" ? "border-mint bg-mint/10 text-mint" : "border-slate-200 bg-white text-slate-600 hover:border-mint"}`}>
             6 jours par semaine
           </button>
         </div>
@@ -226,14 +234,12 @@ export function AttendanceSettingsDrawer({
           <h2 className="font-bold text-ink">Règle générale</h2>
           <p className="mt-1 text-sm text-slate-500">Utilisée quand aucune règle de classe ou de section ne s'applique.</p>
         </div>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {schoolDays.map((day) => (
-            <button key={day} onClick={() => openResetDayConfirmation(day)} type="button" className="secondary-button justify-center">
-              <RotateCcw className="h-4 w-4" /> Réinitialiser les horaires du {attendanceSchoolDayLabels[day]}
-            </button>
-          ))}
-        </div>
-        <ScheduleGrid days={schoolDays} schedule={defaultSchedule} onChange={updateDefaultSchedule} />
+        <ScheduleGrid
+          days={displayedSchoolDays}
+          schedule={defaultSchedule}
+          onChange={updateDefaultSchedule}
+          onReset={(day) => openResetConfirmation({ scope: "default", day, label: "Règle générale" })}
+        />
       </section>
 
       <section className="grid min-w-0 gap-3 rounded border border-slate-200 bg-white p-4 shadow-sm">
@@ -245,7 +251,12 @@ export function AttendanceSettingsDrawer({
           {sections.map((section) => (
             <div key={section} className="grid gap-2 rounded border border-slate-200 bg-slate-50 p-3">
               <p className="text-sm font-bold text-ink">{sectionLabels[section]}</p>
-              <ScheduleGrid days={schoolDays} schedule={sectionSchedule[section] ?? {}} onChange={(day, field, value) => updateSectionSchedule(section, day, field, value)} />
+              <ScheduleGrid
+                days={displayedSchoolDays}
+                schedule={sectionSchedule[section] ?? {}}
+                onChange={(day, field, value) => updateSectionSchedule(section, day, field, value)}
+                onReset={(day) => openResetConfirmation({ scope: "section", day, section, label: `Par section - ${sectionLabels[section]}` })}
+              />
             </div>
           ))}
         </div>
@@ -263,7 +274,12 @@ export function AttendanceSettingsDrawer({
             {classRules.map((rule) => (
               <div key={rule.key} className="grid gap-2 rounded border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-600">
                 <span className="min-w-0 break-words font-bold text-ink">{rule.option ? `${rule.className} - ${rule.option}` : rule.className}</span>
-                <ScheduleGrid days={schoolDays} schedule={classSchedule[rule.key] ?? {}} onChange={(day, field, value) => updateClassSchedule(rule.key, day, field, value)} />
+                <ScheduleGrid
+                  days={displayedSchoolDays}
+                  schedule={classSchedule[rule.key] ?? {}}
+                  onChange={(day, field, value) => updateClassSchedule(rule.key, day, field, value)}
+                  onReset={(day) => openResetConfirmation({ scope: "class", day, classKey: rule.key, label: `Par classe - ${rule.option ? `${rule.className} - ${rule.option}` : rule.className}` })}
+                />
               </div>
             ))}
           </div>
@@ -300,10 +316,10 @@ export function AttendanceSettingsDrawer({
         </section>
       )}
 
-      {resetDayTarget && (
+      {resetTarget && (
         <section className="grid gap-3 rounded border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          <p className="font-bold">Confirmer la réinitialisation des horaires du {attendanceSchoolDayLabels[resetDayTarget]}</p>
-          <p>Cette action supprimera uniquement les horaires Général, Par section et Par classe du {attendanceSchoolDayLabels[resetDayTarget]}. Les autres jours et les présences existantes ne seront pas modifiés.</p>
+          <p className="font-bold">Confirmer la réinitialisation des horaires du {attendanceSchoolDayLabels[resetTarget.day]}</p>
+          <p>Vous êtes sur le point de réinitialiser les horaires du {attendanceSchoolDayLabels[resetTarget.day]} dans {resetTarget.label}. Les autres jours, les autres niveaux de règle et les présences existantes ne seront pas modifiés.</p>
           <label className="grid gap-1 font-semibold">
             Pour confirmer, saisissez : {resetConfirmationPhrase}
             <input value={resetConfirmation} onChange={(event) => setResetConfirmation(event.target.value)} className="input bg-white" />
@@ -314,7 +330,7 @@ export function AttendanceSettingsDrawer({
             </button>
             <button
               onClick={() => {
-                setResetDayTarget(null);
+                setResetTarget(null);
                 setResetConfirmation("");
               }}
               disabled={saving}
@@ -338,16 +354,23 @@ function ScheduleGrid({
   days,
   schedule,
   onChange,
+  onReset,
 }: {
   days: AttendanceSchoolDay[];
   schedule: Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>;
   onChange: (day: AttendanceSchoolDay, field: keyof AttendanceDaySchedule, value: string) => void;
+  onReset: (day: AttendanceSchoolDay) => void;
 }) {
   return (
     <div className="grid gap-2">
       {days.map((day) => (
         <div key={day} className="grid gap-2 rounded border border-slate-200 bg-white p-3 sm:grid-cols-[8rem_minmax(0,1fr)_minmax(0,1fr)] sm:items-center">
-          <span className="text-sm font-bold text-slate-600">{attendanceSchoolDayLabels[day]}</span>
+          <span className="inline-flex min-w-0 items-center gap-2 text-sm font-bold text-slate-600">
+            <button onClick={() => onReset(day)} type="button" className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-mint hover:text-mint" aria-label={`Réinitialiser ${attendanceSchoolDayLabels[day]}`}>
+              <RotateCcw className="h-3.5 w-3.5" />
+            </button>
+            <span>{attendanceSchoolDayLabels[day]}</span>
+          </span>
           <input type="time" value={schedule[day]?.normalArrival ?? ""} onChange={(event) => onChange(day, "normalArrival", event.target.value)} className="input" aria-label={`Heure normale ${attendanceSchoolDayLabels[day]}`} />
           <input type="time" value={schedule[day]?.lateAfter ?? ""} onChange={(event) => onChange(day, "lateAfter", event.target.value)} className="input" aria-label={`Seuil de retard ${attendanceSchoolDayLabels[day]}`} />
         </div>
@@ -377,20 +400,26 @@ function removeScheduleDay(schedule: Partial<Record<AttendanceSchoolDay, Attenda
   return nextSchedule;
 }
 
-function removeSectionScheduleDay(schedule: Partial<Record<SchoolSection, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>>, day: AttendanceSchoolDay) {
-  return Object.fromEntries(
-    Object.entries(schedule)
-      .map(([section, value]) => [section, removeScheduleDay(value ?? {}, day)])
-      .filter(([, value]) => Object.keys(value).length > 0),
-  ) as Partial<Record<SchoolSection, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>>;
+function removeSectionScheduleDay(schedule: Partial<Record<SchoolSection, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>>, section: SchoolSection, day: AttendanceSchoolDay) {
+  const nextSectionSchedule = removeScheduleDay(schedule[section] ?? {}, day);
+  const nextSchedule = { ...schedule };
+  if (Object.keys(nextSectionSchedule).length > 0) {
+    nextSchedule[section] = nextSectionSchedule;
+  } else {
+    delete nextSchedule[section];
+  }
+  return nextSchedule;
 }
 
-function removeClassScheduleDay(schedule: Record<string, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>, day: AttendanceSchoolDay) {
-  return Object.fromEntries(
-    Object.entries(schedule)
-      .map(([ruleKey, value]) => [ruleKey, removeScheduleDay(value, day)])
-      .filter(([, value]) => Object.keys(value).length > 0),
-  ) as Record<string, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>;
+function removeClassScheduleDay(schedule: Record<string, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>, classKey: string, day: AttendanceSchoolDay) {
+  const nextClassSchedule = removeScheduleDay(schedule[classKey] ?? {}, day);
+  const nextSchedule = { ...schedule };
+  if (Object.keys(nextClassSchedule).length > 0) {
+    nextSchedule[classKey] = nextClassSchedule;
+  } else {
+    delete nextSchedule[classKey];
+  }
+  return nextSchedule;
 }
 
 function cleanSchedule(schedule: Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>) {
