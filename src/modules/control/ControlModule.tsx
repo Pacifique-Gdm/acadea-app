@@ -11,6 +11,7 @@ import { getStudentBalance } from "../../utils/stats";
 import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
 import { feeAppliesToStudent } from "../../utils/feeTargets";
 import { formatStudentClassName } from "../../utils/studentClasses";
+import { compareStudentsForPdfByClass, formatStudentPdfClassName } from "../../utils/studentPdf";
 import type { AppData, AppNotification, AppUser, AuditLog, Expense, FeeType, ParentProfile, Payment, School, SchoolYear, Student } from "../../types";
 
 type ControlYearData = {
@@ -30,8 +31,6 @@ type ControlModuleProps = {
   year: SchoolYear;
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
   createId: (prefix: string) => string;
-  formatStudentPdfClassName: (student: Pick<Student, "className" | "option">) => string;
-  compareStudentsForPdfByClass: (first: Pick<Student, "className">, second: Pick<Student, "className">) => number;
 };
 
 export function ControlModule({
@@ -42,8 +41,6 @@ export function ControlModule({
   year,
   updateData,
   createId,
-  formatStudentPdfClassName,
-  compareStudentsForPdfByClass,
 }: ControlModuleProps) {
   const [studentId, setStudentId] = useState("");
   const [paymentStudentQuery, setPaymentStudentQuery] = useState("");

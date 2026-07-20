@@ -9,6 +9,7 @@ import { nextParentEmail, parentEmailExists } from "../../utils/parents";
 import { getSchoolClassChoices, getSchoolEducationLevels } from "../../utils/schoolConfig";
 import { formatStudentClassName, getClassSection, promoteStudentForNewYear } from "../../utils/studentClasses";
 import { emptyStudent, generateMatricule, isArchivedStudent } from "../../utils/studentUtils";
+import { exportAgeHomogeneityPdf, exportStudentsPdf, sortStudentsForPdfByClass } from "../../utils/studentPdf";
 import type { AppData, AppUser, ParentProfile, School, SchoolSection, SchoolYear, Student } from "../../types";
 import { CLASSES } from "../../types";
 
@@ -22,9 +23,6 @@ export function StudentsModule({
   onOpenStudent,
   uid,
   formatArchiveDate,
-  exportStudentsPdf,
-  exportAgeHomogeneityPdf,
-  sortStudentsForPdfByClass,
   studentImportKey,
 }: {
   user: AppUser;
@@ -36,9 +34,6 @@ export function StudentsModule({
   onOpenStudent: (studentId: string) => void;
   uid: (prefix: string) => string;
   formatArchiveDate: (value?: string) => string;
-  exportStudentsPdf: (school: School, year: SchoolYear, students: Student[], filters: string[]) => void | Promise<void>;
-  exportAgeHomogeneityPdf: (school: School, year: SchoolYear, students: Student[]) => void | Promise<void>;
-  sortStudentsForPdfByClass: (students: Student[]) => Student[];
   studentImportKey: (student: Student) => string;
 }) {
   const [query, setQuery] = useState("");
