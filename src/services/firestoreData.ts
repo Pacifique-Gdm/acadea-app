@@ -105,6 +105,15 @@ async function loadAttendanceSettingsCollection(filters: [string, unknown][]) {
   }
 }
 
+async function loadValvesCollection(filters: [string, unknown][]) {
+  try {
+    return await loadCollection<AppData["valves"][number]>("valves", filters);
+  } catch (error) {
+    console.warn("Chargement des Valves impossible. Vérifiez le déploiement des règles Firestore valves.", error);
+    return [];
+  }
+}
+
 async function loadDocument<T>(collectionName: string, id?: string) {
   if (!db || !id) return [];
 
@@ -183,7 +192,7 @@ export async function loadFirestoreData(user?: AppUser, schoolYearId?: string) {
       scopedData.disciplineSanctions = await loadCollection<AppData["disciplineSanctions"][number]>("disciplineSanctions", annualFilter);
       scopedData.attendance = await loadAttendanceCollection(annualFilter);
       scopedData.attendanceSettings = await loadAttendanceSettingsCollection(annualFilter);
-      scopedData.valves = await loadCollection<AppData["valves"][number]>("valves", annualFilter);
+      scopedData.valves = await loadValvesCollection(annualFilter);
       return scopedData;
     }
 
@@ -229,7 +238,7 @@ export async function loadDisciplineYearData(user: AppUser, schoolYearId: string
     disciplineSanctions: await loadCollection<AppData["disciplineSanctions"][number]>("disciplineSanctions", annualFilter),
     attendance: await loadAttendanceCollection(annualFilter),
     attendanceSettings: await loadAttendanceSettingsCollection(annualFilter),
-    valves: await loadCollection<AppData["valves"][number]>("valves", annualFilter),
+    valves: await loadValvesCollection(annualFilter),
   };
 
   return yearData;
