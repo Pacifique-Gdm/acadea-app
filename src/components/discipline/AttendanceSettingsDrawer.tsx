@@ -6,6 +6,9 @@ import { attendanceClassRuleKey, attendanceSchoolDayLabels, attendanceSchoolDays
 import { getSchoolEducationLevels } from "../../utils/schoolConfig";
 import { getClassSection } from "../../utils/studentClasses";
 
+const resetConfirmationPhrase = "REINITIALISER LES HORAIRES";
+const schoolDaysConfirmationPhrase = "MODIFIER LES JOURS SCOLAIRES";
+
 export function AttendanceSettingsDrawer({
   school,
   year,
@@ -29,7 +32,10 @@ export function AttendanceSettingsDrawer({
   const [classSchedule, setClassSchedule] = useState<Record<string, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>>(() => buildClassSchedule(settings));
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState("");
-  const [resetConfirmationOpen, setResetConfirmationOpen] = useState(false);
+  const [resetDayTarget, setResetDayTarget] = useState<AttendanceSchoolDay | null>(null);
+  const [resetConfirmation, setResetConfirmation] = useState("");
+  const [schoolDaysChangeTarget, setSchoolDaysChangeTarget] = useState<AttendanceSchoolDay[] | null>(null);
+  const [schoolDaysConfirmation, setSchoolDaysConfirmation] = useState("");
 
   useEffect(() => {
     setSchoolDays(resolveAttendanceSchoolDays(settings));
@@ -84,23 +90,13 @@ export function AttendanceSettingsDrawer({
   }, [school.id, students, year.id]);
   const schoolDaySet = useMemo(() => new Set(schoolDays), [schoolDays]);
   const weekMode = schoolDays.includes("saturday") ? "6" : "5";
+  const pendingWeekMode = schoolDaysChangeTarget?.includes("saturday") ? "6" : "5";
 
   async function saveSettings() {
     setSaving(true);
     setFeedback("");
     try {
-      const nextSettings: AttendanceSettings = {
-        id: attendanceSettingsId(school.id, year.id),
-        schoolId: school.id,
-        schoolYearId: year.id,
-        schoolDays,
-        defaultSchedule: cleanSchedule(defaultSchedule, schoolDays),
-        sectionSchedule: cleanSectionSchedule(sectionSchedule, schoolDays),
-        classSchedule: cleanClassSchedule(classSchedule, schoolDays),
-        updatedAt: new Date().toISOString(),
-        updatedBy: user.id,
-      };
-      await onSave(nextSettings);
+      await onSave(buildSettings(schoolDays, defaultSchedule, sectionSchedule, classSchedule, school.id, year.id, user.id));
       setFeedback("Paramètres de présence enregistrés.");
     } catch (error) {
       console.warn("Enregistrement des paramètres de présence impossible.", error);
@@ -110,27 +106,42 @@ export function AttendanceSettingsDrawer({
     }
   }
 
-  async function resetSchedules() {
+  async function saveSchoolDaysChange() {
+    if (!schoolDaysChangeTarget || schoolDaysConfirmation !== schoolDaysConfirmationPhrase) return;
+
     setSaving(true);
     setFeedback("");
     try {
-      const nextSettings: AttendanceSettings = {
-        id: attendanceSettingsId(school.id, year.id),
-        schoolId: school.id,
-        schoolYearId: year.id,
-        schoolDays,
-        defaultSchedule: {},
-        sectionSchedule: {},
-        classSchedule: {},
-        updatedAt: new Date().toISOString(),
-        updatedBy: user.id,
-      };
-      await onSave(nextSettings);
-      setDefaultSchedule({});
-      setSectionSchedule({});
-      setClassSchedule({});
-      setResetConfirmationOpen(false);
-      setFeedback("Horaires réinitialisés. Les heures doivent être redéfinies.");
+      await onSave(buildSettings(schoolDaysChangeTarget, defaultSchedule, sectionSchedule, classSchedule, school.id, year.id, user.id));
+      setSchoolDays(schoolDaysChangeTarget);
+      setSchoolDaysChangeTarget(null);
+      setSchoolDaysConfirmation("");
+      setFeedback("Jours scolaires modifiés.");
+    } catch (error) {
+      console.warn("Modification des jours scolaires impossible.", error);
+      setFeedback("Impossible de modifier les jours scolaires.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function resetDaySchedules() {
+    if (!resetDayTarget || resetConfirmation !== resetConfirmationPhrase) return;
+
+    setSaving(true);
+    setFeedback("");
+    try {
+      const nextDefaultSchedule = removeScheduleDay(defaultSchedule, resetDayTarget);
+      const nextSectionSchedule = removeSectionScheduleDay(sectionSchedule, resetDayTarget);
+      const nextClassSchedule = removeClassScheduleDay(classSchedule, resetDayTarget);
+      await onSave(buildSettings(schoolDays, nextDefaultSchedule, nextSectionSchedule, nextClassSchedule, school.id, year.id, user.id));
+      setDefaultSchedule(nextDefaultSchedule);
+      setSectionSchedule(nextSectionSchedule);
+      setClassSchedule(nextClassSchedule);
+      const dayLabel = attendanceSchoolDayLabels[resetDayTarget];
+      setResetDayTarget(null);
+      setResetConfirmation("");
+      setFeedback(`Horaires du ${dayLabel} réinitialisés.`);
     } catch (error) {
       console.warn("Réinitialisation des horaires de présence impossible.", error);
       setFeedback("Impossible de réinitialiser les horaires de présence.");
@@ -139,15 +150,27 @@ export function AttendanceSettingsDrawer({
     }
   }
 
+  function requestSchoolDaysChange(nextDays: AttendanceSchoolDay[]) {
+    const normalizedDays = attendanceSchoolDays.filter((day) => nextDays.includes(day));
+    if (normalizedDays.length === 0 || sameSchoolDays(normalizedDays, schoolDays)) return;
+    setSchoolDaysChangeTarget(normalizedDays);
+    setSchoolDaysConfirmation("");
+    setFeedback("");
+  }
+
   function applyWeekMode(mode: "5" | "6") {
-    setSchoolDays(mode === "5" ? defaultFiveSchoolDays : defaultSixSchoolDays);
+    requestSchoolDaysChange(mode === "5" ? defaultFiveSchoolDays : defaultSixSchoolDays);
   }
 
   function toggleSchoolDay(day: AttendanceSchoolDay) {
-    setSchoolDays((current) => {
-      const next = current.includes(day) ? current.filter((item) => item !== day) : attendanceSchoolDays.filter((item) => current.includes(item) || item === day);
-      return next.length > 0 ? next : current;
-    });
+    const next = schoolDays.includes(day) ? schoolDays.filter((item) => item !== day) : attendanceSchoolDays.filter((item) => schoolDays.includes(item) || item === day);
+    requestSchoolDaysChange(next.length > 0 ? next : schoolDays);
+  }
+
+  function openResetDayConfirmation(day: AttendanceSchoolDay) {
+    setResetDayTarget(day);
+    setResetConfirmation("");
+    setFeedback("");
   }
 
   function updateDefaultSchedule(day: AttendanceSchoolDay, field: keyof AttendanceDaySchedule, value: string) {
@@ -203,6 +226,13 @@ export function AttendanceSettingsDrawer({
           <h2 className="font-bold text-ink">Règle générale</h2>
           <p className="mt-1 text-sm text-slate-500">Utilisée quand aucune règle de classe ou de section ne s'applique.</p>
         </div>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {schoolDays.map((day) => (
+            <button key={day} onClick={() => openResetDayConfirmation(day)} type="button" className="secondary-button justify-center">
+              <RotateCcw className="h-4 w-4" /> Réinitialiser les horaires du {attendanceSchoolDayLabels[day]}
+            </button>
+          ))}
+        </div>
         <ScheduleGrid days={schoolDays} schedule={defaultSchedule} onChange={updateDefaultSchedule} />
       </section>
 
@@ -240,29 +270,66 @@ export function AttendanceSettingsDrawer({
         )}
       </section>
 
-      {resetConfirmationOpen && (
+      {schoolDaysChangeTarget && (
         <section className="grid gap-3 rounded border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          <p className="font-bold">Confirmer la réinitialisation des horaires</p>
-          <p>Cette action efface uniquement les horaires généraux, par section et par classe. Les présences existantes sont conservées.</p>
+          <p className="font-bold">Confirmer la modification des jours scolaires</p>
+          <p>Vous êtes sur le point de modifier les jours scolaires de {weekMode} jours à {pendingWeekMode} jours.</p>
+          <p>
+            Les jours affichés deviendront : {formatSchoolDayList(schoolDaysChangeTarget)}. Les présences historiques ne seront pas supprimées et les horaires des jours retirés resteront conservés.
+          </p>
+          <label className="grid gap-1 font-semibold">
+            Pour confirmer, saisissez : {schoolDaysConfirmationPhrase}
+            <input value={schoolDaysConfirmation} onChange={(event) => setSchoolDaysConfirmation(event.target.value)} className="input bg-white" />
+          </label>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <button onClick={resetSchedules} disabled={saving} className="rounded bg-amber-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50" type="button">
-              Confirmer la réinitialisation
+            <button onClick={saveSchoolDaysChange} disabled={saving || schoolDaysConfirmation !== schoolDaysConfirmationPhrase} className="rounded bg-amber-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50" type="button">
+              Confirmer la modification
             </button>
-            <button onClick={() => setResetConfirmationOpen(false)} disabled={saving} className="rounded border border-amber-200 bg-white px-4 py-2 text-sm font-bold text-amber-800 transition hover:bg-amber-100" type="button">
+            <button
+              onClick={() => {
+                setSchoolDaysChangeTarget(null);
+                setSchoolDaysConfirmation("");
+              }}
+              disabled={saving}
+              className="rounded border border-amber-200 bg-white px-4 py-2 text-sm font-bold text-amber-800 transition hover:bg-amber-100"
+              type="button"
+            >
               Annuler
             </button>
           </div>
         </section>
       )}
 
-      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <button onClick={saveSettings} disabled={saving} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50" type="button">
-          <CheckCircle2 className="h-4 w-4" /> {saving ? "Enregistrement..." : "Enregistrer les paramètres"}
-        </button>
-        <button onClick={() => setResetConfirmationOpen(true)} disabled={saving} className="secondary-button justify-center disabled:cursor-not-allowed disabled:opacity-50" type="button">
-          <RotateCcw className="h-4 w-4" /> Réinitialiser les horaires
-        </button>
-      </div>
+      {resetDayTarget && (
+        <section className="grid gap-3 rounded border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="font-bold">Confirmer la réinitialisation des horaires du {attendanceSchoolDayLabels[resetDayTarget]}</p>
+          <p>Cette action supprimera uniquement les horaires Général, Par section et Par classe du {attendanceSchoolDayLabels[resetDayTarget]}. Les autres jours et les présences existantes ne seront pas modifiés.</p>
+          <label className="grid gap-1 font-semibold">
+            Pour confirmer, saisissez : {resetConfirmationPhrase}
+            <input value={resetConfirmation} onChange={(event) => setResetConfirmation(event.target.value)} className="input bg-white" />
+          </label>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button onClick={resetDaySchedules} disabled={saving || resetConfirmation !== resetConfirmationPhrase} className="rounded bg-amber-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50" type="button">
+              Confirmer la réinitialisation
+            </button>
+            <button
+              onClick={() => {
+                setResetDayTarget(null);
+                setResetConfirmation("");
+              }}
+              disabled={saving}
+              className="rounded border border-amber-200 bg-white px-4 py-2 text-sm font-bold text-amber-800 transition hover:bg-amber-100"
+              type="button"
+            >
+              Annuler
+            </button>
+          </div>
+        </section>
+      )}
+
+      <button onClick={saveSettings} disabled={saving} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50" type="button">
+        <CheckCircle2 className="h-4 w-4" /> {saving ? "Enregistrement..." : "Enregistrer les paramètres"}
+      </button>
     </div>
   );
 }
@@ -304,10 +371,31 @@ function updateScheduleMap(
   };
 }
 
-function cleanSchedule(schedule: Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>, activeDays: AttendanceSchoolDay[]) {
+function removeScheduleDay(schedule: Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>, day: AttendanceSchoolDay) {
+  const nextSchedule = { ...schedule };
+  delete nextSchedule[day];
+  return nextSchedule;
+}
+
+function removeSectionScheduleDay(schedule: Partial<Record<SchoolSection, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>>, day: AttendanceSchoolDay) {
+  return Object.fromEntries(
+    Object.entries(schedule)
+      .map(([section, value]) => [section, removeScheduleDay(value ?? {}, day)])
+      .filter(([, value]) => Object.keys(value).length > 0),
+  ) as Partial<Record<SchoolSection, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>>;
+}
+
+function removeClassScheduleDay(schedule: Record<string, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>, day: AttendanceSchoolDay) {
+  return Object.fromEntries(
+    Object.entries(schedule)
+      .map(([ruleKey, value]) => [ruleKey, removeScheduleDay(value, day)])
+      .filter(([, value]) => Object.keys(value).length > 0),
+  ) as Record<string, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>;
+}
+
+function cleanSchedule(schedule: Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>) {
   const cleaned: Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>> = {};
   (Object.entries(schedule) as [AttendanceSchoolDay, AttendanceDaySchedule][]).forEach(([day, value]) => {
-    if (!activeDays.includes(day)) return;
     const nextValue: AttendanceDaySchedule = {
       ...(value.normalArrival ? { normalArrival: value.normalArrival } : {}),
       ...(value.lateAfter ? { lateAfter: value.lateAfter } : {}),
@@ -319,20 +407,42 @@ function cleanSchedule(schedule: Partial<Record<AttendanceSchoolDay, AttendanceD
   return cleaned;
 }
 
-function cleanSectionSchedule(schedule: Partial<Record<SchoolSection, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>>, activeDays: AttendanceSchoolDay[]) {
+function cleanSectionSchedule(schedule: Partial<Record<SchoolSection, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>>) {
   return Object.fromEntries(
     Object.entries(schedule)
-      .map(([section, value]) => [section, cleanSchedule(value ?? {}, activeDays)])
+      .map(([section, value]) => [section, cleanSchedule(value ?? {})])
       .filter(([, value]) => Object.keys(value).length > 0),
   ) as Partial<Record<SchoolSection, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>>;
 }
 
-function cleanClassSchedule(schedule: Record<string, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>, activeDays: AttendanceSchoolDay[]) {
+function cleanClassSchedule(schedule: Record<string, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>) {
   return Object.fromEntries(
     Object.entries(schedule)
-      .map(([ruleKey, value]) => [ruleKey, cleanSchedule(value, activeDays)])
+      .map(([ruleKey, value]) => [ruleKey, cleanSchedule(value)])
       .filter(([, value]) => Object.keys(value).length > 0),
   ) as Record<string, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>;
+}
+
+function buildSettings(
+  schoolDays: AttendanceSchoolDay[],
+  defaultSchedule: Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>,
+  sectionSchedule: Partial<Record<SchoolSection, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>>,
+  classSchedule: Record<string, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>,
+  schoolId: string,
+  schoolYearId: string,
+  userId: string,
+): AttendanceSettings {
+  return {
+    id: attendanceSettingsId(schoolId, schoolYearId),
+    schoolId,
+    schoolYearId,
+    schoolDays,
+    defaultSchedule: cleanSchedule(defaultSchedule),
+    sectionSchedule: cleanSectionSchedule(sectionSchedule),
+    classSchedule: cleanClassSchedule(classSchedule),
+    updatedAt: new Date().toISOString(),
+    updatedBy: userId,
+  };
 }
 
 function buildDefaultSchedule(settings?: AttendanceSettings): Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>> {
@@ -361,4 +471,12 @@ function buildClassSchedule(settings?: AttendanceSettings): Record<string, Parti
       Object.fromEntries(resolveAttendanceSchoolDays(settings).map((day) => [day, { lateAfter }])),
     ]),
   ) as Record<string, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>;
+}
+
+function sameSchoolDays(first: AttendanceSchoolDay[], second: AttendanceSchoolDay[]) {
+  return first.length === second.length && first.every((day, index) => day === second[index]);
+}
+
+function formatSchoolDayList(days: AttendanceSchoolDay[]) {
+  return days.map((day) => attendanceSchoolDayLabels[day]).join(", ");
 }
