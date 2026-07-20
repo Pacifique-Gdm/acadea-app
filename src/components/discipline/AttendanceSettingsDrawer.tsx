@@ -385,15 +385,17 @@ function ScheduleGrid({
     <div className="grid gap-2">
       {days.map((day) => (
         <div key={day} className="grid gap-2">
-          <div className="grid gap-2 rounded border border-slate-200 bg-white p-3 sm:grid-cols-[8rem_minmax(0,1fr)_minmax(0,1fr)] sm:items-center">
+          <div className="grid gap-2 rounded border border-slate-200 bg-white p-3 sm:grid-cols-[8rem_minmax(0,1fr)] sm:items-center">
             <span className="inline-flex min-w-0 items-center gap-2 text-sm font-bold text-slate-600">
               <button onClick={() => onReset(day)} type="button" className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-mint hover:text-mint" aria-label={`Réinitialiser ${attendanceSchoolDayLabels[day]}`}>
                 <RotateCcw className="h-3.5 w-3.5" />
               </button>
               <span>{shortDayLabels[day]}</span>
             </span>
-            <input type="time" value={schedule[day]?.normalArrival ?? ""} onChange={(event) => onChange(day, "normalArrival", event.target.value)} className="input" aria-label={`Heure normale ${attendanceSchoolDayLabels[day]}`} />
-            <input type="time" value={schedule[day]?.lateAfter ?? ""} onChange={(event) => onChange(day, "lateAfter", event.target.value)} className="input" aria-label={`Seuil de retard ${attendanceSchoolDayLabels[day]}`} />
+            <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              Heure limite
+              <input type="time" value={schedule[day]?.lateAfter ?? schedule[day]?.normalArrival ?? ""} onChange={(event) => onChange(day, "lateAfter", event.target.value)} className="input" aria-label={`Heure limite ${attendanceSchoolDayLabels[day]}`} />
+            </label>
           </div>
           {resetTarget?.day === day && (
             <section className="grid gap-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
@@ -425,6 +427,14 @@ function updateScheduleMap(
   field: keyof AttendanceDaySchedule,
   value: string,
 ) {
+  if (field === "lateAfter") {
+    return {
+      ...current,
+      [day]: {
+        lateAfter: value,
+      },
+    };
+  }
   return {
     ...current,
     [day]: {

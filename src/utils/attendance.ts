@@ -80,7 +80,8 @@ export function resolveAttendanceDaySchedule(student: Student, settings: Attenda
 }
 
 export function resolveLateAfterTime(student: Student, settings?: AttendanceSettings, date?: Date) {
-  return resolveAttendanceDaySchedule(student, settings, date)?.lateAfter;
+  const schedule = resolveAttendanceDaySchedule(student, settings, date);
+  return schedule?.lateAfter ?? schedule?.normalArrival;
 }
 
 export function resolveAttendanceStatusForArrival(student: Student, selectedStatus: AttendanceStatus, settings: AttendanceSettings | undefined, recordedAt: Date) {
