@@ -69,7 +69,7 @@ import { buildStats, getStudentBalance } from "./utils/stats";
 import { getStudentFeeSummaries } from "./utils/studentFeeSummary";
 import { buildSchoolYearDataIndexes, sumPaymentsForStudentFee } from "./utils/dataIndexes";
 import { buildDisciplineStats } from "./utils/disciplineStats";
-import { attendanceRecordId, attendanceStatusText, resolveAttendanceStatusForArrival } from "./utils/attendance";
+import { attendanceRecordId, attendanceSettingsId, attendanceStatusText, resolveAttendanceStatusForArrival } from "./utils/attendance";
 import { buildFeeTargetChoices, feeAppliesToStudent, feeTargetClassName, formatFeeTargetValue } from "./utils/feeTargets";
 import { formatValveAttachmentSize, MAX_VALVE_ATTACHMENTS, MAX_VALVE_ATTACHMENTS_TOTAL_SIZE, validateValveAttachments } from "./utils/valvesMedia";
 import { getSchoolClassChoices, getSchoolEducationLevels } from "./utils/schoolConfig";
@@ -3346,6 +3346,13 @@ function disciplineSignalBody(sanction: DisciplineSanction) {
   return lines.join("\n");
 }
 
+function selectAttendanceSettingsForYear(settings: AttendanceSettings[], schoolId: string, schoolYearId: string) {
+  const scopedSettings = settings.filter((item) => item.schoolId === schoolId && item.schoolYearId === schoolYearId);
+  if (scopedSettings.length === 0) return undefined;
+  const deterministicId = attendanceSettingsId(schoolId, schoolYearId);
+  return scopedSettings.find((item) => item.id === deterministicId) ?? [...scopedSettings].sort((first, second) => (second.updatedAt ?? "").localeCompare(first.updatedAt ?? ""))[0];
+}
+
 function DisciplinePortal({
   user,
   data,
@@ -3383,6 +3390,10 @@ function DisciplinePortal({
   const [feedback, setFeedback] = useState("");
   const unread = yearData.notifications.filter((notification) => !notification.read).length;
   const stats = useMemo(() => buildDisciplineStats(yearData.disciplineSanctions), [yearData.disciplineSanctions]);
+  const attendanceSettings = useMemo(
+    () => selectAttendanceSettingsForYear(yearData.attendanceSettings, school.id, year.id),
+    [school.id, year.id, yearData.attendanceSettings],
+  );
 
   useEffect(() => {
     if (!feedback) return undefined;
@@ -3681,7 +3692,6 @@ function DisciplinePortal({
   async function saveManualAttendance(inputs: { studentId: string; attendanceDate: string; status: AttendanceStatus; manualReason: string }[]) {
     const now = new Date().toISOString();
     const recordedAt = new Date(now);
-    const attendanceSettings = yearData.attendanceSettings.find((settings) => settings.schoolId === school.id && settings.schoolYearId === year.id);
     const existingAttendanceIds = new Set(data.attendance.map((item) => item.id));
     const existingNotificationIds = new Set(data.notifications.map((item) => item.id));
     const records: AttendanceRecord[] = [];
@@ -3768,18 +3778,19 @@ function DisciplinePortal({
   }
 
   async function saveAttendanceSettings(settings: AttendanceSettings) {
+    const sameAttendanceSettingsScope = (item: AttendanceSettings) => item.schoolId === settings.schoolId && item.schoolYearId === settings.schoolYearId;
     if (canUseFirestoreData()) {
       await persistFirestorePatch({ attendanceSettings: [settings] }, { throwOnError: true });
       updateData(
         {
-          attendanceSettings: [settings, ...data.attendanceSettings.filter((item) => item.id !== settings.id)],
+          attendanceSettings: [settings, ...data.attendanceSettings.filter((item) => !sameAttendanceSettingsScope(item))],
         },
         { persist: false },
       );
       return;
     }
     updateData({
-      attendanceSettings: [settings, ...data.attendanceSettings.filter((item) => item.id !== settings.id)],
+      attendanceSettings: [settings, ...data.attendanceSettings.filter((item) => !sameAttendanceSettingsScope(item))],
     });
   }
 
@@ -3912,7 +3923,7 @@ function DisciplinePortal({
           <DisciplineAttendanceDrawer
             students={yearData.students}
             attendance={yearData.attendance}
-            settings={yearData.attendanceSettings.find((item) => item.schoolId === school.id && item.schoolYearId === year.id)}
+            settings={attendanceSettings}
             school={school}
             year={year}
             onSaveManualAttendance={saveManualAttendance}
@@ -4020,7 +4031,7 @@ function DisciplinePortal({
             year={year}
             user={user}
             students={yearData.students}
-            settings={yearData.attendanceSettings.find((item) => item.schoolId === school.id && item.schoolYearId === year.id)}
+            settings={attendanceSettings}
             onSave={saveAttendanceSettings}
           />
         </AdminDrawer>
