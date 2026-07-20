@@ -32,6 +32,7 @@ import { markConversationUnreadCountRead } from "./services/conversations";
 import { loadSuperAdminInitialData } from "./services/superAdminData";
 import type { SuperAdminGlobalCounts } from "./services/superAdminData";
 import { isSessionAuditAction } from "./utils/audit";
+import { mergeMessagesById, mergeNotificationsById } from "./utils/realtimeMerges";
 import { resolveDefaultSchoolYear } from "./utils/schoolYears";
 import { attendanceSettingsId } from "./utils/attendance";
 import { formatFeeTargetValue } from "./utils/feeTargets";
@@ -43,7 +44,6 @@ import type {
   AttendanceSettings,
   DisciplineSanction,
   FeeType,
-  Message,
   SchoolYear,
   Student,
 } from "./types";
@@ -102,22 +102,6 @@ function nextSchoolYearDefaults(year: SchoolYear) {
 
 function loadInitialData() {
   return emptyAppData;
-}
-
-function mergeNotificationsById(currentItems: AppNotification[], nextItems: AppNotification[]) {
-  const itemsById = new Map<string, AppNotification>();
-  [...currentItems, ...nextItems].forEach((item) => {
-    itemsById.set(item.id, item);
-  });
-  return Array.from(itemsById.values()).sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
-}
-
-function mergeMessagesById(currentItems: Message[], nextItems: Message[]) {
-  const itemsById = new Map<string, Message>();
-  [...currentItems, ...nextItems].forEach((item) => {
-    itemsById.set(item.id, item);
-  });
-  return Array.from(itemsById.values()).sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
 }
 
 function getOrCreateHeadLink(selector: string, rel: string) {
@@ -672,8 +656,6 @@ export default function App() {
         )}
         renderActivityHistory={() => <ActivityHistoryContent user={user} data={data} yearData={yearData} role="parent" />}
         createId={uid}
-        mergeNotificationsById={mergeNotificationsById}
-        mergeMessagesById={mergeMessagesById}
         maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES}
       />
     );
@@ -704,8 +686,6 @@ export default function App() {
         disciplineSignalBody={disciplineSignalBody}
         selectAttendanceSettingsForYear={selectAttendanceSettingsForYear}
         normalizeDisciplineReason={normalizeDisciplineReason}
-        mergeNotificationsById={mergeNotificationsById}
-        mergeMessagesById={mergeMessagesById}
         maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES}
       />
     );

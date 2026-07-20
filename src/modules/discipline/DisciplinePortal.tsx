@@ -18,6 +18,7 @@ import { createAuditLog } from "../../utils/audit";
 import { buildDisciplineStats } from "../../utils/disciplineStats";
 import { nextMessageThreadId } from "../../utils/messageThreads";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
+import { mergeMessagesById, mergeNotificationsById } from "../../utils/realtimeMerges";
 import type { AppData, AppNotification, AppUser, AttendanceRecord, AttendanceSettings, AttendanceStatus, AuditLog, DisciplineSanction, Message, School, SchoolYear, Student } from "../../types";
 
 type DisciplineTab = "status" | "attendance" | "messages" | "menu";
@@ -106,8 +107,6 @@ export function DisciplinePortal({
   disciplineSignalBody,
   selectAttendanceSettingsForYear,
   normalizeDisciplineReason,
-  mergeNotificationsById,
-  mergeMessagesById,
   maxValveDocumentBytes,
 }: {
   user: AppUser;
@@ -132,8 +131,6 @@ export function DisciplinePortal({
   disciplineSignalBody: (sanction: DisciplineSanction) => string;
   selectAttendanceSettingsForYear: (settings: AttendanceSettings[], schoolId: string, schoolYearId: string) => AttendanceSettings | undefined;
   normalizeDisciplineReason: (value: string) => string;
-  mergeNotificationsById: (currentItems: AppNotification[], nextItems: AppNotification[]) => AppNotification[];
-  mergeMessagesById: (currentItems: Message[], nextItems: Message[]) => Message[];
   maxValveDocumentBytes: number;
 }) {
   const [activeDisciplineTab, setActiveDisciplineTab] = useState<DisciplineTab>("status");

@@ -13,6 +13,7 @@ import { buildSchoolYearDataIndexes } from "../../utils/dataIndexes";
 import { resolvePaymentCashierName } from "../../utils/finance";
 import { nextMessageThreadId } from "../../utils/messageThreads";
 import { generateReceiptPdf, money } from "../../utils/pdf";
+import { mergeMessagesById, mergeNotificationsById } from "../../utils/realtimeMerges";
 import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import type { AppData, AppNotification, AppUser, AuditLog, FeeType, Message, ParentProfile, Payment, School, SchoolYear, Student, ValvePublication } from "../../types";
@@ -52,8 +53,6 @@ type ParentPortalProps = {
   renderBottomNavigation: (activeTab: ParentTab, onTab: (tab: ParentTab) => void) => ReactNode;
   renderActivityHistory: () => ReactNode;
   createId: (prefix: string) => string;
-  mergeNotificationsById: (currentItems: AppNotification[], nextItems: AppNotification[]) => AppNotification[];
-  mergeMessagesById: (currentItems: Message[], nextItems: Message[]) => Message[];
   maxValveDocumentBytes: number;
 };
 
@@ -70,8 +69,6 @@ export function ParentPortal({
   renderBottomNavigation,
   renderActivityHistory,
   createId,
-  mergeNotificationsById,
-  mergeMessagesById,
   maxValveDocumentBytes,
 }: ParentPortalProps) {
   const [activeParentTab, setActiveParentTab] = useState<ParentTab>("children");
