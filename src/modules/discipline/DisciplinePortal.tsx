@@ -15,6 +15,7 @@ import { canUseFirestoreData, persistFirestorePatch } from "../../services/fires
 import { markNotificationsReadTargeted } from "../../services/notificationsPagination";
 import { attendanceRecordId, attendanceStatusText, resolveAttendanceStatusForArrival } from "../../utils/attendance";
 import { createAuditLog } from "../../utils/audit";
+import { disciplineClassName, disciplineSignalBody, disciplineStudentName, normalizeDisciplineReason } from "../../utils/discipline";
 import { buildDisciplineStats } from "../../utils/disciplineStats";
 import { nextMessageThreadId } from "../../utils/messageThreads";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
@@ -102,11 +103,7 @@ export function DisciplinePortal({
   DisciplineBottomNavigationComponent,
   MessagesModuleComponent,
   createId,
-  disciplineStudentName,
-  disciplineClassName,
-  disciplineSignalBody,
   selectAttendanceSettingsForYear,
-  normalizeDisciplineReason,
   maxValveDocumentBytes,
 }: {
   user: AppUser;
@@ -126,11 +123,7 @@ export function DisciplinePortal({
   DisciplineBottomNavigationComponent: ComponentType<DisciplineBottomNavigationComponentProps>;
   MessagesModuleComponent: ComponentType<MessagesModuleComponentProps>;
   createId: (prefix: string) => string;
-  disciplineStudentName: (student: Student) => string;
-  disciplineClassName: (student: Pick<Student, "className" | "option">) => string;
-  disciplineSignalBody: (sanction: DisciplineSanction) => string;
   selectAttendanceSettingsForYear: (settings: AttendanceSettings[], schoolId: string, schoolYearId: string) => AttendanceSettings | undefined;
-  normalizeDisciplineReason: (value: string) => string;
   maxValveDocumentBytes: number;
 }) {
   const [activeDisciplineTab, setActiveDisciplineTab] = useState<DisciplineTab>("status");
