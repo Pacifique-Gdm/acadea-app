@@ -4,6 +4,7 @@ import { FormPanel } from "../../components/ui";
 import { db } from "../../firebase";
 import { persistMessageWithConversation } from "../../services/conversations";
 import { canUseFirestoreData } from "../../services/firestoreData";
+import { nextMessageThreadId } from "../../utils/messageThreads";
 import { formatStudentClassName, getClassSection } from "../../utils/studentClasses";
 import type { AppData, AppNotification, AppUser, Message, ParentProfile, School, SchoolClass, SchoolSection, SchoolYear, Student } from "../../types";
 
@@ -21,7 +22,6 @@ type MessagesModuleProps = {
   year: SchoolYear;
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
   createId: (prefix: string) => string;
-  nextMessageThreadId: (messages: Message[], senderId: string, recipientParentId: Message["recipientParentId"], threadParentId?: string, preferredThreadId?: string) => string | null | undefined;
 };
 
 export function MessagesModule({
@@ -32,7 +32,6 @@ export function MessagesModule({
   year,
   updateData,
   createId,
-  nextMessageThreadId,
 }: MessagesModuleProps) {
   const [recipientParentId, setRecipientParentId] = useState<string>("");
   const [adminRecipientMode, setAdminRecipientMode] = useState<"all" | "parents" | "sections" | "classes">("all");
@@ -179,7 +178,7 @@ export function MessagesModule({
       ? yearData.messages.filter((message) => !message.schoolRecipient || visibleSchoolRecipients.includes(message.schoolRecipient))
       : yearData.messages;
     const messages: Message[] = recipientParents.map((parent) => {
-      const threadId = nextMessageThreadId(threadMessages, user.id, parent.id, parent.id) ?? createId("thread");
+      const threadId = nextMessageThreadId(threadMessages, user.id, parent.id, parent.id, undefined, createId) ?? createId("thread");
       const existingThreadRecipient = threadMessages.find(
         (message) =>
           message.threadId === threadId &&

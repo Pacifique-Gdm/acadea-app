@@ -15,6 +15,7 @@ import { canUseFirestoreData, persistFirestorePatch } from "../../services/fires
 import { markNotificationsReadTargeted } from "../../services/notificationsPagination";
 import { attendanceRecordId, attendanceStatusText, resolveAttendanceStatusForArrival } from "../../utils/attendance";
 import { buildDisciplineStats } from "../../utils/disciplineStats";
+import { nextMessageThreadId } from "../../utils/messageThreads";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import type { AppData, AppNotification, AppUser, AttendanceRecord, AttendanceSettings, AttendanceStatus, AuditLog, DisciplineSanction, Message, School, SchoolYear, Student } from "../../types";
 
@@ -100,7 +101,6 @@ export function DisciplinePortal({
   MessagesModuleComponent,
   createId,
   createAuditLog,
-  nextMessageThreadId,
   disciplineStudentName,
   disciplineClassName,
   disciplineSignalBody,
@@ -128,7 +128,6 @@ export function DisciplinePortal({
   MessagesModuleComponent: ComponentType<MessagesModuleComponentProps>;
   createId: (prefix: string) => string;
   createAuditLog: (user: AppUser, schoolId: string, schoolYearId: string, action: string, details: string) => AuditLog;
-  nextMessageThreadId: (messages: Message[], senderId: string, recipientParentId: Message["recipientParentId"], threadParentId?: string, preferredThreadId?: string) => string | null | undefined;
   disciplineStudentName: (student: Student) => string;
   disciplineClassName: (student: Pick<Student, "className" | "option">) => string;
   disciplineSignalBody: (sanction: DisciplineSanction) => string;
@@ -211,7 +210,7 @@ export function DisciplinePortal({
       recipientParentId: parent.id,
       schoolRecipient: "discipline",
       threadParentId: parent.id,
-      threadId: nextMessageThreadId(yearData.messages, user.id, parent.id, parent.id) ?? createId("thread"),
+      threadId: nextMessageThreadId(yearData.messages, user.id, parent.id, parent.id, undefined, createId) ?? createId("thread"),
       disciplineSanctionId: sanction.id,
       subject: `Signalement disciplinaire — ${sanction.studentName}`,
       body: disciplineSignalBody(sanction),

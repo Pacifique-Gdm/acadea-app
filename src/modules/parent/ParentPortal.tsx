@@ -10,6 +10,7 @@ import { markNotificationsReadTargeted } from "../../services/notificationsPagin
 import { fetchParentMessageQuota, sendParentMessageWithQuota } from "../../services/parentMessaging";
 import type { ParentMessageQuota } from "../../services/parentMessaging";
 import { buildSchoolYearDataIndexes } from "../../utils/dataIndexes";
+import { nextMessageThreadId } from "../../utils/messageThreads";
 import { generateReceiptPdf, money } from "../../utils/pdf";
 import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
 import { formatStudentClassName } from "../../utils/studentClasses";
@@ -51,7 +52,6 @@ type ParentPortalProps = {
   renderActivityHistory: () => ReactNode;
   createId: (prefix: string) => string;
   createAuditLog: (user: AppUser, schoolId: string, schoolYearId: string, action: string, details: string) => AuditLog;
-  nextMessageThreadId: (messages: Message[], senderId: string, recipientParentId: Message["recipientParentId"], threadParentId?: string, preferredThreadId?: string) => string | undefined;
   mergeNotificationsById: (currentItems: AppNotification[], nextItems: AppNotification[]) => AppNotification[];
   mergeMessagesById: (currentItems: Message[], nextItems: Message[]) => Message[];
   resolvePaymentCashierName: (payment: Payment, auditLogs: AuditLog[]) => string;
@@ -72,7 +72,6 @@ export function ParentPortal({
   renderActivityHistory,
   createId,
   createAuditLog,
-  nextMessageThreadId,
   mergeNotificationsById,
   mergeMessagesById,
   resolvePaymentCashierName,
@@ -225,7 +224,7 @@ export function ParentPortal({
 
     const recipientLabel = recipientLabels[messageRecipient];
     const createdAt = new Date().toISOString();
-    const threadId = nextMessageThreadId(yearData.messages, user.id, "school", user.parentId) ?? createId("thread");
+    const threadId = nextMessageThreadId(yearData.messages, user.id, "school", user.parentId, undefined, createId) ?? createId("thread");
     const message: Message = {
       id: createId("msg"),
       schoolId: school.id,

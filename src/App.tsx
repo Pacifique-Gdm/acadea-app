@@ -694,7 +694,6 @@ export default function App() {
         renderActivityHistory={() => <ActivityHistoryContent user={user} data={data} yearData={yearData} role="parent" />}
         createId={uid}
         createAuditLog={createAuditLog}
-        nextMessageThreadId={nextMessageThreadId}
         mergeNotificationsById={mergeNotificationsById}
         mergeMessagesById={mergeMessagesById}
         resolvePaymentCashierName={resolvePaymentCashierName}
@@ -721,10 +720,9 @@ export default function App() {
         EnvironmentBannerComponent={EnvironmentBanner}
         HeaderComponent={(props) => <Header {...props} roleLabels={roleLabels} />}
         DisciplineBottomNavigationComponent={DisciplineBottomNavigation}
-        MessagesModuleComponent={(props) => <MessagesModule {...props} createId={uid} nextMessageThreadId={nextMessageThreadId} />}
+        MessagesModuleComponent={(props) => <MessagesModule {...props} createId={uid} />}
         createId={uid}
         createAuditLog={createAuditLog}
-        nextMessageThreadId={nextMessageThreadId}
         disciplineStudentName={disciplineStudentName}
         disciplineClassName={disciplineClassName}
         disciplineSignalBody={disciplineSignalBody}
@@ -844,7 +842,7 @@ export default function App() {
           <ReportsModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} exportReportPdf={exportReportPdf} />
         )}
         {!studentDetailMatch && route !== "/admin/rapport-financier" && activeTab === "messages" && (
-          <MessagesModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} createId={uid} nextMessageThreadId={nextMessageThreadId} />
+          <MessagesModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} createId={uid} />
         )}
         {!studentDetailMatch && route !== "/admin/rapport-financier" && activeTab === "menu" && (
           <MenuModule
@@ -1326,39 +1324,6 @@ function schoolTabLabel(tab: "overview" | "info" | "admins" | "history") {
     history: "Historique",
   };
   return labels[tab];
-}
-
-function messageConversationScope(message: Pick<Message, "recipientParentId" | "threadParentId">) {
-  if (message.recipientParentId === "all") return "all";
-  const parentId = message.threadParentId ?? (message.recipientParentId !== "school" ? message.recipientParentId : undefined);
-  return parentId ? `parent:${parentId}` : "school";
-}
-
-function targetConversationScope(recipientParentId: Message["recipientParentId"], threadParentId?: string) {
-  return messageConversationScope({ recipientParentId, threadParentId });
-}
-
-function nextMessageThreadId(messages: Message[], senderId: string, recipientParentId: Message["recipientParentId"], threadParentId?: string, preferredThreadId?: string) {
-  const scope = targetConversationScope(recipientParentId, threadParentId);
-  const scopedMessages = messages.filter((message) => messageConversationScope(message) === scope);
-  const threadGroups = scopedMessages.reduce<Record<string, Message[]>>((groups, message) => {
-    const key = message.threadId ?? "legacy";
-    return { ...groups, [key]: [...(groups[key] ?? []), message] };
-  }, {});
-  const selectedMessages = preferredThreadId ? threadGroups[preferredThreadId] ?? [] : [];
-  const activeMessages = selectedMessages.length
-    ? selectedMessages
-    : Object.values(threadGroups).sort((a, b) => {
-        const lastA = [...a].sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.createdAt ?? "";
-        const lastB = [...b].sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.createdAt ?? "";
-        return lastB.localeCompare(lastA);
-      })[0] ?? [];
-  const lastMessages = [...activeMessages].sort((a, b) => a.createdAt.localeCompare(b.createdAt)).slice(-2);
-  if (lastMessages.length >= 2 && lastMessages.every((message) => message.senderId === senderId)) {
-    return uid("thread");
-  }
-  if (preferredThreadId) return preferredThreadId;
-  return activeMessages[0]?.threadId;
 }
 
 function disciplineStudentName(student: Student) {
