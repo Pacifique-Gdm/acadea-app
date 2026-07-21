@@ -20,28 +20,23 @@ type FirebaseUser = {
   email: string | null;
 };
 
-type AuthDiagnostic = {
-  firebaseUid?: string;
-  email?: string | null;
-  firestoreDocument?: Record<string, unknown> | null;
-  customClaims?: Record<string, unknown>;
-  rawRole?: unknown;
-  normalizedRole?: AppUser["role"];
-  schoolId?: unknown;
-  tenantId?: unknown;
-  organisationId?: unknown;
-  organizationId?: unknown;
-  parentId?: unknown;
-};
-
 type RawAppUser = Omit<AppUser, "role" | "schoolId"> & {
   role: AppUser["role"] | "admin" | "superadmin";
   schoolId?: string;
   tenantId?: string;
   organisationId?: string;
   organizationId?: string;
-  __authDiagnostic?: AuthDiagnostic;
 };
+
+class AuthProfileError extends Error {
+  shouldSignOut: boolean;
+
+  constructor(message: string, options: { shouldSignOut: boolean }) {
+    super(message);
+    this.name = "AuthProfileError";
+    this.shouldSignOut = options.shouldSignOut;
+  }
+}
 
 function assertFirebaseAuthReady() {
   if (!firebaseReady || !auth || !db) {
@@ -61,46 +56,44 @@ function normalizeUserProfile(user: RawAppUser): AppUser {
     ...user,
     role: normalizedRole,
     schoolId: normalizedSchoolId,
-    __authDiagnostic: {
-      ...user.__authDiagnostic,
-      rawRole: user.__authDiagnostic?.rawRole ?? user.role,
-      normalizedRole,
-      schoolId: normalizedSchoolId,
-      tenantId: user.tenantId,
-      organisationId: user.organisationId,
-      organizationId: user.organizationId,
-      parentId: user.parentId,
-    },
   } as AppUser;
+}
+
+function isSignOutRequired(error: unknown) {
+  return error instanceof AuthProfileError && error.shouldSignOut;
 }
 
 async function loadFirebaseUserProfile(firebaseUser: FirebaseUser, authModule: FirebaseAuthModule) {
   assertFirebaseAuthReady();
 
-  const userSnapshot = await getDoc(doc(db, "users", firebaseUser.uid));
-  const tokenResult = await authModule.getIdTokenResult(firebaseUser).catch(() => ({ claims: {} as Record<string, unknown> }));
+  const userSnapshot = await getDoc(doc(db, "users", firebaseUser.uid)).catch(() => {
+    throw new AuthProfileError("Profil Acadéa temporairement indisponible. Veuillez réessayer.", { shouldSignOut: false });
+  });
+  const tokenResult = await authModule.getIdTokenResult(firebaseUser).catch(() => {
+    throw new AuthProfileError("Session Firebase temporairement indisponible. Veuillez réessayer.", { shouldSignOut: false });
+  });
   const claims = tokenResult.claims;
 
   if (!userSnapshot.exists()) {
     console.error("[Acadéa auth] Document Firestore users/{uid} introuvable.", {
       firebaseUid: firebaseUser.uid,
-      email: firebaseUser.email,
-      firestoreDocument: null,
-      customClaims: claims,
+      role: typeof claims.role === "string" ? claims.role : "missing",
+      hasSchoolId: typeof claims.schoolId === "string",
+      hasParentId: typeof claims.parentId === "string",
     });
-    throw new Error("Aucun profil Acadéa n'est associé à ce compte.");
+    throw new AuthProfileError("Aucun profil Acadéa n'est associé à ce compte.", { shouldSignOut: true });
   }
 
   if (!isRole(claims.role)) {
-    throw new Error("Connexion refusée : le rôle Firebase Custom Claims est manquant ou invalide.");
+    throw new AuthProfileError("Connexion refusée : le rôle Firebase Custom Claims est manquant ou invalide.", { shouldSignOut: true });
   }
 
   if (["school_admin", "cashier", "discipline_director", "admin"].includes(String(claims.role)) && typeof claims.schoolId !== "string") {
-    throw new Error("Connexion refusée : le Custom Claim schoolId est manquant.");
+    throw new AuthProfileError("Connexion refusée : le Custom Claim schoolId est manquant.", { shouldSignOut: true });
   }
 
   if (claims.role === "parent" && (typeof claims.schoolId !== "string" || typeof claims.parentId !== "string")) {
-    throw new Error("Connexion refusée : les Custom Claims parent sont incomplets.");
+    throw new AuthProfileError("Connexion refusée : les Custom Claims parent sont incomplets.", { shouldSignOut: true });
   }
 
   const firestoreDocument = userSnapshot.data();
@@ -114,18 +107,6 @@ async function loadFirebaseUserProfile(firebaseUser: FirebaseUser, authModule: F
     tenantId: claims.tenantId,
     organisationId: claims.organisationId,
     organizationId: claims.organizationId,
-    __authDiagnostic: {
-      firebaseUid: firebaseUser.uid,
-      email: firebaseUser.email,
-      firestoreDocument,
-      customClaims: claims,
-      rawRole: claims.role,
-      schoolId: claims.schoolId,
-      tenantId: firestoreDocument.tenantId ?? claims.tenantId,
-      organisationId: firestoreDocument.organisationId ?? claims.organisationId,
-      organizationId: firestoreDocument.organizationId ?? claims.organizationId,
-      parentId: claims.parentId,
-    },
   };
 
   return normalizeUserProfile(rawProfile as RawAppUser);
@@ -192,7 +173,11 @@ export async function subscribeToFirebaseUser(
       }
 
       void loadFirebaseUserProfile(firebaseUser, authModule).then(onUser).catch((error) => {
-        void authModule.signOut(auth).finally(() => onError(error));
+        if (isSignOutRequired(error)) {
+          void authModule.signOut(auth).finally(() => onError(error));
+          return;
+        }
+        onError(error);
       });
     },
     onError,

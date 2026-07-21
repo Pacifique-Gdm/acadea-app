@@ -146,6 +146,8 @@ export default function App() {
   const [route, setRoute] = useState(() => getInitialRoute());
   const [authReady, setAuthReady] = useState(false);
   const [authError, setAuthError] = useState("");
+  const [dataLoadError, setDataLoadError] = useState("");
+  const [dataLoadRetryKey, setDataLoadRetryKey] = useState(0);
   const [dataLoading, setDataLoading] = useState(false);
   const [platformCounts, setPlatformCounts] = useState<SuperAdminGlobalCounts | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -156,6 +158,10 @@ export default function App() {
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [pwaInstalled, setPwaInstalled] = useState(() => isStandaloneDisplayMode());
   const billingControls = useBillingControls(Boolean(user));
+
+  function authErrorRequiresLogout(error: unknown) {
+    return (error as { shouldSignOut?: boolean })?.shouldSignOut !== false;
+  }
 
   useEffect(() => {
     void applyPlatformLogoAssets();
@@ -230,6 +236,7 @@ export default function App() {
 
   const applyAuthenticatedUser = useCallback((nextUser: AppUser | null) => {
     setAuthError("");
+    setDataLoadError("");
 
     if (!nextUser) {
       setUser(null);
@@ -238,6 +245,7 @@ export default function App() {
       setDataLoading(false);
       setPlatformCounts(null);
       setData(loadInitialData());
+      setDataLoadError("");
       navigate("/login");
       return;
     }
@@ -264,13 +272,16 @@ export default function App() {
         if (!logoutInProgressRef.current) {
           setAuthError(error instanceof Error ? error.message : "Session Firebase invalide.");
         }
-        setUser(null);
-        setSelectedYearId("");
-        setActiveTab("dashboard");
-        setPlatformCounts(null);
-        setData(loadInitialData());
         setAuthReady(true);
-        navigate("/login");
+        if (authErrorRequiresLogout(error)) {
+          setUser(null);
+          setSelectedYearId("");
+          setActiveTab("dashboard");
+          setPlatformCounts(null);
+          setData(loadInitialData());
+          setDataLoadError("");
+          navigate("/login");
+        }
       },
     )
       .then((nextUnsubscribe) => {
@@ -308,6 +319,7 @@ export default function App() {
     loadData
       .then((firestoreData) => {
         if (!firestoreData || cancelled) return;
+        setDataLoadError("");
         setData(firestoreData);
         const nextSchool = firestoreData.schools.find((item) => item.id === user.schoolId);
         const nextSchoolYears = nextSchool ? firestoreData.schoolYears.filter((year) => year.schoolId === nextSchool.id) : [];
@@ -316,22 +328,17 @@ export default function App() {
       .catch((error) => {
         if (cancelled || logoutInProgressRef.current) return;
         console.warn("Chargement Firestore indisponible.", error);
-        setAuthError(error instanceof Error ? error.message : "Chargement Firestore impossible après connexion.");
+        const message = error instanceof Error ? error.message : "Chargement Firestore impossible après connexion.";
+        setAuthError(message);
+        setDataLoadError(message);
         if (user.role === "super_admin") {
           setPlatformCounts(null);
           setData({ ...loadInitialData(), users: [user] });
           navigate("/platform");
           return;
         }
-        setUser(null);
-        setSelectedYearId("");
-        setActiveTab("dashboard");
         setPlatformCounts(null);
-        setData(loadInitialData());
-        navigate("/login");
-        void signOutUser().catch((signOutError) => {
-          console.warn("Déconnexion Firebase après erreur de chargement impossible.", signOutError);
-        });
+        setData({ ...loadInitialData(), users: [user] });
       })
       .finally(() => {
         if (!cancelled) {
@@ -343,7 +350,7 @@ export default function App() {
       cancelled = true;
       setDataLoading(false);
     };
-  }, [navigate, user]);
+  }, [dataLoadRetryKey, navigate, user]);
 
   useEffect(() => {
     if (!user || !school || selectedYearId) return;
@@ -551,6 +558,36 @@ export default function App() {
           <PlatformLogoSlot logoUrl={platformLogoUrl} compact />
           <p className="font-semibold text-ink">Bienvenue, préparation de votre espace sécurisé...</p>
         </div>
+      </main>
+    );
+  }
+
+  if (dataLoadError) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#F5F7FB] px-4 text-center">
+        <section className="w-full max-w-md rounded border border-slate-200 bg-white p-6 shadow-sm">
+          <PlatformLogoSlot logoUrl={platformLogoUrl} compact />
+          <h1 className="text-xl font-bold text-ink">Chargement temporairement indisponible</h1>
+          <p className="mt-2 text-sm text-slate-500">
+            Votre session est conservée. Réessayez dans quelques instants.
+          </p>
+          <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-center">
+            <button
+              onClick={() => {
+                setDataLoadError("");
+                setAuthError("");
+                setDataLoadRetryKey((value) => value + 1);
+              }}
+              className="primary-button justify-center"
+              type="button"
+            >
+              Réessayer
+            </button>
+            <button onClick={logout} className="secondary-button justify-center" type="button">
+              Retour à la connexion
+            </button>
+          </div>
+        </section>
       </main>
     );
   }
