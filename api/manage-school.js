@@ -1,7 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
-import { getAuth } from "firebase-admin/auth";
-import { FieldValue, getFirestore } from "firebase-admin/firestore";
+import { FieldValue } from "firebase-admin/firestore";
+import { initAdmin } from "./_lib/firebaseAdmin.js";
 
 const schoolScopedCollections = [
   "users",
@@ -26,33 +24,6 @@ const schoolScopedCollections = [
   "parentDailyMessageLimits",
   "disciplineSanctions",
 ];
-
-function getCredential() {
-  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    return cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON));
-  }
-
-  if (process.env.GOOGLE_APPLICATION_CREDENTIALS && existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
-    return cert(JSON.parse(readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, "utf8")));
-  }
-
-  if (process.env.NODE_ENV !== "production" && existsSync("service-account.json")) {
-    return cert(JSON.parse(readFileSync("service-account.json", "utf8")));
-  }
-
-  return applicationDefault();
-}
-
-function initAdmin() {
-  if (getApps().length === 0) {
-    initializeApp({ credential: getCredential() });
-  }
-
-  return {
-    auth: getAuth(),
-    db: getFirestore(),
-  };
-}
 
 async function readBody(req) {
   if (req.body && typeof req.body === "object") return req.body;
