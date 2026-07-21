@@ -100,7 +100,7 @@ async function loadAttendanceSettingsCollection(filters: [string, unknown][]) {
   try {
     return await loadCollection<AppData["attendanceSettings"][number]>("attendanceSettings", filters);
   } catch (error) {
-    console.warn("Chargement des paramÃ¨tres de prÃ©sence impossible. VÃ©rifiez le dÃ©ploiement des rÃ¨gles Firestore attendanceSettings.", error);
+    console.warn("Chargement des paramètres de présence impossible. Vérifiez le déploiement des règles Firestore attendanceSettings.", error);
     return [];
   }
 }
