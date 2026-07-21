@@ -35,7 +35,8 @@ import { isSessionAuditAction } from "./utils/audit";
 import { mergeMessagesById, mergeNotificationsById } from "./utils/realtimeMerges";
 import { resolveDefaultSchoolYear } from "./utils/schoolYears";
 import { attendanceSettingsId } from "./utils/attendance";
-import { formatFeeTargetValue } from "./utils/feeTargets";
+import { feeTargetHasOption, formatFeeTargetValue } from "./utils/feeTargets";
+import { schoolEducationLevelChoices } from "./utils/schoolConfig";
 import type { SchoolLevelChoice } from "./utils/schoolConfig";
 import type {
   AppData,
@@ -971,8 +972,7 @@ function selectAttendanceSettingsForYear(settings: AttendanceSettings[], schoolI
   return scopedSettings.find((item) => item.id === deterministicId) ?? [...scopedSettings].sort((first, second) => (second.updatedAt ?? "").localeCompare(first.updatedAt ?? ""))[0];
 }
 
-const schoolEducationLevelChoices = ["Maternelle", "Primaire", "Secondaire"];
-const schoolLevelChoices: SchoolLevelChoice[] = ["Maternelle", "Primaire", "Secondaire", "Primaire uniquement", "Secondaire uniquement"];
+const schoolLevelChoices: SchoolLevelChoice[] = ["Maternelle", "Primaire", "CTEB", "Secondaire", "Primaire uniquement", "CTEB uniquement", "Secondaire uniquement"];
 const defaultSchoolOptions = [
   "Sciences",
   "Littéraire",
@@ -983,12 +983,6 @@ const defaultSchoolOptions = [
   "Coupe et Couture",
   "Électronique",
 ];
-
-const feeTargetSeparator = "::option::";
-
-function feeTargetHasOption(target: string) {
-  return target.includes(feeTargetSeparator);
-}
 
 function formatFeeTargetLabel(fee: Pick<FeeType, "className" | "classOptionKey">) {
   return formatFeeTargetValue(fee.classOptionKey ?? fee.className);

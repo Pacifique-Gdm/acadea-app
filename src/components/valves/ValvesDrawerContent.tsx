@@ -38,6 +38,7 @@ import {
 } from "../../utils/valves";
 import type { ValveAttachmentDraft } from "../../utils/valves";
 import { prepareValveAttachments } from "../../utils/valvesMedia";
+import { schoolSectionLabels } from "../../utils/schoolConfig";
 
 const valveKindLabels: Record<ValvePublicationKind, string> = {
   communique: "Communiqué",
@@ -52,9 +53,10 @@ const valveKindLabels: Record<ValvePublicationKind, string> = {
 
 const valveVisibilityLabels: Record<ValveVisibility, string> = {
   all_parents: "Tous les parents",
-  maternelle: "Maternelle",
-  primaire: "Primaire",
-  secondaire: "Secondaire",
+  maternelle: schoolSectionLabels.maternelle,
+  primaire: schoolSectionLabels.primaire,
+  cteb: schoolSectionLabels.cteb,
+  secondaire: schoolSectionLabels.secondaire,
   class: "Classe précise",
 };
 

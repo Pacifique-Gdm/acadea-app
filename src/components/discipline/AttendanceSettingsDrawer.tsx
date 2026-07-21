@@ -3,7 +3,7 @@ import { CheckCircle2, RotateCcw } from "lucide-react";
 import type { AppUser, AttendanceDaySchedule, AttendanceSchoolDay, AttendanceSettings, School, SchoolClass, SchoolSection, SchoolYear, Student } from "../../types";
 import { CLASSES } from "../../types";
 import { attendanceClassRuleKey, attendanceSchoolDayLabels, attendanceSchoolDays, attendanceSettingsId, defaultFiveSchoolDays, defaultSixSchoolDays, resolveAttendanceSchoolDays } from "../../utils/attendance";
-import { getSchoolEducationLevels } from "../../utils/schoolConfig";
+import { getSchoolSections, schoolSectionLabels, schoolSectionOrder } from "../../utils/schoolConfig";
 import { getClassSection } from "../../utils/studentClasses";
 
 const resetConfirmationPhrase = "REINITIALISER LES HORAIRES";
@@ -63,19 +63,9 @@ export function AttendanceSettingsDrawer({
     return () => window.clearTimeout(timer);
   }, [feedback]);
 
-  const sectionLabels: Record<SchoolSection, string> = {
-    maternelle: "Maternelle",
-    primaire: "Primaire",
-    secondaire: "Secondaire",
-  };
   const sections = useMemo(() => {
-    const levels = getSchoolEducationLevels(school);
-    const choices = [
-      levels.includes("Maternelle") ? "maternelle" : "",
-      levels.includes("Primaire") ? "primaire" : "",
-      levels.includes("Secondaire") ? "secondaire" : "",
-    ].filter(Boolean) as SchoolSection[];
-    return choices.length > 0 ? choices : (["maternelle", "primaire", "secondaire"] as SchoolSection[]);
+    const choices = getSchoolSections(school);
+    return choices.length > 0 ? choices : schoolSectionOrder;
   }, [school]);
   const classRules = useMemo(() => {
     const rules = new Map<string, { key: string; className: SchoolClass; option?: string; section: SchoolSection }>();
@@ -93,8 +83,7 @@ export function AttendanceSettingsDrawer({
         }
       });
     return Array.from(rules.values()).sort((first, second) => {
-      const sectionOrder: Record<SchoolSection, number> = { maternelle: 0, primaire: 1, secondaire: 2 };
-      const sectionDiff = sectionOrder[first.section] - sectionOrder[second.section];
+      const sectionDiff = schoolSectionOrder.indexOf(first.section) - schoolSectionOrder.indexOf(second.section);
       if (sectionDiff !== 0) return sectionDiff;
       const classDiff = CLASSES.indexOf(first.className) - CLASSES.indexOf(second.className);
       if (classDiff !== 0) return classDiff;
@@ -296,12 +285,12 @@ export function AttendanceSettingsDrawer({
         <div className="grid gap-3">
           {sections.map((section) => (
             <div key={section} className="grid gap-2 rounded border border-slate-200 bg-slate-50 p-3">
-              <p className="text-sm font-bold text-ink">{sectionLabels[section]}</p>
+              <p className="text-sm font-bold text-ink">{schoolSectionLabels[section]}</p>
               <ScheduleGrid
                 days={displayedSchoolDays}
                 schedule={sectionSchedule[section] ?? {}}
                 onChange={(day, field, value) => updateSectionSchedule(section, day, field, value)}
-                onReset={(day) => openResetConfirmation({ scope: "section", day, section, label: `Par section - ${sectionLabels[section]}` })}
+                onReset={(day) => openResetConfirmation({ scope: "section", day, section, label: `Par section - ${schoolSectionLabels[section]}` })}
                 resetTarget={resetTarget?.scope === "section" && resetTarget.section === section ? resetTarget : null}
                 resetConfirmation={resetConfirmation}
                 saving={saving}

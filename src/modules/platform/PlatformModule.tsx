@@ -869,8 +869,10 @@ export function PlatformModule({
                     <option value="all">Tous types</option>
                     <option value="Maternelle">Maternelle</option>
                     <option value="Primaire">Primaire</option>
+                    <option value="CTEB">CTEB</option>
                     <option value="Secondaire">Secondaire</option>
                     <option value="Primaire uniquement">Primaire uniquement</option>
+                    <option value="CTEB uniquement">CTEB uniquement</option>
                     <option value="Secondaire uniquement">Secondaire uniquement</option>
                     <option value="Mixte">Mixte</option>
                   </FilterSelect>

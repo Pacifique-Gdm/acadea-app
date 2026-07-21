@@ -3,6 +3,7 @@ import { CLASSES } from "../types";
 
 export function getClassSection(className: SchoolClass): SchoolSection {
   if (className.includes("Maternelle")) return "maternelle";
+  if (className.includes("CTEB")) return "cteb";
   if (className.includes("Humanité")) return "secondaire";
   return "primaire";
 }

@@ -3,6 +3,7 @@ import { CalendarDays, ChevronLeft, ChevronRight, Download, Plus, RotateCcw, Sea
 import type { AttendanceRecord, AttendanceSettings, AttendanceStatus, School, SchoolSection, SchoolYear, Student } from "../../types";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import { attendanceSchoolDayFromDate, attendanceSchoolDayLabels, resolveAttendanceSchoolDays } from "../../utils/attendance";
+import { getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
 
 type ManualAttendanceInput = {
   studentId: string;
@@ -44,9 +45,7 @@ const statusLabels: Record<AttendanceStatus, string> = {
 };
 const sectionLabels: Record<AttendanceSectionFilter, string> = {
   all: "Toutes les sections",
-  maternelle: "Maternelle",
-  primaire: "Primaire",
-  secondaire: "Secondaire",
+  ...schoolSectionLabels,
 };
 
 function parseLocalDate(value: string) {
@@ -84,6 +83,7 @@ function studentClassName(student: Student) {
 
 function classSection(className: string): SchoolSection {
   if (className.includes("Maternelle")) return "maternelle";
+  if (className.includes("CTEB")) return "cteb";
   if (className.includes("Humanité")) return "secondaire";
   return "primaire";
 }
@@ -92,23 +92,8 @@ function studentOption(student: Student) {
   return student.option || "—";
 }
 
-function normalizeEducationLevel(level: string) {
-  const normalized = level.trim().toLocaleLowerCase("fr");
-  if (normalized === "maternelle") return "maternelle";
-  if (normalized === "primaire") return "primaire";
-  if (normalized === "secondaire") return "secondaire";
-  if (normalized === "mixte") return "all";
-  return "";
-}
-
 function configuredSchoolSections(school: School): SchoolSection[] {
-  const levels = (school.educationLevels ?? []).map(normalizeEducationLevel).filter((level): level is AttendanceSectionFilter => Boolean(level));
-  const uniqueLevels = Array.from(new Set(levels));
-  if (uniqueLevels.includes("all")) return ["maternelle", "primaire", "secondaire"] satisfies SchoolSection[];
-  if (uniqueLevels.length > 0) return uniqueLevels.filter((level): level is SchoolSection => level !== "all");
-  const schoolType = normalizeEducationLevel(school.schoolType ?? "");
-  if (schoolType === "all") return ["maternelle", "primaire", "secondaire"] satisfies SchoolSection[];
-  return schoolType ? [schoolType] : ([] as SchoolSection[]);
+  return getSchoolSections(school);
 }
 
 function normalizeSearch(value: string) {
@@ -130,9 +115,8 @@ function classSortRank(className: string) {
     const maternelleLevel = normalized.includes("petite") ? 1 : normalized.includes("moyenne") ? 2 : normalized.includes("grande") ? 3 : ordinal;
     return { section: 0, level: maternelleLevel };
   }
-  if (ordinal === 7) return { section: 2, level: 7 };
-  if (ordinal === 8) return { section: 3, level: 8 };
-  if (normalized.includes("humanite") || normalized.includes("secondaire")) return { section: 4, level: ordinal };
+  if (normalized.includes("cteb")) return { section: 2, level: ordinal };
+  if (normalized.includes("humanite") || normalized.includes("secondaire")) return { section: 3, level: ordinal };
   if (ordinal >= 1 && ordinal <= 6) return { section: 1, level: ordinal };
   return { section: 5, level: ordinal };
 }

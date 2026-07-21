@@ -1,5 +1,6 @@
-import type { ParentProfile, SchoolClass, SchoolSection, Student } from "../types";
+import type { ParentProfile, SchoolClass, Student } from "../types";
 import { CLASSES } from "../types";
+import { getClassSection } from "./studentClasses";
 
 export type ParentsDirectoryChild = Student & {
   displayName: string;
@@ -35,12 +36,6 @@ export function normalizeParentsDirectorySearch(value: string) {
     .toLowerCase()
     .trim()
     .replace(/\s+/g, " ");
-}
-
-function getClassSection(className: SchoolClass): SchoolSection {
-  if (className.includes("Maternelle")) return "maternelle";
-  if (className.includes("Humanité")) return "secondaire";
-  return "primaire";
 }
 
 export function formatDirectoryStudentName(student: Pick<Student, "nom" | "postnom" | "prenom">) {

@@ -6,7 +6,7 @@ import { buildDashboardFinancialAggregates, buildDashboardTransactionDayRows } f
 import { buildSchoolYearDataIndexes } from "../../utils/dataIndexes";
 import { exportDashboardReportPdf } from "../../utils/dashboardPdf";
 import { money } from "../../utils/pdf";
-import { getSchoolClassChoices, getSchoolEducationLevels } from "../../utils/schoolConfig";
+import { getSchoolClassChoices, getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
 import { buildStats } from "../../utils/stats";
 import { formatStudentClassName, getClassSection } from "../../utils/studentClasses";
 import type { AppUser, Expense, FeeType, ParentProfile, Payment, School, SchoolSection, SchoolYear, Student } from "../../types";
@@ -316,20 +316,14 @@ function TransactionComboChart({
 
 export function Dashboard({ data, school, year }: DashboardProps) {
   const today = toDateKey(new Date());
-  const [sectionFilter, setSectionFilter] = useState<"all" | "maternelle" | "primaire" | "secondaire">("all");
+  const [sectionFilter, setSectionFilter] = useState<"all" | SchoolSection>("all");
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
   const [dateFilterActive, setDateFilterActive] = useState(false);
   const [dateFilterError, setDateFilterError] = useState("");
   const [transactionPeriod, setTransactionPeriod] = useState<TransactionPeriod>("last5");
   const dashboardClassChoices = useMemo(() => getSchoolClassChoices(school), [school]);
-  const dashboardSectionChoices = useMemo(
-    () =>
-      getSchoolEducationLevels(school)
-        .map((level) => (level === "Maternelle" ? "maternelle" : level === "Primaire" ? "primaire" : level === "Secondaire" ? "secondaire" : ""))
-        .filter(Boolean) as SchoolSection[],
-    [school],
-  );
+  const dashboardSectionChoices = useMemo(() => getSchoolSections(school), [school]);
   useEffect(() => {
     if (sectionFilter !== "all" && !dashboardSectionChoices.includes(sectionFilter)) {
       setSectionFilter("all");
@@ -510,7 +504,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
       })),
     [feeTypesById, studentsById, transactionDayRows],
   );
-  const sectionLabel = sectionFilter === "all" ? "Toutes les sections" : sectionFilter.charAt(0).toUpperCase() + sectionFilter.slice(1);
+  const sectionLabel = sectionFilter === "all" ? "Toutes les sections" : schoolSectionLabels[sectionFilter];
   const dateLabel = dateFilterActive ? (startDate || "D\u00e9but") + " au " + (endDate || "Fin") : "Année scolaire complète";
   const cards = [
     { label: "Nombre total d'\u00e9l\u00e8ves", value: totalActiveStudents, icon: GraduationCap, tone: "bg-mint/10 text-mint" },
@@ -584,9 +578,9 @@ export function Dashboard({ data, school, year }: DashboardProps) {
         <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-[180px_150px_150px_auto_auto]">
           <select value={sectionFilter} onChange={(event) => setSectionFilter(event.target.value as typeof sectionFilter)} className="input">
             <option value="all">Toutes les sections</option>
-            {dashboardSectionChoices.includes("maternelle") && <option value="maternelle">Maternelle</option>}
-            {dashboardSectionChoices.includes("primaire") && <option value="primaire">Primaire</option>}
-            {dashboardSectionChoices.includes("secondaire") && <option value="secondaire">Secondaire</option>}
+            {dashboardSectionChoices.map((section) => (
+              <option key={section} value={section}>{schoolSectionLabels[section]}</option>
+            ))}
           </select>
           <input
             value={startDate}

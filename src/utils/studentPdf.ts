@@ -140,10 +140,10 @@ export async function exportAgeHomogeneityPdf(school: School, year: SchoolYear, 
     ["6ème Primaire", { section: 2, level: 6 }],
     ["7ème CTEB", { section: 3, level: 1 }],
     ["8ème CTEB", { section: 3, level: 2 }],
-    ["1ère Humanité", { section: 3, level: 3 }],
-    ["2ème Humanité", { section: 3, level: 4 }],
-    ["3ème Humanité", { section: 3, level: 5 }],
-    ["4ème Humanité", { section: 3, level: 6 }],
+    ["1ère Humanité", { section: 4, level: 1 }],
+    ["2ème Humanité", { section: 4, level: 2 }],
+    ["3ème Humanité", { section: 4, level: 3 }],
+    ["4ème Humanité", { section: 4, level: 4 }],
   ]);
   const sortedStudents = [...students].sort((a, b) => {
     const aOrder = schoolOrderByClass.get(a.className) ?? { section: 99, level: 99 };

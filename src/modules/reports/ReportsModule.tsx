@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Download } from "lucide-react";
 import { Field, FormPanel, Metric } from "../../components/ui";
 import { exportReportPdf } from "../../utils/reportPdf";
-import { getSchoolEducationLevels } from "../../utils/schoolConfig";
+import { getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
 import { buildStats } from "../../utils/stats";
 import { getClassSection } from "../../utils/studentClasses";
 import type { Expense, FeeType, ParentProfile, Payment, School, SchoolSection, SchoolYear, Student } from "../../types";
@@ -28,17 +28,9 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
   const [sectionFilter, setSectionFilter] = useState<"all" | SchoolSection>("all");
   const sectionLabels: Record<"all" | SchoolSection, string> = {
     all: "Toutes les sections",
-    maternelle: "Maternelle",
-    primaire: "Primaire",
-    secondaire: "Secondaire",
+    ...schoolSectionLabels,
   };
-  const reportSectionChoices = useMemo(
-    () =>
-      getSchoolEducationLevels(school)
-        .map((level) => (level === "Maternelle" ? "maternelle" : level === "Primaire" ? "primaire" : level === "Secondaire" ? "secondaire" : ""))
-        .filter(Boolean) as SchoolSection[],
-    [school],
-  );
+  const reportSectionChoices = useMemo(() => getSchoolSections(school), [school]);
   useEffect(() => {
     if (sectionFilter !== "all" && !reportSectionChoices.includes(sectionFilter)) {
       setSectionFilter("all");

@@ -20,7 +20,7 @@ export type SchoolClass =
 export type FeeKind = "Minerval" | "Fourniture" | string;
 export type StudentStatus = "ACTIVE" | "TRANSFERRED" | "DROPPED" | "DECEASED";
 export type StudentExitReason = "Abandon" | "Mutation" | "Exclusion" | "Décès" | "Fin de scolarité" | "Erreur administrative" | "Autre";
-export type SchoolSection = "maternelle" | "primaire" | "secondaire";
+export type SchoolSection = "maternelle" | "primaire" | "cteb" | "secondaire";
 export type HumanityOption = "Littéraire" | "Sciences" | "Pédagogique" | "Commerciale" | string;
 
 export interface AppUser {
@@ -52,7 +52,7 @@ export interface School {
   acronym?: string;
   educationLevels?: string[];
   schoolOptions?: string[];
-  schoolType?: "Maternelle" | "Primaire" | "Secondaire" | "Primaire uniquement" | "Secondaire uniquement" | "Mixte";
+  schoolType?: "Maternelle" | "Primaire" | "CTEB" | "Secondaire" | "Primaire uniquement" | "CTEB uniquement" | "Secondaire uniquement" | "Mixte";
   createdAt?: string;
   createdBy?: string;
   mainAdminId?: string;
@@ -252,7 +252,7 @@ export interface DisciplineSanction {
 }
 
 export type ValvePublicationKind = "communique" | "palmares" | "points" | "image" | "liste" | "pdf" | "document" | "autre";
-export type ValveVisibility = "all_parents" | "maternelle" | "primaire" | "secondaire" | "class";
+export type ValveVisibility = "all_parents" | "maternelle" | "primaire" | "cteb" | "secondaire" | "class";
 
 export interface ValvePublicationAttachment {
   name: string;
