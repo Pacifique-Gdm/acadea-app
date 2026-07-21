@@ -1,4 +1,4 @@
-const target = process.env.VERCEL_ENV || process.env.VITE_APP_ENV || "development";
+const target = process.env.VITE_APP_ENV || process.env.VERCEL_ENV || "development";
 const projectId = process.env.VITE_FIREBASE_PROJECT_ID || "";
 const expectedProductionProjectId = process.env.ACADEA_EXPECTED_PRODUCTION_FIREBASE_PROJECT_ID || "";
 const expectedPreviewProjectId = process.env.ACADEA_EXPECTED_PREVIEW_FIREBASE_PROJECT_ID || "";
