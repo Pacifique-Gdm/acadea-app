@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { initAdmin } from "./_lib/firebaseAdmin.js";
+import { attachRequestId, createApiLogger, getRequestId } from "./_lib/logger.js";
 
 const allowedRecipients = new Set(["admin", "cashier", "both", "discipline"]);
 const messageLimit = 3;
@@ -155,8 +156,14 @@ function publicError(error) {
 }
 
 export default async function handler(req, res) {
+  const requestId = getRequestId(req);
+  attachRequestId(res, requestId);
+  const logger = createApiLogger({ endpoint: "/api/send-parent-message", method: req.method, requestId });
+  let callerContext;
+  let schoolYearId = "";
+
   if (req.method !== "POST" && req.method !== "GET") {
-    sendJson(res, 405, { error: "method-not-allowed", message: "Methode non autorisee." });
+    sendJson(res, 405, { error: "method-not-allowed", message: "Methode non autorisee.", requestId });
     return;
   }
 
@@ -164,22 +171,24 @@ export default async function handler(req, res) {
     const authorization = req.headers.authorization ?? "";
     const token = authorization.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : "";
     if (!token) {
-      sendJson(res, 401, { error: "not-authenticated", message: "Authentification requise." });
+      sendJson(res, 401, { error: "not-authenticated", message: "Authentification requise.", requestId });
       return;
     }
 
     const { auth, db } = initAdmin();
     const { caller, parent } = await requireParentContext({ auth, db, token });
+    callerContext = caller;
     const body = req.method === "POST" ? await readBody(req) : {};
     const query = req.query ?? {};
-    const schoolYearId = normalizeText(req.method === "POST" ? body.schoolYearId : query.schoolYearId);
+    schoolYearId = normalizeText(req.method === "POST" ? body.schoolYearId : query.schoolYearId);
     if (!schoolYearId) {
-      sendJson(res, 400, { error: "missing-school-year", message: "Annee scolaire requise." });
+      sendJson(res, 400, { error: "missing-school-year", message: "Annee scolaire requise.", requestId });
       return;
     }
 
     if (req.method === "GET") {
       const quota = await currentQuota({ db, caller, schoolYearId });
+      logger.info("Quota message parent consulte.", { schoolId: caller.schoolId, userId: caller.uid, role: caller.role, schoolYearId });
       sendJson(res, 200, {
         quota: {
           limit: messageLimit,
@@ -197,11 +206,11 @@ export default async function handler(req, res) {
     const subject = normalizeText(body.subject);
     const messageBody = normalizeText(body.body);
     if (!allowedRecipients.has(recipient)) {
-      sendJson(res, 400, { error: "invalid-recipient", message: "Destinataire invalide." });
+      sendJson(res, 400, { error: "invalid-recipient", message: "Destinataire invalide.", requestId });
       return;
     }
     if (!subject || !messageBody) {
-      sendJson(res, 400, { error: "invalid-message", message: "Objet et message requis." });
+      sendJson(res, 400, { error: "invalid-message", message: "Objet et message requis.", requestId });
       return;
     }
 
@@ -315,10 +324,16 @@ export default async function handler(req, res) {
       };
     });
 
+    logger.info("Message parent envoye.", { schoolId: caller.schoolId, userId: caller.uid, role: caller.role, schoolYearId });
     sendJson(res, 200, saved);
   } catch (error) {
     const response = publicError(error);
-    console.error("[Acadea parent messaging] Envoi parent echoue.", error);
-    sendJson(res, response.statusCode, response.body);
+    logger.error("Envoi parent echoue.", error, {
+      schoolId: callerContext?.schoolId,
+      userId: callerContext?.uid,
+      role: callerContext?.role,
+      schoolYearId,
+    });
+    sendJson(res, response.statusCode, { ...response.body, requestId });
   }
 }

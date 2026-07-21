@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { initAdmin } from "./_lib/firebaseAdmin.js";
+import { attachRequestId, createApiLogger, getRequestId, internalServerError } from "./_lib/logger.js";
 
 const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "parent"]);
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
@@ -38,6 +39,10 @@ function publicError(error) {
   if (code === "auth/invalid-email") return "Email invalide.";
   if (code === "auth/invalid-password") return "Mot de passe invalide.";
   return "Provisionnement impossible. Verifiez les informations et reessayez.";
+}
+
+function isExpectedProvisioningError(error) {
+  return ["auth/email-already-exists", "auth/invalid-email", "auth/invalid-password"].includes(error?.code ?? "");
 }
 
 async function commitBatches(db, refs, buildUpdate) {
@@ -158,8 +163,14 @@ async function createAuthUser(auth, { email, password, displayName }) {
 }
 
 export default async function handler(req, res) {
+  const requestId = getRequestId(req);
+  attachRequestId(res, requestId);
+  const logger = createApiLogger({ endpoint: "/api/provision-school-account", method: req.method, requestId });
+  let caller;
+  let schoolId = "";
+
   if (req.method !== "POST") {
-    sendJson(res, 405, { error: "Methode non autorisee." });
+    sendJson(res, 405, { error: "Methode non autorisee.", requestId });
     return;
   }
 
@@ -173,7 +184,7 @@ export default async function handler(req, res) {
     const token = authorization.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : "";
 
     if (!token) {
-      sendJson(res, 401, { error: "Authentification requise." });
+      sendJson(res, 401, { error: "Authentification requise.", requestId });
       return;
     }
 
@@ -181,18 +192,19 @@ export default async function handler(req, res) {
     adminAuth = auth;
     adminDb = db;
 
-    const caller = await auth.verifyIdToken(token, true);
+    caller = await auth.verifyIdToken(token, true);
     const body = await readBody(req);
     const action = normalizeText(body.action);
 
     if (action === "delete-parent") {
       const result = await deleteParentAccount({ auth, db, caller, body });
+      logger.info("Suppression parent traitee.", { schoolId: normalizeText(body.schoolId), userId: caller.uid, role: caller.role, parentId: result.parentId, status: result.status });
       sendJson(res, result.status === "partial" ? 207 : 200, result);
       return;
     }
 
     const role = normalizeText(body.role);
-    const schoolId = normalizeText(body.schoolId);
+    schoolId = normalizeText(body.schoolId);
     const schoolYearId = normalizeText(body.schoolYearId);
     const name = normalizeText(body.name);
     const email = normalizeEmail(body.email);
@@ -238,6 +250,7 @@ export default async function handler(req, res) {
       createdRefs.push(`users/${authUser.uid}`);
       await auth.setCustomUserClaims(authUser.uid, { role, schoolId });
 
+      logger.info("Compte ecole provisionne.", { schoolId, userId: caller.uid, role: caller.role, provisionedRole: role });
       sendJson(res, 200, { user: schoolUser });
       return;
     }
@@ -278,6 +291,7 @@ export default async function handler(req, res) {
     createdRefs.push(`users/${authUser.uid}`);
     await auth.setCustomUserClaims(authUser.uid, { role: "parent", schoolId, parentId });
 
+    logger.info("Compte parent provisionne.", { schoolId, userId: caller.uid, role: caller.role, parentId });
     sendJson(res, 200, { parent, user: parentUser });
   } catch (error) {
     if (adminAuth && adminDb) {
@@ -285,7 +299,17 @@ export default async function handler(req, res) {
     }
 
     const statusCode = typeof error?.statusCode === "number" ? error.statusCode : 500;
-    console.error("[Acadea provisioning] Provisionnement compte ecole echoue.", error);
-    sendJson(res, statusCode, { error: statusCode === 500 ? publicError(error) : error.message });
+    logger.error("Provisionnement compte ecole echoue.", error, {
+      schoolId,
+      userId: caller?.uid,
+      role: caller?.role,
+    });
+    sendJson(
+      res,
+      statusCode,
+      statusCode === 500 && !isExpectedProvisioningError(error)
+        ? internalServerError(requestId)
+        : { error: statusCode === 500 ? publicError(error) : error.message, requestId },
+    );
   }
 }

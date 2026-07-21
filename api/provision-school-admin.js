@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { initAdmin } from "./_lib/firebaseAdmin.js";
+import { attachRequestId, createApiLogger, getRequestId, internalServerError } from "./_lib/logger.js";
 
 const allowedPlans = new Set(["Starter", "Standard", "Premium"]);
 
@@ -47,6 +48,10 @@ function publicError(error) {
   return "Provisionnement impossible. Vérifiez les informations et réessayez.";
 }
 
+function isExpectedProvisioningError(error) {
+  return ["auth/email-already-exists", "auth/invalid-email", "auth/invalid-password"].includes(error?.code ?? "");
+}
+
 async function cleanup({ auth, db, adminUid, refs }) {
   const tasks = [];
   if (adminUid) tasks.push(auth.deleteUser(adminUid));
@@ -55,8 +60,14 @@ async function cleanup({ auth, db, adminUid, refs }) {
 }
 
 export default async function handler(req, res) {
+  const requestId = getRequestId(req);
+  attachRequestId(res, requestId);
+  const logger = createApiLogger({ endpoint: "/api/provision-school-admin", method: req.method, requestId });
+  let caller;
+  let schoolId = "";
+
   if (req.method !== "POST") {
-    sendJson(res, 405, { error: "Méthode non autorisée." });
+    sendJson(res, 405, { error: "Méthode non autorisée.", requestId });
     return;
   }
 
@@ -70,7 +81,7 @@ export default async function handler(req, res) {
     const token = authorization.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : "";
 
     if (!token) {
-      sendJson(res, 401, { error: "Authentification requise." });
+      sendJson(res, 401, { error: "Authentification requise.", requestId });
       return;
     }
 
@@ -78,9 +89,9 @@ export default async function handler(req, res) {
     adminAuth = auth;
     adminDb = db;
 
-    const caller = await auth.verifyIdToken(token, true);
+    caller = await auth.verifyIdToken(token, true);
     if (caller.role !== "super_admin") {
-      sendJson(res, 403, { error: "Action réservée au super administrateur." });
+      sendJson(res, 403, { error: "Action réservée au super administrateur.", requestId });
       return;
     }
 
@@ -101,11 +112,11 @@ export default async function handler(req, res) {
       : [];
 
     if (!schoolName || !adminName || !adminEmail || adminPassword.length < 6) {
-      sendJson(res, 400, { error: "Nom d'école, email admin et mot de passe valide sont requis." });
+      sendJson(res, 400, { error: "Nom d'école, email admin et mot de passe valide sont requis.", requestId });
       return;
     }
 
-    const schoolId = uid("school");
+    schoolId = uid("school");
     const yearId = uid("year");
     const auditId = uid("audit");
     const now = new Date().toISOString();
@@ -182,6 +193,7 @@ export default async function handler(req, res) {
     };
     await db.doc(`auditLogs/${auditId}`).set(auditLog);
 
+    logger.info("Ecole et administrateur provisionnes.", { schoolId, userId: caller.uid, role: caller.role });
     sendJson(res, 200, {
       school,
       schoolYear: year,
@@ -192,10 +204,17 @@ export default async function handler(req, res) {
     if (adminAuth && adminDb) {
       await cleanup({ auth: adminAuth, db: adminDb, adminUid, refs: createdRefs });
     }
-    console.error("[Acadéa provisioning] Provisionnement école/admin échoué.", error);
-    sendJson(res, 500, {
-      error: publicError(error),
-      details: error instanceof Error ? error.message : String(error),
+    logger.error("Provisionnement ecole/admin echoue.", error, {
+      schoolId,
+      userId: caller?.uid,
+      role: caller?.role,
     });
+    sendJson(
+      res,
+      500,
+      isExpectedProvisioningError(error)
+        ? { error: publicError(error), requestId }
+        : internalServerError(requestId),
+    );
   }
 }

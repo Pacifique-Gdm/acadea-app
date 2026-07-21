@@ -1,5 +1,6 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { initAdmin } from "./_lib/firebaseAdmin.js";
+import { attachRequestId, createApiLogger, getRequestId, internalServerError } from "./_lib/logger.js";
 
 const schoolScopedCollections = [
   "users",
@@ -202,8 +203,14 @@ async function deleteSchoolData(db, schoolId) {
 }
 
 export default async function handler(req, res) {
+  const requestId = getRequestId(req);
+  attachRequestId(res, requestId);
+  const logger = createApiLogger({ endpoint: "/api/manage-school", method: req.method, requestId });
+  let caller;
+  let schoolId = "";
+
   if (req.method !== "POST") {
-    sendJson(res, 405, { error: "Methode non autorisee." });
+    sendJson(res, 405, { error: "Methode non autorisee.", requestId });
     return;
   }
 
@@ -212,41 +219,42 @@ export default async function handler(req, res) {
     const token = authorization.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : "";
 
     if (!token) {
-      sendJson(res, 401, { error: "Authentification requise." });
+      sendJson(res, 401, { error: "Authentification requise.", requestId });
       return;
     }
 
     const { auth, db } = initAdmin();
-    const caller = await auth.verifyIdToken(token, true);
+    caller = await auth.verifyIdToken(token, true);
     if (caller.role !== "super_admin") {
-      sendJson(res, 403, { error: "Action reservee au super administrateur." });
+      sendJson(res, 403, { error: "Action reservee au super administrateur.", requestId });
       return;
     }
 
     const body = await readBody(req);
     const action = normalizeText(body.action);
-    const schoolId = normalizeText(body.schoolId);
+    schoolId = normalizeText(body.schoolId);
 
     if (!schoolId) {
-      sendJson(res, 400, { error: "schoolId requis." });
+      sendJson(res, 400, { error: "schoolId requis.", requestId });
       return;
     }
 
     const schoolRef = db.doc(`schools/${schoolId}`);
     const schoolSnapshot = await schoolRef.get();
     if (!schoolSnapshot.exists) {
-      sendJson(res, 404, { error: "Ecole introuvable." });
+      sendJson(res, 404, { error: "Ecole introuvable.", requestId });
       return;
     }
 
     if (action === "update") {
       const patch = pickSchoolPatch(body.patch ?? {});
       if (Object.keys(patch).length === 0) {
-        sendJson(res, 400, { error: "Aucune modification valide." });
+        sendJson(res, 400, { error: "Aucune modification valide.", requestId });
         return;
       }
       await schoolRef.update({ ...patch, updatedAt: new Date().toISOString(), updatedBy: caller.uid });
       const updated = await schoolRef.get();
+      logger.info("Ecole mise a jour.", { schoolId, userId: caller.uid, role: caller.role });
       sendJson(res, 200, { school: { id: updated.id, ...updated.data() } });
       return;
     }
@@ -261,13 +269,14 @@ export default async function handler(req, res) {
         updatedBy: caller.uid,
       });
       const updated = await schoolRef.get();
+      logger.info("Statut ecole mis a jour.", { schoolId, userId: caller.uid, role: caller.role, action });
       sendJson(res, 200, { school: { id: updated.id, ...updated.data() } });
       return;
     }
 
     if (action === "delete") {
       if (body.confirmation !== "SUPPRIMER ECOLE") {
-        sendJson(res, 400, { error: "Confirmation de suppression invalide." });
+        sendJson(res, 400, { error: "Confirmation de suppression invalide.", requestId });
         return;
       }
       const schoolData = schoolSnapshot.data();
@@ -289,6 +298,7 @@ export default async function handler(req, res) {
         status,
         deletedAt: FieldValue.serverTimestamp(),
       });
+      logger.info("Suppression ecole traitee.", { schoolId, userId: caller.uid, role: caller.role, status });
       sendJson(res, 200, {
         schoolId,
         deletedCount: firestoreDeletion.deletedCount,
@@ -306,12 +316,13 @@ export default async function handler(req, res) {
       return;
     }
 
-    sendJson(res, 400, { error: "Action invalide." });
+    sendJson(res, 400, { error: "Action invalide.", requestId });
   } catch (error) {
-    console.error("[Acadea platform] Gestion ecole echouee.", error);
-    sendJson(res, 500, {
-      error: "Operation ecole impossible. Verifiez les informations et reessayez.",
-      details: error instanceof Error ? error.message : String(error),
+    logger.error("Gestion ecole echouee.", error, {
+      schoolId,
+      userId: caller?.uid,
+      role: caller?.role,
     });
+    sendJson(res, 500, internalServerError(requestId));
   }
 }
