@@ -1,5 +1,6 @@
 import type { ParentProfile, SchoolClass, SchoolSection, Student, ValvePublication, ValveVisibility } from "../types";
 import { CLASSES } from "../types";
+import { getClassSection } from "./studentClasses";
 import { formatValveAttachmentSize, MAX_VALVE_ATTACHMENTS, MAX_VALVE_ATTACHMENTS_TOTAL_SIZE, validateValveAttachments } from "./valvesMedia";
 
 const valveClassSeparator = "::option::";
@@ -26,9 +27,7 @@ export function normalizeValveVisibility(value: LegacyValveVisibility): ValveVis
 }
 
 function getValveClassSection(className: SchoolClass): SchoolSection {
-  if (className.includes("Maternelle")) return "maternelle";
-  if (className.includes("Humanité")) return "secondaire";
-  return "primaire";
+  return getClassSection(className);
 }
 
 function valveClassKey(className: SchoolClass, option?: string) {

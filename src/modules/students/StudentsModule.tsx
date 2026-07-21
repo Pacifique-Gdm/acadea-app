@@ -6,7 +6,7 @@ import { persistFirestorePatch } from "../../services/firestoreData";
 import { provisionParent } from "../../services/provisioning";
 import { createAuditLog } from "../../utils/audit";
 import { nextParentEmail, parentEmailExists } from "../../utils/parents";
-import { getSchoolClassChoices, getSchoolEducationLevels } from "../../utils/schoolConfig";
+import { getSchoolClassChoices, getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
 import { formatStudentClassName, getClassSection, promoteStudentForNewYear } from "../../utils/studentClasses";
 import { emptyStudent, generateMatricule, isArchivedStudent } from "../../utils/studentUtils";
 import { exportAgeHomogeneityPdf, exportStudentsPdf, sortStudentsForPdfByClass } from "../../utils/studentPdf";
@@ -37,7 +37,7 @@ export function StudentsModule({
   studentImportKey: (student: Student) => string;
 }) {
   const [query, setQuery] = useState("");
-  const [sectionFilter, setSectionFilter] = useState<"all" | "maternelle" | "primaire" | "secondaire">("all");
+  const [sectionFilter, setSectionFilter] = useState<"all" | SchoolSection>("all");
   const [classFilter, setClassFilter] = useState("");
   const [optionFilter, setOptionFilter] = useState("");
   const [archiveFilter, setArchiveFilter] = useState<"active" | "archived" | "all">("all");
@@ -61,9 +61,7 @@ export function StudentsModule({
   const [importError, setImportError] = useState("");
   const canEdit = user.role === "school_admin" && year.status !== "archived";
   const studentClassChoices = getSchoolClassChoices(school);
-  const studentSectionChoices = getSchoolEducationLevels(school)
-    .map((level) => (level === "Maternelle" ? "maternelle" : level === "Primaire" ? "primaire" : level === "Secondaire" ? "secondaire" : ""))
-    .filter(Boolean) as SchoolSection[];
+  const studentSectionChoices = getSchoolSections(school);
   const availableClasses = studentClassChoices.filter((className) => sectionFilter === "all" || getClassSection(className) === sectionFilter);
   const optionChoices = Array.from(new Set([...(school.schoolOptions ?? []), ...yearData.students.map((student) => student.option).filter(Boolean)])) as string[];
   const emptyCurrentStudent = () => {
@@ -378,7 +376,7 @@ export function StudentsModule({
     const filters = [
       `Recherche: ${query || "Toutes"}`,
       `Statut: ${archiveFilter === "active" ? "Actifs" : archiveFilter === "archived" ? "Archivés" : "Tous"}`,
-      `Section: ${sectionFilter === "all" ? "Toutes les sections" : sectionFilter}`,
+      `Section: ${sectionFilter === "all" ? "Toutes les sections" : schoolSectionLabels[sectionFilter]}`,
       `Classe: ${classFilter || "Toutes les classes"}`,
       `Option: ${optionFilter || "Toutes les options"}`,
     ];
@@ -560,9 +558,9 @@ export function StudentsModule({
             className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2"
           >
             <option value="all">Toutes les sections</option>
-            {studentSectionChoices.includes("maternelle") && <option value="maternelle">Maternelle</option>}
-            {studentSectionChoices.includes("primaire") && <option value="primaire">Primaire</option>}
-            {studentSectionChoices.includes("secondaire") && <option value="secondaire">Secondaire</option>}
+            {studentSectionChoices.map((section) => (
+              <option key={section} value={section}>{schoolSectionLabels[section]}</option>
+            ))}
           </select>
           <select value={classFilter} onChange={(event) => setClassFilter(event.target.value)} className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2">
             <option value="">Toutes les classes</option>

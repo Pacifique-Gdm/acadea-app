@@ -17,6 +17,10 @@ export function feeTargetOption(target?: string) {
   return target?.includes(feeTargetSeparator) ? target.split(feeTargetSeparator).slice(1).join(feeTargetSeparator) : "";
 }
 
+export function feeTargetHasOption(target: string) {
+  return target.includes(feeTargetSeparator);
+}
+
 export function formatFeeTargetValue(target?: string) {
   if (!target) return "Toutes les classes";
   const className = feeTargetClassName(target);

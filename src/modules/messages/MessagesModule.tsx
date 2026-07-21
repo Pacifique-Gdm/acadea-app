@@ -5,6 +5,7 @@ import { db } from "../../firebase";
 import { persistMessageWithConversation } from "../../services/conversations";
 import { canUseFirestoreData } from "../../services/firestoreData";
 import { nextMessageThreadId } from "../../utils/messageThreads";
+import { schoolSectionLabels, schoolSectionOrder } from "../../utils/schoolConfig";
 import { formatStudentClassName, getClassSection } from "../../utils/studentClasses";
 import type { AppData, AppNotification, AppUser, Message, ParentProfile, School, SchoolClass, SchoolSection, SchoolYear, Student } from "../../types";
 
@@ -50,12 +51,9 @@ export function MessagesModule({
   const disciplineMessageSubjects = ["Avertissement disciplinaire", "Convocation", "Décision disciplinaire", "Notification de fin de sanction"];
   const sameSchoolParents = yearData.parents.filter((parent) => parent.schoolId === school.id);
   const sameSchoolStudents = yearData.students.filter((student) => student.schoolId === school.id);
-  const sectionLabels: Record<SchoolSection, string> = {
-    maternelle: "Maternelle",
-    primaire: "Primaire",
-    secondaire: "Secondaire",
-  };
-  const adminSectionChoices = Array.from(new Set(sameSchoolStudents.map((student) => getClassSection(student.className))));
+  const adminSectionChoices = Array.from(new Set(sameSchoolStudents.map((student) => getClassSection(student.className)))).sort(
+    (first, second) => schoolSectionOrder.indexOf(first) - schoolSectionOrder.indexOf(second),
+  );
   const adminClassChoices = Array.from(new Set(sameSchoolStudents.map((student) => student.className))).sort((first, second) => first.localeCompare(second, "fr"));
   const recipientCandidates = sameSchoolParents.map((parent) => ({
     parent,
@@ -359,7 +357,7 @@ export function MessagesModule({
                     <select value={selectedAdminSection} onChange={(event) => setSelectedAdminSection(event.target.value as SchoolSection | "")} className="input">
                       <option value="">Sélectionner une section</option>
                       {adminSectionChoices.map((section) => (
-                        <option key={section} value={section}>{sectionLabels[section]}</option>
+                        <option key={section} value={section}>{schoolSectionLabels[section]}</option>
                       ))}
                     </select>
                   </label>
