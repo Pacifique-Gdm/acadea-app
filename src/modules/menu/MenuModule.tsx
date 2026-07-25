@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Banknote, BarChart3, BookOpen, CheckCircle2, Clock3, LogOut, Plus, RefreshCw, Settings, ShieldCheck, Trash2, UserRound, UsersRound, X } from "lucide-react";
+import { Banknote, BarChart3, BookOpen, CheckCircle2, ChevronRight, Clock3, CreditCard, Fingerprint, LogOut, Plus, RefreshCw, Settings, ShieldCheck, Trash2, UserRound, UsersRound, X } from "lucide-react";
 import { AdminDrawer, Field, ImageUploadField, PasswordField } from "../../components/ui";
 import { ParentsDirectoryDrawer } from "../../components/parents/ParentsDirectoryDrawer";
 import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent";
@@ -43,6 +43,8 @@ type MenuModuleProps = {
   renderFinancialReport: () => ReactNode;
   renderActivityHistory: (role: "admin" | "cashier") => ReactNode;
   maxValveDocumentBytes: number;
+  onOpenBiometrics: (mode: "fingerprints" | "cards") => void;
+  initialBiometricsOpen?: boolean;
 };
 
 const schoolUserProvisionLabels: Record<SchoolUserProvisionRole, string> = {
@@ -71,8 +73,10 @@ export function MenuModule({
   renderFinancialReport,
   renderActivityHistory,
   maxValveDocumentBytes,
+  onOpenBiometrics,
+  initialBiometricsOpen = false,
 }: MenuModuleProps) {
-  type MenuSection = "school" | "years" | "accounts" | "fees" | "financial" | "valves" | "parentsDirectory" | "history";
+  type MenuSection = "school" | "years" | "accounts" | "fees" | "financial" | "valves" | "parentsDirectory" | "history" | "biometrics";
   const [schoolForm, setSchoolForm] = useState(school);
   const [schoolSaveStatus, setSchoolSaveStatus] = useState<"success" | "error" | "">("");
   const [schoolSaveMessage, setSchoolSaveMessage] = useState("");
@@ -96,7 +100,7 @@ export function MenuModule({
   const [schoolOptionDraft, setSchoolOptionDraft] = useState("");
   const [feeDeleteTarget, setFeeDeleteTarget] = useState<FeeType | null>(null);
   const [feeDeleteConfirmation, setFeeDeleteConfirmation] = useState("");
-  const [activeMenuSection, setActiveMenuSection] = useState<MenuSection | null>(null);
+  const [activeMenuSection, setActiveMenuSection] = useState<MenuSection | null>(initialBiometricsOpen ? "biometrics" : null);
   const [newYearOpen, setNewYearOpen] = useState(false);
   const [newYearForm, setNewYearForm] = useState(() => nextSchoolYearDefaults(selectedYear));
   const [newYearConfirmation, setNewYearConfirmation] = useState("");
@@ -118,6 +122,7 @@ export function MenuModule({
     { id: "financial", title: "Rapport financier", description: "Synthèse et exports des rapports financiers.", icon: BarChart3 },
     { id: "history", title: "Historique", description: "Activités et messages enregistrés pour ce compte.", icon: Clock3 },
     { id: "accounts", title: "Créer un utilisateur", description: "Compte de connexion caissier ou discipline lié à l'école.", icon: ShieldCheck },
+    { id: "biometrics", title: "Empreintes et Cartes", description: "Préparation des identifiants biométriques des élèves.", icon: Fingerprint },
     { id: "years", title: "Années scolaires", description: "Année active, années archivées et contexte global.", icon: BookOpen },
     { id: "school", title: "Paramètres école", description: "Logo, coordonnées et informations de l'établissement.", icon: Settings },
   ] satisfies { id: MenuSection; title: string; description: string; icon: typeof Settings }[];
@@ -554,6 +559,22 @@ export function MenuModule({
   }
 
   function renderMenuSectionForm(sectionId: MenuSection) {
+    if (sectionId === "biometrics" && canAdmin) {
+      return (
+        <div className="grid gap-3">
+          <button type="button" className="flex min-w-0 items-center gap-3 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint hover:bg-slate-50" onClick={() => onOpenBiometrics("fingerprints")}>
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink"><Fingerprint className="h-5 w-5" /></span>
+            <span className="min-w-0 flex-1"><span className="block font-bold text-ink">Empreintes</span><span className="mt-1 block break-words text-sm text-slate-500">Consulter les élèves avec une empreinte enregistrée.</span></span>
+            <ChevronRight className="h-5 w-5 shrink-0 text-slate-400" />
+          </button>
+          <button type="button" className="flex min-w-0 items-center gap-3 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint hover:bg-slate-50" onClick={() => onOpenBiometrics("cards")}>
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink"><CreditCard className="h-5 w-5" /></span>
+            <span className="min-w-0 flex-1"><span className="block font-bold text-ink">Cartes</span><span className="mt-1 block break-words text-sm text-slate-500">Consulter les élèves avec une carte RFID associée.</span></span>
+            <ChevronRight className="h-5 w-5 shrink-0 text-slate-400" />
+          </button>
+        </div>
+      );
+    }
     if (sectionId === "school") {
       return (
         <div className="grid min-w-0 gap-4">

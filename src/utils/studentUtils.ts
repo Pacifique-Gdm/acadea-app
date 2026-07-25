@@ -1,5 +1,13 @@
 import type { Student } from "../types";
 
+export const defaultStudentBiometric: NonNullable<Student["biometric"]> = {
+  fingerprintStatus: "not_enrolled",
+  fingerprintUpdatedAt: null,
+  cardStatus: "not_assigned",
+  cardUid: null,
+  cardUpdatedAt: null,
+};
+
 export function generateMatricule(students: Student[], yearName: string, schoolId: string, schoolYearId: string) {
   const year = yearName.slice(2, 4);
   const count = students.filter((student) => student.schoolId === schoolId && student.schoolYearId === schoolYearId).length + 1;
@@ -28,5 +36,6 @@ export function emptyStudent(schoolId: string, schoolYearId: string): Student {
     section: "primaire",
     status: "ACTIVE",
     photoUrl: "",
+    biometric: { ...defaultStudentBiometric },
   };
 }
