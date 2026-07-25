@@ -100,6 +100,18 @@ export interface Student {
   deletedAt?: string;
   photoUrl?: string;
   parentId?: string;
+  biometric?: StudentBiometric;
+}
+
+export type FingerprintStatus = "not_enrolled" | "enrolled" | "disabled";
+export type CardStatus = "not_assigned" | "assigned" | "disabled";
+
+export interface StudentBiometric {
+  fingerprintStatus: FingerprintStatus;
+  fingerprintUpdatedAt: string | null;
+  cardStatus: CardStatus;
+  cardUid: string | null;
+  cardUpdatedAt: string | null;
 }
 
 export interface ParentProfile {

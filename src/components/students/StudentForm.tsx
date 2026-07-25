@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { CheckCircle2, Plus } from "lucide-react";
+import { useEffect, useState } from "react";
+import { CheckCircle2, Fingerprint, Plus, Radio } from "lucide-react";
 import { Field, ImageUploadField, PasswordField } from "../ui";
+import { cardStatusLabels, fingerprintStatusLabels, resolveStudentBiometric } from "../../utils/biometrics";
 import { getClassSection } from "../../utils/studentClasses";
 import type { ParentProfile, SchoolClass, Student } from "../../types";
 
@@ -34,6 +35,23 @@ export function StudentForm({
   const [showOptionForm, setShowOptionForm] = useState(false);
   const [newOption, setNewOption] = useState("");
   const [showQuickParentPassword, setShowQuickParentPassword] = useState(false);
+  const [showFingerprintMessage, setShowFingerprintMessage] = useState(false);
+  const [showCardMessage, setShowCardMessage] = useState(false);
+  const [fingerprintMessageTrigger, setFingerprintMessageTrigger] = useState(0);
+  const [cardMessageTrigger, setCardMessageTrigger] = useState(0);
+  const biometric = resolveStudentBiometric(form);
+
+  useEffect(() => {
+    if (fingerprintMessageTrigger === 0) return undefined;
+    const timer = window.setTimeout(() => setShowFingerprintMessage(false), 4000);
+    return () => window.clearTimeout(timer);
+  }, [fingerprintMessageTrigger]);
+
+  useEffect(() => {
+    if (cardMessageTrigger === 0) return undefined;
+    const timer = window.setTimeout(() => setShowCardMessage(false), 4000);
+    return () => window.clearTimeout(timer);
+  }, [cardMessageTrigger]);
 
   function submitOption() {
     const trimmed = newOption.trim();
@@ -137,6 +155,32 @@ export function StudentForm({
         </div>
       )}
       <ImageUploadField label="Photo de l'élève" value={form.photoUrl ?? ""} onChange={(value) => setForm({ ...form, photoUrl: value })} maxWidth={800} maxBytes={300 * 1024} />
+      <section className="grid min-w-0 gap-3 rounded border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
+        <h3 className="break-words text-base font-bold text-ink">Identification biométrique</h3>
+        <div className="grid min-w-0 gap-3">
+          <div className="grid min-w-0 gap-3 rounded border border-slate-100 bg-slate-50 p-3">
+            <div className="flex items-center gap-2 font-semibold text-ink"><Fingerprint className="h-4 w-4" /> Empreinte</div>
+            <p className="text-sm text-slate-600">Statut : <span className="font-semibold text-ink">{fingerprintStatusLabels[biometric.fingerprintStatus]}</span></p>
+            <div className={`grid transition-all duration-300 ${showFingerprintMessage ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`} aria-hidden={!showFingerprintMessage}>
+              <p className="overflow-hidden rounded border border-red-200 bg-red-50 px-3 text-sm font-medium text-red-800"><span className="block py-3">Fonction disponible après connexion d’un terminal ZKTeco via Acadéa Sync.</span></p>
+            </div>
+            <button type="button" className="secondary-button justify-center" onClick={() => { setShowFingerprintMessage(true); setFingerprintMessageTrigger((trigger) => trigger + 1); }}>
+              <Fingerprint className="h-4 w-4" /> Enregistrer l’empreinte
+            </button>
+          </div>
+          <div className="grid min-w-0 gap-3 rounded border border-slate-100 bg-slate-50 p-3">
+            <div className="flex items-center gap-2 font-semibold text-ink"><Radio className="h-4 w-4" /> Carte RFID</div>
+            <p className="text-sm text-slate-600">Statut : <span className="font-semibold text-ink">{cardStatusLabels[biometric.cardStatus]}</span></p>
+            <Field label="UID" value={biometric.cardUid ?? "Non attribué"} onChange={() => undefined} disabled />
+            <div className={`grid transition-all duration-300 ${showCardMessage ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`} aria-hidden={!showCardMessage}>
+              <p className="overflow-hidden rounded border border-red-200 bg-red-50 px-3 text-sm font-medium text-red-800"><span className="block py-3">Fonction disponible après connexion d’un terminal ZKTeco via Acadéa Sync.</span></p>
+            </div>
+            <button type="button" className="secondary-button justify-center" onClick={() => { setShowCardMessage(true); setCardMessageTrigger((trigger) => trigger + 1); }}>
+              <Radio className="h-4 w-4" /> Associer une carte
+            </button>
+          </div>
+        </div>
+      </section>
       <div className="grid grid-cols-2 gap-2">
         <button onClick={onReset} className="secondary-button">Réinitialiser</button>
         <button onClick={onSave} className="primary-button"><CheckCircle2 className="h-4 w-4" /> Sauver</button>

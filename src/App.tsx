@@ -14,6 +14,7 @@ import { YearScreen } from "./components/school/YearScreen";
 import { ParentFormEditor } from "./components/parents/ParentFormEditor";
 import { StudentDetailPage } from "./components/students/StudentDetailPage";
 import { StudentsModule } from "./modules/students/StudentsModule";
+import { BiometricStudentsPage } from "./modules/biometrics/BiometricStudentsPage";
 import { PlatformModule } from "./modules/platform/PlatformModule";
 import { DisciplinePortal } from "./modules/discipline/DisciplinePortal";
 import { ControlModule } from "./modules/control/ControlModule";
@@ -578,7 +579,14 @@ export default function App() {
   const currentYear = selectedYear;
   const yearData = scopeData(data, currentSchool.id, currentYear.id, user);
   const studentDetailMatch = route.match(/^\/admin\/eleves\/(.+)$/);
+  const biometricRoute = route === "/admin/empreintes" ? "fingerprints" : route === "/admin/cartes" ? "cards" : null;
+  const biometricParentRoute = route === "/admin/empreintes-cartes";
+  const standaloneAdminRoute = Boolean(studentDetailMatch) || route === "/admin/rapport-financier";
   const unreadNotifications = yearData.notifications.filter((notification) => !notification.read).length;
+
+  if ((biometricRoute || biometricParentRoute) && user.role !== "school_admin") {
+    return <AccessDenied onLogout={logout} />;
+  }
 
   function markNotificationsRead(notificationId?: string) {
     if (!user) return;
@@ -742,7 +750,7 @@ export default function App() {
             }}
           />
         ) : activeTab === "dashboard" && <Dashboard data={yearData} school={school} year={selectedYear} />}
-        {!studentDetailMatch && route !== "/admin/rapport-financier" && activeTab === "students" && (
+        {!standaloneAdminRoute && activeTab === "students" && (
           <StudentsModule
             user={user}
             data={data}
@@ -756,7 +764,7 @@ export default function App() {
             studentImportKey={studentImportKey}
           />
         )}
-        {!studentDetailMatch && route !== "/admin/rapport-financier" && activeTab === "parents" && (
+        {!standaloneAdminRoute && activeTab === "parents" && (
           <ParentsModule
             data={data}
             yearData={yearData}
@@ -766,7 +774,7 @@ export default function App() {
             createId={uid}
           />
         )}
-        {!studentDetailMatch && route !== "/admin/rapport-financier" && activeTab === "control" && (
+        {!standaloneAdminRoute && activeTab === "control" && (
           <ControlModule
             user={user}
             data={data}
@@ -777,13 +785,13 @@ export default function App() {
             createId={uid}
           />
         )}
-        {!studentDetailMatch && route !== "/admin/rapport-financier" && activeTab === "reports" && (
+        {!standaloneAdminRoute && activeTab === "reports" && (
           <ReportsModule yearData={yearData} school={school} year={selectedYear} />
         )}
-        {!studentDetailMatch && route !== "/admin/rapport-financier" && activeTab === "messages" && (
+        {!standaloneAdminRoute && activeTab === "messages" && (
           <MessagesModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} createId={uid} />
         )}
-        {!studentDetailMatch && route !== "/admin/rapport-financier" && activeTab === "menu" && (
+        {!standaloneAdminRoute && activeTab === "menu" && (
           <MenuModule
             user={user}
             data={data}
@@ -805,9 +813,26 @@ export default function App() {
             renderFinancialReport={() => <ReportsModule yearData={yearData} school={school} year={selectedYear} />}
             renderActivityHistory={(role) => <ActivityHistoryContent user={user} data={data} yearData={yearData} role={role} />}
             maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES}
+            onOpenBiometrics={(mode) => navigate(mode === "fingerprints" ? "/admin/empreintes" : "/admin/cartes")}
+            initialBiometricsOpen={biometricParentRoute}
           />
         )}
       </main>
+      {biometricRoute && (
+        <AdminDrawer
+          title={biometricRoute === "fingerprints" ? "Empreintes" : "Cartes"}
+          onClose={() => navigate("/admin/empreintes-cartes")}
+          closeLabel={biometricRoute === "fingerprints" ? "Fermer le drawer Empreintes" : "Fermer le drawer Cartes"}
+        >
+          <BiometricStudentsPage
+            mode={biometricRoute}
+            students={yearData.students}
+            loading={isRefreshing}
+            error={refreshError}
+            onBack={() => navigate("/admin/empreintes-cartes")}
+          />
+        </AdminDrawer>
+      )}
       {parentFormRequest && (
         <AdminDrawer
           title={parentFormRequest.parentId ? "Modifier le parent" : "Créer un parent"}
