@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import { Eye, EyeOff, Lock, Mail, ShieldCheck } from "lucide-react";
 import { EnvironmentBanner } from "../layout/EnvironmentBanner";
 import { PlatformLogoSlot } from "../layout/PlatformLogoSlot";
+import { markAuthStep } from "../../utils/authPerformance";
 
 export function LoginScreen({
   onLogin,
@@ -49,6 +50,7 @@ export function LoginScreen({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    markAuthStep("auth:login-start");
     setError("");
     setLoading(true);
 

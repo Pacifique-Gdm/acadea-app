@@ -2,6 +2,7 @@ import { initializeApp } from "firebase/app";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db, firebaseConfig, firebaseReady } from "../firebase";
 import type { AppUser, Role } from "../types";
+import { markAuthStep } from "../utils/authPerformance";
 
 interface FirebaseAuthModule {
   signInWithEmailAndPassword: (authInstance: unknown, email: string, password: string) => Promise<{ user: FirebaseUser }>;
@@ -77,8 +78,18 @@ function normalizeUserProfile(user: RawAppUser): AppUser {
 async function loadFirebaseUserProfile(firebaseUser: FirebaseUser, authModule: FirebaseAuthModule) {
   assertFirebaseAuthReady();
 
-  const userSnapshot = await getDoc(doc(db, "users", firebaseUser.uid));
-  const tokenResult = await authModule.getIdTokenResult(firebaseUser).catch(() => ({ claims: {} as Record<string, unknown> }));
+  const [userSnapshot, tokenResult] = await Promise.all([
+    getDoc(doc(db, "users", firebaseUser.uid)).then((snapshot) => {
+      markAuthStep("auth:profile-loaded");
+      return snapshot;
+    }),
+    authModule.getIdTokenResult(firebaseUser)
+      .then((result) => {
+        markAuthStep("auth:claims-loaded");
+        return result;
+      })
+      .catch(() => ({ claims: {} as Record<string, unknown> })),
+  ]);
   const claims = tokenResult.claims;
 
   if (!userSnapshot.exists()) {
@@ -107,6 +118,7 @@ async function loadFirebaseUserProfile(firebaseUser: FirebaseUser, authModule: F
   if (firestoreDocument.status === "inactive") {
     throw new Error("Connexion refusée : ce compte a été désactivé.");
   }
+  markAuthStep("auth:role-resolved");
   const rawProfile = {
     ...firestoreDocument,
     id: firebaseUser.uid,
@@ -189,6 +201,7 @@ export async function subscribeToFirebaseUser(
   return authModule.onAuthStateChanged(
     auth,
     (firebaseUser) => {
+      markAuthStep("auth:state-resolved");
       if (!firebaseUser) {
         onUser(null);
         return;

@@ -17,6 +17,8 @@ export type PlatformSettings = {
   updatedAt?: string;
 };
 
+export type FirestoreBootstrapData = Pick<AppData, "users" | "schools" | "schoolYears">;
+
 const collectionMap: Record<CollectionKey, string> = {
   users: "users",
   schools: "schools",
@@ -62,14 +64,21 @@ function emptyFirestoreData(): AppData {
 }
 
 function withFirestoreTimeout<T>(operation: Promise<T>, context: string) {
-  return Promise.race([
-    operation,
-    new Promise<T>((_, reject) => {
-      window.setTimeout(() => {
-        reject(new Error(`Chargement Firestore trop long : ${context}.`));
-      }, 15000);
-    }),
-  ]);
+  return new Promise<T>((resolve, reject) => {
+    const timer = globalThis.setTimeout(() => {
+      reject(new Error(`Chargement Firestore trop long : ${context}.`));
+    }, 15000);
+    operation.then(
+      (value) => {
+        globalThis.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        globalThis.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 function describeFirestoreError(collectionName: string, error: unknown) {
@@ -123,7 +132,28 @@ async function loadDocument<T>(collectionName: string, id?: string) {
   return snapshot.exists() ? ([{ id: snapshot.id, ...snapshot.data() }] as T[]) : [];
 }
 
-export async function loadFirestoreData(user?: AppUser, schoolYearId?: string) {
+export async function loadFirestoreBootstrapData(user: AppUser): Promise<FirestoreBootstrapData | null> {
+  if (!canUseFirestoreData() || !db) return null;
+  if (!user.schoolId) {
+    throw new Error("Chargement Firestore impossible : schoolId manquant dans les Custom Claims.");
+  }
+
+  const schoolFilter: [string, unknown][] = [["schoolId", user.schoolId]];
+  const [schools, schoolYears] = await Promise.all([
+    loadDocument<AppData["schools"][number]>("schools", user.schoolId),
+    loadCollection<AppData["schoolYears"][number]>("schoolYears", schoolFilter),
+  ]);
+  if (schools.length === 0) {
+    throw new Error("Chargement Firestore impossible : ecole introuvable pour ce schoolId.");
+  }
+  if (schools[0].status === "suspended") {
+    throw new Error("Connexion refusee : cette ecole est suspendue.");
+  }
+
+  return { users: [user], schools, schoolYears };
+}
+
+export async function loadFirestoreData(user?: AppUser, schoolYearId?: string, bootstrapData?: FirestoreBootstrapData) {
   if (!canUseFirestoreData() || !db) return null;
 
   if (user?.role === "super_admin") {
@@ -143,20 +173,20 @@ export async function loadFirestoreData(user?: AppUser, schoolYearId?: string) {
       throw new Error("Chargement Firestore impossible : schoolId manquant dans les Custom Claims.");
     }
 
-    scopedData.users = await loadDocument<AppData["users"][number]>("users", user.id);
-    if (scopedData.users.length === 0) {
-      throw new Error("Chargement Firestore impossible : profil users/{uid} introuvable.");
+    if (bootstrapData) {
+      scopedData.users = bootstrapData.users;
+      scopedData.schools = bootstrapData.schools;
+      scopedData.schoolYears = bootstrapData.schoolYears;
+    } else {
+      scopedData.users = await loadDocument<AppData["users"][number]>("users", user.id);
+      if (scopedData.users.length === 0) {
+        throw new Error("Chargement Firestore impossible : profil users/{uid} introuvable.");
+      }
+      const bootstrap = await loadFirestoreBootstrapData(user);
+      if (!bootstrap) return null;
+      scopedData.schools = bootstrap.schools;
+      scopedData.schoolYears = bootstrap.schoolYears;
     }
-
-    scopedData.schools = await loadDocument<AppData["schools"][number]>("schools", user.schoolId);
-    if (scopedData.schools.length === 0) {
-      throw new Error("Chargement Firestore impossible : ecole introuvable pour ce schoolId.");
-    }
-    if (scopedData.schools[0].status === "suspended") {
-      throw new Error("Connexion refusee : cette ecole est suspendue.");
-    }
-
-    scopedData.schoolYears = await loadCollection<AppData["schoolYears"][number]>("schoolYears", schoolFilter);
     const requestedYear = schoolYearId ? scopedData.schoolYears.find((year) => year.id === schoolYearId && year.schoolId === user.schoolId) : undefined;
     const defaultYear = resolveDefaultSchoolYear(scopedData.schools[0], scopedData.schoolYears);
     const targetSchoolYearId = requestedYear?.id ?? defaultYear?.id;
@@ -168,46 +198,52 @@ export async function loadFirestoreData(user?: AppUser, schoolYearId?: string) {
       : schoolFilter;
 
     if (user.role === "parent") {
-      scopedData.feeTypes = await loadCollection<AppData["feeTypes"][number]>("feeTypes", schoolFilter);
       if (!user.parentId) {
         throw new Error("Chargement Firestore impossible : parentId manquant dans les Custom Claims.");
       }
 
-      scopedData.students = await loadCollection<AppData["students"][number]>("students", parentFilter);
-      scopedData.parents = await loadDocument<AppData["parents"][number]>("parents", user.parentId);
-      scopedData.payments = await loadCollection<AppData["payments"][number]>("payments", parentFilter);
-      scopedData.messages = await loadCollection<AppData["messages"][number]>("messages", [
-        ["schoolId", user.schoolId],
-        ["threadParentId", user.parentId],
+      [scopedData.feeTypes, scopedData.students, scopedData.parents, scopedData.payments, scopedData.messages, scopedData.valves] = await Promise.all([
+        loadCollection<AppData["feeTypes"][number]>("feeTypes", schoolFilter),
+        loadCollection<AppData["students"][number]>("students", parentFilter),
+        loadDocument<AppData["parents"][number]>("parents", user.parentId),
+        loadCollection<AppData["payments"][number]>("payments", parentFilter),
+        loadCollection<AppData["messages"][number]>("messages", [["schoolId", user.schoolId], ["threadParentId", user.parentId]]),
+        loadCollection<AppData["valves"][number]>("valves", schoolFilter),
       ]);
-      scopedData.valves = await loadCollection<AppData["valves"][number]>("valves", schoolFilter);
       return scopedData;
     }
 
     if (user.role === "discipline_director") {
-      scopedData.students = await loadCollection<AppData["students"][number]>("students", annualFilter);
-      scopedData.parents = await loadCollection<AppData["parents"][number]>("parents", schoolFilter);
-      scopedData.messages = await loadCollection<AppData["messages"][number]>("messages", [...annualFilter, ["schoolRecipient", "discipline"]]);
-      scopedData.notifications = await loadCollection<AppData["notifications"][number]>("notifications", [...annualFilter, ["recipientRole", "school"], ["schoolRecipient", "discipline"]]);
-      scopedData.disciplineSanctions = await loadCollection<AppData["disciplineSanctions"][number]>("disciplineSanctions", annualFilter);
-      scopedData.attendance = await loadAttendanceCollection(annualFilter);
-      scopedData.attendanceSettings = await loadAttendanceSettingsCollection(annualFilter);
-      scopedData.valves = await loadValvesCollection(annualFilter);
+      [scopedData.students, scopedData.parents, scopedData.messages, scopedData.notifications, scopedData.disciplineSanctions, scopedData.attendance, scopedData.attendanceSettings, scopedData.valves] = await Promise.all([
+        loadCollection<AppData["students"][number]>("students", annualFilter),
+        loadCollection<AppData["parents"][number]>("parents", schoolFilter),
+        loadCollection<AppData["messages"][number]>("messages", [...annualFilter, ["schoolRecipient", "discipline"]]),
+        loadCollection<AppData["notifications"][number]>("notifications", [...annualFilter, ["recipientRole", "school"], ["schoolRecipient", "discipline"]]),
+        loadCollection<AppData["disciplineSanctions"][number]>("disciplineSanctions", annualFilter),
+        loadAttendanceCollection(annualFilter),
+        loadAttendanceSettingsCollection(annualFilter),
+        loadValvesCollection(annualFilter),
+      ]);
       return scopedData;
     }
 
-    scopedData.feeTypes = await loadCollection<AppData["feeTypes"][number]>("feeTypes", annualFilter);
-    scopedData.students = await loadCollection<AppData["students"][number]>("students", annualFilter);
-    scopedData.parents = await loadCollection<AppData["parents"][number]>("parents", schoolFilter);
-    scopedData.payments = await loadCollection<AppData["payments"][number]>("payments", annualFilter);
-    scopedData.expenses = await loadCollection<AppData["expenses"][number]>("expenses", annualFilter);
-    scopedData.messages = await loadCollection<AppData["messages"][number]>("messages", annualFilter);
+    const commonLoads = await Promise.all([
+      loadCollection<AppData["feeTypes"][number]>("feeTypes", annualFilter),
+      loadCollection<AppData["students"][number]>("students", annualFilter),
+      loadCollection<AppData["parents"][number]>("parents", schoolFilter),
+      loadCollection<AppData["payments"][number]>("payments", annualFilter),
+      loadCollection<AppData["expenses"][number]>("expenses", annualFilter),
+      loadCollection<AppData["messages"][number]>("messages", annualFilter),
+      loadCollection<AppData["valves"][number]>("valves", annualFilter),
+    ]);
+    [scopedData.feeTypes, scopedData.students, scopedData.parents, scopedData.payments, scopedData.expenses, scopedData.messages, scopedData.valves] = commonLoads;
     if (user.role === "school_admin") {
-      scopedData.auditLogs = await loadCollection<AppData["auditLogs"][number]>("auditLogs", schoolFilter);
-      scopedData.attendance = await loadAttendanceCollection(annualFilter);
-      scopedData.attendanceSettings = await loadAttendanceSettingsCollection(annualFilter);
+      [scopedData.auditLogs, scopedData.attendance, scopedData.attendanceSettings] = await Promise.all([
+        loadCollection<AppData["auditLogs"][number]>("auditLogs", schoolFilter),
+        loadAttendanceCollection(annualFilter),
+        loadAttendanceSettingsCollection(annualFilter),
+      ]);
     }
-    scopedData.valves = await loadCollection<AppData["valves"][number]>("valves", annualFilter);
     return scopedData;
   }
 

@@ -28,7 +28,7 @@ import { MessagesModule } from "./modules/messages/MessagesModule";
 import { AdminDrawer } from "./components/ui";
 import { useBillingControls } from "./hooks/useBillingControls";
 import { markNotificationsReadTargeted } from "./services/notificationsPagination";
-import { canUseFirestoreData, loadDisciplineYearData, loadFirestoreData, loadFirestoreYearData, loadParentPortalData, loadPlatformSettings, persistFirestorePatch } from "./services/firestoreData";
+import { canUseFirestoreData, loadDisciplineYearData, loadFirestoreBootstrapData, loadFirestoreData, loadFirestoreYearData, loadParentPortalData, loadPlatformSettings, persistFirestorePatch } from "./services/firestoreData";
 import { markConversationUnreadCountRead } from "./services/conversations";
 import { loadSuperAdminInitialData } from "./services/superAdminData";
 import type { SuperAdminGlobalCounts } from "./services/superAdminData";
@@ -38,6 +38,7 @@ import { resolveDefaultSchoolYear } from "./utils/schoolYears";
 import { attendanceSettingsId } from "./utils/attendance";
 import { feeTargetHasOption, formatFeeTargetValue } from "./utils/feeTargets";
 import { schoolEducationLevelChoices } from "./utils/schoolConfig";
+import { markAuthStep, measureAuthStep } from "./utils/authPerformance";
 import type { SchoolLevelChoice } from "./utils/schoolConfig";
 import type {
   AppData,
@@ -154,6 +155,7 @@ export default function App() {
   const [refreshError, setRefreshError] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const logoutInProgressRef = useRef(false);
+  const renderedSessionRef = useRef("");
   const [platformLogoUrl, setPlatformLogoUrl] = useState("");
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [pwaInstalled, setPwaInstalled] = useState(() => isStandaloneDisplayMode());
@@ -244,10 +246,13 @@ export default function App() {
       return;
     }
 
+    setDataLoading(nextUser.role !== "super_admin");
     setUser(nextUser);
     setSelectedYearId("");
     setActiveTab("dashboard");
     navigate(getDefaultRoute(nextUser.role));
+    markAuthStep("auth:redirect-complete");
+    measureAuthStep("auth:firebase-to-redirect", "auth:firebase-complete", "auth:redirect-complete");
   }, [navigate]);
 
   useEffect(() => {
@@ -295,36 +300,51 @@ export default function App() {
     if (!user || !canUseFirestoreData()) return;
 
     let cancelled = false;
-    setDataLoading(true);
 
-    const loadData =
-      user.role === "super_admin"
-        ? loadSuperAdminInitialData(user.id).then(({ data: firestoreData, counts }) => {
-            if (!cancelled) {
-              setPlatformCounts(counts);
-            }
-            return firestoreData;
-          })
-        : loadFirestoreData(user);
-
-    loadData
-      .then((firestoreData) => {
-        if (!firestoreData || cancelled) return;
-        setData(firestoreData);
-        const nextSchool = firestoreData.schools.find((item) => item.id === user.schoolId);
-        const nextSchoolYears = nextSchool ? firestoreData.schoolYears.filter((year) => year.schoolId === nextSchool.id) : [];
-        setSelectedYearId(resolveDefaultSchoolYear(nextSchool, nextSchoolYears)?.id ?? "");
-      })
-      .catch((error) => {
-        if (cancelled || logoutInProgressRef.current) return;
-        console.warn("Chargement Firestore indisponible.", error);
-        setAuthError(error instanceof Error ? error.message : "Chargement Firestore impossible après connexion.");
-        if (user.role === "super_admin") {
+    void (async () => {
+      if (user.role === "super_admin") {
+        try {
+          const { data: firestoreData, counts } = await loadSuperAdminInitialData(user.id, user);
+          if (cancelled) return;
+          setPlatformCounts(counts);
+          setData(firestoreData);
+        } catch (error) {
+          if (cancelled || logoutInProgressRef.current) return;
+          console.warn("Chargement Firestore indisponible.", error);
           setPlatformCounts(null);
           setData({ ...loadInitialData(), users: [user] });
-          navigate("/platform");
+          setAuthError(error instanceof Error ? error.message : "Chargement Firestore impossible après connexion.");
+        }
+        return;
+      }
+
+      setDataLoading(true);
+      let bootstrapResolved = false;
+      try {
+        const bootstrap = await loadFirestoreBootstrapData(user);
+        if (!bootstrap || cancelled) return;
+        bootstrapResolved = true;
+        const nextSchool = bootstrap.schools.find((item) => item.id === user.schoolId);
+        const nextSchoolYears = nextSchool ? bootstrap.schoolYears.filter((year) => year.schoolId === nextSchool.id) : [];
+        const nextYearId = resolveDefaultSchoolYear(nextSchool, nextSchoolYears)?.id ?? "";
+        setData({ ...loadInitialData(), ...bootstrap });
+        setSelectedYearId(nextYearId);
+        setDataLoading(false);
+        markAuthStep("auth:school-loaded");
+        measureAuthStep("auth:redirect-to-shell", "auth:redirect-complete", "auth:school-loaded");
+
+        const firestoreData = await loadFirestoreData(user, nextYearId, bootstrap);
+        if (!firestoreData || cancelled) return;
+        setData(firestoreData);
+      } catch (error) {
+        if (cancelled || logoutInProgressRef.current) return;
+        if (bootstrapResolved) {
+          console.warn("Chargement des données secondaires indisponible.", error);
+          setRefreshError(error instanceof Error ? error.message : "Certaines données n'ont pas pu être chargées.");
           return;
         }
+        console.warn("Chargement Firestore indispensable indisponible.", error);
+        setAuthError(error instanceof Error ? error.message : "Chargement Firestore impossible après connexion.");
         setUser(null);
         setSelectedYearId("");
         setActiveTab("dashboard");
@@ -334,18 +354,31 @@ export default function App() {
         void signOutUser().catch((signOutError) => {
           console.warn("Déconnexion Firebase après erreur de chargement impossible.", signOutError);
         });
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setDataLoading(false);
-        }
-      });
+      } finally {
+        if (!cancelled) setDataLoading(false);
+      }
+    })();
 
     return () => {
       cancelled = true;
       setDataLoading(false);
     };
   }, [navigate, user]);
+
+  useEffect(() => {
+    if (!user) {
+      renderedSessionRef.current = "";
+      return;
+    }
+    const platformReady = route === "/platform" && validatePlatformAdmin(user);
+    const schoolPortalReady = route !== "/login" && !dataLoading && Boolean(school) && (Boolean(selectedYear) || schoolYears.length === 0);
+    if ((!platformReady && !schoolPortalReady) || renderedSessionRef.current === user.id) return;
+    renderedSessionRef.current = user.id;
+    markAuthStep("auth:guard-complete");
+    markAuthStep("auth:dashboard-rendered");
+    measureAuthStep("auth:firebase-to-dashboard", "auth:firebase-complete", "auth:dashboard-rendered");
+    measureAuthStep("auth:login-total", "auth:login-start", "auth:dashboard-rendered");
+  }, [dataLoading, route, school, schoolYears.length, selectedYear, user]);
 
   useEffect(() => {
     if (!user || !school || selectedYearId) return;
@@ -383,6 +416,8 @@ export default function App() {
 
   async function loginWithCredentials(email: string, password: string) {
     await signIn(email, password);
+    markAuthStep("auth:firebase-complete");
+    measureAuthStep("auth:firebase-response", "auth:login-start", "auth:firebase-complete");
   }
 
   async function logout() {

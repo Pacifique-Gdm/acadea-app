@@ -88,10 +88,18 @@ async function loadGlobalCount(collectionName: string, filters: [string, unknown
   return snapshot.data().count;
 }
 
-export async function loadSuperAdminInitialData(userId: string) {
+export async function loadSuperAdminInitialData(userId: string, authenticatedUser?: AppUser) {
   const database = ensureFirestore();
-  const userSnapshot = await getDoc(doc(database, "users", userId));
-  if (!userSnapshot.exists()) {
+  let userProfile = authenticatedUser;
+  if (!userProfile) {
+    userProfile = await getDoc(doc(database, "users", userId)).then((userSnapshot) => {
+      if (!userSnapshot.exists()) {
+        throw new Error("Chargement Firestore impossible : profil Super Administrateur introuvable.");
+      }
+      return { id: userSnapshot.id, ...userSnapshot.data() } as AppUser;
+    });
+  }
+  if (!userProfile) {
     throw new Error("Chargement Firestore impossible : profil Super Administrateur introuvable.");
   }
 
@@ -105,7 +113,7 @@ export async function loadSuperAdminInitialData(userId: string) {
   ]);
 
   const data = emptySuperAdminData();
-  data.users = [{ id: userSnapshot.id, ...userSnapshot.data() } as AppUser];
+  data.users = [userProfile];
   data.schools = schools;
   data.schoolYears = schoolYears;
   data.biometricTerminals = biometricTerminals;

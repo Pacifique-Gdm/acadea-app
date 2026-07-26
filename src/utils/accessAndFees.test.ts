@@ -15,6 +15,11 @@ describe("autorisations par rôle", () => {
     expect(canEnterRoute({ role: "cashier" } as AppUser, "/dashboard")).toBe(false);
   });
 
+  it("bloque un compte désactivé et un rôle inconnu", () => {
+    expect(canEnterRoute({ role: "school_admin", schoolId: "school-a", status: "inactive" } as AppUser, "/dashboard")).toBe(false);
+    expect(canEnterRoute({ role: "unknown", schoolId: "school-a" } as unknown as AppUser, "/dashboard")).toBe(false);
+  });
+
   it("refuse un parent inactif ou sans rattachement", () => {
     expect(validateParent({ role: "parent", schoolId: "school-a", parentId: "parent-a", status: "active" } as AppUser)).toBe(true);
     expect(validateParent({ role: "parent", schoolId: "school-a", parentId: "parent-a", status: "inactive" } as AppUser)).toBe(false);
