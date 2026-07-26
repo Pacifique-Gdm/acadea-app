@@ -8,6 +8,10 @@
     "build": "node scripts/verifyProductionBranch.cjs && node scripts/verifyDeploymentEnvironment.cjs && tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "lint": "eslint .",
+    "test": "npm run test:unit",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:staging": "playwright test",
     "claims:set": "node scripts/setCustomClaims.cjs",
     "import:firestore": "echo Firestore import must use real Firebase exports only.",
     "reset:staging": "echo Staging reset from demo data has been removed."
@@ -26,6 +30,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.37.0",
+    "@playwright/test": "^1.61.1",
     "@types/node": "^24.7.2",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
@@ -39,6 +44,7 @@
     "tsx": "^4.20.6",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.62.0",
-    "vite": "^7.1.7"
+    "vite": "^7.1.7",
+    "vitest": "^4.1.10"
   }
 }

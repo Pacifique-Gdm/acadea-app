@@ -37,6 +37,8 @@ export interface AppUser {
   address?: string;
   createdAt?: string;
   lastLoginAt?: string;
+  removedAt?: string;
+  removedBy?: string;
 }
 
 export interface School {

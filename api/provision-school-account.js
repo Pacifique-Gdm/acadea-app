@@ -3,6 +3,7 @@ import { initAdmin } from "./_lib/firebaseAdmin.js";
 
 const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "parent"]);
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
+const adminRemovalConfirmation = "SUPPRIMER ADMINISTRATEUR";
 
 async function readBody(req) {
   if (req.body && typeof req.body === "object") return req.body;
@@ -157,6 +158,54 @@ async function createAuthUser(auth, { email, password, displayName }) {
   });
 }
 
+export async function removeSchoolAdmin({ auth, db, caller, body }) {
+  if (caller.role !== "super_admin") {
+    throw Object.assign(new Error("Action reservee au Super Administrateur."), { statusCode: 403 });
+  }
+
+  const schoolId = normalizeText(body.schoolId);
+  const adminId = normalizeText(body.adminId);
+  const confirmation = String(body.confirmation ?? "");
+  if (!schoolId || !adminId) {
+    throw Object.assign(new Error("Ecole et administrateur requis."), { statusCode: 400 });
+  }
+  if (confirmation !== adminRemovalConfirmation) {
+    throw Object.assign(new Error("Confirmation de retrait invalide."), { statusCode: 400 });
+  }
+
+  const adminRef = db.doc(`users/${adminId}`);
+  const adminSnapshot = await adminRef.get();
+  if (!adminSnapshot.exists) {
+    throw Object.assign(new Error("Administrateur introuvable."), { statusCode: 404 });
+  }
+
+  const admin = adminSnapshot.data() ?? {};
+  if (admin.role !== "school_admin" || admin.schoolId !== schoolId) {
+    throw Object.assign(new Error("Administrateur hors de cette ecole."), { statusCode: 403 });
+  }
+
+  const removedAt = new Date().toISOString();
+  await auth.updateUser(adminId, { disabled: true });
+  const auditRef = db.collection("auditLogs").doc(uid("audit"));
+  const batch = db.batch();
+  batch.update(adminRef, { status: "inactive", removedAt, removedBy: caller.uid });
+  batch.set(auditRef, {
+    id: auditRef.id,
+    schoolId,
+    actorId: caller.uid,
+    actorName: caller.name ?? caller.email ?? "Super Administrateur",
+    action: `Retrait de l'administrateur ${normalizeText(admin.name) || adminId}`,
+    createdAt: removedAt,
+  });
+  try {
+    await batch.commit();
+  } catch (error) {
+    await auth.updateUser(adminId, { disabled: false }).catch(() => undefined);
+    throw error;
+  }
+  return { adminId, status: "inactive", authStatus: "disabled", removedAt };
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     sendJson(res, 405, { error: "Methode non autorisee." });
@@ -188,6 +237,12 @@ export default async function handler(req, res) {
     if (action === "delete-parent") {
       const result = await deleteParentAccount({ auth, db, caller, body });
       sendJson(res, result.status === "partial" ? 207 : 200, result);
+      return;
+    }
+
+    if (action === "remove-school-admin") {
+      const result = await removeSchoolAdmin({ auth, db, caller, body });
+      sendJson(res, 200, result);
       return;
     }
 

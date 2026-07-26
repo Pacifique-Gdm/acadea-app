@@ -156,6 +156,32 @@ export async function deleteParentAccount(input: DeleteParentAccountInput) {
   return payload;
 }
 
+type RemoveSchoolAdminInput = {
+  schoolId: string;
+  adminId: string;
+  confirmation: string;
+};
+
+export type RemoveSchoolAdminResponse = {
+  adminId: string;
+  status: "inactive";
+  authStatus: "disabled";
+  removedAt: string;
+};
+
+export async function removeSchoolAdmin(input: RemoveSchoolAdminInput) {
+  const payload = await provisionSchoolAccount<RemoveSchoolAdminResponse & { error?: string }>({
+    action: "remove-school-admin",
+    ...input,
+  }, { showEndpointOnNotFound: true });
+
+  if (!payload.adminId || payload.status !== "inactive" || payload.authStatus !== "disabled" || !payload.removedAt) {
+    throw new Error("Reponse de retrait administrateur incomplete.");
+  }
+
+  return payload;
+}
+
 type ManageSchoolAction = "update" | "suspend" | "reactivate" | "delete";
 
 type ManageSchoolInput = {

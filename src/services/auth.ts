@@ -104,6 +104,9 @@ async function loadFirebaseUserProfile(firebaseUser: FirebaseUser, authModule: F
   }
 
   const firestoreDocument = userSnapshot.data();
+  if (firestoreDocument.status === "inactive") {
+    throw new Error("Connexion refusée : ce compte a été désactivé.");
+  }
   const rawProfile = {
     ...firestoreDocument,
     id: firebaseUser.uid,
@@ -201,6 +204,7 @@ export async function subscribeToFirebaseUser(
 
 export function canEnterRoute(user: AppUser | null, route: string) {
   if (!user) return false;
+  if (user.status === "inactive") return false;
   if (route === "/platform") return user.role === "super_admin";
   if (route === "/dashboard") return ["school_admin", "cashier", "discipline_director"].includes(user.role) && Boolean(user.schoolId);
 
@@ -208,15 +212,15 @@ export function canEnterRoute(user: AppUser | null, route: string) {
 }
 
 export function validateSchoolAdmin(user: AppUser) {
-  return user.role === "school_admin" && Boolean(user.schoolId);
+  return user.role === "school_admin" && Boolean(user.schoolId) && user.status !== "inactive";
 }
 
 export function validateSchoolStaff(user: AppUser) {
-  return ["school_admin", "cashier"].includes(user.role) && Boolean(user.schoolId);
+  return ["school_admin", "cashier"].includes(user.role) && Boolean(user.schoolId) && user.status !== "inactive";
 }
 
 export function validateDisciplineDirector(user: AppUser) {
-  return user.role === "discipline_director" && Boolean(user.schoolId);
+  return user.role === "discipline_director" && Boolean(user.schoolId) && user.status !== "inactive";
 }
 
 export function validateParent(user: AppUser) {
