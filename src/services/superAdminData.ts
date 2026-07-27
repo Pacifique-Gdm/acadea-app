@@ -20,6 +20,7 @@ export type SuperAdminSchoolData = {
   auditLogs: AuditLog[];
   valves: ValvePublication[];
   biometricTerminals: BiometricTerminal[];
+  users: AppUser[];
   admins: AppUser[];
 };
 
@@ -154,6 +155,7 @@ export async function loadSuperAdminSchoolData(schoolId: string): Promise<SuperA
     auditLogs,
     valves,
     biometricTerminals,
+    users,
     admins: users.filter((item) => item.role === "school_admin"),
   };
 }

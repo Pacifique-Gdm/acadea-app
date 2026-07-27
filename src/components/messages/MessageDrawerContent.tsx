@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import type { AppData, AppNotification, AppUser, AuditLog, Message, ParentProfile, School, Student } from "../../types";
 
@@ -40,6 +41,7 @@ export function MessageDrawerContent({
   realtimeMessages = [],
   notificationPagination,
   roleLabels,
+  focusedMessageId,
 }: {
   user: AppUser;
   data: AppData;
@@ -49,7 +51,9 @@ export function MessageDrawerContent({
   realtimeMessages?: Message[];
   notificationPagination?: ReactNode;
   roleLabels: Record<AppUser["role"], string>;
+  focusedMessageId?: string;
 }) {
+  const focusedMessageRef = useRef<HTMLDivElement | null>(null);
   const isParent = user.role === "parent";
 
   function messageTimestamp(value?: string) {
@@ -158,6 +162,11 @@ export function MessageDrawerContent({
   const feedItems = Array.from(new Map<string, FeedItem>([...messageItems, ...notificationItems].map((item) => [item.key, item])).values()).sort(
     (a, b) => messageTimestamp(b.createdAt) - messageTimestamp(a.createdAt),
   );
+
+  useEffect(() => {
+    if (!focusedMessageId) return;
+    focusedMessageRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [focusedMessageId, feedItems.length]);
 
   function messageTextTone(title?: string, preview?: string): NotificationFeedItem["tone"] {
     const text = `${title ?? ""} ${preview ?? ""}`.toLowerCase();
@@ -275,7 +284,13 @@ export function MessageDrawerContent({
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3 pr-2 scrollbar-thin">
           {feedItems.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun message ou notification à afficher.</p>}
           {feedItems.map((item) => (
-            <div key={item.key}>{item.type === "message" ? renderMessage(item.message) : renderNotification(item)}</div>
+            <div
+              key={item.key}
+              ref={item.type === "message" && item.message.id === focusedMessageId ? focusedMessageRef : undefined}
+              className={item.type === "message" && item.message.id === focusedMessageId ? "rounded ring-2 ring-mint ring-offset-2" : undefined}
+            >
+              {item.type === "message" ? renderMessage(item.message) : renderNotification(item)}
+            </div>
           ))}
           {notificationPagination}
         </div>

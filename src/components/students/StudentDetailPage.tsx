@@ -23,6 +23,7 @@ export function StudentDetailPage({
   onBack,
   createId,
   formatArchiveDate,
+  canLinkParent = true,
 }: {
   studentId: string;
   user: AppUser;
@@ -34,6 +35,7 @@ export function StudentDetailPage({
   onBack: () => void;
   createId: (prefix: string) => string;
   formatArchiveDate: (value?: string) => string;
+  canLinkParent?: boolean;
 }) {
   const [parentLinkOpen, setParentLinkOpen] = useState(false);
   const [parentLinkSearch, setParentLinkSearch] = useState("");
@@ -127,7 +129,7 @@ export function StudentDetailPage({
           <Metric label="Adresse" value={student.address} />
           {parent ? (
             <Metric label="Parent" value={parent.fullName} />
-          ) : (
+          ) : canLinkParent ? (
             <div className="min-w-0 rounded border border-slate-100 p-3">
               <p className="text-xs uppercase tracking-wide text-slate-400">Parent</p>
               <div className="mt-1 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -137,7 +139,7 @@ export function StudentDetailPage({
                 </button>
               </div>
             </div>
-          )}
+          ) : <Metric label="Parent" value="Non renseigné" />}
           {archived && (
             <>
               <Metric label="Motif d'archivage" value={student.exitReasonDetails ?? student.exitReason ?? "Motif non renseigné"} />
@@ -175,7 +177,7 @@ export function StudentDetailPage({
           </div>
         </FormPanel>
       </section>
-      {parentLinkOpen && (
+      {canLinkParent && parentLinkOpen && (
         <AdminDrawer title="Lier à un parent" onClose={() => setParentLinkOpen(false)} closeLabel="Fermer la liaison parent">
           <div className="grid gap-3">
             <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">

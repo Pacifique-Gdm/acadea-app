@@ -31,7 +31,7 @@ service cloud.firestore {
 
     function schoolUser() {
       return signedIn()
-        && role() in ["school_admin", "cashier", "parent"]
+        && role() in ["school_admin", "cashier", "secretary", "parent"]
         && tenantSchoolId() is string;
     }
 
@@ -44,6 +44,43 @@ service cloud.firestore {
         && role() == "parent"
         && tenantSchoolId() is string
         && tenantParentId() is string;
+    }
+
+    function secretary() {
+      return signedIn() && role() == "secretary" && tenantSchoolId() is string;
+    }
+
+    function secretaryStudentCreate() {
+      return secretary()
+        && sameTenantCreate()
+        && request.resource.data.schoolYearId is string
+        && request.resource.data.status == "ACTIVE";
+    }
+
+    function secretaryStudentUpdate() {
+      return secretary()
+        && sameTenantUpdate()
+        && sameYearUpdate()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          "nom", "postnom", "prenom", "sexe", "birthDate", "address", "phone",
+          "className", "section", "option", "photoUrl", "parentId", "updatedAt"
+        ]);
+    }
+
+    function secretaryParentLinkUpdate() {
+      return secretary()
+        && sameTenantUpdate()
+        && sameYearUpdate()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["studentIds", "updatedAt"]);
+    }
+
+    function secretarySchoolYearImportUpdate() {
+      return secretary()
+        && sameTenantUpdate()
+        && sameYearUpdate()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          "studentsImportedFromArchivedYear", "studentsImportedFromYearId", "studentsImportedAt"
+        ]);
     }
 
     function disciplineDirector() {
@@ -140,6 +177,29 @@ service cloud.firestore {
         && request.auth.uid == userId
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["id", "role", "schoolId", "parentId", "studentIds", "status"]);
       allow delete: if false;
+
+      match /pushTokens/{tokenId} {
+        allow read, delete: if signedIn() && request.auth.uid == userId;
+        allow create, update: if signedIn()
+          && request.auth.uid == userId
+          && request.resource.data.userId == userId
+          && request.resource.data.deviceId == tokenId
+          && request.resource.data.token is string
+          && request.resource.data.token.size() > 0
+          && request.resource.data.platform == "web"
+          && request.resource.data.active is bool
+          && request.resource.data.createdAt is string
+          && request.resource.data.updatedAt is string
+          && request.resource.data.keys().hasOnly([
+            "userId",
+            "deviceId",
+            "token",
+            "platform",
+            "active",
+            "createdAt",
+            "updatedAt"
+          ]);
+      }
     }
 
     match /schoolYears/{yearId} {
@@ -151,7 +211,7 @@ service cloud.firestore {
 
     match /students/{studentId} {
       allow read: if superAdmin()
-        || (role() in ["school_admin", "cashier"] && sameTenantResource())
+        || (role() in ["school_admin", "cashier", "secretary"] && sameTenantResource())
         || disciplineTenantResource()
         || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.parentId == tenantParentId());
       allow create: if schoolAdmin() && sameTenantCreate();
@@ -161,7 +221,7 @@ service cloud.firestore {
 
     match /parents/{parentId} {
       allow read: if superAdmin()
-        || (role() in ["school_admin", "cashier"] && sameTenantResource())
+        || (role() in ["school_admin", "cashier", "secretary"] && sameTenantResource())
         || disciplineTenantResource()
         || (parentUser() && resource.data.schoolId == tenantSchoolId() && parentId == tenantParentId());
       allow create: if schoolAdmin() && sameTenantCreate();
@@ -171,7 +231,7 @@ service cloud.firestore {
 
     match /payments/{paymentId} {
       allow read: if superAdmin()
-        || (role() in ["school_admin", "cashier"] && sameTenantResource())
+        || (role() in ["school_admin", "cashier", "secretary"] && sameTenantResource())
         || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.parentId == tenantParentId());
       allow create: if signedIn()
         && role() == "cashier"
@@ -194,6 +254,10 @@ service cloud.firestore {
         && ((role() in ["school_admin", "cashier"] && sameTenantCreate())
           || disciplineTenantCreate());
       allow update, delete: if false;
+    }
+
+    match /schoolYears/{yearId} {
+      allow update: if secretarySchoolYearImportUpdate();
     }
 
     match /disciplineSanctions/{sanctionId} {
@@ -401,7 +465,7 @@ service cloud.firestore {
 
     match /notifications/{notificationId} {
       allow read: if superAdmin()
-        || (role() in ["school_admin", "cashier"] && sameTenantResource())
+        || (role() in ["school_admin", "cashier", "secretary"] && sameTenantResource())
         || (disciplineTenantResource() && resource.data.recipientRole == "school" && resource.data.schoolRecipient == "discipline")
         || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.parentId == tenantParentId());
       allow create: if signedIn()
@@ -454,6 +518,68 @@ service cloud.firestore {
         && resource.data.parentId == tenantParentId();
       allow list: if false;
       allow create, update, delete: if false;
+    }
+
+    // Secretary writes are intentionally limited to student administration.
+    // The existing school administrator rules above remain unchanged.
+    match /students/{studentId} {
+      allow create: if secretaryStudentCreate();
+      allow update: if secretaryStudentUpdate();
+    }
+
+    match /parents/{parentId} {
+      allow update: if secretaryParentLinkUpdate();
+    }
+
+    match /auditLogs/{auditLogId} {
+      allow create: if secretary() && sameTenantCreate();
+    }
+
+    match /correspondences/{correspondenceId} {
+      allow read: if secretary() && sameTenantResource();
+      allow create: if secretary()
+        && sameTenantCreate()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.schoolYearId is string;
+      allow update: if secretary()
+        && sameTenantUpdate()
+        && sameYearUpdate()
+        && resource.data.createdBy == request.resource.data.createdBy
+        && resource.data.referenceNumber == request.resource.data.referenceNumber
+        && !(resource.data.status == "archived" && request.resource.data.diff(resource.data).affectedKeys().hasAny(["direction", "date", "subject", "sender", "recipient", "content", "attachment"]));
+      allow delete: if false;
+    }
+
+    match /secretaryCounters/{counterId} {
+      allow read: if secretary() && resource.data.schoolId == tenantSchoolId();
+      allow create, update: if secretary()
+        && request.resource.data.schoolId == tenantSchoolId()
+        && request.resource.data.kind in ["correspondence", "report"];
+      allow delete: if false;
+    }
+
+    match /secretaryReports/{reportId} {
+      allow read: if secretary() && sameTenantResource();
+      allow create: if secretary()
+        && sameTenantCreate()
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.status == "draft";
+      allow update: if secretary()
+        && sameTenantUpdate()
+        && sameYearUpdate()
+        && resource.data.authorId == request.resource.data.authorId
+        && resource.data.reportNumber == request.resource.data.reportNumber
+        && ((resource.data.status == "draft" && request.resource.data.status == "draft")
+          || (resource.data.status == "draft"
+            && request.resource.data.status == "finalized"
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "finalizedAt", "updatedAt"]))
+          || (resource.data.status == "draft"
+            && request.resource.data.status == "archived"
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "archivedAt", "updatedAt"]))
+          || (resource.data.status == "finalized"
+            && request.resource.data.status == "archived"
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "archivedAt", "updatedAt"])));
+      allow delete: if false;
     }
 
     match /{document=**} {

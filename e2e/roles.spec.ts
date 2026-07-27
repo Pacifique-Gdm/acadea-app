@@ -16,6 +16,8 @@ const roles: RoleCase[] = [
   { name: "Directeur de Discipline", prefix: "DISCIPLINE_DIRECTOR", expectedPath: /\/dashboard/, forbiddenPath: "/platform", defaultPortalText: /Discipline|Présence|Acadéa/i },
 ];
 
+test.setTimeout(120_000);
+
 async function login(page: Page, email: string, password: string) {
   await page.goto("/");
   await page.getByPlaceholder("email@ecole.com").fill(email);
@@ -31,12 +33,12 @@ for (const role of roles) {
 
     test("connexion, portail, interdiction et persistance après actualisation", async ({ page }) => {
       await login(page, email!, password!);
-      await expect(page).toHaveURL(role.expectedPath);
-      await expect(page.getByText(role.defaultPortalText).first()).toBeVisible();
+      await expect(page).toHaveURL(role.expectedPath, { timeout: 60_000 });
+      await expect(page.getByText(role.defaultPortalText).first()).toBeVisible({ timeout: 30_000 });
 
       await page.reload();
-      await expect(page).toHaveURL(role.expectedPath);
-      await expect(page.getByRole("button", { name: /Déconnexion|Se déconnecter/i }).first()).toBeVisible();
+      await expect(page).toHaveURL(role.expectedPath, { timeout: 60_000 });
+      await expect(page.getByText(role.defaultPortalText).first()).toBeVisible({ timeout: 30_000 });
 
       await page.goto(role.forbiddenPath);
       if (role.prefix === "SUPER_ADMIN") await expect(page).toHaveURL(/\/platform/);

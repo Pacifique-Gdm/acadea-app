@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { DisciplineSanction, Student } from "../../types";
+import { validateOtherSanctionDescriptions } from "../../utils/disciplineValidation";
 
 type NewSanctionInput = {
   students: Student[];
@@ -67,6 +68,8 @@ export function NewSanctionDrawer({ students, sanctions, onCancel, onSave }: New
   const [studentSearch, setStudentSearch] = useState("");
   const [reason, setReason] = useState("");
   const [description, setDescription] = useState("");
+  const [reasonDescription, setReasonDescription] = useState("");
+  const [sanctionDescription, setSanctionDescription] = useState("");
   const [sanctionType, setSanctionType] = useState("");
   const [duration, setDuration] = useState("1");
   const [startDate, setStartDate] = useState(today);
@@ -107,7 +110,8 @@ export function NewSanctionDrawer({ students, sanctions, onCancel, onSave }: New
     });
   }, [normalizedSearch, selectedStudentIds, sortedStudents]);
   const selectedStudentsWithActiveSanction = selectedStudents.filter((student) => activeSanctionStudentIds.has(student.id));
-  const canSave = Boolean(selectedStudents.length > 0 && reason.trim() && sanctionType.trim() && Number.isFinite(durationValue) && durationValue > 0 && startDate && expectedEndDate && !isSaving);
+  const descriptionValidation = validateOtherSanctionDescriptions(reason, reasonDescription, sanctionType, sanctionDescription);
+  const canSave = Boolean(selectedStudents.length > 0 && reason.trim() && sanctionType.trim() && !descriptionValidation.reasonError && !descriptionValidation.sanctionError && Number.isFinite(durationValue) && durationValue > 0 && startDate && expectedEndDate && !isSaving);
 
   function selectStudent(studentId: string) {
     setSelectedStudentIds((current) => (current.includes(studentId) ? current : [...current, studentId]));
@@ -125,7 +129,11 @@ export function NewSanctionDrawer({ students, sanctions, onCancel, onSave }: New
       const failedStudentIds = await onSave({
         students: selectedStudents,
         reason: reason.trim(),
-        description: description.trim(),
+        description: [
+          reason === "Autre" ? `Motif : ${reasonDescription.trim()}` : "",
+          sanctionType === "Autre" ? `Sanction : ${sanctionDescription.trim()}` : "",
+          description.trim(),
+        ].filter(Boolean).join("\n"),
         sanctionType: sanctionType.trim(),
         duration: durationValue,
         startDate,
@@ -258,6 +266,13 @@ export function NewSanctionDrawer({ students, sanctions, onCancel, onSave }: New
           </label>
           <button onClick={() => openChoicePanel("reason")} className="secondary-button justify-center" type="button">Ajouter</button>
         </div>
+        {reason === "Autre" && (
+          <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+            Description du motif
+            <textarea value={reasonDescription} onChange={(event) => setReasonDescription(event.target.value)} className="input min-h-20" aria-invalid={Boolean(descriptionValidation.reasonError)} />
+            {descriptionValidation.reasonError && <span className="text-sm font-semibold text-red-600">{descriptionValidation.reasonError}</span>}
+          </label>
+        )}
         <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
           <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
             Type de sanction
@@ -268,6 +283,13 @@ export function NewSanctionDrawer({ students, sanctions, onCancel, onSave }: New
           </label>
           <button onClick={() => openChoicePanel("sanctionType")} className="secondary-button justify-center" type="button">Ajouter</button>
         </div>
+        {sanctionType === "Autre" && (
+          <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+            Description de la sanction
+            <textarea value={sanctionDescription} onChange={(event) => setSanctionDescription(event.target.value)} className="input min-h-20" aria-invalid={Boolean(descriptionValidation.sanctionError)} />
+            {descriptionValidation.sanctionError && <span className="text-sm font-semibold text-red-600">{descriptionValidation.sanctionError}</span>}
+          </label>
+        )}
         {choicePanel && (
           <div className="grid min-w-0 gap-3 rounded border border-slate-200 bg-slate-50 p-3">
             <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">

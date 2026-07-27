@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { initAdmin } from "./_lib/firebaseAdmin.js";
 
-const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "parent"]);
+const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "secretary", "parent"]);
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
 const adminRemovalConfirmation = "SUPPRIMER ADMINISTRATEUR";
 
@@ -275,7 +275,7 @@ export default async function handler(req, res) {
     });
     createdAuthUid = authUser.uid;
 
-    if (role === "school_admin" || role === "cashier" || role === "discipline_director") {
+    if (role === "school_admin" || role === "cashier" || role === "discipline_director" || role === "secretary") {
       const schoolUser = {
         id: authUser.uid,
         name,

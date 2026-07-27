@@ -1,17 +1,27 @@
-import { useEffect, useMemo, useState } from "react";
-import { Download, Edit3, Eye, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Download, Edit3, Eye, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { StudentForm } from "../../components/students/StudentForm";
-import { AdminDrawer, IconButton, Metric, SectionTitle } from "../../components/ui";
+import { AdminDrawer, IconButton, SectionTitle } from "../../components/ui";
 import { persistFirestorePatch } from "../../services/firestoreData";
 import { provisionParent } from "../../services/provisioning";
 import { createAuditLog } from "../../utils/audit";
 import { nextParentEmail, parentEmailExists } from "../../utils/parents";
 import { getSchoolClassChoices, getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
-import { formatStudentClassName, getClassSection, promoteStudentForNewYear } from "../../utils/studentClasses";
-import { emptyStudent, generateMatricule, isArchivedStudent } from "../../utils/studentUtils";
-import { exportAgeHomogeneityPdf, exportStudentsPdf, sortStudentsForPdfByClass } from "../../utils/studentPdf";
+import { normalizeSchoolOptions } from "../../utils/schoolOptions";
+import { formatStudentClassName, getClassSection } from "../../utils/studentClasses";
+import { emptyStudent, generateMatricule, isArchivedStudent, validateStudentForSave } from "../../utils/studentUtils";
+import { exportStudentsPdf, sortStudentsForPdfByClass } from "../../utils/studentPdf";
 import type { AppData, AppUser, ParentProfile, School, SchoolSection, SchoolYear, Student } from "../../types";
 import { CLASSES } from "../../types";
+
+export interface StudentModuleCapabilities {
+  canCreate: boolean;
+  canEdit: boolean;
+  canArchive: boolean;
+  canReactivate: boolean;
+  canCreateParent: boolean;
+  canManageOptions: boolean;
+}
 
 export function StudentsModule({
   user,
@@ -23,7 +33,7 @@ export function StudentsModule({
   onOpenStudent,
   uid,
   formatArchiveDate,
-  studentImportKey,
+  capabilities,
 }: {
   user: AppUser;
   data: AppData;
@@ -34,7 +44,7 @@ export function StudentsModule({
   onOpenStudent: (studentId: string) => void;
   uid: (prefix: string) => string;
   formatArchiveDate: (value?: string) => string;
-  studentImportKey: (student: Student) => string;
+  capabilities?: Partial<StudentModuleCapabilities>;
 }) {
   const [query, setQuery] = useState("");
   const [sectionFilter, setSectionFilter] = useState<"all" | SchoolSection>("all");
@@ -45,6 +55,8 @@ export function StudentsModule({
   const [quickParent, setQuickParent] = useState({ fullName: "", phone: "", email: "", password: "" });
   const [saveError, setSaveError] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const saveInProgressRef = useRef(false);
   const [showForm, setShowForm] = useState(false);
   const [archiveStudentId, setArchiveStudentId] = useState<string | null>(null);
   const [archiveReason, setArchiveReason] = useState("");
@@ -54,26 +66,24 @@ export function StudentsModule({
   const [reactivationReason, setReactivationReason] = useState("");
   const [reactivationOtherReason, setReactivationOtherReason] = useState("");
   const [reactivationError, setReactivationError] = useState("");
-  const [importStudentsOpen, setImportStudentsOpen] = useState(false);
-  const [importSourceYearId, setImportSourceYearId] = useState("");
-  const [importResult, setImportResult] = useState("");
-  const [importConfirmation, setImportConfirmation] = useState("");
-  const [importError, setImportError] = useState("");
-  const canEdit = user.role === "school_admin" && year.status !== "archived";
+  const defaultCanManage = user.role === "school_admin" && year.status !== "archived";
+  const studentCapabilities: StudentModuleCapabilities = {
+    canCreate: capabilities?.canCreate ?? defaultCanManage,
+    canEdit: capabilities?.canEdit ?? defaultCanManage,
+    canArchive: capabilities?.canArchive ?? defaultCanManage,
+    canReactivate: capabilities?.canReactivate ?? defaultCanManage,
+    canCreateParent: capabilities?.canCreateParent ?? defaultCanManage,
+    canManageOptions: capabilities?.canManageOptions ?? defaultCanManage,
+  };
   const studentClassChoices = getSchoolClassChoices(school);
   const studentSectionChoices = getSchoolSections(school);
   const availableClasses = studentClassChoices.filter((className) => sectionFilter === "all" || getClassSection(className) === sectionFilter);
-  const optionChoices = Array.from(new Set([...(school.schoolOptions ?? []), ...yearData.students.map((student) => student.option).filter(Boolean)])) as string[];
+  const schoolOptions = normalizeSchoolOptions(school.schoolOptions);
+  const optionChoices = Array.from(new Set([...schoolOptions, ...yearData.students.map((student) => student.option).filter(Boolean)])) as string[];
   const emptyCurrentStudent = () => {
     const className = studentClassChoices[0] ?? CLASSES[0];
     return { ...emptyStudent(school.id, year.id), className, section: getClassSection(className) };
   };
-  const archivedYearsForImport = data.schoolYears.filter((item) => item.schoolId === school.id && item.status === "archived");
-  const selectedImportYear = archivedYearsForImport.find((item) => item.id === importSourceYearId);
-  const selectedImportStudents = importSourceYearId
-    ? data.students.filter((student) => student.schoolId === school.id && student.schoolYearId === importSourceYearId)
-    : [];
-  const studentsAlreadyImported = Boolean(year.studentsImportedFromArchivedYear);
 
   useEffect(() => {
     if (sectionFilter !== "all" && !studentSectionChoices.includes(sectionFilter)) {
@@ -128,52 +138,64 @@ export function StudentsModule({
   }
 
   async function saveStudent() {
+    if (saveInProgressRef.current) return;
+    saveInProgressRef.current = true;
+    setIsSaving(true);
     setSaveError("");
     setSaveMessage("");
-    const selectedParentId = form.parentId?.trim() ?? "";
-    const matchingParents = data.parents.filter((parent) => parent.id === selectedParentId && parent.schoolId === school.id);
-    if (selectedParentId && matchingParents.length === 0) {
-      setSaveError("Veuillez lier cet élève à un parent avant d'enregistrer.");
-      return;
-    }
-    if (matchingParents.length > 1) {
-      setSaveError("Un élève ne peut être lié qu'à un seul parent.");
-      return;
-    }
-    const exists = data.students.some((item) => item.id === form.id);
-    const targetYearId = exists ? form.schoolYearId : year.id;
-    const targetYearName = exists ? data.schoolYears.find((item) => item.id === form.schoolYearId)?.name ?? year.name : year.name;
-    const matricule = exists ? form.matricule : generateMatricule(data.students, targetYearName, school.id, targetYearId);
-    const student: Student = {
-      ...form,
-      matricule,
-      section: getClassSection(form.className),
-      status: form.status ?? "ACTIVE",
-      schoolId: school.id,
-      schoolYearId: targetYearId,
-      annee_scolaire_id: targetYearId,
-    };
-    if (selectedParentId) {
-      student.parentId = selectedParentId;
-    } else {
-      delete student.parentId;
-    }
-    const parents = data.parents.map((parent) => {
-      const withoutStudent = parent.studentIds.filter((studentId) => studentId !== student.id);
-      return parent.id === student.parentId ? { ...parent, studentIds: Array.from(new Set([...withoutStudent, student.id])) } : { ...parent, studentIds: withoutStudent };
-    });
-    const users = data.users.map((item) => {
-      if (item.role !== "parent" || !item.parentId) return item;
-      const parent = parents.find((parentItem) => parentItem.id === item.parentId);
-      return parent ? { ...item, studentIds: parent.studentIds } : item;
-    });
-    const nextStudents = exists ? data.students.map((item) => (item.id === student.id ? student : item)) : [...data.students, student];
-    const changedParents = parents.filter((parent) => {
-      const previousParent = data.parents.find((item) => item.id === parent.id);
-      return previousParent && previousParent.studentIds.join("|") !== parent.studentIds.join("|");
-    });
-    const auditLog = createAuditLog(user, school.id, targetYearId, exists ? "Modification élève" : "Création élève", `${student.matricule} - ${student.nom} ${student.prenom}`, uid);
     try {
+      const exists = data.students.some((item) => item.id === form.id);
+      if ((exists && !studentCapabilities.canEdit) || (!exists && !studentCapabilities.canCreate)) {
+        setSaveError("Votre compte n'est pas autorisé à enregistrer cette fiche élève.");
+        return;
+      }
+      const validationError = validateStudentForSave(form, school.id, year.id);
+      if (validationError) {
+        setSaveError(validationError);
+        return;
+      }
+      const selectedParentId = form.parentId?.trim() ?? "";
+      const matchingParents = data.parents.filter((parent) => parent.id === selectedParentId && parent.schoolId === school.id);
+      if (selectedParentId && matchingParents.length === 0) {
+        setSaveError("Veuillez lier cet élève à un parent avant d'enregistrer.");
+        return;
+      }
+      if (matchingParents.length > 1) {
+        setSaveError("Un élève ne peut être lié qu'à un seul parent.");
+        return;
+      }
+      const targetYearId = exists ? form.schoolYearId : year.id;
+      const targetYearName = exists ? data.schoolYears.find((item) => item.id === form.schoolYearId)?.name ?? year.name : year.name;
+      const matricule = exists ? form.matricule : generateMatricule(data.students, targetYearName, school.id, targetYearId);
+      const student: Student = {
+        ...form,
+        matricule,
+        section: getClassSection(form.className),
+        status: form.status ?? "ACTIVE",
+        schoolId: school.id,
+        schoolYearId: targetYearId,
+        annee_scolaire_id: targetYearId,
+      };
+      if (selectedParentId) {
+        student.parentId = selectedParentId;
+      } else {
+        delete student.parentId;
+      }
+      const parents = data.parents.map((parent) => {
+        const withoutStudent = parent.studentIds.filter((studentId) => studentId !== student.id);
+        return parent.id === student.parentId ? { ...parent, studentIds: Array.from(new Set([...withoutStudent, student.id])) } : { ...parent, studentIds: withoutStudent };
+      });
+      const users = data.users.map((item) => {
+        if (item.role !== "parent" || !item.parentId) return item;
+        const parent = parents.find((parentItem) => parentItem.id === item.parentId);
+        return parent ? { ...item, studentIds: parent.studentIds } : item;
+      });
+      const nextStudents = exists ? data.students.map((item) => (item.id === student.id ? student : item)) : [...data.students, student];
+      const changedParents = parents.filter((parent) => {
+        const previousParent = data.parents.find((item) => item.id === parent.id);
+        return previousParent && previousParent.studentIds.join("|") !== parent.studentIds.join("|");
+      });
+      const auditLog = createAuditLog(user, school.id, targetYearId, exists ? "Modification élève" : "Création élève", `${student.matricule} - ${student.nom} ${student.prenom}`, uid);
       await persistFirestorePatch(
         {
           students: [student],
@@ -182,22 +204,26 @@ export function StudentsModule({
         },
         { throwOnError: true },
       );
+      updateData({
+        students: nextStudents,
+        parents,
+        users,
+        auditLogs: [auditLog, ...data.auditLogs],
+      }, { persist: false });
+      setForm(emptyCurrentStudent());
+      setQuickParent({ fullName: "", phone: "", email: "", password: "" });
+      setShowForm(false);
+      setSaveMessage(exists ? "Élève modifié avec succès." : "Élève enregistré avec succès.");
     } catch (error) {
-      setSaveError(error instanceof Error ? `Impossible d'enregistrer l'élève dans Firestore : ${error.message}` : "Impossible d'enregistrer l'élève dans Firestore.");
-      return;
+      setSaveError(error instanceof Error ? `Impossible d'enregistrer l'élève : ${error.message}` : "Impossible d'enregistrer l'élève. Veuillez réessayer.");
+    } finally {
+      saveInProgressRef.current = false;
+      setIsSaving(false);
     }
-    updateData({
-      students: nextStudents,
-      parents,
-      users,
-      auditLogs: [auditLog, ...data.auditLogs],
-    }, { persist: false });
-    setForm(emptyCurrentStudent());
-    setShowForm(false);
-    setSaveMessage(exists ? "Élève modifié avec succès." : "Élève enregistré avec succès.");
   }
 
   function openAddStudentForm() {
+    if (!studentCapabilities.canCreate) return;
     setForm(emptyCurrentStudent());
     setQuickParent({ fullName: "", phone: "", email: nextParentEmail(school, data.users, data.parents), password: "" });
     setSaveError("");
@@ -206,6 +232,7 @@ export function StudentsModule({
   }
 
   function openEditStudentForm(student: Student) {
+    if (!studentCapabilities.canEdit || isArchivedStudent(student)) return;
     setForm(student);
     setSaveError("");
     setSaveMessage("");
@@ -213,6 +240,7 @@ export function StudentsModule({
   }
 
   function removeStudent(id: string) {
+    if (!studentCapabilities.canArchive) return;
     setArchiveStudentId(id);
     setArchiveReason("");
     setArchiveOtherReason("");
@@ -256,6 +284,7 @@ export function StudentsModule({
   }
 
   function openReactivateStudentDialog(id: string) {
+    if (!studentCapabilities.canReactivate) return;
     setReactivationStudentId(id);
     setReactivationReason("");
     setReactivationOtherReason("");
@@ -297,6 +326,7 @@ export function StudentsModule({
   }
 
   async function createParentForStudent() {
+    if (!studentCapabilities.canCreateParent) return;
     setSaveError("");
     if (!quickParent.fullName || !quickParent.phone || !quickParent.email) return;
     const parentId = uid("parent");
@@ -363,11 +393,12 @@ export function StudentsModule({
   }
 
   function addSchoolOption(option: string) {
+    if (!studentCapabilities.canManageOptions) return;
     const trimmed = option.trim();
     if (!trimmed) return;
-    const nextOptions = (school.schoolOptions ?? []).some((item) => item.toLowerCase() === trimmed.toLowerCase())
-      ? school.schoolOptions ?? []
-      : [...(school.schoolOptions ?? []), trimmed];
+    const nextOptions = schoolOptions.some((item) => item.toLowerCase() === trimmed.toLowerCase())
+      ? schoolOptions
+      : [...schoolOptions, trimmed];
     updateData({ schools: data.schools.map((item) => (item.id === school.id ? { ...item, schoolOptions: nextOptions } : item)) });
     setForm({ ...form, option: trimmed });
   }
@@ -383,168 +414,23 @@ export function StudentsModule({
     exportStudentsPdf(school, year, sortStudentsForPdfByClass(students), filters);
   }
 
-  function printAgeHomogeneityPdf() {
-    exportAgeHomogeneityPdf(school, year, students);
-  }
-
-  function openImportStudentsDrawer() {
-    if (studentsAlreadyImported) {
-      setImportResult("Les élèves ont déjà été importés pour cette année scolaire. Cette opération ne peut être effectuée qu'une seule fois.");
-      return;
-    }
-    setImportSourceYearId(archivedYearsForImport[0]?.id ?? "");
-    setImportResult("");
-    setImportConfirmation("");
-    setImportError("");
-    setImportStudentsOpen(true);
-  }
-
-  function closeImportStudentsDrawer() {
-    setImportStudentsOpen(false);
-    setImportSourceYearId("");
-    setImportResult("");
-    setImportConfirmation("");
-    setImportError("");
-  }
-
-  function importStudentsFromArchivedYear() {
-    if (!selectedImportYear) return;
-    if (studentsAlreadyImported) {
-      setImportError("Les élèves ont déjà été importés pour cette année scolaire. Cette opération ne peut être effectuée qu'une seule fois.");
-      return;
-    }
-    if (importConfirmation !== "IMPORTER LES ELEVES") {
-      setImportError("Phrase de confirmation incorrecte. Veuillez saisir exactement : IMPORTER LES ELEVES");
-      return;
-    }
-    const currentStudents = data.students.filter((student) => student.schoolId === school.id && student.schoolYearId === year.id);
-    const existingKeys = new Set(currentStudents.map((student) => studentImportKey(student)));
-    let skipped = 0;
-    let promoted = 0;
-    let maternelleToPrimaire = 0;
-    let primaireToCteb = 0;
-    let ctebToHumanities = 0;
-    let optionPending = 0;
-    let notPromoted = 0;
-    const importedStudents: Student[] = [];
-
-    selectedImportStudents.forEach((student) => {
-      const key = studentImportKey(student);
-      if (existingKeys.has(key)) {
-        skipped += 1;
-        return;
-      }
-      existingKeys.add(key);
-      const promotion = promoteStudentForNewYear(student);
-      if (promotion.promoted) promoted += 1;
-      if (promotion.transition === "maternelle-primaire") maternelleToPrimaire += 1;
-      if (promotion.transition === "primaire-cteb") primaireToCteb += 1;
-      if (promotion.transition === "cteb-humanites") ctebToHumanities += 1;
-      if (promotion.optionPending) optionPending += 1;
-      if (!promotion.promoted) notPromoted += 1;
-      const importedStudent: Student = {
-        ...student,
-        id: uid("student"),
-        schoolYearId: year.id,
-        annee_scolaire_id: year.id,
-        className: promotion.className,
-        section: getClassSection(promotion.className),
-        option: promotion.option,
-        status: "ACTIVE",
-      };
-      delete importedStudent.exitReason;
-      delete importedStudent.exitReasonDetails;
-      delete importedStudent.deletedAt;
-      importedStudents.push(importedStudent);
-    });
-
-    const importedStudentIdsByParent = new Map<string, string[]>();
-    importedStudents.forEach((student) => {
-      if (!student.parentId) return;
-      importedStudentIdsByParent.set(student.parentId, [...(importedStudentIdsByParent.get(student.parentId) ?? []), student.id]);
-    });
-    const nextParents = data.parents.map((parent) => {
-      const studentIds = importedStudentIdsByParent.get(parent.id);
-      if (!studentIds?.length) return parent;
-      return { ...parent, studentIds: Array.from(new Set([...parent.studentIds, ...studentIds])) };
-    });
-    const nextUsers = data.users.map((item) => {
-      const studentIds = item.parentId ? importedStudentIdsByParent.get(item.parentId) : undefined;
-      if (!studentIds?.length) return item;
-      return { ...item, studentIds: Array.from(new Set([...(item.studentIds ?? []), ...studentIds])) };
-    });
-
-    updateData({
-      students: [...data.students, ...importedStudents],
-      parents: nextParents,
-      users: nextUsers,
-      schoolYears: data.schoolYears.map((item) =>
-        item.id === year.id
-          ? {
-              ...item,
-              studentsImportedFromArchivedYear: true,
-              studentsImportedFromYearId: selectedImportYear.id,
-              studentsImportedAt: new Date().toISOString(),
-            }
-          : item,
-      ),
-      auditLogs: [
-        createAuditLog(user, school.id, year.id, "Import élèves année archivée", `${selectedImportYear.name} vers ${year.name} - ${importedStudents.length} importés, ${skipped} doublons`, uid),
-        ...data.auditLogs,
-      ],
-    });
-    setImportResult(
-      [
-        `${importedStudents.length} élève(s) importé(s).`,
-        `${promoted} élève(s) promu(s).`,
-        `${maternelleToPrimaire} passage(s) de Maternelle vers Primaire.`,
-        `${primaireToCteb} passage(s) de Primaire vers CTEB.`,
-        `${ctebToHumanities} passage(s) de CTEB vers Humanités.`,
-        `${optionPending} élève(s) en attente d'affectation d'option.`,
-        `${notPromoted} élève(s) non promu(s).`,
-        `${skipped} élève(s) ignoré(s) pour doublon.`,
-      ].join("\n"),
-    );
-    setImportError("");
-  }
-
   return (
     <section className="grid min-w-0 gap-4">
       <div className="min-w-0">
         <SectionTitle title="Élèves" subtitle="Ajouter, modifier, rechercher et filtrer par direction puis classe." />
         {saveMessage && <p className="mb-3 rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{saveMessage}</p>}
-        <div className={`mb-3 grid min-w-0 gap-2 sm:grid-cols-2 lg:w-full ${canEdit ? "lg:grid-cols-[minmax(130px,0.75fr)_minmax(280px,1.35fr)_minmax(230px,1.1fr)_minmax(220px,1fr)]" : "lg:grid-cols-2"}`}>
-          {canEdit && (
-            <button onClick={openAddStudentForm} type="button" className="primary-button w-full justify-center">
+        <div className="mb-3 w-full min-w-0 max-w-full">
+          <div className="grid w-full min-w-0 grid-cols-1 items-stretch gap-2 box-border sm:grid-cols-2 lg:flex lg:flex-nowrap lg:items-center">
+          {studentCapabilities.canCreate && (
+            <button onClick={openAddStudentForm} type="button" className="primary-button min-w-0 justify-center whitespace-normal sm:whitespace-nowrap lg:flex-1 lg:basis-0">
               <Plus className="h-4 w-4" /> Ajouter un élève
             </button>
           )}
-          {canEdit && (
-            <button
-              onClick={openImportStudentsDrawer}
-              type="button"
-              disabled={studentsAlreadyImported}
-              className="secondary-button w-full justify-center whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50"
-              title={studentsAlreadyImported ? "Les élèves ont déjà été importés pour cette année scolaire." : undefined}
-            >
-              <Upload className="h-4 w-4" /> Importer les élèves d'une année archivée
-            </button>
-          )}
-          <button onClick={printAgeHomogeneityPdf} type="button" className="primary-button w-full justify-center">
-            <Download className="h-4 w-4" /> Tableau d'homogénéité d'âge
-          </button>
-          <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
+          <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2 lg:flex-1 lg:basis-0">
             <Search className="h-4 w-4 text-slate-400" />
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher" className="min-w-0 flex-1 outline-none" />
           </label>
-        </div>
-        {studentsAlreadyImported && (
-          <p className="mb-3 rounded border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-600">
-            Les élèves ont déjà été importés pour cette année scolaire. Cette opération ne peut être effectuée qu'une seule fois.
-          </p>
-        )}
-        <div className="mb-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:w-full lg:grid-cols-[minmax(0,0.8fr)_minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(150px,0.9fr)]">
-          <select value={archiveFilter} onChange={(event) => setArchiveFilter(event.target.value as typeof archiveFilter)} className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2">
+          <select value={archiveFilter} onChange={(event) => setArchiveFilter(event.target.value as typeof archiveFilter)} className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2 lg:flex-1 lg:basis-0">
             <option value="active">Actifs</option>
             <option value="archived">Archivés</option>
             <option value="all">Tous</option>
@@ -555,28 +441,29 @@ export function StudentsModule({
               setSectionFilter(event.target.value as typeof sectionFilter);
               setClassFilter("");
             }}
-            className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2"
+            className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2 lg:flex-1 lg:basis-0"
           >
             <option value="all">Toutes les sections</option>
             {studentSectionChoices.map((section) => (
               <option key={section} value={section}>{schoolSectionLabels[section]}</option>
             ))}
           </select>
-          <select value={classFilter} onChange={(event) => setClassFilter(event.target.value)} className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2">
+          <select value={classFilter} onChange={(event) => setClassFilter(event.target.value)} className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2 lg:flex-1 lg:basis-0">
             <option value="">Toutes les classes</option>
             {availableClasses.map((className) => (
               <option key={className} value={className}>{className}</option>
             ))}
           </select>
-          <select value={optionFilter} onChange={(event) => setOptionFilter(event.target.value)} className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2">
+          <select value={optionFilter} onChange={(event) => setOptionFilter(event.target.value)} className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2 lg:flex-1 lg:basis-0">
             <option value="">Toutes les options</option>
             {optionChoices.map((option) => (
               <option key={option} value={option}>{option}</option>
             ))}
           </select>
-          <button onClick={printStudentsPdf} type="button" className="primary-button w-full justify-center">
+          <button onClick={printStudentsPdf} type="button" className="primary-button min-w-0 justify-center px-3 lg:flex-1 lg:basis-0" title="Imprimer" aria-label="Imprimer">
             <Download className="h-4 w-4" /> Exporter PDF
           </button>
+          </div>
         </div>
         <div className="max-w-full overflow-x-auto rounded border border-slate-200 bg-white">
           <table className="min-w-[980px] w-full text-left text-sm">
@@ -626,17 +513,17 @@ export function StudentsModule({
                     )}
                   </td>
                   <td className="px-3 py-3">
-                    {canEdit ? (
+                    {studentCapabilities.canEdit || studentCapabilities.canArchive || studentCapabilities.canReactivate ? (
                       <div className="flex gap-1">
                         {archived ? (
                           <>
                             <IconButton label="Consulter" onClick={() => onOpenStudent(student.id)} icon={Eye} />
-                            <IconButton label="Réactiver l'élève" onClick={() => openReactivateStudentDialog(student.id)} icon={RefreshCw} />
+                            {studentCapabilities.canReactivate && <IconButton label="Réactiver l'élève" onClick={() => openReactivateStudentDialog(student.id)} icon={RefreshCw} />}
                           </>
                         ) : (
                           <>
-                            <IconButton label="Modifier" onClick={() => openEditStudentForm(student)} icon={Edit3} />
-                            <IconButton label="Archiver" onClick={() => removeStudent(student.id)} icon={Trash2} danger />
+                            {studentCapabilities.canEdit && <IconButton label="Modifier" onClick={() => openEditStudentForm(student)} icon={Edit3} />}
+                            {studentCapabilities.canArchive && <IconButton label="Archiver" onClick={() => removeStudent(student.id)} icon={Trash2} danger />}
                           </>
                         )}
                       </div>
@@ -651,7 +538,7 @@ export function StudentsModule({
           </table>
         </div>
       </div>
-      {canEdit && showForm && (
+      {(studentCapabilities.canCreate || studentCapabilities.canEdit) && showForm && (
         <AdminDrawer title={form.id.startsWith("new") ? "Ajouter un élève" : "Modifier l'élève"} onClose={() => setShowForm(false)} closeLabel="Fermer le formulaire élève">
           <StudentForm
             form={form}
@@ -666,10 +553,13 @@ export function StudentsModule({
             onSave={saveStudent}
             onReset={() => setForm(emptyStudent(school.id, year.id))}
             errorMessage={saveError}
+            isSaving={isSaving}
+            canCreateParent={studentCapabilities.canCreateParent}
+            canAddOption={studentCapabilities.canManageOptions}
           />
         </AdminDrawer>
       )}
-      {canEdit && archiveStudent && (
+      {studentCapabilities.canArchive && archiveStudent && (
         <AdminDrawer title="Archiver l'élève" onClose={closeArchiveStudentDialog} closeLabel="Fermer l'archivage">
           <div className="grid min-w-0 gap-4">
             <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
@@ -721,7 +611,7 @@ export function StudentsModule({
           </div>
         </AdminDrawer>
       )}
-      {canEdit && reactivationStudent && (
+      {studentCapabilities.canReactivate && reactivationStudent && (
         <AdminDrawer title="Réactiver l'élève" onClose={closeReactivateStudentDialog} closeLabel="Fermer la réactivation">
           <div className="grid min-w-0 gap-4">
             <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
@@ -770,57 +660,6 @@ export function StudentsModule({
                 Réactiver
               </button>
             </div>
-          </div>
-        </AdminDrawer>
-      )}
-      {canEdit && importStudentsOpen && (
-        <AdminDrawer title="Importer les élèves" onClose={closeImportStudentsDrawer} closeLabel="Fermer l'import des élèves">
-          <div className="grid min-w-0 gap-4">
-            <p className="rounded border border-blue-100 bg-blue-50 p-3 text-sm font-semibold text-blue-800">
-              Seules les fiches élèves seront importées dans l'année active. Les paiements, reçus, présences, notes, messages, historiques et autres données opérationnelles ne seront pas copiés.
-            </p>
-            <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-              <p className="font-bold">Confirmation obligatoire</p>
-              <p className="mt-2">
-                Vous êtes sur le point d'importer tous les élèves d'une année scolaire archivée vers la nouvelle année scolaire.
-              </p>
-              <p className="mt-2">
-                Cette opération est importante, ne peut être exécutée qu'une seule fois pour cette année scolaire et déclenchera automatiquement la promotion des élèves selon les règles définies par Acadéa.
-              </p>
-              <p className="mt-2">Veuillez confirmer votre choix.</p>
-            </div>
-            {archivedYearsForImport.length === 0 ? (
-              <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucune année archivée disponible pour l'import.</p>
-            ) : (
-              <>
-                <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
-                  Année archivée
-                  <select value={importSourceYearId} onChange={(event) => setImportSourceYearId(event.target.value)} className="input">
-                    {archivedYearsForImport.map((archivedYear) => (
-                      <option key={archivedYear.id} value={archivedYear.id}>{archivedYear.name}</option>
-                    ))}
-                  </select>
-                </label>
-                <Metric label="Élèves disponibles" value={String(selectedImportStudents.length)} />
-                <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
-                  Phrase de confirmation
-                  <input
-                    value={importConfirmation}
-                    onChange={(event) => {
-                      setImportConfirmation(event.target.value);
-                      setImportError("");
-                    }}
-                    className="input"
-                    placeholder="IMPORTER LES ELEVES"
-                  />
-                </label>
-                {importError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{importError}</p>}
-                {importResult && <p className="whitespace-pre-line rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{importResult}</p>}
-                <button type="button" onClick={importStudentsFromArchivedYear} disabled={!selectedImportYear || selectedImportStudents.length === 0 || importConfirmation !== "IMPORTER LES ELEVES"} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50">
-                  <Upload className="h-4 w-4" /> Importer tous les élèves
-                </button>
-              </>
-            )}
           </div>
         </AdminDrawer>
       )}

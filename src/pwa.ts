@@ -1,6 +1,7 @@
 export const PWA_UPDATE_EVENT = "acadea:pwa-update";
 const CURRENT_BUILD_ID = __ACADEA_BUILD_ID__;
 const VERSION_CHECK_INTERVAL = 5 * 60 * 1000;
+let serviceWorkerRegistrationPromise: Promise<ServiceWorkerRegistration | null> | null = null;
 
 declare global {
   interface WindowEventMap {
@@ -74,10 +75,29 @@ export function registerServiceWorker() {
   }
 
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").then(watchRegistration).catch((error) => {
-      console.warn("Service worker Acadéa indisponible.", error);
-    });
+    serviceWorkerRegistrationPromise = navigator.serviceWorker
+      .register("/sw.js")
+      .then((registration) => {
+        watchRegistration(registration);
+        return registration;
+      })
+      .catch((error) => {
+        console.warn("Service worker Acadéa indisponible.", error);
+        return null;
+      });
   });
+}
+
+export async function getServiceWorkerRegistration() {
+  if (!("serviceWorker" in navigator) || import.meta.env.DEV) return null;
+  if (serviceWorkerRegistrationPromise) return serviceWorkerRegistrationPromise;
+  const existingRegistration = await navigator.serviceWorker.getRegistration("/");
+  if (existingRegistration) return existingRegistration;
+  serviceWorkerRegistrationPromise = navigator.serviceWorker.register("/sw.js").catch((error) => {
+    console.warn("Service worker Acadéa indisponible pour les notifications.", error);
+    return null;
+  });
+  return serviceWorkerRegistrationPromise;
 }
 
 export function applyPwaUpdate(registration: ServiceWorkerRegistration) {

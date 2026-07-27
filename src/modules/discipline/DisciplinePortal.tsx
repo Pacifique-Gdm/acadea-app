@@ -213,6 +213,9 @@ export function DisciplinePortal({
       parentId: parent.id,
       messageId: message.id,
       disciplineSanctionId: sanction.id,
+      studentId: sanction.studentId,
+      module: "discipline",
+      event: "discipline_incident_created",
       type: "message",
       title: "Signalement disciplinaire",
       body: `${sanction.studentName} : ${sanction.reason || sanction.sanctionType}`,
@@ -492,6 +495,13 @@ export function DisciplinePortal({
           studentId: student.id,
           studentName: disciplineStudentName(student),
           type: "attendance",
+          ...(resolvedStatus === "absent" || resolvedStatus === "late"
+            ? {
+                module: "attendance" as const,
+                event: resolvedStatus === "absent" ? ("student_absent" as const) : ("student_late" as const),
+                attendanceId: record.id,
+              }
+            : {}),
           title: "Présence enregistrée",
           body: `Votre enfant ${disciplineStudentName(student)} a été enregistré ${statusText} le ${attendanceDate.toLocaleDateString("fr-FR")} à ${recordedAt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}.`,
           createdAt: now,

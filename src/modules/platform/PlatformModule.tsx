@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ArrowUpDown, BookOpen, Building2, CheckCircle2, Filter, GraduationCap, LayoutDashboard, LogOut, Menu as MenuIcon, Plus, Search, ShieldCheck, Upload, UsersRound, X } from "lucide-react";
 import { BillingControlsDrawer } from "../../components/platform/BillingControlsDrawer";
 import { AuditTimeline, BiometricTerminalStatusBadge, InfoRow, MiniStat, PlatformCard, SchoolLogo, SchoolSaasCard, StatusBadge } from "../../components/platform";
 import { AdminDrawer, Field, FormPanel, ImageUploadField, PasswordField } from "../../components/ui";
 import type { UseBillingControlsResult } from "../../hooks/useBillingControls";
+import { reconcileRealtimeSchoolUsers, useRealtimeSchoolUsers } from "../../hooks/useRealtimeSchoolUsers";
 import { savePlatformSettings } from "../../services/firestoreData";
 import { loadSuperAdminSchoolData } from "../../services/superAdminData";
 import type { SuperAdminGlobalCounts } from "../../services/superAdminData";
@@ -118,6 +119,16 @@ export function PlatformModule({
   const [schoolDetailLoading, setSchoolDetailLoading] = useState(false);
   const [schoolDetailError, setSchoolDetailError] = useState("");
   const schoolDetailRequestRef = useRef(0);
+  const realtimeUsersStateRef = useRef({ users: data.users, schoolId: schoolDrawerId, updateData });
+  useEffect(() => {
+    realtimeUsersStateRef.current = { users: data.users, schoolId: schoolDrawerId, updateData };
+  }, [data.users, schoolDrawerId, updateData]);
+  const applyRealtimeSchoolUsers = useCallback((users: AppUser[]) => {
+    const current = realtimeUsersStateRef.current;
+    if (!current.schoolId) return;
+    current.updateData({ users: reconcileRealtimeSchoolUsers(current.users, users, current.schoolId) }, { persist: false });
+  }, []);
+  useRealtimeSchoolUsers({ user, schoolId: schoolDrawerId, onUsers: applyRealtimeSchoolUsers });
 
   const visibleSchools = data.schools.filter((school) => String(school.status) !== "deleted");
   const totalStudents = platformCounts?.students ?? data.students.length;
@@ -689,7 +700,7 @@ export function PlatformModule({
         if (schoolDetailRequestRef.current !== requestId) return;
         updateData(
           {
-            users: [...data.users.filter((item) => item.role === "super_admin" || !item.schoolId), ...schoolData.admins],
+            users: [...data.users.filter((item) => item.role === "super_admin" || !item.schoolId), ...schoolData.users],
             students: schoolData.students,
             parents: schoolData.parents,
             feeTypes: schoolData.feeTypes,

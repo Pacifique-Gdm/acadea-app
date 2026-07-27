@@ -37,6 +37,73 @@ self.addEventListener("message", (event) => {
   }
 });
 
+function allowedPushData(payload) {
+  const data = payload?.data;
+  if (!data || data.destination !== "/dashboard") return null;
+  if (data.module === "payments" && data.event === "payment_recorded" && data.notificationId && data.studentId) return data;
+  if (
+    data.module === "messages" &&
+    (data.event === "school_message_received" || data.event === "parent_message_received") &&
+    data.notificationId && data.messageId && data.schoolId && data.schoolYearId && data.parentId
+  ) return data;
+  if (data.module === "attendance" && (data.event === "student_absent" || data.event === "student_late") && data.notificationId && data.attendanceId && data.studentId && data.parentId) return data;
+  if (data.module === "discipline" && data.event === "discipline_incident_created" && data.notificationId && data.disciplineSanctionId && data.studentId && data.parentId) return data;
+  if (data.module === "announcements" && data.event === "announcement_published" && data.notificationId && data.announcementId) return data;
+  return null;
+}
+
+self.addEventListener("push", (event) => {
+  let payload;
+  try {
+    payload = event.data?.json();
+  } catch {
+    return;
+  }
+  const data = allowedPushData(payload);
+  if (!data) return;
+  const notification = payload.notification ?? {};
+  const isMessage = data.module === "messages";
+  event.waitUntil(
+    self.registration.showNotification(notification.title || "Paiement enregistré", {
+      body: notification.body || "Un paiement a été enregistré.",
+      icon: "/icons/icon-192.png",
+      badge: "/favicon.png",
+      tag: isMessage ? `message-${data.notificationId}` : `payment-recorded-${data.notificationId || "unknown"}`,
+      data,
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  const data = allowedPushData({ data: event.notification?.data });
+  if (!data) return;
+  event.notification.close();
+  const destinationUrl = new URL("/dashboard", self.location.origin);
+  if (data.module === "messages") {
+    destinationUrl.searchParams.set("push", "message");
+    destinationUrl.searchParams.set("messageId", data.messageId);
+  } else if (data.module === "attendance") {
+    destinationUrl.searchParams.set("push", "attendance");
+    destinationUrl.searchParams.set("attendanceId", data.attendanceId);
+  } else if (data.module === "discipline") {
+    destinationUrl.searchParams.set("push", "discipline");
+    destinationUrl.searchParams.set("disciplineSanctionId", data.disciplineSanctionId);
+  } else if (data.module === "announcements") {
+    destinationUrl.searchParams.set("push", "announcement");
+    destinationUrl.searchParams.set("announcementId", data.announcementId);
+  }
+  const destination = destinationUrl.href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      const existingClient = clients.find((client) => new URL(client.url).origin === self.location.origin);
+      if (existingClient) {
+        return existingClient.focus().then(() => existingClient.navigate(destination));
+      }
+      return self.clients.openWindow(destination);
+    }),
+  );
+});
+
 self.addEventListener("fetch", (event) => {
   const { request } = event;
 

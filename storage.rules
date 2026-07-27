@@ -20,5 +20,32 @@ service firebase.storage {
         && role() == "school_admin"
         && tenantSchoolId() == schoolId;
     }
+
+    match /schools/{schoolId}/correspondences/{correspondenceId}/{fileName} {
+      function correspondence() {
+        return firestore.get(/databases/(default)/documents/correspondences/$(correspondenceId)).data;
+      }
+
+      allow read: if signedIn()
+        && tenantSchoolId() == schoolId
+        && correspondence().schoolId == schoolId;
+      allow create, update: if signedIn()
+        && role() == "secretary"
+        && tenantSchoolId() == schoolId
+        && correspondence().schoolId == schoolId
+        && request.resource.size <= 10 * 1024 * 1024
+        && request.resource.contentType in [
+          "application/pdf",
+          "application/msword",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "image/jpeg",
+          "image/png"
+        ]
+        && fileName.matches('.*\\.(pdf|doc|docx|jpg|jpeg|png)$');
+      allow delete: if signedIn()
+        && role() == "secretary"
+        && tenantSchoolId() == schoolId
+        && correspondence().schoolId == schoolId;
+    }
   }
 }

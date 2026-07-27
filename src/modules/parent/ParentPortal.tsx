@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { ArrowLeft, BookOpen, Clock3, Download, LogOut, MessageSquare, UserRound } from "lucide-react";
 import { AdminDrawer, FormPanel, Metric } from "../../components/ui";
@@ -9,6 +9,8 @@ import { canUseFirestoreData } from "../../services/firestoreData";
 import { markNotificationsReadTargeted } from "../../services/notificationsPagination";
 import { fetchParentMessageQuota, sendParentMessageWithQuota } from "../../services/parentMessaging";
 import type { ParentMessageQuota } from "../../services/parentMessaging";
+import { disablePushNotifications, enablePushNotifications, getPushNotificationStatus } from "../../services/pushNotifications";
+import type { PushNotificationStatus } from "../../services/pushNotifications";
 import { buildSchoolYearDataIndexes } from "../../utils/dataIndexes";
 import { resolvePaymentCashierName } from "../../utils/finance";
 import { nextMessageThreadId } from "../../utils/messageThreads";
@@ -84,6 +86,12 @@ export function ParentPortal({
   const [parentMessageQuota, setParentMessageQuota] = useState<ParentMessageQuota | null>(null);
   const [isParentMessageQuotaLoading, setIsParentMessageQuotaLoading] = useState(false);
   const [isSendingParentMessage, setIsSendingParentMessage] = useState(false);
+  const [pushNotificationStatus, setPushNotificationStatus] = useState<PushNotificationStatus>("available");
+  const [pushNotificationFeedback, setPushNotificationFeedback] = useState("");
+  const [pushNotificationFeedbackTone, setPushNotificationFeedbackTone] = useState<"success" | "warning" | "error">("warning");
+  const [pushNotificationOperation, setPushNotificationOperation] = useState<"idle" | "enabling" | "disabling">("idle");
+  const pushNotificationOperationPending = useRef<"enabling" | "disabling" | null>(null);
+  const pushNotificationUiActive = useRef(false);
   const parent = yearData.parents.find((item) => item.id === user.parentId);
   const unread = yearData.notifications.filter((notification) => !notification.read).length;
   const isParentMessageFormComplete = messageSubject.trim().length > 0 && messageBody.trim().length > 0;
@@ -143,6 +151,120 @@ export function ParentPortal({
     const timer = window.setTimeout(() => setMessageFeedback(""), 4000);
     return () => window.clearTimeout(timer);
   }, [messageFeedback]);
+
+  useEffect(() => {
+    pushNotificationUiActive.current = parentAccountOpen;
+    if (!parentAccountOpen) {
+      setPushNotificationFeedback("");
+      setPushNotificationOperation("idle");
+      return undefined;
+    }
+    let cancelled = false;
+    setPushNotificationOperation(pushNotificationOperationPending.current ?? "idle");
+    getPushNotificationStatus(user)
+      .then((status) => {
+        if (!cancelled) setPushNotificationStatus(status);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPushNotificationStatus("available");
+          setPushNotificationFeedbackTone("error");
+          setPushNotificationFeedback("Impossible de modifier les notifications pour le moment. Vérifiez votre connexion puis réessayez.");
+        }
+      });
+    return () => {
+      cancelled = true;
+      pushNotificationUiActive.current = false;
+    };
+  }, [parentAccountOpen, user]);
+
+  async function activatePushNotifications() {
+    if (pushNotificationOperationPending.current) return;
+    pushNotificationOperationPending.current = "enabling";
+    setPushNotificationOperation("enabling");
+    setPushNotificationFeedback("");
+    try {
+      const result = await enablePushNotifications(user);
+      if (!pushNotificationUiActive.current) return;
+      if (result.status === "enabled") {
+        setPushNotificationStatus("enabled");
+        setPushNotificationFeedbackTone("success");
+        setPushNotificationFeedback("Les notifications Acadéa sont activées sur cet appareil.");
+      } else if (result.status === "unsupported") {
+        setPushNotificationStatus("unsupported");
+      } else if (result.status === "not-configured") {
+        setPushNotificationStatus("not_configured");
+      } else if (result.status === "not-authorized") {
+        setPushNotificationStatus("unauthorized");
+      } else if (Notification.permission === "denied") {
+        setPushNotificationStatus("blocked");
+      } else {
+        setPushNotificationStatus("available");
+        setPushNotificationFeedbackTone(result.status === "permission-denied" ? "warning" : "error");
+        setPushNotificationFeedback(result.status === "permission-denied" ? "Activation annulée. Vous pourrez réessayer quand vous le souhaitez." : "Impossible de modifier les notifications pour le moment. Vérifiez votre connexion puis réessayez.");
+      }
+    } catch {
+      if (pushNotificationUiActive.current) {
+        setPushNotificationStatus("available");
+        setPushNotificationFeedbackTone("error");
+        setPushNotificationFeedback("Impossible de modifier les notifications pour le moment. Vérifiez votre connexion puis réessayez.");
+      }
+    } finally {
+      pushNotificationOperationPending.current = null;
+      if (pushNotificationUiActive.current) setPushNotificationOperation("idle");
+    }
+  }
+
+  async function deactivatePushNotifications() {
+    if (pushNotificationOperationPending.current) return;
+    pushNotificationOperationPending.current = "disabling";
+    setPushNotificationOperation("disabling");
+    setPushNotificationFeedback("");
+    try {
+      const result = await disablePushNotifications(user);
+      if (!pushNotificationUiActive.current) return;
+      if (result.status === "disabled" || result.status === "no-device") {
+        setPushNotificationStatus("available");
+        setPushNotificationFeedbackTone("success");
+        setPushNotificationFeedback("Les notifications Acadéa sont désactivées sur cet appareil.");
+      } else if (result.status === "not-authorized") {
+        setPushNotificationStatus("unauthorized");
+      } else {
+        setPushNotificationFeedbackTone("error");
+        setPushNotificationFeedback("Impossible de modifier les notifications pour le moment. Vérifiez votre connexion puis réessayez.");
+      }
+    } catch {
+      if (pushNotificationUiActive.current) {
+        setPushNotificationStatus("enabled");
+        setPushNotificationFeedbackTone("error");
+        setPushNotificationFeedback("Impossible de modifier les notifications pour le moment. Vérifiez votre connexion puis réessayez.");
+      }
+    } finally {
+      pushNotificationOperationPending.current = null;
+      if (pushNotificationUiActive.current) setPushNotificationOperation("idle");
+    }
+  }
+
+  const pushNotificationMessage = pushNotificationFeedback || {
+    enabled: "Les notifications Acadéa sont activées sur cet appareil.",
+    blocked: "Autorisez les notifications pour Acadéa dans les paramètres de votre navigateur, puis rechargez la page.",
+    unsupported: "Votre navigateur ne prend pas en charge les notifications sur cet appareil.",
+    not_configured: "Les notifications ne sont pas encore disponibles dans cet environnement.",
+    unauthorized: "Votre session ne permet pas de gérer les notifications.",
+    available: "",
+  }[pushNotificationStatus];
+  const pushNotificationButtonLabel = pushNotificationOperation === "enabling"
+    ? "Activation…"
+    : pushNotificationOperation === "disabling"
+      ? "Désactivation…"
+      : pushNotificationStatus === "enabled"
+        ? "Désactiver les notifications"
+        : pushNotificationStatus === "blocked"
+        ? "Notifications bloquées"
+        : pushNotificationStatus === "unsupported" || pushNotificationStatus === "not_configured"
+          ? "Notifications non disponibles"
+          : "Activer les notifications";
+  const pushNotificationButtonDisabled = pushNotificationOperation !== "idle" || ["blocked", "unsupported", "not_configured", "unauthorized"].includes(pushNotificationStatus);
 
   useEffect(() => {
     if (!parentMessageQuota?.windowExpiresAt || !user.parentId || !year.id) return undefined;
@@ -589,6 +711,26 @@ export function ParentPortal({
               <Metric label="Notification(s)" value={String(unread)} />
             </div>
           </div>
+          <FormPanel title="Notifications Acadéa">
+            <p className="text-sm text-slate-600">Recevez sur cet appareil les messages et alertes importantes concernant votre compte et vos enfants.</p>
+            {pushNotificationMessage && (
+              <p
+                className={`rounded border px-3 py-2 text-sm ${pushNotificationFeedbackTone === "success" || (!pushNotificationFeedback && pushNotificationStatus === "enabled") ? "border-emerald-200 bg-emerald-50 text-emerald-800" : pushNotificationFeedbackTone === "error" ? "border-red-200 bg-red-50 text-red-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}
+                role="status"
+                aria-live="polite"
+              >
+                {pushNotificationMessage}
+              </p>
+            )}
+            <button
+              type="button"
+              className="primary-button transition disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={pushNotificationButtonDisabled}
+              onClick={pushNotificationStatus === "enabled" ? deactivatePushNotifications : activatePushNotifications}
+            >
+              {pushNotificationButtonLabel}
+            </button>
+          </FormPanel>
         </AdminDrawer>
       )}
       {parentHistoryOpen && (

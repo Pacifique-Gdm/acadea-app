@@ -1,5 +1,5 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff } from "./services/auth";
+import { getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff, validateSecretary } from "./services/auth";
 import { AccessDenied } from "./components/auth/AccessDenied";
 import { ActivityHistoryContent } from "./components/history/ActivityHistoryContent";
 import { LoginScreen } from "./components/auth/LoginScreen";
@@ -9,6 +9,7 @@ import { DisciplineBottomNavigation } from "./components/layout/DisciplineBottom
 import { EnvironmentBanner } from "./components/layout/EnvironmentBanner";
 import { InstallPwaNavButton } from "./components/layout/InstallPwaNavButton";
 import { ParentBottomNavigation } from "./components/layout/ParentBottomNavigation";
+import { SecretaryBottomNavigation } from "./components/layout/SecretaryBottomNavigation";
 import { PlatformLogoSlot } from "./components/layout/PlatformLogoSlot";
 import { YearScreen } from "./components/school/YearScreen";
 import { ParentFormEditor } from "./components/parents/ParentFormEditor";
@@ -21,13 +22,20 @@ import { ControlModule } from "./modules/control/ControlModule";
 import { MenuModule } from "./modules/menu/MenuModule";
 import { ParentsModule } from "./modules/parents/ParentsModule";
 import { ParentPortal } from "./modules/parent/ParentPortal";
+import { SecretaryPortal } from "./modules/secretary/SecretaryPortal";
+import { SecretaryCorrespondenceModule } from "./modules/secretary/SecretaryCorrespondenceModule";
+import { SecretaryReportsModule } from "./modules/secretary/SecretaryReportsModule";
+import { SecretaryMenuModule } from "./modules/secretary/SecretaryMenuModule";
 import { Dashboard } from "./modules/dashboard/Dashboard";
 import { ReportsModule } from "./modules/reports/ReportsModule";
 import { FinancialReportPage } from "./modules/reports/FinancialReportPage";
 import { MessagesModule } from "./modules/messages/MessagesModule";
 import { AdminDrawer } from "./components/ui";
 import { useBillingControls } from "./hooks/useBillingControls";
+import { reconcileRealtimeValves, useRealtimeValves } from "./hooks/useRealtimeValves";
+import { reconcileRealtimeFeeTypes, useRealtimeFeeTypes } from "./hooks/useRealtimeFeeTypes";
 import { markNotificationsReadTargeted } from "./services/notificationsPagination";
+import { restorePaymentPushNotifications, stopPaymentPushForegroundListener } from "./services/pushNotifications";
 import { canUseFirestoreData, loadDisciplineYearData, loadFirestoreBootstrapData, loadFirestoreData, loadFirestoreYearData, loadParentPortalData, loadPlatformSettings, persistFirestorePatch } from "./services/firestoreData";
 import { markConversationUnreadCountRead } from "./services/conversations";
 import { loadSuperAdminInitialData } from "./services/superAdminData";
@@ -36,9 +44,11 @@ import { isSessionAuditAction } from "./utils/audit";
 import { mergeMessagesById, mergeNotificationsById } from "./utils/realtimeMerges";
 import { resolveDefaultSchoolYear } from "./utils/schoolYears";
 import { attendanceSettingsId } from "./utils/attendance";
+import { canOpenMessageDeepLink, canOpenOperationalDeepLink } from "./utils/pushNotificationRoutes";
 import { feeTargetHasOption, formatFeeTargetValue } from "./utils/feeTargets";
 import { schoolEducationLevelChoices } from "./utils/schoolConfig";
 import { markAuthStep, measureAuthStep } from "./utils/authPerformance";
+import { getPlatformSchoolStats } from "./utils/platformSchoolStats";
 import type { SchoolLevelChoice } from "./utils/schoolConfig";
 import type {
   AppData,
@@ -61,6 +71,7 @@ const roleLabels: Record<AppUser["role"], string> = {
   school_admin: "Administrateur d'école",
   cashier: "Caissier",
   discipline_director: "Directeur de Discipline",
+  secretary: "Secrétaire",
   parent: "Parent",
 };
 
@@ -154,12 +165,60 @@ export default function App() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [pendingPushMessageId, setPendingPushMessageId] = useState(() => {
+    if (typeof window === "undefined") return "";
+    const params = new URLSearchParams(window.location.search);
+    return params.get("push") === "message" ? params.get("messageId") ?? "" : "";
+  });
+  const [pendingOperationalPush, setPendingOperationalPush] = useState(() => {
+    if (typeof window === "undefined") return { kind: "", id: "" };
+    const params = new URLSearchParams(window.location.search);
+    const kind = params.get("push") ?? "";
+    const id = kind === "attendance" ? params.get("attendanceId") : kind === "discipline" ? params.get("disciplineSanctionId") : kind === "announcement" ? params.get("announcementId") : "";
+    return { kind, id: id ?? "" };
+  });
   const logoutInProgressRef = useRef(false);
   const renderedSessionRef = useRef("");
   const [platformLogoUrl, setPlatformLogoUrl] = useState("");
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [pwaInstalled, setPwaInstalled] = useState(() => isStandaloneDisplayMode());
   const billingControls = useBillingControls(Boolean(user));
+  const applyRealtimeValves = useCallback((valves: AppData["valves"], scope: { schoolId: string; schoolYearId: string }) => {
+    setData((current) => ({
+      ...current,
+      valves: reconcileRealtimeValves(current.valves, valves, scope),
+    }));
+  }, []);
+  useRealtimeValves({
+    user,
+    schoolId: user?.schoolId ?? "",
+    schoolYearId: selectedYearId,
+    onValves: applyRealtimeValves,
+  });
+  const applyRealtimeFeeTypes = useCallback((fees: AppData["feeTypes"]) => {
+    if (!user?.schoolId || !selectedYearId) return;
+    setData((current) => ({
+      ...current,
+      feeTypes: reconcileRealtimeFeeTypes(current.feeTypes, fees, user.schoolId ?? "", selectedYearId),
+    }));
+  }, [selectedYearId, user?.schoolId]);
+  useRealtimeFeeTypes({
+    user,
+    schoolId: user?.schoolId ?? "",
+    schoolYearId: selectedYearId,
+    onFees: applyRealtimeFeeTypes,
+  });
+
+  useEffect(() => {
+    if (!user) {
+      stopPaymentPushForegroundListener();
+      return undefined;
+    }
+    void restorePaymentPushNotifications(user).catch((error) => {
+      console.warn("Restauration des notifications push indisponible.", error);
+    });
+    return stopPaymentPushForegroundListener;
+  }, [user]);
 
   useEffect(() => {
     void applyPlatformLogoAssets();
@@ -533,6 +592,57 @@ export default function App() {
   }
 
   const showInstallPwaButton = Boolean(deferredInstallPrompt) && !pwaInstalled;
+  const focusedPushMessage = useMemo(() => {
+    if (!user || !pendingPushMessageId || dataLoading) return undefined;
+    const message = data.messages.find((item) => item.id === pendingPushMessageId);
+    const sender = message ? data.users.find((item) => item.id === message.senderId) : undefined;
+    return message && canOpenMessageDeepLink(user, message, sender) ? message : null;
+  }, [data.messages, data.users, dataLoading, pendingPushMessageId, user]);
+  const focusedOperationalNotification = useMemo(() => {
+    if (!user || !pendingOperationalPush.id || dataLoading) return undefined;
+    if (pendingOperationalPush.kind === "attendance") {
+      const resource = data.attendance.find((item) => item.id === pendingOperationalPush.id);
+      const notification = data.notifications.find((item) => item.attendanceId === pendingOperationalPush.id);
+      const student = resource ? data.students.find((item) => item.id === resource.studentId) : undefined;
+      return resource && notification && canOpenOperationalDeepLink(user, notification, resource, student) ? notification : null;
+    }
+    if (pendingOperationalPush.kind === "discipline") {
+      const resource = data.disciplineSanctions.find((item) => item.id === pendingOperationalPush.id);
+      const notification = data.notifications.find((item) => item.disciplineSanctionId === pendingOperationalPush.id && item.module === "discipline");
+      const student = resource ? data.students.find((item) => item.id === resource.studentId) : undefined;
+      return resource && notification && canOpenOperationalDeepLink(user, notification, resource, student) ? notification : null;
+    }
+    if (pendingOperationalPush.kind === "announcement") {
+      const resource = data.valves.find((item) => item.id === pendingOperationalPush.id);
+      const notification = data.notifications.find((item) => item.announcementId === pendingOperationalPush.id);
+      return resource && notification && canOpenOperationalDeepLink(user, notification, resource) ? notification : null;
+    }
+    return null;
+  }, [data.attendance, data.disciplineSanctions, data.notifications, data.students, data.valves, dataLoading, pendingOperationalPush, user]);
+
+  useEffect(() => {
+    if (!pendingPushMessageId || focusedPushMessage === undefined) return;
+    window.history.replaceState({}, "", "/dashboard");
+    setRoute("/dashboard");
+    if (focusedPushMessage === null) setPendingPushMessageId("");
+  }, [focusedPushMessage, pendingPushMessageId]);
+  useEffect(() => {
+    if (!pendingOperationalPush.id || focusedOperationalNotification === undefined) return;
+    window.history.replaceState({}, "", "/dashboard");
+    setRoute("/dashboard");
+    if (focusedOperationalNotification === null) setPendingOperationalPush({ kind: "", id: "" });
+  }, [focusedOperationalNotification, pendingOperationalPush.id]);
+
+  const dismissPushMessage = useCallback(() => {
+    setPendingPushMessageId("");
+    window.history.replaceState({}, "", "/dashboard");
+    setRoute("/dashboard");
+  }, []);
+  const dismissOperationalPush = useCallback(() => {
+    setPendingOperationalPush({ kind: "", id: "" });
+    window.history.replaceState({}, "", "/dashboard");
+    setRoute("/dashboard");
+  }, []);
 
   if (!authReady) {
     return (
@@ -592,7 +702,7 @@ export default function App() {
     );
   }
 
-  if ((!validateSchoolStaff(user) && !validateParent(user) && !validateDisciplineDirector(user)) || !school) {
+  if ((!validateSchoolStaff(user) && !validateParent(user) && !validateDisciplineDirector(user) && !validateSecretary(user)) || !school) {
     return <AccessDenied onLogout={logout} />;
   }
 
@@ -614,6 +724,7 @@ export default function App() {
   const currentYear = selectedYear;
   const yearData = scopeData(data, currentSchool.id, currentYear.id, user);
   const studentDetailMatch = route.match(/^\/admin\/eleves\/(.+)$/);
+  const secretaryStudentDetailMatch = route.match(/^\/secretariat\/eleves\/(.+)$/);
   const biometricRoute = route === "/admin/empreintes" ? "fingerprints" : route === "/admin/cartes" ? "cards" : null;
   const biometricParentRoute = route === "/admin/empreintes-cartes";
   const standaloneAdminRoute = Boolean(studentDetailMatch) || route === "/admin/rapport-financier";
@@ -683,15 +794,20 @@ export default function App() {
             school={school}
             year={selectedYear}
             unreadNotifications={unreadNotifications}
-            notificationsOpen={notificationsOpen}
+            notificationsOpen={Boolean(focusedPushMessage || focusedOperationalNotification) || notificationsOpen}
             isRefreshing={isRefreshing}
             refreshError={refreshError}
             onRefresh={refreshParentPortalData}
             onToggleNotifications={onToggleNotifications}
-            onCloseNotifications={onCloseNotifications}
+            onCloseNotifications={() => {
+              onCloseNotifications();
+              dismissPushMessage();
+              dismissOperationalPush();
+            }}
             onRealtimeNotifications={onRealtimeNotifications}
             onRealtimeMessages={onRealtimeMessages}
             roleLabels={roleLabels}
+            focusedMessageId={focusedPushMessage?.id}
           />
         )}
         renderBottomNavigation={(activeTab, onTab) => (
@@ -720,12 +836,92 @@ export default function App() {
         showInstallButton={showInstallPwaButton}
         onInstallPwa={installPwa}
         EnvironmentBannerComponent={EnvironmentBanner}
-        HeaderComponent={(props) => <Header {...props} roleLabels={roleLabels} />}
+        HeaderComponent={(props) => (
+          <Header
+            {...props}
+            notificationsOpen={Boolean(focusedPushMessage || focusedOperationalNotification) || props.notificationsOpen}
+            onCloseNotifications={() => {
+              props.onCloseNotifications?.();
+              dismissPushMessage();
+              dismissOperationalPush();
+            }}
+            focusedMessageId={focusedPushMessage?.id}
+            roleLabels={roleLabels}
+          />
+        )}
         DisciplineBottomNavigationComponent={DisciplineBottomNavigation}
         MessagesModuleComponent={(props) => <MessagesModule {...props} createId={uid} />}
         createId={uid}
         selectAttendanceSettingsForYear={selectAttendanceSettingsForYear}
         maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES}
+      />
+    );
+  }
+
+  if (validateSecretary(user)) {
+    return (
+      <SecretaryPortal
+        renderHeader={() => (
+          <>
+            <EnvironmentBanner />
+            <Header
+              user={user}
+              data={data}
+              yearData={yearData}
+              school={school}
+              year={selectedYear}
+              unreadNotifications={unreadNotifications}
+              notificationsOpen={notificationsOpen}
+              isRefreshing={isRefreshing}
+              refreshError={refreshError}
+              onRefresh={refreshCurrentYearData}
+              onToggleNotifications={openNotifications}
+              onCloseNotifications={closeNotifications}
+              roleLabels={roleLabels}
+            />
+          </>
+        )}
+        renderBottomNavigation={(tab, onTab) => (
+          <SecretaryBottomNavigation activeTab={tab} showInstallButton={showInstallPwaButton} onInstallPwa={installPwa} onTab={onTab} />
+        )}
+        renderCorrespondence={() => <SecretaryCorrespondenceModule user={user} school={school} year={selectedYear} />}
+        renderReports={() => <SecretaryReportsModule user={user} school={school} year={selectedYear} />}
+        renderMenu={() => <SecretaryMenuModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} createId={uid} studentImportKey={studentImportKey} onLogout={logout} />}
+        renderStudents={() => secretaryStudentDetailMatch ? (
+          <StudentDetailPage
+            studentId={secretaryStudentDetailMatch[1]}
+            user={user}
+            data={data}
+            yearData={yearData}
+            year={selectedYear}
+            school={school}
+            updateData={updateData}
+            onBack={() => navigate("/dashboard")}
+            createId={uid}
+            formatArchiveDate={formatArchiveDate}
+            canLinkParent={false}
+          />
+        ) : (
+          <StudentsModule
+            user={user}
+            data={data}
+            yearData={yearData}
+            school={school}
+            year={selectedYear}
+            updateData={updateData}
+            onOpenStudent={(studentId) => navigate(`/secretariat/eleves/${studentId}`)}
+            uid={uid}
+            formatArchiveDate={formatArchiveDate}
+            capabilities={{
+              canCreate: true,
+              canEdit: true,
+              canArchive: false,
+              canReactivate: false,
+              canCreateParent: false,
+              canManageOptions: false,
+            }}
+          />
+        )}
       />
     );
   }
@@ -740,12 +936,16 @@ export default function App() {
         school={school}
         year={selectedYear}
         unreadNotifications={unreadNotifications}
-        notificationsOpen={notificationsOpen}
+        notificationsOpen={Boolean(focusedPushMessage || focusedOperationalNotification) || notificationsOpen}
         isRefreshing={isRefreshing}
         refreshError={refreshError}
         onRefresh={refreshCurrentYearData}
         onToggleNotifications={openNotifications}
-        onCloseNotifications={closeNotifications}
+        onCloseNotifications={() => {
+          closeNotifications();
+          dismissPushMessage();
+          dismissOperationalPush();
+        }}
         onRealtimeNotifications={(notifications) => {
           if (notifications.length === 0) return;
           updateData({ notifications: mergeNotificationsById(data.notifications, notifications) }, { persist: false });
@@ -755,6 +955,7 @@ export default function App() {
           updateData({ messages: mergeMessagesById(data.messages, messages) }, { persist: false });
         }}
         roleLabels={roleLabels}
+        focusedMessageId={focusedPushMessage?.id}
       />
 
       <main className="mx-auto w-full max-w-7xl min-w-0 flex-1 overflow-y-auto px-3 py-5 pb-28 sm:px-6 sm:pb-32 lg:px-8">
@@ -796,7 +997,6 @@ export default function App() {
             onOpenStudent={(studentId) => navigate(`/admin/eleves/${studentId}`)}
             uid={uid}
             formatArchiveDate={formatArchiveDate}
-            studentImportKey={studentImportKey}
           />
         )}
         {!standaloneAdminRoute && activeTab === "parents" && (
@@ -969,14 +1169,6 @@ function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: 
 }
 
 const MAX_VALVE_DOCUMENT_BYTES = 900 * 1024;
-
-function getPlatformSchoolStats(schoolId: string, data: AppData) {
-  const students = data.students.filter((student) => student.schoolId === schoolId).length;
-  const parents = data.parents.filter((parent) => parent.schoolId === schoolId).length;
-  const admins = data.users.filter((item) => item.role === "school_admin" && item.schoolId === schoolId).length;
-  const users = data.users.filter((item) => item.schoolId === schoolId).length;
-  return { students, parents, admins, users };
-}
 
 function schoolTabLabel(tab: "overview" | "info" | "admins" | "history") {
   const labels = {

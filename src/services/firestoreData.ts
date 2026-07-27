@@ -227,6 +227,16 @@ export async function loadFirestoreData(user?: AppUser, schoolYearId?: string, b
       return scopedData;
     }
 
+    if (user.role === "secretary") {
+      [scopedData.students, scopedData.parents, scopedData.feeTypes, scopedData.payments] = await Promise.all([
+        loadCollection<AppData["students"][number]>("students", schoolFilter),
+        loadCollection<AppData["parents"][number]>("parents", schoolFilter),
+        loadCollection<AppData["feeTypes"][number]>("feeTypes", annualFilter),
+        loadCollection<AppData["payments"][number]>("payments", annualFilter),
+      ]);
+      return scopedData;
+    }
+
     const commonLoads = await Promise.all([
       loadCollection<AppData["feeTypes"][number]>("feeTypes", annualFilter),
       loadCollection<AppData["students"][number]>("students", annualFilter),

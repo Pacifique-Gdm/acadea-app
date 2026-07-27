@@ -13,7 +13,7 @@ import { formatStudentClassName } from "../../utils/studentClasses";
 import type { AppData, AppUser, FeeKind, FeeType, ParentProfile, School, SchoolYear, Student, ValvePublication } from "../../types";
 import { FEE_KINDS } from "../../types";
 
-type SchoolUserProvisionRole = "cashier" | "discipline_director";
+type SchoolUserProvisionRole = "cashier" | "discipline_director" | "secretary";
 
 type MenuYearData = {
   students: Student[];
@@ -50,6 +50,7 @@ type MenuModuleProps = {
 const schoolUserProvisionLabels: Record<SchoolUserProvisionRole, string> = {
   cashier: "Caissier",
   discipline_director: "Directeur de Discipline",
+  secretary: "Secrétaire",
 };
 
 export function MenuModule({
@@ -121,7 +122,7 @@ export function MenuModule({
     { id: "fees", title: "Types de frais", description: "Montants et catégories de frais scolaires.", icon: Banknote },
     { id: "financial", title: "Rapport financier", description: "Synthèse et exports des rapports financiers.", icon: BarChart3 },
     { id: "history", title: "Historique", description: "Activités et messages enregistrés pour ce compte.", icon: Clock3 },
-    { id: "accounts", title: "Créer un utilisateur", description: "Compte de connexion caissier ou discipline lié à l'école.", icon: ShieldCheck },
+    { id: "accounts", title: "Créer un utilisateur", description: "Compte Caissier, Discipline ou Secrétaire lié à l'école.", icon: ShieldCheck },
     { id: "biometrics", title: "Empreintes et Cartes", description: "Préparation des identifiants biométriques des élèves.", icon: Fingerprint },
     { id: "years", title: "Années scolaires", description: "Année active, années archivées et contexte global.", icon: BookOpen },
     { id: "school", title: "Paramètres école", description: "Logo, coordonnées et informations de l'établissement.", icon: Settings },
@@ -757,6 +758,7 @@ export function MenuModule({
             <select value={schoolUserRole} onChange={(event) => setSchoolUserRole(event.target.value as SchoolUserProvisionRole)} className="input">
               <option value="cashier">Caissier</option>
               <option value="discipline_director">Directeur de Discipline</option>
+              <option value="secretary">Secrétaire</option>
             </select>
           </label>
           <Field label="Nom complet" value={cashierName} onChange={setCashierName} />

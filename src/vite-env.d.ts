@@ -10,6 +10,7 @@ interface ImportMetaEnv {
   readonly VITE_FIREBASE_STORAGE_BUCKET?: string;
   readonly VITE_FIREBASE_MESSAGING_SENDER_ID?: string;
   readonly VITE_FIREBASE_APP_ID?: string;
+  readonly VITE_FIREBASE_VAPID_KEY?: string;
 }
 
 interface ImportMeta {
@@ -58,10 +59,11 @@ declare module "jspdf" {
 }
 
 declare module "firebase/auth" {
-  export function getAuth(app?: unknown): unknown;
+  export type FirebaseAuth = { currentUser?: { uid: string; email: string | null } | null };
+  export function getAuth(app?: unknown): FirebaseAuth;
   export const indexedDBLocalPersistence: unknown;
   export const inMemoryPersistence: unknown;
-  export function initializeAuth(app: unknown, options: { persistence: unknown }): unknown;
+  export function initializeAuth(app: unknown, options: { persistence: unknown }): FirebaseAuth;
   export function getIdToken(user: unknown, forceRefresh?: boolean): Promise<string>;
   export function signInWithEmailAndPassword(auth: unknown, email: string, password: string): Promise<{ user: { uid: string; email: string | null } }>;
   export function createUserWithEmailAndPassword(auth: unknown, email: string, password: string): Promise<{ user: { uid: string; email: string | null } }>;
@@ -77,11 +79,17 @@ declare module "firebase/auth" {
 declare module "firebase/firestore" {
   export function getFirestore(app?: unknown): unknown;
   export function doc(db: unknown, collectionName: string, id: string): unknown;
+  export function doc(collectionRef: unknown): { id: string };
   export function collection(db: unknown, collectionName: string): unknown;
   export function query(ref: unknown, ...constraints: unknown[]): unknown;
   export function where(field: string, operator: "==", value: unknown): unknown;
-  export function setDoc(ref: unknown, data: unknown): Promise<void>;
+  export function setDoc(ref: unknown, data: unknown, options?: { merge?: boolean }): Promise<void>;
   export function deleteDoc(ref: unknown): Promise<void>;
   export function getDoc(ref: unknown): Promise<{ id: string; exists(): boolean; data(): Record<string, unknown> }>;
   export function getDocs(ref: unknown): Promise<{ size: number; docs: Array<{ id: string; ref: unknown; data(): Record<string, unknown> }> }>;
+  export function onSnapshot(ref: unknown, next: (snapshot: { docs: Array<{ id: string; data(): Record<string, unknown> }> }) => void, error?: (error: Error) => void): () => void;
+  export function runTransaction<T>(db: unknown, operation: (transaction: {
+    get(ref: unknown): Promise<{ data(): Record<string, unknown> | undefined }>;
+    set(ref: unknown, data: unknown, options?: { merge?: boolean }): void;
+  }) => Promise<T>): Promise<T>;
 }

@@ -1,4 +1,4 @@
-export type Role = "super_admin" | "school_admin" | "cashier" | "discipline_director" | "parent";
+export type Role = "super_admin" | "school_admin" | "cashier" | "discipline_director" | "secretary" | "parent";
 
 export type SchoolClass =
   | "Maternelle 1"
@@ -220,8 +220,16 @@ export interface AppNotification {
   studentName?: string;
   messageId?: string;
   disciplineSanctionId?: string;
+  attendanceId?: string;
+  announcementId?: string;
+  audienceRoles?: Array<"parent" | "school_admin" | "cashier" | "discipline_director" | "secretary">;
+  audienceParentIds?: string[];
+  audienceSchoolWide?: boolean;
   schoolRecipient?: "admin" | "cashier" | "discipline" | "both";
   type: "payment" | "message" | "valve" | "attendance";
+  module?: "payments" | "attendance" | "discipline" | "announcements";
+  event?: "payment_recorded" | "student_absent" | "student_late" | "discipline_incident_created" | "announcement_published";
+  destination?: "/dashboard";
   title: string;
   body: string;
   createdAt: string;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AppUser, FeeType, Student } from "../types";
-import { canEnterRoute, getDefaultRoute, validateParent } from "../services/auth";
+import { canEnterRoute, getDefaultRoute, validateParent, validateSecretary } from "../services/auth";
 import { feeAppliesToStudent, feeTargetKey } from "./feeTargets";
 
 describe("autorisations par rôle", () => {
@@ -13,6 +13,13 @@ describe("autorisations par rôle", () => {
   it("exige le schoolId pour le portail école", () => {
     expect(canEnterRoute({ role: "cashier", schoolId: "school-a" } as AppUser, "/dashboard")).toBe(true);
     expect(canEnterRoute({ role: "cashier" } as AppUser, "/dashboard")).toBe(false);
+  });
+
+  it("autorise uniquement un Secrétaire actif rattaché à une école", () => {
+    expect(canEnterRoute({ role: "secretary", schoolId: "school-a", status: "active" } as AppUser, "/dashboard")).toBe(true);
+    expect(validateSecretary({ role: "secretary", schoolId: "school-a", status: "active" } as AppUser)).toBe(true);
+    expect(validateSecretary({ role: "secretary", schoolId: "school-a", status: "inactive" } as AppUser)).toBe(false);
+    expect(validateSecretary({ role: "secretary", status: "active" } as AppUser)).toBe(false);
   });
 
   it("bloque un compte désactivé et un rôle inconnu", () => {

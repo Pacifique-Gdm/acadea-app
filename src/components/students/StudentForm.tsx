@@ -18,6 +18,9 @@ export function StudentForm({
   onSave,
   onReset,
   errorMessage,
+  isSaving = false,
+  canCreateParent = true,
+  canAddOption = true,
 }: {
   form: Student;
   setForm: (student: Student) => void;
@@ -28,9 +31,12 @@ export function StudentForm({
   optionChoices: string[];
   onAddOption: (option: string) => void;
   onCreateParent: () => void;
-  onSave: () => void;
+  onSave: () => void | Promise<void>;
   onReset: () => void;
   errorMessage?: string;
+  isSaving?: boolean;
+  canCreateParent?: boolean;
+  canAddOption?: boolean;
 }) {
   const [showOptionForm, setShowOptionForm] = useState(false);
   const [newOption, setNewOption] = useState("");
@@ -62,8 +68,14 @@ export function StudentForm({
   }
 
   return (
-    <>
-      {errorMessage && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{errorMessage}</p>}
+    <form
+      className="grid gap-3"
+      aria-busy={isSaving}
+      onSubmit={(event) => {
+        event.preventDefault();
+        void onSave();
+      }}
+    >
       <Field label="Matricule" value={form.matricule || "Généré automatiquement"} onChange={() => undefined} disabled />
       <Field label="Nom" value={form.nom} onChange={(value) => setForm({ ...form, nom: value })} />
       <Field label="Postnom" value={form.postnom} onChange={(value) => setForm({ ...form, postnom: value })} />
@@ -86,7 +98,7 @@ export function StudentForm({
           ))}
         </select>
       </label>
-      <div className="rounded border border-slate-100 bg-slate-50 p-3">
+      {canCreateParent && <div className="rounded border border-slate-100 bg-slate-50 p-3">
         <p className="mb-2 text-sm font-semibold text-ink">Créer un parent sans quitter la fiche</p>
         <div className="grid gap-2">
           <input value={quickParent.fullName} onChange={(event) => setQuickParent({ ...quickParent, fullName: event.target.value })} className="input" placeholder="Nom complet" />
@@ -110,7 +122,7 @@ export function StudentForm({
           />
           <button onClick={onCreateParent} className="primary-button" type="button"><Plus className="h-4 w-4" /> Créer et sélectionner</button>
         </div>
-      </div>
+      </div>}
       <label className="grid gap-1 text-sm font-medium text-slate-700">
         Classe
         <select value={form.className} onChange={(event) => setForm({ ...form, className: event.target.value as SchoolClass })} className="input">
@@ -138,10 +150,10 @@ export function StudentForm({
               {optionChoices.map((option) => (
                 <option key={option} value={option}>{option}</option>
               ))}
-              <option value="__add_option__">Ajouter une option</option>
+              {canAddOption && <option value="__add_option__">Ajouter une option</option>}
             </select>
           </label>
-          {showOptionForm && (
+          {canAddOption && showOptionForm && (
             <div className="rounded border border-slate-100 bg-slate-50 p-3">
               <p className="mb-2 text-sm font-semibold text-ink">Nouvelle option</p>
               <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
@@ -181,10 +193,13 @@ export function StudentForm({
           </div>
         </div>
       </section>
+      {errorMessage && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{errorMessage}</p>}
       <div className="grid grid-cols-2 gap-2">
-        <button onClick={onReset} className="secondary-button">Réinitialiser</button>
-        <button onClick={onSave} className="primary-button"><CheckCircle2 className="h-4 w-4" /> Sauver</button>
+        <button onClick={onReset} className="secondary-button" type="button" disabled={isSaving}>Réinitialiser</button>
+        <button className="primary-button" type="submit" disabled={isSaving}>
+          <CheckCircle2 className="h-4 w-4" /> {isSaving ? "Enregistrement…" : "Sauver"}
+        </button>
       </div>
-    </>
+    </form>
   );
 }

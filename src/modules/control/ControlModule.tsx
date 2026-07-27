@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Bell, Download, Edit3, Plus, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, Bell, Download, Edit3, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 import { AdminDrawer, Field, FormPanel, Metric, SectionTitle } from "../../components/ui";
 import { usePaginatedControlHistory } from "../../hooks/usePaginatedControlHistory";
 import { createAuditLog } from "../../utils/audit";
@@ -10,6 +10,7 @@ import type { PdfTableColumn } from "../../utils/pdf";
 import { getStudentBalance } from "../../utils/stats";
 import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
 import { feeAppliesToStudent } from "../../utils/feeTargets";
+import { buildControlClassChoices, feeNamesForWarningClass, getControlClassKey, selectPaymentWarningRecipients } from "../../utils/controlFilters";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import { compareStudentsForPdfByClass, formatStudentPdfClassName } from "../../utils/studentPdf";
 import type { AppData, AppNotification, AppUser, AuditLog, Expense, FeeType, ParentProfile, Payment, School, SchoolYear, Student } from "../../types";
@@ -53,8 +54,9 @@ export function ControlModule({
   const [expensePaymentMethod, setExpensePaymentMethod] = useState("");
   const [expenseReference, setExpenseReference] = useState("");
   const [expenseError, setExpenseError] = useState("");
-  const [amountComparator, setAmountComparator] = useState("all");
+  const [amountComparator, setAmountComparator] = useState("");
   const [amountThreshold, setAmountThreshold] = useState("");
+  const [controlClassKey, setControlClassKey] = useState("");
   const [paymentError, setPaymentError] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [expenseHistoryOpen, setExpenseHistoryOpen] = useState(false);
@@ -83,7 +85,7 @@ export function ControlModule({
     schoolYearId: year.id,
     enabled: expenseHistoryOpen,
   });
-  const feeNameChoices = Array.from(new Set(yearData.feeTypes.map((fee) => fee.name)));
+  const classChoices = useMemo(() => buildControlClassChoices(yearData.students), [yearData.students]);
   const amountFeeGroups = Array.from(
     yearData.feeTypes.reduce<Map<string, { key: string; name: string; ids: string[] }>>((items, fee) => {
       const name = fee.name.trim();
@@ -98,13 +100,24 @@ export function ControlModule({
     { value: `fee:${fee.key}:gte`, label: `${fee.name} >=` },
     { value: `fee:${fee.key}:lt`, label: `${fee.name} <` },
   ]);
-  const [warningFeeName, setWarningFeeName] = useState(feeNameChoices[0] ?? "");
+  const [warningClassKey, setWarningClassKey] = useState("");
+  const [warningFeeName, setWarningFeeName] = useState("");
   const [warningRequiredAmount, setWarningRequiredAmount] = useState("");
   const [warningDeadline, setWarningDeadline] = useState("");
   const [warningFeedback, setWarningFeedback] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null);
+  const warningClassStudent = classChoices.find((choice) => choice.key === warningClassKey)?.student;
+  const warningFeeNameChoices = useMemo(
+    () => feeNamesForWarningClass(yearData.feeTypes, warningClassKey, warningClassStudent),
+    [warningClassKey, warningClassStudent, yearData.feeTypes],
+  );
   useEffect(() => {
-    if (!warningFeeName && feeNameChoices[0]) setWarningFeeName(feeNameChoices[0]);
-  }, [feeNameChoices, warningFeeName]);
+    if (warningFeeName && !warningFeeNameChoices.includes(warningFeeName)) setWarningFeeName("");
+  }, [warningFeeName, warningFeeNameChoices]);
+  useEffect(() => {
+    if (warningFeedback?.type !== "success") return undefined;
+    const timer = window.setTimeout(() => setWarningFeedback(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [warningFeedback]);
   useEffect(() => {
     const match = amountComparator.match(/^fee:(.+):(gte|lt)$/);
     if (match && !amountFeeGroups.some((fee) => fee.key === match[1])) {
@@ -155,17 +168,25 @@ export function ControlModule({
         { expected: 0, paid: 0, remaining: 0 },
       );
       const progress = balance.expected > 0 ? Math.min(100, Math.round((balance.paid / balance.expected) * 100)) : 0;
-      return { student, balance, progress, hasApplicableFees: feeSummaries.length > 0 };
+      return { student, balance, progress, feeSummaries, hasApplicableFees: feeSummaries.length > 0 };
     })
     .filter((row) => {
-      if (amountComparator === "all" || !amountThreshold) return true;
+      if (controlClassKey && controlClassKey !== "all" && getControlClassKey(row.student) !== controlClassKey) return false;
+      if (!amountComparator || amountComparator === "all" || !amountThreshold) return true;
+      const threshold = Number(amountThreshold);
+      if (amountComparator === "all-fees-gte") {
+        return row.feeSummaries.length > 0 && row.feeSummaries.every((summary) => summary.paid >= threshold);
+      }
+      if (amountComparator === "all-fees-lt") {
+        return row.feeSummaries.some((summary) => summary.paid < threshold);
+      }
       const feeFilter = amountComparator.match(/^fee:(.+):(gte|lt)$/);
       const feeGroup = feeFilter ? amountFeeGroups.find((fee) => fee.key === feeFilter[1]) : undefined;
       const paidAmount = feeFilter
         ? (feeGroup?.ids ?? []).reduce((sum, feeId) => sum + sumPaymentsForStudentFee(controlIndexes, row.student.id, feeId), 0)
         : row.balance.paid;
       const isGreaterOrEqual = feeFilter ? feeFilter[2] === "gte" : amountComparator === ">=";
-      return isGreaterOrEqual ? paidAmount >= Number(amountThreshold) : paidAmount < Number(amountThreshold);
+      return isGreaterOrEqual ? paidAmount >= threshold : paidAmount < threshold;
     });
   const historyPayments = paymentHistory.items
     .map((payment) => {
@@ -347,7 +368,11 @@ export function ControlModule({
           schoolYearId: year.id,
           parentId: student.parentId,
           studentId,
+          recipientRole: "parent",
           type: "payment",
+          module: "payments",
+          event: "payment_recorded",
+          destination: "/dashboard",
           title: "Paiement enregistré",
           body: [
             `Élève : ${student.nom} ${student.postnom} ${student.prenom}`.replace(/\s+/g, " ").trim(),
@@ -524,62 +549,65 @@ export function ControlModule({
       return;
     }
     const requiredAmount = Number(warningRequiredAmount);
-    if (!warningFeeName || !Number.isFinite(requiredAmount) || requiredAmount <= 0 || !warningDeadline) {
-      setWarningFeedback({ type: "error", message: "Veuillez renseigner le type de frais, le montant requis et la date limite." });
+    if (!warningClassKey || !warningFeeName || !Number.isFinite(requiredAmount) || requiredAmount <= 0 || !warningDeadline) {
+      setWarningFeedback({ type: "error", message: "Veuillez renseigner la classe, le type de frais, le montant requis et la date limite." });
       return;
     }
 
-    const matchingFees = yearData.feeTypes.filter((fee) => fee.name === warningFeeName);
-    const matchingFeeIds = new Set(matchingFees.map((fee) => fee.id));
+    const matchingFees = yearData.feeTypes.filter(
+      (fee) => fee.name === warningFeeName && (warningClassKey === "all" || (warningClassStudent && feeAppliesToStudent(fee, warningClassStudent))),
+    );
     const warningFeeLabels = Array.from(new Set(matchingFees.map((fee) => String(fee.name).trim()).filter(Boolean)));
     const warningFeeSummary = warningFeeLabels.length ? warningFeeLabels.join(", ") : warningFeeName;
-    const parentById = new Map(yearData.parents.map((parent) => [parent.id, parent]));
     const now = new Date().toISOString();
     const sentAtLabel = new Date(now).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
-    const affectedStudents = yearData.students.filter((student) => {
-      const paid = yearData.payments
-        .filter((payment) => payment.studentId === student.id && matchingFeeIds.has(payment.feeTypeId))
-        .reduce((sum, payment) => sum + payment.amount, 0);
-      return paid < requiredAmount;
+    const recipients = selectPaymentWarningRecipients({
+      students: yearData.students,
+      parents: yearData.parents,
+      feeTypes: yearData.feeTypes,
+      payments: yearData.payments,
+      schoolId: school.id,
+      schoolYearId: year.id,
+      classKey: warningClassKey,
+      feeName: warningFeeName,
+      requiredAmount,
     });
-    const warnings = affectedStudents
-      .map((student) => {
-        const parent = student.parentId ? parentById.get(student.parentId) : undefined;
-        if (!parent) return null;
-        const studentName = studentFullName(student);
-        const body = [
-          "Cher Parent,",
-          "",
-          `Nous vous informons que le paiement de ${warningFeeSummary} relatif à votre enfant ${studentName} n'a pas encore atteint le montant requis par l'établissement.`,
-          "",
-          `Détails Type de frais : ${warningFeeSummary}.`,
-          `Montant requis : $${requiredAmount.toFixed(2)}`,
-          `Date limite de régularisation : ${warningDeadline}.`,
-          "",
-          "Nous vous invitons à régulariser votre situation avant cette échéance afin d'éviter tout désagrément et de permettre à votre enfant de poursuivre sa scolarité dans les meilleures conditions.",
-          "",
-          `Cordialement, L'Administration de ${school.name}.`,
-          "",
-          sentAtLabel,
-        ].join("\n");
-        return {
-          parent,
-          notification: {
-            id: createId("notif"),
-            schoolId: school.id,
-            schoolYearId: year.id,
-            recipientRole: "parent" as const,
-            parentId: parent.id,
-            studentId: student.id,
-            type: "payment" as const,
-            title: "Avertissement de paiement",
-            body,
-            createdAt: now,
-            read: false,
-          },
-        };
-      })
-      .filter(Boolean) as { parent: ParentProfile; notification: AppNotification }[];
+    const affectedStudents = recipients.flatMap((recipient) => recipient.students);
+    const warnings = recipients.map(({ parent, students: parentStudents }) => {
+      const studentNames = parentStudents.map(studentFullName).join(", ");
+      const childLabel = parentStudents.length > 1 ? "vos enfants" : "votre enfant";
+      const body = [
+        "Cher Parent,",
+        "",
+        `Nous vous informons que le paiement de ${warningFeeSummary} relatif à ${childLabel} ${studentNames} n'a pas encore atteint le montant requis par l'établissement.`,
+        "",
+        `Détails Type de frais : ${warningFeeSummary}.`,
+        `Montant requis : $${requiredAmount.toFixed(2)}`,
+        `Date limite de régularisation : ${warningDeadline}.`,
+        "",
+        "Nous vous invitons à régulariser votre situation avant cette échéance afin d'éviter tout désagrément et de permettre à votre enfant de poursuivre sa scolarité dans les meilleures conditions.",
+        "",
+        `Cordialement, L'Administration de ${school.name}.`,
+        "",
+        sentAtLabel,
+      ].join("\n");
+      return {
+        parent,
+        notification: {
+          id: createId("notif"),
+          schoolId: school.id,
+          schoolYearId: year.id,
+          recipientRole: "parent" as const,
+          parentId: parent.id,
+          studentId: parentStudents[0].id,
+          type: "payment" as const,
+          title: "Avertissement de paiement",
+          body,
+          createdAt: now,
+          read: false,
+        },
+      };
+    });
 
     if (warnings.length === 0) {
       setWarningFeedback({ type: "info", message: "Aucun parent ne correspond aux critères sélectionnés." });
@@ -588,7 +616,7 @@ export function ControlModule({
 
     const campaignId = createId("warn");
     const notifiedParents = new Set(warnings.map((item) => item.parent.id));
-    const status = warnings.length === affectedStudents.length ? "Succès" : "Partiel";
+    const status = warnings.length > 0 ? "Succès" : "Partiel";
     const auditLog = createAuditLog(
       user,
       school.id,
@@ -685,28 +713,43 @@ export function ControlModule({
           </p>
         )}
         <label className="grid gap-1 text-sm font-medium text-slate-700">
+          Classe
+          <select value={warningClassKey} onChange={(event) => { setWarningClassKey(event.target.value); setWarningFeeName(""); }} className="input">
+            <option value="" disabled hidden>Classe</option>
+            <option value="all">Toutes</option>
+            {classChoices.map((choice) => <option key={choice.key} value={choice.key}>{choice.label}</option>)}
+          </select>
+        </label>
+        <label className="grid gap-1 text-sm font-medium text-slate-700">
           Type de frais
-          <select value={warningFeeName} onChange={(event) => setWarningFeeName(event.target.value)} className="input">
-            {feeNameChoices.map((feeName) => (
+          <select value={warningFeeName} onChange={(event) => setWarningFeeName(event.target.value)} disabled={!warningClassKey} className="input disabled:opacity-60">
+            <option value="">Choisir un type de frais</option>
+            {warningFeeNameChoices.map((feeName) => (
               <option key={feeName} value={feeName}>{feeName}</option>
             ))}
           </select>
         </label>
         <Field label="Montant requis" value={warningRequiredAmount} onChange={setWarningRequiredAmount} type="number" />
         <Field label="Date limite de régularisation" value={warningDeadline} onChange={setWarningDeadline} type="date" />
-        <button onClick={sendPaymentWarnings} disabled={!feeNameChoices.length} className="primary-button justify-center disabled:opacity-50" type="button">
+        <button onClick={sendPaymentWarnings} disabled={!warningFeeName} className="primary-button justify-center disabled:opacity-50" type="button">
           <Bell className="h-4 w-4" /> Envoyer
         </button>
-        {!feeNameChoices.length && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun type de frais n'est encore défini.</p>}
+        {warningClassKey && !warningFeeNameChoices.length && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun type de frais n'est défini pour cette classe.</p>}
       </div>
     );
+  }
+
+  function resetControlFilters() {
+    setAmountComparator("");
+    setAmountThreshold("");
+    setControlClassKey("");
   }
 
   async function printFilteredStudents() {
     const feeFilter = amountComparator.match(/^fee:(.+):(gte|lt)$/);
     const selectedPdfFeeGroup = feeFilter ? amountFeeGroups.find((fee) => fee.key === feeFilter[1]) : undefined;
     const filterLabel =
-      amountComparator === "all" || !amountThreshold
+      !amountComparator || amountComparator === "all" || !amountThreshold
         ? "Montant payé : tous"
         : selectedPdfFeeGroup && feeFilter
           ? `${selectedPdfFeeGroup.name} ${feeFilter[2] === "gte" ? ">=" : "<"} ${amountThreshold}`
@@ -1033,17 +1076,24 @@ export function ControlModule({
           <div className={`mb-3 grid min-w-0 max-w-full gap-2 lg:w-full lg:gap-2 ${canPay ? "lg:grid-cols-[minmax(105px,0.8fr)_minmax(70px,0.6fr)_repeat(5,minmax(0,1fr))]" : "lg:grid-cols-[minmax(120px,1fr)_minmax(90px,0.8fr)_repeat(3,minmax(0,1fr))]"}`}>
             <div className="flex min-w-0 flex-nowrap items-stretch gap-1.5 lg:contents">
               <select value={amountComparator} onChange={(event) => setAmountComparator(event.target.value)} className="h-10 min-w-0 flex-[1.1] rounded border border-slate-200 bg-white px-2 text-xs sm:text-sm lg:w-full">
-                <option value="all">Montant payé</option>
+                <option value="" disabled hidden>Montant payé</option>
+                <option value="all">Toutes</option>
                 {amountFeeOptions.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
                 ))}
               </select>
+              <select value={controlClassKey} onChange={(event) => setControlClassKey(event.target.value)} className="h-10 min-w-0 flex-1 rounded border border-slate-200 bg-white px-2 text-xs sm:text-sm lg:w-full" aria-label="Classe">
+                <option value="" disabled hidden>Classe</option>
+                <option value="all">Toutes</option>
+                {classChoices.map((choice) => <option key={choice.key} value={choice.key}>{choice.label}</option>)}
+              </select>
               <input value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)} type="number" className="h-10 min-w-0 flex-1 rounded border border-slate-200 bg-white px-2 text-xs sm:text-sm lg:w-full" placeholder="Filtre" />
               <button onClick={printFilteredStudents} className="primary-button h-10 min-w-0 flex-1 justify-center px-2 text-xs sm:text-sm lg:w-full">
                 <Download className="h-4 w-4" /> Imprimer
               </button>
+              <button onClick={resetControlFilters} className="secondary-button h-10 min-w-0 flex-1 justify-center px-2 text-xs sm:text-sm lg:w-full" type="button">Réinitialiser</button>
             </div>
             <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:contents">
               <button onClick={() => setCashierControlDrawer("history")} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:px-1 lg:text-[11px] lg:whitespace-nowrap xl:px-2 xl:text-xs" type="button">
@@ -1065,30 +1115,36 @@ export function ControlModule({
             </div>
           </div>
         ) : (
-          <div className="mb-3 grid min-w-0 max-w-full gap-2 lg:w-full lg:grid-cols-[minmax(120px,1fr)_minmax(90px,0.8fr)_repeat(4,minmax(0,1fr))] lg:gap-2">
-            <div className="flex min-w-0 flex-nowrap items-stretch gap-1.5 lg:contents">
-              <select value={amountComparator} onChange={(event) => setAmountComparator(event.target.value)} className="h-10 min-w-0 flex-[1.1] rounded border border-slate-200 bg-white px-2 text-xs sm:text-sm lg:w-full">
-                <option value="all">Montant payé</option>
+          <div className="mb-3 w-full min-w-0 max-w-full">
+            <div className="grid w-full min-w-0 grid-cols-1 items-stretch gap-2 box-border sm:grid-cols-2 lg:flex lg:flex-nowrap lg:items-center">
+              <select value={controlClassKey} onChange={(event) => setControlClassKey(event.target.value)} className="h-10 min-w-0 w-full rounded border border-slate-200 bg-white px-2 text-sm lg:flex-1 lg:basis-0" aria-label="Classe">
+                <option value="" disabled hidden>Classe</option>
+                <option value="all">Toutes</option>
+                {classChoices.map((choice) => <option key={choice.key} value={choice.key}>{choice.label}</option>)}
+              </select>
+              <select value={amountComparator} onChange={(event) => setAmountComparator(event.target.value)} className="h-10 min-w-0 w-full rounded border border-slate-200 bg-white px-2 text-sm lg:flex-1 lg:basis-0" aria-label="Montant payé">
+                <option value="" disabled hidden>Montant payé</option>
+                <option value="all-fees-gte">Tous les frais ≥</option>
+                <option value="all-fees-lt">Tous les frais &lt;</option>
                 {amountFeeOptions.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
                 ))}
               </select>
-              <input value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)} type="number" className="h-10 min-w-0 flex-1 rounded border border-slate-200 bg-white px-2 text-xs sm:text-sm lg:w-full" placeholder="Filtre" />
-              <button onClick={printFilteredStudents} className="primary-button h-10 min-w-0 flex-1 justify-center px-2 text-xs sm:text-sm lg:w-full">
-                <Download className="h-4 w-4" /> Imprimer
+              <input value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)} type="number" className="h-10 min-w-0 w-full rounded border border-slate-200 bg-white px-2 text-sm lg:flex-1 lg:basis-0" placeholder="Filtre" aria-label="Filtre" />
+              <button onClick={printFilteredStudents} className="primary-button h-10 min-w-0 justify-center px-2 lg:flex-1 lg:basis-0" title="Imprimer" aria-label="Imprimer" type="button">
+                <Download className="h-4 w-4" /> Exporter PDF
               </button>
-            </div>
-            <div className="grid min-w-0 gap-2 lg:contents">
-              <button onClick={() => setHistoryOpen(true)} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:px-1 lg:text-[11px] lg:whitespace-nowrap xl:px-2 xl:text-xs" type="button">
-                Historique des paiements
+              <button onClick={resetControlFilters} className="secondary-button h-10 min-w-0 justify-center px-2 lg:flex-1 lg:basis-0" type="button" title="Réinitialiser" aria-label="Réinitialiser"><RotateCcw className="h-4 w-4" /> Réinitialiser</button>
+              <button onClick={() => setWarningOpen(true)} className="secondary-button h-10 min-w-0 justify-center px-2 lg:flex-1 lg:basis-0" type="button" title="Avertissement" aria-label="Avertissement">
+                <Bell className="h-4 w-4" /> Avertissement
               </button>
-              <button onClick={() => setExpenseHistoryOpen(true)} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:px-1 lg:text-[11px] lg:whitespace-nowrap xl:px-2 xl:text-xs" type="button">
+              <button onClick={() => setExpenseHistoryOpen(true)} className="secondary-button h-10 min-w-0 justify-center px-2 text-sm lg:flex-1 lg:basis-0 lg:text-xs" type="button">
                 Historique de dépenses
               </button>
-              <button onClick={() => setWarningOpen(true)} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:px-1 lg:text-[11px] lg:whitespace-nowrap xl:px-2 xl:text-xs" type="button">
-                Avertissement
+              <button onClick={() => setHistoryOpen(true)} className="secondary-button h-10 min-w-0 justify-center px-2 text-sm lg:flex-1 lg:basis-0 lg:text-xs" type="button">
+                Historique des paiements
               </button>
             </div>
           </div>

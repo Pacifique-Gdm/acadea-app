@@ -24,6 +24,7 @@ type HeaderProps = {
   onRealtimeNotifications?: (notifications: AppNotification[]) => void;
   onRealtimeMessages?: (messages: Message[]) => void;
   roleLabels: Record<AppUser["role"], string>;
+  focusedMessageId?: string;
 };
 
 export function Header({
@@ -42,6 +43,7 @@ export function Header({
   onRealtimeNotifications,
   onRealtimeMessages,
   roleLabels,
+  focusedMessageId,
 }: HeaderProps) {
   const schoolLogoUrl = school.logoUrl?.trim();
   const userDisplayName = user.name.trim();
@@ -176,6 +178,7 @@ export function Header({
             realtimeMessages={realtimeMessages.messages}
             notificationPagination={notificationPagination}
             roleLabels={roleLabels}
+            focusedMessageId={focusedMessageId}
           />
         </AdminDrawer>
       )}

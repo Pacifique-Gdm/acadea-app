@@ -52,7 +52,7 @@ type ProvisionCashierInput = {
   phone: string;
 };
 
-type ProvisionSchoolUserRole = "school_admin" | "cashier" | "discipline_director";
+type ProvisionSchoolUserRole = "school_admin" | "cashier" | "discipline_director" | "secretary";
 type ProvisionSchoolUserInput = ProvisionCashierInput & {
   role: ProvisionSchoolUserRole;
 };
