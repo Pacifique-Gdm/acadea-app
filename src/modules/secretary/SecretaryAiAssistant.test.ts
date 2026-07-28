@@ -20,6 +20,18 @@ describe("assistant IA du Secrétaire", () => {
     expect(component).not.toContain("setSections(");
   });
 
+  it("propose les trois parcours rédactionnels attendus et injecte le résultat", () => {
+    expect(component).toContain("Rédiger une réponse");
+    expect(component).toContain("Améliorer un texte");
+    expect(component).toContain(">Reformuler<");
+    expect(component).toContain("setEditableProposal(response.proposedText");
+  });
+
+  it("affiche le message callable exploitable", () => {
+    expect(service).toContain("callableMessage");
+    expect(service).toContain("return exploitableMessage");
+  });
+
   it("n'expose aucune clé fournisseur dans le frontend", () => {
     expect(service).not.toContain("OPENAI_API_KEY");
     expect(service).not.toContain("api.openai.com");
@@ -27,6 +39,8 @@ describe("assistant IA du Secrétaire", () => {
     expect(backend).toContain("request.auth");
     expect(backend).toContain("schoolId !== input.schoolId");
     expect(backend).toContain("store: false");
+    expect(backend).toContain('invoker: "public"');
+    expect(backend).toContain("extractOpenAiResponseText");
   });
 
   it("protège références, signatures et données sensibles dans l'instruction serveur", () => {

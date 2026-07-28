@@ -23,6 +23,9 @@ export async function recordSecretaryAiDecision(user: AppUser, schoolId: string,
 
 export function aiErrorMessage(error: unknown) {
   const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
+  const callableMessage = error instanceof Error ? error.message.replace(/^FirebaseError:\s*/i, "").trim() : "";
+  const exploitableMessage = callableMessage && !/^(internal|unavailable|unknown|error)$/i.test(callableMessage) ? callableMessage : "";
+  if (exploitableMessage && ["failed-precondition", "deadline-exceeded", "resource-exhausted", "unavailable", "internal", "invalid-argument"].some((item) => code.includes(item))) return exploitableMessage;
   if (code.includes("not-found")) return "Le service Assistant IA n'est pas encore disponible sur cet environnement.";
   if (code.includes("failed-precondition")) return "L'Assistant IA n'est pas configuré pour cet établissement.";
   if (code.includes("unauthenticated")) return "Votre session a expiré. Reconnectez-vous avant d'utiliser l'Assistant IA.";
