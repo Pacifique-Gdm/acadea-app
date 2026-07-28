@@ -5,7 +5,7 @@ import type { SecretaryTab } from "../../components/layout/SecretaryBottomNaviga
 import { SectionTitle } from "../../components/ui";
 
 const tabContent: Record<Exclude<SecretaryTab, "students">, { title: string; description: string; icon: typeof Mail }> = {
-  correspondence: { title: "Correspondance", description: "Courriers administratifs entrants et sortants.", icon: Mail },
+  correspondence: { title: "Courrier", description: "Courriers administratifs entrants et sortants.", icon: Mail },
   reports: { title: "Rapports", description: "Documents administratifs structurés de l'établissement.", icon: FileText },
   menu: { title: "Menu", description: "Listes, exports, profil et fonctions secondaires.", icon: MenuIcon },
 };

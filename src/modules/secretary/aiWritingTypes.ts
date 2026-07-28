@@ -1,0 +1,7 @@
+export type AiAction = "correct" | "reformulate" | "formalize" | "simplify" | "shorten" | "expand" | "summarize" | "generate_draft" | "generate_section" | "verify_document" | "transform_notes";
+export type AiTone = "administrative" | "professional" | "formal" | "courteous" | "diplomatic" | "firm" | "neutral";
+export type AiLength = "short" | "similar" | "detailed";
+export interface AiWritingRequest { schoolId: string; academicYearId?: string; documentId?: string; documentType: string; section?: string; action: AiAction; originalText?: string; context?: Record<string, unknown>; tone?: AiTone; length?: AiLength; additionalInstruction?: string; consentConfirmed: boolean }
+export interface AiWritingResponse { success: boolean; action: AiAction; originalText?: string; proposedText?: string; sections?: Record<string, string>; warnings: Array<{ code: string; severity: "info" | "warning" | "critical"; title: string; message: string; field?: string }>; missingInformation: Array<{ field: string; message: string }>; metadata: { requestId: string; generatedAt: string } }
+export interface SchoolAiSettings { schoolId: string; enabled: boolean; allowedRoles: string[]; allowedActions: AiAction[]; allowedDocumentTypes: string[]; dailyRequestLimit?: number; maxInputCharacters?: number; retainDetailedHistory: boolean; requireUserConsent: boolean; updatedAt: unknown; updatedBy: string }
+export const SECRETARY_AI_PERMISSIONS = ["secretary.ai.use", "secretary.ai.correct", "secretary.ai.generate", "secretary.ai.verify", "secretary.ai.view_history"] as const;

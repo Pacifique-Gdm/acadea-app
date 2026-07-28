@@ -884,7 +884,7 @@ export default function App() {
         renderBottomNavigation={(tab, onTab) => (
           <SecretaryBottomNavigation activeTab={tab} showInstallButton={showInstallPwaButton} onInstallPwa={installPwa} onTab={onTab} />
         )}
-        renderCorrespondence={() => <SecretaryCorrespondenceModule user={user} school={school} year={selectedYear} />}
+        renderCorrespondence={() => <SecretaryCorrespondenceModule user={user} users={data.users} school={school} year={selectedYear} />}
         renderReports={() => <SecretaryReportsModule user={user} school={school} year={selectedYear} />}
         renderMenu={() => <SecretaryMenuModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} createId={uid} studentImportKey={studentImportKey} onLogout={logout} />}
         renderStudents={() => secretaryStudentDetailMatch ? (

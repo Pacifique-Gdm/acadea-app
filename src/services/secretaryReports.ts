@@ -1,7 +1,10 @@
-import { collection, doc, onSnapshot, query, runTransaction, setDoc, where } from "firebase/firestore";
+import * as firestore from "firebase/firestore";
+import { collection, doc, onSnapshot, query, setDoc, where } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import type { AppUser } from "../types";
 import type { SecretaryReport, SecretaryReportType } from "../modules/secretary/secretaryTypes";
+
+const serverTimestamp = (firestore as unknown as { serverTimestamp: () => unknown }).serverTimestamp;
 
 function assertSecretary(user: AppUser, schoolId: string) {
   if (!auth?.currentUser || auth.currentUser.uid !== user.id || user.role !== "secretary" || user.status === "inactive" || user.schoolId !== schoolId) throw new Error("Votre session ne permet pas cette opération.");
@@ -14,26 +17,20 @@ export function subscribeToSecretaryReports(params: { user: AppUser; schoolId: s
   }, params.onError);
 }
 
-export async function createSecretaryReport(params: { user: AppUser; schoolId: string; schoolYearId: string; type: SecretaryReportType; title: string; documentDate: string; structuredContent: Record<string, string> }) {
+export async function createSecretaryReport(params: { user: AppUser; schoolId: string; schoolYearId: string; type: SecretaryReportType; title: string; documentDate: string; startTime: string; endTime: string; structuredContent: Record<string, string> }) {
   assertSecretary(params.user, params.schoolId);
   if (!db) throw new Error("Service de données indisponible.");
   const reportRef = doc(collection(db, "secretaryReports"));
-  const counterRef = doc(db, "secretaryCounters", `${params.schoolId}_${params.schoolYearId}_report`);
-  return runTransaction(db, async (transaction) => {
-    const counter = await transaction.get(counterRef);
-    const sequence = Number(counter.data()?.value ?? 0) + 1;
-    const now = new Date().toISOString();
-    const report: SecretaryReport = { id: reportRef.id, reportNumber: `RAP-${new Date().getFullYear()}-${String(sequence).padStart(5, "0")}`, type: params.type, title: params.title, documentDate: params.documentDate, structuredContent: params.structuredContent, status: "draft", authorId: params.user.id, authorName: params.user.name, schoolId: params.schoolId, schoolYearId: params.schoolYearId, createdAt: now, updatedAt: now };
-    transaction.set(counterRef, { value: sequence, schoolId: params.schoolId, schoolYearId: params.schoolYearId, kind: "report", updatedAt: now });
-    transaction.set(reportRef, report);
-    return report;
-  });
+  const now = new Date().toISOString();
+  const report: SecretaryReport = { id: reportRef.id, reportNumber: `RAP-${new Date().getFullYear()}-${reportRef.id.slice(0, 8).toUpperCase()}`, type: params.type, title: params.title, documentDate: params.documentDate, startTime: params.startTime, endTime: params.endTime, structuredContent: params.structuredContent, status: "draft", authorId: params.user.id, authorName: params.user.name, schoolId: params.schoolId, schoolYearId: params.schoolYearId, createdAt: now, updatedAt: now };
+  await setDoc(reportRef, { ...report, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  return report;
 }
 
-export async function updateSecretaryReport(user: AppUser, report: SecretaryReport, patch: Pick<SecretaryReport, "type" | "title" | "documentDate" | "structuredContent">) {
+export async function updateSecretaryReport(user: AppUser, report: SecretaryReport, patch: Pick<SecretaryReport, "type" | "title" | "documentDate" | "startTime" | "endTime" | "structuredContent">) {
   assertSecretary(user, report.schoolId);
   if (!db || report.status !== "draft") throw new Error("Un rapport finalisé ou archivé est en lecture seule.");
-  await setDoc(doc(db, "secretaryReports", report.id), { ...patch, updatedAt: new Date().toISOString() }, { merge: true });
+  await setDoc(doc(db, "secretaryReports", report.id), { ...patch, updatedAt: serverTimestamp() }, { merge: true });
 }
 
 export async function finalizeSecretaryReport(user: AppUser, report: SecretaryReport) {

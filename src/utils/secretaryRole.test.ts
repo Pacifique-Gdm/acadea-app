@@ -28,7 +28,7 @@ describe("provisionnement et portail Secrétaire", () => {
     expect(app).toContain("<SecretaryPortal");
     expect(app).toContain("<Header");
     expect(navigation).toContain('label: "Élèves"');
-    expect(navigation).toContain('label: "Correspondance"');
+    expect(navigation).toContain('label: "Courrier"');
     expect(navigation).toContain('label: "Rapports"');
     expect(navigation).toContain('label: "Menu"');
     expect(portal).toContain('useState<SecretaryTab>("students")');

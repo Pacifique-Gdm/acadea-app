@@ -540,14 +540,22 @@ service cloud.firestore {
       allow create: if secretary()
         && sameTenantCreate()
         && request.resource.data.createdBy == request.auth.uid
-        && request.resource.data.schoolYearId is string;
+        && request.resource.data.schoolYearId is string
+        && request.resource.data.direction in ["incoming", "outgoing"]
+        && (request.resource.data.direction != "outgoing"
+          || (request.resource.data.outgoing is map
+            && request.resource.data.outgoing.version == 1
+            && request.resource.data.outgoing.signer.userId is string
+            && request.resource.data.outgoing.recipient is map));
       allow update: if secretary()
         && sameTenantUpdate()
         && sameYearUpdate()
         && resource.data.createdBy == request.resource.data.createdBy
         && resource.data.referenceNumber == request.resource.data.referenceNumber
-        && !(resource.data.status == "archived" && request.resource.data.diff(resource.data).affectedKeys().hasAny(["direction", "date", "subject", "sender", "recipient", "content", "attachment"]));
-      allow delete: if false;
+        && resource.data.schoolId == request.resource.data.schoolId
+        && resource.data.schoolYearId == request.resource.data.schoolYearId
+        && !(resource.data.status == "archived" && request.resource.data.diff(resource.data).affectedKeys().hasAny(["direction", "date", "subject", "sender", "recipient", "content", "copiePourInformation", "attachment"]));
+      allow delete: if secretary() && sameTenantResource();
     }
 
     match /secretaryCounters/{counterId} {
@@ -555,6 +563,22 @@ service cloud.firestore {
       allow create, update: if secretary()
         && request.resource.data.schoolId == tenantSchoolId()
         && request.resource.data.kind in ["correspondence", "report"];
+      allow delete: if false;
+    }
+
+    match /studentMedicalRecords/{studentId} {
+      allow read: if secretary() && sameTenantResource();
+      allow create: if secretary()
+        && sameTenantCreate()
+        && request.resource.data.studentId == studentId
+        && request.resource.data.schoolYearId is string
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update: if secretary()
+        && sameTenantUpdate()
+        && sameYearUpdate()
+        && resource.data.studentId == studentId
+        && request.resource.data.studentId == resource.data.studentId
+        && request.resource.data.createdBy == resource.data.createdBy;
       allow delete: if false;
     }
 
@@ -580,6 +604,11 @@ service cloud.firestore {
             && request.resource.data.status == "archived"
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "archivedAt", "updatedAt"])));
       allow delete: if false;
+    }
+
+    match /aiUsageLogs/{requestId} {
+      allow read: if secretary() && resource.data.schoolId == tenantSchoolId() && resource.data.userId == request.auth.uid;
+      allow create, update, delete: if false;
     }
 
     match /{document=**} {
