@@ -5,21 +5,12 @@ import { defineSecret } from "firebase-functions/params";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { AI_ACTIONS, type AiAction, type AiWritingRequest, type AiWritingResponse } from "./types.js";
 import { sanitizeAiContext, sanitizeAiText } from "./sanitize.js";
-import { classifyOpenAiFailure, extractOpenAiResponseText, readOpenAiFailure } from "./openAiResponse.js";
+import { classifyOpenAiFailure, extractOpenAiResponseText, normalizeOpenAiSections, OPENAI_WRITING_RESPONSE_FORMAT, readOpenAiFailure } from "./openAiResponse.js";
+import { assertSecretaryAiEnabled } from "./schoolAiAccess.js";
 
 const openAiApiKey = defineSecret("OPENAI_API_KEY");
 const coreActions = new Set<AiAction>(["correct", "reformulate", "formalize", "generate_draft", "verify_document"]);
 const allowedDocuments = new Set(["outgoing_correspondence", "meeting_minutes", "activity_report", "incident_report", "official_minutes", "administrative_note", "other"]);
-const responseSchema = {
-  type: "object", additionalProperties: false,
-  properties: {
-    proposedText: { type: "string" },
-    sections: { type: "object", additionalProperties: { type: "string" } },
-    warnings: { type: "array", items: { type: "object", additionalProperties: false, properties: { code: { type: "string" }, severity: { type: "string", enum: ["info", "warning", "critical"] }, title: { type: "string" }, message: { type: "string" }, field: { type: "string" } }, required: ["code", "severity", "title", "message", "field"] } },
-    missingInformation: { type: "array", items: { type: "object", additionalProperties: false, properties: { field: { type: "string" }, message: { type: "string" } }, required: ["field", "message"] } },
-  }, required: ["proposedText", "sections", "warnings", "missingInformation"],
-};
-
 function validateInput(value: unknown): AiWritingRequest {
   if (!value || typeof value !== "object") throw new HttpsError("invalid-argument", "Demande IA invalide.");
   const input = value as Partial<AiWritingRequest>;
@@ -35,7 +26,7 @@ function buildInstructions(input: AiWritingRequest) {
 function parseProviderResponse(value: unknown, action: AiAction, originalText: string, requestId: string): AiWritingResponse {
   if (!value || typeof value !== "object") throw new HttpsError("internal", "Réponse IA invalide.");
   const data = value as Record<string, unknown>;
-  const sections = data.sections && typeof data.sections === "object" && !Array.isArray(data.sections) ? Object.fromEntries(Object.entries(data.sections as Record<string, unknown>).filter((entry): entry is [string, string] => typeof entry[1] === "string")) : {};
+  const sections = normalizeOpenAiSections(data.sections);
   const warnings = Array.isArray(data.warnings) ? data.warnings.filter((item) => item && typeof item === "object" && typeof (item as { message?: unknown }).message === "string") : [];
   const missingInformation = Array.isArray(data.missingInformation) ? data.missingInformation.filter((item) => item && typeof item === "object" && typeof (item as { field?: unknown }).field === "string") : [];
   const proposedText = typeof data.proposedText === "string" ? data.proposedText.trim() : "";
@@ -45,13 +36,15 @@ function parseProviderResponse(value: unknown, action: AiAction, originalText: s
 
 export const secretaryAiWritingAssistant = onCall({ region: "europe-west1", timeoutSeconds: 60, memory: "256MiB", secrets: [openAiApiKey], invoker: "public" }, async (request) => {
   const startedAt = Date.now(); const requestId = randomUUID(); const input = validateInput(request.data);
-  const role = request.auth?.token.role; const schoolId = request.auth?.token.schoolId;
-  if (!request.auth || role !== "secretary" || typeof schoolId !== "string" || schoolId !== input.schoolId) throw new HttpsError("permission-denied", "Vous ne disposez pas de l'autorisation nécessaire.");
   const db = getFirestore();
-  const school = await db.doc(`schools/${schoolId}`).get();
-  if (!school.exists) throw new HttpsError("not-found", "Établissement introuvable.");
-  const settings = (school.data()?.aiSettings ?? {}) as Record<string, unknown>;
-  if (settings.enabled === false || (Array.isArray(settings.allowedRoles) && !settings.allowedRoles.includes("secretary")) || (Array.isArray(settings.allowedActions) && !settings.allowedActions.includes(input.action))) throw new HttpsError("permission-denied", "L'assistant IA n'est pas autorisé pour cette action.");
+  const schoolData = await assertSecretaryAiEnabled(request.auth, input.schoolId, async (requestedSchoolId) => {
+    const snapshot = await db.doc(`schools/${requestedSchoolId}`).get();
+    return { exists: snapshot.exists, data: snapshot.data() };
+  });
+  const auth = request.auth!;
+  const role = auth.token.role; const schoolId = auth.token.schoolId as string;
+  const settings = (schoolData.aiSettings ?? {}) as Record<string, unknown>;
+  if ((Array.isArray(settings.allowedRoles) && !settings.allowedRoles.includes("secretary")) || (Array.isArray(settings.allowedActions) && !settings.allowedActions.includes(input.action))) throw new HttpsError("permission-denied", "L'assistant IA n'est pas autorisé pour cette action.");
   const maxCharacters = typeof settings.maxInputCharacters === "number" ? Math.min(settings.maxInputCharacters, 20000) : 12000;
   const original = sanitizeAiText(input.originalText ?? "");
   const context = sanitizeAiContext(input.context ?? {});
@@ -61,7 +54,7 @@ export const secretaryAiWritingAssistant = onCall({ region: "europe-west1", time
   let result: AiWritingResponse; let providerStatus = "failed"; const model = process.env.OPENAI_MODEL || "gpt-5-mini";
   try {
     const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 45000);
-    const response = await fetch("https://api.openai.com/v1/responses", { method: "POST", signal: controller.signal, headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, store: false, instructions: buildInstructions(input), input: JSON.stringify({ text: original.sanitized, context }), text: { format: { type: "json_schema", name: "acadea_writing_response", strict: true, schema: responseSchema } } }) }).finally(() => clearTimeout(timer));
+    const response = await fetch("https://api.openai.com/v1/responses", { method: "POST", signal: controller.signal, headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, store: false, instructions: buildInstructions(input), input: JSON.stringify({ text: original.sanitized, context }), text: { format: OPENAI_WRITING_RESPONSE_FORMAT } }) }).finally(() => clearTimeout(timer));
     const provider = await response.json() as unknown;
     if (!response.ok) {
       const failure = readOpenAiFailure(response.status, provider);
@@ -80,18 +73,23 @@ export const secretaryAiWritingAssistant = onCall({ region: "europe-west1", time
     if (error instanceof HttpsError) throw error;
     throw new HttpsError(error instanceof Error && error.name === "AbortError" ? "deadline-exceeded" : "unavailable", "L'assistant IA est temporairement indisponible. Votre texte n'a pas été modifié.");
   } finally {
-    await db.collection("aiUsageLogs").doc(requestId).set({ schoolId, userId: request.auth.uid, role, documentType: input.documentType, documentId: input.documentId ?? null, section: input.section ?? null, action: input.action, createdAt: FieldValue.serverTimestamp(), status: providerStatus, provider: "openai", model, durationMs: Date.now() - startedAt, sentCharacters, receivedCharacters: typeof result! === "object" ? JSON.stringify(result!).length : 0, accepted: null }).catch((error) => logger.error("AI usage log write failed", { requestId, error }));
+    await db.collection("aiUsageLogs").doc(requestId).set({ schoolId, userId: auth.uid, role, documentType: input.documentType, documentId: input.documentId ?? null, section: input.section ?? null, action: input.action, createdAt: FieldValue.serverTimestamp(), status: providerStatus, provider: "openai", model, durationMs: Date.now() - startedAt, sentCharacters, receivedCharacters: typeof result! === "object" ? JSON.stringify(result!).length : 0, accepted: null }).catch((error) => logger.error("AI usage log write failed", { requestId, error }));
   }
   return result;
 });
 
 export const secretaryAiRecordDecision = onCall({ region: "europe-west1", invoker: "public" }, async (request) => {
-  if (!request.auth || request.auth.token.role !== "secretary") throw new HttpsError("permission-denied", "Action non autorisée.");
+  const db = getFirestore();
+  await assertSecretaryAiEnabled(request.auth, request.auth?.token.schoolId, async (requestedSchoolId) => {
+    const snapshot = await db.doc(`schools/${requestedSchoolId}`).get();
+    return { exists: snapshot.exists, data: snapshot.data() };
+  });
+  const auth = request.auth!;
   const requestId = typeof request.data?.requestId === "string" ? request.data.requestId : "";
   const accepted = request.data?.accepted;
   if (!requestId || typeof accepted !== "boolean") throw new HttpsError("invalid-argument", "Décision invalide.");
-  const reference = getFirestore().collection("aiUsageLogs").doc(requestId); const snapshot = await reference.get();
-  if (!snapshot.exists || snapshot.data()?.userId !== request.auth.uid || snapshot.data()?.schoolId !== request.auth.token.schoolId) throw new HttpsError("permission-denied", "Historique inaccessible.");
-  await reference.update({ accepted, decisionAt: FieldValue.serverTimestamp(), acceptedBy: request.auth.uid });
+  const reference = db.collection("aiUsageLogs").doc(requestId); const snapshot = await reference.get();
+  if (!snapshot.exists || snapshot.data()?.userId !== auth.uid || snapshot.data()?.schoolId !== auth.token.schoolId) throw new HttpsError("permission-denied", "Historique inaccessible.");
+  await reference.update({ accepted, decisionAt: FieldValue.serverTimestamp(), acceptedBy: auth.uid });
   return { success: true };
 });

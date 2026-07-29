@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { ArrowUpDown, BookOpen, Building2, CheckCircle2, Filter, GraduationCap, LayoutDashboard, LogOut, Menu as MenuIcon, Plus, Search, ShieldCheck, Upload, UsersRound, X } from "lucide-react";
+import { ArrowUpDown, BookOpen, Building2, CheckCircle2, Filter, GraduationCap, LayoutDashboard, LogOut, Menu as MenuIcon, Plus, Search, ShieldCheck, Sparkles, Upload, UsersRound, X } from "lucide-react";
 import { BillingControlsDrawer } from "../../components/platform/BillingControlsDrawer";
 import { AuditTimeline, BiometricTerminalStatusBadge, InfoRow, MiniStat, PlatformCard, SchoolLogo, SchoolSaasCard, StatusBadge } from "../../components/platform";
 import { AdminDrawer, Field, FormPanel, ImageUploadField, PasswordField } from "../../components/ui";
@@ -10,6 +10,7 @@ import { savePlatformSettings } from "../../services/firestoreData";
 import { loadSuperAdminSchoolData } from "../../services/superAdminData";
 import type { SuperAdminGlobalCounts } from "../../services/superAdminData";
 import { manageSchool, provisionSchoolAdmin, provisionSchoolUser, removeSchoolAdmin } from "../../services/provisioning";
+import { isSchoolAiAssistantEnabled, saveSchoolAiAssistantSetting } from "../../services/schoolAiAssistant";
 import { ADMIN_REMOVAL_CONFIRMATION, canConfirmAdminRemoval, markAdminRemoved } from "../../utils/adminRemoval";
 import { isSessionAuditAction } from "../../utils/audit";
 import { educationLevelsForSchoolLevel, schoolLevelFromConfig } from "../../utils/schoolConfig";
@@ -103,6 +104,9 @@ export function PlatformModule({
   const [provisioningLoading, setProvisioningLoading] = useState(false);
   const [schoolActionError, setSchoolActionError] = useState("");
   const [schoolActionSuccess, setSchoolActionSuccess] = useState("");
+  const [aiAssistantSaving, setAiAssistantSaving] = useState(false);
+  const [aiAssistantMessage, setAiAssistantMessage] = useState("");
+  const [aiAssistantError, setAiAssistantError] = useState("");
   const [schoolDeleteTarget, setSchoolDeleteTarget] = useState<School | null>(null);
   const [schoolDeleteConfirmation, setSchoolDeleteConfirmation] = useState("");
   const [schoolDeleteLoading, setSchoolDeleteLoading] = useState(false);
@@ -645,6 +649,22 @@ export function PlatformModule({
     });
   }
 
+  async function setSchoolAiAssistant(school: School, enabled: boolean) {
+    if (aiAssistantSaving) return;
+    setAiAssistantSaving(true);
+    setAiAssistantMessage("");
+    setAiAssistantError("");
+    try {
+      const aiAssistant = await saveSchoolAiAssistantSetting(user, school.id, enabled);
+      updateData({ schools: data.schools.map((item) => item.id === school.id ? { ...item, aiAssistant } : item) }, { persist: false });
+      setAiAssistantMessage(`Assistant IA ${enabled ? "activé" : "désactivé"} pour cette école.`);
+    } catch (error) {
+      setAiAssistantError(error instanceof Error ? error.message : "Modification de l’Assistant IA impossible.");
+    } finally {
+      setAiAssistantSaving(false);
+    }
+  }
+
   function openAdminRemovalDialog(admin: AppUser) {
     setAdminRemovalTarget(admin);
     setAdminRemovalConfirmation("");
@@ -691,6 +711,8 @@ export function PlatformModule({
   function openSchoolDrawer(schoolId: string) {
     const requestId = schoolDetailRequestRef.current + 1;
     schoolDetailRequestRef.current = requestId;
+    setAiAssistantMessage("");
+    setAiAssistantError("");
     selectSchool(schoolId);
     setSchoolDrawerId(schoolId);
     setSchoolDetailError("");
@@ -1108,6 +1130,35 @@ export function PlatformModule({
                   <MiniStat label="Administrateurs" value={drawerStats.admins} />
                   <MiniStat label="Total utilisateurs" value={drawerStats.users} />
                 </div>
+                <section className="grid gap-3 rounded border border-slate-200 bg-white p-4" aria-labelledby="school-ai-assistant-title">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <span className="rounded bg-violet-50 p-2 text-violet-700"><Sparkles className="h-5 w-5" /></span>
+                      <div className="min-w-0">
+                        <h3 id="school-ai-assistant-title" className="font-bold text-ink">Assistant IA — Module Secrétaire</h3>
+                        <p className="mt-1 text-sm text-slate-600">Lorsque cette option est désactivée, les utilisateurs du module Secrétaire ne peuvent pas utiliser l’Assistant IA et aucun crédit OpenAI n’est consommé.</p>
+                      </div>
+                    </div>
+                    <span className={`rounded-full px-3 py-1 text-xs font-bold ${isSchoolAiAssistantEnabled(drawerSchool) ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
+                      {isSchoolAiAssistantEnabled(drawerSchool) ? "Activé" : "Désactivé"}
+                    </span>
+                  </div>
+                  <label className="flex cursor-pointer items-center justify-between gap-4 rounded bg-slate-50 p-3 text-sm font-semibold text-ink">
+                    <span>Activer l’Assistant IA</span>
+                    <input
+                      type="checkbox"
+                      role="switch"
+                      aria-label="Activer l’Assistant IA du module Secrétaire"
+                      checked={isSchoolAiAssistantEnabled(drawerSchool)}
+                      disabled={aiAssistantSaving}
+                      onChange={(event) => void setSchoolAiAssistant(drawerSchool, event.target.checked)}
+                      className="h-5 w-5 accent-ink disabled:cursor-wait"
+                    />
+                  </label>
+                  {aiAssistantSaving && <p className="text-sm text-slate-500">Enregistrement en cours…</p>}
+                  {aiAssistantMessage && <p role="status" className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">{aiAssistantMessage}</p>}
+                  {aiAssistantError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{aiAssistantError}</p>}
+                </section>
                 <div className="rounded bg-slate-50 p-4">
                   <p className="text-sm font-semibold text-ink">Effectif des élèves par classe</p>
                   <p className="mt-1 text-xs text-slate-500">Répartition des élèves inscrits dans les différentes classes de l'établissement.</p>

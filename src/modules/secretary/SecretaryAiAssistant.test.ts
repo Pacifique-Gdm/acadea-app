@@ -20,6 +20,12 @@ describe("assistant IA du Secrétaire", () => {
     expect(component).not.toContain("setSections(");
   });
 
+  it("bloque l'interface et explique la désactivation avant d'afficher toute action IA", () => {
+    expect(component).toContain("enabled: boolean");
+    expect(component).toContain("L’Assistant IA n’est pas activé pour votre établissement. Veuillez contacter votre administrateur.");
+    expect(component.indexOf("if (!enabled) return")).toBeLessThan(component.indexOf('return <><button type="button"'));
+  });
+
   it("propose les trois parcours rédactionnels attendus et injecte le résultat", () => {
     expect(component).toContain("Rédiger une réponse");
     expect(component).toContain("Améliorer un texte");
@@ -37,7 +43,7 @@ describe("assistant IA du Secrétaire", () => {
     expect(service).not.toContain("api.openai.com");
     expect(backend).toContain('defineSecret("OPENAI_API_KEY")');
     expect(backend).toContain("request.auth");
-    expect(backend).toContain("schoolId !== input.schoolId");
+    expect(backend).toContain("assertSecretaryAiEnabled(request.auth, input.schoolId");
     expect(backend).toContain("store: false");
     expect(backend).toContain('invoker: "public"');
     expect(backend).toContain("extractOpenAiResponseText");

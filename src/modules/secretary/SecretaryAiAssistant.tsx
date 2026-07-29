@@ -6,8 +6,8 @@ import type { AppUser } from "../../types";
 import type { AiAction, AiLength, AiTone, AiWritingResponse } from "./aiWritingTypes";
 
 export interface AiDocumentSections { [key: string]: string }
-export function SecretaryAiAssistant({ user, schoolId, academicYearId, documentId, documentType, sections, initialSection, label = "Assistant de rédaction IA", onAccept }: {
-  user: AppUser; schoolId: string; academicYearId?: string; documentId?: string; documentType: string; sections: AiDocumentSections; initialSection?: string; label?: string; onAccept: (section: string, value: string) => void;
+export function SecretaryAiAssistant({ user, schoolId, academicYearId, documentId, documentType, sections, initialSection, label = "Assistant de rédaction IA", enabled, onAccept }: {
+  user: AppUser; schoolId: string; academicYearId?: string; documentId?: string; documentType: string; sections: AiDocumentSections; initialSection?: string; label?: string; enabled: boolean; onAccept: (section: string, value: string) => void;
 }) {
   const [open, setOpen] = useState(false); const [section, setSection] = useState(initialSection ?? Object.keys(sections)[0] ?? "document");
   const [action, setAction] = useState<AiAction>("correct"); const [tone, setTone] = useState<AiTone>("administrative"); const [length, setLength] = useState<AiLength>("similar"); const [instruction, setInstruction] = useState("");
@@ -27,6 +27,7 @@ export function SecretaryAiAssistant({ user, schoolId, academicYearId, documentI
     else onAccept(section, editableProposal);
     void recordSecretaryAiDecision(user, schoolId, result.metadata.requestId, true).catch((cause) => console.warn("Décision IA non journalisée", cause)); setOpen(false); setResult(null);
   }
+  if (!enabled) return <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">L’Assistant IA n’est pas activé pour votre établissement. Veuillez contacter votre administrateur.</p>;
   return <><button type="button" className="secondary-button" onClick={() => { setSection(initialSection ?? Object.keys(sections)[0] ?? "document"); setOpen(true); }}><Bot className="h-4 w-4" /> {label}</button>{open && <AdminDrawer title="Assistant IA" onClose={() => !busy && setOpen(false)} closeLabel="Fermer"><div className="grid gap-4">
     <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm"><strong>À vérifier avant validation.</strong><p>L’assistant IA génère des propositions qui doivent être vérifiées. Aucun document n’est finalisé, signé ou envoyé automatiquement.</p><label className="mt-2 flex gap-2"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} /> J’ai compris que le contenu proposé doit être vérifié avant utilisation.</label></div>
     <label className="grid gap-1 text-sm">Portée<select className="input" value={section} onChange={(event) => { setSection(event.target.value); setResult(null); }}>{sectionOptions.map(([value, caption]) => <option key={value} value={value}>{caption}</option>)}</select></label>

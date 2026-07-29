@@ -4,6 +4,53 @@ export interface OpenAiFailure {
   type?: string;
 }
 
+export const OPENAI_WRITING_RESPONSE_FORMAT = {
+  type: "json_schema",
+  name: "acadea_writing_response",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      proposedText: { type: "string" },
+      sections: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: { key: { type: "string" }, value: { type: "string" } },
+          required: ["key", "value"],
+        },
+      },
+      warnings: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            code: { type: "string" },
+            severity: { type: "string", enum: ["info", "warning", "critical"] },
+            title: { type: "string" },
+            message: { type: "string" },
+            field: { type: "string" },
+          },
+          required: ["code", "severity", "title", "message", "field"],
+        },
+      },
+      missingInformation: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: { field: { type: "string" }, message: { type: "string" } },
+          required: ["field", "message"],
+        },
+      },
+    },
+    required: ["proposedText", "sections", "warnings", "missingInformation"],
+  },
+} as const;
+
 export type OpenAiCallableErrorCode = "failed-precondition" | "resource-exhausted" | "invalid-argument" | "unavailable";
 
 export function classifyOpenAiFailure(status: number): { code: OpenAiCallableErrorCode; message: string } {
@@ -26,6 +73,13 @@ export function extractOpenAiResponseText(value: unknown) {
       return block.type === "output_text" && typeof block.text === "string" ? [block.text] : [];
     });
   }).join("\n").trim();
+}
+
+export function normalizeOpenAiSections(value: unknown): Record<string, string> {
+  if (!Array.isArray(value)) return {};
+  return Object.fromEntries(value.flatMap((item) => item && typeof item === "object" && typeof (item as { key?: unknown }).key === "string" && typeof (item as { value?: unknown }).value === "string"
+    ? [[(item as { key: string }).key, (item as { value: string }).value] as const]
+    : []));
 }
 
 export function readOpenAiFailure(status: number, value: unknown): OpenAiFailure {

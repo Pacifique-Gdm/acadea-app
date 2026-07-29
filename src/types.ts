@@ -65,6 +65,11 @@ export interface School {
   subscriptionPlan: "Starter" | "Standard" | "Premium";
   subscriptionStatus?: "active" | "suspended" | "expired";
   subscriptionAmount: number;
+  aiAssistant?: {
+    enabled: boolean;
+    updatedAt?: string | { seconds: number; nanoseconds: number };
+    updatedBy?: string;
+  };
 }
 
 export interface SchoolYear {

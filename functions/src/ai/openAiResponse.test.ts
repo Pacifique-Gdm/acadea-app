@@ -1,7 +1,34 @@
 import { describe, expect, it } from "vitest";
-import { classifyOpenAiFailure, extractOpenAiResponseText, readOpenAiFailure } from "./openAiResponse.js";
+import { classifyOpenAiFailure, extractOpenAiResponseText, normalizeOpenAiSections, OPENAI_WRITING_RESPONSE_FORMAT, readOpenAiFailure } from "./openAiResponse.js";
 
 describe("réponse REST OpenAI", () => {
+  it("construit exactement un text.format JSON Schema strict", () => {
+    const format = OPENAI_WRITING_RESPONSE_FORMAT;
+    expect(format.type).toBe("json_schema");
+    expect(format.name).toBe("acadea_writing_response");
+    expect(format.strict).toBe(true);
+    expect(format.schema).toMatchObject({
+      type: "object",
+      additionalProperties: false,
+      required: ["proposedText", "sections", "warnings", "missingInformation"],
+    });
+    expect(format.schema.properties.sections).toEqual({
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: { key: { type: "string" }, value: { type: "string" } },
+        required: ["key", "value"],
+      },
+    });
+    expect(format.schema.properties.warnings.items.additionalProperties).toBe(false);
+    expect(format.schema.properties.missingInformation.items.additionalProperties).toBe(false);
+  });
+
+  it("reconvertit les sections strictes en objet pour le contrat existant", () => {
+    expect(normalizeOpenAiSections([{ key: "objet", value: "Réponse" }, { key: "corps", value: "Texte" }])).toEqual({ objet: "Réponse", corps: "Texte" });
+  });
+
   it("extrait le texte depuis les blocs output de l'API Responses", () => {
     const value = { output: [{ type: "message", content: [{ type: "output_text", text: "{\"proposedText\":\"Bonjour\"}" }] }] };
     expect(extractOpenAiResponseText(value)).toBe('{"proposedText":"Bonjour"}');

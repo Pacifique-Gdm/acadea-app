@@ -123,6 +123,7 @@ service cloud.firestore {
       return schoolAdmin()
         && schoolId == tenantSchoolId()
         && request.resource.data.id == resource.data.id
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["aiAssistant"])
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           "name",
           "motto",
