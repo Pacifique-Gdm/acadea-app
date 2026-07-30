@@ -48,7 +48,11 @@ export function getTargetSections(scope: string, sections: Record<string, string
   return scope in sections ? { [scope]: sections[scope] ?? "" } : {};
 }
 
+export function resolveGeneratedScope(generatedScope: string | undefined, responseScope: string | undefined, currentScope: string) {
+  return generatedScope ?? responseScope ?? currentScope;
+}
+
 export function editedReportSectionsToApply(scope: string, current: Record<string, string>, edited: Record<string, string>) {
-  const keys = scope === "full_document" ? Object.keys(current) : [scope];
-  return Object.fromEntries(keys.filter((key) => key in current).map((key) => [key, edited[key] ?? current[key] ?? ""]));
+  const keys = scope === "full_document" ? Object.keys(edited) : [scope];
+  return Object.fromEntries(keys.filter((key) => key in current && typeof edited[key] === "string").map((key) => [key, edited[key]]));
 }

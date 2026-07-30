@@ -32,8 +32,9 @@ describe("assistant IA du Secrétaire", () => {
     expect(component).toContain("{monthlyUsage} / {monthlyLimit} utilisations");
     expect(component).toContain("Il vous reste :");
     expect(component).toContain("Le quota mensuel de votre établissement est atteint");
-    expect(component).toContain("if (lock.current || limitReached) return");
-    expect(component.indexOf("if (lock.current || limitReached) return")).toBeLessThan(component.indexOf("requestSecretaryAi(user"));
+    expect(component).toContain("if (limitReached) return");
+    expect(component).toContain("withAiGenerationLock(lock, setBusy");
+    expect(component.indexOf("if (limitReached) return")).toBeLessThan(component.indexOf("requestSecretaryAi(user"));
   });
 
   it("construit neuf actions avec le type précis et injecte le résultat modifiable", () => {
@@ -94,18 +95,22 @@ describe("assistant IA du Secrétaire", () => {
     expect(backend).toContain("Ne déclare pas qu'elles sont manquantes lorsqu'elles existent");
   });
 
-  it("n'utilise la concaténation globale que pour les courriers", () => {
+  it("isole les sections de rapport et conserve la concaténation globale des courriers", () => {
     expect(component).toContain('effectiveScope === "full_document"');
     expect(component).toContain('documentCategory === "rapport" && result.sections');
-    expect(component).toContain('documentCategory !== "rapport" && effectiveScope === "single_section"');
+    expect(component).toContain("context: sectionsSent");
+    expect(component).not.toContain("context: sections, tone");
   });
 
   it("utilise les portées canoniques et une application atomique", () => {
     expect(component).toContain('<option value="full_document">Document complet</option>');
     expect(component).not.toContain('<option value="single_section">Section unique</option>');
+    expect(component).not.toContain('effectiveScope === "single_section"');
     expect(component).toContain('targetSection: { key: effectiveScope');
     expect(component).toContain("scope: effectiveScope");
     expect(component).toContain("if (onApplySections) onApplySections(valuesToApply)");
     expect(component).toContain("sectionKeysSent: Object.keys(sectionsSent)");
+    expect(component).toContain("resolveGeneratedScope(generatedParameters?.scope, result?.scope, effectiveScope)");
+    expect(component).toContain('displayedScope === "full_document" ? Object.keys(editableSections) : [displayedScope]');
   });
 });

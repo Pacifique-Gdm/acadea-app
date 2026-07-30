@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyReportAiSections, buildReportAiSections, editedReportSectionsToApply, getTargetSections, REPORT_AI_SECTION_DEFINITIONS } from "./reportAiSections";
+import { applyReportAiSections, buildReportAiSections, editedReportSectionsToApply, getTargetSections, REPORT_AI_SECTION_DEFINITIONS, resolveGeneratedScope } from "./reportAiSections";
 
 const fields = ["lieu", "objet", "participants", "points abordés", "décisions", "recommandations", "signatures"];
 
@@ -17,8 +17,14 @@ describe("sections IA d'un rapport", () => {
     expect(getTargetSections("recommendations", current)).toEqual({ recommendations: current.recommendations });
   });
 
+  it("affiche et applique prioritairement la portée réellement générée", () => {
+    expect(resolveGeneratedScope("decisions", "recommendations", "location")).toBe("decisions");
+    expect(resolveGeneratedScope(undefined, "recommendations", "location")).toBe("recommendations");
+    expect(editedReportSectionsToApply(resolveGeneratedScope("decisions", "recommendations", "location"), { location: "Salle", decisions: "Avant", recommendations: "Avant" }, { decisions: "Après", recommendations: "Ignorer" })).toEqual({ decisions: "Après" });
+  });
+
   it("préserve la valeur courante lorsqu'une proposition structurée manque", () => {
-    expect(editedReportSectionsToApply("full_document", { location: "Salle", signatures: "Directeur" }, { location: "Nouvelle salle" })).toEqual({ location: "Nouvelle salle", signatures: "Directeur" });
+    expect(editedReportSectionsToApply("full_document", { location: "Salle", signatures: "Directeur" }, { location: "Nouvelle salle" })).toEqual({ location: "Nouvelle salle" });
   });
 
   it("remplace atomiquement les sept champs contrôlés sans toucher aux métadonnées", () => {

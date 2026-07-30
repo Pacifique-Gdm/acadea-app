@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AI_ACTIONS, type AiWritingRequest } from "./types.js";
-import { AI_ASSISTANT_VERSION, buildInstructions, parseProviderResponse, validateInput } from "./writingAssistant.js";
+import { ACADEA_AI_IDENTITY, AI_ASSISTANT_VERSION, buildInstructions, parseProviderResponse, runTransformationAttempts, validateInput } from "./writingAssistant.js";
 import { buildStructuredWritingResponseFormat } from "./openAiResponse.js";
 
 const request = (action: AiWritingRequest["action"]): AiWritingRequest => ({
@@ -17,12 +17,21 @@ const request = (action: AiWritingRequest["action"]): AiWritingRequest => ({
   action,
   tone: "administrative",
   length: "standard",
-  additionalInstruction: "",
+  additionalInstruction: "Conserver strictement les faits fournis.",
   originalText: "Faits constatés",
   consentConfirmed: true,
 });
 
 describe("requête de l'assistant rédactionnel", () => {
+  it("applique l'identité officielle et le contexte scolaire Acadéa", () => {
+    const instructions = buildInstructions(request("professionalize"));
+    expect(ACADEA_AI_IDENTITY).toContain("assistant intelligent officiel de la plateforme Acadéa");
+    for (const rule of ["gestion des établissements scolaires", "rôle Secrétaire", "rapport factuel", "procès-verbal officiel", "protocole administratif", "auto-vérification", "decisions contient des décisions administratives", "valeur ajoutée perceptible"]) expect(instructions).toContain(rule);
+  });
+
+  it("exige une instruction complémentaire exploitable", () => {
+    expect(() => validateInput({ ...request("improve"), additionalInstruction: "   " })).toThrowError("L’instruction complémentaire est obligatoire");
+  });
   it("reconnaît exactement les neuf identifiants partagés", () => {
     expect(AI_ACTIONS).toEqual(["reformulate", "write_complete", "correct", "improve", "develop", "formalize", "summarize", "clarify", "professionalize"]);
     for (const action of AI_ACTIONS) expect(validateInput(request(action)).action).toBe(action);
@@ -72,6 +81,53 @@ describe("requête de l'assistant rédactionnel", () => {
     const single = { ...request("clarify"), scope: "decisions", sections: { decisions: "Contrôle hebdomadaire" }, targetSection: { key: "decisions", value: "Contrôle hebdomadaire" } };
     expect(validateInput(single).sections).toEqual({ decisions: "Contrôle hebdomadaire" });
     expect(() => validateInput({ ...single, sections: { recommendations: "Hors cible" } })).toThrowError("Sections du rapport invalides.");
+  });
+
+  it("refuse une réponse OpenAI qui ne correspond pas à la portée demandée", () => {
+    const input = { ...request("clarify"), scope: "decisions", sections: { decisions: "Contrôle" }, targetSection: { key: "decisions", value: "Contrôle" } };
+    expect(() => parseProviderResponse({ proposedText: "", scope: "recommendations", section: { key: "recommendations", value: "Suivi" }, warnings: [], missingInformation: [] }, input, "wrong-scope")).toThrowError("ne correspond pas à la portée demandée");
+  });
+
+  it.each(["location", "subject", "participants", "discussedPoints", "decisions", "recommendations", "signatures"] as const)("isole strictement la portée %s", (scope) => {
+    const base = request("improve");
+    const value = base.sections[scope] ?? "";
+    const validated = validateInput({ ...base, scope, sections: { [scope]: value }, targetSection: { key: scope, value }, context: { [scope]: value } });
+    expect(validated.sections).toEqual({ [scope]: value });
+    expect(validated.targetSection).toEqual({ key: scope, value });
+  });
+
+  it.each(["administrative", "professional", "neutral", "formal"] as const)("valide et injecte le ton %s", (tone) => {
+    const validated = validateInput({ ...request("formalize"), tone });
+    expect(buildInstructions(validated)).toContain(`Ton : ${tone}`);
+  });
+
+  it("rejette les anciens alias et les paramètres inconnus", () => {
+    for (const patch of [{ scope: "single_section" }, { scope: "discussed_points" }, { action: "expand" }, { tone: "diplomatic" }, { length: "detailed" }]) {
+      expect(() => validateInput({ ...request("improve"), ...patch })).toThrow();
+    }
+  });
+
+  it("réussit au second essai lorsque la transformation devient différente", async () => {
+    const input = { ...request("develop"), scope: "decisions", sections: { decisions: "Décision initiale" }, targetSection: { key: "decisions", value: "Décision initiale" } };
+    const attempts: string[] = [];
+    const outcome = await runTransformationAttempts(input, async (retryCount) => {
+      const value = retryCount === 0 ? "Décision initiale" : "Décision administrative développée";
+      attempts.push(value);
+      return parseProviderResponse({ proposedText: "", scope: "decisions", section: { key: "decisions", value }, warnings: [], missingInformation: [] }, input, `retry-${retryCount}`);
+    });
+    expect(attempts).toHaveLength(2);
+    expect(outcome.retryCount).toBe(1);
+    expect(outcome.result.sections).toEqual({ decisions: "Décision administrative développée" });
+  });
+
+  it("retourne AI_NO_TRANSFORMATION après deux réponses identiques", async () => {
+    const input = { ...request("correct"), scope: "decisions", sections: { decisions: "Décision initiale" }, targetSection: { key: "decisions", value: "Décision initiale" } };
+    let attempts = 0;
+    await expect(runTransformationAttempts(input, async (retryCount) => {
+      attempts += 1;
+      return parseProviderResponse({ proposedText: "", scope: "decisions", section: { key: "decisions", value: "Décision initiale" }, warnings: [], missingInformation: [] }, input, `same-${retryCount}`);
+    })).rejects.toMatchObject({ code: "failed-precondition", details: { code: "AI_NO_TRANSFORMATION" } });
+    expect(attempts).toBe(2);
   });
 
   const matrix = AI_ACTIONS.flatMap((action) => (["short", "standard", "developed"] as const).flatMap((length) => (["full_document", "decisions", "recommendations"] as const).map((scope) => ({ action, length, scope }))));
