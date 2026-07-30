@@ -17,6 +17,7 @@ export function SecretaryPortal({
   renderReports,
   renderMenu,
   renderBottomNavigation,
+  initialTab = "students",
 }: {
   renderHeader: () => ReactNode;
   renderStudents?: () => ReactNode;
@@ -24,8 +25,9 @@ export function SecretaryPortal({
   renderReports?: () => ReactNode;
   renderMenu?: () => ReactNode;
   renderBottomNavigation: (activeTab: SecretaryTab, onTab: (tab: SecretaryTab) => void) => ReactNode;
+  initialTab?: SecretaryTab;
 }) {
-  const [activeTab, setActiveTab] = useState<SecretaryTab>("students");
+  const [activeTab, setActiveTab] = useState<SecretaryTab>(initialTab);
   const section = activeTab === "students" ? undefined : tabContent[activeTab];
   const Icon = section?.icon ?? GraduationCap;
 

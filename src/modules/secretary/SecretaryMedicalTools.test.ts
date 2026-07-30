@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { emptyMedicalRecordInput, formatMedicalRecordValue, medicalRecordSections, normalizeMedicalRecordInput } from "./medicalRecordFields";
 
 describe("Drawers médicaux et statistiques du Secrétaire", () => {
   const source = readFileSync(new URL("./SecretaryMedicalTools.tsx", import.meta.url), "utf8");
@@ -10,12 +11,46 @@ describe("Drawers médicaux et statistiques du Secrétaire", () => {
     expect(source).toContain('title="Statistiques"');
   });
 
-  it("présente la recherche, les statuts et les actions attendues", () => {
-    for (const label of ["Rechercher un élève", "Complète", "Incomplète", "Non créée", "Consulter", "Modifier", "Créer"]) expect(source).toContain(label);
+  it("présente la recherche, les statuts et remplace Consulter par un nom accessible", () => {
+    for (const label of ["Rechercher un élève", "Complète", "Incomplète", "Non créée", "Modifier", "Créer"]) expect(source).toContain(label);
+    expect(source).not.toContain(">Consulter</button>");
+    expect(source).toContain("setViewingStudent(student)");
+    expect(source).toContain("aria-label={`Consulter la fiche médicale de");
+    expect(source).toContain("focus-visible:ring-2");
+  });
+
+  it("conditionne l'édition et préremplit le formulaire existant", () => {
+    expect(source).toContain('user.role === "secretary"');
+    expect(source).toContain('user.status !== "inactive"');
+    expect(source).toContain("user.schoolId === schoolId");
+    expect(source).toContain("canEditMedicalRecords &&");
+    expect(source).toContain("setInput(normalizeMedicalRecordInput(record))");
+    expect(source).toContain("student.schoolId === schoolId && student.schoolYearId === schoolYearId");
   });
 
   it("contient tous les champs médicaux et un verrou anti-double soumission", () => {
-    for (const label of ["Groupe sanguin", "Rhésus", "Allergies", "Maladies chroniques", "Traitements en cours", "Handicap ou besoin particulier", "Vaccinations", "Observations médicales", "Contact d'urgence", "Téléphone du contact d'urgence", "Lien avec l'élève", "Médecin traitant", "Téléphone du médecin", "Centre de santé de référence"]) expect(source).toContain(label);
+    const labels = medicalRecordSections.flatMap((section) => section.fields.map((field) => field.label));
+    expect(labels).toEqual(["Groupe sanguin", "Rhésus (optionnel)", "Allergies", "Maladies chroniques", "Traitements en cours", "Handicap ou besoin particulier", "Vaccinations", "Observations médicales", "Contact d'urgence", "Téléphone du contact d'urgence", "Lien avec l'élève", "Médecin traitant", "Téléphone du médecin", "Centre de santé de référence"]);
     expect(source).toContain("saveLock.current");
+  });
+
+  it("pilote création, modification et consultation avec la même configuration", () => {
+    expect(source.match(/medicalRecordSections\.map/g)).toHaveLength(1);
+    expect(source).toContain('<MedicalRecordFields mode="edit"');
+    expect(source).toContain('<MedicalRecordFields mode="view"');
+    const configuredFields = medicalRecordSections.flatMap((section) => section.fields.map((field) => field.key));
+    expect(configuredFields).toEqual(Object.keys(emptyMedicalRecordInput));
+    expect(medicalRecordSections.map((section) => section.title)).toEqual(["Informations médicales", "Urgence", "Suivi médical"]);
+  });
+
+  it("normalise une ancienne fiche incomplète sans produire de valeur undefined", () => {
+    const normalized = normalizeMedicalRecordInput({ bloodGroup: "O+", allergies: undefined as unknown as string });
+    expect(normalized.bloodGroup).toBe("O+");
+    expect(normalized.allergies).toBe("");
+    expect(Object.values(normalized)).not.toContain(undefined);
+    expect(formatMedicalRecordValue(undefined)).toBe("Non renseigné");
+    expect(formatMedicalRecordValue(true)).toBe("Oui");
+    expect(formatMedicalRecordValue(false)).toBe("Non");
+    expect(formatMedicalRecordValue(["A", "B"])).toBe("A, B");
   });
 });

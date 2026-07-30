@@ -1,5 +1,5 @@
 import { getFunctions, httpsCallable } from "firebase/functions";
-import { app, auth } from "../firebase";
+import { app, auth, firebaseConfig } from "../firebase";
 import type { AppUser } from "../types";
 import type { AiWritingRequest, AiWritingResponse } from "../modules/secretary/aiWritingTypes";
 
@@ -9,7 +9,10 @@ export function assertSecretaryAiAccess(user: AppUser, schoolId: string) {
 
 export async function requestSecretaryAi(user: AppUser, input: AiWritingRequest) {
   assertSecretaryAiAccess(user, input.schoolId);
-  const callable = httpsCallable<AiWritingRequest, AiWritingResponse>(getFunctions(app!, "europe-west1"), "secretaryAiWritingAssistant", { timeout: 60000 });
+  const functionName = "secretaryAiWritingAssistant";
+  const region = "europe-west1";
+  if (import.meta.env.VITE_APP_ENV === "staging") console.info("Secretary AI callable diagnostic", { action: input.action, documentCategory: input.documentCategory, documentType: input.documentType, firebaseProjectId: firebaseConfig.projectId, functionName, region });
+  const callable = httpsCallable<AiWritingRequest, AiWritingResponse>(getFunctions(app!, region), functionName, { timeout: 60000 });
   const result = await callable(input);
   if (!result.data?.success || !Array.isArray(result.data.warnings) || !Array.isArray(result.data.missingInformation)) throw new Error("La réponse de l'assistant IA est invalide.");
   return result.data;

@@ -3,16 +3,32 @@ import { describe, expect, it } from "vitest";
 
 describe("Menu du Secrétaire", () => {
   const source = readFileSync(new URL("./SecretaryMenuModule.tsx", import.meta.url), "utf8");
+  const adminMenuSource = readFileSync(new URL("../menu/MenuModule.tsx", import.meta.url), "utf8");
 
-  it("conserve uniquement les quatre outils demandés et la déconnexion", () => {
+  it("conserve les outils existants et ajoute les trois accès partagés", () => {
     expect(source).not.toContain("Liste générale");
     expect(source).not.toContain("Export Excel");
     expect(source).not.toContain("Changer le mot de passe");
     expect(source).toContain("onLogout");
     expect(source).toContain("Déconnexion");
     expect(source).toContain("grid gap-3");
-    for (const label of ["Importer les élèves d’une année archivée", "Tableau d’homogénéité d’âge", "Statistiques", "Fiches médicales", "Déconnexion"]) expect(source).toContain(label);
-    const positions = ["setImportDrawerOpen(true)", "setAgeDrawerOpen(true)", "setStatisticsDrawerOpen(true)", "setMedicalDrawerOpen(true)", "onClick={onLogout}"].map((value) => source.indexOf(value));
+    for (const label of ["Importer les élèves d’une année archivée", "Tableau d’homogénéité d’âge", "Statistiques", "Fiches médicales", "Valves", "Parents / Tuteurs", "Empreintes et Cartes", "Déconnexion"]) expect(source).toContain(label);
+    const positions = ["setValvesDrawerOpen(true)", "setMedicalDrawerOpen(true)", 'openBiometricView("menu")', "setParentsDrawerOpen(true)", "setAgeDrawerOpen(true)", "setStatisticsDrawerOpen(true)", "setImportDrawerOpen(true)"].map((value) => source.indexOf(value));
+    expect(positions).toEqual([...positions].sort((left, right) => left - right));
+    expect(source.indexOf("onClick={onLogout}")).toBeGreaterThan(positions.at(-1) ?? -1);
+  });
+
+  it("réutilise les composants Administrateur sans logique métier parallèle", () => {
+    expect(source).toContain("<ValvesDrawerContent");
+    expect(source).toContain("<ParentsDirectoryDrawer");
+    expect(source).toContain("<BiometricStudentsPage");
+    expect(source).toContain("canManage={false}");
+    expect(source).toContain("schoolId={school.id}");
+    expect(source).toContain("schoolYearId={year.id}");
+  });
+
+  it("ne modifie pas l'ordre des entrées équivalentes du menu Administrateur", () => {
+    const positions = ['title: "Valves"', 'title: "Parents / Tuteurs"', 'title: "Empreintes et Cartes"'].map((label) => adminMenuSource.indexOf(label));
     expect(positions).toEqual([...positions].sort((left, right) => left - right));
   });
 

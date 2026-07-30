@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyOpenAiFailure, extractOpenAiResponseText, normalizeOpenAiSections, OPENAI_WRITING_RESPONSE_FORMAT, readOpenAiFailure } from "./openAiResponse.js";
+import { buildSingleSectionWritingResponseFormat, buildStructuredWritingResponseFormat, classifyOpenAiFailure, extractOpenAiResponseText, normalizeOpenAiSections, OPENAI_WRITING_RESPONSE_FORMAT, readOpenAiFailure } from "./openAiResponse.js";
 
 describe("réponse REST OpenAI", () => {
   it("construit exactement un text.format JSON Schema strict", () => {
@@ -27,6 +27,21 @@ describe("réponse REST OpenAI", () => {
 
   it("reconvertit les sections strictes en objet pour le contrat existant", () => {
     expect(normalizeOpenAiSections([{ key: "objet", value: "Réponse" }, { key: "corps", value: "Texte" }])).toEqual({ objet: "Réponse", corps: "Texte" });
+    expect(normalizeOpenAiSections({ lieu: "Salle", décisions: "Suivi" })).toEqual({ lieu: "Salle", décisions: "Suivi" });
+  });
+
+  it("construit un schéma strict avec toutes les sections du rapport", () => {
+    const keys = ["lieu", "objet", "participants", "points abordés", "décisions", "recommandations", "signatures"];
+    const format = buildStructuredWritingResponseFormat(keys);
+    expect(format.schema.properties.sections).toEqual({ type: "object", additionalProperties: false, properties: Object.fromEntries(keys.map((key) => [key, { type: "string" }])), required: keys });
+    expect(format.schema.properties.scope.enum).toEqual(["full_document"]);
+  });
+
+  it("construit un schéma distinct pour une section unique", () => {
+    const format = buildSingleSectionWritingResponseFormat("decisions");
+    expect(format.schema.properties.scope.enum).toEqual(["decisions"]);
+    expect(format.schema.properties.section.properties.key.enum).toEqual(["decisions"]);
+    expect(format.schema.properties).not.toHaveProperty("sections");
   });
 
   it("extrait le texte depuis les blocs output de l'API Responses", () => {

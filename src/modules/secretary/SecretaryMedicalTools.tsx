@@ -5,15 +5,8 @@ import { saveStudentMedicalRecord, getMedicalRecordStatus } from "../../services
 import { formatStudentClassName } from "../../utils/studentClasses";
 import type { AppUser, Student } from "../../types";
 import type { StudentMedicalRecord } from "./secretaryTypes";
-
-const emptyMedicalInput = {
-  bloodGroup: "", rhesus: "", allergies: "", chronicDiseases: "", currentTreatments: "",
-  disabilityOrSpecialNeed: "", vaccinations: "", medicalObservations: "", emergencyContactName: "",
-  emergencyContactPhone: "", emergencyContactRelationship: "", attendingPhysician: "", physicianPhone: "",
-  referenceHealthCenter: "",
-};
-
-type MedicalInput = typeof emptyMedicalInput;
+import { emptyMedicalRecordInput, formatMedicalRecordValue, medicalRecordSections, normalizeMedicalRecordInput, requiredMedicalRecordFields } from "./medicalRecordFields";
+import type { MedicalRecordInput } from "./medicalRecordFields";
 
 const statusPresentation = {
   complete: { label: "Complète", className: "bg-emerald-100 text-emerald-800" },
@@ -26,22 +19,38 @@ function MedicalStatusBadge({ record }: { record?: StudentMedicalRecord }) {
   return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${presentation.className}`}>{presentation.label}</span>;
 }
 
+type MedicalRecordFieldsProps =
+  | { mode: "edit"; input: MedicalRecordInput; onChange: (input: MedicalRecordInput) => void }
+  | { mode: "view"; record?: Partial<MedicalRecordInput> };
+
+function MedicalRecordFields(props: MedicalRecordFieldsProps) {
+  return <>{medicalRecordSections.map((section) => props.mode === "edit"
+    ? <fieldset className="grid gap-3" key={section.title}><legend className="mb-2 font-bold">{section.title}</legend>
+        {section.fields.map((field) => field.control === "textarea"
+          ? <textarea key={field.key} className="input" placeholder={field.label} aria-label={field.label} required={field.required} value={props.input[field.key]} onChange={(event) => props.onChange({ ...props.input, [field.key]: event.target.value })} />
+          : <input key={field.key} className="input" placeholder={field.label} aria-label={field.label} required={field.required} value={props.input[field.key]} onChange={(event) => props.onChange({ ...props.input, [field.key]: event.target.value })} />)}
+      </fieldset>
+    : <section className="rounded border bg-white p-4" key={section.title}><h3 className="font-bold">{section.title}</h3><dl className="mt-3 grid gap-3 sm:grid-cols-2">{section.fields.map((field) => <div className="min-w-0" key={field.key}><dt className="text-xs font-semibold uppercase text-slate-500">{field.label}</dt><dd className="mt-1 whitespace-pre-wrap break-words text-slate-700">{formatMedicalRecordValue(props.record?.[field.key])}</dd></div>)}</dl></section>)}</>;
+}
+
 export function SecretaryMedicalRecordsDrawer({ open, onClose, user, students, records, schoolId, schoolYearId }: {
   open: boolean; onClose: () => void; user: AppUser; students: Student[]; records: StudentMedicalRecord[]; schoolId: string; schoolYearId: string;
 }) {
   const [queryText, setQueryText] = useState("");
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [viewingStudent, setViewingStudent] = useState<Student | null>(null);
-  const [input, setInput] = useState<MedicalInput>(emptyMedicalInput);
+  const [input, setInput] = useState<MedicalRecordInput>(emptyMedicalRecordInput);
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
   const saveLock = useRef(false);
-  const recordsByStudent = useMemo(() => new Map(records.map((record) => [record.studentId, record])), [records]);
-  const visibleStudents = useMemo(() => students.filter((student) => `${student.matricule} ${student.nom} ${student.postnom} ${student.prenom} ${student.className}`.toLowerCase().includes(queryText.toLowerCase())), [queryText, students]);
+  const canEditMedicalRecords = user.role === "secretary" && user.status !== "inactive" && user.schoolId === schoolId;
+  const recordsByStudent = useMemo(() => new Map(records.filter((record) => record.schoolId === schoolId && record.schoolYearId === schoolYearId).map((record) => [record.studentId, record])), [records, schoolId, schoolYearId]);
+  const visibleStudents = useMemo(() => students.filter((student) => student.schoolId === schoolId && student.schoolYearId === schoolYearId && `${student.matricule} ${student.nom} ${student.postnom} ${student.prenom} ${student.className}`.toLowerCase().includes(queryText.toLowerCase())), [queryText, schoolId, schoolYearId, students]);
 
   function openForm(student: Student) {
+    if (!canEditMedicalRecords) return;
     const record = recordsByStudent.get(student.id);
-    setInput({ ...emptyMedicalInput, ...(record ?? {}) });
+    setInput(normalizeMedicalRecordInput(record));
     setViewingStudent(null);
     setEditingStudent(student);
     setMessage("");
@@ -49,14 +58,14 @@ export function SecretaryMedicalRecordsDrawer({ open, onClose, user, students, r
 
   async function save() {
     if (!editingStudent || saveLock.current) return;
-    if (!input.bloodGroup.trim() || !input.emergencyContactName.trim() || !input.emergencyContactPhone.trim() || !input.emergencyContactRelationship.trim()) {
+    if (!requiredMedicalRecordFields.every((field) => input[field].trim())) {
       setMessage("Renseignez le groupe sanguin et les informations du contact d'urgence.");
       return;
     }
     saveLock.current = true; setSaving(true); setMessage("");
     try {
       await saveStudentMedicalRecord({ user, studentId: editingStudent.id, schoolId, schoolYearId, input });
-      setInput(emptyMedicalInput); setEditingStudent(null); setMessage("Fiche médicale enregistrée.");
+      setInput(emptyMedicalRecordInput); setEditingStudent(null); setMessage("Fiche médicale enregistrée.");
     } catch (error) {
       console.error("Échec de l'enregistrement de la fiche médicale", error);
       setMessage(error instanceof Error ? error.message : "Impossible d'enregistrer la fiche médicale.");
@@ -74,8 +83,8 @@ export function SecretaryMedicalRecordsDrawer({ open, onClose, user, students, r
             const record = recordsByStudent.get(student.id);
             return <article key={student.id} className="grid gap-3 rounded border bg-white p-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
               {student.photoUrl ? <img className="h-12 w-12 rounded-full object-cover" src={student.photoUrl} alt="" /> : <div className="grid h-12 w-12 place-items-center rounded-full bg-slate-100 font-bold text-slate-600">{student.prenom?.[0] ?? student.nom?.[0] ?? "É"}</div>}
-              <div className="min-w-0"><p className="font-bold">{student.nom} {student.postnom} {student.prenom}</p><p className="text-sm text-slate-500">{student.matricule} · {formatStudentClassName(student)}</p><div className="mt-2"><MedicalStatusBadge record={record} /></div></div>
-              <div className="flex flex-wrap gap-2"><button className="secondary-button" type="button" disabled={!record} onClick={() => setViewingStudent(student)}>Consulter</button><button className="primary-button" type="button" onClick={() => openForm(student)}><Pencil className="h-4 w-4" /> {record ? "Modifier" : "Créer"}</button></div>
+              <div className="min-w-0"><button type="button" onClick={() => setViewingStudent(student)} className="rounded text-left font-bold text-ink underline decoration-slate-300 underline-offset-4 transition hover:text-blue-700 hover:decoration-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2" aria-label={`Consulter la fiche médicale de ${student.nom} ${student.postnom} ${student.prenom}`}>{student.nom} {student.postnom} {student.prenom}</button><p className="text-sm text-slate-500">{student.matricule} · {formatStudentClassName(student)}</p><div className="mt-2"><MedicalStatusBadge record={record} /></div></div>
+              {canEditMedicalRecords && <div className="flex flex-wrap gap-2"><button className="primary-button" type="button" onClick={() => openForm(student)}><Pencil className="h-4 w-4" /> {record ? "Modifier" : "Créer"}</button></div>}
             </article>;
           })}
           {visibleStudents.length === 0 && <p className="rounded border bg-white p-6 text-center text-sm text-slate-500">Aucun élève trouvé.</p>}
@@ -84,23 +93,16 @@ export function SecretaryMedicalRecordsDrawer({ open, onClose, user, students, r
     </AdminDrawer>}
     {editingStudent && <AdminDrawer title={`Fiche médicale · ${editingStudent.nom} ${editingStudent.prenom}`} onClose={() => !saving && setEditingStudent(null)} closeLabel="Fermer">
       <form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); void save(); }}>
-        <fieldset className="grid gap-3"><legend className="mb-2 font-bold">Informations médicales</legend>
-          <div className="grid gap-3 sm:grid-cols-2"><input className="input" placeholder="Groupe sanguin" value={input.bloodGroup} onChange={(event) => setInput({ ...input, bloodGroup: event.target.value })} /><input className="input" placeholder="Rhésus (optionnel)" value={input.rhesus} onChange={(event) => setInput({ ...input, rhesus: event.target.value })} /></div>
-          <textarea className="input" placeholder="Allergies" value={input.allergies} onChange={(event) => setInput({ ...input, allergies: event.target.value })} /><textarea className="input" placeholder="Maladies chroniques" value={input.chronicDiseases} onChange={(event) => setInput({ ...input, chronicDiseases: event.target.value })} /><textarea className="input" placeholder="Traitements en cours" value={input.currentTreatments} onChange={(event) => setInput({ ...input, currentTreatments: event.target.value })} /><textarea className="input" placeholder="Handicap ou besoin particulier" value={input.disabilityOrSpecialNeed} onChange={(event) => setInput({ ...input, disabilityOrSpecialNeed: event.target.value })} /><textarea className="input" placeholder="Vaccinations" value={input.vaccinations} onChange={(event) => setInput({ ...input, vaccinations: event.target.value })} /><textarea className="input" placeholder="Observations médicales" value={input.medicalObservations} onChange={(event) => setInput({ ...input, medicalObservations: event.target.value })} />
-        </fieldset>
-        <fieldset className="grid gap-3"><legend className="mb-2 font-bold">Urgence</legend><input className="input" placeholder="Contact d'urgence" value={input.emergencyContactName} onChange={(event) => setInput({ ...input, emergencyContactName: event.target.value })} /><input className="input" placeholder="Téléphone du contact d'urgence" value={input.emergencyContactPhone} onChange={(event) => setInput({ ...input, emergencyContactPhone: event.target.value })} /><input className="input" placeholder="Lien avec l'élève" value={input.emergencyContactRelationship} onChange={(event) => setInput({ ...input, emergencyContactRelationship: event.target.value })} /></fieldset>
-        <fieldset className="grid gap-3"><legend className="mb-2 font-bold">Suivi médical</legend><input className="input" placeholder="Médecin traitant" value={input.attendingPhysician} onChange={(event) => setInput({ ...input, attendingPhysician: event.target.value })} /><input className="input" placeholder="Téléphone du médecin" value={input.physicianPhone} onChange={(event) => setInput({ ...input, physicianPhone: event.target.value })} /><input className="input" placeholder="Centre de santé de référence" value={input.referenceHealthCenter} onChange={(event) => setInput({ ...input, referenceHealthCenter: event.target.value })} /></fieldset>
+        <MedicalRecordFields mode="edit" input={input} onChange={setInput} />
         {message && <p className="rounded border bg-white p-3 text-sm">{message}</p>}
         <button className="primary-button justify-center" type="submit" disabled={saving}>{saving ? "Enregistrement…" : "Enregistrer"}</button>
       </form>
     </AdminDrawer>}
-    {viewingStudent && viewingRecord && <AdminDrawer title={`Fiche médicale · ${viewingStudent.nom} ${viewingStudent.prenom}`} onClose={() => setViewingStudent(null)} closeLabel="Fermer">
-      <div className="grid gap-4 text-sm">{[
-        ["Informations générales", `Groupe sanguin : ${viewingRecord.bloodGroup || "Non renseigné"}${viewingRecord.rhesus ? ` ${viewingRecord.rhesus}` : ""}`],
-        ["Allergies", viewingRecord.allergies], ["Pathologies", viewingRecord.chronicDiseases], ["Traitements", viewingRecord.currentTreatments],
-        ["Vaccinations", viewingRecord.vaccinations], ["Contacts d'urgence", `${viewingRecord.emergencyContactName} · ${viewingRecord.emergencyContactPhone} · ${viewingRecord.emergencyContactRelationship}`],
-        ["Observations", viewingRecord.medicalObservations],
-      ].map(([title, value]) => <section className="rounded border bg-white p-4" key={title}><h3 className="font-bold">{title}</h3><p className="mt-2 whitespace-pre-wrap text-slate-600">{value || "Non renseigné"}</p></section>)}<button className="primary-button justify-center" type="button" onClick={() => openForm(viewingStudent)}>Modifier</button></div>
+    {viewingStudent && <AdminDrawer title={`Fiche médicale · ${viewingStudent.nom} ${viewingStudent.prenom}`} onClose={() => setViewingStudent(null)} closeLabel="Fermer">
+      <div className="grid gap-4 text-sm">
+        {canEditMedicalRecords && <div className="flex justify-end"><button className="primary-button" type="button" onClick={() => openForm(viewingStudent)}><Pencil className="h-4 w-4" /> Modifier</button></div>}
+        <MedicalRecordFields mode="view" record={viewingRecord} />
+      </div>
     </AdminDrawer>}
   </>;
 }

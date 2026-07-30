@@ -27,12 +27,27 @@ describe("formulaire Nouveau rapport", () => {
   });
 
   it("génère, désactive pendant le traitement et ferme uniquement après succès", () => {
-    expect(source).toContain('busy ? "Génération…" : "Générer le rapport"');
+    expect(source).toContain('busy ? "Enregistrement en cours…" : "Générer rapport"');
     expect(source).toContain("disabled={busy}");
     const createIndex = source.indexOf("await createSecretaryReport");
     expect(createIndex).toBeGreaterThan(-1);
     expect(source.indexOf("setOpen(false)", createIndex)).toBeGreaterThan(createIndex);
     expect(source).toContain("Rapport généré et enregistré en brouillon.");
     expect(source).toContain("console.error(\"Échec de la génération du rapport\"");
+  });
+
+  it("transmet le type métier sélectionné à l'Assistant IA", () => {
+    expect(source).toContain('documentCategory="rapport"');
+    expect(source).toContain("documentTypeLabel={labels[type]}");
+    expect(source).toContain("documentDate={date}");
+    expect(source).toContain("documentTime={startTime}");
+    expect(source).toContain("documentEndTime={endTime}");
+    expect(source).toContain("buildReportAiSections(type, content)");
+    expect(source).toContain("sections={aiSections}");
+    expect(source).toContain("sectionLabels={aiSectionLabels}");
+    expect(source).toContain("const updatedFormValues = applyReportAiSections(type, previous, generated)");
+    expect(source).toContain("return updatedFormValues");
+    expect(source).not.toContain("sections={{ Titre: title, ...content }}");
+    expect(source).toContain("await createSecretaryReport");
   });
 });

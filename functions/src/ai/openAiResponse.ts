@@ -51,6 +51,52 @@ export const OPENAI_WRITING_RESPONSE_FORMAT = {
   },
 } as const;
 
+export function buildStructuredWritingResponseFormat(sectionKeys: string[]) {
+  return {
+    ...OPENAI_WRITING_RESPONSE_FORMAT,
+    name: "acadea_structured_report_response",
+    schema: {
+      ...OPENAI_WRITING_RESPONSE_FORMAT.schema,
+      properties: {
+        ...OPENAI_WRITING_RESPONSE_FORMAT.schema.properties,
+        scope: { type: "string", enum: ["full_document"] },
+        sections: {
+          type: "object",
+          additionalProperties: false,
+          properties: Object.fromEntries(sectionKeys.map((key) => [key, { type: "string" }])),
+          required: sectionKeys,
+        },
+      },
+      required: [...OPENAI_WRITING_RESPONSE_FORMAT.schema.required, "scope"],
+    },
+  } as const;
+}
+
+export function buildSingleSectionWritingResponseFormat(sectionKey: string) {
+  const { sections: _sections, ...commonProperties } = OPENAI_WRITING_RESPONSE_FORMAT.schema.properties;
+  void _sections;
+  return {
+    type: "json_schema",
+    name: "acadea_single_report_section_response",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        ...commonProperties,
+        scope: { type: "string", enum: [sectionKey] },
+        section: {
+          type: "object",
+          additionalProperties: false,
+          properties: { key: { type: "string", enum: [sectionKey] }, value: { type: "string" } },
+          required: ["key", "value"],
+        },
+      },
+      required: ["proposedText", "warnings", "missingInformation", "scope", "section"],
+    },
+  } as const;
+}
+
 export type OpenAiCallableErrorCode = "failed-precondition" | "resource-exhausted" | "invalid-argument" | "unavailable";
 
 export function classifyOpenAiFailure(status: number): { code: OpenAiCallableErrorCode; message: string } {
@@ -76,6 +122,7 @@ export function extractOpenAiResponseText(value: unknown) {
 }
 
 export function normalizeOpenAiSections(value: unknown): Record<string, string> {
+  if (value && typeof value === "object" && !Array.isArray(value)) return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
   if (!Array.isArray(value)) return {};
   return Object.fromEntries(value.flatMap((item) => item && typeof item === "object" && typeof (item as { key?: unknown }).key === "string" && typeof (item as { value?: unknown }).value === "string"
     ? [[(item as { key: string }).key, (item as { value: string }).value] as const]

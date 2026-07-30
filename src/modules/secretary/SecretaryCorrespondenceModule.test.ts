@@ -64,6 +64,42 @@ describe("module Courrier du Secrétaire", () => {
     expect(serviceSource).not.toContain("uploadOutgoingCorrespondenceFiles");
   });
 
+  it("simplifie les actions du nouveau courrier sortant", () => {
+    expect(formSource).toContain(">Annuler</button>");
+    expect(formSource).toContain('type="submit" className="primary-button"');
+    expect(formSource).toContain('"Génération en cours…" : "Générer courrier"');
+    for (const removedAction of ["Enregistrer comme brouillon", "Prévisualiser", "Soumettre à validation", "Générer le PDF", "Finaliser"]) expect(formSource).not.toContain(removedAction);
+    expect(formSource).toContain('void act("draft")');
+    expect(moduleSource).toContain("if (saveLock.current) return");
+    expect(moduleSource).toContain("await createCorrespondence({ user, schoolId: school.id, schoolYearId: year.id");
+    expect(moduleSource).toContain("finishSuccessfulSave");
+  });
+
+  it("transmet le type précis du courrier à l'Assistant IA", () => {
+    expect(formSource).toContain('documentCategory="courrier"');
+    expect(formSource).toContain("documentTypeLabel={correspondenceTypeLabel}");
+    expect(formSource).toContain("documentDate={date}");
+    expect(formSource).toContain("schoolName={school.name}");
+    expect(formSource).toContain("correspondenceTypes.find");
+  });
+
+  it("retire Visa et Gestion interne du payload initial et renumérote les sections", () => {
+    expect(formSource).not.toContain("Visa éventuel");
+    expect(formSource).not.toContain("Visa requis");
+    expect(formSource).not.toContain("Gestion interne");
+    expect(formSource).not.toContain("Service émetteur");
+    expect(formSource).not.toContain("Observations internes");
+    expect(formSource).not.toContain('visa: { required: false }');
+    expect(formSource).not.toContain('keywords: []');
+    const sectionTitles = [...formSource.matchAll(/<FormSection title="(\d+)\./g)].map((match) => Number(match[1]));
+    expect(sectionTitles).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  });
+
+  it("conserve les anciennes données de visa consultables dans le PDF", () => {
+    const pdfSource = readFileSync(new URL("./outgoingCorrespondencePdf.ts", import.meta.url), "utf8");
+    expect(pdfSource).toContain("outgoing.visa?.required");
+  });
+
   it("nettoie le timer des messages", () => {
     expect(moduleSource).toContain("window.setTimeout");
     expect(moduleSource).toContain("window.clearTimeout");

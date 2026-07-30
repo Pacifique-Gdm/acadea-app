@@ -30,7 +30,7 @@ export function outgoingCorrespondencePdfSections(item: Correspondence) {
     paragraph(outgoing.introduction), paragraph(outgoing.mainMessage), paragraph(outgoing.details), paragraph(outgoing.justification), paragraph(outgoing.expectedFollowUp), paragraph(outgoing.conclusion),
     paragraph(outgoing.closingFormula),
     `<section class="signature-row" style="margin-top:18px;align-items:start">
-      ${outgoing.visa.required ? `<div style="text-align:left"><strong>${escapePdfHtml(outgoing.visa.mention || "Visa")}</strong><span>${escapePdfHtml(outgoing.visa.functionTitle || "")}</span><span style="display:block;height:${signatureHeight}px"></span><strong>${escapePdfHtml(outgoing.visa.personName || "")}</strong></div>` : "<div></div>"}
+      ${outgoing.visa?.required ? `<div style="text-align:left"><strong>${escapePdfHtml(outgoing.visa.mention || "Visa")}</strong><span>${escapePdfHtml(outgoing.visa.functionTitle || "")}</span><span style="display:block;height:${signatureHeight}px"></span><strong>${escapePdfHtml(outgoing.visa.personName || "")}</strong></div>` : "<div></div>"}
       <div style="text-align:center"><strong>${escapePdfHtml(outgoing.signer.functionTitle)}</strong><span style="display:block;height:${signatureHeight}px"></span><strong>${escapePdfHtml(outgoing.signer.fullName)}</strong>${outgoing.signer.stampRequired ? "<span>Cachet</span>" : ""}</div>
     </section>`,
     copies.length ? `<section style="margin-top:18px;break-inside:avoid"><strong>Copies pour information :</strong><ul>${copies.map((entry) => `<li>${escapePdfHtml([entry.nameOrFunction, entry.institution].filter(Boolean).join(" — "))}</li>`).join("")}</ul></section>` : "",

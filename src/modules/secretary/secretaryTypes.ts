@@ -76,7 +76,7 @@ export interface OutgoingCorrespondenceData {
   conclusion: string;
   closingFormula: string;
   signer: CorrespondenceSigner;
-  visa: CorrespondenceVisa;
+  visa?: CorrespondenceVisa;
   announcedAttachments: AnnouncedCorrespondenceAttachment[];
   copies: CorrespondenceCopy[];
   sendingChannel: string;
@@ -90,7 +90,7 @@ export interface OutgoingCorrespondenceData {
   issuingDepartment?: string;
   category?: string;
   filingFolder?: string;
-  keywords: string[];
+  keywords?: string[];
   internalNotes?: string;
   version: number;
   orderNumber?: string;
