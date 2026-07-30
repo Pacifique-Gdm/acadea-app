@@ -37,13 +37,11 @@ describe("assistant IA du Secrétaire", () => {
     expect(component.indexOf("if (limitReached) return")).toBeLessThan(component.indexOf("requestSecretaryAi(user"));
   });
 
-  it("construit neuf actions avec le type précis et injecte le résultat modifiable", () => {
+  it("ne propose que Reformuler et Résumer et injecte le résultat modifiable", () => {
     const reportActions = buildAiDocumentActions("Rapport disciplinaire");
-    expect(reportActions).toHaveLength(9);
-    expect(reportActions.map((item) => item.value)).toEqual(["reformulate", "write_complete", "correct", "improve", "develop", "formalize", "summarize", "clarify", "professionalize"]);
-    expect(reportActions.map((item) => item.label)).toEqual([
-      "Reformuler le rapport disciplinaire", "Rédiger le rapport disciplinaire complet", "Corriger le rapport disciplinaire", "Améliorer le rapport disciplinaire", "Développer le rapport disciplinaire", "Adapter le rapport disciplinaire au style administratif officiel", "Résumer le rapport disciplinaire", "Clarifier le rapport disciplinaire", "Rendre le rapport disciplinaire plus professionnel",
-    ]);
+    expect(reportActions).toHaveLength(2);
+    expect(reportActions.map((item) => item.value)).toEqual(["reformulate", "summarize"]);
+    expect(reportActions.map((item) => item.label)).toEqual(["Reformuler le rapport disciplinaire", "Résumer le rapport disciplinaire"]);
     expect(buildAiDocumentActions("Lettre administrative")[0].label).toBe("Reformuler la lettre administrative");
     expect(reportActions.map((item) => item.value)).toEqual(AI_DOCUMENT_ACTIONS);
     expect(reportActions.every((item) => !item.label.includes(item.value))).toBe(true);
@@ -84,7 +82,7 @@ describe("assistant IA du Secrétaire", () => {
     expect(backend).toContain("Ne génère jamais l'en-tête, la référence automatique, le statut, le signataire");
     expect(backend).toContain("sanitizeAiText");
     expect(backend).toContain("sanitizeAiContext");
-    for (const instruction of ["Produis un document complet", "Enrichis fortement", "Réécris le document pour améliorer nettement", "Réécris entièrement", "Corrige uniquement", "Adopte un ton formel", "Réduis le document", "Rends le texte plus précis", "Renforce la qualité rédactionnelle"]) expect(backend).toContain(instruction);
+    for (const instruction of ["Réécris entièrement", "Réduis réellement le document"]) expect(backend).toContain(instruction);
   });
 
   it("transmet le contexte documentaire normalisé sans valeur undefined", () => {

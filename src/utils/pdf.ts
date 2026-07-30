@@ -404,6 +404,7 @@ function pdfStyles() {
       border-bottom: 1px solid #dbe4ef;
       color: #14213d;
       font-size: 12.5px;
+      font-weight: 800;
       line-height: 1.35;
     }
     .info-grid {
@@ -411,6 +412,65 @@ function pdfStyles() {
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 8px;
       margin-bottom: 10px;
+    }
+    .report-info-row .info-grid {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 5px;
+      margin: 0 18px 12px;
+    }
+    .report-info-row .info-box {
+      min-width: 0;
+      padding: 6px 5px;
+    }
+    .report-info-row .info-box strong {
+      font-size: 8.5px;
+      overflow-wrap: anywhere;
+    }
+    .report-justified-text {
+      margin: 0;
+      text-align: justify;
+      text-justify: inter-word;
+      line-height: 1.5;
+    }
+    .report-signatories {
+      display: grid;
+      gap: 42px;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    .report-signatory-row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 24px;
+      align-items: end;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    .report-signatory-row--1 .report-signatory {
+      grid-column: 2;
+    }
+    .report-signatory-row--2 .report-signatory:first-child {
+      grid-column: 1;
+    }
+    .report-signatory-row--2 .report-signatory:last-child {
+      grid-column: 3;
+    }
+    .pdf-section:has(.report-signatories) {
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    .report-signatory {
+      min-width: 0;
+      padding-top: 42px;
+      border-top: 1px solid #14213d;
+      text-align: center;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    .report-signatory span {
+      display: block;
+      font-weight: 700;
+      overflow-wrap: anywhere;
     }
     .info-box {
       min-height: 36px;

@@ -8,6 +8,13 @@ export function getClassSection(className: SchoolClass): SchoolSection {
   return "primaire";
 }
 
+export function getStudentSection(student: Pick<Student, "className" | "section">): SchoolSection {
+  const classSection = getClassSection(student.className);
+  // Compatibilité avec les anciennes fiches qui ont enregistré 7ème/8ème CTEB sous "primaire".
+  if (classSection === "cteb") return "cteb";
+  return student.section ?? classSection;
+}
+
 export function formatStudentClassName(student: Pick<Student, "className" | "option">) {
   if (getClassSection(student.className) !== "secondaire") return student.className;
   const option = student.option?.trim();

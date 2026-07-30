@@ -1,6 +1,6 @@
-export const AI_ACTIONS = ["reformulate", "write_complete", "correct", "improve", "develop", "formalize", "summarize", "clarify", "professionalize"] as const;
+export const AI_ACTIONS = ["reformulate", "summarize"] as const;
 export type AiAction = typeof AI_ACTIONS[number];
-export const AI_TONES = ["neutral", "administrative", "formal", "professional", "concise", "diplomatic"] as const;
+export const AI_TONES = ["administrative", "professional", "neutral", "formal"] as const;
 export type AiTone = typeof AI_TONES[number];
 export const AI_LENGTHS = ["short", "standard", "developed"] as const;
 export type AiLength = typeof AI_LENGTHS[number];
@@ -40,5 +40,5 @@ export interface AiWritingResponse {
   sections?: Record<string, string>;
   warnings: AiWarning[];
   missingInformation: Array<{ field: string; message: string }>;
-  metadata: { requestId: string; generatedAt: string; version: string };
+  metadata: { requestId: string; generatedAt: string; version: string; backendVersion: string };
 }

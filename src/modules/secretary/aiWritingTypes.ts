@@ -1,10 +1,10 @@
-export const AI_DOCUMENT_ACTIONS = ["reformulate", "write_complete", "correct", "improve", "develop", "formalize", "summarize", "clarify", "professionalize"] as const;
+export const AI_DOCUMENT_ACTIONS = ["reformulate", "summarize"] as const;
 export type AiAction = typeof AI_DOCUMENT_ACTIONS[number];
 export const AI_TONES = ["administrative", "professional", "neutral", "formal"] as const;
 export type AiTone = typeof AI_TONES[number];
 export const AI_LENGTHS = ["short", "standard", "developed"] as const;
 export type AiLength = typeof AI_LENGTHS[number];
-export type AiScope = "full_document" | "location" | "subject" | "participants" | "discussedPoints" | "decisions" | "recommendations" | "signatures" | "agenda" | "proceedings" | "resolutions" | "peopleConcerned" | "factsDescription" | "measuresTaken" | "author" | "period" | "departmentOrActivity" | "objectives" | "completedActivities" | "results" | "difficulties" | "number" | "recipients" | "effectiveDate" | "content" | "signer" | "structuredSections";
+export type AiScope = "full_document" | "location" | "subject" | "participants" | "discussedPoints" | "decisions" | "recommendations";
 export interface AiDocumentContext { date?: string; time?: string; endTime?: string; schoolName?: string; academicYearName?: string }
 export interface AiWritingRequest { schoolId: string; academicYearId?: string; documentId?: string; documentType: string; documentCategory: "courrier" | "rapport"; documentTypeLabel: string; documentDate?: string; documentTime?: string; scope: AiScope; sections: Record<string, string>; targetSection?: { key: string; value: string }; documentContext: AiDocumentContext; action: AiAction; originalText?: string; context?: Record<string, unknown>; tone: AiTone; length: AiLength; additionalInstruction: string; consentConfirmed: boolean }
 export interface AiWritingResponse { success: boolean; action: AiAction; scope: AiScope; originalText?: string; proposedText?: string; section?: { key: string; value: string }; sections?: Record<string, string>; warnings: Array<{ code: string; severity: "info" | "warning" | "critical"; title: string; message: string; field?: string }>; missingInformation: Array<{ field: string; message: string }>; metadata: { requestId: string; generatedAt: string; version: string; backendVersion: string } }

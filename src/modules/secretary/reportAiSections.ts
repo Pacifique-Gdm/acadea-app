@@ -2,18 +2,22 @@ import type { SecretaryReportType } from "./secretaryTypes";
 
 export interface ReportAiSectionDefinition { key: string; formField: string; label: string }
 
+export const MEETING_MINUTES_SECTION_ORDER = ["lieu", "objet", "participants", "points abordés", "décisions", "recommandations", "signatures"] as const;
+export const MEETING_MINUTES_SECTION_LABELS: Record<(typeof MEETING_MINUTES_SECTION_ORDER)[number], string> = {
+  lieu: "LIEU", objet: "OBJET", participants: "PARTICIPANTS", "points abordés": "POINTS ABORDÉS", décisions: "DÉCISIONS", recommandations: "RECOMMANDATIONS", signatures: "SIGNATURES",
+};
+
 export const REPORT_AI_SECTION_DEFINITIONS: Record<SecretaryReportType, ReportAiSectionDefinition[]> = {
   meeting_minutes: [
-    { key: "location", formField: "lieu", label: "lieu" },
-    { key: "subject", formField: "objet", label: "objet" },
-    { key: "participants", formField: "participants", label: "participants" },
-    { key: "discussedPoints", formField: "points abordés", label: "points abordés" },
-    { key: "decisions", formField: "décisions", label: "décisions" },
-    { key: "recommendations", formField: "recommandations", label: "recommandations" },
-    { key: "signatures", formField: "signatures", label: "signatures" },
+    { key: "location", formField: "lieu", label: "LIEU" },
+    { key: "subject", formField: "objet", label: "OBJET" },
+    { key: "participants", formField: "participants", label: "PARTICIPANTS" },
+    { key: "discussedPoints", formField: "points abordés", label: "POINTS ABORDÉS" },
+    { key: "decisions", formField: "décisions", label: "DÉCISIONS" },
+    { key: "recommendations", formField: "recommandations", label: "RECOMMANDATIONS" },
   ],
   official_minutes: [
-    { key: "location", formField: "lieu", label: "lieu" }, { key: "subject", formField: "objet", label: "objet" }, { key: "participants", formField: "participants", label: "participants" }, { key: "agenda", formField: "ordre du jour", label: "ordre du jour" }, { key: "proceedings", formField: "déroulement", label: "déroulement" }, { key: "resolutions", formField: "résolutions", label: "résolutions" }, { key: "signatures", formField: "signatures", label: "signatures" },
+    { key: "location", formField: "lieu", label: "lieu" }, { key: "subject", formField: "objet", label: "objet" }, { key: "participants", formField: "participants", label: "participants" }, { key: "agenda", formField: "ordre du jour", label: "ordre du jour" }, { key: "proceedings", formField: "déroulement", label: "déroulement" }, { key: "resolutions", formField: "résolutions", label: "résolutions" },
   ],
   incident_report: [
     { key: "location", formField: "lieu", label: "lieu" }, { key: "peopleConcerned", formField: "personnes concernées", label: "personnes concernées" }, { key: "factsDescription", formField: "description des faits", label: "description des faits" }, { key: "measuresTaken", formField: "mesures prises", label: "mesures prises" }, { key: "recommendations", formField: "recommandations", label: "recommandations" }, { key: "author", formField: "auteur", label: "auteur" },
@@ -22,10 +26,10 @@ export const REPORT_AI_SECTION_DEFINITIONS: Record<SecretaryReportType, ReportAi
     { key: "period", formField: "période", label: "période" }, { key: "departmentOrActivity", formField: "service ou activité", label: "service ou activité" }, { key: "objectives", formField: "objectifs", label: "objectifs" }, { key: "completedActivities", formField: "activités réalisées", label: "activités réalisées" }, { key: "results", formField: "résultats", label: "résultats" }, { key: "difficulties", formField: "difficultés", label: "difficultés" }, { key: "recommendations", formField: "recommandations", label: "recommandations" }, { key: "author", formField: "auteur", label: "auteur" },
   ],
   administrative_note: [
-    { key: "number", formField: "numéro", label: "numéro" }, { key: "subject", formField: "objet", label: "objet" }, { key: "recipients", formField: "destinataires", label: "destinataires" }, { key: "effectiveDate", formField: "date d'application", label: "date d'application" }, { key: "content", formField: "contenu", label: "contenu" }, { key: "signer", formField: "signataire", label: "signataire" },
+    { key: "number", formField: "numéro", label: "numéro" }, { key: "subject", formField: "objet", label: "objet" }, { key: "recipients", formField: "destinataires", label: "destinataires" }, { key: "effectiveDate", formField: "date d'application", label: "date d'application" }, { key: "content", formField: "contenu", label: "contenu" },
   ],
   other: [
-    { key: "subject", formField: "objet", label: "objet" }, { key: "structuredSections", formField: "sections structurées", label: "sections structurées" }, { key: "author", formField: "auteur", label: "auteur" }, { key: "signatures", formField: "signatures", label: "signatures" },
+    { key: "subject", formField: "objet", label: "objet" }, { key: "structuredSections", formField: "sections structurées", label: "sections structurées" }, { key: "author", formField: "auteur", label: "auteur" },
   ],
 };
 

@@ -162,6 +162,11 @@ export type StudentMedicalRecordStatus = "complete" | "incomplete" | "missing";
 export type SecretaryReportType = "meeting_minutes" | "activity_report" | "incident_report" | "official_minutes" | "administrative_note" | "other";
 export type SecretaryReportStatus = "draft" | "finalized" | "archived";
 
+export interface ReportSignatory {
+  id: string;
+  name: string;
+}
+
 export interface SecretaryReport {
   id: string;
   reportNumber: string;
@@ -171,6 +176,7 @@ export interface SecretaryReport {
   startTime: string;
   endTime: string;
   structuredContent: Record<string, string>;
+  signatories?: ReportSignatory[];
   status: SecretaryReportStatus;
   authorId: string;
   authorName: string;

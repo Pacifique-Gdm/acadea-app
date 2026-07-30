@@ -53,4 +53,39 @@ describe("Drawers médicaux et statistiques du Secrétaire", () => {
     expect(formatMedicalRecordValue(false)).toBe("Non");
     expect(formatMedicalRecordValue(["A", "B"])).toBe("A, B");
   });
+
+  it("place FILTRER puis EXPORTER PDF sur la même barre et expose les filtres dynamiques", () => {
+    const filterIndex = source.indexOf("> FILTRER</button>");
+    const exportIndex = source.indexOf("> EXPORTER PDF</button>");
+    expect(filterIndex).toBeGreaterThan(-1);
+    expect(exportIndex).toBeGreaterThan(filterIndex);
+    expect(source).toContain('className="flex flex-wrap items-center gap-2"');
+    expect(source).toContain("getSchoolSections(school)");
+    expect(source).toContain("getSchoolClassChoices(school)");
+    expect(source).toContain("buildValveClassChoices(scopedStudents");
+    expect(source).toContain("TOUTES LES SECTIONS ET CLASSES");
+    expect(source).toContain("CLASSE PRÉCISE");
+    expect(source).toContain("RÉINITIALISER LE FILTRE");
+  });
+
+  it("utilise les mêmes statistiques filtrées pour l'écran et le PDF", () => {
+    expect(source).toContain("student.schoolId === school.id && student.schoolYearId === year.id");
+    expect(source).toContain("filterSecretaryStatisticsStudents(scopedStudents, activeFilter)");
+    expect(source).toContain("buildSecretaryStatistics(filteredStudents");
+    expect(source).toContain('title: "STATISTIQUES"');
+    expect(source).toContain("subtitle: scopeLabel");
+    expect(source).toContain("statistics.cards.map");
+    expect(source).toContain("Aucune donnée statistique pour le filtre sélectionné.");
+    expect(source).toContain('pdfSection("RÉPARTITION PAR CLASSE", pdfTable');
+    expect(source).toContain('pdfSection("RÉPARTITION PAR NIVEAU", pdfTable');
+    const classTable = source.slice(source.indexOf('pdfSection("RÉPARTITION PAR CLASSE"'), source.indexOf('pdfSection("RÉPARTITION PAR NIVEAU"'));
+    const sectionTable = source.slice(source.indexOf('pdfSection("RÉPARTITION PAR NIVEAU"'), source.indexOf("function resetFilter"));
+    expect(Array.from(classTable.matchAll(/header: "([^"]+)"/g), (match) => match[1])).toEqual(["ORDRE", "SECTION", "CLASSE", "OPTION", "EFFECTIF", "POURCENTAGE"]);
+    expect(Array.from(sectionTable.matchAll(/header: "([^"]+)"/g), (match) => match[1])).toEqual(["ORDRE", "SECTION", "EFFECTIF", "POURCENTAGE"]);
+    expect(sectionTable).toContain("{ pageBreakBefore: true }");
+    expect(classTable).not.toContain("pageBreakBefore");
+    expect(source).toContain("statistics.classRows");
+    expect(source).toContain("statistics.sectionRows");
+    expect(source).not.toContain("statistics.levelRows");
+  });
 });

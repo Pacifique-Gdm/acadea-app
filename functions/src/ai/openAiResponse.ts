@@ -129,6 +129,15 @@ export function normalizeOpenAiSections(value: unknown): Record<string, string> 
     : []));
 }
 
+export function normalizeForComparison(value: string) {
+  return value.replace(/\r\n?/g, "\n").trim().replace(/[ \t]+/g, " ").replace(/\s*\n\s*/g, "\n");
+}
+
+export function isGeneratedContentIdentical(source: Record<string, string>, generated: Record<string, string>) {
+  const keys = Object.keys(generated);
+  return keys.length > 0 && keys.every((key) => normalizeForComparison(generated[key] ?? "") === normalizeForComparison(source[key] ?? ""));
+}
+
 export function readOpenAiFailure(status: number, value: unknown): OpenAiFailure {
   const error = value && typeof value === "object" && "error" in value && value.error && typeof value.error === "object"
     ? value.error as { code?: unknown; type?: unknown }

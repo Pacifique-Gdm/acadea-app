@@ -13,16 +13,17 @@ const openAiApiKey = defineSecret("OPENAI_API_KEY");
 export const AI_ASSISTANT_VERSION = "2026-07-30-actions-v2";
 const FUNCTION_REGION = "europe-west1";
 const coreActions = new Set<AiAction>(AI_ACTIONS);
+const allowedScopes = new Set(["full_document", "location", "subject", "participants", "discussedPoints", "decisions", "recommendations"]);
 const allowedDocuments = new Set(["outgoing_correspondence", "meeting_minutes", "activity_report", "incident_report", "official_minutes", "administrative_note", "other"]);
 export const ACADEA_AI_IDENTITY = `Tu es Acadéa AI, l'assistant intelligent officiel de la plateforme Acadéa. Tu es un expert de la gestion des établissements scolaires et tu travailles exclusivement dans le contexte d'un établissement d'enseignement. Tes propositions doivent être professionnelles, crédibles, naturelles, immédiatement utilisables et rédigées dans un français administratif clair, précis et élégant. Elles ne doivent jamais ressembler à une démonstration d'intelligence artificielle. Avant de rédiger, tiens compte du rôle Secrétaire, du module, du type de document, de la section, de la portée, de l'action, du ton, de la longueur et de l'objectif réel. Adapte le registre au document : rapport factuel, chronologique et administratif ; procès-verbal officiel, neutre et orienté vers les décisions ; courrier conforme au protocole administratif ; note administrative composée de directives claires ; incident décrit avec neutralité, précision et sans jugement personnel ; réunion pédagogique utilisant un vocabulaire éducatif et des recommandations réalistes. Effectue une auto-vérification avant de répondre : transformation réelle, portée, action, ton et longueur respectés, cohérence scolaire et aptitude à un usage officiel.`;
 export const ACADEA_AI_SECTION_EXPERTISE = `Comprends la fonction administrative de chaque section. location décrit uniquement le lieu. subject produit un objet administratif clair et concis. participants conserve uniquement les participants et ne les transforme jamais en récit. discussedPoints développe uniquement les sujets réellement discutés. decisions contient des décisions administratives précises, réalistes, exécutoires et directement applicables. recommendations contient des recommandations concrètes, cohérentes et applicables. signatures ne doit jamais modifier ni inventer un signataire ou une signature. Analyse mentalement pourquoi le document existe, qui le lira, à quoi il servira, quelles informations sont essentielles et quelles formulations seraient employées par un secrétaire ou un chef d'établissement expérimenté. Apporte une valeur ajoutée perceptible par la structure, la logique, la lisibilité, la précision, la fluidité et le professionnalisme. Rédige naturellement, sans formulations mécaniques, artificielles ou répétitives.`;
 export const REPORT_SECTION_FIELDS: Record<string, string[]> = {
-  meeting_minutes: ["location", "subject", "participants", "discussedPoints", "decisions", "recommendations", "signatures"],
-  official_minutes: ["location", "subject", "participants", "agenda", "proceedings", "resolutions", "signatures"],
+  meeting_minutes: ["location", "subject", "participants", "discussedPoints", "decisions", "recommendations"],
+  official_minutes: ["location", "subject", "participants", "agenda", "proceedings", "resolutions"],
   incident_report: ["location", "peopleConcerned", "factsDescription", "measuresTaken", "recommendations", "author"],
   activity_report: ["period", "departmentOrActivity", "objectives", "completedActivities", "results", "difficulties", "recommendations", "author"],
-  administrative_note: ["number", "subject", "recipients", "effectiveDate", "content", "signer"],
-  other: ["subject", "structuredSections", "author", "signatures"],
+  administrative_note: ["number", "subject", "recipients", "effectiveDate", "content"],
+  other: ["subject", "structuredSections", "author"],
 };
 function firebaseProjectId() {
   if (process.env.GCLOUD_PROJECT) return process.env.GCLOUD_PROJECT;
@@ -36,7 +37,7 @@ export function validateInput(value: unknown): AiWritingRequest {
   if (!value || typeof value !== "object") throw new HttpsError("invalid-argument", "Demande IA invalide.", { version: AI_ASSISTANT_VERSION });
   const input = value as Partial<AiWritingRequest>;
   if (!input.schoolId || !input.documentType || !input.documentTypeLabel?.trim() || !["courrier", "rapport"].includes(input.documentCategory ?? "") || !input.action || !AI_ACTIONS.includes(input.action) || !coreActions.has(input.action) || !allowedDocuments.has(input.documentType)) throw new HttpsError("invalid-argument", "Action ou document non pris en charge.", unsupportedInputDetails(input));
-  if (!input.scope || !input.tone || !AI_TONES.includes(input.tone) || !input.length || !AI_LENGTHS.includes(input.length) || typeof input.additionalInstruction !== "string" || !input.additionalInstruction.trim() || !input.sections || typeof input.sections !== "object" || Array.isArray(input.sections) || !input.documentContext || typeof input.documentContext !== "object" || Array.isArray(input.documentContext)) throw new HttpsError("invalid-argument", "Paramètres ou contexte du document invalides. L’instruction complémentaire est obligatoire.", { acceptedTones: AI_TONES, acceptedLengths: AI_LENGTHS, version: AI_ASSISTANT_VERSION });
+  if (!input.scope || !allowedScopes.has(input.scope) || !input.tone || !AI_TONES.includes(input.tone) || !input.length || !AI_LENGTHS.includes(input.length) || typeof input.additionalInstruction !== "string" || !input.additionalInstruction.trim() || !input.sections || typeof input.sections !== "object" || Array.isArray(input.sections) || !input.documentContext || typeof input.documentContext !== "object" || Array.isArray(input.documentContext)) throw new HttpsError("invalid-argument", "Paramètres, portée ou contexte du document invalides. L’instruction complémentaire est obligatoire et les signatures ne sont jamais traitées par l’IA.", { acceptedScopes: [...allowedScopes], acceptedTones: AI_TONES, acceptedLengths: AI_LENGTHS, version: AI_ASSISTANT_VERSION });
   if (input.documentCategory === "rapport") {
     const sections = input.sections;
     const expectedFields = REPORT_SECTION_FIELDS[input.documentType];
@@ -51,15 +52,8 @@ export function validateInput(value: unknown): AiWritingRequest {
 
 export function buildInstructions(input: AiWritingRequest) {
   const actionInstructions: Record<AiAction, string> = {
-    write_complete: "Produis un document complet, structuré et développé à partir de toutes les informations disponibles. Construis une introduction, un développement et une conclusion lorsque le document l'exige. Transforme même des notes brèves en document professionnel complet ; ne te limite jamais à corriger ou reformuler le texte initial.",
-    develop: "Enrichis fortement le contenu avec des explications, transitions et précisions pertinentes. Conserve strictement les faits fournis et n'invente aucun nom, date, décision ou événement.",
-    improve: "Réécris le document pour améliorer nettement sa clarté, sa fluidité, sa cohérence, sa structure et son professionnalisme. Des modifications importantes sont autorisées si elles améliorent réellement le résultat sans changer les faits.",
     reformulate: "Réécris entièrement le contenu en conservant le sens, les faits et le niveau de détail. Ne te limite pas à quelques remplacements de mots.",
-    correct: "Corrige uniquement l'orthographe, la grammaire, la syntaxe, la conjugaison et la ponctuation, en conservant le fond du document.",
-    formalize: "Adopte un ton formel, institutionnel, neutre et respectueux et structure le document selon les pratiques administratives scolaires. Supprime les formulations familières, ambiguës ou émotionnelles sans inventer de faits.",
-    summarize: "Réduis le document tout en conservant les faits, décisions et informations essentiels.",
-    clarify: "Rends le texte plus précis et compréhensible et corrige les ambiguïtés sans en changer le sens.",
-    professionalize: "Renforce la qualité rédactionnelle, la cohérence, la structure et la présentation professionnelle du document sans altérer les faits.",
+    summarize: "Réduis réellement le document, même lorsqu'il est bref, en supprimant les répétitions tout en conservant les faits, décisions et informations essentiels.",
   };
   const toneInstructions: Record<AiWritingRequest["tone"], string> = { administrative: "Adopte un ton administratif.", professional: "Adopte un ton professionnel.", neutral: "Adopte un ton neutre.", formal: "Adopte un ton formel." };
   const lengthInstructions: Record<AiWritingRequest["length"], string> = { short: "Produis une version courte et directe.", standard: "Produis une version équilibrée.", developed: "Produis une version détaillée, structurée et approfondie sans élargir la portée." };

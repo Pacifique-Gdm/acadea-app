@@ -1,12 +1,16 @@
 import { useMemo, useRef, useState } from "react";
-import { Pencil, Search } from "lucide-react";
+import { FileDown, Filter, Pencil, Search } from "lucide-react";
 import { AdminDrawer } from "../../components/ui";
 import { saveStudentMedicalRecord, getMedicalRecordStatus } from "../../services/studentMedicalRecords";
 import { formatStudentClassName } from "../../utils/studentClasses";
-import type { AppUser, Student } from "../../types";
+import type { AppUser, School, SchoolSection, SchoolYear, Student } from "../../types";
+import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
+import { getSchoolClassChoices, getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
+import { buildValveClassChoices } from "../../utils/valves";
 import type { StudentMedicalRecord } from "./secretaryTypes";
 import { emptyMedicalRecordInput, formatMedicalRecordValue, medicalRecordSections, normalizeMedicalRecordInput, requiredMedicalRecordFields } from "./medicalRecordFields";
 import type { MedicalRecordInput } from "./medicalRecordFields";
+import { buildSecretaryStatistics, filterSecretaryStatisticsStudents, secretaryStatisticsScopeLabel, type SecretaryStatisticsFilter } from "./secretaryStatistics";
 
 const statusPresentation = {
   complete: { label: "Complète", className: "bg-emerald-100 text-emerald-800" },
@@ -107,14 +111,49 @@ export function SecretaryMedicalRecordsDrawer({ open, onClose, user, students, r
   </>;
 }
 
-export function SecretaryStatisticsDrawer({ open, onClose, students, records }: { open: boolean; onClose: () => void; students: Student[]; records: StudentMedicalRecord[] }) {
-  const byClass = useMemo(() => students.reduce<Record<string, number>>((result, student) => ({ ...result, [formatStudentClassName(student)]: (result[formatStudentClassName(student)] ?? 0) + 1 }), {}), [students]);
-  const byLevel = useMemo(() => students.reduce<Record<string, number>>((result, student) => { const level = student.section || "Non renseigné"; return { ...result, [level]: (result[level] ?? 0) + 1 }; }, {}), [students]);
-  const recordsByStudent = useMemo(() => new Map(records.map((record) => [record.studentId, record])), [records]);
-  const statuses = students.map((student) => getMedicalRecordStatus(recordsByStudent.get(student.id)));
-  const cards = [
-    ["Total élèves", students.length], ["Garçons", students.filter((student) => student.sexe === "M").length], ["Filles", students.filter((student) => student.sexe === "F").length],
-    ["Fiches complètes", statuses.filter((status) => status === "complete").length], ["Fiches incomplètes", statuses.filter((status) => status === "incomplete").length], ["Fiches non créées", statuses.filter((status) => status === "missing").length],
-  ];
-  return open ? <AdminDrawer title="Statistiques" onClose={onClose} closeLabel="Fermer"><div className="grid gap-4"><div className="grid gap-3 sm:grid-cols-2">{cards.map(([label, value]) => <article className="rounded border bg-white p-4" key={label}><p className="text-sm text-slate-500">{label}</p><p className="text-2xl font-bold">{value}</p></article>)}</div><section className="rounded border bg-white p-4"><h3 className="font-bold">Répartition par classe</h3>{Object.entries(byClass).map(([label, value]) => <p className="mt-2 flex justify-between" key={label}><span>{label}</span><strong>{value}</strong></p>)}</section><section className="rounded border bg-white p-4"><h3 className="font-bold">Répartition par niveau</h3>{Object.entries(byLevel).map(([label, value]) => <p className="mt-2 flex justify-between" key={label}><span>{label}</span><strong>{value}</strong></p>)}</section></div></AdminDrawer> : null;
+export function SecretaryStatisticsDrawer({ open, onClose, students, records, school, year }: { open: boolean; onClose: () => void; students: Student[]; records: StudentMedicalRecord[]; school: School; year: SchoolYear }) {
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [filterType, setFilterType] = useState<"all" | "section" | "class">("all");
+  const [selectedSection, setSelectedSection] = useState<SchoolSection | "">("");
+  const [selectedClassKey, setSelectedClassKey] = useState("");
+  const scopedStudents = useMemo(() => students.filter((student) => student.schoolId === school.id && student.schoolYearId === year.id), [school.id, students, year.id]);
+  const sections = useMemo(() => getSchoolSections(school), [school]);
+  const classes = useMemo(() => {
+    const configured = getSchoolClassChoices(school).map((className) => ({ value: className, label: className }));
+    const present = buildValveClassChoices(scopedStudents, selectedClassKey);
+    return Array.from(new Map([...configured, ...present].map((item) => [item.value, item])).values());
+  }, [school, scopedStudents, selectedClassKey]);
+  const activeFilter = useMemo<SecretaryStatisticsFilter>(() => {
+    if (filterType === "section" && selectedSection) return { type: "section", section: selectedSection, label: schoolSectionLabels[selectedSection] };
+    if (filterType === "class" && selectedClassKey) return { type: "class", classKey: selectedClassKey, label: classes.find((item) => item.value === selectedClassKey)?.label ?? selectedClassKey };
+    return { type: "all" };
+  }, [classes, filterType, selectedClassKey, selectedSection]);
+  const filteredStudents = useMemo(() => filterSecretaryStatisticsStudents(scopedStudents, activeFilter), [activeFilter, scopedStudents]);
+  const statistics = useMemo(() => buildSecretaryStatistics(filteredStudents, records.filter((record) => record.schoolId === school.id && record.schoolYearId === year.id)), [filteredStudents, records, school.id, year.id]);
+  const scopeLabel = secretaryStatisticsScopeLabel(activeFilter);
+
+  async function exportPdf() {
+    await renderAcadPdfPreview({ filename: `statistiques-${year.name}.pdf`, title: "STATISTIQUES", school, year, subtitle: scopeLabel, sections: [
+      pdfSection("SYNTHÈSE", pdfInfoGrid(statistics.cards.map(([label, value]) => ({ label, value })))),
+      pdfSection("RÉPARTITION PAR CLASSE", pdfTable([
+        { header: "ORDRE", render: (row) => row.order, align: "center" }, { header: "SECTION", render: (row) => row.section }, { header: "CLASSE", render: (row) => row.className ?? "—" }, { header: "OPTION", render: (row) => row.option ?? "—" }, { header: "EFFECTIF", render: (row) => row.count, align: "right" }, { header: "POURCENTAGE", render: (row) => `${row.percentage.toFixed(2).replace(".", ",")} %`, align: "right" },
+      ], statistics.classRows, "Aucune donnée pour cette répartition.")),
+      pdfSection("RÉPARTITION PAR NIVEAU", pdfTable([
+        { header: "ORDRE", render: (row) => row.order, align: "center" }, { header: "SECTION", render: (row) => row.section }, { header: "EFFECTIF", render: (row) => row.count, align: "right" }, { header: "POURCENTAGE", render: (row) => `${row.percentage.toFixed(2).replace(".", ",")} %`, align: "right" },
+      ], statistics.sectionRows, "Aucune donnée pour cette répartition."), { pageBreakBefore: true }),
+    ] });
+  }
+
+  function resetFilter() { setFilterType("all"); setSelectedSection(""); setSelectedClassKey(""); }
+
+  return open ? <AdminDrawer title="Statistiques" onClose={onClose} closeLabel="Fermer"><div className="grid gap-4">
+    <div className="flex flex-wrap items-center gap-2"><button type="button" className="secondary-button" onClick={() => setFilterOpen((value) => !value)}><Filter className="h-4 w-4" /> FILTRER</button><button type="button" className="primary-button" onClick={() => void exportPdf()}><FileDown className="h-4 w-4" /> EXPORTER PDF</button></div>
+    <p className="rounded border border-blue-100 bg-blue-50 p-3 text-sm font-bold text-blue-800">{scopeLabel}</p>
+    {filterOpen && <section className="grid gap-3 rounded border bg-slate-50 p-4"><label className="grid gap-1 text-sm font-semibold">Type de filtre<select className="input" value={filterType} onChange={(event) => { const value = event.target.value as typeof filterType; setFilterType(value); setSelectedSection(""); setSelectedClassKey(""); }}><option value="all">TOUTES LES SECTIONS ET CLASSES</option><option value="section">SECTION</option><option value="class">CLASSE PRÉCISE</option></select></label>
+      {filterType === "section" && <label className="grid gap-1 text-sm font-semibold">SECTION<select className="input" value={selectedSection} onChange={(event) => setSelectedSection(event.target.value as SchoolSection)}><option value="">Sélectionner une section</option>{sections.map((section) => <option key={section} value={section}>{schoolSectionLabels[section]}</option>)}</select>{sections.length === 0 && <span className="text-sm text-slate-500">Aucune section disponible.</span>}</label>}
+      {filterType === "class" && <label className="grid gap-1 text-sm font-semibold">CLASSE PRÉCISE<select className="input" value={selectedClassKey} onChange={(event) => setSelectedClassKey(event.target.value)}><option value="">Sélectionner une classe</option>{classes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>{classes.length === 0 && <span className="text-sm text-slate-500">Aucune classe disponible.</span>}</label>}
+      <button type="button" className="secondary-button w-fit" onClick={resetFilter}>RÉINITIALISER LE FILTRE</button>
+    </section>}
+    {filteredStudents.length === 0 ? <p className="rounded border border-dashed bg-white p-6 text-center text-sm text-slate-500">Aucune donnée statistique pour le filtre sélectionné.</p> : <><div className="grid gap-3 sm:grid-cols-2">{statistics.cards.map(([label, value]) => <article className="rounded border bg-white p-4" key={label}><p className="text-sm text-slate-500">{label}</p><p className="text-2xl font-bold">{value}</p></article>)}</div><section className="rounded border bg-white p-4"><h3 className="font-bold">Répartition par classe</h3>{statistics.classRows.map((row) => <p className="mt-2 flex justify-between" key={`${row.section}-${row.className}-${row.option}`}><span>{row.className}{row.option && row.option !== "—" ? ` · ${row.option}` : ""}</span><strong>{row.count}</strong></p>)}</section><section className="rounded border bg-white p-4"><h3 className="font-bold">Répartition par niveau</h3>{statistics.sectionRows.map((row) => <p className="mt-2 flex justify-between" key={row.section}><span>{row.section}</span><strong>{row.count}</strong></p>)}</section></>}
+  </div></AdminDrawer> : null;
 }

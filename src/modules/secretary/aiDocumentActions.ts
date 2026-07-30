@@ -12,13 +12,6 @@ export function buildAiDocumentActions(documentTypeLabel: string): Array<{ value
   const documentName = documentNameWithArticle(documentTypeLabel);
   return [
     { value: "reformulate", label: `Reformuler ${documentName}` },
-    { value: "write_complete", label: `Rédiger ${documentName} complet` },
-    { value: "correct", label: `Corriger ${documentName}` },
-    { value: "improve", label: `Améliorer ${documentName}` },
-    { value: "develop", label: `Développer ${documentName}` },
-    { value: "formalize", label: `Adapter ${documentName} au style administratif officiel` },
     { value: "summarize", label: `Résumer ${documentName}` },
-    { value: "clarify", label: `Clarifier ${documentName}` },
-    { value: "professionalize", label: `Rendre ${documentName} plus professionnel` },
   ];
 }

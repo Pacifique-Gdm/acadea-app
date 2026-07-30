@@ -413,9 +413,9 @@ service cloud.firestore {
 
     match /valves/{valveId} {
       allow read: if superAdmin() || sameTenantResource() || disciplineTenantResource();
-      allow create: if schoolAdmin() && sameTenantCreate();
-      allow update: if schoolAdmin() && sameTenantUpdate() && sameYearUpdate();
-      allow delete: if schoolAdmin() && sameTenantResource();
+      allow create: if (schoolAdmin() || secretary()) && sameTenantCreate();
+      allow update: if (schoolAdmin() || secretary()) && sameTenantUpdate() && sameYearUpdate();
+      allow delete: if (schoolAdmin() || secretary()) && sameTenantResource();
     }
 
     match /messages/{messageId} {
@@ -492,7 +492,7 @@ service cloud.firestore {
         || (disciplineTenantResource() && resource.data.recipientRole == "school" && resource.data.schoolRecipient == "discipline")
         || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.parentId == tenantParentId());
       allow create: if signedIn()
-        && ((role() in ["school_admin", "cashier"] && sameTenantCreate())
+        && ((role() in ["school_admin", "cashier", "secretary"] && sameTenantCreate())
           || (disciplineTenantCreate()
             && ((request.resource.data.recipientRole == "school" && request.resource.data.schoolRecipient == "discipline")
               || (request.resource.data.recipientRole == "parent" && request.resource.data.parentId is string))));

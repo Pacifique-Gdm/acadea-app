@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildSingleSectionWritingResponseFormat, buildStructuredWritingResponseFormat, classifyOpenAiFailure, extractOpenAiResponseText, normalizeOpenAiSections, OPENAI_WRITING_RESPONSE_FORMAT, readOpenAiFailure } from "./openAiResponse.js";
+import { buildSingleSectionWritingResponseFormat, buildStructuredWritingResponseFormat, classifyOpenAiFailure, extractOpenAiResponseText, isGeneratedContentIdentical, normalizeForComparison, normalizeOpenAiSections, OPENAI_WRITING_RESPONSE_FORMAT, readOpenAiFailure } from "./openAiResponse.js";
 
 describe("réponse REST OpenAI", () => {
+  it("normalise les espaces et détecte une copie identique", () => {
+    expect(normalizeForComparison("  Une   décision\r\n précise ")).toBe("Une décision\nprécise");
+    expect(isGeneratedContentIdentical({ decisions: "Une décision précise" }, { decisions: " Une  décision précise " })).toBe(true);
+    expect(isGeneratedContentIdentical({ decisions: "Une décision" }, { decisions: "Une décision développée" })).toBe(false);
+  });
   it("construit exactement un text.format JSON Schema strict", () => {
     const format = OPENAI_WRITING_RESPONSE_FORMAT;
     expect(format.type).toBe("json_schema");

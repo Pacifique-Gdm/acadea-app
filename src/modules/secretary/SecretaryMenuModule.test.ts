@@ -22,9 +22,16 @@ describe("Menu du Secrétaire", () => {
     expect(source).toContain("<ValvesDrawerContent");
     expect(source).toContain("<ParentsDirectoryDrawer");
     expect(source).toContain("<BiometricStudentsPage");
-    expect(source).toContain("canManage={false}");
+    expect(source).toContain('canManage={user.role === "secretary" && user.status !== "inactive" && user.schoolId === school.id}');
     expect(source).toContain("schoolId={school.id}");
     expect(source).toContain("schoolYearId={year.id}");
+  });
+
+  it("accorde au Secrétaire actif de la bonne école la même interface Valves que l'Administrateur", () => {
+    expect(source).toContain("<ValvesDrawerContent");
+    expect(source).toContain('user.role === "secretary"');
+    expect(source).toContain('user.status !== "inactive"');
+    expect(source).toContain("user.schoolId === school.id");
   });
 
   it("ne modifie pas l'ordre des entrées équivalentes du menu Administrateur", () => {
