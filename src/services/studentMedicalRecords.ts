@@ -3,15 +3,9 @@ import { collection, doc, onSnapshot, query, runTransaction, where } from "fireb
 import { auth, db } from "../firebase";
 import type { AppUser } from "../types";
 import type { StudentMedicalRecord, StudentMedicalRecordStatus } from "../modules/secretary/secretaryTypes";
+import { requiredMedicalRecordFields } from "../modules/secretary/medicalRecordFields";
 
 const serverTimestamp = (firestore as unknown as { serverTimestamp: () => unknown }).serverTimestamp;
-
-const requiredMedicalFields: Array<keyof StudentMedicalRecord> = [
-  "bloodGroup",
-  "emergencyContactName",
-  "emergencyContactPhone",
-  "emergencyContactRelationship",
-];
 
 function assertSecretary(user: AppUser, schoolId: string) {
   if (!auth?.currentUser || auth.currentUser.uid !== user.id || user.role !== "secretary" || user.status === "inactive" || user.schoolId !== schoolId) {
@@ -27,7 +21,7 @@ function timestampToIso(value: unknown) {
 
 export function getMedicalRecordStatus(record?: StudentMedicalRecord): StudentMedicalRecordStatus {
   if (!record) return "missing";
-  return requiredMedicalFields.every((field) => String(record[field] ?? "").trim()) ? "complete" : "incomplete";
+  return requiredMedicalRecordFields.every((field) => String(record[field] ?? "").trim()) ? "complete" : "incomplete";
 }
 
 export function subscribeToStudentMedicalRecords(params: {

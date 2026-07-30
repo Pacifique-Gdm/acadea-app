@@ -10,8 +10,9 @@ import { savePlatformSettings } from "../../services/firestoreData";
 import { loadSuperAdminSchoolData } from "../../services/superAdminData";
 import type { SuperAdminGlobalCounts } from "../../services/superAdminData";
 import { manageSchool, provisionSchoolAdmin, provisionSchoolUser, removeSchoolAdmin } from "../../services/provisioning";
-import { isSchoolAiAssistantEnabled, saveSchoolAiAssistantSetting } from "../../services/schoolAiAssistant";
+import { isSchoolAiAssistantEnabled, loadSchoolAiAssistantSetting, saveSchoolAiAssistantSetting, schoolAiUsageThisMonth, validateSchoolAiMonthlyLimit } from "../../services/schoolAiAssistant";
 import { ADMIN_REMOVAL_CONFIRMATION, canConfirmAdminRemoval, markAdminRemoved } from "../../utils/adminRemoval";
+import { aiAssistantConfirmationPhrase, canConfirmAiAssistantChange } from "../../utils/aiAssistantConfirmation";
 import { isSessionAuditAction } from "../../utils/audit";
 import { educationLevelsForSchoolLevel, schoolLevelFromConfig } from "../../utils/schoolConfig";
 import type { SchoolLevelChoice } from "../../utils/schoolConfig";
@@ -107,6 +108,9 @@ export function PlatformModule({
   const [aiAssistantSaving, setAiAssistantSaving] = useState(false);
   const [aiAssistantMessage, setAiAssistantMessage] = useState("");
   const [aiAssistantError, setAiAssistantError] = useState("");
+  const [aiAssistantChangeTarget, setAiAssistantChangeTarget] = useState<{ school: School; enabled: boolean } | null>(null);
+  const [aiAssistantConfirmation, setAiAssistantConfirmation] = useState("");
+  const [aiAssistantMonthlyLimit, setAiAssistantMonthlyLimit] = useState("25");
   const [schoolDeleteTarget, setSchoolDeleteTarget] = useState<School | null>(null);
   const [schoolDeleteConfirmation, setSchoolDeleteConfirmation] = useState("");
   const [schoolDeleteLoading, setSchoolDeleteLoading] = useState(false);
@@ -152,6 +156,7 @@ export function PlatformModule({
   const visibleSchoolOptionChoices = Array.from(new Set([...schoolOptionChoices, ...selectedSchoolOptions.filter((option) => option !== "Autre" && isAllowedSchoolOption(option))]));
   const selectedSchool = visibleSchools.find((school) => school.id === selectedSchoolId) ?? visibleSchools[0];
   const drawerSchool = visibleSchools.find((school) => school.id === schoolDrawerId);
+  const drawerAiUsage = schoolAiUsageThisMonth(drawerSchool?.aiAssistant);
   const biometricSchool = visibleSchools.find((school) => school.id === biometricSchoolId);
   const biometricSchoolTerminals = biometricSchool ? data.biometricTerminals.filter((terminal) => terminal.schoolId === biometricSchool.id).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")) : [];
   const drawerSchoolOptions = (drawerSchool?.schoolOptions ?? []).filter(isAllowedSchoolOption);
@@ -649,17 +654,58 @@ export function PlatformModule({
     });
   }
 
-  async function setSchoolAiAssistant(school: School, enabled: boolean) {
+  function openSchoolAiAssistantConfirmation(school: School, enabled: boolean) {
+    setAiAssistantChangeTarget({ school, enabled });
+    setAiAssistantConfirmation("");
+    setAiAssistantError("");
+  }
+
+  function closeSchoolAiAssistantConfirmation() {
     if (aiAssistantSaving) return;
+    setAiAssistantChangeTarget(null);
+    setAiAssistantConfirmation("");
+    setAiAssistantError("");
+  }
+
+  async function confirmSchoolAiAssistantChange() {
+    if (!aiAssistantChangeTarget || aiAssistantSaving) return;
+    const { school, enabled } = aiAssistantChangeTarget;
+    if (!canConfirmAiAssistantChange(aiAssistantConfirmation, enabled)) {
+      setAiAssistantError(`Confirmation incorrecte. Saisissez exactement : ${aiAssistantConfirmationPhrase(enabled)}`);
+      return;
+    }
     setAiAssistantSaving(true);
     setAiAssistantMessage("");
     setAiAssistantError("");
     try {
-      const aiAssistant = await saveSchoolAiAssistantSetting(user, school.id, enabled);
+      const aiAssistant = await saveSchoolAiAssistantSetting(user, school, { enabled });
       updateData({ schools: data.schools.map((item) => item.id === school.id ? { ...item, aiAssistant } : item) }, { persist: false });
       setAiAssistantMessage(`Assistant IA ${enabled ? "activé" : "désactivé"} pour cette école.`);
+      setAiAssistantChangeTarget(null);
+      setAiAssistantConfirmation("");
     } catch (error) {
       setAiAssistantError(error instanceof Error ? error.message : "Modification de l’Assistant IA impossible.");
+    } finally {
+      setAiAssistantSaving(false);
+    }
+  }
+
+  async function saveSchoolAiMonthlyLimit(school: School) {
+    if (aiAssistantSaving) return;
+    const monthlyLimit = Number(aiAssistantMonthlyLimit);
+    if (!validateSchoolAiMonthlyLimit(monthlyLimit)) {
+      setAiAssistantError("Le quota mensuel doit être un entier compris entre 1 et 1000.");
+      return;
+    }
+    setAiAssistantSaving(true);
+    setAiAssistantMessage("");
+    setAiAssistantError("");
+    try {
+      const aiAssistant = await saveSchoolAiAssistantSetting(user, school, { monthlyLimit });
+      updateData({ schools: data.schools.map((item) => item.id === school.id ? { ...item, aiAssistant } : item) }, { persist: false });
+      setAiAssistantMessage("Quota mensuel enregistré.");
+    } catch (error) {
+      setAiAssistantError(error instanceof Error ? error.message : "Enregistrement de la limite impossible.");
     } finally {
       setAiAssistantSaving(false);
     }
@@ -713,10 +759,19 @@ export function PlatformModule({
     schoolDetailRequestRef.current = requestId;
     setAiAssistantMessage("");
     setAiAssistantError("");
+    setAiAssistantChangeTarget(null);
+    setAiAssistantConfirmation("");
+    const school = visibleSchools.find((item) => item.id === schoolId);
+    setAiAssistantMonthlyLimit(String(schoolAiUsageThisMonth(school?.aiAssistant).monthlyLimit));
     selectSchool(schoolId);
     setSchoolDrawerId(schoolId);
     setSchoolDetailError("");
     setSchoolDetailLoading(true);
+    void loadSchoolAiAssistantSetting(schoolId).then((aiAssistant) => {
+      if (!aiAssistant || schoolDetailRequestRef.current !== requestId) return;
+      setAiAssistantMonthlyLimit(String(schoolAiUsageThisMonth(aiAssistant).monthlyLimit));
+      updateData({ schools: data.schools.map((item) => item.id === schoolId ? { ...item, aiAssistant } : item) }, { persist: false });
+    }).catch((error) => console.warn("Chargement du quota Assistant IA impossible.", error));
     loadSuperAdminSchoolData(schoolId)
       .then((schoolData) => {
         if (schoolDetailRequestRef.current !== requestId) return;
@@ -752,6 +807,8 @@ export function PlatformModule({
 
   function closeSchoolDrawer() {
     schoolDetailRequestRef.current += 1;
+    setAiAssistantChangeTarget(null);
+    setAiAssistantConfirmation("");
     setSchoolDrawerId("");
     setBiometricSchoolId("");
     setSchoolDetailLoading(false);
@@ -1151,10 +1208,43 @@ export function PlatformModule({
                       aria-label="Activer l’Assistant IA du module Secrétaire"
                       checked={isSchoolAiAssistantEnabled(drawerSchool)}
                       disabled={aiAssistantSaving}
-                      onChange={(event) => void setSchoolAiAssistant(drawerSchool, event.target.checked)}
+                      onChange={(event) => openSchoolAiAssistantConfirmation(drawerSchool, event.target.checked)}
                       className="h-5 w-5 accent-ink disabled:cursor-wait"
                     />
                   </label>
+                  <div className="grid gap-3 rounded bg-slate-50 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                    <label className="grid gap-1 text-sm font-semibold text-ink">
+                      Quota mensuel
+                      <span className="flex min-w-0 items-center gap-2">
+                        <input
+                          type="number"
+                          min="1"
+                          max="1000"
+                          step="1"
+                          value={aiAssistantMonthlyLimit}
+                          onChange={(event) => {
+                            setAiAssistantMonthlyLimit(event.target.value);
+                            setAiAssistantError("");
+                          }}
+                          className="input min-w-0 max-w-32"
+                          aria-label="Quota mensuel de l'Assistant IA"
+                          disabled={aiAssistantSaving}
+                        />
+                        <span className="font-normal text-slate-600">utilisations par mois</span>
+                      </span>
+                    </label>
+                    <button
+                      type="button"
+                      className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={aiAssistantSaving || !validateSchoolAiMonthlyLimit(Number(aiAssistantMonthlyLimit))}
+                      onClick={() => void saveSchoolAiMonthlyLimit(drawerSchool)}
+                    >
+                      {aiAssistantSaving ? "Enregistrement…" : "Enregistrer"}
+                    </button>
+                  </div>
+                  <p className="rounded border border-slate-200 bg-white p-3 text-sm text-slate-700">
+                    <strong>Utilisation ce mois</strong><br />{drawerAiUsage.monthlyUsage} / {drawerAiUsage.monthlyLimit}
+                  </p>
                   {aiAssistantSaving && <p className="text-sm text-slate-500">Enregistrement en cours…</p>}
                   {aiAssistantMessage && <p role="status" className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">{aiAssistantMessage}</p>}
                   {aiAssistantError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{aiAssistantError}</p>}
@@ -1368,6 +1458,60 @@ export function PlatformModule({
                 ))}
               </div>
             )}
+          </div>
+        </AdminDrawer>
+      )}
+
+      {aiAssistantChangeTarget && (
+        <AdminDrawer
+          title={`${aiAssistantChangeTarget.enabled ? "Activation" : "Désactivation"} de l'Assistant IA`}
+          onClose={closeSchoolAiAssistantConfirmation}
+          closeLabel="Annuler la modification de l'Assistant IA"
+        >
+          <div className="grid gap-4">
+            <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              Vous êtes sur le point de {aiAssistantChangeTarget.enabled ? "d'activer" : "désactiver"} l'Assistant IA pour cette école.<br />
+              {aiAssistantChangeTarget.enabled
+                ? "Cette opération autorisera les utilisateurs du module Secrétaire à utiliser les fonctionnalités d'intelligence artificielle."
+                : "Les utilisateurs du module Secrétaire ne pourront plus utiliser les fonctionnalités d'intelligence artificielle."}
+            </p>
+            <p className="text-sm text-slate-700">
+              Pour confirmer cette action, saisissez exactement :<br />
+              <strong className="text-ink">{aiAssistantConfirmationPhrase(aiAssistantChangeTarget.enabled)}</strong>
+            </p>
+            <label className="grid gap-1 text-sm font-medium text-slate-700">
+              Phrase de confirmation
+              <input
+                value={aiAssistantConfirmation}
+                onChange={(event) => {
+                  setAiAssistantConfirmation(event.target.value);
+                  setAiAssistantError("");
+                }}
+                className="input"
+                placeholder={aiAssistantConfirmationPhrase(aiAssistantChangeTarget.enabled)}
+                disabled={aiAssistantSaving}
+                autoComplete="off"
+              />
+            </label>
+            {aiAssistantConfirmation && !canConfirmAiAssistantChange(aiAssistantConfirmation, aiAssistantChangeTarget.enabled) && (
+              <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+                Confirmation incorrecte. Saisissez exactement : {aiAssistantConfirmationPhrase(aiAssistantChangeTarget.enabled)}
+              </p>
+            )}
+            {aiAssistantError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{aiAssistantError}</p>}
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <button type="button" className="secondary-button justify-center disabled:cursor-not-allowed disabled:opacity-50" disabled={aiAssistantSaving} onClick={closeSchoolAiAssistantConfirmation}>
+                Annuler
+              </button>
+              <button
+                type="button"
+                className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={aiAssistantSaving || !canConfirmAiAssistantChange(aiAssistantConfirmation, aiAssistantChangeTarget.enabled)}
+                onClick={() => void confirmSchoolAiAssistantChange()}
+              >
+                {aiAssistantSaving ? "Enregistrement…" : "Confirmer"}
+              </button>
+            </div>
           </div>
         </AdminDrawer>
       )}

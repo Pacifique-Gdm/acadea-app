@@ -108,7 +108,7 @@ export function ValvesDrawerContent({
   const isPublishingRef = useRef(false);
   const currentParent = user.parentId ? yearData.parents.find((parent) => parent.id === user.parentId) : undefined;
   const valveClassChoices = buildValveClassChoices(yearData.students, targetClassKey);
-  const canReadSchoolValves = user.role === "cashier" || user.role === "discipline_director";
+  const canReadSchoolValves = user.role === "cashier" || user.role === "discipline_director" || user.role === "secretary";
   const visiblePublications = [...yearData.valves]
     .filter((publication) => canManage || canReadSchoolValves || (currentParent ? parentCanViewValvePublication(publication, currentParent, yearData.students) : false))
     .sort((first, second) => second.createdAt.localeCompare(first.createdAt));

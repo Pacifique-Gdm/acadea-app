@@ -67,6 +67,9 @@ export interface School {
   subscriptionAmount: number;
   aiAssistant?: {
     enabled: boolean;
+    monthlyLimit?: number;
+    monthlyUsage?: number;
+    usageMonth?: string;
     updatedAt?: string | { seconds: number; nanoseconds: number };
     updatedBy?: string;
   };

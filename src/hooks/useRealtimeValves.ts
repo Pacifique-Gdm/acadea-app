@@ -4,7 +4,7 @@ import type { Firestore } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
 import type { AppUser, ValvePublication } from "../types";
 
-const valveRoles = new Set<AppUser["role"]>(["school_admin", "cashier", "discipline_director", "parent"]);
+const valveRoles = new Set<AppUser["role"]>(["school_admin", "cashier", "discipline_director", "secretary", "parent"]);
 
 export type RealtimeValvesScope = {
   schoolId: string;

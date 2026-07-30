@@ -727,6 +727,7 @@ export default function App() {
   const secretaryStudentDetailMatch = route.match(/^\/secretariat\/eleves\/(.+)$/);
   const biometricRoute = route === "/admin/empreintes" ? "fingerprints" : route === "/admin/cartes" ? "cards" : null;
   const biometricParentRoute = route === "/admin/empreintes-cartes";
+  const secretaryBiometricView = route === "/secretariat/empreintes" ? "fingerprints" : route === "/secretariat/cartes" ? "cards" : route === "/secretariat/empreintes-cartes" ? "menu" : undefined;
   const standaloneAdminRoute = Boolean(studentDetailMatch) || route === "/admin/rapport-financier";
   const unreadNotifications = yearData.notifications.filter((notification) => !notification.read).length;
 
@@ -861,6 +862,7 @@ export default function App() {
   if (validateSecretary(user)) {
     return (
       <SecretaryPortal
+        initialTab={secretaryBiometricView ? "menu" : "students"}
         renderHeader={() => (
           <>
             <EnvironmentBanner />
@@ -886,7 +888,7 @@ export default function App() {
         )}
         renderCorrespondence={() => <SecretaryCorrespondenceModule user={user} users={data.users} school={school} year={selectedYear} />}
         renderReports={() => <SecretaryReportsModule user={user} school={school} year={selectedYear} />}
-        renderMenu={() => <SecretaryMenuModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} createId={uid} studentImportKey={studentImportKey} onLogout={logout} />}
+        renderMenu={() => <SecretaryMenuModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} createId={uid} studentImportKey={studentImportKey} onLogout={logout} valvesUploadsEnabled={billingControls.controls.valvesUploadsEnabled} maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES} initialBiometricView={secretaryBiometricView} onBiometricViewChange={(view) => navigate(view === "fingerprints" ? "/secretariat/empreintes" : view === "cards" ? "/secretariat/cartes" : view === "menu" ? "/secretariat/empreintes-cartes" : "/dashboard")} />}
         renderStudents={() => secretaryStudentDetailMatch ? (
           <StudentDetailPage
             studentId={secretaryStudentDetailMatch[1]}

@@ -48,7 +48,7 @@ describe("temps réel des Valves", () => {
     expect(result.map((item) => item.id)).toEqual(["other-year", "first", "second"]);
   });
 
-  it.each(["school_admin", "cashier", "discipline_director", "parent"] as const)("autorise le rôle %s", (role) => {
+  it.each(["school_admin", "cashier", "discipline_director", "secretary", "parent"] as const)("autorise le rôle %s", (role) => {
     expect(canSubscribeToRealtimeValves(user(role), "school-a", "year-a")).toBe(true);
   });
 

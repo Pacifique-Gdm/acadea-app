@@ -141,6 +141,28 @@ service cloud.firestore {
         ]);
     }
 
+    function superAdminAiAssistantUpdate() {
+      return superAdmin()
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["aiAssistant"])
+          || (request.resource.data.aiAssistant is map
+            && request.resource.data.aiAssistant.keys().hasOnly(["enabled", "monthlyLimit", "monthlyUsage", "usageMonth", "updatedAt", "updatedBy"])
+            && (!("enabled" in request.resource.data.aiAssistant) || request.resource.data.aiAssistant.enabled is bool)
+            && (!("monthlyLimit" in request.resource.data.aiAssistant)
+              || (request.resource.data.aiAssistant.monthlyLimit is int
+                && request.resource.data.aiAssistant.monthlyLimit >= 1
+                && request.resource.data.aiAssistant.monthlyLimit <= 1000))
+            && request.resource.data.aiAssistant.updatedBy == request.auth.uid
+            && request.resource.data.aiAssistant.updatedAt is timestamp
+            && ((!("aiAssistant" in resource.data) && !("monthlyUsage" in request.resource.data.aiAssistant))
+              || ("aiAssistant" in resource.data
+                && ((!("monthlyUsage" in resource.data.aiAssistant) && !("monthlyUsage" in request.resource.data.aiAssistant))
+                  || request.resource.data.aiAssistant.monthlyUsage == resource.data.aiAssistant.monthlyUsage)))
+            && ((!("aiAssistant" in resource.data) && !("usageMonth" in request.resource.data.aiAssistant))
+              || ("aiAssistant" in resource.data
+                && ((!("usageMonth" in resource.data.aiAssistant) && !("usageMonth" in request.resource.data.aiAssistant))
+                  || request.resource.data.aiAssistant.usageMonth == resource.data.aiAssistant.usageMonth)))));
+    }
+
     match /platform/appConfig {
       allow read: if true;
       allow write: if superAdmin();
@@ -159,7 +181,7 @@ service cloud.firestore {
     match /schools/{schoolId} {
       allow read: if superAdmin() || (schoolUser() && schoolId == tenantSchoolId()) || (disciplineDirector() && schoolId == tenantSchoolId());
       allow create: if superAdmin();
-      allow update: if superAdmin() || schoolSettingsUpdate(schoolId);
+      allow update: if superAdminAiAssistantUpdate() || schoolSettingsUpdate(schoolId);
       allow delete: if superAdmin();
     }
 

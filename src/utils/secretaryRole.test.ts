@@ -31,7 +31,8 @@ describe("provisionnement et portail Secrétaire", () => {
     expect(navigation).toContain('label: "Courrier"');
     expect(navigation).toContain('label: "Rapports"');
     expect(navigation).toContain('label: "Menu"');
-    expect(portal).toContain('useState<SecretaryTab>("students")');
+    expect(portal).toContain('initialTab = "students"');
+    expect(portal).toContain("useState<SecretaryTab>(initialTab)");
   });
 
   it("réutilise le module Élèves avec des capacités Secrétaire restrictives", () => {
