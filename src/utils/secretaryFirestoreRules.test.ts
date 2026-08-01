@@ -7,7 +7,8 @@ describe("règles Firestore Secrétaire", () => {
 
   it("borne les fiches médicales à l'Administrateur ou au Secrétaire, à l'école, à l'année et à l'élève", () => {
     expect(rules).toContain("match /studentMedicalRecords/{studentId}");
-    expect(rules).toContain('role() in ["school_admin", "admin", "secretary"]');
+    expect(rules).toContain('request.auth.token.role == "admin"');
+    expect(rules).toContain('role() in ["school_admin", "secretary"]');
     expect(rules).toContain("medicalRecordReadInTenant(studentId)");
     expect(rules).toContain("medicalRecordStudentInYear(studentId, request.resource.data.schoolYearId)");
     expect(rules).toContain("request.resource.data.studentId == studentId");

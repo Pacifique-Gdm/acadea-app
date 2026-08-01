@@ -6,7 +6,9 @@ service cloud.firestore {
     }
 
     function role() {
-      return request.auth.token.role;
+      return request.auth.token.role == "admin"
+        ? "school_admin"
+        : request.auth.token.role;
     }
 
     function tenantSchoolId() {
@@ -52,7 +54,7 @@ service cloud.firestore {
 
     function medicalRecordUser() {
       return signedIn()
-        && role() in ["school_admin", "admin", "secretary"]
+        && role() in ["school_admin", "secretary"]
         && tenantSchoolId() is string;
     }
 
