@@ -20,9 +20,7 @@ describe("Drawers médicaux et statistiques du Secrétaire", () => {
   });
 
   it("conditionne l'édition et préremplit le formulaire existant", () => {
-    expect(source).toContain('user.role === "secretary"');
-    expect(source).toContain('user.status !== "inactive"');
-    expect(source).toContain("user.schoolId === schoolId");
+    expect(source).toContain("canManageStudentMedicalRecords(user, schoolId)");
     expect(source).toContain("canEditMedicalRecords &&");
     expect(source).toContain("setInput(normalizeMedicalRecordInput(record))");
     expect(source).toContain("student.schoolId === schoolId && student.schoolYearId === schoolYearId");
@@ -30,8 +28,27 @@ describe("Drawers médicaux et statistiques du Secrétaire", () => {
 
   it("contient tous les champs médicaux et un verrou anti-double soumission", () => {
     const labels = medicalRecordSections.flatMap((section) => section.fields.map((field) => field.label));
-    expect(labels).toEqual(["Groupe sanguin", "Rhésus (optionnel)", "Allergies", "Maladies chroniques", "Traitements en cours", "Handicap ou besoin particulier", "Vaccinations", "Observations médicales", "Contact d'urgence", "Téléphone du contact d'urgence", "Lien avec l'élève", "Médecin traitant", "Téléphone du médecin", "Centre de santé de référence"]);
+    expect(labels).toEqual(["Groupe sanguin", "Rhésus (optionnel)", "Taille", "Poids", "Antécédents médicaux", "Allergies", "Maladies chroniques", "Traitements en cours", "Handicap ou besoin particulier", "Vaccinations", "Observations médicales", "Contact d'urgence", "Téléphone du contact d'urgence", "Lien avec l'élève", "Médecin traitant", "Téléphone du médecin", "Centre de santé de référence"]);
     expect(source).toContain("saveLock.current");
+  });
+
+  it("masque Créer dès la sauvegarde et réserve Modifier à la vue détaillée", () => {
+    expect(source).toContain("setSavedStudentIds((current) => new Set(current).add(editingStudent.id))");
+    expect(source).toContain("!record && !savedStudentIds.has(student.id)");
+    expect(source).not.toContain('{record ? "Modifier" : "Créer"}');
+    expect(source).toContain("canEditMedicalRecords && viewingRecord");
+    expect(source).toContain("setViewingStudent(editingStudent)");
+    expect(source).toContain("setOptimisticRecords");
+    expect(source).toContain("medicalRecordSaveErrorMessage(error)");
+  });
+
+  it("place Imprimer à droite de Modifier et utilise le PDF Acadéa", () => {
+    const actions = source.slice(source.indexOf('className="flex flex-wrap justify-end gap-2"'), source.indexOf('<MedicalRecordFields mode="view"'));
+    expect(actions.indexOf("Modifier")).toBeGreaterThan(-1);
+    expect(actions.indexOf("Imprimer")).toBeGreaterThan(actions.indexOf("Modifier"));
+    expect(actions).toContain("renderAcadPdfPreview");
+    expect(actions).toContain('title: "FICHE MÉDICALE"');
+    expect(actions).toContain("medicalRecordPdfSections(viewingStudent, viewingRecord)");
   });
 
   it("pilote création, modification et consultation avec la même configuration", () => {

@@ -7,10 +7,27 @@ import { requiredMedicalRecordFields } from "../modules/secretary/medicalRecordF
 
 const serverTimestamp = (firestore as unknown as { serverTimestamp: () => unknown }).serverTimestamp;
 
-function assertSecretary(user: AppUser, schoolId: string) {
-  if (!auth?.currentUser || auth.currentUser.uid !== user.id || user.role !== "secretary" || user.status === "inactive" || user.schoolId !== schoolId) {
+const medicalRecordRoles = new Set<AppUser["role"]>(["school_admin", "secretary"]);
+
+export function canManageStudentMedicalRecords(user: AppUser, schoolId: string) {
+  return medicalRecordRoles.has(user.role) && user.status !== "inactive" && user.schoolId === schoolId;
+}
+
+function assertMedicalRecordUser(user: AppUser, schoolId: string) {
+  if (!auth?.currentUser || auth.currentUser.uid !== user.id || !canManageStudentMedicalRecords(user, schoolId)) {
     throw new Error("Votre session ne permet pas de gérer les fiches médicales.");
   }
+}
+
+export function medicalRecordSaveErrorMessage(error: unknown) {
+  const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+  if (code === "permission-denied" || code === "firestore/permission-denied") {
+    return "Vous n'avez pas l'autorisation d'enregistrer cette fiche médicale. Vérifiez votre rôle et l'établissement actif.";
+  }
+  if (code === "unavailable" || code === "firestore/unavailable") {
+    return "Impossible d'enregistrer la fiche médicale pour le moment. Réessayez.";
+  }
+  return error instanceof Error && error.message ? error.message : "Impossible d'enregistrer la fiche médicale.";
 }
 
 function timestampToIso(value: unknown) {
@@ -24,6 +41,10 @@ export function getMedicalRecordStatus(record?: StudentMedicalRecord): StudentMe
   return requiredMedicalRecordFields.every((field) => String(record[field] ?? "").trim()) ? "complete" : "incomplete";
 }
 
+export function cleanMedicalRecordInput(input: Record<string, unknown>) {
+  return Object.fromEntries(Object.entries(input).map(([key, value]) => [key, String(value ?? "").trim()]));
+}
+
 export function subscribeToStudentMedicalRecords(params: {
   user: AppUser;
   schoolId: string;
@@ -31,7 +52,7 @@ export function subscribeToStudentMedicalRecords(params: {
   onData: (records: StudentMedicalRecord[]) => void;
   onError: (error: Error) => void;
 }) {
-  if (!db || params.user.role !== "secretary" || params.user.status === "inactive" || params.user.schoolId !== params.schoolId) return () => undefined;
+  if (!db || !canManageStudentMedicalRecords(params.user, params.schoolId)) return () => undefined;
   const request = query(collection(db, "studentMedicalRecords"), where("schoolId", "==", params.schoolId), where("schoolYearId", "==", params.schoolYearId));
   return onSnapshot(request, (snapshot) => params.onData(snapshot.docs.map((item) => {
     const data = item.data();
@@ -46,12 +67,12 @@ export async function saveStudentMedicalRecord(params: {
   schoolYearId: string;
   input: Omit<StudentMedicalRecord, "id" | "studentId" | "schoolId" | "schoolYearId" | "createdBy" | "createdAt" | "updatedAt">;
 }) {
-  assertSecretary(params.user, params.schoolId);
+  assertMedicalRecordUser(params.user, params.schoolId);
   if (!db) throw new Error("Service de données indisponible.");
   const recordRef = doc(db, "studentMedicalRecords", params.studentId);
   await runTransaction(db, async (transaction) => {
     const current = await transaction.get(recordRef);
-    const cleanInput = Object.fromEntries(Object.entries(params.input).map(([key, value]) => [key, String(value ?? "").trim()]));
+    const cleanInput = cleanMedicalRecordInput(params.input);
     transaction.set(recordRef, {
       ...cleanInput,
       id: params.studentId,

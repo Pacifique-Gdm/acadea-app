@@ -79,11 +79,12 @@ export interface OutgoingCorrespondenceData {
   visa?: CorrespondenceVisa;
   announcedAttachments: AnnouncedCorrespondenceAttachment[];
   copies: CorrespondenceCopy[];
-  sendingChannel: string;
+  /** Champs historiques conservés uniquement pour lire les courriers déjà enregistrés. */
+  sendingChannel?: string;
   customSendingChannel?: string;
   plannedSendDate?: string;
   recipientEmail?: string;
-  receiptRequired: boolean;
+  receiptRequired?: boolean;
   sentBy?: string;
   actualSendDate?: string;
   confirmedReceptionDate?: string;
@@ -140,6 +141,9 @@ export interface StudentMedicalRecord {
   schoolYearId: string;
   bloodGroup: string;
   rhesus?: string;
+  height?: string;
+  weight?: string;
+  medicalHistory?: string;
   allergies: string;
   chronicDiseases: string;
   currentTreatments: string;

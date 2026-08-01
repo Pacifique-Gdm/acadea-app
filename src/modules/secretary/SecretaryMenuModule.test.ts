@@ -23,8 +23,8 @@ describe("Menu du Secrétaire", () => {
     expect(source).toContain("<ParentsDirectoryDrawer");
     expect(source).toContain("<BiometricStudentsPage");
     expect(source).toContain('canManage={user.role === "secretary" && user.status !== "inactive" && user.schoolId === school.id}');
-    expect(source).toContain("schoolId={school.id}");
-    expect(source).toContain("schoolYearId={year.id}");
+    expect(source).toContain("school={school}");
+    expect(source).toContain("year={year}");
   });
 
   it("accorde au Secrétaire actif de la bonne école la même interface Valves que l'Administrateur", () => {

@@ -37,6 +37,13 @@ describe("assistant IA du Secrétaire", () => {
     expect(component.indexOf("if (limitReached) return")).toBeLessThan(component.indexOf("requestSecretaryAi(user"));
   });
 
+  it("aligne la notice et le bouton de génération sur toute la largeur du Drawer", () => {
+    expect(component).toContain('className="grid w-full gap-2"');
+    expect(component).toContain('className="w-full rounded border border-violet-200');
+    expect(component).toContain('className="secondary-button w-full justify-center"');
+    expect(component).not.toContain("max-w-xl");
+  });
+
   it("ne propose que Reformuler et Résumer et injecte le résultat modifiable", () => {
     const reportActions = buildAiDocumentActions("Rapport disciplinaire");
     expect(reportActions).toHaveLength(2);

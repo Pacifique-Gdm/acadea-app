@@ -83,7 +83,7 @@ describe("module Courrier du Secrétaire", () => {
     expect(formSource).toContain("correspondenceTypes.find");
   });
 
-  it("retire Visa et Gestion interne du payload initial et renumérote les sections", () => {
+  it("retire Visa, Gestion interne et Mode d’envoi du formulaire puis renumérote les sections", () => {
     expect(formSource).not.toContain("Visa éventuel");
     expect(formSource).not.toContain("Visa requis");
     expect(formSource).not.toContain("Gestion interne");
@@ -91,13 +91,30 @@ describe("module Courrier du Secrétaire", () => {
     expect(formSource).not.toContain("Observations internes");
     expect(formSource).not.toContain('visa: { required: false }');
     expect(formSource).not.toContain('keywords: []');
+    expect(formSource).not.toContain('title="9. Mode d’envoi"');
+    expect(formSource).not.toContain('label="Canal d’envoi"');
+    expect(formSource).not.toContain("L’adresse e-mail du destinataire est obligatoire");
+    expect(formSource).not.toContain('sendingChannel: "physical"');
+    for (const key of ["sendingChannel", "plannedSendDate", "recipientEmail", "receiptRequired", "sentBy", "actualSendDate", "confirmedReceptionDate"]) expect(formSource).toContain(`"${key}"`);
     const sectionTitles = [...formSource.matchAll(/<FormSection title="(\d+)\./g)].map((match) => Number(match[1]));
-    expect(sectionTitles).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(sectionTitles).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   });
 
   it("conserve les anciennes données de visa consultables dans le PDF", () => {
     const pdfSource = readFileSync(new URL("./outgoingCorrespondencePdf.ts", import.meta.url), "utf8");
     expect(pdfSource).toContain("outgoing.visa?.required");
+  });
+
+  it("supprime structurellement le titre générique du PDF sortant uniquement", () => {
+    const outgoingPdfSource = readFileSync(new URL("./outgoingCorrespondencePdf.ts", import.meta.url), "utf8");
+    const sharedPdfSource = readFileSync(new URL("../../utils/pdf.ts", import.meta.url), "utf8");
+    expect(outgoingPdfSource).toContain("showDocumentTitle: false");
+    expect(outgoingPdfSource).not.toMatch(/Courrier administratif/i);
+    expect(outgoingPdfSource).not.toContain('subtitle: item.referenceNumber');
+    expect(outgoingPdfSource).toContain('style="margin:12px 18px 0"');
+    expect(sharedPdfSource).toContain('showDocumentTitle ? `<div class="document-title">');
+    expect(sharedPdfSource).toContain("showDocumentTitle = true");
+    expect(moduleSource).toContain('title: "Courrier administratif"');
   });
 
   it("nettoie le timer des messages", () => {

@@ -1,0 +1,8 @@
+{
+  "projects": {
+    "staging": "acadea-staging",
+    "production": "acadea-production"
+  },
+  "targets": {},
+  "etags": {}
+}

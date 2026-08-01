@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
-import { FileDown, Filter, Pencil, Search } from "lucide-react";
+import { FileDown, Filter, Pencil, Printer, Search } from "lucide-react";
 import { AdminDrawer } from "../../components/ui";
-import { saveStudentMedicalRecord, getMedicalRecordStatus } from "../../services/studentMedicalRecords";
+import { canManageStudentMedicalRecords, saveStudentMedicalRecord, getMedicalRecordStatus, medicalRecordSaveErrorMessage } from "../../services/studentMedicalRecords";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import type { AppUser, School, SchoolSection, SchoolYear, Student } from "../../types";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
@@ -10,6 +10,7 @@ import { buildValveClassChoices } from "../../utils/valves";
 import type { StudentMedicalRecord } from "./secretaryTypes";
 import { emptyMedicalRecordInput, formatMedicalRecordValue, medicalRecordSections, normalizeMedicalRecordInput, requiredMedicalRecordFields } from "./medicalRecordFields";
 import type { MedicalRecordInput } from "./medicalRecordFields";
+import { medicalRecordPdfSections } from "./medicalRecordPdf";
 import { buildSecretaryStatistics, filterSecretaryStatisticsStudents, secretaryStatisticsScopeLabel, type SecretaryStatisticsFilter } from "./secretaryStatistics";
 
 const statusPresentation = {
@@ -37,8 +38,8 @@ function MedicalRecordFields(props: MedicalRecordFieldsProps) {
     : <section className="rounded border bg-white p-4" key={section.title}><h3 className="font-bold">{section.title}</h3><dl className="mt-3 grid gap-3 sm:grid-cols-2">{section.fields.map((field) => <div className="min-w-0" key={field.key}><dt className="text-xs font-semibold uppercase text-slate-500">{field.label}</dt><dd className="mt-1 whitespace-pre-wrap break-words text-slate-700">{formatMedicalRecordValue(props.record?.[field.key])}</dd></div>)}</dl></section>)}</>;
 }
 
-export function SecretaryMedicalRecordsDrawer({ open, onClose, user, students, records, schoolId, schoolYearId }: {
-  open: boolean; onClose: () => void; user: AppUser; students: Student[]; records: StudentMedicalRecord[]; schoolId: string; schoolYearId: string;
+export function SecretaryMedicalRecordsDrawer({ open, onClose, user, students, records, school, year }: {
+  open: boolean; onClose: () => void; user: AppUser; students: Student[]; records: StudentMedicalRecord[]; school: School; year: SchoolYear;
 }) {
   const [queryText, setQueryText] = useState("");
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
@@ -46,9 +47,16 @@ export function SecretaryMedicalRecordsDrawer({ open, onClose, user, students, r
   const [input, setInput] = useState<MedicalRecordInput>(emptyMedicalRecordInput);
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const [savedStudentIds, setSavedStudentIds] = useState<Set<string>>(() => new Set());
+  const [optimisticRecords, setOptimisticRecords] = useState<Map<string, StudentMedicalRecord>>(() => new Map());
   const saveLock = useRef(false);
-  const canEditMedicalRecords = user.role === "secretary" && user.status !== "inactive" && user.schoolId === schoolId;
-  const recordsByStudent = useMemo(() => new Map(records.filter((record) => record.schoolId === schoolId && record.schoolYearId === schoolYearId).map((record) => [record.studentId, record])), [records, schoolId, schoolYearId]);
+  const schoolId = school.id;
+  const schoolYearId = year.id;
+  const canEditMedicalRecords = canManageStudentMedicalRecords(user, schoolId);
+  const recordsByStudent = useMemo(() => new Map([
+    ...records.filter((record) => record.schoolId === schoolId && record.schoolYearId === schoolYearId).map((record) => [record.studentId, record] as const),
+    ...optimisticRecords,
+  ]), [optimisticRecords, records, schoolId, schoolYearId]);
   const visibleStudents = useMemo(() => students.filter((student) => student.schoolId === schoolId && student.schoolYearId === schoolYearId && `${student.matricule} ${student.nom} ${student.postnom} ${student.prenom} ${student.className}`.toLowerCase().includes(queryText.toLowerCase())), [queryText, schoolId, schoolYearId, students]);
 
   function openForm(student: Student) {
@@ -69,10 +77,22 @@ export function SecretaryMedicalRecordsDrawer({ open, onClose, user, students, r
     saveLock.current = true; setSaving(true); setMessage("");
     try {
       await saveStudentMedicalRecord({ user, studentId: editingStudent.id, schoolId, schoolYearId, input });
-      setInput(emptyMedicalRecordInput); setEditingStudent(null); setMessage("Fiche médicale enregistrée.");
+      setSavedStudentIds((current) => new Set(current).add(editingStudent.id));
+      const savedAt = new Date().toISOString();
+      setOptimisticRecords((current) => new Map(current).set(editingStudent.id, {
+        ...input,
+        id: editingStudent.id,
+        studentId: editingStudent.id,
+        schoolId,
+        schoolYearId,
+        createdBy: recordsByStudent.get(editingStudent.id)?.createdBy ?? user.id,
+        createdAt: recordsByStudent.get(editingStudent.id)?.createdAt ?? savedAt,
+        updatedAt: savedAt,
+      }));
+      setInput(emptyMedicalRecordInput); setEditingStudent(null); setViewingStudent(editingStudent); setMessage("Fiche médicale enregistrée.");
     } catch (error) {
       console.error("Échec de l'enregistrement de la fiche médicale", error);
-      setMessage(error instanceof Error ? error.message : "Impossible d'enregistrer la fiche médicale.");
+      setMessage(medicalRecordSaveErrorMessage(error));
     } finally { saveLock.current = false; setSaving(false); }
   }
 
@@ -88,7 +108,7 @@ export function SecretaryMedicalRecordsDrawer({ open, onClose, user, students, r
             return <article key={student.id} className="grid gap-3 rounded border bg-white p-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
               {student.photoUrl ? <img className="h-12 w-12 rounded-full object-cover" src={student.photoUrl} alt="" /> : <div className="grid h-12 w-12 place-items-center rounded-full bg-slate-100 font-bold text-slate-600">{student.prenom?.[0] ?? student.nom?.[0] ?? "É"}</div>}
               <div className="min-w-0"><button type="button" onClick={() => setViewingStudent(student)} className="rounded text-left font-bold text-ink underline decoration-slate-300 underline-offset-4 transition hover:text-blue-700 hover:decoration-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2" aria-label={`Consulter la fiche médicale de ${student.nom} ${student.postnom} ${student.prenom}`}>{student.nom} {student.postnom} {student.prenom}</button><p className="text-sm text-slate-500">{student.matricule} · {formatStudentClassName(student)}</p><div className="mt-2"><MedicalStatusBadge record={record} /></div></div>
-              {canEditMedicalRecords && <div className="flex flex-wrap gap-2"><button className="primary-button" type="button" onClick={() => openForm(student)}><Pencil className="h-4 w-4" /> {record ? "Modifier" : "Créer"}</button></div>}
+              {canEditMedicalRecords && !record && !savedStudentIds.has(student.id) && <div className="flex flex-wrap gap-2"><button className="primary-button" type="button" onClick={() => openForm(student)}><Pencil className="h-4 w-4" /> Créer</button></div>}
             </article>;
           })}
           {visibleStudents.length === 0 && <p className="rounded border bg-white p-6 text-center text-sm text-slate-500">Aucun élève trouvé.</p>}
@@ -104,7 +124,7 @@ export function SecretaryMedicalRecordsDrawer({ open, onClose, user, students, r
     </AdminDrawer>}
     {viewingStudent && <AdminDrawer title={`Fiche médicale · ${viewingStudent.nom} ${viewingStudent.prenom}`} onClose={() => setViewingStudent(null)} closeLabel="Fermer">
       <div className="grid gap-4 text-sm">
-        {canEditMedicalRecords && <div className="flex justify-end"><button className="primary-button" type="button" onClick={() => openForm(viewingStudent)}><Pencil className="h-4 w-4" /> Modifier</button></div>}
+        <div className="flex flex-wrap justify-end gap-2">{canEditMedicalRecords && viewingRecord && <button className="primary-button" type="button" onClick={() => openForm(viewingStudent)}><Pencil className="h-4 w-4" /> Modifier</button>}{viewingRecord && <button className="secondary-button" type="button" onClick={() => void renderAcadPdfPreview({ filename: `fiche-medicale-${viewingStudent.matricule}.pdf`, title: "FICHE MÉDICALE", school, year, sections: medicalRecordPdfSections(viewingStudent, viewingRecord) })}><Printer className="h-4 w-4" /> Imprimer</button>}</div>
         <MedicalRecordFields mode="view" record={viewingRecord} />
       </div>
     </AdminDrawer>}

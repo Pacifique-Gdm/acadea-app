@@ -39,5 +39,6 @@ export function outgoingCorrespondencePdfSections(item: Correspondence) {
 
 export async function previewOutgoingCorrespondence(item: Correspondence, school: School, year: SchoolYear) {
   if (!item.outgoing) throw new Error("Les données du courrier sortant sont incomplètes.");
-  await renderAcadPdfPreview({ filename: `${item.referenceNumber || "courrier-sortant"}.pdf`, title: "Courrier administratif", school, year, subtitle: item.referenceNumber || "Aperçu", sections: outgoingCorrespondencePdfSections(item) });
+  const letterContent = outgoingCorrespondencePdfSections(item).join("");
+  await renderAcadPdfPreview({ filename: `${item.referenceNumber || "courrier-sortant"}.pdf`, title: item.referenceNumber || school.name, school, year, showDocumentTitle: false, sections: [`<div style="margin:12px 18px 0">${letterContent}</div>`] });
 }

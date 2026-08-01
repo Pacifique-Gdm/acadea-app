@@ -1,0 +1,40 @@
+warning: in the working copy of '.firebase/hosting.ZGlzdA.cache', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'firestore.rules', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'package.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/modules/menu/MenuModule.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/modules/secretary/OutgoingCorrespondenceForm.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/modules/secretary/SecretaryAiAssistant.test.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/modules/secretary/SecretaryAiAssistant.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/modules/secretary/SecretaryCorrespondenceModule.test.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/modules/secretary/SecretaryMedicalTools.test.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/modules/secretary/SecretaryMedicalTools.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/modules/secretary/SecretaryMenuModule.test.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/modules/secretary/SecretaryMenuModule.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/modules/secretary/medicalRecordFields.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/modules/secretary/outgoingCorrespondencePdf.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/modules/secretary/secretaryTypes.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/services/studentMedicalRecords.test.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/services/studentMedicalRecords.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/utils/pdf.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/utils/secretaryFirestoreRules.test.ts', LF will be replaced by CRLF the next time Git touches it
+ .firebase/hosting.ZGlzdA.cache                     | 16 [32m++++[m[31m-----[m
+ firestore.rules                                    | 40 [32m+++++++++++++++++++[m[31m---[m
+ package-lock.json                                  | 14 [32m++++++++[m
+ package.json                                       |  2 [32m++[m
+ src/modules/menu/MenuModule.tsx                    | 26 [32m++++++++++++[m[31m--[m
+ .../secretary/OutgoingCorrespondenceForm.tsx       | 14 [32m++++[m[31m----[m
+ src/modules/secretary/SecretaryAiAssistant.test.ts |  7 [32m++++[m
+ src/modules/secretary/SecretaryAiAssistant.tsx     |  2 [32m+[m[31m-[m
+ .../SecretaryCorrespondenceModule.test.ts          | 21 [32m++++++++++[m[31m--[m
+ .../secretary/SecretaryMedicalTools.test.ts        | 25 [32m+++++++++++[m[31m---[m
+ src/modules/secretary/SecretaryMedicalTools.tsx    | 40 [32m++++++++++++++++[m[31m------[m
+ src/modules/secretary/SecretaryMenuModule.test.ts  |  4 [32m+[m[31m--[m
+ src/modules/secretary/SecretaryMenuModule.tsx      |  2 [32m+[m[31m-[m
+ src/modules/secretary/medicalRecordFields.ts       |  9 [32m+++++[m
+ src/modules/secretary/outgoingCorrespondencePdf.ts |  3 [32m+[m[31m-[m
+ src/modules/secretary/secretaryTypes.ts            |  8 [32m+++[m[31m--[m
+ src/services/studentMedicalRecords.test.ts         | 20 [32m++++++++++[m[31m-[m
+ src/services/studentMedicalRecords.ts              | 31 [32m++++++++++++++[m[31m---[m
+ src/utils/pdf.ts                                   | 11 [32m+++[m[31m---[m
+ src/utils/secretaryFirestoreRules.test.ts          |  7 [32m+++[m[31m-[m
+ 20 files changed, 246 insertions(+), 56 deletions(-)

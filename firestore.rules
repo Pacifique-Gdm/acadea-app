@@ -50,6 +50,28 @@ service cloud.firestore {
       return signedIn() && role() == "secretary" && tenantSchoolId() is string;
     }
 
+    function medicalRecordUser() {
+      return signedIn()
+        && role() in ["school_admin", "admin", "secretary"]
+        && tenantSchoolId() is string;
+    }
+
+    function medicalRecordStudentInTenant(studentId) {
+      return exists(/databases/$(database)/documents/students/$(studentId))
+        && get(/databases/$(database)/documents/students/$(studentId)).data.schoolId == tenantSchoolId();
+    }
+
+    function medicalRecordStudentInYear(studentId, schoolYearId) {
+      return medicalRecordStudentInTenant(studentId)
+        && get(/databases/$(database)/documents/students/$(studentId)).data.schoolYearId == schoolYearId;
+    }
+
+    function medicalRecordReadInTenant(studentId) {
+      return exists(/databases/$(database)/documents/studentMedicalRecords/$(studentId))
+        ? resource.data.schoolId == tenantSchoolId()
+        : medicalRecordStudentInTenant(studentId);
+    }
+
     function secretaryStudentCreate() {
       return secretary()
         && sameTenantCreate()
@@ -590,18 +612,26 @@ service cloud.firestore {
     }
 
     match /studentMedicalRecords/{studentId} {
-      allow read: if secretary() && sameTenantResource();
-      allow create: if secretary()
+      allow read: if medicalRecordUser()
+        && medicalRecordReadInTenant(studentId);
+      allow create: if medicalRecordUser()
         && sameTenantCreate()
+        && medicalRecordStudentInYear(studentId, request.resource.data.schoolYearId)
+        && request.resource.data.id == studentId
         && request.resource.data.studentId == studentId
         && request.resource.data.schoolYearId is string
-        && request.resource.data.createdBy == request.auth.uid;
-      allow update: if secretary()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp;
+      allow update: if medicalRecordUser()
         && sameTenantUpdate()
         && sameYearUpdate()
+        && medicalRecordStudentInYear(studentId, request.resource.data.schoolYearId)
         && resource.data.studentId == studentId
         && request.resource.data.studentId == resource.data.studentId
-        && request.resource.data.createdBy == resource.data.createdBy;
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt is timestamp;
       allow delete: if false;
     }
 

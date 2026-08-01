@@ -5,9 +5,14 @@ describe("règles Firestore Secrétaire", () => {
   const rules = readFileSync(new URL("../../firestore.rules", import.meta.url), "utf8");
   const storageRules = readFileSync(new URL("../../storage.rules", import.meta.url), "utf8");
 
-  it("borne les fiches médicales au Secrétaire, à l'école, à l'année et à l'élève", () => {
+  it("borne les fiches médicales à l'Administrateur ou au Secrétaire, à l'école, à l'année et à l'élève", () => {
     expect(rules).toContain("match /studentMedicalRecords/{studentId}");
+    expect(rules).toContain('role() in ["school_admin", "admin", "secretary"]');
+    expect(rules).toContain("medicalRecordReadInTenant(studentId)");
+    expect(rules).toContain("medicalRecordStudentInYear(studentId, request.resource.data.schoolYearId)");
     expect(rules).toContain("request.resource.data.studentId == studentId");
+    expect(rules).toContain("request.resource.data.createdAt is timestamp");
+    expect(rules).toContain("request.resource.data.updatedAt is timestamp");
     expect(rules).toContain("sameTenantCreate()");
     expect(rules).toContain("sameYearUpdate()");
     expect(rules).toContain("allow delete: if false;");

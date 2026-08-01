@@ -1,17 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Banknote, BarChart3, BookOpen, CheckCircle2, ChevronRight, Clock3, CreditCard, Fingerprint, LogOut, Plus, RefreshCw, Settings, ShieldCheck, Trash2, UserRound, UsersRound, X } from "lucide-react";
+import { Banknote, BarChart3, BookOpen, CheckCircle2, ChevronRight, Clock3, CreditCard, Fingerprint, HeartPulse, LogOut, Plus, RefreshCw, Settings, ShieldCheck, Trash2, UserRound, UsersRound, X } from "lucide-react";
 import { AdminDrawer, Field, ImageUploadField, PasswordField } from "../../components/ui";
 import { ParentsDirectoryDrawer } from "../../components/parents/ParentsDirectoryDrawer";
 import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent";
 import { canUseFirestoreData, persistFirestorePatch } from "../../services/firestoreData";
 import { deleteParentAccount, provisionSchoolUser } from "../../services/provisioning";
+import { subscribeToStudentMedicalRecords } from "../../services/studentMedicalRecords";
 import { createAuditLog } from "../../utils/audit";
 import { buildFeeTargetChoices, feeTargetClassName } from "../../utils/feeTargets";
 import { getSchoolEducationLevels } from "../../utils/schoolConfig";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import type { AppData, AppUser, FeeKind, FeeType, ParentProfile, School, SchoolYear, Student, ValvePublication } from "../../types";
 import { FEE_KINDS } from "../../types";
+import { SecretaryMedicalRecordsDrawer } from "../secretary/SecretaryMedicalTools";
+import type { StudentMedicalRecord } from "../secretary/secretaryTypes";
 
 type SchoolUserProvisionRole = "cashier" | "discipline_director" | "secretary";
 
@@ -77,7 +80,7 @@ export function MenuModule({
   onOpenBiometrics,
   initialBiometricsOpen = false,
 }: MenuModuleProps) {
-  type MenuSection = "school" | "years" | "accounts" | "fees" | "financial" | "valves" | "parentsDirectory" | "history" | "biometrics";
+  type MenuSection = "school" | "years" | "accounts" | "fees" | "financial" | "valves" | "parentsDirectory" | "history" | "biometrics" | "medicalRecords";
   const [schoolForm, setSchoolForm] = useState(school);
   const [schoolSaveStatus, setSchoolSaveStatus] = useState<"success" | "error" | "">("");
   const [schoolSaveMessage, setSchoolSaveMessage] = useState("");
@@ -114,10 +117,14 @@ export function MenuModule({
   const [parentDeleteConfirmation, setParentDeleteConfirmation] = useState("");
   const [parentDeleteError, setParentDeleteError] = useState("");
   const [parentDeleteSaving, setParentDeleteSaving] = useState(false);
+  const [medicalRecords, setMedicalRecords] = useState<StudentMedicalRecord[]>([]);
+  const [medicalRecordsError, setMedicalRecordsError] = useState("");
+  const [medicalRecordsOpen, setMedicalRecordsOpen] = useState(false);
   const isArchivedContext = selectedYear.status === "archived";
   const canAdmin = user.role === "school_admin" && !isArchivedContext;
   const menuSections = [
     { id: "valves", title: "Valves", description: "Communiqués, palmarès, points, images et documents.", icon: BookOpen },
+    { id: "medicalRecords", title: "Fiches médicales", description: "Création, consultation et suivi des fiches médicales des élèves.", icon: HeartPulse },
     { id: "parentsDirectory", title: "Parents / Tuteurs", description: "Annuaire interne des parents liés aux élèves.", icon: UsersRound },
     { id: "fees", title: "Types de frais", description: "Montants et catégories de frais scolaires.", icon: Banknote },
     { id: "financial", title: "Rapport financier", description: "Synthèse et exports des rapports financiers.", icon: BarChart3 },
@@ -137,6 +144,17 @@ export function MenuModule({
   const parentDeleteChildren = parentDeleteTarget
     ? yearData.students.filter((student) => student.parentId === parentDeleteTarget.id || parentDeleteTarget.studentIds.includes(student.id))
     : [];
+
+  useEffect(() => {
+    if (!medicalRecordsOpen || !canAdmin) return undefined;
+    return subscribeToStudentMedicalRecords({
+      user,
+      schoolId: school.id,
+      schoolYearId: selectedYear.id,
+      onData: (records) => { setMedicalRecords(records); setMedicalRecordsError(""); },
+      onError: () => setMedicalRecordsError("Impossible d'actualiser les fiches médicales pour le moment."),
+    });
+  }, [canAdmin, medicalRecordsOpen, school.id, selectedYear.id, user]);
 
   useEffect(() => {
     if (!showNewFeeForm) return;
@@ -982,7 +1000,7 @@ export function MenuModule({
         return (
           <button
             key={section.id}
-            onClick={() => setActiveMenuSection(section.id)}
+            onClick={() => section.id === "medicalRecords" ? setMedicalRecordsOpen(true) : setActiveMenuSection(section.id)}
             className={`min-w-0 rounded border p-4 text-left shadow-sm transition ${
               active ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white hover:border-mint"
             }`}
@@ -1005,6 +1023,8 @@ export function MenuModule({
           {renderMenuSectionForm(activeMenuSection)}
         </AdminDrawer>
       )}
+      {medicalRecordsError && medicalRecordsOpen && <p className="rounded border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800">{medicalRecordsError}</p>}
+      <SecretaryMedicalRecordsDrawer open={medicalRecordsOpen} onClose={() => setMedicalRecordsOpen(false)} user={user} students={yearData.students} records={medicalRecords} school={school} year={selectedYear} />
       {parentDeleteOpen && (
         <AdminDrawer title="Supprimer un parent" onClose={closeParentDeleteDrawer} closeLabel="Annuler la suppression du parent">
           <div className="grid min-w-0 gap-4">

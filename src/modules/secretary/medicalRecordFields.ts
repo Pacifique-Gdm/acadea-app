@@ -1,6 +1,9 @@
 export type MedicalRecordInput = {
   bloodGroup: string;
   rhesus: string;
+  height: string;
+  weight: string;
+  medicalHistory: string;
   allergies: string;
   chronicDiseases: string;
   currentTreatments: string;
@@ -30,6 +33,9 @@ export type MedicalRecordSection = {
 export const emptyMedicalRecordInput: MedicalRecordInput = {
   bloodGroup: "",
   rhesus: "",
+  height: "",
+  weight: "",
+  medicalHistory: "",
   allergies: "",
   chronicDiseases: "",
   currentTreatments: "",
@@ -50,6 +56,9 @@ export const medicalRecordSections: readonly MedicalRecordSection[] = [
     fields: [
       { key: "bloodGroup", label: "Groupe sanguin", control: "input", required: true },
       { key: "rhesus", label: "Rhésus (optionnel)", control: "input" },
+      { key: "height", label: "Taille", control: "input" },
+      { key: "weight", label: "Poids", control: "input" },
+      { key: "medicalHistory", label: "Antécédents médicaux", control: "textarea" },
       { key: "allergies", label: "Allergies", control: "textarea" },
       { key: "chronicDiseases", label: "Maladies chroniques", control: "textarea" },
       { key: "currentTreatments", label: "Traitements en cours", control: "textarea" },

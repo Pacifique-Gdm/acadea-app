@@ -36,6 +36,7 @@ type AcadPdfOptions = {
   year?: SchoolYear;
   subtitle?: string;
   generatedAt?: Date;
+  showDocumentTitle?: boolean;
   sections: string[];
 };
 
@@ -152,13 +153,13 @@ export function pdfSection(title: string, bodyHtml: string, options: { pageBreak
   `;
 }
 
-export async function renderAcadPdfPreview({ filename, title, school, year, subtitle, generatedAt = new Date(), sections }: AcadPdfOptions) {
+export async function renderAcadPdfPreview({ filename, title, school, year, subtitle, generatedAt = new Date(), showDocumentTitle = true, sections }: AcadPdfOptions) {
   const doc = new jsPDF({ unit: "mm", format: "a4", compress: true }) as PdfDoc;
   const viewer = openPdfViewerShell({ filename, title });
   const logoDataUrl = await loadLogoDataUrl(school.logoUrl);
   const element = document.createElement("div");
   element.className = "acadea-pdf";
-  element.innerHTML = buildPdfHtml({ title, school, year, subtitle, generatedAt, logoDataUrl, sections });
+  element.innerHTML = buildPdfHtml({ title, school, year, subtitle, generatedAt, logoDataUrl, showDocumentTitle, sections });
   if (!element.textContent?.trim()) {
     showPdfError(viewer, "Le document PDF ne contient aucune donnée à afficher.");
     return;
@@ -248,6 +249,7 @@ function buildPdfHtml({
   subtitle,
   generatedAt,
   logoDataUrl,
+  showDocumentTitle,
   sections,
 }: {
   title: string;
@@ -256,6 +258,7 @@ function buildPdfHtml({
   subtitle?: string;
   generatedAt: Date;
   logoDataUrl: string;
+  showDocumentTitle: boolean;
   sections: string[];
 }) {
   const schoolMotto = school.motto?.trim();
@@ -276,12 +279,12 @@ function buildPdfHtml({
         ${year ? `<p>Année scolaire : <strong>${escapePdfHtml(year.name)}</strong></p>` : ""}
       </div>
     </header>
-    <div class="document-title">
+    ${showDocumentTitle ? `<div class="document-title">
       <p>Acadéa</p>
       <h2>${escapePdfHtml(title)}</h2>
       ${subtitle ? `<span>${escapePdfHtml(subtitle)}</span>` : ""}
       <small>Date de génération : ${escapePdfHtml(generatedAt.toLocaleString("fr-FR"))}</small>
-    </div>
+    </div>` : ""}
     ${sections.join("")}
   `;
 }

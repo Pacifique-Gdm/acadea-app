@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "test": "npm run test:unit",
     "test:unit": "vitest run",
+    "test:firestore": "vitest run --config vitest.firestore.config.ts",
     "test:e2e": "playwright test",
     "test:e2e:staging": "playwright test",
     "claims:set": "node scripts/setCustomClaims.cjs",
@@ -30,6 +31,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.37.0",
+    "@firebase/rules-unit-testing": "^5.0.1",
     "@playwright/test": "^1.61.1",
     "@types/node": "^24.7.2",
     "@types/react": "^19.1.10",

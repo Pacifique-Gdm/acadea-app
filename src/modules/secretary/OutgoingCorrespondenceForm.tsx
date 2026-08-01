@@ -18,7 +18,7 @@ function initialOutgoing(user: AppUser, school: School, year: SchoolYear): Outgo
     correspondenceType: "administrative_letter", issuePlace: school.address?.split(",")[0]?.trim() || "", academicYearName: year.name, authorName: user.name,
     priority: "normal", confidentiality: "public", deliveryMode: "hand_delivery", recipient: { salutation: "mr" }, salutation: salutations[0], introduction: "", mainMessage: "", conclusion: "", closingFormula: closings[0],
     signer: { userId: "", fullName: "", functionTitle: "", signatureType: "handwritten_space", signatureRequired: true, stampRequired: true, signatureSpace: "medium" },
-    announcedAttachments: [], copies: [], sendingChannel: "physical", receiptRequired: false, version: 1,
+    announcedAttachments: [], copies: [], version: 1,
   };
 }
 
@@ -44,16 +44,19 @@ export function OutgoingCorrespondenceForm({ user, users, school, year, current,
     window.addEventListener("beforeunload", warn); return () => window.removeEventListener("beforeunload", warn);
   }, [dirty, locked]);
   const cancel = () => { if (!dirty || locked || window.confirm("Quitter sans enregistrer les modifications ?")) onCancel(); };
-  const item = (): Correspondence => ({
+  const item = (): Correspondence => {
+    const outgoingPayload = { ...outgoing };
+    for (const key of ["sendingChannel", "customSendingChannel", "plannedSendDate", "recipientEmail", "receiptRequired", "sentBy", "actualSendDate", "confirmedReceptionDate"] as const) delete outgoingPayload[key];
+    return {
     id: current?.id ?? "preview", referenceNumber: current?.referenceNumber ?? "Attribuée lors de l’enregistrement", direction: "outgoing", date, subject,
     sender: school.name, recipient: outgoing.recipient.fullName || outgoing.recipient.functionTitle || "", content: [outgoing.introduction, outgoing.mainMessage, outgoing.details, outgoing.justification, outgoing.expectedFollowUp, outgoing.conclusion].filter(Boolean).join("\n\n"),
-    status: current?.status ?? "draft", createdBy: current?.createdBy ?? user.id, createdAt: current?.createdAt ?? new Date().toISOString(), updatedAt: new Date().toISOString(), schoolId: school.id, schoolYearId: year.id, outgoing,
-  });
+    status: current?.status ?? "draft", createdBy: current?.createdBy ?? user.id, createdAt: current?.createdAt ?? new Date().toISOString(), updatedAt: new Date().toISOString(), schoolId: school.id, schoolYearId: year.id, outgoing: outgoingPayload,
+    };
+  };
   function validate() {
     if (!outgoing.correspondenceType || !date || !outgoing.issuePlace.trim() || (!outgoing.recipient.functionTitle?.trim() && !outgoing.recipient.fullName?.trim()) || !subject.trim() || !outgoing.salutation.trim() || !outgoing.introduction.trim() || !outgoing.mainMessage.trim() || !outgoing.conclusion.trim() || !outgoing.closingFormula.trim() || !outgoing.signer.userId || !outgoing.signer.fullName.trim() || !outgoing.signer.functionTitle.trim()) return "Renseignez tous les champs obligatoires du courrier.";
     if (outgoing.correspondenceType === "other" && !outgoing.customCorrespondenceType?.trim()) return "Précisez le type de courrier.";
     if (outgoing.recipient.salutation === "other" && !outgoing.recipient.customSalutation?.trim()) return "Précisez la civilité.";
-    if (outgoing.sendingChannel === "email" && !outgoing.recipientEmail?.trim()) return "L’adresse e-mail du destinataire est obligatoire pour un envoi par e-mail.";
     return "";
   }
   async function act(status: CorrespondenceStatus) {
@@ -79,7 +82,6 @@ export function OutgoingCorrespondenceForm({ user, users, school, year, current,
       <FormSection title="6. Formule de politesse"><Select label="Formule de politesse *" value={closings.includes(outgoing.closingFormula) ? outgoing.closingFormula : "other"} onChange={(value) => set("closingFormula", value === "other" ? "" : value)} options={[...closings.map((value) => [value, value] as const), ["other", "Autre"]]} />{!closings.includes(outgoing.closingFormula) && <Area label="Formule personnalisée *" value={outgoing.closingFormula} onChange={(value) => set("closingFormula", value)} />}</FormSection>
       <FormSection title="7. Signataire"><Select label="Signataire *" value={outgoing.signer.userId} onChange={(value) => { const selected = signers.find((entry) => entry.id === value); set("signer", { ...outgoing.signer, userId: value, fullName: selected?.name ?? "", functionTitle: roleLabel(selected?.role) }); }} options={[["", "Sélectionner"], ...signers.map((entry) => [entry.id, `${entry.name} — ${roleLabel(entry.role)}`] as const)]} /><Field label="Nom complet du signataire *" value={outgoing.signer.fullName} onChange={(value) => set("signer", { ...outgoing.signer, fullName: value })} /><Field label="Fonction du signataire *" value={outgoing.signer.functionTitle} onChange={(value) => set("signer", { ...outgoing.signer, functionTitle: value })} /><Select label="Type de signature" value={outgoing.signer.signatureType} onChange={(value) => set("signer", { ...outgoing.signer, signatureType: value as typeof outgoing.signer.signatureType })} options={[["stored", "Signature enregistrée"], ["handwritten_space", "Espace pour signature manuscrite"], ["none", "Sans signature intégrée"]]} /><YesNo label="Signature requise" value={outgoing.signer.signatureRequired} onChange={(value) => set("signer", { ...outgoing.signer, signatureRequired: value })} /><YesNo label="Cachet requis" value={outgoing.signer.stampRequired} onChange={(value) => set("signer", { ...outgoing.signer, stampRequired: value })} /><Select label="Taille de l’espace de signature" value={outgoing.signer.signatureSpace} onChange={(value) => set("signer", { ...outgoing.signer, signatureSpace: value as typeof outgoing.signer.signatureSpace })} options={[["small", "Petit"], ["medium", "Moyen"], ["large", "Grand"]]} /></FormSection>
       <FormSection title="8. Copies pour information"><DynamicCopies value={outgoing.copies} onChange={(value) => set("copies", value)} /></FormSection>
-      <FormSection title="9. Mode d’envoi"><Select label="Canal d’envoi" value={outgoing.sendingChannel} onChange={(value) => set("sendingChannel", value)} options={[["physical", "Remise physique"], ["email", "E-mail"], ["postal", "Courrier postal"], ["acadea", "Messagerie interne Acadéa"], ["other", "Autre"]]} />{outgoing.sendingChannel === "other" && <Field label="Préciser le canal" value={outgoing.customSendingChannel ?? ""} onChange={(value) => set("customSendingChannel", value)} />}<Field label="Date d’envoi prévue" type="date" value={outgoing.plannedSendDate ?? ""} onChange={(value) => set("plannedSendDate", value)} />{outgoing.sendingChannel === "email" && <Field label="Adresse e-mail du destinataire" type="email" value={outgoing.recipientEmail ?? ""} onChange={(value) => set("recipientEmail", value)} />}<YesNo label="Accusé de réception requis" value={outgoing.receiptRequired} onChange={(value) => set("receiptRequired", value)} /><Select label="Personne chargée de l’envoi" value={outgoing.sentBy ?? ""} onChange={(value) => set("sentBy", value)} options={[["", "Non désignée"], ...signers.map((entry) => [entry.id, entry.name] as const)]} /><Field label="Date réelle d’envoi" type="date" value={outgoing.actualSendDate ?? ""} onChange={(value) => set("actualSendDate", value)} /><Field label="Date de réception confirmée" type="date" value={outgoing.confirmedReceptionDate ?? ""} onChange={(value) => set("confirmedReceptionDate", value)} /></FormSection>
     </fieldset>
     <div className="sticky bottom-0 z-10 flex items-center justify-end gap-2 border-t bg-white py-3">
       <button type="button" className="secondary-button" disabled={busy} onClick={cancel}>Annuler</button>
