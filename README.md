@@ -9,6 +9,15 @@ npm install
 npm run dev
 ```
 
+Le développement utilise Firebase Staging par défaut. Les commandes explicites sont :
+
+```bash
+npm run dev:staging
+npm run dev:production
+npm run build:staging
+npm run build:production
+```
+
 Build:
 
 ```bash
@@ -25,23 +34,29 @@ npm run lint
 
 Acadéa distingue maintenant:
 
-- Development: `.env` local basé sur `.env.example`.
-- Preview / Staging: Vercel Preview Deployment + Firebase staging.
-- Production: Vercel Production Deployment depuis `main` + Firebase production.
+- Development : `.env.development` + Firebase `acadea-staging`.
+- Staging : `.env.staging`, projet Vercel `acadea-staging` + Firebase `acadea-staging`.
+- Production : `.env.production`, projet Vercel Production + Firebase `acadea-production`.
+
+Une association différente bloque immédiatement le démarrage ou le build. Le build
+Vercel exige également `VITE_APP_ENV=staging` ou `VITE_APP_ENV=production` et ne
+choisit jamais silencieusement une cible.
 
 Documentation complète: [docs/staging-vercel.md](docs/staging-vercel.md).
 
 ## Configuration Firebase
 
-Copier `.env.example` vers `.env` puis renseigner les valeurs Firebase:
+Renseigner les valeurs Firebase locales dans `.env.local` ou dans le fichier
+`.env.<mode>.local` approprié. Ces fichiers sont ignorés par Git. Les fichiers
+canoniques versionnés imposent toujours le mode et le projet Firebase :
 
 ```bash
-VITE_APP_ENV=development
-VITE_STAGING_BANNER=false
+VITE_APP_ENV=staging
+VITE_STAGING_BANNER=true
 VITE_STAGING_LABEL=ENVIRONNEMENT DE TEST
 VITE_FIREBASE_API_KEY=
 VITE_FIREBASE_AUTH_DOMAIN=
-VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_PROJECT_ID=acadea-staging
 VITE_FIREBASE_STORAGE_BUCKET=
 VITE_FIREBASE_MESSAGING_SENDER_ID=
 VITE_FIREBASE_APP_ID=

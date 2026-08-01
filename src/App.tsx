@@ -49,6 +49,8 @@ import { feeTargetHasOption, formatFeeTargetValue } from "./utils/feeTargets";
 import { schoolEducationLevelChoices } from "./utils/schoolConfig";
 import { markAuthStep, measureAuthStep } from "./utils/authPerformance";
 import { getPlatformSchoolStats } from "./utils/platformSchoolStats";
+import { logRefreshError, refreshErrorMessage } from "./utils/refreshErrors";
+import { runRefreshTask } from "./utils/refreshTask";
 import type { SchoolLevelChoice } from "./utils/schoolConfig";
 import type {
   AppData,
@@ -164,6 +166,7 @@ export default function App() {
   const [platformCounts, setPlatformCounts] = useState<SuperAdminGlobalCounts | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState("");
+  const refreshInFlightRef = useRef(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [pendingPushMessageId, setPendingPushMessageId] = useState(() => {
     if (typeof window === "undefined") return "";
@@ -511,69 +514,42 @@ export default function App() {
   }
 
   async function refreshCurrentYearData() {
-    if (isRefreshing || !user || !selectedYearId || !canUseFirestoreData()) return;
-
-    setIsRefreshing(true);
+    if (refreshInFlightRef.current || !user || !selectedYearId || !canUseFirestoreData()) return;
     setRefreshError("");
-    try {
-      const firestoreYearData = await loadFirestoreYearData(user, selectedYearId);
-      if (!firestoreYearData) {
-        throw new Error("Actualisation Firestore indisponible.");
-      }
-      setData((prev) => ({
-        ...prev,
-        ...firestoreYearData,
-      }));
-    } catch (error) {
-      console.warn("Actualisation ciblée Firestore indisponible.", error);
-      setRefreshError("Impossible d'actualiser les données. Veuillez réessayer.");
-    } finally {
-      setIsRefreshing(false);
-    }
+    await runRefreshTask({ lock: refreshInFlightRef, setRefreshing: setIsRefreshing, load: async () => {
+      const next = await loadFirestoreYearData(user, selectedYearId);
+      if (!next) throw new Error("Actualisation Firestore indisponible.");
+      return next;
+    }, apply: (next) => setData((previous) => ({ ...previous, ...next })), onError: (error) => {
+      logRefreshError({ module: "school-portal", user, schoolId: user.schoolId ?? "", schoolYearId: selectedYearId, error });
+      setRefreshError(refreshErrorMessage(error));
+    } });
   }
 
   async function refreshDisciplineData() {
-    if (isRefreshing || !user || !selectedYearId || !canUseFirestoreData()) return;
-
-    setIsRefreshing(true);
+    if (refreshInFlightRef.current || !user || !selectedYearId || !canUseFirestoreData()) return;
     setRefreshError("");
-    try {
-      const disciplineYearData = await loadDisciplineYearData(user, selectedYearId);
-      if (!disciplineYearData) {
-        throw new Error("Actualisation Firestore indisponible.");
-      }
-      setData((prev) => ({
-        ...prev,
-        ...disciplineYearData,
-      }));
-    } catch (error) {
-      console.warn("Actualisation discipline Firestore indisponible.", error);
-      setRefreshError("Impossible d'actualiser les données. Veuillez réessayer.");
-    } finally {
-      setIsRefreshing(false);
-    }
+    await runRefreshTask({ lock: refreshInFlightRef, setRefreshing: setIsRefreshing, load: async () => {
+      const next = await loadDisciplineYearData(user, selectedYearId);
+      if (!next) throw new Error("Actualisation Firestore indisponible.");
+      return next;
+    }, apply: (next) => setData((previous) => ({ ...previous, ...next })), onError: (error) => {
+      logRefreshError({ module: "discipline", user, schoolId: user.schoolId ?? "", schoolYearId: selectedYearId, error });
+      setRefreshError(refreshErrorMessage(error));
+    } });
   }
 
   async function refreshParentPortalData() {
-    if (isRefreshing || !user || !canUseFirestoreData()) return;
-
-    setIsRefreshing(true);
+    if (refreshInFlightRef.current || !user || !canUseFirestoreData()) return;
     setRefreshError("");
-    try {
-      const parentData = await loadParentPortalData(user);
-      if (!parentData) {
-        throw new Error("Actualisation Firestore indisponible.");
-      }
-      setData((prev) => ({
-        ...prev,
-        ...parentData,
-      }));
-    } catch (error) {
-      console.warn("Actualisation parent Firestore indisponible.", error);
-      setRefreshError("Impossible d'actualiser les données. Veuillez réessayer.");
-    } finally {
-      setIsRefreshing(false);
-    }
+    await runRefreshTask({ lock: refreshInFlightRef, setRefreshing: setIsRefreshing, load: async () => {
+      const next = await loadParentPortalData(user);
+      if (!next) throw new Error("Actualisation Firestore indisponible.");
+      return next;
+    }, apply: (next) => setData((previous) => ({ ...previous, ...next })), onError: (error) => {
+      logRefreshError({ module: "parent", user, schoolId: user.schoolId ?? "", error });
+      setRefreshError(refreshErrorMessage(error));
+    } });
   }
 
   async function installPwa() {

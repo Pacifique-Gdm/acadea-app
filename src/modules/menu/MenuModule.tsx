@@ -8,6 +8,7 @@ import { canUseFirestoreData, persistFirestorePatch } from "../../services/fires
 import { deleteParentAccount, provisionSchoolUser } from "../../services/provisioning";
 import { subscribeToStudentMedicalRecords } from "../../services/studentMedicalRecords";
 import { createAuditLog } from "../../utils/audit";
+import { refreshErrorMessage } from "../../utils/refreshErrors";
 import { buildFeeTargetChoices, feeTargetClassName } from "../../utils/feeTargets";
 import { getSchoolEducationLevels } from "../../utils/schoolConfig";
 import { formatStudentClassName } from "../../utils/studentClasses";
@@ -152,7 +153,7 @@ export function MenuModule({
       schoolId: school.id,
       schoolYearId: selectedYear.id,
       onData: (records) => { setMedicalRecords(records); setMedicalRecordsError(""); },
-      onError: () => setMedicalRecordsError("Impossible d'actualiser les fiches médicales pour le moment."),
+      onError: (error) => setMedicalRecordsError(refreshErrorMessage(error)),
     });
   }, [canAdmin, medicalRecordsOpen, school.id, selectedYear.id, user]);
 

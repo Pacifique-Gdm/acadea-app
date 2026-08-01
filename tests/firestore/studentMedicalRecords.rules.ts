@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { initializeTestEnvironment, assertFails, assertSucceeds, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
-import { Timestamp, doc, runTransaction, setDoc } from "firebase/firestore";
+import { Timestamp, collection, doc, getDocs, query, runTransaction, setDoc, where } from "firebase/firestore";
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
 
 const projectId = "demo-acadea-medical-records";
@@ -31,6 +31,17 @@ async function seedStudent(id = studentId, tenant = schoolId, year = schoolYearI
   await environment.withSecurityRulesDisabled(async (context) => {
     await setDoc(doc(context.firestore(), "students", id), { id, schoolId: tenant, schoolYearId: year });
   });
+}
+
+async function seedMedicalRecord(tenant = schoolId) {
+  await environment.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "studentMedicalRecords", studentId), payload({ schoolId: tenant }));
+  });
+}
+
+function medicalRecordsQuery(role?: string, tenant = schoolId) {
+  const firestore = role ? authenticated(role, tenant) : environment.unauthenticatedContext().firestore();
+  return getDocs(query(collection(firestore, "studentMedicalRecords"), where("schoolId", "==", schoolId), where("schoolYearId", "==", schoolYearId)));
 }
 
 function authenticated(role: string, tenant = schoolId, uid = userId) {
@@ -100,5 +111,30 @@ describe("studentMedicalRecords", () => {
     delete (data as Partial<typeof data>).createdAt;
     const firestore = authenticated("secretary");
     await assertFails(setDoc(doc(firestore, "studentMedicalRecords", studentId), data));
+  });
+
+  it("autorise l'actualisation des fiches pour l'Administrateur de la même école", async () => {
+    await seedMedicalRecord();
+    await assertSucceeds(medicalRecordsQuery("school_admin"));
+  });
+
+  it("autorise l'actualisation des fiches pour le Secrétaire de la même école", async () => {
+    await seedMedicalRecord();
+    await assertSucceeds(medicalRecordsQuery("secretary"));
+  });
+
+  it("refuse l'actualisation depuis une autre école", async () => {
+    await seedMedicalRecord();
+    await assertFails(medicalRecordsQuery("secretary", "school-b"));
+  });
+
+  it("refuse l'actualisation non authentifiée", async () => {
+    await seedMedicalRecord();
+    await assertFails(medicalRecordsQuery());
+  });
+
+  it("refuse l'actualisation à un rôle inconnu", async () => {
+    await seedMedicalRecord();
+    await assertFails(medicalRecordsQuery("teacher"));
   });
 });

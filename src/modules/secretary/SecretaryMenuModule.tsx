@@ -5,6 +5,7 @@ import { AgeHomogeneityDrawer, ArchivedStudentsImportDrawer } from "../../compon
 import { AdminDrawer, SectionTitle } from "../../components/ui";
 import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent";
 import { subscribeToStudentMedicalRecords } from "../../services/studentMedicalRecords";
+import { refreshErrorMessage } from "../../utils/refreshErrors";
 import type { AppData, AppUser, School, SchoolYear, Student } from "../../types";
 import { BiometricStudentsPage } from "../biometrics/BiometricStudentsPage";
 import { SecretaryMedicalRecordsDrawer, SecretaryStatisticsDrawer } from "./SecretaryMedicalTools";
@@ -44,7 +45,7 @@ export function SecretaryMenuModule({ user, data, yearData, school, year, update
 
   useEffect(() => {
     if (!statisticsDrawerOpen && !medicalDrawerOpen) return undefined;
-    return subscribeToStudentMedicalRecords({ user, schoolId: school.id, schoolYearId: year.id, onData: (records) => { setMedicalRecords(records); setMedicalError(""); }, onError: () => setMedicalError("Impossible d'actualiser les fiches médicales pour le moment.") });
+    return subscribeToStudentMedicalRecords({ user, schoolId: school.id, schoolYearId: year.id, onData: (records) => { setMedicalRecords(records); setMedicalError(""); }, onError: (error) => setMedicalError(refreshErrorMessage(error)) });
   }, [medicalDrawerOpen, school.id, statisticsDrawerOpen, user, year.id]);
 
   useEffect(() => setBiometricView(initialBiometricView ?? null), [initialBiometricView]);

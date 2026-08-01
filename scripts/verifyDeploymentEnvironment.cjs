@@ -1,7 +1,16 @@
-const target = process.env.VITE_APP_ENV || process.env.VERCEL_ENV || "development";
-const projectId = process.env.VITE_FIREBASE_PROJECT_ID || "";
-const expectedProductionProjectId = process.env.ACADEA_EXPECTED_PRODUCTION_FIREBASE_PROJECT_ID || "";
-const expectedPreviewProjectId = process.env.ACADEA_EXPECTED_PREVIEW_FIREBASE_PROJECT_ID || "";
+const fs = require("node:fs");
+const path = require("node:path");
+const dotenv = require("dotenv");
+
+const requestedTarget = process.argv[2] || process.env.VITE_APP_ENV || process.env.VERCEL_ENV || "staging";
+const target = requestedTarget === "production" ? "production" : "staging";
+const modeFile = path.resolve(process.cwd(), `.env.${target}`);
+const localFile = path.resolve(process.cwd(), ".env.local");
+const parseFile = (file) => fs.existsSync(file) ? dotenv.parse(fs.readFileSync(file)) : {};
+const effectiveEnv = { ...parseFile(localFile), ...parseFile(modeFile), ...process.env, VITE_APP_ENV: target };
+const projectId = effectiveEnv.VITE_FIREBASE_PROJECT_ID || "";
+const expectedProductionProjectId = "acadea-production";
+const expectedPreviewProjectId = "acadea-staging";
 const requiredFirebaseEnv = [
   "VITE_FIREBASE_API_KEY",
   "VITE_FIREBASE_AUTH_DOMAIN",
@@ -26,7 +35,7 @@ if ((productionLike || previewLike) && !projectId) {
 }
 
 if (productionLike || previewLike) {
-  const missingFirebaseEnv = requiredFirebaseEnv.filter((name) => !process.env[name]);
+  const missingFirebaseEnv = requiredFirebaseEnv.filter((name) => !effectiveEnv[name]);
   if (missingFirebaseEnv.length > 0) {
     fail(`Deployment environment check failed: missing Firebase variables for "${target}": ${missingFirebaseEnv.join(", ")}.`);
   }

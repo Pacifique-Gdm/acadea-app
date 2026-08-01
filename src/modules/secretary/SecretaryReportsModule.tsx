@@ -3,6 +3,7 @@ import { Archive, Eye, FilePlus2, LockKeyhole, Plus, Trash2 } from "lucide-react
 import { AdminDrawer, SectionTitle } from "../../components/ui";
 import { archiveSecretaryReport, createSecretaryReport, finalizeSecretaryReport, subscribeToSecretaryReports, updateSecretaryReport } from "../../services/secretaryReports";
 import { escapePdfHtml, pdfInfoGrid, pdfSection, renderAcadPdfPreview } from "../../utils/pdf";
+import { refreshErrorMessage } from "../../utils/refreshErrors";
 import type { AppUser, School, SchoolYear } from "../../types";
 import type { SecretaryReport, SecretaryReportStatus, SecretaryReportType } from "./secretaryTypes";
 import { SecretaryAiAssistant } from "./SecretaryAiAssistant";
@@ -36,7 +37,7 @@ export function SecretaryReportsModule({ user, school, year }: { user: AppUser; 
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [formError, setFormError] = useState("");
-  useEffect(() => subscribeToSecretaryReports({ user, schoolId: school.id, schoolYearId: year.id, onData: setReports, onError: () => setMessage("Impossible d'actualiser les rapports.") }), [school.id, user, year.id]);
+  useEffect(() => subscribeToSecretaryReports({ user, schoolId: school.id, schoolYearId: year.id, onData: setReports, onError: (error) => setMessage(refreshErrorMessage(error)) }), [school.id, user, year.id]);
   const visible = useMemo(() => reports.filter((report) => (statusFilter === "all" || report.status === statusFilter) && `${report.reportNumber} ${report.title}`.toLowerCase().includes(queryText.toLowerCase())), [queryText, reports, statusFilter]);
   const aiSections = useMemo(() => buildReportAiSections(type, content), [content, type]);
   const aiSectionLabels = useMemo(() => reportAiSectionLabels(type), [type]);

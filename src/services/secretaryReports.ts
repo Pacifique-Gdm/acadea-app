@@ -10,7 +10,7 @@ function assertSecretary(user: AppUser, schoolId: string) {
   if (!auth?.currentUser || auth.currentUser.uid !== user.id || user.role !== "secretary" || user.status === "inactive" || user.schoolId !== schoolId) throw new Error("Votre session ne permet pas cette opération.");
 }
 
-export function subscribeToSecretaryReports(params: { user: AppUser; schoolId: string; schoolYearId: string; onData: (reports: SecretaryReport[]) => void; onError: () => void }) {
+export function subscribeToSecretaryReports(params: { user: AppUser; schoolId: string; schoolYearId: string; onData: (reports: SecretaryReport[]) => void; onError: (error: Error) => void }) {
   if (!db || params.user.role !== "secretary" || params.user.status === "inactive" || params.user.schoolId !== params.schoolId) return () => undefined;
   return onSnapshot(query(collection(db, "secretaryReports"), where("schoolId", "==", params.schoolId), where("schoolYearId", "==", params.schoolYearId)), (snapshot) => {
     params.onData(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as SecretaryReport).sort((a, b) => b.documentDate.localeCompare(a.documentDate) || a.id.localeCompare(b.id)));

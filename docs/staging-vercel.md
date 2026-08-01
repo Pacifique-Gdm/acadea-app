@@ -4,9 +4,9 @@ Ce document décrit la séparation des environnements Acadéa sans modifier le f
 
 ## Environnements
 
-- Development: poste local, fichier `.env` basé sur `.env.example`.
-- Preview / Staging: Vercel Preview Deployments, Firebase projet de test séparé.
-- Production: Vercel Production Deployment, Firebase projet production séparé.
+- Development: `.env.development`, toujours associé à Firebase `acadea-staging`.
+- Staging: `.env.staging`, projet Vercel `acadea-staging`, Firebase `acadea-staging`.
+- Production: `.env.production`, projet Vercel de production, Firebase `acadea-production`.
 
 Les données staging doivent toujours utiliser un projet Firebase différent de la production.
 
@@ -45,13 +45,19 @@ ACADEA_EXPECTED_PREVIEW_FIREBASE_PROJECT_ID=
 ACADEA_EXPECTED_PRODUCTION_FIREBASE_PROJECT_ID=
 ```
 
-Development:
+Development (Staging par défaut) :
 
 ```bash
-cp .env.example .env
 npm install
 npm run dev
+# équivalent explicite : npm run dev:staging
 ```
+
+`.env.local` et `.env.*.local` restent ignorés par Git. Ils peuvent fournir les
+valeurs Firebase publiques locales et les identifiants E2E, mais ils ne peuvent
+pas remplacer `VITE_APP_ENV` ni `VITE_FIREBASE_PROJECT_ID` définis par le fichier
+canonique du mode. Une incohérence d'authDomain ou de Storage bucket bloque aussi
+le démarrage.
 
 Preview / Staging:
 
@@ -74,11 +80,31 @@ VITE_FIREBASE_PROJECT_ID=<firebase-production-project-id>
 ACADEA_EXPECTED_PRODUCTION_FIREBASE_PROJECT_ID=<firebase-production-project-id>
 ```
 
-Le build Vercel exécute `scripts/verifyDeploymentEnvironment.cjs` avant Vite:
+Le build Vercel exécute `npm run build:vercel`. `VITE_APP_ENV` est obligatoire :
+
+- projet Vercel `acadea-staging` : `VITE_APP_ENV=staging` et toutes les variables Firebase Staging ;
+- projet Vercel Production : `VITE_APP_ENV=production` et toutes les variables Firebase Production.
+
+Le script refuse de choisir un environnement lorsque cette variable manque. Il
+exécute ensuite `scripts/verifyDeploymentEnvironment.cjs` avant Vite :
 
 - Production est bloquée si `VITE_FIREBASE_PROJECT_ID` ressemble à un projet staging/preview/test/demo/dev.
 - Preview/Staging est bloqué si `VITE_FIREBASE_PROJECT_ID` ressemble à un projet production.
 - Si `ACADEA_EXPECTED_PRODUCTION_FIREBASE_PROJECT_ID` ou `ACADEA_EXPECTED_PREVIEW_FIREBASE_PROJECT_ID` est défini, le build exige une correspondance exacte.
+- La correspondance exacte avec `acadea-staging` ou `acadea-production` est toujours exigée, même sans variable optionnelle.
+- `initializeApp()` réutilise la même validation au démarrage du navigateur.
+
+Scripts locaux explicites :
+
+```bash
+npm run dev:staging
+npm run dev:production
+npm run build:staging
+npm run build:production
+```
+
+Le développement choisit Staging par défaut. La Production n'est accessible que
+par une commande ou une variable explicite.
 
 ## Bannière Staging
 

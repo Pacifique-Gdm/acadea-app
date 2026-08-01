@@ -3,6 +3,7 @@ import { Archive, BadgeCheck, FileDown, Plus, RotateCcw, Search, Send, Stamp, Tr
 import { AdminDrawer, SectionTitle } from "../../components/ui";
 import { archiveCorrespondence, createCorrespondence, deleteCorrespondencePermanently, replaceCorrespondenceAttachment, subscribeToCorrespondences, unarchiveCorrespondence, updateCorrespondence } from "../../services/secretaryCorrespondence";
 import { escapePdfHtml, pdfInfoGrid, pdfSection, renderAcadPdfPreview } from "../../utils/pdf";
+import { refreshErrorMessage } from "../../utils/refreshErrors";
 import type { AppUser, School, SchoolYear } from "../../types";
 import type { Correspondence, CorrespondenceDirection, CorrespondenceStatus } from "./secretaryTypes";
 import { OutgoingCorrespondenceForm, type OutgoingSaveRequest } from "./OutgoingCorrespondenceForm";
@@ -54,7 +55,7 @@ export function SecretaryCorrespondenceModule({ user, users = [], school, year }
   const [actionBusy, setActionBusy] = useState(false);
   const saveLock = useRef(false);
 
-  useEffect(() => subscribeToCorrespondences({ user, schoolId: school.id, schoolYearId: year.id, onData: setItems, onError: () => setMessage("Impossible d'actualiser les correspondances pour le moment.") }), [school.id, user, year.id]);
+  useEffect(() => subscribeToCorrespondences({ user, schoolId: school.id, schoolYearId: year.id, onData: setItems, onError: (error) => setMessage(refreshErrorMessage(error)) }), [school.id, user, year.id]);
   useEffect(() => { if (!message) return; const timer = window.setTimeout(() => setMessage(""), 4000); return () => window.clearTimeout(timer); }, [message]);
   const filtered = useMemo(() => items.filter((item) => {
     const text = `${item.referenceNumber} ${item.subject} ${item.sender} ${item.recipient} ${item.outgoing?.recipient.institution ?? ""} ${item.outgoing?.authorName ?? ""} ${(item.outgoing?.keywords ?? []).join(" ")}`.toLowerCase();

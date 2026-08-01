@@ -9,7 +9,7 @@ type PersistableItem = { id: string };
 type PersistFirestorePatchOptions = {
   throwOnError?: boolean;
 };
-export type FirestoreYearData = Pick<AppData, "students" | "feeTypes" | "payments" | "expenses" | "messages" | "valves" | "attendance" | "attendanceSettings">;
+export type FirestoreYearData = Partial<Pick<AppData, "students" | "parents" | "feeTypes" | "payments" | "expenses" | "messages" | "valves" | "attendance" | "attendanceSettings">>;
 export type DisciplineYearData = Pick<AppData, "students" | "parents" | "messages" | "notifications" | "disciplineSanctions" | "attendance" | "attendanceSettings" | "valves">;
 export type ParentPortalData = Pick<AppData, "feeTypes" | "students" | "parents" | "payments" | "messages" | "valves">;
 export type PlatformSettings = {
@@ -81,9 +81,25 @@ function withFirestoreTimeout<T>(operation: Promise<T>, context: string) {
   });
 }
 
+export class FirestoreDataError extends Error {
+  readonly code: string;
+  readonly collectionPath: string;
+
+  constructor(collectionPath: string, error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    super(`Chargement Firestore impossible pour ${collectionPath} : ${message}`);
+    this.name = "FirestoreDataError";
+    this.collectionPath = collectionPath;
+    this.code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "unknown";
+  }
+}
+
 function describeFirestoreError(collectionName: string, error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  return new Error(`Chargement Firestore impossible pour ${collectionName} : ${message}`);
+  return new FirestoreDataError(collectionName, error);
+}
+
+export function getYearRefreshScope(role: AppUser["role"]) {
+  return role === "secretary" ? "secretary" : "school";
 }
 
 async function loadCollection<T>(collectionName: string, filters: [string, unknown][]) {
@@ -333,6 +349,17 @@ export async function loadFirestoreYearData(user: AppUser, schoolYearId: string)
     ["schoolId", user.schoolId],
     ["schoolYearId", schoolYearId],
   ];
+
+  if (getYearRefreshScope(user.role) === "secretary") {
+    const schoolFilter: [string, unknown][] = [["schoolId", user.schoolId]];
+    const [students, parents, feeTypes, payments] = await Promise.all([
+      loadCollection<AppData["students"][number]>("students", schoolFilter),
+      loadCollection<AppData["parents"][number]>("parents", schoolFilter),
+      loadCollection<AppData["feeTypes"][number]>("feeTypes", annualFilter),
+      loadCollection<AppData["payments"][number]>("payments", annualFilter),
+    ]);
+    return { students, parents, feeTypes, payments };
+  }
 
   const yearData: FirestoreYearData = {
     students: await loadCollection<AppData["students"][number]>("students", annualFilter),
