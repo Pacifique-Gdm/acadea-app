@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { initAdmin } from "./_lib/firebaseAdmin.js";
+import { firebaseAdminPublicError, initAdmin } from "./_lib/firebaseAdmin.js";
 
 const allowedPlans = new Set(["Starter", "Standard", "Premium"]);
 
@@ -70,7 +70,7 @@ export default async function handler(req, res) {
     const token = authorization.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : "";
 
     if (!token) {
-      sendJson(res, 401, { error: "Authentification requise." });
+      sendJson(res, 401, { error: "Authentification requise.", code: "unauthenticated" });
       return;
     }
 
@@ -80,7 +80,7 @@ export default async function handler(req, res) {
 
     const caller = await auth.verifyIdToken(token, true);
     if (caller.role !== "super_admin") {
-      sendJson(res, 403, { error: "Action réservée au super administrateur." });
+      sendJson(res, 403, { error: "Action réservée au super administrateur.", code: "permission-denied" });
       return;
     }
 
@@ -101,7 +101,7 @@ export default async function handler(req, res) {
       : [];
 
     if (!schoolName || !adminName || !adminEmail || adminPassword.length < 6) {
-      sendJson(res, 400, { error: "Nom d'école, email admin et mot de passe valide sont requis." });
+      sendJson(res, 400, { error: "Nom d'école, email admin et mot de passe valide sont requis.", code: "invalid-argument" });
       return;
     }
 
@@ -193,9 +193,11 @@ export default async function handler(req, res) {
       await cleanup({ auth: adminAuth, db: adminDb, adminUid, refs: createdRefs });
     }
     console.error("[Acadéa provisioning] Provisionnement école/admin échoué.", error);
+    const diagnostic = firebaseAdminPublicError(error);
     sendJson(res, 500, {
       error: publicError(error),
-      details: error instanceof Error ? error.message : String(error),
+      code: diagnostic.code,
+      details: diagnostic.details,
     });
   }
 }

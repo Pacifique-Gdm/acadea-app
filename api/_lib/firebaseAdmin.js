@@ -88,3 +88,24 @@ export function initAdmin() {
     db: getFirestore(),
   };
 }
+
+export function firebaseAdminPublicError(error) {
+  const rawCode = typeof error?.code === "string" ? error.code : "";
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  if (message.startsWith("Configuration Firebase Admin") || message.startsWith("Configuration Firebase incoherente")) {
+    return {
+      code: "firebase-admin/configuration-error",
+      details: message,
+    };
+  }
+  if (rawCode) {
+    return {
+      code: rawCode,
+      details: message || "Erreur Firebase Admin.",
+    };
+  }
+  return {
+    code: "internal",
+    details: "Erreur interne du service de provisionnement.",
+  };
+}

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { initAdmin } from "./_lib/firebaseAdmin.js";
+import { firebaseAdminPublicError, initAdmin } from "./_lib/firebaseAdmin.js";
 
 const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "secretary", "parent"]);
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
@@ -222,7 +222,7 @@ export default async function handler(req, res) {
     const token = authorization.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : "";
 
     if (!token) {
-      sendJson(res, 401, { error: "Authentification requise." });
+      sendJson(res, 401, { error: "Authentification requise.", code: "unauthenticated" });
       return;
     }
 
@@ -257,12 +257,12 @@ export default async function handler(req, res) {
     const now = new Date().toISOString();
 
     if (!allowedRoles.has(role)) {
-      sendJson(res, 400, { error: "Role a provisionner invalide." });
+      sendJson(res, 400, { error: "Role a provisionner invalide.", code: "invalid-argument" });
       return;
     }
 
     if (!schoolId || !schoolYearId || !name || !email || password.length < 6) {
-      sendJson(res, 400, { error: "Ecole, annee scolaire, nom, email et mot de passe valide sont requis." });
+      sendJson(res, 400, { error: "Ecole, annee scolaire, nom, email et mot de passe valide sont requis.", code: "invalid-argument" });
       return;
     }
 
@@ -341,6 +341,11 @@ export default async function handler(req, res) {
 
     const statusCode = typeof error?.statusCode === "number" ? error.statusCode : 500;
     console.error("[Acadea provisioning] Provisionnement compte ecole echoue.", error);
-    sendJson(res, statusCode, { error: statusCode === 500 ? publicError(error) : error.message });
+    const diagnostic = firebaseAdminPublicError(error);
+    sendJson(res, statusCode, {
+      error: statusCode === 500 ? publicError(error) : error.message,
+      code: statusCode === 500 ? diagnostic.code : statusCode === 404 ? "not-found" : statusCode === 403 ? "permission-denied" : "invalid-argument",
+      ...(statusCode === 500 ? { details: diagnostic.details } : {}),
+    });
   }
 }

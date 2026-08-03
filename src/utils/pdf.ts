@@ -1,5 +1,6 @@
 import jsPDF from "jspdf";
 import type { FeeType, Payment, School, SchoolYear, Student } from "../types";
+import { getPdfLayout, resolvePdfFont, type PdfGenerationSettings } from "./pdfSettings";
 
 type PdfDoc = jsPDF & {
   html: (
@@ -37,6 +38,7 @@ type AcadPdfOptions = {
   subtitle?: string;
   generatedAt?: Date;
   showDocumentTitle?: boolean;
+  pdfSettings?: Partial<PdfGenerationSettings>;
   sections: string[];
 };
 
@@ -153,13 +155,14 @@ export function pdfSection(title: string, bodyHtml: string, options: { pageBreak
   `;
 }
 
-export async function renderAcadPdfPreview({ filename, title, school, year, subtitle, generatedAt = new Date(), showDocumentTitle = true, sections }: AcadPdfOptions) {
-  const doc = new jsPDF({ unit: "mm", format: "a4", compress: true }) as PdfDoc;
+export async function renderAcadPdfPreview({ filename, title, school, year, subtitle, generatedAt = new Date(), showDocumentTitle = true, pdfSettings, sections }: AcadPdfOptions) {
+  const layout = getPdfLayout(pdfSettings);
+  const doc = new jsPDF({ unit: "mm", format: layout.jsPdfFormat, orientation: "portrait", compress: true }) as PdfDoc;
   const viewer = openPdfViewerShell({ filename, title });
   const logoDataUrl = await loadLogoDataUrl(school.logoUrl);
   const element = document.createElement("div");
   element.className = "acadea-pdf";
-  element.innerHTML = buildPdfHtml({ title, school, year, subtitle, generatedAt, logoDataUrl, showDocumentTitle, sections });
+  element.innerHTML = buildPdfHtml({ title, school, year, subtitle, generatedAt, logoDataUrl, showDocumentTitle, sections, pdfSettings: layout.settings, renderWidth: layout.windowWidth });
   if (!element.textContent?.trim()) {
     showPdfError(viewer, "Le document PDF ne contient aucune donnée à afficher.");
     return;
@@ -170,15 +173,15 @@ export async function renderAcadPdfPreview({ filename, title, school, year, subt
   element.style.zIndex = "-1";
   element.style.pointerEvents = "none";
   document.body.appendChild(element);
-  applyPdfPageBreakSpacers(element);
+  applyPdfPageBreakSpacers(element, layout.contentHeight, layout.windowWidth / layout.contentWidth);
 
   await new Promise<void>((resolve) => {
     try {
       doc.html(element, {
-        margin: [14, 14, 18, 14],
+        margin: [layout.margins.top, layout.margins.right, layout.margins.bottom, layout.margins.left],
         autoPaging: "text",
-        width: 182,
-        windowWidth: 688,
+        width: layout.contentWidth,
+        windowWidth: layout.windowWidth,
         html2canvas: {
           useCORS: true,
           backgroundColor: "#ffffff",
@@ -201,12 +204,11 @@ export async function renderAcadPdfPreview({ filename, title, school, year, subt
   });
 }
 
-function applyPdfPageBreakSpacers(element: HTMLElement) {
+function applyPdfPageBreakSpacers(element: HTMLElement, contentHeightMm: number, pixelsPerMillimeter: number) {
   const pageBreaks = Array.from(element.querySelectorAll<HTMLElement>(".pdf-page-break"));
   if (pageBreaks.length === 0) return;
 
-  const contentHeightMm = 297 - 14 - 18;
-  const pageHeightPx = (688 / 182) * contentHeightMm;
+  const pageHeightPx = pixelsPerMillimeter * contentHeightMm;
   for (const pageBreak of pageBreaks) {
     const offsetInPage = pageBreak.offsetTop % pageHeightPx;
     const spacerHeight = offsetInPage < 1 ? 0 : pageHeightPx - offsetInPage;
@@ -251,6 +253,8 @@ function buildPdfHtml({
   logoDataUrl,
   showDocumentTitle,
   sections,
+  pdfSettings,
+  renderWidth,
 }: {
   title: string;
   school: School;
@@ -260,10 +264,12 @@ function buildPdfHtml({
   logoDataUrl: string;
   showDocumentTitle: boolean;
   sections: string[];
+  pdfSettings: PdfGenerationSettings;
+  renderWidth: number;
 }) {
   const schoolMotto = school.motto?.trim();
   return `
-    <style>${pdfStyles()}</style>
+    <style>${pdfStyles(pdfSettings, renderWidth)}</style>
     <header class="pdf-header">
       <div class="brand-mark">
         ${
@@ -289,16 +295,17 @@ function buildPdfHtml({
   `;
 }
 
-function pdfStyles() {
+function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
+  const fontFamily = resolvePdfFont(pdfSettings.fontFamily);
   return `
     .acadea-pdf {
-      width: 688px;
+      width: ${renderWidth}px;
       box-sizing: border-box;
       background: #ffffff;
       color: #14213d;
-      font-family: Arial, "Segoe UI", "Noto Sans", "DejaVu Sans", Helvetica, sans-serif;
-      font-size: 11.5px;
-      line-height: 1.48;
+      font-family: ${fontFamily};
+      font-size: ${pdfSettings.fontSize}pt;
+      line-height: ${pdfSettings.lineSpacing};
       letter-spacing: normal;
       word-spacing: 0.06em;
       text-rendering: geometricPrecision;
@@ -406,9 +413,11 @@ function pdfStyles() {
       padding-bottom: 5px;
       border-bottom: 1px solid #dbe4ef;
       color: #14213d;
-      font-size: 12.5px;
+      font-size: ${pdfSettings.fontSize + 1.5}pt;
       font-weight: 800;
       line-height: 1.35;
+      page-break-after: avoid;
+      break-after: avoid-page;
     }
     .info-grid {
       display: grid;
@@ -417,7 +426,7 @@ function pdfStyles() {
       margin-bottom: 10px;
     }
     .report-info-row .info-grid {
-      grid-template-columns: repeat(5, minmax(0, 1fr));
+      grid-template-columns: repeat(${pdfSettings.pageSize === "A5" ? 2 : 5}, minmax(0, 1fr));
       gap: 5px;
       margin: 0 18px 12px;
     }
@@ -433,7 +442,12 @@ function pdfStyles() {
       margin: 0;
       text-align: justify;
       text-justify: inter-word;
-      line-height: 1.5;
+      line-height: ${pdfSettings.lineSpacing};
+    }
+    .secretary-pdf-main-text {
+      font-family: ${fontFamily};
+      font-size: ${pdfSettings.fontSize}pt;
+      line-height: ${pdfSettings.lineSpacing};
     }
     .report-signatories {
       display: grid;
@@ -623,6 +637,49 @@ function pdfStyles() {
       margin-top: 32px;
       border-top: 1px solid #14213d;
       height: 1px;
+    }
+    .outgoing-signature-row {
+      margin: 22px 18px 0;
+      display: grid;
+      gap: 10px;
+      justify-items: end;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .outgoing-visa-note {
+      width: min(100%, 320px);
+      margin-right: auto;
+      color: #475569;
+      font-size: 9.5px;
+      line-height: 1.35;
+    }
+    .outgoing-signature-block {
+      width: min(100%, 240px);
+      color: #14213d;
+      text-align: center;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .outgoing-signature-space,
+    .outgoing-signatory-name,
+    .outgoing-signatory-function,
+    .outgoing-signatory-stamp {
+      display: block;
+    }
+    .outgoing-signatory-name {
+      font-weight: 700;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+    .outgoing-signatory-function {
+      margin-top: 2px;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+    .outgoing-signatory-stamp {
+      margin-top: 4px;
+      color: #475569;
+      font-size: 9.5px;
     }
   `;
 }

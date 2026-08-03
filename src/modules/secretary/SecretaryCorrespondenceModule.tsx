@@ -122,8 +122,8 @@ export function SecretaryCorrespondenceModule({ user, users = [], school, year }
     try {
       const payload = { ...request.item, status: request.status };
       const saved = editing
-        ? (await updateCorrespondence(user, editing, { date: payload.date, subject: payload.subject, sender: payload.sender, recipient: payload.recipient, content: payload.content, status: request.status, outgoing: payload.outgoing }), { ...editing, ...payload })
-        : await createCorrespondence({ user, schoolId: school.id, schoolYearId: year.id, input: { direction: "outgoing", date: payload.date, subject: payload.subject, sender: payload.sender, recipient: payload.recipient, content: payload.content, status: request.status, outgoing: payload.outgoing } });
+        ? (await updateCorrespondence(user, editing, { date: payload.date, subject: payload.subject, sender: payload.sender, recipient: payload.recipient, content: payload.content, status: request.status, outgoing: payload.outgoing, pdfSettings: payload.pdfSettings }), { ...editing, ...payload })
+        : await createCorrespondence({ user, schoolId: school.id, schoolYearId: year.id, input: { direction: "outgoing", date: payload.date, subject: payload.subject, sender: payload.sender, recipient: payload.recipient, content: payload.content, status: request.status, outgoing: payload.outgoing, pdfSettings: payload.pdfSettings } });
       persisted = saved;
       finishSuccessfulSave(request.status === "draft" ? "Brouillon enregistré." : request.status === "pending_validation" ? "Courrier soumis à validation." : "Courrier finalisé.");
     } catch (error) {

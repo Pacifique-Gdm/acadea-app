@@ -76,4 +76,13 @@ describe("formulaire Nouveau rapport", () => {
     expect(pdfSource).toContain(".report-signatory-row--2 .report-signatory:last-child");
     expect(pdfSource).toContain("grid-column: 3");
   });
+
+  it("affiche et applique les mêmes réglages au rapport enregistré et prévisualisé", () => {
+    for (const label of ["PdfSettingsFields", "pdfSettings", "readStoredPdfSettings", "normalizePdfSettings"]) expect(source).toContain(label);
+    expect(source).toContain("pdfSettings: report.pdfSettings");
+    expect(source).toContain("signatories, pdfSettings");
+    expect(pdfSource).toContain("getPdfLayout(pdfSettings)");
+    expect(pdfSource).toContain("format: layout.jsPdfFormat");
+    expect(pdfSource).toContain("line-height: ${pdfSettings.lineSpacing}");
+  });
 });

@@ -19,3 +19,6 @@ service-account.json
 
 playwright-report/
 test-results/
+
+.vercel
+.env*

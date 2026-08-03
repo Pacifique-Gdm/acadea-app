@@ -4,6 +4,8 @@ import type { AppUser, School, SchoolYear } from "../../types";
 import { outgoingRecipientLines } from "./outgoingCorrespondencePdf";
 import type { AnnouncedCorrespondenceAttachment, Correspondence, CorrespondenceCopy, CorrespondenceStatus, OutgoingCorrespondenceData } from "./secretaryTypes";
 import { SecretaryAiAssistant } from "./SecretaryAiAssistant";
+import { PdfSettingsFields } from "../../components/pdf/PdfSettingsFields";
+import { normalizePdfSettings, readStoredPdfSettings, type PdfGenerationSettings } from "../../utils/pdfSettings";
 
 const today = () => new Date().toISOString().slice(0, 10);
 const uid = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
@@ -31,6 +33,7 @@ export function OutgoingCorrespondenceForm({ user, users, school, year, current,
   const [date, setDate] = useState(current?.date ?? today());
   const [subject, setSubject] = useState(current?.subject ?? "");
   const [outgoing, setOutgoing] = useState<OutgoingCorrespondenceData>(() => current?.outgoing ?? initialOutgoing(user, school, year));
+  const [pdfSettings, setPdfSettings] = useState<PdfGenerationSettings>(() => current ? normalizePdfSettings(current.pdfSettings) : readStoredPdfSettings());
   const [error, setError] = useState("");
   const [dirty, setDirty] = useState(false);
   const locked = current?.status === "archived" || (current?.status && current.status !== "draft");
@@ -50,7 +53,7 @@ export function OutgoingCorrespondenceForm({ user, users, school, year, current,
     return {
     id: current?.id ?? "preview", referenceNumber: current?.referenceNumber ?? "Attribuée lors de l’enregistrement", direction: "outgoing", date, subject,
     sender: school.name, recipient: outgoing.recipient.fullName || outgoing.recipient.functionTitle || "", content: [outgoing.introduction, outgoing.mainMessage, outgoing.details, outgoing.justification, outgoing.expectedFollowUp, outgoing.conclusion].filter(Boolean).join("\n\n"),
-    status: current?.status ?? "draft", createdBy: current?.createdBy ?? user.id, createdAt: current?.createdAt ?? new Date().toISOString(), updatedAt: new Date().toISOString(), schoolId: school.id, schoolYearId: year.id, outgoing: outgoingPayload,
+    status: current?.status ?? "draft", createdBy: current?.createdBy ?? user.id, createdAt: current?.createdAt ?? new Date().toISOString(), updatedAt: new Date().toISOString(), schoolId: school.id, schoolYearId: year.id, outgoing: outgoingPayload, pdfSettings,
     };
   };
   function validate() {
@@ -83,6 +86,7 @@ export function OutgoingCorrespondenceForm({ user, users, school, year, current,
       <FormSection title="7. Signataire"><Select label="Signataire *" value={outgoing.signer.userId} onChange={(value) => { const selected = signers.find((entry) => entry.id === value); set("signer", { ...outgoing.signer, userId: value, fullName: selected?.name ?? "", functionTitle: roleLabel(selected?.role) }); }} options={[["", "Sélectionner"], ...signers.map((entry) => [entry.id, `${entry.name} — ${roleLabel(entry.role)}`] as const)]} /><Field label="Nom complet du signataire *" value={outgoing.signer.fullName} onChange={(value) => set("signer", { ...outgoing.signer, fullName: value })} /><Field label="Fonction du signataire *" value={outgoing.signer.functionTitle} onChange={(value) => set("signer", { ...outgoing.signer, functionTitle: value })} /><Select label="Type de signature" value={outgoing.signer.signatureType} onChange={(value) => set("signer", { ...outgoing.signer, signatureType: value as typeof outgoing.signer.signatureType })} options={[["stored", "Signature enregistrée"], ["handwritten_space", "Espace pour signature manuscrite"], ["none", "Sans signature intégrée"]]} /><YesNo label="Signature requise" value={outgoing.signer.signatureRequired} onChange={(value) => set("signer", { ...outgoing.signer, signatureRequired: value })} /><YesNo label="Cachet requis" value={outgoing.signer.stampRequired} onChange={(value) => set("signer", { ...outgoing.signer, stampRequired: value })} /><Select label="Taille de l’espace de signature" value={outgoing.signer.signatureSpace} onChange={(value) => set("signer", { ...outgoing.signer, signatureSpace: value as typeof outgoing.signer.signatureSpace })} options={[["small", "Petit"], ["medium", "Moyen"], ["large", "Grand"]]} /></FormSection>
       <FormSection title="8. Copies pour information"><DynamicCopies value={outgoing.copies} onChange={(value) => set("copies", value)} /></FormSection>
     </fieldset>
+    <PdfSettingsFields value={pdfSettings} onChange={(settings) => { setDirty(true); setPdfSettings(settings); }} disabled={Boolean(locked) || busy} />
     <div className="sticky bottom-0 z-10 flex items-center justify-end gap-2 border-t bg-white py-3">
       <button type="button" className="secondary-button" disabled={busy} onClick={cancel}>Annuler</button>
       <button type="submit" className="primary-button" disabled={busy || Boolean(locked)}>{busy ? "Génération en cours…" : "Générer courrier"}</button>

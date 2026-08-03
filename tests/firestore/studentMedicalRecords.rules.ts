@@ -8,7 +8,12 @@ const schoolId = "school-a";
 const schoolYearId = "year-a";
 const studentId = "student-a";
 const userId = "user-a";
-let environment: RulesTestEnvironment;
+let environment: RulesTestEnvironment | undefined;
+
+function testEnvironment() {
+  if (!environment) throw new Error("L'environnement de test Firestore n'est pas initialisé.");
+  return environment;
+}
 
 function payload(overrides: Record<string, unknown> = {}) {
   return {
@@ -28,24 +33,24 @@ function payload(overrides: Record<string, unknown> = {}) {
 }
 
 async function seedStudent(id = studentId, tenant = schoolId, year = schoolYearId) {
-  await environment.withSecurityRulesDisabled(async (context) => {
+  await testEnvironment().withSecurityRulesDisabled(async (context) => {
     await setDoc(doc(context.firestore(), "students", id), { id, schoolId: tenant, schoolYearId: year });
   });
 }
 
 async function seedMedicalRecord(tenant = schoolId) {
-  await environment.withSecurityRulesDisabled(async (context) => {
+  await testEnvironment().withSecurityRulesDisabled(async (context) => {
     await setDoc(doc(context.firestore(), "studentMedicalRecords", studentId), payload({ schoolId: tenant }));
   });
 }
 
 function medicalRecordsQuery(role?: string, tenant = schoolId) {
-  const firestore = role ? authenticated(role, tenant) : environment.unauthenticatedContext().firestore();
+  const firestore = role ? authenticated(role, tenant) : testEnvironment().unauthenticatedContext().firestore();
   return getDocs(query(collection(firestore, "studentMedicalRecords"), where("schoolId", "==", schoolId), where("schoolYearId", "==", schoolYearId)));
 }
 
 function authenticated(role: string, tenant = schoolId, uid = userId) {
-  return environment.authenticatedContext(uid, { role, schoolId: tenant }).firestore();
+  return testEnvironment().authenticatedContext(uid, { role, schoolId: tenant }).firestore();
 }
 
 async function createLikeFrontend(role: string, overrides: Record<string, unknown> = {}, tenant = schoolId) {
@@ -62,14 +67,14 @@ beforeAll(async () => {
     projectId,
     firestore: { rules: readFileSync("firestore.rules", "utf8") },
   });
-});
+}, 30_000);
 
 beforeEach(async () => {
-  await environment.clearFirestore();
+  await testEnvironment().clearFirestore();
   await seedStudent();
 });
 
-afterAll(async () => environment.cleanup());
+afterAll(async () => environment?.cleanup(), 30_000);
 
 describe("studentMedicalRecords", () => {
   it("autorise l'Administrateur de la même école avec le payload frontend réel", async () => {
@@ -85,13 +90,13 @@ describe("studentMedicalRecords", () => {
   });
 
   it("refuse un élève d'une autre école", async () => {
-    await environment.clearFirestore();
+    await testEnvironment().clearFirestore();
     await seedStudent(studentId, "school-b");
     await assertFails(createLikeFrontend("secretary"));
   });
 
   it("refuse un utilisateur non authentifié", async () => {
-    await assertFails(setDoc(doc(environment.unauthenticatedContext().firestore(), "studentMedicalRecords", studentId), payload()));
+    await assertFails(setDoc(doc(testEnvironment().unauthenticatedContext().firestore(), "studentMedicalRecords", studentId), payload()));
   });
 
   it("refuse un rôle inconnu", async () => {

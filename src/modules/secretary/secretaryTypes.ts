@@ -1,3 +1,5 @@
+import type { PdfGenerationSettings } from "../../utils/pdfSettings";
+
 export type CorrespondenceDirection = "incoming" | "outgoing";
 export type CorrespondenceStatus = "draft" | "pending_validation" | "validated" | "signed" | "ready_to_send" | "sent" | "received" | "archived" | "cancelled";
 
@@ -131,6 +133,7 @@ export interface Correspondence {
   schoolId: string;
   schoolYearId: string;
   outgoing?: OutgoingCorrespondenceData;
+  pdfSettings?: PdfGenerationSettings;
   archivedFromStatus?: CorrespondenceStatus | null;
 }
 
@@ -181,6 +184,7 @@ export interface SecretaryReport {
   endTime: string;
   structuredContent: Record<string, string>;
   signatories?: ReportSignatory[];
+  pdfSettings?: PdfGenerationSettings;
   status: SecretaryReportStatus;
   authorId: string;
   authorName: string;

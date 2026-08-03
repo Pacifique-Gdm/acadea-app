@@ -1,5 +1,5 @@
 import { FieldValue } from "firebase-admin/firestore";
-import { initAdmin } from "./_lib/firebaseAdmin.js";
+import { firebaseAdminPublicError, initAdmin } from "./_lib/firebaseAdmin.js";
 
 const schoolScopedCollections = [
   "users",
@@ -212,14 +212,14 @@ export default async function handler(req, res) {
     const token = authorization.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : "";
 
     if (!token) {
-      sendJson(res, 401, { error: "Authentification requise." });
+      sendJson(res, 401, { error: "Authentification requise.", code: "unauthenticated" });
       return;
     }
 
     const { auth, db } = initAdmin();
     const caller = await auth.verifyIdToken(token, true);
     if (caller.role !== "super_admin") {
-      sendJson(res, 403, { error: "Action reservee au super administrateur." });
+      sendJson(res, 403, { error: "Action reservee au super administrateur.", code: "permission-denied" });
       return;
     }
 
@@ -228,21 +228,21 @@ export default async function handler(req, res) {
     const schoolId = normalizeText(body.schoolId);
 
     if (!schoolId) {
-      sendJson(res, 400, { error: "schoolId requis." });
+      sendJson(res, 400, { error: "schoolId requis.", code: "invalid-argument" });
       return;
     }
 
     const schoolRef = db.doc(`schools/${schoolId}`);
     const schoolSnapshot = await schoolRef.get();
     if (!schoolSnapshot.exists) {
-      sendJson(res, 404, { error: "Ecole introuvable." });
+      sendJson(res, 404, { error: "Ecole introuvable.", code: "not-found" });
       return;
     }
 
     if (action === "update") {
       const patch = pickSchoolPatch(body.patch ?? {});
       if (Object.keys(patch).length === 0) {
-        sendJson(res, 400, { error: "Aucune modification valide." });
+        sendJson(res, 400, { error: "Aucune modification valide.", code: "invalid-argument" });
         return;
       }
       await schoolRef.update({ ...patch, updatedAt: new Date().toISOString(), updatedBy: caller.uid });
@@ -267,7 +267,7 @@ export default async function handler(req, res) {
 
     if (action === "delete") {
       if (body.confirmation !== "SUPPRIMER ECOLE") {
-        sendJson(res, 400, { error: "Confirmation de suppression invalide." });
+        sendJson(res, 400, { error: "Confirmation de suppression invalide.", code: "invalid-argument" });
         return;
       }
       const schoolData = schoolSnapshot.data();
@@ -306,12 +306,14 @@ export default async function handler(req, res) {
       return;
     }
 
-    sendJson(res, 400, { error: "Action invalide." });
+    sendJson(res, 400, { error: "Action invalide.", code: "invalid-argument" });
   } catch (error) {
     console.error("[Acadea platform] Gestion ecole echouee.", error);
+    const diagnostic = firebaseAdminPublicError(error);
     sendJson(res, 500, {
       error: "Operation ecole impossible. Verifiez les informations et reessayez.",
-      details: error instanceof Error ? error.message : String(error),
+      code: diagnostic.code,
+      details: diagnostic.details,
     });
   }
 }

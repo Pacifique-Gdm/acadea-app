@@ -30,10 +30,11 @@ export async function provisionSchoolAdmin(input: ProvisionSchoolAdminInput) {
     body: JSON.stringify(input),
   });
 
-  const payload = (await response.json().catch(() => ({}))) as Partial<ProvisionSchoolAdminResponse> & { error?: string; details?: string };
+  const payload = (await response.json().catch(() => ({}))) as Partial<ProvisionSchoolAdminResponse> & { error?: string; code?: string; details?: string };
   if (!response.ok) {
     const message = payload.error ?? "Provisionnement impossible.";
-    throw new Error(payload.details ? `${message} Détail serveur : ${payload.details}` : message);
+    const diagnostic = [payload.code, payload.details].filter(Boolean).join(" — ");
+    throw new Error(diagnostic ? `${message} Détail serveur : ${diagnostic}` : message);
   }
 
   if (!payload.school || !payload.schoolYear || !payload.adminUser || !payload.auditLog) {
@@ -87,12 +88,14 @@ async function provisionSchoolAccount<TResponse>(input: Record<string, unknown>,
     body: JSON.stringify(input),
   });
 
-  const payload = (await response.json().catch(() => ({}))) as TResponse & { error?: string };
+  const payload = (await response.json().catch(() => ({}))) as TResponse & { error?: string; code?: string; details?: string };
   if (!response.ok) {
     if (response.status === 404 && options?.showEndpointOnNotFound) {
       throw new Error(`Endpoint API introuvable (HTTP 404) : ${endpointUrl}. Lancez l'application avec npx vercel dev pour activer les routes /api.`);
     }
-    throw new Error(payload.error ?? "Provisionnement impossible.");
+    const message = payload.error ?? "Provisionnement impossible.";
+    const diagnostic = [payload.code, payload.details].filter(Boolean).join(" — ");
+    throw new Error(diagnostic ? `${message} Détail serveur : ${diagnostic}` : message);
   }
 
   return payload;
@@ -208,10 +211,11 @@ export async function manageSchool(input: ManageSchoolInput) {
     body: JSON.stringify(input),
   });
 
-  const payload = (await response.json().catch(() => ({}))) as ManageSchoolResponse & { error?: string; details?: string };
+  const payload = (await response.json().catch(() => ({}))) as ManageSchoolResponse & { error?: string; code?: string; details?: string };
   if (!response.ok) {
     const message = payload.error ?? "Operation ecole impossible.";
-    throw new Error(payload.details ? `${message} Detail serveur : ${payload.details}` : message);
+    const diagnostic = [payload.code, payload.details].filter(Boolean).join(" — ");
+    throw new Error(diagnostic ? `${message} Detail serveur : ${diagnostic}` : message);
   }
 
   return payload;

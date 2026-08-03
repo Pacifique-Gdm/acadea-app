@@ -84,7 +84,7 @@ export async function createCorrespondence(params: {
   return item;
 }
 
-export async function updateCorrespondence(user: AppUser, current: Correspondence, patch: Partial<Pick<Correspondence, "direction" | "date" | "subject" | "sender" | "recipient" | "content" | "copiePourInformation" | "status" | "outgoing" | "archivedFromStatus">>) {
+export async function updateCorrespondence(user: AppUser, current: Correspondence, patch: Partial<Pick<Correspondence, "direction" | "date" | "subject" | "sender" | "recipient" | "content" | "copiePourInformation" | "status" | "outgoing" | "pdfSettings" | "archivedFromStatus">>) {
   assertSecretary(user, current.schoolId);
   if (!db) throw new Error("Service de données indisponible.");
   if (current.status === "archived" && Object.keys(patch).some((key) => !["status", "archivedFromStatus", "outgoing"].includes(key))) throw new Error("Cette correspondance est en lecture seule.");

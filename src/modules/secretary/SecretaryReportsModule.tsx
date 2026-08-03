@@ -9,6 +9,8 @@ import type { SecretaryReport, SecretaryReportStatus, SecretaryReportType } from
 import { SecretaryAiAssistant } from "./SecretaryAiAssistant";
 import { applyReportAiSections, buildReportAiSections, MEETING_MINUTES_SECTION_LABELS, MEETING_MINUTES_SECTION_ORDER, reportAiSectionLabels, REPORT_AI_SECTION_DEFINITIONS } from "./reportAiSections";
 import { addReportSignatory, groupReportSignatories, normalizeReportSignatories, removeReportSignatory, type ReportSignatory } from "./reportSignatories";
+import { PdfSettingsFields } from "../../components/pdf/PdfSettingsFields";
+import { DEFAULT_PDF_SETTINGS, normalizePdfSettings, readStoredPdfSettings, type PdfGenerationSettings } from "../../utils/pdfSettings";
 
 const reportFields: Record<SecretaryReportType, string[]> = {
   meeting_minutes: MEETING_MINUTES_SECTION_ORDER.filter((field) => field !== "signatures"),
@@ -32,6 +34,7 @@ export function SecretaryReportsModule({ user, school, year }: { user: AppUser; 
   const [content, setContent] = useState<Record<string, string>>({});
   const [signatories, setSignatories] = useState<ReportSignatory[]>([]);
   const [signatoryName, setSignatoryName] = useState("");
+  const [pdfSettings, setPdfSettings] = useState<PdfGenerationSettings>(DEFAULT_PDF_SETTINGS);
   const [statusFilter, setStatusFilter] = useState<"all" | SecretaryReportStatus>("all");
   const [queryText, setQueryText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -44,7 +47,7 @@ export function SecretaryReportsModule({ user, school, year }: { user: AppUser; 
   const readOnly = Boolean(selected && selected.status !== "draft");
 
   function show(report?: SecretaryReport) {
-    setSelected(report ?? null); setType(report?.type ?? "meeting_minutes"); setTitle(report?.title ?? ""); setDate(report?.documentDate ?? new Date().toISOString().slice(0, 10)); setStartTime(report?.startTime ?? ""); setEndTime(report?.endTime ?? ""); setContent(report?.structuredContent ?? {}); setSignatories(normalizeReportSignatories(report?.signatories, report?.structuredContent?.signatures)); setSignatoryName(""); setFormError(""); setOpen(true);
+    setSelected(report ?? null); setType(report?.type ?? "meeting_minutes"); setTitle(report?.title ?? ""); setDate(report?.documentDate ?? new Date().toISOString().slice(0, 10)); setStartTime(report?.startTime ?? ""); setEndTime(report?.endTime ?? ""); setContent(report?.structuredContent ?? {}); setSignatories(normalizeReportSignatories(report?.signatories, report?.structuredContent?.signatures)); setPdfSettings(report ? normalizePdfSettings(report.pdfSettings) : readStoredPdfSettings()); setSignatoryName(""); setFormError(""); setOpen(true);
   }
   async function save() {
     if (busy) return;
@@ -52,14 +55,14 @@ export function SecretaryReportsModule({ user, school, year }: { user: AppUser; 
     if (endTime < startTime) { setFormError("L'heure de fin doit être postérieure ou égale à l'heure de début."); return; }
     setBusy(true); setMessage(""); setFormError("");
     const structuredContent = type === "meeting_minutes" ? Object.fromEntries(Object.entries(content).filter(([key]) => key !== "signatures")) : content;
-    try { if (selected) await updateSecretaryReport(user, selected, { type, title, documentDate: date, startTime, endTime, structuredContent, signatories: type === "meeting_minutes" ? signatories : selected.signatories }); else await createSecretaryReport({ user, schoolId: school.id, schoolYearId: year.id, type, title, documentDate: date, startTime, endTime, structuredContent, ...(type === "meeting_minutes" ? { signatories } : {}) }); setSelected(null); setType("meeting_minutes"); setTitle(""); setDate(new Date().toISOString().slice(0, 10)); setStartTime(""); setEndTime(""); setContent({}); setSignatories([]); setSignatoryName(""); setOpen(false); setMessage("Rapport généré et enregistré en brouillon."); }
+    try { if (selected) await updateSecretaryReport(user, selected, { type, title, documentDate: date, startTime, endTime, structuredContent, signatories: type === "meeting_minutes" ? signatories : selected.signatories, pdfSettings }); else await createSecretaryReport({ user, schoolId: school.id, schoolYearId: year.id, type, title, documentDate: date, startTime, endTime, structuredContent, pdfSettings, ...(type === "meeting_minutes" ? { signatories } : {}) }); setSelected(null); setType("meeting_minutes"); setTitle(""); setDate(new Date().toISOString().slice(0, 10)); setStartTime(""); setEndTime(""); setContent({}); setSignatories([]); setPdfSettings(DEFAULT_PDF_SETTINGS); setSignatoryName(""); setOpen(false); setMessage("Rapport généré et enregistré en brouillon."); }
     catch (error) { console.error("Échec de la génération du rapport", error); setFormError(error instanceof Error ? error.message : "Génération du rapport impossible."); } finally { setBusy(false); }
   }
   async function preview(report: SecretaryReport) {
     const reportSignatories = normalizeReportSignatories(report.signatories, report.structuredContent.signatures);
     const contentEntries = report.type === "meeting_minutes" ? MEETING_MINUTES_SECTION_ORDER.filter((key) => key !== "signatures").map((key) => [key, report.structuredContent[key] ?? ""] as const) : Object.entries(report.structuredContent);
     const signatureRows = groupReportSignatories(reportSignatories).map((row) => `<div class="report-signatory-row report-signatory-row--${row.length}">${row.map((item) => `<div class="report-signatory"><span>${escapePdfHtml(item.name)}</span></div>`).join("")}</div>`).join("");
-    await renderAcadPdfPreview({ filename: `${report.reportNumber}.pdf`, title: report.title, school, year, subtitle: `${labels[report.type]} · ${report.reportNumber}`, sections: [`<div class="report-info-row">${pdfInfoGrid([{ label: "DATE", value: report.documentDate }, { label: "HEURE DE DÉBUT", value: report.startTime || "Non renseignée" }, { label: "HEURE DE FIN", value: report.endTime || "Non renseignée" }, { label: "AUTEUR", value: report.authorName }, { label: "STATUT", value: report.status }])}</div>`, ...contentEntries.map(([key, value]) => pdfSection(report.type === "meeting_minutes" ? MEETING_MINUTES_SECTION_LABELS[key as keyof typeof MEETING_MINUTES_SECTION_LABELS] : key, `<p class="report-justified-text">${escapePdfHtml(value)}</p>`)), ...(report.type === "meeting_minutes" ? [pdfSection("SIGNATURES", `<div class="report-signatories">${signatureRows}</div>`)] : [])] });
+    await renderAcadPdfPreview({ filename: `${report.reportNumber}.pdf`, title: report.title, school, year, subtitle: `${labels[report.type]} · ${report.reportNumber}`, pdfSettings: report.pdfSettings, sections: [`<div class="report-info-row">${pdfInfoGrid([{ label: "DATE", value: report.documentDate }, { label: "HEURE DE DÉBUT", value: report.startTime || "Non renseignée" }, { label: "HEURE DE FIN", value: report.endTime || "Non renseignée" }, { label: "AUTEUR", value: report.authorName }, { label: "STATUT", value: report.status }])}</div>`, ...contentEntries.map(([key, value]) => pdfSection(report.type === "meeting_minutes" ? MEETING_MINUTES_SECTION_LABELS[key as keyof typeof MEETING_MINUTES_SECTION_LABELS] : key, `<p class="report-justified-text">${escapePdfHtml(value)}</p>`)), ...(report.type === "meeting_minutes" ? [pdfSection("SIGNATURES", `<div class="report-signatories">${signatureRows}</div>`)] : [])] });
   }
 
   return <section className="grid gap-4"><SectionTitle title="Rapports" subtitle="Documents administratifs structurés de l'établissement." />{message && <p className="rounded border bg-white p-3 text-sm">{message}</p>}
@@ -73,9 +76,10 @@ export function SecretaryReportsModule({ user, school, year }: { user: AppUser; 
       <div className="grid gap-3 sm:grid-cols-2"><label className="grid gap-1 text-sm font-semibold">Heure de début<input className="input" type="time" value={startTime} disabled={readOnly} onChange={(event) => setStartTime(event.target.value)} /></label><label className="grid gap-1 text-sm font-semibold">Heure de fin<input className="input" type="time" value={endTime} disabled={readOnly} onChange={(event) => setEndTime(event.target.value)} /></label></div>
       {reportFields[type].map((field) => <label className="grid gap-1 text-sm font-semibold" key={field}><span className={type === "meeting_minutes" ? "font-bold uppercase" : ""}>{type === "meeting_minutes" ? MEETING_MINUTES_SECTION_LABELS[field as keyof typeof MEETING_MINUTES_SECTION_LABELS] : field}</span><textarea className="input min-h-20" disabled={readOnly} value={content[field] ?? ""} onChange={(event) => setContent({ ...content, [field]: event.target.value })} /></label>)}
       {type === "meeting_minutes" && <section className="grid gap-3"><h3 className="text-sm font-bold uppercase">SIGNATURES</h3>{!readOnly && <div className="flex gap-2"><input aria-label="Nom du signataire" className="input min-w-0 flex-1" value={signatoryName} onChange={(event) => setSignatoryName(event.target.value)} /><button type="button" className="secondary-button" onClick={() => { const next = addReportSignatory(signatories, signatoryName); if (next !== signatories) { setSignatories(next); setSignatoryName(""); } }}><Plus className="h-4 w-4" /> Ajouter un signataire</button></div>}<ol className="grid gap-2">{signatories.map((item) => <li className="flex items-center justify-between rounded border bg-slate-50 px-3 py-2" key={item.id}><span>{item.name}</span>{!readOnly && <button type="button" className="secondary-button" aria-label={`Supprimer ${item.name}`} onClick={() => setSignatories(removeReportSignatory(signatories, item.id))}><Trash2 className="h-4 w-4" /></button>}</li>)}</ol></section>}
+      <PdfSettingsFields value={pdfSettings} onChange={setPdfSettings} disabled={readOnly || busy} />
       {formError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{formError}</p>}
       {!readOnly && <button className="primary-button justify-center" disabled={busy} type="submit">{busy ? "Enregistrement en cours…" : "Générer rapport"}</button>}
-      {selected && <button className="secondary-button justify-center" type="button" onClick={() => void preview({ ...selected, type, title, documentDate: date, startTime, endTime, structuredContent: content, signatories })}>Prévisualiser / PDF</button>}
+      {selected && <button className="secondary-button justify-center" type="button" onClick={() => void preview({ ...selected, type, title, documentDate: date, startTime, endTime, structuredContent: content, signatories, pdfSettings })}>Prévisualiser / PDF</button>}
     </form></AdminDrawer>}
   </section>;
 }

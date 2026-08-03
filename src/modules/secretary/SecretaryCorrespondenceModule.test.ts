@@ -5,6 +5,7 @@ describe("module Courrier du Secrétaire", () => {
   const moduleSource = readFileSync(new URL("./SecretaryCorrespondenceModule.tsx", import.meta.url), "utf8");
   const formSource = readFileSync(new URL("./OutgoingCorrespondenceForm.tsx", import.meta.url), "utf8");
   const serviceSource = readFileSync(new URL("../../services/secretaryCorrespondence.ts", import.meta.url), "utf8");
+  const settingsSource = readFileSync(new URL("../../components/pdf/PdfSettingsFields.tsx", import.meta.url), "utf8");
 
   it("affiche les huit colonnes attendues avec des cellules tronquées", () => {
     for (const title of ["Référence", "Date", "Type", "Expéditeur", "Destinataire", "Objet", "Statut", "Actions"]) expect(moduleSource).toContain(`>${title}<`);
@@ -141,5 +142,13 @@ describe("module Courrier du Secrétaire", () => {
     expect(moduleSource).toContain("setSelectedDirection(nextDirection)");
     expect(moduleSource).toContain('setSelectedDirection("")');
     expect(moduleSource).toContain('<option value="" disabled>Sélectionner le type</option>');
+  });
+
+  it("affiche et persiste les réglages PDF du courrier sortant", () => {
+    for (const label of ["Mise en forme du PDF", "Police", "Taille du texte", "Interligne", "Format de page"]) expect(settingsSource).toContain(label);
+    expect(formSource).toContain("<PdfSettingsFields");
+    expect(formSource).toContain("readStoredPdfSettings()");
+    expect(formSource).toContain("pdfSettings,");
+    expect(moduleSource).toContain("pdfSettings: payload.pdfSettings");
   });
 });
