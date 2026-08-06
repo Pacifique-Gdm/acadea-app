@@ -7,29 +7,29 @@ describe("module Courrier du Secrétaire", () => {
   const serviceSource = readFileSync(new URL("../../services/secretaryCorrespondence.ts", import.meta.url), "utf8");
   const settingsSource = readFileSync(new URL("../../components/pdf/PdfSettingsFields.tsx", import.meta.url), "utf8");
 
-  it("affiche les huit colonnes attendues avec des cellules tronquées", () => {
-    for (const title of ["Référence", "Date", "Type", "Expéditeur", "Destinataire", "Objet", "Statut", "Actions"]) expect(moduleSource).toContain(`>${title}<`);
+  it("centralise Kinshasa / RDC uniquement comme valeur initiale des nouveaux courriers", () => {
+    expect(formSource).toContain('DEFAULT_OUTGOING_ISSUE_PLACE = "Kinshasa / RDC"');
+    expect(formSource).toContain("current?.outgoing ?? initialOutgoing(user, school, year)");
+  });
+
+  it("affiche les sept colonnes attendues avec des cellules tronquées", () => {
+    for (const title of ["Référence", "Date", "Type", "Expéditeur", "Destinataire", "Objet", "Actions"]) expect(moduleSource).toContain(`>${title}<`);
+    expect(moduleSource).not.toContain(">Statut<");
     expect(moduleSource).toContain("truncate p-3");
     expect(moduleSource).toContain('title={value || "-"}');
     expect(moduleSource).not.toContain("Dernière modification");
     expect(moduleSource).not.toContain("Consulter</button>");
   });
 
-  it("confirme strictement l'archivage avec une saisie manuelle", () => {
-    expect(moduleSource).toContain("ARCHIVER LE COURRIER");
-    expect(moduleSource).toContain("Cette opération va déplacer ce courrier dans les archives.");
+  it("confirme strictement la suppression définitive avec une saisie manuelle", () => {
+    expect(moduleSource).toContain("SUPPRIMER LE COURRIER");
+    expect(moduleSource).toContain("Cette opération est définitive.");
     expect(moduleSource).toContain('confirmationText !== expected');
     expect(moduleSource).toContain("Le texte de confirmation est incorrect.");
-    expect(moduleSource).toContain('setSensitiveAction({ kind: "archive", target: item })');
-    expect(moduleSource).toContain("await archiveCorrespondence(user, sensitiveAction.target)");
-  });
-
-  it("désarchive dans Firestore en restaurant le statut antérieur", () => {
-    expect(moduleSource).toContain("Désarchiver");
-    expect(moduleSource).toContain('setSensitiveAction({ kind: "unarchive", target: item })');
-    expect(moduleSource).toContain("await unarchiveCorrespondence(user, sensitiveAction.target)");
-    expect(serviceSource).toContain("archivedFromStatus: current.status");
-    expect(serviceSource).toContain("status: restoredStatus");
+    expect(moduleSource).toContain('setSensitiveAction({ kind: "delete", target: item })');
+    expect(moduleSource).toContain("await deleteCorrespondencePermanently(user, sensitiveAction.target)");
+    expect(moduleSource).not.toContain('kind: "archive"');
+    expect(moduleSource).not.toContain('kind: "unarchive"');
   });
 
   it("supprime définitivement Firestore et nettoie Storage après confirmation", () => {

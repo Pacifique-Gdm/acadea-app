@@ -158,6 +158,14 @@ async function createAuthUser(auth, { email, password, displayName }) {
   });
 }
 
+async function loadParentStudents(db, { studentIds, schoolId, schoolYearId, parentId }) {
+  const uniqueIds = [...new Set(studentIds)];
+  const snapshots = await Promise.all(uniqueIds.map((studentId) => db.doc(`students/${studentId}`).get()));
+  const invalid = snapshots.find((snapshot) => !snapshot.exists || snapshot.data()?.schoolId !== schoolId || snapshot.data()?.schoolYearId !== schoolYearId || (snapshot.data()?.status && snapshot.data()?.status !== "ACTIVE") || (snapshot.data()?.parentId && snapshot.data()?.parentId !== parentId));
+  if (invalid) throw Object.assign(new Error("Un élève sélectionné est introuvable, inactif ou hors de cette école et année scolaire."), { statusCode: 400, code: "invalid-student-link" });
+  return snapshots;
+}
+
 export async function removeSchoolAdmin({ auth, db, caller, body }) {
   if (caller.role !== "super_admin") {
     throw Object.assign(new Error("Action reservee au Super Administrateur."), { statusCode: 403 });
@@ -268,6 +276,10 @@ export default async function handler(req, res) {
 
     await assertAuthorizedCaller({ db, caller, schoolId });
 
+    const parentId = role === "parent" ? normalizeText(body.parentId) || uid("parent") : "";
+    const studentIds = role === "parent" && Array.isArray(body.studentIds) ? [...new Set(body.studentIds.map(normalizeText).filter(Boolean))] : [];
+    const parentStudentSnapshots = role === "parent" ? await loadParentStudents(db, { studentIds, schoolId, schoolYearId, parentId }) : [];
+
     const authUser = await createAuthUser(auth, {
       email,
       password,
@@ -297,8 +309,6 @@ export default async function handler(req, res) {
       return;
     }
 
-    const parentId = normalizeText(body.parentId) || uid("parent");
-    const studentIds = Array.isArray(body.studentIds) ? body.studentIds.map(normalizeText).filter(Boolean) : [];
     const status = body.status === "inactive" ? "inactive" : "active";
     const parent = {
       id: parentId,
@@ -327,11 +337,15 @@ export default async function handler(req, res) {
       createdAt: now,
     };
 
-    await db.doc(`parents/${parentId}`).set(parent);
-    createdRefs.push(`parents/${parentId}`);
-    await db.doc(`users/${authUser.uid}`).set(parentUser);
-    createdRefs.push(`users/${authUser.uid}`);
     await auth.setCustomUserClaims(authUser.uid, { role: "parent", schoolId, parentId });
+    const parentRef = db.doc(`parents/${parentId}`);
+    const userRef = db.doc(`users/${authUser.uid}`);
+    const batch = db.batch();
+    batch.set(parentRef, parent);
+    batch.set(userRef, parentUser);
+    parentStudentSnapshots.forEach((snapshot) => batch.update(snapshot.ref, { parentId }));
+    await batch.commit();
+    createdRefs.push(parentRef.path, userRef.path);
 
     sendJson(res, 200, { parent, user: parentUser });
   } catch (error) {

@@ -1,12 +1,10 @@
 import type { AppUser, ParentProfile, School } from "../types";
+import { normalizeEmailDomainLabel } from "./schoolAccountCredentials";
 
 export function parentEmailDomain(school: School) {
-  const cleanedName = school.name
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/^(c\.?\s*s\.?|ecole|institut|complexe\s+scolaire|groupe\s+scolaire|college|lycee)\s+/i, "")
-    .replace(/[^a-zA-Z0-9]/g, "")
-    .toLowerCase();
+  const cleanedName = normalizeEmailDomainLabel(
+    school.name.replace(/^(c\.?\s*s\.?|ecole|institut|complexe\s+scolaire|groupe\s+scolaire|college|lycee)\s+/i, ""),
+  );
   return `${cleanedName || "acadea"}.com`;
 }
 

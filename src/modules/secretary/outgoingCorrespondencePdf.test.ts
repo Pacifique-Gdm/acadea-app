@@ -52,6 +52,21 @@ function correspondence(overrides: Partial<NonNullable<Correspondence["outgoing"
 }
 
 describe("PDF du courrier sortant — bloc de signature", () => {
+  it("souligne Objet, la référence et le lieu sans ajouter de ligne décorative", () => {
+    const html = outgoingCorrespondencePdfSections(correspondence()).join("");
+    expect(html).toContain("<u>Réf. : CS/SEC/0045/2026</u>");
+    expect(html).toContain("<u>Kinshasa</u>");
+    expect(html).toContain("<u>Objet :</u>");
+    expect(html).not.toContain("border-bottom");
+  });
+
+  it("supprime le retrait de première ligne et partage la limite utile du destinataire", () => {
+    const html = outgoingCorrespondencePdfSections(correspondence()).join("");
+    expect(html).toContain('class="outgoing-correspondence-content" style="width:100%');
+    expect(html).toContain('class="secretary-pdf-main-text outgoing-correspondence-paragraph"');
+    expect(html).toContain("text-indent:0");
+  });
+
   it("génère un seul espace manuscrit suivi du nom puis de la fonction", () => {
     const html = outgoingCorrespondencePdfSections(correspondence()).join("");
 

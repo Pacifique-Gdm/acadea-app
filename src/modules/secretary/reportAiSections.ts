@@ -56,6 +56,13 @@ export function resolveGeneratedScope(generatedScope: string | undefined, respon
   return generatedScope ?? responseScope ?? currentScope;
 }
 
+export function validateAiSectionsForScope(scope: string, expectedSections: Record<string, string>, generated: Record<string, string>) {
+  const expectedKeys = scope === "full_document" ? Object.keys(expectedSections) : [scope];
+  const generatedKeys = Object.keys(generated);
+  if (generatedKeys.length !== expectedKeys.length || generatedKeys.some((key) => !expectedKeys.includes(key)) || expectedKeys.some((key) => !(key in generated))) return false;
+  return expectedKeys.every((key) => typeof generated[key] === "string" && generated[key].trim().length > 0 && !/^[\p{P}\p{S}\s]+$/u.test(generated[key]));
+}
+
 export function editedReportSectionsToApply(scope: string, current: Record<string, string>, edited: Record<string, string>) {
   const keys = scope === "full_document" ? Object.keys(edited) : [scope];
   return Object.fromEntries(keys.filter((key) => key in current && typeof edited[key] === "string").map((key) => [key, edited[key]]));

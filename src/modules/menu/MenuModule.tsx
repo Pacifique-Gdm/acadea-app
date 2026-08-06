@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Banknote, BarChart3, BookOpen, CheckCircle2, ChevronRight, Clock3, CreditCard, Fingerprint, HeartPulse, LogOut, Plus, RefreshCw, Settings, ShieldCheck, Trash2, UserRound, UsersRound, X } from "lucide-react";
 import { AdminDrawer, Field, ImageUploadField, PasswordField } from "../../components/ui";
@@ -11,6 +11,8 @@ import { createAuditLog } from "../../utils/audit";
 import { refreshErrorMessage } from "../../utils/refreshErrors";
 import { buildFeeTargetChoices, feeTargetClassName } from "../../utils/feeTargets";
 import { getSchoolEducationLevels } from "../../utils/schoolConfig";
+import { nextSchoolStaffEmail, normalizeProvisioningPhone } from "../../utils/schoolAccountCredentials";
+import { temporaryPasswordAfterPhoneChange } from "../../utils/temporaryPassword";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import type { AppData, AppUser, FeeKind, FeeType, ParentProfile, School, SchoolYear, Student, ValvePublication } from "../../types";
 import { FEE_KINDS } from "../../types";
@@ -91,6 +93,9 @@ export function MenuModule({
   const [cashierPhone, setCashierPhone] = useState("");
   const [cashierEmail, setCashierEmail] = useState("");
   const [cashierPassword, setCashierPassword] = useState("");
+  const [schoolUserPasswordManuallyEdited, setSchoolUserPasswordManuallyEdited] = useState(false);
+  const [schoolUserEmailManuallyEdited, setSchoolUserEmailManuallyEdited] = useState(false);
+  const [schoolUserSubmitting, setSchoolUserSubmitting] = useState(false);
   const [cashierError, setCashierError] = useState("");
   const [cashierSuccess, setCashierSuccess] = useState("");
   const [showCashierPassword, setShowCashierPassword] = useState(false);
@@ -142,6 +147,10 @@ export function MenuModule({
   const schoolFormOptions = schoolForm.schoolOptions ?? [];
   const feeClassChoices = buildFeeTargetChoices(yearData.students, feeClassNames);
   const parentDeleteTarget = yearData.parents.find((parent) => parent.id === parentDeleteId && parent.schoolId === school.id);
+  const generatedSchoolUserEmail = useMemo(
+    () => nextSchoolStaffEmail(school, schoolUserRole, data.users, data.parents),
+    [data.parents, data.users, school, schoolUserRole],
+  );
   const parentDeleteChildren = parentDeleteTarget
     ? yearData.students.filter((student) => student.parentId === parentDeleteTarget.id || parentDeleteTarget.studentIds.includes(student.id))
     : [];
@@ -156,6 +165,11 @@ export function MenuModule({
       onError: (error) => setMedicalRecordsError(refreshErrorMessage(error)),
     });
   }, [canAdmin, medicalRecordsOpen, school.id, selectedYear.id, user]);
+
+  useEffect(() => {
+    if (schoolUserEmailManuallyEdited) return;
+    setCashierEmail(generatedSchoolUserEmail);
+  }, [generatedSchoolUserEmail, schoolUserEmailManuallyEdited]);
 
   useEffect(() => {
     if (!showNewFeeForm) return;
@@ -406,29 +420,38 @@ export function MenuModule({
   }
 
   async function saveSchoolUser() {
+    if (schoolUserSubmitting) return;
     setCashierError("");
     setCashierSuccess("");
-    if (!cashierName || !cashierEmail || !cashierPassword) return;
+    const normalizedPhone = normalizeProvisioningPhone(cashierPhone);
+    if (!cashierName.trim() || !cashierEmail.trim() || !normalizedPhone) {
+      setCashierError("Nom, téléphone et email sont requis.");
+      return;
+    }
+    if (!cashierPassword) return;
 
     const existingUser = data.users.find((item) => item.email.toLowerCase() === cashierEmail.toLowerCase());
     if (existingUser) {
       setCashierError("Un compte existe deja avec cet email.");
       return;
     }
+    setSchoolUserSubmitting(true);
     let provisionedUser: AppUser | undefined;
     try {
       provisionedUser = await provisionSchoolUser({
         role: schoolUserRole,
         schoolId: school.id,
         schoolYearId: selectedYear.id,
-        name: cashierName,
-        email: cashierEmail,
+        name: cashierName.trim(),
+        email: cashierEmail.trim(),
         password: cashierPassword,
-        phone: cashierPhone,
+        phone: normalizedPhone,
       });
     } catch (error) {
       setCashierError(error instanceof Error ? `Création Firebase Auth impossible : ${error.message}` : "Création Firebase Auth impossible.");
       return;
+    } finally {
+      setSchoolUserSubmitting(false);
     }
     const auditLog = createAuditLog(user, school.id, selectedYear.id, `Création ${schoolUserProvisionLabels[schoolUserRole]}`, `${cashierName} - ${cashierEmail}`, createId);
     updateData({ users: [...data.users, provisionedUser], auditLogs: [auditLog, ...data.auditLogs] });
@@ -436,6 +459,8 @@ export function MenuModule({
     setCashierPhone("");
     setCashierEmail("");
     setCashierPassword("");
+    setSchoolUserPasswordManuallyEdited(false);
+    setSchoolUserEmailManuallyEdited(false);
     setShowCashierPassword(false);
     setSchoolUserRole("cashier");
     setCashierSuccess(`Compte ${schoolUserProvisionLabels[schoolUserRole].toLowerCase()} créé avec succès. Il peut maintenant se connecter avec son email et son mot de passe.`);
@@ -774,24 +799,27 @@ export function MenuModule({
           {cashierSuccess && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{cashierSuccess}</p>}
           <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
             Type d'utilisateur
-            <select value={schoolUserRole} onChange={(event) => setSchoolUserRole(event.target.value as SchoolUserProvisionRole)} className="input">
+            <select value={schoolUserRole} onChange={(event) => { setSchoolUserRole(event.target.value as SchoolUserProvisionRole); setSchoolUserEmailManuallyEdited(false); }} className="input">
               <option value="cashier">Caissier</option>
               <option value="discipline_director">Directeur de Discipline</option>
               <option value="secretary">Secrétaire</option>
             </select>
           </label>
           <Field label="Nom complet" value={cashierName} onChange={setCashierName} />
-          <Field label="Téléphone" value={cashierPhone} onChange={setCashierPhone} />
-          <Field label="Email" value={cashierEmail} onChange={setCashierEmail} />
+          <Field label="Téléphone" value={cashierPhone} onChange={(value) => {
+            setCashierPhone(value);
+            setCashierPassword(temporaryPasswordAfterPhoneChange({ nextPhone: value, currentPassword: cashierPassword, manuallyEdited: schoolUserPasswordManuallyEdited }));
+          }} />
+          <Field label="Email" value={cashierEmail} onChange={(value) => { setCashierEmail(value); setSchoolUserEmailManuallyEdited(true); }} />
           <PasswordField
             label="Mot de passe temporaire"
             value={cashierPassword}
-            onChange={setCashierPassword}
+            onChange={(value) => { setCashierPassword(value); setSchoolUserPasswordManuallyEdited(true); }}
             visible={showCashierPassword}
             onToggle={() => setShowCashierPassword(!showCashierPassword)}
           />
-          <button onClick={saveSchoolUser} disabled={!cashierName || !cashierEmail || !cashierPassword} className="primary-button disabled:opacity-50" type="button">
-            <UserRound className="h-4 w-4" /> Créer l'utilisateur
+          <button onClick={saveSchoolUser} disabled={schoolUserSubmitting || !cashierName.trim() || !cashierEmail.trim() || !cashierPhone.trim() || !cashierPassword} className="primary-button disabled:opacity-50" type="button">
+            <UserRound className="h-4 w-4" /> {schoolUserSubmitting ? "Création..." : "Créer l'utilisateur"}
           </button>
         </div>
       );

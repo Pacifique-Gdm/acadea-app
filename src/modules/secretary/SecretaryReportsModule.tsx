@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Archive, Eye, FilePlus2, LockKeyhole, Plus, Trash2 } from "lucide-react";
+import { Eye, FilePlus2, Plus, Trash2 } from "lucide-react";
 import { AdminDrawer, SectionTitle } from "../../components/ui";
-import { archiveSecretaryReport, createSecretaryReport, finalizeSecretaryReport, subscribeToSecretaryReports, updateSecretaryReport } from "../../services/secretaryReports";
+import { createSecretaryReport, deleteSecretaryReportPermanently, subscribeToSecretaryReports, updateSecretaryReport } from "../../services/secretaryReports";
 import { escapePdfHtml, pdfInfoGrid, pdfSection, renderAcadPdfPreview } from "../../utils/pdf";
 import { refreshErrorMessage } from "../../utils/refreshErrors";
 import type { AppUser, School, SchoolYear } from "../../types";
-import type { SecretaryReport, SecretaryReportStatus, SecretaryReportType } from "./secretaryTypes";
+import type { SecretaryReport, SecretaryReportType } from "./secretaryTypes";
 import { SecretaryAiAssistant } from "./SecretaryAiAssistant";
 import { applyReportAiSections, buildReportAiSections, MEETING_MINUTES_SECTION_LABELS, MEETING_MINUTES_SECTION_ORDER, reportAiSectionLabels, REPORT_AI_SECTION_DEFINITIONS } from "./reportAiSections";
 import { addReportSignatory, groupReportSignatories, normalizeReportSignatories, removeReportSignatory, type ReportSignatory } from "./reportSignatories";
@@ -35,13 +35,15 @@ export function SecretaryReportsModule({ user, school, year }: { user: AppUser; 
   const [signatories, setSignatories] = useState<ReportSignatory[]>([]);
   const [signatoryName, setSignatoryName] = useState("");
   const [pdfSettings, setPdfSettings] = useState<PdfGenerationSettings>(DEFAULT_PDF_SETTINGS);
-  const [statusFilter, setStatusFilter] = useState<"all" | SecretaryReportStatus>("all");
   const [queryText, setQueryText] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [formError, setFormError] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<SecretaryReport | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
   useEffect(() => subscribeToSecretaryReports({ user, schoolId: school.id, schoolYearId: year.id, onData: setReports, onError: (error) => setMessage(refreshErrorMessage(error)) }), [school.id, user, year.id]);
-  const visible = useMemo(() => reports.filter((report) => (statusFilter === "all" || report.status === statusFilter) && `${report.reportNumber} ${report.title}`.toLowerCase().includes(queryText.toLowerCase())), [queryText, reports, statusFilter]);
+  const visible = useMemo(() => reports.filter((report) => `${report.reportNumber} ${report.title}`.toLowerCase().includes(queryText.toLowerCase())), [queryText, reports]);
   const aiSections = useMemo(() => buildReportAiSections(type, content), [content, type]);
   const aiSectionLabels = useMemo(() => reportAiSectionLabels(type), [type]);
   const readOnly = Boolean(selected && selected.status !== "draft");
@@ -65,9 +67,26 @@ export function SecretaryReportsModule({ user, school, year }: { user: AppUser; 
     await renderAcadPdfPreview({ filename: `${report.reportNumber}.pdf`, title: report.title, school, year, subtitle: `${labels[report.type]} · ${report.reportNumber}`, pdfSettings: report.pdfSettings, sections: [`<div class="report-info-row">${pdfInfoGrid([{ label: "DATE", value: report.documentDate }, { label: "HEURE DE DÉBUT", value: report.startTime || "Non renseignée" }, { label: "HEURE DE FIN", value: report.endTime || "Non renseignée" }, { label: "AUTEUR", value: report.authorName }, { label: "STATUT", value: report.status }])}</div>`, ...contentEntries.map(([key, value]) => pdfSection(report.type === "meeting_minutes" ? MEETING_MINUTES_SECTION_LABELS[key as keyof typeof MEETING_MINUTES_SECTION_LABELS] : key, `<p class="report-justified-text">${escapePdfHtml(value)}</p>`)), ...(report.type === "meeting_minutes" ? [pdfSection("SIGNATURES", `<div class="report-signatories">${signatureRows}</div>`)] : [])] });
   }
 
+  async function confirmPermanentDelete() {
+    if (!deleteTarget || deleteBusy || deleteConfirmation !== "SUPPRIMER LE RAPPORT") return;
+    setDeleteBusy(true);
+    try {
+      await deleteSecretaryReportPermanently(user, deleteTarget);
+      setReports((current) => current.filter((report) => report.id !== deleteTarget.id));
+      setMessage("Rapport supprimé définitivement.");
+      setDeleteTarget(null);
+      setDeleteConfirmation("");
+    } catch (error) {
+      console.error("Échec de la suppression définitive du rapport", error);
+      setMessage(error instanceof Error ? error.message : "Suppression du rapport impossible.");
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
   return <section className="grid gap-4"><SectionTitle title="Rapports" subtitle="Documents administratifs structurés de l'établissement." />{message && <p className="rounded border bg-white p-3 text-sm">{message}</p>}
-    <div className="grid gap-2 sm:grid-cols-3"><button type="button" className="primary-button justify-center" onClick={() => show()}><FilePlus2 className="h-4 w-4" /> Nouveau rapport</button><input className="input" placeholder="Rechercher" value={queryText} onChange={(event) => setQueryText(event.target.value)} /><select className="input" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}><option value="all">Tous les statuts</option><option value="draft">Brouillons</option><option value="finalized">Finalisés</option><option value="archived">Archivés</option></select></div>
-    <div className="overflow-x-auto rounded border bg-white"><table className="min-w-[760px] w-full text-sm"><thead className="bg-slate-50 text-left"><tr><th className="p-3">Numéro</th><th>Titre</th><th>Type</th><th>Date</th><th>Statut</th><th>Actions</th></tr></thead><tbody>{visible.map((report) => <tr className="border-t" key={report.id}><td className="p-3 font-semibold">{report.reportNumber}</td><td>{report.title}</td><td>{labels[report.type]}</td><td>{report.documentDate}</td><td>{report.status}</td><td><div className="flex gap-1"><button className="secondary-button" onClick={() => show(report)}><Eye className="h-4 w-4" /> Voir</button><button className="secondary-button" onClick={() => void preview(report)}>PDF</button>{report.status === "draft" && <button className="secondary-button" onClick={() => void finalizeSecretaryReport(user, report)}><LockKeyhole className="h-4 w-4" /> Finaliser</button>}{report.status !== "archived" && <button className="secondary-button" onClick={() => void archiveSecretaryReport(user, report)}><Archive className="h-4 w-4" /></button>}</div></td></tr>)}</tbody></table>{visible.length === 0 && <p className="p-6 text-center text-sm text-slate-500">Aucun rapport.</p>}</div>
+    <div className="grid gap-2 sm:grid-cols-2"><button type="button" className="primary-button justify-center" onClick={() => show()}><FilePlus2 className="h-4 w-4" /> Nouveau rapport</button><input className="input" placeholder="Rechercher" value={queryText} onChange={(event) => setQueryText(event.target.value)} /></div>
+    <div className="overflow-x-auto rounded border bg-white"><table className="min-w-[680px] w-full text-sm"><thead className="bg-slate-50 text-left"><tr><th className="p-3">Numéro</th><th>Titre</th><th>Type</th><th>Date</th><th className="text-center">Actions</th></tr></thead><tbody>{visible.map((report) => <tr className="border-t" key={report.id}><td className="p-3 font-semibold">{report.reportNumber}</td><td>{report.title}</td><td>{labels[report.type]}</td><td>{report.documentDate}</td><td><div className="flex items-center justify-center gap-1.5"><button className="secondary-button h-9 px-3" onClick={() => show(report)}><Eye className="h-4 w-4" /> Voir</button><button type="button" title="Supprimer définitivement" aria-label="Supprimer définitivement" className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-red-50 text-red-700 transition hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2" onClick={() => { setDeleteTarget(report); setDeleteConfirmation(""); }}><Trash2 className="h-4 w-4" /></button></div></td></tr>)}</tbody></table>{visible.length === 0 && <p className="p-6 text-center text-sm text-slate-500">Aucun rapport.</p>}</div>
     {open && <AdminDrawer title={selected ? selected.reportNumber : "Nouveau rapport"} onClose={() => !busy && setOpen(false)} closeLabel="Fermer"><form className="grid gap-3" onSubmit={(event) => { event.preventDefault(); void save(); }}>
       {!readOnly && <div className="flex justify-end"><SecretaryAiAssistant user={user} schoolId={school.id} academicYearId={year.id} documentId={selected?.id} documentType={type} documentCategory="rapport" documentTypeLabel={labels[type]} documentDate={date} documentTime={startTime} documentEndTime={endTime} schoolName={school.name} academicYearName={year.name} sections={aiSections} sectionLabels={aiSectionLabels} aiAssistant={school.aiAssistant} onAccept={() => undefined} onApplySections={(generated) => setContent((previous) => { const updatedFormValues = applyReportAiSections(type, previous, generated); if (import.meta.env.VITE_APP_ENV !== "production") console.info("Secretary AI report form updated", { updatedFormValues }); return updatedFormValues; })} /></div>}
       <label className="grid gap-1 text-sm font-semibold">Type de rapport<select aria-label="Type de rapport" className="input" value={type} disabled={readOnly} onChange={(event) => { setType(event.target.value as SecretaryReportType); setContent({}); setFormError(""); }}>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
@@ -81,5 +100,6 @@ export function SecretaryReportsModule({ user, school, year }: { user: AppUser; 
       {!readOnly && <button className="primary-button justify-center" disabled={busy} type="submit">{busy ? "Enregistrement en cours…" : "Générer rapport"}</button>}
       {selected && <button className="secondary-button justify-center" type="button" onClick={() => void preview({ ...selected, type, title, documentDate: date, startTime, endTime, structuredContent: content, signatories, pdfSettings })}>Prévisualiser / PDF</button>}
     </form></AdminDrawer>}
+    {deleteTarget && <div role="dialog" aria-modal="true" aria-labelledby="delete-report-title" className="fixed inset-0 z-[80] grid place-items-center bg-slate-950/50 p-4"><form className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl" onSubmit={(event) => { event.preventDefault(); void confirmPermanentDelete(); }}><h3 id="delete-report-title" className="text-lg font-extrabold">SUPPRIMER LE RAPPORT</h3><p className="mt-3 text-sm text-slate-700">Cette opération est définitive. Pour confirmer, saisissez exactement :<br /><strong>SUPPRIMER LE RAPPORT</strong></p><input autoFocus className="input mt-4" value={deleteConfirmation} disabled={deleteBusy} onChange={(event) => setDeleteConfirmation(event.target.value)} /><div className="mt-5 flex justify-end gap-2"><button type="button" className="secondary-button" disabled={deleteBusy} onClick={() => { setDeleteTarget(null); setDeleteConfirmation(""); }}>Annuler</button><button type="submit" className="rounded bg-red-700 px-4 py-2 font-semibold text-white disabled:opacity-50" disabled={deleteBusy || deleteConfirmation !== "SUPPRIMER LE RAPPORT"}>{deleteBusy ? "Suppression…" : "Supprimer définitivement"}</button></div></form></div>}
   </section>;
 }

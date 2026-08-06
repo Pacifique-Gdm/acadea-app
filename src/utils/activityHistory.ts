@@ -57,7 +57,7 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
       const actor = usersById.get(log.actorId);
       const warningDetails = parseWarningDetails(log.details);
       if (warningDetails && role === "parent") return false;
-      if (role === "admin") return log.actorId === user.id || actor?.role === "cashier";
+      if (role === "admin") return log.actorId === user.id || actor?.role === "cashier" || actor?.role === "discipline_director";
       if (role === "cashier") return log.actorId === user.id;
       return log.actorId === user.id;
     })
@@ -76,7 +76,7 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
       }
       return {
         id: `audit-${log.id}`,
-        type: "activity",
+        type: log.action.toLocaleLowerCase("fr").includes("sanction") ? "discipline" : "activity",
         title: log.action,
         actorName: log.actorName,
         details: log.details ?? "",
@@ -123,7 +123,7 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
           title: "Sanction disciplinaire",
           actorName: sanction.createdByName || "Directeur de Discipline",
           details:
-            `Élève : ${sanction.studentName} · Classe : ${sanction.className} · Motif : ${sanction.reason} · Type : ${sanction.sanctionType} · Début : ${sanction.startDate} · Fin prévue : ${sanction.expectedEndDate} · Fin réelle : ${sanction.actualEndDate ?? "-"} · Statut : ${sanction.status === "completed" ? "Purgée" : "Sanction en cours"} · Récidive : ${sanction.recurrenceNumber} · Créée par : ${sanction.createdByName || "-"} · Clôturée par : ${sanction.completedByName ?? "-"}`,
+            `Élève : ${sanction.studentName} · Classe : ${sanction.className} · Motif : ${sanction.reason} · Type : ${sanction.sanctionType} · Début : ${sanction.startDate} · Fin prévue : ${sanction.expectedEndDate} · Fin réelle : ${sanction.actualEndDate ?? "-"} · Statut : ${sanction.status === "completed" ? "Purgée" : "Sanction en cours"} · Récidive : ${sanction.recurrenceNumber} · Créée par : ${sanction.createdByName || "-"} · Clôturée par : ${sanction.completedByName ?? "-"} · Année scolaire : ${sanction.schoolYearId} · École : ${sanction.schoolId} · Identifiant : ${sanction.id}`,
           createdAt: sanction.createdAt ?? sanction.startDate,
         }))
       : [];

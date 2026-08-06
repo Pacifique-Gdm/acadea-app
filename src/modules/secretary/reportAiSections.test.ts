@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyReportAiSections, buildReportAiSections, editedReportSectionsToApply, getTargetSections, MEETING_MINUTES_SECTION_ORDER, REPORT_AI_SECTION_DEFINITIONS, resolveGeneratedScope } from "./reportAiSections";
+import { applyReportAiSections, buildReportAiSections, editedReportSectionsToApply, getTargetSections, MEETING_MINUTES_SECTION_ORDER, REPORT_AI_SECTION_DEFINITIONS, resolveGeneratedScope, validateAiSectionsForScope } from "./reportAiSections";
 
 const fields = ["lieu", "objet", "participants", "points abordés", "décisions", "recommandations"];
 
@@ -37,5 +37,12 @@ describe("sections IA d'un rapport", () => {
     const updated = { ...report, content: applyReportAiSections("meeting_minutes", report.content, generated) };
     expect(updated.content).toEqual({ lieu: "Salle B", objet: "Objet B", participants: "Participants B", "points abordés": "Points B", décisions: "Décisions B", recommandations: "Recommandations B" });
     expect({ date: updated.date, startTime: updated.startTime, endTime: updated.endTime, type: updated.type }).toEqual({ date: report.date, startTime: report.startTime, endTime: report.endTime, type: report.type });
+  });
+
+  it("rejette les sections manquantes, inconnues, vides ou composées de ponctuation", () => {
+    expect(validateAiSectionsForScope("decisions", { decisions: "Avant" }, { recommendations: "Suivi" })).toBe(false);
+    expect(validateAiSectionsForScope("decisions", { decisions: "Avant" }, { decisions: ";" })).toBe(false);
+    expect(validateAiSectionsForScope("full_document", { location: "Salle" }, { location: "Salle B", unknown: "Valeur" })).toBe(false);
+    expect(validateAiSectionsForScope("decisions", { decisions: "Avant" }, { decisions: "Décision applicable" })).toBe(true);
   });
 });

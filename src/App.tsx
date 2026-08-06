@@ -34,6 +34,7 @@ import { AdminDrawer } from "./components/ui";
 import { useBillingControls } from "./hooks/useBillingControls";
 import { reconcileRealtimeValves, useRealtimeValves } from "./hooks/useRealtimeValves";
 import { reconcileRealtimeFeeTypes, useRealtimeFeeTypes } from "./hooks/useRealtimeFeeTypes";
+import { useRealtimeFinancialTransactions } from "./hooks/useRealtimeFinancialTransactions";
 import { markNotificationsReadTargeted } from "./services/notificationsPagination";
 import { restorePaymentPushNotifications, stopPaymentPushForegroundListener } from "./services/pushNotifications";
 import { canUseFirestoreData, loadDisciplineYearData, loadFirestoreBootstrapData, loadFirestoreData, loadFirestoreYearData, loadParentPortalData, loadPlatformSettings, persistFirestorePatch } from "./services/firestoreData";
@@ -210,6 +211,31 @@ export default function App() {
     schoolId: user?.schoolId ?? "",
     schoolYearId: selectedYearId,
     onFees: applyRealtimeFeeTypes,
+  });
+  const applyRealtimePayments = useCallback((payments: AppData["payments"]) => {
+    if (!user?.schoolId || !selectedYearId) return;
+    setData((current) => ({
+      ...current,
+      payments: [...current.payments.filter((item) => item.schoolId !== user.schoolId || item.schoolYearId !== selectedYearId), ...payments],
+    }));
+  }, [selectedYearId, user?.schoolId]);
+  const applyRealtimeExpenses = useCallback((expenses: AppData["expenses"]) => {
+    if (!user?.schoolId || !selectedYearId) return;
+    setData((current) => ({
+      ...current,
+      expenses: [...current.expenses.filter((item) => item.schoolId !== user.schoolId || item.schoolYearId !== selectedYearId), ...expenses],
+    }));
+  }, [selectedYearId, user?.schoolId]);
+  const handleFinancialRealtimeError = useCallback((error: Error) => {
+    console.warn("Actualisation temps réel des transactions indisponible.", error);
+  }, []);
+  useRealtimeFinancialTransactions({
+    enabled: user?.role === "school_admin" || user?.role === "cashier",
+    schoolId: user?.schoolId ?? "",
+    schoolYearId: selectedYearId,
+    onPayments: applyRealtimePayments,
+    onExpenses: applyRealtimeExpenses,
+    onError: handleFinancialRealtimeError,
   });
 
   useEffect(() => {

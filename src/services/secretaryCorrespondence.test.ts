@@ -10,11 +10,12 @@ describe("correspondances du Secrétaire", () => {
     expect(validateCorrespondenceAttachment({ name: "courrier.pdf", type: "application/pdf", size: MAX_CORRESPONDENCE_ATTACHMENT_BYTES + 1 })).not.toBe("");
   });
 
-  it("écrit directement le document puis utilise un listener borné à l'école et l'année", () => {
+  it("réserve atomiquement la référence sortante puis utilise un listener borné à l'école et l'année", () => {
     const source = readFileSync(new URL("./secretaryCorrespondence.ts", import.meta.url), "utf8");
-    expect(source).not.toContain("runTransaction");
-    expect(source).toContain("await setDoc(correspondenceRef");
-    expect(source).toContain("correspondenceRef.id.slice(0, 8)");
+    expect(source).toContain("await runTransaction(db");
+    expect(source).toContain("transaction.set(counterRef");
+    expect(source).toContain("transaction.set(correspondenceRef");
+    expect(source).toContain("generateOutgoingCorrespondenceReference");
     expect(source).toContain('where("schoolId", "==", params.schoolId)');
     expect(source).toContain('where("schoolYearId", "==", params.schoolYearId)');
     expect(source).toContain("createdAt: serverTimestamp()");

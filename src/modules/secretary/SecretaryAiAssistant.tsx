@@ -7,7 +7,7 @@ import type { AppUser, School } from "../../types";
 import type { AiAction, AiLength, AiScope, AiTone, AiWritingResponse } from "./aiWritingTypes";
 import { buildAiDocumentActions } from "./aiDocumentActions";
 import { withAiGenerationLock } from "./aiGenerationLock";
-import { editedReportSectionsToApply, getTargetSections, resolveGeneratedScope } from "./reportAiSections";
+import { editedReportSectionsToApply, getTargetSections, resolveGeneratedScope, validateAiSectionsForScope } from "./reportAiSections";
 
 export interface AiDocumentSections { [key: string]: string }
 export function SecretaryAiAssistant({ user, schoolId, academicYearId, documentId, documentType, documentCategory, documentTypeLabel, documentDate, documentTime, documentEndTime, schoolName, academicYearName, sections, sectionLabels = {}, initialSection, label = "Générer avec l’Assistant IA", aiAssistant, onAccept, onApplySections }: {
@@ -24,7 +24,7 @@ export function SecretaryAiAssistant({ user, schoolId, academicYearId, documentI
   const monthlyLimit = configuredUsage.monthlyLimit;
   const remaining = Math.max(0, monthlyLimit - monthlyUsage);
   const limitReached = monthlyUsage >= monthlyLimit;
-  const effectiveScope: AiScope = documentCategory === "rapport" ? scope : "full_document";
+  const effectiveScope: AiScope = documentCategory === "rapport" ? scope : section || "full_document";
   const original = effectiveScope === "full_document" ? (documentCategory === "rapport" ? "" : Object.entries(sections).map(([key, value]) => `${key}:\n${value}`).join("\n\n")) : sections[effectiveScope] ?? "";
   const sectionOptions = useMemo(() => Object.keys(sections).map((key) => [key, sectionLabels[key] ?? key]), [sectionLabels, sections]);
   const actionOptions = useMemo(() => buildAiDocumentActions(documentTypeLabel), [documentTypeLabel]);
@@ -58,6 +58,7 @@ export function SecretaryAiAssistant({ user, schoolId, academicYearId, documentI
         ...(effectiveScope !== "full_document" ? { targetSection: { key: effectiveScope, value: sectionsSent[effectiveScope] ?? "" } } : {}), action, originalText: original, context: sectionsSent, tone, length, additionalInstruction: instruction, consentConfirmed: true,
       });
       const normalizedSections = Object.fromEntries(Object.entries(response.sections ?? {}).filter((entry): entry is [string, string] => entry[0] in sections && typeof entry[1] === "string" && entry[1].trim().length > 0));
+      if (documentCategory === "rapport" && !validateAiSectionsForScope(effectiveScope, sectionsSent, normalizedSections)) throw new Error("INVALID_AI_RESPONSE: La réponse de l’Assistant IA est incomplète ou ne respecte pas la portée demandée.");
       if (Object.keys(normalizedSections).length === 0 && !response.proposedText?.trim()) throw new Error("INVALID_AI_RESPONSE: La réponse de l’Assistant IA ne contient pas de proposition exploitable.");
       if (import.meta.env.VITE_APP_ENV !== "production") console.info("Secretary AI report response", { event: "secretary_ai_response_received", requestDurationMs: Date.now() - requestStartedAt, generatedLength: Object.values(normalizedSections).join("").length || response.proposedText?.length || 0, sectionKeysReceived: Object.keys(response.sections ?? {}), generatedSectionKeys: Object.keys(normalizedSections) });
       setMonthlyUsage((value) => Math.min(value + 1, monthlyLimit)); setResult(response); setGeneratedParameters({ scope: response.scope, action, tone, length }); setEditableSections(normalizedSections); setEditableProposal(response.proposedText || (response.sections ? Object.entries(response.sections).map(([key, value]) => `${key}:\n${value}`).join("\n\n") : ""));
@@ -76,7 +77,7 @@ export function SecretaryAiAssistant({ user, schoolId, academicYearId, documentI
       const parsedSections = parseEditableSections(editableProposal, Object.keys(sections));
       Object.entries(result.sections).forEach(([key, value]) => { if (key in sections) onAccept(key, parsedSections[key] ?? value); });
     }
-    else onAccept(section, editableProposal);
+    else onAccept(effectiveScope, editableProposal);
     if (!limitReached) void recordSecretaryAiDecision(user, schoolId, result.metadata.requestId, true).catch((cause) => console.warn("Décision IA non journalisée", cause)); setOpen(false); setResult(null);
   }
   if (currentAiAssistant?.enabled !== true) return <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">L’Assistant IA n’est pas activé pour votre établissement. Veuillez contacter votre administrateur.</p>;

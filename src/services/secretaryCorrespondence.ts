@@ -1,9 +1,10 @@
 import * as firestore from "firebase/firestore";
-import { collection, deleteDoc, doc, onSnapshot, query, setDoc, where } from "firebase/firestore";
+import { collection, deleteDoc, doc, onSnapshot, query, runTransaction, setDoc, where } from "firebase/firestore";
 import { deleteObject, getDownloadURL, listAll, ref, uploadBytes } from "firebase/storage";
 import { auth, db, storage } from "../firebase";
 import type { AppUser } from "../types";
 import type { Correspondence, CorrespondenceAttachment } from "../modules/secretary/secretaryTypes";
+import { correspondenceServiceCode, generateOutgoingCorrespondenceReference } from "../utils/outgoingCorrespondenceReference";
 
 const serverTimestamp = (firestore as unknown as { serverTimestamp: () => unknown }).serverTimestamp;
 
@@ -68,19 +69,34 @@ export async function createCorrespondence(params: {
   if (!db) throw new Error("Service de données indisponible.");
   const correspondenceRef = doc(collection(db, "correspondences"));
   const now = new Date().toISOString();
+  const referenceYear = Number(params.input.date.slice(0, 4)) || new Date().getFullYear();
+  const serviceCode = correspondenceServiceCode(params.input.outgoing?.issuingDepartment, params.user.role);
+  let referenceNumber = `COR-${referenceYear}-${correspondenceRef.id.slice(0, 8).toUpperCase()}`;
   const item: Correspondence = {
     ...withoutUndefined(params.input),
     id: correspondenceRef.id,
-    referenceNumber: params.input.direction === "outgoing"
-      ? `CS/SEC/${now.replace(/\D/g, "").slice(0, 14)}-${correspondenceRef.id.slice(0, 4).toUpperCase()}/${new Date().getFullYear()}`
-      : `COR-${new Date().getFullYear()}-${correspondenceRef.id.slice(0, 8).toUpperCase()}`,
+    referenceNumber,
     createdBy: params.user.id,
     createdAt: now,
     updatedAt: now,
     schoolId: params.schoolId,
     schoolYearId: params.schoolYearId,
   };
-  await setDoc(correspondenceRef, deepWithoutUndefined({ ...item, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+  if (params.input.direction === "outgoing") {
+    const counterId = `${params.schoolId}_${serviceCode}_${referenceYear}`.replace(/[^a-zA-Z0-9_-]/g, "_");
+    const counterRef = doc(db, "secretaryCounters", counterId);
+    await runTransaction(db, async (transaction) => {
+      const counterSnapshot = await transaction.get(counterRef);
+      const currentValue = Number(counterSnapshot.data()?.value ?? 0);
+      const nextValue = currentValue + 1;
+      referenceNumber = generateOutgoingCorrespondenceReference({ schoolName: params.input.sender, serviceCode, order: nextValue, year: referenceYear });
+      item.referenceNumber = referenceNumber;
+      transaction.set(counterRef, { schoolId: params.schoolId, schoolYearId: params.schoolYearId, kind: "correspondence", serviceCode, year: referenceYear, value: nextValue, updatedAt: serverTimestamp() });
+      transaction.set(correspondenceRef, deepWithoutUndefined({ ...item, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+    });
+  } else {
+    await setDoc(correspondenceRef, deepWithoutUndefined({ ...item, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+  }
   return item;
 }
 

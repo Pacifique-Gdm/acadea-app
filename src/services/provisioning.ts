@@ -53,9 +53,8 @@ type ProvisionCashierInput = {
   phone: string;
 };
 
-type ProvisionSchoolUserRole = "school_admin" | "cashier" | "discipline_director" | "secretary";
 type ProvisionSchoolUserInput = ProvisionCashierInput & {
-  role: ProvisionSchoolUserRole;
+  role: "school_admin" | "cashier" | "discipline_director" | "secretary";
 };
 
 type ProvisionParentInput = {

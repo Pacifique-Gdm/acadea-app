@@ -1,5 +1,5 @@
 import * as firestore from "firebase/firestore";
-import { collection, doc, onSnapshot, query, setDoc, where } from "firebase/firestore";
+import { collection, deleteDoc, doc, onSnapshot, query, setDoc, where } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import type { AppUser } from "../types";
 import type { ReportSignatory, SecretaryReport, SecretaryReportType } from "../modules/secretary/secretaryTypes";
@@ -47,4 +47,10 @@ export async function archiveSecretaryReport(user: AppUser, report: SecretaryRep
   if (!db || report.status === "archived") return;
   const now = new Date().toISOString();
   await setDoc(doc(db, "secretaryReports", report.id), { status: "archived", archivedAt: now, updatedAt: now }, { merge: true });
+}
+
+export async function deleteSecretaryReportPermanently(user: AppUser, report: SecretaryReport) {
+  assertSecretary(user, report.schoolId);
+  if (!db) throw new Error("Service de données indisponible.");
+  await deleteDoc(doc(db, "secretaryReports", report.id));
 }

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Link2, X } from "lucide-react";
 import { Field, FormPanel, PasswordField } from "../ui";
 import { provisionParent } from "../../services/provisioning";
+import { temporaryPasswordAfterPhoneChange } from "../../utils/temporaryPassword";
 import { emptyParent, nextParentEmail } from "../../utils/parents";
 import type { AppData, AppUser, ParentProfile, School, SchoolYear, Student } from "../../types";
 
@@ -41,6 +42,9 @@ export function ParentFormEditor({
   const [emailManuallyEdited, setEmailManuallyEdited] = useState(false);
   const [passwordManuallyEdited, setPasswordManuallyEdited] = useState(false);
   const [studentLinkSearch, setStudentLinkSearch] = useState("");
+  const [studentSelectorOpen, setStudentSelectorOpen] = useState(false);
+  const [studentSectionFilter, setStudentSectionFilter] = useState("");
+  const [studentClassFilter, setStudentClassFilter] = useState("");
   const initializedRequestIdRef = useRef<number | null>(null);
   const generatedParentEmail = useMemo(() => nextParentEmail(school, data.users, data.parents), [data.parents, data.users, school]);
   const studentsById = useMemo(() => new Map(yearData.students.map((student) => [student.id, student])), [yearData.students]);
@@ -50,14 +54,23 @@ export function ParentFormEditor({
   );
   const sortedLinkStudents = useMemo(
     () =>
-      [...yearData.students].sort((first, second) =>
+      yearData.students
+        .filter((student) => student.schoolId === school.id && student.schoolYearId === year.id && (!student.status || student.status === "ACTIVE"))
+        .sort((first, second) =>
         `${first.nom} ${first.postnom} ${first.prenom}`.replace(/\s+/g, " ").trim().localeCompare(`${second.nom} ${second.postnom} ${second.prenom}`.replace(/\s+/g, " ").trim(), "fr"),
       ),
-    [yearData.students],
+    [school.id, year.id, yearData.students],
+  );
+  const studentSections = useMemo(
+    () => Array.from(new Set(sortedLinkStudents.map((student) => student.section).filter((section): section is NonNullable<Student["section"]> => Boolean(section)))).sort(),
+    [sortedLinkStudents],
+  );
+  const studentClasses = useMemo(
+    () => Array.from(new Set(sortedLinkStudents.filter((student) => !studentSectionFilter || student.section === studentSectionFilter).map((student) => student.className))).sort(),
+    [sortedLinkStudents, studentSectionFilter],
   );
   const normalizedStudentLinkSearch = studentLinkSearch.trim().toLocaleLowerCase("fr");
   const studentLinkSearchResults = useMemo(() => {
-    if (!normalizedStudentLinkSearch) return [];
     return sortedLinkStudents.filter((student) => {
       const classLabel = student.option?.trim() ? `${student.className} ${student.option}` : student.className;
       const haystack = [
@@ -70,9 +83,11 @@ export function ParentFormEditor({
       ]
         .join(" ")
         .toLocaleLowerCase("fr");
-      return haystack.includes(normalizedStudentLinkSearch);
+      return (!normalizedStudentLinkSearch || haystack.includes(normalizedStudentLinkSearch)) &&
+        (!studentSectionFilter || student.section === studentSectionFilter) &&
+        (!studentClassFilter || student.className === studentClassFilter);
     });
-  }, [normalizedStudentLinkSearch, sortedLinkStudents]);
+  }, [normalizedStudentLinkSearch, sortedLinkStudents, studentClassFilter, studentSectionFilter]);
 
   useEffect(() => {
     if (initializedRequestIdRef.current === requestId) return;
@@ -86,6 +101,9 @@ export function ParentFormEditor({
     setEmailManuallyEdited(false);
     setPasswordManuallyEdited(false);
     setStudentLinkSearch("");
+    setStudentSelectorOpen(false);
+    setStudentSectionFilter("");
+    setStudentClassFilter("");
   }, [generatedParentEmail, initialParentId, requestId, school.id, year.id, yearData.parents]);
 
   useEffect(() => {
@@ -161,8 +179,7 @@ export function ParentFormEditor({
     });
 
     if (isNew) {
-      updateData({ parents: nextParents, users: nextUsers }, { persist: false });
-      updateData({ students: nextStudents });
+      updateData({ parents: nextParents, users: nextUsers, students: nextStudents }, { persist: false });
     } else {
       updateData({ parents: nextParents, users: nextUsers, students: nextStudents });
     }
@@ -171,6 +188,9 @@ export function ParentFormEditor({
     setEmailManuallyEdited(false);
     setPasswordManuallyEdited(false);
     setStudentLinkSearch("");
+    setStudentSelectorOpen(false);
+    setStudentSectionFilter("");
+    setStudentClassFilter("");
     if (isNew) {
       setParentSuccess("Compte parent créé avec succès. Il peut maintenant se connecter avec son email et son mot de passe.");
     }
@@ -203,9 +223,7 @@ export function ParentFormEditor({
           value={form.phone}
           onChange={(value) => {
             setForm({ ...form, phone: value });
-            if (form.id.startsWith("new") && !passwordManuallyEdited) {
-              setPassword(value);
-            }
+            if (form.id.startsWith("new")) setPassword(temporaryPasswordAfterPhoneChange({ nextPhone: value, currentPassword: password, manuallyEdited: passwordManuallyEdited }));
           }}
         />
         <Field
@@ -230,17 +248,27 @@ export function ParentFormEditor({
             onToggle={() => setShowParentPassword(!showParentPassword)}
           />
         )}
-        <label className="grid gap-1 text-sm font-medium text-slate-700">
-          Élèves liés
-          <input
-            value={studentLinkSearch}
-            onChange={(event) => setStudentLinkSearch(event.target.value)}
-            className="input"
-            placeholder="Nom, postnom, prénom, matricule ou classe"
-          />
-        </label>
-        {normalizedStudentLinkSearch && (
-          <div className="max-h-56 space-y-2 overflow-y-auto rounded border border-slate-200 bg-white p-2 scrollbar-thin">
+        <button type="button" onClick={() => setStudentSelectorOpen(true)} className="secondary-button w-full justify-center">
+          <Link2 className="h-4 w-4" /> Lier à un élève <span className="font-normal text-slate-500">(facultatif)</span>
+        </button>
+        {studentSelectorOpen && (
+          <section className="grid min-w-0 gap-3 rounded border border-slate-200 bg-slate-50 p-3" aria-label="Sélectionner les élèves à lier">
+            <div className="flex items-center justify-between gap-3">
+              <p className="font-semibold text-ink">Sélectionner un ou plusieurs élèves</p>
+              <button type="button" onClick={() => setStudentSelectorOpen(false)} className="rounded p-2 text-slate-500 hover:bg-white" aria-label="Fermer le sélecteur d'élèves"><X className="h-4 w-4" /></button>
+            </div>
+            <input value={studentLinkSearch} onChange={(event) => setStudentLinkSearch(event.target.value)} className="input" placeholder="Nom, matricule ou classe" />
+            <div className="grid min-w-0 gap-2 sm:grid-cols-2">
+              <select value={studentSectionFilter} onChange={(event) => { setStudentSectionFilter(event.target.value); setStudentClassFilter(""); }} className="input" aria-label="Filtrer par section">
+                <option value="">Toutes les sections</option>
+                {studentSections.map((section) => <option key={section} value={section}>{section}</option>)}
+              </select>
+              <select value={studentClassFilter} onChange={(event) => setStudentClassFilter(event.target.value)} className="input" aria-label="Filtrer par classe">
+                <option value="">Toutes les classes</option>
+                {studentClasses.map((className) => <option key={className} value={className}>{className}</option>)}
+              </select>
+            </div>
+            <div className="max-h-56 space-y-2 overflow-y-auto rounded border border-slate-200 bg-white p-2 scrollbar-thin">
             {studentLinkSearchResults.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun élève trouvé.</p>}
             {studentLinkSearchResults.map((student) => {
               const isSelected = form.studentIds.includes(student.id);
@@ -249,8 +277,9 @@ export function ParentFormEditor({
                 <button
                   key={student.id}
                   onClick={() => toggleLinkedStudent(student.id)}
+                  disabled={Boolean(student.parentId && student.parentId !== form.id)}
                   className={`w-full rounded border p-3 text-left text-sm transition ${
-                    isSelected ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50 hover:border-blue-200 hover:bg-blue-50"
+                    isSelected ? "border-blue-200 bg-blue-50" : student.parentId && student.parentId !== form.id ? "cursor-not-allowed border-slate-100 bg-slate-100 opacity-60" : "border-slate-100 bg-slate-50 hover:border-blue-200 hover:bg-blue-50"
                   }`}
                   type="button"
                 >
@@ -261,7 +290,8 @@ export function ParentFormEditor({
                 </button>
               );
             })}
-          </div>
+            </div>
+          </section>
         )}
         {selectedLinkedStudents.length > 0 && (
           <div className="grid gap-2 rounded border border-slate-200 bg-slate-50 p-3 text-sm">

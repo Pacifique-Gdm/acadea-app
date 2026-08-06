@@ -606,10 +606,22 @@ service cloud.firestore {
     }
 
     match /secretaryCounters/{counterId} {
-      allow read: if secretary() && resource.data.schoolId == tenantSchoolId();
-      allow create, update: if secretary()
+      allow get: if secretary()
+        && (!exists(/databases/$(database)/documents/secretaryCounters/$(counterId))
+          || resource.data.schoolId == tenantSchoolId());
+      allow list: if false;
+      allow create: if secretary()
         && request.resource.data.schoolId == tenantSchoolId()
-        && request.resource.data.kind in ["correspondence", "report"];
+        && request.resource.data.kind in ["correspondence", "report"]
+        && request.resource.data.value == 1;
+      allow update: if secretary()
+        && resource.data.schoolId == tenantSchoolId()
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.schoolYearId == resource.data.schoolYearId
+        && request.resource.data.kind == resource.data.kind
+        && request.resource.data.serviceCode == resource.data.serviceCode
+        && request.resource.data.year == resource.data.year
+        && request.resource.data.value == resource.data.value + 1;
       allow delete: if false;
     }
 
@@ -658,7 +670,7 @@ service cloud.firestore {
           || (resource.data.status == "finalized"
             && request.resource.data.status == "archived"
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "archivedAt", "updatedAt"])));
-      allow delete: if false;
+      allow delete: if secretary() && sameTenantResource();
     }
 
     match /aiUsageLogs/{requestId} {

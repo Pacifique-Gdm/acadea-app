@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   db: {
     doc: vi.fn(),
     collection: vi.fn(),
+    batch: vi.fn(),
   },
 }));
 
@@ -45,9 +46,14 @@ describe("API de provisionnement Acadéa", () => {
     mocks.auth.createUser.mockResolvedValue({ uid: "created-user" });
     mocks.auth.setCustomUserClaims.mockResolvedValue(undefined);
     mocks.auth.deleteUser.mockResolvedValue(undefined);
+    mocks.db.batch.mockReturnValue({ set: vi.fn(), update: vi.fn(), delete: vi.fn(), commit: vi.fn().mockResolvedValue(undefined) });
     mocks.db.doc.mockImplementation((path: string) => ({
       path,
-      get: vi.fn().mockResolvedValue(path === "schools/school-1" ? { exists: true, data: () => ({ id: "school-1" }) } : { exists: false }),
+      get: vi.fn().mockResolvedValue(path === "schools/school-1"
+        ? { exists: true, data: () => ({ id: "school-1" }) }
+        : path === "students/student-1"
+          ? { exists: true, data: () => ({ id: "student-1", schoolId: "school-1", schoolYearId: "year-1", status: "ACTIVE" }), ref: { path } }
+          : { exists: false }),
       set: vi.fn().mockResolvedValue(undefined),
       update: vi.fn().mockResolvedValue(undefined),
       delete: vi.fn().mockResolvedValue(undefined),
@@ -68,15 +74,28 @@ describe("API de provisionnement Acadéa", () => {
       const res = response();
       await provisionSchoolAccount(request({
         role, schoolId: "school-1", schoolYearId: "year-1", name: "Utilisateur test",
-        email: `${role}@example.invalid`, password: "test-password", phone: "",
+        email: `${role}@example.invalid`, password: "0991234567", phone: "0991234567",
       }), res);
 
       expect(res.statusCode).toBe(200);
       expect(mocks.auth.createUser).toHaveBeenCalledOnce();
+      expect(mocks.auth.createUser).toHaveBeenCalledWith(expect.objectContaining({ password: "0991234567" }));
+      expect(res.body?.user).not.toHaveProperty("password");
       expect(mocks.db.doc).toHaveBeenCalledWith("users/created-user");
       expect(mocks.auth.setCustomUserClaims).toHaveBeenCalledWith("created-user", { role, schoolId: "school-1" });
     });
   }
+
+  it("accepte un mot de passe métier personnalisé différent du téléphone", async () => {
+    const res = response();
+    await provisionSchoolAccount(request({
+      role: "cashier", schoolId: "school-1", schoolYearId: "year-1", name: "Utilisateur test",
+      email: "cashier@example.invalid", password: "different", phone: "0991234567",
+    }), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(mocks.auth.createUser).toHaveBeenCalledWith(expect.objectContaining({ password: "different" }));
+  });
 
   it("crée le parent, son profil utilisateur et ses claims tenantés", async () => {
     const res = response();
@@ -92,6 +111,24 @@ describe("API de provisionnement Acadéa", () => {
     expect(mocks.auth.setCustomUserClaims).toHaveBeenCalledWith("created-user", {
       role: "parent", schoolId: "school-1", parentId: "parent-1",
     });
+    const batch = mocks.db.batch.mock.results[0]?.value;
+    expect(batch.set).toHaveBeenCalledTimes(2);
+    expect(batch.update).toHaveBeenCalledWith(expect.objectContaining({ path: "students/student-1" }), { parentId: "parent-1" });
+    expect(batch.commit).toHaveBeenCalledOnce();
+  });
+
+  it("refuse atomiquement un élève d'une autre école avant de créer Auth", async () => {
+    mocks.db.doc.mockImplementation((path: string) => ({
+      path,
+      get: vi.fn().mockResolvedValue(path === "schools/school-1"
+        ? { exists: true, data: () => ({ id: "school-1" }) }
+        : { exists: true, data: () => ({ id: "student-foreign", schoolId: "school-2", schoolYearId: "year-1", status: "ACTIVE" }), ref: { path } }),
+    }));
+    const res = response();
+    await provisionSchoolAccount(request({ role: "parent", schoolId: "school-1", schoolYearId: "year-1", parentId: "parent-1", name: "Parent test", email: "parent@example.invalid", password: "test-password", studentIds: ["student-foreign"] }), res);
+    expect(res.statusCode).toBe(400);
+    expect(mocks.auth.createUser).not.toHaveBeenCalled();
+    expect(mocks.db.batch).not.toHaveBeenCalled();
   });
 
   it("crée une école, son administrateur et les claims school_admin", async () => {

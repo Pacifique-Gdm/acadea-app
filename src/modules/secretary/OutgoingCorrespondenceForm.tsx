@@ -8,6 +8,7 @@ import { PdfSettingsFields } from "../../components/pdf/PdfSettingsFields";
 import { normalizePdfSettings, readStoredPdfSettings, type PdfGenerationSettings } from "../../utils/pdfSettings";
 
 const today = () => new Date().toISOString().slice(0, 10);
+export const DEFAULT_OUTGOING_ISSUE_PLACE = "Kinshasa / RDC";
 const uid = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 const correspondenceTypes = [
   ["administrative_letter", "Lettre administrative"], ["official_request", "Demande officielle"], ["administrative_response", "Réponse administrative"], ["transmission_letter", "Lettre de transmission"], ["summons", "Convocation"], ["notification", "Notification"], ["formal_notice", "Mise en demeure"], ["information_letter", "Lettre d’information"], ["other", "Autre courrier sortant"],
@@ -17,7 +18,7 @@ const closings = ["Veuillez agréer, Monsieur le Directeur, l’expression de no
 
 function initialOutgoing(user: AppUser, school: School, year: SchoolYear): OutgoingCorrespondenceData {
   return {
-    correspondenceType: "administrative_letter", issuePlace: school.address?.split(",")[0]?.trim() || "", academicYearName: year.name, authorName: user.name,
+    correspondenceType: "administrative_letter", issuePlace: DEFAULT_OUTGOING_ISSUE_PLACE, academicYearName: year.name, authorName: user.name,
     priority: "normal", confidentiality: "public", deliveryMode: "hand_delivery", recipient: { salutation: "mr" }, salutation: salutations[0], introduction: "", mainMessage: "", conclusion: "", closingFormula: closings[0],
     signer: { userId: "", fullName: "", functionTitle: "", signatureType: "handwritten_space", signatureRequired: true, stampRequired: true, signatureSpace: "medium" },
     announcedAttachments: [], copies: [], version: 1,

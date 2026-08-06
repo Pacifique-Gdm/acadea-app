@@ -13,7 +13,7 @@ describe("assistant IA du Secrétaire", () => {
     expect(component).toContain("Proposition de l’IA");
     expect(component).toContain("Appliquer au formulaire");
     expect(component).toContain("Refuser");
-    expect(component.indexOf("onAccept(section")).toBeGreaterThan(component.indexOf("function accept"));
+    expect(component.indexOf("onAccept(key, value)")).toBeGreaterThan(component.indexOf("function accept"));
   });
 
   it("exige le consentement et conserve le texte en cas d'erreur", () => {

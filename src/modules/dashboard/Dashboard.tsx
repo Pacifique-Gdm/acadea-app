@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { Banknote, BarChart3, BookOpen, Download, GraduationCap, ShieldCheck, UserRound, UsersRound, X } from "lucide-react";
 import { FormPanel, Metric } from "../../components/ui";
-import { buildDashboardFinancialAggregates, buildDashboardTransactionDayRows } from "../../utils/dashboardStats";
+import { buildDashboardFeeShares, buildDashboardFinancialAggregates, buildDashboardTransactionDayRows } from "../../utils/dashboardStats";
+import type { DashboardFeeShare } from "../../utils/dashboardStats";
 import { buildSchoolYearDataIndexes } from "../../utils/dataIndexes";
 import { exportDashboardReportPdf } from "../../utils/dashboardPdf";
 import { money } from "../../utils/pdf";
@@ -44,6 +45,44 @@ type TransactionChartItem = {
 };
 type TransactionChartRow = { date: string; label: string; payments: number; expenses: number; transactions: TransactionChartItem[] };
 const transactionAxisStep = 1500;
+const feeShareColors = ["#2563eb", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", "#06b6d4", "#84cc16", "#f97316"];
+
+function FinancialFeeShareChart({ rows }: { rows: DashboardFeeShare[] }) {
+  const total = rows.reduce((sum, row) => sum + row.amount, 0);
+  let cursor = 0;
+  const gradient = rows.map((row, index) => {
+    const start = cursor;
+    cursor += row.percentage;
+    return `${feeShareColors[index % feeShareColors.length]} ${start}% ${cursor}%`;
+  }).join(", ");
+
+  return (
+    <section className="mt-5 rounded border border-slate-100 bg-slate-50 p-4" aria-label="Répartition des montants encaissés">
+      <h3 className="font-bold text-ink">Répartition des montants encaissés</h3>
+      <p className="text-sm text-slate-500">Par type de frais, selon les filtres et la période sélectionnés.</p>
+      {rows.length === 0 ? (
+        <p className="mt-4 rounded bg-white p-4 text-sm text-slate-500">Aucun montant encaissé pour cette sélection.</p>
+      ) : (
+        <div className="mt-4 grid min-w-0 items-center gap-5 sm:grid-cols-[180px_minmax(0,1fr)]">
+          <div className="relative mx-auto h-44 w-44 rounded-full" style={{ background: `conic-gradient(${gradient})` }} role="img" aria-label={`Répartition de ${total.toFixed(2)} dollars encaissés`}>
+            <div className="absolute inset-8 grid place-items-center rounded-full bg-white text-center">
+              <span className="text-xs text-slate-500">Total</span>
+              <strong className="text-sm text-ink">${total.toFixed(2)}</strong>
+            </div>
+          </div>
+          <ul className="grid min-w-0 gap-2">
+            {rows.map((row, index) => (
+              <li key={row.name} className="flex min-w-0 items-center justify-between gap-3 rounded bg-white px-3 py-2 text-sm">
+                <span className="flex min-w-0 items-center gap-2"><span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: feeShareColors[index % feeShareColors.length] }} /><span className="truncate">{row.name}</span></span>
+                <strong className="shrink-0 text-ink">${row.amount.toFixed(2)} · {row.percentage.toFixed(1)}%</strong>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
 
 const transactionPeriodLabels: Record<TransactionPeriod, string> = {
   today: "Aujourd'hui",
@@ -374,6 +413,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
   const recoveryRate = dashboardFinancialStats.expected > 0 ? Math.round((totalPayments / dashboardFinancialStats.expected) * 100) : 0;
   const recoveryTone = recoveryRate >= 80 ? "text-mint bg-mint/10" : recoveryRate >= 50 ? "text-amber-700 bg-amber-100" : "text-red-700 bg-red-50";
   const feeProgressRows = activeFinancialAggregates.feeProgressRows;
+  const feeShares = useMemo(() => buildDashboardFeeShares(feeProgressRows), [feeProgressRows]);
   const totalActiveStudents = filteredStudents.length;
   const totalUniqueParents = filteredParents.length;
   const admins = useMemo(() => data.users.filter((item) => item.schoolId === school.id && item.role === "school_admin").length, [data.users, school.id]);
@@ -660,6 +700,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
           ))}
           {feeProgressRows.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun frais applicable pour les filtres sélectionnés.</p>}
         </div>
+        <FinancialFeeShareChart rows={feeShares} />
       </div>
 
       <FormPanel title="Transactions du jour">

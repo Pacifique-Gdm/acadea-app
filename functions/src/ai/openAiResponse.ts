@@ -138,6 +138,15 @@ export function isGeneratedContentIdentical(source: Record<string, string>, gene
   return keys.length > 0 && keys.every((key) => normalizeForComparison(generated[key] ?? "") === normalizeForComparison(source[key] ?? ""));
 }
 
+export function validateGeneratedSections(expectedKeys: string[], generated: Record<string, string>) {
+  const keys = Object.keys(generated);
+  if (keys.length !== expectedKeys.length || keys.some((key) => !expectedKeys.includes(key)) || expectedKeys.some((key) => !(key in generated))) return false;
+  return expectedKeys.every((key) => {
+    const value = generated[key];
+    return typeof value === "string" && value.trim().length > 0 && !/^[\p{P}\p{S}\s]+$/u.test(value);
+  });
+}
+
 export function readOpenAiFailure(status: number, value: unknown): OpenAiFailure {
   const error = value && typeof value === "object" && "error" in value && value.error && typeof value.error === "object"
     ? value.error as { code?: unknown; type?: unknown }

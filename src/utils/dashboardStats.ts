@@ -14,6 +14,12 @@ export type DashboardFeeProgressRow = DashboardFinancialStats & {
   rate: number;
 };
 
+export type DashboardFeeShare = {
+  name: string;
+  amount: number;
+  percentage: number;
+};
+
 export type DashboardFinancialAggregates = {
   financialStats: DashboardFinancialStats;
   feeProgressRows: DashboardFeeProgressRow[];
@@ -93,6 +99,14 @@ export function buildDashboardFinancialStats(students: Student[], feeTypes: FeeT
 
 export function buildDashboardFeeProgressRows(students: Student[], feeTypes: FeeType[], payments: Payment[], indexes?: SchoolYearDataIndexes): DashboardFeeProgressRow[] {
   return buildDashboardFinancialAggregates(students, feeTypes, payments, indexes).feeProgressRows;
+}
+
+export function buildDashboardFeeShares(rows: DashboardFeeProgressRow[]): DashboardFeeShare[] {
+  const total = rows.reduce((sum, row) => sum + Math.max(row.paid, 0), 0);
+  if (total <= 0) return [];
+  return rows
+    .filter((row) => row.paid > 0)
+    .map((row) => ({ name: row.name, amount: row.paid, percentage: (row.paid / total) * 100 }));
 }
 
 export function buildDashboardTransactionDayRows({

@@ -5,7 +5,7 @@ import { defineSecret } from "firebase-functions/params";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { AI_ACTIONS, AI_LENGTHS, AI_TONES, type AiAction, type AiWritingRequest, type AiWritingResponse } from "./types.js";
 import { sanitizeAiContext, sanitizeAiText } from "./sanitize.js";
-import { buildSingleSectionWritingResponseFormat, buildStructuredWritingResponseFormat, classifyOpenAiFailure, extractOpenAiResponseText, isGeneratedContentIdentical, normalizeOpenAiSections, OPENAI_WRITING_RESPONSE_FORMAT, readOpenAiFailure } from "./openAiResponse.js";
+import { buildSingleSectionWritingResponseFormat, buildStructuredWritingResponseFormat, classifyOpenAiFailure, extractOpenAiResponseText, isGeneratedContentIdentical, normalizeOpenAiSections, readOpenAiFailure, validateGeneratedSections } from "./openAiResponse.js";
 import { assertSecretaryAiIdentity } from "./schoolAiAccess.js";
 import { incrementSchoolAiUsageAfterSuccess, prepareSchoolAiUsage, type AiUsageDatabase } from "./schoolAiUsage.js";
 
@@ -37,15 +37,23 @@ export function validateInput(value: unknown): AiWritingRequest {
   if (!value || typeof value !== "object") throw new HttpsError("invalid-argument", "Demande IA invalide.", { version: AI_ASSISTANT_VERSION });
   const input = value as Partial<AiWritingRequest>;
   if (!input.schoolId || !input.documentType || !input.documentTypeLabel?.trim() || !["courrier", "rapport"].includes(input.documentCategory ?? "") || !input.action || !AI_ACTIONS.includes(input.action) || !coreActions.has(input.action) || !allowedDocuments.has(input.documentType)) throw new HttpsError("invalid-argument", "Action ou document non pris en charge.", unsupportedInputDetails(input));
-  if (!input.scope || !allowedScopes.has(input.scope) || !input.tone || !AI_TONES.includes(input.tone) || !input.length || !AI_LENGTHS.includes(input.length) || typeof input.additionalInstruction !== "string" || !input.additionalInstruction.trim() || !input.sections || typeof input.sections !== "object" || Array.isArray(input.sections) || !input.documentContext || typeof input.documentContext !== "object" || Array.isArray(input.documentContext)) throw new HttpsError("invalid-argument", "Paramètres, portée ou contexte du document invalides. L’instruction complémentaire est obligatoire et les signatures ne sont jamais traitées par l’IA.", { acceptedScopes: [...allowedScopes], acceptedTones: AI_TONES, acceptedLengths: AI_LENGTHS, version: AI_ASSISTANT_VERSION });
+  const sectionsAreValid = input.sections && typeof input.sections === "object" && !Array.isArray(input.sections);
+  const scopeIsValid = input.scope === "full_document" || (input.documentCategory === "rapport" ? allowedScopes.has(input.scope ?? "") : Boolean(sectionsAreValid && input.scope && input.scope in input.sections!));
+  if (!scopeIsValid || !input.tone || !AI_TONES.includes(input.tone) || !input.length || !AI_LENGTHS.includes(input.length) || typeof input.additionalInstruction !== "string" || !input.additionalInstruction.trim() || !sectionsAreValid || !input.documentContext || typeof input.documentContext !== "object" || Array.isArray(input.documentContext)) throw new HttpsError("invalid-argument", "Paramètres, portée ou contexte du document invalides. L’instruction complémentaire est obligatoire et les signatures ne sont jamais traitées par l’IA.", { acceptedScopes: [...allowedScopes], acceptedTones: AI_TONES, acceptedLengths: AI_LENGTHS, version: AI_ASSISTANT_VERSION });
+  const sections = input.sections as Record<string, string>;
+  const scope = input.scope as string;
   if (input.documentCategory === "rapport") {
-    const sections = input.sections;
     const expectedFields = REPORT_SECTION_FIELDS[input.documentType];
     const receivedFields = Object.keys(sections);
-    const requestedFields = input.scope === "full_document" ? expectedFields ?? [] : expectedFields?.includes(input.scope) ? [input.scope] : [];
-    const targetValid = input.scope === "full_document" ? input.targetSection === undefined : input.targetSection?.key === input.scope && input.targetSection.value === sections[input.scope];
+    const requestedFields = scope === "full_document" ? expectedFields ?? [] : expectedFields?.includes(scope) ? [scope] : [];
+    const targetValid = scope === "full_document" ? input.targetSection === undefined : input.targetSection?.key === scope && input.targetSection.value === sections[scope];
     if (!expectedFields || !targetValid || receivedFields.length !== requestedFields.length || requestedFields.some((field) => typeof sections[field] !== "string") || receivedFields.some((field) => !requestedFields.includes(field))) throw new HttpsError("invalid-argument", "Sections du rapport invalides.", { expectedFields: requestedFields, version: AI_ASSISTANT_VERSION });
-  } else if (Object.values(input.sections).some((value) => typeof value !== "string")) throw new HttpsError("invalid-argument", "Sections du document invalides.", { version: AI_ASSISTANT_VERSION });
+  } else {
+    const receivedFields = Object.keys(sections);
+    const expectedFields = scope === "full_document" ? receivedFields : [scope];
+    const targetValid = scope === "full_document" ? input.targetSection === undefined : input.targetSection?.key === scope && input.targetSection.value === sections[scope];
+    if (!targetValid || receivedFields.length !== expectedFields.length || receivedFields.some((field) => !expectedFields.includes(field)) || Object.values(sections).some((value) => typeof value !== "string")) throw new HttpsError("invalid-argument", "Sections du document invalides.", { expectedFields, version: AI_ASSISTANT_VERSION });
+  }
   if (input.consentConfirmed !== true) throw new HttpsError("failed-precondition", "Le consentement de vérification humaine est requis.");
   return input as AiWritingRequest;
 }
@@ -66,10 +74,12 @@ export function buildInstructions(input: AiWritingRequest) {
 export function parseProviderResponse(value: unknown, input: AiWritingRequest, requestId: string): AiWritingResponse {
   if (!value || typeof value !== "object") throw new HttpsError("internal", "Réponse IA invalide.");
   const data = value as Record<string, unknown>;
-  if (input.documentCategory === "rapport" && data.scope !== input.scope) throw new HttpsError("internal", "La réponse de l’Assistant IA ne correspond pas à la portée demandée.", { code: "INVALID_AI_RESPONSE" });
+  if (data.scope !== input.scope) throw new HttpsError("internal", "La réponse de l’Assistant IA ne correspond pas à la portée demandée.", { code: "INVALID_AI_RESPONSE" });
   const providerSection = data.section && typeof data.section === "object" ? data.section as { key?: unknown; value?: unknown } : undefined;
   const section = typeof providerSection?.key === "string" && typeof providerSection.value === "string" && providerSection.key === input.scope ? { key: providerSection.key, value: providerSection.value } : undefined;
   const sections = input.scope === "full_document" ? normalizeOpenAiSections(data.sections) : section ? { [section.key]: section.value } : {};
+  const expectedKeys = input.scope === "full_document" ? Object.keys(input.sections) : [input.scope];
+  if (!validateGeneratedSections(expectedKeys, sections)) throw new HttpsError("internal", "La réponse de l’Assistant IA est incomplète ou ne respecte pas la portée demandée.", { code: "INVALID_AI_RESPONSE", expectedFields: expectedKeys });
   const warnings = Array.isArray(data.warnings) ? data.warnings.filter((item) => item && typeof item === "object" && typeof (item as { message?: unknown }).message === "string") : [];
   const missingInformation = Array.isArray(data.missingInformation) ? data.missingInformation.filter((item) => item && typeof item === "object" && typeof (item as { field?: unknown }).field === "string") : [];
   const proposedText = typeof data.proposedText === "string" ? data.proposedText.trim() : "";
@@ -109,7 +119,7 @@ export const secretaryAiWritingAssistant = onCall({ region: FUNCTION_REGION, tim
   const apiKey = openAiApiKey.value(); if (!apiKey) throw new HttpsError("failed-precondition", "L'assistant IA n'est pas configuré.");
   let result: AiWritingResponse | undefined; let providerStatus = "failed"; const model = process.env.OPENAI_MODEL || "gpt-5-mini";
   try {
-    const responseFormat = input.documentCategory === "rapport" ? input.scope === "full_document" ? buildStructuredWritingResponseFormat(Object.keys(input.sections)) : buildSingleSectionWritingResponseFormat(input.scope) : OPENAI_WRITING_RESPONSE_FORMAT;
+    const responseFormat = input.scope === "full_document" ? buildStructuredWritingResponseFormat(Object.keys(input.sections)) : buildSingleSectionWritingResponseFormat(input.scope);
     const transformation = await runTransformationAttempts({ ...input, originalText: original.sanitized }, async (retryCount) => {
       const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 45000);
       const retryInstruction = retryCount === 1 ? " La première réponse était identique à la source. Produis cette fois une transformation réelle et visible, sans inventer de faits." : "";
