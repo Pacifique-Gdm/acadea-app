@@ -12,6 +12,22 @@ describe("module Courrier du Secrétaire", () => {
     expect(formSource).toContain("current?.outgoing ?? initialOutgoing(user, school, year)");
   });
 
+  it("masque Auteur et Statut tout en conservant leurs valeurs système", () => {
+    expect(formSource).not.toContain('<ReadOnly label="Auteur"');
+    expect(formSource).not.toContain('<ReadOnly label="Statut"');
+    expect(formSource).toContain("authorName: user.name");
+    expect(formSource).toContain('status: current?.status ?? "draft"');
+    expect(formSource).toContain("createdBy: current?.createdBy ?? user.id");
+  });
+
+  it("ajoute les PDF individuel et filtré sans conserver Tous les canaux", () => {
+    expect(moduleSource).toContain('label="Afficher le PDF"');
+    expect(moduleSource).toContain("showCorrespondencePdf(item)");
+    expect(moduleSource).toContain("exportCorrespondenceListPdf({ rows: filtered");
+    expect(moduleSource).toContain("Exporter PDF");
+    expect(moduleSource).not.toContain("Tous les canaux");
+  });
+
   it("affiche les sept colonnes attendues avec des cellules tronquées", () => {
     for (const title of ["Référence", "Date", "Type", "Expéditeur", "Destinataire", "Objet", "Actions"]) expect(moduleSource).toContain(`>${title}<`);
     expect(moduleSource).not.toContain(">Statut<");

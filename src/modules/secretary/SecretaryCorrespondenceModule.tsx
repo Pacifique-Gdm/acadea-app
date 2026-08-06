@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Eye, Plus, Search, Trash2 } from "lucide-react";
+import { Download, Eye, FileText, Plus, Search, Trash2 } from "lucide-react";
 import { AdminDrawer, SectionTitle } from "../../components/ui";
 import { createCorrespondence, deleteCorrespondencePermanently, replaceCorrespondenceAttachment, subscribeToCorrespondences, updateCorrespondence } from "../../services/secretaryCorrespondence";
 import { escapePdfHtml, pdfInfoGrid, pdfSection, renderAcadPdfPreview } from "../../utils/pdf";
@@ -8,6 +8,8 @@ import type { AppUser, School, SchoolYear } from "../../types";
 import type { Correspondence, CorrespondenceDirection, CorrespondenceStatus } from "./secretaryTypes";
 import { OutgoingCorrespondenceForm, type OutgoingSaveRequest } from "./OutgoingCorrespondenceForm";
 import { previewOutgoingCorrespondence } from "./outgoingCorrespondencePdf";
+import { matchesCorrespondenceSearch } from "./secretaryListFilters";
+import { exportCorrespondenceListPdf } from "./secretaryListPdf";
 
 const initialInput = { direction: "incoming" as CorrespondenceDirection, date: new Date().toISOString().slice(0, 10), subject: "", sender: "", recipient: "", content: "", copiePourInformation: "", status: "received" as CorrespondenceStatus };
 
@@ -40,7 +42,6 @@ export function SecretaryCorrespondenceModule({ user, users = [], school, year }
   const [direction, setDirection] = useState<"all" | CorrespondenceDirection>("all");
   const [outgoingType, setOutgoingType] = useState("all");
   const [priority, setPriority] = useState("all");
-  const [channel, setChannel] = useState("all");
   const [editing, setEditing] = useState<Correspondence | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [input, setInput] = useState(initialInput);
@@ -52,17 +53,17 @@ export function SecretaryCorrespondenceModule({ user, users = [], school, year }
   const [confirmationText, setConfirmationText] = useState("");
   const [confirmationError, setConfirmationError] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
+  const [pdfBusyId, setPdfBusyId] = useState("");
+  const [exportBusy, setExportBusy] = useState(false);
   const saveLock = useRef(false);
 
   useEffect(() => subscribeToCorrespondences({ user, schoolId: school.id, schoolYearId: year.id, onData: setItems, onError: (error) => setMessage(refreshErrorMessage(error)) }), [school.id, user, year.id]);
   useEffect(() => { if (!message) return; const timer = window.setTimeout(() => setMessage(""), 4000); return () => window.clearTimeout(timer); }, [message]);
   const filtered = useMemo(() => items.filter((item) => {
-    const text = `${item.referenceNumber} ${item.subject} ${item.sender} ${item.recipient} ${item.outgoing?.recipient.institution ?? ""} ${item.outgoing?.authorName ?? ""} ${(item.outgoing?.keywords ?? []).join(" ")}`.toLowerCase();
-    return text.includes(queryText.toLowerCase()) && (direction === "all" || item.direction === direction)
+    return matchesCorrespondenceSearch(item, queryText) && (direction === "all" || item.direction === direction)
       && (outgoingType === "all" || item.outgoing?.correspondenceType === outgoingType)
-      && (priority === "all" || item.outgoing?.priority === priority)
-      && (channel === "all" || item.outgoing?.sendingChannel === channel);
-  }), [channel, direction, items, outgoingType, priority, queryText]);
+      && (priority === "all" || item.outgoing?.priority === priority);
+  }), [direction, items, outgoingType, priority, queryText]);
 
   function finishSuccessfulSave(successMessage: string) {
     setEditing(null);
@@ -139,6 +140,23 @@ export function SecretaryCorrespondenceModule({ user, users = [], school, year }
     await renderAcadPdfPreview({ filename: `${item.referenceNumber}.pdf`, title: "Courrier administratif", school, year, subtitle: item.referenceNumber, sections: correspondencePdfSections(item) });
   }
 
+  async function showCorrespondencePdf(item: Correspondence) {
+    if (pdfBusyId) return;
+    setPdfBusyId(item.id); setMessage("");
+    try { await printCorrespondence(item); }
+    catch (error) { console.error("Échec de génération du PDF du courrier", error); setMessage(error instanceof Error ? error.message : "Impossible d'afficher le PDF du courrier."); }
+    finally { setPdfBusyId(""); }
+  }
+
+  async function exportFilteredCorrespondences() {
+    if (exportBusy || filtered.length === 0) return;
+    setExportBusy(true); setMessage("");
+    const filters = [queryText.trim() ? `Recherche : ${queryText.trim()}` : "", direction !== "all" ? `Sens : ${direction === "incoming" ? "Entrant" : "Sortant"}` : "", outgoingType !== "all" ? `Type : ${outgoingType}` : "", priority !== "all" ? `Priorité : ${priority}` : ""].filter(Boolean).join(" · ");
+    try { await exportCorrespondenceListPdf({ rows: filtered, school, year, filters, typeLabel: (item) => item.direction === "incoming" ? "Courrier entrant" : correspondenceTypeLabel(item.outgoing?.correspondenceType) }); }
+    catch (error) { console.error("Échec de l'export PDF des courriers", error); setMessage(error instanceof Error ? error.message : "Export PDF des courriers impossible."); }
+    finally { setExportBusy(false); }
+  }
+
   function closeSensitiveAction() { if (actionBusy) return; setSensitiveAction(null); setConfirmationText(""); setConfirmationError(""); }
 
   async function executeSensitiveAction() {
@@ -164,9 +182,9 @@ export function SecretaryCorrespondenceModule({ user, users = [], school, year }
       <select className="input" value={direction} onChange={(event) => setDirection(event.target.value as typeof direction)}><option value="all">Tous les sens</option><option value="incoming">Entrant</option><option value="outgoing">Sortant</option></select>
       <select className="input" value={outgoingType} onChange={(event) => setOutgoingType(event.target.value)}><option value="all">Tous les types</option><option value="administrative_letter">Lettre administrative</option><option value="official_request">Demande officielle</option><option value="administrative_response">Réponse administrative</option><option value="transmission_letter">Lettre de transmission</option><option value="summons">Convocation</option><option value="notification">Notification</option><option value="formal_notice">Mise en demeure</option><option value="information_letter">Lettre d’information</option><option value="other">Autre</option></select>
       <select className="input" value={priority} onChange={(event) => setPriority(event.target.value)}><option value="all">Toutes les priorités</option><option value="normal">Normale</option><option value="important">Importante</option><option value="urgent">Urgente</option><option value="very_urgent">Très urgente</option></select>
-      <select className="input" value={channel} onChange={(event) => setChannel(event.target.value)}><option value="all">Tous les canaux</option><option value="physical">Remise physique</option><option value="email">E-mail</option><option value="postal">Courrier postal</option><option value="acadea">Messagerie Acadéa</option><option value="other">Autre</option></select>
+      <button type="button" className="primary-button justify-center" disabled={exportBusy || filtered.length === 0} onClick={() => void exportFilteredCorrespondences()}><Download className="h-4 w-4" /> {exportBusy ? "Export en cours…" : "Exporter PDF"}</button>
     </div>
-    <div className="max-w-full overflow-x-auto rounded border bg-white"><table className="w-full min-w-[820px] table-fixed text-sm"><thead className="bg-slate-50 text-left"><tr><th className="w-[15%] p-3">Référence</th><th className="w-[11%]">Date</th><th className="w-[14%]">Type</th><th className="w-[14%]">Expéditeur</th><th className="w-[14%]">Destinataire</th><th className="w-[22%]">Objet</th><th className="w-[10%] text-center">Actions</th></tr></thead><tbody>{filtered.map((item) => <tr key={item.id} className="border-t"><TableCell value={item.referenceNumber} strong /><TableCell value={item.date} /><TableCell value={item.direction === "incoming" ? "Courrier entrant" : correspondenceTypeLabel(item.outgoing?.correspondenceType)} /><TableCell value={item.sender || school.name} /><TableCell value={item.recipient} /><TableCell value={item.subject} /><td className="p-2"><div className="flex items-center justify-center gap-1.5 whitespace-nowrap"><button type="button" className="secondary-button h-9 px-3" onClick={() => { setEditing(item); setInput({ direction: item.direction, date: item.date, subject: item.subject, sender: item.sender, recipient: item.recipient, content: item.content, copiePourInformation: item.copiePourInformation ?? "", status: item.status }); setSelectedDirection(item.direction); setFormOpen(true); }}><Eye className="h-4 w-4" /> Voir</button><CorrespondenceActionButton label="Supprimer définitivement" icon={Trash2} danger onClick={() => setSensitiveAction({ kind: "delete", target: item })} /></div></td></tr>)}</tbody></table>{filtered.length === 0 && <p className="p-6 text-center text-sm text-slate-500">Aucun courrier.</p>}</div>
+    <div className="max-w-full overflow-x-auto rounded border bg-white"><table className="w-full min-w-[860px] table-fixed text-sm"><thead className="bg-slate-50 text-left"><tr><th className="w-[15%] p-3">Référence</th><th className="w-[11%]">Date</th><th className="w-[14%]">Type</th><th className="w-[14%]">Expéditeur</th><th className="w-[14%]">Destinataire</th><th className="w-[20%]">Objet</th><th className="w-[12%] text-center">Actions</th></tr></thead><tbody>{filtered.map((item) => <tr key={item.id} className="border-t"><TableCell value={item.referenceNumber} strong /><TableCell value={item.date} /><TableCell value={item.direction === "incoming" ? "Courrier entrant" : correspondenceTypeLabel(item.outgoing?.correspondenceType)} /><TableCell value={item.sender || school.name} /><TableCell value={item.recipient} /><TableCell value={item.subject} /><td className="p-2"><div className="flex items-center justify-center gap-1.5 whitespace-nowrap"><button type="button" className="secondary-button h-9 px-3" onClick={() => { setEditing(item); setInput({ direction: item.direction, date: item.date, subject: item.subject, sender: item.sender, recipient: item.recipient, content: item.content, copiePourInformation: item.copiePourInformation ?? "", status: item.status }); setSelectedDirection(item.direction); setFormOpen(true); }}><Eye className="h-4 w-4" /> Voir</button><CorrespondenceActionButton label="Afficher le PDF" icon={FileText} disabled={Boolean(pdfBusyId)} loading={pdfBusyId === item.id} onClick={() => void showCorrespondencePdf(item)} /><CorrespondenceActionButton label="Supprimer définitivement" icon={Trash2} danger disabled={Boolean(pdfBusyId)} onClick={() => setSensitiveAction({ kind: "delete", target: item })} /></div></td></tr>)}</tbody></table>{filtered.length === 0 && <p className="p-6 text-center text-sm text-slate-500">Aucun courrier correspondant aux filtres actifs.</p>}</div>
     {formOpen && <AdminDrawer title={editing ? (input.direction === "outgoing" ? "Courrier sortant" : "Courrier entrant") : selectedDirection === "outgoing" ? "Nouveau courrier sortant" : selectedDirection === "incoming" ? "Nouveau courrier entrant" : "Nouveau courrier"} onClose={() => !busy && setFormOpen(false)} closeLabel="Fermer">
       {!editing && <label className="mb-4 grid gap-1 text-sm"><span>Type de courrier</span><select className="input" value={selectedDirection} onChange={(event) => { const nextDirection = event.target.value as "" | CorrespondenceDirection; setSelectedDirection(nextDirection); if (nextDirection) setInput({ ...input, direction: nextDirection, copiePourInformation: "" }); setFile(null); }}><option value="" disabled>Sélectionner le type</option><option value="incoming">Entrant</option><option value="outgoing">Sortant</option></select></label>}
       {(editing || selectedDirection) && (input.direction === "outgoing" ? <OutgoingCorrespondenceForm user={user} users={users} school={school} year={year} current={editing} busy={busy} onCancel={() => setFormOpen(false)} onSave={saveOutgoing} /> : <form className="grid gap-3" onSubmit={(event) => { event.preventDefault(); void save(); }}>
@@ -187,7 +205,7 @@ export function SecretaryCorrespondenceModule({ user, users = [], school, year }
 
 function TableCell({ value, strong = false }: { value?: string; strong?: boolean }) { return <td className={`truncate p-3 ${strong ? "font-semibold" : ""}`} title={value || "-"}>{value || "-"}</td>; }
 
-function CorrespondenceActionButton({ label, icon: Icon, onClick, danger = false }: { label: string; icon: typeof Eye; onClick: () => void; danger?: boolean }) { return <button type="button" title={label} aria-label={label} onClick={onClick} className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${danger ? "bg-red-50 text-red-700 hover:bg-red-100" : "bg-slate-100 text-slate-700 hover:bg-slate-200 hover:text-slate-950"}`}><Icon aria-hidden="true" className="h-4 w-4" /></button>; }
+function CorrespondenceActionButton({ label, icon: Icon, onClick, danger = false, disabled = false, loading = false }: { label: string; icon: typeof Eye; onClick: () => void; danger?: boolean; disabled?: boolean; loading?: boolean }) { return <button type="button" title={label} aria-label={label} onClick={onClick} disabled={disabled} className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-50 ${danger ? "bg-red-50 text-red-700 hover:bg-red-100" : "bg-slate-100 text-slate-700 hover:bg-slate-200 hover:text-slate-950"}`}><Icon aria-hidden="true" className={`h-4 w-4 ${loading ? "animate-pulse" : ""}`} /></button>; }
 
 function SensitiveActionDialog({ value, error, busy, onValueChange, onCancel, onConfirm }: { action: "delete"; value: string; error: string; busy: boolean; onValueChange: (value: string) => void; onCancel: () => void; onConfirm: () => void }) {
   const expected = "SUPPRIMER LE COURRIER";
