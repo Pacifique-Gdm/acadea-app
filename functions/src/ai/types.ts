@@ -4,7 +4,8 @@ export const AI_TONES = ["administrative", "professional", "neutral", "formal"] 
 export type AiTone = typeof AI_TONES[number];
 export const AI_LENGTHS = ["short", "standard", "developed"] as const;
 export type AiLength = typeof AI_LENGTHS[number];
-export type AiScope = "full_document" | string;
+export type AiScopeSelection = { mode: "full_document" } | { mode: "selected_sections"; sections: string[] };
+export type AiScope = "full_document" | string | AiScopeSelection;
 
 export interface AiWritingRequest {
   schoolId: string;

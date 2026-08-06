@@ -3,7 +3,7 @@ import { escapePdfHtml, renderAcadPdfPreview } from "../../utils/pdf";
 import type { Correspondence } from "./secretaryTypes";
 
 const text = (value?: string) => value?.trim() ?? "";
-const paragraph = (value?: string) => text(value) ? `<p class="secretary-pdf-main-text outgoing-correspondence-paragraph" style="text-align:justify;margin:0 0 8px;text-indent:0;break-inside:avoid">${escapePdfHtml(text(value)).replaceAll("\n", "<br />")}</p>` : "";
+const paragraph = (value?: string) => text(value) ? `<p class="secretary-pdf-main-text outgoing-correspondence-paragraph" style="text-align:justify;text-justify:inter-word;margin:0 0 10px;text-indent:50%;line-height:1.15;break-inside:avoid">${escapePdfHtml(text(value)).replaceAll("\n", "<br />")}</p>` : "";
 
 export function outgoingRecipientLines(item: Correspondence) {
   const recipient = item.outgoing?.recipient;
@@ -19,11 +19,12 @@ export function outgoingCorrespondencePdfSections(item: Correspondence) {
   const copies = outgoing.copies.filter((entry) => entry.includeInPdf && text(entry.nameOrFunction));
   const mention = [outgoing.specialMention === "other" ? outgoing.customSpecialMention : outgoing.specialMention, outgoing.priority !== "normal" ? outgoing.priority.replaceAll("_", " ") : "", outgoing.confidentiality !== "public" ? outgoing.confidentiality.replaceAll("_", " ") : ""].map(text).filter(Boolean).join(" · ");
   const signatureHeight = { small: 36, medium: 55, large: 75 }[outgoing.signer.signatureSpace];
+  const reference = text(item.referenceNumber);
   return [
-    `<section style="display:flex;justify-content:space-between;margin-bottom:12px"><strong><u>Réf. : ${escapePdfHtml(item.referenceNumber)}</u></strong><span><u>${escapePdfHtml(outgoing.issuePlace)}</u>, le ${escapePdfHtml(item.date)}</span></section>`,
+    `<section style="display:flex;justify-content:space-between;margin-bottom:12px">${reference ? `<strong>Réf. : <u>${escapePdfHtml(reference)}</u></strong>` : "<span></span>"}<span>${escapePdfHtml(outgoing.issuePlace)}, le ${escapePdfHtml(item.date)}</span></section>`,
     mention ? `<p style="font-weight:700;text-transform:uppercase;border:1px solid #334155;padding:5px;display:inline-block">${escapePdfHtml(mention)}</p>` : "",
-    `<section class="outgoing-correspondence-content" style="width:100%;margin:10px 0 16px;padding-left:0;line-height:1.45;text-align:right">${outgoingRecipientLines(item).map((line) => `<div>${escapePdfHtml(line)}</div>`).join("")}</section>`,
-    `<p class="secretary-pdf-main-text outgoing-correspondence-paragraph" style="margin:8px 0;text-indent:0"><strong><u>Objet :</u></strong> ${escapePdfHtml(item.subject)}</p>`,
+    `<section class="outgoing-correspondence-content" style="width:50%;margin:10px 0 16px 50%;padding:0 0 6px;line-height:1.45;text-align:left;border-bottom:1px solid #14213d">${outgoingRecipientLines(item).map((line) => `<div>${escapePdfHtml(line)}</div>`).join("")}</section>`,
+    `<p class="secretary-pdf-main-text outgoing-correspondence-paragraph" style="margin:8px 0;text-indent:0"><strong>Objet :</strong> <u>${escapePdfHtml(item.subject)}</u></p>`,
     text(outgoing.previousReference) ? `<p><strong>Réf. antérieure :</strong> ${escapePdfHtml(text(outgoing.previousReference))}</p>` : "",
     announced.length ? `<p><strong>Pièces jointes annoncées :</strong> ${announced.map((entry) => `${escapePdfHtml(entry.title)} (${entry.copies} ex.)`).join(" ; ")}</p>` : "",
     `<p class="secretary-pdf-main-text" style="margin-top:18px;break-after:avoid">${escapePdfHtml(outgoing.salutation)}</p>`,

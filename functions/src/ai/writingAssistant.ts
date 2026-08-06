@@ -3,7 +3,7 @@ import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
 import { defineSecret } from "firebase-functions/params";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
-import { AI_ACTIONS, AI_LENGTHS, AI_TONES, type AiAction, type AiWritingRequest, type AiWritingResponse } from "./types.js";
+import { AI_ACTIONS, AI_LENGTHS, AI_TONES, type AiAction, type AiScope, type AiScopeSelection, type AiWritingRequest, type AiWritingResponse } from "./types.js";
 import { sanitizeAiContext, sanitizeAiText } from "./sanitize.js";
 import { buildSingleSectionWritingResponseFormat, buildStructuredWritingResponseFormat, classifyOpenAiFailure, extractOpenAiResponseText, isGeneratedContentIdentical, normalizeOpenAiSections, readOpenAiFailure, validateGeneratedSections } from "./openAiResponse.js";
 import { assertSecretaryAiIdentity } from "./schoolAiAccess.js";
@@ -33,25 +33,47 @@ function diagnosticLoggingEnabled(projectId = firebaseProjectId()) { return proc
 function unsupportedInputDetails(input: Partial<AiWritingRequest>) {
   return { actionReceived: input.action ?? null, acceptedActions: [...AI_ACTIONS], documentCategoryReceived: input.documentCategory ?? null, documentTypeReceived: input.documentType ?? null, version: AI_ASSISTANT_VERSION };
 }
+function normalizeAiScopeSelection(scope: AiScope | undefined, availableKeys: string[]): AiScopeSelection {
+  if (scope && typeof scope === "object") {
+    if (scope.mode === "full_document") return { mode: "full_document" };
+    const unique = [...new Set(scope.sections)].filter((key) => availableKeys.includes(key));
+    return { mode: "selected_sections", sections: availableKeys.filter((key) => unique.includes(key)) };
+  }
+  if (scope === "full_document") return { mode: "full_document" };
+  return typeof scope === "string" && availableKeys.includes(scope) ? { mode: "selected_sections", sections: [scope] } : { mode: "selected_sections", sections: [] };
+}
+function requestedSectionKeys(input: Pick<AiWritingRequest, "scope" | "sections">) {
+  const availableKeys = Object.keys(input.sections);
+  const selection = normalizeAiScopeSelection(input.scope, availableKeys);
+  return selection.mode === "full_document" ? availableKeys : selection.sections;
+}
+function providerScopeMode(input: Pick<AiWritingRequest, "scope" | "sections">) {
+  return normalizeAiScopeSelection(input.scope, Object.keys(input.sections)).mode;
+}
 export function validateInput(value: unknown): AiWritingRequest {
   if (!value || typeof value !== "object") throw new HttpsError("invalid-argument", "Demande IA invalide.", { version: AI_ASSISTANT_VERSION });
   const input = value as Partial<AiWritingRequest>;
   if (!input.schoolId || !input.documentType || !input.documentTypeLabel?.trim() || !["courrier", "rapport"].includes(input.documentCategory ?? "") || !input.action || !AI_ACTIONS.includes(input.action) || !coreActions.has(input.action) || !allowedDocuments.has(input.documentType)) throw new HttpsError("invalid-argument", "Action ou document non pris en charge.", unsupportedInputDetails(input));
   const sectionsAreValid = input.sections && typeof input.sections === "object" && !Array.isArray(input.sections);
-  const scopeIsValid = input.scope === "full_document" || (input.documentCategory === "rapport" ? allowedScopes.has(input.scope ?? "") : Boolean(sectionsAreValid && input.scope && input.scope in input.sections!));
+  const requestedRawScopes = input.scope && typeof input.scope === "object" && input.scope.mode === "selected_sections" ? input.scope.sections : [input.scope];
+  if (input.documentCategory === "rapport" && requestedRawScopes.includes("signatures")) throw new HttpsError("invalid-argument", "Les signatures ne sont jamais traitées par l’IA.", { acceptedScopes: [...allowedScopes], version: AI_ASSISTANT_VERSION });
+  const reportSelection = sectionsAreValid ? normalizeAiScopeSelection(input.scope, Object.keys(input.sections!)) : { mode: "selected_sections" as const, sections: [] };
+  const scopeIsValid = input.documentCategory === "rapport" ? reportSelection.mode === "full_document" || reportSelection.sections.length > 0 : input.scope === "full_document" || Boolean(sectionsAreValid && typeof input.scope === "string" && input.scope in input.sections!);
   if (!scopeIsValid || !input.tone || !AI_TONES.includes(input.tone) || !input.length || !AI_LENGTHS.includes(input.length) || typeof input.additionalInstruction !== "string" || !input.additionalInstruction.trim() || !sectionsAreValid || !input.documentContext || typeof input.documentContext !== "object" || Array.isArray(input.documentContext)) throw new HttpsError("invalid-argument", "Paramètres, portée ou contexte du document invalides. L’instruction complémentaire est obligatoire et les signatures ne sont jamais traitées par l’IA.", { acceptedScopes: [...allowedScopes], acceptedTones: AI_TONES, acceptedLengths: AI_LENGTHS, version: AI_ASSISTANT_VERSION });
   const sections = input.sections as Record<string, string>;
-  const scope = input.scope as string;
+  const scope = input.scope as AiScope;
   if (input.documentCategory === "rapport") {
     const expectedFields = REPORT_SECTION_FIELDS[input.documentType];
     const receivedFields = Object.keys(sections);
-    const requestedFields = scope === "full_document" ? expectedFields ?? [] : expectedFields?.includes(scope) ? [scope] : [];
-    const targetValid = scope === "full_document" ? input.targetSection === undefined : input.targetSection?.key === scope && input.targetSection.value === sections[scope];
+    const selection = normalizeAiScopeSelection(scope, expectedFields ?? []);
+    const requestedFields = selection.mode === "full_document" ? expectedFields ?? [] : selection.sections;
+    const legacySingleScope = typeof scope === "string" && scope !== "full_document";
+    const targetValid = legacySingleScope ? input.targetSection?.key === scope && input.targetSection.value === sections[scope] : input.targetSection === undefined;
     if (!expectedFields || !targetValid || receivedFields.length !== requestedFields.length || requestedFields.some((field) => typeof sections[field] !== "string") || receivedFields.some((field) => !requestedFields.includes(field))) throw new HttpsError("invalid-argument", "Sections du rapport invalides.", { expectedFields: requestedFields, version: AI_ASSISTANT_VERSION });
   } else {
     const receivedFields = Object.keys(sections);
-    const expectedFields = scope === "full_document" ? receivedFields : [scope];
-    const targetValid = scope === "full_document" ? input.targetSection === undefined : input.targetSection?.key === scope && input.targetSection.value === sections[scope];
+    const expectedFields = scope === "full_document" ? receivedFields : [String(scope)];
+    const targetValid = scope === "full_document" ? input.targetSection === undefined : typeof scope === "string" && input.targetSection?.key === scope && input.targetSection.value === sections[scope];
     if (!targetValid || receivedFields.length !== expectedFields.length || receivedFields.some((field) => !expectedFields.includes(field)) || Object.values(sections).some((value) => typeof value !== "string")) throw new HttpsError("invalid-argument", "Sections du document invalides.", { expectedFields, version: AI_ASSISTANT_VERSION });
   }
   if (input.consentConfirmed !== true) throw new HttpsError("failed-precondition", "Le consentement de vérification humaine est requis.");
@@ -66,7 +88,8 @@ export function buildInstructions(input: AiWritingRequest) {
   const toneInstructions: Record<AiWritingRequest["tone"], string> = { administrative: "Adopte un ton administratif.", professional: "Adopte un ton professionnel.", neutral: "Adopte un ton neutre.", formal: "Adopte un ton formel." };
   const lengthInstructions: Record<AiWritingRequest["length"], string> = { short: "Produis une version courte et directe.", standard: "Produis une version équilibrée.", developed: "Produis une version détaillée, structurée et approfondie sans élargir la portée." };
   const context = input.documentContext;
-  const scopeInstruction = input.documentCategory === "rapport" ? input.scope === "full_document" ? `Traite chaque section séparément et retourne les clés suivantes : ${Object.keys(input.sections).join(", ")}. Ne déplace jamais une information d'une section vers une autre. La section decisions contient uniquement les décisions prises ; recommendations contient uniquement les suites conseillées. N'invente jamais de signataire.` : `Tu modifies uniquement la section ${input.scope}. Ne réécris et ne retourne aucune autre section. N'invente jamais de signataire.` : "";
+  const scopeKeys = requestedSectionKeys(input);
+  const scopeInstruction = input.documentCategory === "rapport" ? `Traite séparément et retourne exactement les sections suivantes, dans cet ordre : ${scopeKeys.join(", ")}. Ne retourne aucune autre section. Ne déplace jamais une information d'une section vers une autre. La section decisions contient uniquement les décisions prises ; recommendations contient uniquement les suites conseillées. N'invente jamais de signataire.` : "";
   const structuredReportInstruction = ` ${ACADEA_AI_IDENTITY} ${ACADEA_AI_SECTION_EXPERTISE} ${scopeInstruction}`;
   return `Tu es l'assistant rédactionnel administratif d'Acadéa. Écris uniquement en français correct. Tu proposes un brouillon à vérifier humainement. N'invente jamais de fait, personne, date, référence, montant, décision, sanction, vote ou signature. Préserve strictement les noms propres, dates, références, montants et numéros fournis. Ne génère jamais l'en-tête, la référence automatique, le statut, le signataire, la signature, le cachet ou les données d'envoi. La proposition doit refléter clairement l'action demandée. Ne recopie jamais simplement le texte source : une réponse identique est invalide pour toutes les actions, y compris la correction. Portée : ${input.scope}. Action : ${input.action}. Ton : ${input.tone}. Longueur : ${input.length}. Instruction complémentaire : ${input.additionalInstruction}. ${actionInstructions[input.action]} ${toneInstructions[input.tone]} ${lengthInstructions[input.length]}${structuredReportInstruction} Informations du document : catégorie=${input.documentCategory}; type=${input.documentTypeLabel}; date=${context.date || input.documentDate || "non fournie"}; heure=${context.time || input.documentTime || "non fournie"}; heure de fin=${context.endTime || "non fournie"}; établissement=${context.schoolName || input.schoolId}; année scolaire=${context.academicYearName || input.academicYearId || "non fournie"}. Utilise les date et heure fournies. Ne déclare pas qu'elles sont manquantes lorsqu'elles existent. Ne les invente pas lorsqu'elles sont absentes.`;
 }
@@ -74,11 +97,13 @@ export function buildInstructions(input: AiWritingRequest) {
 export function parseProviderResponse(value: unknown, input: AiWritingRequest, requestId: string): AiWritingResponse {
   if (!value || typeof value !== "object") throw new HttpsError("internal", "Réponse IA invalide.");
   const data = value as Record<string, unknown>;
-  if (data.scope !== input.scope) throw new HttpsError("internal", "La réponse de l’Assistant IA ne correspond pas à la portée demandée.", { code: "INVALID_AI_RESPONSE" });
+  const reportRequest = input.documentCategory === "rapport";
+  const expectedProviderScope = reportRequest ? providerScopeMode(input) : input.scope;
+  if (data.scope !== expectedProviderScope) throw new HttpsError("internal", "La réponse de l’Assistant IA ne correspond pas à la portée demandée.", { code: "INVALID_AI_RESPONSE" });
   const providerSection = data.section && typeof data.section === "object" ? data.section as { key?: unknown; value?: unknown } : undefined;
   const section = typeof providerSection?.key === "string" && typeof providerSection.value === "string" && providerSection.key === input.scope ? { key: providerSection.key, value: providerSection.value } : undefined;
-  const sections = input.scope === "full_document" ? normalizeOpenAiSections(data.sections) : section ? { [section.key]: section.value } : {};
-  const expectedKeys = input.scope === "full_document" ? Object.keys(input.sections) : [input.scope];
+  const sections = reportRequest || input.scope === "full_document" ? normalizeOpenAiSections(data.sections) : section ? { [section.key]: section.value } : {};
+  const expectedKeys = reportRequest ? requestedSectionKeys(input) : input.scope === "full_document" ? Object.keys(input.sections) : [String(input.scope)];
   if (!validateGeneratedSections(expectedKeys, sections)) throw new HttpsError("internal", "La réponse de l’Assistant IA est incomplète ou ne respecte pas la portée demandée.", { code: "INVALID_AI_RESPONSE", expectedFields: expectedKeys });
   const warnings = Array.isArray(data.warnings) ? data.warnings.filter((item) => item && typeof item === "object" && typeof (item as { message?: unknown }).message === "string") : [];
   const missingInformation = Array.isArray(data.missingInformation) ? data.missingInformation.filter((item) => item && typeof item === "object" && typeof (item as { field?: unknown }).field === "string") : [];
@@ -119,7 +144,7 @@ export const secretaryAiWritingAssistant = onCall({ region: FUNCTION_REGION, tim
   const apiKey = openAiApiKey.value(); if (!apiKey) throw new HttpsError("failed-precondition", "L'assistant IA n'est pas configuré.");
   let result: AiWritingResponse | undefined; let providerStatus = "failed"; const model = process.env.OPENAI_MODEL || "gpt-5-mini";
   try {
-    const responseFormat = input.scope === "full_document" ? buildStructuredWritingResponseFormat(Object.keys(input.sections)) : buildSingleSectionWritingResponseFormat(input.scope);
+    const responseFormat = input.documentCategory === "rapport" ? buildStructuredWritingResponseFormat(requestedSectionKeys(input), providerScopeMode(input)) : input.scope === "full_document" ? buildStructuredWritingResponseFormat(Object.keys(input.sections)) : buildSingleSectionWritingResponseFormat(String(input.scope));
     const transformation = await runTransformationAttempts({ ...input, originalText: original.sanitized }, async (retryCount) => {
       const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 45000);
       const retryInstruction = retryCount === 1 ? " La première réponse était identique à la source. Produis cette fois une transformation réelle et visible, sans inventer de faits." : "";

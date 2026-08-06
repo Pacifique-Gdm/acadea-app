@@ -51,7 +51,7 @@ export const OPENAI_WRITING_RESPONSE_FORMAT = {
   },
 } as const;
 
-export function buildStructuredWritingResponseFormat(sectionKeys: string[]) {
+export function buildStructuredWritingResponseFormat(sectionKeys: string[], scopeMode: "full_document" | "selected_sections" = "full_document") {
   return {
     ...OPENAI_WRITING_RESPONSE_FORMAT,
     name: "acadea_structured_report_response",
@@ -59,7 +59,7 @@ export function buildStructuredWritingResponseFormat(sectionKeys: string[]) {
       ...OPENAI_WRITING_RESPONSE_FORMAT.schema,
       properties: {
         ...OPENAI_WRITING_RESPONSE_FORMAT.schema.properties,
-        scope: { type: "string", enum: ["full_document"] },
+        scope: { type: "string", enum: [scopeMode] },
         sections: {
           type: "object",
           additionalProperties: false,

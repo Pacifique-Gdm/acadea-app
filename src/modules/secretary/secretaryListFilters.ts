@@ -9,7 +9,7 @@ export function matchesReportSearch(report: SecretaryReport, query: string, type
   if (!needle) return true;
   const values = [
     report.reportNumber, report.title, typeLabel, report.documentDate, report.startTime, report.endTime,
-    report.authorName, ...Object.values(report.structuredContent ?? {}), ...(report.signatories ?? []).map((item) => item.name),
+    report.authorName, ...Object.values(report.structuredContent ?? {}), ...(report.signatories ?? []).flatMap((item) => [item.name, item.functionTitle]),
   ];
   return normalizeSecretarySearch(values.join(" ")).includes(needle);
 }

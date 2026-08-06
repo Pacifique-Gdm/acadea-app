@@ -23,7 +23,7 @@ describe("requête simplifiée de l'assistant rédactionnel", () => {
   it.each(["reformulate", "summarize"] as const)("intègre l'instruction complémentaire pour %s + Décisions", (action) => {
     const instructions = buildInstructions(request(action, "decisions"));
     expect(instructions).toContain("Instruction complémentaire : Conserver strictement les faits fournis.");
-    expect(instructions).toContain("Tu modifies uniquement la section decisions");
+    expect(instructions).toContain("retourne exactement les sections suivantes, dans cet ordre : decisions");
   });
 
   it("isole toutes les portées autorisées et refuse Signatures", () => {
@@ -41,19 +41,27 @@ describe("requête simplifiée de l'assistant rédactionnel", () => {
     expect(parsed.sections).not.toHaveProperty("signatures");
   });
 
+  it("accepte une portée multi-sélection canonique et rejette toute réponse partielle ou supplémentaire", () => {
+    const input = validateInput({ ...request("reformulate"), scope: { mode: "selected_sections", sections: ["subject", "decisions"] }, sections: { subject: sections.subject, decisions: sections.decisions } });
+    expect(input.scope).toEqual({ mode: "selected_sections", sections: ["subject", "decisions"] });
+    expect(parseProviderResponse({ proposedText: "", scope: "selected_sections", sections: { subject: "Objet formalisé", decisions: "Décision applicable" }, warnings: [], missingInformation: [] }, input, "multi").sections).toEqual({ subject: "Objet formalisé", decisions: "Décision applicable" });
+    expect(() => parseProviderResponse({ proposedText: "", scope: "selected_sections", sections: { subject: "Objet formalisé" }, warnings: [], missingInformation: [] }, input, "partial")).toThrowError("incomplète");
+    expect(() => parseProviderResponse({ proposedText: "", scope: "selected_sections", sections: { subject: "Objet", decisions: "Décision", location: "Salle" }, warnings: [], missingInformation: [] }, input, "extra")).toThrowError("incomplète");
+  });
+
   it("effectue une seconde tentative puis retourne AI_NO_TRANSFORMATION", async () => {
     const input = request("reformulate", "decisions");
     let attempts = 0;
     await expect(runTransformationAttempts(input, async (retryCount) => {
       attempts += 1;
-      return parseProviderResponse({ proposedText: "", scope: "decisions", section: { key: "decisions", value: "Contrôle hebdomadaire" }, warnings: [], missingInformation: [] }, input, `same-${retryCount}`);
+      return parseProviderResponse({ proposedText: "", scope: "selected_sections", sections: { decisions: "Contrôle hebdomadaire" }, warnings: [], missingInformation: [] }, input, `same-${retryCount}`);
     })).rejects.toMatchObject({ code: "failed-precondition", details: { code: "AI_NO_TRANSFORMATION" } });
     expect(attempts).toBe(2);
   });
 
   it("accepte une véritable transformation au second essai", async () => {
     const input = request("summarize", "decisions");
-    const outcome = await runTransformationAttempts(input, async (retryCount) => parseProviderResponse({ proposedText: "", scope: "decisions", section: { key: "decisions", value: retryCount ? "Contrôle chaque semaine" : "Contrôle hebdomadaire" }, warnings: [], missingInformation: [] }, input, `retry-${retryCount}`));
+    const outcome = await runTransformationAttempts(input, async (retryCount) => parseProviderResponse({ proposedText: "", scope: "selected_sections", sections: { decisions: retryCount ? "Contrôle chaque semaine" : "Contrôle hebdomadaire" }, warnings: [], missingInformation: [] }, input, `retry-${retryCount}`));
     expect(outcome.retryCount).toBe(1);
     expect(outcome.result.sections).toEqual({ decisions: "Contrôle chaque semaine" });
   });

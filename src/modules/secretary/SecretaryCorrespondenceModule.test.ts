@@ -129,7 +129,7 @@ describe("module Courrier du Secrétaire", () => {
     expect(outgoingPdfSource).not.toMatch(/Courrier administratif/i);
     expect(outgoingPdfSource).not.toContain('subtitle: item.referenceNumber');
     expect(outgoingPdfSource).toContain('style="margin:12px 18px 0"');
-    expect(sharedPdfSource).toContain('showDocumentTitle ? `<div class="document-title">');
+    expect(sharedPdfSource).toContain('showDocumentTitle ? `<div class="document-title');
     expect(sharedPdfSource).toContain("showDocumentTitle = true");
     expect(moduleSource).toContain('title: "Courrier administratif"');
   });

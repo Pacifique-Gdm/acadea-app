@@ -52,19 +52,33 @@ function correspondence(overrides: Partial<NonNullable<Correspondence["outgoing"
 }
 
 describe("PDF du courrier sortant — bloc de signature", () => {
-  it("souligne Objet, la référence et le lieu sans ajouter de ligne décorative", () => {
+  it("souligne uniquement les valeurs de l’objet et de la référence, jamais le lieu ni la date", () => {
     const html = outgoingCorrespondencePdfSections(correspondence()).join("");
-    expect(html).toContain("<u>Réf. : CS/SEC/0045/2026</u>");
-    expect(html).toContain("<u>Kinshasa</u>");
-    expect(html).toContain("<u>Objet :</u>");
-    expect(html).not.toContain("border-bottom");
+    expect(html).toContain("Réf. : <u>CS/SEC/0045/2026</u>");
+    expect(html).toContain("Kinshasa, le 2026-08-03");
+    expect(html).not.toContain("<u>Kinshasa</u>");
+    expect(html).toContain("<strong>Objet :</strong> <u>Objet administratif de test</u>");
+    expect(html).not.toContain("<u>Objet :</u>");
   });
 
-  it("supprime le retrait de première ligne et partage la limite utile du destinataire", () => {
+  it("aligne le destinataire et la première ligne de chaque paragraphe sur le milieu réel", () => {
     const html = outgoingCorrespondencePdfSections(correspondence()).join("");
-    expect(html).toContain('class="outgoing-correspondence-content" style="width:100%');
+    expect(html).toContain('class="outgoing-correspondence-content" style="width:50%');
+    expect(html).toContain("margin:10px 0 16px 50%");
+    expect(html).toContain("border-bottom:1px solid #14213d");
     expect(html).toContain('class="secretary-pdf-main-text outgoing-correspondence-paragraph"');
-    expect(html).toContain("text-indent:0");
+    expect(html).toContain("text-align:justify");
+    expect(html).toContain("text-justify:inter-word");
+    expect(html).toContain("text-indent:50%");
+    expect(html).toContain("line-height:1.15");
+    expect(html).toContain("margin:0 0 10px");
+  });
+
+  it("omet proprement la référence lorsqu’elle est absente", () => {
+    const html = outgoingCorrespondencePdfSections({ ...correspondence(), referenceNumber: "" }).join("");
+    expect(html).not.toContain("Réf. :");
+    expect(html).not.toContain("<u></u>");
+    expect(html).toContain("Kinshasa, le 2026-08-03");
   });
 
   it("génère un seul espace manuscrit suivi du nom puis de la fonction", () => {

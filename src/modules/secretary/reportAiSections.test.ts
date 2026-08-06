@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyReportAiSections, buildReportAiSections, editedReportSectionsToApply, getTargetSections, MEETING_MINUTES_SECTION_ORDER, REPORT_AI_SECTION_DEFINITIONS, resolveGeneratedScope, validateAiSectionsForScope } from "./reportAiSections";
+import { applyReportAiSections, buildReportAiSections, editedReportSectionsToApply, getTargetSections, MEETING_MINUTES_SECTION_ORDER, normalizeAiScopeSelection, REPORT_AI_SECTION_DEFINITIONS, resolveGeneratedScope, selectedAiScopeKeys, validateAiSectionsForScope } from "./reportAiSections";
 
 const fields = ["lieu", "objet", "participants", "points abordés", "décisions", "recommandations"];
 
@@ -19,6 +19,24 @@ describe("sections IA d'un rapport", () => {
     expect(editedReportSectionsToApply("full_document", current, edited)).toEqual(edited);
     expect(editedReportSectionsToApply("decisions", current, { decisions: "Décision corrigée", recommendations: "Ne pas appliquer" })).toEqual({ decisions: "Décision corrigée" });
     expect(getTargetSections("recommendations", current)).toEqual({ recommendations: current.recommendations });
+  });
+
+  it("normalise les anciennes portées et ordonne une multi-sélection", () => {
+    const keys = ["location", "subject", "participants", "decisions"];
+    expect(normalizeAiScopeSelection("full_document", keys)).toEqual({ mode: "full_document" });
+    expect(normalizeAiScopeSelection("decisions", keys)).toEqual({ mode: "selected_sections", sections: ["decisions"] });
+    expect(normalizeAiScopeSelection({ mode: "selected_sections", sections: ["decisions", "subject", "decisions"] }, keys)).toEqual({ mode: "selected_sections", sections: ["subject", "decisions"] });
+    expect(selectedAiScopeKeys({ mode: "selected_sections", sections: ["decisions", "subject"] }, keys)).toEqual(["subject", "decisions"]);
+  });
+
+  it("envoie, valide et applique exactement plusieurs sections", () => {
+    const current = { location: "Salle", subject: "Objet", decisions: "Avant", recommendations: "Avant" };
+    const scope = { mode: "selected_sections" as const, sections: ["subject", "decisions"] };
+    expect(getTargetSections(scope, current)).toEqual({ subject: "Objet", decisions: "Avant" });
+    expect(validateAiSectionsForScope(scope, { subject: "Objet", decisions: "Avant" }, { subject: "Objet formalisé", decisions: "Décision applicable" })).toBe(true);
+    expect(validateAiSectionsForScope(scope, { subject: "Objet", decisions: "Avant" }, { subject: "Objet formalisé" })).toBe(false);
+    expect(validateAiSectionsForScope(scope, { subject: "Objet", decisions: "Avant" }, { subject: "Objet formalisé", decisions: "Décision", location: "Autre" })).toBe(false);
+    expect(editedReportSectionsToApply(scope, current, { subject: "Objet formalisé", decisions: "Décision", location: "Ignorer" })).toEqual({ subject: "Objet formalisé", decisions: "Décision" });
   });
 
   it("affiche et applique prioritairement la portée réellement générée", () => {

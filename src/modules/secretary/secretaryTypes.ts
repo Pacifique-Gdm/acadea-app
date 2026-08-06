@@ -1,4 +1,6 @@
 import type { PdfGenerationSettings } from "../../utils/pdfSettings";
+import type { ReportSignatory } from "./reportSignatories";
+export type { ReportSignatory } from "./reportSignatories";
 
 export type CorrespondenceDirection = "incoming" | "outgoing";
 export type CorrespondenceStatus = "draft" | "pending_validation" | "validated" | "signed" | "ready_to_send" | "sent" | "received" | "archived" | "cancelled";
@@ -168,11 +170,6 @@ export type StudentMedicalRecordStatus = "complete" | "incomplete" | "missing";
 
 export type SecretaryReportType = "meeting_minutes" | "activity_report" | "incident_report" | "official_minutes" | "administrative_note" | "other";
 export type SecretaryReportStatus = "draft" | "finalized" | "archived";
-
-export interface ReportSignatory {
-  id: string;
-  name: string;
-}
 
 export interface SecretaryReport {
   id: string;

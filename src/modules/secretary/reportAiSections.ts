@@ -1,4 +1,5 @@
 import type { SecretaryReportType } from "./secretaryTypes";
+import type { AiScope, AiScopeSelection } from "./aiWritingTypes";
 
 export interface ReportAiSectionDefinition { key: string; formField: string; label: string }
 
@@ -47,23 +48,37 @@ export function applyReportAiSections(type: SecretaryReportType, current: Record
   return next;
 }
 
-export function getTargetSections(scope: string, sections: Record<string, string>) {
-  if (scope === "full_document") return { ...sections };
-  return scope in sections ? { [scope]: sections[scope] ?? "" } : {};
+export function normalizeAiScopeSelection(scope: AiScope, availableKeys: string[]): AiScopeSelection {
+  if (scope && typeof scope === "object") {
+    if (scope.mode === "full_document") return { mode: "full_document" };
+    const selected = availableKeys.filter((key) => scope.sections.includes(key));
+    return selected.length ? { mode: "selected_sections", sections: selected } : { mode: "full_document" };
+  }
+  if (scope === "full_document") return { mode: "full_document" };
+  return availableKeys.includes(scope) ? { mode: "selected_sections", sections: [scope] } : { mode: "full_document" };
 }
 
-export function resolveGeneratedScope(generatedScope: string | undefined, responseScope: string | undefined, currentScope: string) {
+export function selectedAiScopeKeys(scope: AiScope, availableKeys: string[]) {
+  const normalized = normalizeAiScopeSelection(scope, availableKeys);
+  return normalized.mode === "full_document" ? availableKeys : normalized.sections;
+}
+
+export function getTargetSections(scope: AiScope, sections: Record<string, string>) {
+  return Object.fromEntries(selectedAiScopeKeys(scope, Object.keys(sections)).map((key) => [key, sections[key] ?? ""]));
+}
+
+export function resolveGeneratedScope(generatedScope: AiScope | undefined, responseScope: AiScope | undefined, currentScope: AiScope) {
   return generatedScope ?? responseScope ?? currentScope;
 }
 
-export function validateAiSectionsForScope(scope: string, expectedSections: Record<string, string>, generated: Record<string, string>) {
-  const expectedKeys = scope === "full_document" ? Object.keys(expectedSections) : [scope];
+export function validateAiSectionsForScope(scope: AiScope, expectedSections: Record<string, string>, generated: Record<string, string>) {
+  const expectedKeys = selectedAiScopeKeys(scope, Object.keys(expectedSections));
   const generatedKeys = Object.keys(generated);
   if (generatedKeys.length !== expectedKeys.length || generatedKeys.some((key) => !expectedKeys.includes(key)) || expectedKeys.some((key) => !(key in generated))) return false;
   return expectedKeys.every((key) => typeof generated[key] === "string" && generated[key].trim().length > 0 && !/^[\p{P}\p{S}\s]+$/u.test(generated[key]));
 }
 
-export function editedReportSectionsToApply(scope: string, current: Record<string, string>, edited: Record<string, string>) {
-  const keys = scope === "full_document" ? Object.keys(edited) : [scope];
+export function editedReportSectionsToApply(scope: AiScope, current: Record<string, string>, edited: Record<string, string>) {
+  const keys = selectedAiScopeKeys(scope, Object.keys(current));
   return Object.fromEntries(keys.filter((key) => key in current && typeof edited[key] === "string").map((key) => [key, edited[key]]));
 }

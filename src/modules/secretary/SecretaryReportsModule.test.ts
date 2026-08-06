@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 describe("formulaire Nouveau rapport", () => {
   const source = readFileSync(new URL("./SecretaryReportsModule.tsx", import.meta.url), "utf8");
   const sectionSource = readFileSync(new URL("./reportAiSections.ts", import.meta.url), "utf8");
+  const signatorySource = readFileSync(new URL("./reportSignatories.ts", import.meta.url), "utf8");
   const pdfSource = readFileSync(new URL("../../utils/pdf.ts", import.meta.url), "utf8");
 
   it("laisse le Select actif pour une nouvelle création et expose tous les types", () => {
@@ -53,28 +54,35 @@ describe("formulaire Nouveau rapport", () => {
     expect(source).toContain("await createSecretaryReport");
   });
 
-  it("affiche les titres du compte rendu en majuscules et remplace le textarea Signatures", () => {
+  it("affiche des lignes structurées Noms et Fonction pour les signataires", () => {
     for (const label of ["LIEU", "OBJET", "PARTICIPANTS", "POINTS ABORDÉS", "DÉCISIONS", "RECOMMANDATIONS", "SIGNATURES"]) expect(`${source}\n${sectionSource}`).toContain(label);
     expect(source).toContain('className="text-sm font-bold uppercase">SIGNATURES');
-    expect(source).toContain('aria-label="Nom du signataire"');
+    expect(source).toContain('placeholder="Noms"');
+    expect(source).toContain('placeholder="Fonction"');
     expect(source).toContain("Ajouter un signataire");
-    expect(source).toContain("addReportSignatory(signatories, signatoryName)");
+    expect(source).toContain("addReportSignatory(signatories)");
+    expect(source).toContain("prepareReportSignatories(signatories)");
     expect(source).not.toContain('key={field}>{field}<textarea');
   });
 
   it("produit un PDF administratif justifié avec cinq cartes et trois signataires maximum par ligne", () => {
     expect(source).toContain('class="report-info-row"');
     expect(source).toContain('class="report-justified-text"');
-    expect(source).toContain('class="report-signatories"');
-    expect(source).toContain('pdfSection("SIGNATURES"');
+    expect(signatorySource).toContain('class="report-signatories"');
+    expect(source).not.toContain('pdfSection("SIGNATURES"');
+    expect(source).toContain("reportSignatoriesPdfHtml(reportSignatories)");
+    expect(signatorySource).toContain('class="report-signatures-block"');
+    expect(signatorySource).toContain('class="report-signatory-name"');
+    expect(signatorySource).toContain('class="report-signatory-function"');
     expect(source).toContain("normalizeReportSignatories(report.signatories, report.structuredContent.signatures)");
     expect(source).toContain("MEETING_MINUTES_SECTION_ORDER.filter");
-    expect(source).toContain('report-signatory-row--${row.length}');
+    expect(signatorySource).toContain('report-signatory-row--${row.length}');
     expect(pdfSource).toContain(".report-signatory-row--1 .report-signatory");
     expect(pdfSource).toContain("grid-column: 2");
     expect(pdfSource).toContain(".report-signatory-row--2 .report-signatory:first-child");
     expect(pdfSource).toContain(".report-signatory-row--2 .report-signatory:last-child");
     expect(pdfSource).toContain("grid-column: 3");
+    expect(pdfSource).not.toContain("border-top: 1px solid #14213d;\n      text-align: center;\n      page-break-inside");
   });
 
   it("affiche et applique les mêmes réglages au rapport enregistré et prévisualisé", () => {

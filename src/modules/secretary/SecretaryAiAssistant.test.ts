@@ -108,14 +108,16 @@ describe("assistant IA du Secrétaire", () => {
   });
 
   it("utilise les portées canoniques et une application atomique", () => {
-    expect(component).toContain('<option value="full_document">Document complet</option>');
+    expect(component).toContain('aria-label="Document complet"');
+    expect(component).toContain('mode: "selected_sections"');
+    expect(component).toContain("selectedAiScopeKeys");
     expect(component).not.toContain('<option value="single_section">Section unique</option>');
     expect(component).not.toContain('effectiveScope === "single_section"');
-    expect(component).toContain('targetSection: { key: effectiveScope');
+    expect(component).toContain('documentCategory !== "rapport"');
     expect(component).toContain("scope: effectiveScope");
     expect(component).toContain("if (onApplySections) onApplySections(valuesToApply)");
     expect(component).toContain("sectionKeysSent: Object.keys(sectionsSent)");
     expect(component).toContain("resolveGeneratedScope(generatedParameters?.scope, result?.scope, effectiveScope)");
-    expect(component).toContain('displayedScope === "full_document" ? Object.keys(editableSections) : [displayedScope]');
+    expect(component).toContain("displayedScopeKeys.map");
   });
 });

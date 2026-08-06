@@ -38,6 +38,7 @@ type AcadPdfOptions = {
   subtitle?: string;
   generatedAt?: Date;
   showDocumentTitle?: boolean;
+  centerDocumentTitle?: boolean;
   pdfSettings?: Partial<PdfGenerationSettings>;
   sections: string[];
 };
@@ -155,14 +156,14 @@ export function pdfSection(title: string, bodyHtml: string, options: { pageBreak
   `;
 }
 
-export async function renderAcadPdfPreview({ filename, title, school, year, subtitle, generatedAt = new Date(), showDocumentTitle = true, pdfSettings, sections }: AcadPdfOptions) {
+export async function renderAcadPdfPreview({ filename, title, school, year, subtitle, generatedAt = new Date(), showDocumentTitle = true, centerDocumentTitle = false, pdfSettings, sections }: AcadPdfOptions) {
   const layout = getPdfLayout(pdfSettings);
   const doc = new jsPDF({ unit: "mm", format: layout.jsPdfFormat, orientation: "portrait", compress: true }) as PdfDoc;
   const viewer = openPdfViewerShell({ filename, title });
   const logoDataUrl = await loadLogoDataUrl(school.logoUrl);
   const element = document.createElement("div");
   element.className = "acadea-pdf";
-  element.innerHTML = buildPdfHtml({ title, school, year, subtitle, generatedAt, logoDataUrl, showDocumentTitle, sections, pdfSettings: layout.settings, renderWidth: layout.windowWidth });
+  element.innerHTML = buildPdfHtml({ title, school, year, subtitle, generatedAt, logoDataUrl, showDocumentTitle, centerDocumentTitle, sections, pdfSettings: layout.settings, renderWidth: layout.windowWidth });
   if (!element.textContent?.trim()) {
     showPdfError(viewer, "Le document PDF ne contient aucune donnée à afficher.");
     return;
@@ -252,6 +253,7 @@ function buildPdfHtml({
   generatedAt,
   logoDataUrl,
   showDocumentTitle,
+  centerDocumentTitle,
   sections,
   pdfSettings,
   renderWidth,
@@ -263,6 +265,7 @@ function buildPdfHtml({
   generatedAt: Date;
   logoDataUrl: string;
   showDocumentTitle: boolean;
+  centerDocumentTitle: boolean;
   sections: string[];
   pdfSettings: PdfGenerationSettings;
   renderWidth: number;
@@ -285,7 +288,7 @@ function buildPdfHtml({
         ${year ? `<p>Année scolaire : <strong>${escapePdfHtml(year.name)}</strong></p>` : ""}
       </div>
     </header>
-    ${showDocumentTitle ? `<div class="document-title">
+    ${showDocumentTitle ? `<div class="document-title${centerDocumentTitle ? " document-title--center" : ""}">
       <p>Acadéa</p>
       <h2>${escapePdfHtml(title)}</h2>
       ${subtitle ? `<span>${escapePdfHtml(subtitle)}</span>` : ""}
@@ -399,6 +402,8 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       page-break-inside: auto;
       break-inside: auto;
     }
+    .document-title--center { text-align: center; }
+    .document-title--center h2 { font-weight: 800; letter-spacing: normal; word-spacing: normal; }
     .pdf-page-break {
       display: block;
       height: 0;
@@ -479,15 +484,20 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
     .report-signatory {
       min-width: 0;
       padding-top: 42px;
-      border-top: 1px solid #14213d;
       text-align: center;
       page-break-inside: avoid;
       break-inside: avoid;
     }
     .report-signatory span {
       display: block;
-      font-weight: 700;
       overflow-wrap: anywhere;
+    }
+    .report-signatory-name { font-weight: 700; }
+    .report-signatory-function { margin-top: 2px; }
+    .report-signatures-block {
+      margin: 28px 18px 0;
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
     .info-box {
       min-height: 36px;
@@ -639,7 +649,7 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       height: 1px;
     }
     .outgoing-signature-row {
-      margin: 22px 18px 0;
+      margin: 36px 18px 0;
       display: grid;
       gap: 10px;
       justify-items: end;

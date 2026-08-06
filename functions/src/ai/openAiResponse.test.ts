@@ -42,6 +42,14 @@ describe("réponse REST OpenAI", () => {
     expect(format.schema.properties.scope.enum).toEqual(["full_document"]);
   });
 
+  it("construit un schéma strict pour plusieurs sections sélectionnées", () => {
+    const keys = ["subject", "decisions", "recommendations"];
+    const format = buildStructuredWritingResponseFormat(keys, "selected_sections");
+    expect(format.schema.properties.scope.enum).toEqual(["selected_sections"]);
+    expect(format.schema.properties.sections.required).toEqual(keys);
+    expect(format.schema.properties.sections.additionalProperties).toBe(false);
+  });
+
   it("construit un schéma distinct pour une section unique", () => {
     const format = buildSingleSectionWritingResponseFormat("decisions");
     expect(format.schema.properties.scope.enum).toEqual(["decisions"]);

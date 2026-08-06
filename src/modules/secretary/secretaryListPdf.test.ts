@@ -6,8 +6,9 @@ describe("exports PDF filtrés du Secrétaire", () => {
 
   it("utilise exclusivement les lignes reçues et exclut la colonne Action", () => {
     expect(source).toContain("rows, school, year, filters");
-    expect(source).toContain('title: "LISTE DES COURRIERS"');
-    expect(source).toContain('title: "LISTE DES RAPPORTS"');
+    expect(source).toContain('correspondence: "LISTE DES COURRIERS"');
+    expect(source).toContain('reports: "LISTE DES RAPPORTS"');
+    expect(source.match(/centerDocumentTitle: true/g)).toHaveLength(2);
     expect(source).toContain('label: "NOMBRE DE RÉSULTATS", value: String(rows.length)');
     expect(source).not.toContain('header: "ACTION"');
     expect(source).not.toContain('header: "ACTIONS"');
