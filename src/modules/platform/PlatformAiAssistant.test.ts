@@ -52,7 +52,7 @@ describe("contrôle Super Administrateur de l’Assistant IA", () => {
   });
 
   it("réserve les compteurs aux Functions dans les règles", () => {
-    expect(rules).toContain("request.resource.data.aiAssistant.monthlyUsage == 0");
+    expect(rules).toContain("request.resource.data.aiAssistant.monthlyUsage == resource.data.aiAssistant.monthlyUsage");
     expect(rules).toContain("request.resource.data.aiAssistant.updatedBy == request.auth.uid");
   });
 
@@ -61,10 +61,10 @@ describe("contrôle Super Administrateur de l’Assistant IA", () => {
     expect(platform).toContain('title="Réinitialiser le quota mensuel"');
     expect(platform).toContain("setAiQuotaResetTarget(drawerSchool)");
     expect(platform).toContain("confirmSchoolAiQuotaReset");
-    expect(service).toContain('"aiAssistant.monthlyUsage": 0');
+    expect(service).toContain('"platformAiResetMonthlyUsage"');
     expect(service).toContain("monthlyLimit: current.monthlyLimit");
     expect(service).toContain("enabled: school.aiAssistant?.enabled === true");
-    expect(service).toContain("transaction.set(auditRef");
+    expect(service).not.toContain('transaction.update(schoolRef, { "aiAssistant.monthlyUsage": 0');
     expect(service).toContain("Ancienne consommation");
   });
 });

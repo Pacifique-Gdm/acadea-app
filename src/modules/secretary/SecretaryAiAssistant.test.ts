@@ -119,4 +119,10 @@ describe("assistant IA du Secrétaire", () => {
     expect(component).toContain("resolveGeneratedScope(generatedParameters?.scope, result?.scope, effectiveScope)");
     expect(component).toContain("displayedScopeKeys.map");
   });
+
+  it("ajoute une cle d'idempotence sans transmettre de compteur client", () => {
+    expect(service).toContain("idempotencyKey: crypto.randomUUID()");
+    expect(service).not.toContain("monthlyUsage:");
+    expect(service).not.toContain("monthlyLimit:");
+  });
 });

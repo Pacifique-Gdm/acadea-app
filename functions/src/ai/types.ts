@@ -8,6 +8,7 @@ export type AiScopeSelection = { mode: "full_document" } | { mode: "selected_sec
 export type AiScope = "full_document" | string | AiScopeSelection;
 
 export interface AiWritingRequest {
+  idempotencyKey: string;
   schoolId: string;
   academicYearId?: string;
   documentId?: string;

@@ -6,8 +6,8 @@ import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { AI_ACTIONS, AI_LENGTHS, AI_TONES, type AiAction, type AiScope, type AiScopeSelection, type AiWritingRequest, type AiWritingResponse } from "./types.js";
 import { sanitizeAiContext, sanitizeAiText } from "./sanitize.js";
 import { buildStructuredWritingResponseFormat, classifyOpenAiFailure, extractOpenAiResponseText, isGeneratedContentIdentical, normalizeOpenAiSections, readOpenAiFailure, validateGeneratedSections } from "./openAiResponse.js";
-import { assertSecretaryAiIdentity } from "./schoolAiAccess.js";
-import { incrementSchoolAiUsageAfterSuccess, prepareSchoolAiUsage, type AiUsageDatabase } from "./schoolAiUsage.js";
+import { assertSecretaryAiIdentity, assertSecretaryAiProfile } from "./schoolAiAccess.js";
+import { completeSchoolAiUsage, prepareSchoolAiUsage, releaseSchoolAiUsage, reserveSchoolAiUsage, type AiUsageDatabase } from "./schoolAiUsage.js";
 
 const openAiApiKey = defineSecret("OPENAI_API_KEY");
 export const AI_ASSISTANT_VERSION = "2026-07-30-actions-v2";
@@ -54,6 +54,7 @@ function providerScopeMode(input: Pick<AiWritingRequest, "scope" | "sections">) 
 export function validateInput(value: unknown): AiWritingRequest {
   if (!value || typeof value !== "object") throw new HttpsError("invalid-argument", "Demande IA invalide.", { version: AI_ASSISTANT_VERSION });
   const input = value as Partial<AiWritingRequest>;
+  if (typeof input.idempotencyKey !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.idempotencyKey)) throw new HttpsError("invalid-argument", "Clé d’idempotence invalide.");
   if (!input.schoolId || !input.documentType || !input.documentTypeLabel?.trim() || !["courrier", "rapport"].includes(input.documentCategory ?? "") || !input.action || !AI_ACTIONS.includes(input.action) || !coreActions.has(input.action) || !allowedDocuments.has(input.documentType)) throw new HttpsError("invalid-argument", "Action ou document non pris en charge.", unsupportedInputDetails(input));
   const sectionsAreValid = input.sections && typeof input.sections === "object" && !Array.isArray(input.sections);
   const requestedRawScopes = input.scope && typeof input.scope === "object" && input.scope.mode === "selected_sections" ? input.scope.sections : [input.scope];
@@ -125,6 +126,8 @@ export const secretaryAiWritingAssistant = onCall({ region: FUNCTION_REGION, tim
   const db = getFirestore();
   const { auth, schoolId } = assertSecretaryAiIdentity(request.auth, input.schoolId);
   const usageDatabase = db as unknown as AiUsageDatabase;
+  const profileSnapshot = await db.doc(`users/${auth.uid}`).get();
+  assertSecretaryAiProfile(profileSnapshot.exists ? profileSnapshot.data() : undefined, auth.uid, schoolId);
   const { school: schoolData } = await prepareSchoolAiUsage(usageDatabase, schoolId);
   const role = auth.token.role;
   const settings = (schoolData.aiSettings ?? {}) as Record<string, unknown>;
@@ -135,6 +138,8 @@ export const secretaryAiWritingAssistant = onCall({ region: FUNCTION_REGION, tim
   const sentCharacters = original.sanitized.length + JSON.stringify(context).length;
   if (sentCharacters > maxCharacters) throw new HttpsError("invalid-argument", `Le texte dépasse la limite de ${maxCharacters} caractères.`);
   const apiKey = openAiApiKey.value(); if (!apiKey) throw new HttpsError("failed-precondition", "L'assistant IA n'est pas configuré.");
+  await reserveSchoolAiUsage(usageDatabase, { schoolId, userId: auth.uid, idempotencyKey: input.idempotencyKey });
+  let generationSucceeded = false;
   let result: AiWritingResponse | undefined; let providerStatus = "failed"; const model = process.env.OPENAI_MODEL || "gpt-5-mini";
   try {
     const responseFormat = buildStructuredWritingResponseFormat(requestedSectionKeys(input), providerScopeMode(input));
@@ -161,10 +166,12 @@ export const secretaryAiWritingAssistant = onCall({ region: FUNCTION_REGION, tim
     });
     result = transformation.result;
     if (!result) throw new HttpsError("internal", "La réponse de l’Assistant IA ne contient pas de proposition exploitable.", { code: "INVALID_AI_RESPONSE" });
-    await incrementSchoolAiUsageAfterSuccess(usageDatabase, schoolId);
+    generationSucceeded = true;
+    await completeSchoolAiUsage(usageDatabase, schoolId, auth.uid, input.idempotencyKey);
     providerStatus = "success";
     if (original.detected.length) result.warnings.unshift({ code: "sensitive_data_masked", severity: "warning", title: "Données sensibles masquées", message: "Certaines informations sensibles ont été retirées avant l'envoi.", field: input.section ?? "document" });
   } catch (error) {
+    if (!generationSucceeded) await releaseSchoolAiUsage(usageDatabase, schoolId, auth.uid, input.idempotencyKey).catch((releaseError) => logger.error("AI quota release failed", { requestId, schoolId, releaseError }));
     if (error instanceof HttpsError) throw error;
     throw new HttpsError(error instanceof Error && error.name === "AbortError" ? "deadline-exceeded" : "unavailable", "L'assistant IA est temporairement indisponible. Votre texte n'a pas été modifié.");
   } finally {

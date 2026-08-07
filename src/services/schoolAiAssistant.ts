@@ -1,6 +1,7 @@
 import * as firestore from "firebase/firestore";
 import { doc, getDoc, runTransaction } from "firebase/firestore";
-import { db } from "../firebase";
+import { getFunctions, httpsCallable } from "firebase/functions";
+import { app, db } from "../firebase";
 import type { AppUser, AuditLog, School } from "../types";
 import { canUseFirestoreData } from "./firestoreData";
 
@@ -83,19 +84,10 @@ export async function resetSchoolAiMonthlyUsage(user: AppUser, school: Pick<Scho
   const current = schoolAiUsageThisMonth(school.aiAssistant);
   const localValue = { ...school.aiAssistant, enabled: school.aiAssistant?.enabled === true, monthlyLimit: current.monthlyLimit, monthlyUsage: 0, usageMonth: current.usageMonth, updatedAt: new Date().toISOString(), updatedBy: user.id };
   const audit = buildAuditLog(user, school.id, "Réinitialisation du quota mensuel de l’Assistant IA", `Ancienne consommation : ${current.monthlyUsage}. Nouvelle consommation : 0. Quota mensuel inchangé : ${current.monthlyLimit}.`);
-  if (canUseFirestoreData() && db) {
-    const schoolRef = doc(db, "schools", school.id);
-    const auditRef = doc(db, "auditLogs", audit.id);
-    await runTransaction(db, async (transaction) => {
-      const snapshot = await transaction.get(schoolRef);
-      if (!snapshot.exists()) throw new Error("Établissement introuvable.");
-      const storedUsage = schoolAiUsageThisMonth(snapshot.data()?.aiAssistant as School["aiAssistant"]);
-      audit.details = `Ancienne consommation : ${storedUsage.monthlyUsage}. Nouvelle consommation : 0. Quota mensuel inchangé : ${storedUsage.monthlyLimit}.`;
-      transaction.update(schoolRef, { "aiAssistant.monthlyUsage": 0, "aiAssistant.usageMonth": storedUsage.usageMonth, "aiAssistant.updatedAt": serverTimestamp(), "aiAssistant.updatedBy": user.id });
-      transaction.set(auditRef, { ...audit, createdAt: serverTimestamp() });
-    });
-    const savedSchool = await getDoc(schoolRef);
-    const savedSetting = savedSchool.data()?.aiAssistant as School["aiAssistant"];
+  if (canUseFirestoreData() && db && app) {
+    const callable = httpsCallable<{ schoolId: string }, { aiAssistant: School["aiAssistant"] }>(getFunctions(app, "europe-west1"), "platformAiResetMonthlyUsage");
+    const result = await callable({ schoolId: school.id });
+    const savedSetting = result.data.aiAssistant;
     if (savedSetting) return { aiAssistant: savedSetting, auditLog: audit };
   }
   return { aiAssistant: localValue, auditLog: audit };

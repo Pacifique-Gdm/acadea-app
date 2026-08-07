@@ -199,14 +199,10 @@ service cloud.firestore {
             && request.resource.data.aiAssistant.updatedAt is timestamp
             && ((!("aiAssistant" in resource.data) && !("monthlyUsage" in request.resource.data.aiAssistant))
               || ("aiAssistant" in resource.data
-                && ((!("monthlyUsage" in resource.data.aiAssistant) && !("monthlyUsage" in request.resource.data.aiAssistant))
-                  || request.resource.data.aiAssistant.monthlyUsage == resource.data.aiAssistant.monthlyUsage
-                  || request.resource.data.aiAssistant.monthlyUsage == 0)))
+                && request.resource.data.aiAssistant.monthlyUsage == resource.data.aiAssistant.monthlyUsage))
             && ((!("aiAssistant" in resource.data) && !("usageMonth" in request.resource.data.aiAssistant))
               || ("aiAssistant" in resource.data
-                && ((!("usageMonth" in resource.data.aiAssistant) && !("usageMonth" in request.resource.data.aiAssistant))
-                  || request.resource.data.aiAssistant.usageMonth == resource.data.aiAssistant.usageMonth
-                  || request.resource.data.aiAssistant.monthlyUsage == 0)))));
+                && request.resource.data.aiAssistant.usageMonth == resource.data.aiAssistant.usageMonth))));
     }
 
     match /platform/appConfig {
@@ -229,6 +225,10 @@ service cloud.firestore {
       allow create: if superAdmin();
       allow update: if superAdminAiAssistantUpdate() || schoolSettingsUpdate(schoolId) || secretarySchoolOptionsUpdate(schoolId);
       allow delete: if superAdmin();
+    }
+
+    match /schools/{schoolId}/aiUsageReservations/{reservationId} {
+      allow read, write: if false;
     }
 
     match /users/{userId} {

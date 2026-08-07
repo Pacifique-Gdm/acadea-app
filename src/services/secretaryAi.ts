@@ -12,8 +12,8 @@ export async function requestSecretaryAi(user: AppUser, input: AiWritingRequest)
   const functionName = "secretaryAiWritingAssistant";
   const region = "europe-west1";
   if (import.meta.env.VITE_APP_ENV === "staging") console.info("Secretary AI callable diagnostic", { action: input.action, documentCategory: input.documentCategory, documentType: input.documentType, firebaseProjectId: firebaseConfig.projectId, functionName, region });
-  const callable = httpsCallable<AiWritingRequest, AiWritingResponse>(getFunctions(app!, region), functionName, { timeout: 60000 });
-  const result = await callable(input);
+  const callable = httpsCallable<AiWritingRequest & { idempotencyKey: string }, AiWritingResponse>(getFunctions(app!, region), functionName, { timeout: 60000 });
+  const result = await callable({ ...input, idempotencyKey: crypto.randomUUID() });
   if (!result.data?.success || !Array.isArray(result.data.warnings) || !Array.isArray(result.data.missingInformation)) throw new Error("La réponse de l'assistant IA est invalide.");
   return result.data;
 }

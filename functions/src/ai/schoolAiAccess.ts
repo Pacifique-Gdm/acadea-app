@@ -11,3 +11,9 @@ export function assertSecretaryAiIdentity(auth: SecretaryAuth, requestedSchoolId
   }
   return { auth, schoolId: tokenSchoolId };
 }
+
+export function assertSecretaryAiProfile(profile: Record<string, unknown> | undefined, uid: string, schoolId: string) {
+  if (!profile || profile.id !== uid || profile.role !== "secretary" || profile.schoolId !== schoolId || profile.status !== "active") {
+    throw new HttpsError("permission-denied", "Profil Secrétaire actif requis.");
+  }
+}

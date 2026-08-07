@@ -20,17 +20,22 @@ beforeEach(async () => {
 afterAll(async () => environment?.cleanup(), 30_000);
 
 describe("contrôles Super Administrateur de l’Assistant IA", () => {
-  it("autorise uniquement le Super Administrateur à remettre un compteur à zéro", async () => {
+  it("interdit tout reset direct, y compris au Super Administrateur", async () => {
     await assertFails(updateDoc(doc(schoolAdmin(), "schools", "school-a"), { "aiAssistant.monthlyUsage": 0, "aiAssistant.usageMonth": "2026-08", "aiAssistant.updatedAt": serverTimestamp(), "aiAssistant.updatedBy": "admin-1" }));
-    await assertSucceeds(updateDoc(doc(superAdmin(), "schools", "school-a"), { "aiAssistant.monthlyUsage": 0, "aiAssistant.usageMonth": "2026-08", "aiAssistant.updatedAt": serverTimestamp(), "aiAssistant.updatedBy": "super-1" }));
+    await assertFails(updateDoc(doc(superAdmin(), "schools", "school-a"), { "aiAssistant.monthlyUsage": 0, "aiAssistant.usageMonth": "2026-08", "aiAssistant.updatedAt": serverTimestamp(), "aiAssistant.updatedBy": "super-1" }));
     const schoolA = (await getDoc(doc(superAdmin(), "schools", "school-a"))).data()?.aiAssistant;
     const schoolB = (await getDoc(doc(superAdmin(), "schools", "school-b"))).data()?.aiAssistant;
-    expect(schoolA).toMatchObject({ enabled: true, monthlyLimit: 50, monthlyUsage: 0 });
+    expect(schoolA).toMatchObject({ enabled: true, monthlyLimit: 50, monthlyUsage: 17 });
     expect(schoolB).toMatchObject({ enabled: false, monthlyLimit: 25, monthlyUsage: 9 });
   });
 
   it("refuse toute modification arbitraire du compteur et autorise l'audit Super Administrateur", async () => {
     await assertFails(updateDoc(doc(superAdmin(), "schools", "school-a"), { "aiAssistant.monthlyUsage": 3, "aiAssistant.updatedAt": serverTimestamp(), "aiAssistant.updatedBy": "super-1" }));
     await assertSucceeds(setDoc(doc(superAdmin(), "auditLogs", "audit-ai"), { id: "audit-ai", schoolId: "school-a", actorId: "super-1", actorName: "Super Admin", action: "Réinitialisation du quota mensuel de l’Assistant IA", details: "Ancienne consommation : 17. Nouvelle consommation : 0.", createdAt: serverTimestamp() }));
+  });
+
+  it("interdit les reservations IA a tous les clients", async () => {
+    await assertFails(setDoc(doc(superAdmin(), "schools", "school-a", "aiUsageReservations", "request-a"), { schoolId: "school-a", userId: "super-1", status: "reserved" }));
+    await assertFails(setDoc(doc(schoolAdmin(), "schools", "school-a", "aiUsageReservations", "request-b"), { schoolId: "school-a", userId: "admin-1", status: "reserved" }));
   });
 });

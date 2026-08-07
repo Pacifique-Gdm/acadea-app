@@ -1,9 +1,11 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { AI_ACTIONS, type AiWritingRequest } from "./types.js";
 import { AI_ASSISTANT_VERSION, buildInstructions, parseProviderResponse, runTransformationAttempts, validateInput } from "./writingAssistant.js";
 
 const sections: Record<string, string> = { location: "Salle de réunion", subject: "Réunion pédagogique", participants: "Directeur et enseignants", discussedPoints: "Retards et résultats", decisions: "Contrôle hebdomadaire", recommendations: "Renforcer le suivi" };
 const request = (action: AiWritingRequest["action"], scope = "full_document"): AiWritingRequest => ({
+  idempotencyKey: "123e4567-e89b-42d3-a456-426614174000",
   schoolId: "school-1", academicYearId: "year-1", documentType: "meeting_minutes", documentCategory: "rapport", documentTypeLabel: "Compte rendu", documentDate: "2026-07-30", documentTime: "12:25", scope,
   sections: scope === "full_document" ? sections : { [scope]: sections[scope] ?? "" },
   ...(scope === "full_document" ? {} : { targetSection: { key: scope, value: sections[scope] ?? "" } }),
@@ -90,5 +92,17 @@ describe("requête simplifiée de l'assistant rédactionnel", () => {
     expect(() => validateInput({ ...request("summarize"), additionalInstruction: " " })).toThrowError("instruction complémentaire est obligatoire");
     expect(buildInstructions(request("reformulate"))).toContain("2026-07-30");
     expect(AI_ASSISTANT_VERSION).toBe("2026-07-30-actions-v2");
+  });
+
+  it("reserve atomiquement avant OpenAI et compense uniquement les echecs", () => {
+    const source = readFileSync(new URL("./writingAssistant.ts", import.meta.url), "utf8");
+    const reserve = source.indexOf("await reserveSchoolAiUsage");
+    const provider = source.indexOf('fetch("https://api.openai.com', reserve);
+    const complete = source.indexOf("await completeSchoolAiUsage", provider);
+    const release = source.indexOf("await releaseSchoolAiUsage", complete);
+    expect(reserve).toBeGreaterThan(-1);
+    expect(provider).toBeGreaterThan(reserve);
+    expect(complete).toBeGreaterThan(provider);
+    expect(release).toBeGreaterThan(complete);
   });
 });
