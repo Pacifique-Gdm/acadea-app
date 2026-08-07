@@ -71,10 +71,10 @@ describe("Drawers médicaux et statistiques du Secrétaire", () => {
     expect(formatMedicalRecordValue(["A", "B"])).toBe("A, B");
   });
 
-  it("affiche directement le filtre segmenté et la réinitialisation iconique", () => {
-    const allIndex = source.indexOf("['all', 'Toutes']");
-    const sectionIndex = source.indexOf("['section', 'Section']");
-    const classIndex = source.indexOf("['class', 'Classe précise']");
+  it("affiche une liste déroulante unique et la réinitialisation iconique", () => {
+    const allIndex = source.indexOf('<option value="all">Toutes</option>');
+    const sectionIndex = source.indexOf('<option value="section">Section</option>');
+    const classIndex = source.indexOf('<option value="class">Classe précise</option>');
     const resetIndex = source.indexOf('aria-label="Réinitialiser le filtre"');
     const exportIndex = source.indexOf("> Exporter PDF</button>");
     expect(allIndex).toBeGreaterThan(-1);
@@ -82,10 +82,15 @@ describe("Drawers médicaux et statistiques du Secrétaire", () => {
     expect(classIndex).toBeGreaterThan(sectionIndex);
     expect(resetIndex).toBeGreaterThan(classIndex);
     expect(exportIndex).toBeGreaterThan(resetIndex);
-    expect(source).toContain('className="flex flex-wrap items-center gap-2"');
-    expect(source).toContain('role="group" aria-label="Type de filtre"');
-    expect(source).toContain("grid-cols-3");
-    expect(source).toContain("aria-pressed={filterType === value}");
+    expect(source).toContain('className="grid w-full grid-cols-[minmax(0,1fr)_2.5rem] gap-2 sm:grid-cols-[minmax(0,1fr)_2.5rem_minmax(9rem,auto)]"');
+    expect(source).toContain('className="input h-10 min-w-0 w-full"');
+    expect(source).toContain("primary-button col-span-2 h-10 w-full justify-center sm:col-span-1");
+    expect(source).toContain('<select aria-label="Type de filtre"');
+    expect(source).toContain('value={filterType}');
+    expect(source).toContain("selectFilterType(event.target.value as typeof filterType)");
+    expect(source).not.toContain('role="group" aria-label="Type de filtre"');
+    expect(source).not.toContain("grid-cols-3");
+    expect(source).not.toContain("aria-pressed");
     expect(source).toContain('title="Réinitialiser le filtre"');
     expect(source).toContain("<RotateCcw");
     expect(source).toContain("getSchoolSections(school)");
@@ -97,6 +102,7 @@ describe("Drawers médicaux et statistiques du Secrétaire", () => {
     expect(source).not.toContain('bg-blue-50 p-3 text-sm font-bold text-blue-800">{scopeLabel}');
     expect(source).not.toContain("RÉINITIALISER LE FILTRE");
     expect(source).toContain('function resetFilter() { setFilterType("all"); setSelectedSection(""); setSelectedClassKey(""); }');
+    expect(source).toContain('useState<"all" | "section" | "class">("all")');
     expect(source).toContain("sections.map((section)");
     expect(source).toContain("classes.map((item)");
   });
@@ -109,19 +115,27 @@ describe("Drawers médicaux et statistiques du Secrétaire", () => {
     expect(source).toContain("subtitle: scopeLabel");
     expect(source).toContain("statistics.cards.map");
     expect(source).toContain("Aucune donnée statistique pour le filtre sélectionné.");
-    expect(source).toContain('pdfSection("RÉPARTITION PAR CLASSE", pdfTable');
-    expect(source).toContain('pdfSection("RÉPARTITION PAR NIVEAU", pdfTable');
-    const classTable = source.slice(source.indexOf('pdfSection("RÉPARTITION PAR CLASSE"'), source.indexOf('pdfSection("RÉPARTITION PAR NIVEAU"'));
-    const sectionTable = source.slice(source.indexOf('pdfSection("RÉPARTITION PAR NIVEAU"'), source.indexOf("function resetFilter"));
+    expect(source).toContain('pdfSection("Synthèse"');
+    expect(source).toContain('pdfSection("Répartition par classe", pdfTable');
+    expect(source).toContain('pdfSection("Répartition par niveau", pdfTable');
+    expect(source).not.toContain('pdfSection("SYNTHÈSE"');
+    expect(source).not.toContain('pdfSection("RÉPARTITION PAR CLASSE"');
+    expect(source).not.toContain('pdfSection("RÉPARTITION PAR NIVEAU"');
+    const classTable = source.slice(source.indexOf('pdfSection("Répartition par classe"'), source.indexOf('pdfSection("Répartition par niveau"'));
+    const sectionTable = source.slice(source.indexOf('pdfSection("Répartition par niveau"'), source.indexOf("function resetFilter"));
     expect(Array.from(classTable.matchAll(/header: "([^"]+)"/g), (match) => match[1])).toEqual(["ORDRE", "SECTION", "CLASSE", "OPTION", "EFFECTIF", "POURCENTAGE"]);
     expect(Array.from(sectionTable.matchAll(/header: "([^"]+)"/g), (match) => match[1])).toEqual(["ORDRE", "SECTION", "EFFECTIF", "POURCENTAGE"]);
-    expect(sectionTable).toContain("{ pageBreakBefore: true }");
+    expect(sectionTable).toContain('{ pageBreakBefore: true, className: "statistics-pdf-section" }');
+    expect(classTable).toContain('{ className: "statistics-pdf-section" }');
     expect(classTable).not.toContain("pageBreakBefore");
     expect(source).toContain("statistics.classRows");
     expect(source).toContain("statistics.sectionRows");
     expect(source).not.toContain("statistics.levelRows");
     const pdfSource = readFileSync(new URL("../../utils/pdf.ts", import.meta.url), "utf8");
     expect(pdfSource).toContain("word-spacing: 0.12em");
+    expect(pdfSource).toContain(".pdf-section.statistics-pdf-section h2");
+    expect(pdfSource).toContain("letter-spacing: normal");
+    expect(pdfSource).toContain("word-spacing: normal");
     expect(pdfSource).toContain("overflow-wrap: normal");
   });
 });

@@ -58,11 +58,10 @@ function FinancialFeeShareChart({ rows }: { rows: DashboardFeeShare[] }) {
 
   return (
     <section className="mt-5 rounded border border-slate-100 bg-slate-50 p-4" aria-label="Répartition des montants">
-      <h3 className="font-bold text-ink">Répartition des montants</h3>
       {rows.length === 0 ? (
-        <p className="mt-4 rounded bg-white p-4 text-sm text-slate-500">Aucun montant encaissé pour cette sélection.</p>
+        <p className="rounded bg-white p-4 text-sm text-slate-500">Aucun montant encaissé pour cette sélection.</p>
       ) : (
-        <div className="mt-4 grid min-w-0 items-center gap-5 sm:grid-cols-[180px_minmax(0,1fr)]">
+        <div className="grid min-w-0 items-center gap-5 sm:grid-cols-[180px_minmax(0,1fr)]">
           <div className="relative mx-auto h-44 w-44 rounded-full" style={{ background: `conic-gradient(${gradient})` }} role="img" aria-label={`Répartition de ${total.toFixed(2)} dollars attendus`}>
             <div className="absolute inset-8 grid place-items-center rounded-full bg-white text-center">
               <span className="text-xs text-slate-500">Total</span>

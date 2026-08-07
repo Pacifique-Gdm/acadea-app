@@ -153,13 +153,13 @@ export function SecretaryStatisticsDrawer({ open, onClose, students, records, sc
 
   async function exportPdf() {
     await renderAcadPdfPreview({ filename: `statistiques-${year.name}.pdf`, title: "STATISTIQUES", school, year, subtitle: scopeLabel, sections: [
-      pdfSection("SYNTHÈSE", pdfInfoGrid(statistics.cards.map(([label, value]) => ({ label, value })))),
-      pdfSection("RÉPARTITION PAR CLASSE", pdfTable([
+      pdfSection("Synthèse", pdfInfoGrid(statistics.cards.map(([label, value]) => ({ label, value }))), { className: "statistics-pdf-section" }),
+      pdfSection("Répartition par classe", pdfTable([
         { header: "ORDRE", render: (row) => row.order, align: "center" }, { header: "SECTION", render: (row) => row.section }, { header: "CLASSE", render: (row) => row.className ?? "—" }, { header: "OPTION", render: (row) => row.option ?? "—" }, { header: "EFFECTIF", render: (row) => row.count, align: "right" }, { header: "POURCENTAGE", render: (row) => `${row.percentage.toFixed(2).replace(".", ",")} %`, align: "right" },
-      ], statistics.classRows, "Aucune donnée pour cette répartition.")),
-      pdfSection("RÉPARTITION PAR NIVEAU", pdfTable([
+      ], statistics.classRows, "Aucune donnée pour cette répartition."), { className: "statistics-pdf-section" }),
+      pdfSection("Répartition par niveau", pdfTable([
         { header: "ORDRE", render: (row) => row.order, align: "center" }, { header: "SECTION", render: (row) => row.section }, { header: "EFFECTIF", render: (row) => row.count, align: "right" }, { header: "POURCENTAGE", render: (row) => `${row.percentage.toFixed(2).replace(".", ",")} %`, align: "right" },
-      ], statistics.sectionRows, "Aucune donnée pour cette répartition."), { pageBreakBefore: true }),
+      ], statistics.sectionRows, "Aucune donnée pour cette répartition."), { pageBreakBefore: true, className: "statistics-pdf-section" }),
     ] });
   }
 
@@ -167,7 +167,7 @@ export function SecretaryStatisticsDrawer({ open, onClose, students, records, sc
   function selectFilterType(value: typeof filterType) { setFilterType(value); setSelectedSection(""); setSelectedClassKey(""); }
 
   return open ? <AdminDrawer title="Statistiques" onClose={onClose} closeLabel="Fermer"><div className="grid gap-4">
-    <div className="grid gap-3"><div className="flex flex-wrap items-center gap-2"><div role="group" aria-label="Type de filtre" className="grid min-w-0 flex-1 grid-cols-3 overflow-hidden rounded-md border border-slate-300">{([['all', 'Toutes'], ['section', 'Section'], ['class', 'Classe précise']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={filterType === value} className={`h-10 min-w-0 px-2 text-xs font-semibold transition sm:text-sm ${filterType === value ? "bg-blue-700 text-white" : "bg-white text-slate-700 hover:bg-slate-50"}`} onClick={() => selectFilterType(value)}>{label}</button>)}</div><button type="button" title="Réinitialiser le filtre" aria-label="Réinitialiser le filtre" className="secondary-button h-10 w-10 shrink-0 justify-center px-0" onClick={resetFilter}><RotateCcw aria-hidden="true" className="h-4 w-4" /></button><button type="button" className="primary-button h-10 justify-center" onClick={() => void exportPdf()}><FileDown className="h-4 w-4" /> Exporter PDF</button></div>
+    <div className="grid gap-3"><div className="grid w-full grid-cols-[minmax(0,1fr)_2.5rem] gap-2 sm:grid-cols-[minmax(0,1fr)_2.5rem_minmax(9rem,auto)]"><select aria-label="Type de filtre" className="input h-10 min-w-0 w-full" value={filterType} onChange={(event) => selectFilterType(event.target.value as typeof filterType)}><option value="all">Toutes</option><option value="section">Section</option><option value="class">Classe précise</option></select><button type="button" title="Réinitialiser le filtre" aria-label="Réinitialiser le filtre" className="secondary-button h-10 w-10 shrink-0 justify-center px-0" onClick={resetFilter}><RotateCcw aria-hidden="true" className="h-4 w-4" /></button><button type="button" className="primary-button col-span-2 h-10 w-full justify-center sm:col-span-1" onClick={() => void exportPdf()}><FileDown className="h-4 w-4" /> Exporter PDF</button></div>
       {filterType === "section" && <label className="grid gap-1 text-sm font-semibold">Section<select className="input" value={selectedSection} onChange={(event) => setSelectedSection(event.target.value as SchoolSection)}><option value="">Sélectionner une section</option>{sections.map((section) => <option key={section} value={section}>{schoolSectionLabels[section]}</option>)}</select>{sections.length === 0 && <span className="text-sm text-slate-500">Aucune section disponible.</span>}</label>}
       {filterType === "class" && <label className="grid gap-1 text-sm font-semibold">Classe précise<select className="input" value={selectedClassKey} onChange={(event) => setSelectedClassKey(event.target.value)}><option value="">Sélectionner une classe</option>{classes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>{classes.length === 0 && <span className="text-sm text-slate-500">Aucune classe disponible.</span>}</label>}
     </div>

@@ -35,6 +35,7 @@ import { useBillingControls } from "./hooks/useBillingControls";
 import { reconcileRealtimeValves, useRealtimeValves } from "./hooks/useRealtimeValves";
 import { reconcileRealtimeFeeTypes, useRealtimeFeeTypes } from "./hooks/useRealtimeFeeTypes";
 import { useRealtimeFinancialTransactions } from "./hooks/useRealtimeFinancialTransactions";
+import { useRealtimeSchoolRecords } from "./hooks/useRealtimeSchoolRecords";
 import { markNotificationsReadTargeted } from "./services/notificationsPagination";
 import { restorePaymentPushNotifications, stopPaymentPushForegroundListener } from "./services/pushNotifications";
 import { canUseFirestoreData, loadDisciplineYearData, loadFirestoreBootstrapData, loadFirestoreData, loadFirestoreYearData, loadParentPortalData, loadPlatformSettings, persistFirestorePatch } from "./services/firestoreData";
@@ -236,6 +237,19 @@ export default function App() {
     onPayments: applyRealtimePayments,
     onExpenses: applyRealtimeExpenses,
     onError: handleFinancialRealtimeError,
+  });
+  const applyRealtimeSchoolRecords = useCallback((next: Partial<Pick<AppData, "students" | "parents" | "disciplineSanctions">>) => {
+    setData((current) => ({ ...current, ...next }));
+  }, []);
+  const handleSchoolRecordsRealtimeError = useCallback((source: "students" | "parents" | "disciplineSanctions", error: Error) => {
+    console.warn(`Actualisation temps réel de ${source} indisponible.`, error);
+  }, []);
+  useRealtimeSchoolRecords({
+    user,
+    schoolId: user?.schoolId ?? "",
+    schoolYearId: selectedYearId,
+    onData: applyRealtimeSchoolRecords,
+    onError: handleSchoolRecordsRealtimeError,
   });
 
   useEffect(() => {

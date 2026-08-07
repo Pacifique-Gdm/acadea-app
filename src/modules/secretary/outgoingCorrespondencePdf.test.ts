@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Correspondence } from "./secretaryTypes";
-import { outgoingCorrespondencePdfSections } from "./outgoingCorrespondencePdf";
+import { OUTGOING_INSTITUTIONAL_UNDERLINE_STYLE, outgoingCorrespondencePdfSections } from "./outgoingCorrespondencePdf";
 
 const occurrences = (source: string, value: string) => source.split(value).length - 1;
 
@@ -54,11 +54,22 @@ function correspondence(overrides: Partial<NonNullable<Correspondence["outgoing"
 describe("PDF du courrier sortant — bloc de signature", () => {
   it("souligne uniquement les valeurs de l’objet et de la référence, jamais le lieu ni la date", () => {
     const html = outgoingCorrespondencePdfSections(correspondence()).join("");
-    expect(html).toContain("Réf. : <u>CS/SEC/0045/2026</u>");
+    expect(html).toContain('Réf. : <span class="outgoing-institutional-underline"');
+    expect(html).toContain(">CS/SEC/0045/2026</span>");
     expect(html).toContain("Kinshasa, le 2026-08-03");
-    expect(html).not.toContain("<u>Kinshasa</u>");
-    expect(html).toContain("<strong>Objet :</strong> <u>Objet administratif de test</u>");
-    expect(html).not.toContain("<u>Objet :</u>");
+    expect(html).not.toContain('>Kinshasa</span>');
+    expect(html).toContain('<strong>Objet :</strong> <span class="outgoing-institutional-underline"');
+    expect(html).toContain(">Objet administratif de test</span>");
+    expect(html).not.toContain("<u>");
+  });
+
+  it("réutilise exactement le soulignement institutionnel du Destinataire", () => {
+    const html = outgoingCorrespondencePdfSections(correspondence()).join("");
+    expect(OUTGOING_INSTITUTIONAL_UNDERLINE_STYLE).toBe("padding:0 0 6px;line-height:1.45;border-bottom:1px solid #14213d");
+    expect(occurrences(html, OUTGOING_INSTITUTIONAL_UNDERLINE_STYLE)).toBe(3);
+    expect(occurrences(html, 'class="outgoing-institutional-underline"')).toBe(2);
+    expect(occurrences(html, "display:inline-block")).toBe(2);
+    expect(html).toContain(`width:50%;margin:10px 0 16px 50%;${OUTGOING_INSTITUTIONAL_UNDERLINE_STYLE};text-align:left`);
   });
 
   it("aligne le destinataire et la première ligne de chaque paragraphe sur le milieu réel", () => {
@@ -90,7 +101,7 @@ describe("PDF du courrier sortant — bloc de signature", () => {
   it("omet proprement la référence lorsqu’elle est absente", () => {
     const html = outgoingCorrespondencePdfSections({ ...correspondence(), referenceNumber: "" }).join("");
     expect(html).not.toContain("Réf. :");
-    expect(html).not.toContain("<u></u>");
+    expect(html).not.toContain('class="outgoing-institutional-underline"></span>');
     expect(html).toContain("Kinshasa, le 2026-08-03");
   });
 

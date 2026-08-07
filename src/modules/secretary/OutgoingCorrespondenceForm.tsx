@@ -101,7 +101,7 @@ export function OutgoingCorrespondenceForm({ user, school, year, current, busy, 
       <FormSection title="8. Copies pour information"><DynamicCopies value={outgoing.copies} onChange={(value) => set("copies", value)} /></FormSection>
     </fieldset>
     <PdfSettingsFields value={pdfSettings} onChange={(settings) => { setDirty(true); setPdfSettings(settings); }} disabled={Boolean(locked) || busy} />
-    <SecretaryDocumentFormActions generateLabel="Générer courrier" busyLabel="Génération en cours…" busy={busy} onCancel={cancel} onGenerate={() => void generate()} />
+    <SecretaryDocumentFormActions generateLabel={current ? "Enregistrer" : "Générer courrier"} busyLabel={current ? "Enregistrement en cours…" : "Génération en cours…"} busy={busy} disabled={Boolean(locked)} onCancel={cancel} onGenerate={() => void (current ? act(current.status) : generate())} />
   </form>;
 }
 

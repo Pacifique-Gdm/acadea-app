@@ -105,12 +105,19 @@ describe("module Courrier du Secrétaire", () => {
     expect(actionsSource).toContain(">Annuler</button>");
     expect(actionsSource).toContain("grid-cols-2");
     expect(actionsSource).toContain("h-11 w-full");
-    expect(formSource).toContain('generateLabel="Générer courrier"');
+    expect(formSource).toContain('generateLabel={current ? "Enregistrer" : "Générer courrier"}');
     for (const removedAction of ["Enregistrer comme brouillon", "Prévisualiser", "Soumettre à validation", "Générer le PDF", "Finaliser"]) expect(formSource).not.toContain(removedAction);
     expect(formSource).toContain('void act("draft")');
     expect(moduleSource).toContain("if (saveLock.current) return");
     expect(moduleSource).toContain("await createCorrespondence({ user, schoolId: school.id, schoolYearId: year.id");
     expect(moduleSource).toContain("finishSuccessfulSave");
+  });
+
+  it("enregistre un courrier existant sans créer de doublon", () => {
+    expect(formSource).toContain("current ? act(current.status) : generate()");
+    expect(moduleSource).toContain("editing\n        ? (await updateCorrespondence");
+    expect(moduleSource).toContain(": await createCorrespondence");
+    expect(moduleSource).toContain("{ ...editing, ...payload }");
   });
 
   it("partage les signataires et l'action Voir iconique", () => {

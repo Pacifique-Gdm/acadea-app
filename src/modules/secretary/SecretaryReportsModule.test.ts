@@ -32,13 +32,20 @@ describe("formulaire Nouveau rapport", () => {
   });
 
   it("génère, désactive pendant le traitement et ferme uniquement après succès", () => {
-    expect(source).toContain('generateLabel="Générer rapport"');
+    expect(source).toContain('generateLabel={selected ? "Enregistrer" : "Générer rapport"}');
     expect(actionsSource).toContain("disabled={busy || disabled}");
     const createIndex = source.indexOf("await createSecretaryReport");
     expect(createIndex).toBeGreaterThan(-1);
     expect(source.indexOf("setOpen(false)", createIndex)).toBeGreaterThan(createIndex);
     expect(source).toContain("Rapport généré et enregistré en brouillon.");
     expect(source).toContain("console.error(\"Échec de la génération du rapport\"");
+  });
+
+  it("soumet la modification d'un rapport existant sans créer de doublon", () => {
+    expect(source).toContain("if (selected) await updateSecretaryReport");
+    expect(source).toContain("else await createSecretaryReport");
+    expect(source).toContain('generateLabel={selected ? "Enregistrer" : "Générer rapport"}');
+    expect(source).not.toContain("onGenerate={selected ?");
   });
 
   it("transmet le type métier sélectionné à l'Assistant IA", () => {
@@ -86,7 +93,7 @@ describe("formulaire Nouveau rapport", () => {
     expect(source).toContain("reportSignatoriesPdfHtml(reportSignatories)");
   });
 
-  it("produit un PDF administratif justifié avec cinq cartes et trois signataires maximum par ligne", () => {
+  it("produit un PDF administratif justifié avec quatre cartes et trois signataires maximum par ligne", () => {
     expect(source).toContain('class="report-info-row"');
     expect(source).toContain('class="report-justified-text"');
     expect(signatorySource).toContain('class="report-signatories"');
@@ -104,6 +111,16 @@ describe("formulaire Nouveau rapport", () => {
     expect(pdfSource).toContain(".report-signatory-row--2 .report-signatory:last-child");
     expect(pdfSource).toContain("grid-column: 3");
     expect(pdfSource).not.toContain("border-top: 1px solid #14213d;\n      text-align: center;\n      page-break-inside");
+  });
+
+  it("retire uniquement STATUT des métadonnées et redistribue les quatre cartes", () => {
+    const metadataStart = source.indexOf('class="report-info-row"');
+    const metadataEnd = source.indexOf("...contentEntries.map", metadataStart);
+    const metadata = source.slice(metadataStart, metadataEnd);
+    for (const label of ["DATE", "HEURE DE DÉBUT", "HEURE DE FIN", "AUTEUR"]) expect(metadata).toContain(`label: "${label}"`);
+    expect(metadata).not.toContain('label: "STATUT"');
+    expect(pdfSource).toContain('pdfSettings.pageSize === "A5" ? 2 : 4');
+    expect(pdfSource).toContain(".pdf-header *");
   });
 
   it("affiche et applique les mêmes réglages au rapport enregistré et prévisualisé", () => {

@@ -444,6 +444,12 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       word-spacing: 0.12em;
       overflow-wrap: normal;
     }
+    .pdf-section.statistics-pdf-section h2 {
+      letter-spacing: normal;
+      word-spacing: normal;
+      text-rendering: geometricPrecision;
+      font-kerning: normal;
+    }
     .pdf-section.report-section {
       margin-top: 16px;
     }
@@ -457,7 +463,7 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       margin-bottom: 10px;
     }
     .report-info-row .info-grid {
-      grid-template-columns: repeat(${pdfSettings.pageSize === "A5" ? 2 : 5}, minmax(0, 1fr));
+      grid-template-columns: repeat(${pdfSettings.pageSize === "A5" ? 2 : 4}, minmax(0, 1fr));
       gap: 5px;
       margin: 0 18px 12px;
     }
