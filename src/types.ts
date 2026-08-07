@@ -162,6 +162,10 @@ export interface Payment {
   note?: string;
   updatedAt?: string;
   correctionReason?: string;
+  createdBy?: string;
+  updatedBy?: string;
+  provenance?: "financial-api";
+  clientRequestIdHash?: string;
 }
 
 export interface Expense {
@@ -177,6 +181,12 @@ export interface Expense {
   spentAt: string;
   createdAt: string;
   cashierName: string;
+  updatedAt?: string;
+  correctionReason?: string;
+  createdBy?: string;
+  updatedBy?: string;
+  provenance?: "financial-api";
+  clientRequestIdHash?: string;
 }
 
 export interface Message {

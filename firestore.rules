@@ -302,19 +302,22 @@ service cloud.firestore {
       allow read: if superAdmin()
         || (role() in ["school_admin", "cashier", "secretary"] && sameTenantResource())
         || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.parentId == tenantParentId());
-      allow create: if signedIn()
-        && role() == "cashier"
-        && sameTenantCreate();
-      allow update: if schoolAdmin() && sameTenantUpdate() && sameYearUpdate();
-      allow delete: if schoolAdmin() && sameTenantResource();
+      // Financial mutations are performed exclusively by the authenticated
+      // server endpoint using Firebase Admin and an atomic transaction.
+      allow create, update, delete: if false;
     }
 
     match /expenses/{expenseId} {
       allow read: if superAdmin() || role() in ["school_admin", "cashier"] && sameTenantResource();
-      allow create: if signedIn()
-        && role() == "cashier"
-        && sameTenantCreate();
-      allow update, delete: if schoolAdmin() && sameTenantResource();
+      allow create, update, delete: if false;
+    }
+
+    match /financialCounters/{counterId} {
+      allow read, write: if false;
+    }
+
+    match /financialIdempotency/{requestId} {
+      allow read, write: if false;
     }
 
     match /auditLogs/{auditLogId} {

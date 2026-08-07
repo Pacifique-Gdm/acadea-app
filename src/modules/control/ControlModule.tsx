@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Bell, Download, Edit3, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 import { AdminDrawer, Field, FormPanel, Metric, SectionTitle } from "../../components/ui";
 import { usePaginatedControlHistory } from "../../hooks/usePaginatedControlHistory";
+import { createExpenseTransaction, createPaymentTransaction, deleteFinancialTransaction, updateExpenseTransaction, updatePaymentTransaction } from "../../services/financialTransactions";
 import { createAuditLog } from "../../utils/audit";
 import { buildSchoolYearDataIndexes, sumPaymentsForStudentFee } from "../../utils/dataIndexes";
-import { generateReceiptNumber, resolveExpenseCashierName, resolvePaymentCashierName } from "../../utils/finance";
-import { escapePdfHtml, generateReceiptPdf, money, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
+import { resolveExpenseCashierName, resolvePaymentCashierName } from "../../utils/finance";
+import { escapePdfHtml, generateReceiptPdf, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import type { PdfTableColumn } from "../../utils/pdf";
 import { getStudentBalance } from "../../utils/stats";
 import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
@@ -13,7 +14,7 @@ import { feeAppliesToStudent } from "../../utils/feeTargets";
 import { buildControlClassChoices, feeNamesForWarningClass, getControlClassKey, selectPaymentWarningRecipients } from "../../utils/controlFilters";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import { compareStudentsForPdfByClass, formatStudentPdfClassName } from "../../utils/studentPdf";
-import type { AppData, AppNotification, AppUser, AuditLog, Expense, FeeType, ParentProfile, Payment, School, SchoolYear, Student } from "../../types";
+import type { AppData, AppUser, AuditLog, Expense, FeeType, ParentProfile, Payment, School, SchoolYear, Student } from "../../types";
 
 type ControlYearData = {
   students: Student[];
@@ -70,6 +71,14 @@ export function ControlModule({
   const [cashierControlDrawer, setCashierControlDrawer] = useState<"payment" | "expense" | "history" | "warning" | null>(null);
   const [cashierControlFeedback, setCashierControlFeedback] = useState("");
   const [cashierControlFeedbackDrawer, setCashierControlFeedbackDrawer] = useState<"payment" | "expense" | null>(null);
+  const [paymentSubmitting, setPaymentSubmitting] = useState(false);
+  const [expenseSubmitting, setExpenseSubmitting] = useState(false);
+  const [financialMutationId, setFinancialMutationId] = useState("");
+  const paymentAttemptRef = useRef<{ signature: string; requestId: string } | null>(null);
+  const expenseAttemptRef = useRef<{ signature: string; requestId: string } | null>(null);
+  const paymentSubmittingRef = useRef(false);
+  const expenseSubmittingRef = useRef(false);
+  const financialMutationRef = useRef("");
   const [historyQuery, setHistoryQuery] = useState("");
   const [selectedHistoryStudentId, setSelectedHistoryStudentId] = useState("");
   const controlIndexes = useMemo(() => buildSchoolYearDataIndexes(yearData.students, yearData.feeTypes, yearData.payments), [yearData.students, yearData.feeTypes, yearData.payments]);
@@ -313,7 +322,8 @@ export function ControlModule({
     setStudentId("");
   }
 
-  function savePayment() {
+  async function savePayment() {
+    if (paymentSubmittingRef.current) return;
     setCashierControlFeedback("");
     setCashierControlFeedbackDrawer(null);
     if (isArchivedContext) {
@@ -341,64 +351,35 @@ export function ControlModule({
       )
       .reduce((sum, payment) => sum + payment.amount, 0);
     const totalPaidAfterPayment = alreadyPaidForFee + paymentAmount;
-    const remainingAfterPayment = Math.max(selectedPaymentFee.amount - totalPaidAfterPayment, 0);
-    const isFeePaidOff = remainingAfterPayment === 0;
     if (totalPaidAfterPayment > selectedPaymentFee.amount) {
       setPaymentError("Paiement impossible : ce montant dépasse le montant prévu pour ce frais.");
       return;
     }
-    const student = data.students.find((item) => item.id === studentId);
-    const payment: Payment = {
-      id: createId("pay"),
-      schoolId: school.id,
-      schoolYearId: year.id,
-      studentId,
-      parentId: student?.parentId,
-      feeTypeId: selectedFeeTypeValue,
-      amount: paymentAmount,
-      paidAt: new Date().toISOString().slice(0, 10),
-      createdAt: new Date().toISOString(),
-      receiptNumber: generateReceiptNumber(data.payments, year.name),
-      cashierName: user.name,
-    };
-    const notification: AppNotification | undefined = student?.parentId
-      ? {
-          id: createId("notif"),
-          schoolId: school.id,
-          schoolYearId: year.id,
-          parentId: student.parentId,
-          studentId,
-          recipientRole: "parent",
-          type: "payment",
-          module: "payments",
-          event: "payment_recorded",
-          destination: "/dashboard",
-          title: "Paiement enregistré",
-          body: [
-            `Élève : ${student.nom} ${student.postnom} ${student.prenom}`.replace(/\s+/g, " ").trim(),
-            `Type de frais : ${selectedPaymentFee.name}`,
-            `Montant payé : ${money(paymentAmount)}`,
-            ...(isFeePaidOff ? ["Statut : Soldé"] : []),
-            `Reste à payer : ${money(remainingAfterPayment)}`,
-          ].join("\n"),
-          createdAt: new Date().toISOString(),
-          read: false,
-        }
-      : undefined;
-    updateData({
-      payments: [...data.payments, payment],
-      notifications: notification ? [notification, ...data.notifications] : data.notifications,
-      auditLogs: [createAuditLog(user, school.id, year.id, "Création paiement", `${payment.receiptNumber} - $${payment.amount}`, createId), ...data.auditLogs],
-    });
-    paymentHistory.prependItem(payment);
-    setAmount("");
-    if (user.role === "cashier") {
-      setCashierControlFeedback("Paiement enregistré avec succès.");
-      setCashierControlFeedbackDrawer("payment");
+    const signature = JSON.stringify([year.id, studentId, selectedFeeTypeValue, paymentAmount]);
+    const requestId = paymentAttemptRef.current?.signature === signature ? paymentAttemptRef.current.requestId : crypto.randomUUID();
+    paymentAttemptRef.current = { signature, requestId };
+    paymentSubmittingRef.current = true;
+    setPaymentSubmitting(true);
+    try {
+      const payment = await createPaymentTransaction({ schoolYearId: year.id, studentId, feeTypeId: selectedFeeTypeValue, amount: paymentAmount, clientRequestId: requestId });
+      updateData({ payments: [...data.payments.filter((item) => item.id !== payment.id), payment] }, { persist: false });
+      paymentHistory.prependItem(payment);
+      paymentAttemptRef.current = null;
+      setAmount("");
+      if (user.role === "cashier") {
+        setCashierControlFeedback("Paiement enregistré avec succès.");
+        setCashierControlFeedbackDrawer("payment");
+      }
+    } catch (error) {
+      setPaymentError(error instanceof Error ? error.message : "Enregistrement du paiement impossible.");
+    } finally {
+      paymentSubmittingRef.current = false;
+      setPaymentSubmitting(false);
     }
   }
 
-  function saveExpense() {
+  async function saveExpense() {
+    if (expenseSubmittingRef.current) return;
     setCashierControlFeedback("");
     setCashierControlFeedbackDrawer(null);
     setExpenseError("");
@@ -429,33 +410,30 @@ export function ControlModule({
       setExpenseError("Le mode de paiement est obligatoire.");
       return;
     }
-    const expense: Expense = {
-      id: createId("expense"),
-      schoolId: school.id,
-      schoolYearId: year.id,
-      amount: nextAmount,
-      category: trimmedCategory,
-      description: trimmedDescription,
-      beneficiary: trimmedBeneficiary,
-      paymentMethod: trimmedPaymentMethod,
-      reference: trimmedReference,
-      spentAt: new Date().toISOString().slice(0, 10),
-      createdAt: new Date().toISOString(),
-      cashierName: user.name,
-    };
-    updateData({
-      expenses: [expense, ...data.expenses],
-      auditLogs: [createAuditLog(user, school.id, year.id, "Création dépense", `${expense.category} - $${expense.amount}`, createId), ...data.auditLogs],
-    });
-    expenseHistory.prependItem(expense);
-    setExpenseAmount("");
-    setExpenseDescription("");
-    setExpenseBeneficiary("");
-    setExpensePaymentMethod("");
-    setExpenseReference("");
-    if (user.role === "cashier") {
-      setCashierControlFeedback("Dépense enregistrée avec succès.");
-      setCashierControlFeedbackDrawer("expense");
+    const signature = JSON.stringify([year.id, nextAmount, trimmedCategory, trimmedDescription, trimmedBeneficiary, trimmedPaymentMethod, trimmedReference]);
+    const requestId = expenseAttemptRef.current?.signature === signature ? expenseAttemptRef.current.requestId : crypto.randomUUID();
+    expenseAttemptRef.current = { signature, requestId };
+    expenseSubmittingRef.current = true;
+    setExpenseSubmitting(true);
+    try {
+      const expense = await createExpenseTransaction({ schoolYearId: year.id, amount: nextAmount, category: trimmedCategory, description: trimmedDescription, beneficiary: trimmedBeneficiary, paymentMethod: trimmedPaymentMethod, reference: trimmedReference || undefined, clientRequestId: requestId });
+      updateData({ expenses: [expense, ...data.expenses.filter((item) => item.id !== expense.id)] }, { persist: false });
+      expenseHistory.prependItem(expense);
+      expenseAttemptRef.current = null;
+      setExpenseAmount("");
+      setExpenseDescription("");
+      setExpenseBeneficiary("");
+      setExpensePaymentMethod("");
+      setExpenseReference("");
+      if (user.role === "cashier") {
+        setCashierControlFeedback("Dépense enregistrée avec succès.");
+        setCashierControlFeedbackDrawer("expense");
+      }
+    } catch (error) {
+      setExpenseError(error instanceof Error ? error.message : "Enregistrement de la dépense impossible.");
+    } finally {
+      expenseSubmittingRef.current = false;
+      setExpenseSubmitting(false);
     }
   }
 
@@ -476,8 +454,8 @@ export function ControlModule({
     setExpenseEditError("");
   }
 
-  function updateExpense() {
-    if (!expenseEditTarget || !canManageExpenses) return;
+  async function updateExpense() {
+    if (!expenseEditTarget || !canManageExpenses || financialMutationRef.current) return;
     setExpenseEditError("");
     const nextAmount = Number(expenseEditAmount);
     if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
@@ -489,30 +467,40 @@ export function ControlModule({
       return;
     }
     const nextDescription = expenseEditDescription.trim() || expenseEditCategory;
-    const updatedExpense: Expense = { ...expenseEditTarget, amount: nextAmount, category: expenseEditCategory, description: nextDescription };
-    updateData({
-      expenses: data.expenses.map((item) =>
-        item.id === expenseEditTarget.id
-          ? updatedExpense
-          : item,
-      ),
-      auditLogs: [
-        createAuditLog(user, school.id, year.id, "Modification dépense", `${expenseEditTarget.category} - ${formatMoney(expenseEditTarget.amount)} → ${expenseEditCategory} - ${formatMoney(nextAmount)}`, createId),
-        ...data.auditLogs,
-      ],
-    });
-    expenseHistory.updateItem(updatedExpense);
-    closeEditExpense();
+    const reason = prompt("Motif obligatoire de modification de la dépense");
+    if (!reason?.trim()) return;
+    financialMutationRef.current = expenseEditTarget.id;
+    setFinancialMutationId(expenseEditTarget.id);
+    try {
+      const updatedExpense = await updateExpenseTransaction({ transactionId: expenseEditTarget.id, amount: nextAmount, category: expenseEditCategory, description: nextDescription, reason: reason.trim(), clientRequestId: crypto.randomUUID() });
+      updateData({ expenses: data.expenses.map((item) => item.id === updatedExpense.id ? updatedExpense : item) }, { persist: false });
+      expenseHistory.updateItem(updatedExpense);
+      closeEditExpense();
+    } catch (error) {
+      setExpenseEditError(error instanceof Error ? error.message : "Modification de la dépense impossible.");
+    } finally {
+      financialMutationRef.current = "";
+      setFinancialMutationId("");
+    }
   }
 
-  function deleteExpense(expense: Expense) {
-    if (!canManageExpenses) return;
-    updateData({
-      expenses: data.expenses.filter((item) => item.id !== expense.id),
-      auditLogs: [createAuditLog(user, school.id, year.id, "Suppression dépense", `${expense.category} - ${formatMoney(expense.amount)}`, createId), ...data.auditLogs],
-    });
-    expenseHistory.removeItem(expense.id);
-    setExpenseDeleteTarget(null);
+  async function deleteExpense(expense: Expense) {
+    if (!canManageExpenses || financialMutationRef.current) return;
+    const reason = prompt("Motif obligatoire de suppression de la dépense");
+    if (!reason?.trim()) return;
+    financialMutationRef.current = expense.id;
+    setFinancialMutationId(expense.id);
+    try {
+      await deleteFinancialTransaction({ kind: "expense", transactionId: expense.id, reason: reason.trim(), clientRequestId: crypto.randomUUID() });
+      updateData({ expenses: data.expenses.filter((item) => item.id !== expense.id) }, { persist: false });
+      expenseHistory.removeItem(expense.id);
+      setExpenseDeleteTarget(null);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Suppression de la dépense impossible.");
+    } finally {
+      financialMutationRef.current = "";
+      setFinancialMutationId("");
+    }
   }
 
   async function generateExpensePdf(expense: Expense) {
@@ -647,8 +635,8 @@ export function ControlModule({
     });
   }
 
-  function correctPayment(payment: Payment) {
-    if (!canCorrectPayments) return;
+  async function correctPayment(payment: Payment) {
+    if (!canCorrectPayments || financialMutationRef.current) return;
     const nextAmount = prompt("Nouveau montant du paiement", String(payment.amount));
     if (!nextAmount) return;
     const correctedAmount = Number(nextAmount);
@@ -672,28 +660,36 @@ export function ControlModule({
     }
     const reason = prompt("Motif obligatoire de correction");
     if (!reason) return;
-    const correctedPayment: Payment = { ...payment, amount: correctedAmount, updatedAt: new Date().toISOString(), correctionReason: reason };
-    updateData({
-      payments: data.payments.map((item) =>
-        item.id === payment.id ? correctedPayment : item,
-      ),
-      auditLogs: [
-        createAuditLog(user, school.id, year.id, "Correction paiement", `${payment.receiptNumber ?? payment.id}: ancien $${payment.amount}, nouveau $${correctedAmount}. Motif: ${reason}`, createId),
-        ...data.auditLogs,
-      ],
-    });
-    paymentHistory.updateItem(correctedPayment);
+    financialMutationRef.current = payment.id;
+    setFinancialMutationId(payment.id);
+    try {
+      const correctedPayment = await updatePaymentTransaction({ transactionId: payment.id, amount: correctedAmount, reason, clientRequestId: crypto.randomUUID() });
+      updateData({ payments: data.payments.map((item) => item.id === correctedPayment.id ? correctedPayment : item) }, { persist: false });
+      paymentHistory.updateItem(correctedPayment);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Correction du paiement impossible.");
+    } finally {
+      financialMutationRef.current = "";
+      setFinancialMutationId("");
+    }
   }
 
-  function deletePayment(payment: Payment) {
-    if (!canCorrectPayments) return;
+  async function deletePayment(payment: Payment) {
+    if (!canCorrectPayments || financialMutationRef.current) return;
     const reason = prompt("Motif obligatoire de suppression du paiement");
     if (!reason) return;
-    updateData({
-      payments: data.payments.filter((item) => item.id !== payment.id),
-      auditLogs: [createAuditLog(user, school.id, year.id, "Suppression paiement", `${payment.receiptNumber ?? payment.id}: $${payment.amount}. Motif: ${reason}`, createId), ...data.auditLogs],
-    });
-    paymentHistory.removeItem(payment.id);
+    financialMutationRef.current = payment.id;
+    setFinancialMutationId(payment.id);
+    try {
+      await deleteFinancialTransaction({ kind: "payment", transactionId: payment.id, reason, clientRequestId: crypto.randomUUID() });
+      updateData({ payments: data.payments.filter((item) => item.id !== payment.id) }, { persist: false });
+      paymentHistory.removeItem(payment.id);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Suppression du paiement impossible.");
+    } finally {
+      financialMutationRef.current = "";
+      setFinancialMutationId("");
+    }
   }
 
   function renderPaymentWarningForm() {
@@ -1204,7 +1200,7 @@ export function ControlModule({
               ))}
             </select>
             <input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" min="0" max={selectedPaymentFeeRemaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" placeholder="Montant" />
-            <button onClick={savePayment} disabled={isPaymentEntryDisabled} className="primary-button justify-center disabled:opacity-50"><Plus className="h-4 w-4" /> Enregistrer</button>
+            <button onClick={savePayment} disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button justify-center disabled:opacity-50"><Plus className="h-4 w-4" /> {paymentSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
           </FormPanel>
         )}
         {canPay && (
@@ -1218,7 +1214,7 @@ export function ControlModule({
             </select>
             <input value={expenseAmount} onChange={(event) => setExpenseAmount(event.target.value)} type="number" min="0" className="input" placeholder="Montant" />
             <textarea value={expenseDescription} onChange={(event) => setExpenseDescription(event.target.value)} className="input min-h-24" placeholder="Description" />
-            <button onClick={saveExpense} className="primary-button justify-center"><Plus className="h-4 w-4" /> Enregistrer</button>
+            <button onClick={saveExpense} disabled={expenseSubmitting} className="primary-button justify-center disabled:opacity-50"><Plus className="h-4 w-4" /> {expenseSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
           </FormPanel>
         )}
       </div>
@@ -1281,7 +1277,7 @@ export function ControlModule({
                 ))}
               </select>
               <input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" min="0" max={selectedPaymentFeeRemaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" placeholder="Montant" />
-              <button onClick={savePayment} disabled={isPaymentEntryDisabled} className="primary-button justify-center disabled:opacity-50" type="button"><Plus className="h-4 w-4" /> Enregistrer</button>
+              <button onClick={savePayment} disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button justify-center disabled:opacity-50" type="button"><Plus className="h-4 w-4" /> {paymentSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
             </>
           )}
           {cashierControlDrawer === "expense" && (
@@ -1342,7 +1338,7 @@ export function ControlModule({
                 placeholder="Référence / pièce (facultatif)"
               />
               {expenseError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{expenseError}</p>}
-              <button onClick={saveExpense} className="primary-button justify-center" type="button"><Plus className="h-4 w-4" /> Enregistrer</button>
+              <button onClick={saveExpense} disabled={expenseSubmitting} className="primary-button justify-center disabled:opacity-50" type="button"><Plus className="h-4 w-4" /> {expenseSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
             </>
           )}
           {cashierControlDrawer === "history" && (
@@ -1367,8 +1363,8 @@ export function ControlModule({
                           <button onClick={() => generateReceiptPdf(payment, student, fee, school, resolvePaymentCashierName(payment, yearData.auditLogs))} className="rounded bg-slate-100 p-2" title="Voir le reçu PDF" type="button">
                             <Download className="h-4 w-4" />
                           </button>
-                          {canCorrectPayments && <button onClick={() => correctPayment(payment)} className="rounded bg-slate-100 p-2" title="Corriger" type="button"><Edit3 className="h-4 w-4" /></button>}
-                          {canCorrectPayments && <button onClick={() => deletePayment(payment)} className="rounded bg-red-50 p-2 text-red-700" title="Supprimer" type="button"><Trash2 className="h-4 w-4" /></button>}
+                          {canCorrectPayments && <button onClick={() => correctPayment(payment)} disabled={financialMutationId === payment.id} className="rounded bg-slate-100 p-2 disabled:opacity-50" title="Corriger" type="button"><Edit3 className="h-4 w-4" /></button>}
+                          {canCorrectPayments && <button onClick={() => deletePayment(payment)} disabled={financialMutationId === payment.id} className="rounded bg-red-50 p-2 text-red-700 disabled:opacity-50" title="Supprimer" type="button"><Trash2 className="h-4 w-4" /></button>}
                         </div>
                       </div>
                       <p className="break-words text-slate-500">{fee.name} | ${payment.amount} | {payment.paidAt}</p>
@@ -1409,8 +1405,8 @@ export function ControlModule({
                         <button onClick={() => generateReceiptPdf(payment, student, fee, school, resolvePaymentCashierName(payment, yearData.auditLogs))} className="rounded bg-slate-100 p-2" title="Voir le reçu PDF">
                           <Download className="h-4 w-4" />
                         </button>
-                        {canCorrectPayments && <button onClick={() => correctPayment(payment)} className="rounded bg-slate-100 p-2" title="Corriger"><Edit3 className="h-4 w-4" /></button>}
-                        {canCorrectPayments && <button onClick={() => deletePayment(payment)} className="rounded bg-red-50 p-2 text-red-700" title="Supprimer"><Trash2 className="h-4 w-4" /></button>}
+                        {canCorrectPayments && <button onClick={() => correctPayment(payment)} disabled={financialMutationId === payment.id} className="rounded bg-slate-100 p-2 disabled:opacity-50" title="Corriger"><Edit3 className="h-4 w-4" /></button>}
+                        {canCorrectPayments && <button onClick={() => deletePayment(payment)} disabled={financialMutationId === payment.id} className="rounded bg-red-50 p-2 text-red-700 disabled:opacity-50" title="Supprimer"><Trash2 className="h-4 w-4" /></button>}
                       </div>
                     </div>
                     <p className="break-words text-slate-500">{fee.name} | ${payment.amount} | {payment.paidAt}</p>
@@ -1461,8 +1457,8 @@ export function ControlModule({
           {expenseEditError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{expenseEditError}</p>}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <button onClick={closeEditExpense} className="secondary-button justify-center" type="button">Annuler</button>
-            <button onClick={updateExpense} disabled={!canManageExpenses} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50" type="button">
-              Enregistrer
+            <button onClick={updateExpense} disabled={!canManageExpenses || financialMutationId === expenseEditTarget.id} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50" type="button">
+              {financialMutationId === expenseEditTarget.id ? "Enregistrement…" : "Enregistrer"}
             </button>
           </div>
         </AdminDrawer>
@@ -1478,7 +1474,7 @@ export function ControlModule({
           </div>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <button onClick={() => setExpenseDeleteTarget(null)} className="secondary-button justify-center" type="button">Annuler</button>
-            <button onClick={() => deleteExpense(expenseDeleteTarget)} disabled={!canManageExpenses} className="rounded bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50" type="button">
+            <button onClick={() => deleteExpense(expenseDeleteTarget)} disabled={!canManageExpenses || financialMutationId === expenseDeleteTarget.id} className="rounded bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50" type="button">
               Supprimer
             </button>
           </div>
