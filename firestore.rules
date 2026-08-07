@@ -631,6 +631,8 @@ service cloud.firestore {
       allow update: if secretary()
         && sameTenantUpdate()
         && sameYearUpdate()
+        && resource.data.status != "archived"
+        && request.resource.data.status != "archived"
         && resource.data.createdBy == request.resource.data.createdBy
         && resource.data.referenceNumber == request.resource.data.referenceNumber
         && resource.data.schoolId == request.resource.data.schoolId
@@ -700,12 +702,7 @@ service cloud.firestore {
           || (resource.data.status == "draft"
             && request.resource.data.status == "finalized"
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "finalizedAt", "updatedAt"]))
-          || (resource.data.status == "draft"
-            && request.resource.data.status == "archived"
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "archivedAt", "updatedAt"]))
-          || (resource.data.status == "finalized"
-            && request.resource.data.status == "archived"
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "archivedAt", "updatedAt"])));
+          );
       allow delete: if false;
     }
 

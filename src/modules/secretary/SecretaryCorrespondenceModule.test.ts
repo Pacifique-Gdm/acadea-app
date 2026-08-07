@@ -58,20 +58,20 @@ describe("module Courrier du Secrétaire", () => {
   });
 
   it("confirme strictement la suppression définitive avec une saisie manuelle", () => {
-    expect(moduleSource).toContain("SUPPRIMER LE COURRIER");
+    expect(moduleSource).toContain("SUPPRIMER DÉFINITIVEMENT");
     expect(moduleSource).toContain("Cette opération est définitive.");
     expect(moduleSource).toContain('confirmationText !== expected');
     expect(moduleSource).toContain("Le texte de confirmation est incorrect.");
     expect(moduleSource).toContain('setSensitiveAction({ kind: "delete", target: item })');
-    expect(moduleSource).toContain("await deleteCorrespondencePermanently(user, sensitiveAction.target)");
-    expect(moduleSource).not.toContain('kind: "archive"');
-    expect(moduleSource).not.toContain('kind: "unarchive"');
+    expect(moduleSource).toContain("await deleteCorrespondencePermanently(user, sensitiveAction.target, confirmationText)");
+    expect(moduleSource).toContain('changeArchiveState(item, "archive")');
+    expect(moduleSource).toContain('changeArchiveState(item, "restore")');
   });
 
   it("supprime définitivement Firestore et nettoie Storage après confirmation", () => {
     expect(moduleSource).toContain('label="Supprimer définitivement"');
     expect(moduleSource).toContain('setSensitiveAction({ kind: "delete", target: item })');
-    expect(moduleSource).toContain("SUPPRIMER LE COURRIER");
+    expect(moduleSource).toContain("SUPPRIMER DÉFINITIVEMENT");
     expect(moduleSource).toContain("await deleteCorrespondencePermanently");
     expect(serviceSource).toContain('"secretaryDeleteDocument"');
     expect(serviceSource).toContain('kind: "correspondence"');

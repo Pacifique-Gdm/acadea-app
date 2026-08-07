@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { initializeTestEnvironment, assertFails, assertSucceeds, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
-import { doc, runTransaction, serverTimestamp, setDoc } from "firebase/firestore";
+import { deleteDoc, doc, runTransaction, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
 
 const projectId = "demo-acadea-secretary-documents";
@@ -62,5 +62,23 @@ describe("documents du Secrétaire", () => {
     });
     await assertFails(setDoc(doc(secretary(), "students", "student-deleting"), { id: "student-deleting", schoolId, schoolYearId, status: "ACTIVE", nom: "Bloqué" }));
     await assertFails(setDoc(doc(secretary(), "secretaryCounters", `${schoolId}_SEC_2027`), { schoolId, schoolYearId, kind: "correspondence", serviceCode: "SEC", year: 2027, value: 1, updatedAt: serverTimestamp() }));
+  });
+
+  it("interdit au client d'archiver, restaurer ou supprimer un courrier", async () => {
+    await testEnvironment().withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), "correspondences", "letter-a"), { id: "letter-a", schoolId, schoolYearId, createdBy: "secretary-a", referenceNumber: "C-1", status: "draft" });
+    });
+    const reference = doc(secretary(), "correspondences", "letter-a");
+    await assertFails(updateDoc(reference, { status: "archived", archivedFromStatus: "draft", archivedAt: serverTimestamp() }));
+    await assertFails(deleteDoc(reference));
+  });
+
+  it("interdit au client d'archiver, restaurer ou supprimer un rapport", async () => {
+    await testEnvironment().withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), "secretaryReports", "report-a"), { id: "report-a", schoolId, schoolYearId, authorId: "secretary-a", reportNumber: "R-1", status: "draft" });
+    });
+    const reference = doc(secretary(), "secretaryReports", "report-a");
+    await assertFails(updateDoc(reference, { status: "archived", archivedFromStatus: "draft", archivedAt: serverTimestamp() }));
+    await assertFails(deleteDoc(reference));
   });
 });

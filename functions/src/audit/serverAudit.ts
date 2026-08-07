@@ -4,7 +4,8 @@ import { FieldValue } from "firebase-admin/firestore";
 export const FUNCTION_AUDIT_EVENTS = {
   AI_ENABLED: "ai.enabled", AI_DISABLED: "ai.disabled", AI_LIMIT_UPDATED: "ai.limit.updated", AI_QUOTA_RESET: "ai.quota.reset",
   DISCIPLINE_SANCTION_CREATED: "discipline.sanction.created", DISCIPLINE_SANCTION_COMPLETED: "discipline.sanction.completed",
-  CORRESPONDENCE_DELETED: "secretary.correspondence.deleted", REPORT_DELETED: "secretary.report.deleted",
+  CORRESPONDENCE_ARCHIVED: "secretary.correspondence.archived", CORRESPONDENCE_RESTORED: "secretary.correspondence.restored", CORRESPONDENCE_DELETED: "secretary.correspondence.deleted",
+  REPORT_ARCHIVED: "secretary.report.archived", REPORT_RESTORED: "secretary.report.restored", REPORT_DELETED: "secretary.report.deleted",
 } as const;
 
 type EventType = typeof FUNCTION_AUDIT_EVENTS[keyof typeof FUNCTION_AUDIT_EVENTS];

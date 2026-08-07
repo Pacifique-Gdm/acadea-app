@@ -44,15 +44,20 @@ export async function finalizeSecretaryReport(user: AppUser, report: SecretaryRe
 }
 
 export async function archiveSecretaryReport(user: AppUser, report: SecretaryReport) {
-  assertSecretary(user, report.schoolId);
-  if (!db || report.status === "archived") return;
-  const now = new Date().toISOString();
-  await setDoc(doc(db, "secretaryReports", report.id), { status: "archived", archivedAt: now, updatedAt: now }, { merge: true });
+  return manageSecretaryReport(user, report, "archive");
 }
 
-export async function deleteSecretaryReportPermanently(user: AppUser, report: SecretaryReport) {
+export async function restoreSecretaryReport(user: AppUser, report: SecretaryReport) {
+  return manageSecretaryReport(user, report, "restore");
+}
+
+async function manageSecretaryReport(user: AppUser, report: SecretaryReport, action: "archive" | "restore" | "delete", confirmation?: string) {
   assertSecretary(user, report.schoolId);
   if (!app) throw new Error("Service de données indisponible.");
-  const callable = httpsCallable<{ kind: "report"; documentId: string }, { deleted: boolean }>(getFunctions(app, "europe-west1"), "secretaryDeleteDocument");
-  await callable({ kind: "report", documentId: report.id });
+  const callable = httpsCallable<{ kind: "report"; documentId: string; action: "archive" | "restore" | "delete"; confirmation?: string }, { deleted: boolean }>(getFunctions(app, "europe-west1"), "secretaryDeleteDocument");
+  return (await callable({ kind: "report", documentId: report.id, action, ...(confirmation ? { confirmation } : {}) })).data;
+}
+
+export async function deleteSecretaryReportPermanently(user: AppUser, report: SecretaryReport, confirmation: string) {
+  return manageSecretaryReport(user, report, "delete", confirmation);
 }

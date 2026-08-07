@@ -117,20 +117,23 @@ export async function updateCorrespondence(user: AppUser, current: Correspondenc
 }
 
 export async function archiveCorrespondence(user: AppUser, current: Correspondence) {
-  return updateCorrespondence(user, current, { status: "archived", archivedFromStatus: current.status });
+  return manageCorrespondence(user, current, "archive");
 }
 
 export async function unarchiveCorrespondence(user: AppUser, current: Correspondence) {
   if (current.status !== "archived") throw new Error("Ce courrier n'est pas archivé.");
-  const restoredStatus = current.archivedFromStatus && current.archivedFromStatus !== "archived" ? current.archivedFromStatus : current.direction === "incoming" ? "received" : "draft";
-  return updateCorrespondence(user, current, { status: restoredStatus, archivedFromStatus: null });
+  return manageCorrespondence(user, current, "restore");
 }
 
-export async function deleteCorrespondencePermanently(user: AppUser, current: Correspondence) {
+async function manageCorrespondence(user: AppUser, current: Correspondence, action: "archive" | "restore" | "delete", confirmation?: string) {
   assertSecretary(user, current.schoolId);
   if (!app) throw new Error("Service de données indisponible.");
-  const callable = httpsCallable<{ kind: "correspondence"; documentId: string }, { storageCleanupSucceeded: boolean }>(getFunctions(app, "europe-west1"), "secretaryDeleteDocument");
-  return (await callable({ kind: "correspondence", documentId: current.id })).data;
+  const callable = httpsCallable<{ kind: "correspondence"; documentId: string; action: "archive" | "restore" | "delete"; confirmation?: string }, { storageCleanupSucceeded: boolean }>(getFunctions(app, "europe-west1"), "secretaryDeleteDocument");
+  return (await callable({ kind: "correspondence", documentId: current.id, action, ...(confirmation ? { confirmation } : {}) })).data;
+}
+
+export async function deleteCorrespondencePermanently(user: AppUser, current: Correspondence, confirmation: string) {
+  return manageCorrespondence(user, current, "delete", confirmation);
 }
 
 export async function replaceCorrespondenceAttachment(user: AppUser, current: Correspondence, file: File): Promise<CorrespondenceAttachment> {

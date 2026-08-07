@@ -193,4 +193,8 @@ export interface SecretaryReport {
   updatedAt: string;
   finalizedAt?: string;
   archivedAt?: string;
+  archivedFromStatus?: SecretaryReportStatus | null;
+  archivedBy?: string;
+  restoredAt?: string;
+  restoredBy?: string;
 }

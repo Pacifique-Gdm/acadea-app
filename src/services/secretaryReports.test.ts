@@ -28,6 +28,7 @@ describe("rapports du Secrétaire", () => {
     const rules = readFileSync(new URL("../../firestore.rules", import.meta.url), "utf8");
     expect(service).toContain('report.status !== "draft"');
     expect(rules).toContain('resource.data.status == "finalized"');
-    expect(rules).toContain('affectedKeys().hasOnly(["status", "archivedAt", "updatedAt"])');
+    expect(service).toContain('action: "archive" | "restore" | "delete"');
+    expect(rules).not.toContain('affectedKeys().hasOnly(["status", "archivedAt", "updatedAt"])');
   });
 });
