@@ -1,4 +1,5 @@
 import type { Expense, Payment } from "../types";
+import { resolveApiUrl } from "../config/apiUrl";
 import { getCurrentFirebaseIdToken } from "./auth";
 
 type FinancialAction =
@@ -21,7 +22,7 @@ type FinancialResponse = {
 
 async function financialRequest(input: Record<string, unknown> & { action: FinancialAction; clientRequestId: string }) {
   const token = await getCurrentFirebaseIdToken();
-  const response = await fetch("/api/manage-financial-transaction", {
+  const response = await fetch(resolveApiUrl("/api/manage-financial-transaction"), {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify(input),

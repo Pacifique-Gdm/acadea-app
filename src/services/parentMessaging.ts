@@ -1,6 +1,7 @@
 import { getIdToken } from "firebase/auth";
 import { auth } from "../firebase";
 import type { AppNotification, Message } from "../types";
+import { resolveApiUrl } from "../config/apiUrl";
 
 export type ParentMessageRecipient = "admin" | "cashier" | "both" | "discipline";
 
@@ -69,7 +70,8 @@ async function parseParentMessageResponse(response: Response) {
 
 async function fetchParentMessaging(input: RequestInfo | URL, init?: RequestInit) {
   try {
-    return await fetch(input, init);
+    const resolvedInput = typeof input === "string" && input.startsWith("/api/") ? resolveApiUrl(input) : input;
+    return await fetch(resolvedInput, init);
   } catch (cause) {
     const error = new Error("Connexion indisponible. Veuillez réessayer.");
     Object.assign(error, { code: "network-error", cause });

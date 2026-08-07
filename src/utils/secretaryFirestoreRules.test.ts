@@ -31,7 +31,8 @@ describe("règles Firestore Secrétaire", () => {
     expect(valveRules).toContain('(schoolAdmin() || secretary()) && sameTenantUpdate() && sameYearUpdate()');
     expect(valveRules).toContain('(schoolAdmin() || secretary()) && sameTenantResource()');
     expect(rules).toContain('role() in ["school_admin", "cashier", "secretary"] && sameTenantCreate()');
-    expect(storageRules).toContain('role() in ["school_admin", "secretary"]');
+    expect(storageRules).toContain('role() in ["school_admin", "admin", "secretary"]');
+    expect(storageRules).toContain("validValveAttachment(fileName, schoolId, schoolYearId, publicationId)");
     expect(storageRules).toContain("tenantSchoolId() == schoolId");
   });
 });

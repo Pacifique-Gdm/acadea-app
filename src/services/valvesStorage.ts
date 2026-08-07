@@ -1,6 +1,7 @@
 import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from "firebase/storage";
 import { storage } from "../firebase";
 import type { ValvePublicationAttachment } from "../types";
+import { getValveAttachmentExtension, validateValveAttachments } from "../utils/valvesMedia";
 
 export type ValveAttachmentUploadInput = {
   name: string;
@@ -30,13 +31,17 @@ export type ValveAttachmentDeleteFailure = {
 
 const VALVE_ATTACHMENT_UPLOAD_TIMEOUT_MS = 60_000;
 
-function sanitizeStorageSegment(value: string) {
+export function sanitizeValveAttachmentDisplayName(value: string) {
   return value
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-zA-Z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 120) || "fichier";
+}
+
+function createStorageObjectName(fileName: string) {
+  return `${crypto.randomUUID()}${getValveAttachmentExtension(fileName)}`;
 }
 
 function dataUrlToBlob(dataUrl: string) {
@@ -65,10 +70,22 @@ export async function uploadValveAttachment(params: {
   }
 
   const blob = dataUrlToBlob(params.attachment.dataUrl);
-  const fileName = sanitizeStorageSegment(params.attachment.name);
-  const attachmentPath = `valves/${params.schoolId}/${params.schoolYearId}/${params.publicationId}/${Date.now()}-${fileName}`;
+  const validationError = validateValveAttachments([{ name: params.attachment.name, type: params.attachment.type, size: blob.size }]);
+  if (validationError || blob.type !== params.attachment.type) {
+    throw new Error(validationError || "Le type reel de la piece jointe ne correspond pas au type annonce.");
+  }
+  const originalName = sanitizeValveAttachmentDisplayName(params.attachment.name);
+  const attachmentPath = `valves/${params.schoolId}/${params.schoolYearId}/${params.publicationId}/${createStorageObjectName(params.attachment.name)}`;
   const attachmentRef = ref(storage, attachmentPath);
-  const uploadTask = uploadBytesResumable(attachmentRef, blob, { contentType: params.attachment.type });
+  const uploadTask = uploadBytesResumable(attachmentRef, blob, {
+    contentType: params.attachment.type,
+    customMetadata: {
+      schoolId: params.schoolId,
+      schoolYearId: params.schoolYearId,
+      publicationId: params.publicationId,
+      originalName,
+    },
+  });
   const snapshot = await new Promise<import("firebase/storage").UploadTaskSnapshot>((resolve, reject) => {
     let settled = false;
     let unsubscribe = () => {};

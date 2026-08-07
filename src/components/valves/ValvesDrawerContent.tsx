@@ -37,7 +37,7 @@ import {
   validateValveAttachmentDrafts,
 } from "../../utils/valves";
 import type { ValveAttachmentDraft } from "../../utils/valves";
-import { prepareValveAttachments } from "../../utils/valvesMedia";
+import { prepareValveAttachments, VALVE_ATTACHMENT_ACCEPT } from "../../utils/valvesMedia";
 import { schoolSectionLabels } from "../../utils/schoolConfig";
 
 const valveKindLabels: Record<ValvePublicationKind, string> = {
@@ -489,7 +489,7 @@ export function ValvesDrawerContent({
               }}
               type="file"
               className="input"
-              accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+              accept={VALVE_ATTACHMENT_ACCEPT}
               multiple
               disabled={isPublishing || isPreparingAttachment || !valvesUploadsEnabled}
             />

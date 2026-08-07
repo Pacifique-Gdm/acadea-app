@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "npm run dev:staging",
-    "dev:staging": "vite --mode staging --host 127.0.0.1",
+    "dev:staging": "node scripts/devStaging.cjs",
+    "dev:vite": "vite --mode staging --host 127.0.0.1",
     "dev:production": "vite --mode production --host 127.0.0.1",
     "build": "npm run build:production",
     "build:staging": "node scripts/verifyDeploymentEnvironment.cjs staging && tsc -b && vite build --mode staging",
@@ -16,6 +17,7 @@
     "test": "npm run test:unit",
     "test:unit": "vitest run",
     "test:firestore": "vitest run --config vitest.firestore.config.ts",
+    "test:storage": "vitest run --config vitest.storage.config.ts",
     "test:e2e": "playwright test",
     "test:e2e:staging": "playwright test",
     "claims:set": "node scripts/setCustomClaims.cjs",
@@ -52,6 +54,7 @@
     "tsx": "^4.20.6",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.62.0",
+    "vercel": "^58.7.1",
     "vite": "^7.1.7",
     "vitest": "^4.1.10"
   }

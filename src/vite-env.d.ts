@@ -2,6 +2,7 @@
 
 interface ImportMetaEnv {
   readonly VITE_APP_ENV?: "development" | "staging" | "preview" | "production";
+  readonly VITE_API_BASE_URL?: string;
   readonly VITE_STAGING_BANNER?: string;
   readonly VITE_STAGING_LABEL?: string;
   readonly VITE_FIREBASE_API_KEY?: string;

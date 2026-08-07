@@ -14,10 +14,35 @@ service firebase.storage {
       return request.auth.token.schoolId;
     }
 
-    match /valves/{schoolId}/{schoolYearId}/{publicationId}/{fileName=**} {
+    function valvesRole() {
+      return role() in ["school_admin", "admin", "secretary"];
+    }
+
+    function validValveAttachment(fileName, schoolId, schoolYearId, publicationId) {
+      return request.resource.size > 0
+        && request.resource.size <= 10 * 1024 * 1024
+        && request.resource.metadata.schoolId == schoolId
+        && request.resource.metadata.schoolYearId == schoolYearId
+        && request.resource.metadata.publicationId == publicationId
+        && request.resource.metadata.originalName is string
+        && request.resource.metadata.originalName.size() > 0
+        && request.resource.metadata.originalName.size() <= 120
+        && (
+          (request.resource.contentType == "application/pdf" && fileName.matches('^[0-9a-fA-F-]{36}\\.pdf$'))
+          || (request.resource.contentType == "image/jpeg" && fileName.matches('^[0-9a-fA-F-]{36}\\.(jpg|jpeg)$'))
+          || (request.resource.contentType == "image/png" && fileName.matches('^[0-9a-fA-F-]{36}\\.png$'))
+          || (request.resource.contentType == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" && fileName.matches('^[0-9a-fA-F-]{36}\\.docx$'))
+        );
+    }
+
+    match /valves/{schoolId}/{schoolYearId}/{publicationId}/{fileName} {
       allow read: if signedIn() && tenantSchoolId() == schoolId;
-      allow write: if signedIn()
-        && role() in ["school_admin", "secretary"]
+      allow create, update: if signedIn()
+        && valvesRole()
+        && tenantSchoolId() == schoolId
+        && validValveAttachment(fileName, schoolId, schoolYearId, publicationId);
+      allow delete: if signedIn()
+        && valvesRole()
         && tenantSchoolId() == schoolId;
     }
 

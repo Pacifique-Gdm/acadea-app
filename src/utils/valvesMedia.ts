@@ -10,24 +10,17 @@ const MIN_COMPRESSIBLE_SIZE = 350 * 1024;
 const IMAGE_QUALITY = 0.82;
 export const MAX_VALVE_ATTACHMENTS = 5;
 export const MAX_VALVE_ATTACHMENTS_TOTAL_SIZE = 20 * 1024 * 1024;
+export const MAX_VALVE_ATTACHMENT_SIZE = 10 * 1024 * 1024;
 
-const VALVE_ATTACHMENT_LIMITS = [
-  { label: "Images", extensions: [".jpg", ".jpeg", ".png", ".webp"], types: ["image/jpeg", "image/png", "image/webp"], maxSize: 5 * 1024 * 1024 },
-  { label: "PDF", extensions: [".pdf"], types: ["application/pdf"], maxSize: 10 * 1024 * 1024 },
-  {
-    label: "Word",
-    extensions: [".doc", ".docx"],
-    types: ["application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
-    maxSize: 10 * 1024 * 1024,
-  },
-  {
-    label: "Excel",
-    extensions: [".xls", ".xlsx"],
-    types: ["application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
-    maxSize: 10 * 1024 * 1024,
-  },
-  { label: "Texte", extensions: [".txt"], types: ["text/plain"], maxSize: 1024 * 1024 },
-];
+export const VALVE_ATTACHMENT_POLICY = [
+  { extension: ".pdf", mimeType: "application/pdf" },
+  { extension: ".jpg", mimeType: "image/jpeg" },
+  { extension: ".jpeg", mimeType: "image/jpeg" },
+  { extension: ".png", mimeType: "image/png" },
+  { extension: ".docx", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
+] as const;
+
+export const VALVE_ATTACHMENT_ACCEPT = VALVE_ATTACHMENT_POLICY.map(({ extension }) => extension).join(",");
 
 export function formatValveAttachmentSize(size = 0) {
   if (size >= 1024 * 1024) {
@@ -36,14 +29,14 @@ export function formatValveAttachmentSize(size = 0) {
   return `${Math.max(1, Math.ceil(size / 1024))} Ko`;
 }
 
-function getFileExtension(fileName: string) {
+export function getValveAttachmentExtension(fileName: string) {
   const dotIndex = fileName.lastIndexOf(".");
   return dotIndex >= 0 ? fileName.slice(dotIndex).toLowerCase() : "";
 }
 
-function getAttachmentLimit(file: Pick<File, "name" | "type">) {
-  const extension = getFileExtension(file.name);
-  return VALVE_ATTACHMENT_LIMITS.find((limit) => limit.types.includes(file.type) || limit.extensions.includes(extension));
+export function isValveAttachmentTypeAllowed(file: Pick<File, "name" | "type">) {
+  const extension = getValveAttachmentExtension(file.name);
+  return VALVE_ATTACHMENT_POLICY.some((entry) => entry.extension === extension && entry.mimeType === file.type);
 }
 
 function getDataUrlSize(dataUrl: string) {
@@ -62,12 +55,12 @@ export function validateValveAttachments(attachments: Array<Pick<ValveAttachment
   }
 
   for (const attachment of attachments) {
-    const limit = getAttachmentLimit(attachment as Pick<File, "name" | "type">);
-    if (!limit) {
+    const allowedType = isValveAttachmentTypeAllowed(attachment as Pick<File, "name" | "type">);
+    if (!allowedType) {
       return `${attachment.name} n'est pas un type de fichier autorisé.`;
     }
-    if ((attachment.size ?? 0) > limit.maxSize) {
-      return `${attachment.name} dépasse la limite autorisée de ${formatValveAttachmentSize(limit.maxSize)}.`;
+    if ((attachment.size ?? 0) <= 0 || (attachment.size ?? 0) > MAX_VALVE_ATTACHMENT_SIZE) {
+      return `${attachment.name} dépasse la limite autorisée de ${formatValveAttachmentSize(MAX_VALVE_ATTACHMENT_SIZE)}.`;
     }
   }
 

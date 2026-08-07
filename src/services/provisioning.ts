@@ -1,5 +1,6 @@
 import { getCurrentFirebaseIdToken } from "./auth";
 import type { AppUser, AuditLog, ParentProfile, School, SchoolYear } from "../types";
+import { resolveApiUrl } from "../config/apiUrl";
 
 type ProvisionSchoolAdminInput = {
   schoolName: string;
@@ -21,7 +22,7 @@ type ProvisionSchoolAdminResponse = {
 
 export async function provisionSchoolAdmin(input: ProvisionSchoolAdminInput) {
   const token = await getCurrentFirebaseIdToken();
-  const response = await fetch("/api/provision-school-admin", {
+  const response = await fetch(resolveApiUrl("/api/provision-school-admin"), {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -71,14 +72,15 @@ type ProvisionParentInput = {
 };
 
 function getProvisionEndpointUrl(endpoint: string) {
-  return typeof window === "undefined" ? endpoint : new URL(endpoint, window.location.origin).href;
+  const resolvedEndpoint = resolveApiUrl(endpoint);
+  return typeof window === "undefined" ? resolvedEndpoint : new URL(resolvedEndpoint, window.location.origin).href;
 }
 
 async function provisionSchoolAccount<TResponse>(input: Record<string, unknown>, options?: { showEndpointOnNotFound?: boolean }) {
   const token = await getCurrentFirebaseIdToken();
   const endpoint = "/api/provision-school-account";
   const endpointUrl = getProvisionEndpointUrl(endpoint);
-  const response = await fetch(endpoint, {
+  const response = await fetch(resolveApiUrl(endpoint), {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -201,7 +203,7 @@ type ManageSchoolResponse = {
 
 export async function manageSchool(input: ManageSchoolInput) {
   const token = await getCurrentFirebaseIdToken();
-  const response = await fetch("/api/manage-school", {
+  const response = await fetch(resolveApiUrl("/api/manage-school"), {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
