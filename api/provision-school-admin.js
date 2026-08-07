@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { firebaseAdminPublicError, initAdmin } from "./_lib/firebaseAdmin.js";
+import { AUDIT_EVENT_TYPES, buildServerAudit } from "./_lib/serverAudit.js";
 
 const allowedPlans = new Set(["Starter", "Standard", "Premium"]);
 
@@ -172,14 +173,7 @@ export default async function handler(req, res) {
     await db.doc(`schools/${schoolId}`).update({ mainAdminId: adminUid });
     school.mainAdminId = adminUid;
 
-    const auditLog = {
-      id: auditId,
-      schoolId,
-      actorId: caller.uid,
-      actorName: caller.email ?? "Super administrateur",
-      action: `Création de l'école ${schoolName}`,
-      createdAt: now,
-    };
+    const auditLog = buildServerAudit({ id: auditId, eventType: AUDIT_EVENT_TYPES.SCHOOL_CREATED, actor: caller, schoolId, schoolYearId: yearId, resourceType: "school", resourceId: schoolId, metadata: { subscriptionPlan: plan } });
     await db.doc(`auditLogs/${auditId}`).set(auditLog);
 
     sendJson(res, 200, {

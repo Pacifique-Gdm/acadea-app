@@ -19,7 +19,7 @@ export type PlatformSettings = {
 
 export type FirestoreBootstrapData = Pick<AppData, "users" | "schools" | "schoolYears">;
 
-const collectionMap: Record<CollectionKey, string> = {
+const collectionMap: Partial<Record<CollectionKey, string>> = {
   users: "users",
   schools: "schools",
   schoolYears: "schoolYears",
@@ -30,7 +30,6 @@ const collectionMap: Record<CollectionKey, string> = {
   expenses: "expenses",
   messages: "messages",
   notifications: "notifications",
-  auditLogs: "auditLogs",
   valves: "valves",
   disciplineSanctions: "disciplineSanctions",
   attendance: "attendance",
@@ -405,6 +404,7 @@ export async function persistFirestorePatch(patch: Partial<AppData>, options: Pe
       .filter(([key, items]) => collectionMap[key] && Array.isArray(items))
       .map(async ([key, items]) => {
         const collectionName = collectionMap[key];
+        if (!collectionName) return;
         await Promise.all(
           (items as PersistableItem[]).map((item) =>
             setDoc(doc(db, collectionName, item.id), item).catch((error) => {

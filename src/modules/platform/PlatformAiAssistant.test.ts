@@ -17,8 +17,9 @@ describe("contrôle Super Administrateur de l’Assistant IA", () => {
 
   it("enregistre un Timestamp serveur et l'identité du Super Administrateur", () => {
     expect(service).toContain('user.role !== "super_admin"');
-    expect(service).toContain('"aiAssistant.updatedAt": serverTimestamp()');
-    expect(service).toContain('"aiAssistant.updatedBy": user.id');
+    expect(service).toContain('"platformAiUpdateSettings"');
+    expect(service).not.toContain('transaction.set(auditRef');
+    expect(readFileSync(new URL("../../../functions/src/ai/schoolAiAdmin.ts", import.meta.url), "utf8")).toContain('"aiAssistant.updatedAt": FieldValue.serverTimestamp()');
   });
 
   it("confirme strictement l'activation et la désactivation avant sauvegarde", () => {

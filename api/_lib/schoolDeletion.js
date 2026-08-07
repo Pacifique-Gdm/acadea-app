@@ -149,7 +149,7 @@ export async function deleteSchoolCompletely({ db, auth, bucket, schoolId, schoo
   const schoolRef = db.doc(`schools/${schoolId}`);
   const startedAt = new Date().toISOString();
   await schoolRef.update({ status: "deleting", deletion: { status: "running", startedAt, startedBy: actor.uid } });
-  const auditRef = await db.collection("platform").doc("schoolDeletionLog").collection("entries").add({ schoolId, actorId: actor.uid, actorEmail: actor.email ?? null, status: "running", startedAt, createdAt: FieldValue.serverTimestamp() });
+  const auditRef = await db.collection("platform").doc("schoolDeletionLog").collection("entries").add({ eventType: "school.deletion.started", actorId: actor.uid, actorRole: actor.role, schoolId, resourceType: "school", resourceId: schoolId, source: "server", status: "running", startedAt, createdAt: FieldValue.serverTimestamp() });
   const authCandidates = await collectSchoolAuthUsers(db, schoolId, schoolData);
   let schoolDeleted = false;
   try {
@@ -160,11 +160,11 @@ export async function deleteSchoolCompletely({ db, auth, bucket, schoolId, schoo
     await schoolRef.delete();
     schoolDeleted = true;
     const report = { schoolId, status: "complete", startedAt, finishedAt: new Date().toISOString(), storageDeleted: storage.deleted, auth: authReport, firestore };
-    await auditRef.set({ ...report, actorId: actor.uid, actorEmail: actor.email ?? null, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    await auditRef.set({ ...report, eventType: "school.deletion.completed", actorId: actor.uid, actorRole: actor.role, source: "server", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     return report;
   } catch (error) {
     if (!schoolDeleted) await schoolRef.set({ status: "deleting", deletion: { status: "failed", failedStep: error?.step ?? "unknown", startedAt, failedAt: new Date().toISOString(), startedBy: actor.uid } }, { merge: true }).catch(() => undefined);
-    await auditRef.set({ status: schoolDeleted ? "deleted-log-failed" : "failed", failedStep: error?.step ?? "unknown", failedAt: FieldValue.serverTimestamp() }, { merge: true }).catch(() => undefined);
+    await auditRef.set({ eventType: "school.deletion.failed", status: schoolDeleted ? "deleted-log-failed" : "failed", failedStep: error?.step ?? "unknown", failedAt: FieldValue.serverTimestamp() }, { merge: true }).catch(() => undefined);
     throw error;
   }
 }

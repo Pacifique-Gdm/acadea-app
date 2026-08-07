@@ -21,7 +21,7 @@ describe("règles Firestore Secrétaire", () => {
 
   it("autorise la suppression d'un courrier uniquement au Secrétaire de son école", () => {
     const correspondenceRules = rules.slice(rules.indexOf("match /correspondences/{correspondenceId}"), rules.indexOf("match /secretaryCounters/{counterId}"));
-    expect(correspondenceRules).toContain("allow delete: if secretary() && sameTenantResource();");
+    expect(correspondenceRules).toContain("allow delete: if false;");
     expect(correspondenceRules).not.toContain("allow delete: if true");
   });
 

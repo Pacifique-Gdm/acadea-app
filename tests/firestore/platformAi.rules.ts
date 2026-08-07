@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { initializeTestEnvironment, assertFails, assertSucceeds, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
+import { initializeTestEnvironment, assertFails, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
 import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -31,7 +31,7 @@ describe("contrôles Super Administrateur de l’Assistant IA", () => {
 
   it("refuse toute modification arbitraire du compteur et autorise l'audit Super Administrateur", async () => {
     await assertFails(updateDoc(doc(superAdmin(), "schools", "school-a"), { "aiAssistant.monthlyUsage": 3, "aiAssistant.updatedAt": serverTimestamp(), "aiAssistant.updatedBy": "super-1" }));
-    await assertSucceeds(setDoc(doc(superAdmin(), "auditLogs", "audit-ai"), { id: "audit-ai", schoolId: "school-a", actorId: "super-1", actorName: "Super Admin", action: "Réinitialisation du quota mensuel de l’Assistant IA", details: "Ancienne consommation : 17. Nouvelle consommation : 0.", createdAt: serverTimestamp() }));
+    await assertFails(setDoc(doc(superAdmin(), "auditLogs", "audit-ai"), { id: "audit-ai", schoolId: "school-a", actorId: "super-1", actorName: "Super Admin", action: "Réinitialisation du quota mensuel de l’Assistant IA", details: "Ancienne consommation : 17. Nouvelle consommation : 0.", createdAt: serverTimestamp() }));
   });
 
   it("interdit les reservations IA a tous les clients", async () => {

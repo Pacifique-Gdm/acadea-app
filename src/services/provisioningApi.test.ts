@@ -47,6 +47,10 @@ describe("API de provisionnement Acadéa", () => {
     mocks.auth.setCustomUserClaims.mockResolvedValue(undefined);
     mocks.auth.deleteUser.mockResolvedValue(undefined);
     mocks.db.batch.mockReturnValue({ set: vi.fn(), update: vi.fn(), delete: vi.fn(), commit: vi.fn().mockResolvedValue(undefined) });
+    mocks.db.collection.mockImplementation(() => ({
+      doc: vi.fn(() => ({ id: "audit-test", set: vi.fn().mockResolvedValue(undefined) })),
+      where: vi.fn(() => ({ where: vi.fn(() => ({ get: vi.fn().mockResolvedValue({ docs: [], empty: true }) })), get: vi.fn().mockResolvedValue({ docs: [], empty: true }) })),
+    }));
     mocks.db.doc.mockImplementation((path: string) => ({
       path,
       get: vi.fn().mockResolvedValue(path === "schools/school-1"
@@ -112,7 +116,8 @@ describe("API de provisionnement Acadéa", () => {
       role: "parent", schoolId: "school-1", parentId: "parent-1",
     });
     const batch = mocks.db.batch.mock.results[0]?.value;
-    expect(batch.set).toHaveBeenCalledTimes(2);
+    expect(batch.set).toHaveBeenCalledTimes(3);
+    expect(batch.set).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ eventType: "user.created", actorId: "admin-1", actorRole: "school_admin", schoolId: "school-1", source: "server" }));
     expect(batch.update).toHaveBeenCalledWith(expect.objectContaining({ path: "students/student-1" }), { parentId: "parent-1" });
     expect(batch.commit).toHaveBeenCalledOnce();
   });

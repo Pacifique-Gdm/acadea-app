@@ -1,4 +1,4 @@
-import { collection, doc, getDocs, query, runTransaction, setDoc, where } from "@firebase/firestore";
+import { collection, doc, getDocs, query, runTransaction, where } from "@firebase/firestore";
 import type { Firestore } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
 import type { AuditLog, DisciplineSanction } from "../types";
@@ -60,7 +60,7 @@ export async function createDisciplineSanction({ sanction, auditLog }: CreateDis
   validateNewSanction(sanction);
   const database = requireFirestore();
   const sanctionRef = doc(database, "disciplineSanctions", sanction.id);
-  const auditRef = doc(database, "auditLogs", auditLog.id);
+  void auditLog;
   const existingQuery = query(
     collection(database, "disciplineSanctions"),
     where("schoolId", "==", sanction.schoolId),
@@ -81,7 +81,6 @@ export async function createDisciplineSanction({ sanction, auditLog }: CreateDis
       recurrenceNumber: matchingReasonCount,
     };
     transaction.set(sanctionRef, removeUndefined(createdSanction as unknown as Record<string, unknown>));
-    transaction.set(auditRef, auditLog);
   });
 
   if (!createdSanction) {
@@ -96,7 +95,7 @@ export async function completeDisciplineSanction({ sanction, completedAt, comple
   }
   const database = requireFirestore();
   const sanctionRef = doc(database, "disciplineSanctions", sanction.id);
-  const auditRef = doc(database, "auditLogs", auditLog.id);
+  void auditLog;
   const completedSanction: DisciplineSanction = {
     ...sanction,
     status: "completed",
@@ -112,15 +111,13 @@ export async function completeDisciplineSanction({ sanction, completedAt, comple
       throw new Error("Cette sanction est déjà clôturée.");
     }
     transaction.set(sanctionRef, removeUndefined(completedSanction as unknown as Record<string, unknown>));
-    transaction.set(auditRef, auditLog);
   });
 
   return completedSanction;
 }
 
 export async function saveDisciplineAuditLog(auditLog: AuditLog) {
-  const database = requireFirestore();
-  await setDoc(doc(database, "auditLogs", auditLog.id), auditLog);
+  void auditLog;
 }
 
 export async function countStudentDisciplineSanctions(schoolId: string, schoolYearId: string, studentId: string) {

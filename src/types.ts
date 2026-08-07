@@ -263,10 +263,16 @@ export interface AppNotification {
 
 export interface AuditLog {
   id: string;
+  eventType?: string;
   schoolId?: string;
   schoolYearId?: string;
   actorId: string;
+  actorRole?: AppUser["role"];
   actorName: string;
+  resourceType?: string;
+  resourceId?: string;
+  source?: "server";
+  metadata?: Record<string, string | number | boolean>;
   action: string;
   details?: string;
   createdAt: string;

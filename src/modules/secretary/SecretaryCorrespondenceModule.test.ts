@@ -73,9 +73,9 @@ describe("module Courrier du Secrétaire", () => {
     expect(moduleSource).toContain('setSensitiveAction({ kind: "delete", target: item })');
     expect(moduleSource).toContain("SUPPRIMER LE COURRIER");
     expect(moduleSource).toContain("await deleteCorrespondencePermanently");
-    expect(serviceSource).toContain('await deleteDoc(doc(db, "correspondences", current.id))');
-    expect(serviceSource).toContain("await listAll(folder)");
-    expect(serviceSource).toContain("deleteObject(item)");
+    expect(serviceSource).toContain('"secretaryDeleteDocument"');
+    expect(serviceSource).toContain('kind: "correspondence"');
+    expect(serviceSource).not.toContain('deleteDoc(doc(db, "correspondences", current.id))');
   });
 
   it("rend le dialogue accessible et bloque les doubles clics", () => {

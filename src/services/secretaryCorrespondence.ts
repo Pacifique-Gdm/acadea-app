@@ -1,7 +1,8 @@
 import * as firestore from "firebase/firestore";
-import { collection, deleteDoc, doc, onSnapshot, query, runTransaction, setDoc, where } from "firebase/firestore";
-import { deleteObject, getDownloadURL, listAll, ref, uploadBytes } from "firebase/storage";
-import { auth, db, storage } from "../firebase";
+import { collection, doc, onSnapshot, query, runTransaction, setDoc, where } from "firebase/firestore";
+import { getFunctions, httpsCallable } from "firebase/functions";
+import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { app, auth, db, storage } from "../firebase";
 import type { AppUser } from "../types";
 import type { Correspondence, CorrespondenceAttachment } from "../modules/secretary/secretaryTypes";
 import { correspondenceServiceCode, generateOutgoingCorrespondenceReference } from "../utils/outgoingCorrespondenceReference";
@@ -127,21 +128,9 @@ export async function unarchiveCorrespondence(user: AppUser, current: Correspond
 
 export async function deleteCorrespondencePermanently(user: AppUser, current: Correspondence) {
   assertSecretary(user, current.schoolId);
-  if (!db) throw new Error("Service de données indisponible.");
-  await deleteDoc(doc(db, "correspondences", current.id));
-  if (!storage) return { storageCleanupSucceeded: false };
-  const folder = ref(storage, `schools/${current.schoolId}/correspondences/${current.id}`);
-  try {
-    const contents = await listAll(folder);
-    await Promise.all([...contents.items.map((item) => deleteObject(item)), ...contents.prefixes.map(async (prefix) => {
-      const nested = await listAll(prefix);
-      await Promise.all(nested.items.map((item) => deleteObject(item)));
-    })]);
-    return { storageCleanupSucceeded: true };
-  } catch (error) {
-    console.warn("Le courrier a été supprimé, mais le nettoyage Storage doit être vérifié.", error);
-    return { storageCleanupSucceeded: false };
-  }
+  if (!app) throw new Error("Service de données indisponible.");
+  const callable = httpsCallable<{ kind: "correspondence"; documentId: string }, { storageCleanupSucceeded: boolean }>(getFunctions(app, "europe-west1"), "secretaryDeleteDocument");
+  return (await callable({ kind: "correspondence", documentId: current.id })).data;
 }
 
 export async function replaceCorrespondenceAttachment(user: AppUser, current: Correspondence, file: File): Promise<CorrespondenceAttachment> {

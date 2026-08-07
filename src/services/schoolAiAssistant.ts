@@ -1,11 +1,9 @@
-import * as firestore from "firebase/firestore";
-import { doc, getDoc, runTransaction } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { app, db } from "../firebase";
 import type { AppUser, AuditLog, School } from "../types";
 import { canUseFirestoreData } from "./firestoreData";
 
-const serverTimestamp = (firestore as unknown as { serverTimestamp: () => unknown }).serverTimestamp;
 export const DEFAULT_SCHOOL_AI_MONTHLY_LIMIT = 25;
 export const MAX_SCHOOL_AI_MONTHLY_LIMIT = 1000;
 
@@ -63,17 +61,10 @@ export async function saveSchoolAiAssistantSetting(user: AppUser, school: Pick<S
       ? `Ancien statut : ${school.aiAssistant?.enabled === true ? "activé" : "désactivé"}. Nouveau statut : ${patch.enabled ? "activé" : "désactivé"}.`
       : `Ancien quota : ${current.monthlyLimit}. Nouveau quota : ${patch.monthlyLimit ?? current.monthlyLimit}.`);
   if (canUseFirestoreData() && db) {
-    const schoolRef = doc(db, "schools", school.id);
-    const auditRef = doc(db, "auditLogs", audit.id);
-    await runTransaction(db, async (transaction) => {
-      const firestorePatch: Record<string, unknown> = { "aiAssistant.updatedAt": serverTimestamp(), "aiAssistant.updatedBy": user.id };
-      if (patch.enabled !== undefined) firestorePatch["aiAssistant.enabled"] = patch.enabled;
-      if (patch.monthlyLimit !== undefined) firestorePatch["aiAssistant.monthlyLimit"] = patch.monthlyLimit;
-      transaction.update(schoolRef, firestorePatch);
-      transaction.set(auditRef, { ...audit, createdAt: serverTimestamp() });
-    });
-    const savedSchool = await getDoc(schoolRef);
-    const savedSetting = savedSchool.data()?.aiAssistant as School["aiAssistant"];
+    if (!app) throw new Error("Firebase Functions indisponible.");
+    const callable = httpsCallable<{ schoolId: string; enabled?: boolean; monthlyLimit?: number }, { aiAssistant: School["aiAssistant"] }>(getFunctions(app, "europe-west1"), "platformAiUpdateSettings");
+    const result = await callable({ schoolId: school.id, ...patch });
+    const savedSetting = result.data.aiAssistant;
     if (savedSetting) return { aiAssistant: savedSetting, auditLog: audit };
   }
   return { aiAssistant: localValue, auditLog: audit };

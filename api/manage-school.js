@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { firebaseAdminPublicError, initAdmin } from "./_lib/firebaseAdmin.js";
 import { deleteSchoolCompletely } from "./_lib/schoolDeletion.js";
+import { AUDIT_EVENT_TYPES, buildServerAudit } from "./_lib/serverAudit.js";
 
 export const maxDuration = 300;
 
@@ -80,7 +82,11 @@ export default async function handler(req, res) {
         sendJson(res, 400, { error: "Aucune modification valide.", code: "invalid-argument" });
         return;
       }
-      await schoolRef.update({ ...patch, updatedAt: new Date().toISOString(), updatedBy: caller.uid });
+      const auditRef = db.collection("auditLogs").doc(`school-update-${randomUUID()}`);
+      const batch = db.batch();
+      batch.update(schoolRef, { ...patch, updatedAt: new Date().toISOString(), updatedBy: caller.uid });
+      batch.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.SCHOOL_UPDATED, actor: caller, schoolId, resourceType: "school", resourceId: schoolId, metadata: { fieldsChanged: Object.keys(patch).join(",") } }));
+      await batch.commit();
       const updated = await schoolRef.get();
       sendJson(res, 200, { school: { id: updated.id, ...updated.data() } });
       return;
@@ -89,12 +95,16 @@ export default async function handler(req, res) {
     if (action === "suspend" || action === "reactivate") {
       const status = action === "suspend" ? "suspended" : "active";
       const subscriptionStatus = action === "suspend" ? "suspended" : "active";
-      await schoolRef.update({
+      const auditRef = db.collection("auditLogs").doc(`school-status-${randomUUID()}`);
+      const batch = db.batch();
+      batch.update(schoolRef, {
         status,
         subscriptionStatus,
         updatedAt: new Date().toISOString(),
         updatedBy: caller.uid,
       });
+      batch.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: action === "suspend" ? AUDIT_EVENT_TYPES.SCHOOL_SUSPENDED : AUDIT_EVENT_TYPES.SCHOOL_REACTIVATED, actor: caller, schoolId, resourceType: "school", resourceId: schoolId, metadata: { status } }));
+      await batch.commit();
       const updated = await schoolRef.get();
       sendJson(res, 200, { school: { id: updated.id, ...updated.data() } });
       return;

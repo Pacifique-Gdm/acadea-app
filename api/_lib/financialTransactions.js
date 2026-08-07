@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 
 const PAYMENT_CREATE_KEYS = ["action", "schoolYearId", "studentId", "feeTypeId", "amount", "clientRequestId"];
 const EXPENSE_CREATE_KEYS = ["action", "schoolYearId", "amount", "category", "description", "beneficiary", "paymentMethod", "reference", "clientRequestId"];
@@ -97,10 +98,6 @@ async function assertContext(transaction, db, caller, requestedYearId) {
   return { schoolYearId, year: yearSnapshot.data(), actorName: text(profile.name, 160) || text(caller.email, 160) || "Utilisateur Acadéa" };
 }
 
-function serverAudit({ id, schoolId, schoolYearId, caller, actorName, action, details, createdAt }) {
-  return { id, schoolId, schoolYearId, actorId: caller.uid, actorName, action, details, createdAt };
-}
-
 async function createPayment(transaction, db, caller, body, hash, now) {
   assertAllowedKeys(body, PAYMENT_CREATE_KEYS);
   const amount = positiveAmount(body.amount);
@@ -160,7 +157,7 @@ async function createPayment(transaction, db, caller, body, hash, now) {
   transaction.set(db.doc(`payments/${paymentId}`), payment);
   transaction.set(counterRef, { schoolId: caller.schoolId, schoolYearId, kind: "receipt", lastReceiptNumber: sequence, updatedAt: now }, { merge: true });
   const auditId = `audit_fin_${hash.slice(0, 24)}`;
-  transaction.set(db.doc(`auditLogs/${auditId}`), serverAudit({ id: auditId, schoolId: caller.schoolId, schoolYearId, caller, actorName, action: "Création paiement", details: `${receiptNumber} - $${amount}`, createdAt: now }));
+  transaction.set(db.doc(`auditLogs/${auditId}`), buildServerAudit({ id: auditId, eventType: AUDIT_EVENT_TYPES.FINANCE_PAYMENT_CREATED, actor: { ...caller, name: actorName }, schoolId: caller.schoolId, schoolYearId, resourceType: "payment", resourceId: paymentId, metadata: { receiptNumber, amount } }));
   if (typeof student.parentId === "string" && student.parentId) {
     const notificationId = `notif_fin_${hash.slice(0, 24)}`;
     transaction.set(db.doc(`notifications/${notificationId}`), {
@@ -193,7 +190,7 @@ async function createExpense(transaction, db, caller, body, hash, now) {
   };
   transaction.set(db.doc(`expenses/${expenseId}`), expense);
   const auditId = `audit_fin_${hash.slice(0, 24)}`;
-  transaction.set(db.doc(`auditLogs/${auditId}`), serverAudit({ id: auditId, schoolId: caller.schoolId, schoolYearId, caller, actorName, action: "Création dépense", details: `${category} - $${amount}`, createdAt: now }));
+  transaction.set(db.doc(`auditLogs/${auditId}`), buildServerAudit({ id: auditId, eventType: AUDIT_EVENT_TYPES.FINANCE_EXPENSE_CREATED, actor: { ...caller, name: actorName }, schoolId: caller.schoolId, schoolYearId, resourceType: "expense", resourceId: expenseId, metadata: { category, amount } }));
   return { expense };
 }
 
@@ -211,13 +208,9 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
   if (current.schoolId !== caller.schoolId) throw new FinancialApiError(403, "permission-denied", "Transaction financière hors établissement.");
   const { schoolYearId, actorName } = await assertContext(transaction, db, caller, current.schoolYearId);
   let result;
-  let action;
-  let details;
   if (operation === "delete") {
     transaction.delete(documentRef);
     result = { deletedId: transactionId, kind };
-    action = isPayment ? "Suppression paiement" : "Suppression dépense";
-    details = `${current.receiptNumber ?? current.category ?? transactionId}: $${current.amount}. Motif: ${reason}`;
   } else if (isPayment) {
     const amount = positiveAmount(body.amount);
     const [studentSnapshot, feeSnapshot] = await Promise.all([
@@ -236,8 +229,6 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
     const payment = { ...current, id: transactionId, amount, updatedAt: now, updatedBy: caller.uid, correctionReason: reason };
     transaction.update(documentRef, { amount, updatedAt: now, updatedBy: caller.uid, correctionReason: reason });
     result = { payment };
-    action = "Correction paiement";
-    details = `${current.receiptNumber ?? transactionId}: ancien $${current.amount}, nouveau $${amount}. Motif: ${reason}`;
   } else {
     const amount = positiveAmount(body.amount);
     const category = text(body.category, 100);
@@ -246,11 +237,12 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
     const expense = { ...current, id: transactionId, amount, category, description, updatedAt: now, updatedBy: caller.uid, correctionReason: reason };
     transaction.update(documentRef, { amount, category, description, updatedAt: now, updatedBy: caller.uid, correctionReason: reason });
     result = { expense };
-    action = "Modification dépense";
-    details = `${current.category} - $${current.amount} → ${category} - $${amount}. Motif: ${reason}`;
   }
   const auditId = `audit_fin_${hash.slice(0, 24)}`;
-  transaction.set(db.doc(`auditLogs/${auditId}`), serverAudit({ id: auditId, schoolId: caller.schoolId, schoolYearId, caller, actorName, action, details, createdAt: now }));
+  const eventType = isPayment
+    ? operation === "delete" ? AUDIT_EVENT_TYPES.FINANCE_PAYMENT_DELETED : AUDIT_EVENT_TYPES.FINANCE_PAYMENT_UPDATED
+    : operation === "delete" ? AUDIT_EVENT_TYPES.FINANCE_EXPENSE_DELETED : AUDIT_EVENT_TYPES.FINANCE_EXPENSE_UPDATED;
+  transaction.set(db.doc(`auditLogs/${auditId}`), buildServerAudit({ id: auditId, eventType, actor: { ...caller, name: actorName }, schoolId: caller.schoolId, schoolYearId, resourceType: kind, resourceId: transactionId, metadata: { reason, operation } }));
   return result;
 }
 

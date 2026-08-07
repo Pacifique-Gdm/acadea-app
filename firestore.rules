@@ -218,7 +218,8 @@ service cloud.firestore {
     }
 
     match /platform/{document=**} {
-      allow read, write: if superAdmin();
+      allow read: if superAdmin();
+      allow write: if false;
     }
 
     match /platformSettings/billingControls {
@@ -329,10 +330,7 @@ service cloud.firestore {
 
     match /auditLogs/{auditLogId} {
       allow read: if superAdmin() || schoolAdmin() && sameTenantResource();
-      allow create: if superAdmin() || signedIn()
-        && ((role() in ["school_admin", "cashier"] && sameTenantCreate())
-          || disciplineTenantCreate());
-      allow update, delete: if false;
+      allow create, update, delete: if false;
     }
 
     match /schoolYears/{yearId} {
@@ -377,7 +375,9 @@ service cloud.firestore {
         && request.resource.data.schoolYearId == resource.data.schoolYearId
         && request.resource.data.studentId == resource.data.studentId
         && request.resource.data.createdBy == resource.data.createdBy
-        && request.resource.data.createdAt == resource.data.createdAt;
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.completedBy == request.auth.uid
+        && request.resource.data.completedBy is string;
       allow delete: if false;
     }
 
@@ -609,11 +609,11 @@ service cloud.firestore {
     match /parents/{parentId} {
       allow create: if secretary() && sameTenantCreate();
       allow update: if secretaryParentLinkUpdate() || secretaryParentWrite();
-      allow delete: if secretary() && sameTenantResource();
+      allow delete: if false;
     }
 
     match /auditLogs/{auditLogId} {
-      allow create: if secretary() && sameTenantCreate();
+      allow create, update, delete: if false;
     }
 
     match /correspondences/{correspondenceId} {
@@ -636,7 +636,7 @@ service cloud.firestore {
         && resource.data.schoolId == request.resource.data.schoolId
         && resource.data.schoolYearId == request.resource.data.schoolYearId
         && !(resource.data.status == "archived" && request.resource.data.diff(resource.data).affectedKeys().hasAny(["direction", "date", "subject", "sender", "recipient", "content", "copiePourInformation", "attachment"]));
-      allow delete: if secretary() && sameTenantResource();
+      allow delete: if false;
     }
 
     match /secretaryCounters/{counterId} {
@@ -706,7 +706,7 @@ service cloud.firestore {
           || (resource.data.status == "finalized"
             && request.resource.data.status == "archived"
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "archivedAt", "updatedAt"])));
-      allow delete: if secretary() && sameTenantResource();
+      allow delete: if false;
     }
 
     match /aiUsageLogs/{requestId} {

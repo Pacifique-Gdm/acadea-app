@@ -1,6 +1,7 @@
 import * as firestore from "firebase/firestore";
-import { collection, deleteDoc, doc, onSnapshot, query, setDoc, where } from "firebase/firestore";
-import { auth, db } from "../firebase";
+import { collection, doc, onSnapshot, query, setDoc, where } from "firebase/firestore";
+import { getFunctions, httpsCallable } from "firebase/functions";
+import { app, auth, db } from "../firebase";
 import type { AppUser } from "../types";
 import type { ReportSignatory, SecretaryReport, SecretaryReportType } from "../modules/secretary/secretaryTypes";
 import { normalizePdfSettings, type PdfGenerationSettings } from "../utils/pdfSettings";
@@ -51,6 +52,7 @@ export async function archiveSecretaryReport(user: AppUser, report: SecretaryRep
 
 export async function deleteSecretaryReportPermanently(user: AppUser, report: SecretaryReport) {
   assertSecretary(user, report.schoolId);
-  if (!db) throw new Error("Service de données indisponible.");
-  await deleteDoc(doc(db, "secretaryReports", report.id));
+  if (!app) throw new Error("Service de données indisponible.");
+  const callable = httpsCallable<{ kind: "report"; documentId: string }, { deleted: boolean }>(getFunctions(app, "europe-west1"), "secretaryDeleteDocument");
+  await callable({ kind: "report", documentId: report.id });
 }

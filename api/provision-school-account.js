@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { firebaseAdminPublicError, initAdmin } from "./_lib/firebaseAdmin.js";
+import { AUDIT_EVENT_TYPES, buildServerAudit } from "./_lib/serverAudit.js";
 
 const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "secretary", "parent"]);
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
@@ -140,6 +141,9 @@ async function deleteParentAccount({ auth, db, caller, body }) {
     batch.delete(ref);
   });
 
+  const auditRef = db.collection("auditLogs").doc(uid("audit"));
+  await auditRef.set(buildServerAudit({ eventType: AUDIT_EVENT_TYPES.USER_DELETED, actor: caller, schoolId, resourceType: "parent", resourceId: parentId, metadata: { authStatus } }));
+
   const status = authStatus === "failed" ? "partial" : "complete";
   return {
     status,
@@ -200,14 +204,7 @@ export async function removeSchoolAdmin({ auth, db, caller, body }) {
   const auditRef = db.collection("auditLogs").doc(uid("audit"));
   const batch = db.batch();
   batch.update(adminRef, { status: "inactive", removedAt, removedBy: caller.uid });
-  batch.set(auditRef, {
-    id: auditRef.id,
-    schoolId,
-    actorId: caller.uid,
-    actorName: caller.name ?? caller.email ?? "Super Administrateur",
-    action: `Retrait de l'administrateur ${normalizeText(admin.name) || adminId}`,
-    createdAt: removedAt,
-  });
+  batch.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.USER_DISABLED, actor: caller, schoolId, resourceType: "user", resourceId: adminId, metadata: { role: "school_admin" } }));
   try {
     await batch.commit();
   } catch (error) {
@@ -307,6 +304,7 @@ export default async function handler(req, res) {
       await db.doc(`users/${authUser.uid}`).set(schoolUser);
       createdRefs.push(`users/${authUser.uid}`);
       await auth.setCustomUserClaims(authUser.uid, { role, schoolId });
+      await db.collection("auditLogs").doc(uid("audit")).set(buildServerAudit({ eventType: AUDIT_EVENT_TYPES.USER_CREATED, actor: caller, schoolId, schoolYearId, resourceType: "user", resourceId: authUser.uid, metadata: { role } }));
 
       sendJson(res, 200, { user: schoolUser });
       return;
@@ -346,6 +344,8 @@ export default async function handler(req, res) {
     const batch = db.batch();
     batch.set(parentRef, parent);
     batch.set(userRef, parentUser);
+    const auditRef = db.collection("auditLogs").doc(uid("audit"));
+    batch.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.USER_CREATED, actor: caller, schoolId, schoolYearId, resourceType: "parent", resourceId: parentId, metadata: { role: "parent" } }));
     parentStudentSnapshots.forEach((snapshot) => batch.update(snapshot.ref, { parentId }));
     await batch.commit();
     createdRefs.push(parentRef.path, userRef.path);
