@@ -4,17 +4,15 @@ import { describe, expect, it } from "vitest";
 const source = readFileSync("src/modules/control/ControlModule.tsx", "utf8");
 
 describe("sécurité des mutations financières du module Contrôle", () => {
-  it("attend la confirmation serveur avant la mise à jour locale", () => {
+  it("laisse le listener Firestore comme source de vérité du state financier", () => {
     const paymentCall = source.indexOf("await createPaymentTransaction(");
-    const paymentUpdate = source.indexOf("updateData({ payments:", paymentCall);
     const expenseCall = source.indexOf("await createExpenseTransaction(");
-    const expenseUpdate = source.indexOf("updateData({ expenses:", expenseCall);
     expect(paymentCall).toBeGreaterThan(-1);
-    expect(paymentUpdate).toBeGreaterThan(paymentCall);
     expect(expenseCall).toBeGreaterThan(-1);
-    expect(expenseUpdate).toBeGreaterThan(expenseCall);
-    expect(source.slice(paymentUpdate, paymentUpdate + 220)).toContain("persist: false");
-    expect(source.slice(expenseUpdate, expenseUpdate + 220)).toContain("persist: false");
+    expect(source).not.toContain("updateData({ payments:");
+    expect(source).not.toContain("updateData({ expenses:");
+    expect(source.indexOf("paymentHistory.prependItem(payment)", paymentCall)).toBeGreaterThan(paymentCall);
+    expect(source.indexOf("expenseHistory.prependItem(expense)", expenseCall)).toBeGreaterThan(expenseCall);
   });
 
   it("bloque les doubles soumissions et conserve un état de chargement", () => {

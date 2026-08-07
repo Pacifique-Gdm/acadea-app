@@ -34,7 +34,7 @@ import { AdminDrawer } from "./components/ui";
 import { useBillingControls } from "./hooks/useBillingControls";
 import { reconcileRealtimeValves, useRealtimeValves } from "./hooks/useRealtimeValves";
 import { reconcileRealtimeFeeTypes, useRealtimeFeeTypes } from "./hooks/useRealtimeFeeTypes";
-import { useRealtimeFinancialTransactions } from "./hooks/useRealtimeFinancialTransactions";
+import { reconcileFinancialSnapshot, useRealtimeFinancialTransactions } from "./hooks/useRealtimeFinancialTransactions";
 import { useRealtimeSchoolRecords } from "./hooks/useRealtimeSchoolRecords";
 import { markNotificationsReadTargeted } from "./services/notificationsPagination";
 import { restorePaymentPushNotifications, stopPaymentPushForegroundListener } from "./services/pushNotifications";
@@ -215,16 +215,18 @@ export default function App() {
   });
   const applyRealtimePayments = useCallback((payments: AppData["payments"]) => {
     if (!user?.schoolId || !selectedYearId) return;
+    const schoolId = user.schoolId;
     setData((current) => ({
       ...current,
-      payments: [...current.payments.filter((item) => item.schoolId !== user.schoolId || item.schoolYearId !== selectedYearId), ...payments],
+      payments: reconcileFinancialSnapshot(current.payments, payments, { schoolId, schoolYearId: selectedYearId }),
     }));
   }, [selectedYearId, user?.schoolId]);
   const applyRealtimeExpenses = useCallback((expenses: AppData["expenses"]) => {
     if (!user?.schoolId || !selectedYearId) return;
+    const schoolId = user.schoolId;
     setData((current) => ({
       ...current,
-      expenses: [...current.expenses.filter((item) => item.schoolId !== user.schoolId || item.schoolYearId !== selectedYearId), ...expenses],
+      expenses: reconcileFinancialSnapshot(current.expenses, expenses, { schoolId, schoolYearId: selectedYearId }),
     }));
   }, [selectedYearId, user?.schoolId]);
   const handleFinancialRealtimeError = useCallback((error: Error) => {

@@ -3,6 +3,20 @@ import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../firebase";
 import type { Expense, Payment } from "../types";
 
+type FinancialTransaction = Payment | Expense;
+
+export function reconcileFinancialSnapshot<T extends FinancialTransaction>(
+  current: T[],
+  snapshot: T[],
+  scope: { schoolId: string; schoolYearId: string },
+) {
+  const outsideScope = current.filter(
+    (item) => item.schoolId !== scope.schoolId || item.schoolYearId !== scope.schoolYearId,
+  );
+  const snapshotById = new Map(snapshot.map((item) => [item.id, item]));
+  return [...outsideScope, ...snapshotById.values()];
+}
+
 export function useRealtimeFinancialTransactions({
   enabled,
   schoolId,

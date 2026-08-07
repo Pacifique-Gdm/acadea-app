@@ -362,7 +362,6 @@ export function ControlModule({
     setPaymentSubmitting(true);
     try {
       const payment = await createPaymentTransaction({ schoolYearId: year.id, studentId, feeTypeId: selectedFeeTypeValue, amount: paymentAmount, clientRequestId: requestId });
-      updateData({ payments: [...data.payments.filter((item) => item.id !== payment.id), payment] }, { persist: false });
       paymentHistory.prependItem(payment);
       paymentAttemptRef.current = null;
       setAmount("");
@@ -417,7 +416,6 @@ export function ControlModule({
     setExpenseSubmitting(true);
     try {
       const expense = await createExpenseTransaction({ schoolYearId: year.id, amount: nextAmount, category: trimmedCategory, description: trimmedDescription, beneficiary: trimmedBeneficiary, paymentMethod: trimmedPaymentMethod, reference: trimmedReference || undefined, clientRequestId: requestId });
-      updateData({ expenses: [expense, ...data.expenses.filter((item) => item.id !== expense.id)] }, { persist: false });
       expenseHistory.prependItem(expense);
       expenseAttemptRef.current = null;
       setExpenseAmount("");
@@ -473,7 +471,6 @@ export function ControlModule({
     setFinancialMutationId(expenseEditTarget.id);
     try {
       const updatedExpense = await updateExpenseTransaction({ transactionId: expenseEditTarget.id, amount: nextAmount, category: expenseEditCategory, description: nextDescription, reason: reason.trim(), clientRequestId: crypto.randomUUID() });
-      updateData({ expenses: data.expenses.map((item) => item.id === updatedExpense.id ? updatedExpense : item) }, { persist: false });
       expenseHistory.updateItem(updatedExpense);
       closeEditExpense();
     } catch (error) {
@@ -492,7 +489,6 @@ export function ControlModule({
     setFinancialMutationId(expense.id);
     try {
       await deleteFinancialTransaction({ kind: "expense", transactionId: expense.id, reason: reason.trim(), clientRequestId: crypto.randomUUID() });
-      updateData({ expenses: data.expenses.filter((item) => item.id !== expense.id) }, { persist: false });
       expenseHistory.removeItem(expense.id);
       setExpenseDeleteTarget(null);
     } catch (error) {
@@ -664,7 +660,6 @@ export function ControlModule({
     setFinancialMutationId(payment.id);
     try {
       const correctedPayment = await updatePaymentTransaction({ transactionId: payment.id, amount: correctedAmount, reason, clientRequestId: crypto.randomUUID() });
-      updateData({ payments: data.payments.map((item) => item.id === correctedPayment.id ? correctedPayment : item) }, { persist: false });
       paymentHistory.updateItem(correctedPayment);
     } catch (error) {
       alert(error instanceof Error ? error.message : "Correction du paiement impossible.");
@@ -682,7 +677,6 @@ export function ControlModule({
     setFinancialMutationId(payment.id);
     try {
       await deleteFinancialTransaction({ kind: "payment", transactionId: payment.id, reason, clientRequestId: crypto.randomUUID() });
-      updateData({ payments: data.payments.filter((item) => item.id !== payment.id) }, { persist: false });
       paymentHistory.removeItem(payment.id);
     } catch (error) {
       alert(error instanceof Error ? error.message : "Suppression du paiement impossible.");
