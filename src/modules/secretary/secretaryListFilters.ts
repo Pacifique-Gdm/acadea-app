@@ -23,6 +23,14 @@ export function matchesCorrespondenceSearch(item: Correspondence, query: string)
   if (!needle) return true;
   return normalizeSecretarySearch([
     item.referenceNumber, item.date, item.subject, item.sender, item.recipient, item.content,
-    item.outgoing?.recipient.institution, item.outgoing?.authorName, ...(item.outgoing?.keywords ?? []),
+    item.outgoing?.recipient?.institution, item.outgoing?.authorName, ...(item.outgoing?.keywords ?? []),
   ].join(" ")).includes(needle);
+}
+
+export function filterSecretaryCorrespondences(items: Correspondence[], query: string, direction: "all" | Correspondence["direction"], outgoingType: string, priority: string, deliveryMode: string) {
+  return items.filter((item) => matchesCorrespondenceSearch(item, query)
+    && (direction === "all" || item.direction === direction)
+    && (outgoingType === "all" || item.outgoing?.correspondenceType === outgoingType)
+    && (priority === "all" || item.outgoing?.priority === priority)
+    && (deliveryMode === "all" || item.outgoing?.deliveryMode === deliveryMode));
 }

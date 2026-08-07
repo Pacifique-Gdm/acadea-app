@@ -70,8 +70,21 @@ describe("PDF du courrier sortant — bloc de signature", () => {
     expect(html).toContain("text-align:justify");
     expect(html).toContain("text-justify:inter-word");
     expect(html).toContain("text-indent:50%");
-    expect(html).toContain("line-height:1.15");
-    expect(html).toContain("margin:0 0 10px");
+    expect(html).not.toContain("line-height:1.15");
+    expect(html).toContain("margin:0 0 8pt");
+  });
+
+  it.each(["Monsieur,", "Madame,", "Madame, Monsieur,"])("place uniquement la formule %s au milieu de la zone utile", (salutation) => {
+    const html = outgoingCorrespondencePdfSections(correspondence({ salutation })).join("");
+    expect(html).toContain(`class="secretary-pdf-main-text outgoing-correspondence-salutation" style="margin:18px 0 8pt 50%;break-after:avoid">${salutation}</p>`);
+    expect(occurrences(html, "margin:18px 0 8pt 50%")).toBe(1);
+    expect(occurrences(html, "text-indent:50%")).toBe(4);
+  });
+
+  it("applique un espacement réel de 8 pt après chaque paragraphe sans ligne vide", () => {
+    const html = outgoingCorrespondencePdfSections(correspondence({ details: "Détails.", justification: "Justification.", expectedFollowUp: "Suite." })).join("");
+    expect(occurrences(html, "margin:0 0 8pt")).toBe(7);
+    expect(html).not.toContain("<br /><br />");
   });
 
   it("omet proprement la référence lorsqu’elle est absente", () => {

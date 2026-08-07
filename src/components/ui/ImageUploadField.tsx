@@ -135,9 +135,9 @@ export function ImageUploadField({
             Aucune image sélectionnée
           </div>
         )}
-        <div className="flex flex-wrap gap-2">
+        <div className="flex w-full flex-wrap gap-2">
           <input id={inputId} type="file" accept={acceptedMimeTypes} onChange={handleFileChange} disabled={disabled || processing} className="sr-only" />
-          <label htmlFor={inputId} className={`secondary-button cursor-pointer ${disabled || processing ? "pointer-events-none opacity-60" : ""}`}>
+          <label htmlFor={inputId} className={`secondary-button w-full cursor-pointer justify-center ${disabled || processing ? "pointer-events-none opacity-60" : ""}`}>
             {processing ? "Compression..." : value ? "Remplacer l'image" : "Choisir une image"}
           </label>
           {value && !disabled && (

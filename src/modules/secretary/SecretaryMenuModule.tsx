@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { BarChart3, BookOpen, Fingerprint, HeartPulse, LogOut, Radio, Upload, UsersRound } from "lucide-react";
 import { ParentsDirectoryDrawer } from "../../components/parents/ParentsDirectoryDrawer";
+import { ParentFormEditor } from "../../components/parents/ParentFormEditor";
 import { AgeHomogeneityDrawer, ArchivedStudentsImportDrawer } from "../../components/students/StudentAdministrativeTools";
 import { AdminDrawer, SectionTitle } from "../../components/ui";
 import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent";
 import { subscribeToStudentMedicalRecords } from "../../services/studentMedicalRecords";
+import { deleteParentAccount } from "../../services/provisioning";
 import { refreshErrorMessage } from "../../utils/refreshErrors";
 import type { AppData, AppUser, School, SchoolYear, Student } from "../../types";
 import { BiometricStudentsPage } from "../biometrics/BiometricStudentsPage";
@@ -39,6 +41,12 @@ export function SecretaryMenuModule({ user, data, yearData, school, year, update
   const [medicalDrawerOpen, setMedicalDrawerOpen] = useState(false);
   const [valvesDrawerOpen, setValvesDrawerOpen] = useState(false);
   const [parentsDrawerOpen, setParentsDrawerOpen] = useState(false);
+  const [parentFormRequest, setParentFormRequest] = useState<{ parentId?: string; requestId: number } | null>(null);
+  const [parentDeleteOpen, setParentDeleteOpen] = useState(false);
+  const [parentDeleteId, setParentDeleteId] = useState("");
+  const [parentDeleteConfirmation, setParentDeleteConfirmation] = useState("");
+  const [parentDeleteError, setParentDeleteError] = useState("");
+  const [parentDeleteBusy, setParentDeleteBusy] = useState(false);
   const [biometricView, setBiometricView] = useState<SecretaryBiometricView | null>(initialBiometricView ?? null);
   const [medicalRecords, setMedicalRecords] = useState<StudentMedicalRecord[]>([]);
   const [medicalError, setMedicalError] = useState("");
@@ -60,6 +68,21 @@ export function SecretaryMenuModule({ user, data, yearData, school, year, update
     onBiometricViewChange?.(null);
   }
 
+  function openParentForm(parentId?: string) { setParentsDrawerOpen(false); setParentFormRequest({ parentId, requestId: Date.now() }); }
+  function openParentDelete() { setParentsDrawerOpen(false); setParentDeleteId(""); setParentDeleteConfirmation(""); setParentDeleteError(""); setParentDeleteOpen(true); }
+  async function confirmParentDelete() {
+    const parent = yearData.parents.find((item) => item.id === parentDeleteId && item.schoolId === school.id);
+    if (!parent) { setParentDeleteError("Veuillez sélectionner un parent de cette école."); return; }
+    if (parentDeleteConfirmation !== "SUPPRIMER LE PARENT") { setParentDeleteError("Veuillez saisir exactement SUPPRIMER LE PARENT."); return; }
+    setParentDeleteBusy(true); setParentDeleteError("");
+    try {
+      await deleteParentAccount({ schoolId: school.id, parentId: parent.id, confirmation: parentDeleteConfirmation });
+      updateData({ parents: data.parents.filter((item) => item.id !== parent.id), users: data.users.filter((item) => item.parentId !== parent.id && item.id !== parent.userId), students: data.students.map((student) => student.parentId === parent.id ? { ...student, parentId: undefined } : student) }, { persist: false });
+      setParentDeleteOpen(false);
+    } catch (error) { setParentDeleteError(error instanceof Error ? error.message : "Suppression du parent impossible."); }
+    finally { setParentDeleteBusy(false); }
+  }
+
   return <section className="grid gap-4"><SectionTitle title="Menu" subtitle="Fonctions administratives secondaires." />
     <div className="grid gap-3">
       <button type="button" onClick={() => setValvesDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><BookOpen className="h-5 w-5" /></span><span className="font-bold text-ink">Valves</span></button>
@@ -77,7 +100,9 @@ export function SecretaryMenuModule({ user, data, yearData, school, year, update
     <SecretaryStatisticsDrawer open={statisticsDrawerOpen} onClose={() => setStatisticsDrawerOpen(false)} students={yearData.students} records={medicalRecords} school={school} year={year} />
     <SecretaryMedicalRecordsDrawer open={medicalDrawerOpen} onClose={() => setMedicalDrawerOpen(false)} user={user} students={yearData.students} records={medicalRecords} school={school} year={year} />
     {valvesDrawerOpen && <AdminDrawer title="Valves" onClose={() => setValvesDrawerOpen(false)} closeLabel="Fermer les Valves"><ValvesDrawerContent user={user} data={data} yearData={yearData} school={school} year={year} updateData={updateData} canManage={user.role === "secretary" && user.status !== "inactive" && user.schoolId === school.id} valvesUploadsEnabled={valvesUploadsEnabled} createId={createId} maxValveDocumentBytes={maxValveDocumentBytes} /></AdminDrawer>}
-    {parentsDrawerOpen && <AdminDrawer title="Parents / Tuteurs" onClose={() => setParentsDrawerOpen(false)} closeLabel="Fermer Parents / Tuteurs"><ParentsDirectoryDrawer parents={yearData.parents} students={yearData.students} school={school} year={year} schoolId={school.id} schoolYearId={year.id} /></AdminDrawer>}
+    {parentsDrawerOpen && <AdminDrawer title="Parents / Tuteurs" onClose={() => setParentsDrawerOpen(false)} closeLabel="Fermer Parents / Tuteurs"><ParentsDirectoryDrawer parents={yearData.parents} students={yearData.students} school={school} year={year} schoolId={school.id} schoolYearId={year.id} onCreateParent={() => openParentForm()} onEditParent={(parent) => openParentForm(parent.id)} onDeleteParent={openParentDelete} /></AdminDrawer>}
+    {parentFormRequest && <AdminDrawer title={parentFormRequest.parentId ? "Modifier le parent" : "Créer un parent"} onClose={() => setParentFormRequest(null)} closeLabel="Fermer le formulaire parent"><ParentFormEditor data={data} yearData={yearData} school={school} year={year} updateData={updateData} initialParentId={parentFormRequest.parentId} requestId={parentFormRequest.requestId} onBack={() => { setParentFormRequest(null); setParentsDrawerOpen(true); }} showBackButton createId={createId} /></AdminDrawer>}
+    {parentDeleteOpen && <AdminDrawer title="Supprimer un parent" onClose={() => !parentDeleteBusy && setParentDeleteOpen(false)} closeLabel="Fermer la suppression du parent"><div className="grid gap-4"><label className="grid gap-1 text-sm font-semibold">Parent<select className="input" value={parentDeleteId} disabled={parentDeleteBusy} onChange={(event) => setParentDeleteId(event.target.value)}><option value="">Sélectionner</option>{yearData.parents.filter((parent) => parent.schoolId === school.id && parent.schoolYearId === year.id).map((parent) => <option key={parent.id} value={parent.id}>{parent.fullName}</option>)}</select></label><label className="grid gap-1 text-sm font-semibold">Confirmation<input className="input" value={parentDeleteConfirmation} disabled={parentDeleteBusy} placeholder="SUPPRIMER LE PARENT" onChange={(event) => setParentDeleteConfirmation(event.target.value)} /></label>{parentDeleteError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{parentDeleteError}</p>}<div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" disabled={parentDeleteBusy} onClick={() => setParentDeleteOpen(false)}>Annuler</button><button type="button" className="rounded bg-red-700 px-4 py-2 font-semibold text-white disabled:opacity-50" disabled={parentDeleteBusy || !parentDeleteId || parentDeleteConfirmation !== "SUPPRIMER LE PARENT"} onClick={() => void confirmParentDelete()}>{parentDeleteBusy ? "Suppression…" : "Supprimer"}</button></div></div></AdminDrawer>}
     {biometricView && <AdminDrawer title="Empreintes et Cartes" onClose={closeBiometricView} closeLabel="Fermer Empreintes et Cartes">
       {biometricView === "menu" ? <div className="grid gap-3 sm:grid-cols-2">
         <button type="button" onClick={() => openBiometricView("fingerprints")} className="secondary-button justify-center"><Fingerprint className="h-4 w-4" /> Empreintes</button>

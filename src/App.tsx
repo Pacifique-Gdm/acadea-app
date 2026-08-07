@@ -921,8 +921,8 @@ export default function App() {
               canEdit: true,
               canArchive: false,
               canReactivate: false,
-              canCreateParent: false,
-              canManageOptions: false,
+              canCreateParent: true,
+              canManageOptions: true,
             }}
           />
         )}

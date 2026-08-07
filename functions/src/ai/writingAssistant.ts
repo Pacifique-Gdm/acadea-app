@@ -5,7 +5,7 @@ import { defineSecret } from "firebase-functions/params";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { AI_ACTIONS, AI_LENGTHS, AI_TONES, type AiAction, type AiScope, type AiScopeSelection, type AiWritingRequest, type AiWritingResponse } from "./types.js";
 import { sanitizeAiContext, sanitizeAiText } from "./sanitize.js";
-import { buildSingleSectionWritingResponseFormat, buildStructuredWritingResponseFormat, classifyOpenAiFailure, extractOpenAiResponseText, isGeneratedContentIdentical, normalizeOpenAiSections, readOpenAiFailure, validateGeneratedSections } from "./openAiResponse.js";
+import { buildStructuredWritingResponseFormat, classifyOpenAiFailure, extractOpenAiResponseText, isGeneratedContentIdentical, normalizeOpenAiSections, readOpenAiFailure, validateGeneratedSections } from "./openAiResponse.js";
 import { assertSecretaryAiIdentity } from "./schoolAiAccess.js";
 import { incrementSchoolAiUsageAfterSuccess, prepareSchoolAiUsage, type AiUsageDatabase } from "./schoolAiUsage.js";
 
@@ -13,7 +13,7 @@ const openAiApiKey = defineSecret("OPENAI_API_KEY");
 export const AI_ASSISTANT_VERSION = "2026-07-30-actions-v2";
 const FUNCTION_REGION = "europe-west1";
 const coreActions = new Set<AiAction>(AI_ACTIONS);
-const allowedScopes = new Set(["full_document", "location", "subject", "participants", "discussedPoints", "decisions", "recommendations"]);
+const allowedScopes = new Set(["full_document", "location", "subject", "participants", "discussedPoints", "decisions", "recommendations", "salutation", "introduction", "mainMessage", "details", "justification", "expectedFollowUp", "conclusion", "closingFormula"]);
 const allowedDocuments = new Set(["outgoing_correspondence", "meeting_minutes", "activity_report", "incident_report", "official_minutes", "administrative_note", "other"]);
 export const ACADEA_AI_IDENTITY = `Tu es Acadéa AI, l'assistant intelligent officiel de la plateforme Acadéa. Tu es un expert de la gestion des établissements scolaires et tu travailles exclusivement dans le contexte d'un établissement d'enseignement. Tes propositions doivent être professionnelles, crédibles, naturelles, immédiatement utilisables et rédigées dans un français administratif clair, précis et élégant. Elles ne doivent jamais ressembler à une démonstration d'intelligence artificielle. Avant de rédiger, tiens compte du rôle Secrétaire, du module, du type de document, de la section, de la portée, de l'action, du ton, de la longueur et de l'objectif réel. Adapte le registre au document : rapport factuel, chronologique et administratif ; procès-verbal officiel, neutre et orienté vers les décisions ; courrier conforme au protocole administratif ; note administrative composée de directives claires ; incident décrit avec neutralité, précision et sans jugement personnel ; réunion pédagogique utilisant un vocabulaire éducatif et des recommandations réalistes. Effectue une auto-vérification avant de répondre : transformation réelle, portée, action, ton et longueur respectés, cohérence scolaire et aptitude à un usage officiel.`;
 export const ACADEA_AI_SECTION_EXPERTISE = `Comprends la fonction administrative de chaque section. location décrit uniquement le lieu. subject produit un objet administratif clair et concis. participants conserve uniquement les participants et ne les transforme jamais en récit. discussedPoints développe uniquement les sujets réellement discutés. decisions contient des décisions administratives précises, réalistes, exécutoires et directement applicables. recommendations contient des recommandations concrètes, cohérentes et applicables. signatures ne doit jamais modifier ni inventer un signataire ou une signature. Analyse mentalement pourquoi le document existe, qui le lira, à quoi il servira, quelles informations sont essentielles et quelles formulations seraient employées par un secrétaire ou un chef d'établissement expérimenté. Apporte une valeur ajoutée perceptible par la structure, la logique, la lisibilité, la précision, la fluidité et le professionnalisme. Rédige naturellement, sans formulations mécaniques, artificielles ou répétitives.`;
@@ -25,6 +25,7 @@ export const REPORT_SECTION_FIELDS: Record<string, string[]> = {
   administrative_note: ["number", "subject", "recipients", "effectiveDate", "content"],
   other: ["subject", "structuredSections", "author"],
 };
+export const CORRESPONDENCE_SECTION_FIELDS = ["subject", "salutation", "introduction", "mainMessage", "details", "justification", "expectedFollowUp", "conclusion", "closingFormula"];
 function firebaseProjectId() {
   if (process.env.GCLOUD_PROJECT) return process.env.GCLOUD_PROJECT;
   try { return JSON.parse(process.env.FIREBASE_CONFIG ?? "{}").projectId ?? "unknown"; } catch { return "unknown"; }
@@ -57,24 +58,19 @@ export function validateInput(value: unknown): AiWritingRequest {
   const sectionsAreValid = input.sections && typeof input.sections === "object" && !Array.isArray(input.sections);
   const requestedRawScopes = input.scope && typeof input.scope === "object" && input.scope.mode === "selected_sections" ? input.scope.sections : [input.scope];
   if (input.documentCategory === "rapport" && requestedRawScopes.includes("signatures")) throw new HttpsError("invalid-argument", "Les signatures ne sont jamais traitées par l’IA.", { acceptedScopes: [...allowedScopes], version: AI_ASSISTANT_VERSION });
-  const reportSelection = sectionsAreValid ? normalizeAiScopeSelection(input.scope, Object.keys(input.sections!)) : { mode: "selected_sections" as const, sections: [] };
-  const scopeIsValid = input.documentCategory === "rapport" ? reportSelection.mode === "full_document" || reportSelection.sections.length > 0 : input.scope === "full_document" || Boolean(sectionsAreValid && typeof input.scope === "string" && input.scope in input.sections!);
+  const scopeSelection = sectionsAreValid ? normalizeAiScopeSelection(input.scope, Object.keys(input.sections!)) : { mode: "selected_sections" as const, sections: [] };
+  const scopeIsValid = scopeSelection.mode === "full_document" || scopeSelection.sections.length > 0;
   if (!scopeIsValid || !input.tone || !AI_TONES.includes(input.tone) || !input.length || !AI_LENGTHS.includes(input.length) || typeof input.additionalInstruction !== "string" || !input.additionalInstruction.trim() || !sectionsAreValid || !input.documentContext || typeof input.documentContext !== "object" || Array.isArray(input.documentContext)) throw new HttpsError("invalid-argument", "Paramètres, portée ou contexte du document invalides. L’instruction complémentaire est obligatoire et les signatures ne sont jamais traitées par l’IA.", { acceptedScopes: [...allowedScopes], acceptedTones: AI_TONES, acceptedLengths: AI_LENGTHS, version: AI_ASSISTANT_VERSION });
   const sections = input.sections as Record<string, string>;
   const scope = input.scope as AiScope;
-  if (input.documentCategory === "rapport") {
-    const expectedFields = REPORT_SECTION_FIELDS[input.documentType];
+  {
+    const expectedFields = input.documentCategory === "rapport" ? REPORT_SECTION_FIELDS[input.documentType] : CORRESPONDENCE_SECTION_FIELDS;
     const receivedFields = Object.keys(sections);
     const selection = normalizeAiScopeSelection(scope, expectedFields ?? []);
     const requestedFields = selection.mode === "full_document" ? expectedFields ?? [] : selection.sections;
     const legacySingleScope = typeof scope === "string" && scope !== "full_document";
     const targetValid = legacySingleScope ? input.targetSection?.key === scope && input.targetSection.value === sections[scope] : input.targetSection === undefined;
-    if (!expectedFields || !targetValid || receivedFields.length !== requestedFields.length || requestedFields.some((field) => typeof sections[field] !== "string") || receivedFields.some((field) => !requestedFields.includes(field))) throw new HttpsError("invalid-argument", "Sections du rapport invalides.", { expectedFields: requestedFields, version: AI_ASSISTANT_VERSION });
-  } else {
-    const receivedFields = Object.keys(sections);
-    const expectedFields = scope === "full_document" ? receivedFields : [String(scope)];
-    const targetValid = scope === "full_document" ? input.targetSection === undefined : typeof scope === "string" && input.targetSection?.key === scope && input.targetSection.value === sections[scope];
-    if (!targetValid || receivedFields.length !== expectedFields.length || receivedFields.some((field) => !expectedFields.includes(field)) || Object.values(sections).some((value) => typeof value !== "string")) throw new HttpsError("invalid-argument", "Sections du document invalides.", { expectedFields, version: AI_ASSISTANT_VERSION });
+    if (!expectedFields || !targetValid || receivedFields.length !== requestedFields.length || requestedFields.some((field) => typeof sections[field] !== "string") || receivedFields.some((field) => !requestedFields.includes(field))) throw new HttpsError("invalid-argument", "Sections du document invalides.", { expectedFields: requestedFields, version: AI_ASSISTANT_VERSION });
   }
   if (input.consentConfirmed !== true) throw new HttpsError("failed-precondition", "Le consentement de vérification humaine est requis.");
   return input as AiWritingRequest;
@@ -89,27 +85,24 @@ export function buildInstructions(input: AiWritingRequest) {
   const lengthInstructions: Record<AiWritingRequest["length"], string> = { short: "Produis une version courte et directe.", standard: "Produis une version équilibrée.", developed: "Produis une version détaillée, structurée et approfondie sans élargir la portée." };
   const context = input.documentContext;
   const scopeKeys = requestedSectionKeys(input);
-  const scopeInstruction = input.documentCategory === "rapport" ? `Traite séparément et retourne exactement les sections suivantes, dans cet ordre : ${scopeKeys.join(", ")}. Ne retourne aucune autre section. Ne déplace jamais une information d'une section vers une autre. La section decisions contient uniquement les décisions prises ; recommendations contient uniquement les suites conseillées. N'invente jamais de signataire.` : "";
+  const scopeInstruction = `Traite séparément et retourne exactement les sections suivantes, dans cet ordre : ${scopeKeys.join(", ")}. Ne retourne aucune autre section. Ne fusionne pas les sections et ne déplace jamais une information d'une section vers une autre.${input.documentCategory === "rapport" ? " La section decisions contient uniquement les décisions prises ; recommendations contient uniquement les suites conseillées. N'invente jamais de signataire." : ""}`;
   const structuredReportInstruction = ` ${ACADEA_AI_IDENTITY} ${ACADEA_AI_SECTION_EXPERTISE} ${scopeInstruction}`;
-  return `Tu es l'assistant rédactionnel administratif d'Acadéa. Écris uniquement en français correct. Tu proposes un brouillon à vérifier humainement. N'invente jamais de fait, personne, date, référence, montant, décision, sanction, vote ou signature. Préserve strictement les noms propres, dates, références, montants et numéros fournis. Ne génère jamais l'en-tête, la référence automatique, le statut, le signataire, la signature, le cachet ou les données d'envoi. La proposition doit refléter clairement l'action demandée. Ne recopie jamais simplement le texte source : une réponse identique est invalide pour toutes les actions, y compris la correction. Portée : ${input.scope}. Action : ${input.action}. Ton : ${input.tone}. Longueur : ${input.length}. Instruction complémentaire : ${input.additionalInstruction}. ${actionInstructions[input.action]} ${toneInstructions[input.tone]} ${lengthInstructions[input.length]}${structuredReportInstruction} Informations du document : catégorie=${input.documentCategory}; type=${input.documentTypeLabel}; date=${context.date || input.documentDate || "non fournie"}; heure=${context.time || input.documentTime || "non fournie"}; heure de fin=${context.endTime || "non fournie"}; établissement=${context.schoolName || input.schoolId}; année scolaire=${context.academicYearName || input.academicYearId || "non fournie"}. Utilise les date et heure fournies. Ne déclare pas qu'elles sont manquantes lorsqu'elles existent. Ne les invente pas lorsqu'elles sont absentes.`;
+  return `Tu es l'assistant rédactionnel administratif d'Acadéa. Écris uniquement en français correct. Tu proposes un brouillon à vérifier humainement. N'invente jamais de fait, personne, date, référence, montant, décision, sanction, vote ou signature. Préserve strictement les noms propres, dates, références, montants et numéros fournis. Ne génère jamais l'en-tête, la référence automatique, le statut, le signataire, la signature, le cachet ou les données d'envoi. La proposition doit refléter clairement l'action demandée. Ne recopie jamais simplement le texte source : une réponse identique est invalide pour toutes les actions, y compris la correction. Portée : ${JSON.stringify(input.scope)}. Action : ${input.action}. Ton : ${input.tone}. Longueur : ${input.length}. Instruction complémentaire : ${input.additionalInstruction}. ${actionInstructions[input.action]} ${toneInstructions[input.tone]} ${lengthInstructions[input.length]}${structuredReportInstruction} Informations du document : catégorie=${input.documentCategory}; type=${input.documentTypeLabel}; date=${context.date || input.documentDate || "non fournie"}; heure=${context.time || input.documentTime || "non fournie"}; heure de fin=${context.endTime || "non fournie"}; établissement=${context.schoolName || input.schoolId}; année scolaire=${context.academicYearName || input.academicYearId || "non fournie"}. Utilise les date et heure fournies. Ne déclare pas qu'elles sont manquantes lorsqu'elles existent. Ne les invente pas lorsqu'elles sont absentes.`;
 }
 
 export function parseProviderResponse(value: unknown, input: AiWritingRequest, requestId: string): AiWritingResponse {
   if (!value || typeof value !== "object") throw new HttpsError("internal", "Réponse IA invalide.");
   const data = value as Record<string, unknown>;
-  const reportRequest = input.documentCategory === "rapport";
-  const expectedProviderScope = reportRequest ? providerScopeMode(input) : input.scope;
+  const expectedProviderScope = providerScopeMode(input);
   if (data.scope !== expectedProviderScope) throw new HttpsError("internal", "La réponse de l’Assistant IA ne correspond pas à la portée demandée.", { code: "INVALID_AI_RESPONSE" });
-  const providerSection = data.section && typeof data.section === "object" ? data.section as { key?: unknown; value?: unknown } : undefined;
-  const section = typeof providerSection?.key === "string" && typeof providerSection.value === "string" && providerSection.key === input.scope ? { key: providerSection.key, value: providerSection.value } : undefined;
-  const sections = reportRequest || input.scope === "full_document" ? normalizeOpenAiSections(data.sections) : section ? { [section.key]: section.value } : {};
-  const expectedKeys = reportRequest ? requestedSectionKeys(input) : input.scope === "full_document" ? Object.keys(input.sections) : [String(input.scope)];
+  const sections = normalizeOpenAiSections(data.sections);
+  const expectedKeys = requestedSectionKeys(input);
   if (!validateGeneratedSections(expectedKeys, sections)) throw new HttpsError("internal", "La réponse de l’Assistant IA est incomplète ou ne respecte pas la portée demandée.", { code: "INVALID_AI_RESPONSE", expectedFields: expectedKeys });
   const warnings = Array.isArray(data.warnings) ? data.warnings.filter((item) => item && typeof item === "object" && typeof (item as { message?: unknown }).message === "string") : [];
   const missingInformation = Array.isArray(data.missingInformation) ? data.missingInformation.filter((item) => item && typeof item === "object" && typeof (item as { field?: unknown }).field === "string") : [];
   const proposedText = typeof data.proposedText === "string" ? data.proposedText.trim() : "";
   if (!proposedText && Object.keys(sections).length === 0) throw new HttpsError("internal", "La réponse de l’Assistant IA ne contient pas de proposition exploitable.", { code: "INVALID_AI_RESPONSE" });
-  return { success: true, action: input.action, scope: input.scope, originalText: input.originalText ?? "", proposedText, ...(section ? { section } : {}), sections, warnings: warnings as AiWritingResponse["warnings"], missingInformation: missingInformation as AiWritingResponse["missingInformation"], metadata: { requestId, generatedAt: new Date().toISOString(), version: AI_ASSISTANT_VERSION, backendVersion: process.env.K_REVISION ?? process.env.GIT_SHA ?? AI_ASSISTANT_VERSION } };
+  return { success: true, action: input.action, scope: input.scope, originalText: input.originalText ?? "", proposedText, sections, warnings: warnings as AiWritingResponse["warnings"], missingInformation: missingInformation as AiWritingResponse["missingInformation"], metadata: { requestId, generatedAt: new Date().toISOString(), version: AI_ASSISTANT_VERSION, backendVersion: process.env.K_REVISION ?? process.env.GIT_SHA ?? AI_ASSISTANT_VERSION } };
 }
 
 export async function runTransformationAttempts(input: AiWritingRequest, attempt: (retryCount: number) => Promise<AiWritingResponse>) {
@@ -144,7 +137,7 @@ export const secretaryAiWritingAssistant = onCall({ region: FUNCTION_REGION, tim
   const apiKey = openAiApiKey.value(); if (!apiKey) throw new HttpsError("failed-precondition", "L'assistant IA n'est pas configuré.");
   let result: AiWritingResponse | undefined; let providerStatus = "failed"; const model = process.env.OPENAI_MODEL || "gpt-5-mini";
   try {
-    const responseFormat = input.documentCategory === "rapport" ? buildStructuredWritingResponseFormat(requestedSectionKeys(input), providerScopeMode(input)) : input.scope === "full_document" ? buildStructuredWritingResponseFormat(Object.keys(input.sections)) : buildSingleSectionWritingResponseFormat(String(input.scope));
+    const responseFormat = buildStructuredWritingResponseFormat(requestedSectionKeys(input), providerScopeMode(input));
     const transformation = await runTransformationAttempts({ ...input, originalText: original.sanitized }, async (retryCount) => {
       const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 45000);
       const retryInstruction = retryCount === 1 ? " La première réponse était identique à la source. Produis cette fois une transformation réelle et visible, sans inventer de faits." : "";

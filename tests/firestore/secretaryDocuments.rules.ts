@@ -25,6 +25,13 @@ beforeEach(async () => testEnvironment().clearFirestore());
 afterAll(async () => environment?.cleanup(), 30_000);
 
 describe("documents du Secrétaire", () => {
+  it("autorise la création d'un élève et la gestion d'un parent dans son école uniquement", async () => {
+    const firestore = secretary();
+    await assertSucceeds(setDoc(doc(firestore, "students", "student-a"), { id: "student-a", schoolId, schoolYearId, status: "ACTIVE", nom: "Test" }));
+    await assertSucceeds(setDoc(doc(firestore, "parents", "parent-a"), { id: "parent-a", schoolId, schoolYearId, fullName: "Parent", studentIds: ["student-a"], status: "active" }));
+    await assertSucceeds(setDoc(doc(firestore, "parents", "parent-a"), { id: "parent-a", schoolId, schoolYearId, fullName: "Parent modifié", studentIds: ["student-a"], status: "active" }));
+    await assertFails(setDoc(doc(firestore, "parents", "parent-b"), { id: "parent-b", schoolId: "school-b", schoolYearId, fullName: "Hors école", studentIds: [], status: "active" }));
+  });
   it("réserve puis incrémente atomiquement un compteur de référence dans son école", async () => {
     const firestore = secretary();
     const counterRef = doc(firestore, "secretaryCounters", `${schoolId}_SEC_2026`);

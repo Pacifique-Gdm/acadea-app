@@ -10,6 +10,11 @@ const request = (action: AiWritingRequest["action"], scope = "full_document"): A
   documentContext: { date: "2026-07-30", time: "12:25", endTime: "13:00", schoolName: "École test", academicYearName: "2025-2026" },
   action, tone: "administrative", length: "standard", additionalInstruction: "Conserver strictement les faits fournis.", originalText: "Faits constatés", consentConfirmed: true,
 });
+const correspondenceSections = { subject: "Convocation", salutation: "Monsieur,", introduction: "Nous vous informons.", mainMessage: "Une réunion est prévue.", details: "", justification: "", expectedFollowUp: "Merci de confirmer.", conclusion: "Nous restons disponibles.", closingFormula: "Veuillez agréer nos salutations distinguées." };
+const correspondenceRequest = (scope: AiWritingRequest["scope"]): AiWritingRequest => {
+  const selected = scope && typeof scope === "object" && scope.mode === "selected_sections" ? scope.sections : Object.keys(correspondenceSections);
+  return { ...request("reformulate"), documentType: "outgoing_correspondence", documentCategory: "courrier", documentTypeLabel: "Lettre administrative", scope, sections: Object.fromEntries(selected.map((key) => [key, correspondenceSections[key as keyof typeof correspondenceSections]])) };
+};
 
 describe("requête simplifiée de l'assistant rédactionnel", () => {
   it("accepte uniquement Reformuler et Résumer", () => {
@@ -47,6 +52,21 @@ describe("requête simplifiée de l'assistant rédactionnel", () => {
     expect(parseProviderResponse({ proposedText: "", scope: "selected_sections", sections: { subject: "Objet formalisé", decisions: "Décision applicable" }, warnings: [], missingInformation: [] }, input, "multi").sections).toEqual({ subject: "Objet formalisé", decisions: "Décision applicable" });
     expect(() => parseProviderResponse({ proposedText: "", scope: "selected_sections", sections: { subject: "Objet formalisé" }, warnings: [], missingInformation: [] }, input, "partial")).toThrowError("incomplète");
     expect(() => parseProviderResponse({ proposedText: "", scope: "selected_sections", sections: { subject: "Objet", decisions: "Décision", location: "Salle" }, warnings: [], missingInformation: [] }, input, "extra")).toThrowError("incomplète");
+  });
+
+  it("valide strictement la portée multiple du courrier avec ses identifiants techniques", () => {
+    const scope = { mode: "selected_sections" as const, sections: ["subject", "mainMessage", "closingFormula"] };
+    const input = validateInput(correspondenceRequest(scope));
+    const generated = { subject: "Objet reformulé", mainMessage: "Message administratif reformulé.", closingFormula: "Veuillez agréer, Monsieur, nos salutations distinguées." };
+    expect(Object.keys(input.sections)).toEqual(scope.sections);
+    expect(parseProviderResponse({ proposedText: "", scope: "selected_sections", sections: generated, warnings: [], missingInformation: [] }, input, "courrier-multi").sections).toEqual(generated);
+    expect(() => parseProviderResponse({ proposedText: "", scope: "selected_sections", sections: { subject: generated.subject }, warnings: [], missingInformation: [] }, input, "courrier-partiel")).toThrowError("incomplète");
+    expect(() => validateInput({ ...correspondenceRequest(scope), sections: { ...input.sections, recipient: "Interdit" } })).toThrowError("Sections du document invalides");
+  });
+
+  it("conserve la compatibilité de l'ancienne portée simple du courrier", () => {
+    const input = validateInput({ ...correspondenceRequest("subject"), sections: { subject: correspondenceSections.subject }, targetSection: { key: "subject", value: correspondenceSections.subject } });
+    expect(input.scope).toBe("subject");
   });
 
   it("effectue une seconde tentative puis retourne AI_NO_TRANSFORMATION", async () => {

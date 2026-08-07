@@ -21,6 +21,11 @@ describe("Menu du Secrétaire", () => {
   it("réutilise les composants Administrateur sans logique métier parallèle", () => {
     expect(source).toContain("<ValvesDrawerContent");
     expect(source).toContain("<ParentsDirectoryDrawer");
+    expect(source).toContain("<ParentFormEditor");
+    expect(source).toContain("onCreateParent={() => openParentForm()}");
+    expect(source).toContain("onEditParent={(parent) => openParentForm(parent.id)}");
+    expect(source).toContain("onDeleteParent={openParentDelete}");
+    expect(source).toContain("deleteParentAccount");
     expect(source).toContain("<BiometricStudentsPage");
     expect(source).toContain('canManage={user.role === "secretary" && user.status !== "inactive" && user.schoolId === school.id}');
     expect(source).toContain("school={school}");

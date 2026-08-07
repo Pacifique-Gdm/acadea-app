@@ -61,12 +61,12 @@ async function cleanup({ auth, db, authUid, refs }) {
   await Promise.allSettled(tasks);
 }
 
-async function assertAuthorizedCaller({ db, caller, schoolId }) {
-  if (caller.role !== "school_admin" && caller.role !== "super_admin") {
+async function assertAuthorizedCaller({ db, caller, schoolId, allowSecretary = false }) {
+  if (caller.role !== "school_admin" && caller.role !== "super_admin" && !(allowSecretary && caller.role === "secretary")) {
     throw Object.assign(new Error("Action reservee a un administrateur autorise."), { statusCode: 403 });
   }
 
-  if (caller.role === "school_admin" && caller.schoolId !== schoolId) {
+  if ((caller.role === "school_admin" || caller.role === "secretary") && caller.schoolId !== schoolId) {
     throw Object.assign(new Error("Action refusee pour cette ecole."), { statusCode: 403 });
   }
 
@@ -88,7 +88,7 @@ async function deleteParentAccount({ auth, db, caller, body }) {
     throw Object.assign(new Error("Confirmation de suppression invalide."), { statusCode: 400 });
   }
 
-  await assertAuthorizedCaller({ db, caller, schoolId });
+  await assertAuthorizedCaller({ db, caller, schoolId, allowSecretary: true });
 
   const parentRef = db.doc(`parents/${parentId}`);
   const parentSnapshot = await parentRef.get();
@@ -274,7 +274,7 @@ export default async function handler(req, res) {
       return;
     }
 
-    await assertAuthorizedCaller({ db, caller, schoolId });
+    await assertAuthorizedCaller({ db, caller, schoolId, allowSecretary: role === "parent" });
 
     const parentId = role === "parent" ? normalizeText(body.parentId) || uid("parent") : "";
     const studentIds = role === "parent" && Array.isArray(body.studentIds) ? [...new Set(body.studentIds.map(normalizeText).filter(Boolean))] : [];

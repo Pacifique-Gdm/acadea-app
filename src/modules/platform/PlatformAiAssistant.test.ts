@@ -6,9 +6,10 @@ describe("contrôle Super Administrateur de l’Assistant IA", () => {
   const service = readFileSync(new URL("../../services/schoolAiAssistant.ts", import.meta.url), "utf8");
   const rules = readFileSync(new URL("../../../firestore.rules", import.meta.url), "utf8");
 
-  it("affiche le statut, l'interrupteur et les retours de sauvegarde", () => {
-    expect(platform).toContain("Assistant IA — Module Secrétaire");
-    expect(platform).toContain('role="switch"');
+  it("affiche le titre simplifié et le statut sur la même ligne", () => {
+    expect(platform).toContain('>Assistant IA</h3>');
+    expect(platform).not.toContain("Assistant IA — Module Secrétaire");
+    expect(platform).toContain("flex flex-wrap items-center justify-between gap-2");
     expect(platform).toContain('"Activé" : "Désactivé"');
     expect(platform).toContain("aiAssistantSaving");
     expect(platform).toContain("aiAssistantError");
@@ -26,6 +27,8 @@ describe("contrôle Super Administrateur de l’Assistant IA", () => {
     expect(platform).toContain("canConfirmAiAssistantChange(aiAssistantConfirmation");
     expect(platform).toContain("saveSchoolAiAssistantSetting(user, school, { enabled })");
     expect(platform).toContain('enabled ? "activé" : "désactivé"');
+    expect(platform).not.toContain('role="switch"');
+    expect(platform).toContain("openSchoolAiAssistantConfirmation(drawerSchool");
   });
 
   it("réinitialise la phrase lors de l'annulation et après succès", () => {
@@ -49,7 +52,19 @@ describe("contrôle Super Administrateur de l’Assistant IA", () => {
   });
 
   it("réserve les compteurs aux Functions dans les règles", () => {
-    expect(rules).toContain("request.resource.data.aiAssistant.monthlyUsage == resource.data.aiAssistant.monthlyUsage");
-    expect(rules).toContain("request.resource.data.aiAssistant.usageMonth == resource.data.aiAssistant.usageMonth");
+    expect(rules).toContain("request.resource.data.aiAssistant.monthlyUsage == 0");
+    expect(rules).toContain("request.resource.data.aiAssistant.updatedBy == request.auth.uid");
+  });
+
+  it("confirme et audite la remise à zéro sans modifier limite ni activation", () => {
+    expect(platform).toContain('aria-label="Réinitialiser le quota mensuel"');
+    expect(platform).toContain('title="Réinitialiser le quota mensuel"');
+    expect(platform).toContain("setAiQuotaResetTarget(drawerSchool)");
+    expect(platform).toContain("confirmSchoolAiQuotaReset");
+    expect(service).toContain('"aiAssistant.monthlyUsage": 0');
+    expect(service).toContain("monthlyLimit: current.monthlyLimit");
+    expect(service).toContain("enabled: school.aiAssistant?.enabled === true");
+    expect(service).toContain("transaction.set(auditRef");
+    expect(service).toContain("Ancienne consommation");
   });
 });

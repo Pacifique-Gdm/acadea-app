@@ -28,7 +28,7 @@ describe("provisionnement et portail Secrétaire", () => {
     expect(app).toContain("<SecretaryPortal");
     expect(app).toContain("<Header");
     expect(navigation).toContain('label: "Élèves"');
-    expect(navigation).toContain('label: "Courrier"');
+    expect(navigation).toContain('label: "Courriers"');
     expect(navigation).toContain('label: "Rapports"');
     expect(navigation).toContain('label: "Menu"');
     expect(portal).toContain('initialTab = "students"');
@@ -42,8 +42,8 @@ describe("provisionnement et portail Secrétaire", () => {
     expect(app).toContain("canEdit: true");
     expect(app).toContain("canArchive: false");
     expect(app).toContain("canReactivate: false");
-    expect(app).toContain("canCreateParent: false");
-    expect(app).toContain("canManageOptions: false");
+    expect(app).toContain("canCreateParent: true");
+    expect(app).toContain("canManageOptions: true");
     expect(app).toContain("studentImportKey={studentImportKey}");
   });
 

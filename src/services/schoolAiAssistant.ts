@@ -1,11 +1,10 @@
 import * as firestore from "firebase/firestore";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, runTransaction } from "firebase/firestore";
 import { db } from "../firebase";
-import type { AppUser, School } from "../types";
+import type { AppUser, AuditLog, School } from "../types";
 import { canUseFirestoreData } from "./firestoreData";
 
 const serverTimestamp = (firestore as unknown as { serverTimestamp: () => unknown }).serverTimestamp;
-const updateDocument = (firestore as unknown as { updateDoc: (reference: unknown, patch: Record<string, unknown>) => Promise<void> }).updateDoc;
 export const DEFAULT_SCHOOL_AI_MONTHLY_LIMIT = 25;
 export const MAX_SCHOOL_AI_MONTHLY_LIMIT = 1000;
 
@@ -37,27 +36,67 @@ export async function loadSchoolAiAssistantSetting(schoolId: string) {
   return snapshot.exists() ? (snapshot.data()?.aiAssistant as School["aiAssistant"] ?? null) : null;
 }
 
-export async function saveSchoolAiAssistantSetting(user: AppUser, school: Pick<School, "id" | "aiAssistant">, patch: { enabled?: boolean; monthlyLimit?: number }): Promise<NonNullable<School["aiAssistant"]>> {
+type SchoolAiAssistantMutation = { aiAssistant: NonNullable<School["aiAssistant"]>; auditLog: AuditLog };
+
+function assertSuperAdmin(user: AppUser, schoolId: string) {
   if (user.role !== "super_admin" || user.status === "inactive") {
     throw new Error("Seul un Super Administrateur actif peut modifier l’Assistant IA.");
   }
-  if (!school.id) throw new Error("Établissement introuvable.");
+  if (!schoolId) throw new Error("Établissement introuvable.");
+}
+
+function buildAuditLog(user: AppUser, schoolId: string, action: string, details: string): AuditLog {
+  return { id: globalThis.crypto?.randomUUID?.() ?? `audit-${Date.now()}`, schoolId, actorId: user.id, actorName: user.name, action, details, createdAt: new Date().toISOString() };
+}
+
+export async function saveSchoolAiAssistantSetting(user: AppUser, school: Pick<School, "id" | "aiAssistant">, patch: { enabled?: boolean; monthlyLimit?: number }): Promise<SchoolAiAssistantMutation> {
+  assertSuperAdmin(user, school.id);
   if (patch.monthlyLimit !== undefined && !validateSchoolAiMonthlyLimit(patch.monthlyLimit)) throw new Error("Le quota mensuel doit être un entier compris entre 1 et 1000.");
 
   const current = schoolAiUsageThisMonth(school.aiAssistant);
   const localValue = { ...school.aiAssistant, enabled: patch.enabled ?? school.aiAssistant?.enabled === true, monthlyLimit: patch.monthlyLimit ?? current.monthlyLimit, updatedAt: new Date().toISOString(), updatedBy: user.id };
+  const enabledChanged = patch.enabled !== undefined && patch.enabled !== (school.aiAssistant?.enabled === true);
+  const audit = buildAuditLog(user, school.id,
+    enabledChanged ? `${patch.enabled ? "Activation" : "Désactivation"} de l’Assistant IA` : "Modification du quota mensuel de l’Assistant IA",
+    enabledChanged
+      ? `Ancien statut : ${school.aiAssistant?.enabled === true ? "activé" : "désactivé"}. Nouveau statut : ${patch.enabled ? "activé" : "désactivé"}.`
+      : `Ancien quota : ${current.monthlyLimit}. Nouveau quota : ${patch.monthlyLimit ?? current.monthlyLimit}.`);
   if (canUseFirestoreData() && db) {
     const schoolRef = doc(db, "schools", school.id);
-    const firestorePatch: Record<string, unknown> = {
-      "aiAssistant.updatedAt": serverTimestamp(),
-      "aiAssistant.updatedBy": user.id,
-    };
-    if (patch.enabled !== undefined) firestorePatch["aiAssistant.enabled"] = patch.enabled;
-    if (patch.monthlyLimit !== undefined) firestorePatch["aiAssistant.monthlyLimit"] = patch.monthlyLimit;
-    await updateDocument(schoolRef, firestorePatch);
+    const auditRef = doc(db, "auditLogs", audit.id);
+    await runTransaction(db, async (transaction) => {
+      const firestorePatch: Record<string, unknown> = { "aiAssistant.updatedAt": serverTimestamp(), "aiAssistant.updatedBy": user.id };
+      if (patch.enabled !== undefined) firestorePatch["aiAssistant.enabled"] = patch.enabled;
+      if (patch.monthlyLimit !== undefined) firestorePatch["aiAssistant.monthlyLimit"] = patch.monthlyLimit;
+      transaction.update(schoolRef, firestorePatch);
+      transaction.set(auditRef, { ...audit, createdAt: serverTimestamp() });
+    });
     const savedSchool = await getDoc(schoolRef);
     const savedSetting = savedSchool.data()?.aiAssistant as School["aiAssistant"];
-    if (savedSetting) return savedSetting;
+    if (savedSetting) return { aiAssistant: savedSetting, auditLog: audit };
   }
-  return localValue;
+  return { aiAssistant: localValue, auditLog: audit };
+}
+
+export async function resetSchoolAiMonthlyUsage(user: AppUser, school: Pick<School, "id" | "aiAssistant">): Promise<SchoolAiAssistantMutation> {
+  assertSuperAdmin(user, school.id);
+  const current = schoolAiUsageThisMonth(school.aiAssistant);
+  const localValue = { ...school.aiAssistant, enabled: school.aiAssistant?.enabled === true, monthlyLimit: current.monthlyLimit, monthlyUsage: 0, usageMonth: current.usageMonth, updatedAt: new Date().toISOString(), updatedBy: user.id };
+  const audit = buildAuditLog(user, school.id, "Réinitialisation du quota mensuel de l’Assistant IA", `Ancienne consommation : ${current.monthlyUsage}. Nouvelle consommation : 0. Quota mensuel inchangé : ${current.monthlyLimit}.`);
+  if (canUseFirestoreData() && db) {
+    const schoolRef = doc(db, "schools", school.id);
+    const auditRef = doc(db, "auditLogs", audit.id);
+    await runTransaction(db, async (transaction) => {
+      const snapshot = await transaction.get(schoolRef);
+      if (!snapshot.exists()) throw new Error("Établissement introuvable.");
+      const storedUsage = schoolAiUsageThisMonth(snapshot.data()?.aiAssistant as School["aiAssistant"]);
+      audit.details = `Ancienne consommation : ${storedUsage.monthlyUsage}. Nouvelle consommation : 0. Quota mensuel inchangé : ${storedUsage.monthlyLimit}.`;
+      transaction.update(schoolRef, { "aiAssistant.monthlyUsage": 0, "aiAssistant.usageMonth": storedUsage.usageMonth, "aiAssistant.updatedAt": serverTimestamp(), "aiAssistant.updatedBy": user.id });
+      transaction.set(auditRef, { ...audit, createdAt: serverTimestamp() });
+    });
+    const savedSchool = await getDoc(schoolRef);
+    const savedSetting = savedSchool.data()?.aiAssistant as School["aiAssistant"];
+    if (savedSetting) return { aiAssistant: savedSetting, auditLog: audit };
+  }
+  return { aiAssistant: localValue, auditLog: audit };
 }

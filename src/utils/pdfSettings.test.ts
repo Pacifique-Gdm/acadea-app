@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PDF_SETTINGS, getPdfLayout, getPdfLineHeight, normalizePdfSettings, resolvePdfFont } from "./pdfSettings";
+import { DEFAULT_PDF_SETTINGS, getPdfLayout, getPdfLineHeight, normalizePdfSettings, pdfEditorStyle, PDF_FONT_FAMILIES, PDF_FONT_SIZES, PDF_LINE_SPACINGS, resolvePdfFont } from "./pdfSettings";
 
 describe("réglages PDF canoniques", () => {
   it("utilise les valeurs par défaut pour un ancien document", () => {
@@ -7,19 +7,27 @@ describe("réglages PDF canoniques", () => {
   });
 
   it("normalise chaque valeur inconnue", () => {
-    expect(normalizePdfSettings({ fontFamily: "Calibri", fontSize: 20, lineSpacing: 3, pageSize: "A3" } as never)).toEqual(DEFAULT_PDF_SETTINGS);
+    expect(normalizePdfSettings({ fontFamily: "Comic Sans MS", fontSize: 20, lineSpacing: 4, pageSize: "A3" } as never)).toEqual(DEFAULT_PDF_SETTINGS);
   });
 
-  it.each([["Arial", "Arial"], ["Times New Roman", "Times New Roman"]] as const)("résout la police %s", (font, expected) => {
-    expect(resolvePdfFont(font)).toContain(expected);
+  it.each(PDF_FONT_FAMILIES)("résout et applique la police professionnelle %s", (font) => {
+    expect(resolvePdfFont(font)).toContain(font);
+    expect(pdfEditorStyle({ ...DEFAULT_PDF_SETTINGS, fontFamily: font }).fontFamily).toBe(resolvePdfFont(font));
   });
 
-  it.each([9, 14] as const)("applique la taille %s pt", (fontSize) => {
+  it.each(PDF_FONT_SIZES)("applique uniquement la taille professionnelle %s pt", (fontSize) => {
     expect(getPdfLayout({ ...DEFAULT_PDF_SETTINGS, fontSize }).settings.fontSize).toBe(fontSize);
+    expect(pdfEditorStyle({ ...DEFAULT_PDF_SETTINGS, fontSize }).fontSize).toBe(`${fontSize}pt`);
   });
 
-  it.each([1, 1.15, 1.5, 2] as const)("applique l'interligne %s", (lineSpacing) => {
+  it.each(PDF_LINE_SPACINGS)("applique l'interligne %s dans l'éditeur et le PDF", (lineSpacing) => {
     expect(getPdfLineHeight({ ...DEFAULT_PDF_SETTINGS, lineSpacing })).toBe(lineSpacing);
+    expect(pdfEditorStyle({ ...DEFAULT_PDF_SETTINGS, lineSpacing }).lineHeight).toBe(lineSpacing);
+  });
+
+  it("refuse toute taille libre supérieure à 18 pt", () => {
+    expect(normalizePdfSettings({ ...DEFAULT_PDF_SETTINGS, fontSize: 19 as never }).fontSize).toBe(12);
+    expect(PDF_FONT_SIZES.at(-1)).toBe(18);
   });
 
   it.each([

@@ -71,18 +71,34 @@ describe("Drawers médicaux et statistiques du Secrétaire", () => {
     expect(formatMedicalRecordValue(["A", "B"])).toBe("A, B");
   });
 
-  it("place FILTRER puis EXPORTER PDF sur la même barre et expose les filtres dynamiques", () => {
-    const filterIndex = source.indexOf("> FILTRER</button>");
-    const exportIndex = source.indexOf("> EXPORTER PDF</button>");
-    expect(filterIndex).toBeGreaterThan(-1);
-    expect(exportIndex).toBeGreaterThan(filterIndex);
+  it("affiche directement le filtre segmenté et la réinitialisation iconique", () => {
+    const allIndex = source.indexOf("['all', 'Toutes']");
+    const sectionIndex = source.indexOf("['section', 'Section']");
+    const classIndex = source.indexOf("['class', 'Classe précise']");
+    const resetIndex = source.indexOf('aria-label="Réinitialiser le filtre"');
+    const exportIndex = source.indexOf("> Exporter PDF</button>");
+    expect(allIndex).toBeGreaterThan(-1);
+    expect(sectionIndex).toBeGreaterThan(allIndex);
+    expect(classIndex).toBeGreaterThan(sectionIndex);
+    expect(resetIndex).toBeGreaterThan(classIndex);
+    expect(exportIndex).toBeGreaterThan(resetIndex);
     expect(source).toContain('className="flex flex-wrap items-center gap-2"');
+    expect(source).toContain('role="group" aria-label="Type de filtre"');
+    expect(source).toContain("grid-cols-3");
+    expect(source).toContain("aria-pressed={filterType === value}");
+    expect(source).toContain('title="Réinitialiser le filtre"');
+    expect(source).toContain("<RotateCcw");
     expect(source).toContain("getSchoolSections(school)");
     expect(source).toContain("getSchoolClassChoices(school)");
     expect(source).toContain("buildValveClassChoices(scopedStudents");
-    expect(source).toContain("TOUTES LES SECTIONS ET CLASSES");
-    expect(source).toContain("CLASSE PRÉCISE");
-    expect(source).toContain("RÉINITIALISER LE FILTRE");
+    expect(source).not.toContain("> Filtrer</button>");
+    expect(source).not.toContain("filterOpen");
+    expect(source).not.toContain("setFilterOpen");
+    expect(source).not.toContain('bg-blue-50 p-3 text-sm font-bold text-blue-800">{scopeLabel}');
+    expect(source).not.toContain("RÉINITIALISER LE FILTRE");
+    expect(source).toContain('function resetFilter() { setFilterType("all"); setSelectedSection(""); setSelectedClassKey(""); }');
+    expect(source).toContain("sections.map((section)");
+    expect(source).toContain("classes.map((item)");
   });
 
   it("utilise les mêmes statistiques filtrées pour l'écran et le PDF", () => {
@@ -104,5 +120,8 @@ describe("Drawers médicaux et statistiques du Secrétaire", () => {
     expect(source).toContain("statistics.classRows");
     expect(source).toContain("statistics.sectionRows");
     expect(source).not.toContain("statistics.levelRows");
+    const pdfSource = readFileSync(new URL("../../utils/pdf.ts", import.meta.url), "utf8");
+    expect(pdfSource).toContain("word-spacing: 0.12em");
+    expect(pdfSource).toContain("overflow-wrap: normal");
   });
 });

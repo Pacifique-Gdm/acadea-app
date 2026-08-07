@@ -16,7 +16,7 @@ export function SecretaryBottomNavigation({
 }) {
   const tabs = [
     { id: "students" as const, label: "Élèves", icon: GraduationCap },
-    { id: "correspondence" as const, label: "Courrier", icon: Mail },
+    { id: "correspondence" as const, label: "Courriers", icon: Mail },
     { id: "reports" as const, label: "Rapports", icon: FileText },
     { id: "menu" as const, label: "Menu", icon: MenuIcon },
   ];

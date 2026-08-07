@@ -80,6 +80,8 @@ export interface OutgoingCorrespondenceData {
   conclusion: string;
   closingFormula: string;
   signer: CorrespondenceSigner;
+  /** Source canonique. `signer` reste présent pour lire les anciens courriers. */
+  signatories?: ReportSignatory[];
   visa?: CorrespondenceVisa;
   announcedAttachments: AnnouncedCorrespondenceAttachment[];
   copies: CorrespondenceCopy[];

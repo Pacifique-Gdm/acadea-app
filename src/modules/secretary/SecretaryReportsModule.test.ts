@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 describe("formulaire Nouveau rapport", () => {
   const source = readFileSync(new URL("./SecretaryReportsModule.tsx", import.meta.url), "utf8");
   const sectionSource = readFileSync(new URL("./reportAiSections.ts", import.meta.url), "utf8");
+  const signatoriesEditorSource = readFileSync(new URL("./SignatoriesEditor.tsx", import.meta.url), "utf8");
+  const actionsSource = readFileSync(new URL("./SecretaryDocumentFormActions.tsx", import.meta.url), "utf8");
   const signatorySource = readFileSync(new URL("./reportSignatories.ts", import.meta.url), "utf8");
   const pdfSource = readFileSync(new URL("../../utils/pdf.ts", import.meta.url), "utf8");
 
@@ -30,8 +32,8 @@ describe("formulaire Nouveau rapport", () => {
   });
 
   it("génère, désactive pendant le traitement et ferme uniquement après succès", () => {
-    expect(source).toContain('busy ? "Enregistrement en cours…" : "Générer rapport"');
-    expect(source).toContain("disabled={busy}");
+    expect(source).toContain('generateLabel="Générer rapport"');
+    expect(actionsSource).toContain("disabled={busy || disabled}");
     const createIndex = source.indexOf("await createSecretaryReport");
     expect(createIndex).toBeGreaterThan(-1);
     expect(source.indexOf("setOpen(false)", createIndex)).toBeGreaterThan(createIndex);
@@ -55,14 +57,33 @@ describe("formulaire Nouveau rapport", () => {
   });
 
   it("affiche des lignes structurées Noms et Fonction pour les signataires", () => {
-    for (const label of ["LIEU", "OBJET", "PARTICIPANTS", "POINTS ABORDÉS", "DÉCISIONS", "RECOMMANDATIONS", "SIGNATURES"]) expect(`${source}\n${sectionSource}`).toContain(label);
-    expect(source).toContain('className="text-sm font-bold uppercase">SIGNATURES');
-    expect(source).toContain('placeholder="Noms"');
-    expect(source).toContain('placeholder="Fonction"');
-    expect(source).toContain("Ajouter un signataire");
-    expect(source).toContain("addReportSignatory(signatories)");
+    for (const label of ["LIEU", "OBJET", "PARTICIPANTS", "POINTS ABORDÉS", "DÉCISIONS", "RECOMMANDATIONS"]) expect(`${source}\n${sectionSource}`).toContain(label);
+    expect(signatoriesEditorSource).toContain('title = "SIGNATAIRES"');
+    expect(signatoriesEditorSource).toContain('placeholder="Noms"');
+    expect(signatoriesEditorSource).toContain('placeholder="Fonction"');
+    expect(signatoriesEditorSource).toContain("Ajouter un signataire");
+    expect(source).not.toContain('>SIGNATURES</h3>');
     expect(source).toContain("prepareReportSignatories(signatories)");
     expect(source).not.toContain('key={field}>{field}<textarea');
+  });
+
+  it("compacte Lieu et Objet et utilise la casse normale uniquement dans le formulaire", () => {
+    for (const label of ["Lieu", "Objet", "Participants", "Points abordés", "Décisions", "Recommandations"]) expect(source).toContain(`"${label}"`);
+    expect(source).toContain('field === "lieu" || field === "objet"');
+    expect(source).toContain('"min-h-12" : "min-h-20"');
+    expect(source).toContain('title="Signataires"');
+    expect(source).toContain("report-form-section grid gap-1 pt-2");
+    expect(source).not.toContain('"font-bold uppercase"');
+    expect(source).toContain("MEETING_MINUTES_SECTION_LABELS[key");
+  });
+
+  it("isole les espacements du PDF individuel des rapports", () => {
+    expect(source).toContain('{ className: "report-section" }');
+    expect(pdfSource).toContain(".pdf-section.report-section");
+    expect(pdfSource).toContain("margin-top: 16px");
+    expect(pdfSource).toContain("margin-bottom: 4px");
+    expect(pdfSource).toContain(".pdf-header *");
+    expect(source).toContain("reportSignatoriesPdfHtml(reportSignatories)");
   });
 
   it("produit un PDF administratif justifié avec cinq cartes et trois signataires maximum par ligne", () => {
@@ -92,5 +113,10 @@ describe("formulaire Nouveau rapport", () => {
     expect(pdfSource).toContain("getPdfLayout(pdfSettings)");
     expect(pdfSource).toContain("format: layout.jsPdfFormat");
     expect(pdfSource).toContain("line-height: ${pdfSettings.lineSpacing}");
+    expect(pdfSource).toContain('const institutionalFontFamily = resolvePdfFont("Aptos")');
+    expect(pdfSource).toContain(".pdf-header *");
+    expect(pdfSource).toContain("font-family: ${institutionalFontFamily}");
+    expect(source).toContain("pdfEditorStyle(pdfSettings)");
+    expect(source).toContain("style={editorStyle}");
   });
 });

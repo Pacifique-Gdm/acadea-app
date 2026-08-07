@@ -1,0 +1,3 @@
+export function SecretaryDocumentFormActions({ generateLabel, busyLabel, busy, disabled = false, onCancel, onGenerate }: { generateLabel: string; busyLabel: string; busy: boolean; disabled?: boolean; onCancel: () => void; onGenerate?: () => void }) {
+  return <div className="sticky bottom-0 z-10 grid w-full grid-cols-2 gap-2 border-t bg-white py-3"><button type="button" className="secondary-button h-11 w-full justify-center" disabled={busy} onClick={onCancel}>Annuler</button><button type={onGenerate ? "button" : "submit"} className="primary-button h-11 w-full justify-center" disabled={busy || disabled} onClick={onGenerate}>{busy ? busyLabel : generateLabel}</button></div>;
+}

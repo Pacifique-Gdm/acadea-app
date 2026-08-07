@@ -146,10 +146,10 @@ function buildPdfColumnWidths<T>(columns: PdfTableColumn<T>[], renderedRows: Arr
   return adjustedWidths.map((width) => Number(((width / adjustedTotal) * 100).toFixed(2)));
 }
 
-export function pdfSection(title: string, bodyHtml: string, options: { pageBreakBefore?: boolean } = {}) {
+export function pdfSection(title: string, bodyHtml: string, options: { pageBreakBefore?: boolean; className?: string } = {}) {
   return `
     ${options.pageBreakBefore ? '<div class="pdf-page-break" aria-hidden="true"></div>' : ""}
-    <section class="pdf-section">
+    <section class="pdf-section${options.className ? ` ${escapePdfHtml(options.className)}` : ""}">
       <h2>${escapePdfHtml(title)}</h2>
       ${bodyHtml}
     </section>
@@ -300,6 +300,7 @@ function buildPdfHtml({
 
 function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
   const fontFamily = resolvePdfFont(pdfSettings.fontFamily);
+  const institutionalFontFamily = resolvePdfFont("Aptos");
   return `
     .acadea-pdf {
       width: ${renderWidth}px;
@@ -333,6 +334,16 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       color: #ffffff;
       background: #14213d;
       border-bottom: 3px solid #2a9d8f;
+      font-family: ${institutionalFontFamily};
+      font-size: 10pt;
+      line-height: 1.2;
+      letter-spacing: normal;
+      word-spacing: normal;
+    }
+    .pdf-header * {
+      font-family: inherit;
+      letter-spacing: normal;
+      word-spacing: normal;
     }
     .brand-mark {
       display: flex;
@@ -403,7 +414,13 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       break-inside: auto;
     }
     .document-title--center { text-align: center; }
-    .document-title--center h2 { font-weight: 800; letter-spacing: normal; word-spacing: normal; }
+    .document-title--center h2 {
+      font-weight: 800;
+      letter-spacing: 0.01em;
+      word-spacing: 0.16em;
+      white-space: nowrap;
+      overflow-wrap: normal;
+    }
     .pdf-page-break {
       display: block;
       height: 0;
@@ -423,6 +440,15 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       line-height: 1.35;
       page-break-after: avoid;
       break-after: avoid-page;
+      letter-spacing: 0.01em;
+      word-spacing: 0.12em;
+      overflow-wrap: normal;
+    }
+    .pdf-section.report-section {
+      margin-top: 16px;
+    }
+    .pdf-section.report-section h2 {
+      margin-bottom: 4px;
     }
     .info-grid {
       display: grid;

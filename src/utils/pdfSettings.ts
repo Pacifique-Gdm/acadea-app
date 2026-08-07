@@ -1,6 +1,6 @@
-export const PDF_FONT_FAMILIES = ["Arial", "Times New Roman"] as const;
-export const PDF_FONT_SIZES = [9, 10, 11, 12, 13, 14] as const;
-export const PDF_LINE_SPACINGS = [1, 1.15, 1.5, 2] as const;
+export const PDF_FONT_FAMILIES = ["Aptos", "Calibri", "Times New Roman", "Arial", "Cambria", "Georgia", "Garamond", "Book Antiqua", "Verdana", "Tahoma", "Trebuchet MS"] as const;
+export const PDF_FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18] as const;
+export const PDF_LINE_SPACINGS = [1, 1.15, 1.5, 2, 2.5, 3] as const;
 export const PDF_PAGE_SIZES = ["A4", "A5", "LETTER"] as const;
 
 export type PdfFontFamily = (typeof PDF_FONT_FAMILIES)[number];
@@ -16,8 +16,8 @@ export type PdfGenerationSettings = {
 };
 
 export const DEFAULT_PDF_SETTINGS: PdfGenerationSettings = {
-  fontFamily: "Arial",
-  fontSize: 11,
+  fontFamily: "Aptos",
+  fontSize: 12,
   lineSpacing: 1.15,
   pageSize: "A4",
 };
@@ -38,9 +38,19 @@ export function normalizePdfSettings(value?: Partial<PdfGenerationSettings> | nu
 }
 
 export function resolvePdfFont(fontFamily: PdfFontFamily) {
-  return fontFamily === "Times New Roman"
-    ? '"Times New Roman", Times, serif'
-    : 'Arial, Helvetica, sans-serif';
+  const stacks: Record<PdfFontFamily, string> = {
+    Aptos: 'Aptos, Calibri, Arial, sans-serif', Calibri: 'Calibri, Aptos, Arial, sans-serif',
+    "Times New Roman": '"Times New Roman", Times, serif', Arial: 'Arial, Helvetica, sans-serif',
+    Cambria: 'Cambria, Georgia, "Times New Roman", serif', Georgia: 'Georgia, Cambria, "Times New Roman", serif',
+    Garamond: 'Garamond, Georgia, "Times New Roman", serif', "Book Antiqua": '"Book Antiqua", Palatino, Georgia, serif',
+    Verdana: 'Verdana, Geneva, sans-serif', Tahoma: 'Tahoma, Verdana, sans-serif', "Trebuchet MS": '"Trebuchet MS", Arial, sans-serif',
+  };
+  return stacks[fontFamily];
+}
+
+export function pdfEditorStyle(settings: Partial<PdfGenerationSettings> | null | undefined) {
+  const normalized = normalizePdfSettings(settings);
+  return { fontFamily: resolvePdfFont(normalized.fontFamily), fontSize: `${normalized.fontSize}pt`, lineHeight: normalized.lineSpacing };
 }
 
 export function getPdfLineHeight(settings: Partial<PdfGenerationSettings> | null | undefined) {

@@ -117,6 +117,17 @@ describe("API de provisionnement Acadéa", () => {
     expect(batch.commit).toHaveBeenCalledOnce();
   });
 
+  it("autorise le Secrétaire à créer un parent uniquement dans son école", async () => {
+    mocks.auth.verifyIdToken.mockResolvedValue({ uid: "secretary-1", role: "secretary", schoolId: "school-1" });
+    const allowed = response();
+    await provisionSchoolAccount(request({ role: "parent", schoolId: "school-1", schoolYearId: "year-1", parentId: "parent-1", name: "Parent test", email: "parent@example.invalid", password: "test-password", studentIds: [] }), allowed);
+    expect(allowed.statusCode).toBe(200);
+
+    const refused = response();
+    await provisionSchoolAccount(request({ role: "parent", schoolId: "school-2", schoolYearId: "year-1", parentId: "parent-2", name: "Parent test", email: "parent2@example.invalid", password: "test-password", studentIds: [] }), refused);
+    expect(refused.statusCode).toBe(403);
+  });
+
   it("refuse atomiquement un élève d'une autre école avant de créer Auth", async () => {
     mocks.db.doc.mockImplementation((path: string) => ({
       path,

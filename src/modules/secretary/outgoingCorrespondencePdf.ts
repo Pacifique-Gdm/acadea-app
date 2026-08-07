@@ -1,9 +1,10 @@
 import type { School, SchoolYear } from "../../types";
 import { escapePdfHtml, renderAcadPdfPreview } from "../../utils/pdf";
 import type { Correspondence } from "./secretaryTypes";
+import { normalizeCorrespondenceSignatories } from "./reportSignatories";
 
 const text = (value?: string) => value?.trim() ?? "";
-const paragraph = (value?: string) => text(value) ? `<p class="secretary-pdf-main-text outgoing-correspondence-paragraph" style="text-align:justify;text-justify:inter-word;margin:0 0 10px;text-indent:50%;line-height:1.15;break-inside:avoid">${escapePdfHtml(text(value)).replaceAll("\n", "<br />")}</p>` : "";
+const paragraph = (value?: string) => text(value) ? `<p class="secretary-pdf-main-text outgoing-correspondence-paragraph" style="text-align:justify;text-justify:inter-word;margin:0 0 8pt;text-indent:50%;break-inside:avoid">${escapePdfHtml(text(value)).replaceAll("\n", "<br />")}</p>` : "";
 
 export function outgoingRecipientLines(item: Correspondence) {
   const recipient = item.outgoing?.recipient;
@@ -18,6 +19,7 @@ export function outgoingCorrespondencePdfSections(item: Correspondence) {
   const announced = outgoing.announcedAttachments.filter((entry) => entry.includeInPdf && text(entry.title));
   const copies = outgoing.copies.filter((entry) => entry.includeInPdf && text(entry.nameOrFunction));
   const mention = [outgoing.specialMention === "other" ? outgoing.customSpecialMention : outgoing.specialMention, outgoing.priority !== "normal" ? outgoing.priority.replaceAll("_", " ") : "", outgoing.confidentiality !== "public" ? outgoing.confidentiality.replaceAll("_", " ") : ""].map(text).filter(Boolean).join(" · ");
+  const signatories = normalizeCorrespondenceSignatories(outgoing.signatories, outgoing.signer);
   const signatureHeight = { small: 36, medium: 55, large: 75 }[outgoing.signer.signatureSpace];
   const reference = text(item.referenceNumber);
   return [
@@ -27,17 +29,17 @@ export function outgoingCorrespondencePdfSections(item: Correspondence) {
     `<p class="secretary-pdf-main-text outgoing-correspondence-paragraph" style="margin:8px 0;text-indent:0"><strong>Objet :</strong> <u>${escapePdfHtml(item.subject)}</u></p>`,
     text(outgoing.previousReference) ? `<p><strong>Réf. antérieure :</strong> ${escapePdfHtml(text(outgoing.previousReference))}</p>` : "",
     announced.length ? `<p><strong>Pièces jointes annoncées :</strong> ${announced.map((entry) => `${escapePdfHtml(entry.title)} (${entry.copies} ex.)`).join(" ; ")}</p>` : "",
-    `<p class="secretary-pdf-main-text" style="margin-top:18px;break-after:avoid">${escapePdfHtml(outgoing.salutation)}</p>`,
+    `<p class="secretary-pdf-main-text outgoing-correspondence-salutation" style="margin:18px 0 8pt 50%;break-after:avoid">${escapePdfHtml(outgoing.salutation)}</p>`,
     paragraph(outgoing.introduction), paragraph(outgoing.mainMessage), paragraph(outgoing.details), paragraph(outgoing.justification), paragraph(outgoing.expectedFollowUp), paragraph(outgoing.conclusion),
     paragraph(outgoing.closingFormula),
     `<section class="outgoing-signature-row">
       ${outgoing.visa?.required ? `<div class="outgoing-visa-note"><strong>${escapePdfHtml(outgoing.visa.mention || "Visa")}</strong>${text(outgoing.visa.functionTitle) ? ` — ${escapePdfHtml(text(outgoing.visa.functionTitle))}` : ""}${text(outgoing.visa.personName) ? ` — ${escapePdfHtml(text(outgoing.visa.personName))}` : ""}</div>` : ""}
-      <div class="outgoing-signature-block">
+      ${signatories.map((signatory) => `<div class="outgoing-signature-block">
         <span class="outgoing-signature-space" style="height:${signatureHeight}px"></span>
-        <strong class="outgoing-signatory-name">${escapePdfHtml(outgoing.signer.fullName)}</strong>
-        <span class="outgoing-signatory-function">${escapePdfHtml(outgoing.signer.functionTitle)}</span>
+        <strong class="outgoing-signatory-name">${escapePdfHtml(signatory.name)}</strong>
+        <span class="outgoing-signatory-function">${escapePdfHtml(signatory.functionTitle)}</span>
         ${outgoing.signer.stampRequired ? '<span class="outgoing-signatory-stamp">Cachet</span>' : ""}
-      </div>
+      </div>`).join("")}
     </section>`,
     copies.length ? `<section class="secretary-pdf-main-text" style="margin-top:18px;break-inside:avoid"><strong>Copies pour information :</strong><ul>${copies.map((entry) => `<li>${escapePdfHtml([entry.nameOrFunction, entry.institution].filter(Boolean).join(" — "))}</li>`).join("")}</ul></section>` : "",
   ].filter(Boolean);

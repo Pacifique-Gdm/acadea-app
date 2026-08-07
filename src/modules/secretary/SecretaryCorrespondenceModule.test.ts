@@ -4,8 +4,12 @@ import { describe, expect, it } from "vitest";
 describe("module Courrier du Secrétaire", () => {
   const moduleSource = readFileSync(new URL("./SecretaryCorrespondenceModule.tsx", import.meta.url), "utf8");
   const formSource = readFileSync(new URL("./OutgoingCorrespondenceForm.tsx", import.meta.url), "utf8");
+  const actionsSource = readFileSync(new URL("./SecretaryDocumentFormActions.tsx", import.meta.url), "utf8");
+  const signatoriesSource = readFileSync(new URL("./SignatoriesEditor.tsx", import.meta.url), "utf8");
+  const viewActionSource = readFileSync(new URL("./SecretaryViewActionButton.tsx", import.meta.url), "utf8");
   const serviceSource = readFileSync(new URL("../../services/secretaryCorrespondence.ts", import.meta.url), "utf8");
   const settingsSource = readFileSync(new URL("../../components/pdf/PdfSettingsFields.tsx", import.meta.url), "utf8");
+  const optionsSource = readFileSync(new URL("./correspondenceOptions.ts", import.meta.url), "utf8");
 
   it("centralise Kinshasa / RDC uniquement comme valeur initiale des nouveaux courriers", () => {
     expect(formSource).toContain('DEFAULT_OUTGOING_ISSUE_PLACE = "Kinshasa / RDC"');
@@ -26,6 +30,22 @@ describe("module Courrier du Secrétaire", () => {
     expect(moduleSource).toContain("exportCorrespondenceListPdf({ rows: filtered");
     expect(moduleSource).toContain("Exporter PDF");
     expect(moduleSource).not.toContain("Tous les canaux");
+  });
+
+  it("retire les mentions historiques du formulaire sans les supprimer du modèle", () => {
+    for (const label of ["Niveau de confidentialité", "Sous couvert de", "Mention spéciale", "Préciser la mention"]) expect(formSource).not.toContain(label);
+    for (const field of ["confidentiality", "underCoverOf", "specialMention", "customSpecialMention"]) expect(readFileSync(new URL("./secretaryTypes.ts", import.meta.url), "utf8")).toContain(field);
+    expect(formSource).toContain('confidentiality: "public"');
+  });
+
+  it("partage la source des modes et exporte exactement la liste filtrée", () => {
+    expect(formSource).toContain("options={CORRESPONDENCE_DELIVERY_MODES}");
+    expect(moduleSource).toContain("CORRESPONDENCE_DELIVERY_MODES.map");
+    expect(optionsSource).toContain('"hand_delivery"');
+    expect(moduleSource).toContain('aria-label="Mode d’acheminement"');
+    expect(moduleSource).toContain('<option value="all">Tous les modes</option>');
+    expect(moduleSource).toContain("filterSecretaryCorrespondences(items, queryText, direction, outgoingType, priority, deliveryMode)");
+    expect(moduleSource).toContain("exportCorrespondenceListPdf({ rows: filtered");
   });
 
   it("affiche les sept colonnes attendues avec des cellules tronquées", () => {
@@ -82,14 +102,29 @@ describe("module Courrier du Secrétaire", () => {
   });
 
   it("simplifie les actions du nouveau courrier sortant", () => {
-    expect(formSource).toContain(">Annuler</button>");
-    expect(formSource).toContain('type="submit" className="primary-button"');
-    expect(formSource).toContain('"Génération en cours…" : "Générer courrier"');
+    expect(actionsSource).toContain(">Annuler</button>");
+    expect(actionsSource).toContain("grid-cols-2");
+    expect(actionsSource).toContain("h-11 w-full");
+    expect(formSource).toContain('generateLabel="Générer courrier"');
     for (const removedAction of ["Enregistrer comme brouillon", "Prévisualiser", "Soumettre à validation", "Générer le PDF", "Finaliser"]) expect(formSource).not.toContain(removedAction);
     expect(formSource).toContain('void act("draft")');
     expect(moduleSource).toContain("if (saveLock.current) return");
     expect(moduleSource).toContain("await createCorrespondence({ user, schoolId: school.id, schoolYearId: year.id");
     expect(moduleSource).toContain("finishSuccessfulSave");
+  });
+
+  it("partage les signataires et l'action Voir iconique", () => {
+    expect(formSource).toContain("normalizeCorrespondenceSignatories");
+    expect(formSource).toContain("<SignatoriesEditor");
+    expect(formSource).toContain('title="7. Signataires"');
+    expect(formSource).toContain("showTitle={false}");
+    expect(signatoriesSource).toContain("showTitle && <h3");
+    expect(signatoriesSource).toContain('placeholder="Noms"');
+    expect(signatoriesSource).toContain('placeholder="Fonction"');
+    expect(signatoriesSource).toContain("Ajouter un signataire");
+    expect(moduleSource).toContain("<SecretaryViewActionButton");
+    expect(viewActionSource).toContain('title="Voir" aria-label="Voir"');
+    expect(moduleSource).toContain('title="Courriers"');
   });
 
   it("transmet le type précis du courrier à l'Assistant IA", () => {
@@ -130,6 +165,8 @@ describe("module Courrier du Secrétaire", () => {
     expect(outgoingPdfSource).not.toContain('subtitle: item.referenceNumber');
     expect(outgoingPdfSource).toContain('style="margin:12px 18px 0"');
     expect(sharedPdfSource).toContain('showDocumentTitle ? `<div class="document-title');
+    expect(sharedPdfSource).toContain('const institutionalFontFamily = resolvePdfFont("Aptos")');
+    expect(sharedPdfSource).toContain(".pdf-header *");
     expect(sharedPdfSource).toContain("showDocumentTitle = true");
     expect(moduleSource).toContain('title: "Courrier administratif"');
   });
@@ -166,5 +203,14 @@ describe("module Courrier du Secrétaire", () => {
     expect(formSource).toContain("readStoredPdfSettings()");
     expect(formSource).toContain("pdfSettings,");
     expect(moduleSource).toContain("pdfSettings: payload.pdfSettings");
+    expect(formSource).toContain("pdfEditorStyle(pdfSettings)");
+    expect(formSource).toContain("style={editorStyle}");
+  });
+
+  it("utilise les identifiants techniques et la portée multiple pour l'Assistant IA Courrier", () => {
+    for (const key of ["subject", "salutation", "introduction", "mainMessage", "details", "justification", "expectedFollowUp", "conclusion", "closingFormula"]) expect(formSource).toContain(key);
+    expect(formSource).toContain("sectionLabels={aiSectionLabels}");
+    expect(formSource).toContain("onApplySections={applyAiSections}");
+    expect(formSource).not.toContain('const aiSections = { Objet:');
   });
 });

@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { FileDown, Filter, Pencil, Printer, Search } from "lucide-react";
+import { FileDown, Pencil, Printer, RotateCcw, Search } from "lucide-react";
 import { AdminDrawer } from "../../components/ui";
 import { canManageStudentMedicalRecords, saveStudentMedicalRecord, getMedicalRecordStatus, medicalRecordSaveErrorMessage } from "../../services/studentMedicalRecords";
 import { formatStudentClassName } from "../../utils/studentClasses";
@@ -132,7 +132,6 @@ export function SecretaryMedicalRecordsDrawer({ open, onClose, user, students, r
 }
 
 export function SecretaryStatisticsDrawer({ open, onClose, students, records, school, year }: { open: boolean; onClose: () => void; students: Student[]; records: StudentMedicalRecord[]; school: School; year: SchoolYear }) {
-  const [filterOpen, setFilterOpen] = useState(false);
   const [filterType, setFilterType] = useState<"all" | "section" | "class">("all");
   const [selectedSection, setSelectedSection] = useState<SchoolSection | "">("");
   const [selectedClassKey, setSelectedClassKey] = useState("");
@@ -165,15 +164,13 @@ export function SecretaryStatisticsDrawer({ open, onClose, students, records, sc
   }
 
   function resetFilter() { setFilterType("all"); setSelectedSection(""); setSelectedClassKey(""); }
+  function selectFilterType(value: typeof filterType) { setFilterType(value); setSelectedSection(""); setSelectedClassKey(""); }
 
   return open ? <AdminDrawer title="Statistiques" onClose={onClose} closeLabel="Fermer"><div className="grid gap-4">
-    <div className="flex flex-wrap items-center gap-2"><button type="button" className="secondary-button" onClick={() => setFilterOpen((value) => !value)}><Filter className="h-4 w-4" /> FILTRER</button><button type="button" className="primary-button" onClick={() => void exportPdf()}><FileDown className="h-4 w-4" /> EXPORTER PDF</button></div>
-    <p className="rounded border border-blue-100 bg-blue-50 p-3 text-sm font-bold text-blue-800">{scopeLabel}</p>
-    {filterOpen && <section className="grid gap-3 rounded border bg-slate-50 p-4"><label className="grid gap-1 text-sm font-semibold">Type de filtre<select className="input" value={filterType} onChange={(event) => { const value = event.target.value as typeof filterType; setFilterType(value); setSelectedSection(""); setSelectedClassKey(""); }}><option value="all">TOUTES LES SECTIONS ET CLASSES</option><option value="section">SECTION</option><option value="class">CLASSE PRÉCISE</option></select></label>
-      {filterType === "section" && <label className="grid gap-1 text-sm font-semibold">SECTION<select className="input" value={selectedSection} onChange={(event) => setSelectedSection(event.target.value as SchoolSection)}><option value="">Sélectionner une section</option>{sections.map((section) => <option key={section} value={section}>{schoolSectionLabels[section]}</option>)}</select>{sections.length === 0 && <span className="text-sm text-slate-500">Aucune section disponible.</span>}</label>}
-      {filterType === "class" && <label className="grid gap-1 text-sm font-semibold">CLASSE PRÉCISE<select className="input" value={selectedClassKey} onChange={(event) => setSelectedClassKey(event.target.value)}><option value="">Sélectionner une classe</option>{classes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>{classes.length === 0 && <span className="text-sm text-slate-500">Aucune classe disponible.</span>}</label>}
-      <button type="button" className="secondary-button w-fit" onClick={resetFilter}>RÉINITIALISER LE FILTRE</button>
-    </section>}
+    <div className="grid gap-3"><div className="flex flex-wrap items-center gap-2"><div role="group" aria-label="Type de filtre" className="grid min-w-0 flex-1 grid-cols-3 overflow-hidden rounded-md border border-slate-300">{([['all', 'Toutes'], ['section', 'Section'], ['class', 'Classe précise']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={filterType === value} className={`h-10 min-w-0 px-2 text-xs font-semibold transition sm:text-sm ${filterType === value ? "bg-blue-700 text-white" : "bg-white text-slate-700 hover:bg-slate-50"}`} onClick={() => selectFilterType(value)}>{label}</button>)}</div><button type="button" title="Réinitialiser le filtre" aria-label="Réinitialiser le filtre" className="secondary-button h-10 w-10 shrink-0 justify-center px-0" onClick={resetFilter}><RotateCcw aria-hidden="true" className="h-4 w-4" /></button><button type="button" className="primary-button h-10 justify-center" onClick={() => void exportPdf()}><FileDown className="h-4 w-4" /> Exporter PDF</button></div>
+      {filterType === "section" && <label className="grid gap-1 text-sm font-semibold">Section<select className="input" value={selectedSection} onChange={(event) => setSelectedSection(event.target.value as SchoolSection)}><option value="">Sélectionner une section</option>{sections.map((section) => <option key={section} value={section}>{schoolSectionLabels[section]}</option>)}</select>{sections.length === 0 && <span className="text-sm text-slate-500">Aucune section disponible.</span>}</label>}
+      {filterType === "class" && <label className="grid gap-1 text-sm font-semibold">Classe précise<select className="input" value={selectedClassKey} onChange={(event) => setSelectedClassKey(event.target.value)}><option value="">Sélectionner une classe</option>{classes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>{classes.length === 0 && <span className="text-sm text-slate-500">Aucune classe disponible.</span>}</label>}
+    </div>
     {filteredStudents.length === 0 ? <p className="rounded border border-dashed bg-white p-6 text-center text-sm text-slate-500">Aucune donnée statistique pour le filtre sélectionné.</p> : <><div className="grid gap-3 sm:grid-cols-2">{statistics.cards.map(([label, value]) => <article className="rounded border bg-white p-4" key={label}><p className="text-sm text-slate-500">{label}</p><p className="text-2xl font-bold">{value}</p></article>)}</div><section className="rounded border bg-white p-4"><h3 className="font-bold">Répartition par classe</h3>{statistics.classRows.map((row) => <p className="mt-2 flex justify-between" key={`${row.section}-${row.className}-${row.option}`}><span>{row.className}{row.option && row.option !== "—" ? ` · ${row.option}` : ""}</span><strong>{row.count}</strong></p>)}</section><section className="rounded border bg-white p-4"><h3 className="font-bold">Répartition par niveau</h3>{statistics.sectionRows.map((row) => <p className="mt-2 flex justify-between" key={row.section}><span>{row.section}</span><strong>{row.count}</strong></p>)}</section></>}
   </div></AdminDrawer> : null;
 }

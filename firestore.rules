@@ -98,6 +98,21 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["studentIds", "updatedAt"]);
     }
 
+    function secretaryParentWrite() {
+      return secretary()
+        && sameTenantUpdate()
+        && sameYearUpdate()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          "fullName", "phone", "email", "address", "studentIds", "status", "updatedAt"
+        ]);
+    }
+
+    function secretarySchoolOptionsUpdate(schoolId) {
+      return secretary()
+        && schoolId == tenantSchoolId()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["schoolOptions"]);
+    }
+
     function secretarySchoolYearImportUpdate() {
       return secretary()
         && sameTenantUpdate()
@@ -175,16 +190,23 @@ service cloud.firestore {
               || (request.resource.data.aiAssistant.monthlyLimit is int
                 && request.resource.data.aiAssistant.monthlyLimit >= 1
                 && request.resource.data.aiAssistant.monthlyLimit <= 1000))
+            && (!("monthlyUsage" in request.resource.data.aiAssistant)
+              || (request.resource.data.aiAssistant.monthlyUsage is int
+                && request.resource.data.aiAssistant.monthlyUsage >= 0))
+            && (!("usageMonth" in request.resource.data.aiAssistant)
+              || request.resource.data.aiAssistant.usageMonth is string)
             && request.resource.data.aiAssistant.updatedBy == request.auth.uid
             && request.resource.data.aiAssistant.updatedAt is timestamp
             && ((!("aiAssistant" in resource.data) && !("monthlyUsage" in request.resource.data.aiAssistant))
               || ("aiAssistant" in resource.data
                 && ((!("monthlyUsage" in resource.data.aiAssistant) && !("monthlyUsage" in request.resource.data.aiAssistant))
-                  || request.resource.data.aiAssistant.monthlyUsage == resource.data.aiAssistant.monthlyUsage)))
+                  || request.resource.data.aiAssistant.monthlyUsage == resource.data.aiAssistant.monthlyUsage
+                  || request.resource.data.aiAssistant.monthlyUsage == 0)))
             && ((!("aiAssistant" in resource.data) && !("usageMonth" in request.resource.data.aiAssistant))
               || ("aiAssistant" in resource.data
                 && ((!("usageMonth" in resource.data.aiAssistant) && !("usageMonth" in request.resource.data.aiAssistant))
-                  || request.resource.data.aiAssistant.usageMonth == resource.data.aiAssistant.usageMonth)))));
+                  || request.resource.data.aiAssistant.usageMonth == resource.data.aiAssistant.usageMonth
+                  || request.resource.data.aiAssistant.monthlyUsage == 0)))));
     }
 
     match /platform/appConfig {
@@ -205,7 +227,7 @@ service cloud.firestore {
     match /schools/{schoolId} {
       allow read: if superAdmin() || (schoolUser() && schoolId == tenantSchoolId()) || (disciplineDirector() && schoolId == tenantSchoolId());
       allow create: if superAdmin();
-      allow update: if superAdminAiAssistantUpdate() || schoolSettingsUpdate(schoolId);
+      allow update: if superAdminAiAssistantUpdate() || schoolSettingsUpdate(schoolId) || secretarySchoolOptionsUpdate(schoolId);
       allow delete: if superAdmin();
     }
 
@@ -297,7 +319,7 @@ service cloud.firestore {
 
     match /auditLogs/{auditLogId} {
       allow read: if superAdmin() || schoolAdmin() && sameTenantResource();
-      allow create: if signedIn()
+      allow create: if superAdmin() || signedIn()
         && ((role() in ["school_admin", "cashier"] && sameTenantCreate())
           || disciplineTenantCreate());
       allow update, delete: if false;
@@ -575,7 +597,9 @@ service cloud.firestore {
     }
 
     match /parents/{parentId} {
-      allow update: if secretaryParentLinkUpdate();
+      allow create: if secretary() && sameTenantCreate();
+      allow update: if secretaryParentLinkUpdate() || secretaryParentWrite();
+      allow delete: if secretary() && sameTenantResource();
     }
 
     match /auditLogs/{auditLogId} {

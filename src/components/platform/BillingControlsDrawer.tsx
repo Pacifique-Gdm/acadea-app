@@ -55,11 +55,11 @@ export function BillingControlsDrawer({
       {error && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}
       {feedback && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{feedback}</p>}
 
-      <div className="grid gap-2 sm:grid-cols-2">
-        <button
+      <div className="grid gap-2">
+        {controls.valvesUploadsEnabled ? <button
           type="button"
-          className="rounded bg-red-50 px-4 py-3 text-sm font-bold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={!controls.valvesUploadsEnabled || loading || saving}
+          className="w-full rounded border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 transition hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={loading || saving}
           onClick={() => {
             setMode("suspend");
             setConfirmation("");
@@ -67,11 +67,10 @@ export function BillingControlsDrawer({
           }}
         >
           Suspendre les pièces jointes
-        </button>
-        <button
+        </button> : <button
           type="button"
-          className="rounded bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={controls.valvesUploadsEnabled || loading || saving}
+          className="w-full rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700 transition hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={loading || saving}
           onClick={() => {
             setMode("reactivate");
             setConfirmation("");
@@ -79,7 +78,7 @@ export function BillingControlsDrawer({
           }}
         >
           Réactiver les pièces jointes
-        </button>
+        </button>}
       </div>
 
       {mode && (
@@ -87,6 +86,7 @@ export function BillingControlsDrawer({
           <p className="text-sm font-semibold text-amber-900">
             Tapez exactement : <span className="font-extrabold">{expectedConfirmation}</span>
           </p>
+          <p className="text-sm text-amber-900">{mode === "suspend" ? "Les utilisateurs ne pourront plus ajouter de nouvelles pièces jointes Valves. Les pièces existantes seront conservées." : "Les utilisateurs pourront de nouveau ajouter des pièces jointes Valves."}</p>
           <input
             value={confirmation}
             onChange={(event) => setConfirmation(event.target.value)}

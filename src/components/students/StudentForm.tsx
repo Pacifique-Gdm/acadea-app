@@ -183,7 +183,7 @@ export function StudentForm({
           <div className="grid min-w-0 gap-3 rounded border border-slate-100 bg-slate-50 p-3">
             <div className="flex items-center gap-2 font-semibold text-ink"><Radio className="h-4 w-4" /> Carte RFID</div>
             <p className="text-sm text-slate-600">Statut : <span className="font-semibold text-ink">{cardStatusLabels[biometric.cardStatus]}</span></p>
-            <Field label="UID" value={biometric.cardUid ?? "Non attribué"} onChange={() => undefined} disabled />
+            <label className="flex min-w-0 items-center gap-3 text-sm font-medium text-slate-700"><span className="shrink-0 font-semibold">UID</span><input className="input min-w-0 flex-1" value={biometric.cardUid ?? "Non attribué"} disabled readOnly /></label>
             <div className={`grid transition-all duration-300 ${showCardMessage ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`} aria-hidden={!showCardMessage}>
               <p className="overflow-hidden rounded border border-red-200 bg-red-50 px-3 text-sm font-medium text-red-800"><span className="block py-3">Fonction disponible après connexion d’un terminal ZKTeco via Acadéa Sync.</span></p>
             </div>

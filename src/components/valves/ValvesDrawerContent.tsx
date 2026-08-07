@@ -522,7 +522,7 @@ export function ValvesDrawerContent({
             </label>
           )}
           <div className="flex flex-wrap gap-2">
-            <button onClick={savePublication} type="button" className="primary-button disabled:opacity-50" disabled={publishDisabled}>
+            <button onClick={savePublication} type="button" className="primary-button w-full justify-center disabled:opacity-50" disabled={publishDisabled}>
               <Upload className={`h-4 w-4 ${isPublishing ? "animate-spin" : ""}`} />
               {isPublishing ? "Publication..." : isPreparingAttachment ? "Préparation..." : editingId ? "Enregistrer" : "Publier"}
             </button>

@@ -54,11 +54,10 @@ describe("assistant IA du Secrétaire", () => {
     expect(reportActions.every((item) => !item.label.includes(item.value))).toBe(true);
     expect(component).toContain("setEditableProposal(response.proposedText");
     expect(component).toContain('documentCategory, documentTypeLabel');
-    expect(component).toContain("parseEditableSections(editableProposal");
     expect(component).toContain("editedReportSectionsToApply(generatedParameters?.scope ?? result.scope, sections, editableSections)");
     expect(component).toContain("Proposition modifiable");
     expect(component).toContain("setEditableSections((previous)");
-    expect(component).toContain("Le contenu généré par l’Assistant IA remplacera les sections correspondantes du rapport");
+    expect(component).toContain("Le contenu généré par l’Assistant IA remplacera les sections correspondantes du document");
     expect(component).toContain("Une nouvelle génération remplacera le contenu actuellement affiché");
   });
 
@@ -100,11 +99,12 @@ describe("assistant IA du Secrétaire", () => {
     expect(backend).toContain("Ne déclare pas qu'elles sont manquantes lorsqu'elles existent");
   });
 
-  it("isole les sections de rapport et conserve la concaténation globale des courriers", () => {
-    expect(component).toContain('effectiveScope === "full_document"');
-    expect(component).toContain('documentCategory === "rapport" && result.sections');
+  it("isole exactement les sections sélectionnées pour les rapports et les courriers", () => {
+    expect(component).toContain("const effectiveScope: AiScope = scopeSelection");
+    expect(component).toContain("if (result.sections)");
     expect(component).toContain("context: sectionsSent");
     expect(component).not.toContain("context: sections, tone");
+    expect(component).not.toContain("targetSection:");
   });
 
   it("utilise les portées canoniques et une application atomique", () => {
@@ -113,7 +113,6 @@ describe("assistant IA du Secrétaire", () => {
     expect(component).toContain("selectedAiScopeKeys");
     expect(component).not.toContain('<option value="single_section">Section unique</option>');
     expect(component).not.toContain('effectiveScope === "single_section"');
-    expect(component).toContain('documentCategory !== "rapport"');
     expect(component).toContain("scope: effectiveScope");
     expect(component).toContain("if (onApplySections) onApplySections(valuesToApply)");
     expect(component).toContain("sectionKeysSent: Object.keys(sectionsSent)");

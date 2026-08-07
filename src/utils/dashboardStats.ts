@@ -18,6 +18,7 @@ export type DashboardFeeShare = {
   name: string;
   amount: number;
   percentage: number;
+  color?: string;
 };
 
 export type DashboardFinancialAggregates = {
@@ -102,11 +103,17 @@ export function buildDashboardFeeProgressRows(students: Student[], feeTypes: Fee
 }
 
 export function buildDashboardFeeShares(rows: DashboardFeeProgressRow[]): DashboardFeeShare[] {
-  const total = rows.reduce((sum, row) => sum + Math.max(row.paid, 0), 0);
-  if (total <= 0) return [];
-  return rows
-    .filter((row) => row.paid > 0)
-    .map((row) => ({ name: row.name, amount: row.paid, percentage: (row.paid / total) * 100 }));
+  const expected = rows.reduce((sum, row) => sum + Math.max(row.expected, 0), 0);
+  if (expected <= 0) return [];
+  // Le diagramme représente exclusivement le montant attendu : les surpaiements
+  // sont plafonnés à l'attendu et les impayés valent max(0, attendu - encaissé).
+  const paidShares = rows.flatMap((row) => {
+    const amount = Math.min(Math.max(row.paid, 0), Math.max(row.expected, 0));
+    return amount > 0 ? [{ name: row.name, amount, percentage: (amount / expected) * 100 }] : [];
+  });
+  const paid = paidShares.reduce((sum, row) => sum + row.amount, 0);
+  const unpaid = Math.max(0, expected - paid);
+  return unpaid > 0 ? [...paidShares, { name: "Impayés", amount: unpaid, percentage: (unpaid / expected) * 100, color: "#dc2626" }] : paidShares;
 }
 
 export function buildDashboardTransactionDayRows({

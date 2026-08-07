@@ -89,7 +89,8 @@ declare module "firebase/firestore" {
   export function getDocs(ref: unknown): Promise<{ size: number; docs: Array<{ id: string; ref: unknown; data(): Record<string, unknown> }> }>;
   export function onSnapshot(ref: unknown, next: (snapshot: { docs: Array<{ id: string; data(): Record<string, unknown> }> }) => void, error?: (error: Error) => void): () => void;
   export function runTransaction<T>(db: unknown, operation: (transaction: {
-    get(ref: unknown): Promise<{ data(): Record<string, unknown> | undefined }>;
+    get(ref: unknown): Promise<{ exists(): boolean; data(): Record<string, unknown> | undefined }>;
     set(ref: unknown, data: unknown, options?: { merge?: boolean }): void;
+    update(ref: unknown, data: Record<string, unknown>): void;
   }) => Promise<T>): Promise<T>;
 }

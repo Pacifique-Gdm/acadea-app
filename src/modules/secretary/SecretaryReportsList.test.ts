@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 
 describe("liste des rapports du Secrétaire", () => {
   const source = readFileSync(new URL("./SecretaryReportsModule.tsx", import.meta.url), "utf8");
+  const viewSource = readFileSync(new URL("./SecretaryViewActionButton.tsx", import.meta.url), "utf8");
 
   it("affiche Voir, le PDF individuel et la suppression", () => {
-    expect(source).toContain("Voir</button>");
+    expect(source).toContain("<SecretaryViewActionButton");
+    expect(viewSource).toContain('title="Voir" aria-label="Voir"');
     expect(source).toContain('title="Afficher le PDF"');
     expect(source).toContain('aria-label="Afficher le PDF"');
     expect(source).toContain("showReportPdf(report)");

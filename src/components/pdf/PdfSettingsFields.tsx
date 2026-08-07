@@ -16,7 +16,7 @@ export function PdfSettingsFields({ value, onChange, disabled = false }: {
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <PdfSelect label="Police" value={value.fontFamily} disabled={disabled} onChange={(next) => update("fontFamily", next as PdfGenerationSettings["fontFamily"])} options={PDF_FONT_FAMILIES.map((item) => [item, item])} />
       <PdfSelect label="Taille du texte" value={String(value.fontSize)} disabled={disabled} onChange={(next) => update("fontSize", Number(next) as PdfGenerationSettings["fontSize"])} options={PDF_FONT_SIZES.map((item) => [String(item), `${item} pt`])} />
-      <PdfSelect label="Interligne" value={String(value.lineSpacing)} disabled={disabled} onChange={(next) => update("lineSpacing", Number(next) as PdfGenerationSettings["lineSpacing"])} options={PDF_LINE_SPACINGS.map((item) => [String(item), ({ 1: "Simple — 1,0", 1.15: "Compact — 1,15", 1.5: "Normal — 1,5", 2: "Double — 2,0" } as Record<number, string>)[item]])} />
+      <PdfSelect label="Interligne" value={String(value.lineSpacing)} disabled={disabled} onChange={(next) => update("lineSpacing", Number(next) as PdfGenerationSettings["lineSpacing"])} options={PDF_LINE_SPACINGS.map((item) => [String(item), String(item).replace(".", ",")])} />
       <PdfSelect label="Format de page" value={value.pageSize} disabled={disabled} onChange={(next) => update("pageSize", next as PdfGenerationSettings["pageSize"])} options={PDF_PAGE_SIZES.map((item) => [item, item === "LETTER" ? "Lettre" : item])} />
     </div>
     <p className="text-xs text-slate-500">Police : {value.fontFamily} — Taille : {value.fontSize} pt — Interligne : {String(value.lineSpacing).replace(".", ",")} — Format : {value.pageSize === "LETTER" ? "Lettre" : value.pageSize}</p>

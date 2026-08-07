@@ -9,16 +9,19 @@ describe("confirmation renforcée de l’Assistant IA", () => {
 
   it.each([
     ["texte incorrect", "ACTIVER ASSISTANT IA"],
-    ["texte partiel", "ACTIVATION ASSISTANT"],
+    ["texte partiel", "ACTIVER L'ASSISTANT"],
     ["casse différente", "Activation Assistant IA"],
-    ["espace supplémentaire", "ACTIVATION ASSISTANT IA "],
   ])("refuse un %s", (_label, value) => {
     expect(canConfirmAiAssistantChange(value, true)).toBe(false);
   });
 
   it("applique la même comparaison stricte à la désactivation", () => {
-    expect(canConfirmAiAssistantChange("DESACTIVATION ASSISTANT IA", false)).toBe(true);
+    expect(canConfirmAiAssistantChange("DESACTIVER L'ASSISTANT IA", false)).toBe(true);
     expect(canConfirmAiAssistantChange("desactivation assistant ia", false)).toBe(false);
-    expect(canConfirmAiAssistantChange("DESACTIVATION ASSISTANT IA ", false)).toBe(false);
+  });
+
+  it("ignore uniquement les espaces avant et après", () => {
+    expect(canConfirmAiAssistantChange("  ACTIVER L'ASSISTANT IA  ", true)).toBe(true);
+    expect(canConfirmAiAssistantChange("  DESACTIVER L'ASSISTANT IA  ", false)).toBe(true);
   });
 });

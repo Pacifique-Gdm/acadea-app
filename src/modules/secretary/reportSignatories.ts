@@ -19,6 +19,13 @@ export function normalizeReportSignatories(value: unknown, legacyText?: string):
   return legacyText.split(/\r?\n|[,;]/).map((name) => name.trim()).filter(Boolean).map((name, index) => ({ id: `legacy-${index}`, name, functionTitle: "" }));
 }
 
+export function normalizeCorrespondenceSignatories(value: unknown, legacySigner?: { fullName?: string; functionTitle?: string }): ReportSignatory[] {
+  const normalized = normalizeReportSignatories(value);
+  if (normalized.length) return normalized;
+  const name = legacySigner?.fullName?.trim() ?? "";
+  return name ? [{ id: "legacy-signer", name, functionTitle: legacySigner?.functionTitle?.trim() ?? "" }] : [];
+}
+
 export function addReportSignatory(items: ReportSignatory[], id: string = crypto.randomUUID()) {
   return [...items, { id, name: "", functionTitle: "" }];
 }

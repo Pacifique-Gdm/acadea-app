@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { ArrowUpDown, BookOpen, Building2, CheckCircle2, Filter, GraduationCap, LayoutDashboard, LogOut, Menu as MenuIcon, Plus, Search, ShieldCheck, Sparkles, Upload, UsersRound, X } from "lucide-react";
+import { ArrowUpDown, BookOpen, Building2, CheckCircle2, Filter, GraduationCap, LayoutDashboard, LogOut, Menu as MenuIcon, Plus, RotateCcw, Search, ShieldCheck, Sparkles, Upload, UsersRound, X } from "lucide-react";
 import { BillingControlsDrawer } from "../../components/platform/BillingControlsDrawer";
 import { AuditTimeline, BiometricTerminalStatusBadge, InfoRow, MiniStat, PlatformCard, SchoolLogo, SchoolSaasCard, StatusBadge } from "../../components/platform";
 import { AdminDrawer, Field, FormPanel, ImageUploadField, PasswordField } from "../../components/ui";
@@ -10,7 +10,7 @@ import { savePlatformSettings } from "../../services/firestoreData";
 import { loadSuperAdminSchoolData } from "../../services/superAdminData";
 import type { SuperAdminGlobalCounts } from "../../services/superAdminData";
 import { manageSchool, provisionSchoolAdmin, provisionSchoolUser, removeSchoolAdmin } from "../../services/provisioning";
-import { isSchoolAiAssistantEnabled, loadSchoolAiAssistantSetting, saveSchoolAiAssistantSetting, schoolAiUsageThisMonth, validateSchoolAiMonthlyLimit } from "../../services/schoolAiAssistant";
+import { isSchoolAiAssistantEnabled, loadSchoolAiAssistantSetting, resetSchoolAiMonthlyUsage, saveSchoolAiAssistantSetting, schoolAiUsageThisMonth, validateSchoolAiMonthlyLimit } from "../../services/schoolAiAssistant";
 import { ADMIN_REMOVAL_CONFIRMATION, canConfirmAdminRemoval, markAdminRemoved } from "../../utils/adminRemoval";
 import { aiAssistantConfirmationPhrase, canConfirmAiAssistantChange } from "../../utils/aiAssistantConfirmation";
 import { isSessionAuditAction } from "../../utils/audit";
@@ -111,6 +111,7 @@ export function PlatformModule({
   const [aiAssistantChangeTarget, setAiAssistantChangeTarget] = useState<{ school: School; enabled: boolean } | null>(null);
   const [aiAssistantConfirmation, setAiAssistantConfirmation] = useState("");
   const [aiAssistantMonthlyLimit, setAiAssistantMonthlyLimit] = useState("25");
+  const [aiQuotaResetTarget, setAiQuotaResetTarget] = useState<School | null>(null);
   const [schoolDeleteTarget, setSchoolDeleteTarget] = useState<School | null>(null);
   const [schoolDeleteConfirmation, setSchoolDeleteConfirmation] = useState("");
   const [schoolDeleteLoading, setSchoolDeleteLoading] = useState(false);
@@ -678,8 +679,8 @@ export function PlatformModule({
     setAiAssistantMessage("");
     setAiAssistantError("");
     try {
-      const aiAssistant = await saveSchoolAiAssistantSetting(user, school, { enabled });
-      updateData({ schools: data.schools.map((item) => item.id === school.id ? { ...item, aiAssistant } : item) }, { persist: false });
+      const result = await saveSchoolAiAssistantSetting(user, school, { enabled });
+      updateData({ schools: data.schools.map((item) => item.id === school.id ? { ...item, aiAssistant: result.aiAssistant } : item), auditLogs: [result.auditLog, ...data.auditLogs] }, { persist: false });
       setAiAssistantMessage(`Assistant IA ${enabled ? "activé" : "désactivé"} pour cette école.`);
       setAiAssistantChangeTarget(null);
       setAiAssistantConfirmation("");
@@ -701,11 +702,29 @@ export function PlatformModule({
     setAiAssistantMessage("");
     setAiAssistantError("");
     try {
-      const aiAssistant = await saveSchoolAiAssistantSetting(user, school, { monthlyLimit });
-      updateData({ schools: data.schools.map((item) => item.id === school.id ? { ...item, aiAssistant } : item) }, { persist: false });
+      const result = await saveSchoolAiAssistantSetting(user, school, { monthlyLimit });
+      updateData({ schools: data.schools.map((item) => item.id === school.id ? { ...item, aiAssistant: result.aiAssistant } : item), auditLogs: [result.auditLog, ...data.auditLogs] }, { persist: false });
       setAiAssistantMessage("Quota mensuel enregistré.");
     } catch (error) {
       setAiAssistantError(error instanceof Error ? error.message : "Enregistrement de la limite impossible.");
+    } finally {
+      setAiAssistantSaving(false);
+    }
+  }
+
+  async function confirmSchoolAiQuotaReset() {
+    if (!aiQuotaResetTarget || aiAssistantSaving) return;
+    const school = aiQuotaResetTarget;
+    setAiAssistantSaving(true);
+    setAiAssistantMessage("");
+    setAiAssistantError("");
+    try {
+      const result = await resetSchoolAiMonthlyUsage(user, school);
+      updateData({ schools: data.schools.map((item) => item.id === school.id ? { ...item, aiAssistant: result.aiAssistant } : item), auditLogs: [result.auditLog, ...data.auditLogs] }, { persist: false });
+      setAiAssistantMessage("Utilisation mensuelle réinitialisée à 0.");
+      setAiQuotaResetTarget(null);
+    } catch (error) {
+      setAiAssistantError(error instanceof Error ? error.message : "Réinitialisation du quota impossible.");
     } finally {
       setAiAssistantSaving(false);
     }
@@ -854,7 +873,7 @@ export function PlatformModule({
           previewFit="contain"
         />
         {platformLogoMessage && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{platformLogoMessage}</p>}
-        <button onClick={savePlatformLogo} className="primary-button justify-center" type="button">
+        <button onClick={savePlatformLogo} className="primary-button w-full justify-center" type="button">
           <CheckCircle2 className="h-4 w-4" /> Enregistrer le logo
         </button>
       </>
@@ -915,7 +934,7 @@ export function PlatformModule({
         <button
           onClick={createSchool}
           disabled={provisioningLoading || !mainAdminName.trim() || schoolSections.length === 0 || (hasSecondarySection && hasCustomSchoolOption && !customSchoolOption.trim())}
-          className="primary-button disabled:cursor-not-allowed disabled:opacity-60"
+          className="primary-button w-full justify-center disabled:cursor-not-allowed disabled:opacity-60"
           type="button"
         >
           <Plus className="h-4 w-4" /> {provisioningLoading ? "Création..." : "Créer"}
@@ -1188,30 +1207,21 @@ export function PlatformModule({
                   <MiniStat label="Total utilisateurs" value={drawerStats.users} />
                 </div>
                 <section className="grid gap-3 rounded border border-slate-200 bg-white p-4" aria-labelledby="school-ai-assistant-title">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="flex min-w-0 items-start gap-3">
+                  <div className="flex min-w-0 items-start gap-3">
                       <span className="rounded bg-violet-50 p-2 text-violet-700"><Sparkles className="h-5 w-5" /></span>
                       <div className="min-w-0">
-                        <h3 id="school-ai-assistant-title" className="font-bold text-ink">Assistant IA — Module Secrétaire</h3>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <h3 id="school-ai-assistant-title" className="font-bold text-ink">Assistant IA</h3>
+                          <span className={`rounded-full px-3 py-1 text-xs font-bold ${isSchoolAiAssistantEnabled(drawerSchool) ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
+                            {isSchoolAiAssistantEnabled(drawerSchool) ? "Activé" : "Désactivé"}
+                          </span>
+                        </div>
                         <p className="mt-1 text-sm text-slate-600">Lorsque cette option est désactivée, les utilisateurs du module Secrétaire ne peuvent pas utiliser l’Assistant IA et aucun crédit OpenAI n’est consommé.</p>
                       </div>
-                    </div>
-                    <span className={`rounded-full px-3 py-1 text-xs font-bold ${isSchoolAiAssistantEnabled(drawerSchool) ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
-                      {isSchoolAiAssistantEnabled(drawerSchool) ? "Activé" : "Désactivé"}
-                    </span>
                   </div>
-                  <label className="flex cursor-pointer items-center justify-between gap-4 rounded bg-slate-50 p-3 text-sm font-semibold text-ink">
-                    <span>Activer l’Assistant IA</span>
-                    <input
-                      type="checkbox"
-                      role="switch"
-                      aria-label="Activer l’Assistant IA du module Secrétaire"
-                      checked={isSchoolAiAssistantEnabled(drawerSchool)}
-                      disabled={aiAssistantSaving}
-                      onChange={(event) => openSchoolAiAssistantConfirmation(drawerSchool, event.target.checked)}
-                      className="h-5 w-5 accent-ink disabled:cursor-wait"
-                    />
-                  </label>
+                  <button type="button" className={`${isSchoolAiAssistantEnabled(drawerSchool) ? "secondary-button" : "primary-button"} w-full justify-center disabled:cursor-wait disabled:opacity-50`} disabled={aiAssistantSaving} onClick={() => openSchoolAiAssistantConfirmation(drawerSchool, !isSchoolAiAssistantEnabled(drawerSchool))}>
+                    {isSchoolAiAssistantEnabled(drawerSchool) ? "Désactiver l’Assistant IA" : "Activer l’Assistant IA"}
+                  </button>
                   <div className="grid gap-3 rounded bg-slate-50 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
                     <label className="grid gap-1 text-sm font-semibold text-ink">
                       Quota mensuel
@@ -1242,9 +1252,10 @@ export function PlatformModule({
                       {aiAssistantSaving ? "Enregistrement…" : "Enregistrer"}
                     </button>
                   </div>
-                  <p className="rounded border border-slate-200 bg-white p-3 text-sm text-slate-700">
-                    <strong>Utilisation ce mois</strong><br />{drawerAiUsage.monthlyUsage} / {drawerAiUsage.monthlyLimit}
-                  </p>
+                  <div className="flex items-center justify-between gap-3 rounded border border-slate-200 bg-white p-3 text-sm text-slate-700">
+                    <span><strong>Utilisation ce mois</strong><br />{drawerAiUsage.monthlyUsage} / {drawerAiUsage.monthlyLimit}</span>
+                    <button type="button" title="Réinitialiser le quota mensuel" aria-label="Réinitialiser le quota mensuel" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-700 transition hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50" disabled={aiAssistantSaving || drawerAiUsage.monthlyUsage === 0} onClick={() => setAiQuotaResetTarget(drawerSchool)}><RotateCcw className="h-4 w-4" /></button>
+                  </div>
                   {aiAssistantSaving && <p className="text-sm text-slate-500">Enregistrement en cours…</p>}
                   {aiAssistantMessage && <p role="status" className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">{aiAssistantMessage}</p>}
                   {aiAssistantError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{aiAssistantError}</p>}
@@ -1511,6 +1522,25 @@ export function PlatformModule({
               >
                 {aiAssistantSaving ? "Enregistrement…" : "Confirmer"}
               </button>
+            </div>
+          </div>
+        </AdminDrawer>
+      )}
+
+      {aiQuotaResetTarget && (
+        <AdminDrawer title="Réinitialiser le quota mensuel" onClose={() => !aiAssistantSaving && setAiQuotaResetTarget(null)} closeLabel="Annuler la réinitialisation du quota mensuel">
+          <div className="grid gap-4">
+            <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              Cette action remettra l’utilisation mensuelle de l’Assistant IA à 0 pour l’école <strong>{aiQuotaResetTarget.name}</strong>.
+            </p>
+            <dl className="grid gap-2 rounded border border-slate-200 bg-white p-3 text-sm">
+              <div className="flex justify-between gap-3"><dt>Consommation actuelle</dt><dd className="font-bold">{schoolAiUsageThisMonth(aiQuotaResetTarget.aiAssistant).monthlyUsage}</dd></div>
+              <div className="flex justify-between gap-3"><dt>Quota mensuel</dt><dd className="font-bold">{schoolAiUsageThisMonth(aiQuotaResetTarget.aiAssistant).monthlyLimit}</dd></div>
+            </dl>
+            <p className="text-sm text-slate-700">La limite mensuelle et l’état d’activation de l’Assistant IA resteront inchangés. Aucune autre école ne sera affectée.</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <button type="button" className="secondary-button justify-center" disabled={aiAssistantSaving} onClick={() => setAiQuotaResetTarget(null)}>Annuler</button>
+              <button type="button" className="primary-button justify-center disabled:cursor-wait disabled:opacity-50" disabled={aiAssistantSaving} onClick={() => void confirmSchoolAiQuotaReset()}>{aiAssistantSaving ? "Réinitialisation…" : "Confirmer la réinitialisation"}</button>
             </div>
           </div>
         </AdminDrawer>
