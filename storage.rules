@@ -18,6 +18,11 @@ service firebase.storage {
       return role() in ["school_admin", "admin", "secretary"];
     }
 
+    function schoolAcceptsWrites(schoolId) {
+      return firestore.exists(/databases/(default)/documents/schools/$(schoolId))
+        && firestore.get(/databases/(default)/documents/schools/$(schoolId)).data.status != "deleting";
+    }
+
     function validValveAttachment(fileName, schoolId, schoolYearId, publicationId) {
       return request.resource.size > 0
         && request.resource.size <= 10 * 1024 * 1024
@@ -40,6 +45,7 @@ service firebase.storage {
       allow create, update: if signedIn()
         && valvesRole()
         && tenantSchoolId() == schoolId
+        && schoolAcceptsWrites(schoolId)
         && validValveAttachment(fileName, schoolId, schoolYearId, publicationId);
       allow delete: if signedIn()
         && valvesRole()
@@ -57,6 +63,7 @@ service firebase.storage {
       allow create, update: if signedIn()
         && role() == "secretary"
         && tenantSchoolId() == schoolId
+        && schoolAcceptsWrites(schoolId)
         && correspondence().schoolId == schoolId
         && request.resource.size <= 10 * 1024 * 1024
         && request.resource.contentType in [

@@ -1,0 +1,53 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  verifyIdToken: vi.fn(),
+  schoolGet: vi.fn(),
+  deleteSchoolCompletely: vi.fn(),
+}));
+
+vi.mock("./_lib/firebaseAdmin.js", () => ({
+  initAdmin: () => ({
+    auth: { verifyIdToken: mocks.verifyIdToken },
+    db: { doc: () => ({ get: mocks.schoolGet }), collection: vi.fn() },
+    bucket: {},
+  }),
+  firebaseAdminPublicError: () => ({ code: "internal", details: "failure" }),
+}));
+vi.mock("./_lib/schoolDeletion.js", () => ({ deleteSchoolCompletely: mocks.deleteSchoolCompletely }));
+
+import handler from "./manage-school.js";
+
+function response() {
+  return { statusCode: 0, body: {} as Record<string, unknown>, setHeader: vi.fn(), end(value: string) { this.body = JSON.parse(value); } };
+}
+
+function request(body: Record<string, unknown>) {
+  return { method: "POST", headers: { authorization: "Bearer test-token" }, body };
+}
+
+describe("API SEC-004 manage-school", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.verifyIdToken.mockResolvedValue({ uid: "super-1", role: "super_admin", email: "super@test" });
+    mocks.schoolGet.mockResolvedValue({ exists: true, data: () => ({ id: "school-a", status: "active" }) });
+    mocks.deleteSchoolCompletely.mockResolvedValue({ status: "complete", firestore: { deleted: 5, collections: [] }, auth: { found: 1, deleted: 1, alreadyMissing: 0, failed: [], skipped: 0 }, storageDeleted: 2 });
+  });
+
+  it("réserve la suppression au Super Administrateur", async () => {
+    mocks.verifyIdToken.mockResolvedValue({ uid: "admin", role: "school_admin", schoolId: "school-a" });
+    const res = response(); await handler(request({ action: "delete", schoolId: "school-a", confirmation: "SUPPRIMER ECOLE" }), res);
+    expect(res.statusCode).toBe(403); expect(mocks.deleteSchoolCompletely).not.toHaveBeenCalled();
+  });
+
+  it("exige la confirmation textuelle exacte", async () => {
+    const res = response(); await handler(request({ action: "delete", schoolId: "school-a", confirmation: "supprimer ecole" }), res);
+    expect(res.statusCode).toBe(400); expect(mocks.deleteSchoolCompletely).not.toHaveBeenCalled();
+  });
+
+  it("rend le second appel idempotent lorsque l'école est déjà absente", async () => {
+    mocks.schoolGet.mockResolvedValue({ exists: false });
+    const res = response(); await handler(request({ action: "delete", schoolId: "school-a", confirmation: "SUPPRIMER ECOLE" }), res);
+    expect(res.statusCode).toBe(200); expect(res.body).toMatchObject({ schoolId: "school-a", status: "complete", alreadyDeleted: true });
+  });
+});

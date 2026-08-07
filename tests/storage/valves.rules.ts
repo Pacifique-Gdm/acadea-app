@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
+import { doc, setDoc } from "firebase/firestore";
 
 const projectId = "demo-acadea-valves-storage";
 const schoolId = "school-a";
@@ -35,14 +36,27 @@ function put(role: string | undefined, fileName: string, type: string, size = 10
 beforeAll(async () => {
   environment = await initializeTestEnvironment({
     projectId,
+    firestore: { rules: readFileSync("firestore.rules", "utf8") },
     storage: { rules: readFileSync("storage.rules", "utf8") },
   });
 }, 30_000);
 
-beforeEach(async () => testEnvironment().clearStorage());
+beforeEach(async () => {
+  await testEnvironment().clearStorage();
+  await testEnvironment().clearFirestore();
+  await testEnvironment().withSecurityRulesDisabled(async (admin) => {
+    await setDoc(doc(admin.firestore(), "schools", schoolId), { id: schoolId, status: "active" });
+  });
+});
 afterAll(async () => environment?.cleanup(), 30_000);
 
 describe("pieces jointes Valves", () => {
+  it("refuse un nouvel upload pendant la suppression de l'école", async () => {
+    await testEnvironment().withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), "schools", schoolId), { id: schoolId, status: "deleting" });
+    });
+    await assertFails(put("secretary", `${fileId}.pdf`, "application/pdf"));
+  });
   it("autorise Administrateur meme ecole avec un PDF valide", async () => {
     await assertSucceeds(put("school_admin", `${fileId}.pdf`, "application/pdf"));
   });

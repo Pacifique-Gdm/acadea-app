@@ -74,6 +74,9 @@ async function assertAuthorizedCaller({ db, caller, schoolId, allowSecretary = f
   if (!schoolSnapshot.exists) {
     throw Object.assign(new Error("Ecole introuvable."), { statusCode: 400 });
   }
+  if (["deleting", "inactive", "suspended"].includes(schoolSnapshot.data()?.status)) {
+    throw Object.assign(new Error("Cette école n'accepte plus de nouveaux comptes."), { statusCode: 409, code: "failed-precondition" });
+  }
 }
 
 async function deleteParentAccount({ auth, db, caller, body }) {

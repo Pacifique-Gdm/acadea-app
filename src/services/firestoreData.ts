@@ -165,6 +165,9 @@ export async function loadFirestoreBootstrapData(user: AppUser): Promise<Firesto
   if (schools[0].status === "suspended") {
     throw new Error("Connexion refusee : cette ecole est suspendue.");
   }
+  if (schools[0].status === "deleting" || schools[0].status === "inactive") {
+    throw new Error("Connexion refusee : cette ecole n'est pas active.");
+  }
 
   return { users: [user], schools, schoolYears };
 }

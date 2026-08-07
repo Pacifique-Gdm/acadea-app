@@ -80,7 +80,7 @@ async function assertContext(transaction, db, caller, requestedYearId) {
     transaction.get(db.doc(`schoolYears/${schoolYearId}`)),
     transaction.get(db.doc(`users/${caller.uid}`)),
   ]);
-  if (!schoolSnapshot.exists || ["inactive", "suspended"].includes(schoolSnapshot.data()?.status)) {
+  if (!schoolSnapshot.exists || ["deleting", "inactive", "suspended"].includes(schoolSnapshot.data()?.status)) {
     throw new FinancialApiError(409, "failed-precondition", "L'établissement n'est pas actif.");
   }
   if (!yearSnapshot.exists || yearSnapshot.data()?.schoolId !== caller.schoolId) {

@@ -61,7 +61,14 @@ export interface School {
   updatedAt?: string;
   updatedBy?: string;
   activeSchoolYearId: string;
-  status: "active" | "suspended";
+  status: "active" | "suspended" | "inactive" | "deleting";
+  deletion?: {
+    status: "running" | "failed";
+    startedAt: string;
+    startedBy: string;
+    failedAt?: string;
+    failedStep?: string;
+  };
   subscriptionPlan: "Starter" | "Standard" | "Premium";
   subscriptionStatus?: "active" | "suspended" | "expired";
   subscriptionAmount: number;

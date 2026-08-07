@@ -12,7 +12,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts", "e2e/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "api/**/*.test.ts", "e2e/**/*.test.ts"],
     coverage: {
       reporter: ["text", "html"],
     },

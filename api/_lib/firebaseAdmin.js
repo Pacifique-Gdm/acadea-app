@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
+import { getStorage } from "firebase-admin/storage";
 
 function currentEnvironment() {
   return process.env.VITE_APP_ENV || process.env.VERCEL_ENV || process.env.NODE_ENV || "development";
@@ -86,6 +87,7 @@ export function initAdmin() {
   return {
     auth: getAuth(),
     db: getFirestore(),
+    bucket: getStorage().bucket(),
   };
 }
 

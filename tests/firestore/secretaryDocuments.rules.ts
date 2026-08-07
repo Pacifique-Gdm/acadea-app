@@ -55,4 +55,12 @@ describe("documents du Secrétaire", () => {
     await assertSucceeds(setDoc(counterRef, { schoolId, schoolYearId, kind: "correspondence", serviceCode: "SEC", year: 2026, value: 1, updatedAt: serverTimestamp() }));
     await assertFails(setDoc(counterRef, { schoolId, schoolYearId, kind: "correspondence", serviceCode: "SEC", year: 2026, value: 3, updatedAt: serverTimestamp() }));
   });
+
+  it("refuse toute nouvelle donnée métier pendant la suppression de l'école", async () => {
+    await testEnvironment().withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), "schools", schoolId), { id: schoolId, status: "deleting" });
+    });
+    await assertFails(setDoc(doc(secretary(), "students", "student-deleting"), { id: "student-deleting", schoolId, schoolYearId, status: "ACTIVE", nom: "Bloqué" }));
+    await assertFails(setDoc(doc(secretary(), "secretaryCounters", `${schoolId}_SEC_2027`), { schoolId, schoolYearId, kind: "correspondence", serviceCode: "SEC", year: 2027, value: 1, updatedAt: serverTimestamp() }));
+  });
 });
