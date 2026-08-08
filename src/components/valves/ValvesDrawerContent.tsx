@@ -216,13 +216,13 @@ export function ValvesDrawerContent({
       const attachmentsToUpload = attachments.filter((attachment) => attachment.dataUrl);
       const retainedAttachments: ValvePublicationAttachment[] = attachments
         .filter((attachment) => attachment.url)
-        .map((attachment) => ({
-          name: attachment.name,
-          type: attachment.type,
-          url: attachment.url ?? "",
-          path: attachment.path ?? "",
-          size: attachment.size,
-        }));
+        .map((attachment) => existingPublication?.attachments?.find((current) => current.url === attachment.url && current.name === attachment.name) ?? ({
+            name: attachment.name,
+            type: attachment.type,
+            url: attachment.url ?? "",
+            path: attachment.path ?? "",
+            size: attachment.size,
+          }));
       let uploadedAttachments: ValvePublicationAttachment[] = [];
       if (attachmentsToUpload.length > 0) {
         try {
@@ -247,6 +247,10 @@ export function ValvesDrawerContent({
       }
       setPublishProgress("Finalisation de la publication");
       const publicationAttachments = [...retainedAttachments, ...uploadedAttachments];
+      const preserveLegacyAttachment = Boolean(existingPublication
+        && !existingPublication.attachments?.length
+        && (existingPublication.attachmentUrl || existingPublication.attachmentPath || existingPublication.attachmentDataUrl)
+        && attachmentsToUpload.length === 0);
       const publication: ValvePublication = {
         id: publicationId,
         schoolId: school.id,
@@ -259,7 +263,15 @@ export function ValvesDrawerContent({
         authorId: existingPublication?.authorId ?? user.id,
         authorName: existingPublication?.authorName ?? user.name,
         createdAt: existingPublication?.createdAt ?? now,
-        ...(publicationAttachments.length > 0 ? { attachments: publicationAttachments } : {}),
+        ...(!preserveLegacyAttachment && publicationAttachments.length > 0 ? { attachments: publicationAttachments } : {}),
+        ...(preserveLegacyAttachment ? {
+          ...(existingPublication?.attachmentName ? { attachmentName: existingPublication.attachmentName } : {}),
+          ...(existingPublication?.attachmentType ? { attachmentType: existingPublication.attachmentType } : {}),
+          ...(existingPublication?.attachmentUrl ? { attachmentUrl: existingPublication.attachmentUrl } : {}),
+          ...(existingPublication?.attachmentPath ? { attachmentPath: existingPublication.attachmentPath } : {}),
+          ...(existingPublication?.attachmentDataUrl ? { attachmentDataUrl: existingPublication.attachmentDataUrl } : {}),
+          ...(existingPublication?.attachmentSize !== undefined ? { attachmentSize: existingPublication.attachmentSize } : {}),
+        } : {}),
         ...(existingPublication ? { updatedAt: now } : {}),
       };
       if (getApproximateValveDocumentSize(publication) > maxValveDocumentBytes) {

@@ -22,6 +22,53 @@ export const VALVE_ATTACHMENT_POLICY = [
 
 export const VALVE_ATTACHMENT_ACCEPT = VALVE_ATTACHMENT_POLICY.map(({ extension }) => extension).join(",");
 
+export type ValveAttachmentReferenceKind = "internal" | "firebase_legacy" | "external_legacy" | "blocked";
+
+export function getValveAttachmentStoragePrefix(schoolId: string, schoolYearId: string, publicationId: string) {
+  return `valves/${schoolId}/${schoolYearId}/${publicationId}/`;
+}
+
+export function isCanonicalValveAttachmentPath(path: string | undefined, schoolId: string, schoolYearId: string, publicationId: string) {
+  if (!path) return false;
+  const prefix = getValveAttachmentStoragePrefix(schoolId, schoolYearId, publicationId);
+  const fileName = path.slice(prefix.length);
+  return path.startsWith(prefix)
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(pdf|jpe?g|png|docx)$/i.test(fileName);
+}
+
+export function isFirebaseStorageDownloadUrl(url: string | undefined, expectedPath?: string) {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:") return false;
+    if (parsed.hostname === "firebasestorage.googleapis.com") {
+      const encodedObject = parsed.pathname.match(/^\/v0\/b\/[^/]+\/o\/(.+)$/)?.[1];
+      if (!encodedObject) return false;
+      return !expectedPath || decodeURIComponent(encodedObject) === expectedPath;
+    }
+    if (parsed.hostname === "storage.googleapis.com") {
+      const objectPath = parsed.pathname.split("/").slice(2).join("/");
+      return Boolean(objectPath) && (!expectedPath || decodeURIComponent(objectPath) === expectedPath);
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+export function classifyValveAttachmentReference(reference: { url?: string; path?: string }, scope?: { schoolId: string; schoolYearId: string; publicationId: string }): ValveAttachmentReferenceKind {
+  const { url, path } = reference;
+  if (scope && path && isCanonicalValveAttachmentPath(path, scope.schoolId, scope.schoolYearId, scope.publicationId) && isFirebaseStorageDownloadUrl(url, path)) return "internal";
+  if (!scope && path?.startsWith("valves/") && isFirebaseStorageDownloadUrl(url, path)) return "internal";
+  if (!path && isFirebaseStorageDownloadUrl(url)) return "firebase_legacy";
+  try {
+    if (url && new URL(url).protocol === "https:") return "external_legacy";
+  } catch {
+    // URL invalide : bloquée ci-dessous.
+  }
+  return "blocked";
+}
+
 export function formatValveAttachmentSize(size = 0) {
   if (size >= 1024 * 1024) {
     return `${(size / (1024 * 1024)).toFixed(1).replace(".", ",")} Mo`;

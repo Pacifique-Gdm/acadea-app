@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { FileText, X } from "lucide-react";
+import { classifyValveAttachmentReference } from "../../utils/valvesMedia";
 
 export type ValveAttachmentViewerItem = {
   name: string;
   type?: string;
   url?: string;
+  path?: string;
 };
 
 function getAttachmentKind(attachment: ValveAttachmentViewerItem) {
@@ -29,10 +31,6 @@ function isMobileDocumentContext() {
   return isMobileUserAgent || isTouchMac || (hasCoarsePointer && !hasDesktopPointer);
 }
 
-function isDataUrl(url?: string) {
-  return Boolean(url?.startsWith("data:"));
-}
-
 export function AttachmentViewer({
   attachment,
   onClose,
@@ -40,23 +38,23 @@ export function AttachmentViewer({
   attachment: ValveAttachmentViewerItem | null;
   onClose: () => void;
 }) {
-  const [textContent, setTextContent] = useState("");
   const [pdfObjectUrl, setPdfObjectUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const kind = attachment ? getAttachmentKind(attachment) : "unsupported";
-  const shouldUseNativeMobileDocumentViewer = Boolean(attachment?.url) && (kind === "pdf" || kind === "document") && isMobileDocumentContext();
-  const mobileDocumentUrl = shouldUseNativeMobileDocumentViewer && !isDataUrl(attachment?.url) ? attachment?.url : "";
+  const referenceKind = attachment ? classifyValveAttachmentReference(attachment) : "blocked";
+  const trustedPreview = referenceKind === "internal" || referenceKind === "firebase_legacy";
+  const shouldUseNativeMobileDocumentViewer = trustedPreview && Boolean(attachment?.url) && (kind === "pdf" || kind === "document") && isMobileDocumentContext();
+  const mobileDocumentUrl = shouldUseNativeMobileDocumentViewer ? attachment?.url : "";
 
   useEffect(() => {
     let cancelled = false;
     let objectUrl = "";
-    setTextContent("");
     setPdfObjectUrl("");
     setError("");
 
-    if (!attachment?.url || shouldUseNativeMobileDocumentViewer || (kind !== "pdf" && kind !== "text")) {
+    if (!trustedPreview || !attachment?.url || shouldUseNativeMobileDocumentViewer || kind !== "pdf") {
       setLoading(false);
       return undefined;
     }
@@ -82,28 +80,11 @@ export function AttachmentViewer({
         });
     }
 
-    if (kind === "text") {
-      fetch(attachment.url)
-        .then((response) => {
-          if (!response.ok) throw new Error("Lecture impossible.");
-          return response.text();
-        })
-        .then((content) => {
-          if (!cancelled) setTextContent(content);
-        })
-        .catch(() => {
-          if (!cancelled) setError("Impossible de charger ce fichier texte.");
-        })
-        .finally(() => {
-          if (!cancelled) setLoading(false);
-        });
-    }
-
     return () => {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [attachment, kind, shouldUseNativeMobileDocumentViewer]);
+  }, [attachment, kind, shouldUseNativeMobileDocumentViewer, trustedPreview]);
 
   if (!attachment) return null;
 
@@ -127,6 +108,10 @@ export function AttachmentViewer({
           {loading && <p className="rounded border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-600">Chargement du document...</p>}
           {error && <p className="rounded border border-red-100 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</p>}
 
+          {referenceKind === "blocked" && <p role="alert" className="rounded border border-red-100 bg-red-50 p-4 text-sm font-semibold text-red-700">Ce lien de pièce jointe est invalide ou non sécurisé.</p>}
+
+          {referenceKind === "external_legacy" && <div className="rounded border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><p className="font-semibold">Lien externe historique</p><p className="mt-1">Ce document ancien est hébergé hors du stockage Acadéa. Vérifiez sa destination avant de l’ouvrir.</p><a href={attachment.url} target="_blank" rel="noopener noreferrer" className="secondary-button mt-3 inline-flex justify-center">Ouvrir le lien externe</a></div>}
+
           {shouldUseNativeMobileDocumentViewer && (
             <div className="flex min-h-[45vh] flex-col items-center justify-center gap-3 rounded border border-dashed border-slate-300 bg-white p-6 text-center">
               <FileText className="h-8 w-8 text-slate-400" />
@@ -145,23 +130,17 @@ export function AttachmentViewer({
             </div>
           )}
 
-          {kind === "pdf" && pdfSource && !loading && !error && (
+          {trustedPreview && kind === "pdf" && pdfSource && !loading && !error && (
             <iframe title={attachment.name} src={pdfSource} className="h-[72vh] w-full rounded border border-slate-200 bg-white" />
           )}
 
-          {kind === "image" && attachment.url && (
+          {trustedPreview && kind === "image" && attachment.url && (
             <div className="flex min-h-[60vh] items-center justify-center">
               <img src={attachment.url} alt={attachment.name} className="max-h-[72vh] max-w-full rounded object-contain" />
             </div>
           )}
 
-          {kind === "text" && !loading && !error && (
-            <div className="rounded border border-slate-200 bg-white p-4">
-              <pre className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{textContent}</pre>
-            </div>
-          )}
-
-          {(kind === "unsupported" || (kind === "document" && !shouldUseNativeMobileDocumentViewer)) && (
+          {trustedPreview && (kind === "unsupported" || (kind === "document" && !shouldUseNativeMobileDocumentViewer)) && (
             <div className="flex min-h-[45vh] flex-col items-center justify-center gap-3 rounded border border-dashed border-slate-300 bg-white p-6 text-center">
               <FileText className="h-8 w-8 text-slate-400" />
               <p className="max-w-md text-sm font-semibold text-slate-600">La prévisualisation de ce type de fichier n'est pas disponible dans Acadéa.</p>

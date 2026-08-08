@@ -87,7 +87,7 @@ describe("assistant IA du Secrétaire", () => {
     expect(backend).toContain("N'invente jamais");
     expect(backend).toContain("Ne génère jamais l'en-tête, la référence automatique, le statut, le signataire");
     expect(backend).toContain("sanitizeAiText");
-    expect(backend).toContain("sanitizeAiContext");
+    expect(backend).toContain("whitelistDocumentContext");
     for (const instruction of ["Réécris entièrement", "Réduis réellement le document"]) expect(backend).toContain(instruction);
   });
 

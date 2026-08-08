@@ -4,7 +4,7 @@ import { logger } from "firebase-functions";
 import { defineSecret } from "firebase-functions/params";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { AI_ACTIONS, AI_LENGTHS, AI_TONES, type AiAction, type AiScope, type AiScopeSelection, type AiWritingRequest, type AiWritingResponse } from "./types.js";
-import { sanitizeAiContext, sanitizeAiText } from "./sanitize.js";
+import { containsForbiddenAiContent, sanitizeAiText, sanitizeSelectedSections, whitelistDocumentContext } from "./sanitize.js";
 import { buildStructuredWritingResponseFormat, classifyOpenAiFailure, extractOpenAiResponseText, isGeneratedContentIdentical, normalizeOpenAiSections, readOpenAiFailure, validateGeneratedSections } from "./openAiResponse.js";
 import { assertSecretaryAiIdentity, assertSecretaryAiProfile } from "./schoolAiAccess.js";
 import { enforceCallableRateLimit, FUNCTION_RATE_LIMITS, type RateLimitDatabase } from "../security/rateLimit.js";
@@ -79,6 +79,32 @@ export function validateInput(value: unknown): AiWritingRequest {
   return input as AiWritingRequest;
 }
 
+export function minimizeAiRequest(input: AiWritingRequest): AiWritingRequest {
+  const selectedKeys = input.scope === "full_document"
+    ? Object.keys(input.sections)
+    : typeof input.scope === "string"
+      ? [input.scope]
+      : input.scope.mode === "full_document" ? Object.keys(input.sections) : input.scope.sections;
+  const selectedSections: Record<string, string> = {};
+  for (const key of selectedKeys) {
+    const value = input.sections[key];
+    if (typeof value === "string") selectedSections[key] = value;
+  }
+  const selectedContent = [...Object.values(selectedSections), input.additionalInstruction, input.originalText ?? ""];
+  if (selectedContent.some(containsForbiddenAiContent)) {
+    throw new HttpsError("invalid-argument", "Les données médicales et biométriques ne peuvent pas être envoyées à l’Assistant IA.", { code: "FORBIDDEN_SENSITIVE_DATA" });
+  }
+  return {
+    ...input,
+    sections: sanitizeSelectedSections(selectedSections),
+    originalText: sanitizeAiText(input.originalText ?? "").sanitized,
+    additionalInstruction: sanitizeAiText(input.additionalInstruction).sanitized,
+    documentTypeLabel: sanitizeAiText(input.documentTypeLabel).sanitized,
+    documentContext: whitelistDocumentContext(input.documentContext) as AiWritingRequest["documentContext"],
+    context: {},
+  };
+}
+
 export function buildInstructions(input: AiWritingRequest) {
   const actionInstructions: Record<AiAction, string> = {
     reformulate: "Réécris entièrement le contenu en conservant le sens, les faits et le niveau de détail. Ne te limite pas à quelques remplacements de mots.",
@@ -90,7 +116,17 @@ export function buildInstructions(input: AiWritingRequest) {
   const scopeKeys = requestedSectionKeys(input);
   const scopeInstruction = `Traite séparément et retourne exactement les sections suivantes, dans cet ordre : ${scopeKeys.join(", ")}. Ne retourne aucune autre section. Ne fusionne pas les sections et ne déplace jamais une information d'une section vers une autre.${input.documentCategory === "rapport" ? " La section decisions contient uniquement les décisions prises ; recommendations contient uniquement les suites conseillées. N'invente jamais de signataire." : ""}`;
   const structuredReportInstruction = ` ${ACADEA_AI_IDENTITY} ${ACADEA_AI_SECTION_EXPERTISE} ${scopeInstruction}`;
-  return `Tu es l'assistant rédactionnel administratif d'Acadéa. Écris uniquement en français correct. Tu proposes un brouillon à vérifier humainement. N'invente jamais de fait, personne, date, référence, montant, décision, sanction, vote ou signature. Préserve strictement les noms propres, dates, références, montants et numéros fournis. Ne génère jamais l'en-tête, la référence automatique, le statut, le signataire, la signature, le cachet ou les données d'envoi. La proposition doit refléter clairement l'action demandée. Ne recopie jamais simplement le texte source : une réponse identique est invalide pour toutes les actions, y compris la correction. Portée : ${JSON.stringify(input.scope)}. Action : ${input.action}. Ton : ${input.tone}. Longueur : ${input.length}. Instruction complémentaire : ${input.additionalInstruction}. ${actionInstructions[input.action]} ${toneInstructions[input.tone]} ${lengthInstructions[input.length]}${structuredReportInstruction} Informations du document : catégorie=${input.documentCategory}; type=${input.documentTypeLabel}; date=${context.date || input.documentDate || "non fournie"}; heure=${context.time || input.documentTime || "non fournie"}; heure de fin=${context.endTime || "non fournie"}; établissement=${context.schoolName || input.schoolId}; année scolaire=${context.academicYearName || input.academicYearId || "non fournie"}. Utilise les date et heure fournies. Ne déclare pas qu'elles sont manquantes lorsqu'elles existent. Ne les invente pas lorsqu'elles sont absentes.`;
+  return `Tu es l'assistant rédactionnel administratif d'Acadéa. Écris uniquement en français correct. Tu proposes un brouillon à vérifier humainement. N'invente jamais de fait, personne, date, référence, montant, décision, sanction, vote ou signature. Préserve strictement les informations explicitement fournies. Ne génère jamais l'en-tête, la référence automatique, le statut, le signataire, la signature, le cachet ou les données d'envoi. La proposition doit refléter clairement l'action demandée. Ne recopie jamais simplement le texte source : une réponse identique est invalide pour toutes les actions, y compris la correction. Portée : ${JSON.stringify(input.scope)}. Action : ${input.action}. Ton : ${input.tone}. Longueur : ${input.length}. Instruction complémentaire : ${input.additionalInstruction}. ${actionInstructions[input.action]} ${toneInstructions[input.tone]} ${lengthInstructions[input.length]}${structuredReportInstruction} Informations du document : catégorie=${input.documentCategory}; type=${input.documentTypeLabel}; date=${context.date || input.documentDate || "non fournie"}; heure=${context.time || input.documentTime || "non fournie"}; heure de fin=${context.endTime || "non fournie"}; établissement=${context.schoolName || "non fourni"}; année scolaire=${context.academicYearName || "non fournie"}. Utilise les date et heure fournies. Ne déclare pas qu'elles sont manquantes lorsqu'elles existent. Ne les invente pas lorsqu'elles sont absentes.`;
+}
+
+export function buildOpenAiRequestBody(input: AiWritingRequest, model: string, instructionSuffix = "") {
+  return {
+    model,
+    store: false,
+    instructions: `${buildInstructions(input)}${instructionSuffix}`,
+    input: JSON.stringify({ sections: input.sections, documentContext: input.documentContext }),
+    text: { format: buildStructuredWritingResponseFormat(requestedSectionKeys(input), providerScopeMode(input)) },
+  };
 }
 
 export function parseProviderResponse(value: unknown, input: AiWritingRequest, requestId: string): AiWritingResponse {
@@ -124,6 +160,7 @@ export const secretaryAiWritingAssistant = onCall({ region: FUNCTION_REGION, tim
   const projectId = firebaseProjectId();
   if (diagnosticLoggingEnabled(projectId)) logger.info("Secretary AI request diagnostic", { version: AI_ASSISTANT_VERSION, action: rawInput.action ?? null, scope: rawInput.scope ?? null, documentCategory: rawInput.documentCategory ?? null, documentType: rawInput.documentType ?? null, documentTypeLabel: rawInput.documentTypeLabel ?? null, sectionKeysReceived: rawInput.sections && typeof rawInput.sections === "object" ? Object.keys(rawInput.sections) : [], projectId, region: FUNCTION_REGION });
   const input = validateInput(request.data);
+  const minimizedInput = minimizeAiRequest(input);
   if (diagnosticLoggingEnabled(projectId)) logger.info("Secretary AI validated request", { event: "secretary_ai_backend_request", action: input.action, scope: input.scope, tone: input.tone, length: input.length, targetSectionKey: input.targetSection?.key ?? null, sourceLength: Object.values(input.sections).join("").length, sectionKeysReceived: Object.keys(input.sections) });
   const db = getFirestore();
   const { auth, schoolId } = assertSecretaryAiIdentity(request.auth, input.schoolId);
@@ -137,20 +174,18 @@ export const secretaryAiWritingAssistant = onCall({ region: FUNCTION_REGION, tim
   const settings = (schoolData.aiSettings ?? {}) as Record<string, unknown>;
   if ((Array.isArray(settings.allowedRoles) && !settings.allowedRoles.includes("secretary")) || (Array.isArray(settings.allowedActions) && !settings.allowedActions.includes(input.action))) throw new HttpsError("permission-denied", "L'assistant IA n'est pas autorisé pour cette action.");
   const maxCharacters = typeof settings.maxInputCharacters === "number" ? Math.min(settings.maxInputCharacters, 20000) : 12000;
-  const original = sanitizeAiText(input.originalText ?? "");
-  const context = sanitizeAiContext({ ...input.context, sections: input.sections, documentContext: input.documentContext, documentDate: input.documentDate, documentTime: input.documentTime });
-  const sentCharacters = original.sanitized.length + JSON.stringify(context).length;
+  const detectedSensitiveData = [...new Set([...Object.values(input.sections), input.additionalInstruction, input.originalText ?? ""].flatMap((value) => sanitizeAiText(value).detected))];
+  const sentCharacters = JSON.stringify({ sections: minimizedInput.sections, documentContext: minimizedInput.documentContext }).length;
   if (sentCharacters > maxCharacters) throw new HttpsError("invalid-argument", `Le texte dépasse la limite de ${maxCharacters} caractères.`);
   const apiKey = openAiApiKey.value(); if (!apiKey) throw new HttpsError("failed-precondition", "L'assistant IA n'est pas configuré.");
   await reserveSchoolAiUsage(usageDatabase, { schoolId, userId: auth.uid, idempotencyKey: input.idempotencyKey });
   let generationSucceeded = false;
   let result: AiWritingResponse | undefined; let providerStatus = "failed"; const model = process.env.OPENAI_MODEL || "gpt-5-mini";
   try {
-    const responseFormat = buildStructuredWritingResponseFormat(requestedSectionKeys(input), providerScopeMode(input));
-    const transformation = await runTransformationAttempts({ ...input, originalText: original.sanitized }, async (retryCount) => {
+    const transformation = await runTransformationAttempts(minimizedInput, async (retryCount) => {
       const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 45000);
       const retryInstruction = retryCount === 1 ? " La première réponse était identique à la source. Produis cette fois une transformation réelle et visible, sans inventer de faits." : "";
-      const response = await fetch("https://api.openai.com/v1/responses", { method: "POST", signal: controller.signal, headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, store: false, instructions: `${buildInstructions(input)}${retryInstruction}`, input: JSON.stringify({ text: original.sanitized, context }), text: { format: responseFormat } }) }).finally(() => clearTimeout(timer));
+      const response = await fetch("https://api.openai.com/v1/responses", { method: "POST", signal: controller.signal, headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify(buildOpenAiRequestBody(minimizedInput, model, retryInstruction)) }).finally(() => clearTimeout(timer));
       const provider = await response.json() as unknown;
       if (!response.ok) {
         const failure = readOpenAiFailure(response.status, provider);
@@ -160,10 +195,10 @@ export const secretaryAiWritingAssistant = onCall({ region: FUNCTION_REGION, tim
       }
       const outputText = extractOpenAiResponseText(provider);
       if (!outputText) throw new HttpsError("internal", "La réponse de l’Assistant IA ne contient pas de proposition exploitable.", { code: "INVALID_AI_RESPONSE" });
-      try { result = parseProviderResponse(JSON.parse(outputText), input, requestId); }
+      try { result = parseProviderResponse(JSON.parse(outputText), minimizedInput, requestId); }
       catch (error) { if (error instanceof HttpsError) throw error; throw new HttpsError("internal", "La réponse de l’Assistant IA ne contient pas de proposition exploitable.", { code: "INVALID_AI_RESPONSE" }); }
       const generated = result.sections ?? (result.proposedText ? { document: result.proposedText } : {});
-      const source = result.sections ? input.sections : { document: input.originalText ?? "" };
+      const source = result.sections ? minimizedInput.sections : { document: minimizedInput.originalText ?? "" };
       const identical = isGeneratedContentIdentical(source, generated);
       if (diagnosticLoggingEnabled(projectId)) logger.info("Secretary AI OpenAI response", { event: "secretary_ai_openai_response", generatedLength: Object.values(generated).join("").length, isIdenticalToSource: identical, retryCount, durationMs: Date.now() - startedAt });
       return result;
@@ -173,7 +208,7 @@ export const secretaryAiWritingAssistant = onCall({ region: FUNCTION_REGION, tim
     generationSucceeded = true;
     await completeSchoolAiUsage(usageDatabase, schoolId, auth.uid, input.idempotencyKey);
     providerStatus = "success";
-    if (original.detected.length) result.warnings.unshift({ code: "sensitive_data_masked", severity: "warning", title: "Données sensibles masquées", message: "Certaines informations sensibles ont été retirées avant l'envoi.", field: input.section ?? "document" });
+    if (detectedSensitiveData.length) result.warnings.unshift({ code: "sensitive_data_masked", severity: "warning", title: "Données sensibles masquées", message: "Certaines informations sensibles ont été retirées avant l'envoi.", field: input.section ?? "document" });
   } catch (error) {
     if (!generationSucceeded) await releaseSchoolAiUsage(usageDatabase, schoolId, auth.uid, input.idempotencyKey).catch((releaseError) => logger.error("AI quota release failed", { requestId, schoolId, releaseError }));
     if (error instanceof HttpsError) throw error;

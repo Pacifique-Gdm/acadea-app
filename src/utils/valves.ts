@@ -165,7 +165,7 @@ export function getPublicationAttachmentDrafts(publication: ValvePublication): V
 
 export function getPublicationDownloadAttachments(publication: ValvePublication) {
   const attachments = publication.attachments?.length
-    ? publication.attachments.map((attachment) => ({ name: attachment.name, type: attachment.type, size: attachment.size, url: attachment.url }))
+    ? publication.attachments.map((attachment) => ({ name: attachment.name, type: attachment.type, size: attachment.size, url: attachment.url, path: attachment.path }))
     : getPublicationAttachmentDrafts(publication).map((attachment) => ({ name: attachment.name, type: attachment.type, size: attachment.size, url: attachment.url ?? attachment.dataUrl }));
   return attachments.filter((attachment) => Boolean(attachment.url));
 }

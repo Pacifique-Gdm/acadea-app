@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { AI_ACTIONS, type AiWritingRequest } from "./types.js";
-import { AI_ASSISTANT_VERSION, buildInstructions, parseProviderResponse, runTransformationAttempts, validateInput } from "./writingAssistant.js";
+import { AI_ASSISTANT_VERSION, buildInstructions, buildOpenAiRequestBody, minimizeAiRequest, parseProviderResponse, runTransformationAttempts, validateInput } from "./writingAssistant.js";
 
 const sections: Record<string, string> = { location: "Salle de réunion", subject: "Réunion pédagogique", participants: "Directeur et enseignants", discussedPoints: "Retards et résultats", decisions: "Contrôle hebdomadaire", recommendations: "Renforcer le suivi" };
 const request = (action: AiWritingRequest["action"], scope = "full_document"): AiWritingRequest => ({
@@ -110,5 +110,32 @@ describe("requête simplifiée de l'assistant rédactionnel", () => {
     expect(provider).toBeGreaterThan(reserve);
     expect(complete).toBeGreaterThan(provider);
     expect(release).toBeGreaterThan(complete);
+  });
+
+  it("n'envoie à OpenAI que les sections sélectionnées et le contexte autorisé", () => {
+    const raw = { ...request("reformulate", "subject"), schoolId: "school-secret", academicYearId: "year-secret", documentId: "doc-secret", sections: { subject: "Objet contact admin@test.cd +243 999 123 456", decisions: "Ne doit pas partir" }, documentContext: { schoolName: "École test", date: "2026-07-30", uid: "uid-secret", attachmentUrl: "https://example.test/private" } } as AiWritingRequest;
+    const minimized = minimizeAiRequest(raw);
+    const payload = JSON.stringify(buildOpenAiRequestBody(minimized, "gpt-test"));
+    expect(Object.keys(minimized.sections)).toEqual(["subject"]);
+    expect(payload).toContain("[EMAIL]");
+    expect(payload).toContain("[TÉLÉPHONE]");
+    for (const forbidden of ["school-secret", "year-secret", "doc-secret", "uid-secret", "Ne doit pas partir", "attachmentUrl"]) expect(payload).not.toContain(forbidden);
+    expect(JSON.parse(payload).store).toBe(false);
+  });
+
+  it("refuse les données médicales et biométriques avant tout appel fournisseur", () => {
+    expect(() => minimizeAiRequest({ ...request("reformulate", "subject"), sections: { subject: "Diagnostic : allergie grave" } })).toThrowError("médicales et biométriques");
+    expect(() => minimizeAiRequest({ ...request("reformulate", "subject"), additionalInstruction: "Ajouter une empreinte digitale" })).toThrowError("médicales et biométriques");
+  });
+
+  it("conserve les sections fonctionnelles autorisées pour un document complet", () => {
+    const minimized = minimizeAiRequest(correspondenceRequest({ mode: "full_document" }));
+    expect(Object.keys(minimized.sections)).toEqual(Object.keys(correspondenceSections));
+    expect(minimized.documentContext).toMatchObject({ date: "2026-07-30", schoolName: "École test" });
+  });
+
+  it("ne journalise ni prompt ni réponse complète", () => {
+    const source = readFileSync(new URL("./writingAssistant.ts", import.meta.url), "utf8");
+    expect(source).not.toMatch(/logger\.(?:info|error)\([^\n]*(?:prompt|originalText|proposedText|outputText)/);
   });
 });

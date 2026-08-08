@@ -57,6 +57,38 @@ service cloud.firestore {
       return signedIn() && role() == "secretary" && tenantSchoolId() is string;
     }
 
+    function validValveAttachment(attachment, valveId) {
+      return attachment is map
+        && attachment.keys().hasOnly(["name", "type", "url", "path", "size"])
+        && attachment.name is string
+        && attachment.name.size() > 0
+        && attachment.type in ["application/pdf", "image/jpeg", "image/png", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]
+        && attachment.size is int
+        && attachment.size > 0
+        && attachment.size <= 10 * 1024 * 1024
+        && attachment.path is string
+        && attachment.path.matches("^valves/" + tenantSchoolId() + "/" + request.resource.data.schoolYearId + "/" + valveId + "/[0-9a-fA-F-]+\\.(pdf|jpg|jpeg|png|docx)$")
+        && attachment.url is string
+        && (attachment.url.matches("^https://firebasestorage\\.googleapis\\.com/v0/b/[^/]+/o/valves%2F" + tenantSchoolId() + "%2F" + request.resource.data.schoolYearId + "%2F" + valveId + "%2F[^/?]+\\?[^#]+$")
+          || attachment.url.matches("^https://storage\\.googleapis\\.com/[^/]+/valves/" + tenantSchoolId() + "/" + request.resource.data.schoolYearId + "/" + valveId + "/[^/?]+$"));
+    }
+
+    function validValveAttachments(valveId) {
+      return !("attachments" in request.resource.data)
+        || (request.resource.data.attachments is list
+          && request.resource.data.attachments.size() <= 5
+          && (request.resource.data.attachments.size() < 1 || validValveAttachment(request.resource.data.attachments[0], valveId))
+          && (request.resource.data.attachments.size() < 2 || validValveAttachment(request.resource.data.attachments[1], valveId))
+          && (request.resource.data.attachments.size() < 3 || validValveAttachment(request.resource.data.attachments[2], valveId))
+          && (request.resource.data.attachments.size() < 4 || validValveAttachment(request.resource.data.attachments[3], valveId))
+          && (request.resource.data.attachments.size() < 5 || validValveAttachment(request.resource.data.attachments[4], valveId)));
+    }
+
+    function validValveAttachmentWrite(valveId) {
+      return !request.resource.data.keys().hasAny(["attachmentDataUrl", "attachmentUrl", "attachmentPath"])
+        && validValveAttachments(valveId);
+    }
+
     function medicalRecordUser() {
       return signedIn()
         && role() in ["school_admin", "secretary"]
@@ -501,8 +533,10 @@ service cloud.firestore {
 
     match /valves/{valveId} {
       allow read: if superAdmin() || sameTenantResource() || disciplineTenantResource();
-      allow create: if (schoolAdmin() || secretary()) && activeTenantYearCreate();
-      allow update: if (schoolAdmin() || secretary()) && activeTenantYearUpdate();
+      allow create: if (schoolAdmin() || secretary()) && activeTenantYearCreate() && validValveAttachmentWrite(valveId);
+      allow update: if (schoolAdmin() || secretary()) && activeTenantYearUpdate()
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["attachments", "attachmentDataUrl", "attachmentUrl", "attachmentPath"])
+          || validValveAttachmentWrite(valveId));
       allow delete: if (schoolAdmin() || secretary()) && sameTenantResource()
         && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
     }
