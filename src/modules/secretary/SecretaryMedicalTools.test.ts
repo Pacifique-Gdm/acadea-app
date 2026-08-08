@@ -17,6 +17,8 @@ describe("Drawers médicaux et statistiques du Secrétaire", () => {
     expect(source).toContain("setViewingStudent(student)");
     expect(source).toContain("aria-label={`Consulter la fiche médicale de");
     expect(source).toContain("focus-visible:ring-2");
+    expect(source).toContain('className="sticky top-0 z-10 shrink-0 bg-white pb-1"');
+    expect(source).toContain("overflow-y-auto overscroll-contain");
   });
 
   it("conditionne l'édition et préremplit le formulaire existant", () => {
@@ -82,7 +84,7 @@ describe("Drawers médicaux et statistiques du Secrétaire", () => {
     expect(classIndex).toBeGreaterThan(sectionIndex);
     expect(resetIndex).toBeGreaterThan(classIndex);
     expect(exportIndex).toBeGreaterThan(resetIndex);
-    expect(source).toContain('className="grid w-full grid-cols-[minmax(0,1fr)_2.5rem] gap-2 sm:grid-cols-[minmax(0,1fr)_2.5rem_minmax(9rem,auto)]"');
+    expect(source).toContain('className="sticky top-0 z-10 grid w-full grid-cols-[minmax(0,1fr)_2.5rem] gap-2 bg-white pb-3 sm:grid-cols-[minmax(0,1fr)_2.5rem_minmax(9rem,auto)]"');
     expect(source).toContain('className="input h-10 min-w-0 w-full"');
     expect(source).toContain("primary-button col-span-2 h-10 w-full justify-center sm:col-span-1");
     expect(source).toContain('<select aria-label="Type de filtre"');
@@ -137,5 +139,8 @@ describe("Drawers médicaux et statistiques du Secrétaire", () => {
     expect(pdfSource).toContain("letter-spacing: normal");
     expect(pdfSource).toContain("word-spacing: normal");
     expect(pdfSource).toContain("overflow-wrap: normal");
+    expect(source).toContain('className: "statistics-pdf-section statistics-summary-pdf-section"');
+    expect(pdfSource).toContain("grid-template-columns: repeat(6, minmax(0, 1fr))");
+    expect(pdfSource).toContain("font-variant-ligatures: normal");
   });
 });

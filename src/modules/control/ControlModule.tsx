@@ -60,7 +60,7 @@ export function ControlModule({
   const [controlClassKey, setControlClassKey] = useState("");
   const [paymentError, setPaymentError] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [expenseHistoryOpen, setExpenseHistoryOpen] = useState(false);
+  const [historyKind, setHistoryKind] = useState<"expenses" | "payments">("payments");
   const [expenseEditTarget, setExpenseEditTarget] = useState<Expense | null>(null);
   const [expenseEditAmount, setExpenseEditAmount] = useState("");
   const [expenseEditCategory, setExpenseEditCategory] = useState("Fournitures");
@@ -68,7 +68,7 @@ export function ControlModule({
   const [expenseEditError, setExpenseEditError] = useState("");
   const [expenseDeleteTarget, setExpenseDeleteTarget] = useState<Expense | null>(null);
   const [warningOpen, setWarningOpen] = useState(false);
-  const [cashierControlDrawer, setCashierControlDrawer] = useState<"payment" | "expense" | "history" | "warning" | null>(null);
+  const [cashierControlDrawer, setCashierControlDrawer] = useState<"payment" | "expense" | null>(null);
   const [cashierControlFeedback, setCashierControlFeedback] = useState("");
   const [cashierControlFeedbackDrawer, setCashierControlFeedbackDrawer] = useState<"payment" | "expense" | null>(null);
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
@@ -86,13 +86,13 @@ export function ControlModule({
     kind: "payments",
     schoolId: school.id,
     schoolYearId: year.id,
-    enabled: historyOpen || cashierControlDrawer === "history",
+    enabled: historyOpen && historyKind === "payments",
   });
   const expenseHistory = usePaginatedControlHistory<Expense>({
     kind: "expenses",
     schoolId: school.id,
     schoolYearId: year.id,
-    enabled: expenseHistoryOpen,
+    enabled: historyOpen && historyKind === "expenses",
   });
   const classChoices = useMemo(() => buildControlClassChoices(yearData.students), [yearData.students]);
   const amountFeeGroups = Array.from(
@@ -264,14 +264,7 @@ export function ControlModule({
   });
   const sortedExpenses = [...expenseHistory.items].sort((first, second) => historyTimestamp(second.createdAt, second.spentAt) - historyTimestamp(first.createdAt, first.spentAt));
   const isOtherExpenseEditCategory = expenseEditCategory === "Autre" || expenseEditCategory === "Autres";
-  const cashierDrawerTitle =
-    cashierControlDrawer === "payment"
-      ? "Enregistrer un paiement"
-      : cashierControlDrawer === "expense"
-        ? "Enregistrer une dépense"
-        : cashierControlDrawer === "warning"
-          ? "Avertissement"
-          : "Historique des paiements";
+  const cashierDrawerTitle = "Enregistrer";
 
   function studentFullName(student: Student) {
     return `${student.nom} ${student.postnom} ${student.prenom}`.replace(/\s+/g, " ").trim();
@@ -508,6 +501,7 @@ export function ControlModule({
       title: "Justificatif de dépense",
       school,
       year,
+      copyLabels: ["Exemplaire Bénéficiaire", "Exemplaire École"],
       sections: [
         pdfSection(
           "Dépense",
@@ -1062,51 +1056,8 @@ export function ControlModule({
     <section className="grid min-w-0 gap-4">
       <div className="min-w-0">
         <SectionTitle title="Contrôle" subtitle="Frais scolaires, paiements, historique et soldes restants en dollar américain." />
-        {user.role === "cashier" ? (
-          <div className={`mb-3 grid min-w-0 max-w-full gap-2 lg:w-full lg:gap-2 ${canPay ? "lg:grid-cols-[minmax(105px,0.8fr)_minmax(70px,0.6fr)_repeat(5,minmax(0,1fr))]" : "lg:grid-cols-[minmax(120px,1fr)_minmax(90px,0.8fr)_repeat(3,minmax(0,1fr))]"}`}>
-            <div className="flex min-w-0 flex-nowrap items-stretch gap-1.5 lg:contents">
-              <select value={amountComparator} onChange={(event) => setAmountComparator(event.target.value)} className="h-10 min-w-0 flex-[1.1] rounded border border-slate-200 bg-white px-2 text-xs sm:text-sm lg:w-full">
-                <option value="" disabled hidden>Montant payé</option>
-                <option value="all">Toutes</option>
-                {amountFeeOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <select value={controlClassKey} onChange={(event) => setControlClassKey(event.target.value)} className="h-10 min-w-0 flex-1 rounded border border-slate-200 bg-white px-2 text-xs sm:text-sm lg:w-full" aria-label="Classe">
-                <option value="" disabled hidden>Classe</option>
-                <option value="all">Toutes</option>
-                {classChoices.map((choice) => <option key={choice.key} value={choice.key}>{choice.label}</option>)}
-              </select>
-              <input value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)} type="number" className="h-10 min-w-0 flex-1 rounded border border-slate-200 bg-white px-2 text-xs sm:text-sm lg:w-full" placeholder="Filtre" />
-              <button onClick={printFilteredStudents} className="primary-button h-10 min-w-0 flex-1 justify-center px-2 text-xs sm:text-sm lg:w-full">
-                <Download className="h-4 w-4" /> Imprimer
-              </button>
-              <button onClick={resetControlFilters} className="secondary-button h-10 min-w-0 flex-1 justify-center px-2 text-xs sm:text-sm lg:w-full" type="button">Réinitialiser</button>
-            </div>
-            <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:contents">
-              <button onClick={() => setCashierControlDrawer("history")} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:px-1 lg:text-[11px] lg:whitespace-nowrap xl:px-2 xl:text-xs" type="button">
-                Historique des paiements
-              </button>
-              <button onClick={() => setExpenseHistoryOpen(true)} className="secondary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:px-1 lg:text-[11px] lg:whitespace-nowrap xl:px-2 xl:text-xs" type="button">
-                Historique de dépenses
-              </button>
-              {canPay && (
-                <>
-                  <button onClick={() => { setCashierControlFeedback(""); setCashierControlFeedbackDrawer(null); setCashierControlDrawer("payment"); }} className="primary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:px-1 lg:text-[11px] lg:whitespace-nowrap xl:px-2 xl:text-xs" type="button">
-                    Enregistrer un paiement
-                  </button>
-                  <button onClick={() => { setCashierControlFeedback(""); setCashierControlFeedbackDrawer(null); setCashierControlDrawer("expense"); }} className="primary-button h-10 min-w-0 w-full justify-center px-2 text-sm lg:px-1 lg:text-[11px] lg:whitespace-nowrap xl:px-2 xl:text-xs" type="button">
-                    Enregistrer une dépense
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="mb-3 w-full min-w-0 max-w-full">
-            <div className="grid w-full min-w-0 grid-cols-1 items-stretch gap-2 box-border sm:grid-cols-2 lg:flex lg:flex-nowrap lg:items-center">
+        <div className="mb-3 w-full min-w-0 max-w-full">
+          <div className="grid w-full min-w-0 grid-cols-1 items-stretch gap-2 box-border sm:grid-cols-2 lg:flex lg:flex-nowrap lg:items-center">
               <select value={controlClassKey} onChange={(event) => setControlClassKey(event.target.value)} className="h-10 min-w-0 w-full rounded border border-slate-200 bg-white px-2 text-sm lg:flex-1 lg:basis-0" aria-label="Classe">
                 <option value="" disabled hidden>Classe</option>
                 <option value="all">Toutes</option>
@@ -1127,18 +1078,19 @@ export function ControlModule({
                 <Download className="h-4 w-4" /> Exporter PDF
               </button>
               <button onClick={resetControlFilters} className="secondary-button h-10 min-w-0 justify-center px-2 lg:flex-1 lg:basis-0" type="button" title="Réinitialiser" aria-label="Réinitialiser"><RotateCcw className="h-4 w-4" /> Réinitialiser</button>
-              <button onClick={() => setWarningOpen(true)} className="secondary-button h-10 min-w-0 justify-center px-2 lg:flex-1 lg:basis-0" type="button" title="Avertissement" aria-label="Avertissement">
+              {user.role !== "cashier" && <button onClick={() => setWarningOpen(true)} className="secondary-button h-10 min-w-0 justify-center px-2 lg:flex-1 lg:basis-0" type="button" title="Avertissement" aria-label="Avertissement">
                 <Bell className="h-4 w-4" /> Avertissement
-              </button>
-              <button onClick={() => setExpenseHistoryOpen(true)} className="secondary-button h-10 min-w-0 justify-center px-2 text-sm lg:flex-1 lg:basis-0 lg:text-xs" type="button">
-                Historique de dépenses
-              </button>
+              </button>}
               <button onClick={() => setHistoryOpen(true)} className="secondary-button h-10 min-w-0 justify-center px-2 text-sm lg:flex-1 lg:basis-0 lg:text-xs" type="button">
-                Historique des paiements
+                Historique
               </button>
-            </div>
           </div>
-        )}
+          {user.role === "cashier" && canPay && <div className="mt-2 grid min-w-0">
+            <button onClick={() => { setCashierControlFeedback(""); setCashierControlFeedbackDrawer(null); setCashierControlDrawer("payment"); }} className="primary-button h-10 min-w-0 w-full justify-center px-2 text-sm" type="button">
+              <Plus className="h-4 w-4" /> Enregistrer
+            </button>
+          </div>}
+        </div>
         <div className="grid min-w-0 gap-3">
           {rows.map(({ student, balance, progress, hasApplicableFees }) => (
             <article key={student.id} className="min-w-0 rounded border border-slate-200 bg-white p-4">
@@ -1215,6 +1167,13 @@ export function ControlModule({
       )}
       {user.role === "cashier" && cashierControlDrawer && (
         <AdminDrawer title={cashierDrawerTitle} onClose={() => setCashierControlDrawer(null)} closeLabel={`Fermer ${cashierDrawerTitle}`}>
+          <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+            Type d'enregistrement
+            <select aria-label="Type d'enregistrement" className="input min-w-0 w-full" value={cashierControlDrawer} onChange={(event) => setCashierControlDrawer(event.target.value as "payment" | "expense")}>
+              <option value="payment">Enregistrer un paiement</option>
+              <option value="expense">Enregistrer une dépense</option>
+            </select>
+          </label>
           {cashierControlFeedback && cashierControlFeedbackDrawer === cashierControlDrawer && (
             <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{cashierControlFeedback}</p>
           )}
@@ -1335,41 +1294,6 @@ export function ControlModule({
               <button onClick={saveExpense} disabled={expenseSubmitting} className="primary-button justify-center disabled:opacity-50" type="button"><Plus className="h-4 w-4" /> {expenseSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
             </>
           )}
-          {cashierControlDrawer === "history" && (
-            <>
-              <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
-                <Search className="h-4 w-4 shrink-0 text-slate-400" />
-                <input
-                  value={historyQuery}
-                  onChange={(event) => setHistoryQuery(event.target.value)}
-                  className="min-w-0 flex-1 outline-none"
-                  placeholder="Rechercher par nom ou matricule"
-                />
-              </label>
-              <div className="space-y-2">
-                {filteredHistoryPayments.length === 0 && !paymentHistory.isInitialLoading && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun paiement trouvé</p>}
-                {filteredHistoryPayments.map(({ payment, student, fee }) => {
-                  return (
-                    <div key={payment.id} className="rounded border border-slate-100 p-3 text-sm">
-                    <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                      <p className="min-w-0 break-words font-semibold text-ink">{student.nom} {student.prenom}</p>
-                        <div className="flex shrink-0 flex-wrap gap-1">
-                          <button onClick={() => generateReceiptPdf(payment, student, fee, school, resolvePaymentCashierName(payment, yearData.auditLogs))} className="rounded bg-slate-100 p-2" title="Voir le reçu PDF" type="button">
-                            <Download className="h-4 w-4" />
-                          </button>
-                          {canCorrectPayments && <button onClick={() => correctPayment(payment)} disabled={financialMutationId === payment.id} className="rounded bg-slate-100 p-2 disabled:opacity-50" title="Corriger" type="button"><Edit3 className="h-4 w-4" /></button>}
-                          {canCorrectPayments && <button onClick={() => deletePayment(payment)} disabled={financialMutationId === payment.id} className="rounded bg-red-50 p-2 text-red-700 disabled:opacity-50" title="Supprimer" type="button"><Trash2 className="h-4 w-4" /></button>}
-                        </div>
-                      </div>
-                      <p className="break-words text-slate-500">{fee.name} | ${payment.amount} | {payment.paidAt}</p>
-                    </div>
-                  );
-                })}
-              </div>
-              {renderPaymentHistoryPagination()}
-            </>
-          )}
-          {cashierControlDrawer === "warning" && renderPaymentWarningForm()}
         </AdminDrawer>
       )}
       {warningOpen && (
@@ -1378,7 +1302,15 @@ export function ControlModule({
         </AdminDrawer>
       )}
       {historyOpen && (
-        <AdminDrawer title="Historique des paiements" onClose={() => setHistoryOpen(false)} closeLabel="Fermer l'historique">
+        <AdminDrawer title="Historique" onClose={() => setHistoryOpen(false)} closeLabel="Fermer l'historique">
+          <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+            Type d'historique
+            <select aria-label="Type d'historique" className="input min-w-0 w-full" value={historyKind} onChange={(event) => setHistoryKind(event.target.value as typeof historyKind)}>
+              <option value="expenses">Historique des dépenses</option>
+              <option value="payments">Historique des paiements</option>
+            </select>
+          </label>
+          {historyKind === "payments" && <>
             <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
               <Search className="h-4 w-4 shrink-0 text-slate-400" />
               <input
@@ -1409,11 +1341,8 @@ export function ControlModule({
               })}
             </div>
             {renderPaymentHistoryPagination()}
-        </AdminDrawer>
-      )}
-      {expenseHistoryOpen && (
-        <AdminDrawer title="Historique de dépenses" onClose={() => setExpenseHistoryOpen(false)} closeLabel="Fermer l'historique des dépenses">
-          {renderExpenseHistoryContent()}
+          </>}
+          {historyKind === "expenses" && renderExpenseHistoryContent()}
         </AdminDrawer>
       )}
       {expenseEditTarget && (

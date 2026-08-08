@@ -52,7 +52,7 @@ export function ActivityHistoryContent({
   }
 
   return (
-    <div className="grid min-w-0 gap-4">
+    <div className="grid w-full min-w-0 max-w-full gap-4">
       <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_160px]">
         <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
           <Search className="h-4 w-4 shrink-0 text-slate-400" />
@@ -63,7 +63,7 @@ export function ActivityHistoryContent({
             placeholder="Rechercher dans l'historique"
           />
         </label>
-        <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as typeof typeFilter)} className="input">
+        <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as typeof typeFilter)} className="input min-w-0 max-w-full">
           <option value="all">Tout</option>
           <option value="activity">Activités</option>
           <option value="message">Messages</option>
@@ -91,7 +91,7 @@ export function ActivityHistoryContent({
                     {historyTypeLabels[item.type]}
                   </span>
                 </div>
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-1 break-words text-xs text-slate-500">
                   {item.actorName} · {new Date(item.createdAt).toLocaleString("fr-FR")}
                 </p>
                 {item.details && <p className="mt-2 break-words leading-6 text-slate-700">{item.details}</p>}

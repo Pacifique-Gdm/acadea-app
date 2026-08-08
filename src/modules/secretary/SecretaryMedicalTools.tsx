@@ -99,10 +99,12 @@ export function SecretaryMedicalRecordsDrawer({ open, onClose, user, students, r
   const viewingRecord = viewingStudent ? recordsByStudent.get(viewingStudent.id) : undefined;
   return <>
     {open && <AdminDrawer title="Fiches médicales" onClose={onClose} closeLabel="Fermer">
-      <div className="grid gap-4">
-        {message && <p className="rounded border bg-white p-3 text-sm">{message}</p>}
-        <label className="flex items-center gap-2 rounded border bg-white px-3"><Search className="h-4 w-4" /><input className="min-w-0 flex-1 py-2 outline-none" value={queryText} onChange={(event) => setQueryText(event.target.value)} placeholder="Rechercher un élève" /></label>
-        <div className="grid gap-2">
+      <div className="flex h-full min-h-0 flex-col gap-3">
+        {message && <p className="shrink-0 rounded border bg-white p-3 text-sm">{message}</p>}
+        <div className="sticky top-0 z-10 shrink-0 bg-white pb-1">
+          <label className="flex items-center gap-2 rounded border bg-white px-3 shadow-sm"><Search className="h-4 w-4" /><input className="min-w-0 flex-1 py-2 outline-none" value={queryText} onChange={(event) => setQueryText(event.target.value)} placeholder="Rechercher un élève" /></label>
+        </div>
+        <div className="grid min-h-0 gap-2 overflow-y-auto overscroll-contain pr-1">
           {visibleStudents.map((student) => {
             const record = recordsByStudent.get(student.id);
             return <article key={student.id} className="grid gap-3 rounded border bg-white p-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
@@ -153,7 +155,7 @@ export function SecretaryStatisticsDrawer({ open, onClose, students, records, sc
 
   async function exportPdf() {
     await renderAcadPdfPreview({ filename: `statistiques-${year.name}.pdf`, title: "STATISTIQUES", school, year, subtitle: scopeLabel, sections: [
-      pdfSection("Synthèse", pdfInfoGrid(statistics.cards.map(([label, value]) => ({ label, value }))), { className: "statistics-pdf-section" }),
+      pdfSection("Synthèse", pdfInfoGrid(statistics.cards.map(([label, value]) => ({ label, value }))), { className: "statistics-pdf-section statistics-summary-pdf-section" }),
       pdfSection("Répartition par classe", pdfTable([
         { header: "ORDRE", render: (row) => row.order, align: "center" }, { header: "SECTION", render: (row) => row.section }, { header: "CLASSE", render: (row) => row.className ?? "—" }, { header: "OPTION", render: (row) => row.option ?? "—" }, { header: "EFFECTIF", render: (row) => row.count, align: "right" }, { header: "POURCENTAGE", render: (row) => `${row.percentage.toFixed(2).replace(".", ",")} %`, align: "right" },
       ], statistics.classRows, "Aucune donnée pour cette répartition."), { className: "statistics-pdf-section" }),
@@ -166,8 +168,8 @@ export function SecretaryStatisticsDrawer({ open, onClose, students, records, sc
   function resetFilter() { setFilterType("all"); setSelectedSection(""); setSelectedClassKey(""); }
   function selectFilterType(value: typeof filterType) { setFilterType(value); setSelectedSection(""); setSelectedClassKey(""); }
 
-  return open ? <AdminDrawer title="Statistiques" onClose={onClose} closeLabel="Fermer"><div className="grid gap-4">
-    <div className="grid gap-3"><div className="grid w-full grid-cols-[minmax(0,1fr)_2.5rem] gap-2 sm:grid-cols-[minmax(0,1fr)_2.5rem_minmax(9rem,auto)]"><select aria-label="Type de filtre" className="input h-10 min-w-0 w-full" value={filterType} onChange={(event) => selectFilterType(event.target.value as typeof filterType)}><option value="all">Toutes</option><option value="section">Section</option><option value="class">Classe précise</option></select><button type="button" title="Réinitialiser le filtre" aria-label="Réinitialiser le filtre" className="secondary-button h-10 w-10 shrink-0 justify-center px-0" onClick={resetFilter}><RotateCcw aria-hidden="true" className="h-4 w-4" /></button><button type="button" className="primary-button col-span-2 h-10 w-full justify-center sm:col-span-1" onClick={() => void exportPdf()}><FileDown className="h-4 w-4" /> Exporter PDF</button></div>
+  return open ? <AdminDrawer title="Statistiques" onClose={onClose} closeLabel="Fermer"><div className="grid min-w-0 gap-4">
+    <div className="grid min-w-0 gap-3"><div className="sticky top-0 z-10 grid w-full grid-cols-[minmax(0,1fr)_2.5rem] gap-2 bg-white pb-3 sm:grid-cols-[minmax(0,1fr)_2.5rem_minmax(9rem,auto)]"><select aria-label="Type de filtre" className="input h-10 min-w-0 w-full" value={filterType} onChange={(event) => selectFilterType(event.target.value as typeof filterType)}><option value="all">Toutes</option><option value="section">Section</option><option value="class">Classe précise</option></select><button type="button" title="Réinitialiser le filtre" aria-label="Réinitialiser le filtre" className="secondary-button h-10 w-10 shrink-0 justify-center px-0" onClick={resetFilter}><RotateCcw aria-hidden="true" className="h-4 w-4" /></button><button type="button" className="primary-button col-span-2 h-10 w-full justify-center sm:col-span-1" onClick={() => void exportPdf()}><FileDown className="h-4 w-4" /> Exporter PDF</button></div>
       {filterType === "section" && <label className="grid gap-1 text-sm font-semibold">Section<select className="input" value={selectedSection} onChange={(event) => setSelectedSection(event.target.value as SchoolSection)}><option value="">Sélectionner une section</option>{sections.map((section) => <option key={section} value={section}>{schoolSectionLabels[section]}</option>)}</select>{sections.length === 0 && <span className="text-sm text-slate-500">Aucune section disponible.</span>}</label>}
       {filterType === "class" && <label className="grid gap-1 text-sm font-semibold">Classe précise<select className="input" value={selectedClassKey} onChange={(event) => setSelectedClassKey(event.target.value)}><option value="">Sélectionner une classe</option>{classes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>{classes.length === 0 && <span className="text-sm text-slate-500">Aucune classe disponible.</span>}</label>}
     </div>

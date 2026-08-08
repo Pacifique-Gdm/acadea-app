@@ -41,6 +41,7 @@ type AcadPdfOptions = {
   centerDocumentTitle?: boolean;
   pdfSettings?: Partial<PdfGenerationSettings>;
   sections: string[];
+  copyLabels?: readonly [string, string];
 };
 
 function formatStudentClassName(student: Pick<Student, "className" | "option">) {
@@ -156,14 +157,17 @@ export function pdfSection(title: string, bodyHtml: string, options: { pageBreak
   `;
 }
 
-export async function renderAcadPdfPreview({ filename, title, school, year, subtitle, generatedAt = new Date(), showDocumentTitle = true, centerDocumentTitle = false, pdfSettings, sections }: AcadPdfOptions) {
+export async function renderAcadPdfPreview({ filename, title, school, year, subtitle, generatedAt = new Date(), showDocumentTitle = true, centerDocumentTitle = false, pdfSettings, sections, copyLabels }: AcadPdfOptions) {
   const layout = getPdfLayout(pdfSettings);
   const doc = new jsPDF({ unit: "mm", format: layout.jsPdfFormat, orientation: "portrait", compress: true }) as PdfDoc;
   const viewer = openPdfViewerShell({ filename, title });
   const logoDataUrl = await loadLogoDataUrl(school.logoUrl);
   const element = document.createElement("div");
   element.className = "acadea-pdf";
-  element.innerHTML = buildPdfHtml({ title, school, year, subtitle, generatedAt, logoDataUrl, showDocumentTitle, centerDocumentTitle, sections, pdfSettings: layout.settings, renderWidth: layout.windowWidth });
+  const htmlOptions = { title, school, year, subtitle, generatedAt, logoDataUrl, showDocumentTitle, centerDocumentTitle, sections, pdfSettings: layout.settings, renderWidth: layout.windowWidth };
+  element.innerHTML = copyLabels
+    ? buildTwoCopyPdfHtml({ ...htmlOptions, copyLabels, renderHeight: layout.contentHeight * (layout.windowWidth / layout.contentWidth) })
+    : buildPdfHtml(htmlOptions);
   if (!element.textContent?.trim()) {
     showPdfError(viewer, "Le document PDF ne contient aucune donnée à afficher.");
     return;
@@ -188,7 +192,7 @@ export async function renderAcadPdfPreview({ filename, title, school, year, subt
           backgroundColor: "#ffffff",
         },
         callback: (pdf) => {
-          addPdfFooters(pdf, generatedAt);
+          if (!copyLabels) addPdfFooters(pdf, generatedAt);
           const blob = pdf.output("blob") as Blob;
           const url = URL.createObjectURL(blob);
           showPdfInViewer({ viewer, url, filename, title });
@@ -222,6 +226,7 @@ export async function generateReceiptPdf(payment: Payment, student: Student, fee
     filename: `recu-${student.matricule}-${payment.id}.pdf`,
     title: "Reçu de paiement",
     school,
+    copyLabels: ["Exemplaire Parent", "Exemplaire École"],
     sections: [
       pdfInfoGrid([
         { label: "Reçu", value: payment.receiptNumber ?? payment.id.toUpperCase() },
@@ -245,19 +250,7 @@ export async function generateReceiptPdf(payment: Payment, student: Student, fee
   });
 }
 
-function buildPdfHtml({
-  title,
-  school,
-  year,
-  subtitle,
-  generatedAt,
-  logoDataUrl,
-  showDocumentTitle,
-  centerDocumentTitle,
-  sections,
-  pdfSettings,
-  renderWidth,
-}: {
+type PdfHtmlOptions = {
   title: string;
   school: School;
   year?: SchoolYear;
@@ -269,10 +262,49 @@ function buildPdfHtml({
   sections: string[];
   pdfSettings: PdfGenerationSettings;
   renderWidth: number;
+};
+
+function buildPdfHtml(options: PdfHtmlOptions) {
+  return `
+    <style>${pdfStyles(options.pdfSettings, options.renderWidth)}</style>
+    ${buildPdfContentHtml(options)}
+  `;
+}
+
+export function buildTwoCopyPdfHtml({ copyLabels, renderHeight, ...options }: PdfHtmlOptions & {
+  copyLabels: readonly [string, string];
+  renderHeight: number;
 }) {
+  const renderCopy = (label: string) => `
+    <article class="pdf-copy">
+      <div class="pdf-copy-content">${buildPdfContentHtml(options, label)}</div>
+      <footer class="pdf-copy-footer">Généré par Acadéa | ${escapePdfHtml(options.generatedAt.toLocaleString("fr-FR"))}</footer>
+    </article>
+  `;
+
+  return `
+    <style>${pdfStyles(options.pdfSettings, options.renderWidth)}${twoCopyPdfStyles(renderHeight)}</style>
+    <div class="two-copy-page">
+      ${renderCopy(copyLabels[0])}
+      <div class="pdf-cut-line" aria-label="Ligne de découpe"><span>Découper ici</span></div>
+      ${renderCopy(copyLabels[1])}
+    </div>
+  `;
+}
+
+function buildPdfContentHtml({
+  title,
+  school,
+  year,
+  subtitle,
+  generatedAt,
+  logoDataUrl,
+  showDocumentTitle,
+  centerDocumentTitle,
+  sections,
+}: PdfHtmlOptions, copyLabel?: string) {
   const schoolMotto = school.motto?.trim();
   return `
-    <style>${pdfStyles(pdfSettings, renderWidth)}</style>
     <header class="pdf-header">
       <div class="brand-mark">
         ${
@@ -288,6 +320,7 @@ function buildPdfHtml({
         ${year ? `<p>Année scolaire : <strong>${escapePdfHtml(year.name)}</strong></p>` : ""}
       </div>
     </header>
+    ${copyLabel ? `<div class="pdf-copy-label">${escapePdfHtml(copyLabel)}</div>` : ""}
     ${showDocumentTitle ? `<div class="document-title${centerDocumentTitle ? " document-title--center" : ""}">
       <p>Acadéa</p>
       <h2>${escapePdfHtml(title)}</h2>
@@ -295,6 +328,98 @@ function buildPdfHtml({
       <small>Date de génération : ${escapePdfHtml(generatedAt.toLocaleString("fr-FR"))}</small>
     </div>` : ""}
     ${sections.join("")}
+  `;
+}
+
+function twoCopyPdfStyles(renderHeight: number) {
+  return `
+    .two-copy-page {
+      width: 100%;
+      height: ${Math.max(0, renderHeight - 2)}px;
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) 22px minmax(0, 1fr);
+      overflow: hidden;
+      background: #ffffff;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .pdf-copy {
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .pdf-copy-content { min-height: 0; }
+    .pdf-copy-label {
+      margin: 5px 12px 0;
+      color: #2a9d8f;
+      font-size: 7.5px;
+      font-weight: 800;
+      text-align: right;
+      text-transform: uppercase;
+    }
+    .pdf-copy .pdf-header {
+      min-height: 40px;
+      gap: 8px;
+      padding: 6px 12px;
+      border-bottom-width: 2px;
+    }
+    .pdf-copy .brand-mark { width: 34px; height: 34px; font-size: 14px; }
+    .pdf-copy .school-block h1 { margin-bottom: 1px; font-size: 13px; line-height: 1.08; }
+    .pdf-copy .school-block p { margin: 1px 0; font-size: 7px; line-height: 1.12; }
+    .pdf-copy .document-title { margin: 4px 12px 5px; padding: 4px 7px; }
+    .pdf-copy .document-title p { font-size: 6.5px; }
+    .pdf-copy .document-title h2 { font-size: 11.5px; line-height: 1.12; }
+    .pdf-copy .document-title span,
+    .pdf-copy .document-title small { margin-top: 2px; font-size: 7px; }
+    .pdf-copy .pdf-section {
+      margin: 0 12px 5px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .pdf-copy .pdf-section h2 { margin-bottom: 4px; padding-bottom: 3px; font-size: 9pt; }
+    .pdf-copy .info-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 4px 6px;
+      margin-bottom: 4px;
+    }
+    .pdf-copy .info-box { min-height: 27px; padding: 3px 6px; }
+    .pdf-copy .info-box span { font-size: 6.5px; line-height: 1.15; }
+    .pdf-copy .info-box strong { margin-top: 1px; font-size: 8.5px; line-height: 1.18; }
+    .pdf-copy .signature-row { margin: 5px 12px 0; }
+    .pdf-copy .signature-row div { width: 170px; font-size: 7.5px; }
+    .pdf-copy .signature-row strong { margin-top: 18px; }
+    .pdf-copy-footer {
+      margin: auto 12px 4px;
+      padding-top: 3px;
+      border-top: 1px solid #dbe4ef;
+      color: #64748b;
+      font-size: 6.5px;
+      line-height: 1.1;
+    }
+    .pdf-cut-line {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #64748b;
+      font-size: 6.5px;
+    }
+    .pdf-cut-line::before {
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      top: 50%;
+      border-top: 1px dashed #94a3b8;
+      content: "";
+    }
+    .pdf-cut-line span {
+      position: relative;
+      padding: 0 7px;
+      background: #ffffff;
+    }
   `;
 }
 
@@ -445,10 +570,28 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       overflow-wrap: normal;
     }
     .pdf-section.statistics-pdf-section h2 {
+      font-family: ${institutionalFontFamily};
       letter-spacing: normal;
       word-spacing: normal;
       text-rendering: geometricPrecision;
       font-kerning: normal;
+      font-variant-ligatures: normal;
+    }
+    .pdf-section.statistics-summary-pdf-section .info-grid {
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 5px;
+    }
+    .pdf-section.statistics-summary-pdf-section .info-box {
+      min-height: 48px;
+      padding: 6px 5px;
+    }
+    .pdf-section.statistics-summary-pdf-section .info-box span {
+      font-size: 7.5px;
+      line-height: 1.15;
+    }
+    .pdf-section.statistics-summary-pdf-section .info-box strong {
+      font-size: 11px;
+      line-height: 1.15;
     }
     .pdf-section.report-section {
       margin-top: 16px;

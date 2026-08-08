@@ -210,9 +210,7 @@ export function ParentFormEditor({
   return (
     <div className="grid min-w-0 gap-3">
       {showBackButton && onBack && (
-        <button onClick={onBack} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded bg-white text-slate-600 transition hover:bg-slate-50 hover:text-ink" aria-label="Retour aux Parents / Tuteurs" title="Retour aux Parents / Tuteurs">
-          <ArrowLeft className="h-5 w-5" />
-        </button>
+        <ParentDrawerBackButton onBack={onBack} />
       )}
       {parentError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{parentError}</p>}
       {parentSuccess && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{parentSuccess}</p>}
@@ -337,5 +335,12 @@ export function ParentFormEditor({
         </div>
       </FormPanel>
     </div>
+  );
+}
+export function ParentDrawerBackButton({ onBack }: { onBack: () => void }) {
+  return (
+    <button onClick={onBack} type="button" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded bg-white text-slate-600 transition hover:bg-slate-50 hover:text-ink" aria-label="Retour aux Parents / Tuteurs" title="Retour aux Parents / Tuteurs">
+      <ArrowLeft className="h-5 w-5" />
+    </button>
   );
 }

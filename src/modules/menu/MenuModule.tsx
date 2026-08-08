@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Banknote, BarChart3, BookOpen, CheckCircle2, ChevronRight, Clock3, CreditCard, Fingerprint, HeartPulse, LogOut, Plus, RefreshCw, Settings, ShieldCheck, Trash2, UserRound, UsersRound, X } from "lucide-react";
 import { AdminDrawer, Field, ImageUploadField, PasswordField } from "../../components/ui";
 import { ParentsDirectoryDrawer } from "../../components/parents/ParentsDirectoryDrawer";
+import { ParentDrawerBackButton } from "../../components/parents/ParentFormEditor";
 import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent";
 import { canUseFirestoreData, persistFirestorePatch } from "../../services/firestoreData";
 import { deleteParentAccount, provisionSchoolUser } from "../../services/provisioning";
@@ -1057,6 +1058,7 @@ export function MenuModule({
       {parentDeleteOpen && (
         <AdminDrawer title="Supprimer un parent" onClose={closeParentDeleteDrawer} closeLabel="Annuler la suppression du parent">
           <div className="grid min-w-0 gap-4">
+            <ParentDrawerBackButton onBack={closeParentDeleteDrawer} />
             <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
               Cette action supprime le compte parent et détache ses élèves sans supprimer les élèves ni leurs données scolaires.
             </p>
