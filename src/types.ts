@@ -201,6 +201,8 @@ export interface Message {
   schoolId: string;
   schoolYearId: string;
   senderId: string;
+  participantIds?: string[];
+  recipientIds?: string[];
   recipientParentId: string | "all" | "school";
   schoolRecipient?: "admin" | "cashier" | "discipline" | "both";
   threadParentId?: string;
@@ -209,7 +211,16 @@ export interface Message {
   disciplineSanctionId?: string;
   subject: string;
   body: string;
+  attachments?: MessageAttachment[];
   createdAt: string;
+}
+
+export interface MessageAttachment {
+  name: string;
+  type: string;
+  size: number;
+  path: string;
+  url: string;
 }
 
 export interface Conversation {
@@ -217,6 +228,7 @@ export interface Conversation {
   schoolId: string;
   schoolYearId: string;
   threadId: string;
+  participantIds?: string[];
   threadParentId: string;
   parentId: string;
   parentName?: string;
@@ -224,7 +236,7 @@ export interface Conversation {
   lastMessage: string;
   lastMessageAt: string;
   lastSenderId: string;
-  lastSenderRole: "parent" | "school_admin" | "cashier" | "discipline_director";
+  lastSenderRole: "parent" | "school_admin" | "cashier" | "discipline_director" | "secretary";
   messageCount: number;
   unreadParentCount: number;
   unreadAdminCount: number;
@@ -240,6 +252,7 @@ export interface AppNotification {
   schoolId: string;
   schoolYearId: string;
   recipientRole?: "parent" | "school";
+  recipientUserId?: string;
   parentId?: string;
   studentId?: string;
   studentName?: string;

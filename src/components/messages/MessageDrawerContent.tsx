@@ -114,6 +114,7 @@ export function MessageDrawerContent({
 
   function canShowMessageInConversation(message: Message) {
     if (isParent) return true;
+    if (user.role === "secretary") return Boolean(message.participantIds?.includes(user.id));
     if (message.schoolRecipient) {
       if (user.role === "school_admin") return message.schoolRecipient === "admin" || message.schoolRecipient === "both";
       if (user.role === "cashier") return message.schoolRecipient === "cashier" || message.schoolRecipient === "both";

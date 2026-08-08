@@ -1,7 +1,7 @@
-import { FileText, GraduationCap, Mail, Menu as MenuIcon } from "lucide-react";
+import { FileText, GraduationCap, Mail, Menu as MenuIcon, MessageSquare } from "lucide-react";
 import { InstallPwaNavButton } from "./InstallPwaNavButton";
 
-export type SecretaryTab = "students" | "correspondence" | "reports" | "menu";
+export type SecretaryTab = "students" | "correspondence" | "reports" | "messages" | "menu";
 
 export function SecretaryBottomNavigation({
   activeTab,
@@ -18,12 +18,13 @@ export function SecretaryBottomNavigation({
     { id: "students" as const, label: "Élèves", icon: GraduationCap },
     { id: "correspondence" as const, label: "Courriers", icon: Mail },
     { id: "reports" as const, label: "Rapports", icon: FileText },
+    { id: "messages" as const, label: "Message", icon: MessageSquare },
     { id: "menu" as const, label: "Menu", icon: MenuIcon },
   ];
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 max-w-full overflow-hidden border-t border-slate-200 bg-white/95 px-1 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur sm:px-2">
-      <div className={`mx-auto grid w-full max-w-lg ${showInstallButton ? "grid-cols-5" : "grid-cols-4"} gap-1`}>
+      <div className={`mx-auto grid w-full max-w-2xl ${showInstallButton ? "grid-cols-6" : "grid-cols-5"} gap-1`}>
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;

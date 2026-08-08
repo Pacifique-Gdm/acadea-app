@@ -557,14 +557,21 @@ service cloud.firestore {
 
     match /messages/{messageId} {
       allow read: if superAdmin()
-        || (role() in ["school_admin", "cashier"] && sameTenantResource())
-        || (disciplineTenantResource() && resource.data.schoolRecipient == "discipline")
+        || (schoolAdmin() && sameTenantResource()
+          && (resource.data.schoolRecipient in ["admin", "both"] || request.auth.uid in resource.data.participantIds))
+        || (signedIn() && role() == "cashier" && sameTenantResource()
+          && (resource.data.schoolRecipient in ["cashier", "both"] || request.auth.uid in resource.data.participantIds))
+        || (secretary() && sameTenantResource()
+          && request.auth.uid in resource.data.participantIds)
+        || (disciplineTenantResource()
+          && (resource.data.schoolRecipient == "discipline" || request.auth.uid in resource.data.participantIds))
         || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.threadParentId == tenantParentId());
-      allow create: if (signedIn()
+      allow create: if !request.resource.data.keys().hasAny(["participantIds", "recipientIds", "attachments"])
+        && ((signedIn()
           && role() in ["school_admin", "cashier"]
           && activeTenantYearCreate())
         || (activeDisciplineYearCreate()
-          && request.resource.data.schoolRecipient == "discipline");
+          && request.resource.data.schoolRecipient == "discipline"));
       allow update: if schoolAdmin() && activeTenantYearUpdate();
       allow delete: if schoolAdmin() && sameTenantResource()
         && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
@@ -572,11 +579,17 @@ service cloud.firestore {
 
     match /conversations/{conversationId} {
       allow read: if superAdmin()
-        || (schoolAdmin() && sameTenantResource() && resource.data.schoolRecipient in ["admin", "both"])
-        || (signedIn() && role() == "cashier" && sameTenantResource() && resource.data.schoolRecipient in ["cashier", "both"])
-        || (disciplineTenantResource() && resource.data.schoolRecipient == "discipline")
+        || (schoolAdmin() && sameTenantResource()
+          && (resource.data.schoolRecipient in ["admin", "both"] || request.auth.uid in resource.data.participantIds))
+        || (signedIn() && role() == "cashier" && sameTenantResource()
+          && (resource.data.schoolRecipient in ["cashier", "both"] || request.auth.uid in resource.data.participantIds))
+        || (disciplineTenantResource()
+          && (resource.data.schoolRecipient == "discipline" || request.auth.uid in resource.data.participantIds))
+        || (secretary() && sameTenantResource()
+          && request.auth.uid in resource.data.participantIds)
         || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.parentId == tenantParentId());
-      allow create: if (schoolAdmin()
+      allow create: if !request.resource.data.keys().hasAny(["participantIds"])
+        && ((schoolAdmin()
           && activeTenantYearCreate()
           && request.resource.data.schoolRecipient == "admin")
         || (signedIn()
@@ -584,7 +597,7 @@ service cloud.firestore {
           && activeTenantYearCreate()
           && request.resource.data.schoolRecipient == "cashier")
         || (activeDisciplineYearCreate()
-          && request.resource.data.schoolRecipient == "discipline");
+          && request.resource.data.schoolRecipient == "discipline"));
       allow update: if (schoolAdmin()
           && activeTenantYearUpdate()
           && resource.data.schoolRecipient in ["admin", "both"]
@@ -628,15 +641,29 @@ service cloud.firestore {
 
     match /notifications/{notificationId} {
       allow read: if superAdmin()
-        || (role() in ["school_admin", "cashier", "secretary"] && sameTenantResource())
+        || (role() in ["school_admin", "cashier"] && sameTenantResource()
+          && (resource.data.type != "message" || !("recipientUserId" in resource.data) || resource.data.recipientUserId == request.auth.uid))
+        || (secretary() && sameTenantResource()
+          && (resource.data.type != "message" || resource.data.recipientUserId == request.auth.uid))
+        || (disciplineTenantResource() && resource.data.type == "message" && resource.data.recipientUserId == request.auth.uid)
         || (disciplineTenantResource() && resource.data.recipientRole == "school" && resource.data.schoolRecipient == "discipline")
         || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.parentId == tenantParentId());
-      allow create: if signedIn()
+      allow create: if !request.resource.data.keys().hasAny(["recipientUserId"])
+        && signedIn()
         && ((role() in ["school_admin", "cashier", "secretary"] && activeTenantYearCreate())
           || (activeDisciplineYearCreate()
             && ((request.resource.data.recipientRole == "school" && request.resource.data.schoolRecipient == "discipline")
               || (request.resource.data.recipientRole == "parent" && request.resource.data.parentId is string))));
       allow update: if (role() in ["school_admin", "cashier"] && activeTenantYearUpdate())
+        || (signedIn()
+          && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId())
+          && resource.data.schoolId == tenantSchoolId()
+          && resource.data.recipientUserId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["read"]))
+        || (secretary()
+          && activeTenantYearUpdate()
+          && resource.data.recipientUserId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["read"]))
         || (disciplineDirector()
           && activeDisciplineYearUpdate()
           && resource.data.schoolRecipient == "discipline"

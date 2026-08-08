@@ -28,7 +28,9 @@ beforeEach(async () => {
   await seed(`schoolYears/${yearB}`, { id: yearB, schoolId: schoolB, status: "active" });
   const shared = { schoolId: schoolA, schoolYearId: yearA };
   await seed("messages/message-a", { id: "message-a", ...shared, threadParentId: "parent-a", schoolRecipient: "admin" });
+  await seed("messages/message-secretary", { id: "message-secretary", ...shared, senderId: "admin-a", recipientParentId: "school", participantIds: ["admin-a", "secretary-a"], recipientIds: ["secretary-a"], subject: "Objet", body: "Corps", createdAt: "2026-08-08T10:00:00.000Z" });
   await seed("conversations/conversation-a", { id: "conversation-a", ...shared, parentId: "parent-a", threadId: "thread-a", threadParentId: "parent-a", schoolRecipient: "admin" });
+  await seed("conversations/conversation-secretary", { id: "conversation-secretary", ...shared, parentId: "school", threadId: "thread-secretary", threadParentId: "school", participantIds: ["admin-a", "secretary-a"] });
   await seed("notifications/notification-a", { id: "notification-a", ...shared, parentId: "parent-a", recipientRole: "school", schoolRecipient: "admin" });
   await seed("disciplineSanctions/sanction-a", { id: "sanction-a", ...shared, status: "active" });
   await seed("attendance/attendance-a", { id: "attendance-a", ...shared, studentId: "student-a", status: "present" });
@@ -46,7 +48,7 @@ describe("SEC-015 — communications, notifications et discipline", () => {
     const admin = auth("admin-a", "school_admin");
     for (const [name, id] of [["messages", "message-a"], ["conversations", "conversation-a"], ["notifications", "notification-a"], ["disciplineSanctions", "sanction-a"], ["attendance", "attendance-a"]]) {
       await assertSucceeds(getDoc(doc(admin, name, id)));
-      const tenantQuery = name === "conversations"
+      const tenantQuery = name === "conversations" || name === "messages"
         ? query(collection(admin, name), where("schoolId", "==", schoolA), where("schoolRecipient", "==", "admin"))
         : query(collection(admin, name), where("schoolId", "==", schoolA));
       const result = await assertSucceeds(getDocs(tenantQuery));
@@ -60,6 +62,22 @@ describe("SEC-015 — communications, notifications et discipline", () => {
       await assertFails(getDoc(doc(auth("unknown-a", "unknown"), name, id)));
       await assertFails(getDoc(doc(environment.unauthenticatedContext().firestore(), name, id)));
     }
+  });
+
+  it("limite la messagerie Secrétaire au participant exact et au même établissement", async () => {
+    const secretary = auth("secretary-a", "secretary");
+    await assertSucceeds(getDoc(doc(secretary, "messages", "message-secretary")));
+    await assertSucceeds(getDoc(doc(secretary, "conversations", "conversation-secretary")));
+    const list = await assertSucceeds(getDocs(query(collection(secretary, "messages"), where("schoolId", "==", schoolA), where("schoolYearId", "==", yearA), where("participantIds", "array-contains", "secretary-a"))));
+    expect(list.docs.map((item) => item.id)).toEqual(["message-secretary"]);
+    await assertFails(getDoc(doc(auth("secretary-b", "secretary"), "messages", "message-secretary")));
+    await assertFails(getDoc(doc(auth("secretary-other-school", "secretary", schoolB), "messages", "message-secretary")));
+  });
+
+  it("refuse la création directe du nouveau format serveur", async () => {
+    const admin = auth("admin-a", "school_admin");
+    await assertFails(setDoc(doc(admin, "messages", "message-forged"), { id: "message-forged", schoolId: schoolA, schoolYearId: yearA, participantIds: ["admin-a", "secretary-a"], recipientIds: ["secretary-a"] }));
+    await assertFails(setDoc(doc(auth("secretary-a", "secretary"), "messages", "message-secretary-forged"), { id: "message-secretary-forged", schoolId: schoolA, schoolYearId: yearA, participantIds: ["secretary-a", "admin-a"], recipientIds: ["admin-a"] }));
   });
 
   it("limite un parent à ses propres messages, conversations et notifications", async () => {

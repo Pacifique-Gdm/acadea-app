@@ -94,7 +94,7 @@ describe("filtres du Contrôle", () => {
     expect(adminBar).toContain("lg:flex-nowrap");
     expect(adminBar).toContain("lg:flex-1 lg:basis-0");
     expect(adminBar).toContain('className="mb-3 w-full min-w-0 max-w-full"');
-    expect(adminBar).toContain('className="grid w-full min-w-0 grid-cols-1 items-stretch gap-2 box-border sm:grid-cols-2 lg:flex lg:flex-nowrap lg:items-center"');
+    expect(adminBar).toContain('className="grid w-full min-w-0 grid-cols-1 items-stretch gap-2 box-border sm:grid-cols-2 lg:flex lg:flex-nowrap lg:items-center lg:gap-1.5"');
   });
 
   it("réinitialise le timer du message de confirmation et le nettoie", () => {

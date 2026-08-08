@@ -3,7 +3,7 @@ import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestE
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
 import { doc, setDoc } from "firebase/firestore";
 
-const projectId = "demo-acadea-valves-storage";
+const projectId = "acadea-staging";
 const schoolId = "school-a";
 const yearId = "year-a";
 const publicationId = "valve-a";

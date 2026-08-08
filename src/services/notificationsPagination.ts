@@ -26,6 +26,7 @@ function notificationRecipientConstraints(user: AppUser, schoolId: string, schoo
   if (user.role === "parent") {
     return [...constraints, where("parentId", "==", user.parentId)];
   }
+  if (user.role === "secretary") return [...constraints, where("recipientUserId", "==", user.id)];
   if (user.role === "discipline_director") {
     return [...constraints, where("recipientRole", "==", "school"), where("schoolRecipient", "==", "discipline")];
   }
@@ -65,6 +66,10 @@ export async function countUnreadNotifications(user: AppUser, schoolId: string, 
     const snapshot = await getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("parentId", "==", user.parentId)));
     return snapshot.data().count;
   }
+  if (user.role === "secretary") {
+    const snapshot = await getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("recipientUserId", "==", user.id)));
+    return snapshot.data().count;
+  }
 
   const schoolRecipient = user.role === "cashier" ? "cashier" : user.role === "discipline_director" ? "discipline" : "admin";
   const visibleRecipients = user.role === "discipline_director" ? ["discipline"] : [schoolRecipient, "both"];
@@ -83,6 +88,7 @@ export async function countUnreadNotifications(user: AppUser, schoolId: string, 
 }
 
 function canMarkSchoolNotificationRead(user: AppUser, notification: AppNotification) {
+  if (user.role === "secretary") return notification.recipientUserId === user.id;
   if (notification.parentId || notification.recipientRole !== "school") return false;
   if (!notification.schoolRecipient) return true;
   if (user.role === "school_admin") return notification.schoolRecipient === "admin" || notification.schoolRecipient === "both";
@@ -116,6 +122,13 @@ export async function markNotificationsReadTargeted(user: AppUser, schoolId: str
 
   if (user.role === "parent") {
     const snapshot = await getDocs(query(collection(database, "notifications"), ...baseConstraints, where("parentId", "==", user.parentId)));
+    const notificationIds = snapshot.docs.map((item) => item.id);
+    await commitReadUpdates(database, notificationIds);
+    return notificationIds.length;
+  }
+
+  if (user.role === "secretary") {
+    const snapshot = await getDocs(query(collection(database, "notifications"), ...baseConstraints, where("recipientUserId", "==", user.id)));
     const notificationIds = snapshot.docs.map((item) => item.id);
     await commitReadUpdates(database, notificationIds);
     return notificationIds.length;

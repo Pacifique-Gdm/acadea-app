@@ -30,6 +30,7 @@ import { Dashboard } from "./modules/dashboard/Dashboard";
 import { ReportsModule } from "./modules/reports/ReportsModule";
 import { FinancialReportPage } from "./modules/reports/FinancialReportPage";
 import { MessagesModule } from "./modules/messages/MessagesModule";
+import { SecretaryMessagesModule } from "./modules/messages/SecretaryMessagesModule";
 import { AdminDrawer } from "./components/ui";
 import { useBillingControls } from "./hooks/useBillingControls";
 import { reconcileRealtimeValves, useRealtimeValves } from "./hooks/useRealtimeValves";
@@ -897,6 +898,12 @@ export default function App() {
               onRefresh={refreshCurrentYearData}
               onToggleNotifications={openNotifications}
               onCloseNotifications={closeNotifications}
+              onRealtimeNotifications={(notifications) => {
+                if (notifications.length > 0) updateData({ notifications: mergeNotificationsById(data.notifications, notifications) }, { persist: false });
+              }}
+              onRealtimeMessages={(messages) => {
+                if (messages.length > 0) updateData({ messages: mergeMessagesById(data.messages, messages) }, { persist: false });
+              }}
               roleLabels={roleLabels}
             />
           </>
@@ -906,6 +913,7 @@ export default function App() {
         )}
         renderCorrespondence={() => <SecretaryCorrespondenceModule user={user} users={data.users} school={school} year={selectedYear} />}
         renderReports={() => <SecretaryReportsModule user={user} school={school} year={selectedYear} />}
+        renderMessages={() => <SecretaryMessagesModule user={user} data={data} school={school} year={selectedYear} updateData={updateData} />}
         renderMenu={() => <SecretaryMenuModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} createId={uid} studentImportKey={studentImportKey} onLogout={logout} valvesUploadsEnabled={billingControls.controls.valvesUploadsEnabled} maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES} initialBiometricView={secretaryBiometricView} onBiometricViewChange={(view) => navigate(view === "fingerprints" ? "/secretariat/empreintes" : view === "cards" ? "/secretariat/cartes" : view === "menu" ? "/secretariat/empreintes-cartes" : "/dashboard")} />}
         renderStudents={() => secretaryStudentDetailMatch ? (
           <StudentDetailPage

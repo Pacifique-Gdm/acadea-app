@@ -83,7 +83,7 @@ declare module "firebase/firestore" {
   export function doc(collectionRef: unknown): { id: string };
   export function collection(db: unknown, collectionName: string): unknown;
   export function query(ref: unknown, ...constraints: unknown[]): unknown;
-  export function where(field: string, operator: "==", value: unknown): unknown;
+  export function where(field: string, operator: "==" | "in" | "array-contains", value: unknown): unknown;
   export function setDoc(ref: unknown, data: unknown, options?: { merge?: boolean }): Promise<void>;
   export function deleteDoc(ref: unknown): Promise<void>;
   export function getDoc(ref: unknown): Promise<{ id: string; exists(): boolean; data(): Record<string, unknown> }>;

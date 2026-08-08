@@ -10,6 +10,7 @@ describe("couverture SEC-008 des endpoints sensibles", () => {
     ["provisioning comptes", "../../api/provision-school-account.js", "provision.account"],
     ["gestion/suppression école", "../../api/manage-school.js", "school.${action"],
     ["message parent", "../../api/send-parent-message.js", "parent.message.send"],
+    ["message établissement", "../../api/send-school-message.js", "school.message.send"],
   ])("protège %s côté API", (_label, path, action) => {
     const source = read(path);
     expect(source).toContain("enforceApiRateLimit");

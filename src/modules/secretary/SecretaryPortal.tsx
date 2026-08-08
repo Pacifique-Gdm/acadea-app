@@ -1,12 +1,13 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { FileText, GraduationCap, Mail, Menu as MenuIcon } from "lucide-react";
+import { FileText, GraduationCap, Mail, Menu as MenuIcon, MessageSquare } from "lucide-react";
 import type { SecretaryTab } from "../../components/layout/SecretaryBottomNavigation";
 import { SectionTitle } from "../../components/ui";
 
 const tabContent: Record<Exclude<SecretaryTab, "students">, { title: string; description: string; icon: typeof Mail }> = {
   correspondence: { title: "Courriers", description: "Courriers administratifs entrants et sortants.", icon: Mail },
   reports: { title: "Rapports", description: "Documents administratifs structurés de l'établissement.", icon: FileText },
+  messages: { title: "Messages", description: "Échanges sécurisés de l'établissement.", icon: MessageSquare },
   menu: { title: "Menu", description: "Listes, exports, profil et fonctions secondaires.", icon: MenuIcon },
 };
 
@@ -15,6 +16,7 @@ export function SecretaryPortal({
   renderStudents,
   renderCorrespondence,
   renderReports,
+  renderMessages,
   renderMenu,
   renderBottomNavigation,
   initialTab = "students",
@@ -23,6 +25,7 @@ export function SecretaryPortal({
   renderStudents?: () => ReactNode;
   renderCorrespondence?: () => ReactNode;
   renderReports?: () => ReactNode;
+  renderMessages?: () => ReactNode;
   renderMenu?: () => ReactNode;
   renderBottomNavigation: (activeTab: SecretaryTab, onTab: (tab: SecretaryTab) => void) => ReactNode;
   initialTab?: SecretaryTab;
@@ -38,8 +41,9 @@ export function SecretaryPortal({
         {activeTab === "students" && (renderStudents?.() ?? <SectionTitle title="Élèves" subtitle="Gestion administrative des élèves." />)}
         {activeTab === "correspondence" && renderCorrespondence?.()}
         {activeTab === "reports" && renderReports?.()}
+        {activeTab === "messages" && renderMessages?.()}
         {activeTab === "menu" && renderMenu?.()}
-        {section && !(activeTab === "correspondence" && renderCorrespondence) && !(activeTab === "reports" && renderReports) && !(activeTab === "menu" && renderMenu) && (
+        {section && !(activeTab === "correspondence" && renderCorrespondence) && !(activeTab === "reports" && renderReports) && !(activeTab === "messages" && renderMessages) && !(activeTab === "menu" && renderMenu) && (
           <section className="grid gap-4">
             <SectionTitle title={section.title} subtitle={section.description} />
             <div className="grid min-h-48 place-items-center rounded border border-slate-200 bg-white p-6 text-center shadow-sm">

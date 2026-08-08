@@ -18,6 +18,26 @@ service firebase.storage {
       return role() in ["school_admin", "admin", "secretary"];
     }
 
+    function messagingRole() {
+      return role() in ["school_admin", "admin", "cashier", "discipline_director", "secretary"];
+    }
+
+    function validMessageObject(fileName, schoolId, schoolYearId) {
+      return request.resource.size > 0
+        && request.resource.size <= 10 * 1024 * 1024
+        && request.resource.metadata.schoolId == schoolId
+        && request.resource.metadata.schoolYearId == schoolYearId
+        && request.resource.metadata.originalName is string
+        && request.resource.metadata.originalName.size() > 0
+        && request.resource.metadata.originalName.size() <= 120
+        && (
+          (request.resource.contentType == "application/pdf" && fileName.matches('^[0-9a-fA-F-]{36}\\.pdf$'))
+          || (request.resource.contentType == "image/jpeg" && fileName.matches('^[0-9a-fA-F-]{36}\\.(jpg|jpeg)$'))
+          || (request.resource.contentType == "image/png" && fileName.matches('^[0-9a-fA-F-]{36}\\.png$'))
+          || (request.resource.contentType == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" && fileName.matches('^[0-9a-fA-F-]{36}\\.docx$'))
+        );
+    }
+
     function schoolAcceptsWrites(schoolId) {
       return firestore.exists(/databases/(default)/documents/schools/$(schoolId))
         && firestore.get(/databases/(default)/documents/schools/$(schoolId)).data.status != "deleting";
@@ -78,6 +98,33 @@ service firebase.storage {
         && role() == "secretary"
         && tenantSchoolId() == schoolId
         && correspondence().schoolId == schoolId;
+    }
+
+    match /message-uploads/{schoolId}/{senderId}/{draftId}/{fileName} {
+      allow read: if false;
+      allow create: if signedIn()
+        && messagingRole()
+        && request.auth.uid == senderId
+        && tenantSchoolId() == schoolId
+        && schoolAcceptsWrites(schoolId)
+        && request.resource.metadata.senderId == senderId
+        && request.resource.metadata.draftId == draftId
+        && validMessageObject(fileName, schoolId, request.resource.metadata.schoolYearId);
+      allow update: if false;
+      allow delete: if signedIn() && request.auth.uid == senderId && tenantSchoolId() == schoolId;
+    }
+
+    match /messages/{schoolId}/{conversationId}/{messageId}/{fileName} {
+      function message() {
+        return firestore.get(/databases/(default)/documents/messages/$(messageId)).data;
+      }
+      allow read: if signedIn()
+        && tenantSchoolId() == schoolId
+        && message().schoolId == schoolId
+        && message().conversationId == conversationId
+        && message().participantIds is list
+        && request.auth.uid in message().participantIds;
+      allow write: if false;
     }
   }
 }

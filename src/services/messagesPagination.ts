@@ -27,6 +27,7 @@ function messageConversationConstraints(user: AppUser, conversation: Conversatio
   if (user.role === "parent") {
     return [...constraints, where("threadParentId", "==", user.parentId)];
   }
+  if (conversation.participantIds) return [...constraints, where("participantIds", "array-contains", user.id)];
   return constraints;
 }
 

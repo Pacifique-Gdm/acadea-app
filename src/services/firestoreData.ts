@@ -171,6 +171,17 @@ export async function loadFirestoreBootstrapData(user: AppUser): Promise<Firesto
   return { users: [user], schools, schoolYears };
 }
 
+async function loadSchoolMessages(user: AppUser, schoolId: string, schoolYearId: string) {
+  if (!db) return [];
+  const base = [where("schoolId", "==", schoolId), where("schoolYearId", "==", schoolYearId)];
+  const legacyRecipients = user.role === "cashier" ? ["cashier", "both"] : ["admin", "both"];
+  const [legacy, personal] = await Promise.all([
+    withFirestoreTimeout(getDocs(query(collection(db, "messages"), ...base, where("schoolRecipient", "in", legacyRecipients))), "messages"),
+    withFirestoreTimeout(getDocs(query(collection(db, "messages"), ...base, where("participantIds", "array-contains", user.id))), "messages"),
+  ]).catch((error) => { throw describeFirestoreError("messages", error); });
+  return Array.from(new Map([...legacy.docs, ...personal.docs].map((item) => [item.id, { id: item.id, ...item.data() } as AppData["messages"][number]])).values());
+}
+
 export async function loadFirestoreData(user?: AppUser, schoolYearId?: string, bootstrapData?: FirestoreBootstrapData) {
   if (!canUseFirestoreData() || !db) return null;
 
@@ -261,7 +272,7 @@ export async function loadFirestoreData(user?: AppUser, schoolYearId?: string, b
       loadCollection<AppData["parents"][number]>("parents", schoolFilter),
       loadCollection<AppData["payments"][number]>("payments", annualFilter),
       loadCollection<AppData["expenses"][number]>("expenses", annualFilter),
-      loadCollection<AppData["messages"][number]>("messages", annualFilter),
+      loadSchoolMessages(user, user.schoolId, schoolYearId as string),
       loadCollection<AppData["valves"][number]>("valves", annualFilter),
     ]);
     [scopedData.feeTypes, scopedData.students, scopedData.parents, scopedData.payments, scopedData.expenses, scopedData.messages, scopedData.valves] = commonLoads;
@@ -368,7 +379,7 @@ export async function loadFirestoreYearData(user: AppUser, schoolYearId: string)
     feeTypes: await loadCollection<AppData["feeTypes"][number]>("feeTypes", annualFilter),
     payments: await loadCollection<AppData["payments"][number]>("payments", annualFilter),
     expenses: await loadCollection<AppData["expenses"][number]>("expenses", annualFilter),
-    messages: await loadCollection<AppData["messages"][number]>("messages", annualFilter),
+    messages: await loadSchoolMessages(user, user.schoolId, schoolYearId),
     valves: await loadCollection<AppData["valves"][number]>("valves", annualFilter),
     attendance: await loadAttendanceCollection(annualFilter),
     attendanceSettings: await loadAttendanceSettingsCollection(annualFilter),

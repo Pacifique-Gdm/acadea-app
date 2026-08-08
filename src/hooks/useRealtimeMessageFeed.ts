@@ -47,6 +47,18 @@ function messageFeedQueries(database: Firestore, user: AppUser, schoolId: string
         where("schoolRecipient", "==", "discipline"),
         ...recentConstraints,
       ),
+      query(messagesCollection, ...constraints, where("participantIds", "array-contains", user.id), ...recentConstraints),
+    ];
+  }
+
+  if (user.role === "secretary") {
+    return [
+      query(
+        messagesCollection,
+        ...constraints,
+        where("participantIds", "array-contains", user.id),
+        ...recentConstraints,
+      ),
     ];
   }
 
@@ -58,6 +70,7 @@ function messageFeedQueries(database: Firestore, user: AppUser, schoolId: string
       where("schoolRecipient", "in", recipients),
       ...recentConstraints,
     ),
+    query(messagesCollection, ...constraints, where("participantIds", "array-contains", user.id), ...recentConstraints),
   ];
 }
 

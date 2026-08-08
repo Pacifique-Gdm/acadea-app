@@ -59,6 +59,12 @@ function realtimeNotificationQueries(
     ];
   }
 
+  if (user.role === "secretary") {
+    return [query(notificationCollection, ...constraints, where("recipientUserId", "==", user.id), ...readConstraint, ...recentConstraints)];
+  }
+
+  const personalQuery = query(notificationCollection, ...constraints, where("recipientUserId", "==", user.id), ...readConstraint, ...recentConstraints);
+
   const recipientValues = schoolNotificationValues(user);
   const explicitQuery = query(
     notificationCollection,
@@ -69,7 +75,7 @@ function realtimeNotificationQueries(
     ...recentConstraints,
   );
 
-  if (user.role === "discipline_director") return [explicitQuery];
+  if (user.role === "discipline_director") return [explicitQuery, personalQuery];
 
   const legacyQuery = query(
     notificationCollection,
@@ -78,7 +84,7 @@ function realtimeNotificationQueries(
     ...readConstraint,
     ...recentConstraints,
   );
-  return [explicitQuery, legacyQuery];
+  return [explicitQuery, legacyQuery, personalQuery];
 }
 
 function mergeRealtimeNotifications(user: AppUser, messages: Message[], snapshots: AppNotification[][]) {
@@ -88,6 +94,8 @@ function mergeRealtimeNotifications(user: AppUser, messages: Message[], snapshot
 }
 
 function canShowSchoolNotification(user: AppUser, notification: AppNotification, messages: Message[]) {
+  if (notification.recipientUserId) return notification.recipientUserId === user.id;
+  if (user.role === "secretary") return notification.recipientUserId === user.id;
   if (notification.parentId || notification.recipientRole !== "school") return false;
   if (notification.schoolRecipient) {
     if (user.role === "school_admin") return notification.schoolRecipient === "admin" || notification.schoolRecipient === "both";
