@@ -4,7 +4,7 @@ import { FormPanel } from "../../components/ui";
 import { db } from "../../firebase";
 import { persistMessageWithConversation } from "../../services/conversations";
 import { canUseFirestoreData } from "../../services/firestoreData";
-import { sendSchoolMessage } from "../../services/schoolMessaging";
+import { loadSchoolMessageRecipients, sendSchoolMessage, type SchoolMessageRecipient } from "../../services/schoolMessaging";
 import { nextMessageThreadId } from "../../utils/messageThreads";
 import { schoolSectionLabels, schoolSectionOrder } from "../../utils/schoolConfig";
 import { formatStudentClassName, getClassSection } from "../../utils/studentClasses";
@@ -50,6 +50,9 @@ export function MessagesModule({
   const [secretaryBody, setSecretaryBody] = useState("");
   const [secretaryFeedback, setSecretaryFeedback] = useState("");
   const [isSendingToSecretary, setIsSendingToSecretary] = useState(false);
+  const [secretaryRecipients, setSecretaryRecipients] = useState<SchoolMessageRecipient[]>([]);
+  const [isLoadingSecretaries, setIsLoadingSecretaries] = useState(true);
+  const [secretaryLoadError, setSecretaryLoadError] = useState("");
   const canSend = user.role !== "parent" && year.status !== "archived";
   const isSchoolAdmin = user.role === "school_admin";
   const isCashier = user.role === "cashier";
@@ -82,7 +85,16 @@ export function MessagesModule({
   const selectedParent = yearData.parents.find((parent) => parent.id === recipientParentId);
   const selectedAdminParents = sameSchoolParents.filter((parent) => selectedAdminParentIds.includes(parent.id));
   const selectedDisciplineParents = yearData.parents.filter((parent) => selectedDisciplineParentIds.includes(parent.id));
-  const secretaryRecipients = data.users.filter((candidate) => candidate.schoolId === school.id && candidate.role === "secretary" && candidate.status !== "inactive");
+  useEffect(() => {
+    let active = true;
+    setIsLoadingSecretaries(true);
+    setSecretaryLoadError("");
+    loadSchoolMessageRecipients()
+      .then((recipients) => { if (active) setSecretaryRecipients(recipients.filter((recipient) => recipient.role === "secretary")); })
+      .catch((error) => { if (active) setSecretaryLoadError(error instanceof Error ? error.message : "Destinataires indisponibles. Veuillez réessayer."); })
+      .finally(() => { if (active) setIsLoadingSecretaries(false); });
+    return () => { active = false; };
+  }, [user.id]);
 
   async function sendToSecretaries() {
     if (isSendingToSecretary || !selectedSecretaryIds.length || !secretarySubject.trim() || !secretaryBody.trim()) return;
@@ -326,11 +338,14 @@ export function MessagesModule({
 
   return (
     <section className="grid min-w-0 gap-4">
-      {secretaryRecipients.length > 0 && (
+      {(secretaryRecipients.length > 0 || isLoadingSecretaries || secretaryLoadError) && (
         <FormPanel title="Écrire au Secrétaire">
           <div className="grid gap-2 sm:grid-cols-2">
-            {secretaryRecipients.map((recipient) => <label key={recipient.id} className="flex min-h-11 cursor-pointer items-center gap-3 rounded border border-slate-200 px-3 py-2 hover:bg-slate-50"><input type="checkbox" checked={selectedSecretaryIds.includes(recipient.id)} onChange={() => setSelectedSecretaryIds((current) => current.includes(recipient.id) ? current.filter((id) => id !== recipient.id) : [...current, recipient.id])} /><span className="text-sm font-semibold text-slate-700">{recipient.name}</span></label>)}
+            {secretaryRecipients.map((recipient) => <label key={recipient.uid} className="flex min-h-11 cursor-pointer items-center gap-3 rounded border border-slate-200 px-3 py-2 hover:bg-slate-50"><input type="checkbox" checked={selectedSecretaryIds.includes(recipient.uid)} onChange={() => setSelectedSecretaryIds((current) => current.includes(recipient.uid) ? current.filter((id) => id !== recipient.uid) : [...current, recipient.uid])} /><span className="text-sm font-semibold text-slate-700">{recipient.name}</span></label>)}
           </div>
+          {isLoadingSecretaries && <p className="text-sm text-slate-500">Chargement des Secrétaires…</p>}
+          {!isLoadingSecretaries && !secretaryRecipients.length && !secretaryLoadError && <p className="text-sm text-slate-500">Aucun Secrétaire actif disponible.</p>}
+          {secretaryLoadError && <p className="rounded bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{secretaryLoadError}</p>}
           <input value={secretarySubject} onChange={(event) => setSecretarySubject(event.target.value)} className="input" placeholder="Objet" maxLength={200} />
           <textarea value={secretaryBody} onChange={(event) => setSecretaryBody(event.target.value)} className="input min-h-32" placeholder="Message" maxLength={5000} />
           {secretaryFeedback && <p className={`rounded px-3 py-2 text-sm font-semibold ${secretaryFeedback === "Message envoyé avec succès." ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{secretaryFeedback}</p>}

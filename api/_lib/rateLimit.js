@@ -20,6 +20,7 @@ export const API_RATE_LIMITS = Object.freeze({
   SCHOOL_DELETE: { limit: 5, windowMs: 60 * 60_000 },
   PARENT_MESSAGE: { limit: 12, windowMs: 60_000 },
   SCHOOL_MESSAGE: { limit: 30, windowMs: 60_000 },
+  MESSAGE_RECIPIENTS: { limit: 60, windowMs: 60_000 },
 });
 
 function limiterId(actorId, schoolId, action) {

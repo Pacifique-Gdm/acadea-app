@@ -2,17 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { requireActiveSchoolYear } from "./_lib/schoolYear.js";
+import { allowedRecipientRoles, normalizedMessagingRole, requireMessagingCaller } from "./_lib/messageRecipients.js";
 
 export const MAX_TOTAL_BYTES = 10 * 1024 * 1024;
 const MAX_ATTACHMENTS = 10;
-const ALLOWED_SENDERS = new Set(["school_admin", "admin", "cashier", "discipline_director", "secretary"]);
-const RECIPIENTS_BY_ROLE = {
-  school_admin: new Set(["secretary", "parent"]),
-  admin: new Set(["secretary", "parent"]),
-  cashier: new Set(["secretary", "parent"]),
-  discipline_director: new Set(["secretary", "parent"]),
-  secretary: new Set(["school_admin", "cashier", "discipline_director", "parent"]),
-};
 const FILE_POLICY = new Map([
   [".pdf", "application/pdf"],
   [".jpg", "image/jpeg"],
@@ -40,7 +33,7 @@ function text(value, max = 2000) {
 }
 
 export function normalizedRole(value) {
-  return value === "admin" ? "school_admin" : value;
+  return normalizedMessagingRole(value);
 }
 
 function httpError(statusCode, code, message) {
@@ -51,21 +44,9 @@ function stableId(prefix, ...values) {
   return `${prefix}-${createHash("sha256").update(values.join("\u001f")).digest("hex").slice(0, 24)}`;
 }
 
-async function requireCaller(auth, db, token) {
-  const decoded = await auth.verifyIdToken(token, true);
-  const role = normalizedRole(decoded.role);
-  if (!decoded.schoolId || !ALLOWED_SENDERS.has(decoded.role)) throw httpError(403, "not-authorized", "Action non autorisee.");
-  const snapshot = await db.doc(`users/${decoded.uid}`).get();
-  const profile = snapshot.exists ? snapshot.data() : undefined;
-  if (!profile || normalizedRole(profile.role) !== role || profile.schoolId !== decoded.schoolId || profile.active === false || profile.status === "inactive") {
-    throw httpError(403, "not-authorized", "Profil utilisateur non autorise.");
-  }
-  return { uid: decoded.uid, schoolId: decoded.schoolId, role, profile };
-}
-
 export async function resolveRecipients(db, caller, recipientRoles, recipientIds, schoolYearId) {
   const requestedRoles = [...new Set(recipientRoles.map(normalizedRole))];
-  const allowed = RECIPIENTS_BY_ROLE[caller.role] ?? new Set();
+  const allowed = allowedRecipientRoles(caller.role);
   if (!requestedRoles.length || requestedRoles.some((role) => !allowed.has(role))) throw httpError(400, "invalid-recipient", "Destinataire non autorise.");
   if (!recipientIds.length || recipientIds.length > 50) throw httpError(400, "invalid-recipient", "Selection de destinataires invalide.");
   const snapshots = await db.getAll(...recipientIds.map((id) => db.doc(`users/${id}`)));
@@ -142,7 +123,7 @@ export default async function handler(req, res) {
     const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
     if (!token) throw httpError(401, "not-authenticated", "Authentification requise.");
     const { auth, db, bucket } = initAdmin();
-    const caller = await requireCaller(auth, db, token);
+    const caller = await requireMessagingCaller(auth, db, token);
     const body = await readBody(req);
     const schoolYearId = text(body.schoolYearId, 120);
     const subject = text(body.subject, 200);

@@ -1,8 +1,8 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FilePlus2, MessageSquare, Search, X } from "lucide-react";
 import { FormPanel, SectionTitle } from "../../components/ui";
 import { deletePendingMessageAttachments, uploadPendingMessageAttachments } from "../../services/messageStorage";
-import { sendSchoolMessage, type SchoolMessageRecipientRole } from "../../services/schoolMessaging";
+import { loadSchoolMessageRecipients, sendSchoolMessage, type SchoolMessageRecipient, type SchoolMessageRecipientRole } from "../../services/schoolMessaging";
 import type { AppData, AppUser, Message, School, SchoolYear } from "../../types";
 import { formatMessageAttachmentSize, MAX_MESSAGE_ATTACHMENTS_TOTAL_SIZE, MESSAGE_ATTACHMENT_ACCEPT, validateMessageAttachments } from "../../utils/messageAttachments";
 
@@ -22,12 +22,26 @@ export function SecretaryMessagesModule({ user, data, school, year, updateData }
   const [files, setFiles] = useState<File[]>([]);
   const [feedback, setFeedback] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [directory, setDirectory] = useState<SchoolMessageRecipient[]>([]);
+  const [isLoadingRecipients, setIsLoadingRecipients] = useState(true);
+  const [recipientError, setRecipientError] = useState("");
   const requestKeyRef = useRef(crypto.randomUUID());
 
-  const administrativeUsers = useMemo(() => data.users.filter((candidate) => candidate.schoolId === school.id && candidate.id !== user.id && candidate.status !== "inactive" && administrativeRoles.some(({ role }) => role === candidate.role)), [data.users, school.id, user.id]);
-  const parentUsers = useMemo(() => data.users.filter((candidate) => candidate.schoolId === school.id && candidate.role === "parent" && candidate.status !== "inactive" && `${candidate.name} ${candidate.email} ${candidate.phone ?? ""}`.toLowerCase().includes(search.trim().toLowerCase())), [data.users, school.id, search]);
+  useEffect(() => {
+    let active = true;
+    setIsLoadingRecipients(true);
+    setRecipientError("");
+    loadSchoolMessageRecipients()
+      .then((recipients) => { if (active) setDirectory(recipients); })
+      .catch((error) => { if (active) setRecipientError(error instanceof Error ? error.message : "Destinataires indisponibles. Veuillez réessayer."); })
+      .finally(() => { if (active) setIsLoadingRecipients(false); });
+    return () => { active = false; };
+  }, [user.id]);
+
+  const administrativeUsers = useMemo(() => directory.filter((candidate) => administrativeRoles.some(({ role }) => role === candidate.role)), [directory]);
+  const parentUsers = useMemo(() => directory.filter((candidate) => candidate.role === "parent" && candidate.name.toLowerCase().includes(search.trim().toLowerCase())), [directory, search]);
   const recipients = recipientKind === "administrative" ? administrativeUsers : parentUsers;
-  const selected = recipients.filter((candidate) => recipientIds.includes(candidate.id));
+  const selected = recipients.filter((candidate) => recipientIds.includes(candidate.uid));
   const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
 
   function changeRecipientKind(kind: RecipientKind) {
@@ -99,8 +113,11 @@ export function SecretaryMessagesModule({ user, data, school, year, updateData }
       </label>
       {recipientKind === "parents" && <label className="flex items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2"><Search className="h-4 w-4 text-slate-400" /><input className="min-w-0 flex-1 outline-none" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Rechercher un parent" /></label>}
       <div className="grid max-h-60 gap-2 overflow-y-auto sm:grid-cols-2">
-        {recipients.map((recipient) => <label key={recipient.id} className="flex min-h-11 cursor-pointer items-center gap-3 rounded border border-slate-200 px-3 py-2 hover:bg-slate-50"><input type="checkbox" checked={recipientIds.includes(recipient.id)} onChange={() => toggleRecipient(recipient.id)} /><span><strong className="block text-sm text-slate-800">{recipient.name}</strong><span className="text-xs text-slate-500">{administrativeRoles.find(({ role }) => role === recipient.role)?.label ?? "Parent"}</span></span></label>)}
+        {recipients.map((recipient) => <label key={recipient.uid} className="flex min-h-11 cursor-pointer items-center gap-3 rounded border border-slate-200 px-3 py-2 hover:bg-slate-50"><input type="checkbox" checked={recipientIds.includes(recipient.uid)} onChange={() => toggleRecipient(recipient.uid)} /><span><strong className="block text-sm text-slate-800">{recipient.name}</strong><span className="text-xs text-slate-500">{administrativeRoles.find(({ role }) => role === recipient.role)?.label ?? "Parent"}</span></span></label>)}
       </div>
+      {isLoadingRecipients && <p className="text-sm text-slate-500">Chargement des destinataires…</p>}
+      {!isLoadingRecipients && !recipients.length && !recipientError && <p className="text-sm text-slate-500">Aucun destinataire autorisé disponible.</p>}
+      {recipientError && <p className="rounded bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{recipientError}</p>}
       <input className="input" value={subject} onChange={(event) => setSubject(event.target.value)} placeholder="Objet" maxLength={200} />
       <textarea className="input min-h-32" value={body} onChange={(event) => setBody(event.target.value)} placeholder="Message" maxLength={5000} />
       <label className="secondary-button w-full cursor-pointer justify-center"><FilePlus2 className="h-4 w-4" /> Joindre des fichiers<input className="sr-only" type="file" multiple accept={MESSAGE_ATTACHMENT_ACCEPT} onChange={(event) => { addFiles(event.target.files); event.currentTarget.value = ""; }} /></label>
