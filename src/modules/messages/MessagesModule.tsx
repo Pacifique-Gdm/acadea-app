@@ -36,6 +36,7 @@ export function MessagesModule({
   createId,
 }: MessagesModuleProps) {
   const [recipientParentId, setRecipientParentId] = useState<string>("");
+  const [recipientCategory, setRecipientCategory] = useState<"parents" | "administrative">("parents");
   const [adminRecipientMode, setAdminRecipientMode] = useState<"all" | "parents" | "sections" | "classes">("all");
   const [selectedAdminParentIds, setSelectedAdminParentIds] = useState<string[]>([]);
   const [selectedAdminSection, setSelectedAdminSection] = useState<SchoolSection | "">("");
@@ -45,14 +46,11 @@ export function MessagesModule({
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [messageFeedback, setMessageFeedback] = useState("");
-  const [selectedSecretaryIds, setSelectedSecretaryIds] = useState<string[]>([]);
-  const [secretarySubject, setSecretarySubject] = useState("");
-  const [secretaryBody, setSecretaryBody] = useState("");
-  const [secretaryFeedback, setSecretaryFeedback] = useState("");
-  const [isSendingToSecretary, setIsSendingToSecretary] = useState(false);
-  const [secretaryRecipients, setSecretaryRecipients] = useState<SchoolMessageRecipient[]>([]);
-  const [isLoadingSecretaries, setIsLoadingSecretaries] = useState(true);
-  const [secretaryLoadError, setSecretaryLoadError] = useState("");
+  const [selectedAdministrativeIds, setSelectedAdministrativeIds] = useState<string[]>([]);
+  const [administrativeRecipients, setAdministrativeRecipients] = useState<SchoolMessageRecipient[]>([]);
+  const [isLoadingAdministrativeRecipients, setIsLoadingAdministrativeRecipients] = useState(true);
+  const [administrativeLoadError, setAdministrativeLoadError] = useState("");
+  const [isSendingAdministrative, setIsSendingAdministrative] = useState(false);
   const canSend = user.role !== "parent" && year.status !== "archived";
   const isSchoolAdmin = user.role === "school_admin";
   const isCashier = user.role === "cashier";
@@ -87,31 +85,33 @@ export function MessagesModule({
   const selectedDisciplineParents = yearData.parents.filter((parent) => selectedDisciplineParentIds.includes(parent.id));
   useEffect(() => {
     let active = true;
-    setIsLoadingSecretaries(true);
-    setSecretaryLoadError("");
+    setIsLoadingAdministrativeRecipients(true);
+    setAdministrativeLoadError("");
     loadSchoolMessageRecipients()
-      .then((recipients) => { if (active) setSecretaryRecipients(recipients.filter((recipient) => recipient.role === "secretary")); })
-      .catch((error) => { if (active) setSecretaryLoadError(error instanceof Error ? error.message : "Destinataires indisponibles. Veuillez réessayer."); })
-      .finally(() => { if (active) setIsLoadingSecretaries(false); });
+      .then((recipients) => { if (active) setAdministrativeRecipients(recipients.filter((recipient) => recipient.role !== "parent")); })
+      .catch((error) => { if (active) setAdministrativeLoadError(error instanceof Error ? error.message : "Destinataires indisponibles. Veuillez réessayer."); })
+      .finally(() => { if (active) setIsLoadingAdministrativeRecipients(false); });
     return () => { active = false; };
   }, [user.id]);
 
-  async function sendToSecretaries() {
-    if (isSendingToSecretary || !selectedSecretaryIds.length || !secretarySubject.trim() || !secretaryBody.trim()) return;
-    setIsSendingToSecretary(true);
-    setSecretaryFeedback("");
+  async function sendToAdministrativeRecipients() {
+    if (isSendingAdministrative || !selectedAdministrativeIds.length || !subject.trim() || !body.trim()) return;
+    setIsSendingAdministrative(true);
+    setMessageFeedback("");
     try {
-      const message = await sendSchoolMessage({ schoolYearId: year.id, recipientRoles: ["secretary"], recipientIds: selectedSecretaryIds, subject: secretarySubject.trim(), body: secretaryBody.trim(), draftId: crypto.randomUUID(), attachments: [], idempotencyKey: crypto.randomUUID() });
+      const selectedRecipients = administrativeRecipients.filter((recipient) => selectedAdministrativeIds.includes(recipient.uid));
+      const recipientRoles = [...new Set(selectedRecipients.map((recipient) => recipient.role))];
+      const message = await sendSchoolMessage({ schoolYearId: year.id, recipientRoles, recipientIds: selectedAdministrativeIds, subject: subject.trim(), body: body.trim(), draftId: crypto.randomUUID(), attachments: [], idempotencyKey: crypto.randomUUID() });
       updateData({ messages: [message, ...data.messages.filter((item) => item.id !== message.id)] }, { persist: false });
-      setSelectedSecretaryIds([]);
-      setSecretarySubject("");
-      setSecretaryBody("");
-      setSecretaryFeedback("Message envoyé avec succès.");
+      setSelectedAdministrativeIds([]);
+      setSubject("");
+      setBody("");
+      setMessageFeedback("Message envoyé avec succès.");
     } catch (error) {
-      console.error("Envoi au Secrétaire impossible.", error);
-      setSecretaryFeedback(error instanceof Error ? error.message : "Message non envoyé. Veuillez réessayer.");
+      console.error("Envoi aux administratifs impossible.", error);
+      setMessageFeedback(error instanceof Error ? error.message : "Message non envoyé. Veuillez réessayer.");
     } finally {
-      setIsSendingToSecretary(false);
+      setIsSendingAdministrative(false);
     }
   }
 
@@ -179,6 +179,10 @@ export function MessagesModule({
 
   async function sendMessage() {
     setMessageFeedback("");
+    if (recipientCategory === "administrative") {
+      await sendToAdministrativeRecipients();
+      return;
+    }
     if (isSchoolAdmin && adminRecipientMode === "parents" && selectedAdminParentIds.length === 0) {
       setMessageFeedback("Message non envoyé. Aucun parent sélectionné.");
       return;
@@ -338,24 +342,26 @@ export function MessagesModule({
 
   return (
     <section className="grid min-w-0 gap-4">
-      {(secretaryRecipients.length > 0 || isLoadingSecretaries || secretaryLoadError) && (
-        <FormPanel title="Écrire au Secrétaire">
-          <div className="grid gap-2 sm:grid-cols-2">
-            {secretaryRecipients.map((recipient) => <label key={recipient.uid} className="flex min-h-11 cursor-pointer items-center gap-3 rounded border border-slate-200 px-3 py-2 hover:bg-slate-50"><input type="checkbox" checked={selectedSecretaryIds.includes(recipient.uid)} onChange={() => setSelectedSecretaryIds((current) => current.includes(recipient.uid) ? current.filter((id) => id !== recipient.uid) : [...current, recipient.uid])} /><span className="text-sm font-semibold text-slate-700">{recipient.name}</span></label>)}
-          </div>
-          {isLoadingSecretaries && <p className="text-sm text-slate-500">Chargement des Secrétaires…</p>}
-          {!isLoadingSecretaries && !secretaryRecipients.length && !secretaryLoadError && <p className="text-sm text-slate-500">Aucun Secrétaire actif disponible.</p>}
-          {secretaryLoadError && <p className="rounded bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{secretaryLoadError}</p>}
-          <input value={secretarySubject} onChange={(event) => setSecretarySubject(event.target.value)} className="input" placeholder="Objet" maxLength={200} />
-          <textarea value={secretaryBody} onChange={(event) => setSecretaryBody(event.target.value)} className="input min-h-32" placeholder="Message" maxLength={5000} />
-          {secretaryFeedback && <p className={`rounded px-3 py-2 text-sm font-semibold ${secretaryFeedback === "Message envoyé avec succès." ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{secretaryFeedback}</p>}
-          <button type="button" onClick={sendToSecretaries} disabled={isSendingToSecretary || !selectedSecretaryIds.length || !secretarySubject.trim() || !secretaryBody.trim()} className="primary-button w-full justify-center disabled:opacity-50"><MessageSquare className="h-4 w-4" />{isSendingToSecretary ? "Envoi en cours…" : "Envoyer"}</button>
-        </FormPanel>
-      )}
       {canSend && (
         <FormPanel title="Envoyer un message">
           <div className="grid min-w-0 gap-2">
-            {isSchoolAdmin ? (
+            <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+              Destinataires
+              <select value={recipientCategory} onChange={(event) => { setRecipientCategory(event.target.value as "parents" | "administrative"); setSelectedAdministrativeIds([]); }} className="input">
+                <option value="parents">Parents d'élèves</option>
+                <option value="administrative">Administratifs</option>
+              </select>
+            </label>
+            {recipientCategory === "administrative" ? (
+              <>
+                <div className="grid max-h-60 min-w-0 gap-2 overflow-y-auto pr-1 scrollbar-thin sm:grid-cols-2">
+                  {administrativeRecipients.map((recipient) => <label key={recipient.uid} className="flex min-h-11 min-w-0 cursor-pointer items-center gap-3 rounded border border-slate-200 px-3 py-2 transition hover:bg-slate-50"><input type="checkbox" checked={selectedAdministrativeIds.includes(recipient.uid)} onChange={() => setSelectedAdministrativeIds((current) => current.includes(recipient.uid) ? current.filter((id) => id !== recipient.uid) : [...current, recipient.uid])} /><span className="min-w-0"><strong className="block break-words text-sm text-slate-800">{recipient.name}</strong><span className="text-xs text-slate-500">{recipient.role === "school_admin" ? "Administrateur" : recipient.role === "cashier" ? "Caissier" : recipient.role === "secretary" ? "Secrétaire" : "Directeur de Discipline"}</span></span></label>)}
+                </div>
+                {isLoadingAdministrativeRecipients && <p className="text-sm text-slate-500">Chargement des administratifs…</p>}
+                {!isLoadingAdministrativeRecipients && !administrativeRecipients.length && !administrativeLoadError && <p className="text-sm text-slate-500">Aucun administratif actif disponible.</p>}
+                {administrativeLoadError && <p className="rounded bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{administrativeLoadError}</p>}
+              </>
+            ) : isSchoolAdmin ? (
               <>
                 <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
                   Destinataires
@@ -542,8 +548,8 @@ export function MessagesModule({
               {messageFeedback}
             </p>
           )}
-          <button onClick={sendMessage} disabled={!subject || !body || (isDisciplineDirector && selectedDisciplineParentIds.length === 0) || (isCashier && !recipientParentId)} className="primary-button disabled:opacity-50">
-            <MessageSquare className="h-4 w-4" /> Envoyer
+          <button onClick={sendMessage} disabled={!subject || !body || (recipientCategory === "administrative" ? isSendingAdministrative || selectedAdministrativeIds.length === 0 : (isDisciplineDirector && selectedDisciplineParentIds.length === 0) || (isCashier && !recipientParentId))} className="primary-button disabled:opacity-50">
+            <MessageSquare className="h-4 w-4" /> {isSendingAdministrative ? "Envoi en cours…" : "Envoyer"}
           </button>
         </FormPanel>
       )}

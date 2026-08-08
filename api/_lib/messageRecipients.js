@@ -1,9 +1,9 @@
 const ALLOWED_SENDERS = new Set(["school_admin", "admin", "cashier", "discipline_director", "secretary", "parent"]);
 
 const RECIPIENTS_BY_ROLE = Object.freeze({
-  school_admin: new Set(["secretary", "parent"]),
-  cashier: new Set(["secretary", "parent"]),
-  discipline_director: new Set(["secretary", "parent"]),
+  school_admin: new Set(["cashier", "secretary", "discipline_director", "parent"]),
+  cashier: new Set(["school_admin", "secretary", "discipline_director", "parent"]),
+  discipline_director: new Set(["school_admin", "cashier", "secretary", "parent"]),
   secretary: new Set(["school_admin", "cashier", "discipline_director", "parent"]),
   parent: new Set(["school_admin", "cashier", "discipline_director", "secretary"]),
 });
