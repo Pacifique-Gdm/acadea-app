@@ -1,5 +1,3 @@
-import type { AppUser } from "../types";
-
 export function firebaseErrorCode(error: unknown) {
   if (typeof error === "object" && error !== null && "code" in error) return String(error.code).replace(/^firestore\//, "");
   return "unknown";
@@ -17,21 +15,14 @@ export function refreshErrorMessage(error: unknown) {
   }
 }
 
-export function logRefreshError(params: { module: string; user: AppUser; schoolId: string; schoolYearId?: string; error: unknown }) {
+export function logRefreshError(params: { module: string; error: unknown }) {
   if (!import.meta.env.DEV && import.meta.env.VITE_APP_ENV !== "staging") return;
-  const error = params.error instanceof Error ? params.error : undefined;
   const collectionPath = typeof params.error === "object" && params.error !== null && "collectionPath" in params.error ? String(params.error.collectionPath) : "unknown";
   console.error("[Acadéa refresh]", {
     module: params.module,
     action: "refresh",
-    userId: params.user.id,
-    normalizedRole: params.user.role,
-    activeSchoolId: params.schoolId,
-    activeSchoolYearId: params.schoolYearId ?? null,
     collectionPath,
     errorCode: firebaseErrorCode(params.error),
-    errorMessage: error?.message ?? String(params.error),
-    errorStack: error?.stack,
     timestamp: new Date().toISOString(),
   });
 }

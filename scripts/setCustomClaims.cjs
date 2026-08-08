@@ -105,20 +105,11 @@ async function main() {
   await auth.setCustomUserClaims(userRecord.uid, claims);
 
   console.log("Custom Claims Acadéa définis avec succès.");
-  console.log(JSON.stringify(
-    {
-      uid: userRecord.uid,
-      email: userRecord.email,
-      claims,
-    },
-    null,
-    2,
-  ));
   console.log("Déconnectez-vous puis reconnectez-vous pour rafraîchir le token Firebase.");
 }
 
 main().catch((error) => {
   usage();
-  console.error(error instanceof Error ? error.message : error);
+  console.error("Mise à jour des Custom Claims impossible.", { code: typeof error?.code === "string" ? error.code : "unknown" });
   process.exit(1);
 });

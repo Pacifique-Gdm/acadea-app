@@ -12,7 +12,7 @@ vi.mock("./_lib/firebaseAdmin.js", () => ({
     db: { doc: () => ({ get: mocks.schoolGet }), collection: vi.fn() },
     bucket: {},
   }),
-  firebaseAdminPublicError: () => ({ code: "internal", details: "failure" }),
+  firebaseAdminPublicError: () => ({ code: "internal", message: "Service indisponible.", correlationId: "acadea-test" }),
 }));
 vi.mock("./_lib/schoolDeletion.js", () => ({ deleteSchoolCompletely: mocks.deleteSchoolCompletely }));
 vi.mock("./_lib/rateLimit.js", () => ({

@@ -1,0 +1,13 @@
+.vercel/
+.env*
+tmp/
+temp/
+diagnostics/
+emulator-data/
+local-exports/
+*.log
+service-account*.json
+credentials*.json
+playwright-report/
+test-results/
+*.trace.zip

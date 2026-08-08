@@ -51,7 +51,7 @@ import { feeTargetHasOption, formatFeeTargetValue } from "./utils/feeTargets";
 import { schoolEducationLevelChoices } from "./utils/schoolConfig";
 import { markAuthStep, measureAuthStep } from "./utils/authPerformance";
 import { getPlatformSchoolStats } from "./utils/platformSchoolStats";
-import { logRefreshError, refreshErrorMessage } from "./utils/refreshErrors";
+import { firebaseErrorCode, logRefreshError, refreshErrorMessage } from "./utils/refreshErrors";
 import { runRefreshTask } from "./utils/refreshTask";
 import type { SchoolLevelChoice } from "./utils/schoolConfig";
 import type {
@@ -371,7 +371,7 @@ export default function App() {
       },
       (error) => {
         if (cancelled) return;
-        console.error("[Acadéa auth] Session Firebase invalide.", error);
+        console.error("[Acadéa auth] Session Firebase invalide.", { code: firebaseErrorCode(error) });
         if (!logoutInProgressRef.current) {
           setAuthError(error instanceof Error ? error.message : "Session Firebase invalide.");
         }
@@ -389,7 +389,7 @@ export default function App() {
       })
       .catch((error) => {
         if (cancelled) return;
-        console.error("[Acadéa auth] Firebase indisponible.", error);
+        console.error("[Acadéa auth] Firebase indisponible.", { code: firebaseErrorCode(error) });
         setAuthError(error instanceof Error ? error.message : "Configuration Firebase indisponible.");
         setAuthReady(true);
       });
@@ -563,7 +563,7 @@ export default function App() {
       if (!next) throw new Error("Actualisation Firestore indisponible.");
       return next;
     }, apply: (next) => setData((previous) => ({ ...previous, ...next })), onError: (error) => {
-      logRefreshError({ module: "school-portal", user, schoolId: user.schoolId ?? "", schoolYearId: selectedYearId, error });
+      logRefreshError({ module: "school-portal", error });
       setRefreshError(refreshErrorMessage(error));
     } });
   }
@@ -576,7 +576,7 @@ export default function App() {
       if (!next) throw new Error("Actualisation Firestore indisponible.");
       return next;
     }, apply: (next) => setData((previous) => ({ ...previous, ...next })), onError: (error) => {
-      logRefreshError({ module: "discipline", user, schoolId: user.schoolId ?? "", schoolYearId: selectedYearId, error });
+      logRefreshError({ module: "discipline", error });
       setRefreshError(refreshErrorMessage(error));
     } });
   }
@@ -589,7 +589,7 @@ export default function App() {
       if (!next) throw new Error("Actualisation Firestore indisponible.");
       return next;
     }, apply: (next) => setData((previous) => ({ ...previous, ...next })), onError: (error) => {
-      logRefreshError({ module: "parent", user, schoolId: user.schoolId ?? "", error });
+      logRefreshError({ module: "parent", error });
       setRefreshError(refreshErrorMessage(error));
     } });
   }

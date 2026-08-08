@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
@@ -91,23 +92,52 @@ export function initAdmin() {
   };
 }
 
-export function firebaseAdminPublicError(error) {
+const PUBLIC_FIREBASE_ERRORS = new Map([
+  ["auth/email-already-exists", "Un compte utilise déjà cette adresse e-mail."],
+  ["auth/invalid-email", "L’adresse e-mail fournie est invalide."],
+  ["auth/invalid-password", "Le mot de passe fourni est invalide."],
+  ["auth/user-not-found", "Le compte demandé est introuvable."],
+  ["auth/id-token-expired", "La session a expiré. Veuillez vous reconnecter."],
+  ["auth/argument-error", "Les informations transmises sont invalides."],
+]);
+
+function correlationId() {
+  return `acadea-${randomUUID()}`;
+}
+
+export function firebaseAdminPublicError(error, context = "firebase-admin") {
   const rawCode = typeof error?.code === "string" ? error.code : "";
   const message = error instanceof Error ? error.message : String(error ?? "");
   if (message.startsWith("Configuration Firebase Admin") || message.startsWith("Configuration Firebase incoherente")) {
+    const id = correlationId();
+    console.error("[Acadéa API] Erreur Firebase Admin interne.", {
+      correlationId: id,
+      context,
+      code: "firebase-admin/configuration-error",
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
     return {
       code: "firebase-admin/configuration-error",
-      details: message,
+      message: "Le service est temporairement indisponible.",
+      correlationId: id,
     };
   }
-  if (rawCode) {
+  if (PUBLIC_FIREBASE_ERRORS.has(rawCode)) {
     return {
       code: rawCode,
-      details: message || "Erreur Firebase Admin.",
+      message: PUBLIC_FIREBASE_ERRORS.get(rawCode),
     };
   }
+  const id = correlationId();
+  console.error("[Acadéa API] Erreur Firebase Admin interne.", {
+    correlationId: id,
+    context,
+    code: rawCode || "internal",
+    errorName: error instanceof Error ? error.name : "UnknownError",
+  });
   return {
     code: "internal",
-    details: "Erreur interne du service de provisionnement.",
+    message: "Le service est temporairement indisponible.",
+    correlationId: id,
   };
 }

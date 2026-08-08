@@ -380,8 +380,8 @@ export async function loadFirestoreYearData(user: AppUser, schoolYearId: string)
 export async function loadPlatformSettings() {
   if (!canUseFirestoreData() || !db) return null;
 
-  const snapshot = await withFirestoreTimeout(getDoc(doc(db, "platform", "appConfig")), "platform/appConfig").catch((error) => {
-    throw describeFirestoreError("platform/appConfig", error);
+  const snapshot = await withFirestoreTimeout(getDoc(doc(db, "publicConfig", "appConfig")), "publicConfig/appConfig").catch((error) => {
+    throw describeFirestoreError("publicConfig/appConfig", error);
   });
   return snapshot.exists() ? (snapshot.data() as PlatformSettings) : {};
 }
@@ -389,7 +389,7 @@ export async function loadPlatformSettings() {
 export async function savePlatformSettings(settings: PlatformSettings) {
   if (!canUseFirestoreData() || !db) return false;
 
-  const documentRef = doc(db, "platform", "appConfig");
+  const documentRef = doc(db, "publicConfig", "appConfig");
   const snapshot = await getDoc(documentRef);
   const currentSettings = snapshot.exists() ? (snapshot.data() as PlatformSettings) : {};
   await setDoc(documentRef, { ...currentSettings, ...settings });

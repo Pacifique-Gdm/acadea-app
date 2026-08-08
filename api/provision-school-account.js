@@ -363,12 +363,11 @@ export default async function handler(req, res) {
 
     if (sendRateLimitError(res, error)) return;
     const statusCode = typeof error?.statusCode === "number" ? error.statusCode : 500;
-    console.error("[Acadea provisioning] Provisionnement compte ecole echoue.", error);
-    const diagnostic = firebaseAdminPublicError(error);
+    const diagnostic = firebaseAdminPublicError(error, "provision-school-account");
     sendJson(res, statusCode, {
-      error: statusCode === 500 ? publicError(error) : error.message,
+      error: statusCode === 500 ? diagnostic.message : error.message,
       code: statusCode === 500 ? diagnostic.code : error?.code ?? (statusCode === 404 ? "not-found" : statusCode === 403 ? "permission-denied" : "invalid-argument"),
-      ...(statusCode === 500 ? { details: diagnostic.details } : {}),
+      ...(statusCode === 500 && diagnostic.correlationId ? { correlationId: diagnostic.correlationId } : {}),
     });
   }
 }

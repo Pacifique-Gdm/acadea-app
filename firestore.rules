@@ -275,9 +275,23 @@ service cloud.firestore {
                 && request.resource.data.aiAssistant.usageMonth == resource.data.aiAssistant.usageMonth))));
     }
 
-    match /platform/appConfig {
+    function publicAppConfigShape() {
+      return request.resource.data.keys().hasOnly(["loginLogoUrl", "updatedAt"])
+        && (!("loginLogoUrl" in request.resource.data) || request.resource.data.loginLogoUrl is string)
+        && (!("updatedAt" in request.resource.data) || request.resource.data.updatedAt is string);
+    }
+
+    match /publicConfig/appConfig {
       allow read: if true;
-      allow write: if superAdmin();
+      allow create, update: if superAdmin() && publicAppConfigShape();
+      allow delete: if false;
+    }
+
+    // Document historique : jamais public. Les deux champs autorisés sont
+    // désormais isolés dans publicConfig/appConfig.
+    match /platform/appConfig {
+      allow read: if superAdmin();
+      allow write: if false;
     }
 
     match /platform/{document=**} {

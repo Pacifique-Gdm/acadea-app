@@ -21,27 +21,12 @@ type FirebaseUser = {
   email: string | null;
 };
 
-type AuthDiagnostic = {
-  firebaseUid?: string;
-  email?: string | null;
-  firestoreDocument?: Record<string, unknown> | null;
-  customClaims?: Record<string, unknown>;
-  rawRole?: unknown;
-  normalizedRole?: AppUser["role"];
-  schoolId?: unknown;
-  tenantId?: unknown;
-  organisationId?: unknown;
-  organizationId?: unknown;
-  parentId?: unknown;
-};
-
 type RawAppUser = Omit<AppUser, "role" | "schoolId"> & {
   role: AppUser["role"] | "admin" | "superadmin";
   schoolId?: string;
   tenantId?: string;
   organisationId?: string;
   organizationId?: string;
-  __authDiagnostic?: AuthDiagnostic;
 };
 
 function assertFirebaseAuthReady() {
@@ -62,16 +47,6 @@ function normalizeUserProfile(user: RawAppUser): AppUser {
     ...user,
     role: normalizedRole,
     schoolId: normalizedSchoolId,
-    __authDiagnostic: {
-      ...user.__authDiagnostic,
-      rawRole: user.__authDiagnostic?.rawRole ?? user.role,
-      normalizedRole,
-      schoolId: normalizedSchoolId,
-      tenantId: user.tenantId,
-      organisationId: user.organisationId,
-      organizationId: user.organizationId,
-      parentId: user.parentId,
-    },
   } as AppUser;
 }
 
@@ -93,12 +68,7 @@ async function loadFirebaseUserProfile(firebaseUser: FirebaseUser, authModule: F
   const claims = tokenResult.claims;
 
   if (!userSnapshot.exists()) {
-    console.error("[Acadéa auth] Document Firestore users/{uid} introuvable.", {
-      firebaseUid: firebaseUser.uid,
-      email: firebaseUser.email,
-      firestoreDocument: null,
-      customClaims: claims,
-    });
+    console.error("[Acadéa auth] Profil utilisateur introuvable.", { code: "auth/profile-not-found" });
     throw new Error("Aucun profil Acadéa n'est associé à ce compte.");
   }
 
@@ -129,18 +99,6 @@ async function loadFirebaseUserProfile(firebaseUser: FirebaseUser, authModule: F
     tenantId: claims.tenantId,
     organisationId: claims.organisationId,
     organizationId: claims.organizationId,
-    __authDiagnostic: {
-      firebaseUid: firebaseUser.uid,
-      email: firebaseUser.email,
-      firestoreDocument,
-      customClaims: claims,
-      rawRole: claims.role,
-      schoolId: claims.schoolId,
-      tenantId: firestoreDocument.tenantId ?? claims.tenantId,
-      organisationId: firestoreDocument.organisationId ?? claims.organisationId,
-      organizationId: firestoreDocument.organizationId ?? claims.organizationId,
-      parentId: claims.parentId,
-    },
   };
 
   return normalizeUserProfile(rawProfile as RawAppUser);

@@ -4,6 +4,15 @@ functions/lib/
 .npm-cache/
 *.log
 *.tsbuildinfo
+tmp/
+temp/
+diagnostics/
+emulator-data/
+local-exports/
+firebase-debug.log*
+firestore-debug.log*
+ui-debug.log*
+*.trace.zip
 
 .vercel/
 
@@ -15,7 +24,8 @@ functions/lib/
 !.env.staging
 !.env.production
 
-service-account.json
+service-account*.json
+credentials*.json
 
 playwright-report/
 test-results/

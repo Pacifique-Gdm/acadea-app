@@ -139,12 +139,11 @@ export default async function handler(req, res) {
     sendJson(res, 400, { error: "Action invalide.", code: "invalid-argument" });
   } catch (error) {
     if (sendRateLimitError(res, error)) return;
-    console.error("[Acadea platform] Gestion ecole echouee.", error);
-    const diagnostic = firebaseAdminPublicError(error);
+    const diagnostic = firebaseAdminPublicError(error, "manage-school");
     sendJson(res, 500, {
-      error: "Operation ecole impossible. Verifiez les informations et reessayez.",
+      error: diagnostic.message,
       code: diagnostic.code,
-      details: diagnostic.details,
+      ...(diagnostic.correlationId ? { correlationId: diagnostic.correlationId } : {}),
     });
   }
 }

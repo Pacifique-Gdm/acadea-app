@@ -16,9 +16,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../api/_lib/firebaseAdmin.js", () => ({
   initAdmin: () => ({ auth: mocks.auth, db: mocks.db }),
-  firebaseAdminPublicError: (error: unknown) => ({
+  firebaseAdminPublicError: () => ({
     code: "internal",
-    details: error instanceof Error ? error.message : String(error),
+    message: "Service indisponible.",
+    correlationId: "acadea-test",
   }),
 }));
 vi.mock("../../api/_lib/rateLimit.js", () => ({

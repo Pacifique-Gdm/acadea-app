@@ -54,11 +54,10 @@ admin
   .auth()
   .setCustomUserClaims(uid, claims)
   .then(() => {
-    console.log(`Custom claims definis pour ${uid}:`);
-    console.log(JSON.stringify(claims, null, 2));
+    console.log("Custom claims definis avec succes.");
     console.log("Demandez a l'utilisateur de se deconnecter puis reconnecter.");
   })
   .catch((error) => {
-    console.error(error);
+    console.error("Mise a jour des Custom Claims impossible.", { code: typeof error?.code === "string" ? error.code : "unknown" });
     process.exit(1);
   });

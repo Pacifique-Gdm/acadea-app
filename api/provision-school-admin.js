@@ -189,12 +189,11 @@ export default async function handler(req, res) {
       await cleanup({ auth: adminAuth, db: adminDb, adminUid, refs: createdRefs });
     }
     if (sendRateLimitError(res, error)) return;
-    console.error("[Acadéa provisioning] Provisionnement école/admin échoué.", error);
-    const diagnostic = firebaseAdminPublicError(error);
+    const diagnostic = firebaseAdminPublicError(error, "provision-school-admin");
     sendJson(res, 500, {
-      error: publicError(error),
+      error: diagnostic.message,
       code: diagnostic.code,
-      details: diagnostic.details,
+      ...(diagnostic.correlationId ? { correlationId: diagnostic.correlationId } : {}),
     });
   }
 }
