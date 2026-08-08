@@ -20,7 +20,8 @@ describe("exports PDF filtrés du Secrétaire", () => {
   it("utilise le style partagé de titre centré avec un espacement naturel", () => {
     const pdfSource = readFileSync(new URL("../../utils/pdf.ts", import.meta.url), "utf8");
     expect(pdfSource).toContain(".document-title--center h2");
-    expect(pdfSource).toContain("word-spacing: 0.16em");
+    expect(pdfSource).toContain("word-spacing: 0.12em !important");
+    expect(pdfSource).toContain("letter-spacing: 0.01px !important");
     expect(pdfSource).toContain("white-space: nowrap");
     expect(pdfSource).toContain("overflow-wrap: normal");
   });

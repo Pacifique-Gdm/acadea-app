@@ -357,8 +357,8 @@ function twoCopyPdfStyles(renderHeight: number) {
       color: #2a9d8f;
       font-size: 7.5px;
       font-weight: 800;
-      letter-spacing: normal;
-      word-spacing: 0.18em;
+      letter-spacing: 0.01px;
+      word-spacing: 0.12em;
       white-space: nowrap;
       word-break: normal;
       overflow-wrap: normal;
@@ -440,16 +440,16 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       font-family: ${fontFamily};
       font-size: ${pdfSettings.fontSize}pt;
       line-height: ${pdfSettings.lineSpacing};
-      letter-spacing: normal;
-      word-spacing: 0.06em;
+      letter-spacing: 0.01px;
+      word-spacing: 0.12em;
       text-rendering: geometricPrecision;
       font-kerning: normal;
       padding: 0;
     }
     .acadea-pdf * {
       box-sizing: border-box;
-      letter-spacing: normal;
-      word-spacing: inherit;
+      letter-spacing: 0.01px !important;
+      word-spacing: 0.12em !important;
       white-space: normal;
       word-break: normal;
       overflow-wrap: anywhere;
@@ -522,7 +522,7 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       font-size: 8.5px;
       font-weight: 800;
       letter-spacing: 0.04em;
-      word-spacing: 0.08em;
+      word-spacing: normal;
       text-transform: uppercase;
     }
     .document-title h2 {
@@ -547,7 +547,7 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
     .document-title--center h2 {
       font-weight: 800;
       letter-spacing: 0.01em;
-      word-spacing: 0.16em;
+      word-spacing: normal;
       white-space: nowrap;
       overflow-wrap: normal;
     }
@@ -571,13 +571,13 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       page-break-after: avoid;
       break-after: avoid-page;
       letter-spacing: 0.01em;
-      word-spacing: 0.12em;
+      word-spacing: normal;
       overflow-wrap: normal;
     }
     .pdf-section.statistics-pdf-section h2 {
       font-family: ${institutionalFontFamily};
       letter-spacing: normal;
-      word-spacing: 0.12em;
+      word-spacing: normal;
       white-space: normal;
       overflow-wrap: normal;
       text-rendering: geometricPrecision;
@@ -731,7 +731,7 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       line-height: 1.34;
       text-transform: uppercase;
       overflow-wrap: anywhere;
-      word-spacing: 0.08em;
+      word-spacing: normal;
       vertical-align: middle !important;
     }
     td {
@@ -774,7 +774,7 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       padding-top: 7px;
       padding-bottom: 7px;
       line-height: 1.45;
-      word-spacing: 0.08em;
+      word-spacing: normal;
     }
     tfoot .cell-inner,
     tfoot td {

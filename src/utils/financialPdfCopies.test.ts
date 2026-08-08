@@ -57,7 +57,7 @@ describe("PDF financiers en deux exemplaires", () => {
     expect(html.indexOf("EXEMPLAIRE ÉCOLE")).toBeLessThan(html.indexOf("EXEMPLAIRE PARENT"));
     expect(html).toContain("min-height: 35px");
     expect(html).toContain("padding: 6px 6px");
-    expect(html).toContain("word-spacing: 0.18em");
+    expect(html).toContain("word-spacing: 0.12em !important");
     expect(html).toContain("white-space: nowrap");
     expect(html).not.toContain("EXEMPLAIREÉCOLE");
     expect(html).not.toContain("EXEMPLAIREPARENT");
