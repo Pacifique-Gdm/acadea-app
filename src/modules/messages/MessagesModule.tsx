@@ -9,6 +9,7 @@ import { nextMessageThreadId } from "../../utils/messageThreads";
 import { schoolSectionLabels, schoolSectionOrder } from "../../utils/schoolConfig";
 import { formatStudentClassName, getClassSection } from "../../utils/studentClasses";
 import type { AppData, AppNotification, AppUser, Message, ParentProfile, School, SchoolClass, SchoolSection, SchoolYear, Student } from "../../types";
+import { administrativeRoleLabel, filterAdministrativeRecipients, resolveAdministrativeRecipientIds, toggleAdministrativeRecipient, type AdministrativeRecipientMode } from "./administrativeRecipientSelection";
 
 type MessagesYearData = {
   parents: ParentProfile[];
@@ -47,6 +48,8 @@ export function MessagesModule({
   const [body, setBody] = useState("");
   const [messageFeedback, setMessageFeedback] = useState("");
   const [selectedAdministrativeIds, setSelectedAdministrativeIds] = useState<string[]>([]);
+  const [administrativeRecipientMode, setAdministrativeRecipientMode] = useState<AdministrativeRecipientMode>("all");
+  const [administrativeSearch, setAdministrativeSearch] = useState("");
   const [administrativeRecipients, setAdministrativeRecipients] = useState<SchoolMessageRecipient[]>([]);
   const [isLoadingAdministrativeRecipients, setIsLoadingAdministrativeRecipients] = useState(true);
   const [administrativeLoadError, setAdministrativeLoadError] = useState("");
@@ -83,6 +86,9 @@ export function MessagesModule({
   const selectedParent = yearData.parents.find((parent) => parent.id === recipientParentId);
   const selectedAdminParents = sameSchoolParents.filter((parent) => selectedAdminParentIds.includes(parent.id));
   const selectedDisciplineParents = yearData.parents.filter((parent) => selectedDisciplineParentIds.includes(parent.id));
+  const administrativeSearchResults = filterAdministrativeRecipients(administrativeRecipients, administrativeSearch);
+  const resolvedAdministrativeIds = resolveAdministrativeRecipientIds(administrativeRecipientMode, administrativeRecipients, selectedAdministrativeIds);
+  const selectedAdministrativeRecipients = administrativeRecipients.filter((recipient) => selectedAdministrativeIds.includes(recipient.uid));
   useEffect(() => {
     let active = true;
     setIsLoadingAdministrativeRecipients(true);
@@ -95,13 +101,13 @@ export function MessagesModule({
   }, [user.id]);
 
   async function sendToAdministrativeRecipients() {
-    if (isSendingAdministrative || !selectedAdministrativeIds.length || !subject.trim() || !body.trim()) return;
+    if (isSendingAdministrative || !resolvedAdministrativeIds.length || !subject.trim() || !body.trim()) return;
     setIsSendingAdministrative(true);
     setMessageFeedback("");
     try {
-      const selectedRecipients = administrativeRecipients.filter((recipient) => selectedAdministrativeIds.includes(recipient.uid));
+      const selectedRecipients = administrativeRecipients.filter((recipient) => resolvedAdministrativeIds.includes(recipient.uid));
       const recipientRoles = [...new Set(selectedRecipients.map((recipient) => recipient.role))];
-      const message = await sendSchoolMessage({ schoolYearId: year.id, recipientRoles, recipientIds: selectedAdministrativeIds, subject: subject.trim(), body: body.trim(), draftId: crypto.randomUUID(), attachments: [], idempotencyKey: crypto.randomUUID() });
+      const message = await sendSchoolMessage({ schoolYearId: year.id, recipientRoles, recipientIds: resolvedAdministrativeIds, subject: subject.trim(), body: body.trim(), draftId: crypto.randomUUID(), attachments: [], idempotencyKey: crypto.randomUUID() });
       updateData({ messages: [message, ...data.messages.filter((item) => item.id !== message.id)] }, { persist: false });
       setSelectedAdministrativeIds([]);
       setSubject("");
@@ -347,16 +353,37 @@ export function MessagesModule({
           <div className="grid min-w-0 gap-2">
             <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
               Destinataires
-              <select value={recipientCategory} onChange={(event) => { setRecipientCategory(event.target.value as "parents" | "administrative"); setSelectedAdministrativeIds([]); }} className="input">
+              <select value={recipientCategory} onChange={(event) => { setRecipientCategory(event.target.value as "parents" | "administrative"); setAdministrativeRecipientMode("all"); setAdministrativeSearch(""); setSelectedAdministrativeIds([]); }} className="input">
                 <option value="parents">Parents d'élèves</option>
                 <option value="administrative">Administratifs</option>
               </select>
             </label>
             {recipientCategory === "administrative" ? (
               <>
-                <div className="grid max-h-60 min-w-0 gap-2 overflow-y-auto pr-1 scrollbar-thin sm:grid-cols-2">
-                  {administrativeRecipients.map((recipient) => <label key={recipient.uid} className="flex min-h-11 min-w-0 cursor-pointer items-center gap-3 rounded border border-slate-200 px-3 py-2 transition hover:bg-slate-50"><input type="checkbox" checked={selectedAdministrativeIds.includes(recipient.uid)} onChange={() => setSelectedAdministrativeIds((current) => current.includes(recipient.uid) ? current.filter((id) => id !== recipient.uid) : [...current, recipient.uid])} /><span className="min-w-0"><strong className="block break-words text-sm text-slate-800">{recipient.name}</strong><span className="text-xs text-slate-500">{recipient.role === "school_admin" ? "Administrateur" : recipient.role === "cashier" ? "Caissier" : recipient.role === "secretary" ? "Secrétaire" : "Directeur de Discipline"}</span></span></label>)}
-                </div>
+                <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+                  Filtre des administratifs
+                  <select value={administrativeRecipientMode} onChange={(event) => { setAdministrativeRecipientMode(event.target.value as AdministrativeRecipientMode); setAdministrativeSearch(""); setSelectedAdministrativeIds([]); }} className="input">
+                    <option value="all">Tous les administratifs</option>
+                    <option value="selection">Sélection administratif</option>
+                  </select>
+                </label>
+                {administrativeRecipientMode === "all" ? (
+                  <p className="rounded bg-slate-50 p-3 text-sm font-semibold text-slate-600">{administrativeRecipients.length} administratif{administrativeRecipients.length > 1 ? "s" : ""} destinataire{administrativeRecipients.length > 1 ? "s" : ""}</p>
+                ) : (
+                  <>
+                    <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
+                      <Search className="h-4 w-4 shrink-0 text-slate-400" />
+                      <input value={administrativeSearch} onChange={(event) => setAdministrativeSearch(event.target.value)} className="min-w-0 flex-1 outline-none" placeholder="Rechercher par nom ou fonction" />
+                    </label>
+                    {selectedAdministrativeRecipients.length > 0 && <div className="flex min-w-0 flex-wrap gap-2 rounded bg-blue-50 p-3">{selectedAdministrativeRecipients.map((recipient) => <span key={recipient.uid} className="inline-flex max-w-full items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-blue-700"><span className="min-w-0 truncate">{recipient.name} — {administrativeRoleLabel(recipient.role)}</span><button type="button" onClick={() => setSelectedAdministrativeIds((current) => current.filter((id) => id !== recipient.uid))} className="shrink-0 rounded-full p-0.5 transition hover:bg-blue-100" aria-label={`Retirer ${recipient.name}`}><X className="h-3 w-3" /></button></span>)}</div>}
+                    {administrativeSearch.trim() ? (
+                      <div className="grid max-h-60 min-w-0 gap-2 overflow-y-auto pr-1 scrollbar-thin sm:grid-cols-2">
+                        {administrativeSearchResults.map((recipient) => <label key={recipient.uid} className="flex min-h-11 min-w-0 cursor-pointer items-center gap-3 rounded border border-slate-200 px-3 py-2 transition hover:bg-slate-50"><input type="checkbox" checked={selectedAdministrativeIds.includes(recipient.uid)} onChange={() => setSelectedAdministrativeIds((current) => toggleAdministrativeRecipient(current, recipient.uid))} /><span className="min-w-0"><strong className="block break-words text-sm text-slate-800">{recipient.name}</strong><span className="text-xs text-slate-500">{administrativeRoleLabel(recipient.role)}</span></span></label>)}
+                        {!administrativeSearchResults.length && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500 sm:col-span-2">Aucun administratif trouvé.</p>}
+                      </div>
+                    ) : <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Recherchez un administratif par nom ou fonction.</p>}
+                  </>
+                )}
                 {isLoadingAdministrativeRecipients && <p className="text-sm text-slate-500">Chargement des administratifs…</p>}
                 {!isLoadingAdministrativeRecipients && !administrativeRecipients.length && !administrativeLoadError && <p className="text-sm text-slate-500">Aucun administratif actif disponible.</p>}
                 {administrativeLoadError && <p className="rounded bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{administrativeLoadError}</p>}
@@ -548,7 +575,7 @@ export function MessagesModule({
               {messageFeedback}
             </p>
           )}
-          <button onClick={sendMessage} disabled={!subject || !body || (recipientCategory === "administrative" ? isSendingAdministrative || selectedAdministrativeIds.length === 0 : (isDisciplineDirector && selectedDisciplineParentIds.length === 0) || (isCashier && !recipientParentId))} className="primary-button disabled:opacity-50">
+          <button onClick={sendMessage} disabled={!subject || !body || (recipientCategory === "administrative" ? isSendingAdministrative || resolvedAdministrativeIds.length === 0 : (isDisciplineDirector && selectedDisciplineParentIds.length === 0) || (isCashier && !recipientParentId))} className="primary-button disabled:opacity-50">
             <MessageSquare className="h-4 w-4" /> {isSendingAdministrative ? "Envoi en cours…" : "Envoyer"}
           </button>
         </FormPanel>

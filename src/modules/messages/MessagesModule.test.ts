@@ -12,10 +12,19 @@ describe("messagerie des modules administratifs", () => {
 
   it("integre Administratifs au selecteur existant et conserve la selection multiple", () => {
     expect(source).toContain('<option value="administrative">Administratifs</option>');
-    expect(source).toContain("administrativeRecipients.map");
+    expect(source).toContain("administrativeSearchResults.map");
     expect(source).toContain('type="checkbox"');
     expect(source).toContain("selectedAdministrativeIds");
     expect(source).toContain("sendSchoolMessage");
+  });
+
+  it("affiche le second filtre et ne rend les resultats qu'apres une recherche en mode selection", () => {
+    expect(source).toContain('<option value="all">Tous les administratifs</option>');
+    expect(source).toContain('<option value="selection">Sélection administratif</option>');
+    expect(source).toContain('administrativeRecipientMode === "all"');
+    expect(source).toContain("administrativeSearch.trim()");
+    expect(source).toContain("Recherchez un administratif par nom ou fonction.");
+    expect(source).toContain('aria-label={`Retirer ${recipient.name}`}');
   });
 
   it("preserve les categories Parents et les flux existants", () => {
