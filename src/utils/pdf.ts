@@ -357,6 +357,11 @@ function twoCopyPdfStyles(renderHeight: number) {
       color: #2a9d8f;
       font-size: 7.5px;
       font-weight: 800;
+      letter-spacing: normal;
+      word-spacing: 0.18em;
+      white-space: nowrap;
+      word-break: normal;
+      overflow-wrap: normal;
       text-align: right;
       text-transform: uppercase;
     }
@@ -385,9 +390,9 @@ function twoCopyPdfStyles(renderHeight: number) {
       gap: 4px 6px;
       margin-bottom: 4px;
     }
-    .pdf-copy .info-box { min-height: 31px; padding: 5px 6px; }
-    .pdf-copy .info-box span { font-size: 6.5px; line-height: 1.15; }
-    .pdf-copy .info-box strong { margin-top: 1px; font-size: 8.5px; line-height: 1.18; }
+    .pdf-copy .info-box { min-height: 35px; padding: 6px 6px; }
+    .pdf-copy .info-box span { font-size: 6.5px; line-height: 1.2; }
+    .pdf-copy .info-box strong { margin-top: 2px; font-size: 8.5px; line-height: 1.22; }
     .pdf-copy .signature-row { margin: 5px 12px 0; }
     .pdf-copy .signature-row div { width: 170px; font-size: 7.5px; }
     .pdf-copy .signature-row strong { margin-top: 18px; }
@@ -572,7 +577,9 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
     .pdf-section.statistics-pdf-section h2 {
       font-family: ${institutionalFontFamily};
       letter-spacing: normal;
-      word-spacing: normal;
+      word-spacing: 0.12em;
+      white-space: normal;
+      overflow-wrap: normal;
       text-rendering: geometricPrecision;
       font-kerning: normal;
       font-variant-ligatures: normal;

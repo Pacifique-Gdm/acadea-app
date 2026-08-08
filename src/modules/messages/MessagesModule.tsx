@@ -1,15 +1,17 @@
-import { useEffect, useState } from "react";
-import { MessageSquare, Search, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { FilePlus2, MessageSquare, Search, X } from "lucide-react";
 import { FormPanel } from "../../components/ui";
 import { db } from "../../firebase";
 import { persistMessageWithConversation } from "../../services/conversations";
 import { canUseFirestoreData } from "../../services/firestoreData";
 import { loadSchoolMessageRecipients, sendSchoolMessage, type SchoolMessageRecipient } from "../../services/schoolMessaging";
+import { deletePendingMessageAttachments, uploadPendingMessageAttachments } from "../../services/messageStorage";
 import { nextMessageThreadId } from "../../utils/messageThreads";
 import { schoolSectionLabels, schoolSectionOrder } from "../../utils/schoolConfig";
 import { formatStudentClassName, getClassSection } from "../../utils/studentClasses";
 import type { AppData, AppNotification, AppUser, Message, ParentProfile, School, SchoolClass, SchoolSection, SchoolYear, Student } from "../../types";
 import { administrativeRoleLabel, filterAdministrativeRecipients, resolveAdministrativeRecipientIds, toggleAdministrativeRecipient, type AdministrativeRecipientMode } from "./administrativeRecipientSelection";
+import { formatMessageAttachmentSize, MAX_MESSAGE_ATTACHMENTS_TOTAL_SIZE, MESSAGE_ATTACHMENT_ACCEPT, validateMessageAttachments } from "../../utils/messageAttachments";
 
 type MessagesYearData = {
   parents: ParentProfile[];
@@ -25,6 +27,7 @@ type MessagesModuleProps = {
   year: SchoolYear;
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
   createId: (prefix: string) => string;
+  canAttachFiles?: boolean;
 };
 
 export function MessagesModule({
@@ -35,6 +38,7 @@ export function MessagesModule({
   year,
   updateData,
   createId,
+  canAttachFiles = false,
 }: MessagesModuleProps) {
   const [recipientParentId, setRecipientParentId] = useState<string>("");
   const [recipientCategory, setRecipientCategory] = useState<"parents" | "administrative">("parents");
@@ -51,13 +55,17 @@ export function MessagesModule({
   const [administrativeRecipientMode, setAdministrativeRecipientMode] = useState<AdministrativeRecipientMode>("all");
   const [administrativeSearch, setAdministrativeSearch] = useState("");
   const [administrativeRecipients, setAdministrativeRecipients] = useState<SchoolMessageRecipient[]>([]);
+  const [secureDirectory, setSecureDirectory] = useState<SchoolMessageRecipient[]>([]);
   const [isLoadingAdministrativeRecipients, setIsLoadingAdministrativeRecipients] = useState(true);
   const [administrativeLoadError, setAdministrativeLoadError] = useState("");
   const [isSendingAdministrative, setIsSendingAdministrative] = useState(false);
+  const [messageFiles, setMessageFiles] = useState<File[]>([]);
+  const messageRequestKey = useRef(crypto.randomUUID());
   const canSend = user.role !== "parent" && year.status !== "archived";
   const isSchoolAdmin = user.role === "school_admin";
   const isCashier = user.role === "cashier";
   const isDisciplineDirector = user.role === "discipline_director";
+  const isSecretary = user.role === "secretary";
   const disciplineMessageSubjects = ["Avertissement disciplinaire", "Convocation", "Décision disciplinaire", "Notification de fin de sanction"];
   const sameSchoolParents = yearData.parents.filter((parent) => parent.schoolId === school.id);
   const sameSchoolStudents = yearData.students.filter((student) => student.schoolId === school.id);
@@ -89,31 +97,43 @@ export function MessagesModule({
   const administrativeSearchResults = filterAdministrativeRecipients(administrativeRecipients, administrativeSearch);
   const resolvedAdministrativeIds = resolveAdministrativeRecipientIds(administrativeRecipientMode, administrativeRecipients, selectedAdministrativeIds);
   const selectedAdministrativeRecipients = administrativeRecipients.filter((recipient) => selectedAdministrativeIds.includes(recipient.uid));
+  const secretaryParentResults = secureDirectory.filter((recipient) => recipient.role === "parent" && recipient.name.toLocaleLowerCase("fr").includes(recipientSearch.trim().toLocaleLowerCase("fr")));
+  const selectedSecureRecipients = secureDirectory.filter((recipient) => selectedAdministrativeIds.includes(recipient.uid));
+  const resolvedSecureRecipientIds = isSecretary && recipientCategory === "parents" ? [...new Set(selectedAdministrativeIds)] : resolvedAdministrativeIds;
+  const messageFilesTotalBytes = messageFiles.reduce((total, file) => total + file.size, 0);
   useEffect(() => {
     let active = true;
     setIsLoadingAdministrativeRecipients(true);
     setAdministrativeLoadError("");
     loadSchoolMessageRecipients()
-      .then((recipients) => { if (active) setAdministrativeRecipients(recipients.filter((recipient) => recipient.role !== "parent")); })
+      .then((recipients) => { if (active) { setSecureDirectory(recipients); setAdministrativeRecipients(recipients.filter((recipient) => recipient.role !== "parent")); } })
       .catch((error) => { if (active) setAdministrativeLoadError(error instanceof Error ? error.message : "Destinataires indisponibles. Veuillez réessayer."); })
       .finally(() => { if (active) setIsLoadingAdministrativeRecipients(false); });
     return () => { active = false; };
   }, [user.id]);
 
-  async function sendToAdministrativeRecipients() {
-    if (isSendingAdministrative || !resolvedAdministrativeIds.length || !subject.trim() || !body.trim()) return;
+  async function sendToSecureRecipients() {
+    if (isSendingAdministrative || !resolvedSecureRecipientIds.length || !subject.trim() || !body.trim()) return;
+    const attachmentError = validateMessageAttachments(messageFiles);
+    if (attachmentError) { setMessageFeedback(attachmentError); return; }
     setIsSendingAdministrative(true);
     setMessageFeedback("");
+    const draftId = crypto.randomUUID();
+    let uploaded: Awaited<ReturnType<typeof uploadPendingMessageAttachments>> = [];
     try {
-      const selectedRecipients = administrativeRecipients.filter((recipient) => resolvedAdministrativeIds.includes(recipient.uid));
+      if (canAttachFiles && messageFiles.length) uploaded = await uploadPendingMessageAttachments({ schoolId: school.id, schoolYearId: year.id, senderId: user.id, draftId, files: messageFiles });
+      const selectedRecipients = secureDirectory.filter((recipient) => resolvedSecureRecipientIds.includes(recipient.uid));
       const recipientRoles = [...new Set(selectedRecipients.map((recipient) => recipient.role))];
-      const message = await sendSchoolMessage({ schoolYearId: year.id, recipientRoles, recipientIds: resolvedAdministrativeIds, subject: subject.trim(), body: body.trim(), draftId: crypto.randomUUID(), attachments: [], idempotencyKey: crypto.randomUUID() });
+      const message = await sendSchoolMessage({ schoolYearId: year.id, recipientRoles, recipientIds: resolvedSecureRecipientIds, subject: subject.trim(), body: body.trim(), draftId, attachments: uploaded, idempotencyKey: messageRequestKey.current });
       updateData({ messages: [message, ...data.messages.filter((item) => item.id !== message.id)] }, { persist: false });
       setSelectedAdministrativeIds([]);
       setSubject("");
       setBody("");
+      setMessageFiles([]);
+      messageRequestKey.current = crypto.randomUUID();
       setMessageFeedback("Message envoyé avec succès.");
     } catch (error) {
+      await deletePendingMessageAttachments(uploaded);
       console.error("Envoi aux administratifs impossible.", error);
       setMessageFeedback(error instanceof Error ? error.message : "Message non envoyé. Veuillez réessayer.");
     } finally {
@@ -186,7 +206,11 @@ export function MessagesModule({
   async function sendMessage() {
     setMessageFeedback("");
     if (recipientCategory === "administrative") {
-      await sendToAdministrativeRecipients();
+      await sendToSecureRecipients();
+      return;
+    }
+    if (isSecretary) {
+      await sendToSecureRecipients();
       return;
     }
     if (isSchoolAdmin && adminRecipientMode === "parents" && selectedAdminParentIds.length === 0) {
@@ -353,7 +377,7 @@ export function MessagesModule({
           <div className="grid min-w-0 gap-2">
             <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
               Destinataires
-              <select value={recipientCategory} onChange={(event) => { setRecipientCategory(event.target.value as "parents" | "administrative"); setAdministrativeRecipientMode("all"); setAdministrativeSearch(""); setSelectedAdministrativeIds([]); }} className="input">
+              <select value={recipientCategory} onChange={(event) => { setRecipientCategory(event.target.value as "parents" | "administrative"); setAdministrativeRecipientMode("all"); setAdministrativeSearch(""); setRecipientSearch(""); setSelectedAdministrativeIds([]); }} className="input">
                 <option value="parents">Parents d'élèves</option>
                 <option value="administrative">Administratifs</option>
               </select>
@@ -387,6 +411,15 @@ export function MessagesModule({
                 {isLoadingAdministrativeRecipients && <p className="text-sm text-slate-500">Chargement des administratifs…</p>}
                 {!isLoadingAdministrativeRecipients && !administrativeRecipients.length && !administrativeLoadError && <p className="text-sm text-slate-500">Aucun administratif actif disponible.</p>}
                 {administrativeLoadError && <p className="rounded bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{administrativeLoadError}</p>}
+              </>
+            ) : isSecretary ? (
+              <>
+                <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
+                  <Search className="h-4 w-4 shrink-0 text-slate-400" />
+                  <input value={recipientSearch} onChange={(event) => setRecipientSearch(event.target.value)} className="min-w-0 flex-1 outline-none" placeholder="Rechercher un parent" />
+                </label>
+                {selectedSecureRecipients.length > 0 && <div className="flex min-w-0 flex-wrap gap-2 rounded bg-blue-50 p-3">{selectedSecureRecipients.map((recipient) => <span key={recipient.uid} className="inline-flex max-w-full items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-blue-700"><span className="min-w-0 truncate">{recipient.name}</span><button type="button" onClick={() => setSelectedAdministrativeIds((current) => current.filter((id) => id !== recipient.uid))} className="shrink-0 rounded-full p-0.5 transition hover:bg-blue-100" aria-label={`Retirer ${recipient.name}`}><X className="h-3 w-3" /></button></span>)}</div>}
+                {recipientSearch.trim() ? <div className="grid max-h-60 min-w-0 gap-2 overflow-y-auto pr-1 scrollbar-thin sm:grid-cols-2">{secretaryParentResults.map((recipient) => <label key={recipient.uid} className="flex min-h-11 min-w-0 cursor-pointer items-center gap-3 rounded border border-slate-200 px-3 py-2 transition hover:bg-slate-50"><input type="checkbox" checked={selectedAdministrativeIds.includes(recipient.uid)} onChange={() => setSelectedAdministrativeIds((current) => toggleAdministrativeRecipient(current, recipient.uid))} /><span className="min-w-0"><strong className="block break-words text-sm text-slate-800">{recipient.name}</strong><span className="text-xs text-slate-500">Parent</span></span></label>)}{!secretaryParentResults.length && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500 sm:col-span-2">Aucun parent trouvé.</p>}</div> : <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Recherchez un parent par nom.</p>}
               </>
             ) : isSchoolAdmin ? (
               <>
@@ -562,6 +595,11 @@ export function MessagesModule({
             <input value={subject} onChange={(event) => setSubject(event.target.value)} className="input" placeholder="Objet" />
           )}
           <textarea value={body} onChange={(event) => setBody(event.target.value)} className="input min-h-32" placeholder="Message" />
+          {canAttachFiles && <>
+            <label className="secondary-button w-full cursor-pointer justify-center"><FilePlus2 className="h-4 w-4" /> Joindre des fichiers<input className="sr-only" type="file" multiple accept={MESSAGE_ATTACHMENT_ACCEPT} onChange={(event) => { const nextFiles = [...messageFiles, ...Array.from(event.target.files ?? [])]; const error = validateMessageAttachments(nextFiles); if (error) setMessageFeedback(error); else { setMessageFiles(nextFiles); setMessageFeedback(""); } event.currentTarget.value = ""; }} /></label>
+            <p className={`text-xs font-semibold ${messageFilesTotalBytes > MAX_MESSAGE_ATTACHMENTS_TOTAL_SIZE ? "text-red-600" : "text-slate-500"}`}>Pièces jointes : {formatMessageAttachmentSize(messageFilesTotalBytes)} / 10 Mo</p>
+            {messageFiles.map((file, index) => <div key={`${file.name}-${index}`} className="flex min-w-0 items-center justify-between gap-3 rounded bg-slate-50 px-3 py-2 text-sm"><span className="min-w-0 truncate">{file.name} · {formatMessageAttachmentSize(file.size)}</span><button type="button" className="shrink-0 rounded p-1 hover:bg-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600" aria-label={`Retirer ${file.name}`} onClick={() => setMessageFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))}><X className="h-4 w-4" /></button></div>)}
+          </>}
           {messageFeedback && (
             <p
               className={`rounded px-3 py-2 text-sm font-semibold ${
@@ -575,7 +613,7 @@ export function MessagesModule({
               {messageFeedback}
             </p>
           )}
-          <button onClick={sendMessage} disabled={!subject || !body || (recipientCategory === "administrative" ? isSendingAdministrative || resolvedAdministrativeIds.length === 0 : (isDisciplineDirector && selectedDisciplineParentIds.length === 0) || (isCashier && !recipientParentId))} className="primary-button disabled:opacity-50">
+          <button onClick={sendMessage} disabled={!subject || !body || ((recipientCategory === "administrative" || isSecretary) ? isSendingAdministrative || resolvedSecureRecipientIds.length === 0 : (isDisciplineDirector && selectedDisciplineParentIds.length === 0) || (isCashier && !recipientParentId))} className="primary-button disabled:opacity-50">
             <MessageSquare className="h-4 w-4" /> {isSendingAdministrative ? "Envoi en cours…" : "Envoyer"}
           </button>
         </FormPanel>

@@ -55,7 +55,12 @@ describe("PDF financiers en deux exemplaires", () => {
     expect(occurrences(html, '<header class="pdf-header">')).toBe(2);
     expect(occurrences(html, '<article class="pdf-copy">')).toBe(2);
     expect(html.indexOf("EXEMPLAIRE ÉCOLE")).toBeLessThan(html.indexOf("EXEMPLAIRE PARENT"));
-    expect(html).toContain("min-height: 31px");
+    expect(html).toContain("min-height: 35px");
+    expect(html).toContain("padding: 6px 6px");
+    expect(html).toContain("word-spacing: 0.18em");
+    expect(html).toContain("white-space: nowrap");
+    expect(html).not.toContain("EXEMPLAIREÉCOLE");
+    expect(html).not.toContain("EXEMPLAIREPARENT");
     expect(html).toContain('class="pdf-cut-line"');
     expect(html).toContain("grid-template-rows: minmax(0, 1fr) 22px minmax(0, 1fr)");
   });
@@ -77,6 +82,10 @@ describe("PDF financiers en deux exemplaires", () => {
     expect(occurrences(html, '<header class="pdf-header">')).toBe(2);
     expect(html.indexOf("EXEMPLAIRE ÉCOLE")).toBeLessThan(html.indexOf("EXEMPLAIRE BÉNÉFICIAIRE"));
     expect(html).toContain("overflow-wrap: anywhere");
+    expect(html).toContain("min-height: 35px");
+    expect(html).toContain("line-height: 1.22");
+    expect(html).not.toContain("EXEMPLAIREÉCOLE");
+    expect(html).not.toContain("EXEMPLAIREBÉNÉFICIAIRE");
     expect(html).toContain('class="pdf-cut-line"');
   });
 

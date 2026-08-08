@@ -84,7 +84,7 @@ describe("Drawers médicaux et statistiques du Secrétaire", () => {
     expect(classIndex).toBeGreaterThan(sectionIndex);
     expect(resetIndex).toBeGreaterThan(classIndex);
     expect(exportIndex).toBeGreaterThan(resetIndex);
-    expect(source).toContain('className="sticky top-0 z-10 grid w-full grid-cols-[minmax(0,1fr)_2.5rem] gap-2 bg-white pb-3 sm:grid-cols-[minmax(0,1fr)_2.5rem_minmax(9rem,auto)]"');
+    expect(source).toContain('className="sticky top-0 z-20 grid w-full min-w-0 grid-cols-[minmax(0,1fr)_2.5rem] gap-2 border-b border-slate-100 bg-white pb-3 shadow-sm sm:grid-cols-[minmax(0,1fr)_2.5rem_minmax(9rem,auto)]"');
     expect(source).toContain('className="input h-10 min-w-0 w-full"');
     expect(source).toContain("pdf-export-button col-span-2 h-10 w-full sm:col-span-1");
     expect(source).toContain('<Download className="h-4 w-4" /> Exporter PDF');
@@ -138,8 +138,11 @@ describe("Drawers médicaux et statistiques du Secrétaire", () => {
     expect(pdfSource).toContain("word-spacing: 0.12em");
     expect(pdfSource).toContain(".pdf-section.statistics-pdf-section h2");
     expect(pdfSource).toContain("letter-spacing: normal");
-    expect(pdfSource).toContain("word-spacing: normal");
+    expect(pdfSource).toContain("word-spacing: 0.12em");
+    expect(pdfSource).toContain("white-space: normal");
     expect(pdfSource).toContain("overflow-wrap: normal");
+    expect(source).not.toContain("Répartitionpar classe");
+    expect(source).not.toContain("Répartitionpar niveau");
     expect(source).toContain('className: "statistics-pdf-section statistics-summary-pdf-section"');
     expect(pdfSource).toContain("grid-template-columns: repeat(6, minmax(0, 1fr))");
     expect(pdfSource).toContain("font-variant-ligatures: normal");
