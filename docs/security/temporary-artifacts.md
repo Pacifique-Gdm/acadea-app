@@ -22,4 +22,3 @@ Cette politique s'applique aux diagnostics locaux, tests E2E, émulateurs, expor
 2. Vérifier `git ls-files` pour les noms `service-account`, `credentials`, `tmp`, `test-results`, `playwright-report` et `*.log`.
 3. Ne jamais utiliser `git add -f` pour contourner une règle d'exclusion de sécurité.
 4. Si un secret réel a été suivi, arrêter la livraison, révoquer le secret et suivre le runbook de compromission. Une suppression locale ne suffit pas.
-

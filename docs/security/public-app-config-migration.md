@@ -21,4 +21,3 @@ Ne copier aucune autre propriété. Ne pas supprimer le document historique pend
 6. Répéter séparément en Production après approbation, en vérifiant explicitement `acadea-production`.
 
 Cette migration est idempotente : réécrire les mêmes deux valeurs produit le même document. Elle n'est pas exécutée automatiquement par le dépôt et n'a pas été exécutée pendant la mission SEC-017.
-

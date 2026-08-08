@@ -138,4 +138,3 @@ Les seuils et destinataires doivent être approuvés avant configuration. Aucune
 ## Objectifs recommandés
 
 À faire approuver : RPO cible de 24 heures pour Firestore/Storage et RTO cible de 8 heures pour un incident majeur. Ces valeurs sont des recommandations, pas des engagements actuels.
-
