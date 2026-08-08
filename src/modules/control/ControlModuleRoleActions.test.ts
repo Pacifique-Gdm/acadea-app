@@ -9,7 +9,7 @@ const toolbar = source.slice(toolbarStart, toolbarEnd);
 describe("actions Contrôle partagées selon le rôle", () => {
   it("utilise une seule grille responsive pour les contrôles communs", () => {
     expect(toolbarStart).toBeGreaterThan(-1);
-    expect(toolbar).toContain("grid-cols-1 items-stretch gap-2 box-border sm:grid-cols-2 lg:flex lg:flex-nowrap");
+    expect(toolbar).toContain("grid-cols-1 items-stretch gap-2 box-border sm:grid-cols-2 lg:flex lg:flex-nowrap lg:items-center lg:gap-1.5");
     expect(toolbar.match(/aria-label="Classe"/g)).toHaveLength(1);
     expect(toolbar.match(/Exporter PDF/g)).toHaveLength(1);
     expect(toolbar.match(/Réinitialiser/g)?.length).toBeGreaterThanOrEqual(1);
@@ -29,7 +29,6 @@ describe("actions Contrôle partagées selon le rôle", () => {
     expect(toolbar).toContain('user.role !== "cashier" && <button');
     expect(toolbar).toContain("Avertissement");
     expect(toolbar).toContain('user.role === "cashier" && canPay');
-    expect(toolbar).toContain("mt-2 grid min-w-0");
     expect(toolbar).toContain('<Plus className="h-4 w-4" /> Enregistrer');
     expect(toolbar).not.toContain("Enregistrer un paiement");
     expect(toolbar).not.toContain("Enregistrer une dépense");
@@ -38,8 +37,10 @@ describe("actions Contrôle partagées selon le rôle", () => {
   it("utilise un drawer et un select uniques pour chaque regroupement", () => {
     expect(source).toContain('<AdminDrawer title="Historique"');
     expect(source).toContain('aria-label="Type d\'historique"');
-    expect(source).toContain('<option value="expenses">Historique des dépenses</option>');
-    expect(source).toContain('<option value="payments">Historique des paiements</option>');
+    const paymentHistoryOption = source.indexOf('<option value="payments">Historique des paiements</option>');
+    const expenseHistoryOption = source.indexOf('<option value="expenses">Historique des dépenses</option>');
+    expect(paymentHistoryOption).toBeGreaterThan(-1);
+    expect(expenseHistoryOption).toBeGreaterThan(paymentHistoryOption);
     expect(source).toContain('historyKind === "payments"');
     expect(source).toContain('historyKind === "expenses" && renderExpenseHistoryContent()');
     expect(source).toContain('const cashierDrawerTitle = "Enregistrer"');
@@ -48,6 +49,11 @@ describe("actions Contrôle partagées selon le rôle", () => {
     expect(source).toContain('<option value="expense">Enregistrer une dépense</option>');
     expect(source).toContain('cashierControlDrawer === "payment"');
     expect(source).toContain('cashierControlDrawer === "expense"');
+  });
+
+  it("place les deux validations financières du drawer en pleine largeur", () => {
+    expect(source).toContain('disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button w-full justify-center disabled:opacity-50"');
+    expect(source).toContain('disabled={expenseSubmitting} className="primary-button w-full justify-center disabled:opacity-50"');
   });
 
   it("maintient les mutations interdites hors du DOM du Caissier", () => {

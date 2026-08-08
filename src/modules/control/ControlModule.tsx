@@ -1057,7 +1057,7 @@ export function ControlModule({
       <div className="min-w-0">
         <SectionTitle title="Contrôle" subtitle="Frais scolaires, paiements, historique et soldes restants en dollar américain." />
         <div className="mb-3 w-full min-w-0 max-w-full">
-          <div className="grid w-full min-w-0 grid-cols-1 items-stretch gap-2 box-border sm:grid-cols-2 lg:flex lg:flex-nowrap lg:items-center">
+          <div className="grid w-full min-w-0 grid-cols-1 items-stretch gap-2 box-border sm:grid-cols-2 lg:flex lg:flex-nowrap lg:items-center lg:gap-1.5">
               <select value={controlClassKey} onChange={(event) => setControlClassKey(event.target.value)} className="h-10 min-w-0 w-full rounded border border-slate-200 bg-white px-2 text-sm lg:flex-1 lg:basis-0" aria-label="Classe">
                 <option value="" disabled hidden>Classe</option>
                 <option value="all">Toutes</option>
@@ -1084,12 +1084,10 @@ export function ControlModule({
               <button onClick={() => setHistoryOpen(true)} className="secondary-button h-10 min-w-0 justify-center px-2 text-sm lg:flex-1 lg:basis-0 lg:text-xs" type="button">
                 Historique
               </button>
-          </div>
-          {user.role === "cashier" && canPay && <div className="mt-2 grid min-w-0">
-            <button onClick={() => { setCashierControlFeedback(""); setCashierControlFeedbackDrawer(null); setCashierControlDrawer("payment"); }} className="primary-button h-10 min-w-0 w-full justify-center px-2 text-sm" type="button">
+              {user.role === "cashier" && canPay && <button onClick={() => { setCashierControlFeedback(""); setCashierControlFeedbackDrawer(null); setCashierControlDrawer("payment"); }} className="primary-button h-10 min-w-0 justify-center px-2 text-sm lg:flex-1 lg:basis-0 lg:text-xs" type="button">
               <Plus className="h-4 w-4" /> Enregistrer
-            </button>
-          </div>}
+              </button>}
+          </div>
         </div>
         <div className="grid min-w-0 gap-3">
           {rows.map(({ student, balance, progress, hasApplicableFees }) => (
@@ -1230,7 +1228,7 @@ export function ControlModule({
                 ))}
               </select>
               <input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" min="0" max={selectedPaymentFeeRemaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" placeholder="Montant" />
-              <button onClick={savePayment} disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button justify-center disabled:opacity-50" type="button"><Plus className="h-4 w-4" /> {paymentSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
+              <button onClick={savePayment} disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button w-full justify-center disabled:opacity-50" type="button"><Plus className="h-4 w-4" /> {paymentSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
             </>
           )}
           {cashierControlDrawer === "expense" && (
@@ -1291,7 +1289,7 @@ export function ControlModule({
                 placeholder="Référence / pièce (facultatif)"
               />
               {expenseError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{expenseError}</p>}
-              <button onClick={saveExpense} disabled={expenseSubmitting} className="primary-button justify-center disabled:opacity-50" type="button"><Plus className="h-4 w-4" /> {expenseSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
+              <button onClick={saveExpense} disabled={expenseSubmitting} className="primary-button w-full justify-center disabled:opacity-50" type="button"><Plus className="h-4 w-4" /> {expenseSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
             </>
           )}
         </AdminDrawer>
@@ -1306,8 +1304,8 @@ export function ControlModule({
           <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
             Type d'historique
             <select aria-label="Type d'historique" className="input min-w-0 w-full" value={historyKind} onChange={(event) => setHistoryKind(event.target.value as typeof historyKind)}>
-              <option value="expenses">Historique des dépenses</option>
               <option value="payments">Historique des paiements</option>
+              <option value="expenses">Historique des dépenses</option>
             </select>
           </label>
           {historyKind === "payments" && <>
