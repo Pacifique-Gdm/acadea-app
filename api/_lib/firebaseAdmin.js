@@ -82,7 +82,11 @@ export function getVerifiedServiceAccount() {
 
 export function initAdmin() {
   if (getApps().length === 0) {
-    initializeApp({ credential: cert(getVerifiedServiceAccount()) });
+    const serviceAccount = getVerifiedServiceAccount();
+    initializeApp({
+      credential: cert(serviceAccount),
+      storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET || `${serviceAccount.project_id}.firebasestorage.app`,
+    });
   }
 
   return {
