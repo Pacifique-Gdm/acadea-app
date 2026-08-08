@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canManageStudentMedicalRecords, cleanMedicalRecordInput, getMedicalRecordStatus, medicalRecordSaveErrorMessage } from "./studentMedicalRecords";
+import { canManageStudentMedicalRecords, canReadOwnChildrenMedicalRecords, cleanMedicalRecordInput, getMedicalRecordStatus, medicalRecordSaveErrorMessage } from "./studentMedicalRecords";
 import type { AppUser } from "../types";
 import type { StudentMedicalRecord } from "../modules/secretary/secretaryTypes";
 
@@ -29,5 +29,13 @@ describe("fiches médicales du Secrétaire", () => {
 
   it("traduit une erreur Firestore de permission", () => {
     expect(medicalRecordSaveErrorMessage({ code: "permission-denied" })).toContain("autorisation");
+  });
+
+  it("autorise la lecture Parent uniquement dans son ecole active", () => {
+    const parent = { role: "parent", schoolId: "school-a", parentId: "parent-a", status: "active" } as AppUser;
+    expect(canReadOwnChildrenMedicalRecords(parent, "school-a")).toBe(true);
+    expect(canReadOwnChildrenMedicalRecords(parent, "school-b")).toBe(false);
+    expect(canReadOwnChildrenMedicalRecords({ ...parent, parentId: undefined }, "school-a")).toBe(false);
+    expect(canReadOwnChildrenMedicalRecords({ ...parent, status: "inactive" }, "school-a")).toBe(false);
   });
 });

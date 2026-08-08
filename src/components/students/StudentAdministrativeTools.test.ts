@@ -10,7 +10,8 @@ describe("outils administratifs Élèves partagés", () => {
     expect(studentsModule).not.toContain("Importer les élèves d'une année archivée");
     expect(studentsModule).not.toContain("Tableau d'homogénéité d'âge");
     expect(studentsModule).toContain("Ajouter un élève");
-    expect(studentsModule).toContain('title="Imprimer" aria-label="Imprimer"');
+    expect(studentsModule).toContain('className="pdf-export-button min-w-0 px-3 lg:flex-1 lg:basis-0"');
+    expect(studentsModule).toContain('<Download className="h-4 w-4" /> Exporter PDF');
     expect(studentsModule).toContain('<Download className="h-4 w-4" />');
     expect(studentsModule).toContain("lg:flex-1 lg:basis-0");
     expect(studentsModule).toContain("grid-cols-1 items-stretch");

@@ -60,6 +60,7 @@ export type MessageNotificationRecord = {
   schoolYearId: string;
   parentId?: string;
   schoolRecipient?: MessageRecipient;
+  recipientUserId?: string;
   messageId: string;
 };
 
@@ -73,6 +74,7 @@ export type MessageRecord = {
   threadId?: string;
   conversationId?: string;
   schoolRecipient?: MessageRecipient;
+  recipientIds?: string[];
 };
 
 export type SchoolUserRecord = ParentUserRecord & { role?: string };

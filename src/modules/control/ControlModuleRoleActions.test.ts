@@ -52,8 +52,8 @@ describe("actions Contrôle partagées selon le rôle", () => {
   });
 
   it("place les deux validations financières du drawer en pleine largeur", () => {
-    expect(source).toContain('disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button w-full justify-center disabled:opacity-50"');
-    expect(source).toContain('disabled={expenseSubmitting} className="primary-button w-full justify-center disabled:opacity-50"');
+    expect(source).toContain('disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button w-full justify-center"');
+    expect(source).toContain('disabled={isExpenseEntryIncomplete || expenseSubmitting} className="primary-button w-full justify-center"');
   });
 
   it("maintient les mutations interdites hors du DOM du Caissier", () => {

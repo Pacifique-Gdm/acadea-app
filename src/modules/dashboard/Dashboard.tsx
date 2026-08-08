@@ -637,7 +637,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
           <button onClick={resetDashboardDateFilter} type="button" className="rounded border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:border-mint hover:text-mint">
             Réinitialiser
           </button>
-          <button onClick={exportDashboardPdf} type="button" className="primary-button w-full justify-center sm:w-auto">
+          <button onClick={exportDashboardPdf} type="button" className="pdf-export-button w-full sm:w-auto">
             <Download className="h-4 w-4" /> Exporter PDF
           </button>
           {dateFilterError && <p className="text-xs font-semibold text-red-600 sm:col-span-2 lg:col-span-5">{dateFilterError}</p>}

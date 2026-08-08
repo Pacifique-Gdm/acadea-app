@@ -13,6 +13,10 @@ export function canManageStudentMedicalRecords(user: AppUser, schoolId: string) 
   return medicalRecordRoles.has(user.role) && user.status !== "inactive" && user.schoolId === schoolId;
 }
 
+export function canReadOwnChildrenMedicalRecords(user: AppUser, schoolId: string) {
+  return user.role === "parent" && user.status !== "inactive" && user.schoolId === schoolId && Boolean(user.parentId);
+}
+
 function assertMedicalRecordUser(user: AppUser, schoolId: string) {
   if (!auth?.currentUser || auth.currentUser.uid !== user.id || !canManageStudentMedicalRecords(user, schoolId)) {
     throw new Error("Votre session ne permet pas de gérer les fiches médicales.");
@@ -58,6 +62,43 @@ export function subscribeToStudentMedicalRecords(params: {
     const data = item.data();
     return { id: item.id, ...data, createdAt: timestampToIso(data.createdAt), updatedAt: timestampToIso(data.updatedAt) } as StudentMedicalRecord;
   })), (error) => params.onError(error));
+}
+
+export function subscribeToParentMedicalRecords(params: {
+  user: AppUser;
+  schoolId: string;
+  schoolYearId: string;
+  students: Array<{ id: string; schoolId: string; schoolYearId: string; parentId?: string }>;
+  onData: (records: StudentMedicalRecord[]) => void;
+  onError: (error: Error) => void;
+}) {
+  if (!db || !canReadOwnChildrenMedicalRecords(params.user, params.schoolId)) return () => undefined;
+  const childIds = [...new Set(params.students
+    .filter((student) => student.schoolId === params.schoolId && student.schoolYearId === params.schoolYearId && student.parentId === params.user.parentId)
+    .map((student) => student.id))];
+  if (!childIds.length) {
+    params.onData([]);
+    return () => undefined;
+  }
+  const records = new Map<string, StudentMedicalRecord>();
+  const emit = () => params.onData(childIds.flatMap((studentId) => records.get(studentId) ?? []));
+  type MedicalRecordSnapshot = { id: string; exists: () => boolean; data: () => Record<string, unknown> };
+  const subscribeToDocument = onSnapshot as unknown as (
+    reference: unknown,
+    next: (snapshot: MedicalRecordSnapshot) => void,
+    error: (error: Error) => void,
+  ) => () => void;
+  const unsubscribes = childIds.map((studentId) => subscribeToDocument(doc(db, "studentMedicalRecords", studentId), (snapshot) => {
+    if (!snapshot.exists()) records.delete(studentId);
+    else {
+      const data = snapshot.data();
+      if (data.schoolId === params.schoolId && data.schoolYearId === params.schoolYearId && data.studentId === studentId) {
+        records.set(studentId, { id: snapshot.id, ...data, createdAt: timestampToIso(data.createdAt), updatedAt: timestampToIso(data.updatedAt) } as StudentMedicalRecord);
+      }
+    }
+    emit();
+  }, (error) => params.onError(error)));
+  return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
 }
 
 export async function saveStudentMedicalRecord(params: {

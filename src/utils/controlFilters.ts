@@ -18,6 +18,25 @@ export function feeNamesForControlClass(feeTypes: FeeType[], student?: Student) 
   return Array.from(new Set(feeTypes.filter((fee) => feeAppliesToStudent(fee, student)).map((fee) => fee.name)));
 }
 
+export type ControlFeeGroup = { key: string; name: string; ids: string[] };
+
+export function buildControlFeeGroups(feeTypes: FeeType[], classKey: string, classStudent?: Student) {
+  const applicableFees = classKey && classKey !== "all"
+    ? classStudent ? feeTypes.filter((fee) => feeAppliesToStudent(fee, classStudent)) : []
+    : feeTypes;
+
+  return Array.from(
+    applicableFees.reduce<Map<string, ControlFeeGroup>>((items, fee) => {
+      const name = fee.name.trim();
+      const key = name.toLowerCase();
+      if (!key) return items;
+      const existing = items.get(key);
+      items.set(key, existing ? { ...existing, ids: [...existing.ids, fee.id] } : { key, name, ids: [fee.id] });
+      return items;
+    }, new Map()).values(),
+  );
+}
+
 export function feeNamesForWarningClass(feeTypes: FeeType[], classKey: string, student?: Student) {
   if (classKey === "all") return Array.from(new Set(feeTypes.map((fee) => fee.name)));
   return feeNamesForControlClass(feeTypes, student);

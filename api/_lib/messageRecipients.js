@@ -1,10 +1,11 @@
-const ALLOWED_SENDERS = new Set(["school_admin", "admin", "cashier", "discipline_director", "secretary"]);
+const ALLOWED_SENDERS = new Set(["school_admin", "admin", "cashier", "discipline_director", "secretary", "parent"]);
 
 const RECIPIENTS_BY_ROLE = Object.freeze({
   school_admin: new Set(["secretary", "parent"]),
   cashier: new Set(["secretary", "parent"]),
   discipline_director: new Set(["secretary", "parent"]),
   secretary: new Set(["school_admin", "cashier", "discipline_director", "parent"]),
+  parent: new Set(["school_admin", "cashier", "discipline_director", "secretary"]),
 });
 
 export function normalizedMessagingRole(value) {

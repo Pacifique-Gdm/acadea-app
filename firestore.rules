@@ -111,6 +111,15 @@ service cloud.firestore {
         : resource.data.schoolId == tenantSchoolId();
     }
 
+    function parentMedicalRecordRead(studentId) {
+      return parentUser()
+        && medicalRecordStudentInTenant(studentId)
+        && get(/databases/$(database)/documents/students/$(studentId)).data.parentId == tenantParentId()
+        && resource.data.schoolId == tenantSchoolId()
+        && resource.data.studentId == studentId
+        && resource.data.schoolYearId == get(/databases/$(database)/documents/students/$(studentId)).data.schoolYearId;
+    }
+
     function secretaryStudentCreate() {
       return secretary()
         && activeTenantYearCreate()
@@ -777,8 +786,8 @@ service cloud.firestore {
     }
 
     match /studentMedicalRecords/{studentId} {
-      allow read: if medicalRecordUser()
-        && medicalRecordReadInTenant(studentId);
+      allow read: if (medicalRecordUser() && medicalRecordReadInTenant(studentId))
+        || parentMedicalRecordRead(studentId);
       allow create: if medicalRecordUser()
         && activeTenantYearCreate()
         && medicalRecordStudentInYear(studentId, request.resource.data.schoolYearId)

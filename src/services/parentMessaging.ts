@@ -3,8 +3,6 @@ import { auth } from "../firebase";
 import type { AppNotification, Message } from "../types";
 import { resolveApiUrl } from "../config/apiUrl";
 
-export type ParentMessageRecipient = "admin" | "cashier" | "both" | "discipline";
-
 export type ParentMessageQuota = {
   limit: number;
   messageCount: number;
@@ -91,7 +89,7 @@ export async function fetchParentMessageQuota(schoolYearId: string): Promise<Par
 
 export async function sendParentMessageWithQuota(input: {
   schoolYearId: string;
-  recipient: ParentMessageRecipient;
+  recipientIds: string[];
   subject: string;
   body: string;
 }): Promise<ParentMessageResponse> {

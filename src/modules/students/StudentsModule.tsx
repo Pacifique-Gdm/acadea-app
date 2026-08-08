@@ -460,7 +460,7 @@ export function StudentsModule({
               <option key={option} value={option}>{option}</option>
             ))}
           </select>
-          <button onClick={printStudentsPdf} type="button" className="primary-button min-w-0 justify-center px-3 lg:flex-1 lg:basis-0" title="Imprimer" aria-label="Imprimer">
+          <button onClick={printStudentsPdf} type="button" className="pdf-export-button min-w-0 px-3 lg:flex-1 lg:basis-0">
             <Download className="h-4 w-4" /> Exporter PDF
           </button>
           </div>

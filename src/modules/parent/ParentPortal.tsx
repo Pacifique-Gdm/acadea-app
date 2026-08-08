@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { ArrowLeft, BookOpen, Clock3, Download, LogOut, MessageSquare, UserRound } from "lucide-react";
+import { ArrowLeft, BookOpen, Clock3, Download, HeartPulse, LogOut, MessageSquare, UserRound } from "lucide-react";
 import { AdminDrawer, FormPanel, Metric } from "../../components/ui";
 import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent";
 import { db } from "../../firebase";
@@ -9,8 +9,8 @@ import { canUseFirestoreData } from "../../services/firestoreData";
 import { markNotificationsReadTargeted } from "../../services/notificationsPagination";
 import { fetchParentMessageQuota, sendParentMessageWithQuota } from "../../services/parentMessaging";
 import type { ParentMessageQuota } from "../../services/parentMessaging";
-import { disablePushNotifications, enablePushNotifications, getPushNotificationStatus } from "../../services/pushNotifications";
-import type { PushNotificationStatus } from "../../services/pushNotifications";
+import { loadSchoolMessageRecipients, type SchoolMessageRecipient } from "../../services/schoolMessaging";
+import { subscribeToParentMedicalRecords } from "../../services/studentMedicalRecords";
 import { buildSchoolYearDataIndexes } from "../../utils/dataIndexes";
 import { resolvePaymentCashierName } from "../../utils/finance";
 import { nextMessageThreadId } from "../../utils/messageThreads";
@@ -19,6 +19,8 @@ import { mergeMessagesById, mergeNotificationsById } from "../../utils/realtimeM
 import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import type { AppData, AppNotification, AppUser, AuditLog, FeeType, Message, ParentProfile, Payment, School, SchoolYear, Student, ValvePublication } from "../../types";
+import { formatMedicalRecordValue, medicalRecordSections } from "../secretary/medicalRecordFields";
+import type { StudentMedicalRecord } from "../secretary/secretaryTypes";
 
 type ParentTab = "children" | "messages" | "menu";
 
@@ -78,7 +80,10 @@ export function ParentPortal({
   const [parentHistoryOpen, setParentHistoryOpen] = useState(false);
   const [parentValvesOpen, setParentValvesOpen] = useState(false);
   const [parentMessageDrawerOpen, setParentMessageDrawerOpen] = useState(false);
-  const [messageRecipient, setMessageRecipient] = useState<"admin" | "cashier" | "both" | "discipline">("admin");
+  const [messageRecipientIds, setMessageRecipientIds] = useState<string[]>([]);
+  const [messageRecipients, setMessageRecipients] = useState<SchoolMessageRecipient[]>([]);
+  const [messageRecipientsLoading, setMessageRecipientsLoading] = useState(false);
+  const [messageRecipientsError, setMessageRecipientsError] = useState("");
   const [messageSubject, setMessageSubject] = useState("");
   const [messageBody, setMessageBody] = useState("");
   const [messageFeedback, setMessageFeedback] = useState("");
@@ -86,24 +91,16 @@ export function ParentPortal({
   const [parentMessageQuota, setParentMessageQuota] = useState<ParentMessageQuota | null>(null);
   const [isParentMessageQuotaLoading, setIsParentMessageQuotaLoading] = useState(false);
   const [isSendingParentMessage, setIsSendingParentMessage] = useState(false);
-  const [pushNotificationStatus, setPushNotificationStatus] = useState<PushNotificationStatus>("available");
-  const [pushNotificationFeedback, setPushNotificationFeedback] = useState("");
-  const [pushNotificationFeedbackTone, setPushNotificationFeedbackTone] = useState<"success" | "warning" | "error">("warning");
-  const [pushNotificationOperation, setPushNotificationOperation] = useState<"idle" | "enabling" | "disabling">("idle");
-  const pushNotificationOperationPending = useRef<"enabling" | "disabling" | null>(null);
-  const pushNotificationUiActive = useRef(false);
+  const [parentMedicalOpen, setParentMedicalOpen] = useState(false);
+  const [parentMedicalRecords, setParentMedicalRecords] = useState<StudentMedicalRecord[]>([]);
+  const [parentMedicalError, setParentMedicalError] = useState("");
   const parent = yearData.parents.find((item) => item.id === user.parentId);
   const unread = yearData.notifications.filter((notification) => !notification.read).length;
-  const isParentMessageFormComplete = messageSubject.trim().length > 0 && messageBody.trim().length > 0;
+  const isParentMessageFormComplete = messageRecipientIds.length > 0 && messageSubject.trim().length > 0 && messageBody.trim().length > 0;
   const parentMessageQuotaReached = parentMessageQuota ? parentMessageQuota.messageCount >= parentMessageQuota.limit : false;
   const parentIndexes = useMemo(() => buildSchoolYearDataIndexes(yearData.students, yearData.feeTypes, yearData.payments), [yearData.students, yearData.feeTypes, yearData.payments]);
   const selectedParentChild = yearData.students.find((student) => student.id === selectedParentChildId);
-  const recipientLabels = {
-    admin: "Administrateur uniquement",
-    cashier: "Caissier uniquement",
-    both: "Administrateur et Caissier",
-    discipline: "Directeur de Discipline",
-  } as const;
+  const selectedMessageRecipients = messageRecipients.filter((recipient) => messageRecipientIds.includes(recipient.uid));
 
   function progressBarTone(percent: number) {
     if (percent >= 100) return "bg-mint";
@@ -153,118 +150,30 @@ export function ParentPortal({
   }, [messageFeedback]);
 
   useEffect(() => {
-    pushNotificationUiActive.current = parentAccountOpen;
-    if (!parentAccountOpen) {
-      setPushNotificationFeedback("");
-      setPushNotificationOperation("idle");
-      return undefined;
-    }
+    if (activeParentTab !== "messages" || !canUseFirestoreData()) return undefined;
     let cancelled = false;
-    setPushNotificationOperation(pushNotificationOperationPending.current ?? "idle");
-    getPushNotificationStatus(user)
-      .then((status) => {
-        if (!cancelled) setPushNotificationStatus(status);
+    setMessageRecipientsLoading(true);
+    setMessageRecipientsError("");
+    loadSchoolMessageRecipients()
+      .then((recipients) => {
+        if (cancelled) return;
+        setMessageRecipients(recipients);
+        setMessageRecipientIds((current) => current.filter((id) => recipients.some((recipient) => recipient.uid === id)));
       })
-      .catch(() => {
-        if (!cancelled) {
-          setPushNotificationStatus("available");
-          setPushNotificationFeedbackTone("error");
-          setPushNotificationFeedback("Impossible de modifier les notifications pour le moment. Vérifiez votre connexion puis réessayez.");
-        }
-      });
-    return () => {
-      cancelled = true;
-      pushNotificationUiActive.current = false;
-    };
-  }, [parentAccountOpen, user]);
+      .catch((error) => { if (!cancelled) setMessageRecipientsError(error instanceof Error ? error.message : "Destinataires indisponibles."); })
+      .finally(() => { if (!cancelled) setMessageRecipientsLoading(false); });
+    return () => { cancelled = true; };
+  }, [activeParentTab, user.id]);
 
-  async function activatePushNotifications() {
-    if (pushNotificationOperationPending.current) return;
-    pushNotificationOperationPending.current = "enabling";
-    setPushNotificationOperation("enabling");
-    setPushNotificationFeedback("");
-    try {
-      const result = await enablePushNotifications(user);
-      if (!pushNotificationUiActive.current) return;
-      if (result.status === "enabled") {
-        setPushNotificationStatus("enabled");
-        setPushNotificationFeedbackTone("success");
-        setPushNotificationFeedback("Les notifications Acadéa sont activées sur cet appareil.");
-      } else if (result.status === "unsupported") {
-        setPushNotificationStatus("unsupported");
-      } else if (result.status === "not-configured") {
-        setPushNotificationStatus("not_configured");
-      } else if (result.status === "not-authorized") {
-        setPushNotificationStatus("unauthorized");
-      } else if (Notification.permission === "denied") {
-        setPushNotificationStatus("blocked");
-      } else {
-        setPushNotificationStatus("available");
-        setPushNotificationFeedbackTone(result.status === "permission-denied" ? "warning" : "error");
-        setPushNotificationFeedback(result.status === "permission-denied" ? "Activation annulée. Vous pourrez réessayer quand vous le souhaitez." : "Impossible de modifier les notifications pour le moment. Vérifiez votre connexion puis réessayez.");
-      }
-    } catch {
-      if (pushNotificationUiActive.current) {
-        setPushNotificationStatus("available");
-        setPushNotificationFeedbackTone("error");
-        setPushNotificationFeedback("Impossible de modifier les notifications pour le moment. Vérifiez votre connexion puis réessayez.");
-      }
-    } finally {
-      pushNotificationOperationPending.current = null;
-      if (pushNotificationUiActive.current) setPushNotificationOperation("idle");
-    }
-  }
-
-  async function deactivatePushNotifications() {
-    if (pushNotificationOperationPending.current) return;
-    pushNotificationOperationPending.current = "disabling";
-    setPushNotificationOperation("disabling");
-    setPushNotificationFeedback("");
-    try {
-      const result = await disablePushNotifications(user);
-      if (!pushNotificationUiActive.current) return;
-      if (result.status === "disabled" || result.status === "no-device") {
-        setPushNotificationStatus("available");
-        setPushNotificationFeedbackTone("success");
-        setPushNotificationFeedback("Les notifications Acadéa sont désactivées sur cet appareil.");
-      } else if (result.status === "not-authorized") {
-        setPushNotificationStatus("unauthorized");
-      } else {
-        setPushNotificationFeedbackTone("error");
-        setPushNotificationFeedback("Impossible de modifier les notifications pour le moment. Vérifiez votre connexion puis réessayez.");
-      }
-    } catch {
-      if (pushNotificationUiActive.current) {
-        setPushNotificationStatus("enabled");
-        setPushNotificationFeedbackTone("error");
-        setPushNotificationFeedback("Impossible de modifier les notifications pour le moment. Vérifiez votre connexion puis réessayez.");
-      }
-    } finally {
-      pushNotificationOperationPending.current = null;
-      if (pushNotificationUiActive.current) setPushNotificationOperation("idle");
-    }
-  }
-
-  const pushNotificationMessage = pushNotificationFeedback || {
-    enabled: "Les notifications Acadéa sont activées sur cet appareil.",
-    blocked: "Autorisez les notifications pour Acadéa dans les paramètres de votre navigateur, puis rechargez la page.",
-    unsupported: "Votre navigateur ne prend pas en charge les notifications sur cet appareil.",
-    not_configured: "Les notifications ne sont pas encore disponibles dans cet environnement.",
-    unauthorized: "Votre session ne permet pas de gérer les notifications.",
-    available: "",
-  }[pushNotificationStatus];
-  const pushNotificationButtonLabel = pushNotificationOperation === "enabling"
-    ? "Activation…"
-    : pushNotificationOperation === "disabling"
-      ? "Désactivation…"
-      : pushNotificationStatus === "enabled"
-        ? "Désactiver les notifications"
-        : pushNotificationStatus === "blocked"
-        ? "Notifications bloquées"
-        : pushNotificationStatus === "unsupported" || pushNotificationStatus === "not_configured"
-          ? "Notifications non disponibles"
-          : "Activer les notifications";
-  const pushNotificationButtonDisabled = pushNotificationOperation !== "idle" || ["blocked", "unsupported", "not_configured", "unauthorized"].includes(pushNotificationStatus);
+  useEffect(() => {
+    if (!parentMedicalOpen) return undefined;
+    setParentMedicalError("");
+    return subscribeToParentMedicalRecords({
+      user, schoolId: school.id, schoolYearId: year.id, students: yearData.students,
+      onData: setParentMedicalRecords,
+      onError: (error) => setParentMedicalError(error.message || "Fiches médicales indisponibles."),
+    });
+  }, [parentMedicalOpen, school.id, user, year.id, yearData.students]);
 
   useEffect(() => {
     if (!parentMessageQuota?.windowExpiresAt || !user.parentId || !year.id) return undefined;
@@ -321,7 +230,7 @@ export function ParentPortal({
     const subject = messageSubject.trim();
     const body = messageBody.trim();
 
-    if (!user.parentId) {
+    if (!user.parentId || !messageRecipientIds.length) {
       setMessageFeedback("Veuillez renseigner le destinataire, l'objet et le message.");
       return;
     }
@@ -338,7 +247,11 @@ export function ParentPortal({
       return;
     }
 
-    const recipientLabel = recipientLabels[messageRecipient];
+    const recipientLabel = selectedMessageRecipients.map((recipient) => recipient.name).join(", ");
+    const recipientRoles = [...new Set(selectedMessageRecipients.map((recipient) => recipient.role))];
+    const schoolRecipient = recipientRoles.includes("school_admin") && recipientRoles.includes("cashier")
+      ? "both"
+      : recipientRoles.includes("cashier") ? "cashier" : recipientRoles.includes("discipline_director") ? "discipline" : "admin";
     const createdAt = new Date().toISOString();
     const threadId = nextMessageThreadId(yearData.messages, user.id, "school", user.parentId, undefined, createId) ?? createId("thread");
     const message: Message = {
@@ -347,7 +260,9 @@ export function ParentPortal({
       schoolYearId: year.id,
       senderId: user.id,
       recipientParentId: "school",
-      schoolRecipient: messageRecipient,
+      schoolRecipient,
+      recipientIds: messageRecipientIds,
+      participantIds: [user.id, ...messageRecipientIds],
       threadParentId: user.parentId,
       threadId,
       subject: `${recipientLabel} - ${subject}`,
@@ -359,7 +274,7 @@ export function ParentPortal({
       schoolId: school.id,
       schoolYearId: year.id,
       recipientRole: "school",
-      schoolRecipient: messageRecipient,
+      schoolRecipient,
       messageId: message.id,
       type: "message",
       title: `Nouveau message parent - ${recipientLabel}`,
@@ -377,7 +292,7 @@ export function ParentPortal({
       try {
         const result = await sendParentMessageWithQuota({
           schoolYearId: year.id,
-          recipient: messageRecipient,
+          recipientIds: messageRecipientIds,
           subject,
           body,
         });
@@ -413,7 +328,7 @@ export function ParentPortal({
     }
     setMessageSubject("");
     setMessageBody("");
-    setMessageRecipient("admin");
+    setMessageRecipientIds([]);
     setMessageFeedback("Message envoyé avec succès.");
   }
 
@@ -449,23 +364,6 @@ export function ParentPortal({
         <section className="grid min-w-0 gap-4">
           {activeParentTab === "children" && (
           <div className="grid min-w-0 gap-4">
-            {selectedParentChild && (
-              <section className="min-w-0 rounded border border-slate-200 bg-white p-4">
-                <button
-                  onClick={() => setSelectedParentChildId(null)}
-                  className="inline-flex items-center gap-2 rounded bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-200"
-                  type="button"
-                >
-                  <ArrowLeft className="h-4 w-4" /> Retour aux enfants
-                </button>
-                <div className="mt-4 min-w-0">
-                  <h2 className="break-words text-xl font-bold text-ink">
-                    {selectedParentChild.nom} {selectedParentChild.postnom} {selectedParentChild.prenom}
-                  </h2>
-                  <p className="break-words text-sm text-slate-500">Fiche détaillée et historique des paiements.</p>
-                </div>
-              </section>
-            )}
             {(selectedParentChild ? [selectedParentChild] : yearData.students).map((student) => {
               const feeSummaries = getStudentFeeSummaries(student, yearData.feeTypes, yearData.payments, parentIndexes);
               const feeTotals = feeSummaries.reduce(
@@ -486,7 +384,10 @@ export function ParentPortal({
               if (selectedParentChild) {
                 return (
                   <article key={student.id} className="min-w-0 rounded border border-slate-200 bg-white p-4">
-                    <p className="mb-2 text-sm font-semibold text-ink">Historique des paiements</p>
+                    <div className="mb-4 flex min-w-0 items-center justify-between gap-3">
+                      <div className="min-w-0"><h2 className="text-lg font-bold text-ink">Historique des paiements</h2><p className="break-words text-sm text-slate-500">{student.nom} {student.postnom} {student.prenom}</p></div>
+                      <button onClick={() => setSelectedParentChildId(null)} className="secondary-button h-10 w-10 shrink-0 px-0" type="button" aria-label="Retour aux enfants" title="Retour aux enfants"><ArrowLeft className="h-4 w-4" /></button>
+                    </div>
                     <div className="max-h-[60vh] space-y-2 overflow-y-auto pr-1 scrollbar-thin">
                       {payments.length === 0 && <p className="text-sm text-slate-500">Aucun paiement enregistré.</p>}
                       {payments.map((payment) => {
@@ -582,19 +483,14 @@ export function ParentPortal({
           {activeParentTab === "messages" && (
             <FormPanel title="Message">
               <form onSubmit={sendParentMessage} className="grid min-w-0 gap-4">
-                <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
-                  Destinataire
-                  <select
-                    value={messageRecipient}
-                    onChange={(event) => setMessageRecipient(event.target.value as "admin" | "cashier" | "both" | "discipline")}
-                    className="min-w-0 rounded border border-slate-200 px-3 py-2 text-sm"
-                  >
-                    <option value="admin">Administrateur uniquement</option>
-                    <option value="cashier">Caissier uniquement</option>
-                    <option value="both">Administrateur et Caissier</option>
-                    <option value="discipline">Directeur de Discipline</option>
-                  </select>
-                </label>
+                <fieldset className="grid min-w-0 gap-2"><legend className="text-sm font-semibold text-slate-700">Destinataires</legend>
+                  <div className="grid max-h-60 gap-2 overflow-y-auto sm:grid-cols-2">
+                    {messageRecipients.map((recipient) => <label key={recipient.uid} className="flex min-h-11 cursor-pointer items-center gap-3 rounded border border-slate-200 px-3 py-2 transition hover:bg-slate-50"><input type="checkbox" checked={messageRecipientIds.includes(recipient.uid)} onChange={() => setMessageRecipientIds((current) => current.includes(recipient.uid) ? current.filter((id) => id !== recipient.uid) : [...current, recipient.uid])} /><span className="min-w-0"><strong className="block break-words text-sm text-slate-800">{recipient.name}</strong><span className="text-xs text-slate-500">{recipient.role === "school_admin" ? "Administrateur" : recipient.role === "cashier" ? "Caissier" : recipient.role === "secretary" ? "Secrétaire" : "Directeur de Discipline"}</span></span></label>)}
+                  </div>
+                  {messageRecipientsLoading && <p className="text-sm text-slate-500">Chargement des destinataires…</p>}
+                  {!messageRecipientsLoading && !messageRecipients.length && !messageRecipientsError && <p className="text-sm text-slate-500">Aucun destinataire autorisé disponible.</p>}
+                  {messageRecipientsError && <p role="alert" className="rounded bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{messageRecipientsError}</p>}
+                </fieldset>
                 <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
                   Objet
                   <input
@@ -676,6 +572,9 @@ export function ParentPortal({
                   </div>
                 </div>
               </button>
+              <button onClick={() => setParentMedicalOpen(true)} className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint" type="button">
+                <div className="flex min-w-0 items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink"><HeartPulse className="h-5 w-5" /></div><div className="min-w-0"><h2 className="break-words font-bold text-ink">Fiche médicale</h2><p className="mt-1 break-words text-sm text-slate-500">Consulter les informations médicales disponibles pour vos enfants.</p></div></div>
+              </button>
               <button
                 onClick={() => setParentHistoryOpen(true)}
                 className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint"
@@ -711,26 +610,17 @@ export function ParentPortal({
               <Metric label="Notification(s)" value={String(unread)} />
             </div>
           </div>
-          <FormPanel title="Notifications Acadéa">
-            <p className="text-sm text-slate-600">Recevez sur cet appareil les messages et alertes importantes concernant votre compte et vos enfants.</p>
-            {pushNotificationMessage && (
-              <p
-                className={`rounded border px-3 py-2 text-sm ${pushNotificationFeedbackTone === "success" || (!pushNotificationFeedback && pushNotificationStatus === "enabled") ? "border-emerald-200 bg-emerald-50 text-emerald-800" : pushNotificationFeedbackTone === "error" ? "border-red-200 bg-red-50 text-red-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}
-                role="status"
-                aria-live="polite"
-              >
-                {pushNotificationMessage}
-              </p>
-            )}
-            <button
-              type="button"
-              className="primary-button transition disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={pushNotificationButtonDisabled}
-              onClick={pushNotificationStatus === "enabled" ? deactivatePushNotifications : activatePushNotifications}
-            >
-              {pushNotificationButtonLabel}
-            </button>
-          </FormPanel>
+        </AdminDrawer>
+      )}
+      {parentMedicalOpen && (
+        <AdminDrawer title="Fiche médicale" onClose={() => setParentMedicalOpen(false)} closeLabel="Fermer les fiches médicales">
+          <div className="grid min-w-0 gap-4">
+            {parentMedicalError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{parentMedicalError}</p>}
+            {yearData.students.map((student) => {
+              const record = parentMedicalRecords.find((item) => item.studentId === student.id && item.schoolId === school.id && item.schoolYearId === year.id);
+              return <section key={student.id} className="grid min-w-0 gap-3 rounded border border-slate-200 bg-slate-50 p-4"><div><h3 className="break-words text-lg font-bold text-ink">{student.nom} {student.postnom} {student.prenom}</h3><p className="text-sm text-slate-500">{formatStudentClassName(student)}</p></div>{record ? medicalRecordSections.map((section) => <section className="rounded border bg-white p-4" key={section.title}><h4 className="font-bold">{section.title}</h4><dl className="mt-3 grid gap-3 sm:grid-cols-2">{section.fields.map((field) => <div className="min-w-0" key={field.key}><dt className="text-xs font-semibold uppercase text-slate-500">{field.label}</dt><dd className="mt-1 whitespace-pre-wrap break-words text-slate-700">{formatMedicalRecordValue(record[field.key])}</dd></div>)}</dl></section>) : <p className="rounded border border-dashed bg-white p-4 text-sm text-slate-500">Aucune fiche médicale disponible pour cet enfant.</p>}</section>;
+            })}
+          </div>
         </AdminDrawer>
       )}
       {parentHistoryOpen && (

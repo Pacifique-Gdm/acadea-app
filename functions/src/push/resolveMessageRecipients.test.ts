@@ -81,4 +81,12 @@ describe("notifications de messagerie", () => {
     expect(result?.recipients.map((item) => item.userId)).toEqual(expectedRoles.map((role) => `${role}-user`));
     expect(result?.recipients.map((item) => item.userId)).not.toContain("super");
   });
+  it("cible uniquement l'utilisateur explicitement selectionne par le Parent", async () => {
+    const repo = repository("school");
+    repo.getMessage.mockResolvedValue({ ...await repo.getMessage(), recipientIds: ["school_admin-user"] } as never);
+    const notification = { ...parentNotification, recipientRole: "school" as const, parentId: undefined, recipientUserId: "school_admin-user" };
+    const result = await resolveMessageRecipients(notification, repo);
+    expect(repo.findSchoolUsers).not.toHaveBeenCalled();
+    expect(result?.recipients.map((item) => item.userId)).toEqual(["school_admin-user"]);
+  });
 });

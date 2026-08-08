@@ -42,7 +42,7 @@ describe("PDF financiers en deux exemplaires", () => {
     const receiptNumber = "REC-2026-00042";
     const html = renderCopies(
       "Reçu de paiement",
-      ["Exemplaire Parent", "Exemplaire École"],
+      ["EXEMPLAIRE ÉCOLE", "EXEMPLAIRE PARENT"],
       pdfInfoGrid([
         { label: "Reçu", value: receiptNumber },
         { label: "Élève", value: "Nom d'élève volontairement très long pour vérifier le retour à la ligne" },
@@ -54,8 +54,8 @@ describe("PDF financiers en deux exemplaires", () => {
     expect(occurrences(html, receiptNumber)).toBe(2);
     expect(occurrences(html, '<header class="pdf-header">')).toBe(2);
     expect(occurrences(html, '<article class="pdf-copy">')).toBe(2);
-    expect(html).toContain("Exemplaire Parent");
-    expect(html).toContain("Exemplaire École");
+    expect(html.indexOf("EXEMPLAIRE ÉCOLE")).toBeLessThan(html.indexOf("EXEMPLAIRE PARENT"));
+    expect(html).toContain("min-height: 31px");
     expect(html).toContain('class="pdf-cut-line"');
     expect(html).toContain("grid-template-rows: minmax(0, 1fr) 22px minmax(0, 1fr)");
   });
@@ -64,7 +64,7 @@ describe("PDF financiers en deux exemplaires", () => {
     const description = "Acquisition de fournitures administratives et pédagogiques pour plusieurs services de l'établissement";
     const html = renderCopies(
       "Justificatif de dépense",
-      ["Exemplaire Bénéficiaire", "Exemplaire École"],
+      ["EXEMPLAIRE ÉCOLE", "EXEMPLAIRE BÉNÉFICIAIRE"],
       pdfSection("Dépense", pdfInfoGrid([
         { label: "Libellé / motif", value: description },
         { label: "Catégorie", value: "Fournitures administratives, pédagogiques et équipements de bureau" },
@@ -75,9 +75,19 @@ describe("PDF financiers en deux exemplaires", () => {
     expect(occurrences(html, "Justificatif de dépense")).toBe(2);
     expect(occurrences(html, escapePdfHtml(description))).toBe(2);
     expect(occurrences(html, '<header class="pdf-header">')).toBe(2);
-    expect(html).toContain("Exemplaire Bénéficiaire");
-    expect(html).toContain("Exemplaire École");
+    expect(html.indexOf("EXEMPLAIRE ÉCOLE")).toBeLessThan(html.indexOf("EXEMPLAIRE BÉNÉFICIAIRE"));
     expect(html).toContain("overflow-wrap: anywhere");
     expect(html).toContain('class="pdf-cut-line"');
+  });
+
+  it("rend la zone Signature et cachet dans les deux exemplaires", () => {
+    const html = renderCopies(
+      "Justificatif de dépense",
+      ["EXEMPLAIRE ÉCOLE", "EXEMPLAIRE BÉNÉFICIAIRE"],
+      '<section class="signature-row"><div><span>Signature et cachet</span><strong></strong></div></section>',
+    );
+
+    expect(occurrences(html, "Signature et cachet")).toBe(2);
+    expect(occurrences(html, 'class="signature-row"')).toBe(2);
   });
 });

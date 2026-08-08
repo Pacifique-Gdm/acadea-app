@@ -35,7 +35,7 @@ export function isMessageNotification(value: Record<string, unknown>): value is 
     !value.messageId
   ) return false;
   if (value.recipientRole === "parent") return typeof value.parentId === "string" && Boolean(value.parentId);
-  return value.schoolRecipient === "admin" || value.schoolRecipient === "cashier" || value.schoolRecipient === "discipline" || value.schoolRecipient === "both";
+  return typeof value.recipientUserId === "string" || value.schoolRecipient === "admin" || value.schoolRecipient === "cashier" || value.schoolRecipient === "discipline" || value.schoolRecipient === "both";
 }
 
 function activeForYear(user: SchoolUserRecord, schoolId: string, schoolYearId: string) {
@@ -61,7 +61,7 @@ async function recipientsWithTokens(users: SchoolUserRecord[], repository: Messa
 export async function resolveMessageRecipients(notification: MessageNotificationRecord, repository: MessageRecipientRepository): Promise<ResolvedMessageDispatch | null> {
   const message = await repository.getMessage(notification.messageId);
   if (
-    !message || !message.threadId || !message.threadParentId || !message.schoolRecipient ||
+    !message || !message.threadId || !message.threadParentId ||
     message.id !== notification.messageId || message.schoolId !== notification.schoolId || message.schoolYearId !== notification.schoolYearId
   ) return null;
 
@@ -81,16 +81,25 @@ export async function resolveMessageRecipients(notification: MessageNotification
   }
 
   const schoolRecipient = notification.schoolRecipient;
-  if (!schoolRecipient || message.recipientParentId !== "school" || message.schoolRecipient !== schoolRecipient) return null;
+  if (message.recipientParentId !== "school") return null;
+  if (!notification.recipientUserId && (!schoolRecipient || message.schoolRecipient !== schoolRecipient)) return null;
   const parentId = message.threadParentId;
   const [parent, sender, users] = await Promise.all([
     repository.getParent(parentId),
     message.senderId ? repository.getUser(message.senderId) : Promise.resolve(null),
-    repository.findSchoolUsers(notification.schoolId, schoolRolesByRecipient[schoolRecipient]),
+    notification.recipientUserId
+      ? repository.getUser(notification.recipientUserId).then((user) => user ? [user] : [])
+      : repository.findSchoolUsers(notification.schoolId, schoolRolesByRecipient[schoolRecipient!]),
   ]);
   if (!parent || parent.status === "inactive" || parent.schoolId !== notification.schoolId || parent.schoolYearId !== notification.schoolYearId) return null;
   if (!sender || sender.role !== "parent" || sender.parentId !== parentId || !activeForYear(sender, notification.schoolId, notification.schoolYearId)) return null;
-  const allowedRoles = schoolRolesByRecipient[schoolRecipient];
-  const authorized = users.filter((user) => allowedRoles.includes(user.role ?? "") && user.role !== "super_admin" && activeForYear(user, notification.schoolId, notification.schoolYearId));
-  return { event: "parent_message_received", parentId, schoolRecipient, recipients: await recipientsWithTokens(authorized, repository) };
+  const allowedRoles = notification.recipientUserId
+    ? ["school_admin", "cashier", "discipline_director", "secretary"]
+    : schoolRolesByRecipient[schoolRecipient!];
+  const authorized = users.filter((user) =>
+    allowedRoles.includes(user.role ?? "") &&
+    user.role !== "super_admin" &&
+    (!notification.recipientUserId || (user.id === notification.recipientUserId && message.recipientIds?.includes(user.id))) &&
+    activeForYear(user, notification.schoolId, notification.schoolYearId));
+  return { event: "parent_message_received", parentId, ...(schoolRecipient ? { schoolRecipient } : {}), recipients: await recipientsWithTokens(authorized, repository) };
 }

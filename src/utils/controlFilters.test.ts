@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { buildControlClassChoices, feeNamesForControlClass, feeNamesForWarningClass, getControlClassKey, selectPaymentWarningRecipients } from "./controlFilters";
+import { buildControlClassChoices, buildControlFeeGroups, feeNamesForControlClass, feeNamesForWarningClass, getControlClassKey, selectPaymentWarningRecipients } from "./controlFilters";
 import type { FeeType, ParentProfile, Payment, Student } from "../types";
 
 const student = (id: string, className: Student["className"], option = ""): Student => ({ id, schoolId: "school-a", schoolYearId: "year-a", matricule: id, nom: id, postnom: "", prenom: "", sexe: "M", birthDate: "2010-01-01", address: "", phone: "", className, option, parentId: "parent-a", status: "ACTIVE" });
@@ -18,6 +18,22 @@ describe("filtres du Contrôle", () => {
     expect(feeNamesForControlClass(fees, selected)).toEqual(["Minerval"]);
     expect(feeNamesForControlClass(fees)).toEqual([]);
     expect(feeNamesForWarningClass(fees, "all")).toEqual(["Minerval", "Transport"]);
+    expect(buildControlFeeGroups(fees, getControlClassKey(selected), selected).map((group) => group.name)).toEqual(["Minerval"]);
+    expect(buildControlFeeGroups(fees, "all").map((group) => group.name)).toEqual(["Minerval", "Transport"]);
+  });
+
+  it("regroupe les frais applicables d'une classe sans exposer ceux d'une autre classe", () => {
+    const selected = student("a", "1ère Primaire");
+    const fees = [
+      fee("shared", "Frais scolaires", undefined),
+      fee("primary-one", "Minerval", "1ère Primaire"),
+      fee("primary-two", "Transport", "2ème Primaire"),
+    ];
+
+    expect(buildControlFeeGroups(fees, getControlClassKey(selected), selected).map((group) => group.name)).toEqual([
+      "Frais scolaires",
+      "Minerval",
+    ]);
   });
 
   it("cible les parents par frais, classe, école et année sans doublon", () => {
@@ -73,6 +89,8 @@ describe("filtres du Contrôle", () => {
     expect(source).toContain('<option value="" disabled hidden>Montant payé</option>');
     expect(source).toContain('disabled={!warningFeeName}');
     expect(source).toContain('warningFeeName && !warningFeeNameChoices.includes(warningFeeName)');
+    expect(source).toContain('buildControlFeeGroups(yearData.feeTypes, controlClassKey, selectedControlClassStudent)');
+    expect(source).toContain('if (feeFilter && applicableFeeIds.length === 0) return false');
     expect(source).toContain('!amountComparator || amountComparator === "all" || !amountThreshold');
   });
 
@@ -87,7 +105,8 @@ describe("filtres du Contrôle", () => {
     expect(amountSelect).toContain('<option value="all-fees-lt">Tous les frais &lt;</option>');
     expect(source).toContain('row.feeSummaries.every((summary) => summary.paid >= threshold)');
     expect(source).toContain('row.feeSummaries.some((summary) => summary.paid < threshold)');
-    expect(adminBar).toContain('title="Imprimer" aria-label="Imprimer"');
+    expect(adminBar).toContain('className="pdf-export-button h-10 min-w-0 px-2 lg:flex-1 lg:basis-0"');
+    expect(adminBar).toContain('<Download className="h-4 w-4" /> Exporter PDF');
     expect(adminBar).toContain('title="Réinitialiser" aria-label="Réinitialiser"');
     expect(adminBar).toContain('title="Avertissement" aria-label="Avertissement"');
     expect(adminBar).not.toContain(" /> Imprimer");

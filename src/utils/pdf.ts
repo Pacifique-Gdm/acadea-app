@@ -226,7 +226,7 @@ export async function generateReceiptPdf(payment: Payment, student: Student, fee
     filename: `recu-${student.matricule}-${payment.id}.pdf`,
     title: "Reçu de paiement",
     school,
-    copyLabels: ["Exemplaire Parent", "Exemplaire École"],
+    copyLabels: ["EXEMPLAIRE ÉCOLE", "EXEMPLAIRE PARENT"],
     sections: [
       pdfInfoGrid([
         { label: "Reçu", value: payment.receiptNumber ?? payment.id.toUpperCase() },
@@ -385,7 +385,7 @@ function twoCopyPdfStyles(renderHeight: number) {
       gap: 4px 6px;
       margin-bottom: 4px;
     }
-    .pdf-copy .info-box { min-height: 27px; padding: 3px 6px; }
+    .pdf-copy .info-box { min-height: 31px; padding: 5px 6px; }
     .pdf-copy .info-box span { font-size: 6.5px; line-height: 1.15; }
     .pdf-copy .info-box strong { margin-top: 1px; font-size: 8.5px; line-height: 1.18; }
     .pdf-copy .signature-row { margin: 5px 12px 0; }

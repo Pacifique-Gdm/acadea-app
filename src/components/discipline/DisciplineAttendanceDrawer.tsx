@@ -436,7 +436,7 @@ export function DisciplineAttendanceDrawer({ students, attendance, settings, sch
             </select>
           )}
           {!showOptionFilter && <div className="hidden md:block" aria-hidden="true" />}
-          <button onClick={exportAttendancePdf} className="primary-button justify-center" type="button">
+          <button onClick={exportAttendancePdf} className="pdf-export-button" type="button">
             <Download className="h-4 w-4" /> Exporter PDF
           </button>
         </div>

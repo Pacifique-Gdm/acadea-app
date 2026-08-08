@@ -11,7 +11,7 @@ import type { PdfTableColumn } from "../../utils/pdf";
 import { getStudentBalance } from "../../utils/stats";
 import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
 import { feeAppliesToStudent } from "../../utils/feeTargets";
-import { buildControlClassChoices, feeNamesForWarningClass, getControlClassKey, selectPaymentWarningRecipients } from "../../utils/controlFilters";
+import { buildControlClassChoices, buildControlFeeGroups, feeNamesForWarningClass, getControlClassKey, selectPaymentWarningRecipients } from "../../utils/controlFilters";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import { compareStudentsForPdfByClass, formatStudentPdfClassName } from "../../utils/studentPdf";
 import type { AppData, AppUser, AuditLog, Expense, FeeType, ParentProfile, Payment, School, SchoolYear, Student } from "../../types";
@@ -95,15 +95,10 @@ export function ControlModule({
     enabled: historyOpen && historyKind === "expenses",
   });
   const classChoices = useMemo(() => buildControlClassChoices(yearData.students), [yearData.students]);
-  const amountFeeGroups = Array.from(
-    yearData.feeTypes.reduce<Map<string, { key: string; name: string; ids: string[] }>>((items, fee) => {
-      const name = fee.name.trim();
-      const key = name.toLowerCase();
-      if (!key) return items;
-      const existing = items.get(key);
-      items.set(key, existing ? { ...existing, ids: [...existing.ids, fee.id] } : { key, name, ids: [fee.id] });
-      return items;
-    }, new Map()).values(),
+  const selectedControlClassStudent = classChoices.find((choice) => choice.key === controlClassKey)?.student;
+  const amountFeeGroups = useMemo(
+    () => buildControlFeeGroups(yearData.feeTypes, controlClassKey, selectedControlClassStudent),
+    [controlClassKey, selectedControlClassStudent, yearData.feeTypes],
   );
   const amountFeeOptions = amountFeeGroups.flatMap((fee) => [
     { value: `fee:${fee.key}:gte`, label: `${fee.name} >=` },
@@ -130,7 +125,7 @@ export function ControlModule({
   useEffect(() => {
     const match = amountComparator.match(/^fee:(.+):(gte|lt)$/);
     if (match && !amountFeeGroups.some((fee) => fee.key === match[1])) {
-      setAmountComparator("all");
+      setAmountComparator("");
     }
   }, [amountComparator, amountFeeGroups]);
   useEffect(() => {
@@ -159,6 +154,14 @@ export function ControlModule({
     : 0;
   const selectedPaymentFeeRemaining = selectedPaymentFee ? Math.max(selectedPaymentFee.amount - selectedPaymentFeePaid, 0) : 0;
   const isPaymentEntryDisabled = !selectedPaymentFee || selectedPaymentFeeRemaining <= 0;
+  const expenseAmountValue = Number(expenseAmount);
+  const isExpenseEntryIncomplete = !expenseCategory.trim()
+    || !expenseAmount.trim()
+    || !Number.isFinite(expenseAmountValue)
+    || expenseAmountValue <= 0
+    || !expenseDescription.trim()
+    || !expenseBeneficiary.trim()
+    || !expensePaymentMethod.trim();
   const selectedHistoryStudent = controlIndexes.studentsById.get(selectedHistoryStudentId);
   const paymentStudentSearch = paymentStudentQuery.trim().toLowerCase();
   const paymentStudentResults = paymentStudentSearch
@@ -191,8 +194,15 @@ export function ControlModule({
       }
       const feeFilter = amountComparator.match(/^fee:(.+):(gte|lt)$/);
       const feeGroup = feeFilter ? amountFeeGroups.find((fee) => fee.key === feeFilter[1]) : undefined;
+      const applicableFeeIds = feeFilter
+        ? (feeGroup?.ids ?? []).filter((feeId) => {
+          const fee = controlIndexes.feeTypesById.get(feeId);
+          return fee ? feeAppliesToStudent(fee, row.student) : false;
+        })
+        : [];
+      if (feeFilter && applicableFeeIds.length === 0) return false;
       const paidAmount = feeFilter
-        ? (feeGroup?.ids ?? []).reduce((sum, feeId) => sum + sumPaymentsForStudentFee(controlIndexes, row.student.id, feeId), 0)
+        ? applicableFeeIds.reduce((sum, feeId) => sum + sumPaymentsForStudentFee(controlIndexes, row.student.id, feeId), 0)
         : row.balance.paid;
       const isGreaterOrEqual = feeFilter ? feeFilter[2] === "gte" : amountComparator === ">=";
       return isGreaterOrEqual ? paidAmount >= threshold : paidAmount < threshold;
@@ -501,7 +511,7 @@ export function ControlModule({
       title: "Justificatif de dépense",
       school,
       year,
-      copyLabels: ["Exemplaire Bénéficiaire", "Exemplaire École"],
+      copyLabels: ["EXEMPLAIRE ÉCOLE", "EXEMPLAIRE BÉNÉFICIAIRE"],
       sections: [
         pdfSection(
           "Dépense",
@@ -516,6 +526,14 @@ export function ControlModule({
             { label: "Référence / pièce", value: reference || "-" },
           ]),
         ),
+        `
+          <section class="signature-row">
+            <div>
+              <span>Signature et cachet</span>
+              <strong></strong>
+            </div>
+          </section>
+        `,
       ],
     });
   }
@@ -1074,7 +1092,7 @@ export function ControlModule({
                 ))}
               </select>
               <input value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)} type="number" className="h-10 min-w-0 w-full rounded border border-slate-200 bg-white px-2 text-sm lg:flex-1 lg:basis-0" placeholder="Filtre" aria-label="Filtre" />
-              <button onClick={printFilteredStudents} className="primary-button h-10 min-w-0 justify-center px-2 lg:flex-1 lg:basis-0" title="Imprimer" aria-label="Imprimer" type="button">
+              <button onClick={printFilteredStudents} className="pdf-export-button h-10 min-w-0 px-2 lg:flex-1 lg:basis-0" type="button">
                 <Download className="h-4 w-4" /> Exporter PDF
               </button>
               <button onClick={resetControlFilters} className="secondary-button h-10 min-w-0 justify-center px-2 lg:flex-1 lg:basis-0" type="button" title="Réinitialiser" aria-label="Réinitialiser"><RotateCcw className="h-4 w-4" /> Réinitialiser</button>
@@ -1158,7 +1176,7 @@ export function ControlModule({
             </select>
             <input value={expenseAmount} onChange={(event) => setExpenseAmount(event.target.value)} type="number" min="0" className="input" placeholder="Montant" />
             <textarea value={expenseDescription} onChange={(event) => setExpenseDescription(event.target.value)} className="input min-h-24" placeholder="Description" />
-            <button onClick={saveExpense} disabled={expenseSubmitting} className="primary-button justify-center disabled:opacity-50"><Plus className="h-4 w-4" /> {expenseSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
+            <button onClick={saveExpense} disabled={isExpenseEntryIncomplete || expenseSubmitting} className="primary-button justify-center"><Plus className="h-4 w-4" /> {expenseSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
           </FormPanel>
         )}
       </div>
@@ -1228,7 +1246,7 @@ export function ControlModule({
                 ))}
               </select>
               <input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" min="0" max={selectedPaymentFeeRemaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" placeholder="Montant" />
-              <button onClick={savePayment} disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button w-full justify-center disabled:opacity-50" type="button"><Plus className="h-4 w-4" /> {paymentSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
+              <button onClick={savePayment} disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button w-full justify-center" type="button"><Plus className="h-4 w-4" /> {paymentSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
             </>
           )}
           {cashierControlDrawer === "expense" && (
@@ -1289,7 +1307,7 @@ export function ControlModule({
                 placeholder="Référence / pièce (facultatif)"
               />
               {expenseError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{expenseError}</p>}
-              <button onClick={saveExpense} disabled={expenseSubmitting} className="primary-button w-full justify-center disabled:opacity-50" type="button"><Plus className="h-4 w-4" /> {expenseSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
+              <button onClick={saveExpense} disabled={isExpenseEntryIncomplete || expenseSubmitting} className="primary-button w-full justify-center" type="button"><Plus className="h-4 w-4" /> {expenseSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
             </>
           )}
         </AdminDrawer>

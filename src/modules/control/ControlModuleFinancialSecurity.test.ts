@@ -19,7 +19,7 @@ describe("sécurité des mutations financières du module Contrôle", () => {
     expect(source).toContain("if (paymentSubmittingRef.current) return");
     expect(source).toContain("if (expenseSubmittingRef.current) return");
     expect(source).toContain("disabled={isPaymentEntryDisabled || paymentSubmitting}");
-    expect(source).toContain("disabled={expenseSubmitting}");
+    expect(source).toContain("disabled={isExpenseEntryIncomplete || expenseSubmitting}");
     expect(source).toContain("paymentAttemptRef.current");
     expect(source).toContain("expenseAttemptRef.current");
   });

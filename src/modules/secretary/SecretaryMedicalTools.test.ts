@@ -86,7 +86,8 @@ describe("Drawers médicaux et statistiques du Secrétaire", () => {
     expect(exportIndex).toBeGreaterThan(resetIndex);
     expect(source).toContain('className="sticky top-0 z-10 grid w-full grid-cols-[minmax(0,1fr)_2.5rem] gap-2 bg-white pb-3 sm:grid-cols-[minmax(0,1fr)_2.5rem_minmax(9rem,auto)]"');
     expect(source).toContain('className="input h-10 min-w-0 w-full"');
-    expect(source).toContain("primary-button col-span-2 h-10 w-full justify-center sm:col-span-1");
+    expect(source).toContain("pdf-export-button col-span-2 h-10 w-full sm:col-span-1");
+    expect(source).toContain('<Download className="h-4 w-4" /> Exporter PDF');
     expect(source).toContain('<select aria-label="Type de filtre"');
     expect(source).toContain('value={filterType}');
     expect(source).toContain("selectFilterType(event.target.value as typeof filterType)");

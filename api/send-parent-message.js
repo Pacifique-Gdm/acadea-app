@@ -3,8 +3,8 @@ import { FieldValue } from "firebase-admin/firestore";
 import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { requireActiveSchoolYear } from "./_lib/schoolYear.js";
+import { allowedRecipientRoles, normalizedMessagingRole } from "./_lib/messageRecipients.js";
 
-const allowedRecipients = new Set(["admin", "cashier", "both", "discipline"]);
 const messageLimit = 3;
 const quotaWindowMs = 12 * 60 * 60 * 1000;
 
@@ -30,6 +30,26 @@ function uid(prefix) {
 
 function normalizeText(value) {
   return String(value ?? "").trim();
+}
+
+export async function resolveParentMessageRecipients(db, caller, recipientIds) {
+  const uniqueIds = [...new Set(recipientIds.map((value) => normalizeText(value)).filter(Boolean))];
+  if (!uniqueIds.length || uniqueIds.length > 50) {
+    throw Object.assign(new Error("Selection de destinataires invalide."), { statusCode: 400, code: "invalid-recipient" });
+  }
+  const allowedRoles = allowedRecipientRoles("parent");
+  const snapshots = await db.getAll(...uniqueIds.map((id) => db.doc(`users/${id}`)));
+  const recipients = snapshots.map((snapshot) => snapshot.exists ? { id: snapshot.id, ...snapshot.data() } : null);
+  if (recipients.some((recipient) => !recipient)) {
+    throw Object.assign(new Error("Un destinataire est introuvable."), { statusCode: 400, code: "invalid-recipient" });
+  }
+  for (const recipient of recipients) {
+    const role = normalizedMessagingRole(recipient.role);
+    if (recipient.schoolId !== caller.schoolId || recipient.active === false || recipient.status === "inactive" || !allowedRoles.has(role)) {
+      throw Object.assign(new Error("Destinataire non autorise."), { statusCode: 403, code: "invalid-recipient" });
+    }
+  }
+  return recipients.map((recipient) => ({ ...recipient, role: normalizedMessagingRole(recipient.role) }));
 }
 
 function normalizeConversationSegment(value) {
@@ -199,24 +219,17 @@ export default async function handler(req, res) {
 
     await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.schoolId, action: "parent.message.send", ...API_RATE_LIMITS.PARENT_MESSAGE });
 
-    const recipient = normalizeText(body.recipient);
+    const recipientIds = Array.isArray(body.recipientIds) ? body.recipientIds : [];
     const subject = normalizeText(body.subject);
     const messageBody = normalizeText(body.body);
-    if (!allowedRecipients.has(recipient)) {
-      sendJson(res, 400, { error: "invalid-recipient", message: "Destinataire invalide." });
-      return;
-    }
+    const recipients = await resolveParentMessageRecipients(db, caller, recipientIds);
     if (!subject || !messageBody) {
       sendJson(res, 400, { error: "invalid-message", message: "Objet et message requis." });
       return;
     }
 
-    const recipientLabels = {
-      admin: "Administrateur uniquement",
-      cashier: "Caissier uniquement",
-      both: "Administrateur et Caissier",
-      discipline: "Directeur de Discipline",
-    };
+    const recipientLabel = recipients.map((recipient) => String(recipient.displayName ?? recipient.name ?? "Utilisateur").trim()).join(", ");
+    const recipientRoles = [...new Set(recipients.map((recipient) => recipient.role))];
     const createdAt = new Date().toISOString();
     const counterId = `${caller.schoolId}__${caller.parentId}__${schoolYearId}`;
     const counterRef = db.doc(`parentDailyMessageLimits/${counterId}`);
@@ -250,27 +263,14 @@ export default async function handler(req, res) {
         schoolYearId,
         senderId: caller.uid,
         recipientParentId: "school",
-        schoolRecipient: recipient,
         threadParentId: caller.parentId,
         threadId,
         conversationId,
-        subject: `${recipientLabels[recipient]} - ${subject}`,
+        subject: `${recipientLabel} - ${subject}`,
         body: messageBody,
         createdAt,
       };
-      const notification = {
-        id: notificationId,
-        schoolId: caller.schoolId,
-        schoolYearId,
-        recipientRole: "school",
-        schoolRecipient: recipient,
-        messageId,
-        type: "message",
-        title: `Nouveau message parent - ${recipientLabels[recipient]}`,
-        body: `${parent.fullName ?? caller.name ?? "Parent"} : ${subject}`,
-        createdAt,
-        read: false,
-      };
+      const participantIds = [caller.uid, ...recipients.map((recipient) => recipient.id)];
       const conversation = {
         id: conversationId,
         schoolId: caller.schoolId,
@@ -279,24 +279,33 @@ export default async function handler(req, res) {
         threadParentId: caller.parentId,
         parentId: caller.parentId,
         parentName: parent.fullName ?? caller.name ?? "Parent",
-        schoolRecipient: recipient,
+        participantIds,
         lastMessage: messageBody,
         lastMessageAt: createdAt,
         lastSenderId: caller.uid,
         lastSenderRole: "parent",
         messageCount: FieldValue.increment(1),
         unreadParentCount: FieldValue.increment(0),
-        unreadAdminCount: FieldValue.increment(recipient === "admin" || recipient === "both" ? 1 : 0),
-        unreadCashierCount: FieldValue.increment(recipient === "cashier" || recipient === "both" ? 1 : 0),
-        unreadDisciplineCount: FieldValue.increment(recipient === "discipline" ? 1 : 0),
+        unreadAdminCount: FieldValue.increment(recipientRoles.includes("school_admin") ? 1 : 0),
+        unreadCashierCount: FieldValue.increment(recipientRoles.includes("cashier") ? 1 : 0),
+        unreadDisciplineCount: FieldValue.increment(recipientRoles.includes("discipline_director") ? 1 : 0),
         createdAt,
         updatedAt: createdAt,
         status: "active",
       };
 
+      message.recipientIds = recipients.map((recipient) => recipient.id);
+      message.participantIds = participantIds;
+      message.subject = `${recipientLabel} - ${subject}`;
+      const notifications = recipients.map((recipient, index) => ({
+        id: index === 0 ? notificationId : uid("notif"), schoolId: caller.schoolId, schoolYearId,
+        recipientRole: "school", recipientUserId: recipient.id, audienceRoles: [recipient.role], messageId, type: "message",
+        title: `Nouveau message parent - ${recipientLabel}`, body: `${parent.fullName ?? caller.name ?? "Parent"} : ${subject}`,
+        createdAt, read: false,
+      }));
       transaction.set(db.doc(`conversations/${conversationId}`), conversation, { merge: true });
       transaction.set(db.doc(`messages/${messageId}`), message);
-      transaction.set(db.doc(`notifications/${notificationId}`), notification);
+      notifications.forEach((notification) => transaction.set(db.doc(`notifications/${notification.id}`), notification));
       transaction.set(counterRef, {
         schoolId: caller.schoolId,
         schoolYearId,
@@ -309,7 +318,8 @@ export default async function handler(req, res) {
       }, { merge: true });
       return {
         message,
-        notification,
+        notification: notifications[0],
+        notifications,
         quota: {
           limit: messageLimit,
           messageCount: existingCount + 1,
