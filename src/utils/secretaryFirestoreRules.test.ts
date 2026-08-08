@@ -27,10 +27,10 @@ describe("règles Firestore Secrétaire", () => {
 
   it("autorise les Valves au Secrétaire uniquement dans son tenant", () => {
     const valveRules = rules.slice(rules.indexOf("match /valves/{valveId}"), rules.indexOf("match /messages/{messageId}"));
-    expect(valveRules).toContain('(schoolAdmin() || secretary()) && sameTenantCreate()');
-    expect(valveRules).toContain('(schoolAdmin() || secretary()) && sameTenantUpdate() && sameYearUpdate()');
+    expect(valveRules).toContain('(schoolAdmin() || secretary()) && activeTenantYearCreate()');
+    expect(valveRules).toContain('(schoolAdmin() || secretary()) && activeTenantYearUpdate()');
     expect(valveRules).toContain('(schoolAdmin() || secretary()) && sameTenantResource()');
-    expect(rules).toContain('role() in ["school_admin", "cashier", "secretary"] && sameTenantCreate()');
+    expect(rules).toContain('role() in ["school_admin", "cashier", "secretary"] && activeTenantYearCreate()');
     expect(storageRules).toContain('role() in ["school_admin", "admin", "secretary"]');
     expect(storageRules).toContain("validValveAttachment(fileName, schoolId, schoolYearId, publicationId)");
     expect(storageRules).toContain("tenantSchoolId() == schoolId");

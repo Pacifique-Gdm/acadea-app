@@ -1,5 +1,6 @@
 import type { Expense, Payment } from "../types";
 import { resolveApiUrl } from "../config/apiUrl";
+import { apiErrorMessage } from "../utils/rateLimitErrors";
 import { getCurrentFirebaseIdToken } from "./auth";
 
 type FinancialAction =
@@ -28,7 +29,7 @@ async function financialRequest(input: Record<string, unknown> & { action: Finan
     body: JSON.stringify(input),
   });
   const payload = await response.json().catch(() => ({})) as FinancialResponse;
-  if (!response.ok) throw new Error(payload.error ?? "Opération financière impossible.");
+  if (!response.ok) throw new Error(apiErrorMessage(response.status, payload, "Opération financière impossible."));
   return payload;
 }
 

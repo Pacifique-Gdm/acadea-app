@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { initAdmin } from "./_lib/firebaseAdmin.js";
+import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
+import { requireActiveSchoolYear } from "./_lib/schoolYear.js";
 
 const allowedRecipients = new Set(["admin", "cashier", "both", "discipline"]);
 const messageLimit = 3;
@@ -151,6 +153,7 @@ function publicError(error) {
   if (error?.code === "quota-exceeded") return { statusCode: 429, body: { error: "quota-exceeded", message: "Vous avez atteint la limite de 3 messages pour 12 heures." } };
   if (error?.code === "not-authorized") return { statusCode: error.statusCode ?? 403, body: { error: "not-authorized", message: "Action non autorisee." } };
   if (error?.code === "invalid-recipient") return { statusCode: 400, body: { error: "invalid-recipient", message: "Destinataire invalide." } };
+  if (error?.code === "invalid-argument" || error?.code === "failed-precondition") return { statusCode: error.statusCode, body: { error: error.code, message: error.message } };
   return { statusCode: error?.statusCode ?? 500, body: { error: "server-error", message: "Message non envoye. Veuillez reessayer." } };
 }
 
@@ -192,6 +195,9 @@ export default async function handler(req, res) {
       });
       return;
     }
+    await requireActiveSchoolYear(db, caller.schoolId, schoolYearId);
+
+    await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.schoolId, action: "parent.message.send", ...API_RATE_LIMITS.PARENT_MESSAGE });
 
     const recipient = normalizeText(body.recipient);
     const subject = normalizeText(body.subject);
@@ -317,6 +323,7 @@ export default async function handler(req, res) {
 
     sendJson(res, 200, saved);
   } catch (error) {
+    if (sendRateLimitError(res, error)) return;
     const response = publicError(error);
     console.error("[Acadea parent messaging] Envoi parent echoue.", error);
     sendJson(res, response.statusCode, response.body);

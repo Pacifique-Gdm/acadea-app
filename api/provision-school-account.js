@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { firebaseAdminPublicError, initAdmin } from "./_lib/firebaseAdmin.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./_lib/serverAudit.js";
+import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
+import { requireActiveSchoolYear } from "./_lib/schoolYear.js";
 
 const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "secretary", "parent"]);
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
@@ -241,6 +243,8 @@ export default async function handler(req, res) {
     const caller = await auth.verifyIdToken(token, true);
     const body = await readBody(req);
     const action = normalizeText(body.action);
+    const destructive = action === "delete-parent" || action === "remove-school-admin";
+    await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? "platform"), action: destructive ? `provision.${action}` : "provision.account", ...(destructive ? API_RATE_LIMITS.PROVISION_DESTRUCTIVE : API_RATE_LIMITS.PROVISION_ACCOUNT) });
 
     if (action === "delete-parent") {
       const result = await deleteParentAccount({ auth, db, caller, body });
@@ -275,6 +279,7 @@ export default async function handler(req, res) {
     }
 
     await assertAuthorizedCaller({ db, caller, schoolId, allowSecretary: role === "parent" });
+    await requireActiveSchoolYear(db, schoolId, schoolYearId);
 
     const parentId = role === "parent" ? normalizeText(body.parentId) || uid("parent") : "";
     const studentIds = role === "parent" && Array.isArray(body.studentIds) ? [...new Set(body.studentIds.map(normalizeText).filter(Boolean))] : [];
@@ -356,12 +361,13 @@ export default async function handler(req, res) {
       await cleanup({ auth: adminAuth, db: adminDb, authUid: createdAuthUid, refs: createdRefs });
     }
 
+    if (sendRateLimitError(res, error)) return;
     const statusCode = typeof error?.statusCode === "number" ? error.statusCode : 500;
     console.error("[Acadea provisioning] Provisionnement compte ecole echoue.", error);
     const diagnostic = firebaseAdminPublicError(error);
     sendJson(res, statusCode, {
       error: statusCode === 500 ? publicError(error) : error.message,
-      code: statusCode === 500 ? diagnostic.code : statusCode === 404 ? "not-found" : statusCode === 403 ? "permission-denied" : "invalid-argument",
+      code: statusCode === 500 ? diagnostic.code : error?.code ?? (statusCode === 404 ? "not-found" : statusCode === 403 ? "permission-denied" : "invalid-argument"),
       ...(statusCode === 500 ? { details: diagnostic.details } : {}),
     });
   }

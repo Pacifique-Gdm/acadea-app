@@ -81,15 +81,13 @@ service cloud.firestore {
 
     function secretaryStudentCreate() {
       return secretary()
-        && sameTenantCreate()
-        && request.resource.data.schoolYearId is string
+        && activeTenantYearCreate()
         && request.resource.data.status == "ACTIVE";
     }
 
     function secretaryStudentUpdate() {
       return secretary()
-        && sameTenantUpdate()
-        && sameYearUpdate()
+        && activeTenantYearUpdate()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           "nom", "postnom", "prenom", "sexe", "birthDate", "address", "phone",
           "className", "section", "option", "photoUrl", "parentId", "updatedAt"
@@ -98,15 +96,13 @@ service cloud.firestore {
 
     function secretaryParentLinkUpdate() {
       return secretary()
-        && sameTenantUpdate()
-        && sameYearUpdate()
+        && activeTenantYearUpdate()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["studentIds", "updatedAt"]);
     }
 
     function secretaryParentWrite() {
       return secretary()
-        && sameTenantUpdate()
-        && sameYearUpdate()
+        && activeTenantYearUpdate()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           "fullName", "phone", "email", "address", "studentIds", "status", "updatedAt"
         ]);
@@ -163,6 +159,41 @@ service cloud.firestore {
     function sameYearUpdate() {
       return !("schoolYearId" in resource.data)
         || request.resource.data.schoolYearId == resource.data.schoolYearId;
+    }
+
+    function schoolYearBelongsToSchool(schoolYearId, schoolId) {
+      return schoolYearId is string
+        && schoolYearId.size() > 0
+        && exists(/databases/$(database)/documents/schoolYears/$(schoolYearId))
+        && get(/databases/$(database)/documents/schoolYears/$(schoolYearId)).data.schoolId == schoolId;
+    }
+
+    function activeSchoolYearBelongsToSchool(schoolYearId, schoolId) {
+      return schoolYearBelongsToSchool(schoolYearId, schoolId)
+        && get(/databases/$(database)/documents/schoolYears/$(schoolYearId)).data.status == "active";
+    }
+
+    function activeTenantYearCreate() {
+      return sameTenantCreate()
+        && activeSchoolYearBelongsToSchool(request.resource.data.schoolYearId, tenantSchoolId());
+    }
+
+    function activeTenantYearUpdate() {
+      return sameTenantUpdate()
+        && sameYearUpdate()
+        && activeSchoolYearBelongsToSchool(request.resource.data.schoolYearId, tenantSchoolId());
+    }
+
+    function activeDisciplineYearCreate() {
+      return disciplineTenantCreate()
+        && activeSchoolYearBelongsToSchool(request.resource.data.schoolYearId, tenantSchoolId());
+    }
+
+    function activeDisciplineYearUpdate() {
+      return disciplineTenantResource()
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.schoolYearId == resource.data.schoolYearId
+        && activeSchoolYearBelongsToSchool(request.resource.data.schoolYearId, tenantSchoolId());
     }
 
     function schoolSettingsUpdate(schoolId) {
@@ -291,8 +322,8 @@ service cloud.firestore {
         || (role() in ["school_admin", "cashier", "secretary"] && sameTenantResource())
         || disciplineTenantResource()
         || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.parentId == tenantParentId());
-      allow create: if schoolAdmin() && sameTenantCreate();
-      allow update: if schoolAdmin() && sameTenantUpdate() && sameYearUpdate();
+      allow create: if schoolAdmin() && activeTenantYearCreate();
+      allow update: if schoolAdmin() && activeTenantYearUpdate();
       allow delete: if false;
     }
 
@@ -301,9 +332,10 @@ service cloud.firestore {
         || (role() in ["school_admin", "cashier", "secretary"] && sameTenantResource())
         || disciplineTenantResource()
         || (parentUser() && resource.data.schoolId == tenantSchoolId() && parentId == tenantParentId());
-      allow create: if schoolAdmin() && sameTenantCreate();
-      allow update: if schoolAdmin() && sameTenantUpdate() && sameYearUpdate();
-      allow delete: if schoolAdmin() && sameTenantResource();
+      allow create: if schoolAdmin() && activeTenantYearCreate();
+      allow update: if schoolAdmin() && activeTenantYearUpdate();
+      allow delete: if schoolAdmin() && sameTenantResource()
+        && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
     }
 
     match /payments/{paymentId} {
@@ -341,7 +373,7 @@ service cloud.firestore {
       allow read: if superAdmin()
         || (schoolAdmin() && sameTenantResource())
         || disciplineTenantResource();
-      allow create: if disciplineTenantCreate()
+      allow create: if activeDisciplineYearCreate()
         && request.resource.data.schoolId is string
         && request.resource.data.schoolId.size() > 0
         && request.resource.data.schoolYearId is string
@@ -368,7 +400,7 @@ service cloud.firestore {
         && request.resource.data.createdBy.size() > 0
         && request.resource.data.createdAt is string
         && request.resource.data.createdAt.size() > 0;
-      allow update: if disciplineTenantResource()
+      allow update: if activeDisciplineYearUpdate()
         && resource.data.status == "active"
         && request.resource.data.status == "completed"
         && request.resource.data.schoolId == resource.data.schoolId
@@ -383,41 +415,45 @@ service cloud.firestore {
 
     match /feeTypes/{feeTypeId} {
       allow read: if superAdmin() || sameTenantResource();
-      allow create: if schoolAdmin() && sameTenantCreate();
-      allow update: if schoolAdmin() && sameTenantUpdate() && sameYearUpdate();
-      allow delete: if schoolAdmin() && sameTenantResource();
+      allow create: if schoolAdmin() && activeTenantYearCreate();
+      allow update: if schoolAdmin() && activeTenantYearUpdate();
+      allow delete: if schoolAdmin() && sameTenantResource()
+        && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
     }
 
     match /teachers/{teacherId} {
       allow read: if superAdmin() || sameTenantResource();
-      allow create: if schoolAdmin() && sameTenantCreate();
-      allow update: if schoolAdmin() && sameTenantUpdate() && sameYearUpdate();
-      allow delete: if schoolAdmin() && sameTenantResource();
+      allow create: if schoolAdmin() && activeTenantYearCreate();
+      allow update: if schoolAdmin() && activeTenantYearUpdate();
+      allow delete: if schoolAdmin() && sameTenantResource()
+        && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
     }
 
     match /classes/{classId} {
       allow read: if superAdmin() || sameTenantResource();
-      allow create: if schoolAdmin() && sameTenantCreate();
-      allow update: if schoolAdmin() && sameTenantUpdate() && sameYearUpdate();
-      allow delete: if schoolAdmin() && sameTenantResource();
+      allow create: if schoolAdmin() && activeTenantYearCreate();
+      allow update: if schoolAdmin() && activeTenantYearUpdate();
+      allow delete: if schoolAdmin() && sameTenantResource()
+        && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
     }
 
     match /grades/{gradeId} {
       allow read: if superAdmin() || sameTenantResource();
-      allow create: if schoolAdmin() && sameTenantCreate();
-      allow update: if schoolAdmin() && sameTenantUpdate() && sameYearUpdate();
-      allow delete: if schoolAdmin() && sameTenantResource();
+      allow create: if schoolAdmin() && activeTenantYearCreate();
+      allow update: if schoolAdmin() && activeTenantYearUpdate();
+      allow delete: if schoolAdmin() && sameTenantResource()
+        && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
     }
 
     match /attendance/{attendanceId} {
       allow read: if superAdmin()
         || sameTenantResource()
         || disciplineTenantResource();
-      allow create: if disciplineTenantCreate()
+      allow create: if activeDisciplineYearCreate()
         && request.resource.data.schoolYearId is string
         && exists(/databases/$(database)/documents/schoolYears/$(request.resource.data.schoolYearId))
         && get(/databases/$(database)/documents/schoolYears/$(request.resource.data.schoolYearId)).data.schoolId == tenantSchoolId();
-      allow update: if disciplineTenantResource()
+      allow update: if activeDisciplineYearUpdate()
         && request.resource.data.schoolId == resource.data.schoolId
         && request.resource.data.schoolYearId == resource.data.schoolYearId
         && exists(/databases/$(database)/documents/schoolYears/$(resource.data.schoolYearId))
@@ -429,15 +465,8 @@ service cloud.firestore {
       allow read: if superAdmin()
         || (schoolAdmin() && sameTenantResource())
         || disciplineTenantResource();
-      allow create: if disciplineTenantCreate()
-        && request.resource.data.schoolYearId is string
-        && exists(/databases/$(database)/documents/schoolYears/$(request.resource.data.schoolYearId))
-        && get(/databases/$(database)/documents/schoolYears/$(request.resource.data.schoolYearId)).data.schoolId == tenantSchoolId();
-      allow update: if disciplineTenantResource()
-        && request.resource.data.schoolId == resource.data.schoolId
-        && request.resource.data.schoolYearId == resource.data.schoolYearId
-        && exists(/databases/$(database)/documents/schoolYears/$(resource.data.schoolYearId))
-        && get(/databases/$(database)/documents/schoolYears/$(resource.data.schoolYearId)).data.schoolId == tenantSchoolId();
+      allow create: if activeDisciplineYearCreate();
+      allow update: if activeDisciplineYearUpdate();
       allow delete: if false;
     }
 
@@ -448,30 +477,34 @@ service cloud.firestore {
 
     match /bulletins/{bulletinId} {
       allow read: if superAdmin() || sameTenantResource();
-      allow create: if schoolAdmin() && sameTenantCreate();
-      allow update: if schoolAdmin() && sameTenantUpdate() && sameYearUpdate();
-      allow delete: if schoolAdmin() && sameTenantResource();
+      allow create: if schoolAdmin() && activeTenantYearCreate();
+      allow update: if schoolAdmin() && activeTenantYearUpdate();
+      allow delete: if schoolAdmin() && sameTenantResource()
+        && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
     }
 
     match /documents/{documentId} {
       allow read: if superAdmin() || sameTenantResource();
-      allow create: if schoolAdmin() && sameTenantCreate();
-      allow update: if schoolAdmin() && sameTenantUpdate() && sameYearUpdate();
-      allow delete: if schoolAdmin() && sameTenantResource();
+      allow create: if schoolAdmin() && activeTenantYearCreate();
+      allow update: if schoolAdmin() && activeTenantYearUpdate();
+      allow delete: if schoolAdmin() && sameTenantResource()
+        && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
     }
 
     match /announcements/{announcementId} {
       allow read: if superAdmin() || sameTenantResource();
-      allow create: if schoolAdmin() && sameTenantCreate();
-      allow update: if schoolAdmin() && sameTenantUpdate() && sameYearUpdate();
-      allow delete: if schoolAdmin() && sameTenantResource();
+      allow create: if schoolAdmin() && activeTenantYearCreate();
+      allow update: if schoolAdmin() && activeTenantYearUpdate();
+      allow delete: if schoolAdmin() && sameTenantResource()
+        && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
     }
 
     match /valves/{valveId} {
       allow read: if superAdmin() || sameTenantResource() || disciplineTenantResource();
-      allow create: if (schoolAdmin() || secretary()) && sameTenantCreate();
-      allow update: if (schoolAdmin() || secretary()) && sameTenantUpdate() && sameYearUpdate();
-      allow delete: if (schoolAdmin() || secretary()) && sameTenantResource();
+      allow create: if (schoolAdmin() || secretary()) && activeTenantYearCreate();
+      allow update: if (schoolAdmin() || secretary()) && activeTenantYearUpdate();
+      allow delete: if (schoolAdmin() || secretary()) && sameTenantResource()
+        && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
     }
 
     match /messages/{messageId} {
@@ -481,10 +514,12 @@ service cloud.firestore {
         || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.threadParentId == tenantParentId());
       allow create: if (signedIn()
           && role() in ["school_admin", "cashier"]
-          && sameTenantCreate())
-        || (disciplineTenantCreate()
+          && activeTenantYearCreate())
+        || (activeDisciplineYearCreate()
           && request.resource.data.schoolRecipient == "discipline");
-      allow update, delete: if schoolAdmin() && sameTenantResource();
+      allow update: if schoolAdmin() && activeTenantYearUpdate();
+      allow delete: if schoolAdmin() && sameTenantResource()
+        && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
     }
 
     match /conversations/{conversationId} {
@@ -494,16 +529,16 @@ service cloud.firestore {
         || (disciplineTenantResource() && resource.data.schoolRecipient == "discipline")
         || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.parentId == tenantParentId());
       allow create: if (schoolAdmin()
-          && sameTenantCreate()
+          && activeTenantYearCreate()
           && request.resource.data.schoolRecipient == "admin")
         || (signedIn()
           && role() == "cashier"
-          && sameTenantCreate()
+          && activeTenantYearCreate()
           && request.resource.data.schoolRecipient == "cashier")
-        || (disciplineTenantCreate()
+        || (activeDisciplineYearCreate()
           && request.resource.data.schoolRecipient == "discipline");
       allow update: if (schoolAdmin()
-          && sameTenantUpdate()
+          && activeTenantYearUpdate()
           && resource.data.schoolRecipient in ["admin", "both"]
           && request.resource.data.schoolId == resource.data.schoolId
           && request.resource.data.schoolYearId == resource.data.schoolYearId
@@ -513,7 +548,7 @@ service cloud.firestore {
           && request.resource.data.schoolRecipient == resource.data.schoolRecipient)
         || (signedIn()
           && role() == "cashier"
-          && sameTenantUpdate()
+          && activeTenantYearUpdate()
           && resource.data.schoolRecipient in ["cashier", "both"]
           && request.resource.data.schoolId == resource.data.schoolId
           && request.resource.data.schoolYearId == resource.data.schoolYearId
@@ -522,7 +557,7 @@ service cloud.firestore {
           && request.resource.data.threadParentId == resource.data.threadParentId
           && request.resource.data.schoolRecipient == resource.data.schoolRecipient)
         || (disciplineDirector()
-          && disciplineTenantResource()
+          && activeDisciplineYearUpdate()
           && request.resource.data.schoolId == resource.data.schoolId
           && request.resource.data.schoolYearId == resource.data.schoolYearId
           && request.resource.data.parentId == resource.data.parentId
@@ -533,6 +568,7 @@ service cloud.firestore {
         || (parentUser()
           && resource.data.schoolId == tenantSchoolId()
           && resource.data.parentId == tenantParentId()
+          && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId())
           && request.resource.data.schoolId == resource.data.schoolId
           && request.resource.data.schoolYearId == resource.data.schoolYearId
           && request.resource.data.parentId == resource.data.parentId
@@ -548,13 +584,13 @@ service cloud.firestore {
         || (disciplineTenantResource() && resource.data.recipientRole == "school" && resource.data.schoolRecipient == "discipline")
         || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.parentId == tenantParentId());
       allow create: if signedIn()
-        && ((role() in ["school_admin", "cashier", "secretary"] && sameTenantCreate())
-          || (disciplineTenantCreate()
+        && ((role() in ["school_admin", "cashier", "secretary"] && activeTenantYearCreate())
+          || (activeDisciplineYearCreate()
             && ((request.resource.data.recipientRole == "school" && request.resource.data.schoolRecipient == "discipline")
               || (request.resource.data.recipientRole == "parent" && request.resource.data.parentId is string))));
-      allow update: if (role() in ["school_admin", "cashier"] && sameTenantUpdate())
+      allow update: if (role() in ["school_admin", "cashier"] && activeTenantYearUpdate())
         || (disciplineDirector()
-          && disciplineTenantResource()
+          && activeDisciplineYearUpdate()
           && resource.data.schoolRecipient == "discipline"
           && request.resource.data.schoolId == resource.data.schoolId
           && request.resource.data.schoolYearId == resource.data.schoolYearId
@@ -562,6 +598,7 @@ service cloud.firestore {
         || (parentUser()
         && resource.data.schoolId == tenantSchoolId()
         && resource.data.parentId == tenantParentId()
+        && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId())
         && request.resource.data.parentId == resource.data.parentId
         && request.resource.data.schoolId == resource.data.schoolId);
       allow delete: if false;
@@ -573,7 +610,7 @@ service cloud.firestore {
       allow create: if disciplineDirector()
         && schoolId == tenantSchoolId()
         && request.resource.data.schoolId == tenantSchoolId()
-        && request.resource.data.schoolYearId is string
+        && activeSchoolYearBelongsToSchool(request.resource.data.schoolYearId, tenantSchoolId())
         && request.resource.data.sanctionId is string
         && request.resource.data.messageId is string
         && request.resource.data.notificationId is string
@@ -607,7 +644,7 @@ service cloud.firestore {
     }
 
     match /parents/{parentId} {
-      allow create: if secretary() && sameTenantCreate();
+      allow create: if secretary() && activeTenantYearCreate();
       allow update: if secretaryParentLinkUpdate() || secretaryParentWrite();
       allow delete: if false;
     }
@@ -619,7 +656,7 @@ service cloud.firestore {
     match /correspondences/{correspondenceId} {
       allow read: if secretary() && sameTenantResource();
       allow create: if secretary()
-        && sameTenantCreate()
+        && activeTenantYearCreate()
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.schoolYearId is string
         && request.resource.data.direction in ["incoming", "outgoing"]
@@ -629,8 +666,7 @@ service cloud.firestore {
             && request.resource.data.outgoing.signer.userId is string
             && request.resource.data.outgoing.recipient is map));
       allow update: if secretary()
-        && sameTenantUpdate()
-        && sameYearUpdate()
+        && activeTenantYearUpdate()
         && resource.data.status != "archived"
         && request.resource.data.status != "archived"
         && resource.data.createdBy == request.resource.data.createdBy
@@ -649,11 +685,13 @@ service cloud.firestore {
       allow create: if secretary()
         && tenantSchoolNotDeleting()
         && request.resource.data.schoolId == tenantSchoolId()
+        && activeSchoolYearBelongsToSchool(request.resource.data.schoolYearId, tenantSchoolId())
         && request.resource.data.kind in ["correspondence", "report"]
         && request.resource.data.value == 1;
       allow update: if secretary()
         && tenantSchoolNotDeleting()
         && resource.data.schoolId == tenantSchoolId()
+        && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId())
         && request.resource.data.schoolId == resource.data.schoolId
         && request.resource.data.schoolYearId == resource.data.schoolYearId
         && request.resource.data.kind == resource.data.kind
@@ -667,7 +705,7 @@ service cloud.firestore {
       allow read: if medicalRecordUser()
         && medicalRecordReadInTenant(studentId);
       allow create: if medicalRecordUser()
-        && sameTenantCreate()
+        && activeTenantYearCreate()
         && medicalRecordStudentInYear(studentId, request.resource.data.schoolYearId)
         && request.resource.data.id == studentId
         && request.resource.data.studentId == studentId
@@ -676,8 +714,7 @@ service cloud.firestore {
         && request.resource.data.createdAt is timestamp
         && request.resource.data.updatedAt is timestamp;
       allow update: if medicalRecordUser()
-        && sameTenantUpdate()
-        && sameYearUpdate()
+        && activeTenantYearUpdate()
         && medicalRecordStudentInYear(studentId, request.resource.data.schoolYearId)
         && resource.data.studentId == studentId
         && request.resource.data.studentId == resource.data.studentId
@@ -690,12 +727,11 @@ service cloud.firestore {
     match /secretaryReports/{reportId} {
       allow read: if secretary() && sameTenantResource();
       allow create: if secretary()
-        && sameTenantCreate()
+        && activeTenantYearCreate()
         && request.resource.data.authorId == request.auth.uid
         && request.resource.data.status == "draft";
       allow update: if secretary()
-        && sameTenantUpdate()
-        && sameYearUpdate()
+        && activeTenantYearUpdate()
         && resource.data.authorId == request.resource.data.authorId
         && resource.data.reportNumber == request.resource.data.reportNumber
         && ((resource.data.status == "draft" && request.resource.data.status == "draft")
@@ -709,6 +745,10 @@ service cloud.firestore {
     match /aiUsageLogs/{requestId} {
       allow read: if secretary() && resource.data.schoolId == tenantSchoolId() && resource.data.userId == request.auth.uid;
       allow create, update, delete: if false;
+    }
+
+    match /_rateLimits/{counterId} {
+      allow read, create, update, delete: if false;
     }
 
     match /{document=**} {

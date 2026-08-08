@@ -7,7 +7,9 @@ import { AI_ACTIONS, AI_LENGTHS, AI_TONES, type AiAction, type AiScope, type AiS
 import { sanitizeAiContext, sanitizeAiText } from "./sanitize.js";
 import { buildStructuredWritingResponseFormat, classifyOpenAiFailure, extractOpenAiResponseText, isGeneratedContentIdentical, normalizeOpenAiSections, readOpenAiFailure, validateGeneratedSections } from "./openAiResponse.js";
 import { assertSecretaryAiIdentity, assertSecretaryAiProfile } from "./schoolAiAccess.js";
+import { enforceCallableRateLimit, FUNCTION_RATE_LIMITS, type RateLimitDatabase } from "../security/rateLimit.js";
 import { completeSchoolAiUsage, prepareSchoolAiUsage, releaseSchoolAiUsage, reserveSchoolAiUsage, type AiUsageDatabase } from "./schoolAiUsage.js";
+import { assertActiveSchoolYear, type SchoolYearDatabase } from "../security/schoolYear.js";
 
 const openAiApiKey = defineSecret("OPENAI_API_KEY");
 export const AI_ASSISTANT_VERSION = "2026-07-30-actions-v2";
@@ -55,7 +57,7 @@ export function validateInput(value: unknown): AiWritingRequest {
   if (!value || typeof value !== "object") throw new HttpsError("invalid-argument", "Demande IA invalide.", { version: AI_ASSISTANT_VERSION });
   const input = value as Partial<AiWritingRequest>;
   if (typeof input.idempotencyKey !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.idempotencyKey)) throw new HttpsError("invalid-argument", "Clé d’idempotence invalide.");
-  if (!input.schoolId || !input.documentType || !input.documentTypeLabel?.trim() || !["courrier", "rapport"].includes(input.documentCategory ?? "") || !input.action || !AI_ACTIONS.includes(input.action) || !coreActions.has(input.action) || !allowedDocuments.has(input.documentType)) throw new HttpsError("invalid-argument", "Action ou document non pris en charge.", unsupportedInputDetails(input));
+  if (!input.schoolId || !input.academicYearId || !input.documentType || !input.documentTypeLabel?.trim() || !["courrier", "rapport"].includes(input.documentCategory ?? "") || !input.action || !AI_ACTIONS.includes(input.action) || !coreActions.has(input.action) || !allowedDocuments.has(input.documentType)) throw new HttpsError("invalid-argument", "Action ou document non pris en charge.", unsupportedInputDetails(input));
   const sectionsAreValid = input.sections && typeof input.sections === "object" && !Array.isArray(input.sections);
   const requestedRawScopes = input.scope && typeof input.scope === "object" && input.scope.mode === "selected_sections" ? input.scope.sections : [input.scope];
   if (input.documentCategory === "rapport" && requestedRawScopes.includes("signatures")) throw new HttpsError("invalid-argument", "Les signatures ne sont jamais traitées par l’IA.", { acceptedScopes: [...allowedScopes], version: AI_ASSISTANT_VERSION });
@@ -125,9 +127,11 @@ export const secretaryAiWritingAssistant = onCall({ region: FUNCTION_REGION, tim
   if (diagnosticLoggingEnabled(projectId)) logger.info("Secretary AI validated request", { event: "secretary_ai_backend_request", action: input.action, scope: input.scope, tone: input.tone, length: input.length, targetSectionKey: input.targetSection?.key ?? null, sourceLength: Object.values(input.sections).join("").length, sectionKeysReceived: Object.keys(input.sections) });
   const db = getFirestore();
   const { auth, schoolId } = assertSecretaryAiIdentity(request.auth, input.schoolId);
+  await assertActiveSchoolYear(db as unknown as SchoolYearDatabase, schoolId, input.academicYearId);
   const usageDatabase = db as unknown as AiUsageDatabase;
   const profileSnapshot = await db.doc(`users/${auth.uid}`).get();
   assertSecretaryAiProfile(profileSnapshot.exists ? profileSnapshot.data() : undefined, auth.uid, schoolId);
+  await enforceCallableRateLimit({ db: db as unknown as RateLimitDatabase, actorId: auth.uid, schoolId, action: "ai.generate", idempotencyKey: input.idempotencyKey, ...FUNCTION_RATE_LIMITS.AI_GENERATE });
   const { school: schoolData } = await prepareSchoolAiUsage(usageDatabase, schoolId);
   const role = auth.token.role;
   const settings = (schoolData.aiSettings ?? {}) as Record<string, unknown>;
@@ -175,7 +179,7 @@ export const secretaryAiWritingAssistant = onCall({ region: FUNCTION_REGION, tim
     if (error instanceof HttpsError) throw error;
     throw new HttpsError(error instanceof Error && error.name === "AbortError" ? "deadline-exceeded" : "unavailable", "L'assistant IA est temporairement indisponible. Votre texte n'a pas été modifié.");
   } finally {
-    await db.collection("aiUsageLogs").doc(requestId).set({ schoolId, userId: auth.uid, role, documentType: input.documentType, documentId: input.documentId ?? null, section: input.section ?? null, action: input.action, createdAt: FieldValue.serverTimestamp(), status: providerStatus, provider: "openai", model, durationMs: Date.now() - startedAt, sentCharacters, receivedCharacters: typeof result! === "object" ? JSON.stringify(result!).length : 0, accepted: null }).catch((error) => logger.error("AI usage log write failed", { requestId, error }));
+    await db.collection("aiUsageLogs").doc(requestId).set({ schoolId, schoolYearId: input.academicYearId, userId: auth.uid, role, documentType: input.documentType, documentId: input.documentId ?? null, section: input.section ?? null, action: input.action, createdAt: FieldValue.serverTimestamp(), status: providerStatus, provider: "openai", model, durationMs: Date.now() - startedAt, sentCharacters, receivedCharacters: typeof result! === "object" ? JSON.stringify(result!).length : 0, accepted: null }).catch((error) => logger.error("AI usage log write failed", { requestId, error }));
   }
   if (!result) throw new HttpsError("internal", "La réponse de l’Assistant IA ne contient pas de proposition exploitable.", { code: "INVALID_AI_RESPONSE" });
   return result;
@@ -184,12 +188,14 @@ export const secretaryAiWritingAssistant = onCall({ region: FUNCTION_REGION, tim
 export const secretaryAiRecordDecision = onCall({ region: "europe-west1", invoker: "public" }, async (request) => {
   const db = getFirestore();
   const { auth, schoolId } = assertSecretaryAiIdentity(request.auth, request.auth?.token.schoolId);
+  await enforceCallableRateLimit({ db: db as unknown as RateLimitDatabase, actorId: auth.uid, schoolId, action: "ai.decision", ...FUNCTION_RATE_LIMITS.AI_DECISION });
   await prepareSchoolAiUsage(db as unknown as AiUsageDatabase, schoolId, { enforceLimit: false });
   const requestId = typeof request.data?.requestId === "string" ? request.data.requestId : "";
   const accepted = request.data?.accepted;
   if (!requestId || typeof accepted !== "boolean") throw new HttpsError("invalid-argument", "Décision invalide.");
   const reference = db.collection("aiUsageLogs").doc(requestId); const snapshot = await reference.get();
   if (!snapshot.exists || snapshot.data()?.userId !== auth.uid || snapshot.data()?.schoolId !== auth.token.schoolId) throw new HttpsError("permission-denied", "Historique inaccessible.");
+  await assertActiveSchoolYear(db as unknown as SchoolYearDatabase, schoolId, snapshot.data()?.schoolYearId);
   await reference.update({ accepted, decisionAt: FieldValue.serverTimestamp(), acceptedBy: auth.uid });
   return { success: true };
 });

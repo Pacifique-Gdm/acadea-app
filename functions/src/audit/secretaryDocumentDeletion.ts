@@ -2,6 +2,8 @@ import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { FUNCTION_AUDIT_EVENTS, functionServerAudit } from "./serverAudit.js";
+import { enforceCallableRateLimit, FUNCTION_RATE_LIMITS, type RateLimitDatabase } from "../security/rateLimit.js";
+import { assertActiveSchoolYear, type SchoolYearDatabase } from "../security/schoolYear.js";
 
 type DocumentKind = "correspondence" | "report";
 type DocumentAction = "archive" | "restore" | "delete";
@@ -49,6 +51,8 @@ export const secretaryDeleteDocument = onCall({ region: "europe-west1", invoker:
   const profile = profileSnapshot.data();
   if (!profileSnapshot.exists) throw new HttpsError("permission-denied", "Action réservée à un Secrétaire actif.");
   assertSecretaryDocumentAccess({ tokenRole: request.auth.token.role, tokenSchoolId: schoolId, profile, documentSchoolId: schoolId });
+  const rate = action === "delete" ? FUNCTION_RATE_LIMITS.SECRETARY_DELETE : FUNCTION_RATE_LIMITS.SECRETARY_DOCUMENT;
+  await enforceCallableRateLimit({ db: db as unknown as RateLimitDatabase, actorId: request.auth.uid, schoolId, action: `secretary.${kind}.${action}`, ...rate });
   const snapshot = await reference.get();
   if (!snapshot.exists) {
     if (action === "delete") return { action, deleted: true, alreadyDeleted: true, storageCleanupSucceeded: true };
@@ -56,6 +60,7 @@ export const secretaryDeleteDocument = onCall({ region: "europe-west1", invoker:
   }
   const document = snapshot.data() ?? {};
   assertSecretaryDocumentAccess({ tokenRole: request.auth.token.role, tokenSchoolId: schoolId, profile, documentSchoolId: document.schoolId });
+  await assertActiveSchoolYear(db as unknown as SchoolYearDatabase, schoolId, document.schoolYearId);
 
   const currentStatus = typeof document.status === "string" ? document.status : "draft";
   const ownerId = kind === "correspondence" ? document.createdBy : document.authorId;

@@ -21,7 +21,12 @@ beforeAll(async () => {
   environment = await initializeTestEnvironment({ projectId, firestore: { rules: readFileSync("firestore.rules", "utf8") } });
 }, 30_000);
 
-beforeEach(async () => testEnvironment().clearFirestore());
+beforeEach(async () => {
+  await testEnvironment().clearFirestore();
+  await testEnvironment().withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "schoolYears", schoolYearId), { id: schoolYearId, schoolId, status: "active" });
+  });
+});
 afterAll(async () => environment?.cleanup(), 30_000);
 
 describe("documents du Secrétaire", () => {

@@ -19,6 +19,12 @@ const correspondenceRequest = (scope: AiWritingRequest["scope"]): AiWritingReque
 };
 
 describe("requête simplifiée de l'assistant rédactionnel", () => {
+  it("exige l'année scolaire dans chaque requête", () => {
+    const withoutYear = { ...request("reformulate") } as Partial<AiWritingRequest>;
+    delete withoutYear.academicYearId;
+    expect(() => validateInput(withoutYear)).toThrowError("Action ou document non pris en charge");
+  });
+
   it("accepte uniquement Reformuler et Résumer", () => {
     expect(AI_ACTIONS).toEqual(["reformulate", "summarize"]);
     for (const action of AI_ACTIONS) expect(validateInput(request(action)).action).toBe(action);

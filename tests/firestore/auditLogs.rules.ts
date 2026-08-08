@@ -40,4 +40,14 @@ describe("SEC-005 audit immuable", () => {
   });
   it("refuse la lecture inter-écoles", async () => assertFails(getDoc(doc(auth("admin", "school_admin", "school-a"), "auditLogs", "canonical-b"))));
   it("autorise la lecture globale au Super Administrateur", async () => assertSucceeds(getDoc(doc(auth("super", "super_admin"), "auditLogs", "canonical-b"))));
+
+  it("interdit toute lecture ou écriture des compteurs techniques, y compris au Super Administrateur", async () => {
+    for (const firestore of [auth("secretary", "secretary", "school-a"), auth("admin", "school_admin", "school-a"), auth("super", "super_admin")]) {
+      const reference = doc(firestore, "_rateLimits", "forged");
+      await assertFails(getDoc(reference));
+      await assertFails(setDoc(reference, { count: 0, resetAt: new Date() }));
+      await assertFails(updateDoc(reference, { count: 0 }));
+      await assertFails(deleteDoc(reference));
+    }
+  });
 });

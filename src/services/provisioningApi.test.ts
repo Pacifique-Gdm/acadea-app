@@ -21,6 +21,11 @@ vi.mock("../../api/_lib/firebaseAdmin.js", () => ({
     details: error instanceof Error ? error.message : String(error),
   }),
 }));
+vi.mock("../../api/_lib/rateLimit.js", () => ({
+  API_RATE_LIMITS: { PROVISION_SCHOOL: {}, PROVISION_ACCOUNT: {}, PROVISION_DESTRUCTIVE: {} },
+  enforceApiRateLimit: vi.fn(),
+  sendRateLimitError: () => false,
+}));
 
 import provisionSchoolAccount from "../../api/provision-school-account.js";
 import provisionSchoolAdmin from "../../api/provision-school-admin.js";
@@ -55,6 +60,8 @@ describe("API de provisionnement Acadéa", () => {
       path,
       get: vi.fn().mockResolvedValue(path === "schools/school-1"
         ? { exists: true, data: () => ({ id: "school-1" }) }
+        : path === "schoolYears/year-1"
+          ? { exists: true, data: () => ({ id: "year-1", schoolId: "school-1", status: "active" }) }
         : path === "students/student-1"
           ? { exists: true, data: () => ({ id: "student-1", schoolId: "school-1", schoolYearId: "year-1", status: "ACTIVE" }), ref: { path } }
           : { exists: false }),

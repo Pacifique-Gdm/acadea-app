@@ -4,10 +4,19 @@ const dotenv = require("dotenv");
 
 const requestedTarget = process.argv[2] || process.env.VITE_APP_ENV || process.env.VERCEL_ENV || "staging";
 const target = requestedTarget === "production" ? "production" : "staging";
+const baseFile = path.resolve(process.cwd(), ".env");
 const modeFile = path.resolve(process.cwd(), `.env.${target}`);
 const localFile = path.resolve(process.cwd(), ".env.local");
+const modeLocalFile = path.resolve(process.cwd(), `.env.${target}.local`);
 const parseFile = (file) => fs.existsSync(file) ? dotenv.parse(fs.readFileSync(file)) : {};
-const effectiveEnv = { ...parseFile(localFile), ...parseFile(modeFile), ...process.env, VITE_APP_ENV: target };
+const effectiveEnv = {
+  ...parseFile(baseFile),
+  ...parseFile(localFile),
+  ...parseFile(modeFile),
+  ...parseFile(modeLocalFile),
+  ...process.env,
+  VITE_APP_ENV: target,
+};
 const projectId = effectiveEnv.VITE_FIREBASE_PROJECT_ID || "";
 const expectedProductionProjectId = "acadea-production";
 const expectedPreviewProjectId = "acadea-staging";

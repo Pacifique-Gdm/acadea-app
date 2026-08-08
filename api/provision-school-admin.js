@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { firebaseAdminPublicError, initAdmin } from "./_lib/firebaseAdmin.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./_lib/serverAudit.js";
+import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 
 const allowedPlans = new Set(["Starter", "Standard", "Premium"]);
 
@@ -84,6 +85,7 @@ export default async function handler(req, res) {
       sendJson(res, 403, { error: "Action réservée au super administrateur.", code: "permission-denied" });
       return;
     }
+    await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: "platform", action: "provision.school", ...API_RATE_LIMITS.PROVISION_SCHOOL });
 
     const body = await readBody(req);
     const schoolName = String(body.schoolName ?? "").trim();
@@ -186,6 +188,7 @@ export default async function handler(req, res) {
     if (adminAuth && adminDb) {
       await cleanup({ auth: adminAuth, db: adminDb, adminUid, refs: createdRefs });
     }
+    if (sendRateLimitError(res, error)) return;
     console.error("[Acadéa provisioning] Provisionnement école/admin échoué.", error);
     const diagnostic = firebaseAdminPublicError(error);
     sendJson(res, 500, {

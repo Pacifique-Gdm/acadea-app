@@ -1,5 +1,6 @@
 import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { executeFinancialOperation, FinancialApiError } from "./_lib/financialTransactions.js";
+import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 
 async function readBody(req) {
   if (req.body && typeof req.body === "object") {
@@ -35,9 +36,15 @@ export default async function handler(req, res) {
     if (!token) throw new FinancialApiError(401, "unauthenticated", "Authentification requise.");
     const { auth, db } = initAdmin();
     const caller = await auth.verifyIdToken(token, true);
-    const result = await executeFinancialOperation({ db, caller, body: await readBody(req) });
+    const body = await readBody(req);
+    const requestedAction = typeof body.action === "string" ? body.action : "";
+    const action = ["create-payment", "create-expense", "update-payment", "update-expense", "delete-payment", "delete-expense"].includes(requestedAction) ? requestedAction : "invalid";
+    const rate = action === "create-payment" || action === "create-expense" ? API_RATE_LIMITS.FINANCE_CREATE : API_RATE_LIMITS.FINANCE_MUTATE;
+    await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.schoolId, action: `finance.${action}`, idempotencyKey: typeof body.clientRequestId === "string" ? body.clientRequestId : undefined, ...rate });
+    const result = await executeFinancialOperation({ db, caller, body });
     return sendJson(res, 200, result);
   } catch (error) {
+    if (sendRateLimitError(res, error)) return;
     if (error instanceof FinancialApiError) return sendJson(res, error.status, { error: error.message, code: error.code });
     console.error("[Acadéa finance] Opération financière échouée.", { code: typeof error?.code === "string" ? error.code : "internal" });
     return sendJson(res, 500, { error: "Opération financière impossible.", code: "internal" });

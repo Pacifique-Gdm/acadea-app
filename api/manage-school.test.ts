@@ -15,6 +15,11 @@ vi.mock("./_lib/firebaseAdmin.js", () => ({
   firebaseAdminPublicError: () => ({ code: "internal", details: "failure" }),
 }));
 vi.mock("./_lib/schoolDeletion.js", () => ({ deleteSchoolCompletely: mocks.deleteSchoolCompletely }));
+vi.mock("./_lib/rateLimit.js", () => ({
+  API_RATE_LIMITS: { SCHOOL_DELETE: {}, SCHOOL_ADMIN: {} },
+  enforceApiRateLimit: vi.fn(),
+  sendRateLimitError: () => false,
+}));
 
 import handler from "./manage-school.js";
 

@@ -1,6 +1,7 @@
 import { getCurrentFirebaseIdToken } from "./auth";
 import type { AppUser, AuditLog, ParentProfile, School, SchoolYear } from "../types";
 import { resolveApiUrl } from "../config/apiUrl";
+import { apiErrorMessage } from "../utils/rateLimitErrors";
 
 type ProvisionSchoolAdminInput = {
   schoolName: string;
@@ -33,7 +34,7 @@ export async function provisionSchoolAdmin(input: ProvisionSchoolAdminInput) {
 
   const payload = (await response.json().catch(() => ({}))) as Partial<ProvisionSchoolAdminResponse> & { error?: string; code?: string; details?: string };
   if (!response.ok) {
-    const message = payload.error ?? "Provisionnement impossible.";
+    const message = apiErrorMessage(response.status, payload, "Provisionnement impossible.");
     const diagnostic = [payload.code, payload.details].filter(Boolean).join(" — ");
     throw new Error(diagnostic ? `${message} Détail serveur : ${diagnostic}` : message);
   }
@@ -94,7 +95,7 @@ async function provisionSchoolAccount<TResponse>(input: Record<string, unknown>,
     if (response.status === 404 && options?.showEndpointOnNotFound) {
       throw new Error(`Endpoint API introuvable (HTTP 404) : ${endpointUrl}. Lancez l'application avec npx vercel dev pour activer les routes /api.`);
     }
-    const message = payload.error ?? "Provisionnement impossible.";
+    const message = apiErrorMessage(response.status, payload, "Provisionnement impossible.");
     const diagnostic = [payload.code, payload.details].filter(Boolean).join(" — ");
     throw new Error(diagnostic ? `${message} Détail serveur : ${diagnostic}` : message);
   }
@@ -214,7 +215,7 @@ export async function manageSchool(input: ManageSchoolInput) {
 
   const payload = (await response.json().catch(() => ({}))) as ManageSchoolResponse & { error?: string; code?: string; details?: string };
   if (!response.ok) {
-    const message = payload.error ?? "Operation ecole impossible.";
+    const message = apiErrorMessage(response.status, payload, "Operation ecole impossible.");
     const diagnostic = [payload.code, payload.details].filter(Boolean).join(" — ");
     throw new Error(diagnostic ? `${message} Detail serveur : ${diagnostic}` : message);
   }

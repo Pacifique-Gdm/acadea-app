@@ -10,7 +10,7 @@ export type AiScope = "full_document" | string | AiScopeSelection;
 export interface AiWritingRequest {
   idempotencyKey: string;
   schoolId: string;
-  academicYearId?: string;
+  academicYearId: string;
   documentId?: string;
   documentType: string;
   documentCategory: "courrier" | "rapport";

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { firebaseAdminPublicError, initAdmin } from "./_lib/firebaseAdmin.js";
 import { deleteSchoolCompletely } from "./_lib/schoolDeletion.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./_lib/serverAudit.js";
+import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 
 export const maxDuration = 300;
 
@@ -57,13 +58,16 @@ export default async function handler(req, res) {
     }
 
     const body = await readBody(req);
-    const action = normalizeText(body.action);
+    const requestedAction = normalizeText(body.action);
+    const action = ["update", "suspend", "reactivate", "delete"].includes(requestedAction) ? requestedAction : "invalid";
     const schoolId = normalizeText(body.schoolId);
 
     if (!schoolId) {
       sendJson(res, 400, { error: "schoolId requis.", code: "invalid-argument" });
       return;
     }
+    const rate = action === "delete" ? API_RATE_LIMITS.SCHOOL_DELETE : API_RATE_LIMITS.SCHOOL_ADMIN;
+    await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: "platform", action: `school.${action || "unknown"}`, ...rate });
 
     const schoolRef = db.doc(`schools/${schoolId}`);
     const schoolSnapshot = await schoolRef.get();
@@ -134,6 +138,7 @@ export default async function handler(req, res) {
 
     sendJson(res, 400, { error: "Action invalide.", code: "invalid-argument" });
   } catch (error) {
+    if (sendRateLimitError(res, error)) return;
     console.error("[Acadea platform] Gestion ecole echouee.", error);
     const diagnostic = firebaseAdminPublicError(error);
     sendJson(res, 500, {
