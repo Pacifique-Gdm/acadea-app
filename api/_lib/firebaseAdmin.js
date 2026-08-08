@@ -88,7 +88,9 @@ export function initAdmin() {
   return {
     auth: getAuth(),
     db: getFirestore(),
-    bucket: getStorage().bucket(),
+    get bucket() {
+      return getStorage().bucket();
+    },
   };
 }
 
