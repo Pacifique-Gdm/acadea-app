@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { MAX_TOTAL_BYTES, resolveRecipients, verifyAndMoveAttachments } from "./send-school-message.js";
+// @ts-expect-error The Vercel handler is intentionally implemented in JavaScript.
+import { MAX_TOTAL_BYTES, resolveRecipients, verifyAndMoveAttachments } from "../../api/send-school-message.js";
 
 function database(users: Record<string, Record<string, unknown>>) {
   return {
