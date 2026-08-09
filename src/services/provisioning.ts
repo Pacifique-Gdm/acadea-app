@@ -56,7 +56,7 @@ type ProvisionCashierInput = {
 };
 
 type ProvisionSchoolUserInput = ProvisionCashierInput & {
-  role: "school_admin" | "cashier" | "discipline_director" | "secretary";
+  role: "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary";
 };
 
 type ProvisionParentInput = {

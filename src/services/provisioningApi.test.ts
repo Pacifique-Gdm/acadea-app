@@ -81,7 +81,7 @@ describe("API de provisionnement Acadéa", () => {
     expect(mocks.auth.verifyIdToken).not.toHaveBeenCalled();
   });
 
-  for (const role of ["cashier", "secretary", "discipline_director"] as const) {
+  for (const role of ["cashier", "secretary", "discipline_director", "study_director"] as const) {
     it(`crée Firebase Auth, le profil Firestore et les claims pour ${role}`, async () => {
       const res = response();
       await provisionSchoolAccount(request({

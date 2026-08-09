@@ -20,7 +20,7 @@ import { FEE_KINDS } from "../../types";
 import { SecretaryMedicalRecordsDrawer } from "../secretary/SecretaryMedicalTools";
 import type { StudentMedicalRecord } from "../secretary/secretaryTypes";
 
-type SchoolUserProvisionRole = "cashier" | "discipline_director" | "secretary";
+type SchoolUserProvisionRole = "cashier" | "discipline_director" | "study_director" | "secretary";
 
 type MenuYearData = {
   students: Student[];
@@ -57,6 +57,7 @@ type MenuModuleProps = {
 const schoolUserProvisionLabels: Record<SchoolUserProvisionRole, string> = {
   cashier: "Caissier",
   discipline_director: "Directeur de Discipline",
+  study_director: "Directeur des études",
   secretary: "Secrétaire",
 };
 
@@ -136,7 +137,7 @@ export function MenuModule({
     { id: "fees", title: "Types de frais", description: "Montants et catégories de frais scolaires.", icon: Banknote },
     { id: "financial", title: "Rapport financier", description: "Synthèse et exports des rapports financiers.", icon: BarChart3 },
     { id: "history", title: "Historique", description: "Activités et messages enregistrés pour ce compte.", icon: Clock3 },
-    { id: "accounts", title: "Créer un utilisateur", description: "Compte Caissier, Discipline ou Secrétaire lié à l'école.", icon: ShieldCheck },
+    { id: "accounts", title: "Créer un utilisateur", description: "Comptes responsables liés à l'école.", icon: ShieldCheck },
     { id: "biometrics", title: "Empreintes et Cartes", description: "Préparation des identifiants biométriques des élèves.", icon: Fingerprint },
     { id: "years", title: "Années scolaires", description: "Année active, années archivées et contexte global.", icon: BookOpen },
     { id: "school", title: "Paramètres école", description: "Logo, coordonnées et informations de l'établissement.", icon: Settings },
@@ -803,6 +804,7 @@ export function MenuModule({
             <select value={schoolUserRole} onChange={(event) => { setSchoolUserRole(event.target.value as SchoolUserProvisionRole); setSchoolUserEmailManuallyEdited(false); }} className="input">
               <option value="cashier">Caissier</option>
               <option value="discipline_director">Directeur de Discipline</option>
+              <option value="study_director">Directeur des études</option>
               <option value="secretary">Secrétaire</option>
             </select>
           </label>

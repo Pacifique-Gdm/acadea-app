@@ -1,6 +1,25 @@
 {
   "indexes": [
     {
+      "collectionGroup": "timetables",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "schoolId", "order": "ASCENDING" },
+        { "fieldPath": "schoolYearId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "activePublished", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "timetableEntries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "schoolId", "order": "ASCENDING" },
+        { "fieldPath": "schoolYearId", "order": "ASCENDING" },
+        { "fieldPath": "scheduleId", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "payments",
       "queryScope": "COLLECTION",
       "fields": [

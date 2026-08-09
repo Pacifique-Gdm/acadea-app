@@ -36,7 +36,7 @@ function assertFirebaseAuthReady() {
 }
 
 function isRole(role: unknown): role is AppUser["role"] | "admin" | "superadmin" {
-  return ["super_admin", "school_admin", "cashier", "discipline_director", "secretary", "parent", "admin", "superadmin"].includes(String(role));
+  return ["super_admin", "school_admin", "cashier", "discipline_director", "study_director", "secretary", "parent", "admin", "superadmin"].includes(String(role));
 }
 
 function normalizeUserProfile(user: RawAppUser): AppUser {
@@ -76,7 +76,7 @@ async function loadFirebaseUserProfile(firebaseUser: FirebaseUser, authModule: F
     throw new Error("Connexion refusée : le rôle Firebase Custom Claims est manquant ou invalide.");
   }
 
-  if (["school_admin", "cashier", "discipline_director", "secretary", "admin"].includes(String(claims.role)) && typeof claims.schoolId !== "string") {
+  if (["school_admin", "cashier", "discipline_director", "study_director", "secretary", "admin"].includes(String(claims.role)) && typeof claims.schoolId !== "string") {
     throw new Error("Connexion refusée : le Custom Claim schoolId est manquant.");
   }
 
@@ -177,6 +177,7 @@ export function canEnterRoute(user: AppUser | null, route: string) {
   if (!user) return false;
   if (user.status === "inactive") return false;
   if (route === "/platform") return user.role === "super_admin";
+  if (route === "/studies") return user.role === "study_director" && Boolean(user.schoolId);
   if (route === "/dashboard") return ["school_admin", "cashier", "discipline_director", "secretary"].includes(user.role) && Boolean(user.schoolId);
 
   return false;
@@ -194,6 +195,10 @@ export function validateDisciplineDirector(user: AppUser) {
   return user.role === "discipline_director" && Boolean(user.schoolId) && user.status !== "inactive";
 }
 
+export function validateStudyDirector(user: AppUser) {
+  return user.role === "study_director" && Boolean(user.schoolId) && user.status !== "inactive";
+}
+
 export function validateSecretary(user: AppUser) {
   return user.role === "secretary" && Boolean(user.schoolId) && user.status !== "inactive";
 }
@@ -207,5 +212,7 @@ export function validatePlatformAdmin(user: AppUser) {
 }
 
 export function getDefaultRoute(role: Role) {
-  return role === "super_admin" ? "/platform" : "/dashboard";
+  if (role === "super_admin") return "/platform";
+  if (role === "study_director") return "/studies";
+  return "/dashboard";
 }

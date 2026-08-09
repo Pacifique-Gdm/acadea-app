@@ -1,5 +1,5 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff, validateSecretary } from "./services/auth";
+import { getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff, validateSecretary, validateStudyDirector } from "./services/auth";
 import { AccessDenied } from "./components/auth/AccessDenied";
 import { ActivityHistoryContent } from "./components/history/ActivityHistoryContent";
 import { LoginScreen } from "./components/auth/LoginScreen";
@@ -23,6 +23,8 @@ import { MenuModule } from "./modules/menu/MenuModule";
 import { ParentsModule } from "./modules/parents/ParentsModule";
 import { ParentPortal } from "./modules/parent/ParentPortal";
 import { SecretaryPortal } from "./modules/secretary/SecretaryPortal";
+import { StudyDirectorPortal } from "./modules/studies/StudyDirectorPortal";
+import { PublishedTimetableReadOnly } from "./modules/studies/PublishedTimetableReadOnly";
 import { SecretaryCorrespondenceModule } from "./modules/secretary/SecretaryCorrespondenceModule";
 import { SecretaryReportsModule } from "./modules/secretary/SecretaryReportsModule";
 import { SecretaryMenuModule } from "./modules/secretary/SecretaryMenuModule";
@@ -74,6 +76,7 @@ const roleLabels: Record<AppUser["role"], string> = {
   school_admin: "Administrateur d'école",
   cashier: "Caissier",
   discipline_director: "Directeur de Discipline",
+  study_director: "Directeur des études",
   secretary: "Secrétaire",
   parent: "Parent",
 };
@@ -719,7 +722,7 @@ export default function App() {
     );
   }
 
-  if ((!validateSchoolStaff(user) && !validateParent(user) && !validateDisciplineDirector(user) && !validateSecretary(user)) || !school) {
+  if ((!validateSchoolStaff(user) && !validateParent(user) && !validateDisciplineDirector(user) && !validateStudyDirector(user) && !validateSecretary(user)) || !school) {
     return <AccessDenied onLogout={logout} />;
   }
 
@@ -747,6 +750,10 @@ export default function App() {
   const secretaryBiometricView = route === "/secretariat/empreintes" ? "fingerprints" : route === "/secretariat/cartes" ? "cards" : route === "/secretariat/empreintes-cartes" ? "menu" : undefined;
   const standaloneAdminRoute = Boolean(studentDetailMatch) || route === "/admin/rapport-financier";
   const unreadNotifications = yearData.notifications.filter((notification) => !notification.read).length;
+
+  if ((route === "/studies" && !validateStudyDirector(user)) || (validateStudyDirector(user) && route !== "/studies")) {
+    return <AccessDenied onLogout={logout} />;
+  }
 
   if ((biometricRoute || biometricParentRoute) && user.role !== "school_admin") {
     return <AccessDenied onLogout={logout} />;
@@ -786,6 +793,17 @@ export default function App() {
 
   function openParentFormFromDirectory(parentId?: string) {
     setParentFormRequest({ parentId, requestId: Date.now() });
+  }
+
+  if (validateStudyDirector(user)) {
+    return <StudyDirectorPortal
+      user={user}
+      school={currentSchool}
+      year={currentYear}
+      onLogout={logout}
+      renderEnvironmentBanner={() => <EnvironmentBanner />}
+      renderHeader={() => <Header user={user} data={data} yearData={yearData} school={currentSchool} year={currentYear} unreadNotifications={0} notificationsOpen={false} onRefresh={() => undefined} onToggleNotifications={() => undefined} roleLabels={roleLabels} messagingEnabled={false} />}
+    />;
   }
 
   if (validateParent(user)) {
@@ -867,6 +885,7 @@ export default function App() {
         createId={uid}
         selectAttendanceSettingsForYear={selectAttendanceSettingsForYear}
         maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES}
+        renderPublishedTimetable={() => <PublishedTimetableReadOnly user={user} school={school} year={selectedYear} />}
       />
     );
   }
@@ -918,7 +937,7 @@ export default function App() {
             canAttachFiles
           />
         )}
-        renderMenu={() => <SecretaryMenuModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} createId={uid} studentImportKey={studentImportKey} onLogout={logout} valvesUploadsEnabled={billingControls.controls.valvesUploadsEnabled} maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES} initialBiometricView={secretaryBiometricView} onBiometricViewChange={(view) => navigate(view === "fingerprints" ? "/secretariat/empreintes" : view === "cards" ? "/secretariat/cartes" : view === "menu" ? "/secretariat/empreintes-cartes" : "/dashboard")} />}
+        renderMenu={() => <div className="grid gap-6"><PublishedTimetableReadOnly user={user} school={school} year={selectedYear} /><SecretaryMenuModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} createId={uid} studentImportKey={studentImportKey} onLogout={logout} valvesUploadsEnabled={billingControls.controls.valvesUploadsEnabled} maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES} initialBiometricView={secretaryBiometricView} onBiometricViewChange={(view) => navigate(view === "fingerprints" ? "/secretariat/empreintes" : view === "cards" ? "/secretariat/cartes" : view === "menu" ? "/secretariat/empreintes-cartes" : "/dashboard")} /></div>}
         renderStudents={() => secretaryStudentDetailMatch ? (
           <StudentDetailPage
             studentId={secretaryStudentDetailMatch[1]}
@@ -1059,7 +1078,7 @@ export default function App() {
           <MessagesModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} createId={uid} />
         )}
         {!standaloneAdminRoute && activeTab === "menu" && (
-          <MenuModule
+          <div className="grid gap-6"><PublishedTimetableReadOnly user={user} school={school} year={selectedYear} /><MenuModule
             user={user}
             data={data}
             yearData={yearData}
@@ -1082,7 +1101,7 @@ export default function App() {
             maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES}
             onOpenBiometrics={(mode) => navigate(mode === "fingerprints" ? "/admin/empreintes" : "/admin/cartes")}
             initialBiometricsOpen={biometricParentRoute}
-          />
+          /></div>
         )}
       </main>
       {biometricRoute && (

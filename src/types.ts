@@ -1,4 +1,4 @@
-export type Role = "super_admin" | "school_admin" | "cashier" | "discipline_director" | "secretary" | "parent";
+export type Role = "super_admin" | "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary" | "parent";
 
 export type SchoolClass =
   | "Maternelle 1"

@@ -101,6 +101,7 @@ export function canOpenOperationalDeepLink(
   resource: AttendanceRecord | DisciplineSanction | ValvePublication,
   student?: Student,
 ) {
+  if (user.role === "study_director") return false;
   if (resource.schoolId !== user.schoolId || resource.schoolYearId !== user.activeSchoolYearId) return false;
   if (notification.schoolId !== resource.schoolId || notification.schoolYearId !== resource.schoolYearId) return false;
   if (notification.module === "attendance" && "attendanceDate" in resource) {

@@ -1,11 +1,12 @@
 import type { AppUser, ParentProfile, School } from "../types";
 
-export type SchoolStaffRole = "cashier" | "secretary" | "discipline_director";
+export type SchoolStaffRole = "cashier" | "secretary" | "discipline_director" | "study_director";
 
 export const schoolStaffEmailPrefixes: Record<SchoolStaffRole, string> = {
   cashier: "caissier",
   secretary: "secretaire",
   discipline_director: "discipline",
+  study_director: "etudes",
 };
 
 export function normalizeEmailDomainLabel(schoolName: string) {

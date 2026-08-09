@@ -226,6 +226,8 @@ export async function loadFirestoreData(user?: AppUser, schoolYearId?: string, b
         ]
       : schoolFilter;
 
+    if (user.role === "study_director") return scopedData;
+
     if (user.role === "parent") {
       if (!user.parentId) {
         throw new Error("Chargement Firestore impossible : parentId manquant dans les Custom Claims.");

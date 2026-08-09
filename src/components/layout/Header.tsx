@@ -25,6 +25,7 @@ type HeaderProps = {
   onRealtimeMessages?: (messages: Message[]) => void;
   roleLabels: Record<AppUser["role"], string>;
   focusedMessageId?: string;
+  messagingEnabled?: boolean;
 };
 
 export function Header({
@@ -44,6 +45,7 @@ export function Header({
   onRealtimeMessages,
   roleLabels,
   focusedMessageId,
+  messagingEnabled = true,
 }: HeaderProps) {
   const schoolLogoUrl = school.logoUrl?.trim();
   const userDisplayName = user.name.trim();
@@ -53,14 +55,14 @@ export function Header({
     user,
     schoolId: school.id,
     schoolYearId: year.id,
-    enabled: notificationsOpen,
+    enabled: messagingEnabled && notificationsOpen,
     messages: data.messages,
   });
   const realtimeMessages = useRealtimeMessageFeed({
     user,
     schoolId: school.id,
     schoolYearId: year.id,
-    enabled: notificationsOpen,
+    enabled: messagingEnabled && notificationsOpen,
   });
   const realtimeHandlersRef = useRef({ onRealtimeNotifications, onRealtimeMessages });
   useEffect(() => {
@@ -155,19 +157,19 @@ export function Header({
                 {refreshStatus}
               </span>
             )}
-            <button onClick={onToggleNotifications} className="relative inline-flex h-8 w-8 items-center justify-center text-slate-500 transition hover:text-ink" title="Boîte à Messagerie" aria-label="Boîte à Messagerie">
+            {messagingEnabled && <button onClick={onToggleNotifications} className="relative inline-flex h-8 w-8 items-center justify-center text-slate-500 transition hover:text-ink" title="Boîte à Messagerie" aria-label="Boîte à Messagerie">
               <Bell className="h-4 w-4" />
               {displayedUnreadNotifications > 0 && (
                 <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-600 px-1 text-center text-[11px] font-bold text-white">
                   {displayedUnreadNotifications}
                 </span>
               )}
-            </button>
+            </button>}
             </div>
           </div>
         </div>
       </div>
-      {notificationsOpen && (
+      {messagingEnabled && notificationsOpen && (
         <MessagingDrawerShell onClose={onCloseNotifications ?? onToggleNotifications}>
           <MessageDrawerContent
             user={user}

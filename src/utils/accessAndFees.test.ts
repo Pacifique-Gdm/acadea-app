@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AppUser, FeeType, Student } from "../types";
-import { canEnterRoute, getDefaultRoute, validateParent, validateSecretary } from "../services/auth";
+import { canEnterRoute, getDefaultRoute, validateParent, validateSecretary, validateStudyDirector } from "../services/auth";
 import { feeAppliesToStudent, feeTargetKey } from "./feeTargets";
 
 describe("autorisations par rôle", () => {
@@ -25,6 +25,17 @@ describe("autorisations par rôle", () => {
   it("bloque un compte désactivé et un rôle inconnu", () => {
     expect(canEnterRoute({ role: "school_admin", schoolId: "school-a", status: "inactive" } as AppUser, "/dashboard")).toBe(false);
     expect(canEnterRoute({ role: "unknown", schoolId: "school-a" } as unknown as AppUser, "/dashboard")).toBe(false);
+  });
+
+  it("isole la route du Directeur des études", () => {
+    const director = { id: "studies-a", role: "study_director", schoolId: "school-a", status: "active" } as AppUser;
+    expect(validateStudyDirector(director)).toBe(true);
+    expect(canEnterRoute(director, "/studies")).toBe(true);
+    expect(canEnterRoute(director, "/dashboard")).toBe(false);
+    expect(canEnterRoute(director, "/platform")).toBe(false);
+    expect(canEnterRoute({ ...director, status: "inactive" }, "/studies")).toBe(false);
+    expect(canEnterRoute({ ...director, role: "cashier" }, "/studies")).toBe(false);
+    expect(getDefaultRoute("study_director")).toBe("/studies");
   });
 
   it("refuse un parent inactif ou sans rattachement", () => {

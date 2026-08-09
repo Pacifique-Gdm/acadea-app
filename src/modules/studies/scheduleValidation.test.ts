@@ -1,0 +1,22 @@
+import { describe, expect, it } from "vitest";
+import { validateTimetable } from "./scheduleValidation";
+import type { PedagogicalAssignment, SchedulePeriod, TeacherAvailability, TimetableEntry } from "./studyTypes";
+const p=(id:string,order:number,type:SchedulePeriod["type"]="course"):SchedulePeriod=>({id,schoolId:"s",schoolYearId:"y",label:id,startTime:`0${7+order}:00`.slice(-5),endTime:`0${8+order}:00`.slice(-5),order,type,active:true,createdBy:"u",createdAt:"n",updatedAt:"n"});
+const a=(overrides:Partial<PedagogicalAssignment>={}):PedagogicalAssignment=>({id:"a",schoolId:"s",schoolYearId:"y",teacherId:"t",classId:"c",subjectId:"m",weeklyPeriods:1,active:true,createdBy:"u",updatedBy:"u",createdAt:"n",updatedAt:"n",...overrides});
+const e=(id:string,overrides:Partial<TimetableEntry>={}):TimetableEntry=>({id,scheduleId:"sch",schoolId:"s",schoolYearId:"y",teacherId:"t",classId:"c",subjectId:"m",assignmentId:"a",dayOfWeek:"monday",periodId:"p1",roomId:null,createdAt:"n",updatedAt:"n",...overrides});
+const report=(entries:TimetableEntry[],assignments=[a()],periods=[p("p1",1),p("p2",2)],availabilities:TeacherAvailability[]=[])=>validateTimetable({schoolId:"s",schoolYearId:"y",assignments,periods,availabilities,maxSameAssignmentPeriodsPerDay:2},entries);
+const codes=(value:ReturnType<typeof report>)=>value.errors.map(error=>error.code);
+describe("validateur indépendant",()=>{
+  it("valide un horaire correct",()=>expect(report([e("e1")]).valid).toBe(true));
+  it("vérifie sans modifier le brouillon",()=>{const entries=[e("e1")];const before=structuredClone(entries);report(entries);expect(entries).toEqual(before)});
+  it("détecte TEACHER_OVERLAP",()=>expect(codes(report([e("1"),e("2",{classId:"c2",assignmentId:"b",subjectId:"m2"})],[a(),a({id:"b",classId:"c2",subjectId:"m2"})]))).toContain("TEACHER_OVERLAP"));
+  it("détecte CLASS_OVERLAP",()=>expect(codes(report([e("1"),e("2",{teacherId:"t2",assignmentId:"b",subjectId:"m2"})],[a(),a({id:"b",teacherId:"t2",subjectId:"m2"})]))).toContain("CLASS_OVERLAP"));
+  it("détecte ROOM_OVERLAP",()=>expect(codes(report([e("1",{roomId:"r"}),e("2",{teacherId:"t2",classId:"c2",subjectId:"m2",assignmentId:"b",roomId:"r"})],[a(),a({id:"b",teacherId:"t2",classId:"c2",subjectId:"m2"})]))).toContain("ROOM_OVERLAP"));
+  it("détecte TEACHER_UNAVAILABLE",()=>{const av:TeacherAvailability={id:"u",schoolId:"s",schoolYearId:"y",teacherId:"t",dayOfWeek:"monday",status:"unavailable",active:true,createdBy:"u",createdAt:"n",updatedAt:"n"};expect(codes(report([e("1")],undefined,undefined,[av]))).toContain("TEACHER_UNAVAILABLE")});
+  it("détecte REST_DAY",()=>{const av:TeacherAvailability={id:"r",schoolId:"s",schoolYearId:"y",teacherId:"t",dayOfWeek:"monday",status:"rest",active:true,createdBy:"u",createdAt:"n",updatedAt:"n"};expect(codes(report([e("1")],undefined,undefined,[av]))).toContain("REST_DAY")});
+  it("détecte NON_TEACHING_PERIOD",()=>expect(codes(report([e("1")],undefined,[p("p1",1,"break")]))).toContain("NON_TEACHING_PERIOD"));
+  it("détecte WEEKLY_VOLUME_MISMATCH",()=>expect(codes(report([], [a({weeklyPeriods:2})]))).toContain("WEEKLY_VOLUME_MISMATCH"));
+  it("détecte DAILY_ASSIGNMENT_LIMIT",()=>expect(codes(report([e("1"),e("2",{periodId:"p2"}),e("3",{periodId:"p3"})],[a({weeklyPeriods:3})],[p("p1",1),p("p2",2),p("p3",3)]))).toContain("DAILY_ASSIGNMENT_LIMIT"));
+  it("détecte DOUBLE_PERIOD_BROKEN",()=>expect(codes(report([e("1",{blockId:"b"}),e("2",{periodId:"p3",blockId:"b"})],[a({weeklyPeriods:2,blockSize:2})],[p("p1",1),p("pause",2,"break"),p("p3",3)]))).toContain("DOUBLE_PERIOD_BROKEN"));
+  it("détecte INVALID_ASSIGNMENT et portée incorrecte",()=>expect(codes(report([e("1",{schoolId:"other"})]))).toContain("INVALID_ASSIGNMENT"));
+});

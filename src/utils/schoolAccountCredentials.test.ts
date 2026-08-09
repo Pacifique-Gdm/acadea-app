@@ -10,6 +10,7 @@ describe("identifiants temporaires des comptes métier", () => {
     ["cashier", "caissier001@complexescolairelagrace.com"],
     ["secretary", "secretaire001@complexescolairelagrace.com"],
     ["discipline_director", "discipline001@complexescolairelagrace.com"],
+    ["study_director", "etudes001@complexescolairelagrace.com"],
   ] as const)("génère l'adresse attendue pour %s", (role, expected) => {
     expect(nextSchoolStaffEmail(school, role, [], [])).toBe(expected);
   });
@@ -24,7 +25,7 @@ describe("identifiants temporaires des comptes métier", () => {
   });
 
   it("change de préfixe selon le rôle", () => {
-    expect(schoolStaffEmailPrefixes).toEqual({ cashier: "caissier", secretary: "secretaire", discipline_director: "discipline" });
+    expect(schoolStaffEmailPrefixes).toEqual({ cashier: "caissier", secretary: "secretaire", discipline_director: "discipline", study_director: "etudes" });
     expect(nextSchoolStaffEmail(school, "secretary", [user("caissier001@complexescolairelagrace.com")], [])).toBe("secretaire001@complexescolairelagrace.com");
   });
 

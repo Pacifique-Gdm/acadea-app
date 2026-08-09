@@ -57,6 +57,16 @@ describe("SEC-015 — matrice centrale d'isolation tenant", () => {
     }
   });
 
+  it("limite le Directeur des études au bootstrap de sa propre école en phase 1", async () => {
+    const director = auth("studies-a", "study_director");
+    await assertSucceeds(getDoc(doc(director, "schools", schoolA)));
+    await assertSucceeds(getDoc(doc(director, "schoolYears", yearA)));
+    await assertFails(getDoc(doc(director, "schools", schoolB)));
+    await assertFails(getDoc(doc(director, "schoolYears", yearB)));
+    await assertFails(getDoc(doc(director, "students", "students-a")));
+    await assertFails(updateDoc(doc(director, "schoolYears", yearA), { label: "Interdit" }));
+  });
+
   it("exige un filtre tenant pour les requêtes de liste", async () => {
     const admin = auth("admin-a", "school_admin");
     const isolated = await assertSucceeds(getDocs(query(collection(admin, "students"), where("schoolId", "==", schoolA))));

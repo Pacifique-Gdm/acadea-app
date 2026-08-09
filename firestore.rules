@@ -57,6 +57,34 @@ service cloud.firestore {
       return signedIn() && role() == "secretary" && tenantSchoolId() is string;
     }
 
+    function studyDirector() {
+      return signedIn() && role() == "study_director" && tenantSchoolId() is string;
+    }
+
+    function studyTenantResource() {
+      return studyDirector() && resource.data.schoolId == tenantSchoolId();
+    }
+
+    function publishedScheduleReader() {
+      return signedIn()
+        && role() in ["school_admin", "secretary", "discipline_director"]
+        && tenantSchoolId() is string;
+    }
+
+    function activeStudyYearCreate() {
+      return studyDirector()
+        && tenantSchoolNotDeleting()
+        && request.resource.data.schoolId == tenantSchoolId()
+        && activeSchoolYearBelongsToSchool(request.resource.data.schoolYearId, tenantSchoolId());
+    }
+
+    function activeStudyYearUpdate() {
+      return studyTenantResource()
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.schoolYearId == resource.data.schoolYearId
+        && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
+    }
+
     function validValveAttachment(attachment, valveId) {
       return attachment is map
         && attachment.keys().hasOnly(["name", "type", "url", "path", "size"])
@@ -320,7 +348,7 @@ service cloud.firestore {
     }
 
     match /schools/{schoolId} {
-      allow read: if superAdmin() || (schoolUser() && schoolId == tenantSchoolId()) || (disciplineDirector() && schoolId == tenantSchoolId());
+      allow read: if superAdmin() || (schoolUser() && schoolId == tenantSchoolId()) || (disciplineDirector() && schoolId == tenantSchoolId()) || (studyDirector() && schoolId == tenantSchoolId());
       allow create: if superAdmin();
       allow update: if superAdminAiAssistantUpdate() || schoolSettingsUpdate(schoolId) || secretarySchoolOptionsUpdate(schoolId);
       allow delete: if superAdmin();
@@ -371,7 +399,7 @@ service cloud.firestore {
     }
 
     match /schoolYears/{yearId} {
-      allow read: if superAdmin() || sameTenantResource() || disciplineTenantResource();
+      allow read: if superAdmin() || sameTenantResource() || disciplineTenantResource() || (studyDirector() && resource.data.schoolId == tenantSchoolId());
       allow create: if schoolAdmin() && sameTenantCreate();
       allow update: if schoolAdmin() && sameTenantUpdate() && sameYearUpdate();
       allow delete: if false;
@@ -482,19 +510,207 @@ service cloud.firestore {
     }
 
     match /teachers/{teacherId} {
-      allow read: if superAdmin() || sameTenantResource();
+      allow read: if superAdmin() || sameTenantResource() || studyTenantResource();
+      allow create: if (schoolAdmin() && activeTenantYearCreate())
+        || (activeStudyYearCreate()
+          && request.resource.data.firstName is string
+          && request.resource.data.firstName.size() > 0
+          && request.resource.data.lastName is string
+          && request.resource.data.lastName.size() > 0
+          && request.resource.data.fullName is string
+          && request.resource.data.status == "active"
+          && request.resource.data.createdBy == request.auth.uid);
+      allow update: if (schoolAdmin() && activeTenantYearUpdate())
+        || (activeStudyYearUpdate()
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["firstName", "lastName", "fullName", "status", "updatedAt"]));
+      allow delete: if schoolAdmin() && sameTenantResource()
+        && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
+    }
+
+    match /classes/{classId} {
+      allow read: if superAdmin() || sameTenantResource() || studyTenantResource();
       allow create: if schoolAdmin() && activeTenantYearCreate();
       allow update: if schoolAdmin() && activeTenantYearUpdate();
       allow delete: if schoolAdmin() && sameTenantResource()
         && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
     }
 
-    match /classes/{classId} {
-      allow read: if superAdmin() || sameTenantResource();
-      allow create: if schoolAdmin() && activeTenantYearCreate();
-      allow update: if schoolAdmin() && activeTenantYearUpdate();
-      allow delete: if schoolAdmin() && sameTenantResource()
-        && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
+    match /subjects/{subjectId} {
+      allow read: if superAdmin() || studyTenantResource();
+      allow create: if activeStudyYearCreate()
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.active is bool
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt is string
+        && request.resource.data.updatedAt is string;
+      allow update: if activeStudyYearUpdate()
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["name", "active", "updatedAt"]);
+      allow delete: if false;
+    }
+
+    match /pedagogicalAssignments/{assignmentId} {
+      function assignmentReferencesAreValid() {
+        return get(/databases/$(database)/documents/teachers/$(request.resource.data.teacherId)).data.schoolId == tenantSchoolId()
+          && get(/databases/$(database)/documents/teachers/$(request.resource.data.teacherId)).data.schoolYearId == request.resource.data.schoolYearId
+          && get(/databases/$(database)/documents/subjects/$(request.resource.data.subjectId)).data.schoolId == tenantSchoolId()
+          && get(/databases/$(database)/documents/subjects/$(request.resource.data.subjectId)).data.schoolYearId == request.resource.data.schoolYearId
+          && get(/databases/$(database)/documents/classes/$(request.resource.data.classId)).data.schoolId == tenantSchoolId()
+          && get(/databases/$(database)/documents/classes/$(request.resource.data.classId)).data.schoolYearId == request.resource.data.schoolYearId
+          && (!("preferredRoomId" in request.resource.data) || request.resource.data.preferredRoomId == null
+            || (request.resource.data.preferredRoomId is string
+              && get(/databases/$(database)/documents/rooms/$(request.resource.data.preferredRoomId)).data.schoolId == tenantSchoolId()
+              && get(/databases/$(database)/documents/rooms/$(request.resource.data.preferredRoomId)).data.schoolYearId == request.resource.data.schoolYearId
+              && get(/databases/$(database)/documents/rooms/$(request.resource.data.preferredRoomId)).data.active == true));
+      }
+      function validAssignmentShape() {
+        return request.resource.data.id == assignmentId
+          && assignmentId == request.resource.data.schoolId + "__" + request.resource.data.schoolYearId + "__" + request.resource.data.teacherId + "__" + request.resource.data.subjectId + "__" + request.resource.data.classId
+          && request.resource.data.weeklyPeriods is int
+          && request.resource.data.weeklyPeriods > 0
+          && request.resource.data.weeklyPeriods <= 60
+          && (!("blockSize" in request.resource.data) || request.resource.data.blockSize in [1, 2])
+          && request.resource.data.active is bool
+          && request.resource.data.createdBy is string
+          && request.resource.data.updatedBy is string
+          && request.resource.data.createdAt is string
+          && request.resource.data.updatedAt is string;
+      }
+      allow read: if superAdmin() || studyTenantResource();
+      allow create: if activeStudyYearCreate()
+        && validAssignmentShape()
+        && assignmentReferencesAreValid()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow update: if activeStudyYearUpdate()
+        && validAssignmentShape()
+        && assignmentReferencesAreValid()
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.teacherId == resource.data.teacherId
+        && request.resource.data.subjectId == resource.data.subjectId
+        && request.resource.data.classId == resource.data.classId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if false;
+    }
+
+    match /teacherAvailabilities/{availabilityId} {
+      allow read: if superAdmin() || studyTenantResource();
+      allow create: if activeStudyYearCreate() && request.resource.data.teacherId is string && request.resource.data.dayOfWeek in ["monday","tuesday","wednesday","thursday","friday","saturday"] && request.resource.data.status in ["available","unavailable","rest"] && request.resource.data.active is bool && request.resource.data.createdBy == request.auth.uid && exists(/databases/$(database)/documents/teachers/$(request.resource.data.teacherId)) && get(/databases/$(database)/documents/teachers/$(request.resource.data.teacherId)).data.schoolId == tenantSchoolId() && get(/databases/$(database)/documents/teachers/$(request.resource.data.teacherId)).data.schoolYearId == request.resource.data.schoolYearId;
+      allow update: if activeStudyYearUpdate() && request.resource.data.teacherId == resource.data.teacherId && request.resource.data.createdBy == resource.data.createdBy && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if false;
+    }
+
+    match /schedulePeriods/{periodId} {
+      allow read: if superAdmin() || studyTenantResource();
+      allow create: if activeStudyYearCreate() && request.resource.data.label is string && request.resource.data.startTime is string && request.resource.data.endTime is string && request.resource.data.order is int && request.resource.data.order > 0 && request.resource.data.type in ["course","break","recess"] && request.resource.data.active is bool && request.resource.data.createdBy == request.auth.uid;
+      allow update: if activeStudyYearUpdate() && request.resource.data.createdBy == resource.data.createdBy && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if false;
+    }
+
+    match /timetables/{scheduleId} {
+      function validTimetableShape() {
+        return request.resource.data.id == scheduleId
+          && request.resource.data.version is int
+          && request.resource.data.version > 0
+          && request.resource.data.status in ["DRAFT", "VALID", "PUBLISHED"]
+          && request.resource.data.activeDraft is bool
+          && request.resource.data.createdBy is string
+          && request.resource.data.createdAt is string
+          && request.resource.data.updatedAt is string;
+      }
+      allow read: if superAdmin() || studyTenantResource()
+        || (publishedScheduleReader() && resource.data.schoolId == tenantSchoolId() && resource.data.status == "PUBLISHED" && resource.data.activePublished == true);
+      allow create: if activeStudyYearCreate()
+        && validTimetableShape()
+        && request.resource.data.status == "DRAFT"
+        && request.resource.data.activeDraft == true
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update: if activeStudyYearUpdate()
+        && validTimetableShape()
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.version == resource.data.version
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && ((resource.data.status == "DRAFT" && request.resource.data.status == "DRAFT"
+             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["activeDraft", "updatedAt"]))
+          || (resource.data.status == "DRAFT" && request.resource.data.status == "VALID"
+             && request.resource.data.activeDraft == false
+             && request.resource.data.validatedBy == request.auth.uid
+             && request.resource.data.validatedAt is string
+             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "activeDraft", "validatedBy", "validatedAt", "updatedAt"]))
+          || (resource.data.status == "VALID" && request.resource.data.status == "PUBLISHED"
+             && request.resource.data.activePublished == true
+             && request.resource.data.publishedBy == request.auth.uid
+             && request.resource.data.publishedAt is string
+             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "activePublished", "activeDraft", "publishedBy", "publishedAt", "updatedAt"]))
+          || (resource.data.status == "PUBLISHED" && request.resource.data.status == "PUBLISHED"
+             && resource.data.activePublished == true && request.resource.data.activePublished == false
+             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["activePublished", "updatedAt"])));
+      allow delete: if false;
+    }
+
+    match /timetableEntries/{entryId} {
+      function entryReferencesAreValid() {
+        return existsAfter(/databases/$(database)/documents/timetables/$(request.resource.data.scheduleId))
+          && getAfter(/databases/$(database)/documents/timetables/$(request.resource.data.scheduleId)).data.schoolId == request.resource.data.schoolId
+          && getAfter(/databases/$(database)/documents/timetables/$(request.resource.data.scheduleId)).data.schoolYearId == request.resource.data.schoolYearId
+          && getAfter(/databases/$(database)/documents/timetables/$(request.resource.data.scheduleId)).data.status == "DRAFT"
+          && exists(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId))
+          && get(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.schoolId == request.resource.data.schoolId
+          && get(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.schoolYearId == request.resource.data.schoolYearId
+          && get(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.teacherId == request.resource.data.teacherId
+          && get(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.classId == request.resource.data.classId
+          && get(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.subjectId == request.resource.data.subjectId
+          && exists(/databases/$(database)/documents/schedulePeriods/$(request.resource.data.periodId))
+          && get(/databases/$(database)/documents/schedulePeriods/$(request.resource.data.periodId)).data.type == "course"
+          && (request.resource.data.roomId == null
+            || (exists(/databases/$(database)/documents/rooms/$(request.resource.data.roomId))
+              && get(/databases/$(database)/documents/rooms/$(request.resource.data.roomId)).data.schoolId == request.resource.data.schoolId
+              && get(/databases/$(database)/documents/rooms/$(request.resource.data.roomId)).data.schoolYearId == request.resource.data.schoolYearId
+              && get(/databases/$(database)/documents/rooms/$(request.resource.data.roomId)).data.active == true));
+      }
+      allow read: if superAdmin() || studyTenantResource()
+        || (publishedScheduleReader() && resource.data.schoolId == tenantSchoolId()
+          && exists(/databases/$(database)/documents/timetables/$(resource.data.scheduleId))
+          && get(/databases/$(database)/documents/timetables/$(resource.data.scheduleId)).data.status == "PUBLISHED"
+          && get(/databases/$(database)/documents/timetables/$(resource.data.scheduleId)).data.activePublished == true);
+      allow create: if activeStudyYearCreate()
+        && request.resource.data.id == entryId
+        && request.resource.data.dayOfWeek in ["monday","tuesday","wednesday","thursday","friday","saturday"]
+        && request.resource.data.createdAt is string
+        && request.resource.data.updatedAt is string
+        && entryReferencesAreValid();
+      allow update: if activeStudyYearUpdate()
+        && resource.data.scheduleId == request.resource.data.scheduleId
+        && resource.data.createdAt == request.resource.data.createdAt
+        && get(/databases/$(database)/documents/timetables/$(resource.data.scheduleId)).data.status == "DRAFT"
+        && entryReferencesAreValid();
+      allow delete: if false;
+    }
+
+    match /rooms/{roomId} {
+      allow read: if superAdmin() || studyTenantResource()
+        || (publishedScheduleReader() && resource.data.schoolId == tenantSchoolId());
+      allow create: if activeStudyYearCreate()
+        && request.resource.data.id == roomId
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.active is bool
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt is string
+        && request.resource.data.updatedAt is string;
+      allow update: if activeStudyYearUpdate()
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["name", "active", "updatedAt"]);
+      allow delete: if false;
     }
 
     match /grades/{gradeId} {

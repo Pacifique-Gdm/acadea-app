@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import { BarChart3, BookOpen, CheckCircle2, Clock3, LogOut, Settings } from "lucide-react";
 import { DisciplineAttendanceDrawer } from "../../components/discipline/DisciplineAttendanceDrawer";
 import { AttendanceSettingsDrawer } from "../../components/discipline/AttendanceSettingsDrawer";
@@ -105,6 +105,7 @@ export function DisciplinePortal({
   createId,
   selectAttendanceSettingsForYear,
   maxValveDocumentBytes,
+  renderPublishedTimetable,
 }: {
   user: AppUser;
   data: AppData;
@@ -125,6 +126,7 @@ export function DisciplinePortal({
   createId: (prefix: string) => string;
   selectAttendanceSettingsForYear: (settings: AttendanceSettings[], schoolId: string, schoolYearId: string) => AttendanceSettings | undefined;
   maxValveDocumentBytes: number;
+  renderPublishedTimetable?: () => ReactNode;
 }) {
   const [activeDisciplineTab, setActiveDisciplineTab] = useState<DisciplineTab>("status");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -698,6 +700,7 @@ export function DisciplinePortal({
         )}
         {activeDisciplineTab === "menu" && (
           <section className="grid min-w-0 gap-3">
+            {renderPublishedTimetable?.()}
             {disciplineMenuSections.map((section) => {
               const Icon = section.icon;
               return (
