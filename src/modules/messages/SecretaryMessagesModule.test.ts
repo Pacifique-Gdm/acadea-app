@@ -5,6 +5,8 @@ describe("interface Message du Secrétaire", () => {
   const source = readFileSync(new URL("./MessagesModule.tsx", import.meta.url), "utf8");
   const selectorSource = readFileSync(new URL("./AdministrativeRecipientSelector.tsx", import.meta.url), "utf8");
   const appSource = readFileSync(new URL("../../App.tsx", import.meta.url), "utf8");
+  const realtimeFeedSource = readFileSync(new URL("../../hooks/useRealtimeMessageFeed.ts", import.meta.url), "utf8");
+  const drawerSource = readFileSync(new URL("../../components/messages/MessageDrawerContent.tsx", import.meta.url), "utf8");
 
   it("utilise le formulaire partagé sans bloc Messages récents", () => {
     expect(source).not.toContain('FormPanel title="Messages récents"');
@@ -48,5 +50,16 @@ describe("interface Message du Secrétaire", () => {
     expect(source).toContain("canAttachFiles = false");
     expect(source).toContain("{canAttachFiles && <>");
     expect(appSource.match(/canAttachFiles/g)).toHaveLength(1);
+  });
+
+  it("livre les messages sécurisés aux Parents par leur UID participant", () => {
+    expect(realtimeFeedSource).toContain('where("participantIds", "array-contains", user.id)');
+    expect(drawerSource).toContain("message.participantIds?.includes(user.id)");
+  });
+
+  it("efface les feedbacks d'envoi après quatre secondes et nettoie le timer", () => {
+    expect(source).toContain('window.setTimeout(() => setMessageFeedback(""), 4000)');
+    expect(source).toContain("return () => window.clearTimeout(timer)");
+    expect(source).not.toContain("persistentErrorMarkers");
   });
 });

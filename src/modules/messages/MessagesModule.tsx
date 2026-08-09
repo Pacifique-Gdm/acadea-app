@@ -171,12 +171,10 @@ export function MessagesModule({
     : resolvedAdministrativeIds;
 
   useEffect(() => {
-    if (!isDisciplineDirector || !messageFeedback) return undefined;
-    const persistentErrorMarkers = ["Impossible", "Échec", "Echec", "non envoyé", "permission", "connexion indisponible"];
-    if (persistentErrorMarkers.some((marker) => messageFeedback.includes(marker))) return undefined;
+    if (!messageFeedback) return undefined;
     const timer = window.setTimeout(() => setMessageFeedback(""), 4000);
     return () => window.clearTimeout(timer);
-  }, [isDisciplineDirector, messageFeedback]);
+  }, [messageFeedback]);
 
   function toggleDisciplineParent(parentId: string) {
     setSelectedDisciplineParentIds((current) =>

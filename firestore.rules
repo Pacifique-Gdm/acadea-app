@@ -579,7 +579,9 @@ service cloud.firestore {
           && request.auth.uid in resource.data.participantIds)
         || (disciplineTenantResource()
           && (resource.data.schoolRecipient == "discipline" || request.auth.uid in resource.data.participantIds))
-        || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.threadParentId == tenantParentId());
+        || (parentUser() && resource.data.schoolId == tenantSchoolId()
+          && (resource.data.threadParentId == tenantParentId()
+            || (resource.data.participantIds is list && request.auth.uid in resource.data.participantIds)));
       allow create: if !request.resource.data.keys().hasAny(["participantIds", "recipientIds", "attachments"])
         && ((signedIn()
           && role() in ["school_admin", "cashier"]
@@ -601,7 +603,9 @@ service cloud.firestore {
           && (resource.data.schoolRecipient == "discipline" || request.auth.uid in resource.data.participantIds))
         || (secretary() && sameTenantResource()
           && request.auth.uid in resource.data.participantIds)
-        || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.parentId == tenantParentId());
+        || (parentUser() && resource.data.schoolId == tenantSchoolId()
+          && (resource.data.parentId == tenantParentId()
+            || (resource.data.participantIds is list && request.auth.uid in resource.data.participantIds)));
       allow create: if !request.resource.data.keys().hasAny(["participantIds"])
         && ((schoolAdmin()
           && activeTenantYearCreate()
@@ -661,7 +665,9 @@ service cloud.firestore {
           && (resource.data.type != "message" || resource.data.recipientUserId == request.auth.uid))
         || (disciplineTenantResource() && resource.data.type == "message" && resource.data.recipientUserId == request.auth.uid)
         || (disciplineTenantResource() && resource.data.recipientRole == "school" && resource.data.schoolRecipient == "discipline")
-        || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.parentId == tenantParentId());
+        || (parentUser() && resource.data.schoolId == tenantSchoolId()
+          && (resource.data.parentId == tenantParentId()
+            || resource.data.recipientUserId == request.auth.uid));
       allow create: if !request.resource.data.keys().hasAny(["recipientUserId"])
         && signedIn()
         && ((role() in ["school_admin", "cashier", "secretary"] && activeTenantYearCreate())

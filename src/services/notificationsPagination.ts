@@ -63,8 +63,11 @@ export async function countUnreadNotifications(user: AppUser, schoolId: string, 
   ];
 
   if (user.role === "parent") {
-    const snapshot = await getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("parentId", "==", user.parentId)));
-    return snapshot.data().count;
+    const [legacySnapshot, personalSnapshot] = await Promise.all([
+      getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("parentId", "==", user.parentId))),
+      getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("recipientUserId", "==", user.id))),
+    ]);
+    return legacySnapshot.data().count + personalSnapshot.data().count;
   }
   if (user.role === "secretary") {
     const snapshot = await getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("recipientUserId", "==", user.id)));
@@ -73,18 +76,19 @@ export async function countUnreadNotifications(user: AppUser, schoolId: string, 
 
   const schoolRecipient = user.role === "cashier" ? "cashier" : user.role === "discipline_director" ? "discipline" : "admin";
   const visibleRecipients = user.role === "discipline_director" ? ["discipline"] : [schoolRecipient, "both"];
-  const [visibleSnapshot, allSchoolSnapshot, adminSnapshot, cashierSnapshot, disciplineSnapshot, bothSnapshot] = await Promise.all([
+  const [visibleSnapshot, allSchoolSnapshot, adminSnapshot, cashierSnapshot, disciplineSnapshot, bothSnapshot, personalSnapshot] = await Promise.all([
     getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("recipientRole", "==", "school"), where("schoolRecipient", "in", visibleRecipients))),
     getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("recipientRole", "==", "school"))),
     getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("schoolRecipient", "==", "admin"))),
     getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("schoolRecipient", "==", "cashier"))),
     getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("schoolRecipient", "==", "discipline"))),
     getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("schoolRecipient", "==", "both"))),
+    getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("recipientUserId", "==", user.id))),
   ]);
   const explicitSchoolUnread = adminSnapshot.data().count + cashierSnapshot.data().count + disciplineSnapshot.data().count + bothSnapshot.data().count;
   const legacySchoolUnread = Math.max(0, allSchoolSnapshot.data().count - explicitSchoolUnread);
-  if (user.role === "discipline_director") return visibleSnapshot.data().count;
-  return visibleSnapshot.data().count + legacySchoolUnread;
+  if (user.role === "discipline_director") return visibleSnapshot.data().count + personalSnapshot.data().count;
+  return visibleSnapshot.data().count + legacySchoolUnread + personalSnapshot.data().count;
 }
 
 function canMarkSchoolNotificationRead(user: AppUser, notification: AppNotification) {
@@ -121,8 +125,11 @@ export async function markNotificationsReadTargeted(user: AppUser, schoolId: str
   ];
 
   if (user.role === "parent") {
-    const snapshot = await getDocs(query(collection(database, "notifications"), ...baseConstraints, where("parentId", "==", user.parentId)));
-    const notificationIds = snapshot.docs.map((item) => item.id);
+    const [legacySnapshot, personalSnapshot] = await Promise.all([
+      getDocs(query(collection(database, "notifications"), ...baseConstraints, where("parentId", "==", user.parentId))),
+      getDocs(query(collection(database, "notifications"), ...baseConstraints, where("recipientUserId", "==", user.id))),
+    ]);
+    const notificationIds = [...new Set([...legacySnapshot.docs, ...personalSnapshot.docs].map((item) => item.id))];
     await commitReadUpdates(database, notificationIds);
     return notificationIds.length;
   }
@@ -138,10 +145,14 @@ export async function markNotificationsReadTargeted(user: AppUser, schoolId: str
     user.role === "discipline_director"
       ? query(collection(database, "notifications"), ...baseConstraints, where("recipientRole", "==", "school"), where("schoolRecipient", "==", "discipline"))
       : query(collection(database, "notifications"), ...baseConstraints, where("recipientRole", "==", "school"));
-  const snapshot = await getDocs(notificationQuery);
-  const notificationIds = snapshot.docs
-    .filter((item) => canMarkSchoolNotificationRead(user, { id: item.id, ...item.data() } as AppNotification))
-    .map((item) => item.id);
+  const personalQuery = query(collection(database, "notifications"), ...baseConstraints, where("recipientUserId", "==", user.id));
+  const [snapshot, personalSnapshot] = await Promise.all([getDocs(notificationQuery), getDocs(personalQuery)]);
+  const notificationIds = [...new Set([
+    ...snapshot.docs
+      .filter((item) => canMarkSchoolNotificationRead(user, { id: item.id, ...item.data() } as AppNotification))
+      .map((item) => item.id),
+    ...personalSnapshot.docs.map((item) => item.id),
+  ])];
   await commitReadUpdates(database, notificationIds);
   return notificationIds.length;
 }

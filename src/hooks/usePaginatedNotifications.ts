@@ -56,6 +56,7 @@ function realtimeNotificationQueries(
         ...readConstraint,
         ...recentConstraints,
       ),
+      query(notificationCollection, ...constraints, where("recipientUserId", "==", user.id), ...readConstraint, ...recentConstraints),
     ];
   }
 
@@ -87,7 +88,7 @@ function realtimeNotificationQueries(
   return [explicitQuery, legacyQuery, personalQuery];
 }
 
-function mergeRealtimeNotifications(user: AppUser, messages: Message[], snapshots: AppNotification[][]) {
+export function mergeRealtimeNotifications(user: AppUser, messages: Message[], snapshots: AppNotification[][]) {
   const merged = mergeById([], snapshots.flat());
   if (user.role === "parent" || user.role === "discipline_director") return merged;
   return merged.filter((notification) => canShowSchoolNotification(user, notification, messages));

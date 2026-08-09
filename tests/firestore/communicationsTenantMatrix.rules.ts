@@ -29,9 +29,13 @@ beforeEach(async () => {
   const shared = { schoolId: schoolA, schoolYearId: yearA };
   await seed("messages/message-a", { id: "message-a", ...shared, threadParentId: "parent-a", schoolRecipient: "admin" });
   await seed("messages/message-secretary", { id: "message-secretary", ...shared, senderId: "admin-a", recipientParentId: "school", participantIds: ["admin-a", "secretary-a"], recipientIds: ["secretary-a"], subject: "Objet", body: "Corps", createdAt: "2026-08-08T10:00:00.000Z" });
+  await seed("messages/message-secretary-parent", { id: "message-secretary-parent", ...shared, senderId: "secretary-a", recipientParentId: "school", participantIds: ["secretary-a", "parent-user-a"], recipientIds: ["parent-user-a"], subject: "Objet parent", body: "Corps", createdAt: "2026-08-08T11:00:00.000Z" });
   await seed("conversations/conversation-a", { id: "conversation-a", ...shared, parentId: "parent-a", threadId: "thread-a", threadParentId: "parent-a", schoolRecipient: "admin" });
   await seed("conversations/conversation-secretary", { id: "conversation-secretary", ...shared, parentId: "school", threadId: "thread-secretary", threadParentId: "school", participantIds: ["admin-a", "secretary-a"] });
+  await seed("conversations/conversation-secretary-parent", { id: "conversation-secretary-parent", ...shared, parentId: "school", threadId: "thread-secretary-parent", threadParentId: "school", participantIds: ["secretary-a", "parent-user-a"] });
   await seed("notifications/notification-a", { id: "notification-a", ...shared, parentId: "parent-a", recipientRole: "school", schoolRecipient: "admin" });
+  await seed("notifications/notification-admin-personal", { id: "notification-admin-personal", ...shared, recipientUserId: "admin-a", type: "message", read: false });
+  await seed("notifications/notification-parent-personal", { id: "notification-parent-personal", ...shared, recipientUserId: "parent-user-a", type: "message", read: false });
   await seed("disciplineSanctions/sanction-a", { id: "sanction-a", ...shared, status: "active" });
   await seed("attendance/attendance-a", { id: "attendance-a", ...shared, studentId: "student-a", status: "present" });
   await seed("messages/messages-b", { id: "messages-b", schoolId: schoolB, schoolYearId: yearB, threadParentId: "parent-b", schoolRecipient: "admin" });
@@ -69,7 +73,7 @@ describe("SEC-015 — communications, notifications et discipline", () => {
     await assertSucceeds(getDoc(doc(secretary, "messages", "message-secretary")));
     await assertSucceeds(getDoc(doc(secretary, "conversations", "conversation-secretary")));
     const list = await assertSucceeds(getDocs(query(collection(secretary, "messages"), where("schoolId", "==", schoolA), where("schoolYearId", "==", yearA), where("participantIds", "array-contains", "secretary-a"))));
-    expect(list.docs.map((item) => item.id)).toEqual(["message-secretary"]);
+    expect(list.docs.map((item) => item.id).sort()).toEqual(["message-secretary", "message-secretary-parent"]);
     await assertFails(getDoc(doc(auth("secretary-b", "secretary"), "messages", "message-secretary")));
     await assertFails(getDoc(doc(auth("secretary-other-school", "secretary", schoolB), "messages", "message-secretary")));
   });
@@ -85,10 +89,24 @@ describe("SEC-015 — communications, notifications et discipline", () => {
     await assertSucceeds(getDoc(doc(parent, "messages", "message-a")));
     await assertSucceeds(getDoc(doc(parent, "conversations", "conversation-a")));
     await assertSucceeds(getDoc(doc(parent, "notifications", "notification-a")));
+    await assertSucceeds(getDoc(doc(parent, "messages", "message-secretary-parent")));
+    await assertSucceeds(getDoc(doc(parent, "conversations", "conversation-secretary-parent")));
+    await assertSucceeds(getDoc(doc(parent, "notifications", "notification-parent-personal")));
     const otherParent = auth("parent-user-x", "parent", schoolA, { parentId: "parent-x" });
     await assertFails(getDoc(doc(otherParent, "messages", "message-a")));
     await assertFails(getDoc(doc(otherParent, "conversations", "conversation-a")));
     await assertFails(getDoc(doc(otherParent, "notifications", "notification-a")));
+    await assertFails(getDoc(doc(otherParent, "messages", "message-secretary-parent")));
+    await assertFails(getDoc(doc(otherParent, "conversations", "conversation-secretary-parent")));
+    await assertFails(getDoc(doc(otherParent, "notifications", "notification-parent-personal")));
+  });
+
+  it("isole la lecture des notifications personnelles par destinataire", async () => {
+    const admin = auth("admin-a", "school_admin");
+    const cashier = auth("cashier-a", "cashier");
+    await assertSucceeds(getDoc(doc(admin, "notifications", "notification-admin-personal")));
+    await assertSucceeds(updateDoc(doc(admin, "notifications", "notification-admin-personal"), { read: true }));
+    await assertFails(getDoc(doc(cashier, "notifications", "notification-admin-personal")));
   });
 
   it("refuse les écritures discipline dans l'année d'une autre école", async () => {

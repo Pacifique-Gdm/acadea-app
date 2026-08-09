@@ -36,6 +36,7 @@ function messageFeedQueries(database: Firestore, user: AppUser, schoolId: string
         where("threadParentId", "==", user.parentId),
         ...recentConstraints,
       ),
+      query(messagesCollection, ...constraints, where("participantIds", "array-contains", user.id), ...recentConstraints),
     ];
   }
 
