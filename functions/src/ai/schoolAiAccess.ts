@@ -17,3 +17,15 @@ export function assertSecretaryAiProfile(profile: Record<string, unknown> | unde
     throw new HttpsError("permission-denied", "Profil Secrétaire actif requis.");
   }
 }
+
+export function assertStudyDirectorAiIdentity(auth: SecretaryAuth, requestedSchoolId: unknown) {
+  if (!auth) throw new HttpsError("unauthenticated", "Authentification requise.");
+  if (auth.token.role !== "study_director") throw new HttpsError("permission-denied", "Action réservée à la Direction des études.");
+  const tokenSchoolId = auth.token.schoolId;
+  if (typeof tokenSchoolId !== "string" || typeof requestedSchoolId !== "string" || tokenSchoolId !== requestedSchoolId) throw new HttpsError("permission-denied", "Périmètre établissement non autorisé.");
+  return { auth, schoolId: tokenSchoolId };
+}
+
+export function assertStudyDirectorAiProfile(profile: Record<string, unknown> | undefined, uid: string, schoolId: string) {
+  if (!profile || profile.id !== uid || profile.role !== "study_director" || profile.schoolId !== schoolId || profile.status !== "active") throw new HttpsError("permission-denied", "Profil Directeur des études actif requis.");
+}
