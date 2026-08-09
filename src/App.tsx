@@ -39,7 +39,6 @@ import { useRealtimeSchoolRecords } from "./hooks/useRealtimeSchoolRecords";
 import { markNotificationsReadTargeted } from "./services/notificationsPagination";
 import { restorePaymentPushNotifications, stopPaymentPushForegroundListener } from "./services/pushNotifications";
 import { canUseFirestoreData, loadDisciplineYearData, loadFirestoreBootstrapData, loadFirestoreData, loadFirestoreYearData, loadParentPortalData, loadPlatformSettings, persistFirestorePatch } from "./services/firestoreData";
-import { markConversationUnreadCountRead } from "./services/conversations";
 import { loadSuperAdminInitialData } from "./services/superAdminData";
 import type { SuperAdminGlobalCounts } from "./services/superAdminData";
 import { isSessionAuditAction } from "./utils/audit";
@@ -770,11 +769,6 @@ export default function App() {
     void markNotificationsReadTargeted(user, currentSchool.id, currentYear.id, notificationId).catch((error) => {
       console.warn("Marquage ciblé des notifications impossible.", error);
     });
-    if (user) {
-      void markConversationUnreadCountRead(user, currentSchool.id, currentYear.id).catch((error) => {
-        console.warn("Remise à zéro des compteurs de conversation impossible.", error);
-      });
-    }
   }
 
   function openNotifications() {

@@ -62,4 +62,9 @@ describe("interface Message du Secrétaire", () => {
     expect(source).toContain("return () => window.clearTimeout(timer)");
     expect(source).not.toContain("persistentErrorMarkers");
   });
+
+  it("utilise les notifications personnelles comme source du badge sans ecriture conversation obsolette", () => {
+    expect(appSource).toContain("markNotificationsReadTargeted");
+    expect(appSource).not.toContain("markConversationUnreadCountRead");
+  });
 });
