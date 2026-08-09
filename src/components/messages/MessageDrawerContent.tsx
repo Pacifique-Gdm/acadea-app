@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import type { AppData, AppNotification, AppUser, AuditLog, Message, ParentProfile, School, Student } from "../../types";
 import { administrativeSenderDetails } from "../../utils/administrativeSender";
+import { MessageAttachments } from "./MessageAttachments";
 
 type MessageDrawerYearData = {
   auditLogs: AuditLog[];
@@ -253,6 +254,7 @@ export function MessageDrawerContent({
           {senderIsParent || parentDisciplineMessage ? `Objet : ${messageSubject}` : messageSubject}
         </p>
         <p className={`mt-1 whitespace-pre-wrap break-words text-sm leading-6 ${senderIsParent ? "text-slate-100" : "text-slate-600"}`}>{message.body}</p>
+        <MessageAttachments message={message} inverse={senderIsParent} />
         <p className={`mt-2 text-xs ${senderIsParent ? "text-slate-300" : "text-slate-500"}`}>{formatFeedDate(message.createdAt)}</p>
       </article>
     );

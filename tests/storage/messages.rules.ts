@@ -39,6 +39,10 @@ describe("pièces jointes de messagerie", () => {
     await assertFails(upload("document.pdf", "application/pdf"));
   });
   it("refuse un rôle non autorisé", async () => { await assertFails(upload(`${fileId}.pdf`, "application/pdf", 1024, {}, senderId, "parent")); });
+  it("réserve aussi l'upload temporaire au Secrétaire parmi les rôles administratifs", async () => {
+    await assertFails(upload(`${fileId}.pdf`, "application/pdf", 1024, {}, senderId, "school_admin"));
+    await assertFails(upload(`${fileId}.pdf`, "application/pdf", 1024, {}, senderId, "cashier"));
+  });
   it("refuse un upload non authentifié", async () => {
     const metadata = { contentType: "application/pdf", customMetadata: { schoolId, schoolYearId: yearId, senderId, draftId, originalName: "document.pdf" } };
     await assertFails(environment.unauthenticatedContext().storage().ref(`message-uploads/${schoolId}/${senderId}/${draftId}/${fileId}.pdf`).put(new Uint8Array(10), metadata));
@@ -52,5 +56,19 @@ describe("pièces jointes de messagerie", () => {
     await assertFails(context("secretary-b").storage().ref(reference.fullPath).delete());
     await assertFails(context(senderId, "secretary", "school-b").storage().ref(reference.fullPath).delete());
     await assertSucceeds(reference.delete());
+  });
+
+  it("autorise la lecture finale aux participants du message uniquement", async () => {
+    const conversationId = "conversation-a";
+    const messageId = "message-a";
+    const finalPath = `messages/${schoolId}/${conversationId}/${messageId}/${fileId}.pdf`;
+    await environment.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), "messages", messageId), { schoolId, conversationId, participantIds: [senderId, "admin-a"] });
+      await admin.storage().ref(finalPath).put(new Uint8Array(10), { contentType: "application/pdf" });
+    });
+    await assertSucceeds(context(senderId).storage().ref(finalPath).getDownloadURL());
+    await assertSucceeds(context("admin-a", "school_admin").storage().ref(finalPath).getDownloadURL());
+    await assertFails(context("secretary-b").storage().ref(finalPath).getDownloadURL());
+    await assertFails(context(senderId, "secretary", "school-b").storage().ref(finalPath).getDownloadURL());
   });
 });

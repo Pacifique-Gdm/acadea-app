@@ -36,6 +36,12 @@ export function normalizedRole(value) {
   return normalizedMessagingRole(value);
 }
 
+export function assertAttachmentSenderRole(caller, attachments) {
+  if (attachments.length > 0 && normalizedRole(caller.role) !== "secretary") {
+    throw httpError(403, "attachments-forbidden", "Seul le Secrétaire peut joindre des fichiers aux messages.");
+  }
+}
+
 function httpError(statusCode, code, message) {
   return Object.assign(new Error(message), { statusCode, code });
 }
@@ -160,6 +166,7 @@ export default async function handler(req, res) {
     const messageId = stableId("msg", caller.uid, idempotencyKey);
     const conversationId = stableId("conv", caller.uid, idempotencyKey);
     const inputAttachments = Array.isArray(body.attachments) ? body.attachments : [];
+    assertAttachmentSenderRole(caller, inputAttachments);
     temporaryPaths = inputAttachments.map((item) => text(item?.path, 500)).filter(Boolean);
     const existingMessage = await db.doc(`messages/${messageId}`).get();
     if (existingMessage.exists) {

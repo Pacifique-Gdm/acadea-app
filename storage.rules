@@ -18,10 +18,6 @@ service firebase.storage {
       return role() in ["school_admin", "admin", "secretary"];
     }
 
-    function messagingRole() {
-      return role() in ["school_admin", "admin", "cashier", "discipline_director", "secretary"];
-    }
-
     function validMessageObject(fileName, schoolId, schoolYearId) {
       return request.resource.size > 0
         && request.resource.size <= 10 * 1024 * 1024
@@ -103,7 +99,7 @@ service firebase.storage {
     match /message-uploads/{schoolId}/{senderId}/{draftId}/{fileName} {
       allow read: if false;
       allow create: if signedIn()
-        && messagingRole()
+        && role() == "secretary"
         && request.auth.uid == senderId
         && tenantSchoolId() == schoolId
         && schoolAcceptsWrites(schoolId)
