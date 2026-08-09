@@ -34,6 +34,17 @@ export function medicalRecordSaveErrorMessage(error: unknown) {
   return error instanceof Error && error.message ? error.message : "Impossible d'enregistrer la fiche médicale.";
 }
 
+export function medicalRecordReadErrorMessage(error: unknown) {
+  const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+  if (code === "permission-denied" || code === "firestore/permission-denied") {
+    return "Impossible de charger les fiches médicales.";
+  }
+  if (code === "unavailable" || code === "firestore/unavailable") {
+    return "Les fiches médicales sont temporairement indisponibles. Réessayez.";
+  }
+  return "Impossible de charger les fiches médicales.";
+}
+
 function timestampToIso(value: unknown) {
   if (typeof value === "string") return value;
   if (value && typeof value === "object" && "toDate" in value && typeof value.toDate === "function") return value.toDate().toISOString();
@@ -89,15 +100,15 @@ export function subscribeToParentMedicalRecords(params: {
     error: (error: Error) => void,
   ) => () => void;
   const unsubscribes = childIds.map((studentId) => subscribeToDocument(doc(db, "studentMedicalRecords", studentId), (snapshot) => {
-    if (!snapshot.exists()) records.delete(studentId);
-    else {
-      const data = snapshot.data();
-      if (data.schoolId === params.schoolId && data.schoolYearId === params.schoolYearId && data.studentId === studentId) {
-        records.set(studentId, { id: snapshot.id, ...data, createdAt: timestampToIso(data.createdAt), updatedAt: timestampToIso(data.updatedAt) } as StudentMedicalRecord);
+      if (!snapshot.exists()) records.delete(studentId);
+      else {
+        const data = snapshot.data();
+        if (data.schoolId === params.schoolId && data.schoolYearId === params.schoolYearId && data.studentId === studentId) {
+          records.set(studentId, { id: snapshot.id, ...data, createdAt: timestampToIso(data.createdAt), updatedAt: timestampToIso(data.updatedAt) } as StudentMedicalRecord);
+        }
       }
-    }
-    emit();
-  }, (error) => params.onError(error)));
+      emit();
+    }, (error) => params.onError(error)));
   return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
 }
 

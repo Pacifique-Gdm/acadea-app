@@ -10,7 +10,7 @@ import { markNotificationsReadTargeted } from "../../services/notificationsPagin
 import { fetchParentMessageQuota, sendParentMessageWithQuota } from "../../services/parentMessaging";
 import type { ParentMessageQuota } from "../../services/parentMessaging";
 import { loadSchoolMessageRecipients, type SchoolMessageRecipient } from "../../services/schoolMessaging";
-import { subscribeToParentMedicalRecords } from "../../services/studentMedicalRecords";
+import { medicalRecordReadErrorMessage, subscribeToParentMedicalRecords } from "../../services/studentMedicalRecords";
 import { buildSchoolYearDataIndexes } from "../../utils/dataIndexes";
 import { resolvePaymentCashierName } from "../../utils/finance";
 import { nextMessageThreadId } from "../../utils/messageThreads";
@@ -21,6 +21,8 @@ import { formatStudentClassName } from "../../utils/studentClasses";
 import type { AppData, AppNotification, AppUser, AuditLog, FeeType, Message, ParentProfile, Payment, School, SchoolYear, Student, ValvePublication } from "../../types";
 import { formatMedicalRecordValue, medicalRecordSections } from "../secretary/medicalRecordFields";
 import type { StudentMedicalRecord } from "../secretary/secretaryTypes";
+import { AdministrativeRecipientSelector } from "../messages/AdministrativeRecipientSelector";
+import { resolveAdministrativeRecipientIds, type AdministrativeRecipientMode } from "../messages/administrativeRecipientSelection";
 
 type ParentTab = "children" | "messages" | "menu";
 
@@ -81,6 +83,8 @@ export function ParentPortal({
   const [parentValvesOpen, setParentValvesOpen] = useState(false);
   const [parentMessageDrawerOpen, setParentMessageDrawerOpen] = useState(false);
   const [messageRecipientIds, setMessageRecipientIds] = useState<string[]>([]);
+  const [messageRecipientMode, setMessageRecipientMode] = useState<AdministrativeRecipientMode>("all");
+  const [messageRecipientSearch, setMessageRecipientSearch] = useState("");
   const [messageRecipients, setMessageRecipients] = useState<SchoolMessageRecipient[]>([]);
   const [messageRecipientsLoading, setMessageRecipientsLoading] = useState(false);
   const [messageRecipientsError, setMessageRecipientsError] = useState("");
@@ -96,11 +100,12 @@ export function ParentPortal({
   const [parentMedicalError, setParentMedicalError] = useState("");
   const parent = yearData.parents.find((item) => item.id === user.parentId);
   const unread = yearData.notifications.filter((notification) => !notification.read).length;
-  const isParentMessageFormComplete = messageRecipientIds.length > 0 && messageSubject.trim().length > 0 && messageBody.trim().length > 0;
+  const resolvedMessageRecipientIds = resolveAdministrativeRecipientIds(messageRecipientMode, messageRecipients, messageRecipientIds);
+  const isParentMessageFormComplete = resolvedMessageRecipientIds.length > 0 && messageSubject.trim().length > 0 && messageBody.trim().length > 0;
   const parentMessageQuotaReached = parentMessageQuota ? parentMessageQuota.messageCount >= parentMessageQuota.limit : false;
   const parentIndexes = useMemo(() => buildSchoolYearDataIndexes(yearData.students, yearData.feeTypes, yearData.payments), [yearData.students, yearData.feeTypes, yearData.payments]);
   const selectedParentChild = yearData.students.find((student) => student.id === selectedParentChildId);
-  const selectedMessageRecipients = messageRecipients.filter((recipient) => messageRecipientIds.includes(recipient.uid));
+  const selectedMessageRecipients = messageRecipients.filter((recipient) => resolvedMessageRecipientIds.includes(recipient.uid));
 
   function progressBarTone(percent: number) {
     if (percent >= 100) return "bg-mint";
@@ -171,7 +176,7 @@ export function ParentPortal({
     return subscribeToParentMedicalRecords({
       user, schoolId: school.id, schoolYearId: year.id, students: yearData.students,
       onData: setParentMedicalRecords,
-      onError: (error) => setParentMedicalError(error.message || "Fiches médicales indisponibles."),
+      onError: (error) => setParentMedicalError(medicalRecordReadErrorMessage(error)),
     });
   }, [parentMedicalOpen, school.id, user, year.id, yearData.students]);
 
@@ -230,7 +235,7 @@ export function ParentPortal({
     const subject = messageSubject.trim();
     const body = messageBody.trim();
 
-    if (!user.parentId || !messageRecipientIds.length) {
+    if (!user.parentId || !resolvedMessageRecipientIds.length) {
       setMessageFeedback("Veuillez renseigner le destinataire, l'objet et le message.");
       return;
     }
@@ -261,8 +266,8 @@ export function ParentPortal({
       senderId: user.id,
       recipientParentId: "school",
       schoolRecipient,
-      recipientIds: messageRecipientIds,
-      participantIds: [user.id, ...messageRecipientIds],
+      recipientIds: resolvedMessageRecipientIds,
+      participantIds: [user.id, ...resolvedMessageRecipientIds],
       threadParentId: user.parentId,
       threadId,
       subject: `${recipientLabel} - ${subject}`,
@@ -292,7 +297,7 @@ export function ParentPortal({
       try {
         const result = await sendParentMessageWithQuota({
           schoolYearId: year.id,
-          recipientIds: messageRecipientIds,
+          recipientIds: resolvedMessageRecipientIds,
           subject,
           body,
         });
@@ -384,9 +389,9 @@ export function ParentPortal({
               if (selectedParentChild) {
                 return (
                   <article key={student.id} className="min-w-0 rounded border border-slate-200 bg-white p-4">
-                    <div className="mb-4 flex min-w-0 items-center justify-between gap-3">
-                      <div className="min-w-0"><h2 className="text-lg font-bold text-ink">Historique des paiements</h2><p className="break-words text-sm text-slate-500">{student.nom} {student.postnom} {student.prenom}</p></div>
+                    <div className="mb-4 flex min-w-0 items-center gap-3">
                       <button onClick={() => setSelectedParentChildId(null)} className="secondary-button h-10 w-10 shrink-0 px-0" type="button" aria-label="Retour aux enfants" title="Retour aux enfants"><ArrowLeft className="h-4 w-4" /></button>
+                      <div className="min-w-0"><h2 className="text-lg font-bold text-ink">Historique des paiements</h2><p className="break-words text-sm text-slate-500">{student.nom} {student.postnom} {student.prenom}</p></div>
                     </div>
                     <div className="max-h-[60vh] space-y-2 overflow-y-auto pr-1 scrollbar-thin">
                       {payments.length === 0 && <p className="text-sm text-slate-500">Aucun paiement enregistré.</p>}
@@ -484,12 +489,7 @@ export function ParentPortal({
             <FormPanel title="Message">
               <form onSubmit={sendParentMessage} className="grid min-w-0 gap-4">
                 <fieldset className="grid min-w-0 gap-2"><legend className="text-sm font-semibold text-slate-700">Destinataires</legend>
-                  <div className="grid max-h-60 gap-2 overflow-y-auto sm:grid-cols-2">
-                    {messageRecipients.map((recipient) => <label key={recipient.uid} className="flex min-h-11 cursor-pointer items-center gap-3 rounded border border-slate-200 px-3 py-2 transition hover:bg-slate-50"><input type="checkbox" checked={messageRecipientIds.includes(recipient.uid)} onChange={() => setMessageRecipientIds((current) => current.includes(recipient.uid) ? current.filter((id) => id !== recipient.uid) : [...current, recipient.uid])} /><span className="min-w-0"><strong className="block break-words text-sm text-slate-800">{recipient.name}</strong><span className="text-xs text-slate-500">{recipient.role === "school_admin" ? "Administrateur" : recipient.role === "cashier" ? "Caissier" : recipient.role === "secretary" ? "Secrétaire" : "Directeur de Discipline"}</span></span></label>)}
-                  </div>
-                  {messageRecipientsLoading && <p className="text-sm text-slate-500">Chargement des destinataires…</p>}
-                  {!messageRecipientsLoading && !messageRecipients.length && !messageRecipientsError && <p className="text-sm text-slate-500">Aucun destinataire autorisé disponible.</p>}
-                  {messageRecipientsError && <p role="alert" className="rounded bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{messageRecipientsError}</p>}
+                  <AdministrativeRecipientSelector mode={messageRecipientMode} onModeChange={setMessageRecipientMode} search={messageRecipientSearch} onSearchChange={setMessageRecipientSearch} recipients={messageRecipients} selectedIds={messageRecipientIds} onSelectedIdsChange={setMessageRecipientIds} isLoading={messageRecipientsLoading} error={messageRecipientsError} />
                 </fieldset>
                 <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
                   Objet

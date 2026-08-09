@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canManageStudentMedicalRecords, canReadOwnChildrenMedicalRecords, cleanMedicalRecordInput, getMedicalRecordStatus, medicalRecordSaveErrorMessage } from "./studentMedicalRecords";
+import { canManageStudentMedicalRecords, canReadOwnChildrenMedicalRecords, cleanMedicalRecordInput, getMedicalRecordStatus, medicalRecordReadErrorMessage, medicalRecordSaveErrorMessage } from "./studentMedicalRecords";
 import type { AppUser } from "../types";
 import type { StudentMedicalRecord } from "../modules/secretary/secretaryTypes";
 
@@ -12,6 +12,10 @@ describe("fiches médicales du Secrétaire", () => {
     expect(getMedicalRecordStatus()).toBe("missing");
     expect(getMedicalRecordStatus({ ...record, bloodGroup: "" })).toBe("incomplete");
     expect(getMedicalRecordStatus(record)).toBe("complete");
+  });
+
+  it("ne révèle pas le message Firestore brut lors d'un refus de lecture", () => {
+    expect(medicalRecordReadErrorMessage({ code: "permission-denied", message: "Missing or insufficient permissions." })).toBe("Impossible de charger les fiches médicales.");
   });
 
   it("autorise uniquement Administrateur et Secrétaire actifs de la même école", () => {

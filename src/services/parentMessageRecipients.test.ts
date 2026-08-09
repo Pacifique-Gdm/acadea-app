@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 // @ts-expect-error The Vercel helper is intentionally implemented in JavaScript.
 import { listAllowedMessageRecipients } from "../../api/_lib/messageRecipients.js";
 // @ts-expect-error The Vercel endpoint is intentionally implemented in JavaScript.
@@ -48,5 +49,14 @@ describe("destinataires dynamiques du Parent", () => {
     await expect(resolveParentMessageRecipients(db, { schoolId: "school-a" }, ["external"])).rejects.toMatchObject({ code: "invalid-recipient" });
     await expect(resolveParentMessageRecipients(db, { schoolId: "school-a" }, ["inactive"])).rejects.toMatchObject({ code: "invalid-recipient" });
     await expect(resolveParentMessageRecipients(db, { schoolId: "school-a" }, ["parent"])).rejects.toMatchObject({ code: "invalid-recipient" });
+  });
+
+  it("compte une seule unite de quota quel que soit le nombre de destinataires", () => {
+    const source = readFileSync(new URL("../../api/send-parent-message.js", import.meta.url), "utf8");
+    expect(source).toContain("const recipients = await resolveParentMessageRecipients(db, caller, recipientIds)");
+    expect(source).toContain("messageCount: existingCount + 1");
+    expect(source.match(/messageCount: existingCount \+ 1/g)).toHaveLength(2);
+    expect(source).not.toMatch(/existingCount\s*\+\s*recipients\.length/);
+    expect(source).toContain("notifications = recipients.map");
   });
 });

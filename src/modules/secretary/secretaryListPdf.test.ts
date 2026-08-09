@@ -21,7 +21,7 @@ describe("exports PDF filtrés du Secrétaire", () => {
     const pdfSource = readFileSync(new URL("../../utils/pdf.ts", import.meta.url), "utf8");
     expect(pdfSource).toContain(".document-title--center h2");
     expect(pdfSource).toContain("word-spacing: 0.12em !important");
-    expect(pdfSource).toContain("letter-spacing: 0.01px !important");
+    expect(pdfSource).toContain("letter-spacing: normal !important");
     expect(pdfSource).toContain("white-space: nowrap");
     expect(pdfSource).toContain("overflow-wrap: normal");
   });

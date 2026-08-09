@@ -111,13 +111,18 @@ service cloud.firestore {
         : resource.data.schoolId == tenantSchoolId();
     }
 
-    function parentMedicalRecordRead(studentId) {
+    function parentLinkedMedicalRecordStudent(studentId) {
       return parentUser()
         && medicalRecordStudentInTenant(studentId)
-        && get(/databases/$(database)/documents/students/$(studentId)).data.parentId == tenantParentId()
-        && resource.data.schoolId == tenantSchoolId()
-        && resource.data.studentId == studentId
-        && resource.data.schoolYearId == get(/databases/$(database)/documents/students/$(studentId)).data.schoolYearId;
+        && get(/databases/$(database)/documents/students/$(studentId)).data.parentId == tenantParentId();
+    }
+
+    function parentMedicalRecordRead(studentId) {
+      return parentLinkedMedicalRecordStudent(studentId)
+        && (resource == null
+          || (resource.data.schoolId == tenantSchoolId()
+            && resource.data.studentId == studentId
+            && resource.data.schoolYearId == get(/databases/$(database)/documents/students/$(studentId)).data.schoolYearId));
     }
 
     function secretaryStudentCreate() {

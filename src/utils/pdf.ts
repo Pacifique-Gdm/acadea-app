@@ -2,22 +2,7 @@ import jsPDF from "jspdf";
 import type { FeeType, Payment, School, SchoolYear, Student } from "../types";
 import { getPdfLayout, resolvePdfFont, type PdfGenerationSettings } from "./pdfSettings";
 
-type PdfDoc = jsPDF & {
-  html: (
-    source: HTMLElement,
-    options: {
-      callback: (doc: PdfDoc) => void;
-      margin: [number, number, number, number];
-      autoPaging: "text" | "slice";
-      width: number;
-      windowWidth: number;
-      html2canvas?: { scale?: number; useCORS?: boolean; backgroundColor?: string };
-    },
-  ) => void;
-  output: (type: "bloburl" | "blob") => URL | string | Blob;
-  getNumberOfPages: () => number;
-  setPage: (pageNumber: number) => void;
-};
+type PdfDoc = InstanceType<typeof jsPDF>;
 
 export type PdfTableColumn<T> = {
   header: string;
@@ -159,7 +144,7 @@ export function pdfSection(title: string, bodyHtml: string, options: { pageBreak
 
 export async function renderAcadPdfPreview({ filename, title, school, year, subtitle, generatedAt = new Date(), showDocumentTitle = true, centerDocumentTitle = false, pdfSettings, sections, copyLabels }: AcadPdfOptions) {
   const layout = getPdfLayout(pdfSettings);
-  const doc = new jsPDF({ unit: "mm", format: layout.jsPdfFormat, orientation: "portrait", compress: true }) as PdfDoc;
+  const doc = new jsPDF({ unit: "mm", format: layout.jsPdfFormat, orientation: "portrait", compress: true });
   const viewer = openPdfViewerShell({ filename, title });
   const logoDataUrl = await loadLogoDataUrl(school.logoUrl);
   const element = document.createElement("div");
@@ -178,35 +163,58 @@ export async function renderAcadPdfPreview({ filename, title, school, year, subt
   element.style.zIndex = "-1";
   element.style.pointerEvents = "none";
   document.body.appendChild(element);
+  await waitForPdfFonts(element);
   applyPdfPageBreakSpacers(element, layout.contentHeight, layout.windowWidth / layout.contentWidth);
 
-  await new Promise<void>((resolve) => {
-    try {
-      doc.html(element, {
-        margin: [layout.margins.top, layout.margins.right, layout.margins.bottom, layout.margins.left],
-        autoPaging: "text",
-        width: layout.contentWidth,
-        windowWidth: layout.windowWidth,
-        html2canvas: {
-          useCORS: true,
-          backgroundColor: "#ffffff",
-        },
-        callback: (pdf) => {
-          if (!copyLabels) addPdfFooters(pdf, generatedAt);
-          const blob = pdf.output("blob") as Blob;
-          const url = URL.createObjectURL(blob);
-          showPdfInViewer({ viewer, url, filename, title });
-          element.remove();
-          resolve();
-        },
-      });
-    } catch (error) {
-      console.error("Erreur de génération PDF Acadéa", error);
-      showPdfError(viewer, "La génération du PDF a échoué.");
-      element.remove();
-      resolve();
-    }
+  try {
+    await renderPdfCanvasPages(doc, element, layout);
+    if (!copyLabels) addPdfFooters(doc, generatedAt);
+    const blob = doc.output("blob") as Blob;
+    const url = URL.createObjectURL(blob);
+    showPdfInViewer({ viewer, url, filename, title });
+  } catch (error) {
+    console.error("Erreur de génération PDF Acadéa", error);
+    showPdfError(viewer, "La génération du PDF a échoué.");
+  } finally {
+    element.remove();
+  }
+}
+
+async function waitForPdfFonts(element: HTMLElement) {
+  if (!document.fonts) return;
+  await document.fonts.ready;
+  const computedStyle = getComputedStyle(element);
+  await document.fonts.load(`${computedStyle.fontSize} ${computedStyle.fontFamily}`);
+}
+
+async function renderPdfCanvasPages(doc: PdfDoc, element: HTMLElement, layout: ReturnType<typeof getPdfLayout>) {
+  const { default: html2canvas } = await import("html2canvas");
+  const renderScale = 2;
+  const source = await html2canvas(element, {
+    scale: renderScale,
+    useCORS: true,
+    backgroundColor: "#ffffff",
+    logging: false,
+    windowWidth: layout.windowWidth,
   });
+  const pageHeightPx = Math.round(layout.contentHeight * (layout.windowWidth / layout.contentWidth) * renderScale);
+  const pageCount = Math.max(1, Math.ceil(source.height / pageHeightPx));
+
+  for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+    if (pageIndex > 0) doc.addPage();
+    const sourceY = pageIndex * pageHeightPx;
+    const sliceHeight = Math.min(pageHeightPx, source.height - sourceY);
+    const pageCanvas = document.createElement("canvas");
+    pageCanvas.width = source.width;
+    pageCanvas.height = sliceHeight;
+    const context = pageCanvas.getContext("2d");
+    if (!context) throw new Error("Canvas PDF indisponible.");
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+    context.drawImage(source, 0, sourceY, source.width, sliceHeight, 0, 0, source.width, sliceHeight);
+    const renderedHeightMm = sliceHeight / pageHeightPx * layout.contentHeight;
+    doc.addImage(pageCanvas.toDataURL("image/png"), "PNG", layout.margins.left, layout.margins.top, layout.contentWidth, renderedHeightMm, undefined, "FAST");
+  }
 }
 
 function applyPdfPageBreakSpacers(element: HTMLElement, contentHeightMm: number, pixelsPerMillimeter: number) {
@@ -357,7 +365,7 @@ function twoCopyPdfStyles(renderHeight: number) {
       color: #2a9d8f;
       font-size: 7.5px;
       font-weight: 800;
-      letter-spacing: 0.01px;
+      letter-spacing: normal;
       word-spacing: 0.12em;
       white-space: nowrap;
       word-break: normal;
@@ -440,7 +448,7 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       font-family: ${fontFamily};
       font-size: ${pdfSettings.fontSize}pt;
       line-height: ${pdfSettings.lineSpacing};
-      letter-spacing: 0.01px;
+      letter-spacing: normal;
       word-spacing: 0.12em;
       text-rendering: geometricPrecision;
       font-kerning: normal;
@@ -448,7 +456,7 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
     }
     .acadea-pdf * {
       box-sizing: border-box;
-      letter-spacing: 0.01px !important;
+      letter-spacing: normal !important;
       word-spacing: 0.12em !important;
       white-space: normal;
       word-break: normal;
@@ -521,7 +529,7 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       color: #2a9d8f;
       font-size: 8.5px;
       font-weight: 800;
-      letter-spacing: 0.04em;
+      letter-spacing: normal;
       word-spacing: normal;
       text-transform: uppercase;
     }
@@ -546,7 +554,7 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
     .document-title--center { text-align: center; }
     .document-title--center h2 {
       font-weight: 800;
-      letter-spacing: 0.01em;
+      letter-spacing: normal;
       word-spacing: normal;
       white-space: nowrap;
       overflow-wrap: normal;
@@ -570,7 +578,7 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       line-height: 1.35;
       page-break-after: avoid;
       break-after: avoid-page;
-      letter-spacing: 0.01em;
+      letter-spacing: normal;
       word-spacing: normal;
       overflow-wrap: normal;
     }

@@ -36,12 +36,26 @@ describe("typographie du moteur PDF HTML", () => {
     }
   });
 
-  it("force le chemin par graphèmes tout en réservant l'espace entre les mots", () => {
+  it("utilise les métriques natives du navigateur sans chemin graphème par graphème", () => {
     const source = readFileSync(new URL("./pdf.ts", import.meta.url), "utf8");
-    expect(source).toContain("letter-spacing: 0.01px !important");
+    expect(source).toContain("letter-spacing: normal !important");
     expect(source).toContain("word-spacing: 0.12em !important");
+    expect(source).toContain("await document.fonts.ready");
+    expect(source).toContain("await document.fonts.load");
+    expect(source).toContain("await html2canvas(element");
+    expect(source).toContain("const renderScale = 2");
+    expect(source).not.toContain("doc.html(element");
+    expect(source).not.toMatch(/letter-spacing:\s*-|scaleX\s*\(/);
     expect(source).not.toContain("setCharSpace");
     expect(source).not.toContain("getTextWidth");
     expect(source).not.toContain("splitTextToSize");
+  });
+
+  it("conserve un ratio uniforme entre le canvas source et la largeur PDF", () => {
+    const source = readFileSync(new URL("./pdf.ts", import.meta.url), "utf8");
+    expect(source).toContain("pageCanvas.width = source.width");
+    expect(source).toContain("layout.contentWidth, renderedHeightMm");
+    expect(source).toContain("sliceHeight / pageHeightPx * layout.contentHeight");
+    expect(source).not.toContain("transform: scaleX");
   });
 });

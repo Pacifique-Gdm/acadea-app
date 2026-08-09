@@ -10,7 +10,8 @@ import { nextMessageThreadId } from "../../utils/messageThreads";
 import { schoolSectionLabels, schoolSectionOrder } from "../../utils/schoolConfig";
 import { formatStudentClassName, getClassSection } from "../../utils/studentClasses";
 import type { AppData, AppNotification, AppUser, Message, ParentProfile, School, SchoolClass, SchoolSection, SchoolYear, Student } from "../../types";
-import { administrativeRoleLabel, filterAdministrativeRecipients, resolveAdministrativeRecipientIds, toggleAdministrativeRecipient, type AdministrativeRecipientMode } from "./administrativeRecipientSelection";
+import { resolveAdministrativeRecipientIds, type AdministrativeRecipientMode } from "./administrativeRecipientSelection";
+import { AdministrativeRecipientSelector } from "./AdministrativeRecipientSelector";
 import { formatMessageAttachmentSize, MAX_MESSAGE_ATTACHMENTS_TOTAL_SIZE, MESSAGE_ATTACHMENT_ACCEPT, validateMessageAttachments } from "../../utils/messageAttachments";
 
 type MessagesYearData = {
@@ -94,12 +95,8 @@ export function MessagesModule({
   const selectedParent = yearData.parents.find((parent) => parent.id === recipientParentId);
   const selectedAdminParents = sameSchoolParents.filter((parent) => selectedAdminParentIds.includes(parent.id));
   const selectedDisciplineParents = yearData.parents.filter((parent) => selectedDisciplineParentIds.includes(parent.id));
-  const administrativeSearchResults = filterAdministrativeRecipients(administrativeRecipients, administrativeSearch);
   const resolvedAdministrativeIds = resolveAdministrativeRecipientIds(administrativeRecipientMode, administrativeRecipients, selectedAdministrativeIds);
-  const selectedAdministrativeRecipients = administrativeRecipients.filter((recipient) => selectedAdministrativeIds.includes(recipient.uid));
-  const secretaryParentResults = secureDirectory.filter((recipient) => recipient.role === "parent" && recipient.name.toLocaleLowerCase("fr").includes(recipientSearch.trim().toLocaleLowerCase("fr")));
-  const selectedSecureRecipients = secureDirectory.filter((recipient) => selectedAdministrativeIds.includes(recipient.uid));
-  const resolvedSecureRecipientIds = isSecretary && recipientCategory === "parents" ? [...new Set(selectedAdministrativeIds)] : resolvedAdministrativeIds;
+  const secureParentRecipientIds = new Set(secureDirectory.filter((recipient) => recipient.role === "parent").map((recipient) => recipient.uid));
   const messageFilesTotalBytes = messageFiles.reduce((total, file) => total + file.size, 0);
   useEffect(() => {
     let active = true;
@@ -165,7 +162,13 @@ export function MessagesModule({
     return resolveParentsForStudents(sameSchoolStudents.filter((student) => student.className === selectedAdminClass));
   }
 
-  const adminResolvedParents = isSchoolAdmin ? resolveAdminRecipientParents() : [];
+  const adminResolvedParents = isSchoolAdmin || isSecretary ? resolveAdminRecipientParents() : [];
+  const resolvedSecretaryParentIds = adminResolvedParents
+    .map((parent) => [parent.userId, parent.id].find((candidate) => candidate && secureParentRecipientIds.has(candidate)))
+    .filter((recipientId): recipientId is string => Boolean(recipientId));
+  const resolvedSecureRecipientIds = isSecretary && recipientCategory === "parents"
+    ? [...new Set(resolvedSecretaryParentIds)]
+    : resolvedAdministrativeIds;
 
   useEffect(() => {
     if (!isDisciplineDirector || !messageFeedback) return undefined;
@@ -213,15 +216,15 @@ export function MessagesModule({
       await sendToSecureRecipients();
       return;
     }
-    if (isSchoolAdmin && adminRecipientMode === "parents" && selectedAdminParentIds.length === 0) {
+    if ((isSchoolAdmin || isSecretary) && adminRecipientMode === "parents" && selectedAdminParentIds.length === 0) {
       setMessageFeedback("Message non envoyé. Aucun parent sélectionné.");
       return;
     }
-    if (isSchoolAdmin && adminRecipientMode === "sections" && !selectedAdminSection) {
+    if ((isSchoolAdmin || isSecretary) && adminRecipientMode === "sections" && !selectedAdminSection) {
       setMessageFeedback("Message non envoyé. Aucune section sélectionnée.");
       return;
     }
-    if (isSchoolAdmin && adminRecipientMode === "classes" && !selectedAdminClass) {
+    if ((isSchoolAdmin || isSecretary) && adminRecipientMode === "classes" && !selectedAdminClass) {
       setMessageFeedback("Message non envoyé. Aucune classe sélectionnée.");
       return;
     }
@@ -358,7 +361,7 @@ export function MessagesModule({
       setMessageFeedback(`${messages.length} message(s) envoyé(s).`);
       return;
     }
-    if (isSchoolAdmin) {
+    if (isSchoolAdmin || isSecretary) {
       setSelectedAdminParentIds([]);
       setRecipientSearch("");
     }
@@ -377,51 +380,14 @@ export function MessagesModule({
           <div className="grid min-w-0 gap-2">
             <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
               Destinataires
-              <select value={recipientCategory} onChange={(event) => { setRecipientCategory(event.target.value as "parents" | "administrative"); setAdministrativeRecipientMode("all"); setAdministrativeSearch(""); setRecipientSearch(""); setSelectedAdministrativeIds([]); }} className="input">
+              <select value={recipientCategory} onChange={(event) => { setRecipientCategory(event.target.value as "parents" | "administrative"); setAdministrativeRecipientMode("all"); setAdministrativeSearch(""); changeAdminRecipientMode("all"); setSelectedAdministrativeIds([]); }} className="input">
                 <option value="parents">Parents d'élèves</option>
                 <option value="administrative">Administratifs</option>
               </select>
             </label>
             {recipientCategory === "administrative" ? (
-              <>
-                <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
-                  Filtre des administratifs
-                  <select value={administrativeRecipientMode} onChange={(event) => { setAdministrativeRecipientMode(event.target.value as AdministrativeRecipientMode); setAdministrativeSearch(""); setSelectedAdministrativeIds([]); }} className="input">
-                    <option value="all">Tous les administratifs</option>
-                    <option value="selection">Sélection administratif</option>
-                  </select>
-                </label>
-                {administrativeRecipientMode === "all" ? (
-                  <p className="rounded bg-slate-50 p-3 text-sm font-semibold text-slate-600">{administrativeRecipients.length} administratif{administrativeRecipients.length > 1 ? "s" : ""} destinataire{administrativeRecipients.length > 1 ? "s" : ""}</p>
-                ) : (
-                  <>
-                    <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
-                      <Search className="h-4 w-4 shrink-0 text-slate-400" />
-                      <input value={administrativeSearch} onChange={(event) => setAdministrativeSearch(event.target.value)} className="min-w-0 flex-1 outline-none" placeholder="Rechercher par nom ou fonction" />
-                    </label>
-                    {selectedAdministrativeRecipients.length > 0 && <div className="flex min-w-0 flex-wrap gap-2 rounded bg-blue-50 p-3">{selectedAdministrativeRecipients.map((recipient) => <span key={recipient.uid} className="inline-flex max-w-full items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-blue-700"><span className="min-w-0 truncate">{recipient.name} — {administrativeRoleLabel(recipient.role)}</span><button type="button" onClick={() => setSelectedAdministrativeIds((current) => current.filter((id) => id !== recipient.uid))} className="shrink-0 rounded-full p-0.5 transition hover:bg-blue-100" aria-label={`Retirer ${recipient.name}`}><X className="h-3 w-3" /></button></span>)}</div>}
-                    {administrativeSearch.trim() ? (
-                      <div className="grid max-h-60 min-w-0 gap-2 overflow-y-auto pr-1 scrollbar-thin sm:grid-cols-2">
-                        {administrativeSearchResults.map((recipient) => <label key={recipient.uid} className="flex min-h-11 min-w-0 cursor-pointer items-center gap-3 rounded border border-slate-200 px-3 py-2 transition hover:bg-slate-50"><input type="checkbox" checked={selectedAdministrativeIds.includes(recipient.uid)} onChange={() => setSelectedAdministrativeIds((current) => toggleAdministrativeRecipient(current, recipient.uid))} /><span className="min-w-0"><strong className="block break-words text-sm text-slate-800">{recipient.name}</strong><span className="text-xs text-slate-500">{administrativeRoleLabel(recipient.role)}</span></span></label>)}
-                        {!administrativeSearchResults.length && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500 sm:col-span-2">Aucun administratif trouvé.</p>}
-                      </div>
-                    ) : <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Recherchez un administratif par nom ou fonction.</p>}
-                  </>
-                )}
-                {isLoadingAdministrativeRecipients && <p className="text-sm text-slate-500">Chargement des administratifs…</p>}
-                {!isLoadingAdministrativeRecipients && !administrativeRecipients.length && !administrativeLoadError && <p className="text-sm text-slate-500">Aucun administratif actif disponible.</p>}
-                {administrativeLoadError && <p className="rounded bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{administrativeLoadError}</p>}
-              </>
-            ) : isSecretary ? (
-              <>
-                <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
-                  <Search className="h-4 w-4 shrink-0 text-slate-400" />
-                  <input value={recipientSearch} onChange={(event) => setRecipientSearch(event.target.value)} className="min-w-0 flex-1 outline-none" placeholder="Rechercher un parent" />
-                </label>
-                {selectedSecureRecipients.length > 0 && <div className="flex min-w-0 flex-wrap gap-2 rounded bg-blue-50 p-3">{selectedSecureRecipients.map((recipient) => <span key={recipient.uid} className="inline-flex max-w-full items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-blue-700"><span className="min-w-0 truncate">{recipient.name}</span><button type="button" onClick={() => setSelectedAdministrativeIds((current) => current.filter((id) => id !== recipient.uid))} className="shrink-0 rounded-full p-0.5 transition hover:bg-blue-100" aria-label={`Retirer ${recipient.name}`}><X className="h-3 w-3" /></button></span>)}</div>}
-                {recipientSearch.trim() ? <div className="grid max-h-60 min-w-0 gap-2 overflow-y-auto pr-1 scrollbar-thin sm:grid-cols-2">{secretaryParentResults.map((recipient) => <label key={recipient.uid} className="flex min-h-11 min-w-0 cursor-pointer items-center gap-3 rounded border border-slate-200 px-3 py-2 transition hover:bg-slate-50"><input type="checkbox" checked={selectedAdministrativeIds.includes(recipient.uid)} onChange={() => setSelectedAdministrativeIds((current) => toggleAdministrativeRecipient(current, recipient.uid))} /><span className="min-w-0"><strong className="block break-words text-sm text-slate-800">{recipient.name}</strong><span className="text-xs text-slate-500">Parent</span></span></label>)}{!secretaryParentResults.length && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500 sm:col-span-2">Aucun parent trouvé.</p>}</div> : <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Recherchez un parent par nom.</p>}
-              </>
-            ) : isSchoolAdmin ? (
+              <AdministrativeRecipientSelector mode={administrativeRecipientMode} onModeChange={setAdministrativeRecipientMode} search={administrativeSearch} onSearchChange={setAdministrativeSearch} recipients={administrativeRecipients} selectedIds={selectedAdministrativeIds} onSelectedIdsChange={setSelectedAdministrativeIds} isLoading={isLoadingAdministrativeRecipients} error={administrativeLoadError} />
+            ) : isSchoolAdmin || isSecretary ? (
               <>
                 <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
                   Destinataires

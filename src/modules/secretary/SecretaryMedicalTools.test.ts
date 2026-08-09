@@ -135,10 +135,12 @@ describe("Drawers médicaux et statistiques du Secrétaire", () => {
     expect(source).toContain("statistics.sectionRows");
     expect(source).not.toContain("statistics.levelRows");
     const pdfSource = readFileSync(new URL("../../utils/pdf.ts", import.meta.url), "utf8");
-    expect(pdfSource).toContain("letter-spacing: 0.01px !important");
+    expect(pdfSource).toContain("letter-spacing: normal !important");
     expect(pdfSource).toContain(".pdf-section.statistics-pdf-section h2");
     expect(pdfSource).toContain("letter-spacing: normal");
     expect(pdfSource).toContain("word-spacing: 0.12em !important");
+    expect(pdfSource).toContain("await document.fonts.ready");
+    expect(pdfSource).toContain("await html2canvas(element");
     expect(pdfSource).toContain("white-space: normal");
     expect(pdfSource).toContain("overflow-wrap: normal");
     expect(source).not.toContain("Répartitionpar classe");
