@@ -198,12 +198,20 @@ async function renderPdfCanvasPages(doc: PdfDoc, element: HTMLElement, layout: R
     windowWidth: layout.windowWidth,
   });
   const pageHeightPx = Math.round(layout.contentHeight * (layout.windowWidth / layout.contentWidth) * renderScale);
-  const pageCount = Math.max(1, Math.ceil(source.height / pageHeightPx));
+  const protectedRanges = collectPdfProtectedRanges(element, renderScale, pageHeightPx);
+  const sourceContext = source.getContext("2d");
+  if (!sourceContext) throw new Error("Canvas PDF source indisponible.");
+  let sourceY = 0;
+  let pageIndex = 0;
 
-  for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+  while (sourceY < source.height) {
     if (pageIndex > 0) doc.addPage();
-    const sourceY = pageIndex * pageHeightPx;
-    const sliceHeight = Math.min(pageHeightPx, source.height - sourceY);
+    const proposedEnd = Math.min(sourceY + pageHeightPx, source.height);
+    const protectedEnd = avoidProtectedPdfRangeCut(sourceY, proposedEnd, pageHeightPx, protectedRanges);
+    const sliceEnd = protectedEnd < source.height
+      ? findPdfWhitespaceCut(sourceContext, source.width, sourceY, protectedEnd, pageHeightPx)
+      : protectedEnd;
+    const sliceHeight = Math.max(1, sliceEnd - sourceY);
     const pageCanvas = document.createElement("canvas");
     pageCanvas.width = source.width;
     pageCanvas.height = sliceHeight;
@@ -214,7 +222,60 @@ async function renderPdfCanvasPages(doc: PdfDoc, element: HTMLElement, layout: R
     context.drawImage(source, 0, sourceY, source.width, sliceHeight, 0, 0, source.width, sliceHeight);
     const renderedHeightMm = sliceHeight / pageHeightPx * layout.contentHeight;
     doc.addImage(pageCanvas.toDataURL("image/png"), "PNG", layout.margins.left, layout.margins.top, layout.contentWidth, renderedHeightMm, undefined, "FAST");
+    sourceY = sliceEnd;
+    pageIndex += 1;
   }
+}
+
+type PdfProtectedRange = { start: number; end: number };
+
+function collectPdfProtectedRanges(element: HTMLElement, renderScale: number, pageHeightPx: number): PdfProtectedRange[] {
+  const rootTop = element.getBoundingClientRect().top;
+  const selectors = [
+    "tr",
+    ".info-box",
+    ".outgoing-correspondence-content",
+    ".outgoing-correspondence-paragraph",
+    ".outgoing-signature-row",
+    ".report-section",
+    ".report-signatures-block",
+  ].join(",");
+  return Array.from(element.querySelectorAll<HTMLElement>(selectors)).flatMap((node) => {
+    const rect = node.getBoundingClientRect();
+    const start = Math.max(0, Math.floor((rect.top - rootTop) * renderScale));
+    const end = Math.max(start, Math.ceil((rect.bottom - rootTop) * renderScale));
+    return end - start > 2 && end - start < pageHeightPx ? [{ start, end }] : [];
+  }).sort((a, b) => a.start - b.start);
+}
+
+export function avoidProtectedPdfRangeCut(sourceY: number, proposedEnd: number, pageHeightPx: number, ranges: PdfProtectedRange[]) {
+  const minimumUsefulSlice = Math.round(pageHeightPx * 0.35);
+  const crossingRange = ranges.find((range) => range.start < proposedEnd && range.end > proposedEnd && range.start > sourceY);
+  if (!crossingRange || crossingRange.start - sourceY < minimumUsefulSlice) return proposedEnd;
+  return crossingRange.start;
+}
+
+function findPdfWhitespaceCut(context: CanvasRenderingContext2D, width: number, sourceY: number, proposedEnd: number, pageHeightPx: number) {
+  const minimumEnd = Math.max(sourceY + Math.round(pageHeightPx * 0.75), proposedEnd - 120);
+  const sampleStep = Math.max(1, Math.floor(width / 500));
+  let consecutiveClearRows = 0;
+  for (let y = proposedEnd - 1; y >= minimumEnd; y -= 1) {
+    const pixels = context.getImageData(0, y, width, 1).data;
+    let inkSamples = 0;
+    let samples = 0;
+    for (let x = 0; x < width; x += sampleStep) {
+      const index = x * 4;
+      samples += 1;
+      if (pixels[index + 3] > 0 && (pixels[index] < 242 || pixels[index + 1] < 242 || pixels[index + 2] < 242)) inkSamples += 1;
+    }
+    if (inkSamples / Math.max(1, samples) <= 0.005) {
+      consecutiveClearRows += 1;
+      if (consecutiveClearRows >= 3) return y + consecutiveClearRows;
+    } else {
+      consecutiveClearRows = 0;
+    }
+  }
+  return proposedEnd;
 }
 
 function applyPdfPageBreakSpacers(element: HTMLElement, contentHeightMm: number, pixelsPerMillimeter: number) {

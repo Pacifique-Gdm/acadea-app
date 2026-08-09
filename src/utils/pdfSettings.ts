@@ -1,5 +1,6 @@
 export const PDF_FONT_FAMILIES = ["Aptos", "Calibri", "Times New Roman", "Arial", "Cambria", "Georgia", "Garamond", "Book Antiqua", "Verdana", "Tahoma", "Trebuchet MS"] as const;
 export const PDF_FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18] as const;
+export const PDF_BOTTOM_SAFE_AREA_MM = 18;
 export const PDF_LINE_SPACINGS = [1, 1.15, 1.5, 2, 2.5, 3] as const;
 export const PDF_PAGE_SIZES = ["A4", "A5", "LETTER"] as const;
 
@@ -64,7 +65,7 @@ export function getPdfPageDimensions(pageSize: PdfPageSize) {
 export function getPdfLayout(settings?: Partial<PdfGenerationSettings> | null) {
   const normalized = normalizePdfSettings(settings);
   const page = getPdfPageDimensions(normalized.pageSize);
-  const margins = { top: 14, right: 14, bottom: 18, left: 14 };
+  const margins = { top: 14, right: 14, bottom: PDF_BOTTOM_SAFE_AREA_MM, left: 14 };
   const contentWidth = page.width - margins.left - margins.right;
   const contentHeight = page.height - margins.top - margins.bottom;
   const pixelsPerMillimeter = 688 / 182;

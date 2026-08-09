@@ -4,7 +4,7 @@ import type { Correspondence } from "./secretaryTypes";
 import { normalizeCorrespondenceSignatories } from "./reportSignatories";
 
 const text = (value?: string) => value?.trim() ?? "";
-const paragraph = (value?: string) => text(value) ? `<p class="secretary-pdf-main-text outgoing-correspondence-paragraph" style="text-align:justify;text-justify:inter-word;margin:0 0 8pt;text-indent:50%;break-inside:avoid">${escapePdfHtml(text(value)).replaceAll("\n", "<br />")}</p>` : "";
+const paragraph = (value?: string) => text(value) ? `<p class="secretary-pdf-main-text outgoing-correspondence-paragraph" style="text-align:justify;text-justify:inter-word;margin:0 0 8pt;text-indent:50%">${escapePdfHtml(text(value)).replaceAll("\n", "<br />")}</p>` : "";
 export const OUTGOING_INSTITUTIONAL_UNDERLINE_STYLE = "padding:0 0 6px;line-height:1.45;border-bottom:1px solid #14213d";
 const underlinedValue = (value: string) => `<span class="outgoing-institutional-underline" style="display:inline-block;${OUTGOING_INSTITUTIONAL_UNDERLINE_STYLE}">${escapePdfHtml(value)}</span>`;
 

@@ -58,4 +58,13 @@ describe("typographie du moteur PDF HTML", () => {
     expect(source).toContain("sliceHeight / pageHeightPx * layout.contentHeight");
     expect(source).not.toContain("transform: scaleX");
   });
+
+  it("protège les blocs insécables et cherche une ligne blanche avant la coupure raster", () => {
+    const source = readFileSync(new URL("./pdf.ts", import.meta.url), "utf8");
+    expect(source).toContain("collectPdfProtectedRanges(element, renderScale, pageHeightPx)");
+    expect(source).toContain("avoidProtectedPdfRangeCut");
+    expect(source).toContain("findPdfWhitespaceCut");
+    expect(source).toContain('".outgoing-signature-row"');
+    expect(source).toContain('".report-signatures-block"');
+  });
 });
