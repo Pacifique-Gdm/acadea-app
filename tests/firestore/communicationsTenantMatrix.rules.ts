@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { initializeTestEnvironment, assertFails, assertSucceeds, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
-import { collection, deleteDoc, doc, getDoc, getDocs, limit, orderBy, query, setDoc, updateDoc, where } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getDocs, limit, orderBy, query, setDoc, startAfter, updateDoc, where } from "firebase/firestore";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 const projectId = "demo-acadea-communications-matrix";
@@ -36,6 +36,7 @@ beforeEach(async () => {
   await seed("conversations/conversation-secretary-parent", { id: "conversation-secretary-parent", ...shared, parentId: "school", threadId: "thread-secretary-parent", threadParentId: "school", participantIds: ["secretary-a", "parent-user-a"] });
   await seed("notifications/notification-a", { id: "notification-a", ...shared, parentId: "parent-a", recipientRole: "school", schoolRecipient: "admin" });
   await seed("notifications/notification-admin-personal", { id: "notification-admin-personal", ...shared, recipientUserId: "admin-a", type: "message", read: false, createdAt: "2026-08-08T12:00:00.000Z" });
+  await seed("notifications/notification-admin-personal-older", { id: "notification-admin-personal-older", ...shared, recipientUserId: "admin-a", type: "message", read: true, createdAt: "2026-08-08T11:00:00.000Z" });
   await seed("notifications/notification-parent-personal", { id: "notification-parent-personal", ...shared, recipientUserId: "parent-user-a", type: "message", read: false, createdAt: "2026-08-08T12:00:00.000Z" });
   await seed("disciplineSanctions/sanction-a", { id: "sanction-a", ...shared, status: "active" });
   await seed("attendance/attendance-a", { id: "attendance-a", ...shared, studentId: "student-a", status: "present" });
@@ -144,6 +145,26 @@ describe("SEC-015 — communications, notifications et discipline", () => {
     )));
     expect(own.docs.map((item) => item.id)).toContain("notification-admin-personal");
     await assertFails(getDoc(doc(auth("cashier-a", "cashier"), "notifications", "notification-admin-personal")));
+  });
+
+  it("autorise la pagination notification exacte avec startAfter", async () => {
+    const admin = auth("admin-a", "school_admin");
+    const base = [
+      where("schoolId", "==", schoolA),
+      where("schoolYearId", "==", yearA),
+      where("recipientUserId", "==", "admin-a"),
+      orderBy("createdAt", "desc"),
+    ];
+    const firstPage = await assertSucceeds(getDocs(query(collection(admin, "notifications"), ...base, limit(1))));
+    expect(firstPage.docs).toHaveLength(1);
+    const secondPage = await assertSucceeds(getDocs(query(
+      collection(admin, "notifications"),
+      ...base,
+      startAfter(firstPage.docs[0]),
+      limit(1),
+    )));
+    expect(secondPage.docs).toHaveLength(1);
+    expect(secondPage.docs[0].id).not.toBe(firstPage.docs[0].id);
   });
 
   it("refuse les écritures discipline dans l'année d'une autre école", async () => {

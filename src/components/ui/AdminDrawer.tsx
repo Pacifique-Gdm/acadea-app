@@ -7,25 +7,15 @@ export function AdminDrawer({
   children,
   onClose,
   closeLabel,
-  notificationPanel = false,
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
   closeLabel: string;
-  notificationPanel?: boolean;
 }) {
   const drawerRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
-  const notificationPanelStyle = notificationPanel
-    ? {
-        height: "calc(100vh - 72px - 5.75rem - env(safe-area-inset-bottom) - 1.5rem)",
-        marginTop: "72px",
-        marginBottom: "calc(5.75rem + env(safe-area-inset-bottom))",
-      }
-    : undefined;
-
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
@@ -70,11 +60,10 @@ export function AdminDrawer({
   }, []);
 
   return (
-    <div className={`fixed inset-0 ${notificationPanel ? "z-[80]" : "z-50"} bg-ink/30 p-3 backdrop-blur-sm`} onMouseDown={onClose} role="presentation">
+    <div className="fixed inset-0 z-50 bg-ink/30 p-3 backdrop-blur-sm" onMouseDown={onClose} role="presentation">
       <div
         ref={drawerRef}
-        className={`ml-auto flex min-h-0 w-full max-w-xl flex-col rounded border border-slate-200 bg-white p-4 shadow-2xl ${notificationPanel ? "" : "h-full"}`}
-        style={notificationPanelStyle}
+        className="ml-auto flex h-full min-h-0 w-full max-w-xl flex-col rounded border border-slate-200 bg-white p-4 shadow-2xl"
         onMouseDown={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -86,7 +75,7 @@ export function AdminDrawer({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className={notificationPanel ? "min-h-0 flex-1 overflow-hidden" : "min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 scrollbar-thin"}>{children}</div>
+        <div className="min-h-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto pr-1 scrollbar-thin">{children}</div>
       </div>
     </div>
   );

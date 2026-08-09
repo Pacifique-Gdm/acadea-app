@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Bell, RefreshCw } from "lucide-react";
 import { MessageDrawerContent } from "../messages/MessageDrawerContent";
-import { AdminDrawer } from "../ui";
+import { MessagingDrawerShell } from "../messages/MessagingDrawerShell";
 import { usePaginatedNotifications } from "../../hooks/usePaginatedNotifications";
 import { useRealtimeMessageFeed } from "../../hooks/useRealtimeMessageFeed";
 import type { AppData, AppNotification, AppUser, Message, School, SchoolYear } from "../../types";
@@ -168,7 +168,7 @@ export function Header({
         </div>
       </div>
       {notificationsOpen && (
-        <AdminDrawer title="Boîte à Messagerie" onClose={onCloseNotifications ?? onToggleNotifications} closeLabel="Fermer la boîte à messagerie" notificationPanel>
+        <MessagingDrawerShell onClose={onCloseNotifications ?? onToggleNotifications}>
           <MessageDrawerContent
             user={user}
             data={data}
@@ -180,7 +180,7 @@ export function Header({
             roleLabels={roleLabels}
             focusedMessageId={focusedMessageId}
           />
-        </AdminDrawer>
+        </MessagingDrawerShell>
       )}
     </header>
   );
