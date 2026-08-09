@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Archive, ArchiveRestore, Download, Eye, FileText, Plus, Search, Trash2 } from "lucide-react";
+import { ArchiveRestore, Download, Eye, FileText, Plus, Search, Trash2 } from "lucide-react";
 import { AdminDrawer, SectionTitle } from "../../components/ui";
-import { archiveCorrespondence, createCorrespondence, deleteCorrespondencePermanently, replaceCorrespondenceAttachment, subscribeToCorrespondences, unarchiveCorrespondence, updateCorrespondence } from "../../services/secretaryCorrespondence";
+import { createCorrespondence, deleteCorrespondencePermanently, replaceCorrespondenceAttachment, subscribeToCorrespondences, unarchiveCorrespondence, updateCorrespondence } from "../../services/secretaryCorrespondence";
 import { escapePdfHtml, pdfInfoGrid, pdfSection, renderAcadPdfPreview } from "../../utils/pdf";
 import { refreshErrorMessage } from "../../utils/refreshErrors";
 import type { AppUser, School, SchoolYear } from "../../types";
@@ -12,6 +12,7 @@ import { previewOutgoingCorrespondence } from "./outgoingCorrespondencePdf";
 import { filterSecretaryCorrespondences } from "./secretaryListFilters";
 import { exportCorrespondenceListPdf } from "./secretaryListPdf";
 import { CORRESPONDENCE_DELIVERY_MODES, correspondenceDeliveryModeLabel } from "./correspondenceOptions";
+import { SecretaryDocumentDeleteDialog } from "./SecretaryDocumentDeleteDialog";
 
 const initialInput = { direction: "incoming" as CorrespondenceDirection, date: new Date().toISOString().slice(0, 10), subject: "", sender: "", recipient: "", content: "", copiePourInformation: "", status: "received" as CorrespondenceStatus };
 
@@ -45,7 +46,6 @@ export function SecretaryCorrespondenceModule({ user, users = [], school, year }
   const [outgoingType, setOutgoingType] = useState("all");
   const [priority, setPriority] = useState("all");
   const [deliveryMode, setDeliveryMode] = useState("all");
-  const [archiveView, setArchiveView] = useState<"active" | "archived">("active");
   const [editing, setEditing] = useState<Correspondence | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [input, setInput] = useState(initialInput);
@@ -55,7 +55,6 @@ export function SecretaryCorrespondenceModule({ user, users = [], school, year }
   const [message, setMessage] = useState("");
   const [sensitiveAction, setSensitiveAction] = useState<{ kind: "delete"; target: Correspondence } | null>(null);
   const [confirmationText, setConfirmationText] = useState("");
-  const [confirmationError, setConfirmationError] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
   const [pdfBusyId, setPdfBusyId] = useState("");
   const [exportBusy, setExportBusy] = useState(false);
@@ -63,7 +62,7 @@ export function SecretaryCorrespondenceModule({ user, users = [], school, year }
 
   useEffect(() => subscribeToCorrespondences({ user, schoolId: school.id, schoolYearId: year.id, onData: setItems, onError: (error) => setMessage(refreshErrorMessage(error)) }), [school.id, user, year.id]);
   useEffect(() => { if (!message) return; const timer = window.setTimeout(() => setMessage(""), 4000); return () => window.clearTimeout(timer); }, [message]);
-  const filtered = useMemo(() => filterSecretaryCorrespondences(items, queryText, direction, outgoingType, priority, deliveryMode).filter((item) => archiveView === "archived" ? item.status === "archived" : item.status !== "archived"), [archiveView, deliveryMode, direction, items, outgoingType, priority, queryText]);
+  const filtered = useMemo(() => filterSecretaryCorrespondences(items, queryText, direction, outgoingType, priority, deliveryMode), [deliveryMode, direction, items, outgoingType, priority, queryText]);
 
   function finishSuccessfulSave(successMessage: string) {
     setEditing(null);
@@ -157,23 +156,22 @@ export function SecretaryCorrespondenceModule({ user, users = [], school, year }
     finally { setExportBusy(false); }
   }
 
-  function closeSensitiveAction() { if (actionBusy) return; setSensitiveAction(null); setConfirmationText(""); setConfirmationError(""); }
+  function closeSensitiveAction() { if (actionBusy) return; setSensitiveAction(null); setConfirmationText(""); }
 
-  async function changeArchiveState(item: Correspondence, action: "archive" | "restore") {
+  async function restoreArchived(item: Correspondence) {
     if (actionBusy) return;
     setActionBusy(true); setMessage("");
     try {
-      if (action === "archive") await archiveCorrespondence(user, item); else await unarchiveCorrespondence(user, item);
-      setMessage(action === "archive" ? "Courrier archivé." : "Courrier restauré.");
+      await unarchiveCorrespondence(user, item);
+      setMessage("Courrier restauré.");
     } catch (error) { console.error("Échec de l’archivage du courrier", error); setMessage(correspondenceErrorMessage(error)); }
     finally { setActionBusy(false); }
   }
 
   async function executeSensitiveAction() {
     if (!sensitiveAction || actionBusy) return;
-    const expected = "SUPPRIMER DÉFINITIVEMENT";
-    if (confirmationText !== expected) { setConfirmationError("Le texte de confirmation est incorrect."); return; }
-    setActionBusy(true); setConfirmationError("");
+    if (confirmationText !== "SUPPRIMER COURRIER") return;
+    setActionBusy(true);
     try {
       const cleanup = await deleteCorrespondencePermanently(user, sensitiveAction.target, confirmationText);
       setItems((current) => current.filter((item) => item.id !== sensitiveAction.target.id));
@@ -186,17 +184,16 @@ export function SecretaryCorrespondenceModule({ user, users = [], school, year }
   return <section className="grid gap-4">
     <SectionTitle title="Courriers" subtitle="Courriers administratifs entrants et sortants." />
     {message && <p className="rounded border border-slate-200 bg-white p-3 text-sm">{message}</p>}
-    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-8">
+    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-7">
       <button type="button" className="primary-button justify-center" onClick={() => { setEditing(null); setInput(initialInput); setSelectedDirection(""); setFormOpen(true); }}><Plus className="h-4 w-4" /> Nouveau courrier</button>
       <label className="flex items-center gap-2 rounded border bg-white px-3"><Search className="h-4 w-4" /><input className="min-w-0 flex-1 py-2 outline-none" value={queryText} onChange={(event) => setQueryText(event.target.value)} placeholder="Rechercher" /></label>
       <select className="input" value={direction} onChange={(event) => setDirection(event.target.value as typeof direction)}><option value="all">Tous les sens</option><option value="incoming">Entrant</option><option value="outgoing">Sortant</option></select>
       <select className="input" value={outgoingType} onChange={(event) => setOutgoingType(event.target.value)}><option value="all">Tous les types</option><option value="administrative_letter">Lettre administrative</option><option value="official_request">Demande officielle</option><option value="administrative_response">Réponse administrative</option><option value="transmission_letter">Lettre de transmission</option><option value="summons">Convocation</option><option value="notification">Notification</option><option value="formal_notice">Mise en demeure</option><option value="information_letter">Lettre d’information</option><option value="other">Autre</option></select>
       <select className="input" value={priority} onChange={(event) => setPriority(event.target.value)}><option value="all">Toutes les priorités</option><option value="normal">Normale</option><option value="important">Importante</option><option value="urgent">Urgente</option><option value="very_urgent">Très urgente</option></select>
       <select className="input" aria-label="Mode d’acheminement" value={deliveryMode} onChange={(event) => setDeliveryMode(event.target.value)}><option value="all">Tous les modes</option>{CORRESPONDENCE_DELIVERY_MODES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
-      <select className="input" aria-label="État d’archivage" value={archiveView} onChange={(event) => setArchiveView(event.target.value as typeof archiveView)}><option value="active">Courriers actifs</option><option value="archived">Archives</option></select>
       <button type="button" className="pdf-export-button" disabled={exportBusy || filtered.length === 0} onClick={() => void exportFilteredCorrespondences()}><Download className="h-4 w-4" /> {exportBusy ? "Export en cours…" : "Exporter PDF"}</button>
     </div>
-    <div className="max-w-full overflow-x-auto rounded border bg-white"><table className="w-full min-w-[860px] table-fixed text-sm"><thead className="bg-slate-50 text-left"><tr><th className="w-[15%] p-3">Référence</th><th className="w-[11%]">Date</th><th className="w-[14%]">Type</th><th className="w-[14%]">Expéditeur</th><th className="w-[14%]">Destinataire</th><th className="w-[20%]">Objet</th><th className="w-[12%] text-center">Actions</th></tr></thead><tbody>{filtered.map((item) => <tr key={item.id} className="border-t"><TableCell value={item.referenceNumber} strong /><TableCell value={item.date} /><TableCell value={item.direction === "incoming" ? "Courrier entrant" : correspondenceTypeLabel(item.outgoing?.correspondenceType)} /><TableCell value={item.sender || school.name} /><TableCell value={item.recipient} /><TableCell value={item.subject} /><td className="p-2"><div className="flex items-center justify-center gap-1.5 whitespace-nowrap"><SecretaryViewActionButton onClick={() => { setEditing(item); setInput({ direction: item.direction, date: item.date, subject: item.subject, sender: item.sender, recipient: item.recipient, content: item.content, copiePourInformation: item.copiePourInformation ?? "", status: item.status }); setSelectedDirection(item.direction); setFormOpen(true); }} /><CorrespondenceActionButton label="Afficher le PDF" icon={FileText} disabled={Boolean(pdfBusyId)} loading={pdfBusyId === item.id} onClick={() => void showCorrespondencePdf(item)} />{item.status === "archived" ? <><CorrespondenceActionButton label="Restaurer" icon={ArchiveRestore} disabled={actionBusy} onClick={() => void changeArchiveState(item, "restore")} />{item.createdBy === user.id && item.archivedFromStatus === "draft" && <CorrespondenceActionButton label="Supprimer définitivement" icon={Trash2} danger disabled={actionBusy} onClick={() => setSensitiveAction({ kind: "delete", target: item })} />}</> : <CorrespondenceActionButton label="Archiver" icon={Archive} disabled={actionBusy} onClick={() => void changeArchiveState(item, "archive")} />}</div></td></tr>)}</tbody></table>{filtered.length === 0 && <p className="p-6 text-center text-sm text-slate-500">Aucun courrier correspondant aux filtres actifs.</p>}</div>
+    <div className="max-w-full overflow-x-auto rounded border bg-white"><table className="w-full min-w-[860px] table-fixed text-sm"><thead className="bg-slate-50 text-left"><tr><th className="w-[15%] p-3">Référence</th><th className="w-[11%]">Date</th><th className="w-[14%]">Type</th><th className="w-[14%]">Expéditeur</th><th className="w-[14%]">Destinataire</th><th className="w-[20%]">Objet</th><th className="w-[12%] text-center">Actions</th></tr></thead><tbody>{filtered.map((item) => <tr key={item.id} className="border-t"><TableCell value={item.referenceNumber} strong /><TableCell value={item.date} /><TableCell value={item.direction === "incoming" ? "Courrier entrant" : correspondenceTypeLabel(item.outgoing?.correspondenceType)} /><TableCell value={item.sender || school.name} /><TableCell value={item.recipient} /><TableCell value={item.subject} /><td className="p-2"><div className="flex items-center justify-center gap-1.5 whitespace-nowrap"><SecretaryViewActionButton onClick={() => { setEditing(item); setInput({ direction: item.direction, date: item.date, subject: item.subject, sender: item.sender, recipient: item.recipient, content: item.content, copiePourInformation: item.copiePourInformation ?? "", status: item.status }); setSelectedDirection(item.direction); setFormOpen(true); }} /><CorrespondenceActionButton label="Afficher le PDF" icon={FileText} disabled={Boolean(pdfBusyId)} loading={pdfBusyId === item.id} onClick={() => void showCorrespondencePdf(item)} />{item.status === "archived" ? <><CorrespondenceActionButton label="Restaurer" icon={ArchiveRestore} disabled={actionBusy} onClick={() => void restoreArchived(item)} />{item.createdBy === user.id && item.archivedFromStatus === "draft" && <CorrespondenceActionButton label="Supprimer" icon={Trash2} danger disabled={actionBusy} onClick={() => { setConfirmationText(""); setSensitiveAction({ kind: "delete", target: item }); }} />}</> : item.status === "draft" && item.createdBy === user.id ? <CorrespondenceActionButton label="Supprimer" icon={Trash2} danger disabled={actionBusy} onClick={() => { setConfirmationText(""); setSensitiveAction({ kind: "delete", target: item }); }} /> : null}</div></td></tr>)}</tbody></table>{filtered.length === 0 && <p className="p-6 text-center text-sm text-slate-500">Aucun courrier correspondant aux filtres actifs.</p>}</div>
     {formOpen && <AdminDrawer title={editing ? (input.direction === "outgoing" ? "Courrier sortant" : "Courrier entrant") : selectedDirection === "outgoing" ? "Nouveau courrier sortant" : selectedDirection === "incoming" ? "Nouveau courrier entrant" : "Nouveau courrier"} onClose={() => !busy && setFormOpen(false)} closeLabel="Fermer">
       {!editing && <label className="mb-4 grid gap-1 text-sm"><span>Type de courrier</span><select className="input" value={selectedDirection} onChange={(event) => { const nextDirection = event.target.value as "" | CorrespondenceDirection; setSelectedDirection(nextDirection); if (nextDirection) setInput({ ...input, direction: nextDirection, copiePourInformation: "" }); setFile(null); }}><option value="" disabled>Sélectionner le type</option><option value="incoming">Entrant</option><option value="outgoing">Sortant</option></select></label>}
       {(editing || selectedDirection) && (input.direction === "outgoing" ? <OutgoingCorrespondenceForm user={user} users={users} school={school} year={year} current={editing} busy={busy} onCancel={() => setFormOpen(false)} onSave={saveOutgoing} onPreview={printCorrespondence} /> : <form className="grid gap-3" onSubmit={(event) => { event.preventDefault(); void save(); }}>
@@ -211,21 +208,13 @@ export function SecretaryCorrespondenceModule({ user, users = [], school, year }
       </>}
       {editing?.status !== "archived" && <button className="primary-button justify-center" disabled={busy} type="submit">{busy ? "Enregistrement…" : "Enregistrer"}</button>}
     </form>)}</AdminDrawer>}
-    {sensitiveAction && <SensitiveActionDialog action="delete" value={confirmationText} error={confirmationError} busy={actionBusy} onValueChange={(value) => { setConfirmationText(value); setConfirmationError(value && value !== "SUPPRIMER DÉFINITIVEMENT" ? "Le texte de confirmation est incorrect." : ""); }} onCancel={closeSensitiveAction} onConfirm={() => void executeSensitiveAction()} />}
+    {sensitiveAction && <SecretaryDocumentDeleteDialog kind="correspondence" value={confirmationText} busy={actionBusy} onValueChange={setConfirmationText} onCancel={closeSensitiveAction} onConfirm={() => void executeSensitiveAction()} />}
   </section>;
 }
 
 function TableCell({ value, strong = false }: { value?: string; strong?: boolean }) { return <td className={`truncate p-3 ${strong ? "font-semibold" : ""}`} title={value || "-"}>{value || "-"}</td>; }
 
 function CorrespondenceActionButton({ label, icon: Icon, onClick, danger = false, disabled = false, loading = false }: { label: string; icon: typeof Eye; onClick: () => void; danger?: boolean; disabled?: boolean; loading?: boolean }) { return <button type="button" title={label} aria-label={label} onClick={onClick} disabled={disabled} className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-50 ${danger ? "bg-red-50 text-red-700 hover:bg-red-100" : "bg-slate-100 text-slate-700 hover:bg-slate-200 hover:text-slate-950"}`}><Icon aria-hidden="true" className={`h-4 w-4 ${loading ? "animate-pulse" : ""}`} /></button>; }
-
-function SensitiveActionDialog({ value, error, busy, onValueChange, onCancel, onConfirm }: { action: "delete"; value: string; error: string; busy: boolean; onValueChange: (value: string) => void; onCancel: () => void; onConfirm: () => void }) {
-  const expected = "SUPPRIMER DÉFINITIVEMENT";
-  const title = "SUPPRIMER LE COURRIER";
-  const message = "Cette opération est définitive. Le courrier sera supprimé de manière irréversible.";
-  const actionLabel = "Supprimer définitivement";
-  return <div role="dialog" aria-modal="true" aria-labelledby="sensitive-action-title" aria-describedby="sensitive-action-description" className="fixed inset-0 z-[80] grid place-items-center bg-slate-950/50 p-4"><form className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl" onSubmit={(event) => { event.preventDefault(); if (value === expected && !busy) onConfirm(); }}><h3 id="sensitive-action-title" className="text-lg font-extrabold">{title}</h3><p id="sensitive-action-description" className="mt-3 text-sm text-slate-700">{message}<br /><br />Pour confirmer, saisissez exactement :<br /><strong>{expected}</strong></p><label className="mt-4 grid gap-1 text-sm font-semibold">Texte de confirmation<input autoFocus className="input" value={value} disabled={busy} aria-invalid={Boolean(error)} aria-describedby={error ? "sensitive-action-error" : undefined} onChange={(event) => onValueChange(event.target.value)} /></label>{error && <p id="sensitive-action-error" role="alert" className="mt-2 text-sm font-semibold text-red-700">{error}</p>}<div className="mt-5 flex justify-end gap-2"><button type="button" className="secondary-button" disabled={busy} onClick={onCancel}>Annuler</button><button type="submit" className="rounded bg-red-700 px-4 py-2 font-semibold text-white disabled:opacity-50" disabled={busy || value !== expected}>{busy ? "Traitement…" : actionLabel}</button></div></form></div>;
-}
 
 function correspondenceTypeLabel(value?: string) {
   return ({ administrative_letter: "Lettre administrative", official_request: "Demande officielle", administrative_response: "Réponse administrative", transmission_letter: "Lettre de transmission", summons: "Convocation", notification: "Notification", formal_notice: "Mise en demeure", information_letter: "Lettre d’information", other: "Autre courrier sortant" } as Record<string, string>)[value ?? ""] ?? "Courrier sortant";

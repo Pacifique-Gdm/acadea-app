@@ -11,7 +11,8 @@ describe("liste des rapports du Secrétaire", () => {
     expect(source).toContain('title="Afficher le PDF"');
     expect(source).toContain('aria-label="Afficher le PDF"');
     expect(source).toContain("showReportPdf(report)");
-    expect(source).toContain("Supprimer définitivement");
+    expect(source).toContain('title="Supprimer"');
+    expect(source).toContain('<SecretaryDocumentDeleteDialog kind="report"');
   });
 
   it("combine la recherche, le filtre de type et l'export de la liste visible", () => {

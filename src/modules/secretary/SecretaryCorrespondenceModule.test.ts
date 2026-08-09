@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("module Courrier du Secrétaire", () => {
-  const moduleSource = readFileSync(new URL("./SecretaryCorrespondenceModule.tsx", import.meta.url), "utf8");
+const moduleSource = readFileSync(new URL("./SecretaryCorrespondenceModule.tsx", import.meta.url), "utf8");
+const deleteDialogSource = readFileSync(new URL("./SecretaryDocumentDeleteDialog.tsx", import.meta.url), "utf8");
   const formSource = readFileSync(new URL("./OutgoingCorrespondenceForm.tsx", import.meta.url), "utf8");
   const actionsSource = readFileSync(new URL("./SecretaryDocumentFormActions.tsx", import.meta.url), "utf8");
   const signatoriesSource = readFileSync(new URL("./SignatoriesEditor.tsx", import.meta.url), "utf8");
@@ -58,20 +59,19 @@ describe("module Courrier du Secrétaire", () => {
   });
 
   it("confirme strictement la suppression définitive avec une saisie manuelle", () => {
-    expect(moduleSource).toContain("SUPPRIMER DÉFINITIVEMENT");
-    expect(moduleSource).toContain("Cette opération est définitive.");
-    expect(moduleSource).toContain('confirmationText !== expected');
-    expect(moduleSource).toContain("Le texte de confirmation est incorrect.");
+    expect(moduleSource).toContain("SUPPRIMER COURRIER");
+    expect(deleteDialogSource).toContain("Cette action supprimera définitivement ce");
+    expect(deleteDialogSource).toContain("Le texte de confirmation est incorrect.");
     expect(moduleSource).toContain('setSensitiveAction({ kind: "delete", target: item })');
     expect(moduleSource).toContain("await deleteCorrespondencePermanently(user, sensitiveAction.target, confirmationText)");
-    expect(moduleSource).toContain('changeArchiveState(item, "archive")');
-    expect(moduleSource).toContain('changeArchiveState(item, "restore")');
+    expect(moduleSource).not.toContain('changeArchiveState(item, "archive")');
+    expect(moduleSource).toContain("restoreArchived(item)");
   });
 
   it("supprime définitivement Firestore et nettoie Storage après confirmation", () => {
-    expect(moduleSource).toContain('label="Supprimer définitivement"');
+    expect(moduleSource).toContain('label="Supprimer"');
     expect(moduleSource).toContain('setSensitiveAction({ kind: "delete", target: item })');
-    expect(moduleSource).toContain("SUPPRIMER DÉFINITIVEMENT");
+    expect(moduleSource).toContain("SUPPRIMER COURRIER");
     expect(moduleSource).toContain("await deleteCorrespondencePermanently");
     expect(serviceSource).toContain('"secretaryDeleteDocument"');
     expect(serviceSource).toContain('kind: "correspondence"');
@@ -79,11 +79,17 @@ describe("module Courrier du Secrétaire", () => {
   });
 
   it("rend le dialogue accessible et bloque les doubles clics", () => {
-    expect(moduleSource).toContain('role="dialog"');
-    expect(moduleSource).toContain('aria-modal="true"');
-    expect(moduleSource).toContain("autoFocus");
-    expect(moduleSource).toContain("if (value === expected && !busy)");
-    expect(moduleSource).toContain("disabled={busy || value !== expected}");
+    expect(deleteDialogSource).toContain('role="dialog"');
+    expect(deleteDialogSource).toContain('aria-modal="true"');
+    expect(deleteDialogSource).toContain("autoFocus");
+    expect(deleteDialogSource).toContain("if (value === expected && !busy)");
+    expect(deleteDialogSource).toContain("disabled={busy || value !== expected}");
+  });
+
+  it("retire le filtre Courriers actifs sans retirer les autres filtres", () => {
+    expect(moduleSource).not.toContain("Courriers actifs");
+    expect(moduleSource).not.toContain("archiveView");
+    for (const label of ["Tous les sens", "Tous les types", "Toutes les priorités", "Tous les modes"]) expect(moduleSource).toContain(label);
   });
 
   it("retire le contenu obligatoire du courrier entrant", () => {

@@ -489,7 +489,7 @@ export function ParentPortal({
             <FormPanel title="Message">
               <form onSubmit={sendParentMessage} className="grid min-w-0 gap-4">
                 <fieldset className="grid min-w-0 gap-2"><legend className="text-sm font-semibold text-slate-700">Destinataires</legend>
-                  <AdministrativeRecipientSelector mode={messageRecipientMode} onModeChange={setMessageRecipientMode} search={messageRecipientSearch} onSearchChange={setMessageRecipientSearch} recipients={messageRecipients} selectedIds={messageRecipientIds} onSelectedIdsChange={setMessageRecipientIds} isLoading={messageRecipientsLoading} error={messageRecipientsError} />
+                  <AdministrativeRecipientSelector showLabel={false} mode={messageRecipientMode} onModeChange={setMessageRecipientMode} search={messageRecipientSearch} onSearchChange={setMessageRecipientSearch} recipients={messageRecipients} selectedIds={messageRecipientIds} onSelectedIdsChange={setMessageRecipientIds} isLoading={messageRecipientsLoading} error={messageRecipientsError} />
                 </fieldset>
                 <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
                   Objet

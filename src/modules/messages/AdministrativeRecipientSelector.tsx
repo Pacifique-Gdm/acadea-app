@@ -17,6 +17,7 @@ type AdministrativeRecipientSelectorProps = {
   onSelectedIdsChange: (ids: string[]) => void;
   isLoading: boolean;
   error: string;
+  showLabel?: boolean;
 };
 
 export function AdministrativeRecipientSelector({
@@ -29,6 +30,7 @@ export function AdministrativeRecipientSelector({
   onSelectedIdsChange,
   isLoading,
   error,
+  showLabel = true,
 }: AdministrativeRecipientSelectorProps) {
   const selectedRecipients = recipients.filter((recipient) => selectedIds.includes(recipient.uid));
   const searchResults = filterAdministrativeRecipients(recipients, search);
@@ -42,8 +44,8 @@ export function AdministrativeRecipientSelector({
   return (
     <>
       <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
-        Filtre des administratifs
-        <select value={mode} onChange={(event) => changeMode(event.target.value as AdministrativeRecipientMode)} className="input">
+        {showLabel && <span>Filtre des administratifs</span>}
+        <select aria-label="Filtre des administratifs" value={mode} onChange={(event) => changeMode(event.target.value as AdministrativeRecipientMode)} className="input">
           <option value="all">Tous les administratifs</option>
           <option value="selection">Sélection administratif</option>
         </select>

@@ -8,11 +8,12 @@ function codeOf(run: () => void) {
 }
 
 describe("politique de suppression définitive Secrétaire", () => {
-  it("autorise uniquement le brouillon archivé appartenant à l'appelant", () => {
+  it("autorise uniquement le brouillon actif ou archivé appartenant à l'appelant", () => {
+    expect(() => assertPermanentDeletionAllowed({ currentStatus: "draft", ownerId: "secretary-a", actorId: "secretary-a", archivedFromStatus: undefined })).not.toThrow();
     expect(() => assertPermanentDeletionAllowed({ currentStatus: "archived", ownerId: "secretary-a", actorId: "secretary-a", archivedFromStatus: "draft" })).not.toThrow();
   });
 
-  it.each(["draft", "finalized", "sent", "validated", "signed"])("refuse un document non archivé (%s)", (currentStatus) => {
+  it.each(["finalized", "sent", "validated", "signed", "pending_validation", "ready_to_send"])("refuse un statut protégé (%s)", (currentStatus) => {
     expect(codeOf(() => assertPermanentDeletionAllowed({ currentStatus, ownerId: "secretary-a", actorId: "secretary-a", archivedFromStatus: "draft" }))).toContain("failed-precondition");
   });
 
@@ -50,7 +51,9 @@ describe("politique de suppression définitive Secrétaire", () => {
   it("impose authentification, confirmation et audit atomique dans la Callable", () => {
     const source = readFileSync(new URL("./secretaryDocumentDeletion.ts", import.meta.url), "utf8");
     expect(source).toContain('throw new HttpsError("unauthenticated"');
-    expect(source).toContain('request.data?.confirmation !== DELETE_CONFIRMATION');
+    expect(source).toContain('request.data?.confirmation !== deleteConfirmation(kind)');
+    expect(source).toContain('"SUPPRIMER COURRIER"');
+    expect(source).toContain('"SUPPRIMER RAPPORT"');
     expect(source).toContain('batch.create(db.doc(`auditLogs/${auditId}`), audit)');
     expect(source).toContain('batch.commit()');
     for (const action of ["CORRESPONDENCE_ARCHIVED", "CORRESPONDENCE_RESTORED", "CORRESPONDENCE_DELETED", "REPORT_ARCHIVED", "REPORT_RESTORED", "REPORT_DELETED"]) expect(source).toContain(action);

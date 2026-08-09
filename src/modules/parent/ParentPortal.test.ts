@@ -5,10 +5,10 @@ const source = readFileSync("src/modules/parent/ParentPortal.tsx", "utf8");
 const selectorSource = readFileSync("src/modules/messages/AdministrativeRecipientSelector.tsx", "utf8");
 
 describe("portail Parent", () => {
-  it("ouvre directement l'historique enfant et conserve un retour accessible a droite", () => {
+  it("ouvre directement l'historique enfant et conserve un retour accessible à gauche", () => {
     expect(source).toContain("setSelectedParentChildId(student.id)");
     expect(source).toContain('aria-label="Retour aux enfants"');
-    expect(source).toContain("justify-between");
+    expect(source).toContain('className="mb-4 flex min-w-0 items-center gap-3"');
   });
 
   it("utilise un annuaire dynamique multiselection sans destinataires statiques", () => {
@@ -26,6 +26,8 @@ describe("portail Parent", () => {
     expect(selectorSource).toContain("search.trim()");
     expect(source).toContain('useState<AdministrativeRecipientMode>("all")');
     expect(source).toContain("resolveAdministrativeRecipientIds(messageRecipientMode, messageRecipients, messageRecipientIds)");
+    expect(source).toContain("showLabel={false}");
+    expect(selectorSource).toContain('{showLabel && <span>Filtre des administratifs</span>}');
   });
 
   it("envoie une seule requête sécurisée avec les destinataires résolus et sans pièces jointes", () => {

@@ -8,12 +8,15 @@ import { assertActiveSchoolYear, type SchoolYearDatabase } from "../security/sch
 type DocumentKind = "correspondence" | "report";
 type DocumentAction = "archive" | "restore" | "delete";
 
-const DELETE_CONFIRMATION = "SUPPRIMER DÉFINITIVEMENT";
+function deleteConfirmation(kind: DocumentKind) {
+  return kind === "correspondence" ? "SUPPRIMER COURRIER" : "SUPPRIMER RAPPORT";
+}
 
 export function assertPermanentDeletionAllowed(input: { currentStatus: string; ownerId: unknown; actorId: string; archivedFromStatus: unknown }) {
-  if (input.currentStatus !== "archived") throw new HttpsError("failed-precondition", "Archivez le document avant sa suppression définitive.");
   if (input.ownerId !== input.actorId) throw new HttpsError("permission-denied", "Seul l’auteur peut supprimer définitivement ce document.");
-  if (input.archivedFromStatus !== "draft") throw new HttpsError("failed-precondition", "Seul un brouillon archivé peut être supprimé définitivement.");
+  const deletableDraft = input.currentStatus === "draft"
+    || (input.currentStatus === "archived" && input.archivedFromStatus === "draft");
+  if (!deletableDraft) throw new HttpsError("failed-precondition", "Seul un brouillon peut être supprimé définitivement.");
 }
 
 export function assertSecretaryDocumentAccess(input: { tokenRole: unknown; tokenSchoolId: string; profile: Record<string, unknown> | undefined; documentSchoolId: unknown }) {
@@ -41,7 +44,7 @@ export const secretaryDeleteDocument = onCall({ region: "europe-west1", invoker:
   const kind: DocumentKind | undefined = request.data?.kind === "correspondence" || request.data?.kind === "report" ? request.data.kind : undefined;
   const action: DocumentAction | undefined = request.data?.action === "archive" || request.data?.action === "restore" || request.data?.action === "delete" ? request.data.action : undefined;
   if (!schoolId || !documentId || documentId.length > 128 || !kind || !action) throw new HttpsError("invalid-argument", "Document ou action invalide.");
-  if (action === "delete" && request.data?.confirmation !== DELETE_CONFIRMATION) throw new HttpsError("invalid-argument", "Confirmation de suppression incorrecte.");
+  if (action === "delete" && request.data?.confirmation !== deleteConfirmation(kind)) throw new HttpsError("invalid-argument", "Confirmation de suppression incorrecte.");
 
   const db = getFirestore();
   const collectionName = kind === "correspondence" ? "correspondences" : "secretaryReports";
