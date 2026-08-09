@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import type { AppData, AppNotification, AppUser, AuditLog, Message, ParentProfile, School, Student } from "../../types";
+import { administrativeSenderDetails } from "../../utils/administrativeSender";
 
 type MessageDrawerYearData = {
   auditLogs: AuditLog[];
@@ -36,11 +37,9 @@ export function MessageDrawerContent({
   user,
   data,
   yearData,
-  school,
   notifications: paginatedNotifications,
   realtimeMessages = [],
   notificationPagination,
-  roleLabels,
   focusedMessageId,
 }: {
   user: AppUser;
@@ -104,12 +103,12 @@ export function MessageDrawerContent({
         children: parentChildren(senderParent),
       };
     }
+    const administrativeSender = administrativeSenderDetails(message, sender);
     return {
-        type: "school" as const,
-        name: sender?.name ?? school.name,
-        role: sender ? roleLabels[sender.role] : "École",
-        children: [],
-      };
+      type: "school" as const,
+      ...administrativeSender,
+      children: [],
+    };
   }
 
   function canShowMessageInConversation(message: Message) {
@@ -131,7 +130,7 @@ export function MessageDrawerContent({
   function canShowMessageInFeed(message: Message) {
     if (!canShowMessageInConversation(message)) return false;
     if (!isParent) return true;
-    return message.senderId === user.id || message.threadParentId === user.parentId || message.recipientParentId === user.parentId || message.recipientParentId === "all";
+    return message.senderId === user.id || message.participantIds?.includes(user.id) || message.threadParentId === user.parentId || message.recipientParentId === user.parentId || message.recipientParentId === "all";
   }
 
   const notificationItems: NotificationFeedItem[] = notifications
@@ -238,7 +237,7 @@ export function MessageDrawerContent({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className={`break-words font-semibold ${senderIsParent ? "text-white" : "text-ink"}`}>
-              {sender.role && sender.role !== "École" ? `${sender.role} : ${sender.name}` : sender.name}
+              {sender.role === "École" ? sender.name : sender.type === "school" ? `${sender.name} — ${sender.role}` : `${sender.role} : ${sender.name}`}
             </p>
             {sender.children.length > 0 && (
               <p className={`break-words text-xs font-semibold ${senderIsParent ? "text-slate-200" : "text-slate-500"}`}>

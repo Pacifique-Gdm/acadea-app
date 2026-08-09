@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 // @ts-expect-error The Vercel helper is intentionally implemented in JavaScript.
-import { listAllowedMessageRecipients } from "../../api/_lib/messageRecipients.js";
+import { allowedRecipientRoles, listAllowedMessageRecipients, messagingSenderIdentity } from "../../api/_lib/messageRecipients.js";
 // @ts-expect-error The Vercel endpoint is intentionally implemented in JavaScript.
 import { resolveRecipients } from "../../api/send-school-message.js";
 
@@ -40,6 +40,7 @@ describe("annuaire des administratifs", () => {
     ["admin", "school_admin", ["cashier", "discipline", "secretary1", "secretary2"]],
     ["cashier", "cashier", ["admin", "discipline", "secretary1", "secretary2"]],
     ["discipline", "discipline_director", ["admin", "cashier", "secretary1", "secretary2"]],
+    ["secretary1", "secretary", ["admin", "cashier", "discipline"]],
   ])("retourne a %s les autres administratifs actifs de son ecole", async (uid, role, expected) => {
     const recipients = await listAllowedMessageRecipients(database(), { uid, role, schoolId: "school-a" });
     expect(recipients.filter((item: { role: string }) => item.role !== "parent").map((item: { uid: string }) => item.uid).sort()).toEqual(expected);
@@ -53,5 +54,19 @@ describe("annuaire des administratifs", () => {
     const db = database();
     await expect(resolveRecipients(db, { role: "school_admin", schoolId: "school-a" }, ["cashier", "secretary"], ["cashier", "secretary1"], "year-a")).resolves.toHaveLength(2);
     await expect(resolveRecipients(db, { role: "school_admin", schoolId: "school-a" }, ["school_admin"], ["external"], "year-a")).rejects.toMatchObject({ code: "invalid-recipient" });
+  });
+
+  it("construit le snapshot minimal de l'expediteur depuis le profil serveur", () => {
+    expect(messagingSenderIdentity({ role: "admin", profile: { name: "Paul Kanku" } })).toEqual({ senderName: "Paul Kanku", senderRole: "school_admin" });
+    expect(messagingSenderIdentity({ role: "secretary", profile: {} })).toEqual({ senderName: "Utilisateur administratif", senderRole: "secretary" });
+  });
+
+  it.each([
+    ["school_admin", ["cashier", "secretary", "discipline_director", "parent"]],
+    ["cashier", ["school_admin", "secretary", "discipline_director", "parent"]],
+    ["secretary", ["school_admin", "cashier", "discipline_director", "parent"]],
+    ["discipline_director", ["school_admin", "cashier", "secretary", "parent"]],
+  ])("preserve la matrice de destinataires de %s", (role, expected) => {
+    expect([...allowedRecipientRoles(role)].sort()).toEqual([...expected].sort());
   });
 });

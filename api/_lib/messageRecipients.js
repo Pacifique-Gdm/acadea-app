@@ -12,6 +12,15 @@ export function normalizedMessagingRole(value) {
   return value === "admin" ? "school_admin" : value;
 }
 
+export function messagingSenderIdentity(caller) {
+  const profile = caller?.profile ?? {};
+  const senderName = String(profile.displayName ?? profile.name ?? profile.fullName ?? "").trim();
+  return {
+    senderName: senderName || "Utilisateur administratif",
+    senderRole: normalizedMessagingRole(caller?.role),
+  };
+}
+
 export function allowedRecipientRoles(role) {
   return RECIPIENTS_BY_ROLE[normalizedMessagingRole(role)] ?? new Set();
 }

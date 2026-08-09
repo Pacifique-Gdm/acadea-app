@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { requireActiveSchoolYear } from "./_lib/schoolYear.js";
-import { allowedRecipientRoles, normalizedMessagingRole, requireMessagingCaller } from "./_lib/messageRecipients.js";
+import { allowedRecipientRoles, messagingSenderIdentity, normalizedMessagingRole, requireMessagingCaller } from "./_lib/messageRecipients.js";
 
 export const MAX_TOTAL_BYTES = 10 * 1024 * 1024;
 const MAX_ATTACHMENTS = 10;
@@ -114,6 +114,25 @@ export async function verifyAndMoveAttachments(bucket, caller, schoolYearId, dra
   }
 }
 
+export function createSchoolMessageDocument({ messageId, caller, schoolYearId, recipients, participantIds, conversationId, subject, messageBody, attachments, createdAt }) {
+  return {
+    id: messageId,
+    schoolId: caller.schoolId,
+    schoolYearId,
+    senderId: caller.uid,
+    ...messagingSenderIdentity(caller),
+    recipientIds: recipients.map((recipient) => recipient.id),
+    participantIds,
+    recipientParentId: "school",
+    threadId: conversationId,
+    conversationId,
+    subject,
+    body: messageBody,
+    attachments,
+    createdAt,
+  };
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return sendJson(res, 405, { error: "method-not-allowed", message: "Methode non autorisee." });
   let temporaryPaths = [];
@@ -151,7 +170,7 @@ export default async function handler(req, res) {
     const attachments = await verifyAndMoveAttachments(bucket, caller, schoolYearId, draftId, inputAttachments, conversationId, messageId);
     finalPaths = attachments.map((item) => item.path);
     const participantIds = [...new Set([caller.uid, ...recipients.map((recipient) => recipient.id)])];
-    const savedMessage = { id: messageId, schoolId: caller.schoolId, schoolYearId, senderId: caller.uid, recipientIds: recipients.map((recipient) => recipient.id), participantIds, recipientParentId: "school", threadId: conversationId, conversationId, subject, body: messageBody, attachments, createdAt };
+    const savedMessage = createSchoolMessageDocument({ messageId, caller, schoolYearId, recipients, participantIds, conversationId, subject, messageBody, attachments, createdAt });
     const conversation = { id: conversationId, schoolId: caller.schoolId, schoolYearId, threadId: conversationId, threadParentId: "school", parentId: "school", participantIds, lastMessage: messageBody, lastMessageAt: createdAt, lastSenderId: caller.uid, lastSenderRole: caller.role, messageCount: 1, unreadParentCount: 0, unreadAdminCount: 0, unreadCashierCount: 0, unreadDisciplineCount: 0, createdAt, updatedAt: createdAt, status: "active" };
     const batch = db.batch();
     batch.set(db.doc(`messages/${messageId}`), savedMessage);

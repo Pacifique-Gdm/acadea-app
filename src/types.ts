@@ -201,6 +201,8 @@ export interface Message {
   schoolId: string;
   schoolYearId: string;
   senderId: string;
+  senderName?: string;
+  senderRole?: "parent" | "school_admin" | "cashier" | "discipline_director" | "secretary";
   participantIds?: string[];
   recipientIds?: string[];
   recipientParentId: string | "all" | "school";
