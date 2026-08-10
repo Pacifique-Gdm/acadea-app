@@ -39,7 +39,6 @@ export function subscribeToStudyData(input: { user: AppUser; schoolId: string; s
     collection(database, "users"),
     where("schoolId", "==", input.schoolId),
     where("role", "==", "teacher"),
-    where("status", "==", "active"),
   ), (snapshot) => {
     teacherUsers = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as AppUser[];
     usersReady = true;
@@ -60,15 +59,15 @@ export function subscribeToStudyData(input: { user: AppUser; schoolId: string; s
 }
 
 export function mergeStudyTeachers(profiles: StudyTeacher[], users: AppUser[]) {
-  const activeTeachers = new Map(users
-    .filter((user) => user.role === "teacher" && user.status !== "inactive" && Boolean(user.schoolId))
+  const teacherAccounts = new Map(users
+    .filter((user) => user.role === "teacher" && Boolean(user.schoolId))
     .map((user) => [user.id, user]));
   const linkedUsers = new Set<string>();
 
   return profiles.flatMap((profile) => {
     if (!profile.userId) return [profile];
     if (linkedUsers.has(profile.userId)) return [];
-    const user = activeTeachers.get(profile.userId);
+    const user = teacherAccounts.get(profile.userId);
     if (!user || user.schoolId !== profile.schoolId) return [];
     linkedUsers.add(profile.userId);
     const fullName = user.name.trim();
@@ -80,7 +79,7 @@ export function mergeStudyTeachers(profiles: StudyTeacher[], users: AppUser[]) {
       fullName,
       email: user.email,
       phone: user.phone,
-      status: "active" as const,
+      status: user.status === "inactive" || user.active === false ? "inactive" as const : "active" as const,
     }];
   });
 }
@@ -126,6 +125,15 @@ export async function savePedagogicalAssignment(input: { user: AppUser; schoolId
     // authorize a missing resource. The deterministic write remains validated
     // by the assignment create/update rules and the references read below.
     const [teacher, subject, schoolClass, room] = await Promise.all([transaction.get(teacherRef), transaction.get(subjectRef), transaction.get(classRef), roomRef ? transaction.get(roomRef) : Promise.resolve(undefined)]);
+    const teacherData = teacher.data();
+    if (teacherData?.status === "inactive") throw new Error("Cet enseignant est archivé et ne peut plus recevoir de nouvelle affectation.");
+    if (typeof teacherData?.userId === "string") {
+      const teacherUser = await transaction.get(doc(database, "users", teacherData.userId));
+      const teacherUserData = teacherUser.data();
+      if (!teacherUser.exists() || teacherUserData?.schoolId !== input.schoolId || teacherUserData?.role !== "teacher" || teacherUserData?.status === "inactive" || teacherUserData?.active === false) {
+        throw new Error("Cet enseignant est archivé et ne peut plus recevoir de nouvelle affectation.");
+      }
+    }
     const validReference = (snapshot: typeof teacher) => { const value = snapshot.data(); return snapshot.exists() && value?.schoolId === input.schoolId && value.schoolYearId === input.schoolYearId; };
     if (!validReference(teacher) || !validReference(subject) || !validReference(schoolClass)) throw new Error("Une référence pédagogique est inconnue ou hors périmètre.");
     if (room && (!room.exists() || room.data()?.schoolId !== input.schoolId || room.data()?.schoolYearId !== input.schoolYearId || room.data()?.active !== true)) throw new Error("La salle préférée est inconnue, inactive ou hors périmètre.");

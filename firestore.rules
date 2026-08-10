@@ -363,7 +363,7 @@ service cloud.firestore {
         || (signedIn() && request.auth.uid == userId)
         || (schoolAdmin()
           && resource.data.schoolId == tenantSchoolId()
-          && resource.data.role == "teacher")
+          && resource.data.role in ["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"])
         || (studyDirector()
           && resource.data.schoolId == tenantSchoolId()
           && resource.data.role == "teacher");
@@ -378,7 +378,7 @@ service cloud.firestore {
           && request.resource.data.parentId is string);
       allow update: if signedIn()
         && request.auth.uid == userId
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["id", "role", "schoolId", "parentId", "studentIds", "status"]);
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["id", "role", "schoolId", "parentId", "studentIds", "status", "active", "archivedAt", "archivedBy", "reactivatedAt", "reactivatedBy"]);
       allow delete: if false;
 
       match /pushTokens/{tokenId} {
@@ -549,9 +549,21 @@ service cloud.firestore {
     }
 
     match /pedagogicalAssignments/{assignmentId} {
+      function assignmentTeacherIsActive() {
+        let teacher = get(/databases/$(database)/documents/teachers/$(request.resource.data.teacherId)).data;
+        return teacher.status != "inactive"
+          && (!("userId" in teacher)
+            || (teacher.userId is string
+              && exists(/databases/$(database)/documents/users/$(teacher.userId))
+              && get(/databases/$(database)/documents/users/$(teacher.userId)).data.schoolId == tenantSchoolId()
+              && get(/databases/$(database)/documents/users/$(teacher.userId)).data.role == "teacher"
+              && get(/databases/$(database)/documents/users/$(teacher.userId)).data.status != "inactive"
+              && get(/databases/$(database)/documents/users/$(teacher.userId)).data.active != false));
+      }
       function assignmentReferencesAreValid() {
         return get(/databases/$(database)/documents/teachers/$(request.resource.data.teacherId)).data.schoolId == tenantSchoolId()
           && get(/databases/$(database)/documents/teachers/$(request.resource.data.teacherId)).data.schoolYearId == request.resource.data.schoolYearId
+          && assignmentTeacherIsActive()
           && get(/databases/$(database)/documents/subjects/$(request.resource.data.subjectId)).data.schoolId == tenantSchoolId()
           && get(/databases/$(database)/documents/subjects/$(request.resource.data.subjectId)).data.schoolYearId == request.resource.data.schoolYearId
           && get(/databases/$(database)/documents/classes/$(request.resource.data.classId)).data.schoolId == tenantSchoolId()

@@ -36,6 +36,9 @@ export function LoginScreen({
 
   function formatLoginError(loginError: unknown) {
     const message = loginError instanceof Error ? loginError.message : String(loginError);
+    if (message.includes("auth/user-disabled") || message.includes("n’est plus actif") || message.includes("n'est plus actif")) {
+      return "Votre compte n’est plus actif dans cet établissement.";
+    }
     if (message.includes("auth/invalid-credential") || message.includes("auth/user-not-found") || message.includes("auth/wrong-password")) {
       return "Email ou mot de passe incorrect.";
     }

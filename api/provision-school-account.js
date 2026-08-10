@@ -7,6 +7,7 @@ import { requireActiveSchoolYear } from "./_lib/schoolYear.js";
 const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent"]);
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
 const adminRemovalConfirmation = "SUPPRIMER ADMINISTRATEUR";
+const internalPersonnelRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]);
 
 async function readBody(req) {
   if (req.body && typeof req.body === "object") return req.body;
@@ -216,6 +217,67 @@ export async function removeSchoolAdmin({ auth, db, caller, body }) {
   return { adminId, status: "inactive", authStatus: "disabled", removedAt };
 }
 
+export async function managePersonnel({ auth, db, caller, body, action }) {
+  const schoolId = normalizeText(body.schoolId);
+  const personnelId = normalizeText(body.personnelId);
+  if (caller.role !== "school_admin" || caller.schoolId !== schoolId) {
+    throw Object.assign(new Error("Action reservee a l'Administrateur de cette ecole."), { statusCode: 403, code: "permission-denied" });
+  }
+  if (!schoolId || !personnelId) throw Object.assign(new Error("Ecole et personnel requis."), { statusCode: 400, code: "invalid-argument" });
+  const callerSnapshot = await db.doc(`users/${caller.uid}`).get();
+  const callerProfile = callerSnapshot.data();
+  if (!callerSnapshot.exists || callerProfile?.role !== "school_admin" || callerProfile?.schoolId !== schoolId || callerProfile?.status === "inactive" || callerProfile?.active === false) {
+    throw Object.assign(new Error("Compte Administrateur non autorise."), { statusCode: 403, code: "permission-denied" });
+  }
+  const targetRef = db.doc(`users/${personnelId}`);
+  const targetSnapshot = await targetRef.get();
+  if (!targetSnapshot.exists) throw Object.assign(new Error("Personnel introuvable."), { statusCode: 404, code: "not-found" });
+  const target = targetSnapshot.data() ?? {};
+  if (target.schoolId !== schoolId || !internalPersonnelRoles.has(target.role)) {
+    throw Object.assign(new Error("Personnel hors de cette ecole ou role non autorise."), { statusCode: 403, code: "permission-denied" });
+  }
+  if (action === "archive-personnel" && personnelId === caller.uid) {
+    throw Object.assign(new Error("Vous ne pouvez pas archiver votre propre compte Administrateur."), { statusCode: 409, code: "failed-precondition" });
+  }
+  const now = new Date().toISOString();
+  const auditRef = db.collection("auditLogs").doc(uid("audit"));
+  if (action === "update-personnel") {
+    const name = normalizeText(body.name);
+    const phone = normalizeText(body.phone);
+    const email = normalizeEmail(body.email);
+    if (!name || !phone || !email) throw Object.assign(new Error("Nom, telephone et email sont requis."), { statusCode: 400, code: "invalid-argument" });
+    const previousAuth = await auth.getUser(personnelId);
+    await auth.updateUser(personnelId, { displayName: name, email });
+    const batch = db.batch();
+    batch.update(targetRef, { name, phone, email, updatedAt: now, updatedBy: caller.uid });
+    batch.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.USER_UPDATED, actor: caller, schoolId, resourceType: "user", resourceId: personnelId, metadata: { role: target.role } }));
+    try { await batch.commit(); } catch (error) {
+      const rollback = {};
+      if (previousAuth.displayName !== undefined && previousAuth.displayName !== null) rollback.displayName = previousAuth.displayName;
+      if (previousAuth.email) rollback.email = previousAuth.email;
+      await auth.updateUser(personnelId, rollback).catch(() => undefined);
+      throw error;
+    }
+    return { user: { ...target, id: personnelId, name, phone, email, updatedAt: now, updatedBy: caller.uid } };
+  }
+  const archive = action === "archive-personnel";
+  if (archive && (target.status === "inactive" || target.active === false)) return { user: { ...target, id: personnelId }, authStatus: "disabled" };
+  if (!archive && target.status !== "inactive" && target.active !== false) return { user: { ...target, id: personnelId }, authStatus: "enabled" };
+  await auth.updateUser(personnelId, { disabled: archive });
+  if (archive) await auth.revokeRefreshTokens(personnelId);
+  const patch = archive
+    ? { status: "inactive", active: false, archivedAt: now, archivedBy: caller.uid, updatedAt: now, updatedBy: caller.uid }
+    : { status: "active", active: true, archivedAt: null, archivedBy: null, reactivatedAt: now, reactivatedBy: caller.uid, updatedAt: now, updatedBy: caller.uid };
+  const batch = db.batch();
+  batch.update(targetRef, patch);
+  batch.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: archive ? AUDIT_EVENT_TYPES.USER_DISABLED : AUDIT_EVENT_TYPES.USER_REACTIVATED, actor: caller, schoolId, resourceType: "user", resourceId: personnelId, metadata: { role: target.role } }));
+  try { await batch.commit(); } catch (error) {
+    await auth.updateUser(personnelId, { disabled: !archive }).catch(() => undefined);
+    throw error;
+  }
+  return { user: { ...target, id: personnelId, ...patch }, authStatus: archive ? "disabled" : "enabled" };
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     sendJson(res, 405, { error: "Methode non autorisee." });
@@ -243,7 +305,7 @@ export default async function handler(req, res) {
     const caller = await auth.verifyIdToken(token, true);
     const body = await readBody(req);
     const action = normalizeText(body.action);
-    const destructive = action === "delete-parent" || action === "remove-school-admin";
+    const destructive = action === "delete-parent" || action === "remove-school-admin" || action === "archive-personnel" || action === "reactivate-personnel";
     await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? "platform"), action: destructive ? `provision.${action}` : "provision.account", ...(destructive ? API_RATE_LIMITS.PROVISION_DESTRUCTIVE : API_RATE_LIMITS.PROVISION_ACCOUNT) });
 
     if (action === "delete-parent") {
@@ -254,6 +316,12 @@ export default async function handler(req, res) {
 
     if (action === "remove-school-admin") {
       const result = await removeSchoolAdmin({ auth, db, caller, body });
+      sendJson(res, 200, result);
+      return;
+    }
+
+    if (["update-personnel", "archive-personnel", "reactivate-personnel"].includes(action)) {
+      const result = await managePersonnel({ auth, db, caller, body, action });
       sendJson(res, 200, result);
       return;
     }

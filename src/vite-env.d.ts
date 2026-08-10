@@ -79,8 +79,10 @@ declare module "firebase/auth" {
 }
 
 declare module "firebase/firestore" {
+  interface DocumentReference { readonly __documentReference: true }
+  interface DocumentSnapshot { id: string; exists(): boolean; data(): Record<string, unknown> }
   export function getFirestore(app?: unknown): unknown;
-  export function doc(db: unknown, collectionName: string, id: string): unknown;
+  export function doc(db: unknown, collectionName: string, id: string): DocumentReference;
   export function doc(collectionRef: unknown): { id: string };
   export function collection(db: unknown, collectionName: string): unknown;
   export function query(ref: unknown, ...constraints: unknown[]): unknown;
@@ -89,6 +91,7 @@ declare module "firebase/firestore" {
   export function deleteDoc(ref: unknown): Promise<void>;
   export function getDoc(ref: unknown): Promise<{ id: string; exists(): boolean; data(): Record<string, unknown> }>;
   export function getDocs(ref: unknown): Promise<{ size: number; docs: Array<{ id: string; ref: unknown; data(): Record<string, unknown> }> }>;
+  export function onSnapshot(ref: DocumentReference, next: (snapshot: DocumentSnapshot) => void, error?: (error: Error) => void): () => void;
   export function onSnapshot(ref: unknown, next: (snapshot: { docs: Array<{ id: string; data(): Record<string, unknown> }> }) => void, error?: (error: Error) => void): () => void;
   export function runTransaction<T>(db: unknown, operation: (transaction: {
     get(ref: unknown): Promise<{ exists(): boolean; data(): Record<string, unknown> | undefined }>;
