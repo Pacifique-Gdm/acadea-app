@@ -30,4 +30,14 @@ describe("provisionSchoolUser", () => {
     expect(payload.password).not.toBe(payload.phone);
     expect(result).not.toHaveProperty("password");
   });
+
+  it("transmet le rôle teacher au provisioning existant", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ user: { id: "teacher-1", role: "teacher", schoolId: "school-1" } }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await provisionSchoolUser({ role: "teacher", schoolId: "school-1", schoolYearId: "year-1", name: "Enseignant Test", email: "enseignant001@example.invalid", password: "0991234567", phone: "0991234567" });
+    expect(JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit).body))).toMatchObject({ role: "teacher" });
+  });
 });

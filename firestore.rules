@@ -359,7 +359,11 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if superAdmin() || (signedIn() && request.auth.uid == userId);
+      allow read: if superAdmin()
+        || (signedIn() && request.auth.uid == userId)
+        || (studyDirector()
+          && resource.data.schoolId == tenantSchoolId()
+          && resource.data.role == "teacher");
       allow create: if (superAdmin()
           && request.resource.data.id == userId
           && request.resource.data.role == "school_admin"
@@ -511,20 +515,8 @@ service cloud.firestore {
 
     match /teachers/{teacherId} {
       allow read: if superAdmin() || sameTenantResource() || studyTenantResource();
-      allow create: if (schoolAdmin() && activeTenantYearCreate())
-        || (activeStudyYearCreate()
-          && request.resource.data.firstName is string
-          && request.resource.data.firstName.size() > 0
-          && request.resource.data.lastName is string
-          && request.resource.data.lastName.size() > 0
-          && request.resource.data.fullName is string
-          && request.resource.data.status == "active"
-          && request.resource.data.createdBy == request.auth.uid);
-      allow update: if (schoolAdmin() && activeTenantYearUpdate())
-        || (activeStudyYearUpdate()
-          && request.resource.data.createdBy == resource.data.createdBy
-          && request.resource.data.createdAt == resource.data.createdAt
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["firstName", "lastName", "fullName", "status", "updatedAt"]));
+      allow create: if schoolAdmin() && activeTenantYearCreate();
+      allow update: if schoolAdmin() && activeTenantYearUpdate();
       allow delete: if schoolAdmin() && sameTenantResource()
         && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
     }

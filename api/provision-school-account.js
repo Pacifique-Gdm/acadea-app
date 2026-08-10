@@ -4,7 +4,7 @@ import { AUDIT_EVENT_TYPES, buildServerAudit } from "./_lib/serverAudit.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { requireActiveSchoolYear } from "./_lib/schoolYear.js";
 
-const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "parent"]);
+const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent"]);
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
 const adminRemovalConfirmation = "SUPPRIMER ADMINISTRATEUR";
 
@@ -292,7 +292,7 @@ export default async function handler(req, res) {
     });
     createdAuthUid = authUser.uid;
 
-    if (role === "school_admin" || role === "cashier" || role === "discipline_director" || role === "study_director" || role === "secretary") {
+    if (role === "school_admin" || role === "cashier" || role === "discipline_director" || role === "study_director" || role === "secretary" || role === "teacher") {
       const schoolUser = {
         id: authUser.uid,
         name,
@@ -306,10 +306,32 @@ export default async function handler(req, res) {
         createdAt: now,
       };
 
-      await db.doc(`users/${authUser.uid}`).set(schoolUser);
-      createdRefs.push(`users/${authUser.uid}`);
+      const userRef = db.doc(`users/${authUser.uid}`);
+      if (role === "teacher") {
+        const teacherId = `${schoolId}__${schoolYearId}__${authUser.uid}`;
+        const teacherRef = db.doc(`teachers/${teacherId}`);
+        const auditRef = db.collection("auditLogs").doc(uid("audit"));
+        const batch = db.batch();
+        batch.set(userRef, schoolUser);
+        batch.set(teacherRef, {
+          id: teacherId,
+          userId: authUser.uid,
+          schoolId,
+          schoolYearId,
+          status: "active",
+          createdAt: now,
+          updatedAt: now,
+          createdBy: caller.uid,
+        });
+        batch.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.USER_CREATED, actor: caller, schoolId, schoolYearId, resourceType: "user", resourceId: authUser.uid, metadata: { role } }));
+        await batch.commit();
+        createdRefs.push(userRef.path, teacherRef.path);
+      } else {
+        await userRef.set(schoolUser);
+        createdRefs.push(userRef.path);
+        await db.collection("auditLogs").doc(uid("audit")).set(buildServerAudit({ eventType: AUDIT_EVENT_TYPES.USER_CREATED, actor: caller, schoolId, schoolYearId, resourceType: "user", resourceId: authUser.uid, metadata: { role } }));
+      }
       await auth.setCustomUserClaims(authUser.uid, { role, schoolId });
-      await db.collection("auditLogs").doc(uid("audit")).set(buildServerAudit({ eventType: AUDIT_EVENT_TYPES.USER_CREATED, actor: caller, schoolId, schoolYearId, resourceType: "user", resourceId: authUser.uid, metadata: { role } }));
 
       sendJson(res, 200, { user: schoolUser });
       return;

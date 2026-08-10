@@ -36,7 +36,7 @@ function assertFirebaseAuthReady() {
 }
 
 function isRole(role: unknown): role is AppUser["role"] | "admin" | "superadmin" {
-  return ["super_admin", "school_admin", "cashier", "discipline_director", "study_director", "secretary", "parent", "admin", "superadmin"].includes(String(role));
+  return ["super_admin", "school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent", "admin", "superadmin"].includes(String(role));
 }
 
 function normalizeUserProfile(user: RawAppUser): AppUser {
@@ -76,7 +76,7 @@ async function loadFirebaseUserProfile(firebaseUser: FirebaseUser, authModule: F
     throw new Error("Connexion refusée : le rôle Firebase Custom Claims est manquant ou invalide.");
   }
 
-  if (["school_admin", "cashier", "discipline_director", "study_director", "secretary", "admin"].includes(String(claims.role)) && typeof claims.schoolId !== "string") {
+  if (["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "admin"].includes(String(claims.role)) && typeof claims.schoolId !== "string") {
     throw new Error("Connexion refusée : le Custom Claim schoolId est manquant.");
   }
 

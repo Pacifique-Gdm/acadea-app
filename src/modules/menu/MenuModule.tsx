@@ -20,7 +20,7 @@ import { FEE_KINDS } from "../../types";
 import { SecretaryMedicalRecordsDrawer } from "../secretary/SecretaryMedicalTools";
 import type { StudentMedicalRecord } from "../secretary/secretaryTypes";
 
-type SchoolUserProvisionRole = "cashier" | "discipline_director" | "study_director" | "secretary";
+type SchoolUserProvisionRole = "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher";
 
 type MenuYearData = {
   students: Student[];
@@ -59,6 +59,7 @@ const schoolUserProvisionLabels: Record<SchoolUserProvisionRole, string> = {
   discipline_director: "Directeur de Discipline",
   study_director: "Directeur des études",
   secretary: "Secrétaire",
+  teacher: "Enseignant",
 };
 
 export function MenuModule({
@@ -806,6 +807,7 @@ export function MenuModule({
               <option value="discipline_director">Directeur de Discipline</option>
               <option value="study_director">Directeur des études</option>
               <option value="secretary">Secrétaire</option>
+              <option value="teacher">Enseignant</option>
             </select>
           </label>
           <Field label="Nom complet" value={cashierName} onChange={setCashierName} />

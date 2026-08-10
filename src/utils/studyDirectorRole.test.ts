@@ -15,7 +15,8 @@ describe("rôle Directeur des études", () => {
   it("est provisionné avec le profil et les claims existants", () => {
     expect(api).toContain('"study_director"');
     expect(api).toContain("setCustomUserClaims(authUser.uid, { role, schoolId })");
-    expect(api).toContain("db.doc(`users/${authUser.uid}`).set(schoolUser)");
+    expect(api).toContain("const userRef = db.doc(`users/${authUser.uid}`)");
+    expect(api).toContain("userRef.set(schoolUser)");
   });
 
   it("n'obtient que les lectures tenant nécessaires à la phase 1", () => {
