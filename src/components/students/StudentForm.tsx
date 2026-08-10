@@ -52,7 +52,7 @@ export function StudentForm({
   const [subclassOpen, setSubclassOpen] = useState(false);
   const [subclassLabels, setSubclassLabels] = useState(["A", "B"]);
   const [subclassError, setSubclassError] = useState("");
-  const selectedClass = structuredClasses.find((item) => item.id === form.classId && !item.parentClassId);
+  const selectedClass = structuredClasses.find((item) => !item.parentClassId && (item.id === form.classId || (!form.classId && item.name === form.className)));
   const subclasses = selectedClass ? structuredClasses.filter((item) => item.parentClassId === selectedClass.id && item.active !== false) : [];
   const biometric = resolveStudentBiometric(form);
 

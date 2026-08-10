@@ -29,6 +29,7 @@ export function subscribeToSchoolClasses(schoolId: string, schoolYearId: string,
 
 export async function createSchoolSubclasses(input: { user: AppUser; parent: SchoolClassRecord; labels: string[]; existing: SchoolClassRecord[] }) {
   if (!db || !["school_admin", "secretary"].includes(input.user.role) || input.user.schoolId !== input.parent.schoolId) throw new Error("Création de sous-classes non autorisée.");
+  if (!input.parent.schoolYearId || input.user.activeSchoolYearId !== input.parent.schoolYearId) throw new Error("L’année scolaire de la classe est incohérente.");
   const error = validateSubclassLabels(input.labels);
   if (error) throw new Error(error);
   if (input.parent.parentClassId) throw new Error("Une sous-classe ne peut pas être subdivisée.");

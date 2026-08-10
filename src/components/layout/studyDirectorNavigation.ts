@@ -3,7 +3,7 @@ import { BookOpen, CalendarDays, LayoutDashboard, Menu as MenuIcon } from "lucid
 export type StudyDirectorTab = "dashboard" | "teachers" | "schedules" | "menu";
 
 export const studyDirectorTabs = [
-  { id: "dashboard", label: "Tableau de bord", icon: LayoutDashboard },
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "teachers", label: "Enseignants", icon: BookOpen },
   { id: "schedules", label: "Horaires", icon: CalendarDays },
   { id: "menu", label: "Menu", icon: MenuIcon },

@@ -5,7 +5,7 @@ import { studyDirectorTabs } from "../../components/layout/studyDirectorNavigati
 describe("portail Directeur des études — phase 1", () => {
   it("expose exactement les quatre onglets demandés dans le bon ordre", () => {
     expect(studyDirectorTabs.map(({ id, label }) => ({ id, label }))).toEqual([
-      { id: "dashboard", label: "Tableau de bord" },
+      { id: "dashboard", label: "Dashboard" },
       { id: "teachers", label: "Enseignants" },
       { id: "schedules", label: "Horaires" },
       { id: "menu", label: "Menu" },
