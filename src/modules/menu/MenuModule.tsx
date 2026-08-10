@@ -14,13 +14,14 @@ import { buildFeeTargetChoices, feeTargetClassName } from "../../utils/feeTarget
 import { getSchoolEducationLevels } from "../../utils/schoolConfig";
 import { nextSchoolStaffEmail, normalizeProvisioningPhone } from "../../utils/schoolAccountCredentials";
 import { temporaryPasswordAfterPhoneChange } from "../../utils/temporaryPassword";
+import { subscribeToSchoolTeacherAccounts } from "../../services/teacherAccounts";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import type { AppData, AppUser, FeeKind, FeeType, ParentProfile, School, SchoolYear, Student, ValvePublication } from "../../types";
 import { FEE_KINDS } from "../../types";
 import { SecretaryMedicalRecordsDrawer } from "../secretary/SecretaryMedicalTools";
 import type { StudentMedicalRecord } from "../secretary/secretaryTypes";
 
-type SchoolUserProvisionRole = "cashier" | "discipline_director" | "study_director" | "secretary";
+type SchoolUserProvisionRole = "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher";
 
 type MenuYearData = {
   students: Student[];
@@ -59,6 +60,7 @@ const schoolUserProvisionLabels: Record<SchoolUserProvisionRole, string> = {
   discipline_director: "Directeur de Discipline",
   study_director: "Directeur des études",
   secretary: "Secrétaire",
+  teacher: "Enseignant",
 };
 
 export function MenuModule({
@@ -128,6 +130,9 @@ export function MenuModule({
   const [medicalRecords, setMedicalRecords] = useState<StudentMedicalRecord[]>([]);
   const [medicalRecordsError, setMedicalRecordsError] = useState("");
   const [medicalRecordsOpen, setMedicalRecordsOpen] = useState(false);
+  const [teacherAccountUsers, setTeacherAccountUsers] = useState<AppUser[]>([]);
+  const [teacherAccountsLoaded, setTeacherAccountsLoaded] = useState(false);
+  const [teacherAccountsError, setTeacherAccountsError] = useState("");
   const isArchivedContext = selectedYear.status === "archived";
   const canAdmin = user.role === "school_admin" && !isArchivedContext;
   const menuSections = [
@@ -150,12 +155,24 @@ export function MenuModule({
   const feeClassChoices = buildFeeTargetChoices(yearData.students, feeClassNames);
   const parentDeleteTarget = yearData.parents.find((parent) => parent.id === parentDeleteId && parent.schoolId === school.id);
   const generatedSchoolUserEmail = useMemo(
-    () => nextSchoolStaffEmail(school, schoolUserRole, data.users, data.parents),
-    [data.parents, data.users, school, schoolUserRole],
+    () => nextSchoolStaffEmail(school, schoolUserRole, [...data.users, ...teacherAccountUsers], data.parents),
+    [data.parents, data.users, school, schoolUserRole, teacherAccountUsers],
   );
   const parentDeleteChildren = parentDeleteTarget
     ? yearData.students.filter((student) => student.parentId === parentDeleteTarget.id || parentDeleteTarget.studentIds.includes(student.id))
     : [];
+
+  useEffect(() => {
+    if (!canAdmin) return undefined;
+    setTeacherAccountsLoaded(false);
+    setTeacherAccountsError("");
+    return subscribeToSchoolTeacherAccounts({
+      user,
+      schoolId: school.id,
+      onData: (users) => { setTeacherAccountUsers(users); setTeacherAccountsLoaded(true); setTeacherAccountsError(""); },
+      onError: () => { setTeacherAccountsLoaded(false); setTeacherAccountsError("Impossible de vérifier les comptes Enseignant existants."); },
+    });
+  }, [canAdmin, school.id, user]);
 
   useEffect(() => {
     if (!medicalRecordsOpen || !canAdmin) return undefined;
@@ -798,6 +815,7 @@ export function MenuModule({
       return (
         <div className="grid min-w-0 gap-4">
           {cashierError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{cashierError}</p>}
+          {schoolUserRole === "teacher" && teacherAccountsError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{teacherAccountsError}</p>}
           {cashierSuccess && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{cashierSuccess}</p>}
           <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
             Type d'utilisateur
@@ -806,6 +824,7 @@ export function MenuModule({
               <option value="discipline_director">Directeur de Discipline</option>
               <option value="study_director">Directeur des études</option>
               <option value="secretary">Secrétaire</option>
+              <option value="teacher">Enseignant</option>
             </select>
           </label>
           <Field label="Nom complet" value={cashierName} onChange={setCashierName} />
@@ -821,7 +840,7 @@ export function MenuModule({
             visible={showCashierPassword}
             onToggle={() => setShowCashierPassword(!showCashierPassword)}
           />
-          <button onClick={saveSchoolUser} disabled={schoolUserSubmitting || !cashierName.trim() || !cashierEmail.trim() || !cashierPhone.trim() || !cashierPassword} className="primary-button disabled:opacity-50" type="button">
+          <button onClick={saveSchoolUser} disabled={schoolUserSubmitting || (schoolUserRole === "teacher" && !teacherAccountsLoaded) || !cashierName.trim() || !cashierEmail.trim() || !cashierPhone.trim() || !cashierPassword} className="primary-button disabled:opacity-50" type="button">
             <UserRound className="h-4 w-4" /> {schoolUserSubmitting ? "Création..." : "Créer l'utilisateur"}
           </button>
         </div>

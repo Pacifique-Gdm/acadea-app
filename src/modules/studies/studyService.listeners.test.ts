@@ -25,7 +25,7 @@ vi.mock("@firebase/firestore", () => ({
   writeBatch: vi.fn(),
 }));
 
-import { subscribeToStudyData } from "./studyService";
+import { mergeStudyTeachers, subscribeToStudyData } from "./studyService";
 
 const user: AppUser = { id: "director-1", name: "Direction", email: "direction@example.test", role: "study_director", schoolId: "school-1" };
 
@@ -56,12 +56,17 @@ describe("listeners temps réel Direction des études", () => {
 
   it("crée une seule écoute par collection avec les bons périmètres", () => {
     subscribe();
-    expect(firestore.subscriptions).toHaveLength(9);
+    expect(firestore.subscriptions).toHaveLength(10);
     expect(firestore.collection.mock.calls.map((call) => call[1])).toEqual([
-      "teachers", "subjects", "classes", "pedagogicalAssignments", "teacherAvailabilities", "schedulePeriods", "timetables", "timetableEntries", "rooms",
+      "teachers", "users", "subjects", "classes", "pedagogicalAssignments", "teacherAvailabilities", "schedulePeriods", "timetables", "timetableEntries", "rooms",
     ]);
-    expect(new Set(firestore.collection.mock.calls.map((call) => call[1])).size).toBe(9);
-    for (const subscription of firestore.subscriptions) {
+    expect(new Set(firestore.collection.mock.calls.map((call) => call[1])).size).toBe(10);
+    expect(firestore.subscriptions[1].source).toMatchObject({ filters: [
+      { field: "schoolId", operator: "==", value: "school-1" },
+      { field: "role", operator: "==", value: "teacher" },
+      { field: "status", operator: "==", value: "active" },
+    ] });
+    for (const subscription of firestore.subscriptions.filter((_, index) => index !== 1)) {
       expect(subscription.source).toMatchObject({ filters: [
         { field: "schoolId", operator: "==", value: "school-1" },
         { field: "schoolYearId", operator: "==", value: "year-1" },
@@ -72,7 +77,7 @@ describe("listeners temps réel Direction des études", () => {
   it("transmet ajouts, modifications, désactivations et déduplique un snapshot", () => {
     const onAvailabilities = vi.fn();
     subscribe({ onAvailabilities });
-    const availabilityListener = firestore.subscriptions[4];
+    const availabilityListener = firestore.subscriptions[5];
     availabilityListener.next({ docs: [
       { id: "rest", data: () => ({ status: "rest", active: false }) },
       { id: "available", data: () => ({ status: "available", active: true }) },
@@ -86,14 +91,31 @@ describe("listeners temps réel Direction des études", () => {
     expect(onAvailabilities).toHaveBeenLastCalledWith([{ id: "unavailable", status: "unavailable", active: true }]);
   });
 
+  it("fait apparaître automatiquement un utilisateur Enseignant dès les snapshots users/teachers", () => {
+    const onTeachers = vi.fn();
+    subscribe({ onTeachers });
+    firestore.subscriptions[0].next({ docs: [
+      { id: "profile-1", data: () => ({ userId: "teacher-1", schoolId: "school-1", schoolYearId: "year-1", status: "active" }) },
+    ] });
+    expect(onTeachers).not.toHaveBeenCalled();
+    firestore.subscriptions[1].next({ docs: [
+      { id: "teacher-1", data: () => ({ name: "Alice Mukendi", email: "alice@example.test", role: "teacher", schoolId: "school-1", status: "active" }) },
+    ] });
+    expect(onTeachers).toHaveBeenLastCalledWith([
+      expect.objectContaining({ id: "profile-1", userId: "teacher-1", fullName: "Alice Mukendi" }),
+    ]);
+    firestore.subscriptions[1].next({ docs: [] });
+    expect(onTeachers).toHaveBeenLastCalledWith([]);
+  });
+
   it("transmet les périodes et les erreurs puis désabonne toutes les écoutes", () => {
     const onPeriods = vi.fn();
     const onError = vi.fn();
     const unsubscribes = subscribe({ onPeriods, onError });
-    firestore.subscriptions[5].next({ docs: [{ id: "period-1", data: () => ({ type: "course", active: true }) }] });
+    firestore.subscriptions[6].next({ docs: [{ id: "period-1", data: () => ({ type: "course", active: true }) }] });
     expect(onPeriods).toHaveBeenCalledWith([{ id: "period-1", type: "course", active: true }]);
     const failure = new Error("listener failed");
-    firestore.subscriptions[4].error(failure);
+    firestore.subscriptions[5].error(failure);
     expect(onError).toHaveBeenCalledWith(failure);
     unsubscribes.forEach((unsubscribe) => unsubscribe());
     expect(firestore.subscriptions.every(({ unsubscribe }) => unsubscribe.mock.calls.length === 1)).toBe(true);
@@ -102,5 +124,21 @@ describe("listeners temps réel Direction des études", () => {
   it("refuse les paramètres incomplets avant de créer un listener", () => {
     expect(() => subscribe({ schoolYearId: "" })).toThrow("Périmètre pédagogique non autorisé.");
     expect(firestore.onSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("fusionne l'identité users avec le profil pédagogique sans casser les anciens teachers", () => {
+    const profiles = [
+      { id: "profile-new", userId: "teacher-user", schoolId: "school-1", schoolYearId: "year-1", status: "active" },
+      { id: "legacy", schoolId: "school-1", schoolYearId: "year-1", firstName: "Ancien", lastName: "Profil", fullName: "Ancien Profil", status: "active" },
+    ] as never[];
+    const users = [
+      { id: "teacher-user", name: "Alice Mukendi", email: "alice@example.test", phone: "0990000000", role: "teacher", schoolId: "school-1", status: "active" },
+      { id: "inactive", name: "Inactif", email: "inactive@example.test", role: "teacher", schoolId: "school-1", status: "inactive" },
+      { id: "other-role", name: "Caissier", email: "cashier@example.test", role: "cashier", schoolId: "school-1", status: "active" },
+    ] as AppUser[];
+    expect(mergeStudyTeachers(profiles, users)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "profile-new", fullName: "Alice Mukendi", email: "alice@example.test", phone: "0990000000" }),
+      expect.objectContaining({ id: "legacy", fullName: "Ancien Profil" }),
+    ]));
   });
 });

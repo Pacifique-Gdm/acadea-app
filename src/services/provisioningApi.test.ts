@@ -81,7 +81,7 @@ describe("API de provisionnement Acadéa", () => {
     expect(mocks.auth.verifyIdToken).not.toHaveBeenCalled();
   });
 
-  for (const role of ["cashier", "secretary", "discipline_director", "study_director"] as const) {
+  for (const role of ["cashier", "secretary", "discipline_director", "study_director", "teacher"] as const) {
     it(`crée Firebase Auth, le profil Firestore et les claims pour ${role}`, async () => {
       const res = response();
       await provisionSchoolAccount(request({
@@ -95,6 +95,11 @@ describe("API de provisionnement Acadéa", () => {
       expect(res.body?.user).not.toHaveProperty("password");
       expect(mocks.db.doc).toHaveBeenCalledWith("users/created-user");
       expect(mocks.auth.setCustomUserClaims).toHaveBeenCalledWith("created-user", { role, schoolId: "school-1" });
+      if (role === "teacher") {
+        expect(mocks.db.doc).toHaveBeenCalledWith("teachers/school-1__year-1__created-user");
+        const batch = mocks.db.batch.mock.results[0]?.value;
+        expect(batch.set).toHaveBeenCalledWith(expect.objectContaining({ path: "teachers/school-1__year-1__created-user" }), expect.objectContaining({ userId: "created-user", schoolId: "school-1", schoolYearId: "year-1", status: "active" }));
+      }
     });
   }
 

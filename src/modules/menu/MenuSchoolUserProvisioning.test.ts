@@ -23,4 +23,10 @@ describe("formulaire de création des utilisateurs métier", () => {
     expect(source).toContain('const canAdmin = user.role === "school_admin"');
     expect(source).toContain('sectionId === "accounts" && canAdmin');
   });
+
+  it("propose le rôle Enseignant dans le formulaire existant", () => {
+    expect(source).toContain('<option value="teacher">Enseignant</option>');
+    expect(source).toContain('teacher: "Enseignant"');
+    expect(source.match(/Créer un utilisateur/g)).toHaveLength(1);
+  });
 });
