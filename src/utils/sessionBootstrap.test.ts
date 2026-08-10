@@ -25,6 +25,13 @@ const admin = {
   status: "active",
 } satisfies AppUser;
 
+const studyDirector = {
+  ...admin,
+  id: "studies-1",
+  email: "studies@example.test",
+  role: "study_director",
+} satisfies AppUser;
+
 describe("bootstrap de session", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -58,5 +65,18 @@ describe("bootstrap de session", () => {
     firestoreMocks.getDoc.mockResolvedValue({ id: "school-1", exists: () => true, data: () => ({ status: "suspended" }) });
     firestoreMocks.getDocs.mockResolvedValue({ docs: [] });
     await expect(loadFirestoreBootstrapData(admin)).rejects.toThrow("suspendue");
+  });
+
+  it("charge l’école et l’année active du Directeur des études sans données métier supplémentaires", async () => {
+    firestoreMocks.getDoc.mockResolvedValue({ id: "school-1", exists: () => true, data: () => ({ name: "École Test", status: "active", activeSchoolYearId: "year-1" }) });
+    firestoreMocks.getDocs.mockResolvedValue({ docs: [{ id: "year-1", data: () => ({ schoolId: "school-1", name: "2026-2027", status: "active" }) }] });
+
+    await expect(loadFirestoreBootstrapData(studyDirector)).resolves.toMatchObject({
+      users: [studyDirector],
+      schools: [{ id: "school-1", status: "active" }],
+      schoolYears: [{ id: "year-1", schoolId: "school-1", status: "active" }],
+    });
+    expect(firestoreMocks.getDoc).toHaveBeenCalledTimes(1);
+    expect(firestoreMocks.getDocs).toHaveBeenCalledTimes(1);
   });
 });
