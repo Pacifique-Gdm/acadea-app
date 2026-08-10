@@ -79,6 +79,7 @@ const roleLabels: Record<AppUser["role"], string> = {
   discipline_director: "Directeur de Discipline",
   study_director: "Directeur des études",
   secretary: "Secrétaire",
+  teacher: "Enseignant",
   parent: "Parent",
 };
 

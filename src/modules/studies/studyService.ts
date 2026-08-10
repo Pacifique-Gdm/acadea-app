@@ -22,9 +22,32 @@ function scopedSubscription<T>(collectionName: string, schoolId: string, schoolY
 }
 
 export function subscribeToStudyData(input: { user: AppUser; schoolId: string; schoolYearId: string; onTeachers: (items: StudyTeacher[]) => void; onSubjects: (items: StudySubject[]) => void; onClasses: (items: StudyClass[]) => void; onAssignments: (items: PedagogicalAssignment[]) => void; onAvailabilities:(items:TeacherAvailability[])=>void;onPeriods:(items:SchedulePeriod[])=>void;onTimetables:(items:Timetable[])=>void;onTimetableEntries:(items:TimetableEntry[])=>void;onRooms:(items:StudyRoom[])=>void; onError: (error: Error) => void }) {
-  requireScope(input.user, input.schoolId, input.schoolYearId);
+  const database = requireScope(input.user, input.schoolId, input.schoolYearId);
+  let teacherProfiles: StudyTeacher[] = [];
+  let teacherUsers: AppUser[] = [];
+  let profilesReady = false;
+  let usersReady = false;
+  const emitTeachers = () => {
+    if (profilesReady && usersReady) input.onTeachers(mergeStudyTeachers(teacherProfiles, teacherUsers));
+  };
+  const teacherProfilesUnsubscribe = scopedSubscription<StudyTeacher>("teachers", input.schoolId, input.schoolYearId, (items) => {
+    teacherProfiles = items;
+    profilesReady = true;
+    emitTeachers();
+  }, input.onError);
+  const teacherUsersUnsubscribe = onSnapshot(query(
+    collection(database, "users"),
+    where("schoolId", "==", input.schoolId),
+    where("role", "==", "teacher"),
+    where("status", "==", "active"),
+  ), (snapshot) => {
+    teacherUsers = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as AppUser[];
+    usersReady = true;
+    emitTeachers();
+  }, input.onError);
   return [
-    scopedSubscription("teachers", input.schoolId, input.schoolYearId, input.onTeachers, input.onError),
+    teacherProfilesUnsubscribe,
+    teacherUsersUnsubscribe,
     scopedSubscription("subjects", input.schoolId, input.schoolYearId, input.onSubjects, input.onError),
     scopedSubscription("classes", input.schoolId, input.schoolYearId, input.onClasses, input.onError),
     scopedSubscription("pedagogicalAssignments", input.schoolId, input.schoolYearId, input.onAssignments, input.onError),
@@ -34,6 +57,32 @@ export function subscribeToStudyData(input: { user: AppUser; schoolId: string; s
     scopedSubscription("timetableEntries",input.schoolId,input.schoolYearId,input.onTimetableEntries,input.onError),
     scopedSubscription("rooms",input.schoolId,input.schoolYearId,input.onRooms,input.onError),
   ];
+}
+
+export function mergeStudyTeachers(profiles: StudyTeacher[], users: AppUser[]) {
+  const activeTeachers = new Map(users
+    .filter((user) => user.role === "teacher" && user.status !== "inactive" && Boolean(user.schoolId))
+    .map((user) => [user.id, user]));
+  const linkedUsers = new Set<string>();
+
+  return profiles.flatMap((profile) => {
+    if (!profile.userId) return [profile];
+    if (linkedUsers.has(profile.userId)) return [];
+    const user = activeTeachers.get(profile.userId);
+    if (!user || user.schoolId !== profile.schoolId) return [];
+    linkedUsers.add(profile.userId);
+    const fullName = user.name.trim();
+    const nameParts = fullName.split(/\s+/).filter(Boolean);
+    return [{
+      ...profile,
+      firstName: nameParts.slice(0, -1).join(" ") || fullName,
+      lastName: nameParts.length > 1 ? nameParts.at(-1) ?? "" : "",
+      fullName,
+      email: user.email,
+      phone: user.phone,
+      status: "active" as const,
+    }];
+  });
 }
 
 export async function saveAvailability(input:{user:AppUser;item:TeacherAvailability;existing:TeacherAvailability[]}){const database=requireScope(input.user,input.item.schoolId,input.item.schoolYearId);if(input.item.status!=="rest"&&input.item.startTime&&!validTimeRange(input.item.startTime,input.item.endTime))throw new Error("Plage horaire invalide.");const next=[...input.existing.filter(x=>x.id!==input.item.id),input.item];if(detectAvailabilityConflicts(next))throw new Error("Cette disponibilité entre en conflit avec une contrainte existante.");await setDoc(doc(database,"teacherAvailabilities",input.item.id),input.item);}
@@ -49,16 +98,6 @@ export async function publishTimetable(input:{user:AppUser;schedule:Timetable;ex
 
 export async function saveStudyRoom(input:{user:AppUser;schoolId:string;schoolYearId:string;room?:StudyRoom;name:string}){const database=requireScope(input.user,input.schoolId,input.schoolYearId);const name=input.name.trim();if(!name)throw new Error("Le nom de la salle est obligatoire.");const now=new Date().toISOString();const id=input.room?.id??`${input.schoolId}__${input.schoolYearId}__${crypto.randomUUID()}`;const payload:StudyRoom={id,schoolId:input.schoolId,schoolYearId:input.schoolYearId,name,active:input.room?.active??true,createdBy:input.room?.createdBy??input.user.id,createdAt:input.room?.createdAt??now,updatedAt:now};await setDoc(doc(database,"rooms",id),payload);return payload;}
 export async function setStudyRoomActive(user:AppUser,room:StudyRoom,active:boolean){const database=requireScope(user,room.schoolId,room.schoolYearId);await setDoc(doc(database,"rooms",room.id),{active,updatedAt:new Date().toISOString()},{merge:true});}
-
-export async function createStudyTeacher(input: { user: AppUser; schoolId: string; schoolYearId: string; firstName: string; lastName: string }) {
-  const database = requireScope(input.user, input.schoolId, input.schoolYearId);
-  const firstName = input.firstName.trim();
-  const lastName = input.lastName.trim();
-  if (!firstName || !lastName) throw new Error("Le prénom et le nom de l’enseignant sont obligatoires.");
-  const now = new Date().toISOString();
-  const teacherRef = doc(collection(database, "teachers"));
-  await setDoc(teacherRef, { id: teacherRef.id, schoolId: input.schoolId, schoolYearId: input.schoolYearId, firstName, lastName, fullName: `${firstName} ${lastName}`, status: "active", createdAt: now, updatedAt: now, createdBy: input.user.id });
-}
 
 export async function createStudySubject(input: { user: AppUser; schoolId: string; schoolYearId: string; name: string }) {
   const database = requireScope(input.user, input.schoolId, input.schoolYearId);
@@ -83,11 +122,13 @@ export async function savePedagogicalAssignment(input: { user: AppUser; schoolId
     const classRef = doc(database, "classes", input.classId);
     const roomRef = input.preferredRoomId ? doc(database, "rooms", input.preferredRoomId) : undefined;
     const targetRef = doc(database, "pedagogicalAssignments", targetId);
-    const [teacher, subject, schoolClass, target, room] = await Promise.all([transaction.get(teacherRef), transaction.get(subjectRef), transaction.get(classRef), transaction.get(targetRef), roomRef ? transaction.get(roomRef) : Promise.resolve(undefined)]);
+    // Do not read a target that may not exist: tenant-scoped read rules cannot
+    // authorize a missing resource. The deterministic write remains validated
+    // by the assignment create/update rules and the references read below.
+    const [teacher, subject, schoolClass, room] = await Promise.all([transaction.get(teacherRef), transaction.get(subjectRef), transaction.get(classRef), roomRef ? transaction.get(roomRef) : Promise.resolve(undefined)]);
     const validReference = (snapshot: typeof teacher) => { const value = snapshot.data(); return snapshot.exists() && value?.schoolId === input.schoolId && value.schoolYearId === input.schoolYearId; };
     if (!validReference(teacher) || !validReference(subject) || !validReference(schoolClass)) throw new Error("Une référence pédagogique est inconnue ou hors périmètre.");
     if (room && (!room.exists() || room.data()?.schoolId !== input.schoolId || room.data()?.schoolYearId !== input.schoolYearId || room.data()?.active !== true)) throw new Error("La salle préférée est inconnue, inactive ou hors périmètre.");
-    if (target.exists() && targetId !== input.current?.id && target.data()?.active !== false) throw new Error("Cette affectation active existe déjà.");
     const payload = { id: targetId, schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, subjectId: input.subjectId, classId: input.classId, weeklyPeriods: input.weeklyPeriods, blockSize: input.blockSize ?? input.current?.blockSize ?? 1, preferredRoomId: input.preferredRoomId ?? null, active: input.active, createdAt: input.current?.createdAt ?? now, updatedAt: now, createdBy: input.current?.createdBy ?? input.user.id, updatedBy: input.user.id };
     if (input.current && input.current.id !== targetId) transaction.update(doc(database, "pedagogicalAssignments", input.current.id), { active: false, updatedAt: now, updatedBy: input.user.id });
     transaction.set(targetRef, payload);

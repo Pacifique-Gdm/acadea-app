@@ -1,5 +1,6 @@
 export interface StudyTeacher {
   id: string;
+  userId?: string;
   schoolId: string;
   schoolYearId: string;
   firstName: string;
@@ -9,6 +10,8 @@ export interface StudyTeacher {
   createdAt: string;
   updatedAt: string;
   createdBy: string;
+  email?: string;
+  phone?: string;
 }
 
 export interface StudySubject {
