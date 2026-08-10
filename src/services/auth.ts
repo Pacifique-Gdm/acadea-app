@@ -195,6 +195,7 @@ export function canEnterRoute(user: AppUser | null, route: string) {
   if (user.status === "inactive" || user.active === false) return false;
   if (route === "/platform") return user.role === "super_admin";
   if (route === "/studies") return user.role === "study_director" && Boolean(user.schoolId);
+  if (route === "/teacher") return user.role === "teacher" && Boolean(user.schoolId);
   if (route === "/dashboard") return ["school_admin", "cashier", "discipline_director", "secretary"].includes(user.role) && Boolean(user.schoolId);
 
   return false;
@@ -216,6 +217,10 @@ export function validateStudyDirector(user: AppUser) {
   return user.role === "study_director" && Boolean(user.schoolId) && user.status !== "inactive" && user.active !== false;
 }
 
+export function validateTeacher(user: AppUser) {
+  return user.role === "teacher" && Boolean(user.schoolId) && user.status !== "inactive" && user.active !== false;
+}
+
 export function validateSecretary(user: AppUser) {
   return user.role === "secretary" && Boolean(user.schoolId) && user.status !== "inactive" && user.active !== false;
 }
@@ -231,5 +236,6 @@ export function validatePlatformAdmin(user: AppUser) {
 export function getDefaultRoute(role: Role) {
   if (role === "super_admin") return "/platform";
   if (role === "study_director") return "/studies";
+  if (role === "teacher") return "/teacher";
   return "/dashboard";
 }

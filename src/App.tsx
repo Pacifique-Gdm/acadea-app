@@ -1,5 +1,5 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff, validateSecretary, validateStudyDirector } from "./services/auth";
+import { getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff, validateSecretary, validateStudyDirector, validateTeacher } from "./services/auth";
 import { AccessDenied } from "./components/auth/AccessDenied";
 import { ActivityHistoryContent } from "./components/history/ActivityHistoryContent";
 import { LoginScreen } from "./components/auth/LoginScreen";
@@ -24,6 +24,7 @@ import { ParentsModule } from "./modules/parents/ParentsModule";
 import { ParentPortal } from "./modules/parent/ParentPortal";
 import { SecretaryPortal } from "./modules/secretary/SecretaryPortal";
 import { StudyDirectorPortal } from "./modules/studies/StudyDirectorPortal";
+import { TeacherPortal } from "./modules/teacher/TeacherPortal";
 import { PublishedTimetableDrawerEntry } from "./modules/studies/PublishedTimetableReadOnly";
 import { canReadPublishedTimetable } from "./modules/studies/publishedTimetableService";
 import { SecretaryCorrespondenceModule } from "./modules/secretary/SecretaryCorrespondenceModule";
@@ -740,7 +741,7 @@ export default function App() {
     );
   }
 
-  if ((!validateSchoolStaff(user) && !validateParent(user) && !validateDisciplineDirector(user) && !validateStudyDirector(user) && !validateSecretary(user)) || !school) {
+  if ((!validateSchoolStaff(user) && !validateParent(user) && !validateDisciplineDirector(user) && !validateStudyDirector(user) && !validateSecretary(user) && !validateTeacher(user)) || !school) {
     return <AccessDenied onLogout={logout} />;
   }
 
@@ -770,6 +771,10 @@ export default function App() {
   const unreadNotifications = yearData.notifications.filter((notification) => !notification.read).length;
 
   if ((route === "/studies" && !validateStudyDirector(user)) || (validateStudyDirector(user) && route !== "/studies")) {
+    return <AccessDenied onLogout={logout} />;
+  }
+
+  if ((route === "/teacher" && !validateTeacher(user)) || (validateTeacher(user) && route !== "/teacher")) {
     return <AccessDenied onLogout={logout} />;
   }
 
@@ -815,6 +820,17 @@ export default function App() {
 
   if (validateStudyDirector(user)) {
     return <StudyDirectorPortal
+      user={user}
+      school={currentSchool}
+      year={currentYear}
+      onLogout={logout}
+      renderEnvironmentBanner={() => <EnvironmentBanner />}
+      renderHeader={() => <Header user={user} data={data} yearData={yearData} school={currentSchool} year={currentYear} unreadNotifications={0} notificationsOpen={false} onRefresh={() => undefined} onToggleNotifications={() => undefined} roleLabels={roleLabels} messagingEnabled={false} />}
+    />;
+  }
+
+  if (validateTeacher(user)) {
+    return <TeacherPortal
       user={user}
       school={currentSchool}
       year={currentYear}

@@ -61,8 +61,8 @@ test.describe("Phase 2 — archivage Personnels", () => {
       expect(teacherEmail).toBeTruthy();
       await teacherCard.getByRole("button", { name: "Fermer la fiche pédagogique" }).click();
 
-      await login(teacherPage, teacherEmail!, teacherPassword, /\/dashboard/);
-      await expect(teacherPage.getByRole("heading", { name: /Votre session reste active|Accès refusé/ })).toBeVisible();
+      await login(teacherPage, teacherEmail!, teacherPassword, /\/teacher/);
+      await expect(teacherPage.getByRole("heading", { name: "Tableau de bord Enseignant" })).toBeVisible();
 
       await openPersonnel(adminPage);
       const personnelDialog = adminPage.getByRole("dialog", { name: "Personnels" });
@@ -106,8 +106,8 @@ test.describe("Phase 2 — archivage Personnels", () => {
       archived = false;
 
       await expect(directorPage.getByRole("button", { name: teacherName, exact: true })).toBeVisible({ timeout: 30_000 });
-      await login(teacherPage, teacherEmail!, teacherPassword, /\/dashboard/);
-      await expect(teacherPage.getByRole("heading", { name: /Votre session reste active|Accès refusé/ })).toBeVisible();
+      await login(teacherPage, teacherEmail!, teacherPassword, /\/teacher/);
+      await expect(teacherPage.getByRole("heading", { name: "Tableau de bord Enseignant" })).toBeVisible();
     } finally {
       if (archived) {
         await openPersonnel(adminPage).catch(() => undefined);
