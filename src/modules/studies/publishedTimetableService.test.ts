@@ -19,7 +19,7 @@ const firestore = vi.hoisted(() => {
 vi.mock("../../firebase", () => ({ db: {} }));
 vi.mock("@firebase/firestore", () => firestore);
 
-import { subscribeToActivePublishedTimetable } from "./publishedTimetableService";
+import { canReadPublishedTimetable, subscribeToActivePublishedTimetable } from "./publishedTimetableService";
 
 const user: AppUser = { id: "secretary", name: "Secrétaire", email: "secretary@example.test", role: "secretary", schoolId: "school-a" };
 
@@ -39,6 +39,15 @@ describe("horaire publié en temps réel", () => {
     expect(onData).toHaveBeenLastCalledWith(expect.objectContaining({ timetable: expect.objectContaining({ id: "schedule-1" }), entries: [expect.objectContaining({ id: "entry-1" })] }));
   });
 
+  it("retourne un état vide sans le traiter comme une erreur", () => {
+    const onData = vi.fn();
+    const onError = vi.fn();
+    subscribeToActivePublishedTimetable({ user, schoolId: "school-a", schoolYearId: "year-a", onData, onError });
+    firestore.subscriptions[0].next({ docs: [] });
+    expect(onData).toHaveBeenCalledWith(null);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it("remplace le listener des créneaux et conserve l'isolation de rôle et d'école", () => {
     const unsubscribe = subscribeToActivePublishedTimetable({ user, schoolId: "school-a", schoolYearId: "year-a", onData: vi.fn(), onError: vi.fn() });
     firestore.subscriptions[0].next({ docs: [{ id: "schedule-1", data: () => ({}) }] });
@@ -48,5 +57,14 @@ describe("horaire publié en temps réel", () => {
     expect(firestore.subscriptions[2].unsubscribe).toHaveBeenCalledOnce();
     expect(() => subscribeToActivePublishedTimetable({ user: { ...user, schoolId: "school-b" }, schoolId: "school-a", schoolYearId: "year-a", onData: vi.fn(), onError: vi.fn() })).toThrow();
     expect(() => subscribeToActivePublishedTimetable({ user: { ...user, role: "cashier" }, schoolId: "school-a", schoolYearId: "year-a", onData: vi.fn(), onError: vi.fn() })).toThrow();
+  });
+
+  it("expose l'entrée uniquement aux trois rôles lecteurs autorisés", () => {
+    for (const role of ["school_admin", "secretary", "discipline_director"] as const) {
+      expect(canReadPublishedTimetable({ ...user, role })).toBe(true);
+    }
+    expect(canReadPublishedTimetable({ ...user, role: "cashier" })).toBe(false);
+    expect(canReadPublishedTimetable({ ...user, role: "study_director" })).toBe(false);
+    expect(canReadPublishedTimetable({ ...user, status: "inactive" })).toBe(false);
   });
 });

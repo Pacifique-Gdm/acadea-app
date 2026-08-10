@@ -14,6 +14,7 @@ const roles: RoleCase[] = [
   { name: "Caissier", prefix: "CASHIER", expectedPath: /\/dashboard/, forbiddenPath: "/platform", defaultPortalText: /Contrôle|Paiement|Acadéa/i },
   { name: "Parent", prefix: "PARENT", expectedPath: /\/dashboard/, forbiddenPath: "/platform", defaultPortalText: /Enfant|Messages|Acadéa/i },
   { name: "Directeur de Discipline", prefix: "DISCIPLINE_DIRECTOR", expectedPath: /\/dashboard/, forbiddenPath: "/platform", defaultPortalText: /Discipline|Présence|Acadéa/i },
+  { name: "Directeur des études", prefix: "STUDY_DIRECTOR", expectedPath: /\/studies/, forbiddenPath: "/dashboard", defaultPortalText: /Direction des études|Enseignants|Acadéa/i },
 ];
 
 test.setTimeout(120_000);
@@ -32,6 +33,9 @@ for (const role of roles) {
     test.skip(!email || !password, `Secrets Staging manquants pour ${role.name}.`);
 
     test("connexion, portail, interdiction et persistance après actualisation", async ({ page }) => {
+      const consoleErrors: string[] = [];
+      page.on("console", (message) => { if (message.type() === "error") consoleErrors.push(message.text()); });
+      page.on("pageerror", (error) => consoleErrors.push(error.message));
       await login(page, email!, password!);
       await expect(page).toHaveURL(role.expectedPath, { timeout: 60_000 });
       await expect(page.getByText(role.defaultPortalText).first()).toBeVisible({ timeout: 30_000 });
@@ -42,7 +46,9 @@ for (const role of roles) {
 
       await page.goto(role.forbiddenPath);
       if (role.prefix === "SUPER_ADMIN") await expect(page).toHaveURL(/\/platform/);
+      else if (role.prefix === "STUDY_DIRECTOR") await expect(page).toHaveURL(/\/studies/);
       else await expect(page).not.toHaveURL(/\/platform/);
+      expect(consoleErrors).toEqual([]);
     });
   });
 }

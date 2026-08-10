@@ -8,6 +8,10 @@ export type PublishedTimetableSnapshot = { timetable: Timetable; entries: Timeta
 
 const publishedReaderRoles = new Set<AppUser["role"]>(["school_admin", "secretary", "discipline_director"]);
 
+export function canReadPublishedTimetable(user: AppUser) {
+  return publishedReaderRoles.has(user.role) && user.status !== "inactive" && Boolean(user.schoolId);
+}
+
 export function subscribeToActivePublishedTimetable(input: {
   user: AppUser;
   schoolId: string;
@@ -15,7 +19,7 @@ export function subscribeToActivePublishedTimetable(input: {
   onData: (value: PublishedTimetableSnapshot) => void;
   onError: (error: Error) => void;
 }): Unsubscribe {
-  if (!db || !publishedReaderRoles.has(input.user.role) || input.user.schoolId !== input.schoolId || !input.schoolId || !input.schoolYearId) {
+  if (!db || !canReadPublishedTimetable(input.user) || input.user.schoolId !== input.schoolId || !input.schoolId || !input.schoolYearId) {
     throw new Error("Consultation de l’horaire publié non autorisée.");
   }
 

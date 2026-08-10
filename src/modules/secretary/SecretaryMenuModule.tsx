@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { BarChart3, BookOpen, Fingerprint, HeartPulse, LogOut, Radio, Upload, UsersRound } from "lucide-react";
 import { ParentsDirectoryDrawer } from "../../components/parents/ParentsDirectoryDrawer";
 import { ParentDrawerBackButton, ParentFormEditor } from "../../components/parents/ParentFormEditor";
@@ -29,12 +30,13 @@ type SecretaryMenuModuleProps = {
   maxValveDocumentBytes: number;
   initialBiometricView?: SecretaryBiometricView;
   onBiometricViewChange?: (view: SecretaryBiometricView | null) => void;
+  renderPublishedTimetable?: () => ReactNode;
 };
 
 const menuButtonClass = "flex min-w-0 items-center gap-3 rounded border border-slate-200 bg-white p-4 text-left transition hover:border-blue-300 hover:bg-blue-50/40";
 const menuIconClass = "rounded bg-blue-50 p-2 text-blue-700";
 
-export function SecretaryMenuModule({ user, data, yearData, school, year, updateData, createId, studentImportKey, onLogout, valvesUploadsEnabled, maxValveDocumentBytes, initialBiometricView, onBiometricViewChange }: SecretaryMenuModuleProps) {
+export function SecretaryMenuModule({ user, data, yearData, school, year, updateData, createId, studentImportKey, onLogout, valvesUploadsEnabled, maxValveDocumentBytes, initialBiometricView, onBiometricViewChange, renderPublishedTimetable }: SecretaryMenuModuleProps) {
   const [importDrawerOpen, setImportDrawerOpen] = useState(false);
   const [ageDrawerOpen, setAgeDrawerOpen] = useState(false);
   const [statisticsDrawerOpen, setStatisticsDrawerOpen] = useState(false);
@@ -85,6 +87,7 @@ export function SecretaryMenuModule({ user, data, yearData, school, year, update
 
   return <section className="grid gap-4"><SectionTitle title="Menu" subtitle="Fonctions administratives secondaires." />
     <div className="grid gap-3">
+      {renderPublishedTimetable?.()}
       <button type="button" onClick={() => setValvesDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><BookOpen className="h-5 w-5" /></span><span className="font-bold text-ink">Valves</span></button>
       <button type="button" onClick={() => setMedicalDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><HeartPulse className="h-5 w-5" /></span><span className="font-bold text-ink">Fiches médicales</span></button>
       <button type="button" onClick={() => openBiometricView("menu")} className={menuButtonClass}><span className={menuIconClass}><Fingerprint className="h-5 w-5" /></span><span className="font-bold text-ink">Empreintes et Cartes</span></button>

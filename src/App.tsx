@@ -24,7 +24,8 @@ import { ParentsModule } from "./modules/parents/ParentsModule";
 import { ParentPortal } from "./modules/parent/ParentPortal";
 import { SecretaryPortal } from "./modules/secretary/SecretaryPortal";
 import { StudyDirectorPortal } from "./modules/studies/StudyDirectorPortal";
-import { PublishedTimetableReadOnly } from "./modules/studies/PublishedTimetableReadOnly";
+import { PublishedTimetableDrawerEntry } from "./modules/studies/PublishedTimetableReadOnly";
+import { canReadPublishedTimetable } from "./modules/studies/publishedTimetableService";
 import { SecretaryCorrespondenceModule } from "./modules/secretary/SecretaryCorrespondenceModule";
 import { SecretaryReportsModule } from "./modules/secretary/SecretaryReportsModule";
 import { SecretaryMenuModule } from "./modules/secretary/SecretaryMenuModule";
@@ -167,6 +168,8 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
   const [authError, setAuthError] = useState("");
   const [dataLoading, setDataLoading] = useState(false);
+  const [bootstrapError, setBootstrapError] = useState("");
+  const [bootstrapRetry, setBootstrapRetry] = useState(0);
   const [platformCounts, setPlatformCounts] = useState<SuperAdminGlobalCounts | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState("");
@@ -340,6 +343,7 @@ export default function App() {
 
   const applyAuthenticatedUser = useCallback((nextUser: AppUser | null) => {
     setAuthError("");
+    setBootstrapError("");
 
     if (!nextUser) {
       setUser(null);
@@ -425,6 +429,7 @@ export default function App() {
       }
 
       setDataLoading(true);
+      setBootstrapError("");
       let bootstrapResolved = false;
       try {
         const bootstrap = await loadFirestoreBootstrapData(user);
@@ -449,17 +454,13 @@ export default function App() {
           setRefreshError(error instanceof Error ? error.message : "Certaines données n'ont pas pu être chargées.");
           return;
         }
-        console.warn("Chargement Firestore indispensable indisponible.", error);
-        setAuthError(error instanceof Error ? error.message : "Chargement Firestore impossible après connexion.");
-        setUser(null);
-        setSelectedYearId("");
-        setActiveTab("dashboard");
-        setPlatformCounts(null);
-        setData(loadInitialData());
-        navigate("/login");
-        void signOutUser().catch((signOutError) => {
-          console.warn("Déconnexion Firebase après erreur de chargement impossible.", signOutError);
+        console.warn("[Acadéa auth] Chargement initial Firestore indisponible sans invalidation de session.", {
+          code: firebaseErrorCode(error),
+          uid: user.id,
+          role: user.role,
+          schoolId: user.schoolId,
         });
+        setBootstrapError(error instanceof Error ? error.message : "Chargement Firestore impossible après connexion.");
       } finally {
         if (!cancelled) setDataLoading(false);
       }
@@ -469,7 +470,7 @@ export default function App() {
       cancelled = true;
       setDataLoading(false);
     };
-  }, [navigate, user]);
+  }, [bootstrapRetry, user]);
 
   useEffect(() => {
     if (!user) {
@@ -722,6 +723,22 @@ export default function App() {
     );
   }
 
+  if (bootstrapError) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#F5F7FB] px-4 text-center">
+        <div className="w-full max-w-lg rounded border border-orange-200 bg-white p-6 shadow-sm">
+          <PlatformLogoSlot logoUrl={platformLogoUrl} compact />
+          <h1 className="text-lg font-bold text-ink">Votre session reste active</h1>
+          <p role="alert" className="mt-2 text-sm text-slate-600">Les données de votre établissement n’ont pas pu être chargées. Réessayez sans vous reconnecter.</p>
+          <div className="mt-5 grid gap-2 sm:grid-cols-2">
+            <button type="button" className="secondary-button justify-center" onClick={logout}>Déconnexion</button>
+            <button type="button" className="primary-button justify-center" onClick={() => setBootstrapRetry((value) => value + 1)}>Réessayer</button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   if ((!validateSchoolStaff(user) && !validateParent(user) && !validateDisciplineDirector(user) && !validateStudyDirector(user) && !validateSecretary(user)) || !school) {
     return <AccessDenied onLogout={logout} />;
   }
@@ -885,7 +902,7 @@ export default function App() {
         createId={uid}
         selectAttendanceSettingsForYear={selectAttendanceSettingsForYear}
         maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES}
-        renderPublishedTimetable={() => <PublishedTimetableReadOnly user={user} school={school} year={selectedYear} />}
+        renderPublishedTimetable={() => <PublishedTimetableDrawerEntry user={user} school={school} year={selectedYear} />}
       />
     );
   }
@@ -937,7 +954,7 @@ export default function App() {
             canAttachFiles
           />
         )}
-        renderMenu={() => <div className="grid gap-6"><PublishedTimetableReadOnly user={user} school={school} year={selectedYear} /><SecretaryMenuModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} createId={uid} studentImportKey={studentImportKey} onLogout={logout} valvesUploadsEnabled={billingControls.controls.valvesUploadsEnabled} maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES} initialBiometricView={secretaryBiometricView} onBiometricViewChange={(view) => navigate(view === "fingerprints" ? "/secretariat/empreintes" : view === "cards" ? "/secretariat/cartes" : view === "menu" ? "/secretariat/empreintes-cartes" : "/dashboard")} /></div>}
+        renderMenu={() => <div className="grid gap-6"><SecretaryMenuModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} createId={uid} studentImportKey={studentImportKey} onLogout={logout} valvesUploadsEnabled={billingControls.controls.valvesUploadsEnabled} maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES} initialBiometricView={secretaryBiometricView} onBiometricViewChange={(view) => navigate(view === "fingerprints" ? "/secretariat/empreintes" : view === "cards" ? "/secretariat/cartes" : view === "menu" ? "/secretariat/empreintes-cartes" : "/dashboard")} renderPublishedTimetable={() => <PublishedTimetableDrawerEntry user={user} school={school} year={selectedYear} />} /></div>}
         renderStudents={() => secretaryStudentDetailMatch ? (
           <StudentDetailPage
             studentId={secretaryStudentDetailMatch[1]}
@@ -1078,7 +1095,7 @@ export default function App() {
           <MessagesModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} createId={uid} />
         )}
         {!standaloneAdminRoute && activeTab === "menu" && (
-          <div className="grid gap-6"><PublishedTimetableReadOnly user={user} school={school} year={selectedYear} /><MenuModule
+          <div className="grid gap-6">{canReadPublishedTimetable(user) && <PublishedTimetableDrawerEntry user={user} school={school} year={selectedYear} />}<MenuModule
             user={user}
             data={data}
             yearData={yearData}
