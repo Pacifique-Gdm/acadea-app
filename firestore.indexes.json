@@ -1,6 +1,25 @@
 {
   "indexes": [
     {
+      "collectionGroup": "teachers",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "schoolId", "order": "ASCENDING" },
+        { "fieldPath": "schoolYearId", "order": "ASCENDING" },
+        { "fieldPath": "userId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "pedagogicalAssignments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "schoolId", "order": "ASCENDING" },
+        { "fieldPath": "schoolYearId", "order": "ASCENDING" },
+        { "fieldPath": "teacherId", "order": "ASCENDING" },
+        { "fieldPath": "active", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "timetables",
       "queryScope": "COLLECTION",
       "fields": [
@@ -17,6 +36,16 @@
         { "fieldPath": "schoolId", "order": "ASCENDING" },
         { "fieldPath": "schoolYearId", "order": "ASCENDING" },
         { "fieldPath": "scheduleId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "timetableEntries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "schoolId", "order": "ASCENDING" },
+        { "fieldPath": "schoolYearId", "order": "ASCENDING" },
+        { "fieldPath": "scheduleId", "order": "ASCENDING" },
+        { "fieldPath": "teacherId", "order": "ASCENDING" }
       ]
     },
     {
