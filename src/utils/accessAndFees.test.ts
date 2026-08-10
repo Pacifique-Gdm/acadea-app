@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AppUser, FeeType, Student } from "../types";
-import { canEnterRoute, getDefaultRoute, validateParent, validateSecretary, validateStudyDirector } from "../services/auth";
+import { canEnterRoute, getDefaultRoute, validateParent, validateSecretary, validateStudyDirector, validateTeacher } from "../services/auth";
 import { feeAppliesToStudent, feeTargetKey } from "./feeTargets";
 
 describe("autorisations par rôle", () => {
@@ -36,6 +36,16 @@ describe("autorisations par rôle", () => {
     expect(canEnterRoute({ ...director, status: "inactive" }, "/studies")).toBe(false);
     expect(canEnterRoute({ ...director, role: "cashier" }, "/studies")).toBe(false);
     expect(getDefaultRoute("study_director")).toBe("/studies");
+  });
+
+  it("isole la route de l'Enseignant actif", () => {
+    const teacher = { id: "teacher-user-a", role: "teacher", schoolId: "school-a", status: "active" } as AppUser;
+    expect(validateTeacher(teacher)).toBe(true);
+    expect(canEnterRoute(teacher, "/teacher")).toBe(true);
+    expect(canEnterRoute(teacher, "/dashboard")).toBe(false);
+    expect(canEnterRoute({ ...teacher, status: "inactive" }, "/teacher")).toBe(false);
+    expect(canEnterRoute({ ...teacher, schoolId: undefined }, "/teacher")).toBe(false);
+    expect(getDefaultRoute("teacher")).toBe("/teacher");
   });
 
   it("refuse un parent inactif ou sans rattachement", () => {

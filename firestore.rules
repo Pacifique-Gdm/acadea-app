@@ -61,6 +61,33 @@ service cloud.firestore {
       return signedIn() && role() == "study_director" && tenantSchoolId() is string;
     }
 
+    function activeTeacher() {
+      return signedIn()
+        && role() == "teacher"
+        && tenantSchoolId() is string
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.schoolId == tenantSchoolId()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "teacher"
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status != "inactive"
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active != false;
+    }
+
+    function teacherTenantResource() {
+      return activeTeacher() && resource.data.schoolId == tenantSchoolId();
+    }
+
+    function teacherOwnProfile() {
+      return teacherTenantResource()
+        && resource.data.userId == request.auth.uid;
+    }
+
+    function teacherOwnAssignment() {
+      return teacherTenantResource()
+        && exists(/databases/$(database)/documents/teachers/$(resource.data.teacherId))
+        && get(/databases/$(database)/documents/teachers/$(resource.data.teacherId)).data.schoolId == tenantSchoolId()
+        && get(/databases/$(database)/documents/teachers/$(resource.data.teacherId)).data.userId == request.auth.uid;
+    }
+
     function studyTenantResource() {
       return studyDirector() && resource.data.schoolId == tenantSchoolId();
     }
@@ -348,7 +375,7 @@ service cloud.firestore {
     }
 
     match /schools/{schoolId} {
-      allow read: if superAdmin() || (schoolUser() && schoolId == tenantSchoolId()) || (disciplineDirector() && schoolId == tenantSchoolId()) || (studyDirector() && schoolId == tenantSchoolId());
+      allow read: if superAdmin() || (schoolUser() && schoolId == tenantSchoolId()) || (disciplineDirector() && schoolId == tenantSchoolId()) || (studyDirector() && schoolId == tenantSchoolId()) || (activeTeacher() && schoolId == tenantSchoolId());
       allow create: if superAdmin();
       allow update: if superAdminAiAssistantUpdate() || schoolSettingsUpdate(schoolId) || secretarySchoolOptionsUpdate(schoolId);
       allow delete: if superAdmin();
@@ -406,7 +433,7 @@ service cloud.firestore {
     }
 
     match /schoolYears/{yearId} {
-      allow read: if superAdmin() || sameTenantResource() || disciplineTenantResource() || (studyDirector() && resource.data.schoolId == tenantSchoolId());
+      allow read: if superAdmin() || sameTenantResource() || disciplineTenantResource() || (studyDirector() && resource.data.schoolId == tenantSchoolId()) || teacherTenantResource();
       allow create: if schoolAdmin() && sameTenantCreate();
       allow update: if schoolAdmin() && sameTenantUpdate() && sameYearUpdate();
       allow delete: if false;
@@ -517,7 +544,7 @@ service cloud.firestore {
     }
 
     match /teachers/{teacherId} {
-      allow read: if superAdmin() || sameTenantResource() || studyTenantResource();
+      allow read: if superAdmin() || sameTenantResource() || studyTenantResource() || teacherOwnProfile();
       allow create: if schoolAdmin() && activeTenantYearCreate();
       allow update: if schoolAdmin() && activeTenantYearUpdate();
       allow delete: if schoolAdmin() && sameTenantResource()
@@ -525,7 +552,7 @@ service cloud.firestore {
     }
 
     match /classes/{classId} {
-      allow read: if superAdmin() || sameTenantResource() || studyTenantResource();
+      allow read: if superAdmin() || sameTenantResource() || studyTenantResource() || teacherTenantResource();
       allow create: if schoolAdmin() && activeTenantYearCreate();
       allow update: if schoolAdmin() && activeTenantYearUpdate();
       allow delete: if schoolAdmin() && sameTenantResource()
@@ -533,7 +560,7 @@ service cloud.firestore {
     }
 
     match /subjects/{subjectId} {
-      allow read: if superAdmin() || studyTenantResource();
+      allow read: if superAdmin() || studyTenantResource() || teacherTenantResource();
       allow create: if activeStudyYearCreate()
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
@@ -587,7 +614,7 @@ service cloud.firestore {
           && request.resource.data.createdAt is string
           && request.resource.data.updatedAt is string;
       }
-      allow read: if superAdmin() || studyTenantResource();
+      allow read: if superAdmin() || studyTenantResource() || teacherOwnAssignment();
       allow create: if activeStudyYearCreate()
         && validAssignmentShape()
         && assignmentReferencesAreValid()
@@ -614,7 +641,7 @@ service cloud.firestore {
     }
 
     match /schedulePeriods/{periodId} {
-      allow read: if superAdmin() || studyTenantResource();
+      allow read: if superAdmin() || studyTenantResource() || teacherTenantResource();
       allow create: if activeStudyYearCreate() && request.resource.data.label is string && request.resource.data.startTime is string && request.resource.data.endTime is string && request.resource.data.order is int && request.resource.data.order > 0 && request.resource.data.type in ["course","break","recess"] && request.resource.data.active is bool && request.resource.data.createdBy == request.auth.uid;
       allow update: if activeStudyYearUpdate() && request.resource.data.createdBy == resource.data.createdBy && request.resource.data.createdAt == resource.data.createdAt;
       allow delete: if false;
@@ -632,7 +659,8 @@ service cloud.firestore {
           && request.resource.data.updatedAt is string;
       }
       allow read: if superAdmin() || studyTenantResource()
-        || (publishedScheduleReader() && resource.data.schoolId == tenantSchoolId() && resource.data.status == "PUBLISHED" && resource.data.activePublished == true);
+        || (publishedScheduleReader() && resource.data.schoolId == tenantSchoolId() && resource.data.status == "PUBLISHED" && resource.data.activePublished == true)
+        || (teacherTenantResource() && resource.data.status == "PUBLISHED" && resource.data.activePublished == true);
       allow create: if activeStudyYearCreate()
         && validTimetableShape()
         && request.resource.data.status == "DRAFT"
@@ -686,6 +714,12 @@ service cloud.firestore {
         || (publishedScheduleReader() && resource.data.schoolId == tenantSchoolId()
           && exists(/databases/$(database)/documents/timetables/$(resource.data.scheduleId))
           && get(/databases/$(database)/documents/timetables/$(resource.data.scheduleId)).data.status == "PUBLISHED"
+          && get(/databases/$(database)/documents/timetables/$(resource.data.scheduleId)).data.activePublished == true)
+        || (teacherTenantResource()
+          && exists(/databases/$(database)/documents/teachers/$(resource.data.teacherId))
+          && get(/databases/$(database)/documents/teachers/$(resource.data.teacherId)).data.userId == request.auth.uid
+          && exists(/databases/$(database)/documents/timetables/$(resource.data.scheduleId))
+          && get(/databases/$(database)/documents/timetables/$(resource.data.scheduleId)).data.status == "PUBLISHED"
           && get(/databases/$(database)/documents/timetables/$(resource.data.scheduleId)).data.activePublished == true);
       allow create: if activeStudyYearCreate()
         && request.resource.data.id == entryId
@@ -703,7 +737,8 @@ service cloud.firestore {
 
     match /rooms/{roomId} {
       allow read: if superAdmin() || studyTenantResource()
-        || (publishedScheduleReader() && resource.data.schoolId == tenantSchoolId());
+        || (publishedScheduleReader() && resource.data.schoolId == tenantSchoolId())
+        || teacherTenantResource();
       allow create: if activeStudyYearCreate()
         && request.resource.data.id == roomId
         && request.resource.data.name is string
