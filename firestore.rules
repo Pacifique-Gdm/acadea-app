@@ -640,6 +640,46 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /teacherAvailabilityRequests/{requestId} {
+      function ownTeacherRequest() {
+        return activeTeacher()
+          && resource.data.schoolId == tenantSchoolId()
+          && resource.data.userId == request.auth.uid
+          && exists(/databases/$(database)/documents/teachers/$(resource.data.teacherId))
+          && get(/databases/$(database)/documents/teachers/$(resource.data.teacherId)).data.userId == request.auth.uid;
+      }
+      function validTeacherRequestCreate() {
+        return activeTeacher()
+          && request.resource.data.keys().hasOnly(["id", "schoolId", "schoolYearId", "teacherId", "userId", "requestedDate", "requestType", "startTime", "endTime", "reason", "status", "createdAt", "createdBy"])
+          && request.resource.data.id == requestId
+          && request.resource.data.schoolId == tenantSchoolId()
+          && activeSchoolYearBelongsToSchool(request.resource.data.schoolYearId, tenantSchoolId())
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.status == "PENDING"
+          && request.resource.data.requestType in ["FULL_DAY", "TIME_RANGE"]
+          && request.resource.data.requestedDate is string
+          && request.resource.data.requestedDate.size() == 10
+          && request.resource.data.reason is string
+          && request.resource.data.reason.size() > 0
+          && request.resource.data.reason.size() <= 1000
+          && request.resource.data.createdAt is string
+          && exists(/databases/$(database)/documents/teachers/$(request.resource.data.teacherId))
+          && get(/databases/$(database)/documents/teachers/$(request.resource.data.teacherId)).data.userId == request.auth.uid
+          && get(/databases/$(database)/documents/teachers/$(request.resource.data.teacherId)).data.schoolId == tenantSchoolId()
+          && get(/databases/$(database)/documents/teachers/$(request.resource.data.teacherId)).data.schoolYearId == request.resource.data.schoolYearId
+          && get(/databases/$(database)/documents/teachers/$(request.resource.data.teacherId)).data.status != "inactive"
+          && ((request.resource.data.requestType == "FULL_DAY" && !request.resource.data.keys().hasAny(["startTime", "endTime"]))
+            || (request.resource.data.requestType == "TIME_RANGE"
+              && request.resource.data.startTime is string
+              && request.resource.data.endTime is string
+              && request.resource.data.startTime < request.resource.data.endTime));
+      }
+      allow read: if superAdmin() || studyTenantResource() || ownTeacherRequest();
+      allow create: if validTeacherRequestCreate();
+      allow update, delete: if false;
+    }
+
     match /schedulePeriods/{periodId} {
       allow read: if superAdmin() || studyTenantResource() || teacherTenantResource();
       allow create: if activeStudyYearCreate() && request.resource.data.label is string && request.resource.data.startTime is string && request.resource.data.endTime is string && request.resource.data.order is int && request.resource.data.order > 0 && request.resource.data.type in ["course","break","recess"] && request.resource.data.active is bool && request.resource.data.createdBy == request.auth.uid;
