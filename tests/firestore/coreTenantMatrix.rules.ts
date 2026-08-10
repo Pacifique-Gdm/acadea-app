@@ -66,7 +66,11 @@ describe("SEC-015 — matrice centrale d'isolation tenant", () => {
     await assertFails(getDoc(doc(director, "schools", schoolB)));
     await assertFails(getDoc(doc(director, "schoolYears", yearB)));
     await assertFails(getDocs(query(collection(director, "schoolYears"), where("schoolId", "==", schoolB))));
-    await assertFails(getDoc(doc(director, "students", "students-a")));
+    await assertSucceeds(getDoc(doc(director, "students", "students-a")));
+    const students = await assertSucceeds(getDocs(query(collection(director, "students"), where("schoolId", "==", schoolA), where("schoolYearId", "==", yearA))));
+    expect(students.docs.map((item) => item.id)).toEqual(["students-a"]);
+    await assertFails(getDoc(doc(director, "students", "students-b")));
+    await assertFails(getDocs(query(collection(director, "students"), where("schoolId", "==", schoolB), where("schoolYearId", "==", yearB))));
     await assertFails(updateDoc(doc(director, "schoolYears", yearA), { label: "Interdit" }));
   });
 

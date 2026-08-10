@@ -37,6 +37,7 @@ function subscribe(overrides: Partial<Parameters<typeof subscribeToStudyData>[0]
     onTeachers: vi.fn(),
     onSubjects: vi.fn(),
     onClasses: vi.fn(),
+    onStudents: vi.fn(),
     onAssignments: vi.fn(),
     onAvailabilities: vi.fn(),
     onPeriods: vi.fn(),
@@ -56,11 +57,11 @@ describe("listeners temps réel Direction des études", () => {
 
   it("crée une seule écoute par collection avec les bons périmètres", () => {
     subscribe();
-    expect(firestore.subscriptions).toHaveLength(10);
+    expect(firestore.subscriptions).toHaveLength(11);
     expect(firestore.collection.mock.calls.map((call) => call[1])).toEqual([
-      "teachers", "users", "subjects", "classes", "pedagogicalAssignments", "teacherAvailabilities", "schedulePeriods", "timetables", "timetableEntries", "rooms",
+      "teachers", "users", "subjects", "classes", "students", "pedagogicalAssignments", "teacherAvailabilities", "schedulePeriods", "timetables", "timetableEntries", "rooms",
     ]);
-    expect(new Set(firestore.collection.mock.calls.map((call) => call[1])).size).toBe(10);
+    expect(new Set(firestore.collection.mock.calls.map((call) => call[1])).size).toBe(11);
     expect(firestore.subscriptions[1].source).toMatchObject({ filters: [
       { field: "schoolId", operator: "==", value: "school-1" },
       { field: "role", operator: "==", value: "teacher" },
@@ -76,7 +77,7 @@ describe("listeners temps réel Direction des études", () => {
   it("transmet ajouts, modifications, désactivations et déduplique un snapshot", () => {
     const onAvailabilities = vi.fn();
     subscribe({ onAvailabilities });
-    const availabilityListener = firestore.subscriptions[5];
+    const availabilityListener = firestore.subscriptions[6];
     availabilityListener.next({ docs: [
       { id: "rest", data: () => ({ status: "rest", active: false }) },
       { id: "available", data: () => ({ status: "available", active: true }) },
@@ -88,6 +89,13 @@ describe("listeners temps réel Direction des études", () => {
     ]);
     availabilityListener.next({ docs: [{ id: "unavailable", data: () => ({ status: "unavailable", active: true }) }] });
     expect(onAvailabilities).toHaveBeenLastCalledWith([{ id: "unavailable", status: "unavailable", active: true }]);
+  });
+
+  it("transmet en temps réel les élèves inscrits dans l’école et l’année", () => {
+    const onStudents = vi.fn();
+    subscribe({ onStudents });
+    firestore.subscriptions[4].next({ docs: [{ id: "student-1", data: () => ({ schoolId: "school-1", schoolYearId: "year-1", className: "8ème CTEB" }) }] });
+    expect(onStudents).toHaveBeenCalledWith([{ id: "student-1", schoolId: "school-1", schoolYearId: "year-1", className: "8ème CTEB" }]);
   });
 
   it("fait apparaître automatiquement un utilisateur Enseignant dès les snapshots users/teachers", () => {
@@ -111,10 +119,10 @@ describe("listeners temps réel Direction des études", () => {
     const onPeriods = vi.fn();
     const onError = vi.fn();
     const unsubscribes = subscribe({ onPeriods, onError });
-    firestore.subscriptions[6].next({ docs: [{ id: "period-1", data: () => ({ type: "course", active: true }) }] });
+    firestore.subscriptions[7].next({ docs: [{ id: "period-1", data: () => ({ type: "course", active: true }) }] });
     expect(onPeriods).toHaveBeenCalledWith([{ id: "period-1", type: "course", active: true }]);
     const failure = new Error("listener failed");
-    firestore.subscriptions[5].error(failure);
+    firestore.subscriptions[6].error(failure);
     expect(onError).toHaveBeenCalledWith(failure);
     unsubscribes.forEach((unsubscribe) => unsubscribe());
     expect(firestore.subscriptions.every(({ unsubscribe }) => unsubscribe.mock.calls.length === 1)).toBe(true);

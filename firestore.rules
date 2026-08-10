@@ -455,7 +455,7 @@ service cloud.firestore {
     match /students/{studentId} {
       allow read: if superAdmin()
         || (role() in ["school_admin", "cashier", "secretary"] && sameTenantResource())
-        || (studyDirector() && sameTenantResource())
+        || studyTenantResource()
         || disciplineTenantResource()
         || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.parentId == tenantParentId());
       allow create: if schoolAdmin() && activeTenantYearCreate() && validStudentClassReferences();
