@@ -52,6 +52,19 @@ describe("Direction des études — affectations pédagogiques", () => {
     await assertFails(setDoc(doc(director(), "pedagogicalAssignments", assignmentId), assignment({ preferredRoomId: "unknown" })));
     await assertFails(setDoc(doc(director(), "pedagogicalAssignments", assignmentId), assignment({ preferredRoomId: "room-b" })));
   });
+  it("accepte une classe de titulariat du périmètre et refuse une classe inconnue ou d'une autre école", async () => {
+    await assertSucceeds(setDoc(doc(director(), "pedagogicalAssignments", assignmentId), assignment({ titularClassId: "class-a" })));
+    await assertFails(setDoc(doc(director(), "pedagogicalAssignments", assignmentId), assignment({ titularClassId: "unknown" })));
+    await seed("classes/class-b", { id: "class-b", schoolId: "school-b", schoolYearId: "year-b", name: "Classe B", active: true });
+    await assertFails(setDoc(doc(director(), "pedagogicalAssignments", assignmentId), assignment({ titularClassId: "class-b" })));
+  });
+  it("réserve un seul titulaire par identifiant déterministe de classe", async () => {
+    await seed(`pedagogicalAssignments/${assignmentId}`, assignment({ titularClassId: "class-a" }));
+    const titularId = `${school}__${year}__class-a`;
+    const payload = { id: titularId, schoolId: school, schoolYearId: year, classId: "class-a", teacherId: "teacher-a", assignmentId, active: true, updatedAt: now, updatedBy: "director-a" };
+    await assertSucceeds(setDoc(doc(director(), "classTitulars", titularId), payload));
+    await assertFails(setDoc(doc(director(), "classTitulars", `${titularId}-duplicate`), { ...payload, id: `${titularId}-duplicate` }));
+  });
   it("empêche un doublon actif par identifiant déterministe", async () => {
     await assertSucceeds(setDoc(doc(director(), "pedagogicalAssignments", assignmentId), assignment()));
     await assertFails(setDoc(doc(director(), "pedagogicalAssignments", `${assignmentId}-duplicate`), assignment({ id: `${assignmentId}-duplicate` })));

@@ -3,7 +3,7 @@ import { CheckCircle2, Fingerprint, Plus, Radio } from "lucide-react";
 import { Field, ImageUploadField, PasswordField } from "../ui";
 import { cardStatusLabels, fingerprintStatusLabels, resolveStudentBiometric } from "../../utils/biometrics";
 import { getClassSection } from "../../utils/studentClasses";
-import type { ParentProfile, SchoolClass, Student } from "../../types";
+import type { ParentProfile, SchoolClass, SchoolClassRecord, Student } from "../../types";
 
 export function StudentForm({
   form,
@@ -21,6 +21,8 @@ export function StudentForm({
   isSaving = false,
   canCreateParent = true,
   canAddOption = true,
+  structuredClasses = [],
+  onAddSubclasses,
 }: {
   form: Student;
   setForm: (student: Student) => void;
@@ -37,6 +39,8 @@ export function StudentForm({
   isSaving?: boolean;
   canCreateParent?: boolean;
   canAddOption?: boolean;
+  structuredClasses?: SchoolClassRecord[];
+  onAddSubclasses?: (parent: SchoolClassRecord, labels: string[]) => Promise<void>;
 }) {
   const [showOptionForm, setShowOptionForm] = useState(false);
   const [newOption, setNewOption] = useState("");
@@ -45,6 +49,11 @@ export function StudentForm({
   const [showCardMessage, setShowCardMessage] = useState(false);
   const [fingerprintMessageTrigger, setFingerprintMessageTrigger] = useState(0);
   const [cardMessageTrigger, setCardMessageTrigger] = useState(0);
+  const [subclassOpen, setSubclassOpen] = useState(false);
+  const [subclassLabels, setSubclassLabels] = useState(["A", "B"]);
+  const [subclassError, setSubclassError] = useState("");
+  const selectedClass = structuredClasses.find((item) => item.id === form.classId && !item.parentClassId);
+  const subclasses = selectedClass ? structuredClasses.filter((item) => item.parentClassId === selectedClass.id && item.active !== false) : [];
   const biometric = resolveStudentBiometric(form);
 
   useEffect(() => {
@@ -125,12 +134,16 @@ export function StudentForm({
       </div>}
       <label className="grid gap-1 text-sm font-medium text-slate-700">
         Classe
-        <select value={form.className} onChange={(event) => setForm({ ...form, className: event.target.value as SchoolClass })} className="input">
+        <select value={form.classId || form.className} onChange={(event) => { const selected = structuredClasses.find((item) => item.id === event.target.value); setForm({ ...form, classId: selected?.id, className: (selected?.name ?? event.target.value) as SchoolClass, subClassId: undefined }); }} className="input">
+          {structuredClasses.filter((item) => !item.parentClassId && item.active !== false).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
           {classChoices.map((className) => (
-            <option key={className} value={className}>{className}</option>
+            structuredClasses.some((item) => !item.parentClassId && item.name === className) ? null : <option key={className} value={className}>{className}</option>
           ))}
         </select>
       </label>
+      <button type="button" className="secondary-button justify-center" disabled={!selectedClass || !onAddSubclasses} onClick={() => setSubclassOpen((open) => !open)}><Plus className="h-4 w-4" /> Ajouter sous-classe</button>
+      {selectedClass && subclasses.length > 0 && <label className="grid gap-1 text-sm font-medium text-slate-700">Sous-classe <span className="text-red-700">obligatoire</span><select className="input" required value={form.subClassId ?? ""} onChange={(event) => setForm({ ...form, subClassId: event.target.value || undefined })}><option value="">Choisir une sous-classe</option>{subclasses.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
+      {subclassOpen && selectedClass && onAddSubclasses && <section className="grid gap-2 rounded border border-slate-200 bg-slate-50 p-3"><p className="font-semibold">Sous-classes de {selectedClass.name}</p>{subclassLabels.map((label, index) => <input key={index} className="input" aria-label={`Sous-classe ${index + 1}`} value={label} onChange={(event) => setSubclassLabels((items) => items.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} />)}<button type="button" className="secondary-button justify-center" onClick={() => setSubclassLabels((items) => [...items, ""])}>Ajouter une autre sous-classe</button>{subclassError && <p role="alert" className="text-sm text-red-700">{subclassError}</p>}<button type="button" className="primary-button justify-center" onClick={() => void onAddSubclasses(selectedClass, subclassLabels).then(() => { setSubclassOpen(false); setSubclassLabels(["A", "B"]); setSubclassError(""); }).catch((cause) => setSubclassError(cause instanceof Error ? cause.message : "Création impossible."))}>Enregistrer les sous-classes</button></section>}
       {getClassSection(form.className) === "secondaire" && (
         <div className="grid gap-2">
           <label className="grid gap-1 text-sm font-medium text-slate-700">

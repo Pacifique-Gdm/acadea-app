@@ -1,0 +1,22 @@
+import { readFileSync } from "node:fs";
+import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
+import { doc, setDoc } from "firebase/firestore";
+import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
+
+let environment: RulesTestEnvironment;
+const school = "school-a"; const year = "year-a";
+const context = (role: string, tenant = school) => environment.authenticatedContext(`${role}-a`, { role, schoolId: tenant }).firestore();
+async function seed(path: string, data: Record<string, unknown>) { await environment.withSecurityRulesDisabled(async (admin) => setDoc(doc(admin.firestore(), path), data)); }
+const child = (overrides: Record<string, unknown> = {}) => ({ id: "sub-a", schoolId: school, schoolYearId: year, name: "7ème CTEB - A", parentClassId: "parent", subClassLabel: "A", active: true, createdBy: "secretary-a", createdAt: "2026-08-10", updatedAt: "2026-08-10", ...overrides });
+
+beforeAll(async () => { environment = await initializeTestEnvironment({ projectId: "demo-acadea-subclasses", firestore: { rules: readFileSync("firestore.rules", "utf8") } }); }, 30_000);
+beforeEach(async () => { await environment.clearFirestore(); await seed(`schools/${school}`, { id: school, status: "active" }); await seed("schools/school-b", { id: "school-b", status: "active" }); await seed(`schoolYears/${year}`, { id: year, schoolId: school, status: "active" }); await seed("schoolYears/year-b", { id: "year-b", schoolId: "school-b", status: "active" }); await seed("classes/parent", { id: "parent", schoolId: school, schoolYearId: year, name: "7ème CTEB", active: true }); await seed("classes/foreign", { id: "foreign", schoolId: "school-b", schoolYearId: "year-b", name: "8ème", active: true }); });
+afterAll(async () => environment?.cleanup(), 30_000);
+
+describe("classes et sous-classes structurées", () => {
+  it("autorise une sous-classe Secrétaire du même tenant et de la même année", async () => assertSucceeds(setDoc(doc(context("secretary"), "classes", "sub-a"), child())));
+  it("refuse un parent d’une autre école ou année", async () => assertFails(setDoc(doc(context("secretary"), "classes", "sub-a"), child({ parentClassId: "foreign" }))));
+  it("refuse les rôles non autorisés", async () => assertFails(setDoc(doc(context("cashier"), "classes", "sub-a"), child({ createdBy: "cashier-a" }))));
+  it("refuse une sous-classe rattachée à une autre sous-classe", async () => { await seed("classes/sub-parent", child({ id: "sub-parent" })); await assertFails(setDoc(doc(context("secretary"), "classes", "sub-a"), child({ parentClassId: "sub-parent" }))); });
+  it("refuse une identité de créateur falsifiée", async () => assertFails(setDoc(doc(context("secretary"), "classes", "sub-a"), child({ createdBy: "other" }))));
+});

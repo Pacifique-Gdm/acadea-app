@@ -108,7 +108,7 @@ export async function createStudySubject(input: { user: AppUser; schoolId: strin
   await setDoc(doc(database, "subjects", `${input.schoolId}__${input.schoolYearId}__${id}`), { schoolId: input.schoolId, schoolYearId: input.schoolYearId, name, active: true, createdAt: now, updatedAt: now, createdBy: input.user.id }, { merge: false });
 }
 
-export async function savePedagogicalAssignment(input: { user: AppUser; schoolId: string; schoolYearId: string; teacherId: string; subjectId: string; classId: string; weeklyPeriods: number; blockSize?: 1 | 2; preferredRoomId?: string | null; active: boolean; current?: PedagogicalAssignment }) {
+export async function savePedagogicalAssignment(input: { user: AppUser; schoolId: string; schoolYearId: string; teacherId: string; subjectId: string; classId: string; weeklyPeriods: number; blockSize?: 1 | 2; preferredRoomId?: string | null; titularClassId?: string | null; active: boolean; current?: PedagogicalAssignment }) {
   const database = requireScope(input.user, input.schoolId, input.schoolYearId);
   if (!input.teacherId || !input.subjectId || !input.classId) throw new Error("L’enseignant, la matière et la classe sont obligatoires.");
   const periodError = validateWeeklyPeriods(input.weeklyPeriods);
@@ -120,11 +120,14 @@ export async function savePedagogicalAssignment(input: { user: AppUser; schoolId
     const subjectRef = doc(database, "subjects", input.subjectId);
     const classRef = doc(database, "classes", input.classId);
     const roomRef = input.preferredRoomId ? doc(database, "rooms", input.preferredRoomId) : undefined;
+    const titularClassRef = input.titularClassId ? doc(database, "classes", input.titularClassId) : undefined;
     const targetRef = doc(database, "pedagogicalAssignments", targetId);
+    const titularRef = input.titularClassId ? doc(database, "classTitulars", `${input.schoolId}__${input.schoolYearId}__${input.titularClassId}`) : undefined;
+    const previousTitularRef = input.current?.titularClassId && input.current.titularClassId !== input.titularClassId ? doc(database, "classTitulars", `${input.schoolId}__${input.schoolYearId}__${input.current.titularClassId}`) : undefined;
     // Do not read a target that may not exist: tenant-scoped read rules cannot
     // authorize a missing resource. The deterministic write remains validated
     // by the assignment create/update rules and the references read below.
-    const [teacher, subject, schoolClass, room] = await Promise.all([transaction.get(teacherRef), transaction.get(subjectRef), transaction.get(classRef), roomRef ? transaction.get(roomRef) : Promise.resolve(undefined)]);
+    const [teacher, subject, schoolClass, room, titularClass, titular, previousTitular] = await Promise.all([transaction.get(teacherRef), transaction.get(subjectRef), transaction.get(classRef), roomRef ? transaction.get(roomRef) : Promise.resolve(undefined), titularClassRef ? transaction.get(titularClassRef) : Promise.resolve(undefined), titularRef ? transaction.get(titularRef) : Promise.resolve(undefined), previousTitularRef ? transaction.get(previousTitularRef) : Promise.resolve(undefined)]);
     const teacherData = teacher.data();
     if (teacherData?.status === "inactive") throw new Error("Cet enseignant est archivé et ne peut plus recevoir de nouvelle affectation.");
     if (typeof teacherData?.userId === "string") {
@@ -137,9 +140,13 @@ export async function savePedagogicalAssignment(input: { user: AppUser; schoolId
     const validReference = (snapshot: typeof teacher) => { const value = snapshot.data(); return snapshot.exists() && value?.schoolId === input.schoolId && value.schoolYearId === input.schoolYearId; };
     if (!validReference(teacher) || !validReference(subject) || !validReference(schoolClass)) throw new Error("Une référence pédagogique est inconnue ou hors périmètre.");
     if (room && (!room.exists() || room.data()?.schoolId !== input.schoolId || room.data()?.schoolYearId !== input.schoolYearId || room.data()?.active !== true)) throw new Error("La salle préférée est inconnue, inactive ou hors périmètre.");
-    const payload = { id: targetId, schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, subjectId: input.subjectId, classId: input.classId, weeklyPeriods: input.weeklyPeriods, blockSize: input.blockSize ?? input.current?.blockSize ?? 1, preferredRoomId: input.preferredRoomId ?? null, active: input.active, createdAt: input.current?.createdAt ?? now, updatedAt: now, createdBy: input.current?.createdBy ?? input.user.id, updatedBy: input.user.id };
+    if (titularClass && (!titularClass.exists() || titularClass.data()?.schoolId !== input.schoolId || titularClass.data()?.schoolYearId !== input.schoolYearId || titularClass.data()?.active === false)) throw new Error("La classe de titulariat est inconnue, inactive ou hors périmètre.");
+    if (titular?.exists() && titular.data()?.assignmentId !== input.current?.id) throw new Error("Cette classe opérationnelle possède déjà un titulaire actif.");
+    const payload = { id: targetId, schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, subjectId: input.subjectId, classId: input.classId, weeklyPeriods: input.weeklyPeriods, blockSize: input.blockSize ?? input.current?.blockSize ?? 1, preferredRoomId: input.preferredRoomId ?? input.current?.preferredRoomId ?? null, titularClassId: input.titularClassId ?? null, active: input.active, createdAt: input.current?.createdAt ?? now, updatedAt: now, createdBy: input.current?.createdBy ?? input.user.id, updatedBy: input.user.id };
     if (input.current && input.current.id !== targetId) transaction.update(doc(database, "pedagogicalAssignments", input.current.id), { active: false, updatedAt: now, updatedBy: input.user.id });
     transaction.set(targetRef, payload);
+    if (previousTitularRef && previousTitular?.exists()) transaction.delete(previousTitularRef);
+    if (titularRef) transaction.set(titularRef, { id: `${input.schoolId}__${input.schoolYearId}__${input.titularClassId}`, schoolId: input.schoolId, schoolYearId: input.schoolYearId, classId: input.titularClassId, teacherId: input.teacherId, assignmentId: targetId, active: input.active, updatedAt: now, updatedBy: input.user.id });
   });
 }
 

@@ -47,7 +47,7 @@ beforeEach(async () => {
   await seed("attendance/attendance-b", { id: "attendance-b", schoolId: schoolB, schoolYearId: yearB, studentId: "student-b", status: "present" });
 });
 
-afterAll(async () => environment?.cleanup());
+afterAll(async () => environment?.cleanup(), 30_000);
 
 describe("SEC-015 — communications, notifications et discipline", () => {
   it("isole les lectures administrateur et les requêtes de liste par école", async () => {

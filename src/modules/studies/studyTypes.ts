@@ -31,6 +31,8 @@ export interface StudyClass {
   schoolYearId: string;
   name: string;
   active?: boolean;
+  parentClassId?: string;
+  subClassLabel?: string;
 }
 
 export interface PedagogicalAssignment {
@@ -43,6 +45,7 @@ export interface PedagogicalAssignment {
   weeklyPeriods: number;
   blockSize?: 1 | 2;
   preferredRoomId?: string | null;
+  titularClassId?: string | null;
   active: boolean;
   createdAt: string;
   updatedAt: string;

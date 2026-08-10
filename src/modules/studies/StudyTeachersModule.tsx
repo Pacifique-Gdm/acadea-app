@@ -1,3 +1,5 @@
+
+
 import { useMemo, useState } from "react";
 import { Pencil, Plus } from "lucide-react";
 import { AdminDrawer } from "../../components/ui";
@@ -9,7 +11,7 @@ import type { useStudyData } from "./useStudyData";
 import { TeacherAvailabilityDrawer, TeacherAvailabilitySummary } from "./TeacherAvailabilityDrawer";
 
 export function StudyTeachersModule({ user, school, year, data }: { user: AppUser; school: School; year: SchoolYear; data: ReturnType<typeof useStudyData> }) {
-  const { teachers, subjects, classes, assignments, rooms, error: realtimeError } = data;
+  const { teachers, subjects, classes, assignments, error: realtimeError } = data;
   const [selectedTeacher, setSelectedTeacher] = useState<StudyTeacher>();
   const [assignmentOpen, setAssignmentOpen] = useState(false);
   const [availabilityTeacher, setAvailabilityTeacher] = useState<StudyTeacher>();
@@ -18,7 +20,7 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
   const [subjectId, setSubjectId] = useState("");
   const [classId, setClassId] = useState("");
   const [weeklyPeriods, setWeeklyPeriods] = useState("1");
-  const [preferredRoomId, setPreferredRoomId] = useState("");
+  const [titularClassId, setTitularClassId] = useState("");
   const [active, setActive] = useState(true);
   const [feedback, setFeedback] = useState("");
   const [busy, setBusy] = useState(false);
@@ -42,7 +44,7 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
     setSubjectId(current?.subjectId ?? "");
     setClassId(current?.classId ?? "");
     setWeeklyPeriods(String(current?.weeklyPeriods ?? 1));
-    setPreferredRoomId(current?.preferredRoomId ?? "");
+    setTitularClassId(current?.titularClassId ?? "");
     setActive(current?.active ?? true);
     setFeedback("");
     setAssignmentOpen(true);
@@ -54,9 +56,10 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
     if (periodError) return setFeedback(periodError);
     const candidate = { schoolId: school.id, schoolYearId: year.id, teacherId, subjectId, classId };
     if (hasActiveAssignmentDuplicate(assignments, candidate, editingAssignment?.id)) return setFeedback("Cette affectation active existe déjà.");
+    if (titularClassId && assignments.some((item) => item.id !== editingAssignment?.id && item.active && item.titularClassId === titularClassId)) return setFeedback("Cette classe opérationnelle possède déjà un titulaire actif.");
     setBusy(true); setFeedback("");
     try {
-      await savePedagogicalAssignment({ user, ...candidate, weeklyPeriods: periods, preferredRoomId: preferredRoomId || null, active, current: editingAssignment });
+      await savePedagogicalAssignment({ user, ...candidate, weeklyPeriods: periods, titularClassId: titularClassId || null, active, current: editingAssignment });
       setAssignmentOpen(false);
     } catch (cause) { setFeedback(cause instanceof Error ? cause.message : "Enregistrement impossible."); }
     finally { setBusy(false); }
@@ -80,6 +83,6 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
 
     {availabilityTeacher && <TeacherAvailabilityDrawer user={user} teacher={availabilityTeacher} year={year} items={data.availabilities} onClose={()=>setAvailabilityTeacher(undefined)}/>}
 
-    {assignmentOpen && <AdminDrawer title={editingAssignment ? "Modifier l’affectation" : "Ajouter une affectation"} closeLabel="Fermer le formulaire d’affectation" onClose={() => !busy && setAssignmentOpen(false)}><label className="grid gap-1 text-sm font-semibold">Enseignant<select className="input" value={teacherId} onChange={(event) => setTeacherId(event.target.value)}><option value="">Sélectionner</option>{teachers.filter((item) => item.status === "active").map((item) => <option key={item.id} value={item.id}>{item.fullName}</option>)}</select></label><label className="grid gap-1 text-sm font-semibold">Matière<select className="input" value={subjectId} onChange={(event) => setSubjectId(event.target.value)}><option value="">Sélectionner</option>{subjects.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><div className="rounded border border-dashed border-slate-300 p-3"><label className="grid gap-1 text-sm font-semibold">Nouvelle matière<input className="input" value={newSubject} onChange={(event) => setNewSubject(event.target.value)} /></label><button type="button" className="secondary-button mt-2" disabled={busy || !newSubject.trim()} onClick={() => void submitSubject()}>Ajouter la matière</button></div><label className="grid gap-1 text-sm font-semibold">Classe<select className="input" value={classId} onChange={(event) => setClassId(event.target.value)}><option value="">Sélectionner</option>{classes.filter((item) => item.active !== false).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className="grid gap-1 text-sm font-semibold">Nombre de périodes hebdomadaires<input className="input" type="number" min={1} max={60} step={1} value={weeklyPeriods} onChange={(event) => setWeeklyPeriods(event.target.value)} /></label><label className="grid gap-1 text-sm font-semibold">Salle préférée (facultatif)<select className="input" value={preferredRoomId} onChange={(event) => setPreferredRoomId(event.target.value)}><option value="">Aucune salle préférée</option>{rooms.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>{editingAssignment && <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={active} onChange={(event) => setActive(event.target.checked)} /> Affectation active</label>}{feedback && <p role="alert" className="text-sm text-red-700">{feedback}</p>}<div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" disabled={busy} onClick={() => setAssignmentOpen(false)}>Annuler</button><button type="button" className="primary-button justify-center" disabled={busy} onClick={() => void submitAssignment()}>{busy ? "Enregistrement…" : "Enregistrer"}</button></div></AdminDrawer>}
+    {assignmentOpen && <AdminDrawer title={editingAssignment ? "Modifier l’affectation" : "Ajouter une affectation"} closeLabel="Fermer le formulaire d’affectation" onClose={() => !busy && setAssignmentOpen(false)}><label className="grid gap-1 text-sm font-semibold">Enseignant<select className="input" value={teacherId} onChange={(event) => setTeacherId(event.target.value)}><option value="">Sélectionner</option>{teachers.filter((item) => item.status === "active").map((item) => <option key={item.id} value={item.id}>{item.fullName}</option>)}</select></label><label className="grid gap-1 text-sm font-semibold">Matière<select className="input" value={subjectId} onChange={(event) => setSubjectId(event.target.value)}><option value="">Sélectionner</option>{subjects.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><div className="rounded border border-dashed border-slate-300 p-3"><label className="grid gap-1 text-sm font-semibold">Nouvelle matière<input className="input" value={newSubject} onChange={(event) => setNewSubject(event.target.value)} /></label><button type="button" className="secondary-button mt-2" disabled={busy || !newSubject.trim()} onClick={() => void submitSubject()}>Ajouter la matière</button></div><label className="grid gap-1 text-sm font-semibold">Classe<select className="input" value={classId} onChange={(event) => setClassId(event.target.value)}><option value="">Sélectionner</option>{classes.filter((item) => item.active !== false).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className="grid gap-1 text-sm font-semibold">Nombre de périodes hebdomadaires<input className="input" type="number" min={1} max={60} step={1} value={weeklyPeriods} onChange={(event) => setWeeklyPeriods(event.target.value)} /></label><label className="grid gap-1 text-sm font-semibold">Titulaire de la classe (facultatif)<select className="input" value={titularClassId} onChange={(event) => setTitularClassId(event.target.value)}><option value="">Choisir classe</option>{classes.filter((item) => item.active !== false && (item.parentClassId || !classes.some((candidate) => candidate.parentClassId === item.id && candidate.active !== false))).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>{editingAssignment && <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={active} onChange={(event) => setActive(event.target.checked)} /> Affectation active</label>}{feedback && <p role="alert" className="text-sm text-red-700">{feedback}</p>}<div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" disabled={busy} onClick={() => setAssignmentOpen(false)}>Annuler</button><button type="button" className="primary-button justify-center" disabled={busy} onClick={() => void submitAssignment()}>{busy ? "Enregistrement…" : "Enregistrer"}</button></div></AdminDrawer>}
   </section>;
 }

@@ -13,6 +13,8 @@ import { emptyStudent, generateMatricule, isArchivedStudent, validateStudentForS
 import { exportStudentsPdf, sortStudentsForPdfByClass } from "../../utils/studentPdf";
 import type { AppData, AppUser, ParentProfile, School, SchoolSection, SchoolYear, Student } from "../../types";
 import { CLASSES } from "../../types";
+import type { SchoolClassRecord } from "../../types";
+import { activeSubclasses, createSchoolSubclasses, subscribeToSchoolClasses } from "../../services/schoolSubclasses";
 
 export interface StudentModuleCapabilities {
   canCreate: boolean;
@@ -58,6 +60,7 @@ export function StudentsModule({
   const [isSaving, setIsSaving] = useState(false);
   const saveInProgressRef = useRef(false);
   const [showForm, setShowForm] = useState(false);
+  const [structuredClasses, setStructuredClasses] = useState<SchoolClassRecord[]>([]);
   const [archiveStudentId, setArchiveStudentId] = useState<string | null>(null);
   const [archiveReason, setArchiveReason] = useState("");
   const [archiveOtherReason, setArchiveOtherReason] = useState("");
@@ -85,6 +88,9 @@ export function StudentsModule({
     return { ...emptyStudent(school.id, year.id), className, section: getClassSection(className) };
   };
 
+  useEffect(() => {
+    return subscribeToSchoolClasses(school.id, year.id, setStructuredClasses, (cause) => setSaveError(cause.message));
+  }, [school.id, year.id]);
   useEffect(() => {
     if (sectionFilter !== "all" && !studentSectionChoices.includes(sectionFilter)) {
       setSectionFilter("all");
@@ -154,6 +160,10 @@ export function StudentsModule({
         setSaveError(validationError);
         return;
       }
+      const selectedClass = structuredClasses.find((item) => item.id === form.classId && !item.parentClassId);
+      const selectedSubclasses = selectedClass ? activeSubclasses(structuredClasses, selectedClass.id) : [];
+      if (selectedSubclasses.length > 0 && !form.subClassId) { setSaveError("La sous-classe est obligatoire pour cette classe subdivisée."); return; }
+      if (form.subClassId && !selectedSubclasses.some((item) => item.id === form.subClassId)) { setSaveError("La sous-classe sélectionnée n’appartient pas à cette classe."); return; }
       const selectedParentId = form.parentId?.trim() ?? "";
       const matchingParents = data.parents.filter((parent) => parent.id === selectedParentId && parent.schoolId === school.id);
       if (selectedParentId && matchingParents.length === 0) {
@@ -176,6 +186,8 @@ export function StudentsModule({
         schoolYearId: targetYearId,
         annee_scolaire_id: targetYearId,
       };
+      if (!student.classId) delete student.classId;
+      if (!student.subClassId) delete student.subClassId;
       if (selectedParentId) {
         student.parentId = selectedParentId;
       } else {
@@ -540,7 +552,7 @@ export function StudentsModule({
       </div>
       {(studentCapabilities.canCreate || studentCapabilities.canEdit) && showForm && (
         <AdminDrawer title={form.id.startsWith("new") ? "Ajouter un élève" : "Modifier l'élève"} onClose={() => setShowForm(false)} closeLabel="Fermer le formulaire élève">
-          <StudentForm
+        <StudentForm
             form={form}
             setForm={setForm}
             parents={yearData.parents}
@@ -555,7 +567,9 @@ export function StudentsModule({
             errorMessage={saveError}
             isSaving={isSaving}
             canCreateParent={studentCapabilities.canCreateParent}
-            canAddOption={studentCapabilities.canManageOptions}
+          canAddOption={studentCapabilities.canManageOptions}
+          structuredClasses={structuredClasses}
+          onAddSubclasses={(parent, labels) => createSchoolSubclasses({ user, parent, labels, existing: structuredClasses })}
           />
         </AdminDrawer>
       )}

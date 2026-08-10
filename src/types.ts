@@ -114,6 +114,9 @@ export interface Student {
   address: string;
   phone: string;
   className: SchoolClass;
+  /** Structured class references. Optional for backward compatibility. */
+  classId?: string;
+  subClassId?: string;
   section?: SchoolSection;
   option?: HumanityOption;
   status?: StudentStatus;
@@ -178,6 +181,16 @@ export interface Payment {
   updatedBy?: string;
   provenance?: "financial-api";
   clientRequestIdHash?: string;
+}
+
+export interface SchoolClassRecord {
+  id: string;
+  schoolId: string;
+  schoolYearId: string;
+  name: string;
+  active?: boolean;
+  parentClassId?: string;
+  subClassLabel?: string;
 }
 
 export interface Expense {
