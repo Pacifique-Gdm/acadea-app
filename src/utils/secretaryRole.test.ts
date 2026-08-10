@@ -49,7 +49,7 @@ describe("provisionnement et portail Secrétaire", () => {
 
   it("conserve les paiements en lecture seule et borne les écritures Élèves dans les règles", () => {
     const detail = readFileSync(new URL("../components/students/StudentDetailPage.tsx", import.meta.url), "utf8");
-    const rules = readFileSync(new URL("../../firestore.rules", import.meta.url), "utf8");
+    const rules = readFileSync(new URL("../../firestore.rules", import.meta.url), "utf8").replace(/\r\n/g, "\n");
     expect(detail).toContain('<FormPanel title="Paiements">');
     expect(detail).not.toContain("persistFirestorePatch");
     expect(rules).toContain("allow create: if secretaryStudentCreate()");

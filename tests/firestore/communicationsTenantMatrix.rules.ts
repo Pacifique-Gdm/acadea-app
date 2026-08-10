@@ -20,7 +20,7 @@ async function seed(path: string, data: Record<string, unknown>) {
 
 beforeAll(async () => {
   environment = await initializeTestEnvironment({ projectId, firestore: { rules: readFileSync("firestore.rules", "utf8") } });
-});
+}, 30_000);
 
 beforeEach(async () => {
   await environment.clearFirestore();
@@ -47,7 +47,7 @@ beforeEach(async () => {
   await seed("attendance/attendance-b", { id: "attendance-b", schoolId: schoolB, schoolYearId: yearB, studentId: "student-b", status: "present" });
 });
 
-afterAll(async () => environment.cleanup());
+afterAll(async () => environment?.cleanup());
 
 describe("SEC-015 — communications, notifications et discipline", () => {
   it("isole les lectures administrateur et les requêtes de liste par école", async () => {
