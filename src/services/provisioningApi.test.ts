@@ -6,6 +6,9 @@ const mocks = vi.hoisted(() => ({
     createUser: vi.fn(),
     setCustomUserClaims: vi.fn(),
     deleteUser: vi.fn(),
+    getUser: vi.fn(),
+    updateUser: vi.fn(),
+    revokeRefreshTokens: vi.fn(),
   },
   db: {
     doc: vi.fn(),
@@ -52,6 +55,9 @@ describe("API de provisionnement Acadéa", () => {
     mocks.auth.createUser.mockResolvedValue({ uid: "created-user" });
     mocks.auth.setCustomUserClaims.mockResolvedValue(undefined);
     mocks.auth.deleteUser.mockResolvedValue(undefined);
+    mocks.auth.getUser.mockResolvedValue({ uid: "target-user", email: "old@example.invalid", displayName: "Ancien nom", disabled: false });
+    mocks.auth.updateUser.mockResolvedValue(undefined);
+    mocks.auth.revokeRefreshTokens.mockResolvedValue(undefined);
     mocks.db.batch.mockReturnValue({ set: vi.fn(), update: vi.fn(), delete: vi.fn(), commit: vi.fn().mockResolvedValue(undefined) });
     mocks.db.collection.mockImplementation(() => ({
       doc: vi.fn(() => ({ id: "audit-test", set: vi.fn().mockResolvedValue(undefined) })),
@@ -174,5 +180,46 @@ describe("API de provisionnement Acadéa", () => {
     expect(mocks.auth.setCustomUserClaims).toHaveBeenCalledWith("created-user", expect.objectContaining({ role: "school_admin" }));
     expect(mocks.db.doc).toHaveBeenCalledWith(expect.stringMatching(/^schools\/school-/));
     expect(mocks.db.doc).toHaveBeenCalledWith("users/created-user");
+  });
+
+  it("archive logiquement un personnel de la même école sans supprimer Auth ni Firestore", async () => {
+    mocks.db.doc.mockImplementation((path: string) => ({
+      path,
+      get: vi.fn().mockResolvedValue({
+        exists: true,
+        data: () => path === "users/admin-1"
+          ? { role: "school_admin", schoolId: "school-1", status: "active" }
+          : { role: "teacher", schoolId: "school-1", status: "active", active: true, name: "Enseignant" },
+      }),
+    }));
+    const res = response();
+    await provisionSchoolAccount(request({ action: "archive-personnel", schoolId: "school-1", personnelId: "teacher-1" }), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(mocks.auth.updateUser).toHaveBeenCalledWith("teacher-1", { disabled: true });
+    expect(mocks.auth.revokeRefreshTokens).toHaveBeenCalledWith("teacher-1");
+    expect(mocks.auth.deleteUser).not.toHaveBeenCalled();
+    const batch = mocks.db.batch.mock.results[0]?.value;
+    expect(batch.update).toHaveBeenCalledWith(expect.objectContaining({ path: "users/teacher-1" }), expect.objectContaining({ status: "inactive", active: false, archivedBy: "admin-1" }));
+    expect(batch.delete).not.toHaveBeenCalled();
+  });
+
+  it("refuse l’auto-archivage, les parents, les autres écoles et les autres rôles", async () => {
+    async function run(caller: Record<string, unknown>, target: Record<string, unknown>, personnelId = "target") {
+      mocks.auth.verifyIdToken.mockResolvedValueOnce(caller);
+      mocks.db.doc.mockImplementation((path: string) => ({
+        path,
+        get: vi.fn().mockResolvedValue({ exists: true, data: () => path === `users/${String(caller.uid)}` ? caller : target }),
+      }));
+      const res = response();
+      await provisionSchoolAccount(request({ action: "archive-personnel", schoolId: "school-1", personnelId }), res);
+      return res;
+    }
+
+    expect((await run({ uid: "admin-1", role: "school_admin", schoolId: "school-1", status: "active" }, { role: "school_admin", schoolId: "school-1" }, "admin-1")).statusCode).toBe(409);
+    expect((await run({ uid: "admin-1", role: "school_admin", schoolId: "school-1", status: "active" }, { role: "parent", schoolId: "school-1" })).statusCode).toBe(403);
+    expect((await run({ uid: "admin-1", role: "school_admin", schoolId: "school-1", status: "active" }, { role: "teacher", schoolId: "school-2" })).statusCode).toBe(403);
+    expect((await run({ uid: "director-1", role: "study_director", schoolId: "school-1", status: "active" }, { role: "teacher", schoolId: "school-1" })).statusCode).toBe(403);
+    expect(mocks.auth.updateUser).not.toHaveBeenCalled();
   });
 });

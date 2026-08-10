@@ -19,6 +19,7 @@ import { formatStudentClassName } from "../../utils/studentClasses";
 import type { AppData, AppUser, FeeKind, FeeType, ParentProfile, School, SchoolYear, Student, ValvePublication } from "../../types";
 import { FEE_KINDS } from "../../types";
 import { SecretaryMedicalRecordsDrawer } from "../secretary/SecretaryMedicalTools";
+import { PersonnelDrawerContent } from "./PersonnelDrawerContent";
 import type { StudentMedicalRecord } from "../secretary/secretaryTypes";
 
 type SchoolUserProvisionRole = "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher";
@@ -87,7 +88,7 @@ export function MenuModule({
   onOpenBiometrics,
   initialBiometricsOpen = false,
 }: MenuModuleProps) {
-  type MenuSection = "school" | "years" | "accounts" | "fees" | "financial" | "valves" | "parentsDirectory" | "history" | "biometrics" | "medicalRecords";
+  type MenuSection = "school" | "years" | "accounts" | "personnel" | "fees" | "financial" | "valves" | "parentsDirectory" | "history" | "biometrics" | "medicalRecords";
   const [schoolForm, setSchoolForm] = useState(school);
   const [schoolSaveStatus, setSchoolSaveStatus] = useState<"success" | "error" | "">("");
   const [schoolSaveMessage, setSchoolSaveMessage] = useState("");
@@ -142,6 +143,7 @@ export function MenuModule({
     { id: "fees", title: "Types de frais", description: "Montants et catégories de frais scolaires.", icon: Banknote },
     { id: "financial", title: "Rapport financier", description: "Synthèse et exports des rapports financiers.", icon: BarChart3 },
     { id: "history", title: "Historique", description: "Activités et messages enregistrés pour ce compte.", icon: Clock3 },
+    { id: "personnel", title: "Personnels", description: "Personnel actif, archivage et réactivation des comptes internes.", icon: UsersRound },
     { id: "accounts", title: "Créer un utilisateur", description: "Comptes responsables liés à l'école.", icon: ShieldCheck },
     { id: "biometrics", title: "Empreintes et Cartes", description: "Préparation des identifiants biométriques des élèves.", icon: Fingerprint },
     { id: "years", title: "Années scolaires", description: "Année active, années archivées et contexte global.", icon: BookOpen },
@@ -809,6 +811,10 @@ export function MenuModule({
           )}
         </div>
       );
+    }
+
+    if (sectionId === "personnel" && canAdmin) {
+      return <PersonnelDrawerContent user={user} school={school} />;
     }
 
     if (sectionId === "accounts" && canAdmin) {

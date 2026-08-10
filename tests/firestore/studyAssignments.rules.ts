@@ -61,4 +61,10 @@ describe("Direction des études — affectations pédagogiques", () => {
     await assertSucceeds(updateDoc(doc(director(), "pedagogicalAssignments", assignmentId), { weeklyPeriods: 6, active: false, updatedAt: "2026-08-10T10:00:00.000Z" }));
     await assertFails(updateDoc(doc(director(), "pedagogicalAssignments", assignmentId), { teacherId: "teacher-b" }));
   });
+  it("refuse une nouvelle affectation lorsque le compte Enseignant lié est archivé", async () => {
+    await seed("teachers/teacher-archived", { id: "teacher-archived", userId: "user-archived", schoolId: school, schoolYearId: year, status: "active", createdBy: "director-a", createdAt: now });
+    await seed("users/user-archived", { id: "user-archived", role: "teacher", schoolId: school, status: "inactive", active: false });
+    const id = `${school}__${year}__teacher-archived__subject-a__class-a`;
+    await assertFails(setDoc(doc(director(), "pedagogicalAssignments", id), assignment({ id, teacherId: "teacher-archived" })));
+  });
 });

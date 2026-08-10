@@ -64,7 +64,6 @@ describe("listeners temps réel Direction des études", () => {
     expect(firestore.subscriptions[1].source).toMatchObject({ filters: [
       { field: "schoolId", operator: "==", value: "school-1" },
       { field: "role", operator: "==", value: "teacher" },
-      { field: "status", operator: "==", value: "active" },
     ] });
     for (const subscription of firestore.subscriptions.filter((_, index) => index !== 1)) {
       expect(subscription.source).toMatchObject({ filters: [
@@ -129,6 +128,7 @@ describe("listeners temps réel Direction des études", () => {
   it("fusionne l'identité users avec le profil pédagogique sans casser les anciens teachers", () => {
     const profiles = [
       { id: "profile-new", userId: "teacher-user", schoolId: "school-1", schoolYearId: "year-1", status: "active" },
+      { id: "profile-archived", userId: "inactive", schoolId: "school-1", schoolYearId: "year-1", status: "active" },
       { id: "legacy", schoolId: "school-1", schoolYearId: "year-1", firstName: "Ancien", lastName: "Profil", fullName: "Ancien Profil", status: "active" },
     ] as never[];
     const users = [
@@ -138,6 +138,7 @@ describe("listeners temps réel Direction des études", () => {
     ] as AppUser[];
     expect(mergeStudyTeachers(profiles, users)).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "profile-new", fullName: "Alice Mukendi", email: "alice@example.test", phone: "0990000000" }),
+      expect.objectContaining({ id: "profile-archived", fullName: "Inactif", status: "inactive" }),
       expect.objectContaining({ id: "legacy", fullName: "Ancien Profil" }),
     ]));
   });
