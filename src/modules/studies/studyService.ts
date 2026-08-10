@@ -1,11 +1,12 @@
-import { collection, doc, onSnapshot, query, runTransaction, setDoc, where, writeBatch } from "@firebase/firestore";
+import { collection, doc, onSnapshot, query, runTransaction, setDoc, where } from "@firebase/firestore";
 import type { Firestore } from "@firebase/firestore";
 import { db } from "../../firebase";
-import type { AppUser } from "../../types";
+import type { AppUser, Student } from "../../types";
 import { pedagogicalAssignmentId, validateWeeklyPeriods } from "./studyAssignments";
 import type { PedagogicalAssignment, SchedulePeriod, StudyClass, StudyRoom, StudySubject, StudyTeacher, TeacherAvailability, Timetable, TimetableEntry } from "./studyTypes";
 import { detectAvailabilityConflicts, validTimeRange, validatePeriod } from "./studySchedule";
 import { validateAvailabilityRanges } from "./studySchedule";
+import { persistGeneratedTimetable } from "./timetablePersistence";
 
 function requireScope(user: AppUser, schoolId: string, schoolYearId: string) {
   if (!db || user.role !== "study_director" || user.schoolId !== schoolId || !schoolId || !schoolYearId) throw new Error("Périmètre pédagogique non autorisé.");
@@ -21,7 +22,7 @@ function scopedSubscription<T>(collectionName: string, schoolId: string, schoolY
   }, onError);
 }
 
-export function subscribeToStudyData(input: { user: AppUser; schoolId: string; schoolYearId: string; onTeachers: (items: StudyTeacher[]) => void; onSubjects: (items: StudySubject[]) => void; onClasses: (items: StudyClass[]) => void; onAssignments: (items: PedagogicalAssignment[]) => void; onAvailabilities:(items:TeacherAvailability[])=>void;onPeriods:(items:SchedulePeriod[])=>void;onTimetables:(items:Timetable[])=>void;onTimetableEntries:(items:TimetableEntry[])=>void;onRooms:(items:StudyRoom[])=>void; onError: (error: Error) => void }) {
+export function subscribeToStudyData(input: { user: AppUser; schoolId: string; schoolYearId: string; onTeachers: (items: StudyTeacher[]) => void; onSubjects: (items: StudySubject[]) => void; onClasses: (items: StudyClass[]) => void; onStudents:(items:Student[])=>void;onAssignments: (items: PedagogicalAssignment[]) => void; onAvailabilities:(items:TeacherAvailability[])=>void;onPeriods:(items:SchedulePeriod[])=>void;onTimetables:(items:Timetable[])=>void;onTimetableEntries:(items:TimetableEntry[])=>void;onRooms:(items:StudyRoom[])=>void; onError: (error: Error) => void }) {
   const database = requireScope(input.user, input.schoolId, input.schoolYearId);
   let teacherProfiles: StudyTeacher[] = [];
   let teacherUsers: AppUser[] = [];
@@ -49,6 +50,7 @@ export function subscribeToStudyData(input: { user: AppUser; schoolId: string; s
     teacherUsersUnsubscribe,
     scopedSubscription("subjects", input.schoolId, input.schoolYearId, input.onSubjects, input.onError),
     scopedSubscription("classes", input.schoolId, input.schoolYearId, input.onClasses, input.onError),
+    scopedSubscription("students", input.schoolId, input.schoolYearId, input.onStudents, input.onError),
     scopedSubscription("pedagogicalAssignments", input.schoolId, input.schoolYearId, input.onAssignments, input.onError),
     scopedSubscription("teacherAvailabilities",input.schoolId,input.schoolYearId,input.onAvailabilities,input.onError),
     scopedSubscription("schedulePeriods",input.schoolId,input.schoolYearId,input.onPeriods,input.onError),
@@ -89,7 +91,7 @@ export async function saveTeacherDayAvailability(input:{user:AppUser;schoolId:st
 export async function saveSchedulePeriod(input:{user:AppUser;item:SchedulePeriod;existing:SchedulePeriod[]}){const database=requireScope(input.user,input.item.schoolId,input.item.schoolYearId);const error=validatePeriod(input.item,input.existing,input.item.id);if(error)throw new Error(error);await setDoc(doc(database,"schedulePeriods",input.item.id),input.item);}
 export async function setSchedulePeriodActive(user:AppUser,item:SchedulePeriod,active:boolean){const database=requireScope(user,item.schoolId,item.schoolYearId);await setDoc(doc(database,"schedulePeriods",item.id),{active,updatedAt:new Date().toISOString()},{merge:true});}
 
-export async function saveGeneratedTimetable(input:{user:AppUser;schoolId:string;schoolYearId:string;version:number;entries:TimetableEntry[];existing:Timetable[];metadata:Timetable["generationMetadata"]}){const database=requireScope(input.user,input.schoolId,input.schoolYearId);if(input.entries.length>498)throw new Error("L’horaire dépasse la capacité d’un enregistrement atomique (498 créneaux).");const id=`${input.schoolId}__${input.schoolYearId}__v${input.version}`;if(input.existing.some(item=>item.id===id))throw new Error("Cette version d’horaire existe déjà.");const now=new Date().toISOString();const schedule:Timetable={id,schoolId:input.schoolId,schoolYearId:input.schoolYearId,version:input.version,status:"DRAFT",activeDraft:true,createdBy:input.user.id,createdAt:now,updatedAt:now,generationMetadata:input.metadata};const batch=writeBatch(database);input.existing.filter(item=>item.status==="DRAFT"&&item.activeDraft).forEach(item=>batch.update(doc(database,"timetables",item.id),{activeDraft:false,updatedAt:now}));batch.set(doc(database,"timetables",id),schedule);input.entries.forEach(entry=>{const saved={...entry,id:`${id}__${entry.id}`,scheduleId:id,createdAt:now,updatedAt:now};batch.set(doc(database,"timetableEntries",saved.id),saved)});await batch.commit();return schedule;}
+export async function saveGeneratedTimetable(input:{user:AppUser;schoolId:string;schoolYearId:string;version:number;entries:TimetableEntry[];existing:Timetable[];metadata:Timetable["generationMetadata"]}){const database=requireScope(input.user,input.schoolId,input.schoolYearId);return persistGeneratedTimetable(database,input);}
 
 export async function validateSavedTimetable(input:{user:AppUser;schedule:Timetable}){const database=requireScope(input.user,input.schedule.schoolId,input.schedule.schoolYearId);if(input.schedule.status!=="DRAFT")throw new Error("Seul un brouillon peut être validé.");const now=new Date().toISOString();await runTransaction(database,async transaction=>{const ref=doc(database,"timetables",input.schedule.id);const snapshot=await transaction.get(ref);if(!snapshot.exists()||snapshot.data()?.status!=="DRAFT")throw new Error("Le brouillon n’existe plus ou a déjà été validé.");transaction.update(ref,{status:"VALID",activeDraft:false,validatedAt:now,validatedBy:input.user.id,updatedAt:now});});}
 

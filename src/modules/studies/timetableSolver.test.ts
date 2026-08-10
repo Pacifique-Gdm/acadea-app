@@ -9,6 +9,25 @@ const availability=(status:TeacherAvailability["status"],dayOfWeek:TeacherAvaila
 const problem=(assignments:PedagogicalAssignment[],periods:SchedulePeriod[]= [period("p1",1),period("p2",2),period("p3",3)],availabilities:TeacherAvailability[]=[])=>( {schoolId:"s",schoolYearId:"y",assignments,periods,availabilities,maxSameAssignmentPeriodsPerDay:2} );
 
 describe("moteur déterministe d’horaires",()=>{
+  it("simule une école avec deux sous-classes indépendantes et une classe sans sous-classe",()=>{
+    const assignments=[
+      assignment("math-7a","teacher-1","class-7a","math",4),
+      assignment("math-7b","teacher-2","class-7b","math",4),
+      assignment("french-7a","teacher-3","class-7a","french",3),
+      assignment("french-7b","teacher-3","class-7b","french",3),
+      assignment("science-8","teacher-4","class-8","science",4),
+      assignment("history-8","teacher-1","class-8","history",2),
+    ];
+    const result=solver.solve(problem(assignments,[period("p1",1),period("p2",2),period("p3",3),period("p4",4)]));
+    expect(result.success).toBe(true);
+    expect(result.entries).toHaveLength(20);
+    expect(new Set(result.entries.map(e=>`${e.teacherId}|${e.dayOfWeek}|${e.periodId}`)).size).toBe(20);
+    expect(new Set(result.entries.map(e=>`${e.classId}|${e.dayOfWeek}|${e.periodId}`)).size).toBe(20);
+    expect(result.entries.filter(e=>e.classId==="class-7a")).toHaveLength(7);
+    expect(result.entries.filter(e=>e.classId==="class-7b")).toHaveLength(7);
+    expect(result.entries.filter(e=>e.classId==="class-8")).toHaveLength(6);
+    expect(result.entries.every(e=>e.schoolId==="s"&&e.schoolYearId==="y")).toBe(true);
+  });
   it("place un enseignant, une matière et une classe",()=>expect(solver.solve(problem([assignment("a")])).entries).toHaveLength(1));
   it("place trois matières d’un enseignant",()=>expect(solver.solve(problem([assignment("a"),assignment("b"),assignment("c")])).success).toBe(true));
   it("place un enseignant dans plusieurs classes sans chevauchement",()=>{const result=solver.solve(problem([assignment("a","t","c1"),assignment("b","t","c2")]));expect(result.success).toBe(true);expect(new Set(result.entries.map(e=>`${e.dayOfWeek}-${e.periodId}`)).size).toBe(2)});
