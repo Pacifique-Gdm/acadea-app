@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, onSnapshot } from "firebase/firestore";
 import { auth, db, firebaseConfig, firebaseReady } from "../firebase";
 import type { AppUser, Role } from "../types";
 import { markAuthStep } from "../utils/authPerformance";
@@ -85,8 +85,8 @@ async function loadFirebaseUserProfile(firebaseUser: FirebaseUser, authModule: F
   }
 
   const firestoreDocument = userSnapshot.data();
-  if (firestoreDocument.status === "inactive") {
-    throw new Error("Connexion refusée : ce compte a été désactivé.");
+  if (firestoreDocument.status === "inactive" || firestoreDocument.active === false) {
+    throw new Error("Votre compte n’est plus actif dans cet établissement.");
   }
   markAuthStep("auth:role-resolved");
   const rawProfile = {
@@ -156,26 +156,43 @@ export async function subscribeToFirebaseUser(
   assertFirebaseAuthReady();
 
   const authModule = (await import("firebase/auth")) as unknown as FirebaseAuthModule;
-  return authModule.onAuthStateChanged(
+  let profileUnsubscribe: (() => void) | undefined;
+  const authUnsubscribe = authModule.onAuthStateChanged(
     auth,
     (firebaseUser) => {
+      profileUnsubscribe?.();
+      profileUnsubscribe = undefined;
       markAuthStep("auth:state-resolved");
       if (!firebaseUser) {
         onUser(null);
         return;
       }
 
-      void loadFirebaseUserProfile(firebaseUser, authModule).then(onUser).catch((error) => {
+      void loadFirebaseUserProfile(firebaseUser, authModule).then((resolvedUser) => {
+        onUser(resolvedUser);
+        profileUnsubscribe = onSnapshot(doc(db!, "users", firebaseUser.uid), (snapshot) => {
+          const profile = snapshot.data();
+          if (!snapshot.exists() || profile?.status === "inactive" || profile?.active === false) {
+            const error = new Error("Votre compte n’est plus actif dans cet établissement.");
+            profileUnsubscribe?.();
+            profileUnsubscribe = undefined;
+            void authModule.signOut(auth).finally(() => onError(error));
+            return;
+          }
+          onUser(normalizeUserProfile({ ...resolvedUser, ...profile, id: firebaseUser.uid, role: resolvedUser.role, schoolId: resolvedUser.schoolId } as RawAppUser));
+        }, onError);
+      }).catch((error) => {
         void authModule.signOut(auth).finally(() => onError(error));
       });
     },
     onError,
   );
+  return () => { profileUnsubscribe?.(); authUnsubscribe(); };
 }
 
 export function canEnterRoute(user: AppUser | null, route: string) {
   if (!user) return false;
-  if (user.status === "inactive") return false;
+  if (user.status === "inactive" || user.active === false) return false;
   if (route === "/platform") return user.role === "super_admin";
   if (route === "/studies") return user.role === "study_director" && Boolean(user.schoolId);
   if (route === "/dashboard") return ["school_admin", "cashier", "discipline_director", "secretary"].includes(user.role) && Boolean(user.schoolId);
@@ -184,27 +201,27 @@ export function canEnterRoute(user: AppUser | null, route: string) {
 }
 
 export function validateSchoolAdmin(user: AppUser) {
-  return user.role === "school_admin" && Boolean(user.schoolId) && user.status !== "inactive";
+  return user.role === "school_admin" && Boolean(user.schoolId) && user.status !== "inactive" && user.active !== false;
 }
 
 export function validateSchoolStaff(user: AppUser) {
-  return ["school_admin", "cashier"].includes(user.role) && Boolean(user.schoolId) && user.status !== "inactive";
+  return ["school_admin", "cashier"].includes(user.role) && Boolean(user.schoolId) && user.status !== "inactive" && user.active !== false;
 }
 
 export function validateDisciplineDirector(user: AppUser) {
-  return user.role === "discipline_director" && Boolean(user.schoolId) && user.status !== "inactive";
+  return user.role === "discipline_director" && Boolean(user.schoolId) && user.status !== "inactive" && user.active !== false;
 }
 
 export function validateStudyDirector(user: AppUser) {
-  return user.role === "study_director" && Boolean(user.schoolId) && user.status !== "inactive";
+  return user.role === "study_director" && Boolean(user.schoolId) && user.status !== "inactive" && user.active !== false;
 }
 
 export function validateSecretary(user: AppUser) {
-  return user.role === "secretary" && Boolean(user.schoolId) && user.status !== "inactive";
+  return user.role === "secretary" && Boolean(user.schoolId) && user.status !== "inactive" && user.active !== false;
 }
 
 export function validateParent(user: AppUser) {
-  return user.role === "parent" && Boolean(user.schoolId) && Boolean(user.parentId) && user.status !== "inactive";
+  return user.role === "parent" && Boolean(user.schoolId) && Boolean(user.parentId) && user.status !== "inactive" && user.active !== false;
 }
 
 export function validatePlatformAdmin(user: AppUser) {

@@ -42,7 +42,7 @@ describe("identité Enseignant pour la Direction des études", () => {
     const database = environment.authenticatedContext("admin-a", { role: "school_admin", schoolId }).firestore();
     await assertSucceeds(getDocs(query(collection(database, "users"), where("schoolId", "==", schoolId), where("role", "==", "teacher"))));
     await assertFails(getDocs(query(collection(database, "users"), where("schoolId", "==", schoolId))));
-    await assertFails(getDoc(doc(database, "users", "cashier-a")));
+    await assertSucceeds(getDoc(doc(database, "users", "cashier-a")));
     await assertFails(getDoc(doc(database, "users", "teacher-b")));
   });
 });

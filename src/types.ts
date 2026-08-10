@@ -33,12 +33,17 @@ export interface AppUser {
   parentId?: string;
   studentIds?: string[];
   status?: "active" | "inactive";
+  active?: boolean;
   phone?: string;
   address?: string;
   createdAt?: string;
   lastLoginAt?: string;
   removedAt?: string;
   removedBy?: string;
+  archivedAt?: string;
+  archivedBy?: string;
+  reactivatedAt?: string;
+  reactivatedBy?: string;
 }
 
 export interface School {

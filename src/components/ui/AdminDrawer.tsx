@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 import type { ReactNode } from "react";
 import { X } from "lucide-react";
 
@@ -15,6 +15,7 @@ export function AdminDrawer({
 }) {
   const drawerRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const titleId = useId();
   const onCloseRef = useRef(onClose);
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -67,10 +68,10 @@ export function AdminDrawer({
         onMouseDown={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="drawer-title"
+        aria-labelledby={titleId}
       >
         <div className="mb-4 flex items-center justify-between gap-3 border-b border-slate-100 pb-3">
-          <h2 id="drawer-title" className="break-words text-lg font-bold text-ink">{title}</h2>
+          <h2 id={titleId} className="break-words text-lg font-bold text-ink">{title}</h2>
           <button ref={closeButtonRef} onClick={onClose} className="rounded bg-slate-100 p-2 text-slate-700" aria-label={closeLabel} type="button">
             <X className="h-4 w-4" />
           </button>
