@@ -27,17 +27,22 @@ beforeEach(async () => {
   await seed(`schoolYears/${yearA}`, { id: yearA, schoolId: schoolA, status: "active" });
   await seed(`schoolYears/${yearB}`, { id: yearB, schoolId: schoolB, status: "active" });
   const shared = { schoolId: schoolA, schoolYearId: yearA };
+  await seed("users/teacher-a", { id: "teacher-a", role: "teacher", schoolId: schoolA, status: "active", active: true });
   await seed("messages/message-a", { id: "message-a", ...shared, threadParentId: "parent-a", schoolRecipient: "admin" });
   await seed("messages/message-secretary", { id: "message-secretary", ...shared, senderId: "admin-a", recipientParentId: "school", participantIds: ["admin-a", "secretary-a"], recipientIds: ["secretary-a"], subject: "Objet", body: "Corps", createdAt: "2026-08-08T10:00:00.000Z" });
   await seed("messages/message-secretary-parent", { id: "message-secretary-parent", ...shared, senderId: "secretary-a", recipientParentId: "school", participantIds: ["secretary-a", "parent-user-a"], recipientIds: ["parent-user-a"], subject: "Objet parent", body: "Corps", createdAt: "2026-08-08T11:00:00.000Z" });
   await seed("messages/message-administrative-group", { id: "message-administrative-group", ...shared, senderId: "admin-a", recipientParentId: "school", participantIds: ["admin-a", "cashier-a", "secretary-a", "discipline-a"], recipientIds: ["cashier-a", "secretary-a", "discipline-a"], subject: "Objet groupe", body: "Corps", createdAt: "2026-08-08T12:00:00.000Z" });
+  await seed("messages/message-pedagogical", { id: "message-pedagogical", ...shared, senderId: "admin-a", recipientParentId: "school", participantIds: ["admin-a", "teacher-a", "study-a"], recipientIds: ["teacher-a", "study-a"], subject: "Pédagogie", body: "Corps", createdAt: "2026-08-08T13:00:00.000Z" });
   await seed("conversations/conversation-a", { id: "conversation-a", ...shared, parentId: "parent-a", threadId: "thread-a", threadParentId: "parent-a", schoolRecipient: "admin" });
   await seed("conversations/conversation-secretary", { id: "conversation-secretary", ...shared, parentId: "school", threadId: "thread-secretary", threadParentId: "school", participantIds: ["admin-a", "secretary-a"] });
   await seed("conversations/conversation-secretary-parent", { id: "conversation-secretary-parent", ...shared, parentId: "school", threadId: "thread-secretary-parent", threadParentId: "school", participantIds: ["secretary-a", "parent-user-a"] });
+  await seed("conversations/conversation-pedagogical", { id: "conversation-pedagogical", ...shared, parentId: "school", threadId: "thread-pedagogical", threadParentId: "school", participantIds: ["admin-a", "teacher-a", "study-a"] });
   await seed("notifications/notification-a", { id: "notification-a", ...shared, parentId: "parent-a", recipientRole: "school", schoolRecipient: "admin" });
   await seed("notifications/notification-admin-personal", { id: "notification-admin-personal", ...shared, recipientUserId: "admin-a", type: "message", read: false, createdAt: "2026-08-08T12:00:00.000Z" });
   await seed("notifications/notification-admin-personal-older", { id: "notification-admin-personal-older", ...shared, recipientUserId: "admin-a", type: "message", read: true, createdAt: "2026-08-08T11:00:00.000Z" });
   await seed("notifications/notification-parent-personal", { id: "notification-parent-personal", ...shared, recipientUserId: "parent-user-a", type: "message", read: false, createdAt: "2026-08-08T12:00:00.000Z" });
+  await seed("notifications/notification-teacher-personal", { id: "notification-teacher-personal", ...shared, recipientUserId: "teacher-a", type: "message", read: false, createdAt: "2026-08-08T13:00:00.000Z" });
+  await seed("notifications/notification-study-personal", { id: "notification-study-personal", ...shared, recipientUserId: "study-a", type: "message", read: false, createdAt: "2026-08-08T13:00:00.000Z" });
   await seed("disciplineSanctions/sanction-a", { id: "sanction-a", ...shared, status: "active" });
   await seed("attendance/attendance-a", { id: "attendance-a", ...shared, studentId: "student-a", status: "present" });
   await seed("messages/messages-b", { id: "messages-b", schoolId: schoolB, schoolYearId: yearB, threadParentId: "parent-b", schoolRecipient: "admin" });
@@ -82,6 +87,18 @@ describe("SEC-015 — communications, notifications et discipline", () => {
     ]);
     await assertFails(getDoc(doc(auth("secretary-b", "secretary"), "messages", "message-secretary")));
     await assertFails(getDoc(doc(auth("secretary-other-school", "secretary", schoolB), "messages", "message-secretary")));
+  });
+
+  it.each([["teacher-a", "teacher", "notification-teacher-personal"], ["study-a", "study_director", "notification-study-personal"]])("limite la messagerie pédagogique de %s à sa participation personnelle", async (uid, role, notificationId) => {
+    const database = auth(uid, role);
+    await assertSucceeds(getDoc(doc(database, "messages", "message-pedagogical")));
+    await assertSucceeds(getDoc(doc(database, "conversations", "conversation-pedagogical")));
+    await assertSucceeds(getDoc(doc(database, "notifications", notificationId)));
+    const messages = await assertSucceeds(getDocs(query(collection(database, "messages"), where("schoolId", "==", schoolA), where("schoolYearId", "==", yearA), where("participantIds", "array-contains", uid), orderBy("createdAt", "desc"), limit(30))));
+    expect(messages.docs.map((item) => item.id)).toEqual(["message-pedagogical"]);
+    await assertFails(getDoc(doc(auth(`${uid}-other`, role), "messages", "message-pedagogical")));
+    await assertFails(getDoc(doc(auth(uid, role, schoolB), "messages", "message-pedagogical")));
+    await assertFails(getDoc(doc(database, "notifications", uid === "teacher-a" ? "notification-study-personal" : "notification-teacher-personal")));
   });
 
   it("refuse la création directe du nouveau format serveur", async () => {

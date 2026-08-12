@@ -603,7 +603,7 @@ service cloud.firestore {
       }
       function validStudyLegacyClassCreate() {
         return studyDirector()
-          && activeTenantYearCreate()
+          && activeStudyYearCreate()
           && classId.matches("^" + tenantSchoolId() + "__" + request.resource.data.schoolYearId + "__.+$")
           && !("parentClassId" in request.resource.data)
           && request.resource.data.name is string
@@ -957,8 +957,8 @@ service cloud.firestore {
           && (resource.data.schoolRecipient in ["cashier", "both"] || request.auth.uid in resource.data.participantIds))
         || (secretary() && sameTenantResource()
           && request.auth.uid in resource.data.participantIds)
-        || (role() in ["teacher", "study_director"] && sameTenantResource()
-          && resource.data.participantIds is list && request.auth.uid in resource.data.participantIds)
+        || ((activeTeacher() || studyDirector()) && resource.data.schoolId == tenantSchoolId()
+          && request.auth.uid in resource.data.participantIds)
         || (disciplineTenantResource()
           && (resource.data.schoolRecipient == "discipline" || request.auth.uid in resource.data.participantIds))
         || (parentUser() && resource.data.schoolId == tenantSchoolId()
@@ -985,8 +985,8 @@ service cloud.firestore {
           && (resource.data.schoolRecipient == "discipline" || request.auth.uid in resource.data.participantIds))
         || (secretary() && sameTenantResource()
           && request.auth.uid in resource.data.participantIds)
-        || (role() in ["teacher", "study_director"] && sameTenantResource()
-          && resource.data.participantIds is list && request.auth.uid in resource.data.participantIds)
+        || ((activeTeacher() || studyDirector()) && resource.data.schoolId == tenantSchoolId()
+          && request.auth.uid in resource.data.participantIds)
         || (parentUser() && resource.data.schoolId == tenantSchoolId()
           && (resource.data.parentId == tenantParentId()
             || (resource.data.participantIds is list && request.auth.uid in resource.data.participantIds)));
@@ -1047,7 +1047,7 @@ service cloud.firestore {
           && (resource.data.type != "message" || !("recipientUserId" in resource.data) || resource.data.recipientUserId == request.auth.uid))
         || (secretary() && sameTenantResource()
           && (resource.data.type != "message" || resource.data.recipientUserId == request.auth.uid))
-        || (role() in ["teacher", "study_director"] && sameTenantResource()
+        || ((activeTeacher() || studyDirector()) && resource.data.schoolId == tenantSchoolId()
           && resource.data.recipientUserId == request.auth.uid)
         || (disciplineTenantResource() && resource.data.type == "message" && resource.data.recipientUserId == request.auth.uid)
         || (disciplineTenantResource() && resource.data.recipientRole == "school" && resource.data.schoolRecipient == "discipline")
