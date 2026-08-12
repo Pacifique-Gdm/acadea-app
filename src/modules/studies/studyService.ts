@@ -170,7 +170,7 @@ export async function savePedagogicalAssignments(input: { user: AppUser; schoolI
     const teacherRef = doc(database, "teachers", input.teacherId);
     const subjectRefs = subjectIds.map((id) => doc(database, "subjects", id));
     const modernClassRefs = classIds.filter((id) => !legacyClassIds.has(id)).map((id) => doc(database, "classes", id));
-    const titularClassRef = input.titularClassId ? doc(database, "classes", input.titularClassId) : undefined;
+    const titularClassRef = input.titularClassId && !legacyClassIds.has(input.titularClassId) ? doc(database, "classes", input.titularClassId) : undefined;
     const titularRef = input.titularClassId ? doc(database, "classTitulars", `${input.schoolId}__${input.schoolYearId}__${input.titularClassId}`) : undefined;
     const [teacher, ...references] = await Promise.all([transaction.get(teacherRef), ...subjectRefs.map((ref) => transaction.get(ref)), ...modernClassRefs.map((ref) => transaction.get(ref)), ...(titularClassRef ? [transaction.get(titularClassRef)] : []), ...(titularRef ? [transaction.get(titularRef)] : [])]);
     const validReference = (snapshot: typeof teacher) => snapshot.exists() && snapshot.data()?.schoolId === input.schoolId && snapshot.data()?.schoolYearId === input.schoolYearId;
