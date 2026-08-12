@@ -5,7 +5,7 @@ import { Pencil, Plus } from "lucide-react";
 import { AdminDrawer } from "../../components/ui";
 import type { AppUser, School, SchoolSection, SchoolYear } from "../../types";
 import { hasActiveAssignmentDuplicate, teacherWorkload, validateWeeklyPeriods } from "./studyAssignments";
-import { createStudySubject, savePedagogicalAssignment, savePedagogicalAssignments, setPedagogicalAssignmentActive } from "./studyService";
+import { createStudySubject, savePedagogicalAssignment, savePedagogicalAssignments, savePrimaryHomeroomAssignments, setPedagogicalAssignmentActive } from "./studyService";
 import type { PedagogicalAssignment, StudyTeacher } from "./studyTypes";
 import type { useStudyData } from "./useStudyData";
 import { TeacherAvailabilityDrawer, TeacherAvailabilitySummary } from "./TeacherAvailabilityDrawer";
@@ -72,7 +72,8 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
     setBusy(true); setFeedback("");
     try {
       if (editingAssignment) await savePedagogicalAssignment({ user, ...candidates[0], weeklyPeriods: periods, titularClassId: titularClassId || null, active, current: editingAssignment });
-      else await savePedagogicalAssignments({ user, schoolId: school.id, schoolYearId: year.id, teacherId, subjectIds:savedSubjectIds, classIds:savedClassIds, legacyClasses: assignmentClasses.filter((item) => savedClassIds.includes(item.id) && !classes.some((current) => current.id === item.id)), weeklyPeriods: periods, titularClassId: primaryMode ? savedClassIds[0] : (titularClassId || null), active });
+      else if (primaryMode) await savePrimaryHomeroomAssignments({ user, schoolId: school.id, schoolYearId: year.id, teacherId, subjectIds: savedSubjectIds, classId: savedClassIds[0], legacyClass: assignmentClasses.find((item) => item.id === savedClassIds[0] && !classes.some((current) => current.id === item.id)), weeklyPeriods: periods, active });
+      else await savePedagogicalAssignments({ user, schoolId: school.id, schoolYearId: year.id, teacherId, subjectIds:savedSubjectIds, classIds:savedClassIds, legacyClasses: assignmentClasses.filter((item) => savedClassIds.includes(item.id) && !classes.some((current) => current.id === item.id)), weeklyPeriods: periods, titularClassId: titularClassId || null, active });
       setAssignmentOpen(false);
     } catch (cause) { console.error("Enregistrement de l’affectation impossible.", cause); setFeedback("Impossible d’enregistrer cette affectation. Vérifiez les classes sélectionnées."); }
     finally { setBusy(false); }

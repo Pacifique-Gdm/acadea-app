@@ -198,6 +198,16 @@ export async function savePedagogicalAssignments(input: { user: AppUser; schoolI
   return combinations.length;
 }
 
+export async function savePrimaryHomeroomAssignments(input: { user: AppUser; schoolId: string; schoolYearId: string; teacherId: string; subjectIds: string[]; classId: string; legacyClass?: Pick<StudyClass, "id" | "name" | "schoolId" | "schoolYearId">; weeklyPeriods: number; active: boolean }) {
+  const [firstSubjectId, ...remainingSubjectIds] = [...new Set(input.subjectIds.filter(Boolean))];
+  if (!firstSubjectId) throw new Error("Aucun cours applicable à cette classe.");
+  await savePedagogicalAssignments({ ...input, subjectIds: [firstSubjectId], classIds: [input.classId], legacyClasses: input.legacyClass ? [input.legacyClass] : [], titularClassId: input.classId });
+  for (const subjectId of remainingSubjectIds) {
+    await savePedagogicalAssignment({ ...input, subjectId, classId: input.classId, titularClassId: null });
+  }
+  return 1 + remainingSubjectIds.length;
+}
+
 export async function setPedagogicalAssignmentActive(user: AppUser, assignment: PedagogicalAssignment, active: boolean) {
   const database = requireScope(user, assignment.schoolId, assignment.schoolYearId);
   await setDoc(doc(database, "pedagogicalAssignments", assignment.id), { active, updatedAt: new Date().toISOString(), updatedBy: user.id }, { merge: true });
