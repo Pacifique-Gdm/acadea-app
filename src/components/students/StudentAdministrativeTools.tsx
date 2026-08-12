@@ -4,7 +4,7 @@ import { AdminDrawer, Metric } from "../ui";
 import { persistFirestorePatch } from "../../services/firestoreData";
 import { createAuditLog } from "../../utils/audit";
 import { getSchoolClassChoices, getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
-import { getClassSection, promoteStudentForNewYear } from "../../utils/studentClasses";
+import { getClassSection, getStudentSection, promoteStudentForNewYear } from "../../utils/studentClasses";
 import { exportAgeHomogeneityPdf } from "../../utils/studentPdf";
 import { isArchivedStudent } from "../../utils/studentUtils";
 import type { AppData, AppUser, School, SchoolSection, SchoolYear, Student } from "../../types";
@@ -197,20 +197,21 @@ export function ArchivedStudentsImportDrawer({
   );
 }
 
-export function AgeHomogeneityDrawer({ open, onClose, user, data, school, year }: SharedToolProps) {
+export function AgeHomogeneityDrawer({ open, onClose, user, data, school, year, allowedSections, studentSource }: Omit<SharedToolProps, "data"> & { data?: AppData; allowedSections?: SchoolSection[]; studentSource?: Student[] }) {
   const [section, setSection] = useState<"all" | SchoolSection>("all");
   const [className, setClassName] = useState("");
   const [archiveStatus, setArchiveStatus] = useState<"all" | "active" | "archived">("all");
-  const sections = getSchoolSections(school);
+  const sections = getSchoolSections(school).filter((item) => !allowedSections?.length || allowedSections.includes(item));
   const classes = getSchoolClassChoices(school).filter((item) => section === "all" || getClassSection(item) === section);
-  const students = useMemo(() => data.students.filter((student) => (
+  const students = useMemo(() => (studentSource ?? data?.students ?? []).filter((student) => (
     student.schoolId === school.id
     && student.schoolYearId === year.id
+    && (!allowedSections?.length || allowedSections.includes(getStudentSection(student)))
     && (section === "all" || getClassSection(student.className) === section)
     && (!className || student.className === className)
     && (archiveStatus === "all" || (archiveStatus === "archived" ? isArchivedStudent(student) : !isArchivedStudent(student)))
-  )), [archiveStatus, className, data.students, school.id, section, year.id]);
-  const canView = user.role === "secretary" && user.status === "active" && user.schoolId === school.id;
+  )), [allowedSections, archiveStatus, className, data?.students, school.id, section, studentSource, year.id]);
+  const canView = (user.role === "secretary" || user.role === "study_director") && user.status === "active" && user.schoolId === school.id;
 
   if (!open) return null;
   return (

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Banknote, BarChart3, BookOpen, CheckCircle2, ChevronRight, Clock3, CreditCard, Fingerprint, HeartPulse, Plus, RefreshCw, Settings, ShieldCheck, Trash2, UserRound, UsersRound, X } from "lucide-react";
-import { AdminDrawer, Field, ImageUploadField, LogoutButton, PasswordField } from "../../components/ui";
+import { AdminDrawer, Field, ImageUploadField, LogoutButton, MultiSelectDropdown, PasswordField } from "../../components/ui";
 import { ParentsDirectoryDrawer } from "../../components/parents/ParentsDirectoryDrawer";
 import { ParentDrawerBackButton } from "../../components/parents/ParentFormEditor";
 import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent";
@@ -11,7 +11,7 @@ import { subscribeToStudentMedicalRecords } from "../../services/studentMedicalR
 import { createAuditLog } from "../../utils/audit";
 import { refreshErrorMessage } from "../../utils/refreshErrors";
 import { buildFeeTargetChoices, feeTargetClassName } from "../../utils/feeTargets";
-import { getSchoolEducationLevels } from "../../utils/schoolConfig";
+import { getSchoolEducationLevels, getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
 import { nextSchoolStaffEmail, normalizeProvisioningPhone } from "../../utils/schoolAccountCredentials";
 import { temporaryPasswordAfterPhoneChange } from "../../utils/temporaryPassword";
 import { subscribeToSchoolTeacherAccounts } from "../../services/teacherAccounts";
@@ -94,7 +94,7 @@ export function MenuModule({
   const [schoolSaveMessage, setSchoolSaveMessage] = useState("");
   const [schoolSaving, setSchoolSaving] = useState(false);
   const [schoolUserRole, setSchoolUserRole] = useState<SchoolUserProvisionRole>("cashier");
-  const [schoolUserSection, setSchoolUserSection] = useState<SchoolSection | "">("");
+  const [schoolUserSections, setSchoolUserSections] = useState<SchoolSection[]>([]);
   const [cashierName, setCashierName] = useState("");
   const [cashierPhone, setCashierPhone] = useState("");
   const [cashierEmail, setCashierEmail] = useState("");
@@ -143,12 +143,12 @@ export function MenuModule({
     { id: "parentsDirectory", title: "Parents / Tuteurs", description: "Annuaire interne des parents liés aux élèves.", icon: UsersRound },
     { id: "fees", title: "Types de frais", description: "Montants et catégories de frais scolaires.", icon: Banknote },
     { id: "financial", title: "Rapport financier", description: "Synthèse et exports des rapports financiers.", icon: BarChart3 },
-    { id: "history", title: "Historique", description: "Activités et messages enregistrés pour ce compte.", icon: Clock3 },
     { id: "personnel", title: "Personnels", description: "Personnel actif, archivage et réactivation des comptes internes.", icon: UsersRound },
     { id: "accounts", title: "Créer un utilisateur", description: "Comptes responsables liés à l'école.", icon: ShieldCheck },
     { id: "biometrics", title: "Empreintes et Cartes", description: "Préparation des identifiants biométriques des élèves.", icon: Fingerprint },
     { id: "years", title: "Années scolaires", description: "Année active, années archivées et contexte global.", icon: BookOpen },
     { id: "school", title: "Paramètres école", description: "Logo, coordonnées et informations de l'établissement.", icon: Settings },
+    { id: "history", title: "Historique", description: "Activités et messages enregistrés pour ce compte.", icon: Clock3 },
   ] satisfies { id: MenuSection; title: string; description: string; icon: typeof Settings }[];
   const persistedCustomFeeKindChoices = selectedYear.customFeeKindChoices ?? [];
   const feeKindChoices = Array.from(new Set([...FEE_KINDS, ...yearData.feeTypes.map((fee) => fee.name), ...persistedCustomFeeKindChoices, ...customFeeKindChoices]));
@@ -468,7 +468,8 @@ export function MenuModule({
         email: cashierEmail.trim(),
         password: cashierPassword,
         phone: normalizedPhone,
-        section: schoolUserSection || undefined,
+        section: schoolUserSections[0],
+        sectionIds: schoolUserSections,
       });
     } catch (error) {
       setCashierError(error instanceof Error ? `Création Firebase Auth impossible : ${error.message}` : "Création Firebase Auth impossible.");
@@ -486,7 +487,7 @@ export function MenuModule({
     setSchoolUserEmailManuallyEdited(false);
     setShowCashierPassword(false);
     setSchoolUserRole("cashier");
-    setSchoolUserSection("");
+    setSchoolUserSections([]);
     setCashierSuccess(`Compte ${schoolUserProvisionLabels[schoolUserRole].toLowerCase()} créé avec succès. Il peut maintenant se connecter avec son email et son mot de passe.`);
     window.setTimeout(() => {
       setActiveMenuSection((current) => (current === "accounts" ? null : current));
@@ -836,13 +837,7 @@ export function MenuModule({
               <option value="teacher">Enseignant</option>
             </select>
           </label>
-          <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
-            Section
-            <select value={schoolUserSection} onChange={(event) => setSchoolUserSection(event.target.value as SchoolSection | "")} className="input">
-              <option value="">Non renseignée</option>
-              <option value="maternelle">Maternelle</option><option value="primaire">Primaire</option><option value="cteb">CTEB</option><option value="secondaire">Secondaire</option>
-            </select>
-          </label>
+          <MultiSelectDropdown label="Sections" options={getSchoolSections(school).map((section) => ({ value: section, label: schoolSectionLabels[section] }))} values={schoolUserSections} onChange={(values) => setSchoolUserSections(values as SchoolSection[])} placeholder="Non renseignées (compatibilité historique)" />
           <Field label="Nom complet" value={cashierName} onChange={setCashierName} />
           <Field label="Téléphone" value={cashierPhone} onChange={(value) => {
             setCashierPhone(value);

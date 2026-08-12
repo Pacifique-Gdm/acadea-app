@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Pencil, Plus } from "lucide-react";
-import { AdminDrawer } from "../../components/ui";
+import { AdminDrawer, MultiSelectDropdown } from "../../components/ui";
 import type { AppUser, School, SchoolSection, SchoolYear } from "../../types";
 import { hasActiveAssignmentDuplicate, teacherWorkload, validateWeeklyPeriods } from "./studyAssignments";
 import { createStudySubject, savePedagogicalAssignment, savePedagogicalAssignments, savePrimaryHomeroomAssignments, setPedagogicalAssignmentActive } from "./studyService";
@@ -11,6 +11,8 @@ import type { useStudyData } from "./useStudyData";
 import { TeacherAvailabilityDrawer, TeacherAvailabilitySummary } from "./TeacherAvailabilityDrawer";
 import { classesWithEnrolledStudents } from "../../services/schoolSubclasses";
 import { primaryTeacherSections, studyClassSection, subjectAppliesToClass } from "./teacherAssignmentScope";
+import { schoolSectionLabels } from "../../utils/schoolConfig";
+import { sectionsAvailableToUser } from "../../utils/userSections";
 
 export function StudyTeachersModule({ user, school, year, data }: { user: AppUser; school: School; year: SchoolYear; data: ReturnType<typeof useStudyData> }) {
   const { teachers, subjects, classes, students, assignments, error: realtimeError } = data;
@@ -29,6 +31,7 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
   const [busy, setBusy] = useState(false);
   const [newSubject, setNewSubject] = useState("");
   const activeTeachers = useMemo(() => teachers.filter((teacher) => teacher.status === "active"), [teachers]);
+  const availableSections = sectionsAvailableToUser(user, school);
   const assignmentClasses = useMemo(() => classesWithEnrolledStudents(classes, students, school.id, year.id).filter(item => !section || studyClassSection(item) === section), [classes, school.id, section, students, year.id]);
   const primaryMode = Boolean(section && primaryTeacherSections.includes(section));
   const applicableSubjects = useMemo(() => subjects.filter(item => item.active && (!classIds[0] || subjectAppliesToClass(item, assignmentClasses.find(current => current.id === classIds[0])!))), [assignmentClasses, classIds, subjects]);
@@ -99,11 +102,11 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
     {availabilityTeacher && <TeacherAvailabilityDrawer user={user} teacher={availabilityTeacher} year={year} items={data.availabilities} onClose={()=>setAvailabilityTeacher(undefined)}/>}
 
     {assignmentOpen && <AdminDrawer title={editingAssignment ? "Modifier l’affectation" : "Ajouter une affectation"} closeLabel="Fermer le formulaire d’affectation" onClose={() => !busy && setAssignmentOpen(false)}>
-      <label className="grid gap-1 text-sm font-semibold">Section<select className="input" value={section} onChange={(event)=>{setSection(event.target.value as SchoolSection);setClassIds([]);setSubjectIds([])}}><option value="">Sélectionner</option><option value="maternelle">Maternelle</option><option value="primaire">Primaire</option><option value="cteb">CTEB</option><option value="secondaire">Secondaire</option></select></label>
+      <label className="grid gap-1 text-sm font-semibold">Section<select className="input" value={section} onChange={(event)=>{setSection(event.target.value as SchoolSection);setClassIds([]);setSubjectIds([])}}><option value="">Sélectionner</option>{availableSections.map((item) => <option key={item} value={item}>{schoolSectionLabels[item]}</option>)}</select></label>
       <label className="grid gap-1 text-sm font-semibold">Enseignant<select className="input" value={teacherId} onChange={(event) => setTeacherId(event.target.value)}><option value="">Sélectionner</option>{activeTeachers.filter(item=>!section||!item.section||item.section===section).map((item) => <option key={item.id} value={item.id}>{item.fullName}</option>)}</select></label>
-      {primaryMode ? <p className="rounded border border-blue-200 bg-blue-50 p-3 text-sm">Le titulaire enseigne automatiquement tous les cours applicables à la classe sélectionnée.</p> : <fieldset className="grid gap-2 rounded border border-slate-200 p-3"><legend className="px-1 text-sm font-semibold">Cours</legend>{applicableSubjects.map((item) => <label key={item.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={subjectIds.includes(item.id)} disabled={Boolean(editingAssignment && !subjectIds.includes(item.id))} onChange={() => setSubjectIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])} /> {item.name}</label>)}</fieldset>}
+      {primaryMode ? <p className="rounded border border-blue-200 bg-blue-50 p-3 text-sm">Le titulaire enseigne automatiquement tous les cours applicables à la classe sélectionnée.</p> : <MultiSelectDropdown label="Cours" options={applicableSubjects.map((item) => ({ value: item.id, label: item.name }))} values={subjectIds} onChange={setSubjectIds} disabled={Boolean(editingAssignment)} />}
       <div className="rounded border border-dashed border-slate-300 p-3"><label className="grid gap-1 text-sm font-semibold">Nouvelle matière<input className="input" value={newSubject} onChange={(event) => setNewSubject(event.target.value)} /></label><button type="button" className="secondary-button mt-2" disabled={busy || !newSubject.trim()} onClick={() => void submitSubject()}>Ajouter la matière</button></div>
-      <fieldset className="grid gap-2 rounded border border-slate-200 p-3"><legend className="px-1 text-sm font-semibold">Classes</legend>{assignmentClasses.length === 0 && <p className="text-sm text-slate-500">Aucune classe disponible.</p>}{assignmentClasses.map((item) => <label key={item.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={classIds.includes(item.id)} disabled={Boolean(editingAssignment && !classIds.includes(item.id))} onChange={() => setClassIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])} /> {item.name}</label>)}</fieldset>
+      <MultiSelectDropdown label="Classes" options={assignmentClasses.map((item) => ({ value: item.id, label: item.name }))} values={classIds} onChange={setClassIds} disabled={Boolean(editingAssignment)} placeholder="Aucune classe sélectionnée" />
       <label className="grid gap-1 text-sm font-semibold">Nombre de périodes hebdomadaires<input className="input" type="number" min={1} max={60} step={1} value={weeklyPeriods} onChange={(event) => setWeeklyPeriods(event.target.value)} /></label>
       <label className="grid gap-1 text-sm font-semibold">Titulaire de la classe (facultatif)<select className="input" value={titularClassId} onChange={(event) => setTitularClassId(event.target.value)}><option value="">{assignmentClasses.length ? "Choisir classe" : "Aucune classe disponible."}</option>{assignmentClasses.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       {editingAssignment && <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={active} onChange={(event) => setActive(event.target.checked)} /> Affectation active</label>}{feedback && <p role="alert" className="text-sm text-red-700">{feedback}</p>}<div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" disabled={busy} onClick={() => setAssignmentOpen(false)}>Annuler</button><button type="button" className="primary-button justify-center" disabled={busy} onClick={() => void submitAssignment()}>{busy ? "Enregistrement…" : "Enregistrer"}</button></div>

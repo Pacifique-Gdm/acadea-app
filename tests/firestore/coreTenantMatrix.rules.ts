@@ -20,7 +20,7 @@ async function seed(path: string, data: Record<string, unknown>) {
 
 beforeAll(async () => {
   environment = await initializeTestEnvironment({ projectId, firestore: { rules: readFileSync("firestore.rules", "utf8") } });
-});
+}, 30000);
 
 beforeEach(async () => {
   await environment.clearFirestore();
@@ -29,14 +29,15 @@ beforeEach(async () => {
   await seed(`schoolYears/${yearA}`, { id: yearA, schoolId: schoolA, status: "active" });
   await seed(`schoolYears/${yearB}`, { id: yearB, schoolId: schoolB, status: "active" });
   for (const name of ["students", "parents", "teachers", "classes", "feeTypes"]) {
-    await seed(`${name}/${name}-a`, { id: `${name}-a`, schoolId: schoolA, schoolYearId: yearA, status: "active" });
-    await seed(`${name}/${name}-b`, { id: `${name}-b`, schoolId: schoolB, schoolYearId: yearB, status: "active" });
+    await seed(`${name}/${name}-a`, { id: `${name}-a`, schoolId: schoolA, schoolYearId: yearA, status: "active", ...(name === "students" ? { section: "secondaire" } : {}) });
+    await seed(`${name}/${name}-b`, { id: `${name}-b`, schoolId: schoolB, schoolYearId: yearB, status: "active", ...(name === "students" ? { section: "secondaire" } : {}) });
   }
   await seed("users/admin-a", { id: "admin-a", role: "school_admin", schoolId: schoolA, status: "active" });
   await seed("users/admin-b", { id: "admin-b", role: "school_admin", schoolId: schoolB, status: "active" });
+  await seed("users/studies-a", { id: "studies-a", role: "study_director", schoolId: schoolA, status: "active" });
 });
 
-afterAll(async () => environment.cleanup());
+afterAll(async () => environment?.cleanup(), 30000);
 
 describe("SEC-015 — matrice centrale d'isolation tenant", () => {
   it("autorise les lectures métier du tenant et refuse systématiquement l'autre école", async () => {

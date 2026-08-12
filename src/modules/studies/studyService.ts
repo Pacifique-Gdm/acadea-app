@@ -7,16 +7,19 @@ import type { PedagogicalAssignment, SchedulePeriod, StudyClass, StudyRoom, Stud
 import { detectAvailabilityConflicts, validTimeRange, validatePeriod } from "./studySchedule";
 import { validateAvailabilityRanges } from "./studySchedule";
 import { persistGeneratedTimetable } from "./timetablePersistence";
+import { userSectionIds } from "../../utils/userSections";
 
 function requireScope(user: AppUser, schoolId: string, schoolYearId: string) {
   if (!db || user.role !== "study_director" || user.schoolId !== schoolId || !schoolId || !schoolYearId) throw new Error("Périmètre pédagogique non autorisé.");
   return db as unknown as Firestore;
 }
 
-function scopedSubscription<T>(collectionName: string, schoolId: string, schoolYearId: string, onData: (items: T[]) => void, onError: (error: Error) => void) {
+function scopedSubscription<T>(collectionName: string, schoolId: string, schoolYearId: string, onData: (items: T[]) => void, onError: (error: Error) => void, sections?: string[]) {
   if (!db) return () => undefined;
   const database = db as unknown as Firestore;
-  return onSnapshot(query(collection(database, collectionName), where("schoolId", "==", schoolId), where("schoolYearId", "==", schoolYearId)), (snapshot) => {
+  const constraints = [where("schoolId", "==", schoolId), where("schoolYearId", "==", schoolYearId)];
+  if (sections?.length) constraints.push(where("section", "in", sections));
+  return onSnapshot(query(collection(database, collectionName), ...constraints), (snapshot) => {
     const uniqueItems = new Map(snapshot.docs.map((item) => [item.id, { id: item.id, ...item.data() }]));
     onData([...uniqueItems.values()] as T[]);
   }, onError);
@@ -24,6 +27,7 @@ function scopedSubscription<T>(collectionName: string, schoolId: string, schoolY
 
 export function subscribeToStudyData(input: { user: AppUser; schoolId: string; schoolYearId: string; onTeachers: (items: StudyTeacher[]) => void; onSubjects: (items: StudySubject[]) => void; onClasses: (items: StudyClass[]) => void; onStudents:(items:Student[])=>void;onAssignments: (items: PedagogicalAssignment[]) => void; onAvailabilities:(items:TeacherAvailability[])=>void;onPeriods:(items:SchedulePeriod[])=>void;onTimetables:(items:Timetable[])=>void;onTimetableEntries:(items:TimetableEntry[])=>void;onRooms:(items:StudyRoom[])=>void;onAttendanceSettings?:(items:AttendanceSettings[])=>void; onError: (error: Error) => void }) {
   const database = requireScope(input.user, input.schoolId, input.schoolYearId);
+  const allowedSections = userSectionIds(input.user);
   let teacherProfiles: StudyTeacher[] = [];
   let teacherUsers: AppUser[] = [];
   let profilesReady = false;
@@ -50,7 +54,7 @@ export function subscribeToStudyData(input: { user: AppUser; schoolId: string; s
     teacherUsersUnsubscribe,
     scopedSubscription("subjects", input.schoolId, input.schoolYearId, input.onSubjects, input.onError),
     scopedSubscription("classes", input.schoolId, input.schoolYearId, input.onClasses, input.onError),
-    scopedSubscription("students", input.schoolId, input.schoolYearId, input.onStudents, input.onError),
+    scopedSubscription("students", input.schoolId, input.schoolYearId, input.onStudents, input.onError, allowedSections),
     scopedSubscription("pedagogicalAssignments", input.schoolId, input.schoolYearId, input.onAssignments, input.onError),
     scopedSubscription("teacherAvailabilities",input.schoolId,input.schoolYearId,input.onAvailabilities,input.onError),
     scopedSubscription("schedulePeriods",input.schoolId,input.schoolYearId,input.onPeriods,input.onError),
@@ -83,6 +87,7 @@ export function mergeStudyTeachers(profiles: StudyTeacher[], users: AppUser[]) {
       email: user.email,
       phone: user.phone,
       section: user.section,
+      sectionIds: user.sectionIds,
       status: user.status === "inactive" || user.active === false ? "inactive" as const : "active" as const,
     }];
   });

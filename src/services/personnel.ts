@@ -36,7 +36,7 @@ export function subscribeToSchoolPersonnel(input: { user: AppUser; schoolId: str
 }
 
 type PersonnelAction = "update-personnel" | "archive-personnel" | "reactivate-personnel";
-async function requestPersonnelAction(input: { action: PersonnelAction; schoolId: string; personnelId: string; name?: string; phone?: string; email?: string; section?: SchoolSection | null }) {
+async function requestPersonnelAction(input: { action: PersonnelAction; schoolId: string; personnelId: string; name?: string; phone?: string; email?: string; section?: SchoolSection | null; sectionIds?: SchoolSection[] }) {
   const token = await getCurrentFirebaseIdToken();
   const response = await fetch(resolveApiUrl("/api/provision-school-account"), {
     method: "POST",
@@ -49,7 +49,7 @@ async function requestPersonnelAction(input: { action: PersonnelAction; schoolId
   return payload;
 }
 
-export function updatePersonnel(input: { schoolId: string; personnelId: string; name: string; phone: string; email: string; section?: SchoolSection | null }) {
+export function updatePersonnel(input: { schoolId: string; personnelId: string; name: string; phone: string; email: string; section?: SchoolSection | null; sectionIds?: SchoolSection[] }) {
   return requestPersonnelAction({ action: "update-personnel", ...input });
 }
 

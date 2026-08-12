@@ -29,4 +29,10 @@ describe("formulaire de création des utilisateurs métier", () => {
     expect(source).toContain('teacher: "Enseignant"');
     expect(source.match(/Créer un utilisateur/g)).toHaveLength(1);
   });
+
+  it("utilise les sections configurées et persiste la sélection multiple", () => {
+    expect(source).toContain('getSchoolSections(school).map');
+    expect(source).toContain('<MultiSelectDropdown label="Sections"');
+    expect(source).toContain('sectionIds: schoolUserSections');
+  });
 });

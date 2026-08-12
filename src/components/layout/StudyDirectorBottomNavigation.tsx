@@ -4,7 +4,7 @@ import type { StudyDirectorTab } from "./studyDirectorNavigation";
 export function StudyDirectorBottomNavigation({ activeTab, onTab }: { activeTab: StudyDirectorTab; onTab: (tab: StudyDirectorTab) => void }) {
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 max-w-full overflow-hidden border-t border-slate-200 bg-white/95 px-1 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur sm:px-2">
-      <div className="mx-auto grid w-full max-w-2xl grid-cols-4 gap-1">
+      <div className="mx-auto grid w-full max-w-3xl grid-cols-5 gap-1">
         {studyDirectorTabs.map((tab) => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;

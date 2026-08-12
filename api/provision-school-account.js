@@ -38,6 +38,32 @@ function normalizeEmail(value) {
   return normalizeText(value).toLowerCase();
 }
 
+export function normalizeSectionIds(value) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw Object.assign(new Error("Sections invalides."), { statusCode: 400, code: "invalid-argument" });
+  const normalized = [...new Set(value.map(normalizeText).filter(Boolean))];
+  if (normalized.some((section) => !schoolSections.has(section))) throw Object.assign(new Error("Section invalide."), { statusCode: 400, code: "invalid-argument" });
+  return normalized;
+}
+
+function configuredSchoolSections(school = {}) {
+  const levels = Array.isArray(school.educationLevels) ? school.educationLevels.map((value) => normalizeText(value).toLowerCase()) : [];
+  const type = normalizeText(school.schoolType).toLowerCase();
+  if (type === "mixte" || levels.includes("mixte")) return [...schoolSections];
+  const mapped = [...schoolSections].filter((section) => levels.includes(section));
+  if (mapped.length) return mapped;
+  if (type === "secondaire") return ["maternelle", "primaire", "cteb", "secondaire"];
+  if (type === "cteb") return ["maternelle", "primaire", "cteb"];
+  if (type === "primaire") return ["maternelle", "primaire"];
+  const only = type.replace(" uniquement", "");
+  return schoolSections.has(only) ? [only] : [...schoolSections];
+}
+
+function assertSectionsBelongToSchool(sectionIds, school) {
+  const available = configuredSchoolSections(school);
+  if (sectionIds.some((section) => !available.includes(section))) throw Object.assign(new Error("Une section ne fait pas partie de cette ecole."), { statusCode: 400, code: "invalid-argument" });
+}
+
 function publicError(error) {
   const code = error?.code ?? "";
   if (code === "auth/email-already-exists") return "Cet email Firebase est deja utilise.";
@@ -246,13 +272,15 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
     const name = normalizeText(body.name);
     const phone = normalizeText(body.phone);
     const section = normalizeText(body.section);
+    const sectionIds = normalizeSectionIds(body.sectionIds ?? (section ? [section] : []));
     const email = normalizeEmail(body.email);
     if (!name || !phone || !email) throw Object.assign(new Error("Nom, telephone et email sont requis."), { statusCode: 400, code: "invalid-argument" });
-    if (section && !schoolSections.has(section)) throw Object.assign(new Error("Section invalide."), { statusCode: 400, code: "invalid-argument" });
+    const schoolSnapshot = await db.doc(`schools/${schoolId}`).get();
+    assertSectionsBelongToSchool(sectionIds, schoolSnapshot.data());
     const previousAuth = await auth.getUser(personnelId);
     await auth.updateUser(personnelId, { displayName: name, email });
     const batch = db.batch();
-    batch.update(targetRef, { name, phone, email, section: section || null, updatedAt: now, updatedBy: caller.uid });
+    batch.update(targetRef, { name, phone, email, section: sectionIds[0] ?? null, sectionIds, updatedAt: now, updatedBy: caller.uid });
     batch.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.USER_UPDATED, actor: caller, schoolId, resourceType: "user", resourceId: personnelId, metadata: { role: target.role } }));
     try { await batch.commit(); } catch (error) {
       const rollback = {};
@@ -261,7 +289,7 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
       await auth.updateUser(personnelId, rollback).catch(() => undefined);
       throw error;
     }
-    return { user: { ...target, id: personnelId, name, phone, email, section: section || undefined, updatedAt: now, updatedBy: caller.uid } };
+    return { user: { ...target, id: personnelId, name, phone, email, section: sectionIds[0], sectionIds, updatedAt: now, updatedBy: caller.uid } };
   }
   const archive = action === "archive-personnel";
   if (archive && (target.status === "inactive" || target.active === false)) return { user: { ...target, id: personnelId }, authStatus: "disabled" };
@@ -338,14 +366,11 @@ export default async function handler(req, res) {
     const phone = normalizeText(body.phone);
     const address = normalizeText(body.address);
     const section = normalizeText(body.section);
+    const sectionIds = normalizeSectionIds(body.sectionIds ?? (section ? [section] : []));
     const now = new Date().toISOString();
 
     if (!allowedRoles.has(role)) {
       sendJson(res, 400, { error: "Role a provisionner invalide.", code: "invalid-argument" });
-      return;
-    }
-    if (section && !schoolSections.has(section)) {
-      sendJson(res, 400, { error: "Section invalide.", code: "invalid-argument" });
       return;
     }
 
@@ -355,6 +380,8 @@ export default async function handler(req, res) {
     }
 
     await assertAuthorizedCaller({ db, caller, schoolId, allowSecretary: role === "parent" });
+    const schoolSnapshot = await db.doc(`schools/${schoolId}`).get();
+    assertSectionsBelongToSchool(sectionIds, schoolSnapshot.data());
     await requireActiveSchoolYear(db, schoolId, schoolYearId);
 
     const parentId = role === "parent" ? normalizeText(body.parentId) || uid("parent") : "";
@@ -380,7 +407,7 @@ export default async function handler(req, res) {
         status: "active",
         active: true,
         createdAt: now,
-        ...(section ? { section } : {}),
+        ...(sectionIds.length ? { section: sectionIds[0], sectionIds } : {}),
       };
 
       const userRef = db.doc(`users/${authUser.uid}`);

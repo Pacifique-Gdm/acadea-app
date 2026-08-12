@@ -31,6 +31,8 @@ export interface AppUser {
   schoolId?: string;
   /** Périmètre métier facultatif pour compatibilité avec les comptes historiques. */
   section?: SchoolSection;
+  /** Périmètre multi-sections. `section` reste lu pour les comptes historiques. */
+  sectionIds?: SchoolSection[];
   activeSchoolYearId?: string;
   parentId?: string;
   studentIds?: string[];

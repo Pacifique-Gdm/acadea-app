@@ -15,7 +15,8 @@ describe("Drawer Personnels", () => {
     expect(source).toContain('setConfirming("archive")');
     expect(source).toContain('setConfirming("reactivate")');
     expect(source).toContain('selected.role !== "school_admin"');
-    expect(source).toContain("Archivage réservé au Super Administrateur");
+    expect(source).not.toContain("Archivage réservé au Super Administrateur");
+    expect(source).toContain("<MultiSelectDropdown label=\"Sections\"");
     expect(source).toContain("disabled={busy}");
   });
 });

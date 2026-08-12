@@ -13,6 +13,7 @@ export interface StudyTeacher {
   email?: string;
   phone?: string;
   section?: "maternelle" | "primaire" | "cteb" | "secondaire";
+  sectionIds?: Array<"maternelle" | "primaire" | "cteb" | "secondaire">;
 }
 
 export interface StudySubject {
