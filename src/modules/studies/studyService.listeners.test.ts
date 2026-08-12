@@ -57,11 +57,11 @@ describe("listeners temps réel Direction des études", () => {
 
   it("crée une seule écoute par collection avec les bons périmètres", () => {
     subscribe();
-    expect(firestore.subscriptions).toHaveLength(11);
+    expect(firestore.subscriptions).toHaveLength(12);
     expect(firestore.collection.mock.calls.map((call) => call[1])).toEqual([
-      "teachers", "users", "subjects", "classes", "students", "pedagogicalAssignments", "teacherAvailabilities", "schedulePeriods", "timetables", "timetableEntries", "rooms",
+      "teachers", "users", "subjects", "classes", "students", "pedagogicalAssignments", "teacherAvailabilities", "schedulePeriods", "timetables", "timetableEntries", "rooms", "attendanceSettings",
     ]);
-    expect(new Set(firestore.collection.mock.calls.map((call) => call[1])).size).toBe(11);
+    expect(new Set(firestore.collection.mock.calls.map((call) => call[1])).size).toBe(12);
     expect(firestore.subscriptions[1].source).toMatchObject({ filters: [
       { field: "schoolId", operator: "==", value: "school-1" },
       { field: "role", operator: "==", value: "teacher" },

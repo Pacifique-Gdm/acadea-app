@@ -20,8 +20,19 @@ export function schoolClassRecordId(schoolId: string, schoolYearId: string, name
   return `${schoolId}__${schoolYearId}__${slug}`;
 }
 
-export function activeSubclasses(classes: SchoolClassRecord[], parentClassId: string) {
-  return classes.filter((item) => item.parentClassId === parentClassId && item.active !== false);
+export function schoolClassOptionKey(parentClassId: string, option: string) {
+  return `${parentClassId}::${normalizedClassName(option)}`;
+}
+
+export function activeSubclasses(classes: SchoolClassRecord[], parentClassId: string, classOptionKey?: string) {
+  return classes.filter((item) => item.parentClassId === parentClassId && item.active !== false && (!classOptionKey || item.classOptionKey === classOptionKey));
+}
+
+export function secondarySubclassesForOption(classes: SchoolClassRecord[], parentClassId: string, classOptionKey: string | undefined, currentSubClassId?: string) {
+  return classes.filter((item) => item.parentClassId === parentClassId && item.active !== false && (
+    (Boolean(classOptionKey) && item.classOptionKey === classOptionKey)
+    || (item.id === currentSubClassId && !item.classOptionKey)
+  ));
 }
 
 export function operationalClasses(classes: SchoolClassRecord[]) {
@@ -67,13 +78,13 @@ export function subscribeToSchoolClasses(schoolId: string, schoolYearId: string,
   }, onError);
 }
 
-export async function createSchoolSubclasses(input: { user: AppUser; parent: SchoolClassRecord; labels: string[]; existing: SchoolClassRecord[] }) {
+export async function createSchoolSubclasses(input: { user: AppUser; parent: SchoolClassRecord; labels: string[]; existing: SchoolClassRecord[]; classOptionKey?: string }) {
   if (!db || !["school_admin", "secretary"].includes(input.user.role) || input.user.schoolId !== input.parent.schoolId) throw new Error("Création de sous-classes non autorisée.");
   if (!input.parent.schoolYearId || input.user.activeSchoolYearId !== input.parent.schoolYearId) throw new Error("L’année scolaire de la classe est incohérente.");
   const error = validateSubclassLabels(input.labels);
   if (error) throw new Error(error);
   if (input.parent.parentClassId) throw new Error("Une sous-classe ne peut pas être subdivisée.");
-  const normalizedExisting = new Set(activeSubclasses(input.existing, input.parent.id).map((item) => item.subClassLabel?.trim().toLocaleLowerCase()));
+  const normalizedExisting = new Set(activeSubclasses(input.existing, input.parent.id, input.classOptionKey).map((item) => item.subClassLabel?.trim().toLocaleLowerCase()));
   const labels = input.labels.map((label) => label.trim());
   if (labels.some((label) => normalizedExisting.has(label.toLocaleLowerCase()))) throw new Error("Cette sous-classe existe déjà.");
   const database = db as Firestore;
@@ -84,7 +95,7 @@ export async function createSchoolSubclasses(input: { user: AppUser; parent: Sch
   }
   labels.forEach((label) => {
     const id = `${input.parent.id}__${crypto.randomUUID()}`;
-    batch.set(doc(database, "classes", id), { id, schoolId: input.parent.schoolId, schoolYearId: input.parent.schoolYearId, name: `${input.parent.name} - ${label}`, parentClassId: input.parent.id, subClassLabel: label, active: true, createdBy: input.user.id, createdAt: now, updatedAt: now });
+    batch.set(doc(database, "classes", id), { id, schoolId: input.parent.schoolId, schoolYearId: input.parent.schoolYearId, name: `${input.parent.name}${input.classOptionKey ? ` - ${input.classOptionKey.split("::").at(-1)}` : ""} - ${label}`, parentClassId: input.parent.id, ...(input.classOptionKey ? { classOptionKey: input.classOptionKey } : {}), subClassLabel: label, active: true, createdBy: input.user.id, createdAt: now, updatedAt: now });
   });
   await batch.commit();
 }

@@ -1,6 +1,7 @@
 import { getActiveCoursePeriods, STUDY_DAYS, teacherAvailableAt } from "./studySchedule";
 import { adjacentCoursePeriods, validateTimetable, type ScheduleProblem } from "./scheduleValidation";
 import type { PedagogicalAssignment, StudyDay, TimetableEntry } from "./studyTypes";
+import { periodAppliesToClass } from "./studyScope";
 
 export const DEFAULT_MAX_SAME_ASSIGNMENT_PERIODS_PER_DAY=2;
 export interface SolverFailure { assignmentId:string; teacherId:string; classId:string; subjectId:string; required:number; availableCapacity:number; reason:string; }
@@ -9,7 +10,7 @@ export interface TimetableSolverOptions { maxBranches?:number; timeoutMs?:number
 export interface TimetableSolver { solve(problem:ScheduleProblem,options?:TimetableSolverOptions):SolverResult; }
 
 type Candidate={day:StudyDay;periodIds:string[]};
-function candidatesFor(assignment:PedagogicalAssignment,problem:ScheduleProblem):Candidate[]{const periods=getActiveCoursePeriods(problem.periods);const size=assignment.blockSize??1;const result:Candidate[]=[];for(const day of STUDY_DAYS){for(let i=0;i<periods.length;i+=1){const block=periods.slice(i,i+size);if(block.length!==size)continue;if(size===2&&!adjacentCoursePeriods(block[0],block[1],problem.periods))continue;if(block.every(period=>teacherAvailableAt(assignment.teacherId,day,period,problem.availabilities)))result.push({day,periodIds:block.map(period=>period.id)});}}return result;}
+function candidatesFor(assignment:PedagogicalAssignment,problem:ScheduleProblem):Candidate[]{const periods=getActiveCoursePeriods(problem.periods);const schoolClass=problem.classes?.find(item=>item.id===assignment.classId);const size=assignment.blockSize??1;const result:Candidate[]=[];for(const day of STUDY_DAYS){const compatible=schoolClass?periods.filter(period=>periodAppliesToClass(period,schoolClass,day)):periods.filter(period=>!period.dayScope||period.dayScope===(day==="saturday"?"saturday":"weekdays"));for(let i=0;i<compatible.length;i+=1){const block=compatible.slice(i,i+size);if(block.length!==size)continue;if(size===2&&!adjacentCoursePeriods(block[0],block[1],problem.periods))continue;if(block.every(period=>teacherAvailableAt(assignment.teacherId,day,period,problem.availabilities)))result.push({day,periodIds:block.map(period=>period.id)});}}return result;}
 
 export class DeterministicTimetableSolver implements TimetableSolver{
   solve(problem:ScheduleProblem,options:TimetableSolverOptions={}):SolverResult{

@@ -26,6 +26,51 @@ export type ActivityHistoryYearData = {
   disciplineSanctions: DisciplineSanction[];
 };
 
+type FirestoreTimestampLike = { toMillis?: () => number; toDate?: () => Date; seconds?: number };
+
+export function activityTimestamp(value: unknown) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (value instanceof Date) {
+    const timestamp = value.getTime();
+    return Number.isFinite(timestamp) ? timestamp : 0;
+  }
+  if (typeof value === "string") {
+    const timestamp = Date.parse(value);
+    return Number.isFinite(timestamp) ? timestamp : 0;
+  }
+  if (value && typeof value === "object") {
+    const timestamp = value as FirestoreTimestampLike;
+    if (typeof timestamp.toMillis === "function") {
+      const milliseconds = timestamp.toMillis();
+      return Number.isFinite(milliseconds) ? milliseconds : 0;
+    }
+    if (typeof timestamp.toDate === "function") return activityTimestamp(timestamp.toDate());
+    if (typeof timestamp.seconds === "number") return activityTimestamp(timestamp.seconds * 1000);
+  }
+  return 0;
+}
+
+export function normalizeActivityTimestamp(value: unknown) {
+  const timestamp = activityTimestamp(value);
+  return timestamp > 0 ? new Date(timestamp).toISOString() : "";
+}
+
+export function formatActivityDateTime(value: unknown) {
+  const timestamp = activityTimestamp(value);
+  return timestamp > 0 ? new Date(timestamp).toLocaleString("fr-FR") : "Date inconnue";
+}
+
+function formatActivityTime(value: unknown) {
+  const timestamp = activityTimestamp(value);
+  return timestamp > 0 ? new Date(timestamp).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "-";
+}
+
+function auditAction(log: AuditLog) {
+  const action = typeof log.action === "string" ? log.action.trim() : "";
+  const legacyAction = typeof log.eventType === "string" ? log.eventType.trim() : "";
+  return action || legacyAction || "Activité enregistrée";
+}
+
 export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData: ActivityHistoryYearData, role: "admin" | "cashier" | "parent" | "secretary") {
   const usersById = new Map(data.users.map((item) => [item.id, item]));
   const parentsById = new Map(yearData.parents.map((item) => [item.id, item]));
@@ -52,8 +97,9 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
   };
   const auditItems = yearData.auditLogs
     .filter((log) => {
-      if (isSessionAuditAction(log.action)) return false;
-      if (role === "admin" && auditActionsRepresentedByBusinessData.has(log.action)) return false;
+      const action = auditAction(log);
+      if (isSessionAuditAction(action)) return false;
+      if (role === "admin" && auditActionsRepresentedByBusinessData.has(action)) return false;
       const actor = usersById.get(log.actorId);
       const warningDetails = parseWarningDetails(log.details);
       if (warningDetails && role === "parent") return false;
@@ -62,6 +108,7 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
       return log.actorId === user.id;
     })
     .map<ActivityHistoryItem>((log) => {
+      const action = auditAction(log);
       const warningDetails = parseWarningDetails(log.details);
       if (warningDetails) {
         return {
@@ -71,16 +118,16 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
           actorName: log.actorName,
           details:
             `Frais : ${warningDetails.feeName ?? "-"} · Montant requis : $${Number(warningDetails.requiredAmount ?? 0).toFixed(2)} · Date limite : ${warningDetails.deadline ?? "-"} · Élèves concernés : ${warningDetails.affectedStudents ?? 0} · Parents notifiés : ${warningDetails.notifiedParents ?? 0} · Avertissements envoyés : ${warningDetails.sentMessages ?? 0} · Statut : ${warningDetails.status ?? "Succès"}`,
-          createdAt: log.createdAt,
+          createdAt: normalizeActivityTimestamp(log.createdAt),
         };
       }
       return {
         id: `audit-${log.id}`,
-        type: log.action.toLocaleLowerCase("fr").includes("sanction") ? "discipline" : "activity",
-        title: log.action,
-        actorName: log.actorName,
+        type: action.toLocaleLowerCase("fr").includes("sanction") ? "discipline" : "activity",
+        title: action,
+        actorName: log.actorName || "Utilisateur",
         details: log.details ?? "",
-        createdAt: log.createdAt,
+        createdAt: normalizeActivityTimestamp(log.createdAt),
       };
     });
 
@@ -96,8 +143,8 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
             title: "Paiement",
             actorName: payment.cashierName || "Caissier",
             details:
-              `Élève : ${studentName} · Classe : ${student ? formatStudentClassName(student) : "-"} · Frais : ${fee?.name ?? "Frais"} · Montant : ${money(payment.amount)} · Date : ${payment.paidAt} · Heure : ${payment.createdAt ? new Date(payment.createdAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "-"} · Enregistré par : ${payment.cashierName || "-"} · Référence : ${payment.receiptNumber ?? payment.id}`,
-            createdAt: payment.createdAt ?? payment.paidAt,
+              `Élève : ${studentName} · Classe : ${student ? formatStudentClassName(student) : "-"} · Frais : ${fee?.name ?? "Frais"} · Montant : ${money(payment.amount)} · Date : ${payment.paidAt} · Heure : ${formatActivityTime(payment.createdAt)} · Enregistré par : ${payment.cashierName || "-"} · Référence : ${payment.receiptNumber ?? payment.id}`,
+            createdAt: normalizeActivityTimestamp(payment.createdAt ?? payment.paidAt),
           };
         })
       : [];
@@ -110,8 +157,8 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
           title: "Dépense",
           actorName: expense.cashierName || "Caissier",
           details:
-            `Motif : ${expense.category} · Description : ${expense.description || "-"} · Montant : ${money(expense.amount)} · Date : ${expense.spentAt} · Heure : ${expense.createdAt ? new Date(expense.createdAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "-"} · Enregistrée par : ${expense.cashierName || "-"} · Référence : ${expense.reference ?? expense.id}`,
-          createdAt: expense.createdAt ?? expense.spentAt,
+            `Motif : ${expense.category} · Description : ${expense.description || "-"} · Montant : ${money(expense.amount)} · Date : ${expense.spentAt} · Heure : ${formatActivityTime(expense.createdAt)} · Enregistrée par : ${expense.cashierName || "-"} · Référence : ${expense.reference ?? expense.id}`,
+          createdAt: normalizeActivityTimestamp(expense.createdAt ?? expense.spentAt),
         }))
       : [];
 
@@ -124,7 +171,7 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
           actorName: sanction.createdByName || "Directeur de Discipline",
           details:
             `Élève : ${sanction.studentName} · Classe : ${sanction.className} · Motif : ${sanction.reason} · Type : ${sanction.sanctionType} · Début : ${sanction.startDate} · Fin prévue : ${sanction.expectedEndDate} · Fin réelle : ${sanction.actualEndDate ?? "-"} · Statut : ${sanction.status === "completed" ? "Purgée" : "Sanction en cours"} · Récidive : ${sanction.recurrenceNumber} · Créée par : ${sanction.createdByName || "-"} · Clôturée par : ${sanction.completedByName ?? "-"} · Année scolaire : ${sanction.schoolYearId} · École : ${sanction.schoolId} · Identifiant : ${sanction.id}`,
-          createdAt: sanction.createdAt ?? sanction.startDate,
+          createdAt: normalizeActivityTimestamp(sanction.createdAt ?? sanction.startDate),
         }))
       : [];
 
@@ -152,16 +199,11 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
         title: isSentByCurrentUser ? "Message envoyé" : "Message reçu",
         actorName: senderName,
         details: `Expéditeur : ${senderName} · Destinataire : ${recipientName} · Statut : ${isSentByCurrentUser ? "envoyé" : "reçu"}`,
-        createdAt: message.createdAt,
+        createdAt: normalizeActivityTimestamp(message.createdAt),
       };
     });
 
-  function itemTimestamp(item: ActivityHistoryItem) {
-    const timestamp = new Date(item.createdAt).getTime();
-    return Number.isNaN(timestamp) ? 0 : timestamp;
-  }
-
   return [...auditItems, ...messageItems, ...paymentItems, ...expenseItems, ...disciplineItems].sort(
-    (a, b) => itemTimestamp(b) - itemTimestamp(a) || b.createdAt.localeCompare(a.createdAt),
+    (a, b) => activityTimestamp(b.createdAt) - activityTimestamp(a.createdAt),
   );
 }

@@ -202,7 +202,7 @@ service cloud.firestore {
         && activeTenantYearUpdate()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           "nom", "postnom", "prenom", "sexe", "birthDate", "address", "phone",
-          "className", "section", "option", "photoUrl", "parentId", "updatedAt"
+          "className", "classId", "subClassId", "classOptionKey", "section", "option", "photoUrl", "parentId", "updatedAt"
         ]);
     }
 
@@ -460,7 +460,10 @@ service cloud.firestore {
           || (request.resource.data.subClassId is string
             && get(/databases/$(database)/documents/classes/$(request.resource.data.subClassId)).data.schoolId == tenantSchoolId()
             && get(/databases/$(database)/documents/classes/$(request.resource.data.subClassId)).data.schoolYearId == request.resource.data.schoolYearId
-            && get(/databases/$(database)/documents/classes/$(request.resource.data.subClassId)).data.parentClassId == request.resource.data.classId));
+            && get(/databases/$(database)/documents/classes/$(request.resource.data.subClassId)).data.parentClassId == request.resource.data.classId
+            && (!("classOptionKey" in get(/databases/$(database)/documents/classes/$(request.resource.data.subClassId)).data)
+              || (("classOptionKey" in request.resource.data)
+                && request.resource.data.classOptionKey == get(/databases/$(database)/documents/classes/$(request.resource.data.subClassId)).data.classOptionKey))));
     }
 
     match /students/{studentId} {
@@ -586,6 +589,9 @@ service cloud.firestore {
           && request.resource.data.parentClassId is string
           && request.resource.data.subClassLabel is string
           && request.resource.data.subClassLabel.size() > 0
+          && (!("classOptionKey" in request.resource.data)
+            || (request.resource.data.classOptionKey is string
+              && request.resource.data.classOptionKey.matches("^" + request.resource.data.parentClassId + "::.+$")))
           && existsAfter(/databases/$(database)/documents/classes/$(request.resource.data.parentClassId))
           && getAfter(/databases/$(database)/documents/classes/$(request.resource.data.parentClassId)).data.schoolId == tenantSchoolId()
           && getAfter(/databases/$(database)/documents/classes/$(request.resource.data.parentClassId)).data.schoolYearId == request.resource.data.schoolYearId
@@ -613,7 +619,12 @@ service cloud.firestore {
       }
       allow read: if superAdmin() || sameTenantResource() || studyTenantResource() || teacherTenantResource();
       allow create: if (schoolAdmin() && activeTenantYearCreate()) || validSubclassCreate() || validSecretaryBaseClassCreate() || validStudyLegacyClassCreate();
-      allow update: if schoolAdmin() && activeTenantYearUpdate();
+      allow update: if (schoolAdmin() && activeTenantYearUpdate())
+        || (activeStudyYearUpdate()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["vacation", "saturdayVacation", "saturdayEnabled", "updatedAt"])
+          && request.resource.data.vacation in ["morning", "afternoon"]
+          && request.resource.data.saturdayEnabled is bool
+          && (request.resource.data.saturdayVacation == null || request.resource.data.saturdayVacation in ["morning", "afternoon"]));
       allow delete: if schoolAdmin() && sameTenantResource()
         && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
     }
@@ -774,7 +785,7 @@ service cloud.firestore {
 
     match /schedulePeriods/{periodId} {
       allow read: if superAdmin() || studyTenantResource() || teacherTenantResource();
-      allow create: if activeStudyYearCreate() && request.resource.data.label is string && request.resource.data.startTime is string && request.resource.data.endTime is string && request.resource.data.order is int && request.resource.data.order > 0 && request.resource.data.type in ["course","break","recess"] && request.resource.data.active is bool && request.resource.data.createdBy == request.auth.uid;
+      allow create: if activeStudyYearCreate() && request.resource.data.label is string && request.resource.data.startTime is string && request.resource.data.endTime is string && request.resource.data.startTime < request.resource.data.endTime && request.resource.data.order is int && request.resource.data.order > 0 && request.resource.data.type in ["course","break","recess"] && (!request.resource.data.keys().hasAny(["vacation"]) || request.resource.data.vacation in ["morning","afternoon"]) && (!request.resource.data.keys().hasAny(["dayScope"]) || request.resource.data.dayScope in ["weekdays","saturday"]) && request.resource.data.active is bool && request.resource.data.createdBy == request.auth.uid;
       allow update: if activeStudyYearUpdate() && request.resource.data.createdBy == resource.data.createdBy && request.resource.data.createdAt == resource.data.createdAt;
       allow delete: if false;
     }
@@ -914,7 +925,8 @@ service cloud.firestore {
     match /attendanceSettings/{settingsId} {
       allow read: if superAdmin()
         || (schoolAdmin() && sameTenantResource())
-        || disciplineTenantResource();
+        || disciplineTenantResource()
+        || studyTenantResource();
       allow create: if activeDisciplineYearCreate();
       allow update: if activeDisciplineYearUpdate();
       allow delete: if false;

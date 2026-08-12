@@ -8,7 +8,7 @@ export async function exportFilteredStudySchedulePdf(input: { school: School; ye
     { header: "Jour", render: (item) => item.dayOfWeek },
     { header: "Classe", render: (item) => label(input.classes, item.classId, "name") },
     { header: "Enseignant", render: (item) => label(input.teachers, item.teacherId, "fullName") },
-    { header: "Matière", render: (item) => label(input.subjects, item.subjectId, "name") },
+    { header: "Cours", render: (item) => label(input.subjects, item.subjectId, "name") },
     { header: "Période", render: (item) => item.periodId },
     { header: "Salle", render: (item) => item.roomId ? label(input.rooms, item.roomId, "name") : "—" },
   ], input.entries, "Aucun créneau pour ce filtre.");

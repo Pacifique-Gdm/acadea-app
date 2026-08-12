@@ -1,5 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+import { createElement } from "react";
+import type { AppData, AppUser } from "../../types";
+import { ActivityHistoryContent } from "./ActivityHistoryContent";
 
 describe("Historique responsive", () => {
   const source = readFileSync(new URL("./ActivityHistoryContent.tsx", import.meta.url), "utf8");
@@ -17,5 +21,20 @@ describe("Historique responsive", () => {
     expect(source).toContain("Chargement de l’historique…");
     expect(source).toContain("Impossible de charger l’historique. Veuillez réessayer.");
     expect(source).toContain("Aucune activité disponible.");
+  });
+
+  it("rend un Timestamp Firestore sans crash et conserve l'ordre décroissant", () => {
+    const user: AppUser = { id: "admin-a", name: "Admin", email: "admin@example.invalid", role: "school_admin", schoolId: "school-a", activeSchoolYearId: "year-a", status: "active" };
+    const data: AppData = { users: [user], schools: [], schoolYears: [], students: [], parents: [], feeTypes: [], payments: [], expenses: [], messages: [], notifications: [], auditLogs: [], valves: [], disciplineSanctions: [], attendance: [], attendanceSettings: [], biometricTerminals: [] };
+    const markup = renderToStaticMarkup(createElement(ActivityHistoryContent, { user, data, role: "admin", yearData: {
+      students: [], parents: [], users: [user], feeTypes: [], payments: [], expenses: [], messages: [], disciplineSanctions: [],
+      auditLogs: [
+        { id: "older", schoolId: "school-a", actorId: user.id, actorName: user.name, action: "Activité ancienne", createdAt: "2026-08-12T10:00:00.000Z" },
+        { id: "newer", schoolId: "school-a", actorId: user.id, actorName: user.name, action: "Activité récente", createdAt: { toMillis: () => Date.parse("2026-08-12T12:00:00.000Z") } as unknown as string },
+      ],
+    } }));
+
+    expect(markup.indexOf("Activité récente")).toBeLessThan(markup.indexOf("Activité ancienne"));
+    expect(markup).not.toContain("Invalid Date");
   });
 });

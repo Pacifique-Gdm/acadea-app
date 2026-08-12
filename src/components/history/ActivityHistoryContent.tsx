@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { ArrowUpDown, Banknote, Bell, Clock3, MessageSquare, Search, ShieldCheck } from "lucide-react";
 import type { AppData, AppUser } from "../../types";
-import { buildActivityHistoryItems } from "../../utils/activityHistory";
+import { buildActivityHistoryItems, formatActivityDateTime } from "../../utils/activityHistory";
 import type { ActivityHistoryItem, ActivityHistoryYearData } from "../../utils/activityHistory";
 
 export function ActivityHistoryContent({
@@ -99,7 +99,7 @@ export function ActivityHistoryContent({
                   </span>
                 </div>
                 <p className="mt-1 break-words text-xs text-slate-500">
-                  {item.actorName} · {new Date(item.createdAt).toLocaleString("fr-FR")}
+                  {item.actorName} · {formatActivityDateTime(item.createdAt)}
                 </p>
                 {item.details && <p className="mt-2 break-words leading-6 text-slate-700">{item.details}</p>}
               </div>

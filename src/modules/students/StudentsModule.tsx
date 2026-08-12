@@ -14,7 +14,7 @@ import { exportStudentsPdf, sortStudentsForPdfByClass } from "../../utils/studen
 import type { AppData, AppUser, ParentProfile, School, SchoolSection, SchoolYear, Student } from "../../types";
 import { CLASSES } from "../../types";
 import type { SchoolClassRecord } from "../../types";
-import { activeSubclasses, createSchoolSubclasses, subscribeToSchoolClasses } from "../../services/schoolSubclasses";
+import { activeSubclasses, createSchoolSubclasses, schoolClassOptionKey, secondarySubclassesForOption, subscribeToSchoolClasses } from "../../services/schoolSubclasses";
 
 export interface StudentModuleCapabilities {
   canCreate: boolean;
@@ -161,8 +161,13 @@ export function StudentsModule({
         return;
       }
       const selectedClass = structuredClasses.find((item) => item.id === form.classId && !item.parentClassId);
-      const selectedSubclasses = selectedClass ? activeSubclasses(structuredClasses, selectedClass.id) : [];
-      if (selectedSubclasses.length > 0 && !form.subClassId) { setSaveError("La sous-classe est obligatoire pour cette classe subdivisée."); return; }
+      const selectedOptionKey = selectedClass && form.option ? schoolClassOptionKey(selectedClass.id, form.option) : undefined;
+      const selectedSubclasses = selectedClass
+        ? getClassSection(form.className) === "secondaire"
+          ? secondarySubclassesForOption(structuredClasses, selectedClass.id, selectedOptionKey, form.subClassId)
+          : activeSubclasses(structuredClasses, selectedClass.id)
+        : [];
+      if (selectedSubclasses.length >= 2 && !form.subClassId) { setSaveError("La sous-classe est obligatoire pour cette option subdivisée."); return; }
       if (form.subClassId && !selectedSubclasses.some((item) => item.id === form.subClassId)) { setSaveError("La sous-classe sélectionnée n’appartient pas à cette classe."); return; }
       const selectedParentId = form.parentId?.trim() ?? "";
       const matchingParents = data.parents.filter((parent) => parent.id === selectedParentId && parent.schoolId === school.id);
@@ -186,6 +191,8 @@ export function StudentsModule({
         schoolYearId: targetYearId,
         annee_scolaire_id: targetYearId,
       };
+      if (selectedOptionKey) student.classOptionKey = selectedOptionKey;
+      else delete student.classOptionKey;
       if (!student.classId) delete student.classId;
       if (!student.subClassId) delete student.subClassId;
       if (selectedParentId) {
@@ -412,7 +419,8 @@ export function StudentsModule({
       ? schoolOptions
       : [...schoolOptions, trimmed];
     updateData({ schools: data.schools.map((item) => (item.id === school.id ? { ...item, schoolOptions: nextOptions } : item)) });
-    setForm({ ...form, option: trimmed });
+    const selectedClass = structuredClasses.find((item) => !item.parentClassId && (item.id === form.classId || item.name === form.className));
+    setForm({ ...form, option: trimmed, classOptionKey: selectedClass ? schoolClassOptionKey(selectedClass.id, trimmed) : undefined, subClassId: undefined });
   }
 
   function printStudentsPdf() {
@@ -569,7 +577,7 @@ export function StudentsModule({
             canCreateParent={studentCapabilities.canCreateParent}
           canAddOption={studentCapabilities.canManageOptions}
           structuredClasses={structuredClasses}
-          onAddSubclasses={(parent, labels) => createSchoolSubclasses({ user, parent, labels, existing: structuredClasses })}
+          onAddSubclasses={(parent, labels, classOptionKey) => createSchoolSubclasses({ user, parent, labels, classOptionKey, existing: structuredClasses })}
           />
         </AdminDrawer>
       )}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AppData, AppUser, DisciplineSanction } from "../types";
-import { buildActivityHistoryItems } from "./activityHistory";
+import { activityTimestamp, buildActivityHistoryItems, formatActivityDateTime } from "./activityHistory";
 
 const admin: AppUser = { id: "admin-a", name: "Admin", email: "admin@example.invalid", role: "school_admin", schoolId: "school-a", activeSchoolYearId: "year-a", status: "active" };
 const discipline: AppUser = { id: "discipline-a", name: "Discipline", email: "discipline@example.invalid", role: "discipline_director", schoolId: "school-a", activeSchoolYearId: "year-a", status: "active" };
@@ -35,5 +35,45 @@ describe("historique personnel Secrétaire", () => {
       { id: "other", schoolId: "school-a", schoolYearId: "year-a", actorId: other.id, actorName: other.name, action: "Création rapport", createdAt: "2026-08-12T11:00:00.000Z" },
     ] }, "secretary");
     expect(items.map((item) => item.id)).toEqual(["audit-own"]);
+  });
+});
+
+describe("compatibilité des historiques Firestore", () => {
+  it("rend un audit historique sans année dont createdAt est un Timestamp Firestore", () => {
+    const legacyAudit = {
+      id: "legacy-audit",
+      schoolId: "school-a",
+      actorId: admin.id,
+      actorName: admin.name,
+      eventType: "Modification élève",
+      createdAt: { toDate: () => new Date("2026-08-12T12:00:00.000Z") },
+    } as unknown as AppData["auditLogs"][number];
+    const items = buildActivityHistoryItems(admin, data, {
+      students: [], parents: [], users: data.users, feeTypes: [], payments: [], expenses: [], messages: [], disciplineSanctions: [], auditLogs: [legacyAudit],
+    }, "admin");
+
+    expect(items).toEqual([expect.objectContaining({
+      id: "audit-legacy-audit",
+      title: "Modification élève",
+      createdAt: "2026-08-12T12:00:00.000Z",
+    })]);
+  });
+
+  it("trie sans exception ISO, Timestamp toMillis, Date, nombre et valeur absente", () => {
+    const audits = [
+      { id: "iso", createdAt: "2026-08-12T10:00:00.000Z" },
+      { id: "timestamp", createdAt: { toMillis: () => Date.parse("2026-08-12T12:00:00.000Z") } },
+      { id: "date", createdAt: new Date("2026-08-12T11:00:00.000Z") },
+      { id: "number", createdAt: Date.parse("2026-08-12T09:00:00.000Z") },
+      { id: "missing", createdAt: undefined },
+      { id: "null", createdAt: null },
+    ].map((item) => ({ ...item, schoolId: "school-a", actorId: admin.id, actorName: admin.name, action: `Action ${item.id}` })) as unknown as AppData["auditLogs"];
+    const items = buildActivityHistoryItems(admin, data, {
+      students: [], parents: [], users: data.users, feeTypes: [], payments: [], expenses: [], messages: [], disciplineSanctions: [], auditLogs: audits,
+    }, "admin");
+
+    expect(items.map((item) => item.id)).toEqual(["audit-timestamp", "audit-date", "audit-iso", "audit-number", "audit-missing", "audit-null"]);
+    expect(activityTimestamp({ toDate: () => new Date("2026-08-12T08:00:00.000Z") })).toBe(Date.parse("2026-08-12T08:00:00.000Z"));
+    expect(formatActivityDateTime(undefined)).toBe("Date inconnue");
   });
 });

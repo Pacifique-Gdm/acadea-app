@@ -1,9 +1,9 @@
 import { collection, doc, onSnapshot, query, runTransaction, setDoc, where } from "@firebase/firestore";
 import type { Firestore } from "@firebase/firestore";
 import { db } from "../../firebase";
-import type { AppUser, Student } from "../../types";
+import type { AppUser, AttendanceSettings, Student } from "../../types";
 import { expandAssignmentSelections, pedagogicalAssignmentId, validateWeeklyPeriods } from "./studyAssignments";
-import type { PedagogicalAssignment, SchedulePeriod, StudyClass, StudyRoom, StudySubject, StudyTeacher, TeacherAvailability, Timetable, TimetableEntry } from "./studyTypes";
+import type { PedagogicalAssignment, SchedulePeriod, StudyClass, StudyRoom, StudySubject, StudyTeacher, StudyVacation, TeacherAvailability, Timetable, TimetableEntry } from "./studyTypes";
 import { detectAvailabilityConflicts, validTimeRange, validatePeriod } from "./studySchedule";
 import { validateAvailabilityRanges } from "./studySchedule";
 import { persistGeneratedTimetable } from "./timetablePersistence";
@@ -22,7 +22,7 @@ function scopedSubscription<T>(collectionName: string, schoolId: string, schoolY
   }, onError);
 }
 
-export function subscribeToStudyData(input: { user: AppUser; schoolId: string; schoolYearId: string; onTeachers: (items: StudyTeacher[]) => void; onSubjects: (items: StudySubject[]) => void; onClasses: (items: StudyClass[]) => void; onStudents:(items:Student[])=>void;onAssignments: (items: PedagogicalAssignment[]) => void; onAvailabilities:(items:TeacherAvailability[])=>void;onPeriods:(items:SchedulePeriod[])=>void;onTimetables:(items:Timetable[])=>void;onTimetableEntries:(items:TimetableEntry[])=>void;onRooms:(items:StudyRoom[])=>void; onError: (error: Error) => void }) {
+export function subscribeToStudyData(input: { user: AppUser; schoolId: string; schoolYearId: string; onTeachers: (items: StudyTeacher[]) => void; onSubjects: (items: StudySubject[]) => void; onClasses: (items: StudyClass[]) => void; onStudents:(items:Student[])=>void;onAssignments: (items: PedagogicalAssignment[]) => void; onAvailabilities:(items:TeacherAvailability[])=>void;onPeriods:(items:SchedulePeriod[])=>void;onTimetables:(items:Timetable[])=>void;onTimetableEntries:(items:TimetableEntry[])=>void;onRooms:(items:StudyRoom[])=>void;onAttendanceSettings?:(items:AttendanceSettings[])=>void; onError: (error: Error) => void }) {
   const database = requireScope(input.user, input.schoolId, input.schoolYearId);
   let teacherProfiles: StudyTeacher[] = [];
   let teacherUsers: AppUser[] = [];
@@ -57,6 +57,7 @@ export function subscribeToStudyData(input: { user: AppUser; schoolId: string; s
     scopedSubscription("timetables",input.schoolId,input.schoolYearId,input.onTimetables,input.onError),
     scopedSubscription("timetableEntries",input.schoolId,input.schoolYearId,input.onTimetableEntries,input.onError),
     scopedSubscription("rooms",input.schoolId,input.schoolYearId,input.onRooms,input.onError),
+    scopedSubscription("attendanceSettings",input.schoolId,input.schoolYearId,input.onAttendanceSettings??(()=>undefined),input.onError),
   ];
 }
 
@@ -91,6 +92,7 @@ export async function saveAvailability(input:{user:AppUser;item:TeacherAvailabil
 export async function saveTeacherDayAvailability(input:{user:AppUser;schoolId:string;schoolYearId:string;teacherId:string;dayOfWeek:TeacherAvailability["dayOfWeek"];status:TeacherAvailability["status"];ranges:Array<{startTime:string;endTime:string}>;existing:TeacherAvailability[]}){const database=requireScope(input.user,input.schoolId,input.schoolYearId);const error=validateAvailabilityRanges(input.status,input.ranges);if(error)throw new Error(error);const teacherScoped=input.existing.filter(x=>x.teacherId===input.teacherId&&x.schoolId===input.schoolId&&x.schoolYearId===input.schoolYearId);const dayExisting=teacherScoped.filter(x=>x.dayOfWeek===input.dayOfWeek&&x.active);const byId=new Map(teacherScoped.map(item=>[item.id,item]));const now=new Date().toISOString();const ranges=input.status==="rest"||input.ranges.length===0?[undefined]:input.ranges;const created=ranges.map((range,index):TeacherAvailability=>{const id=`${input.schoolId}__${input.schoolYearId}__${input.teacherId}__${input.dayOfWeek}__${input.status}__${index}`;const previous=byId.get(id);return{id,schoolId:input.schoolId,schoolYearId:input.schoolYearId,teacherId:input.teacherId,dayOfWeek:input.dayOfWeek,status:input.status,...(range??{}),active:true,createdBy:previous?.createdBy??input.user.id,createdAt:previous?.createdAt??now,updatedAt:now};});if(detectAvailabilityConflicts([...teacherScoped.filter(x=>x.dayOfWeek!==input.dayOfWeek),...created]))throw new Error("Disponibilités contradictoires.");await runTransaction(database,async transaction=>{const refs=dayExisting.map(x=>doc(database,"teacherAvailabilities",x.id));await Promise.all(refs.map(ref=>transaction.get(ref)));refs.forEach(ref=>transaction.update(ref,{active:false,updatedAt:now}));created.forEach(item=>transaction.set(doc(database,"teacherAvailabilities",item.id),item));});}
 export async function saveSchedulePeriod(input:{user:AppUser;item:SchedulePeriod;existing:SchedulePeriod[]}){const database=requireScope(input.user,input.item.schoolId,input.item.schoolYearId);const error=validatePeriod(input.item,input.existing,input.item.id);if(error)throw new Error(error);await setDoc(doc(database,"schedulePeriods",input.item.id),input.item);}
 export async function setSchedulePeriodActive(user:AppUser,item:SchedulePeriod,active:boolean){const database=requireScope(user,item.schoolId,item.schoolYearId);await setDoc(doc(database,"schedulePeriods",item.id),{active,updatedAt:new Date().toISOString()},{merge:true});}
+export async function setStudyClassVacation(input:{user:AppUser;item:StudyClass;vacation:StudyVacation;saturdayEnabled:boolean;saturdayVacation?:StudyVacation|null}){const database=requireScope(input.user,input.item.schoolId,input.item.schoolYearId);await setDoc(doc(database,"classes",input.item.id),{vacation:input.vacation,saturdayEnabled:input.saturdayEnabled,saturdayVacation:input.saturdayEnabled?(input.saturdayVacation??input.vacation):null,updatedAt:new Date().toISOString()},{merge:true});}
 
 export async function saveGeneratedTimetable(input:{user:AppUser;schoolId:string;schoolYearId:string;version:number;entries:TimetableEntry[];existing:Timetable[];metadata:Timetable["generationMetadata"]}){const database=requireScope(input.user,input.schoolId,input.schoolYearId);return persistGeneratedTimetable(database,input);}
 
@@ -104,16 +106,16 @@ export async function setStudyRoomActive(user:AppUser,room:StudyRoom,active:bool
 export async function createStudySubject(input: { user: AppUser; schoolId: string; schoolYearId: string; name: string }) {
   const database = requireScope(input.user, input.schoolId, input.schoolYearId);
   const name = input.name.trim();
-  if (!name) throw new Error("Le nom de la matière est obligatoire.");
+  if (!name) throw new Error("Le nom du cours est obligatoire.");
   const id = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80);
-  if (!id) throw new Error("Le nom de la matière est invalide.");
+  if (!id) throw new Error("Le nom du cours est invalide.");
   const now = new Date().toISOString();
   await setDoc(doc(database, "subjects", `${input.schoolId}__${input.schoolYearId}__${id}`), { schoolId: input.schoolId, schoolYearId: input.schoolYearId, name, active: true, createdAt: now, updatedAt: now, createdBy: input.user.id }, { merge: false });
 }
 
 export async function savePedagogicalAssignment(input: { user: AppUser; schoolId: string; schoolYearId: string; teacherId: string; subjectId: string; classId: string; weeklyPeriods: number; blockSize?: 1 | 2; preferredRoomId?: string | null; titularClassId?: string | null; active: boolean; current?: PedagogicalAssignment }) {
   const database = requireScope(input.user, input.schoolId, input.schoolYearId);
-  if (!input.teacherId || !input.subjectId || !input.classId) throw new Error("L’enseignant, la matière et la classe sont obligatoires.");
+  if (!input.teacherId || !input.subjectId || !input.classId) throw new Error("L’enseignant, le cours et la classe sont obligatoires.");
   const periodError = validateWeeklyPeriods(input.weeklyPeriods);
   if (periodError) throw new Error(periodError);
   const targetId = pedagogicalAssignmentId(input);
@@ -157,7 +159,7 @@ export async function savePedagogicalAssignments(input: { user: AppUser; schoolI
   const database = requireScope(input.user, input.schoolId, input.schoolYearId);
   const subjectIds = [...new Set(input.subjectIds.filter(Boolean))];
   const classIds = [...new Set(input.classIds.filter(Boolean))];
-  if (!input.teacherId || subjectIds.length === 0 || classIds.length === 0) throw new Error("L’enseignant, une matière et une classe sont obligatoires.");
+  if (!input.teacherId || subjectIds.length === 0 || classIds.length === 0) throw new Error("L’enseignant, un cours et une classe sont obligatoires.");
   const periodError = validateWeeklyPeriods(input.weeklyPeriods);
   if (periodError) throw new Error(periodError);
   const combinations = expandAssignmentSelections(subjectIds, classIds);

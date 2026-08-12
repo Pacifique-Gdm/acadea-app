@@ -119,6 +119,8 @@ export interface Student {
   /** Structured class references. Optional for backward compatibility. */
   classId?: string;
   subClassId?: string;
+  /** Stable option identity used to scope secondary subclasses. */
+  classOptionKey?: string;
   section?: SchoolSection;
   option?: HumanityOption;
   status?: StudentStatus;
@@ -192,6 +194,8 @@ export interface SchoolClassRecord {
   name: string;
   active?: boolean;
   parentClassId?: string;
+  /** Operational parent option for a secondary subclass. */
+  classOptionKey?: string;
   subClassLabel?: string;
 }
 

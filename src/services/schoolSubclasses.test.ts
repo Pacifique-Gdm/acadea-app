@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeSubclasses, classesWithEnrolledStudents, operationalClasses, schoolClassRecordId, validateSubclassLabels } from "./schoolSubclasses";
+import { activeSubclasses, classesWithEnrolledStudents, operationalClasses, schoolClassOptionKey, schoolClassRecordId, secondarySubclassesForOption, validateSubclassLabels } from "./schoolSubclasses";
 import fs from "node:fs";
 import type { SchoolClassRecord } from "../types";
 const base = (id: string, extra: Partial<SchoolClassRecord> = {}): SchoolClassRecord => ({ id, schoolId: "school-a", schoolYearId: "year-a", name: id, active: true, ...extra });
@@ -8,8 +8,22 @@ describe("sous-classes structurées", () => {
   it("refuse les doublons normalisés", () => expect(validateSubclassLabels([" A ", "a"])).toContain("uniques"));
   it("expose les sous-classes comme unités opérationnelles", () => { const rows = [base("parent"), base("a", { parentClassId: "parent" }), base("b", { parentClassId: "parent" }), base("normal")]; expect(operationalClasses(rows).map((item) => item.id)).toEqual(["a", "b", "normal"]); });
   it("ne mélange pas deux classes principales", () => { const rows = [base("a", { parentClassId: "x" }), base("b", { parentClassId: "y" })]; expect(activeSubclasses(rows, "x").map((item) => item.id)).toEqual(["a"]); });
+  it("isole deux options de la même classe et autorise le même libellé dans chacune", () => {
+    const scientific = schoolClassOptionKey("secondary-1", "Scientifique");
+    const literary = schoolClassOptionKey("secondary-1", "Littéraire");
+    const rows = [
+      base("scientific-a", { parentClassId: "secondary-1", classOptionKey: scientific, subClassLabel: "A" }),
+      base("literary-a", { parentClassId: "secondary-1", classOptionKey: literary, subClassLabel: "A" }),
+    ];
+    expect(secondarySubclassesForOption(rows, "secondary-1", scientific).map((item) => item.id)).toEqual(["scientific-a"]);
+    expect(secondarySubclassesForOption(rows, "secondary-1", literary).map((item) => item.id)).toEqual(["literary-a"]);
+  });
+  it("conserve uniquement la sous-classe legacy déjà sélectionnée pendant une modification", () => {
+    const rows = [base("legacy-a", { parentClassId: "secondary-1", subClassLabel: "A" }), base("legacy-b", { parentClassId: "secondary-1", subClassLabel: "B" })];
+    expect(secondarySubclassesForOption(rows, "secondary-1", schoolClassOptionKey("secondary-1", "Scientifique"), "legacy-a").map((item) => item.id)).toEqual(["legacy-a"]);
+  });
   it("génère un identifiant stable pour une classe legacy", () => expect(schoolClassRecordId("school-a", "year-a", "7ème CTEB")).toBe("school-a__year-a__7eme-cteb"));
-  it("branche le bouton partagé sur les classes initiales et la création temps réel", () => { const form = fs.readFileSync("src/components/students/StudentForm.tsx", "utf8"); const module = fs.readFileSync("src/modules/students/StudentsModule.tsx", "utf8"); expect(form).toContain("item.name === form.className"); expect(form).toContain("schoolClassRecordId("); expect(form).toContain("Ajouter sous-classe"); expect(form).toContain("Sélectionnez d’abord une classe principale."); expect(form).toContain('useState(["A", "B"])'); expect(form).toContain("Sous-classe ${index + 1}"); expect(module).toContain("subscribeToSchoolClasses"); expect(module).toContain("createSchoolSubclasses"); });
+  it("branche le bouton partagé dans l'ordre classe puis option puis sous-classe", () => { const form = fs.readFileSync("src/components/students/StudentForm.tsx", "utf8"); const module = fs.readFileSync("src/modules/students/StudentsModule.tsx", "utf8"); expect(form).toContain("item.name === form.className"); expect(form).toContain("schoolClassRecordId("); expect(form.indexOf("Option")).toBeLessThan(form.indexOf("Ajouter sous-classe")); expect(form).toContain("Sélectionnez d’abord une option."); expect(form).toContain("subClassId: undefined"); expect(form).toContain('useState(["A", "B"])'); expect(form).toContain("Sous-classe ${index + 1}"); expect(module).toContain("subscribeToSchoolClasses"); expect(module).toContain("createSchoolSubclasses"); });
 });
 
 describe("classes réellement utilisées par les élèves", () => {
