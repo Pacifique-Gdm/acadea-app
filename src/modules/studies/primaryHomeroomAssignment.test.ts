@@ -27,7 +27,7 @@ describe("affectation de classe principale Primaire", () => {
 
   it("matérialise et titularise la classe avant de créer séparément les autres cours", async () => {
     await savePrimaryHomeroomAssignments({ user, schoolId: "school", schoolYearId: "year", teacherId: "teacher", subjectIds: ["français", "math", "sciences"], classId: "school__year__3eme-primaire", legacyClass: { id: "school__year__3eme-primaire", name: "3ème Primaire", schoolId: "school", schoolYearId: "year" }, weeklyPeriods: 2, active: true });
-    expect(mocks.runTransaction).toHaveBeenCalledTimes(3);
+    expect(mocks.runTransaction).toHaveBeenCalledTimes(2);
     expect(mocks.set).toHaveBeenCalledWith("classTitulars/school__year__school__year__3eme-primaire", expect.objectContaining({ classId: "school__year__3eme-primaire", teacherId: "teacher" }));
     expect(mocks.set.mock.calls.filter(([path]) => String(path).startsWith("pedagogicalAssignments/"))).toHaveLength(3);
   });

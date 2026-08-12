@@ -202,8 +202,8 @@ export async function savePrimaryHomeroomAssignments(input: { user: AppUser; sch
   const [firstSubjectId, ...remainingSubjectIds] = [...new Set(input.subjectIds.filter(Boolean))];
   if (!firstSubjectId) throw new Error("Aucun cours applicable à cette classe.");
   await savePedagogicalAssignments({ ...input, subjectIds: [firstSubjectId], classIds: [input.classId], legacyClasses: input.legacyClass ? [input.legacyClass] : [], titularClassId: input.classId });
-  for (const subjectId of remainingSubjectIds) {
-    await savePedagogicalAssignment({ ...input, subjectId, classId: input.classId, titularClassId: null });
+  for (let index = 0; index < remainingSubjectIds.length; index += 3) {
+    await savePedagogicalAssignments({ ...input, subjectIds: remainingSubjectIds.slice(index, index + 3), classIds: [input.classId], legacyClasses: [], titularClassId: null });
   }
   return 1 + remainingSubjectIds.length;
 }
