@@ -656,9 +656,9 @@ service cloud.firestore {
           && getAfter(/databases/$(database)/documents/classes/$(request.resource.data.classId)).data.schoolYearId == request.resource.data.schoolYearId
           && (!("titularClassId" in request.resource.data) || request.resource.data.titularClassId == null
             || (request.resource.data.titularClassId is string
-              && get(/databases/$(database)/documents/classes/$(request.resource.data.titularClassId)).data.schoolId == tenantSchoolId()
-              && get(/databases/$(database)/documents/classes/$(request.resource.data.titularClassId)).data.schoolYearId == request.resource.data.schoolYearId
-              && get(/databases/$(database)/documents/classes/$(request.resource.data.titularClassId)).data.active != false))
+              && getAfter(/databases/$(database)/documents/classes/$(request.resource.data.titularClassId)).data.schoolId == tenantSchoolId()
+              && getAfter(/databases/$(database)/documents/classes/$(request.resource.data.titularClassId)).data.schoolYearId == request.resource.data.schoolYearId
+              && getAfter(/databases/$(database)/documents/classes/$(request.resource.data.titularClassId)).data.active != false))
           && (!("preferredRoomId" in request.resource.data) || request.resource.data.preferredRoomId == null
             || (request.resource.data.preferredRoomId is string
               && get(/databases/$(database)/documents/rooms/$(request.resource.data.preferredRoomId)).data.schoolId == tenantSchoolId()
@@ -703,8 +703,8 @@ service cloud.firestore {
           && titularId == request.resource.data.schoolId + "__" + request.resource.data.schoolYearId + "__" + request.resource.data.classId
           && request.resource.data.schoolId == tenantSchoolId()
           && activeSchoolYearBelongsToSchool(request.resource.data.schoolYearId, tenantSchoolId())
-          && get(/databases/$(database)/documents/classes/$(request.resource.data.classId)).data.schoolId == tenantSchoolId()
-          && get(/databases/$(database)/documents/classes/$(request.resource.data.classId)).data.schoolYearId == request.resource.data.schoolYearId
+          && getAfter(/databases/$(database)/documents/classes/$(request.resource.data.classId)).data.schoolId == tenantSchoolId()
+          && getAfter(/databases/$(database)/documents/classes/$(request.resource.data.classId)).data.schoolYearId == request.resource.data.schoolYearId
           && getAfter(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.schoolId == tenantSchoolId()
           && getAfter(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.teacherId == request.resource.data.teacherId
           && request.resource.data.updatedBy == request.auth.uid;

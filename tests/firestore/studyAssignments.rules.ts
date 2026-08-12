@@ -53,6 +53,17 @@ describe("Direction des études — affectations pédagogiques", () => {
     batch.set(doc(database, "pedagogicalAssignments", legacyAssignmentId), assignment({ id: legacyAssignmentId, classId: legacyClassId }));
     await assertSucceeds(batch.commit());
   });
+  it("crée atomiquement une classe legacy, son affectation et sa titularité", async () => {
+    const database = director();
+    const legacyClassId = `${school}__${year}__3eme-humanite`;
+    const legacyAssignmentId = `${school}__${year}__teacher-a__subject-a__${legacyClassId}`;
+    const titularId = `${school}__${year}__${legacyClassId}`;
+    const batch = writeBatch(database);
+    batch.set(doc(database, "classes", legacyClassId), { id: legacyClassId, schoolId: school, schoolYearId: year, name: "3ème Humanité", active: true, createdBy: "director-a", createdAt: now, updatedAt: now });
+    batch.set(doc(database, "pedagogicalAssignments", legacyAssignmentId), assignment({ id: legacyAssignmentId, classId: legacyClassId, titularClassId: legacyClassId }));
+    batch.set(doc(database, "classTitulars", titularId), { id: titularId, schoolId: school, schoolYearId: year, classId: legacyClassId, teacherId: "teacher-a", assignmentId: legacyAssignmentId, active: true, updatedAt: now, updatedBy: "director-a" });
+    await assertSucceeds(batch.commit());
+  });
   it("refuse une classe legacy non tenantée ou d'une autre école", async () => {
     await assertFails(setDoc(doc(director(), "classes", "legacy-class__2eme-humanite"), { id: "legacy-class__2eme-humanite", schoolId: school, schoolYearId: year, name: "2ème Humanité", active: true, createdBy: "director-a", createdAt: now, updatedAt: now }));
     await assertFails(setDoc(doc(director(), "classes", `${school}__${year}__foreign`), { id: `${school}__${year}__foreign`, schoolId: "school-b", schoolYearId: "year-b", name: "Classe étrangère", active: true, createdBy: "director-a", createdAt: now, updatedAt: now }));
@@ -70,6 +81,10 @@ describe("Direction des études — affectations pédagogiques", () => {
     await assertFails(setDoc(doc(director(), "pedagogicalAssignments", assignmentId), assignment({ titularClassId: "unknown" })));
     await seed("classes/class-b", { id: "class-b", schoolId: "school-b", schoolYearId: "year-b", name: "Classe B", active: true });
     await assertFails(setDoc(doc(director(), "pedagogicalAssignments", assignmentId), assignment({ titularClassId: "class-b" })));
+  });
+  it("refuse une classe de titulariat archivée", async () => {
+    await seed("classes/class-archived", { id: "class-archived", schoolId: school, schoolYearId: year, name: "Classe archivée", active: false });
+    await assertFails(setDoc(doc(director(), "pedagogicalAssignments", assignmentId), assignment({ titularClassId: "class-archived" })));
   });
   it("réserve un seul titulaire par identifiant déterministe de classe", async () => {
     await seed(`pedagogicalAssignments/${assignmentId}`, assignment({ titularClassId: "class-a" }));
