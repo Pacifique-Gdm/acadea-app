@@ -57,6 +57,17 @@ service cloud.firestore {
       return signedIn() && role() == "secretary" && tenantSchoolId() is string;
     }
 
+    function activeCashier() {
+      return signedIn()
+        && role() == "cashier"
+        && tenantSchoolId() is string
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.schoolId == tenantSchoolId()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "cashier"
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status != "inactive"
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active != false;
+    }
+
     function studyDirector() {
       return signedIn() && role() == "study_director" && tenantSchoolId() is string;
     }
@@ -499,7 +510,8 @@ service cloud.firestore {
     match /auditLogs/{auditLogId} {
       allow read: if superAdmin()
         || schoolAdmin() && sameTenantResource()
-        || secretary() && sameTenantResource() && resource.data.actorId == request.auth.uid;
+        || secretary() && sameTenantResource() && resource.data.actorId == request.auth.uid
+        || activeCashier() && sameTenantResource() && resource.data.actorId == request.auth.uid;
       allow create, update, delete: if false;
     }
 
@@ -574,14 +586,33 @@ service cloud.firestore {
           && request.resource.data.parentClassId is string
           && request.resource.data.subClassLabel is string
           && request.resource.data.subClassLabel.size() > 0
-          && exists(/databases/$(database)/documents/classes/$(request.resource.data.parentClassId))
-          && get(/databases/$(database)/documents/classes/$(request.resource.data.parentClassId)).data.schoolId == tenantSchoolId()
-          && get(/databases/$(database)/documents/classes/$(request.resource.data.parentClassId)).data.schoolYearId == request.resource.data.schoolYearId
-          && !("parentClassId" in get(/databases/$(database)/documents/classes/$(request.resource.data.parentClassId)).data)
+          && existsAfter(/databases/$(database)/documents/classes/$(request.resource.data.parentClassId))
+          && getAfter(/databases/$(database)/documents/classes/$(request.resource.data.parentClassId)).data.schoolId == tenantSchoolId()
+          && getAfter(/databases/$(database)/documents/classes/$(request.resource.data.parentClassId)).data.schoolYearId == request.resource.data.schoolYearId
+          && !("parentClassId" in getAfter(/databases/$(database)/documents/classes/$(request.resource.data.parentClassId)).data)
           && request.resource.data.createdBy == request.auth.uid;
       }
+      function validSecretaryBaseClassCreate() {
+        return secretary()
+          && activeTenantYearCreate()
+          && !("parentClassId" in request.resource.data)
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.keys().hasOnly(["id", "schoolId", "schoolYearId", "name", "active", "createdBy", "createdAt", "updatedAt"]);
+      }
+      function validStudyLegacyClassCreate() {
+        return studyDirector()
+          && activeTenantYearCreate()
+          && classId.matches("^" + tenantSchoolId() + "__" + request.resource.data.schoolYearId + "__.+$")
+          && !("parentClassId" in request.resource.data)
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.keys().hasOnly(["id", "schoolId", "schoolYearId", "name", "active", "createdBy", "createdAt", "updatedAt"]);
+      }
       allow read: if superAdmin() || sameTenantResource() || studyTenantResource() || teacherTenantResource();
-      allow create: if (schoolAdmin() && activeTenantYearCreate()) || validSubclassCreate();
+      allow create: if (schoolAdmin() && activeTenantYearCreate()) || validSubclassCreate() || validSecretaryBaseClassCreate() || validStudyLegacyClassCreate();
       allow update: if schoolAdmin() && activeTenantYearUpdate();
       allow delete: if schoolAdmin() && sameTenantResource()
         && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
@@ -621,8 +652,8 @@ service cloud.firestore {
           && assignmentTeacherIsActive()
           && get(/databases/$(database)/documents/subjects/$(request.resource.data.subjectId)).data.schoolId == tenantSchoolId()
           && get(/databases/$(database)/documents/subjects/$(request.resource.data.subjectId)).data.schoolYearId == request.resource.data.schoolYearId
-          && get(/databases/$(database)/documents/classes/$(request.resource.data.classId)).data.schoolId == tenantSchoolId()
-          && get(/databases/$(database)/documents/classes/$(request.resource.data.classId)).data.schoolYearId == request.resource.data.schoolYearId
+          && getAfter(/databases/$(database)/documents/classes/$(request.resource.data.classId)).data.schoolId == tenantSchoolId()
+          && getAfter(/databases/$(database)/documents/classes/$(request.resource.data.classId)).data.schoolYearId == request.resource.data.schoolYearId
           && (!("titularClassId" in request.resource.data) || request.resource.data.titularClassId == null
             || (request.resource.data.titularClassId is string
               && get(/databases/$(database)/documents/classes/$(request.resource.data.titularClassId)).data.schoolId == tenantSchoolId()
@@ -926,6 +957,8 @@ service cloud.firestore {
           && (resource.data.schoolRecipient in ["cashier", "both"] || request.auth.uid in resource.data.participantIds))
         || (secretary() && sameTenantResource()
           && request.auth.uid in resource.data.participantIds)
+        || (role() in ["teacher", "study_director"] && sameTenantResource()
+          && resource.data.participantIds is list && request.auth.uid in resource.data.participantIds)
         || (disciplineTenantResource()
           && (resource.data.schoolRecipient == "discipline" || request.auth.uid in resource.data.participantIds))
         || (parentUser() && resource.data.schoolId == tenantSchoolId()
@@ -952,6 +985,8 @@ service cloud.firestore {
           && (resource.data.schoolRecipient == "discipline" || request.auth.uid in resource.data.participantIds))
         || (secretary() && sameTenantResource()
           && request.auth.uid in resource.data.participantIds)
+        || (role() in ["teacher", "study_director"] && sameTenantResource()
+          && resource.data.participantIds is list && request.auth.uid in resource.data.participantIds)
         || (parentUser() && resource.data.schoolId == tenantSchoolId()
           && (resource.data.parentId == tenantParentId()
             || (resource.data.participantIds is list && request.auth.uid in resource.data.participantIds)));
@@ -1012,6 +1047,8 @@ service cloud.firestore {
           && (resource.data.type != "message" || !("recipientUserId" in resource.data) || resource.data.recipientUserId == request.auth.uid))
         || (secretary() && sameTenantResource()
           && (resource.data.type != "message" || resource.data.recipientUserId == request.auth.uid))
+        || (role() in ["teacher", "study_director"] && sameTenantResource()
+          && resource.data.recipientUserId == request.auth.uid)
         || (disciplineTenantResource() && resource.data.type == "message" && resource.data.recipientUserId == request.auth.uid)
         || (disciplineTenantResource() && resource.data.recipientRole == "school" && resource.data.schoolRecipient == "discipline")
         || (parentUser() && resource.data.schoolId == tenantSchoolId()

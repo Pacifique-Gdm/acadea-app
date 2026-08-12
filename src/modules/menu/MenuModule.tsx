@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Banknote, BarChart3, BookOpen, CheckCircle2, ChevronRight, Clock3, CreditCard, Fingerprint, HeartPulse, LogOut, Plus, RefreshCw, Settings, ShieldCheck, Trash2, UserRound, UsersRound, X } from "lucide-react";
-import { AdminDrawer, Field, ImageUploadField, PasswordField } from "../../components/ui";
+import { Banknote, BarChart3, BookOpen, CheckCircle2, ChevronRight, Clock3, CreditCard, Fingerprint, HeartPulse, Plus, RefreshCw, Settings, ShieldCheck, Trash2, UserRound, UsersRound, X } from "lucide-react";
+import { AdminDrawer, Field, ImageUploadField, LogoutButton, PasswordField } from "../../components/ui";
 import { ParentsDirectoryDrawer } from "../../components/parents/ParentsDirectoryDrawer";
 import { ParentDrawerBackButton } from "../../components/parents/ParentFormEditor";
 import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent";
@@ -1157,9 +1157,7 @@ export function MenuModule({
         </AdminDrawer>
       )}
       <div className="mt-2 border-t border-slate-200 pt-4">
-        <button onClick={onLogout} className="inline-flex w-full items-center justify-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 transition hover:bg-red-100" type="button">
-          <LogOut className="h-4 w-4" /> Déconnexion
-        </button>
+        <LogoutButton onClick={onLogout} />
       </div>
     </section>
   );

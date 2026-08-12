@@ -11,10 +11,11 @@ describe("Drawer Personnels", () => {
     expect(source).toContain("sm:grid-cols-[minmax(0,1fr)_auto]");
   });
 
-  it("protège les actions par confirmation, chargement et auto-archivage", () => {
+  it("protège les actions par confirmation, chargement et rôle administrateur", () => {
     expect(source).toContain('setConfirming("archive")');
     expect(source).toContain('setConfirming("reactivate")');
-    expect(source).toContain("selected.id === user.id");
+    expect(source).toContain('selected.role !== "school_admin"');
+    expect(source).toContain("Archivage réservé au Super Administrateur");
     expect(source).toContain("disabled={busy}");
   });
 });

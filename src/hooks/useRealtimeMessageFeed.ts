@@ -9,6 +9,7 @@ type UseRealtimeMessageFeedOptions = {
   schoolId: string;
   schoolYearId: string;
   enabled: boolean;
+  refreshToken?: number;
 };
 
 function mergeMessages(items: Message[]) {
@@ -52,7 +53,7 @@ function messageFeedQueries(database: Firestore, user: AppUser, schoolId: string
     ];
   }
 
-  if (user.role === "secretary") {
+  if (["secretary", "teacher", "study_director"].includes(user.role)) {
     return [
       query(
         messagesCollection,
@@ -75,7 +76,7 @@ function messageFeedQueries(database: Firestore, user: AppUser, schoolId: string
   ];
 }
 
-export function useRealtimeMessageFeed({ user, schoolId, schoolYearId, enabled }: UseRealtimeMessageFeedOptions) {
+export function useRealtimeMessageFeed({ user, schoolId, schoolYearId, enabled, refreshToken = 0 }: UseRealtimeMessageFeedOptions) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [error, setError] = useState("");
 
@@ -106,7 +107,7 @@ export function useRealtimeMessageFeed({ user, schoolId, schoolYearId, enabled }
     return () => {
       unsubscribes.forEach((unsubscribe) => unsubscribe());
     };
-  }, [enabled, schoolId, schoolYearId, user]);
+  }, [enabled, refreshToken, schoolId, schoolYearId, user]);
 
   return { messages, error };
 }

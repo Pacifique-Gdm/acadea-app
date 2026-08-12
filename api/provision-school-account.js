@@ -236,8 +236,8 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
   if (target.schoolId !== schoolId || !internalPersonnelRoles.has(target.role)) {
     throw Object.assign(new Error("Personnel hors de cette ecole ou role non autorise."), { statusCode: 403, code: "permission-denied" });
   }
-  if (action === "archive-personnel" && personnelId === caller.uid) {
-    throw Object.assign(new Error("Vous ne pouvez pas archiver votre propre compte Administrateur."), { statusCode: 409, code: "failed-precondition" });
+  if (action === "archive-personnel" && target.role === "school_admin") {
+    throw Object.assign(new Error("Seul le Super Administrateur peut archiver un compte Administrateur."), { statusCode: 403, code: "permission-denied" });
   }
   const now = new Date().toISOString();
   const auditRef = db.collection("auditLogs").doc(uid("audit"));

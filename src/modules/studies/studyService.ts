@@ -152,7 +152,7 @@ export async function savePedagogicalAssignment(input: { user: AppUser; schoolId
   });
 }
 
-export async function savePedagogicalAssignments(input: { user: AppUser; schoolId: string; schoolYearId: string; teacherId: string; subjectIds: string[]; classIds: string[]; weeklyPeriods: number; titularClassId?: string | null; active: boolean }) {
+export async function savePedagogicalAssignments(input: { user: AppUser; schoolId: string; schoolYearId: string; teacherId: string; subjectIds: string[]; classIds: string[]; legacyClasses?: Array<Pick<StudyClass, "id" | "name" | "schoolId" | "schoolYearId">>; weeklyPeriods: number; titularClassId?: string | null; active: boolean }) {
   const database = requireScope(input.user, input.schoolId, input.schoolYearId);
   const subjectIds = [...new Set(input.subjectIds.filter(Boolean))];
   const classIds = [...new Set(input.classIds.filter(Boolean))];
@@ -160,25 +160,30 @@ export async function savePedagogicalAssignments(input: { user: AppUser; schoolI
   const periodError = validateWeeklyPeriods(input.weeklyPeriods);
   if (periodError) throw new Error(periodError);
   const combinations = expandAssignmentSelections(subjectIds, classIds);
+  const legacyClasses = (input.legacyClasses ?? []).filter((item) => classIds.includes(item.id));
+  if (legacyClasses.some((item) => item.schoolId !== input.schoolId || item.schoolYearId !== input.schoolYearId)) throw new Error("Une classe historique est hors périmètre.");
+  const legacyClassIds = new Set(legacyClasses.map((item) => item.id));
+  if (legacyClassIds.size !== legacyClasses.length || legacyClasses.some((item) => !item.name.trim())) throw new Error("Une classe historique est invalide.");
   const now = new Date().toISOString();
   await runTransaction(database, async (transaction) => {
     const teacherRef = doc(database, "teachers", input.teacherId);
     const subjectRefs = subjectIds.map((id) => doc(database, "subjects", id));
-    const classRefs = classIds.map((id) => doc(database, "classes", id));
+    const modernClassRefs = classIds.filter((id) => !legacyClassIds.has(id)).map((id) => doc(database, "classes", id));
     const titularClassRef = input.titularClassId ? doc(database, "classes", input.titularClassId) : undefined;
     const titularRef = input.titularClassId ? doc(database, "classTitulars", `${input.schoolId}__${input.schoolYearId}__${input.titularClassId}`) : undefined;
-    const [teacher, ...references] = await Promise.all([transaction.get(teacherRef), ...subjectRefs.map((ref) => transaction.get(ref)), ...classRefs.map((ref) => transaction.get(ref)), ...(titularClassRef ? [transaction.get(titularClassRef)] : []), ...(titularRef ? [transaction.get(titularRef)] : [])]);
+    const [teacher, ...references] = await Promise.all([transaction.get(teacherRef), ...subjectRefs.map((ref) => transaction.get(ref)), ...modernClassRefs.map((ref) => transaction.get(ref)), ...(titularClassRef ? [transaction.get(titularClassRef)] : []), ...(titularRef ? [transaction.get(titularRef)] : [])]);
     const validReference = (snapshot: typeof teacher) => snapshot.exists() && snapshot.data()?.schoolId === input.schoolId && snapshot.data()?.schoolYearId === input.schoolYearId;
-    if (!validReference(teacher) || teacher.data()?.status === "inactive" || references.slice(0, subjectRefs.length + classRefs.length).some((snapshot) => !validReference(snapshot))) throw new Error("Une référence pédagogique est inconnue, inactive ou hors périmètre.");
+    if (!validReference(teacher) || teacher.data()?.status === "inactive" || references.slice(0, subjectRefs.length + modernClassRefs.length).some((snapshot) => !validReference(snapshot))) throw new Error("Une référence pédagogique est inconnue, inactive ou hors périmètre.");
     if (typeof teacher.data()?.userId === "string") {
       const teacherUser = await transaction.get(doc(database, "users", teacher.data()?.userId));
       const profile = teacherUser.data();
       if (!teacherUser.exists() || profile?.schoolId !== input.schoolId || profile?.role !== "teacher" || profile?.status === "inactive" || profile?.active === false) throw new Error("Cet enseignant est archivé et ne peut plus recevoir de nouvelle affectation.");
     }
-    const titularClassSnapshot = titularClassRef ? references[subjectRefs.length + classRefs.length] : undefined;
+    const titularClassSnapshot = titularClassRef ? references[subjectRefs.length + modernClassRefs.length] : undefined;
     if (titularClassSnapshot && (!validReference(titularClassSnapshot) || titularClassSnapshot.data()?.active === false)) throw new Error("La classe de titulariat est inconnue, inactive ou hors périmètre.");
     const titularSnapshot = titularRef ? references.at(-1) : undefined;
     if (titularSnapshot?.exists()) throw new Error("Cette classe opérationnelle possède déjà un titulaire actif.");
+    legacyClasses.forEach((schoolClass) => transaction.set(doc(database, "classes", schoolClass.id), { id: schoolClass.id, schoolId: input.schoolId, schoolYearId: input.schoolYearId, name: schoolClass.name.trim(), active: true, createdBy: input.user.id, createdAt: now, updatedAt: now }));
     combinations.forEach(({ subjectId, classId }) => {
       const id = pedagogicalAssignmentId({ schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, subjectId, classId });
       transaction.set(doc(database, "pedagogicalAssignments", id), { id, schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, subjectId, classId, weeklyPeriods: input.weeklyPeriods, blockSize: 1, preferredRoomId: null, titularClassId: input.titularClassId && combinations[0]?.subjectId === subjectId && combinations[0]?.classId === classId ? input.titularClassId : null, active: input.active, createdAt: now, updatedAt: now, createdBy: input.user.id, updatedBy: input.user.id });

@@ -27,6 +27,7 @@ type AcadPdfOptions = {
   pdfSettings?: Partial<PdfGenerationSettings>;
   sections: string[];
   copyLabels?: readonly [string, string];
+  singlePageFit?: boolean;
 };
 
 function formatStudentClassName(student: Pick<Student, "className" | "option">) {
@@ -142,7 +143,7 @@ export function pdfSection(title: string, bodyHtml: string, options: { pageBreak
   `;
 }
 
-export async function renderAcadPdfPreview({ filename, title, school, year, subtitle, generatedAt = new Date(), showDocumentTitle = true, centerDocumentTitle = false, pdfSettings, sections, copyLabels }: AcadPdfOptions) {
+export async function renderAcadPdfPreview({ filename, title, school, year, subtitle, generatedAt = new Date(), showDocumentTitle = true, centerDocumentTitle = false, pdfSettings, sections, copyLabels, singlePageFit = false }: AcadPdfOptions) {
   const layout = getPdfLayout(pdfSettings);
   const doc = new jsPDF({ unit: "mm", format: layout.jsPdfFormat, orientation: "portrait", compress: true });
   const viewer = openPdfViewerShell({ filename, title });
@@ -167,7 +168,8 @@ export async function renderAcadPdfPreview({ filename, title, school, year, subt
   applyPdfPageBreakSpacers(element, layout.contentHeight, layout.windowWidth / layout.contentWidth);
 
   try {
-    await renderPdfCanvasPages(doc, element, layout);
+    if (singlePageFit) await renderPdfCanvasSinglePage(doc, element, layout);
+    else await renderPdfCanvasPages(doc, element, layout);
     if (!copyLabels) addPdfFooters(doc, generatedAt);
     const blob = doc.output("blob") as Blob;
     const url = URL.createObjectURL(blob);
@@ -178,6 +180,17 @@ export async function renderAcadPdfPreview({ filename, title, school, year, subt
   } finally {
     element.remove();
   }
+}
+
+async function renderPdfCanvasSinglePage(doc: PdfDoc, element: HTMLElement, layout: ReturnType<typeof getPdfLayout>) {
+  const { default: html2canvas } = await import("html2canvas");
+  const source = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: "#ffffff", logging: false, windowWidth: layout.windowWidth });
+  const maximumHeight = layout.contentHeight;
+  const naturalHeight = source.height / source.width * layout.contentWidth;
+  const renderedHeight = Math.min(maximumHeight, naturalHeight);
+  const renderedWidth = naturalHeight > maximumHeight ? source.width / source.height * maximumHeight : layout.contentWidth;
+  const x = layout.margins.left + (layout.contentWidth - renderedWidth) / 2;
+  doc.addImage(source.toDataURL("image/png"), "PNG", x, layout.margins.top, renderedWidth, renderedHeight, undefined, "FAST");
 }
 
 async function waitForPdfFonts(element: HTMLElement) {
@@ -612,6 +625,12 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       page-break-inside: auto;
       break-inside: auto;
     }
+    .medical-record-pdf .pdf-section { margin-bottom: 6px; }
+    .medical-record-pdf .pdf-section h2 { margin-bottom: 4px; padding-bottom: 3px; font-size: 9.5pt; }
+    .medical-record-pdf .info-grid { gap: 5px 7px; margin-bottom: 3px; }
+    .medical-record-pdf .info-box { min-height: 34px; padding: 5px 7px; }
+    .medical-record-pdf .info-box span { font-size: 7.5px; }
+    .medical-record-pdf .info-box strong { margin-top: 2px; font-size: 9px; line-height: 1.2; }
     .document-title--center { text-align: center; }
     .document-title--center h2 {
       font-weight: 800;

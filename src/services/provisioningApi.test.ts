@@ -216,7 +216,8 @@ describe("API de provisionnement Acadéa", () => {
       return res;
     }
 
-    expect((await run({ uid: "admin-1", role: "school_admin", schoolId: "school-1", status: "active" }, { role: "school_admin", schoolId: "school-1" }, "admin-1")).statusCode).toBe(409);
+    expect((await run({ uid: "admin-1", role: "school_admin", schoolId: "school-1", status: "active" }, { role: "school_admin", schoolId: "school-1" }, "admin-1")).statusCode).toBe(403);
+    expect((await run({ uid: "admin-1", role: "school_admin", schoolId: "school-1", status: "active" }, { role: "school_admin", schoolId: "school-1" }, "admin-2")).statusCode).toBe(403);
     expect((await run({ uid: "admin-1", role: "school_admin", schoolId: "school-1", status: "active" }, { role: "parent", schoolId: "school-1" })).statusCode).toBe(403);
     expect((await run({ uid: "admin-1", role: "school_admin", schoolId: "school-1", status: "active" }, { role: "teacher", schoolId: "school-2" })).statusCode).toBe(403);
     expect((await run({ uid: "director-1", role: "study_director", schoolId: "school-1", status: "active" }, { role: "teacher", schoolId: "school-1" })).statusCode).toBe(403);

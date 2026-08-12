@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Bell, RefreshCw } from "lucide-react";
 import { MessageDrawerContent } from "../messages/MessageDrawerContent";
 import { MessagingDrawerShell } from "../messages/MessagingDrawerShell";
@@ -47,6 +47,8 @@ export function Header({
   focusedMessageId,
   messagingEnabled = true,
 }: HeaderProps) {
+  const [manualRefreshToken, setManualRefreshToken] = useState(0);
+  const [manualRefreshing, setManualRefreshing] = useState(false);
   const schoolLogoUrl = school.logoUrl?.trim();
   const userDisplayName = user.name.trim();
   const schoolMotto = school.motto?.trim();
@@ -57,13 +59,25 @@ export function Header({
     schoolYearId: year.id,
     enabled: messagingEnabled && notificationsOpen,
     messages: data.messages,
+    refreshToken: manualRefreshToken,
   });
   const realtimeMessages = useRealtimeMessageFeed({
     user,
     schoolId: school.id,
     schoolYearId: year.id,
     enabled: messagingEnabled && notificationsOpen,
+    refreshToken: manualRefreshToken,
   });
+  async function refreshHeaderData() {
+    if (manualRefreshing || isRefreshing) return;
+    setManualRefreshing(true);
+    try {
+      await Promise.resolve(onRefresh());
+      setManualRefreshToken((value) => value + 1);
+    } finally {
+      setManualRefreshing(false);
+    }
+  }
   const realtimeHandlersRef = useRef({ onRealtimeNotifications, onRealtimeMessages });
   useEffect(() => {
     realtimeHandlersRef.current = { onRealtimeNotifications, onRealtimeMessages };
@@ -144,13 +158,13 @@ export function Header({
             <div className="flex items-center justify-end gap-3">
             <span className="rounded bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600">Année scolaire : {year.name}</span>
             <button
-              onClick={onRefresh}
-              disabled={isRefreshing}
+              onClick={() => void refreshHeaderData()}
+              disabled={isRefreshing || manualRefreshing}
               className="inline-flex h-8 w-8 items-center justify-center text-slate-500 transition hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
               title="Actualiser"
               aria-label="Actualiser"
             >
-              <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+              <RefreshCw className={`h-4 w-4 ${isRefreshing || manualRefreshing ? "animate-spin" : ""}`} />
             </button>
             {refreshStatus && (
               <span className={`text-xs font-semibold ${refreshError ? "text-red-600" : "text-slate-500"}`}>

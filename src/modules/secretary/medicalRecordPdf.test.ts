@@ -20,7 +20,11 @@ describe("PDF de fiche médicale", () => {
       expect(html).toContain(section.title.toUpperCase());
       for (const field of section.fields) expect(html).toContain(escapePdfHtml(field.label));
     }
-    for (const value of ["AC-001", "Mbuyi Kabeya Aline", "7ème CTEB", "Féminin", "Photo de l'élève", "Date de création", "Dernière mise à jour", "Espace réservé à la signature"]) expect(html).toContain(value);
+    for (const value of ["AC-001", "Mbuyi Kabeya Aline", "7ème CTEB", "Féminin", "Photo de l'élève", "Date de création", "Dernière mise à jour"]) expect(html).toContain(value);
+    expect(html).toContain("medical-record-pdf");
+    expect(html).not.toContain("SIGNATURE");
+    expect(html).not.toContain("Espace réservé à la signature");
+    expect(html).not.toContain("border-bottom:1px solid #94a3b8");
     expect(html).not.toContain("undefined");
     expect(html).not.toContain("null");
   });

@@ -9,11 +9,15 @@ export function ActivityHistoryContent({
   data,
   yearData,
   role,
+  loading = false,
+  error = "",
 }: {
   user: AppUser;
   data: AppData;
   yearData: ActivityHistoryYearData;
   role: "admin" | "cashier" | "parent" | "secretary";
+  loading?: boolean;
+  error?: string;
 }) {
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | ActivityHistoryItem["type"]>("all");
@@ -53,6 +57,9 @@ export function ActivityHistoryContent({
 
   return (
     <div className="grid w-full min-w-0 max-w-full gap-4">
+      {loading && <p role="status" className="rounded bg-slate-50 p-5 text-center text-sm text-slate-600">Chargement de l’historique…</p>}
+      {!loading && error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-700">Impossible de charger l’historique. Veuillez réessayer.</p>}
+      {!loading && !error && <>
       <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_160px]">
         <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
           <Search className="h-4 w-4 shrink-0 text-slate-400" />
@@ -100,6 +107,7 @@ export function ActivityHistoryContent({
           </article>
         ))}
       </div>
+      </>}
     </div>
   );
 }

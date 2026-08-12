@@ -3,6 +3,7 @@ import { CheckCircle2, Fingerprint, Plus, Radio } from "lucide-react";
 import { Field, ImageUploadField, PasswordField } from "../ui";
 import { cardStatusLabels, fingerprintStatusLabels, resolveStudentBiometric } from "../../utils/biometrics";
 import { getClassSection } from "../../utils/studentClasses";
+import { schoolClassRecordId } from "../../services/schoolSubclasses";
 import type { ParentProfile, SchoolClass, SchoolClassRecord, Student } from "../../types";
 
 export function StudentForm({
@@ -55,7 +56,8 @@ export function StudentForm({
   const [parentQuery, setParentQuery] = useState("");
   const normalizedParentQuery = parentQuery.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase("fr");
   const visibleParents = parents.filter((parent) => !normalizedParentQuery || `${parent.fullName} ${parent.phone}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("fr").includes(normalizedParentQuery));
-  const selectedClass = structuredClasses.find((item) => !item.parentClassId && (item.id === form.classId || (!form.classId && item.name === form.className)));
+  const selectedStructuredClass = structuredClasses.find((item) => !item.parentClassId && (item.id === form.classId || item.name === form.className));
+  const selectedClass = selectedStructuredClass ?? (form.className ? { id: schoolClassRecordId(form.schoolId, form.schoolYearId, form.className), schoolId: form.schoolId, schoolYearId: form.schoolYearId, name: form.className, active: true } : undefined);
   const subclasses = selectedClass ? structuredClasses.filter((item) => item.parentClassId === selectedClass.id && item.active !== false) : [];
   const biometric = resolveStudentBiometric(form);
 
@@ -146,7 +148,8 @@ export function StudentForm({
           ))}
         </select>
       </label>
-      <button type="button" className="secondary-button justify-center" disabled={!selectedClass || !onAddSubclasses} onClick={() => setSubclassOpen((open) => !open)}><Plus className="h-4 w-4" /> Ajouter sous-classe</button>
+      <button type="button" className="secondary-button justify-center" disabled={!selectedClass || !onAddSubclasses} title={!selectedClass ? "Sélectionnez d’abord une classe principale." : undefined} onClick={() => setSubclassOpen((open) => !open)}><Plus className="h-4 w-4" /> Ajouter sous-classe</button>
+      {!selectedClass && <p className="text-xs text-slate-500">Sélectionnez d’abord une classe principale pour ajouter des sous-classes.</p>}
       {selectedClass && subclasses.length > 0 && <label className="grid gap-1 text-sm font-medium text-slate-700">Sous-classe <span className="text-red-700">obligatoire</span><select className="input" required value={form.subClassId ?? ""} onChange={(event) => setForm({ ...form, subClassId: event.target.value || undefined })}><option value="">Choisir une sous-classe</option>{subclasses.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
       {subclassOpen && selectedClass && onAddSubclasses && <section className="grid gap-2 rounded border border-slate-200 bg-slate-50 p-3"><p className="font-semibold">Sous-classes de {selectedClass.name}</p>{subclassLabels.map((label, index) => <input key={index} className="input" aria-label={`Sous-classe ${index + 1}`} value={label} onChange={(event) => setSubclassLabels((items) => items.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} />)}<button type="button" className="secondary-button justify-center" onClick={() => setSubclassLabels((items) => [...items, ""])}>Ajouter une autre sous-classe</button>{subclassError && <p role="alert" className="text-sm text-red-700">{subclassError}</p>}<button type="button" className="primary-button justify-center" onClick={() => void onAddSubclasses(selectedClass, subclassLabels).then(() => { setSubclassOpen(false); setSubclassLabels(["A", "B"]); setSubclassError(""); }).catch((cause) => setSubclassError(cause instanceof Error ? cause.message : "Création impossible."))}>Enregistrer les sous-classes</button></section>}
       {getClassSection(form.className) === "secondaire" && (

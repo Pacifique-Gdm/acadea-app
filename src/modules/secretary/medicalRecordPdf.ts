@@ -24,13 +24,13 @@ export function medicalRecordPdfSections(student: Student, record: StudentMedica
     label: field.label,
     value: formatMedicalRecordValue(record[field.key]),
   })))));
-  return [
+  const sections = [
     pdfSection("INFORMATIONS DE L’ÉLÈVE", identity),
     ...medicalSections,
     pdfSection("SUIVI DU DOCUMENT", pdfInfoGrid([
       { label: "Date de création", value: safeDate(record.createdAt) },
       { label: "Dernière mise à jour", value: safeDate(record.updatedAt) },
     ])),
-    pdfSection("SIGNATURE", '<div style="height:72px;border-bottom:1px solid #94a3b8;width:220px;margin:8px auto 0;text-align:center;color:#64748b;font-size:10px">Espace réservé à la signature</div>'),
   ];
+  return [`<div class="medical-record-pdf">${sections.join("")}</div>`];
 }

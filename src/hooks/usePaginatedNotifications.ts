@@ -11,6 +11,7 @@ type UsePaginatedNotificationsOptions = {
   schoolYearId: string;
   enabled: boolean;
   messages: Message[];
+  refreshToken?: number;
 };
 
 function mergeById(currentItems: AppNotification[], nextItems: AppNotification[]) {
@@ -60,7 +61,7 @@ function realtimeNotificationQueries(
     ];
   }
 
-  if (user.role === "secretary") {
+  if (["secretary", "teacher", "study_director"].includes(user.role)) {
     return [query(notificationCollection, ...constraints, where("recipientUserId", "==", user.id), ...readConstraint, ...recentConstraints)];
   }
 
@@ -118,6 +119,7 @@ export function usePaginatedNotifications({
   schoolYearId,
   enabled,
   messages,
+  refreshToken = 0,
 }: UsePaginatedNotificationsOptions) {
   const [items, setItems] = useState<AppNotification[]>([]);
   const [cursor, setCursor] = useState<DocumentSnapshot | null>(null);
@@ -189,7 +191,7 @@ export function usePaginatedNotifications({
     setHasLoaded(false);
     setLoadError("");
     setUnreadCount(null);
-  }, [schoolId, schoolYearId, user.id, user.role, user.parentId]);
+  }, [refreshToken, schoolId, schoolYearId, user.id, user.role, user.parentId]);
 
   useEffect(() => {
     if (user.role === "discipline_director") return;

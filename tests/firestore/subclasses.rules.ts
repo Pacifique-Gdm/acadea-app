@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
-import { doc, setDoc } from "firebase/firestore";
+import { doc, setDoc, writeBatch } from "firebase/firestore";
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
 
 let environment: RulesTestEnvironment;
@@ -19,4 +19,13 @@ describe("classes et sous-classes structurées", () => {
   it("refuse les rôles non autorisés", async () => assertFails(setDoc(doc(context("cashier"), "classes", "sub-a"), child({ createdBy: "cashier-a" }))));
   it("refuse une sous-classe rattachée à une autre sous-classe", async () => { await seed("classes/sub-parent", child({ id: "sub-parent" })); await assertFails(setDoc(doc(context("secretary"), "classes", "sub-a"), child({ parentClassId: "sub-parent" }))); });
   it("refuse une identité de créateur falsifiée", async () => assertFails(setDoc(doc(context("secretary"), "classes", "sub-a"), child({ createdBy: "other" }))));
+  it("autorise la matérialisation atomique d'une classe legacy et de deux sous-classes", async () => {
+    const firestore = context("secretary");
+    const batch = writeBatch(firestore);
+    batch.set(doc(firestore, "classes", "legacy-parent"), { id: "legacy-parent", schoolId: school, schoolYearId: year, name: "Classe historique", active: true, createdBy: "secretary-a", createdAt: "2026-08-10", updatedAt: "2026-08-10" });
+    batch.set(doc(firestore, "classes", "legacy-a"), child({ id: "legacy-a", parentClassId: "legacy-parent", name: "Classe historique - A" }));
+    batch.set(doc(firestore, "classes", "legacy-b"), child({ id: "legacy-b", parentClassId: "legacy-parent", name: "Classe historique - B", subClassLabel: "B" }));
+    await assertSucceeds(batch.commit());
+  });
+  it("refuse la matérialisation d'une classe legacy d'une autre école", async () => assertFails(setDoc(doc(context("secretary"), "classes", "foreign-legacy"), { id: "foreign-legacy", schoolId: "school-b", schoolYearId: "year-b", name: "Classe étrangère", active: true, createdBy: "secretary-a", createdAt: "2026-08-10", updatedAt: "2026-08-10" })));
 });

@@ -64,9 +64,9 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
     setBusy(true); setFeedback("");
     try {
       if (editingAssignment) await savePedagogicalAssignment({ user, ...candidates[0], weeklyPeriods: periods, titularClassId: titularClassId || null, active, current: editingAssignment });
-      else await savePedagogicalAssignments({ user, schoolId: school.id, schoolYearId: year.id, teacherId, subjectIds, classIds, weeklyPeriods: periods, titularClassId: titularClassId || null, active });
+      else await savePedagogicalAssignments({ user, schoolId: school.id, schoolYearId: year.id, teacherId, subjectIds, classIds, legacyClasses: assignmentClasses.filter((item) => classIds.includes(item.id) && !classes.some((current) => current.id === item.id)), weeklyPeriods: periods, titularClassId: titularClassId || null, active });
       setAssignmentOpen(false);
-    } catch (cause) { setFeedback(cause instanceof Error ? cause.message : "Enregistrement impossible."); }
+    } catch (cause) { console.error("Enregistrement de l’affectation impossible.", cause); setFeedback("Impossible d’enregistrer cette affectation. Vérifiez les classes sélectionnées."); }
     finally { setBusy(false); }
   }
 

@@ -825,7 +825,7 @@ export default function App() {
       year={currentYear}
       onLogout={logout}
       renderEnvironmentBanner={() => <EnvironmentBanner />}
-      renderHeader={() => <Header user={user} data={data} yearData={yearData} school={currentSchool} year={currentYear} unreadNotifications={0} notificationsOpen={false} onRefresh={() => undefined} onToggleNotifications={() => undefined} roleLabels={roleLabels} messagingEnabled={false} />}
+      renderHeader={() => <Header user={user} data={data} yearData={yearData} school={currentSchool} year={currentYear} unreadNotifications={yearData.notifications.filter((item) => !item.read && item.recipientUserId === user.id).length} notificationsOpen={notificationsOpen} onRefresh={() => undefined} onToggleNotifications={openNotifications} onCloseNotifications={closeNotifications} onRealtimeNotifications={(items) => setData((current) => ({ ...current, notifications: items }))} onRealtimeMessages={(items) => setData((current) => ({ ...current, messages: items }))} roleLabels={roleLabels} messagingEnabled />}
     />;
   }
 
@@ -836,7 +836,7 @@ export default function App() {
       year={currentYear}
       onLogout={logout}
       renderEnvironmentBanner={() => <EnvironmentBanner />}
-      renderHeader={() => <Header user={user} data={data} yearData={yearData} school={currentSchool} year={currentYear} unreadNotifications={0} notificationsOpen={false} onRefresh={() => undefined} onToggleNotifications={() => undefined} roleLabels={roleLabels} messagingEnabled={false} />}
+      renderHeader={() => <Header user={user} data={data} yearData={yearData} school={currentSchool} year={currentYear} unreadNotifications={yearData.notifications.filter((item) => !item.read && item.recipientUserId === user.id).length} notificationsOpen={notificationsOpen} onRefresh={() => undefined} onToggleNotifications={openNotifications} onCloseNotifications={closeNotifications} onRealtimeNotifications={(items) => setData((current) => ({ ...current, notifications: items }))} onRealtimeMessages={(items) => setData((current) => ({ ...current, messages: items }))} roleLabels={roleLabels} messagingEnabled />}
     />;
   }
 
@@ -1131,7 +1131,7 @@ export default function App() {
             feeTargetHasOption={feeTargetHasOption}
             formatFeeTargetLabel={formatFeeTargetLabel}
             renderFinancialReport={() => <ReportsModule yearData={yearData} school={school} year={selectedYear} />}
-            renderActivityHistory={(role) => <ActivityHistoryContent user={user} data={data} yearData={yearData} role={role} />}
+            renderActivityHistory={(role) => <ActivityHistoryContent user={user} data={data} yearData={yearData} role={role} loading={isRefreshing} error={refreshError} />}
             maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES}
             onOpenBiometrics={(mode) => navigate(mode === "fingerprints" ? "/admin/empreintes" : "/admin/cartes")}
             initialBiometricsOpen={biometricParentRoute}

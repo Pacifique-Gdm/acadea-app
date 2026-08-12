@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
-import { collection, doc, getDoc, getDocs, query, setDoc, updateDoc, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
 
 let environment: RulesTestEnvironment;
@@ -43,6 +43,19 @@ describe("Direction des études — affectations pédagogiques", () => {
     await assertFails(setDoc(doc(director(), "pedagogicalAssignments", assignmentId), assignment({ schoolYearId: "year-b" })));
     await assertFails(setDoc(doc(director(), "pedagogicalAssignments", assignmentId), assignment({ subjectId: "unknown" })));
     await assertFails(setDoc(doc(director(), "pedagogicalAssignments", assignmentId), assignment({ classId: "unknown" })));
+  });
+  it("crée atomiquement une classe legacy tenantée et son affectation", async () => {
+    const database = director();
+    const legacyClassId = `${school}__${year}__2eme-humanite`;
+    const legacyAssignmentId = `${school}__${year}__teacher-a__subject-a__${legacyClassId}`;
+    const batch = writeBatch(database);
+    batch.set(doc(database, "classes", legacyClassId), { id: legacyClassId, schoolId: school, schoolYearId: year, name: "2ème Humanité", active: true, createdBy: "director-a", createdAt: now, updatedAt: now });
+    batch.set(doc(database, "pedagogicalAssignments", legacyAssignmentId), assignment({ id: legacyAssignmentId, classId: legacyClassId }));
+    await assertSucceeds(batch.commit());
+  });
+  it("refuse une classe legacy non tenantée ou d'une autre école", async () => {
+    await assertFails(setDoc(doc(director(), "classes", "legacy-class__2eme-humanite"), { id: "legacy-class__2eme-humanite", schoolId: school, schoolYearId: year, name: "2ème Humanité", active: true, createdBy: "director-a", createdAt: now, updatedAt: now }));
+    await assertFails(setDoc(doc(director(), "classes", `${school}__${year}__foreign`), { id: `${school}__${year}__foreign`, schoolId: "school-b", schoolYearId: "year-b", name: "Classe étrangère", active: true, createdBy: "director-a", createdAt: now, updatedAt: now }));
   });
   it("refuse les périodes nulles, négatives ou excessives", async () => {
     for (const weeklyPeriods of [0, -1, 61]) await assertFails(setDoc(doc(director(), "pedagogicalAssignments", assignmentId), assignment({ weeklyPeriods })));

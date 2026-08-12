@@ -520,9 +520,8 @@ export function ControlModule({
       year,
       copyLabels: ["EXEMPLAIRE ÉCOLE", "EXEMPLAIRE BÉNÉFICIAIRE"],
       sections: [
-        pdfSection(
-          "Dépense",
-          pdfInfoGrid([
+        `<section class="pdf-section expense-details">
+          ${pdfInfoGrid([
             { label: "Date", value: formatExpenseDateTime(expense) },
             { label: "Libellé / motif", value: expense.description || expense.category },
             { label: "Catégorie", value: expense.category },
@@ -531,8 +530,8 @@ export function ControlModule({
             { label: "Caissier", value: resolveExpenseCashierName(expense, yearData.auditLogs) },
             { label: "Mode de paiement", value: paymentMethod || "-" },
             { label: "Référence / pièce", value: reference || "-" },
-          ]),
-        ),
+          ])}
+        </section>`,
         `
           <section class="signature-row">
             <div>

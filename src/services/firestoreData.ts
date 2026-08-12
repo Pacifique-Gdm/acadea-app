@@ -264,7 +264,7 @@ export async function loadFirestoreData(user?: AppUser, schoolYearId?: string, b
         loadCollection<AppData["parents"][number]>("parents", schoolFilter),
         loadCollection<AppData["feeTypes"][number]>("feeTypes", annualFilter),
         loadCollection<AppData["payments"][number]>("payments", annualFilter),
-        loadCollection<AppData["auditLogs"][number]>("auditLogs", [...annualFilter, ["actorId", user.id]]),
+        loadCollection<AppData["auditLogs"][number]>("auditLogs", [...schoolFilter, ["actorId", user.id]]),
       ]);
       return scopedData;
     }
@@ -285,6 +285,8 @@ export async function loadFirestoreData(user?: AppUser, schoolYearId?: string, b
         loadAttendanceCollection(annualFilter),
         loadAttendanceSettingsCollection(annualFilter),
       ]);
+    } else if (user.role === "cashier") {
+      scopedData.auditLogs = await loadCollection<AppData["auditLogs"][number]>("auditLogs", [...schoolFilter, ["actorId", user.id]]);
     }
     return scopedData;
   }

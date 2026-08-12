@@ -126,7 +126,7 @@ export function SecretaryMedicalRecordsDrawer({ open, onClose, user, students, r
     </AdminDrawer>}
     {viewingStudent && <AdminDrawer title={`Fiche médicale · ${viewingStudent.nom} ${viewingStudent.prenom}`} onClose={() => setViewingStudent(null)} closeLabel="Fermer">
       <div className="grid gap-4 text-sm">
-        <div className="flex flex-wrap justify-end gap-2">{canEditMedicalRecords && viewingRecord && <button className="primary-button" type="button" onClick={() => openForm(viewingStudent)}><Pencil className="h-4 w-4" /> Modifier</button>}{viewingRecord && <button className="secondary-button" type="button" onClick={() => void renderAcadPdfPreview({ filename: `fiche-medicale-${viewingStudent.matricule}.pdf`, title: "FICHE MÉDICALE", school, year, sections: medicalRecordPdfSections(viewingStudent, viewingRecord) })}><Printer className="h-4 w-4" /> Imprimer</button>}</div>
+        <div className="flex flex-wrap justify-end gap-2">{canEditMedicalRecords && viewingRecord && <button className="primary-button" type="button" onClick={() => openForm(viewingStudent)}><Pencil className="h-4 w-4" /> Modifier</button>}{viewingRecord && <button className="secondary-button" type="button" onClick={() => void renderAcadPdfPreview({ filename: `fiche-medicale-${viewingStudent.matricule}.pdf`, title: "FICHE MÉDICALE", school, year, sections: medicalRecordPdfSections(viewingStudent, viewingRecord), singlePageFit: true })}><Printer className="h-4 w-4" /> Imprimer</button>}</div>
         <MedicalRecordFields mode="view" record={viewingRecord} />
       </div>
     </AdminDrawer>}

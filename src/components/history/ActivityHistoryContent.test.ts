@@ -12,4 +12,10 @@ describe("Historique responsive", () => {
     expect(source).not.toContain("overflow-x-hidden");
     expect(source).not.toContain("<table");
   });
+
+  it("rend des états de chargement, erreur publique sûre et vide", () => {
+    expect(source).toContain("Chargement de l’historique…");
+    expect(source).toContain("Impossible de charger l’historique. Veuillez réessayer.");
+    expect(source).toContain("Aucune activité disponible.");
+  });
 });

@@ -15,6 +15,11 @@ function normalizedClassName(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase();
 }
 
+export function schoolClassRecordId(schoolId: string, schoolYearId: string, name: string) {
+  const slug = normalizedClassName(name).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return `${schoolId}__${schoolYearId}__${slug}`;
+}
+
 export function activeSubclasses(classes: SchoolClassRecord[], parentClassId: string) {
   return classes.filter((item) => item.parentClassId === parentClassId && item.active !== false);
 }
@@ -41,7 +46,7 @@ export function classesWithEnrolledStudents(classes: SchoolClassRecord[], studen
     const name = student.className?.trim();
     if (!name) return;
     const normalized = normalizedClassName(name);
-    const id = structuredId || `legacy-class__${normalized.replace(/[^a-z0-9]+/g, "-")}`;
+    const id = schoolClassRecordId(schoolId, schoolYearId, name);
     selected.set(`legacy:${normalized}`, { id, schoolId, schoolYearId, name, active: true });
   });
   return [...selected.values()].sort((first, second) => first.name.localeCompare(second.name, "fr", { numeric: true, sensitivity: "base" }));
@@ -73,9 +78,13 @@ export async function createSchoolSubclasses(input: { user: AppUser; parent: Sch
   if (labels.some((label) => normalizedExisting.has(label.toLocaleLowerCase()))) throw new Error("Cette sous-classe existe déjà.");
   const database = db as Firestore;
   const batch = writeBatch(database);
+  const now = new Date().toISOString();
+  if (!input.existing.some((item) => item.id === input.parent.id)) {
+    batch.set(doc(database, "classes", input.parent.id), { id: input.parent.id, schoolId: input.parent.schoolId, schoolYearId: input.parent.schoolYearId, name: input.parent.name, active: true, createdBy: input.user.id, createdAt: now, updatedAt: now });
+  }
   labels.forEach((label) => {
     const id = `${input.parent.id}__${crypto.randomUUID()}`;
-    batch.set(doc(database, "classes", id), { id, schoolId: input.parent.schoolId, schoolYearId: input.parent.schoolYearId, name: `${input.parent.name} - ${label}`, parentClassId: input.parent.id, subClassLabel: label, active: true, createdBy: input.user.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    batch.set(doc(database, "classes", id), { id, schoolId: input.parent.schoolId, schoolYearId: input.parent.schoolYearId, name: `${input.parent.name} - ${label}`, parentClassId: input.parent.id, subClassLabel: label, active: true, createdBy: input.user.id, createdAt: now, updatedAt: now });
   });
   await batch.commit();
 }
