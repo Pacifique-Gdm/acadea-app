@@ -16,7 +16,7 @@ import { nextSchoolStaffEmail, normalizeProvisioningPhone } from "../../utils/sc
 import { temporaryPasswordAfterPhoneChange } from "../../utils/temporaryPassword";
 import { subscribeToSchoolTeacherAccounts } from "../../services/teacherAccounts";
 import { formatStudentClassName } from "../../utils/studentClasses";
-import type { AppData, AppUser, FeeKind, FeeType, ParentProfile, School, SchoolYear, Student, ValvePublication } from "../../types";
+import type { AppData, AppUser, FeeKind, FeeType, ParentProfile, School, SchoolSection, SchoolYear, Student, ValvePublication } from "../../types";
 import { FEE_KINDS } from "../../types";
 import { SecretaryMedicalRecordsDrawer } from "../secretary/SecretaryMedicalTools";
 import { PersonnelDrawerContent } from "./PersonnelDrawerContent";
@@ -94,6 +94,7 @@ export function MenuModule({
   const [schoolSaveMessage, setSchoolSaveMessage] = useState("");
   const [schoolSaving, setSchoolSaving] = useState(false);
   const [schoolUserRole, setSchoolUserRole] = useState<SchoolUserProvisionRole>("cashier");
+  const [schoolUserSection, setSchoolUserSection] = useState<SchoolSection | "">("");
   const [cashierName, setCashierName] = useState("");
   const [cashierPhone, setCashierPhone] = useState("");
   const [cashierEmail, setCashierEmail] = useState("");
@@ -467,6 +468,7 @@ export function MenuModule({
         email: cashierEmail.trim(),
         password: cashierPassword,
         phone: normalizedPhone,
+        section: schoolUserSection || undefined,
       });
     } catch (error) {
       setCashierError(error instanceof Error ? `Création Firebase Auth impossible : ${error.message}` : "Création Firebase Auth impossible.");
@@ -484,6 +486,7 @@ export function MenuModule({
     setSchoolUserEmailManuallyEdited(false);
     setShowCashierPassword(false);
     setSchoolUserRole("cashier");
+    setSchoolUserSection("");
     setCashierSuccess(`Compte ${schoolUserProvisionLabels[schoolUserRole].toLowerCase()} créé avec succès. Il peut maintenant se connecter avec son email et son mot de passe.`);
     window.setTimeout(() => {
       setActiveMenuSection((current) => (current === "accounts" ? null : current));
@@ -831,6 +834,13 @@ export function MenuModule({
               <option value="study_director">Directeur des études</option>
               <option value="secretary">Secrétaire</option>
               <option value="teacher">Enseignant</option>
+            </select>
+          </label>
+          <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+            Section
+            <select value={schoolUserSection} onChange={(event) => setSchoolUserSection(event.target.value as SchoolSection | "")} className="input">
+              <option value="">Non renseignée</option>
+              <option value="maternelle">Maternelle</option><option value="primaire">Primaire</option><option value="cteb">CTEB</option><option value="secondaire">Secondaire</option>
             </select>
           </label>
           <Field label="Nom complet" value={cashierName} onChange={setCashierName} />

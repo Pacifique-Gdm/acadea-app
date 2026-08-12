@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Archive, ArchiveRestore, Pencil } from "lucide-react";
 import { AdminDrawer, Field } from "../../components/ui";
 import { archivePersonnel, isArchivedPersonnel, personnelRoleLabels, reactivatePersonnel, subscribeToSchoolPersonnel, updatePersonnel } from "../../services/personnel";
-import type { AppUser, School } from "../../types";
+import type { AppUser, School, SchoolSection } from "../../types";
 import { isValidProvisioningPhone } from "../../utils/schoolAccountCredentials";
 
 export function PersonnelDrawerContent({ user, school }: { user: AppUser; school: School }) {
@@ -14,6 +14,7 @@ export function PersonnelDrawerContent({ user, school }: { user: AppUser; school
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [section, setSection] = useState<SchoolSection | "">("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -36,7 +37,7 @@ export function PersonnelDrawerContent({ user, school }: { user: AppUser; school
     .sort((left, right) => left.name.localeCompare(right.name, "fr")), [personnel, view]);
 
   function openEdit(item: AppUser) {
-    setSelected(item); setName(item.name); setPhone(item.phone ?? ""); setEmail(item.email); setError(""); setSuccess(""); setEditing(true);
+    setSelected(item); setName(item.name); setPhone(item.phone ?? ""); setEmail(item.email); setSection(item.section ?? ""); setError(""); setSuccess(""); setEditing(true);
   }
 
   async function saveEdit() {
@@ -44,7 +45,7 @@ export function PersonnelDrawerContent({ user, school }: { user: AppUser; school
     if (!name.trim() || !email.trim() || !isValidProvisioningPhone(phone)) return setError("Nom, téléphone valide et e-mail sont requis.");
     setBusy(true); setError("");
     try {
-      await updatePersonnel({ schoolId: school.id, personnelId: selected.id, name: name.trim(), phone: phone.trim(), email: email.trim() });
+      await updatePersonnel({ schoolId: school.id, personnelId: selected.id, name: name.trim(), phone: phone.trim(), email: email.trim(), section: section || null });
       setEditing(false); setSuccess("Personnel modifié avec succès.");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Modification impossible."); }
     finally { setBusy(false); }

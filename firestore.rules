@@ -715,6 +715,16 @@ service cloud.firestore {
       allow delete: if studyDirector() && sameTenantResource();
     }
 
+    // Cotations are mediated by the authenticated server endpoint, which verifies
+    // the assignment, teacher profile, student class and titular read scope.
+    match /courseGradingConfigs/{configId} {
+      allow read, create, update, delete: if false;
+    }
+
+    match /gradeEntries/{entryId} {
+      allow read, create, update, delete: if false;
+    }
+
     match /teacherAvailabilities/{availabilityId} {
       allow read: if superAdmin() || studyTenantResource();
       allow create: if activeStudyYearCreate() && request.resource.data.teacherId is string && request.resource.data.dayOfWeek in ["monday","tuesday","wednesday","thursday","friday","saturday"] && request.resource.data.status in ["available","unavailable","rest"] && request.resource.data.active is bool && request.resource.data.createdBy == request.auth.uid && exists(/databases/$(database)/documents/teachers/$(request.resource.data.teacherId)) && get(/databases/$(database)/documents/teachers/$(request.resource.data.teacherId)).data.schoolId == tenantSchoolId() && get(/databases/$(database)/documents/teachers/$(request.resource.data.teacherId)).data.schoolYearId == request.resource.data.schoolYearId;

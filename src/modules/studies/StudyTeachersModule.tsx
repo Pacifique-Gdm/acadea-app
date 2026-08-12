@@ -3,13 +3,14 @@
 import { useMemo, useState } from "react";
 import { Pencil, Plus } from "lucide-react";
 import { AdminDrawer } from "../../components/ui";
-import type { AppUser, School, SchoolYear } from "../../types";
+import type { AppUser, School, SchoolSection, SchoolYear } from "../../types";
 import { hasActiveAssignmentDuplicate, teacherWorkload, validateWeeklyPeriods } from "./studyAssignments";
 import { createStudySubject, savePedagogicalAssignment, savePedagogicalAssignments, setPedagogicalAssignmentActive } from "./studyService";
 import type { PedagogicalAssignment, StudyTeacher } from "./studyTypes";
 import type { useStudyData } from "./useStudyData";
 import { TeacherAvailabilityDrawer, TeacherAvailabilitySummary } from "./TeacherAvailabilityDrawer";
 import { classesWithEnrolledStudents } from "../../services/schoolSubclasses";
+import { primaryTeacherSections, studyClassSection, subjectAppliesToClass } from "./teacherAssignmentScope";
 
 export function StudyTeachersModule({ user, school, year, data }: { user: AppUser; school: School; year: SchoolYear; data: ReturnType<typeof useStudyData> }) {
   const { teachers, subjects, classes, students, assignments, error: realtimeError } = data;
@@ -18,6 +19,7 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
   const [availabilityTeacher, setAvailabilityTeacher] = useState<StudyTeacher>();
   const [editingAssignment, setEditingAssignment] = useState<PedagogicalAssignment>();
   const [teacherId, setTeacherId] = useState("");
+  const [section, setSection] = useState<SchoolSection | "">("");
   const [subjectIds, setSubjectIds] = useState<string[]>([]);
   const [classIds, setClassIds] = useState<string[]>([]);
   const [weeklyPeriods, setWeeklyPeriods] = useState("1");
@@ -27,7 +29,9 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
   const [busy, setBusy] = useState(false);
   const [newSubject, setNewSubject] = useState("");
   const activeTeachers = useMemo(() => teachers.filter((teacher) => teacher.status === "active"), [teachers]);
-  const assignmentClasses = useMemo(() => classesWithEnrolledStudents(classes, students, school.id, year.id), [classes, school.id, students, year.id]);
+  const assignmentClasses = useMemo(() => classesWithEnrolledStudents(classes, students, school.id, year.id).filter(item => !section || studyClassSection(item) === section), [classes, school.id, section, students, year.id]);
+  const primaryMode = Boolean(section && primaryTeacherSections.includes(section));
+  const applicableSubjects = useMemo(() => subjects.filter(item => item.active && (!classIds[0] || subjectAppliesToClass(item, assignmentClasses.find(current => current.id === classIds[0])!))), [assignmentClasses, classIds, subjects]);
 
   const teacherRows = useMemo(() => teachers.filter((teacher) => teacher.status === "active").map((teacher) => {
     const activeAssignments = assignments.filter((item) => item.teacherId === teacher.id && item.active);
@@ -44,6 +48,7 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
   function openAssignment(current?: PedagogicalAssignment, preselectedTeacher?: StudyTeacher) {
     setEditingAssignment(current);
     setTeacherId(current?.teacherId ?? preselectedTeacher?.id ?? "");
+    setSection(preselectedTeacher?.section ?? (current ? studyClassSection(classes.find(item => item.id === current.classId) ?? { id: current.classId, name: "", schoolId: school.id, schoolYearId: year.id }) : ""));
     setSubjectIds(current?.subjectId ? [current.subjectId] : []);
     setClassIds(current?.classId ? [current.classId] : []);
     setWeeklyPeriods(String(current?.weeklyPeriods ?? 1));
@@ -57,14 +62,17 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
     const periods = Number(weeklyPeriods);
     const periodError = validateWeeklyPeriods(periods);
     if (periodError) return setFeedback(periodError);
-    if (!teacherId || subjectIds.length === 0 || classIds.length === 0) return setFeedback("L’enseignant, une matière et une classe sont obligatoires.");
-    const candidates = subjectIds.flatMap((subjectId) => classIds.map((classId) => ({ schoolId: school.id, schoolYearId: year.id, teacherId, subjectId, classId })));
+    const savedSubjectIds = primaryMode ? applicableSubjects.map(item => item.id) : subjectIds;
+    const savedClassIds = primaryMode ? classIds.slice(0, 1) : classIds;
+    if (!section || !teacherId || savedSubjectIds.length === 0 || savedClassIds.length === 0) return setFeedback("La section, l’enseignant, un cours et une classe sont obligatoires.");
+    if (primaryMode && assignments.some(item => item.active && item.teacherId === teacherId && item.classId !== savedClassIds[0])) return setFeedback("En Maternelle/Primaire, un enseignant ne peut gérer qu’une seule classe.");
+    const candidates = savedSubjectIds.flatMap((subjectId) => savedClassIds.map((classId) => ({ schoolId: school.id, schoolYearId: year.id, teacherId, subjectId, classId })));
     if (candidates.some((candidate) => hasActiveAssignmentDuplicate(assignments, candidate, editingAssignment?.id))) return setFeedback("Une des affectations actives sélectionnées existe déjà.");
     if (titularClassId && assignments.some((item) => item.id !== editingAssignment?.id && item.active && item.titularClassId === titularClassId)) return setFeedback("Cette classe opérationnelle possède déjà un titulaire actif.");
     setBusy(true); setFeedback("");
     try {
       if (editingAssignment) await savePedagogicalAssignment({ user, ...candidates[0], weeklyPeriods: periods, titularClassId: titularClassId || null, active, current: editingAssignment });
-      else await savePedagogicalAssignments({ user, schoolId: school.id, schoolYearId: year.id, teacherId, subjectIds, classIds, legacyClasses: assignmentClasses.filter((item) => classIds.includes(item.id) && !classes.some((current) => current.id === item.id)), weeklyPeriods: periods, titularClassId: titularClassId || null, active });
+      else await savePedagogicalAssignments({ user, schoolId: school.id, schoolYearId: year.id, teacherId, subjectIds:savedSubjectIds, classIds:savedClassIds, legacyClasses: assignmentClasses.filter((item) => savedClassIds.includes(item.id) && !classes.some((current) => current.id === item.id)), weeklyPeriods: periods, titularClassId: primaryMode ? savedClassIds[0] : (titularClassId || null), active });
       setAssignmentOpen(false);
     } catch (cause) { console.error("Enregistrement de l’affectation impossible.", cause); setFeedback("Impossible d’enregistrer cette affectation. Vérifiez les classes sélectionnées."); }
     finally { setBusy(false); }
@@ -90,8 +98,9 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
     {availabilityTeacher && <TeacherAvailabilityDrawer user={user} teacher={availabilityTeacher} year={year} items={data.availabilities} onClose={()=>setAvailabilityTeacher(undefined)}/>}
 
     {assignmentOpen && <AdminDrawer title={editingAssignment ? "Modifier l’affectation" : "Ajouter une affectation"} closeLabel="Fermer le formulaire d’affectation" onClose={() => !busy && setAssignmentOpen(false)}>
-      <label className="grid gap-1 text-sm font-semibold">Enseignant<select className="input" value={teacherId} onChange={(event) => setTeacherId(event.target.value)}><option value="">Sélectionner</option>{activeTeachers.map((item) => <option key={item.id} value={item.id}>{item.fullName}</option>)}</select></label>
-      <fieldset className="grid gap-2 rounded border border-slate-200 p-3"><legend className="px-1 text-sm font-semibold">Matières</legend>{subjects.filter((item) => item.active).map((item) => <label key={item.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={subjectIds.includes(item.id)} disabled={Boolean(editingAssignment && !subjectIds.includes(item.id))} onChange={() => setSubjectIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])} /> {item.name}</label>)}</fieldset>
+      <label className="grid gap-1 text-sm font-semibold">Section<select className="input" value={section} onChange={(event)=>{setSection(event.target.value as SchoolSection);setClassIds([]);setSubjectIds([])}}><option value="">Sélectionner</option><option value="maternelle">Maternelle</option><option value="primaire">Primaire</option><option value="cteb">CTEB</option><option value="secondaire">Secondaire</option></select></label>
+      <label className="grid gap-1 text-sm font-semibold">Enseignant<select className="input" value={teacherId} onChange={(event) => setTeacherId(event.target.value)}><option value="">Sélectionner</option>{activeTeachers.filter(item=>!section||!item.section||item.section===section).map((item) => <option key={item.id} value={item.id}>{item.fullName}</option>)}</select></label>
+      {primaryMode ? <p className="rounded border border-blue-200 bg-blue-50 p-3 text-sm">Le titulaire enseigne automatiquement tous les cours applicables à la classe sélectionnée.</p> : <fieldset className="grid gap-2 rounded border border-slate-200 p-3"><legend className="px-1 text-sm font-semibold">Cours</legend>{applicableSubjects.map((item) => <label key={item.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={subjectIds.includes(item.id)} disabled={Boolean(editingAssignment && !subjectIds.includes(item.id))} onChange={() => setSubjectIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])} /> {item.name}</label>)}</fieldset>}
       <div className="rounded border border-dashed border-slate-300 p-3"><label className="grid gap-1 text-sm font-semibold">Nouvelle matière<input className="input" value={newSubject} onChange={(event) => setNewSubject(event.target.value)} /></label><button type="button" className="secondary-button mt-2" disabled={busy || !newSubject.trim()} onClick={() => void submitSubject()}>Ajouter la matière</button></div>
       <fieldset className="grid gap-2 rounded border border-slate-200 p-3"><legend className="px-1 text-sm font-semibold">Classes</legend>{assignmentClasses.length === 0 && <p className="text-sm text-slate-500">Aucune classe disponible.</p>}{assignmentClasses.map((item) => <label key={item.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={classIds.includes(item.id)} disabled={Boolean(editingAssignment && !classIds.includes(item.id))} onChange={() => setClassIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])} /> {item.name}</label>)}</fieldset>
       <label className="grid gap-1 text-sm font-semibold">Nombre de périodes hebdomadaires<input className="input" type="number" min={1} max={60} step={1} value={weeklyPeriods} onChange={(event) => setWeeklyPeriods(event.target.value)} /></label>

@@ -1,7 +1,7 @@
 import { collection, onSnapshot, query, where } from "@firebase/firestore";
 import type { Firestore } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
-import type { AppUser, Role } from "../types";
+import type { AppUser, Role, SchoolSection } from "../types";
 import { resolveApiUrl } from "../config/apiUrl";
 import { getCurrentFirebaseIdToken } from "./auth";
 import { apiErrorMessage } from "../utils/rateLimitErrors";
@@ -36,7 +36,7 @@ export function subscribeToSchoolPersonnel(input: { user: AppUser; schoolId: str
 }
 
 type PersonnelAction = "update-personnel" | "archive-personnel" | "reactivate-personnel";
-async function requestPersonnelAction(input: { action: PersonnelAction; schoolId: string; personnelId: string; name?: string; phone?: string; email?: string }) {
+async function requestPersonnelAction(input: { action: PersonnelAction; schoolId: string; personnelId: string; name?: string; phone?: string; email?: string; section?: SchoolSection | null }) {
   const token = await getCurrentFirebaseIdToken();
   const response = await fetch(resolveApiUrl("/api/provision-school-account"), {
     method: "POST",
@@ -49,7 +49,7 @@ async function requestPersonnelAction(input: { action: PersonnelAction; schoolId
   return payload;
 }
 
-export function updatePersonnel(input: { schoolId: string; personnelId: string; name: string; phone: string; email: string }) {
+export function updatePersonnel(input: { schoolId: string; personnelId: string; name: string; phone: string; email: string; section?: SchoolSection | null }) {
   return requestPersonnelAction({ action: "update-personnel", ...input });
 }
 

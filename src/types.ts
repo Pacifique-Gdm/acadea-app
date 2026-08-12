@@ -29,6 +29,8 @@ export interface AppUser {
   email: string;
   role: Role;
   schoolId?: string;
+  /** Périmètre métier facultatif pour compatibilité avec les comptes historiques. */
+  section?: SchoolSection;
   activeSchoolYearId?: string;
   parentId?: string;
   studentIds?: string[];

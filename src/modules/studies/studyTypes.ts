@@ -12,6 +12,7 @@ export interface StudyTeacher {
   createdBy: string;
   email?: string;
   phone?: string;
+  section?: "maternelle" | "primaire" | "cteb" | "secondaire";
 }
 
 export interface StudySubject {
@@ -23,7 +24,11 @@ export interface StudySubject {
   createdAt: string;
   updatedAt: string;
   createdBy: string;
+  section?: "maternelle" | "primaire" | "cteb" | "secondaire";
+  classIds?: string[];
 }
+
+export type StudyVacation = "morning" | "afternoon";
 
 export interface StudyClass {
   id: string;
@@ -33,6 +38,11 @@ export interface StudyClass {
   active?: boolean;
   parentClassId?: string;
   subClassLabel?: string;
+  section?: "maternelle" | "primaire" | "cteb" | "secondaire";
+  option?: string;
+  vacation?: StudyVacation;
+  saturdayVacation?: StudyVacation | null;
+  saturdayEnabled?: boolean;
 }
 
 export interface PedagogicalAssignment {

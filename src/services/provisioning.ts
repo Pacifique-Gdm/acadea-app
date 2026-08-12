@@ -1,5 +1,5 @@
 import { getCurrentFirebaseIdToken } from "./auth";
-import type { AppUser, AuditLog, ParentProfile, School, SchoolYear } from "../types";
+import type { AppUser, AuditLog, ParentProfile, School, SchoolSection, SchoolYear } from "../types";
 import { resolveApiUrl } from "../config/apiUrl";
 import { apiErrorMessage } from "../utils/rateLimitErrors";
 
@@ -58,6 +58,7 @@ type ProvisionCashierInput = {
 
 type ProvisionSchoolUserInput = ProvisionCashierInput & {
   role: "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher";
+  section?: SchoolSection;
 };
 
 type ProvisionParentInput = {

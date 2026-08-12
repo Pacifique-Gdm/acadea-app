@@ -81,6 +81,7 @@ export function mergeStudyTeachers(profiles: StudyTeacher[], users: AppUser[]) {
       fullName,
       email: user.email,
       phone: user.phone,
+      section: user.section,
       status: user.status === "inactive" || user.active === false ? "inactive" as const : "active" as const,
     }];
   });
