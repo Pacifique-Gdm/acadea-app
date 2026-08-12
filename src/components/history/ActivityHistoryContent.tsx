@@ -13,7 +13,7 @@ export function ActivityHistoryContent({
   user: AppUser;
   data: AppData;
   yearData: ActivityHistoryYearData;
-  role: "admin" | "cashier" | "parent";
+  role: "admin" | "cashier" | "parent" | "secretary";
 }) {
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | ActivityHistoryItem["type"]>("all");
@@ -76,7 +76,7 @@ export function ActivityHistoryContent({
 
       <div className="space-y-2">
         {filteredItems.length === 0 && (
-          <p className="rounded border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">Aucun historique trouvé.</p>
+          <p className="rounded border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">Aucune activité disponible.</p>
         )}
         {filteredItems.map((item) => (
           <article key={item.id} className="min-w-0 rounded border border-slate-200 bg-white p-3 text-sm">

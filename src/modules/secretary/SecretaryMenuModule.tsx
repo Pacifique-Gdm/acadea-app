@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { BarChart3, BookOpen, Fingerprint, HeartPulse, LogOut, Radio, Upload, UsersRound } from "lucide-react";
+import { BarChart3, BookOpen, Clock3, Fingerprint, HeartPulse, LogOut, Radio, Upload, UsersRound } from "lucide-react";
+import { ActivityHistoryContent } from "../../components/history/ActivityHistoryContent";
 import { ParentsDirectoryDrawer } from "../../components/parents/ParentsDirectoryDrawer";
 import { ParentDrawerBackButton, ParentFormEditor } from "../../components/parents/ParentFormEditor";
 import { AgeHomogeneityDrawer, ArchivedStudentsImportDrawer } from "../../components/students/StudentAdministrativeTools";
@@ -19,7 +20,7 @@ type SecretaryBiometricView = "menu" | "fingerprints" | "cards";
 type SecretaryMenuModuleProps = {
   user: AppUser;
   data: AppData;
-  yearData: Pick<AppData, "students" | "parents" | "valves">;
+  yearData: Pick<AppData, "students" | "parents" | "valves" | "auditLogs" | "messages" | "feeTypes" | "payments" | "expenses" | "disciplineSanctions">;
   school: School;
   year: SchoolYear;
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
@@ -43,6 +44,7 @@ export function SecretaryMenuModule({ user, data, yearData, school, year, update
   const [medicalDrawerOpen, setMedicalDrawerOpen] = useState(false);
   const [valvesDrawerOpen, setValvesDrawerOpen] = useState(false);
   const [parentsDrawerOpen, setParentsDrawerOpen] = useState(false);
+  const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
   const [parentFormRequest, setParentFormRequest] = useState<{ parentId?: string; requestId: number } | null>(null);
   const [parentDeleteOpen, setParentDeleteOpen] = useState(false);
   const [parentDeleteId, setParentDeleteId] = useState("");
@@ -95,6 +97,7 @@ export function SecretaryMenuModule({ user, data, yearData, school, year, update
       <button type="button" onClick={() => setAgeDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><BarChart3 className="h-5 w-5" /></span><span className="font-bold text-ink">Tableau d’homogénéité d’âge</span></button>
       <button type="button" onClick={() => setStatisticsDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><BarChart3 className="h-5 w-5" /></span><span className="font-bold text-ink">Statistiques</span></button>
       <button type="button" onClick={() => setImportDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><Upload className="h-5 w-5" /></span><span className="font-bold text-ink">Importer les élèves d’une année archivée</span></button>
+      <button type="button" onClick={() => setHistoryDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><Clock3 className="h-5 w-5" /></span><span className="font-bold text-ink">Historique</span></button>
       <button onClick={onLogout} className="inline-flex w-full items-center justify-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 transition hover:bg-red-100" type="button"><LogOut className="h-4 w-4" /> Déconnexion</button>
     </div>
     {medicalError && <p className="rounded border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800">{medicalError}</p>}
@@ -104,6 +107,7 @@ export function SecretaryMenuModule({ user, data, yearData, school, year, update
     <SecretaryMedicalRecordsDrawer open={medicalDrawerOpen} onClose={() => setMedicalDrawerOpen(false)} user={user} students={yearData.students} records={medicalRecords} school={school} year={year} />
     {valvesDrawerOpen && <AdminDrawer title="Valves" onClose={() => setValvesDrawerOpen(false)} closeLabel="Fermer les Valves"><ValvesDrawerContent user={user} data={data} yearData={yearData} school={school} year={year} updateData={updateData} canManage={user.role === "secretary" && user.status !== "inactive" && user.schoolId === school.id} valvesUploadsEnabled={valvesUploadsEnabled} createId={createId} maxValveDocumentBytes={maxValveDocumentBytes} /></AdminDrawer>}
     {parentsDrawerOpen && <AdminDrawer title="Parents / Tuteurs" onClose={() => setParentsDrawerOpen(false)} closeLabel="Fermer Parents / Tuteurs"><ParentsDirectoryDrawer parents={yearData.parents} students={yearData.students} school={school} year={year} schoolId={school.id} schoolYearId={year.id} onCreateParent={() => openParentForm()} onEditParent={(parent) => openParentForm(parent.id)} onDeleteParent={openParentDelete} /></AdminDrawer>}
+    {historyDrawerOpen && <AdminDrawer title="Historique" onClose={() => setHistoryDrawerOpen(false)} closeLabel="Fermer l'historique"><ActivityHistoryContent user={user} data={data} yearData={yearData} role="secretary" /></AdminDrawer>}
     {parentFormRequest && <AdminDrawer title={parentFormRequest.parentId ? "Modifier le parent" : "Créer un parent"} onClose={() => setParentFormRequest(null)} closeLabel="Fermer le formulaire parent"><ParentFormEditor data={data} yearData={yearData} school={school} year={year} updateData={updateData} initialParentId={parentFormRequest.parentId} requestId={parentFormRequest.requestId} onBack={() => { setParentFormRequest(null); setParentsDrawerOpen(true); }} showBackButton createId={createId} /></AdminDrawer>}
     {parentDeleteOpen && <AdminDrawer title="Supprimer un parent" onClose={() => !parentDeleteBusy && setParentDeleteOpen(false)} closeLabel="Fermer la suppression du parent"><div className="grid gap-4"><ParentDrawerBackButton onBack={() => { if (!parentDeleteBusy) { setParentDeleteOpen(false); setParentsDrawerOpen(true); } }} /><label className="grid gap-1 text-sm font-semibold">Parent<select className="input" value={parentDeleteId} disabled={parentDeleteBusy} onChange={(event) => setParentDeleteId(event.target.value)}><option value="">Sélectionner</option>{yearData.parents.filter((parent) => parent.schoolId === school.id && parent.schoolYearId === year.id).map((parent) => <option key={parent.id} value={parent.id}>{parent.fullName}</option>)}</select></label><label className="grid gap-1 text-sm font-semibold">Confirmation<input className="input" value={parentDeleteConfirmation} disabled={parentDeleteBusy} placeholder="SUPPRIMER LE PARENT" onChange={(event) => setParentDeleteConfirmation(event.target.value)} /></label>{parentDeleteError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{parentDeleteError}</p>}<div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" disabled={parentDeleteBusy} onClick={() => setParentDeleteOpen(false)}>Annuler</button><button type="button" className="rounded bg-red-700 px-4 py-2 font-semibold text-white disabled:opacity-50" disabled={parentDeleteBusy || !parentDeleteId || parentDeleteConfirmation !== "SUPPRIMER LE PARENT"} onClick={() => void confirmParentDelete()}>{parentDeleteBusy ? "Suppression…" : "Supprimer"}</button></div></div></AdminDrawer>}
     {biometricView && <AdminDrawer title="Empreintes et Cartes" onClose={closeBiometricView} closeLabel="Fermer Empreintes et Cartes">

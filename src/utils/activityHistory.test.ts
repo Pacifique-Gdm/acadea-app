@@ -24,3 +24,16 @@ describe("historique Administrateur des sanctions", () => {
     expect(items).toEqual([]);
   });
 });
+
+describe("historique personnel Secrétaire", () => {
+  it("n'affiche que les audits du Secrétaire connecté", () => {
+    const secretary: AppUser = { id: "secretary-a", name: "Secrétaire A", email: "secretary@example.invalid", role: "secretary", schoolId: "school-a", activeSchoolYearId: "year-a", status: "active" };
+    const other: AppUser = { ...secretary, id: "secretary-b", name: "Secrétaire B", email: "secretary-b@example.invalid" };
+    const scopedData = { ...data, users: [secretary, other] };
+    const items = buildActivityHistoryItems(secretary, scopedData, { students: [], parents: [], users: scopedData.users, feeTypes: [], payments: [], expenses: [], messages: [], disciplineSanctions: [], auditLogs: [
+      { id: "own", schoolId: "school-a", schoolYearId: "year-a", actorId: secretary.id, actorName: secretary.name, action: "Création courrier", createdAt: "2026-08-12T10:00:00.000Z" },
+      { id: "other", schoolId: "school-a", schoolYearId: "year-a", actorId: other.id, actorName: other.name, action: "Création rapport", createdAt: "2026-08-12T11:00:00.000Z" },
+    ] }, "secretary");
+    expect(items.map((item) => item.id)).toEqual(["audit-own"]);
+  });
+});

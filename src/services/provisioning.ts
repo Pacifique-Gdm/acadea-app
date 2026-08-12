@@ -12,6 +12,7 @@ type ProvisionSchoolAdminInput = {
   educationLevels?: string[];
   schoolType?: School["schoolType"];
   schoolOptions?: string[];
+  currency?: "USD" | "CDF";
 };
 
 type ProvisionSchoolAdminResponse = {

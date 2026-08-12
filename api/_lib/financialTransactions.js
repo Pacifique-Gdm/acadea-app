@@ -95,13 +95,13 @@ async function assertContext(transaction, db, caller, requestedYearId) {
   if (!userSnapshot.exists || profile.schoolId !== caller.schoolId || profile.status === "inactive" || profileRole !== caller.role) {
     throw new FinancialApiError(403, "permission-denied", "Profil utilisateur financier invalide.");
   }
-  return { schoolYearId, year: yearSnapshot.data(), actorName: text(profile.name, 160) || text(caller.email, 160) || "Utilisateur Acadéa" };
+  return { schoolYearId, year: yearSnapshot.data(), currency: schoolSnapshot.data()?.currency === "CDF" ? "CDF" : "USD", actorName: text(profile.name, 160) || text(caller.email, 160) || "Utilisateur Acadéa" };
 }
 
 async function createPayment(transaction, db, caller, body, hash, now) {
   assertAllowedKeys(body, PAYMENT_CREATE_KEYS);
   const amount = positiveAmount(body.amount);
-  const { schoolYearId, year, actorName } = await assertContext(transaction, db, caller, body.schoolYearId);
+  const { schoolYearId, year, currency, actorName } = await assertContext(transaction, db, caller, body.schoolYearId);
   const studentId = text(body.studentId, 120);
   const feeTypeId = text(body.feeTypeId, 120);
   if (!studentId || !feeTypeId) throw new FinancialApiError(400, "invalid-argument", "Élève et type de frais requis.");
@@ -160,10 +160,14 @@ async function createPayment(transaction, db, caller, body, hash, now) {
   transaction.set(db.doc(`auditLogs/${auditId}`), buildServerAudit({ id: auditId, eventType: AUDIT_EVENT_TYPES.FINANCE_PAYMENT_CREATED, actor: { ...caller, name: actorName }, schoolId: caller.schoolId, schoolYearId, resourceType: "payment", resourceId: paymentId, metadata: { receiptNumber, amount } }));
   if (typeof student.parentId === "string" && student.parentId) {
     const notificationId = `notif_fin_${hash.slice(0, 24)}`;
+    const studentName = [student.nom, student.postnom, student.prenom].map((value) => text(value, 120)).filter(Boolean).join(" ") || "Élève";
+    const symbol = currency === "CDF" ? "FC" : "$";
+    const formatAmount = (value) => symbol === "$" ? `$${value.toFixed(2)}` : `${value.toFixed(2)} FC`;
+    const remaining = Math.max(Number(fee.amount) - alreadyPaid - amount, 0);
     transaction.set(db.doc(`notifications/${notificationId}`), {
       id: notificationId, schoolId: caller.schoolId, schoolYearId, parentId: student.parentId, studentId,
       recipientRole: "parent", type: "payment", module: "payments", event: "payment_recorded", destination: "/dashboard",
-      title: "Paiement enregistré", body: `Montant payé : $${amount.toFixed(2)}\nReste à payer : $${Math.max(Number(fee.amount) - alreadyPaid - amount, 0).toFixed(2)}`,
+      title: "Paiement enregistré", body: `Élève : ${studentName}\nType de frais : ${text(fee.name, 160) || "Frais"}\nMontant payé : ${formatAmount(amount)}\nReste à payer : ${formatAmount(remaining)}`,
       createdAt: now, read: false,
     });
   }

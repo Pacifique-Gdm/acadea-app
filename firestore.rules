@@ -497,7 +497,9 @@ service cloud.firestore {
     }
 
     match /auditLogs/{auditLogId} {
-      allow read: if superAdmin() || schoolAdmin() && sameTenantResource();
+      allow read: if superAdmin()
+        || schoolAdmin() && sameTenantResource()
+        || secretary() && sameTenantResource() && resource.data.actorId == request.auth.uid;
       allow create, update, delete: if false;
     }
 

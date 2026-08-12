@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
-import { deleteDoc, doc, getDoc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
 
 let environment: RulesTestEnvironment | undefined;
@@ -15,6 +15,7 @@ beforeEach(async () => {
     await setDoc(doc(context.firestore(), "auditLogs", "legacy-a"), { id: "legacy-a", schoolId: "school-a", actorId: "old", actorName: "Ancien", action: "Ancienne action", createdAt: "2025-01-01" });
     await setDoc(doc(context.firestore(), "auditLogs", "canonical-a"), { ...forged, id: "canonical-a", actorId: "server", createdAt: new Date() });
     await setDoc(doc(context.firestore(), "auditLogs", "canonical-b"), { ...forged, id: "canonical-b", actorId: "server", schoolId: "school-b", resourceId: "school-b", createdAt: new Date() });
+    await setDoc(doc(context.firestore(), "auditLogs", "secretary-own"), { ...forged, id: "secretary-own", schoolId: "school-a", schoolYearId: "year-a", actorId: "secretary", actorRole: "secretary", createdAt: new Date() });
   });
 });
 afterAll(async () => environment?.cleanup(), 30_000);
@@ -40,6 +41,12 @@ describe("SEC-005 audit immuable", () => {
   });
   it("refuse la lecture inter-écoles", async () => assertFails(getDoc(doc(auth("admin", "school_admin", "school-a"), "auditLogs", "canonical-b"))));
   it("autorise la lecture globale au Super Administrateur", async () => assertSucceeds(getDoc(doc(auth("super", "super_admin"), "auditLogs", "canonical-b"))));
+  it("autorise le Secrétaire à interroger uniquement ses propres audits tenantés", async () => {
+    const secretary = auth("secretary", "secretary", "school-a");
+    await assertSucceeds(getDocs(query(collection(secretary, "auditLogs"), where("schoolId", "==", "school-a"), where("schoolYearId", "==", "year-a"), where("actorId", "==", "secretary"))));
+    await assertFails(getDoc(doc(secretary, "auditLogs", "canonical-a")));
+    await assertFails(getDoc(doc(auth("secretary", "secretary", "school-b"), "auditLogs", "secretary-own")));
+  });
 
   it("interdit toute lecture ou écriture des compteurs techniques, y compris au Super Administrateur", async () => {
     for (const firestore of [auth("secretary", "secretary", "school-a"), auth("admin", "school_admin", "school-a"), auth("super", "super_admin")]) {

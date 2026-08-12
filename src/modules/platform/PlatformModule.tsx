@@ -78,6 +78,7 @@ export function PlatformModule({
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [schoolSections, setSchoolSections] = useState<string[]>(["Primaire"]);
+  const [schoolCurrency, setSchoolCurrency] = useState<"USD" | "CDF">("USD");
   const [selectedSchoolOptions, setSelectedSchoolOptions] = useState<string[]>([]);
   const [customSchoolOption, setCustomSchoolOption] = useState("");
   const [platformView, setPlatformView] = useState<PlatformView>("dashboard");
@@ -248,6 +249,7 @@ export function PlatformModule({
         educationLevels: schoolSections,
         schoolType: schoolSections.length === 1 ? (schoolSections[0] as School["schoolType"]) : "Mixte",
         schoolOptions: nextSchoolOptions,
+        currency: schoolCurrency,
       });
 
       updateData(
@@ -264,6 +266,7 @@ export function PlatformModule({
       setAdminEmail("");
       setAdminPassword("");
       setSchoolSections(["Primaire"]);
+      setSchoolCurrency("USD");
       setSelectedSchoolOptions([]);
       setCustomSchoolOption("");
       setSelectedSchoolId(provisioned.school.id);
@@ -377,11 +380,15 @@ export function PlatformModule({
     if (phone === null) return;
     const email = window.prompt("Email", school.email ?? "");
     if (email === null) return;
+    const currency = window.prompt("Devise (USD ou CDF)", school.currency ?? "USD")?.trim().toUpperCase();
+    if (!currency) return;
+    if (currency !== "USD" && currency !== "CDF") { setSchoolActionError("La devise doit être USD ou CDF."); return; }
     await updateSchool(school.id, {
       name: name.trim(),
       address: address.trim(),
       phone: phone.trim(),
       email: email.trim(),
+      currency,
     });
   }
 
@@ -887,6 +894,12 @@ export function PlatformModule({
         <Field label="Nom de l'Administrateur" value={mainAdminName} onChange={setMainAdminName} />
         <Field label="Email admin école" value={adminEmail} onChange={setAdminEmail} type="email" />
         <PasswordField label="Mot de passe admin" value={adminPassword} onChange={setAdminPassword} />
+        <label className="grid gap-1 text-sm font-medium text-slate-700">Devise
+          <select className="input" value={schoolCurrency} onChange={(event) => setSchoolCurrency(event.target.value as "USD" | "CDF")}>
+            <option value="USD">Dollar américain ($)</option>
+            <option value="CDF">Franc congolais (FC)</option>
+          </select>
+        </label>
         <fieldset className="grid gap-2 rounded border border-slate-200 p-3">
           <legend className="px-1 text-sm font-semibold text-slate-700">Sections disponibles</legend>
           <div className="flex flex-wrap gap-2">
@@ -1293,6 +1306,7 @@ export function PlatformModule({
                 <InfoRow label="Adresse" value={drawerSchool.address || "-"} />
                 <InfoRow label="Téléphone" value={drawerSchool.phone || "-"} />
                 <InfoRow label="Email" value={drawerSchool.email || "-"} />
+                <InfoRow label="Devise" value={(drawerSchool.currency ?? "USD") === "CDF" ? "Franc congolais (FC)" : "Dollar américain ($)"} />
                 <label className="grid gap-1 rounded bg-slate-50 p-3 text-sm">
                   <span className="font-semibold text-slate-500">Niveau de l'école</span>
                   <select

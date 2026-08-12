@@ -9,7 +9,7 @@ type PersistableItem = { id: string };
 type PersistFirestorePatchOptions = {
   throwOnError?: boolean;
 };
-export type FirestoreYearData = Partial<Pick<AppData, "students" | "parents" | "feeTypes" | "payments" | "expenses" | "messages" | "valves" | "attendance" | "attendanceSettings">>;
+export type FirestoreYearData = Partial<Pick<AppData, "students" | "parents" | "feeTypes" | "payments" | "expenses" | "messages" | "valves" | "attendance" | "attendanceSettings" | "auditLogs">>;
 export type DisciplineYearData = Pick<AppData, "students" | "parents" | "messages" | "notifications" | "disciplineSanctions" | "attendance" | "attendanceSettings" | "valves">;
 export type ParentPortalData = Pick<AppData, "feeTypes" | "students" | "parents" | "payments" | "messages" | "valves">;
 export type PlatformSettings = {
@@ -259,11 +259,12 @@ export async function loadFirestoreData(user?: AppUser, schoolYearId?: string, b
     }
 
     if (user.role === "secretary") {
-      [scopedData.students, scopedData.parents, scopedData.feeTypes, scopedData.payments] = await Promise.all([
+      [scopedData.students, scopedData.parents, scopedData.feeTypes, scopedData.payments, scopedData.auditLogs] = await Promise.all([
         loadCollection<AppData["students"][number]>("students", schoolFilter),
         loadCollection<AppData["parents"][number]>("parents", schoolFilter),
         loadCollection<AppData["feeTypes"][number]>("feeTypes", annualFilter),
         loadCollection<AppData["payments"][number]>("payments", annualFilter),
+        loadCollection<AppData["auditLogs"][number]>("auditLogs", [...annualFilter, ["actorId", user.id]]),
       ]);
       return scopedData;
     }

@@ -16,6 +16,12 @@ export function hasActiveAssignmentDuplicate(assignments: PedagogicalAssignment[
   return assignments.some((assignment) => assignment.id !== ignoredId && assignment.active && pedagogicalAssignmentId(assignment) === pedagogicalAssignmentId(candidate));
 }
 
+export function expandAssignmentSelections(subjectIds: string[], classIds: string[]) {
+  const uniqueSubjects = [...new Set(subjectIds.filter(Boolean))];
+  const uniqueClasses = [...new Set(classIds.filter(Boolean))];
+  return uniqueSubjects.flatMap((subjectId) => uniqueClasses.map((classId) => ({ subjectId, classId })));
+}
+
 export function teacherWorkload(teacherId: string, assignments: PedagogicalAssignment[]) {
   return assignments.filter((assignment) => assignment.teacherId === teacherId && assignment.active).reduce((total, assignment) => total + assignment.weeklyPeriods, 0);
 }

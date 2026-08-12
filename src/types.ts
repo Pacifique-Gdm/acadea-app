@@ -54,7 +54,7 @@ export interface School {
   address: string;
   phone: string;
   email: string;
-  currency: "USD";
+  currency?: "USD" | "CDF";
   logoUrl?: string;
   acronym?: string;
   educationLevels?: string[];

@@ -102,6 +102,7 @@ export default async function handler(req, res) {
     const schoolOptions = Array.isArray(body.schoolOptions)
       ? [...new Set(body.schoolOptions.map((option) => String(option).trim()).filter(Boolean))]
       : [];
+    const currency = body.currency === "CDF" ? "CDF" : "USD";
 
     if (!schoolName || !adminName || !adminEmail || adminPassword.length < 6) {
       sendJson(res, 400, { error: "Nom d'école, email admin et mot de passe valide sont requis.", code: "invalid-argument" });
@@ -121,7 +122,7 @@ export default async function handler(req, res) {
       address: "",
       phone: "",
       email: adminEmail,
-      currency: "USD",
+      currency,
       activeSchoolYearId: yearId,
       logoUrl: "",
       acronym: buildAcronym(schoolName),

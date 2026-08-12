@@ -26,7 +26,7 @@ export type ActivityHistoryYearData = {
   disciplineSanctions: DisciplineSanction[];
 };
 
-export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData: ActivityHistoryYearData, role: "admin" | "cashier" | "parent") {
+export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData: ActivityHistoryYearData, role: "admin" | "cashier" | "parent" | "secretary") {
   const usersById = new Map(data.users.map((item) => [item.id, item]));
   const parentsById = new Map(yearData.parents.map((item) => [item.id, item]));
   const indexes = buildSchoolYearDataIndexes(yearData.students, yearData.feeTypes, yearData.payments);
@@ -58,7 +58,7 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
       const warningDetails = parseWarningDetails(log.details);
       if (warningDetails && role === "parent") return false;
       if (role === "admin") return log.actorId === user.id || actor?.role === "cashier" || actor?.role === "discipline_director";
-      if (role === "cashier") return log.actorId === user.id;
+      if (role === "cashier" || role === "secretary") return log.actorId === user.id;
       return log.actorId === user.id;
     })
     .map<ActivityHistoryItem>((log) => {
@@ -132,6 +132,7 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
     .filter((message) => {
       if (role === "admin") return message.recipientParentId === "school";
       if (role === "parent") return message.threadParentId === user.parentId || message.recipientParentId === user.parentId;
+      if (role === "secretary") return message.senderId === user.id;
       return false;
     })
     .map<ActivityHistoryItem>((message) => {

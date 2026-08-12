@@ -52,6 +52,9 @@ export function StudentForm({
   const [subclassOpen, setSubclassOpen] = useState(false);
   const [subclassLabels, setSubclassLabels] = useState(["A", "B"]);
   const [subclassError, setSubclassError] = useState("");
+  const [parentQuery, setParentQuery] = useState("");
+  const normalizedParentQuery = parentQuery.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase("fr");
+  const visibleParents = parents.filter((parent) => !normalizedParentQuery || `${parent.fullName} ${parent.phone}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("fr").includes(normalizedParentQuery));
   const selectedClass = structuredClasses.find((item) => !item.parentClassId && (item.id === form.classId || (!form.classId && item.name === form.className)));
   const subclasses = selectedClass ? structuredClasses.filter((item) => item.parentClassId === selectedClass.id && item.active !== false) : [];
   const biometric = resolveStudentBiometric(form);
@@ -100,12 +103,14 @@ export function StudentForm({
       <Field label="Adresse" value={form.address} onChange={(value) => setForm({ ...form, address: value })} />
       <label className="grid gap-1 text-sm font-medium text-slate-700">
         Parent
+        <input value={parentQuery} onChange={(event) => setParentQuery(event.target.value)} className="input" placeholder="Rechercher un parent par nom" aria-label="Rechercher un parent" />
         <select value={form.parentId ?? ""} onChange={(event) => setForm({ ...form, parentId: event.target.value || undefined })} className="input">
           <option value="">Aucun parent lié</option>
-          {parents.map((parent) => (
+          {visibleParents.map((parent) => (
             <option key={parent.id} value={parent.id}>{parent.fullName} - {parent.phone}</option>
           ))}
         </select>
+        {visibleParents.length === 0 && <span className="rounded bg-slate-50 p-2 text-sm font-normal text-slate-500">Aucun parent trouvé.</span>}
       </label>
       {canCreateParent && <div className="rounded border border-slate-100 bg-slate-50 p-3">
         <p className="mb-2 text-sm font-semibold text-ink">Créer un parent sans quitter la fiche</p>

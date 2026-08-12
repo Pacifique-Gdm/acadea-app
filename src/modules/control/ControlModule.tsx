@@ -13,6 +13,7 @@ import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
 import { feeAppliesToStudent } from "../../utils/feeTargets";
 import { buildControlClassChoices, buildControlFeeGroups, feeNamesForWarningClass, getControlClassKey, selectPaymentWarningRecipients } from "../../utils/controlFilters";
 import { formatStudentClassName } from "../../utils/studentClasses";
+import { formatSchoolMoney } from "../../utils/currency";
 import { compareStudentsForPdfByClass, formatStudentPdfClassName } from "../../utils/studentPdf";
 import type { AppData, AppUser, AuditLog, Expense, FeeType, ParentProfile, Payment, School, SchoolYear, Student } from "../../types";
 
@@ -80,6 +81,7 @@ export function ControlModule({
   const expenseSubmittingRef = useRef(false);
   const financialMutationRef = useRef("");
   const [historyQuery, setHistoryQuery] = useState("");
+  const [expenseHistoryQuery, setExpenseHistoryQuery] = useState("");
   const [selectedHistoryStudentId, setSelectedHistoryStudentId] = useState("");
   const controlIndexes = useMemo(() => buildSchoolYearDataIndexes(yearData.students, yearData.feeTypes, yearData.payments), [yearData.students, yearData.feeTypes, yearData.payments]);
   const paymentHistory = usePaginatedControlHistory<Payment>({
@@ -272,7 +274,12 @@ export function ControlModule({
       remaining: Math.max(selectedHistoryBalance.expected - selectedHistoryRunningPaid, 0),
     };
   });
-  const sortedExpenses = [...expenseHistory.items].sort((first, second) => historyTimestamp(second.createdAt, second.spentAt) - historyTimestamp(first.createdAt, first.spentAt));
+  const normalizedExpenseQuery = expenseHistoryQuery.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase("fr");
+  const sortedExpenses = expenseHistory.items.filter((expense) => {
+    if (!normalizedExpenseQuery) return true;
+    const searchable = [expense.description, expense.category, expense.cashierName, getExpenseField(expense, ["beneficiary", "beneficiaire", "supplier", "fournisseur", "providerName", "payee"]), getExpenseField(expense, ["reference", "referenceNumber", "pieceNumber", "voucherNumber", "receiptNumber"])].join(" ").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("fr");
+    return searchable.includes(normalizedExpenseQuery);
+  }).sort((first, second) => historyTimestamp(second.createdAt, second.spentAt) - historyTimestamp(first.createdAt, first.spentAt));
   const isOtherExpenseEditCategory = expenseEditCategory === "Autre" || expenseEditCategory === "Autres";
   const cashierDrawerTitle = "Enregistrer";
 
@@ -281,7 +288,7 @@ export function ControlModule({
   }
 
   function formatMoney(value: number) {
-    return `$${value.toFixed(2)}`;
+    return formatSchoolMoney(value, school);
   }
 
   function formatPaymentDate(value: string) {
@@ -894,6 +901,10 @@ export function ControlModule({
   function renderExpenseHistoryContent() {
     return (
       <div className="space-y-2">
+        <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
+          <Search className="h-4 w-4 shrink-0 text-slate-400" />
+          <input value={expenseHistoryQuery} onChange={(event) => setExpenseHistoryQuery(event.target.value)} className="min-w-0 flex-1 outline-none" placeholder="Rechercher une dépense" aria-label="Rechercher dans l'historique des dépenses" />
+        </label>
         <p className="rounded bg-slate-50 p-3 text-xs font-semibold text-slate-500">
           Historique chargé par pages de 50 éléments, du plus récent au plus ancien.
         </p>
@@ -904,7 +915,7 @@ export function ControlModule({
             <button onClick={() => void expenseHistory.loadFirstPage()} className="secondary-button w-fit" type="button">Réessayer</button>
           </div>
         )}
-        {sortedExpenses.length === 0 && !expenseHistory.isInitialLoading && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucune dépense enregistrée.</p>}
+        {sortedExpenses.length === 0 && !expenseHistory.isInitialLoading && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">{normalizedExpenseQuery ? "Aucune dépense trouvée." : "Aucune dépense enregistrée."}</p>}
         {sortedExpenses.map((expense) => {
           const beneficiary = getExpenseField(expense, ["beneficiary", "beneficiaire", "supplier", "fournisseur", "providerName", "payee"]);
           const paymentMethod = getExpenseField(expense, ["paymentMethod", "modePaiement", "paymentMode", "mode"]);

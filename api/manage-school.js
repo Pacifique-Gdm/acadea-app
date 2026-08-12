@@ -28,9 +28,10 @@ function normalizeText(value) {
 
 function pickSchoolPatch(body) {
   const patch = {};
-  for (const key of ["name", "address", "phone", "email", "subscriptionPlan", "subscriptionStatus", "subscriptionAmount"]) {
+  for (const key of ["name", "address", "phone", "email", "subscriptionPlan", "subscriptionStatus", "subscriptionAmount", "currency"]) {
     if (body[key] !== undefined) patch[key] = body[key];
   }
+  if (patch.currency !== undefined && !["USD", "CDF"].includes(patch.currency)) delete patch.currency;
   return patch;
 }
 

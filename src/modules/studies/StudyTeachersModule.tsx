@@ -5,7 +5,7 @@ import { Pencil, Plus } from "lucide-react";
 import { AdminDrawer } from "../../components/ui";
 import type { AppUser, School, SchoolYear } from "../../types";
 import { hasActiveAssignmentDuplicate, teacherWorkload, validateWeeklyPeriods } from "./studyAssignments";
-import { createStudySubject, savePedagogicalAssignment, setPedagogicalAssignmentActive } from "./studyService";
+import { createStudySubject, savePedagogicalAssignment, savePedagogicalAssignments, setPedagogicalAssignmentActive } from "./studyService";
 import type { PedagogicalAssignment, StudyTeacher } from "./studyTypes";
 import type { useStudyData } from "./useStudyData";
 import { TeacherAvailabilityDrawer, TeacherAvailabilitySummary } from "./TeacherAvailabilityDrawer";
@@ -18,8 +18,8 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
   const [availabilityTeacher, setAvailabilityTeacher] = useState<StudyTeacher>();
   const [editingAssignment, setEditingAssignment] = useState<PedagogicalAssignment>();
   const [teacherId, setTeacherId] = useState("");
-  const [subjectId, setSubjectId] = useState("");
-  const [classId, setClassId] = useState("");
+  const [subjectIds, setSubjectIds] = useState<string[]>([]);
+  const [classIds, setClassIds] = useState<string[]>([]);
   const [weeklyPeriods, setWeeklyPeriods] = useState("1");
   const [titularClassId, setTitularClassId] = useState("");
   const [active, setActive] = useState(true);
@@ -44,8 +44,8 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
   function openAssignment(current?: PedagogicalAssignment, preselectedTeacher?: StudyTeacher) {
     setEditingAssignment(current);
     setTeacherId(current?.teacherId ?? preselectedTeacher?.id ?? "");
-    setSubjectId(current?.subjectId ?? "");
-    setClassId(current?.classId ?? "");
+    setSubjectIds(current?.subjectId ? [current.subjectId] : []);
+    setClassIds(current?.classId ? [current.classId] : []);
     setWeeklyPeriods(String(current?.weeklyPeriods ?? 1));
     setTitularClassId(current?.titularClassId ?? "");
     setActive(current?.active ?? true);
@@ -57,12 +57,14 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
     const periods = Number(weeklyPeriods);
     const periodError = validateWeeklyPeriods(periods);
     if (periodError) return setFeedback(periodError);
-    const candidate = { schoolId: school.id, schoolYearId: year.id, teacherId, subjectId, classId };
-    if (hasActiveAssignmentDuplicate(assignments, candidate, editingAssignment?.id)) return setFeedback("Cette affectation active existe déjà.");
+    if (!teacherId || subjectIds.length === 0 || classIds.length === 0) return setFeedback("L’enseignant, une matière et une classe sont obligatoires.");
+    const candidates = subjectIds.flatMap((subjectId) => classIds.map((classId) => ({ schoolId: school.id, schoolYearId: year.id, teacherId, subjectId, classId })));
+    if (candidates.some((candidate) => hasActiveAssignmentDuplicate(assignments, candidate, editingAssignment?.id))) return setFeedback("Une des affectations actives sélectionnées existe déjà.");
     if (titularClassId && assignments.some((item) => item.id !== editingAssignment?.id && item.active && item.titularClassId === titularClassId)) return setFeedback("Cette classe opérationnelle possède déjà un titulaire actif.");
     setBusy(true); setFeedback("");
     try {
-      await savePedagogicalAssignment({ user, ...candidate, weeklyPeriods: periods, titularClassId: titularClassId || null, active, current: editingAssignment });
+      if (editingAssignment) await savePedagogicalAssignment({ user, ...candidates[0], weeklyPeriods: periods, titularClassId: titularClassId || null, active, current: editingAssignment });
+      else await savePedagogicalAssignments({ user, schoolId: school.id, schoolYearId: year.id, teacherId, subjectIds, classIds, weeklyPeriods: periods, titularClassId: titularClassId || null, active });
       setAssignmentOpen(false);
     } catch (cause) { setFeedback(cause instanceof Error ? cause.message : "Enregistrement impossible."); }
     finally { setBusy(false); }
@@ -87,6 +89,14 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
 
     {availabilityTeacher && <TeacherAvailabilityDrawer user={user} teacher={availabilityTeacher} year={year} items={data.availabilities} onClose={()=>setAvailabilityTeacher(undefined)}/>}
 
-    {assignmentOpen && <AdminDrawer title={editingAssignment ? "Modifier l’affectation" : "Ajouter une affectation"} closeLabel="Fermer le formulaire d’affectation" onClose={() => !busy && setAssignmentOpen(false)}><label className="grid gap-1 text-sm font-semibold">Enseignant<select className="input" value={teacherId} onChange={(event) => setTeacherId(event.target.value)}><option value="">Sélectionner</option>{activeTeachers.map((item) => <option key={item.id} value={item.id}>{item.fullName}</option>)}</select></label><label className="grid gap-1 text-sm font-semibold">Matière<select className="input" value={subjectId} onChange={(event) => setSubjectId(event.target.value)}><option value="">Sélectionner</option>{subjects.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><div className="rounded border border-dashed border-slate-300 p-3"><label className="grid gap-1 text-sm font-semibold">Nouvelle matière<input className="input" value={newSubject} onChange={(event) => setNewSubject(event.target.value)} /></label><button type="button" className="secondary-button mt-2" disabled={busy || !newSubject.trim()} onClick={() => void submitSubject()}>Ajouter la matière</button></div><label className="grid gap-1 text-sm font-semibold">Classe<select className="input" value={classId} onChange={(event) => setClassId(event.target.value)}><option value="">{assignmentClasses.length ? "Sélectionner" : "Aucune classe disponible."}</option>{assignmentClasses.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className="grid gap-1 text-sm font-semibold">Nombre de périodes hebdomadaires<input className="input" type="number" min={1} max={60} step={1} value={weeklyPeriods} onChange={(event) => setWeeklyPeriods(event.target.value)} /></label><label className="grid gap-1 text-sm font-semibold">Titulaire de la classe (facultatif)<select className="input" value={titularClassId} onChange={(event) => setTitularClassId(event.target.value)}><option value="">{assignmentClasses.length ? "Choisir classe" : "Aucune classe disponible."}</option>{assignmentClasses.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>{editingAssignment && <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={active} onChange={(event) => setActive(event.target.checked)} /> Affectation active</label>}{feedback && <p role="alert" className="text-sm text-red-700">{feedback}</p>}<div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" disabled={busy} onClick={() => setAssignmentOpen(false)}>Annuler</button><button type="button" className="primary-button justify-center" disabled={busy} onClick={() => void submitAssignment()}>{busy ? "Enregistrement…" : "Enregistrer"}</button></div></AdminDrawer>}
+    {assignmentOpen && <AdminDrawer title={editingAssignment ? "Modifier l’affectation" : "Ajouter une affectation"} closeLabel="Fermer le formulaire d’affectation" onClose={() => !busy && setAssignmentOpen(false)}>
+      <label className="grid gap-1 text-sm font-semibold">Enseignant<select className="input" value={teacherId} onChange={(event) => setTeacherId(event.target.value)}><option value="">Sélectionner</option>{activeTeachers.map((item) => <option key={item.id} value={item.id}>{item.fullName}</option>)}</select></label>
+      <fieldset className="grid gap-2 rounded border border-slate-200 p-3"><legend className="px-1 text-sm font-semibold">Matières</legend>{subjects.filter((item) => item.active).map((item) => <label key={item.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={subjectIds.includes(item.id)} disabled={Boolean(editingAssignment && !subjectIds.includes(item.id))} onChange={() => setSubjectIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])} /> {item.name}</label>)}</fieldset>
+      <div className="rounded border border-dashed border-slate-300 p-3"><label className="grid gap-1 text-sm font-semibold">Nouvelle matière<input className="input" value={newSubject} onChange={(event) => setNewSubject(event.target.value)} /></label><button type="button" className="secondary-button mt-2" disabled={busy || !newSubject.trim()} onClick={() => void submitSubject()}>Ajouter la matière</button></div>
+      <fieldset className="grid gap-2 rounded border border-slate-200 p-3"><legend className="px-1 text-sm font-semibold">Classes</legend>{assignmentClasses.length === 0 && <p className="text-sm text-slate-500">Aucune classe disponible.</p>}{assignmentClasses.map((item) => <label key={item.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={classIds.includes(item.id)} disabled={Boolean(editingAssignment && !classIds.includes(item.id))} onChange={() => setClassIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])} /> {item.name}</label>)}</fieldset>
+      <label className="grid gap-1 text-sm font-semibold">Nombre de périodes hebdomadaires<input className="input" type="number" min={1} max={60} step={1} value={weeklyPeriods} onChange={(event) => setWeeklyPeriods(event.target.value)} /></label>
+      <label className="grid gap-1 text-sm font-semibold">Titulaire de la classe (facultatif)<select className="input" value={titularClassId} onChange={(event) => setTitularClassId(event.target.value)}><option value="">{assignmentClasses.length ? "Choisir classe" : "Aucune classe disponible."}</option>{assignmentClasses.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+      {editingAssignment && <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={active} onChange={(event) => setActive(event.target.checked)} /> Affectation active</label>}{feedback && <p role="alert" className="text-sm text-red-700">{feedback}</p>}<div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" disabled={busy} onClick={() => setAssignmentOpen(false)}>Annuler</button><button type="button" className="primary-button justify-center" disabled={busy} onClick={() => void submitAssignment()}>{busy ? "Enregistrement…" : "Enregistrer"}</button></div>
+    </AdminDrawer>}
   </section>;
 }

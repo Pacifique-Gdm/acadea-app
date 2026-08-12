@@ -2,7 +2,7 @@ import { collection, doc, onSnapshot, query, runTransaction, setDoc, where } fro
 import type { Firestore } from "@firebase/firestore";
 import { db } from "../../firebase";
 import type { AppUser, Student } from "../../types";
-import { pedagogicalAssignmentId, validateWeeklyPeriods } from "./studyAssignments";
+import { expandAssignmentSelections, pedagogicalAssignmentId, validateWeeklyPeriods } from "./studyAssignments";
 import type { PedagogicalAssignment, SchedulePeriod, StudyClass, StudyRoom, StudySubject, StudyTeacher, TeacherAvailability, Timetable, TimetableEntry } from "./studyTypes";
 import { detectAvailabilityConflicts, validTimeRange, validatePeriod } from "./studySchedule";
 import { validateAvailabilityRanges } from "./studySchedule";
@@ -150,6 +150,46 @@ export async function savePedagogicalAssignment(input: { user: AppUser; schoolId
     if (previousTitularRef && previousTitular?.exists()) transaction.delete(previousTitularRef);
     if (titularRef) transaction.set(titularRef, { id: `${input.schoolId}__${input.schoolYearId}__${input.titularClassId}`, schoolId: input.schoolId, schoolYearId: input.schoolYearId, classId: input.titularClassId, teacherId: input.teacherId, assignmentId: targetId, active: input.active, updatedAt: now, updatedBy: input.user.id });
   });
+}
+
+export async function savePedagogicalAssignments(input: { user: AppUser; schoolId: string; schoolYearId: string; teacherId: string; subjectIds: string[]; classIds: string[]; weeklyPeriods: number; titularClassId?: string | null; active: boolean }) {
+  const database = requireScope(input.user, input.schoolId, input.schoolYearId);
+  const subjectIds = [...new Set(input.subjectIds.filter(Boolean))];
+  const classIds = [...new Set(input.classIds.filter(Boolean))];
+  if (!input.teacherId || subjectIds.length === 0 || classIds.length === 0) throw new Error("L’enseignant, une matière et une classe sont obligatoires.");
+  const periodError = validateWeeklyPeriods(input.weeklyPeriods);
+  if (periodError) throw new Error(periodError);
+  const combinations = expandAssignmentSelections(subjectIds, classIds);
+  const now = new Date().toISOString();
+  await runTransaction(database, async (transaction) => {
+    const teacherRef = doc(database, "teachers", input.teacherId);
+    const subjectRefs = subjectIds.map((id) => doc(database, "subjects", id));
+    const classRefs = classIds.map((id) => doc(database, "classes", id));
+    const titularClassRef = input.titularClassId ? doc(database, "classes", input.titularClassId) : undefined;
+    const titularRef = input.titularClassId ? doc(database, "classTitulars", `${input.schoolId}__${input.schoolYearId}__${input.titularClassId}`) : undefined;
+    const [teacher, ...references] = await Promise.all([transaction.get(teacherRef), ...subjectRefs.map((ref) => transaction.get(ref)), ...classRefs.map((ref) => transaction.get(ref)), ...(titularClassRef ? [transaction.get(titularClassRef)] : []), ...(titularRef ? [transaction.get(titularRef)] : [])]);
+    const validReference = (snapshot: typeof teacher) => snapshot.exists() && snapshot.data()?.schoolId === input.schoolId && snapshot.data()?.schoolYearId === input.schoolYearId;
+    if (!validReference(teacher) || teacher.data()?.status === "inactive" || references.slice(0, subjectRefs.length + classRefs.length).some((snapshot) => !validReference(snapshot))) throw new Error("Une référence pédagogique est inconnue, inactive ou hors périmètre.");
+    if (typeof teacher.data()?.userId === "string") {
+      const teacherUser = await transaction.get(doc(database, "users", teacher.data()?.userId));
+      const profile = teacherUser.data();
+      if (!teacherUser.exists() || profile?.schoolId !== input.schoolId || profile?.role !== "teacher" || profile?.status === "inactive" || profile?.active === false) throw new Error("Cet enseignant est archivé et ne peut plus recevoir de nouvelle affectation.");
+    }
+    const titularClassSnapshot = titularClassRef ? references[subjectRefs.length + classRefs.length] : undefined;
+    if (titularClassSnapshot && (!validReference(titularClassSnapshot) || titularClassSnapshot.data()?.active === false)) throw new Error("La classe de titulariat est inconnue, inactive ou hors périmètre.");
+    const titularSnapshot = titularRef ? references.at(-1) : undefined;
+    if (titularSnapshot?.exists()) throw new Error("Cette classe opérationnelle possède déjà un titulaire actif.");
+    combinations.forEach(({ subjectId, classId }) => {
+      const id = pedagogicalAssignmentId({ schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, subjectId, classId });
+      transaction.set(doc(database, "pedagogicalAssignments", id), { id, schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, subjectId, classId, weeklyPeriods: input.weeklyPeriods, blockSize: 1, preferredRoomId: null, titularClassId: input.titularClassId && combinations[0]?.subjectId === subjectId && combinations[0]?.classId === classId ? input.titularClassId : null, active: input.active, createdAt: now, updatedAt: now, createdBy: input.user.id, updatedBy: input.user.id });
+    });
+    if (titularRef && input.titularClassId) {
+      const first = combinations[0];
+      const assignmentId = pedagogicalAssignmentId({ schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, subjectId: first.subjectId, classId: first.classId });
+      transaction.set(titularRef, { id: `${input.schoolId}__${input.schoolYearId}__${input.titularClassId}`, schoolId: input.schoolId, schoolYearId: input.schoolYearId, classId: input.titularClassId, teacherId: input.teacherId, assignmentId, active: input.active, updatedAt: now, updatedBy: input.user.id });
+    }
+  });
+  return combinations.length;
 }
 
 export async function setPedagogicalAssignmentActive(user: AppUser, assignment: PedagogicalAssignment, active: boolean) {
