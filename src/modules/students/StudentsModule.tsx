@@ -9,7 +9,7 @@ import { nextParentEmail, parentEmailExists } from "../../utils/parents";
 import { getSchoolClassChoices, getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
 import { normalizeSchoolOptions } from "../../utils/schoolOptions";
 import { formatStudentClassName, getClassSection } from "../../utils/studentClasses";
-import { emptyStudent, generateMatricule, isArchivedStudent, validateStudentForSave } from "../../utils/studentUtils";
+import { emptyStudent, generateMatricule, isArchivedStudent, studentForPersistence, validateStudentForSave } from "../../utils/studentUtils";
 import { exportStudentsPdf, sortStudentsForPdfByClass } from "../../utils/studentPdf";
 import type { AppData, AppUser, ParentProfile, School, SchoolSection, SchoolYear, Student } from "../../types";
 import { CLASSES } from "../../types";
@@ -188,7 +188,7 @@ export function StudentsModule({
       const targetYearId = exists ? form.schoolYearId : year.id;
       const targetYearName = exists ? data.schoolYears.find((item) => item.id === form.schoolYearId)?.name ?? year.name : year.name;
       const matricule = exists ? form.matricule : generateMatricule(data.students, targetYearName, school.id, targetYearId);
-      const student: Student = {
+      const student = studentForPersistence({
         ...form,
         matricule,
         section: getClassSection(form.className),
@@ -196,9 +196,10 @@ export function StudentsModule({
         schoolId: school.id,
         schoolYearId: targetYearId,
         annee_scolaire_id: targetYearId,
-      };
+      });
       if (selectedOptionKey) student.classOptionKey = selectedOptionKey;
       else delete student.classOptionKey;
+      if (student.section !== "Secondaire" || !student.option) delete student.option;
       if (!student.classId) delete student.classId;
       if (!student.subClassId) delete student.subClassId;
       if (selectedParentId) {
@@ -240,7 +241,8 @@ export function StudentsModule({
       setShowForm(false);
       setSaveMessage(exists ? "Élève modifié avec succès." : "Élève enregistré avec succès.");
     } catch (error) {
-      setSaveError(error instanceof Error ? `Impossible d'enregistrer l'élève : ${error.message}` : "Impossible d'enregistrer l'élève. Veuillez réessayer.");
+      if (import.meta.env.DEV) console.error("Enregistrement de l'élève impossible.", error);
+      setSaveError("Impossible d'enregistrer l'élève. Vérifiez les informations saisies.");
     } finally {
       saveInProgressRef.current = false;
       setIsSaving(false);

@@ -26,6 +26,11 @@ export function validateStudentForSave(student: Student, schoolId: string, schoo
   return "";
 }
 
+/** Removes only undefined optional properties before a Student is sent to Firestore. */
+export function studentForPersistence(student: Student): Student {
+  return Object.fromEntries(Object.entries(student).filter(([, value]) => value !== undefined)) as unknown as Student;
+}
+
 export function emptyStudent(schoolId: string, schoolYearId: string): Student {
   return {
     id: `new-${crypto.randomUUID()}`,

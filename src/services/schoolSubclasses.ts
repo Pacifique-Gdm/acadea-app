@@ -59,6 +59,18 @@ export function operationalSchoolClasses<T extends OperationalClass>(classes: re
   return [...unique.values()].sort((first, second) => first.name.localeCompare(second.name, "fr", { numeric: true, sensitivity: "base" }));
 }
 
+export function studentBelongsToOperationalClass(student: EnrolledStudentClassReference & { classOptionKey?: string; option?: string }, schoolClass: OperationalClass) {
+  if (student.schoolId !== schoolClass.schoolId || student.schoolYearId !== schoolClass.schoolYearId) return false;
+  if (schoolClass.parentClassId) return student.subClassId === schoolClass.id;
+  if (student.subClassId) return student.subClassId === schoolClass.id;
+  if (student.classId && student.classId !== schoolClass.id) return false;
+  const classOptionKey = schoolClass.classOptionKey?.trim();
+  if (classOptionKey) return student.classOptionKey === classOptionKey;
+  const option = schoolClass.option?.trim();
+  if (option) return student.option?.trim() === option;
+  return student.classId === schoolClass.id || normalizedClassName(student.className ?? "") === normalizedClassName(schoolClass.name);
+}
+
 export function classesWithEnrolledStudents(classes: SchoolClassRecord[], students: EnrolledStudentClassReference[], schoolId: string, schoolYearId: string) {
   const scopedClasses = classes.filter((item) => item.schoolId === schoolId && item.schoolYearId === schoolYearId && item.active !== false);
   const byId = new Map(scopedClasses.map((item) => [item.id, item]));

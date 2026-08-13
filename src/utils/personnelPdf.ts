@@ -2,7 +2,22 @@ import type { AppUser, School } from "../types";
 import { isArchivedPersonnel, personnelRoleLabels } from "../services/personnel";
 import { schoolSectionLabels } from "./schoolConfig";
 import { userSectionIds } from "./userSections";
-import { pdfInfoGrid, renderAcadPdfPreview } from "./pdf";
+import { pdfInfoGrid, pdfTable, renderAcadPdfPreview } from "./pdf";
+
+export async function printPersonnelListPdf(school: School, personnel: AppUser[], status: "active" | "archived", printedAt = new Date()) {
+  const archived = status === "archived";
+  return renderAcadPdfPreview({
+    filename: `liste-personnel-${archived ? "archive" : "actif"}.pdf`, title: `Liste du personnel ${archived ? "archivé" : "actif"}`, school, generatedAt: printedAt,
+    sections: [pdfTable([
+      { header: "Nom", render: (item) => item.name },
+      { header: "Fonction", render: (item) => personnelRoleLabels[item.role as keyof typeof personnelRoleLabels] ?? item.role },
+      { header: "Sections", render: (item) => userSectionIds(item).map((section) => schoolSectionLabels[section]).join(", ") || "Non renseignées" },
+      { header: "Téléphone", render: (item) => item.phone || "Non renseigné" },
+      { header: "E-mail", render: (item) => item.email || "Non renseigné" },
+      { header: "Statut", render: () => archived ? "Archivé" : "Actif" },
+    ], personnel, "Aucun personnel correspondant au filtre sélectionné.")],
+  });
+}
 
 export async function printPersonnelProfilePdf(school: School, personnel: AppUser, printedAt = new Date()) {
   const role = personnelRoleLabels[personnel.role as keyof typeof personnelRoleLabels] ?? personnel.role;

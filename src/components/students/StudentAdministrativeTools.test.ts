@@ -26,7 +26,21 @@ describe("outils administratifs Élèves partagés", () => {
     expect(tools).toContain("exportAgeHomogeneityPdf");
     expect(tools).toContain("studentImportKey");
     expect(tools).not.toContain("theoreticalAgeByClass");
-    expect(tools).toContain("classesWithEnrolledStudents");
+    expect(tools).toContain("operationalSchoolClasses");
+  });
+
+  it("propose toutes les classes actives et aligne les trois filtres", () => {
+    expect(tools).toContain("studentBelongsToOperationalClass");
+    expect(tools).not.toContain("classesWithEnrolledStudents");
+    expect(tools).toContain("grid min-w-0 grid-cols-3 gap-2");
+    expect(tools).toContain('className="input min-w-0" aria-label="Classe"');
+  });
+
+  it("alimente le PDF avec le meme dataset filtre et le contexte visible", () => {
+    expect(tools).toContain("exportAgeHomogeneityPdf(school, year, students, {");
+    expect(tools).toContain("sectionLabel:");
+    expect(tools).toContain("classLabel:");
+    expect(tools).toContain("statusLabel:");
   });
 
   it("borne l’import au Secrétaire actif, à son école et à l’année courante", () => {

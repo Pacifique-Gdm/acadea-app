@@ -1,5 +1,4 @@
 import type { School, SchoolClass, SchoolYear, Student } from "../types";
-import { CLASSES } from "../types";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./pdf";
 import type { PdfTableColumn } from "./pdf";
 import { formatStudentClassName } from "./studentClasses";
@@ -89,7 +88,13 @@ export function calculateStudentAge(birthDate?: string) {
   return age >= 0 ? age : null;
 }
 
-export async function exportAgeHomogeneityPdf(school: School, year: SchoolYear, students: Student[]) {
+export interface AgeHomogeneityPdfContext {
+  sectionLabel?: string;
+  classLabel?: string;
+  statusLabel?: string;
+}
+
+export async function exportAgeHomogeneityPdf(school: School, year: SchoolYear, students: Student[], context: AgeHomogeneityPdfContext = {}) {
   type StudentAgeDetailRow = {
     index: number;
     student: Student;
@@ -100,7 +105,7 @@ export async function exportAgeHomogeneityPdf(school: School, year: SchoolYear, 
   };
   type AgeHomogeneitySummaryRow = {
     index: number;
-    className: SchoolClass;
+    className: string;
     minAge: number | null;
     maxAge: number | null;
     averageAge: number | null;
@@ -175,8 +180,9 @@ export async function exportAgeHomogeneityPdf(school: School, year: SchoolYear, 
             : situation;
     return { index: index + 1, student, age, theoreticalAge, situation, observation };
   });
-  const summaryRows: AgeHomogeneitySummaryRow[] = CLASSES.map((className) => {
-    const classRows = detailRows.filter((row) => row.student.className === className);
+  const representedClasses = [...new Set(detailRows.map((row) => formatStudentClassName(row.student)))];
+  const summaryRows: AgeHomogeneitySummaryRow[] = representedClasses.map((className) => {
+    const classRows = detailRows.filter((row) => formatStudentClassName(row.student) === className);
     if (classRows.length === 0) return null;
     const knownAgeRows = classRows.filter((row) => row.age !== null);
     const ages = knownAgeRows.map((row) => row.age as number);
@@ -214,6 +220,9 @@ export async function exportAgeHomogeneityPdf(school: School, year: SchoolYear, 
         pdfInfoGrid([
           { label: "Élèves analysés", value: detailRows.length },
           { label: "Classes représentées", value: summaryRows.length },
+          { label: "Section", value: context.sectionLabel || "Toutes les sections" },
+          { label: "Classe", value: context.classLabel || "Toutes les classes" },
+          { label: "Statut", value: context.statusLabel || "Tous les statuts" },
           { label: "Date de calcul", value: new Intl.DateTimeFormat("fr-FR").format(new Date()) },
           {
             label: "Données manquantes",

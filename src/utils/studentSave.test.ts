@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { emptyStudent, validateStudentForSave } from "./studentUtils";
+import { emptyStudent, studentForPersistence, validateStudentForSave } from "./studentUtils";
 
 describe("validation de l'enregistrement d'un élève", () => {
   const validStudent = () => ({ ...emptyStudent("school-a", "year-a"), nom: "Kabuya", prenom: "Aline" });
@@ -14,6 +14,43 @@ describe("validation de l'enregistrement d'un élève", () => {
     expect(validateStudentForSave({ ...validStudent(), prenom: " " }, "school-a", "year-a")).toContain("prénom");
     expect(validateStudentForSave(validStudent(), "", "year-a")).toContain("année scolaire");
     expect(validateStudentForSave(validStudent(), "school-a", "")).toContain("année scolaire");
+  });
+});
+
+describe("payload Firestore élève", () => {
+  it("student save omits undefined optional option field", () => {
+    const document = studentForPersistence({
+      ...emptyStudent("school-a", "year-a"),
+      option: undefined,
+      classOptionKey: undefined,
+      subClassId: undefined,
+    });
+
+    expect(document).not.toHaveProperty("option");
+    expect(document).not.toHaveProperty("classOptionKey");
+    expect(document).not.toHaveProperty("subClassId");
+    expect(Object.values(document)).not.toContain(undefined);
+  });
+
+  it("conserve une option réelle, la sous-classe et les valeurs intentionnelles", () => {
+    const document = studentForPersistence({
+      ...emptyStudent("school-a", "year-a"),
+      className: "1ère Humanité",
+      option: "Scientifique",
+      classOptionKey: "class-a::option::Scientifique",
+      subClassId: "subclass-a",
+      phone: "",
+      biometric: {
+        fingerprintStatus: "not_enrolled",
+        fingerprintUpdatedAt: null,
+        cardStatus: "not_assigned",
+        cardUid: null,
+        cardUpdatedAt: null,
+      },
+    });
+
+    expect(document).toMatchObject({ option: "Scientifique", classOptionKey: "class-a::option::Scientifique", subClassId: "subclass-a", phone: "" });
+    expect(document.biometric?.fingerprintUpdatedAt).toBeNull();
   });
 });
 
@@ -41,5 +78,11 @@ describe("flux de soumission du formulaire élève", () => {
     expect(moduleSource).toContain("} finally {");
     expect(moduleSource).toContain("saveInProgressRef.current = false;");
     expect(moduleSource).toContain("setIsSaving(false);");
+    expect(moduleSource).toContain("Impossible d'enregistrer l'élève. Vérifiez les informations saisies.");
+    expect(moduleSource).not.toContain("`Impossible d'enregistrer l'élève : ${error.message}`");
+  });
+
+  it("supprime une ancienne option lorsqu'une classe sans option est enregistrée", () => {
+    expect(moduleSource).toContain('if (student.section !== "Secondaire" || !student.option) delete student.option;');
   });
 });

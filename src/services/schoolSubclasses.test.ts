@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeSubclasses, classesWithEnrolledStudents, operationalClasses, operationalSchoolClasses, schoolClassOptionKey, schoolClassRecordId, secondarySubclassesForOption, validateSubclassLabels } from "./schoolSubclasses";
+import { activeSubclasses, classesWithEnrolledStudents, operationalClasses, operationalSchoolClasses, schoolClassOptionKey, schoolClassRecordId, secondarySubclassesForOption, studentBelongsToOperationalClass, validateSubclassLabels } from "./schoolSubclasses";
 import fs from "node:fs";
 import type { SchoolClassRecord } from "../types";
 const base = (id: string, extra: Partial<SchoolClassRecord> = {}): SchoolClassRecord => ({ id, schoolId: "school-a", schoolYearId: "year-a", name: id, active: true, ...extra });
@@ -25,6 +25,28 @@ describe("sous-classes structurées", () => {
   });
   it("génère un identifiant stable pour une classe legacy", () => expect(schoolClassRecordId("school-a", "year-a", "7ème CTEB")).toBe("school-a__year-a__7eme-cteb"));
   it("branche le bouton partagé dans l'ordre classe puis option puis sous-classe", () => { const form = fs.readFileSync("src/components/students/StudentForm.tsx", "utf8"); const module = fs.readFileSync("src/modules/students/StudentsModule.tsx", "utf8"); expect(form).toContain("item.name === form.className"); expect(form).toContain("schoolClassRecordId("); expect(form.indexOf("Option")).toBeLessThan(form.indexOf("Ajouter sous-classe")); expect(form).toContain("Sélectionnez d’abord une option."); expect(form).toContain("subClassId: undefined"); expect(form).toContain('useState(["A", "B"])'); expect(form).toContain("Sous-classe ${index + 1}"); expect(module).toContain("subscribeToSchoolClasses"); expect(module).toContain("createSchoolSubclasses"); });
+});
+
+describe("identite operationnelle stable des classes", () => {
+  const commercial = base("commerciale-a", { name: "1ere Humanite", parentClassId: "secondary-1", classOptionKey: schoolClassOptionKey("secondary-1", "Commerciale"), subClassLabel: "A" });
+  const literary = base("litteraire-a", { name: "1ere Humanite", parentClassId: "secondary-1", classOptionKey: schoolClassOptionKey("secondary-1", "Litteraire"), subClassLabel: "A" });
+
+  it("distingue deux options et sous-classes homonymes", () => {
+    const student = { schoolId: "school-a", schoolYearId: "year-a", classId: "secondary-1", subClassId: "commerciale-a", classOptionKey: commercial.classOptionKey, option: "Commerciale" };
+    expect(studentBelongsToOperationalClass(student, commercial)).toBe(true);
+    expect(studentBelongsToOperationalClass(student, literary)).toBe(false);
+  });
+
+  it("refuse une classe d'une autre ecole ou annee", () => {
+    const student = { schoolId: "school-a", schoolYearId: "year-a", classId: "secondary-1", subClassId: "commerciale-a" };
+    expect(studentBelongsToOperationalClass(student, { ...commercial, schoolId: "school-b" })).toBe(false);
+    expect(studentBelongsToOperationalClass(student, { ...commercial, schoolYearId: "year-b" })).toBe(false);
+  });
+
+  it("conserve une classe active sans eleve et retire une classe desactivee au recalcul", () => {
+    expect(operationalSchoolClasses([base("active-empty"), base("inactive", { active: false })], "school-a", "year-a").map((item) => item.id)).toEqual(["active-empty"]);
+    expect(operationalSchoolClasses([base("active-empty", { active: false })], "school-a", "year-a")).toEqual([]);
+  });
 });
 
 describe("classes réellement utilisées par les élèves", () => {

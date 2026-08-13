@@ -1,18 +1,12 @@
 import { Check, ChevronDown, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
+import { useDismissibleDropdown } from "../../hooks/useDismissibleDropdown";
 
 export type MultiSelectOption = { value: string; label: string };
 
 export function MultiSelectDropdown({ label, options, values, onChange, placeholder = "Sélectionner", disabled = false }: { label: string; options: MultiSelectOption[]; values: string[]; onChange: (values: string[]) => void; placeholder?: string; disabled?: boolean }) {
   const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const closeOutside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
-    document.addEventListener("pointerdown", closeOutside);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => { document.removeEventListener("pointerdown", closeOutside); document.removeEventListener("keydown", closeOnEscape); };
-  }, []);
+  const root = useDismissibleDropdown(() => setOpen(false));
   const selected = options.filter((option) => values.includes(option.value));
   const toggle = (value: string) => onChange(values.includes(value) ? values.filter((item) => item !== value) : [...new Set([...values, value])]);
   return <div ref={root} className="relative grid min-w-0 gap-1 text-sm font-medium text-slate-700">
