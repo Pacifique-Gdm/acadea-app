@@ -343,11 +343,14 @@ export default function App() {
     setRoute(nextRoute);
   }, []);
 
+  const authenticatedUserIdRef = useRef("");
+
   const applyAuthenticatedUser = useCallback((nextUser: AppUser | null) => {
     setAuthError("");
     setBootstrapError("");
 
     if (!nextUser) {
+      authenticatedUserIdRef.current = "";
       setUser(null);
       setSelectedYearId("");
       setActiveTab("dashboard");
@@ -358,6 +361,14 @@ export default function App() {
       return;
     }
 
+    // A users/{uid} snapshot is a profile update, not a new authentication.
+    // Keep the current route/year while propagating sectionIds immediately.
+    if (authenticatedUserIdRef.current === nextUser.id) {
+      setUser(nextUser);
+      return;
+    }
+
+    authenticatedUserIdRef.current = nextUser.id;
     setDataLoading(nextUser.role !== "super_admin");
     setUser(nextUser);
     setSelectedYearId("");

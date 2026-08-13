@@ -8,7 +8,16 @@ const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", 
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
 const adminRemovalConfirmation = "SUPPRIMER ADMINISTRATEUR";
 const internalPersonnelRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]);
-const schoolSections = new Set(["maternelle", "primaire", "CTEB", "secondaire"]);
+const schoolSections = new Set(["Maternelle", "Primaire", "CTEB", "Secondaire"]);
+
+function normalizeSchoolSection(value) {
+  const normalized = normalizeText(value).toLowerCase();
+  if (normalized === "maternelle") return "Maternelle";
+  if (normalized === "primaire") return "Primaire";
+  if (normalized === "cteb" || normalized === "cetb") return "CTEB";
+  if (normalized === "secondaire") return "Secondaire";
+  return undefined;
+}
 
 async function readBody(req) {
   if (req.body && typeof req.body === "object") return req.body;
@@ -41,30 +50,29 @@ function normalizeEmail(value) {
 export function normalizeSectionIds(value) {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value)) throw Object.assign(new Error("Sections invalides."), { statusCode: 400, code: "invalid-argument" });
-  const normalized = [...new Set(value.map(normalizeText).filter(Boolean).map((section) => {
-    const lowered = section.toLowerCase();
-    return lowered === "cetb" || lowered === "cteb" ? "CTEB" : lowered;
-  }))];
-  if (normalized.some((section) => !schoolSections.has(section))) throw Object.assign(new Error("Section invalide."), { statusCode: 400, code: "invalid-argument" });
+  const normalized = [...new Set(value.map(normalizeText).filter(Boolean).map(normalizeSchoolSection))];
+  if (normalized.some((section) => !section || !schoolSections.has(section))) throw Object.assign(new Error("Section invalide."), { statusCode: 400, code: "invalid-argument" });
   return normalized;
 }
 
 function configuredSchoolSections(school = {}) {
   const canonical = (value) => {
     const normalized = normalizeText(value).toLowerCase();
-    if (normalized === "cteb" || normalized === "cetb") return "CTEB";
+    if (normalized === "maternelle uniquement") return "Maternelle uniquement";
+    if (normalized === "primaire uniquement") return "Primaire uniquement";
     if (normalized === "cteb uniquement" || normalized === "cetb uniquement") return "CTEB uniquement";
-    return normalized;
+    if (normalized === "secondaire uniquement") return "Secondaire uniquement";
+    return normalizeSchoolSection(value) ?? normalized;
   };
   const levels = Array.isArray(school.educationLevels) ? school.educationLevels.map(canonical) : [];
   const type = canonical(school.schoolType);
   if (type === "mixte" || levels.includes("mixte")) return [...schoolSections];
   const mapped = [...schoolSections].filter((section) => levels.includes(section));
   if (mapped.length) return mapped;
-  if (type === "secondaire") return ["maternelle", "primaire", "CTEB", "secondaire"];
-  if (type === "CTEB") return ["maternelle", "primaire", "CTEB"];
-  if (type === "primaire") return ["maternelle", "primaire"];
-  const only = type === "CTEB uniquement" ? "CTEB" : type.replace(" uniquement", "");
+  if (type === "Secondaire") return ["Maternelle", "Primaire", "CTEB", "Secondaire"];
+  if (type === "CTEB") return ["Maternelle", "Primaire", "CTEB"];
+  if (type === "Primaire") return ["Maternelle", "Primaire"];
+  const only = type.replace(" uniquement", "");
   return schoolSections.has(only) ? [only] : [...schoolSections];
 }
 

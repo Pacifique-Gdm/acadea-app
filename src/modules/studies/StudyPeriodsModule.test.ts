@@ -19,6 +19,12 @@ describe("Périodes & tranches horaires — présentation", () => {
     expect(source).toContain("Ajouter une période");
   });
 
+  it("rend l'éditeur avant le bouton d'ajout et conserve une fermeture explicite", () => {
+    expect(source).toContain('data-testid="period-editor"');
+    expect(source.indexOf('data-testid="period-editor"')).toBeLessThan(source.indexOf('>Ajouter une période</button>'));
+    expect(source).toContain('onClick={() => setEditorOpen(false)}>Annuler</button>');
+  });
+
   it("présente chaque période verticalement avec deux actions équilibrées", () => {
     expect(source).toContain('className="grid min-w-0 gap-2');
     expect(source).toContain('className="grid grid-cols-2 gap-2"');

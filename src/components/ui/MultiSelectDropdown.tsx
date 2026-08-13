@@ -7,9 +7,11 @@ export function MultiSelectDropdown({ label, options, values, onChange, placehol
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const close = (event: MouseEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
+    const closeOutside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => { document.removeEventListener("pointerdown", closeOutside); document.removeEventListener("keydown", closeOnEscape); };
   }, []);
   const selected = options.filter((option) => values.includes(option.value));
   const toggle = (value: string) => onChange(values.includes(value) ? values.filter((item) => item !== value) : [...new Set([...values, value])]);

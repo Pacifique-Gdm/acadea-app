@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { AppUser } from "../../types";
-import type { TeacherPortalData } from "./teacherPortalData";
+import { scopeTeacherPortalData, type TeacherPortalData } from "./teacherPortalData";
 import { subscribeToTeacherPortalData } from "./teacherPortalService";
 
 const emptyData: TeacherPortalData = { assignments: [], subjects: [], classes: [], rooms: [], periods: [], entries: [], loading: true, error: "" };
@@ -24,5 +24,5 @@ export function useTeacherPortalData(user: AppUser, schoolId: string, schoolYear
       });
     } catch (error) { setData((current) => ({ ...current, loading: false, error: error instanceof Error ? error.message : "Chargement Enseignant impossible." })); return undefined; }
   }, [schoolId, schoolYearId, user]);
-  return data;
+  return useMemo(() => scopeTeacherPortalData(user, data), [data, user]);
 }

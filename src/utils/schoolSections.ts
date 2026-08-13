@@ -26,20 +26,6 @@ export function normalizeSchoolSections(
   );
 }
 
-export function legacySectionQueryValues(
-  sections: readonly SchoolSection[],
-): string[] {
-  return [
-    ...new Set(
-      sections.flatMap((section) =>
-        section === "CTEB"
-          ? ["CTEB", "cteb", "CETB", "cetb"]
-          : [section, section.toLocaleLowerCase()],
-      ),
-    ),
-  ];
-}
-
 export function normalizeSectionField<T extends object>(
   value: T,
 ): T & { section?: SchoolSection; sectionIds?: SchoolSection[] } {

@@ -1,11 +1,12 @@
 import type { SchoolClass, SchoolSection } from "../../types";
 import { getClassSection } from "../../utils/studentClasses";
+import { normalizeSchoolSection } from "../../utils/schoolSections";
 import type { StudyClass, StudySubject } from "./studyTypes";
 
 export const primaryTeacherSections: SchoolSection[] = ["Maternelle", "Primaire"];
 
 export function studyClassSection(item: StudyClass): SchoolSection {
-  return item.section ?? getClassSection(item.name as SchoolClass);
+  return normalizeSchoolSection(item.section) ?? getClassSection(item.name as SchoolClass);
 }
 
 export function subjectAppliesToClass(subject: StudySubject, schoolClass: StudyClass) {

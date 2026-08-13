@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AdminDrawer } from "../../components/ui/AdminDrawer";
-import type { School, SchoolYear } from "../../types";
+import type { AppUser, School, SchoolYear } from "../../types";
 import {
   GRADING_SLOTS,
   activeStudentsForClass,
   editableGradingSlots,
   gradingProgress,
   gradingSlotLabels,
+  scopeTeacherGradingData,
   validateMaxScore,
   validateScore,
   type EditableGradingSlot,
@@ -27,8 +28,8 @@ const entryValue = (entry: GradeEntry | undefined) => {
   return String(entry.score ?? "Non coté");
 };
 
-export function TeacherGradingDrawer({ school, year, onClose }: { school: School; year: SchoolYear; onClose: () => void }) {
-  const [data, setData] = useState<TeacherGradingData>();
+export function TeacherGradingDrawer({ user, school, year, onClose }: { user: AppUser; school: School; year: SchoolYear; onClose: () => void }) {
+  const [rawData, setRawData] = useState<TeacherGradingData>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -45,7 +46,7 @@ export function TeacherGradingDrawer({ school, year, onClose }: { school: School
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      setData(await loadTeacherGrading(school.id, year.id));
+      setRawData(await loadTeacherGrading(school.id, year.id));
       setError("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Chargement impossible.");
@@ -55,6 +56,8 @@ export function TeacherGradingDrawer({ school, year, onClose }: { school: School
   }, [school.id, year.id]);
 
   useEffect(() => { void reload(); }, [reload]);
+
+  const data = useMemo(() => rawData ? scopeTeacherGradingData(user, rawData) : undefined, [rawData, user]);
 
   const assignments = data?.assignments ?? [];
   const assignment = assignments.find((item) => item.id === assignmentId) ?? assignments[0];

@@ -1,5 +1,6 @@
 import type { SchoolClass, SchoolSection } from "../../types";
 import { getClassSection } from "../../utils/studentClasses";
+import { normalizeSchoolSection } from "../../utils/schoolSections";
 import type { SchedulePeriod, StudyClass, StudyDay, StudySubject, StudyVacation } from "./studyTypes";
 
 export const studySectionLabels: Record<SchoolSection, string> = { Maternelle: "Maternelle", Primaire: "Primaire", CTEB: "CTEB", Secondaire: "Secondaire" };
@@ -7,7 +8,7 @@ export const studyVacationLabels: Record<StudyVacation, string> = { morning: "Av
 export const primaryTeacherSections: SchoolSection[] = ["Maternelle", "Primaire"];
 
 export function studyClassSection(item: StudyClass): SchoolSection {
-  return item.section ?? getClassSection(item.name as SchoolClass);
+  return normalizeSchoolSection(item.section) ?? getClassSection(item.name as SchoolClass);
 }
 
 export function operationalClassLabel(item: StudyClass) {

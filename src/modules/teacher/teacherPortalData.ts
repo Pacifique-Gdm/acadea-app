@@ -1,4 +1,7 @@
 import type { PedagogicalAssignment, SchedulePeriod, StudyClass, StudyDay, StudyRoom, StudySubject, StudyTeacher, Timetable, TimetableEntry } from "../studies/studyTypes";
+import type { AppUser } from "../../types";
+import { isSectionAllowed } from "../../utils/userSections";
+import { studyClassSection } from "../studies/teacherAssignmentScope";
 
 export type TeacherPortalData = {
   teacher?: StudyTeacher;
@@ -12,6 +15,21 @@ export type TeacherPortalData = {
   loading: boolean;
   error: string;
 };
+
+export function scopeTeacherPortalData(user: Pick<AppUser, "section" | "sectionIds">, data: TeacherPortalData): TeacherPortalData {
+  const classes = data.classes.filter((item) => isSectionAllowed(user, studyClassSection(item)));
+  const classIds = new Set(classes.map((item) => item.id));
+  const assignments = data.assignments.filter((item) => classIds.has(item.classId));
+  const assignmentIds = new Set(assignments.map((item) => item.id));
+  const subjectIds = new Set(assignments.map((item) => item.subjectId));
+  return {
+    ...data,
+    classes,
+    assignments,
+    subjects: data.subjects.filter((item) => subjectIds.has(item.id)),
+    entries: data.entries.filter((item) => classIds.has(item.classId) && (!item.assignmentId || assignmentIds.has(item.assignmentId))),
+  };
+}
 
 export const studyDayLabels: Record<StudyDay, string> = { monday: "Lundi", tuesday: "Mardi", wednesday: "Mercredi", thursday: "Jeudi", friday: "Vendredi", saturday: "Samedi" };
 export const orderedStudyDays = Object.keys(studyDayLabels) as StudyDay[];

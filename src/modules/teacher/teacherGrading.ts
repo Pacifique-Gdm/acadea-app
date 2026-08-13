@@ -1,5 +1,7 @@
-import type { Student } from "../../types";
+import type { AppUser, Student } from "../../types";
 import type { PedagogicalAssignment, StudyClass, StudySubject, StudyTeacher } from "../studies/studyTypes";
+import { isSectionAllowed } from "../../utils/userSections";
+import type { TeacherGradingData } from "./teacherGradingService";
 import { primaryTeacherSections, studyClassSection } from "../studies/teacherAssignmentScope";
 
 export const GRADING_SLOTS = ["period_1", "period_2", "semester_1_exam", "semester_1_total", "period_3", "period_4", "semester_2_exam", "semester_2_total", "general_total"] as const;
@@ -27,6 +29,23 @@ export function getTeacherGradingScope(teacher:StudyTeacher,assignments:Pedagogi
   return own.filter(item=>subjects.some(subject=>subject.id===item.subjectId&&subject.active));
 }
 export function activeStudentsForClass(students:Student[],schoolId:string,schoolYearId:string,classId:string){return students.filter(student=>student.schoolId===schoolId&&student.schoolYearId===schoolYearId&&(student.subClassId??student.classId)===classId&&(student.status??"ACTIVE")==="ACTIVE"&&!student.deletedAt)}
+
+export function scopeTeacherGradingData(user: Pick<AppUser, "section" | "sectionIds">, data: TeacherGradingData): TeacherGradingData {
+  const classes = data.classes.filter((item) => isSectionAllowed(user, studyClassSection(item)));
+  const classIds = new Set(classes.map((item) => item.id));
+  const assignments = data.assignments.filter((item) => classIds.has(item.classId));
+  const subjectIds = new Set(assignments.map((item) => item.subjectId));
+  return {
+    ...data,
+    classes,
+    assignments,
+    titulars: data.titulars.filter((item) => classIds.has(item.classId)),
+    subjects: data.subjects.filter((item) => subjectIds.has(item.id)),
+    students: data.students.filter((item) => classIds.has(item.subClassId ?? item.classId ?? "")),
+    configs: data.configs.filter((item) => classIds.has(item.classId) && subjectIds.has(item.subjectId)),
+    entries: data.entries.filter((item) => classIds.has(item.classId) && subjectIds.has(item.subjectId)),
+  };
+}
 export function validateScore(score:number|null,status:GradeEntry["status"],maxScore:number){if(status!=="graded")return"";if(score===null)return"Une cote est requise.";if(!Number.isFinite(score)||score<0)return"La cote doit être positive ou nulle.";if(score>maxScore)return`La cote ne peut pas dépasser ${maxScore}.`;return""}
 export function validateMaxScore(next:number,entries:GradeEntry[]){if(!Number.isFinite(next)||next<=0)return"La cote maximale doit être supérieure à zéro.";const highest=Math.max(0,...entries.filter(item=>item.status==="graded"&&item.score!==null).map(item=>item.score!));return next<highest?`La cote maximale ne peut pas être abaissée à ${next} car certaines cotes existantes dépassent cette valeur.`:""}
 export function gradingProgress(entries:GradeEntry[],studentIds:string[]){const graded=new Set(entries.filter(item=>studentIds.includes(item.studentId)&&item.status!=="not_graded").map(item=>item.studentId)).size;return{graded,total:studentIds.length,status:graded===studentIds.length&&studentIds.length>0?"Complet":"En cours" as "Complet"|"En cours"}}

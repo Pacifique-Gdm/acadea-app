@@ -19,4 +19,15 @@ describe("Drawer Personnels", () => {
     expect(source).toContain("<MultiSelectDropdown label=\"Sections\"");
     expect(source).toContain("disabled={busy}");
   });
+
+  it("regroupe les actions autorisées et conserve Imprimer dans une seconde colonne", () => {
+    expect(source).toContain('className="grid grid-cols-2 gap-2"');
+    expect(source).toContain('aria-haspopup="menu"');
+    expect(source).toContain('role="menuitem"');
+    expect(source).toContain("Modifier</button>");
+    expect(source).toContain("Archiver</button>");
+    expect(source).toContain("printPersonnelProfilePdf(school, selected)");
+    expect(source).toContain("Imprimer</button>");
+    expect(source).toContain('selected.role === "school_admin"');
+  });
 });

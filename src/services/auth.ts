@@ -3,6 +3,7 @@ import { doc, getDoc, onSnapshot } from "firebase/firestore";
 import { auth, db, firebaseConfig, firebaseReady } from "../firebase";
 import type { AppUser, Role } from "../types";
 import { markAuthStep } from "../utils/authPerformance";
+import { normalizeSectionIds } from "../utils/userSections";
 
 interface FirebaseAuthModule {
   signInWithEmailAndPassword: (authInstance: unknown, email: string, password: string) => Promise<{ user: FirebaseUser }>;
@@ -47,7 +48,19 @@ function normalizeUserProfile(user: RawAppUser): AppUser {
     ...user,
     role: normalizedRole,
     schoolId: normalizedSchoolId,
+    sectionIds: normalizeSectionIds(user.sectionIds ?? []),
+    section: normalizeSectionIds(user.section ? [user.section] : [])[0],
   } as AppUser;
+}
+
+export function mergeRealtimeUserProfile(resolvedUser: AppUser, profile: Record<string, unknown>): AppUser {
+  return normalizeUserProfile({
+    ...resolvedUser,
+    ...profile,
+    id: resolvedUser.id,
+    role: resolvedUser.role,
+    schoolId: resolvedUser.schoolId,
+  } as RawAppUser);
 }
 
 async function loadFirebaseUserProfile(firebaseUser: FirebaseUser, authModule: FirebaseAuthModule) {
@@ -179,7 +192,7 @@ export async function subscribeToFirebaseUser(
             void authModule.signOut(auth).finally(() => onError(error));
             return;
           }
-          onUser(normalizeUserProfile({ ...resolvedUser, ...profile, id: firebaseUser.uid, role: resolvedUser.role, schoolId: resolvedUser.schoolId } as RawAppUser));
+          onUser(mergeRealtimeUserProfile(resolvedUser, profile ?? {}));
         }, onError);
       }).catch((error) => {
         void authModule.signOut(auth).finally(() => onError(error));

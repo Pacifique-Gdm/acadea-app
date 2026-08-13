@@ -51,6 +51,7 @@ function request(body: Record<string, unknown>) {
 it("normalise les alias CETB/CTEB dans l'API", async () => {
   const { normalizeSectionIds } = await import("../../api/provision-school-account.js");
   expect(normalizeSectionIds(["CTEB", "CETB", "cteb", "cetb"])).toEqual(["CTEB"]);
+  expect(normalizeSectionIds(["maternelle", "Primaire", "SECONDAIRE"])).toEqual(["Maternelle", "Primaire", "Secondaire"]);
   expect(() => normalizeSectionIds(["INVENTEE"])).toThrow("Section invalide");
 });
 

@@ -4,11 +4,7 @@ import {
   schoolSectionLabels,
   toggleSchoolEducationLevel,
 } from "./schoolConfig";
-import {
-  legacySectionQueryValues,
-  normalizeSchoolSection,
-  normalizeSectionField,
-} from "./schoolSections";
+import { normalizeSchoolSection, normalizeSectionField } from "./schoolSections";
 
 describe("configuration canonique CTEB", () => {
   it("ne réinjecte pas CTEB lorsqu'elle est absente de la source de vérité", () => {
@@ -46,11 +42,5 @@ describe("configuration canonique CTEB", () => {
         sectionIds: ["CETB", "Primaire"],
       }),
     ).toMatchObject({ section: "CTEB", sectionIds: ["Primaire", "CTEB"] });
-    expect(legacySectionQueryValues(["CTEB"])).toEqual([
-      "CTEB",
-      "cteb",
-      "CETB",
-      "cetb",
-    ]);
   });
 });

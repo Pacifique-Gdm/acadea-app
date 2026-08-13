@@ -4,7 +4,7 @@ import { AdminDrawer, Metric } from "../ui";
 import { persistFirestorePatch } from "../../services/firestoreData";
 import { createAuditLog } from "../../utils/audit";
 import { getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
-import { operationalSchoolClasses, subscribeToSchoolClasses } from "../../services/schoolSubclasses";
+import { classesWithEnrolledStudents, operationalSchoolClasses, subscribeToSchoolClasses } from "../../services/schoolSubclasses";
 import { getClassSection, getStudentSection, promoteStudentForNewYear } from "../../utils/studentClasses";
 import { exportAgeHomogeneityPdf } from "../../utils/studentPdf";
 import { isArchivedStudent } from "../../utils/studentUtils";
@@ -209,15 +209,22 @@ export function AgeHomogeneityDrawer({ open, onClose, user, data, school, year, 
     return subscribeToSchoolClasses(school.id, year.id, setRealtimeClasses, () => setRealtimeClasses([]));
   }, [classSource, open, school.id, year.id]);
   const sections = getSchoolSections(school).filter((item) => !allowedSections?.length || allowedSections.includes(item));
-  const classes = useMemo(() => operationalSchoolClasses(realtimeClasses, school.id, year.id, allowedSections).filter((item) => section === "all" || getClassSection(item.name as import("../../types").SchoolClass) === section), [allowedSections, realtimeClasses, school.id, section, year.id]);
-  const students = useMemo(() => (studentSource ?? data?.students ?? []).filter((student) => (
+  const scopedStudents = useMemo(() => (studentSource ?? data?.students ?? []).filter((student) => (
     student.schoolId === school.id
     && student.schoolYearId === year.id
     && (!allowedSections?.length || allowedSections.includes(getStudentSection(student)))
     && (section === "all" || getClassSection(student.className) === section)
-    && (!className || student.subClassId === className || student.classId === className || student.className === classes.find((item) => item.id === className)?.name)
     && (archiveStatus === "all" || (archiveStatus === "archived" ? isArchivedStudent(student) : !isArchivedStudent(student)))
-  )), [allowedSections, archiveStatus, className, classes, data?.students, school.id, section, studentSource, year.id]);
+  )), [allowedSections, archiveStatus, data?.students, school.id, section, studentSource, year.id]);
+  const classes = useMemo(() => {
+    const operational = operationalSchoolClasses(realtimeClasses, school.id, year.id, allowedSections)
+      .filter((item) => section === "all" || getClassSection(item.name as import("../../types").SchoolClass) === section);
+    const enrolledIds = new Set(classesWithEnrolledStudents(operational, scopedStudents, school.id, year.id).map((item) => item.id));
+    return operational.filter((item) => enrolledIds.has(item.id));
+  }, [allowedSections, realtimeClasses, school.id, scopedStudents, section, year.id]);
+  const students = useMemo(() => scopedStudents.filter((student) => (
+    !className || student.subClassId === className || student.classId === className || student.className === classes.find((item) => item.id === className)?.name
+  )), [className, classes, scopedStudents]);
   const canView = (user.role === "secretary" || user.role === "study_director") && user.status === "active" && user.schoolId === school.id;
 
   if (!open) return null;

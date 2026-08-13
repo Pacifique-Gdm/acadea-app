@@ -3,6 +3,7 @@ import type { Firestore } from "@firebase/firestore";
 import { db } from "../firebase";
 import type { AppUser, SchoolClassRecord, SchoolSection } from "../types";
 import { getClassSection } from "../utils/studentClasses";
+import { normalizeSchoolSection } from "../utils/schoolSections";
 
 export interface EnrolledStudentClassReference {
   schoolId: string;
@@ -48,7 +49,7 @@ export function operationalSchoolClasses<T extends OperationalClass>(classes: re
   const subdivided = new Set(scoped.filter((item) => item.parentClassId).map((item) => item.parentClassId!));
   const unique = new Map<string, T>();
   scoped.filter((item) => item.parentClassId || !subdivided.has(item.id)).forEach((item) => {
-    const section = item.section ?? getClassSection(item.name as import("../types").SchoolClass);
+    const section = normalizeSchoolSection(item.section) ?? getClassSection(item.name as import("../types").SchoolClass);
     if (allowedSections?.length && !allowedSections.includes(section)) return;
     const option = item.option?.trim();
     const label = [item.name, option && !item.name.toLocaleLowerCase("fr").includes(option.toLocaleLowerCase("fr")) ? option : "", item.subClassLabel && !item.name.endsWith(item.subClassLabel) ? item.subClassLabel : ""].filter(Boolean).join(" ");
