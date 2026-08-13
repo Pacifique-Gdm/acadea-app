@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Download, Upload } from "lucide-react";
 import { AdminDrawer, Metric } from "../ui";
 import { persistFirestorePatch } from "../../services/firestoreData";
 import { createAuditLog } from "../../utils/audit";
-import { getSchoolClassChoices, getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
+import { getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
+import { operationalSchoolClasses, subscribeToSchoolClasses } from "../../services/schoolSubclasses";
 import { getClassSection, getStudentSection, promoteStudentForNewYear } from "../../utils/studentClasses";
 import { exportAgeHomogeneityPdf } from "../../utils/studentPdf";
 import { isArchivedStudent } from "../../utils/studentUtils";
@@ -197,20 +198,26 @@ export function ArchivedStudentsImportDrawer({
   );
 }
 
-export function AgeHomogeneityDrawer({ open, onClose, user, data, school, year, allowedSections, studentSource }: Omit<SharedToolProps, "data"> & { data?: AppData; allowedSections?: SchoolSection[]; studentSource?: Student[] }) {
+export function AgeHomogeneityDrawer({ open, onClose, user, data, school, year, allowedSections, studentSource, classSource }: Omit<SharedToolProps, "data"> & { data?: AppData; allowedSections?: SchoolSection[]; studentSource?: Student[]; classSource?: import("../../types").SchoolClassRecord[] }) {
   const [section, setSection] = useState<"all" | SchoolSection>("all");
   const [className, setClassName] = useState("");
   const [archiveStatus, setArchiveStatus] = useState<"all" | "active" | "archived">("all");
+  const [realtimeClasses, setRealtimeClasses] = useState<import("../../types").SchoolClassRecord[]>(classSource ?? []);
+  useEffect(() => {
+    if (classSource) { setRealtimeClasses(classSource); return undefined; }
+    if (!open) return undefined;
+    return subscribeToSchoolClasses(school.id, year.id, setRealtimeClasses, () => setRealtimeClasses([]));
+  }, [classSource, open, school.id, year.id]);
   const sections = getSchoolSections(school).filter((item) => !allowedSections?.length || allowedSections.includes(item));
-  const classes = getSchoolClassChoices(school).filter((item) => section === "all" || getClassSection(item) === section);
+  const classes = useMemo(() => operationalSchoolClasses(realtimeClasses, school.id, year.id, allowedSections).filter((item) => section === "all" || getClassSection(item.name as import("../../types").SchoolClass) === section), [allowedSections, realtimeClasses, school.id, section, year.id]);
   const students = useMemo(() => (studentSource ?? data?.students ?? []).filter((student) => (
     student.schoolId === school.id
     && student.schoolYearId === year.id
     && (!allowedSections?.length || allowedSections.includes(getStudentSection(student)))
     && (section === "all" || getClassSection(student.className) === section)
-    && (!className || student.className === className)
+    && (!className || student.subClassId === className || student.classId === className || student.className === classes.find((item) => item.id === className)?.name)
     && (archiveStatus === "all" || (archiveStatus === "archived" ? isArchivedStudent(student) : !isArchivedStudent(student)))
-  )), [allowedSections, archiveStatus, className, data?.students, school.id, section, studentSource, year.id]);
+  )), [allowedSections, archiveStatus, className, classes, data?.students, school.id, section, studentSource, year.id]);
   const canView = (user.role === "secretary" || user.role === "study_director") && user.status === "active" && user.schoolId === school.id;
 
   if (!open) return null;
@@ -226,7 +233,7 @@ export function AgeHomogeneityDrawer({ open, onClose, user, data, school, year, 
             <option value="all">Toutes les sections</option>{sections.map((item) => <option key={item} value={item}>{schoolSectionLabels[item]}</option>)}
           </select>
           <select value={className} onChange={(event) => setClassName(event.target.value)} className="input sm:col-span-2" aria-label="Classe">
-            <option value="">Toutes les classes</option>{classes.map((item) => <option key={item} value={item}>{item}</option>)}
+            <option value="">Toutes les classes</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select>
         </div>
         <Metric label="Élèves analysés" value={String(students.length)} />

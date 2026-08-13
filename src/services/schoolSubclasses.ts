@@ -1,7 +1,8 @@
 import { collection, doc, onSnapshot, query, where, writeBatch } from "@firebase/firestore";
 import type { Firestore } from "@firebase/firestore";
 import { db } from "../firebase";
-import type { AppUser, SchoolClassRecord } from "../types";
+import type { AppUser, SchoolClassRecord, SchoolSection } from "../types";
+import { getClassSection } from "../utils/studentClasses";
 
 export interface EnrolledStudentClassReference {
   schoolId: string;
@@ -38,6 +39,23 @@ export function secondarySubclassesForOption(classes: SchoolClassRecord[], paren
 export function operationalClasses(classes: SchoolClassRecord[]) {
   const subdivided = new Set(classes.filter((item) => item.parentClassId && item.active !== false).map((item) => item.parentClassId!));
   return classes.filter((item) => item.active !== false && (item.parentClassId || !subdivided.has(item.id)));
+}
+
+type OperationalClass = SchoolClassRecord & { section?: SchoolSection; option?: string };
+
+export function operationalSchoolClasses<T extends OperationalClass>(classes: readonly T[], schoolId: string, schoolYearId: string, allowedSections?: readonly SchoolSection[]) {
+  const scoped = classes.filter((item) => item.schoolId === schoolId && item.schoolYearId === schoolYearId && item.active !== false);
+  const subdivided = new Set(scoped.filter((item) => item.parentClassId).map((item) => item.parentClassId!));
+  const unique = new Map<string, T>();
+  scoped.filter((item) => item.parentClassId || !subdivided.has(item.id)).forEach((item) => {
+    const section = item.section ?? getClassSection(item.name as import("../types").SchoolClass);
+    if (allowedSections?.length && !allowedSections.includes(section)) return;
+    const option = item.option?.trim();
+    const label = [item.name, option && !item.name.toLocaleLowerCase("fr").includes(option.toLocaleLowerCase("fr")) ? option : "", item.subClassLabel && !item.name.endsWith(item.subClassLabel) ? item.subClassLabel : ""].filter(Boolean).join(" ");
+    const key = normalizedClassName(label);
+    if (!unique.has(key)) unique.set(key, { ...item, name: label });
+  });
+  return [...unique.values()].sort((first, second) => first.name.localeCompare(second.name, "fr", { numeric: true, sensitivity: "base" }));
 }
 
 export function classesWithEnrolledStudents(classes: SchoolClassRecord[], students: EnrolledStudentClassReference[], schoolId: string, schoolYearId: string) {

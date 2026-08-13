@@ -41,14 +41,18 @@ function normalizeEmail(value) {
 export function normalizeSectionIds(value) {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value)) throw Object.assign(new Error("Sections invalides."), { statusCode: 400, code: "invalid-argument" });
-  const normalized = [...new Set(value.map(normalizeText).filter(Boolean))];
+  const normalized = [...new Set(value.map(normalizeText).filter(Boolean).map((section) => {
+    const lowered = section.toLowerCase();
+    return lowered === "cetb" ? "cteb" : lowered;
+  }))];
   if (normalized.some((section) => !schoolSections.has(section))) throw Object.assign(new Error("Section invalide."), { statusCode: 400, code: "invalid-argument" });
   return normalized;
 }
 
 function configuredSchoolSections(school = {}) {
-  const levels = Array.isArray(school.educationLevels) ? school.educationLevels.map((value) => normalizeText(value).toLowerCase()) : [];
-  const type = normalizeText(school.schoolType).toLowerCase();
+  const canonical = (value) => normalizeText(value).toLowerCase().replace(/^cetb/, "cteb");
+  const levels = Array.isArray(school.educationLevels) ? school.educationLevels.map(canonical) : [];
+  const type = canonical(school.schoolType);
   if (type === "mixte" || levels.includes("mixte")) return [...schoolSections];
   const mapped = [...schoolSections].filter((section) => levels.includes(section));
   if (mapped.length) return mapped;

@@ -4,7 +4,12 @@ import { getSchoolSections } from "./schoolConfig";
 const validSections = new Set<SchoolSection>(["maternelle", "primaire", "cteb", "secondaire"]);
 
 export function normalizeSectionIds(values: readonly unknown[]): SchoolSection[] {
-  return [...new Set(values.filter((value): value is SchoolSection => typeof value === "string" && validSections.has(value as SchoolSection)))];
+  return [...new Set(values.flatMap((value): SchoolSection[] => {
+    if (typeof value !== "string") return [];
+    const lowered = value.trim().toLocaleLowerCase();
+    const normalized = lowered === "cetb" ? "cteb" : lowered;
+    return validSections.has(normalized as SchoolSection) ? [normalized as SchoolSection] : [];
+  }))];
 }
 
 export function userSectionIds(user: Pick<AppUser, "section" | "sectionIds">): SchoolSection[] {

@@ -102,12 +102,12 @@ describe("statistiques filtrées du Secrétaire", () => {
     const statistics = buildSecretaryStatistics(ambiguousStudents, []);
     expect(statistics.classRows.map(({ section, className }) => [section, className])).toEqual([
       ["Primaire", "6ème Primaire"],
-      ["CTEB", "7ème CTEB"],
-      ["CTEB", "8ème CTEB"],
+      ["CETB", "7ème CTEB"],
+      ["CETB", "8ème CTEB"],
     ]);
     expect(statistics.sectionRows).toEqual([
       { order: 1, section: "Primaire", count: 1, percentage: 33.33 },
-      { order: 2, section: "CTEB", count: 2, percentage: 66.67 },
+      { order: 2, section: "CETB", count: 2, percentage: 66.67 },
     ]);
   });
 });

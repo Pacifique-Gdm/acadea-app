@@ -48,6 +48,12 @@ function request(body: Record<string, unknown>) {
   return { method: "POST", headers: { authorization: "Bearer diagnostic-token" }, body };
 }
 
+it("normalise les alias CETB/CTEB dans l'API", async () => {
+  const { normalizeSectionIds } = await import("../../api/provision-school-account.js");
+  expect(normalizeSectionIds(["CTEB", "CETB", "cetb"])).toEqual(["cteb"]);
+  expect(() => normalizeSectionIds(["INVENTEE"])).toThrow("Section invalide");
+});
+
 describe("API de provisionnement Acadéa", () => {
   beforeEach(() => {
     vi.clearAllMocks();

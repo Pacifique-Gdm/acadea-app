@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { filterByAllowedSections, isSectionAllowed, normalizeSectionIds, sectionsAvailableToUser, userSectionIds } from "./userSections";
 
+it("normalise CETB et CTEB vers cteb sans doublon", () => {
+  expect(normalizeSectionIds(["CETB", "CTEB", "cetb", "cteb"])).toEqual(["cteb"]);
+});
+
 describe("périmètre multi-sections", () => {
   it("déduplique les sections et conserve le champ legacy", () => {
     expect(normalizeSectionIds(["primaire", "primaire", "secondaire", "inconnue"])).toEqual(["primaire", "secondaire"]);

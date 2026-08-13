@@ -11,7 +11,7 @@ export const schoolSectionOrder: SchoolSection[] = ["maternelle", "primaire", "c
 export const schoolSectionLabels: Record<SchoolSection, string> = {
   maternelle: "Maternelle",
   primaire: "Primaire",
-  cteb: "CTEB",
+  cteb: "CETB",
   secondaire: "Secondaire",
 };
 
@@ -29,10 +29,10 @@ export function normalizeEducationLevel(level: string): string {
   const normalized = level.trim().toLowerCase();
   if (normalized === "maternelle") return "Maternelle";
   if (normalized === "primaire") return "Primaire";
-  if (normalized === "cteb") return "CTEB";
+  if (normalized === "cteb" || normalized === "cetb") return "CTEB";
   if (normalized === "secondaire") return "Secondaire";
   if (normalized === "primaire uniquement") return "Primaire uniquement";
-  if (normalized === "cteb uniquement") return "CTEB uniquement";
+  if (normalized === "cteb uniquement" || normalized === "cetb uniquement") return "CTEB uniquement";
   if (normalized === "secondaire uniquement") return "Secondaire uniquement";
   if (normalized === "mixte") return "Mixte";
   return level.trim();

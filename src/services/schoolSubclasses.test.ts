@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { activeSubclasses, classesWithEnrolledStudents, operationalClasses, schoolClassOptionKey, schoolClassRecordId, secondarySubclassesForOption, validateSubclassLabels } from "./schoolSubclasses";
+import { activeSubclasses, classesWithEnrolledStudents, operationalClasses, operationalSchoolClasses, schoolClassOptionKey, schoolClassRecordId, secondarySubclassesForOption, validateSubclassLabels } from "./schoolSubclasses";
 import fs from "node:fs";
 import type { SchoolClassRecord } from "../types";
 const base = (id: string, extra: Partial<SchoolClassRecord> = {}): SchoolClassRecord => ({ id, schoolId: "school-a", schoolYearId: "year-a", name: id, active: true, ...extra });
+it("filtre les classes opérationnelles par école, année et sections", () => { const items = [base("parent", { name: "1ère Humanité" }), base("commerciale", { name: "1ère Humanité Commerciale", parentClassId: "parent" }), base("primaire", { name: "1ère Primaire" }), { ...base("foreign", { name: "2ème Humanité" }), schoolId: "school-b" }]; expect(operationalSchoolClasses(items, "school-a", "year-a", ["secondaire"]).map((item) => item.id)).toEqual(["commerciale"]); });
 describe("sous-classes structurées", () => {
   it("autorise zéro, refuse une seule et accepte deux ou plus", () => { expect(activeSubclasses([base("parent")], "parent")).toEqual([]); expect(validateSubclassLabels(["A"])).toContain("au moins deux"); expect(validateSubclassLabels(["A", "B"])).toBe(""); expect(validateSubclassLabels(["A", "B", "C"])).toBe(""); });
   it("refuse les doublons normalisés", () => expect(validateSubclassLabels([" A ", "a"])).toContain("uniques"));
