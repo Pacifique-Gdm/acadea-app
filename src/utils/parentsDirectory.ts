@@ -43,7 +43,7 @@ export function formatDirectoryStudentName(student: Pick<Student, "nom" | "postn
 }
 
 export function formatDirectoryStudentClass(student: Pick<Student, "className" | "option">) {
-  if (getClassSection(student.className) !== "secondaire") return student.className;
+  if (getClassSection(student.className) !== "Secondaire") return student.className;
   const option = student.option?.trim();
   if (!option) return student.className;
   const classLabel = student.className.replace(/\s+Humanit[ée]s?$/i, "").trim();

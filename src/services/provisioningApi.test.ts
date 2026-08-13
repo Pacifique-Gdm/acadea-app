@@ -50,7 +50,7 @@ function request(body: Record<string, unknown>) {
 
 it("normalise les alias CETB/CTEB dans l'API", async () => {
   const { normalizeSectionIds } = await import("../../api/provision-school-account.js");
-  expect(normalizeSectionIds(["CTEB", "CETB", "cetb"])).toEqual(["cteb"]);
+  expect(normalizeSectionIds(["CTEB", "CETB", "cteb", "cetb"])).toEqual(["CTEB"]);
   expect(() => normalizeSectionIds(["INVENTEE"])).toThrow("Section invalide");
 });
 
@@ -186,6 +186,48 @@ describe("API de provisionnement Acadéa", () => {
     expect(mocks.auth.setCustomUserClaims).toHaveBeenCalledWith("created-user", expect.objectContaining({ role: "school_admin" }));
     expect(mocks.db.doc).toHaveBeenCalledWith(expect.stringMatching(/^schools\/school-/));
     expect(mocks.db.doc).toHaveBeenCalledWith("users/created-user");
+  });
+
+  it("enregistre uniquement la valeur canonique CTEB lors de la création d'une école", async () => {
+    mocks.auth.verifyIdToken.mockResolvedValue({ uid: "super-1", role: "super_admin", email: "super@example.invalid" });
+    const res = response();
+
+    await provisionSchoolAdmin(request({
+      schoolName: "École CTEB", adminName: "Administrateur test",
+      adminEmail: "admin-cteb@example.invalid", adminPassword: "test-password",
+      subscriptionPlan: "Standard", educationLevels: ["CETB", "cteb", "Primaire"], schoolOptions: [],
+    }), res);
+
+    expect(res.statusCode).toBe(200);
+    const schoolRef = mocks.db.doc.mock.results
+      .map((result) => result.value as { path?: string; set?: ReturnType<typeof vi.fn> })
+      .find((ref) => ref.path?.startsWith("schools/school-"));
+    expect(schoolRef?.set).toHaveBeenCalledWith(expect.objectContaining({ educationLevels: ["CTEB", "Primaire"] }));
+  });
+
+  it("normalise la section du personnel en CTEB avant l'écriture", async () => {
+    mocks.db.doc.mockImplementation((path: string) => ({
+      path,
+      get: vi.fn().mockResolvedValue(path === "schools/school-1"
+        ? { exists: true, data: () => ({ id: "school-1", educationLevels: ["Primaire", "CETB"] }) }
+        : path === "schoolYears/year-1"
+          ? { exists: true, data: () => ({ id: "year-1", schoolId: "school-1", status: "active" }) }
+          : { exists: false }),
+      set: vi.fn().mockResolvedValue(undefined),
+    }));
+    const res = response();
+
+    await provisionSchoolAccount(request({
+      role: "study_director", schoolId: "school-1", schoolYearId: "year-1",
+      name: "Direction CTEB", email: "direction-cteb@example.invalid",
+      password: "test-password", sectionIds: ["cteb"],
+    }), res);
+
+    expect(res.statusCode).toBe(200);
+    const userRef = mocks.db.doc.mock.results
+      .map((result) => result.value as { path?: string; set?: ReturnType<typeof vi.fn> })
+      .find((ref) => ref.path === "users/created-user");
+    expect(userRef?.set).toHaveBeenCalledWith(expect.objectContaining({ section: "CTEB", sectionIds: ["CTEB"] }));
   });
 
   it("archive logiquement un personnel de la même école sans supprimer Auth ni Firestore", async () => {

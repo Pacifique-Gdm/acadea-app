@@ -29,7 +29,7 @@ export function formatFeeTargetValue(target?: string) {
 }
 
 function studentFeeTargetKey(student: Pick<Student, "className" | "option">) {
-  return getClassSection(student.className) === "secondaire" ? feeTargetKey(student.className, student.option) : student.className;
+  return getClassSection(student.className) === "Secondaire" ? feeTargetKey(student.className, student.option) : student.className;
 }
 
 export function feeAppliesToStudent(fee: Pick<FeeType, "className" | "classOptionKey">, student: Pick<Student, "className" | "option">) {
@@ -41,7 +41,7 @@ export function buildFeeTargetChoices(students: Student[], selectedTargets: stri
   const choices = students
     .filter((student) => student.className)
     .flatMap((student) => {
-      if (getClassSection(student.className) !== "secondaire") {
+      if (getClassSection(student.className) !== "Secondaire") {
         return [{ value: student.className, label: student.className }];
       }
       const option = student.option?.trim();

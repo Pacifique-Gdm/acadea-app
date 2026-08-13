@@ -1,22 +1,23 @@
 import type { HumanityOption, SchoolClass, SchoolSection, Student } from "../types";
 import { CLASSES } from "../types";
+import { normalizeSchoolSection } from "./schoolSections";
 
 export function getClassSection(className: SchoolClass): SchoolSection {
-  if (className.includes("Maternelle")) return "maternelle";
-  if (className.includes("CTEB")) return "cteb";
-  if (className.includes("Humanité")) return "secondaire";
-  return "primaire";
+  if (className.includes("Maternelle")) return "Maternelle";
+  if (className.includes("CTEB")) return "CTEB";
+  if (className.includes("Humanité")) return "Secondaire";
+  return "Primaire";
 }
 
 export function getStudentSection(student: Pick<Student, "className" | "section">): SchoolSection {
   const classSection = getClassSection(student.className);
-  // Compatibilité avec les anciennes fiches qui ont enregistré 7ème/8ème CTEB sous "primaire".
-  if (classSection === "cteb") return "cteb";
-  return student.section ?? classSection;
+  // Compatibilité avec les anciennes fiches qui ont enregistré 7ème/8ème CTEB sous "Primaire".
+  if (classSection === "CTEB") return "CTEB";
+  return normalizeSchoolSection(student.section) ?? classSection;
 }
 
 export function formatStudentClassName(student: Pick<Student, "className" | "option">) {
-  if (getClassSection(student.className) !== "secondaire") return student.className;
+  if (getClassSection(student.className) !== "Secondaire") return student.className;
   const option = student.option?.trim();
   if (!option) return student.className;
   const classLabel = student.className.replace(/\s+Humanit[ée]s?$/i, "").trim();

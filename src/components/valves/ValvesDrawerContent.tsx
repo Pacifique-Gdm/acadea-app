@@ -53,10 +53,10 @@ const valveKindLabels: Record<ValvePublicationKind, string> = {
 
 const valveVisibilityLabels: Record<ValveVisibility, string> = {
   all_parents: "Tous les parents",
-  maternelle: schoolSectionLabels.maternelle,
-  primaire: schoolSectionLabels.primaire,
-  cteb: schoolSectionLabels.cteb,
-  secondaire: schoolSectionLabels.secondaire,
+  Maternelle: schoolSectionLabels.Maternelle,
+  Primaire: schoolSectionLabels.Primaire,
+  CTEB: schoolSectionLabels.CTEB,
+  Secondaire: schoolSectionLabels.Secondaire,
   class: "Classe précise",
 };
 

@@ -58,7 +58,7 @@ export function StudentForm({
   const visibleParents = parents.filter((parent) => !normalizedParentQuery || `${parent.fullName} ${parent.phone}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("fr").includes(normalizedParentQuery));
   const selectedStructuredClass = structuredClasses.find((item) => !item.parentClassId && (item.id === form.classId || item.name === form.className));
   const selectedClass = selectedStructuredClass ?? (form.className ? { id: schoolClassRecordId(form.schoolId, form.schoolYearId, form.className), schoolId: form.schoolId, schoolYearId: form.schoolYearId, name: form.className, active: true } : undefined);
-  const isSecondaryClass = getClassSection(form.className) === "secondaire";
+  const isSecondaryClass = getClassSection(form.className) === "Secondaire";
   const selectedOptionKey = selectedClass && form.option ? schoolClassOptionKey(selectedClass.id, form.option) : undefined;
   const subclasses = selectedClass
     ? isSecondaryClass

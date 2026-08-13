@@ -36,6 +36,7 @@ export function StudentsModule({
   uid,
   formatArchiveDate,
   capabilities,
+  allowedSections,
 }: {
   user: AppUser;
   data: AppData;
@@ -47,6 +48,7 @@ export function StudentsModule({
   uid: (prefix: string) => string;
   formatArchiveDate: (value?: string) => string;
   capabilities?: Partial<StudentModuleCapabilities>;
+  allowedSections?: SchoolSection[];
 }) {
   const [query, setQuery] = useState("");
   const [sectionFilter, setSectionFilter] = useState<"all" | SchoolSection>("all");
@@ -78,8 +80,9 @@ export function StudentsModule({
     canCreateParent: capabilities?.canCreateParent ?? defaultCanManage,
     canManageOptions: capabilities?.canManageOptions ?? defaultCanManage,
   };
-  const studentClassChoices = getSchoolClassChoices(school);
-  const studentSectionChoices = getSchoolSections(school);
+  const showActionsColumn = studentCapabilities.canEdit || studentCapabilities.canArchive || studentCapabilities.canReactivate;
+  const studentSectionChoices = getSchoolSections(school).filter((section) => !allowedSections?.length || allowedSections.includes(section));
+  const studentClassChoices = getSchoolClassChoices(school).filter((className) => studentSectionChoices.includes(getClassSection(className)));
   const availableClasses = studentClassChoices.filter((className) => sectionFilter === "all" || getClassSection(className) === sectionFilter);
   const schoolOptions = normalizeSchoolOptions(school.schoolOptions);
   const optionChoices = Array.from(new Set([...schoolOptions, ...yearData.students.map((student) => student.option).filter(Boolean)])) as string[];
@@ -109,6 +112,9 @@ export function StudentsModule({
     const text = `${student.matricule} ${student.nom} ${student.postnom} ${student.prenom}`.toLowerCase();
     const archived = isArchivedStudent(student);
     return (
+      student.schoolId === school.id &&
+      student.schoolYearId === year.id &&
+      (!allowedSections?.length || allowedSections.includes(getClassSection(student.className))) &&
       (archiveFilter === "all" || (archiveFilter === "archived" ? archived : !archived)) &&
       text.includes(query.toLowerCase()) &&
       (sectionFilter === "all" || getClassSection(student.className) === sectionFilter) &&
@@ -163,7 +169,7 @@ export function StudentsModule({
       const selectedClass = structuredClasses.find((item) => item.id === form.classId && !item.parentClassId);
       const selectedOptionKey = selectedClass && form.option ? schoolClassOptionKey(selectedClass.id, form.option) : undefined;
       const selectedSubclasses = selectedClass
-        ? getClassSection(form.className) === "secondaire"
+        ? getClassSection(form.className) === "Secondaire"
           ? secondarySubclassesForOption(structuredClasses, selectedClass.id, selectedOptionKey, form.subClassId)
           : activeSubclasses(structuredClasses, selectedClass.id)
         : [];
@@ -496,7 +502,7 @@ export function StudentsModule({
                 <th className="px-3 py-3">Classe</th>
                 <th className="px-3 py-3">Téléphone</th>
                 <th className="px-3 py-3">Archivage</th>
-                <th className="px-3 py-3">Actions</th>
+                {showActionsColumn && <th className="px-3 py-3">Actions</th>}
               </tr>
             </thead>
             <tbody>

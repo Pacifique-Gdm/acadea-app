@@ -25,7 +25,7 @@ function normalizeAcademicLabel(value: string) {
 
 function recognizedSection(value: string) {
   const normalized = normalizeAcademicLabel(value);
-  return schoolSectionOrder.find((section) => normalized.includes(section)) ?? "";
+  return schoolSectionOrder.find((section) => normalized.includes(normalizeAcademicLabel(section))) ?? "";
 }
 
 function romanToNumber(value: string) {

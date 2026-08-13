@@ -1,15 +1,9 @@
 import type { AppUser, School, SchoolSection } from "../types";
 import { getSchoolSections } from "./schoolConfig";
-
-const validSections = new Set<SchoolSection>(["maternelle", "primaire", "cteb", "secondaire"]);
+import { normalizeSchoolSections } from "./schoolSections";
 
 export function normalizeSectionIds(values: readonly unknown[]): SchoolSection[] {
-  return [...new Set(values.flatMap((value): SchoolSection[] => {
-    if (typeof value !== "string") return [];
-    const lowered = value.trim().toLocaleLowerCase();
-    const normalized = lowered === "cetb" ? "cteb" : lowered;
-    return validSections.has(normalized as SchoolSection) ? [normalized as SchoolSection] : [];
-  }))];
+  return normalizeSchoolSections(values);
 }
 
 export function userSectionIds(user: Pick<AppUser, "section" | "sectionIds">): SchoolSection[] {

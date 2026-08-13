@@ -7,7 +7,8 @@ import type { PedagogicalAssignment, SchedulePeriod, StudyClass, StudyRoom, Stud
 import { detectAvailabilityConflicts, validTimeRange, validatePeriod } from "./studySchedule";
 import { validateAvailabilityRanges } from "./studySchedule";
 import { persistGeneratedTimetable } from "./timetablePersistence";
-import { userSectionIds } from "../../utils/userSections";
+import { normalizeSectionIds, userSectionIds } from "../../utils/userSections";
+import { legacySectionQueryValues, normalizeSectionField } from "../../utils/schoolSections";
 
 function requireScope(user: AppUser, schoolId: string, schoolYearId: string) {
   if (!db || user.role !== "study_director" || user.schoolId !== schoolId || !schoolId || !schoolYearId) throw new Error("Périmètre pédagogique non autorisé.");
@@ -18,9 +19,9 @@ function scopedSubscription<T>(collectionName: string, schoolId: string, schoolY
   if (!db) return () => undefined;
   const database = db as unknown as Firestore;
   const constraints = [where("schoolId", "==", schoolId), where("schoolYearId", "==", schoolYearId)];
-  if (sections?.length) constraints.push(where("section", "in", sections));
+  if (sections?.length) constraints.push(where("section", "in", legacySectionQueryValues(normalizeSectionIds(sections))));
   return onSnapshot(query(collection(database, collectionName), ...constraints), (snapshot) => {
-    const uniqueItems = new Map(snapshot.docs.map((item) => [item.id, { id: item.id, ...item.data() }]));
+    const uniqueItems = new Map(snapshot.docs.map((item) => [item.id, normalizeSectionField({ id: item.id, ...item.data() })]));
     onData([...uniqueItems.values()] as T[]);
   }, onError);
 }
@@ -45,7 +46,7 @@ export function subscribeToStudyData(input: { user: AppUser; schoolId: string; s
     where("schoolId", "==", input.schoolId),
     where("role", "==", "teacher"),
   ), (snapshot) => {
-    teacherUsers = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as AppUser[];
+    teacherUsers = snapshot.docs.map((item) => normalizeSectionField({ id: item.id, ...item.data() })) as AppUser[];
     usersReady = true;
     emitTeachers();
   }, input.onError);
@@ -86,8 +87,8 @@ export function mergeStudyTeachers(profiles: StudyTeacher[], users: AppUser[]) {
       fullName,
       email: user.email,
       phone: user.phone,
-      section: user.section,
-      sectionIds: user.sectionIds,
+      section: userSectionIds(user)[0],
+      sectionIds: normalizeSectionIds(user.sectionIds ?? []),
       status: user.status === "inactive" || user.active === false ? "inactive" as const : "active" as const,
     }];
   });

@@ -16,7 +16,13 @@ describe("portail Directeur des études — phase 1", () => {
 
   it("réutilise le drawer d’homogénéité avec le périmètre multi-sections", () => {
     const source = readFileSync(new URL("./StudyDirectorPortal.tsx", import.meta.url), "utf8");
-    expect(source).toContain("<StudyStudentsModule");
+    expect(source).toContain("<StudentsModule");
+    expect(source).toContain("<StudentDetailPage");
+    expect(source).toContain("canLinkParent={false}");
+    expect(source).toContain("canCreate: false");
+    expect(source).toContain("canEdit: false");
+    expect(source).toContain("canArchive: false");
+    expect(source).toContain("canReactivate: false");
     expect(source).toContain("<AgeHomogeneityDrawer");
     expect(source).toContain("allowedSections={userSectionIds(user)}");
   });

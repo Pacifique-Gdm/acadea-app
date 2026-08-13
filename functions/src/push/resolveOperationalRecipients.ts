@@ -59,10 +59,10 @@ async function resolveParent(notification: OperationalNotificationRecord, reposi
 }
 
 function section(className = "") {
-  if (className.includes("Maternelle")) return "maternelle";
-  if (className.includes("CTEB")) return "cteb";
-  if (className.includes("Humanit")) return "secondaire";
-  return "primaire";
+  if (className.includes("Maternelle")) return "Maternelle";
+  if (className.includes("CTEB")) return "CTEB";
+  if (className.includes("Humanit")) return "Secondaire";
+  return "Primaire";
 }
 
 function parentCanSeeAnnouncement(publication: AnnouncementRecord, parent: ParentRecord, student: StudentRecord) {

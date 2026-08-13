@@ -82,10 +82,10 @@ function studentClassName(student: Student) {
 }
 
 function classSection(className: string): SchoolSection {
-  if (className.includes("Maternelle")) return "maternelle";
-  if (className.includes("CTEB")) return "cteb";
-  if (className.includes("Humanité")) return "secondaire";
-  return "primaire";
+  if (className.includes("Maternelle")) return "Maternelle";
+  if (className.includes("CTEB")) return "CTEB";
+  if (className.includes("Humanité")) return "Secondaire";
+  return "Primaire";
 }
 
 function studentOption(student: Student) {
@@ -201,8 +201,8 @@ export function DisciplineAttendanceDrawer({ students, attendance, settings, sch
     return Array.from(new Set(source.map((student) => student.option).filter((option): option is string => Boolean(option)))).sort((first, second) => first.localeCompare(second, "fr"));
   }, [selectedClass, selectedSection, students]);
   const showOptionFilter =
-    (selectedSection === "all" || selectedSection === "secondaire") &&
-    (!selectedClass || classSection(selectedClass) === "secondaire");
+    (selectedSection === "all" || selectedSection === "Secondaire") &&
+    (!selectedClass || classSection(selectedClass) === "Secondaire");
 
   const attendanceByStudentDate = useMemo(() => {
     const records = new Map<string, AttendanceRecord>();

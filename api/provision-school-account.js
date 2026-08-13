@@ -8,7 +8,7 @@ const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", 
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
 const adminRemovalConfirmation = "SUPPRIMER ADMINISTRATEUR";
 const internalPersonnelRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]);
-const schoolSections = new Set(["maternelle", "primaire", "cteb", "secondaire"]);
+const schoolSections = new Set(["maternelle", "primaire", "CTEB", "secondaire"]);
 
 async function readBody(req) {
   if (req.body && typeof req.body === "object") return req.body;
@@ -43,23 +43,28 @@ export function normalizeSectionIds(value) {
   if (!Array.isArray(value)) throw Object.assign(new Error("Sections invalides."), { statusCode: 400, code: "invalid-argument" });
   const normalized = [...new Set(value.map(normalizeText).filter(Boolean).map((section) => {
     const lowered = section.toLowerCase();
-    return lowered === "cetb" ? "cteb" : lowered;
+    return lowered === "cetb" || lowered === "cteb" ? "CTEB" : lowered;
   }))];
   if (normalized.some((section) => !schoolSections.has(section))) throw Object.assign(new Error("Section invalide."), { statusCode: 400, code: "invalid-argument" });
   return normalized;
 }
 
 function configuredSchoolSections(school = {}) {
-  const canonical = (value) => normalizeText(value).toLowerCase().replace(/^cetb/, "cteb");
+  const canonical = (value) => {
+    const normalized = normalizeText(value).toLowerCase();
+    if (normalized === "cteb" || normalized === "cetb") return "CTEB";
+    if (normalized === "cteb uniquement" || normalized === "cetb uniquement") return "CTEB uniquement";
+    return normalized;
+  };
   const levels = Array.isArray(school.educationLevels) ? school.educationLevels.map(canonical) : [];
   const type = canonical(school.schoolType);
   if (type === "mixte" || levels.includes("mixte")) return [...schoolSections];
   const mapped = [...schoolSections].filter((section) => levels.includes(section));
   if (mapped.length) return mapped;
-  if (type === "secondaire") return ["maternelle", "primaire", "cteb", "secondaire"];
-  if (type === "cteb") return ["maternelle", "primaire", "cteb"];
+  if (type === "secondaire") return ["maternelle", "primaire", "CTEB", "secondaire"];
+  if (type === "CTEB") return ["maternelle", "primaire", "CTEB"];
   if (type === "primaire") return ["maternelle", "primaire"];
-  const only = type.replace(" uniquement", "");
+  const only = type === "CTEB uniquement" ? "CTEB" : type.replace(" uniquement", "");
   return schoolSections.has(only) ? [only] : [...schoolSections];
 }
 

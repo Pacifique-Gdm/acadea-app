@@ -3,7 +3,7 @@ import { feeAppliesToStudent, feeTargetKey } from "./feeTargets";
 import { formatStudentClassName, getClassSection } from "./studentClasses";
 
 export function getControlClassKey(student: Pick<Student, "className" | "option">) {
-  return getClassSection(student.className) === "secondaire" ? feeTargetKey(student.className, student.option) : student.className;
+  return getClassSection(student.className) === "Secondaire" ? feeTargetKey(student.className, student.option) : student.className;
 }
 
 export function buildControlClassChoices(students: Student[]) {

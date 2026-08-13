@@ -81,9 +81,15 @@ service cloud.firestore {
               && (!("section" in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
                 || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.section == null))
           || (("sectionIds" in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
-              && section in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.sectionIds)
+              && (section in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.sectionIds
+                || (section in ["CTEB", "cteb", "CETB", "cetb"]
+                  && ("CTEB" in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.sectionIds
+                    || "cteb" in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.sectionIds
+                    || "CETB" in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.sectionIds
+                    || "cetb" in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.sectionIds))))
           || (("section" in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
-              && section == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.section));
+              && (section == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.section
+                || (section in ["CTEB", "cteb", "CETB", "cetb"] && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.section in ["CTEB", "cteb", "CETB", "cetb"]))));
     }
 
     function studyDirectorHasNoSectionScope() {

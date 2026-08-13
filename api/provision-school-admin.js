@@ -93,9 +93,13 @@ export default async function handler(req, res) {
     const adminEmail = String(body.adminEmail ?? "").trim().toLowerCase();
     const adminPassword = String(body.adminPassword ?? "");
     const plan = allowedPlans.has(body.subscriptionPlan) ? body.subscriptionPlan : "Standard";
-    const allowedEducationLevels = new Set(["Maternelle", "Primaire", "Secondaire"]);
+    const allowedEducationLevels = new Set(["Maternelle", "Primaire", "CTEB", "Secondaire"]);
+    const normalizeEducationLevel = (level) => {
+      const value = String(level).trim();
+      return ["cteb", "cetb"].includes(value.toLowerCase()) ? "CTEB" : value;
+    };
     const educationLevels = Array.isArray(body.educationLevels)
-      ? body.educationLevels.map((level) => String(level).trim()).filter((level) => allowedEducationLevels.has(level))
+      ? body.educationLevels.map(normalizeEducationLevel).filter((level) => allowedEducationLevels.has(level))
       : ["Primaire"];
     const uniqueEducationLevels = [...new Set(educationLevels.length > 0 ? educationLevels : ["Primaire"])];
     const schoolType = uniqueEducationLevels.length === 1 ? uniqueEducationLevels[0] : "Mixte";

@@ -434,7 +434,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
     () =>
       Array.from(
         filteredStudents.reduce<Map<string, { className: string; classOrder: number; optionLabel: string; girls: number; boys: number; total: number }>>((items, student) => {
-          const isSecondary = getClassSection(student.className) === "secondaire";
+          const isSecondary = getClassSection(student.className) === "Secondaire";
           const className = isSecondary ? formatStudentClassName(student) : student.className;
           const current = items.get(className) ?? {
             className,

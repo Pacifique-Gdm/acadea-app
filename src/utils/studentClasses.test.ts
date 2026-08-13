@@ -9,13 +9,13 @@ function student(className: Student["className"], option?: string) {
 
 describe("promotions", () => {
   it("classe toujours 7ème et 8ème CTEB dans la section CTEB", () => {
-    expect(getClassSection("7ème CTEB")).toBe("cteb");
-    expect(getClassSection("8ème CTEB")).toBe("cteb");
+    expect(getClassSection("7ème CTEB")).toBe("CTEB");
+    expect(getClassSection("8ème CTEB")).toBe("CTEB");
   });
 
   it("corrige à la lecture une ancienne section primaire contradictoire", () => {
-    expect(getStudentSection({ className: "7ème CTEB", section: "primaire" })).toBe("cteb");
-    expect(getStudentSection({ className: "8ème CTEB", section: "primaire" })).toBe("cteb");
+    expect(getStudentSection({ className: "7ème CTEB", section: "Primaire" })).toBe("CTEB");
+    expect(getStudentSection({ className: "8ème CTEB", section: "Primaire" })).toBe("CTEB");
   });
 
   it("propose 7ème et 8ème uniquement dans les classes CTEB", () => {

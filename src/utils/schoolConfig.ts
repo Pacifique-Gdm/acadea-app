@@ -1,18 +1,19 @@
 import type { School, SchoolSection } from "../types";
 import { CLASSES } from "../types";
 import { getClassSection } from "./studentClasses";
+import { SCHOOL_SECTIONS, normalizeSchoolSection } from "./schoolSections";
 
 export type SchoolLevelChoice = "Maternelle" | "Primaire" | "CTEB" | "Secondaire" | "Primaire uniquement" | "CTEB uniquement" | "Secondaire uniquement";
 
 export const schoolEducationLevelChoices = ["Maternelle", "Primaire", "CTEB", "Secondaire"];
 
-export const schoolSectionOrder: SchoolSection[] = ["maternelle", "primaire", "cteb", "secondaire"];
+export const schoolSectionOrder: SchoolSection[] = [...SCHOOL_SECTIONS];
 
 export const schoolSectionLabels: Record<SchoolSection, string> = {
-  maternelle: "Maternelle",
-  primaire: "Primaire",
-  cteb: "CETB",
-  secondaire: "Secondaire",
+  Maternelle: "Maternelle",
+  Primaire: "Primaire",
+  CTEB: "CTEB",
+  Secondaire: "Secondaire",
 };
 
 export function educationLevelsForSchoolLevel(level: SchoolLevelChoice) {
@@ -54,9 +55,6 @@ export function getSchoolEducationLevels(school: Pick<School, "educationLevels" 
     .filter(Boolean);
   if (levels.length > 0) {
     const uniqueLevels = Array.from(new Set(levels));
-    if (uniqueLevels.includes("Maternelle") && uniqueLevels.includes("Primaire") && uniqueLevels.includes("Secondaire") && !uniqueLevels.includes("CTEB")) {
-      return schoolEducationLevelChoices;
-    }
     return schoolEducationLevelChoices.filter((level) => uniqueLevels.includes(level));
   }
   if (school.schoolType === "Mixte") return schoolEducationLevelChoices;
@@ -65,13 +63,18 @@ export function getSchoolEducationLevels(school: Pick<School, "educationLevels" 
   return school.schoolType ? [school.schoolType] : schoolEducationLevelChoices;
 }
 
+export function toggleSchoolEducationLevel(levels: readonly string[], level: string): string[] {
+  const current = Array.from(new Set(levels.map(normalizeEducationLevel).filter((item) => schoolEducationLevelChoices.includes(item))));
+  const target = normalizeEducationLevel(level);
+  if (current.includes(target)) {
+    const next = current.filter((item) => item !== target);
+    return next.length ? next : current;
+  }
+  return schoolEducationLevelChoices.filter((item) => [...current, target].includes(item));
+}
+
 export function schoolSectionFromEducationLevel(level: string): SchoolSection | "" {
-  const normalized = normalizeEducationLevel(level);
-  if (normalized === "Maternelle") return "maternelle";
-  if (normalized === "Primaire") return "primaire";
-  if (normalized === "CTEB") return "cteb";
-  if (normalized === "Secondaire") return "secondaire";
-  return "";
+  return normalizeSchoolSection(level) ?? "";
 }
 
 export function getSchoolSections(school: Pick<School, "educationLevels" | "schoolType">): SchoolSection[] {

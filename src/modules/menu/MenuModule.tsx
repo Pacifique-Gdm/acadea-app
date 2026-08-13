@@ -11,7 +11,7 @@ import { subscribeToStudentMedicalRecords } from "../../services/studentMedicalR
 import { createAuditLog } from "../../utils/audit";
 import { refreshErrorMessage } from "../../utils/refreshErrors";
 import { buildFeeTargetChoices, feeTargetClassName } from "../../utils/feeTargets";
-import { getSchoolEducationLevels, getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
+import { getSchoolEducationLevels, getSchoolSections, schoolSectionLabels, toggleSchoolEducationLevel } from "../../utils/schoolConfig";
 import { nextSchoolStaffEmail, normalizeProvisioningPhone } from "../../utils/schoolAccountCredentials";
 import { temporaryPasswordAfterPhoneChange } from "../../utils/temporaryPassword";
 import { subscribeToSchoolTeacherAccounts } from "../../services/teacherAccounts";
@@ -598,10 +598,7 @@ export function MenuModule({
   function toggleSchoolFormEducationLevel(level: string) {
     setSchoolForm((current) => {
       const currentLevels = getSchoolEducationLevels(current).filter((item) => item !== "Mixte");
-      const nextLevels = currentLevels.includes(level)
-        ? currentLevels.filter((item) => item !== level)
-        : [...currentLevels, level];
-      const normalizedLevels = nextLevels.length > 0 ? nextLevels : currentLevels;
+      const normalizedLevels = toggleSchoolEducationLevel(currentLevels, level);
       return {
         ...current,
         educationLevels: normalizedLevels,

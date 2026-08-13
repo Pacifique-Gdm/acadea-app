@@ -41,7 +41,7 @@ export function emptyStudent(schoolId: string, schoolYearId: string): Student {
     address: "",
     phone: "",
     className: "1ère Primaire",
-    section: "primaire",
+    section: "Primaire",
     status: "ACTIVE",
     photoUrl: "",
     biometric: { ...defaultStudentBiometric },

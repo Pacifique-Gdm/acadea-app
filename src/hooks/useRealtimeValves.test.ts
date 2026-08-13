@@ -62,8 +62,8 @@ describe("temps réel des Valves", () => {
   it("conserve le ciblage Parent existant", () => {
     const parent = { id: "parent-a", studentIds: ["student-a"] } as ParentProfile;
     const students = [{ id: "student-a", parentId: "parent-a", className: "1ère Primaire" }] as Student[];
-    expect(parentCanViewValvePublication(valve("allowed", "2026-01-01", { visibility: "primaire" }), parent, students)).toBe(true);
-    expect(parentCanViewValvePublication(valve("denied", "2026-01-01", { visibility: "secondaire" }), parent, students)).toBe(false);
+    expect(parentCanViewValvePublication(valve("allowed", "2026-01-01", { visibility: "Primaire" }), parent, students)).toBe(true);
+    expect(parentCanViewValvePublication(valve("denied", "2026-01-01", { visibility: "Secondaire" }), parent, students)).toBe(false);
   });
 
   it("crée une seule écoute ciblée et transmet chaque snapshot", () => {

@@ -1,3 +1,5 @@
+import type { SchoolSection } from "../../types";
+
 export interface StudyTeacher {
   id: string;
   userId?: string;
@@ -12,8 +14,8 @@ export interface StudyTeacher {
   createdBy: string;
   email?: string;
   phone?: string;
-  section?: "maternelle" | "primaire" | "cteb" | "secondaire";
-  sectionIds?: Array<"maternelle" | "primaire" | "cteb" | "secondaire">;
+  section?: SchoolSection;
+  sectionIds?: SchoolSection[];
 }
 
 export interface StudySubject {
@@ -25,7 +27,7 @@ export interface StudySubject {
   createdAt: string;
   updatedAt: string;
   createdBy: string;
-  section?: "maternelle" | "primaire" | "cteb" | "secondaire";
+  section?: SchoolSection;
   classIds?: string[];
 }
 
@@ -39,7 +41,7 @@ export interface StudyClass {
   active?: boolean;
   parentClassId?: string;
   subClassLabel?: string;
-  section?: "maternelle" | "primaire" | "cteb" | "secondaire";
+  section?: SchoolSection;
   option?: string;
   vacation?: StudyVacation;
   saturdayVacation?: StudyVacation | null;

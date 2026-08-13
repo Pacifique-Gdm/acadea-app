@@ -44,7 +44,7 @@ function valveClassOptionFromKey(target: string) {
 }
 
 export function getValveStudentClassKey(student: Pick<Student, "className" | "option">) {
-  return getValveClassSection(student.className) === "secondaire" ? valveClassKey(student.className, student.option) : student.className;
+  return getValveClassSection(student.className) === "Secondaire" ? valveClassKey(student.className, student.option) : student.className;
 }
 
 export function formatValveClassChoiceLabel(target: string) {

@@ -14,8 +14,8 @@ export interface GradeEntry { id:string;schoolId:string;schoolYearId:string;assi
 
 export function gradingContextId(input:Pick<CourseGradingConfig,"schoolId"|"schoolYearId"|"classId"|"subjectId">){return [input.schoolId,input.schoolYearId,input.classId,input.subjectId].join("__")}
 export function gradeEntryId(input:Pick<GradeEntry,"schoolId"|"schoolYearId"|"classId"|"subjectId"|"studentId"|"gradingSlot">){return [input.schoolId,input.schoolYearId,input.classId,input.subjectId,input.studentId,input.gradingSlot].join("__")}
-export function isPrimaryOrPreschoolSection(value:string|undefined){return primaryTeacherSections.includes(value as "maternelle"|"primaire")}
-export function isSecondarySection(value:string|undefined){return value==="secondaire"||value==="cteb"}
+export function isPrimaryOrPreschoolSection(value:string|undefined){return primaryTeacherSections.includes(value as "Maternelle"|"Primaire")}
+export function isSecondarySection(value:string|undefined){return value==="Secondaire"||value==="CTEB"}
 export function getTeacherGradingScope(teacher:StudyTeacher,assignments:PedagogicalAssignment[],classes:StudyClass[],subjects:StudySubject[]){
   if(teacher.status!=="active")return[];
   const own=assignments.filter(item=>item.active&&item.teacherId===teacher.id);
