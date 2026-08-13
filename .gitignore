@@ -32,3 +32,4 @@ test-results/
 
 .vercel
 .env*
+.vercel-production-source.json

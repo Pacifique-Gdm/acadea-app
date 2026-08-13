@@ -13,3 +13,4 @@ credentials*.json
 playwright-report/
 test-results/
 *.trace.zip
+!.vercel-production-source.json
