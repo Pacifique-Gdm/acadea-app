@@ -336,6 +336,9 @@ export default function App() {
   const school = data.schools.find((item) => item.id === user?.schoolId);
   const schoolYears = useMemo(() => (school ? data.schoolYears.filter((year) => year.schoolId === school.id) : []), [data.schoolYears, school]);
   const selectedYear = schoolYears.find((year) => year.id === selectedYearId);
+  const firestoreBootstrapIdentity = user ? `${user.id}:${user.role}:${user.schoolId ?? ""}` : "";
+  const firestoreBootstrapUserRef = useRef(user);
+  firestoreBootstrapUserRef.current = user;
 
   const navigate = useCallback((nextRoute: string) => {
     setNotificationsOpen(false);
@@ -420,14 +423,15 @@ export default function App() {
   }, [applyAuthenticatedUser, navigate]);
 
   useEffect(() => {
-    if (!user || !canUseFirestoreData()) return;
+    const bootstrapUser = firestoreBootstrapUserRef.current;
+    if (!bootstrapUser || !canUseFirestoreData()) return;
 
     let cancelled = false;
 
     void (async () => {
-      if (user.role === "super_admin") {
+      if (bootstrapUser.role === "super_admin") {
         try {
-          const { data: firestoreData, counts } = await loadSuperAdminInitialData(user.id, user);
+          const { data: firestoreData, counts } = await loadSuperAdminInitialData(bootstrapUser.id, bootstrapUser);
           if (cancelled) return;
           setPlatformCounts(counts);
           setData(firestoreData);
@@ -435,7 +439,7 @@ export default function App() {
           if (cancelled || logoutInProgressRef.current) return;
           console.warn("Chargement Firestore indisponible.", error);
           setPlatformCounts(null);
-          setData({ ...loadInitialData(), users: [user] });
+          setData({ ...loadInitialData(), users: [bootstrapUser] });
           setAuthError(error instanceof Error ? error.message : "Chargement Firestore impossible après connexion.");
         }
         return;
@@ -445,10 +449,10 @@ export default function App() {
       setBootstrapError("");
       let bootstrapResolved = false;
       try {
-        const bootstrap = await loadFirestoreBootstrapData(user);
+        const bootstrap = await loadFirestoreBootstrapData(bootstrapUser);
         if (!bootstrap || cancelled) return;
         bootstrapResolved = true;
-        const nextSchool = bootstrap.schools.find((item) => item.id === user.schoolId);
+        const nextSchool = bootstrap.schools.find((item) => item.id === bootstrapUser.schoolId);
         const nextSchoolYears = nextSchool ? bootstrap.schoolYears.filter((year) => year.schoolId === nextSchool.id) : [];
         const nextYearId = resolveDefaultSchoolYear(nextSchool, nextSchoolYears)?.id ?? "";
         setData({ ...loadInitialData(), ...bootstrap });
@@ -457,7 +461,7 @@ export default function App() {
         markAuthStep("auth:school-loaded");
         measureAuthStep("auth:redirect-to-shell", "auth:redirect-complete", "auth:school-loaded");
 
-        const firestoreData = await loadFirestoreData(user, nextYearId, bootstrap);
+        const firestoreData = await loadFirestoreData(bootstrapUser, nextYearId, bootstrap);
         if (!firestoreData || cancelled) return;
         setData(firestoreData);
       } catch (error) {
@@ -469,9 +473,9 @@ export default function App() {
         }
         console.warn("[Acadéa auth] Chargement initial Firestore indisponible sans invalidation de session.", {
           code: firebaseErrorCode(error),
-          uid: user.id,
-          role: user.role,
-          schoolId: user.schoolId,
+          uid: bootstrapUser.id,
+          role: bootstrapUser.role,
+          schoolId: bootstrapUser.schoolId,
         });
         setBootstrapError(error instanceof Error ? error.message : "Chargement Firestore impossible après connexion.");
       } finally {
@@ -483,7 +487,7 @@ export default function App() {
       cancelled = true;
       setDataLoading(false);
     };
-  }, [bootstrapRetry, user]);
+  }, [bootstrapRetry, firestoreBootstrapIdentity]);
 
   useEffect(() => {
     if (!user) {

@@ -23,4 +23,10 @@ describe("profil utilisateur Firestore temps réel", () => {
   it("normalise les valeurs CTEB historiques du document users", () => {
     expect(mergeRealtimeUserProfile(connected, { section: "CETB", sectionIds: ["cetb"] })).toMatchObject({ section: "CTEB", sectionIds: ["CTEB"] });
   });
+
+  it("conserve l'identité de bootstrap lorsque seules les sections évoluent", () => {
+    const identity = (value: AppUser) => `${value.id}:${value.role}:${value.schoolId ?? ""}`;
+    const updated = mergeRealtimeUserProfile(connected, { section: "Secondaire", sectionIds: ["Secondaire"] });
+    expect(identity(updated)).toBe(identity(connected));
+  });
 });
