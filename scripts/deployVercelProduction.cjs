@@ -22,8 +22,10 @@ const proofPath = join(cwd, PROOF_FILE);
 writeFileSync(proofPath, `${JSON.stringify({ version: 1, target: "production", branch: state.branch, head: state.head, originMain: state.originMain, generatedAt: new Date().toISOString() })}\n`, { flag: "wx" });
 
 try {
-  const executable = process.platform === "win32" ? "npx.cmd" : "npx";
-  const result = spawnSync(executable, ["vercel", "deploy", "--prod"], { cwd, stdio: "inherit", env: process.env });
+  const result = process.platform === "win32"
+    ? spawnSync(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", "npx.cmd vercel deploy --prod"], { cwd, stdio: "inherit", env: process.env })
+    : spawnSync("npx", ["vercel", "deploy", "--prod"], { cwd, stdio: "inherit", env: process.env });
+  if (result.error) throw result.error;
   process.exitCode = result.status ?? 1;
 } finally {
   rmSync(proofPath, { force: true });
