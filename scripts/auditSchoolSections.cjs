@@ -3,7 +3,10 @@ const path = require("node:path");
 const { initializeApp, cert } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
 
-const EXPECTED_PROJECT = "acadea-staging";
+const ALLOWED_PROJECTS = new Set(["acadea-staging", "acadea-production"]);
+const projectArgument = process.argv.find((argument) => argument.startsWith("--project="));
+const expectedProject = projectArgument?.slice("--project=".length) || "acadea-staging";
+if (!ALLOWED_PROJECTS.has(expectedProject)) throw new Error(`Projet refuse: ${expectedProject}.`);
 const COLLECTIONS = [
   "schools", "users", "students", "classes", "teachers", "subjects", "courses",
   "pedagogicalAssignments", "timetables", "timetableEntries", "schedulePeriods",
@@ -22,20 +25,20 @@ function canonicalSection(value) {
 
 function loadCredential() {
   if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    const envPath = path.resolve(".env.staging.local");
+    const envPath = path.resolve(expectedProject === "acadea-production" ? ".env.production.local" : ".env.staging.local");
     if (fs.existsSync(envPath)) require("dotenv").config({ path: envPath, quiet: true });
   }
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
   if (!raw) throw new Error("FIREBASE_SERVICE_ACCOUNT_JSON est absent.");
   const credential = JSON.parse(raw);
-  if (credential.project_id !== EXPECTED_PROJECT) throw new Error(`Projet refuse: ${credential.project_id ?? "inconnu"}.`);
+  if (credential.project_id !== expectedProject) throw new Error(`Projet refuse: ${credential.project_id ?? "inconnu"}.`);
   return credential;
 }
 
 async function main() {
   const apply = process.argv.includes("--apply");
-  if (apply && process.env.CONFIRM_SECTION_MIGRATION !== EXPECTED_PROJECT) {
-    throw new Error(`Migration refusee: definir CONFIRM_SECTION_MIGRATION=${EXPECTED_PROJECT}.`);
+  if (apply && process.env.CONFIRM_SECTION_MIGRATION !== expectedProject) {
+    throw new Error(`Migration refusee: definir CONFIRM_SECTION_MIGRATION=${expectedProject}.`);
   }
   const db = getFirestore(initializeApp({ credential: cert(loadCredential()) }));
   let inspected = 0;
@@ -85,7 +88,7 @@ async function main() {
       }
     }
   }
-  console.log(JSON.stringify({ projectId: EXPECTED_PROJECT, mode: apply ? "apply" : "read-only", inspected, affected }));
+  console.log(JSON.stringify({ projectId: expectedProject, mode: apply ? "apply" : "read-only", inspected, affected }));
 }
 
 main().catch((error) => { console.error(error.message); process.exitCode = 1; });
