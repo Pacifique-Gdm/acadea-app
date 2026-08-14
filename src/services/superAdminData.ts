@@ -2,6 +2,7 @@ import { collection, doc, getCountFromServer, getDoc, getDocs, query, where } fr
 import type { Firestore } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
 import type { AppData, AppUser, AuditLog, BiometricTerminal, Expense, FeeType, Message, ParentProfile, Payment, School, SchoolYear, Student, ValvePublication } from "../types";
+import { canonicalSchoolOption, normalizeSchoolOptions } from "../utils/schoolOptions";
 
 export type SuperAdminGlobalCounts = {
   students: number;
@@ -55,7 +56,13 @@ function ensureFirestore(): Firestore {
 async function loadCollection<T>(collectionName: string) {
   const database = ensureFirestore();
   const snapshot = await getDocs(collection(database, collectionName));
-  return snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as T[];
+  return snapshot.docs.map((item) => normalizeSchoolDomainDocument(collectionName, { id: item.id, ...item.data() })) as T[];
+}
+
+function normalizeSchoolDomainDocument(collectionName: string, value: Record<string, unknown>) {
+  if (collectionName === "schools") return { ...value, schoolOptions: normalizeSchoolOptions(value.schoolOptions) };
+  if (collectionName === "students" && typeof value.option === "string") return { ...value, option: canonicalSchoolOption(value.option) };
+  return value;
 }
 
 async function loadOptionalCollection<T>(collectionName: string) {
@@ -70,7 +77,7 @@ async function loadOptionalCollection<T>(collectionName: string) {
 async function loadSchoolCollection<T>(collectionName: string, schoolId: string) {
   const database = ensureFirestore();
   const snapshot = await getDocs(query(collection(database, collectionName), where("schoolId", "==", schoolId)));
-  return snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as T[];
+  return snapshot.docs.map((item) => normalizeSchoolDomainDocument(collectionName, { id: item.id, ...item.data() })) as T[];
 }
 
 async function loadOptionalSchoolCollection<T>(collectionName: string, schoolId: string) {

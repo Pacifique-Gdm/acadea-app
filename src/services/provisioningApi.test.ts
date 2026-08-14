@@ -206,6 +206,26 @@ describe("API de provisionnement Acadéa", () => {
     expect(schoolRef?.set).toHaveBeenCalledWith(expect.objectContaining({ educationLevels: ["CTEB", "Primaire"] }));
   });
 
+  it("persiste les options initiales dédupliquées avec Sciences comme libellé canonique", async () => {
+    mocks.auth.verifyIdToken.mockResolvedValue({ uid: "super-1", role: "super_admin", email: "super@example.invalid" });
+    const res = response();
+    await provisionSchoolAdmin(request({
+      schoolName: "École options", adminName: "Administrateur test", adminEmail: "options@example.invalid", adminPassword: "test-password",
+      educationLevels: ["Secondaire"], schoolOptions: ["Scientifique", " SCIENCES ", "Littéraire"], currency: "CDF",
+    }), res);
+    expect(res.statusCode).toBe(200);
+    const schoolRef = mocks.db.doc.mock.results.map((result) => result.value as { path?: string; set?: ReturnType<typeof vi.fn> }).find((ref) => ref.path?.startsWith("schools/school-"));
+    expect(schoolRef?.set).toHaveBeenCalledWith(expect.objectContaining({ schoolOptions: ["Sciences", "Littéraire"], currency: "CDF" }));
+  });
+
+  it("refuse une devise arbitraire lors du provisionnement", async () => {
+    mocks.auth.verifyIdToken.mockResolvedValue({ uid: "super-1", role: "super_admin", email: "super@example.invalid" });
+    const res = response();
+    await provisionSchoolAdmin(request({ schoolName: "École", adminName: "Admin", adminEmail: "invalid@example.invalid", adminPassword: "test-password", currency: "EUR" }), res);
+    expect(res.statusCode).toBe(400);
+    expect(mocks.auth.createUser).not.toHaveBeenCalled();
+  });
+
   it("normalise l’email et refuse proprement un doublon garanti par Firebase Auth", async () => {
     mocks.auth.createUser.mockRejectedValueOnce(Object.assign(new Error("duplicate"), { code: "auth/email-already-exists" }));
     const res = response();

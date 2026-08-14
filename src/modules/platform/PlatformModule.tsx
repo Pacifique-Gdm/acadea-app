@@ -18,6 +18,7 @@ import { educationLevelsForSchoolLevel, schoolLevelFromConfig } from "../../util
 import type { SchoolLevelChoice } from "../../utils/schoolConfig";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import { isArchivedStudent } from "../../utils/studentUtils";
+import { canonicalSchoolOption, normalizeSchoolOptions } from "../../utils/schoolOptions";
 import type { AppData, AppUser, AuditLog, BiometricTerminal, BiometricTerminalStatus, School, SchoolClass } from "../../types";
 import { CLASSES } from "../../types";
 
@@ -155,13 +156,13 @@ export function PlatformModule({
   const maxStatusCount = Math.max(1, ...schoolStatusChart.map((item) => item.value));
   const hasSecondarySection = schoolSections.includes("Secondaire");
   const hasCustomSchoolOption = selectedSchoolOptions.includes("Autre");
-  const visibleSchoolOptionChoices = Array.from(new Set([...schoolOptionChoices, ...selectedSchoolOptions.filter((option) => option !== "Autre" && isAllowedSchoolOption(option))]));
+  const visibleSchoolOptionChoices = normalizeSchoolOptions([...schoolOptionChoices, ...selectedSchoolOptions.filter((option) => option !== "Autre" && isAllowedSchoolOption(option))]);
   const selectedSchool = visibleSchools.find((school) => school.id === selectedSchoolId) ?? visibleSchools[0];
   const drawerSchool = visibleSchools.find((school) => school.id === schoolDrawerId);
   const drawerAiUsage = schoolAiUsageThisMonth(drawerSchool?.aiAssistant);
   const biometricSchool = visibleSchools.find((school) => school.id === biometricSchoolId);
   const biometricSchoolTerminals = biometricSchool ? data.biometricTerminals.filter((terminal) => terminal.schoolId === biometricSchool.id).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")) : [];
-  const drawerSchoolOptions = (drawerSchool?.schoolOptions ?? []).filter(isAllowedSchoolOption);
+  const drawerSchoolOptions = normalizeSchoolOptions(drawerSchool?.schoolOptions).filter(isAllowedSchoolOption);
   const drawerStats = drawerSchool ? getPlatformSchoolStats(drawerSchool.id, data) : { students: 0, parents: 0, admins: 0, users: 0 };
   const drawerAdmins = drawerSchool ? data.users.filter((item) => item.role === "school_admin" && item.schoolId === drawerSchool.id && !item.removedAt) : [];
   const drawerMainAdmin = drawerSchool ? drawerAdmins.find((admin) => admin.id === drawerSchool.mainAdminId) ?? drawerAdmins[0] : undefined;
@@ -232,10 +233,10 @@ export function PlatformModule({
       return;
     }
     const nextSchoolOptions = hasSecondarySection
-      ? [
+      ? normalizeSchoolOptions([
           ...selectedSchoolOptions.filter((option) => option !== "Autre" && isAllowedSchoolOption(option)),
           ...(hasCustomSchoolOption ? [trimmedCustomSchoolOption] : []),
-        ]
+        ])
       : [];
 
     setProvisioningError("");
@@ -339,12 +340,12 @@ export function PlatformModule({
   }
 
   function addCustomSchoolOption() {
-    const option = customSchoolOption.trim();
+    const option = canonicalSchoolOption(customSchoolOption);
     if (!option) {
       setProvisioningError("Veuillez préciser la nouvelle option scolaire.");
       return;
     }
-    setSelectedSchoolOptions((current) => Array.from(new Set([...current.filter((item) => item !== "Autre"), option])));
+    setSelectedSchoolOptions((current) => normalizeSchoolOptions([...current.filter((item) => item !== "Autre"), option]));
     setCustomSchoolOption("");
     setProvisioningError("");
   }
@@ -383,13 +384,17 @@ export function PlatformModule({
     const currency = window.prompt("Devise (USD ou CDF)", school.currency ?? "USD")?.trim().toUpperCase();
     if (!currency) return;
     if (currency !== "USD" && currency !== "CDF") { setSchoolActionError("La devise doit être USD ou CDF."); return; }
-    await updateSchool(school.id, {
-      name: name.trim(),
-      address: address.trim(),
-      phone: phone.trim(),
-      email: email.trim(),
-      currency,
-    });
+    setSchoolActionError("");
+    try {
+      const payload = await manageSchool({ action: "update", schoolId: school.id, patch: {
+        name: name.trim(), address: address.trim(), phone: phone.trim(), email: email.trim(), currency,
+      } });
+      if (!payload.school) throw new Error("Réponse école incomplète.");
+      updateData({ schools: data.schools.map((item) => item.id === school.id ? payload.school as School : item) }, { persist: false });
+      setSchoolActionSuccess("Informations de l'école enregistrées avec succès.");
+    } catch (error) {
+      setSchoolActionError(error instanceof Error ? error.message : "Modification de l'école impossible.");
+    }
   }
 
   function resetTerminalForm() {
@@ -1306,7 +1311,7 @@ export function PlatformModule({
                 <InfoRow label="Adresse" value={drawerSchool.address || "-"} />
                 <InfoRow label="Téléphone" value={drawerSchool.phone || "-"} />
                 <InfoRow label="Email" value={drawerSchool.email || "-"} />
-                <InfoRow label="Devise" value={(drawerSchool.currency ?? "USD") === "CDF" ? "Franc congolais (FC)" : "Dollar américain ($)"} />
+                <InfoRow label="Devise" value={(drawerSchool.currency ?? "USD") === "CDF" ? "Franc congolais (CDF)" : "Dollar américain (USD)"} />
                 <label className="grid gap-1 rounded bg-slate-50 p-3 text-sm">
                   <span className="font-semibold text-slate-500">Niveau de l'école</span>
                   <select

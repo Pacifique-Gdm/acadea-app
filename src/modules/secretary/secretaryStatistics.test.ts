@@ -4,13 +4,13 @@ import { buildSecretaryStatistics, compareAcademicClasses, filterSecretaryStatis
 
 const students = [
   { id: "one", schoolId: "school-1", schoolYearId: "year-1", className: "1ère Primaire", section: "Primaire", sexe: "M" },
-  { id: "two", schoolId: "school-1", schoolYearId: "year-1", className: "1ère Humanités", option: "Scientifique", section: "Secondaire", sexe: "F" },
+  { id: "two", schoolId: "school-1", schoolYearId: "year-1", className: "1ère Humanités", option: "Sciences", section: "Secondaire", sexe: "F" },
 ] as Student[];
 
 describe("statistiques filtrées du Secrétaire", () => {
   it("filtre par section et classe précise depuis les données existantes", () => {
     expect(filterSecretaryStatisticsStudents(students, { type: "section", section: "Primaire", label: "Primaire" }).map(({ id }) => id)).toEqual(["one"]);
-    expect(filterSecretaryStatisticsStudents(students, { type: "class", classKey: "1ère Humanités::option::Scientifique", label: "1ère Scientifique" }).map(({ id }) => id)).toEqual(["two"]);
+    expect(filterSecretaryStatisticsStudents(students, { type: "class", classKey: "1ère Humanités::option::Sciences", label: "1ère Sciences" }).map(({ id }) => id)).toEqual(["two"]);
     expect(filterSecretaryStatisticsStudents(students, { type: "all" })).toEqual(students);
   });
 
@@ -50,8 +50,8 @@ describe("statistiques filtrées du Secrétaire", () => {
 
   it("groupe par section, classe et option réelles sans fusionner les options", () => {
     const optionStudents = [
-      { ...students[1], id: "science-one", option: "Scientifique" },
-      { ...students[1], id: "science-two", option: "Scientifique" },
+      { ...students[1], id: "science-one", option: "Sciences" },
+      { ...students[1], id: "science-two", option: "Sciences" },
       { ...students[1], id: "literature", option: "Littéraire" },
       { ...students[0], id: "primary" },
     ] as Student[];
@@ -59,7 +59,7 @@ describe("statistiques filtrées du Secrétaire", () => {
     expect(statistics.classRows).toEqual([
       { order: 1, section: "Primaire", className: "1ère Primaire", option: "—", count: 1, percentage: 25 },
       { order: 2, section: "Secondaire", className: "1ère Humanités", option: "Littéraire", count: 1, percentage: 25 },
-      { order: 3, section: "Secondaire", className: "1ère Humanités", option: "Scientifique", count: 2, percentage: 50 },
+      { order: 3, section: "Secondaire", className: "1ère Humanités", option: "Sciences", count: 2, percentage: 50 },
     ]);
   });
 
@@ -81,9 +81,9 @@ describe("statistiques filtrées du Secrétaire", () => {
   });
 
   it("recalcule les pourcentages dans le seul périmètre filtré", () => {
-    const filtered = filterSecretaryStatisticsStudents(students, { type: "class", classKey: "1ère Humanités::option::Scientifique", label: "1ère Scientifique" });
+    const filtered = filterSecretaryStatisticsStudents(students, { type: "class", classKey: "1ère Humanités::option::Sciences", label: "1ère Sciences" });
     const statistics = buildSecretaryStatistics(filtered, []);
-    expect(statistics.classRows).toEqual([{ order: 1, section: "Secondaire", className: "1ère Humanités", option: "Scientifique", count: 1, percentage: 100 }]);
+    expect(statistics.classRows).toEqual([{ order: 1, section: "Secondaire", className: "1ère Humanités", option: "Sciences", count: 1, percentage: 100 }]);
     expect(statistics.sectionRows).toEqual([{ order: 1, section: "Secondaire", count: 1, percentage: 100 }]);
   });
 

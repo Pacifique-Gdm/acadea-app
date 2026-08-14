@@ -31,7 +31,6 @@ function pickSchoolPatch(body) {
   for (const key of ["name", "address", "phone", "email", "subscriptionPlan", "subscriptionStatus", "subscriptionAmount", "currency"]) {
     if (body[key] !== undefined) patch[key] = body[key];
   }
-  if (patch.currency !== undefined && !["USD", "CDF"].includes(patch.currency)) delete patch.currency;
   return patch;
 }
 
@@ -83,6 +82,10 @@ export default async function handler(req, res) {
 
     if (action === "update") {
       const patch = pickSchoolPatch(body.patch ?? {});
+      if (patch.currency !== undefined && !["USD", "CDF"].includes(patch.currency)) {
+        sendJson(res, 400, { error: "Devise invalide. Valeurs autorisees : USD, CDF.", code: "invalid-argument" });
+        return;
+      }
       if (Object.keys(patch).length === 0) {
         sendJson(res, 400, { error: "Aucune modification valide.", code: "invalid-argument" });
         return;

@@ -5,7 +5,7 @@ import { AdminDrawer, Field, ImageUploadField, LogoutButton, MultiSelectDropdown
 import { ParentsDirectoryDrawer } from "../../components/parents/ParentsDirectoryDrawer";
 import { ParentDrawerBackButton } from "../../components/parents/ParentFormEditor";
 import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent";
-import { canUseFirestoreData, persistFirestorePatch } from "../../services/firestoreData";
+import { canUseFirestoreData } from "../../services/firestoreData";
 import { deleteParentAccount, provisionSchoolUser } from "../../services/provisioning";
 import { subscribeToStudentMedicalRecords } from "../../services/studentMedicalRecords";
 import { createAuditLog } from "../../utils/audit";
@@ -16,6 +16,8 @@ import { nextSchoolStaffEmail, normalizeProvisioningPhone } from "../../utils/sc
 import { temporaryPasswordAfterPhoneChange } from "../../utils/temporaryPassword";
 import { ERROR_MESSAGE_DURATION_MS, SUCCESS_MESSAGE_DURATION_MS, useAutoDismissMessage } from "../../hooks/useAutoDismissMessage";
 import { subscribeToSchoolTeacherAccounts } from "../../services/teacherAccounts";
+import { persistSchoolSettings } from "../../services/schoolOptionsRepository";
+import { canonicalSchoolOption, normalizeSchoolOptions } from "../../utils/schoolOptions";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import type { AppData, AppUser, FeeKind, FeeType, ParentProfile, School, SchoolSection, SchoolYear, Student, ValvePublication } from "../../types";
 import { FEE_KINDS } from "../../types";
@@ -155,7 +157,7 @@ export function MenuModule({
   const feeKindChoices = Array.from(new Set([...FEE_KINDS, ...yearData.feeTypes.map((fee) => fee.name), ...persistedCustomFeeKindChoices, ...customFeeKindChoices]));
   const newFeeFormRef = useRef<HTMLDivElement>(null);
   const schoolFormEducationLevels = getSchoolEducationLevels(schoolForm).filter((level) => level !== "Mixte");
-  const schoolFormOptions = schoolForm.schoolOptions ?? [];
+  const schoolFormOptions = normalizeSchoolOptions(schoolForm.schoolOptions);
   const feeClassChoices = buildFeeTargetChoices(yearData.students, feeClassNames);
   const parentDeleteTarget = yearData.parents.find((parent) => parent.id === parentDeleteId && parent.schoolId === school.id);
   const generatedSchoolUserEmail = useMemo(
@@ -301,13 +303,12 @@ export function MenuModule({
     setSchoolSaveMessage("");
     const nextMotto = schoolForm.motto?.trim();
     const existingMotto = school.motto?.trim();
-    const savedSchool = { ...schoolForm, motto: nextMotto || existingMotto || "" };
-    const nextSchools = data.schools.map((item) => (item.id === school.id ? savedSchool : item));
+    const desiredSchool = { ...schoolForm, motto: nextMotto || existingMotto || "", schoolOptions: normalizeSchoolOptions(schoolForm.schoolOptions) };
     try {
-      const persisted = await persistFirestorePatch({ schools: nextSchools }, { throwOnError: true });
-      if (canUseFirestoreData() && persisted === false) {
-        throw new Error("Persistance Firestore indisponible.");
-      }
+      const savedSchool = canUseFirestoreData()
+        ? await persistSchoolSettings(school, school.schoolOptions, desiredSchool)
+        : desiredSchool;
+      const nextSchools = data.schools.map((item) => (item.id === school.id ? savedSchool : item));
       updateData({ schools: nextSchools }, { persist: false });
       setSchoolForm(savedSchool);
       setSchoolSaveStatus("success");
@@ -615,12 +616,12 @@ export function MenuModule({
   }
 
   function addSchoolFormOption() {
-    const trimmed = schoolOptionDraft.trim();
+    const trimmed = canonicalSchoolOption(schoolOptionDraft);
     if (!trimmed) return;
     setSchoolForm((current) => {
-      const currentOptions = current.schoolOptions ?? [];
-      const exists = currentOptions.some((option) => option.toLowerCase() === trimmed.toLowerCase());
-      return exists ? current : { ...current, schoolOptions: [...currentOptions, trimmed] };
+      const currentOptions = normalizeSchoolOptions(current.schoolOptions);
+      const nextOptions = normalizeSchoolOptions([...currentOptions, trimmed]);
+      return nextOptions.length === currentOptions.length ? current : { ...current, schoolOptions: nextOptions };
     });
     setSchoolOptionDraft("");
   }
@@ -1066,7 +1067,13 @@ export function MenuModule({
         return (
           <button
             key={section.id}
-            onClick={() => { clearMenuMessages(); if (section.id === "medicalRecords") setMedicalRecordsOpen(true); else setActiveMenuSection(section.id); }}
+            onClick={() => {
+              clearMenuMessages(); if (section.id === "medicalRecords") setMedicalRecordsOpen(true);
+              else {
+                if (section.id === "school") setSchoolForm({ ...school, schoolOptions: normalizeSchoolOptions(school.schoolOptions) });
+                setActiveMenuSection(section.id);
+              }
+            }}
             className={`min-w-0 rounded border p-4 text-left shadow-sm transition ${
               active ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white hover:border-mint"
             }`}

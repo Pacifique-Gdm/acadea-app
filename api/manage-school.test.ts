@@ -4,12 +4,19 @@ const mocks = vi.hoisted(() => ({
   verifyIdToken: vi.fn(),
   schoolGet: vi.fn(),
   deleteSchoolCompletely: vi.fn(),
+  batchUpdate: vi.fn(),
+  batchSet: vi.fn(),
+  batchCommit: vi.fn(),
 }));
 
 vi.mock("./_lib/firebaseAdmin.js", () => ({
   initAdmin: () => ({
     auth: { verifyIdToken: mocks.verifyIdToken },
-    db: { doc: () => ({ get: mocks.schoolGet }), collection: vi.fn() },
+    db: {
+      doc: (path: string) => ({ path, get: mocks.schoolGet }),
+      collection: () => ({ doc: () => ({ id: "audit-school-update" }) }),
+      batch: () => ({ update: mocks.batchUpdate, set: mocks.batchSet, commit: mocks.batchCommit }),
+    },
     bucket: {},
   }),
   firebaseAdminPublicError: () => ({ code: "internal", message: "Service indisponible.", correlationId: "acadea-test" }),
@@ -37,6 +44,7 @@ describe("API SEC-004 manage-school", () => {
     mocks.verifyIdToken.mockResolvedValue({ uid: "super-1", role: "super_admin", email: "super@test" });
     mocks.schoolGet.mockResolvedValue({ exists: true, data: () => ({ id: "school-a", status: "active" }) });
     mocks.deleteSchoolCompletely.mockResolvedValue({ status: "complete", firestore: { deleted: 5, collections: [] }, auth: { found: 1, deleted: 1, alreadyMissing: 0, failed: [], skipped: 0 }, storageDeleted: 2 });
+    mocks.batchCommit.mockResolvedValue(undefined);
   });
 
   it("réserve la suppression au Super Administrateur", async () => {
@@ -48,6 +56,20 @@ describe("API SEC-004 manage-school", () => {
   it("exige la confirmation textuelle exacte", async () => {
     const res = response(); await handler(request({ action: "delete", schoolId: "school-a", confirmation: "supprimer ecole" }), res);
     expect(res.statusCode).toBe(400); expect(mocks.deleteSchoolCompletely).not.toHaveBeenCalled();
+  });
+
+  it("refuse une devise hors du référentiel USD/CDF", async () => {
+    const res = response(); await handler(request({ action: "update", schoolId: "school-a", patch: { currency: "EUR" } }), res);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ code: "invalid-argument" });
+  });
+
+  it("persiste une devise canonique avec l'identité du Super Administrateur", async () => {
+    mocks.schoolGet.mockResolvedValue({ exists: true, id: "school-a", data: () => ({ id: "school-a", status: "active", currency: "CDF" }) });
+    const res = response(); await handler(request({ action: "update", schoolId: "school-a", patch: { currency: "CDF" } }), res);
+    expect(res.statusCode).toBe(200);
+    expect(mocks.batchUpdate).toHaveBeenCalledWith(expect.objectContaining({ path: "schools/school-a" }), expect.objectContaining({ currency: "CDF", updatedBy: "super-1" }));
+    expect(res.body).toMatchObject({ school: { id: "school-a", currency: "CDF" } });
   });
 
   it("rend le second appel idempotent lorsque l'école est déjà absente", async () => {

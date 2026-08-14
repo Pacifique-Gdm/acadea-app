@@ -4,6 +4,7 @@ import { loadSuperAdminInitialData } from "./superAdminData";
 import type { AppData, AppUser } from "../types";
 import { resolveDefaultSchoolYear } from "../utils/schoolYears";
 import { userSectionIds } from "../utils/userSections";
+import { canonicalSchoolOption, normalizeSchoolOptions } from "../utils/schoolOptions";
 
 type CollectionKey = keyof AppData;
 type PersistableItem = { id: string };
@@ -109,7 +110,7 @@ async function loadCollection<T>(collectionName: string, filters: [string, unkno
   const snapshot = await withFirestoreTimeout(getDocs(query(collection(db, collectionName), ...constraints)), collectionName).catch((error) => {
     throw describeFirestoreError(collectionName, error);
   });
-  return snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as T[];
+  return snapshot.docs.map((item) => normalizeSchoolDomainDocument(collectionName, { id: item.id, ...item.data() })) as T[];
 }
 
 async function loadCollectionInSections<T>(collectionName: string, filters: [string, unknown][], sections: readonly string[]) {
@@ -118,7 +119,13 @@ async function loadCollectionInSections<T>(collectionName: string, filters: [str
   const snapshot = await withFirestoreTimeout(getDocs(query(collection(db, collectionName), ...constraints)), collectionName).catch((error) => {
     throw describeFirestoreError(collectionName, error);
   });
-  return snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as T[];
+  return snapshot.docs.map((item) => normalizeSchoolDomainDocument(collectionName, { id: item.id, ...item.data() })) as T[];
+}
+
+function normalizeSchoolDomainDocument(collectionName: string, value: Record<string, unknown>) {
+  if (collectionName === "schools") return { ...value, schoolOptions: normalizeSchoolOptions(value.schoolOptions) };
+  if (collectionName === "students" && typeof value.option === "string") return { ...value, option: canonicalSchoolOption(value.option) };
+  return value;
 }
 
 async function loadAttendanceCollection(filters: [string, unknown][]) {
@@ -154,7 +161,7 @@ async function loadDocument<T>(collectionName: string, id?: string) {
   const snapshot = await withFirestoreTimeout(getDoc(doc(db, collectionName, id)), `${collectionName}/${id}`).catch((error) => {
     throw describeFirestoreError(`${collectionName}/${id}`, error);
   });
-  return snapshot.exists() ? ([{ id: snapshot.id, ...snapshot.data() }] as T[]) : [];
+  return snapshot.exists() ? ([normalizeSchoolDomainDocument(collectionName, { id: snapshot.id, ...snapshot.data() })] as T[]) : [];
 }
 
 export async function loadFirestoreBootstrapData(user: AppUser): Promise<FirestoreBootstrapData | null> {

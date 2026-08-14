@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { firebaseAdminPublicError, initAdmin } from "./_lib/firebaseAdmin.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./_lib/serverAudit.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
+import { normalizeSchoolOptions } from "./_lib/schoolOptions.js";
 
 const allowedPlans = new Set(["Starter", "Standard", "Premium"]);
 
@@ -103,11 +104,13 @@ export default async function handler(req, res) {
       : ["Primaire"];
     const uniqueEducationLevels = [...new Set(educationLevels.length > 0 ? educationLevels : ["Primaire"])];
     const schoolType = uniqueEducationLevels.length === 1 ? uniqueEducationLevels[0] : "Mixte";
-    const schoolOptions = Array.isArray(body.schoolOptions)
-      ? [...new Set(body.schoolOptions.map((option) => String(option).trim()).filter(Boolean))]
-      : [];
-    const currency = body.currency === "CDF" ? "CDF" : "USD";
+    const schoolOptions = normalizeSchoolOptions(body.schoolOptions);
+    const currency = body.currency === undefined || body.currency === "USD" ? "USD" : body.currency === "CDF" ? "CDF" : "INVALID";
 
+    if (currency === "INVALID") {
+      sendJson(res, 400, { error: "Devise invalide. Valeurs autorisees : USD, CDF.", code: "invalid-argument" });
+      return;
+    }
     if (!schoolName || !adminName || !adminEmail || adminPassword.length < 6) {
       sendJson(res, 400, { error: "Nom d'école, email admin et mot de passe valide sont requis.", code: "invalid-argument" });
       return;

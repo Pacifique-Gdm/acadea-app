@@ -7,7 +7,8 @@ import { provisionParent } from "../../services/provisioning";
 import { createAuditLog } from "../../utils/audit";
 import { nextParentEmail, parentEmailExists } from "../../utils/parents";
 import { getSchoolClassChoices, getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
-import { normalizeSchoolOptions } from "../../utils/schoolOptions";
+import { canonicalSchoolOption, normalizeSchoolOptions } from "../../utils/schoolOptions";
+import { persistSchoolOption } from "../../services/schoolOptionsRepository";
 import { formatStudentClassName, getClassSection } from "../../utils/studentClasses";
 import { emptyStudent, generateMatricule, isArchivedStudent, studentForPersistence, validateStudentForSave } from "../../utils/studentUtils";
 import { exportStudentsPdf, sortStudentsForPdfByClass } from "../../utils/studentPdf";
@@ -85,7 +86,7 @@ export function StudentsModule({
   const studentClassChoices = getSchoolClassChoices(school).filter((className) => studentSectionChoices.includes(getClassSection(className)));
   const availableClasses = studentClassChoices.filter((className) => sectionFilter === "all" || getClassSection(className) === sectionFilter);
   const schoolOptions = normalizeSchoolOptions(school.schoolOptions);
-  const optionChoices = Array.from(new Set([...schoolOptions, ...yearData.students.map((student) => student.option).filter(Boolean)])) as string[];
+  const optionChoices = normalizeSchoolOptions([...schoolOptions, ...yearData.students.map((student) => student.option).filter(Boolean)]);
   const emptyCurrentStudent = () => {
     const className = studentClassChoices[0] ?? CLASSES[0];
     return { ...emptyStudent(school.id, year.id), className, section: getClassSection(className) };
@@ -119,7 +120,7 @@ export function StudentsModule({
       text.includes(query.toLowerCase()) &&
       (sectionFilter === "all" || getClassSection(student.className) === sectionFilter) &&
       (!classFilter || student.className === classFilter) &&
-      (!optionFilter || student.option === optionFilter)
+      (!optionFilter || canonicalSchoolOption(student.option ?? "") === optionFilter)
     );
   });
   const parentsById = useMemo(
@@ -190,6 +191,7 @@ export function StudentsModule({
       const matricule = exists ? form.matricule : generateMatricule(data.students, targetYearName, school.id, targetYearId);
       const student = studentForPersistence({
         ...form,
+        option: form.option ? canonicalSchoolOption(form.option) : undefined,
         matricule,
         section: getClassSection(form.className),
         status: form.status ?? "ACTIVE",
@@ -260,7 +262,7 @@ export function StudentsModule({
 
   function openEditStudentForm(student: Student) {
     if (!studentCapabilities.canEdit || isArchivedStudent(student)) return;
-    setForm(student);
+    setForm({ ...student, option: student.option ? canonicalSchoolOption(student.option) : undefined });
     setSaveError("");
     setSaveMessage("");
     setShowForm(true);
@@ -419,16 +421,18 @@ export function StudentsModule({
     setSaveMessage("Compte parent créé avec succès. Il peut maintenant se connecter avec son email et son mot de passe.");
   }
 
-  function addSchoolOption(option: string) {
+  async function addSchoolOption(option: string) {
     if (!studentCapabilities.canManageOptions) return;
     const trimmed = option.trim();
     if (!trimmed) return;
-    const nextOptions = schoolOptions.some((item) => item.toLowerCase() === trimmed.toLowerCase())
-      ? schoolOptions
-      : [...schoolOptions, trimmed];
-    updateData({ schools: data.schools.map((item) => (item.id === school.id ? { ...item, schoolOptions: nextOptions } : item)) });
-    const selectedClass = structuredClasses.find((item) => !item.parentClassId && (item.id === form.classId || item.name === form.className));
-    setForm({ ...form, option: trimmed, classOptionKey: selectedClass ? schoolClassOptionKey(selectedClass.id, trimmed) : undefined, subClassId: undefined });
+    try {
+      const persisted = await persistSchoolOption(school.id, trimmed);
+      updateData({ schools: data.schools.map((item) => (item.id === school.id ? { ...item, schoolOptions: persisted.schoolOptions } : item)) }, { persist: false });
+      const selectedClass = structuredClasses.find((item) => !item.parentClassId && (item.id === form.classId || item.name === form.className));
+      setForm({ ...form, option: persisted.option, classOptionKey: selectedClass ? schoolClassOptionKey(selectedClass.id, persisted.option) : undefined, subClassId: undefined });
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Impossible d'enregistrer cette option scolaire.");
+    }
   }
 
   function printStudentsPdf() {

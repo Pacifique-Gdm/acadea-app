@@ -36,8 +36,8 @@ describe("payload Firestore élève", () => {
     const document = studentForPersistence({
       ...emptyStudent("school-a", "year-a"),
       className: "1ère Humanité",
-      option: "Scientifique",
-      classOptionKey: "class-a::option::Scientifique",
+      option: "Sciences",
+      classOptionKey: "class-a::option::Sciences",
       subClassId: "subclass-a",
       phone: "",
       biometric: {
@@ -49,7 +49,7 @@ describe("payload Firestore élève", () => {
       },
     });
 
-    expect(document).toMatchObject({ option: "Scientifique", classOptionKey: "class-a::option::Scientifique", subClassId: "subclass-a", phone: "" });
+    expect(document).toMatchObject({ option: "Sciences", classOptionKey: "class-a::option::Sciences", subClassId: "subclass-a", phone: "" });
     expect(document.biometric?.fingerprintUpdatedAt).toBeNull();
   });
 });
