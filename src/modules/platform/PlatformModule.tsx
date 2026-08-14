@@ -14,6 +14,7 @@ import { isSchoolAiAssistantEnabled, loadSchoolAiAssistantSetting, resetSchoolAi
 import { ADMIN_REMOVAL_CONFIRMATION, canConfirmAdminRemoval, markAdminRemoved } from "../../utils/adminRemoval";
 import { aiAssistantConfirmationPhrase, canConfirmAiAssistantChange } from "../../utils/aiAssistantConfirmation";
 import { isSessionAuditAction } from "../../utils/audit";
+import { activityTimestamp } from "../../utils/activityHistory";
 import { educationLevelsForSchoolLevel, schoolLevelFromConfig } from "../../utils/schoolConfig";
 import type { SchoolLevelChoice } from "../../utils/schoolConfig";
 import { formatStudentClassName } from "../../utils/studentClasses";
@@ -161,13 +162,13 @@ export function PlatformModule({
   const drawerSchool = visibleSchools.find((school) => school.id === schoolDrawerId);
   const drawerAiUsage = schoolAiUsageThisMonth(drawerSchool?.aiAssistant);
   const biometricSchool = visibleSchools.find((school) => school.id === biometricSchoolId);
-  const biometricSchoolTerminals = biometricSchool ? data.biometricTerminals.filter((terminal) => terminal.schoolId === biometricSchool.id).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")) : [];
+  const biometricSchoolTerminals = biometricSchool ? data.biometricTerminals.filter((terminal) => terminal.schoolId === biometricSchool.id).sort((a, b) => activityTimestamp(b.createdAt) - activityTimestamp(a.createdAt)) : [];
   const drawerSchoolOptions = normalizeSchoolOptions(drawerSchool?.schoolOptions).filter(isAllowedSchoolOption);
   const drawerStats = drawerSchool ? getPlatformSchoolStats(drawerSchool.id, data) : { students: 0, parents: 0, admins: 0, users: 0 };
   const drawerAdmins = drawerSchool ? data.users.filter((item) => item.role === "school_admin" && item.schoolId === drawerSchool.id && !item.removedAt) : [];
   const drawerMainAdmin = drawerSchool ? drawerAdmins.find((admin) => admin.id === drawerSchool.mainAdminId) ?? drawerAdmins[0] : undefined;
   const drawerLogs = drawerSchool
-    ? data.auditLogs.filter((log) => log.schoolId === drawerSchool.id && !isSessionAuditAction(log.action)).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    ? data.auditLogs.filter((log) => log.schoolId === drawerSchool.id && !isSessionAuditAction(log.action)).sort((a, b) => activityTimestamp(b.createdAt) - activityTimestamp(a.createdAt))
     : [];
   const drawerClassEnrollment = useMemo(() => {
     if (!drawerSchool) return [];
@@ -204,7 +205,7 @@ export function PlatformModule({
     .filter((school) => (statusFilter === "all" ? true : school.status === statusFilter))
     .filter((school) => (typeFilter === "all" ? true : school.schoolType === typeFilter))
     .sort((a, b) => {
-      if (sortBy === "recent") return (b.createdAt ?? "").localeCompare(a.createdAt ?? "");
+      if (sortBy === "recent") return activityTimestamp(b.createdAt) - activityTimestamp(a.createdAt);
       if (sortBy === "users") return getPlatformSchoolStats(b.id, data).users - getPlatformSchoolStats(a.id, data).users;
       return a.name.localeCompare(b.name);
     });
