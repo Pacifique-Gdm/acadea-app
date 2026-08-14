@@ -562,7 +562,13 @@ service cloud.firestore {
 
     match /personnelProfiles/{personnelId} {
       allow read: if superAdmin()
-        || (schoolAdmin() && resource.data.schoolId == tenantSchoolId());
+        || (schoolAdmin() && (
+          (exists(/databases/$(database)/documents/personnelProfiles/$(personnelId))
+            && resource.data.schoolId == tenantSchoolId())
+          || (!exists(/databases/$(database)/documents/personnelProfiles/$(personnelId))
+            && exists(/databases/$(database)/documents/users/$(personnelId))
+            && get(/databases/$(database)/documents/users/$(personnelId)).data.schoolId == tenantSchoolId())
+        ));
       allow create, update, delete: if false;
     }
 

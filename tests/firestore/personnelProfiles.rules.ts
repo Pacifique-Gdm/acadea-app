@@ -9,12 +9,17 @@ const context = (uid: string, role: string, schoolId = "school-a") => environmen
 
 describe("profils administratifs du personnel", () => {
   beforeAll(async () => { environment = await initializeTestEnvironment({ projectId: "demo-personnel-profiles", firestore: { rules: readFileSync("firestore.rules", "utf8") } }); }, 30_000);
-  beforeEach(async () => { await environment.clearFirestore(); await environment.withSecurityRulesDisabled(async (admin) => { await setDoc(doc(admin.firestore(), "personnelProfiles", "teacher-a"), profile); await setDoc(doc(admin.firestore(), "personnelProfiles", "teacher-b"), { ...profile, id: "teacher-b", personnelId: "teacher-b", schoolId: "school-b" }); await setDoc(doc(admin.firestore(), "users", "teacher-a"), { id: "teacher-a", role: "teacher", schoolId: "school-a", name: "Test" }); }); });
+  beforeEach(async () => { await environment.clearFirestore(); await environment.withSecurityRulesDisabled(async (admin) => { await setDoc(doc(admin.firestore(), "personnelProfiles", "teacher-a"), profile); await setDoc(doc(admin.firestore(), "personnelProfiles", "teacher-b"), { ...profile, id: "teacher-b", personnelId: "teacher-b", schoolId: "school-b" }); await setDoc(doc(admin.firestore(), "users", "teacher-a"), { id: "teacher-a", role: "teacher", schoolId: "school-a", name: "Test" }); await setDoc(doc(admin.firestore(), "users", "legacy-a"), { id: "legacy-a", role: "teacher", schoolId: "school-a", name: "Legacy A" }); await setDoc(doc(admin.firestore(), "users", "legacy-b"), { id: "legacy-b", role: "teacher", schoolId: "school-b", name: "Legacy B" }); }); });
   afterAll(async () => environment.cleanup(), 30_000);
 
   it("autorise uniquement l’Administrateur de la même école à lire", async () => {
     await assertSucceeds(getDoc(doc(context("admin-a", "school_admin"), "personnelProfiles", "teacher-a")));
     await assertFails(getDoc(doc(context("admin-a", "school_admin"), "personnelProfiles", "teacher-b")));
+  });
+  it("autorise la lecture d’un profil encore absent uniquement pour un personnel réel de la même école", async () => {
+    await assertSucceeds(getDoc(doc(context("admin-a", "school_admin"), "personnelProfiles", "legacy-a")));
+    await assertFails(getDoc(doc(context("admin-a", "school_admin"), "personnelProfiles", "legacy-b")));
+    await assertFails(getDoc(doc(context("admin-a", "school_admin"), "personnelProfiles", "unknown")));
   });
   it("refuse utilisateur ordinaire, personnel lui-même et non authentifié", async () => {
     await assertFails(getDoc(doc(context("secretary-a", "secretary"), "personnelProfiles", "teacher-a")));
