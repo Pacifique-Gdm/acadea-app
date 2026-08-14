@@ -161,7 +161,7 @@ export async function savePedagogicalAssignment(input: { user: AppUser; schoolId
   });
 }
 
-export async function savePedagogicalAssignments(input: { user: AppUser; schoolId: string; schoolYearId: string; teacherId: string; subjectIds: string[]; classIds: string[]; legacyClasses?: Array<Pick<StudyClass, "id" | "name" | "schoolId" | "schoolYearId">>; weeklyPeriods: number; titularClassId?: string | null; active: boolean }) {
+export async function savePedagogicalAssignments(input: { user: AppUser; schoolId: string; schoolYearId: string; teacherId: string; subjectIds: string[]; classIds: string[]; legacyClasses?: Array<Pick<StudyClass, "id" | "name" | "schoolId" | "schoolYearId">>; weeklyPeriods: number; titularClassId?: string | null; active: boolean; current?: PedagogicalAssignment }) {
   const database = requireScope(input.user, input.schoolId, input.schoolYearId);
   const subjectIds = [...new Set(input.subjectIds.filter(Boolean))];
   const classIds = [...new Set(input.classIds.filter(Boolean))];
@@ -180,7 +180,8 @@ export async function savePedagogicalAssignments(input: { user: AppUser; schoolI
     const modernClassRefs = classIds.filter((id) => !legacyClassIds.has(id)).map((id) => doc(database, "classes", id));
     const titularClassRef = input.titularClassId && !legacyClassIds.has(input.titularClassId) ? doc(database, "classes", input.titularClassId) : undefined;
     const titularRef = input.titularClassId ? doc(database, "classTitulars", `${input.schoolId}__${input.schoolYearId}__${input.titularClassId}`) : undefined;
-    const [teacher, ...references] = await Promise.all([transaction.get(teacherRef), ...subjectRefs.map((ref) => transaction.get(ref)), ...modernClassRefs.map((ref) => transaction.get(ref)), ...(titularClassRef ? [transaction.get(titularClassRef)] : []), ...(titularRef ? [transaction.get(titularRef)] : [])]);
+    const previousTitularRef = input.current?.titularClassId && input.current.titularClassId !== input.titularClassId ? doc(database, "classTitulars", `${input.schoolId}__${input.schoolYearId}__${input.current.titularClassId}`) : undefined;
+    const [teacher, ...references] = await Promise.all([transaction.get(teacherRef), ...subjectRefs.map((ref) => transaction.get(ref)), ...modernClassRefs.map((ref) => transaction.get(ref)), ...(titularClassRef ? [transaction.get(titularClassRef)] : []), ...(titularRef ? [transaction.get(titularRef)] : []), ...(previousTitularRef ? [transaction.get(previousTitularRef)] : [])]);
     const validReference = (snapshot: typeof teacher) => snapshot.exists() && snapshot.data()?.schoolId === input.schoolId && snapshot.data()?.schoolYearId === input.schoolYearId;
     if (!validReference(teacher) || teacher.data()?.status === "inactive" || references.slice(0, subjectRefs.length + modernClassRefs.length).some((snapshot) => !validReference(snapshot))) throw new Error("Une référence pédagogique est inconnue, inactive ou hors périmètre.");
     if (typeof teacher.data()?.userId === "string") {
@@ -190,12 +191,17 @@ export async function savePedagogicalAssignments(input: { user: AppUser; schoolI
     }
     const titularClassSnapshot = titularClassRef ? references[subjectRefs.length + modernClassRefs.length] : undefined;
     if (titularClassSnapshot && (!validReference(titularClassSnapshot) || titularClassSnapshot.data()?.active === false)) throw new Error("La classe de titulariat est inconnue, inactive ou hors périmètre.");
-    const titularSnapshot = titularRef ? references.at(-1) : undefined;
-    if (titularSnapshot?.exists()) throw new Error("Cette classe opérationnelle possède déjà un titulaire actif.");
+    const titularIndex = subjectRefs.length + modernClassRefs.length + (titularClassRef ? 1 : 0);
+    const titularSnapshot = titularRef ? references[titularIndex] : undefined;
+    const previousTitularSnapshot = previousTitularRef ? references[titularIndex + (titularRef ? 1 : 0)] : undefined;
+    if (titularSnapshot?.exists() && titularSnapshot.data()?.assignmentId !== input.current?.id) throw new Error("Cette classe opérationnelle possède déjà un titulaire actif.");
     legacyClasses.forEach((schoolClass) => transaction.set(doc(database, "classes", schoolClass.id), { id: schoolClass.id, schoolId: input.schoolId, schoolYearId: input.schoolYearId, name: schoolClass.name.trim(), active: true, createdBy: input.user.id, createdAt: now, updatedAt: now }));
+    const targetIds = new Set(combinations.map(({ subjectId, classId }) => pedagogicalAssignmentId({ schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, subjectId, classId })));
+    if (input.current && !targetIds.has(input.current.id)) transaction.update(doc(database, "pedagogicalAssignments", input.current.id), { active: false, updatedAt: now, updatedBy: input.user.id, titularClassId: null });
+    if (previousTitularRef && previousTitularSnapshot?.exists()) transaction.delete(previousTitularRef);
     combinations.forEach(({ subjectId, classId }) => {
       const id = pedagogicalAssignmentId({ schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, subjectId, classId });
-      transaction.set(doc(database, "pedagogicalAssignments", id), { id, schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, subjectId, classId, weeklyPeriods: input.weeklyPeriods, blockSize: 1, preferredRoomId: null, titularClassId: input.titularClassId && combinations[0]?.subjectId === subjectId && combinations[0]?.classId === classId ? input.titularClassId : null, active: input.active, createdAt: now, updatedAt: now, createdBy: input.user.id, updatedBy: input.user.id });
+      transaction.set(doc(database, "pedagogicalAssignments", id), { id, schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, subjectId, classId, weeklyPeriods: input.weeklyPeriods, blockSize: id === input.current?.id ? input.current.blockSize ?? 1 : 1, preferredRoomId: id === input.current?.id ? input.current.preferredRoomId ?? null : null, titularClassId: input.titularClassId && combinations[0]?.subjectId === subjectId && combinations[0]?.classId === classId ? input.titularClassId : null, active: input.active, createdAt: id === input.current?.id ? input.current.createdAt : now, updatedAt: now, createdBy: id === input.current?.id ? input.current.createdBy : input.user.id, updatedBy: input.user.id });
     });
     if (titularRef && input.titularClassId) {
       const first = combinations[0];

@@ -94,8 +94,16 @@ describe("secondary class plus option resolution", () => {
     const parent = base("secondary-2", { name: "2ème Humanité", section: "Secondaire" });
     const legacy = student({ classId: parent.id, className: parent.name, option: "Scientifique", classOptionKey: undefined });
     const classes = canonicalOperationalClasses([parent], [legacy], "school-a", "year-a", ["Secondaire"]);
+    expect(classes.map((item) => item.name)).toEqual(["2ème Scientifique"]);
     const scientific = classes.find((item) => item.name === "2ème Scientifique")!;
     expect(studentBelongsToOperationalClass(legacy, scientific)).toBe(true);
+  });
+
+  it("keeps the canonical option when enrolled classes are filtered for assignments", () => {
+    const parent = base("secondary-2", { name: "2ème Humanité", section: "Secondaire" });
+    const legacy = student({ classId: parent.id, className: parent.name, option: "Littéraire", classOptionKey: undefined });
+    const canonical = canonicalOperationalClasses([parent], [legacy], "school-a", "year-a", ["Secondaire"]);
+    expect(classesWithEnrolledStudents(canonical, [legacy], "school-a", "year-a").map((item) => item.name)).toEqual(["2ème Littéraire"]);
   });
 
   it("keeps literary and commercial identities separate in filters, homogeneity and vacations", () => {

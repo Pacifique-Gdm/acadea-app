@@ -99,6 +99,9 @@ export function canonicalOperationalClasses(
       const optionKey = option ? (student.classOptionKey?.trim() || schoolClassOptionKey(parent?.id ?? schoolClassRecordId(schoolId, schoolYearId, student.className), option)) : undefined;
       const id = optionKey || parent?.id || schoolClassRecordId(schoolId, schoolYearId, label);
       const key = optionKey ? `option:${optionKey}` : parent ? `class:${parent.id}` : `legacy:${normalizedClassName(label)}`;
+      // In Secondary, an option-bearing enrolment makes the generic Humanité
+      // record a parent identity, not an assignable operational class.
+      if (optionKey && parent) result.delete(`class:${parent.id}`);
       if (result.has(key)) return;
       result.set(key, {
         id,
@@ -111,6 +114,9 @@ export function canonicalOperationalClasses(
         active: true,
       });
     });
+  [...result.values()].forEach((item) => {
+    if (item.parentClassId && (item.option || item.classOptionKey)) result.delete(`class:${item.parentClassId}`);
+  });
   return [...result.values()].sort((first, second) => first.name.localeCompare(second.name, "fr", { numeric: true, sensitivity: "base" }));
 }
 
@@ -134,14 +140,25 @@ export function classesWithEnrolledStudents(classes: SchoolClassRecord[], studen
   const scopedClasses = classes.filter((item) => item.schoolId === schoolId && item.schoolYearId === schoolYearId && item.active !== false);
   const byId = new Map(scopedClasses.map((item) => [item.id, item]));
   const byName = new Map(scopedClasses.map((item) => [normalizedClassName(item.name), item]));
+  const optionParents = new Set(scopedClasses.filter((item) => item.parentClassId && (item.option || item.classOptionKey)).map((item) => item.parentClassId!));
   const selected = new Map<string, SchoolClassRecord>();
   students.filter((student) => student.schoolId === schoolId && student.schoolYearId === schoolYearId).forEach((student) => {
+    const option = (student as EnrolledStudentClassReference & { option?: string }).option?.trim();
+    const optionKey = (student as EnrolledStudentClassReference & { classOptionKey?: string }).classOptionKey?.trim();
+    const operationalOption = scopedClasses.find((item) => (
+      (optionKey && item.classOptionKey === optionKey)
+      || (option && item.parentClassId === student.classId && item.option?.trim() === option)
+    ));
+    if (operationalOption) {
+      selected.set(operationalOption.id, operationalOption);
+      return;
+    }
     const structuredId = student.subClassId || student.classId;
     const structured = structuredId ? byId.get(structuredId) : undefined;
     const named = student.className ? byName.get(normalizedClassName(student.className)) : undefined;
     const resolved = structured ?? named;
     if (resolved) {
-      selected.set(resolved.id, resolved);
+      if (!optionParents.has(resolved.id)) selected.set(resolved.id, resolved);
       return;
     }
     const name = student.className?.trim();

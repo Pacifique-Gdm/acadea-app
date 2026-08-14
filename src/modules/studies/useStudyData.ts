@@ -18,5 +18,5 @@ export function useStudyData(user: AppUser, schoolId: string, schoolYearId: stri
   const scopedSubjects = useMemo(() => subjects.filter((item) => (!item.section || isSectionAllowed(user, item.section)) && (!item.classIds?.length || item.classIds.some((id) => scopedClassIds.has(id)))), [scopedClassIds, subjects, user]);
   const subjectIds = useMemo(() => new Set(scopedSubjects.map((item) => item.id)), [scopedSubjects]);
   const scopedAssignments = useMemo(() => assignments.filter((item) => scopedClassIds.has(item.classId) && subjectIds.has(item.subjectId)), [assignments, scopedClassIds, subjectIds]);
-  return {teachers:scopedTeachers,subjects:scopedSubjects,classes:scopedClasses,students:scopedStudents,assignments:scopedAssignments,availabilities,periods,timetables,timetableEntries,rooms,attendanceSettings,error};
+  return {teachers:scopedTeachers,subjects:scopedSubjects,classes:scopedClasses,sourceClasses:classes,students:scopedStudents,assignments:scopedAssignments,availabilities,periods,timetables,timetableEntries,rooms,attendanceSettings,error};
 }
