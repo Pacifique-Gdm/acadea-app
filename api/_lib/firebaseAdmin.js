@@ -99,7 +99,7 @@ export function initAdmin() {
 }
 
 const PUBLIC_FIREBASE_ERRORS = new Map([
-  ["auth/email-already-exists", "Un compte utilise déjà cette adresse e-mail."],
+  ["auth/email-already-exists", "Cette adresse email est déjà utilisée"],
   ["auth/invalid-email", "L’adresse e-mail fournie est invalide."],
   ["auth/invalid-password", "Le mot de passe fourni est invalide."],
   ["auth/user-not-found", "Le compte demandé est introuvable."],

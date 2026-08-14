@@ -57,9 +57,10 @@ export function escapePdfHtml(value: string | number | undefined | null) {
     .replace(/'/g, "&#039;");
 }
 
-export function pdfInfoGrid(rows: PdfMetric[]) {
+export function pdfInfoGrid(rows: PdfMetric[], options: { className?: string; columns?: number } = {}) {
+  const columns = options.columns ? Math.max(1, Math.floor(options.columns)) : undefined;
   return `
-    <div class="info-grid">
+    <div class="info-grid${options.className ? ` ${escapePdfHtml(options.className)}` : ""}"${columns ? ` style="grid-template-columns:repeat(${columns},minmax(0,1fr))"` : ""}>
       ${rows
         .map(
           (row) => `
@@ -144,10 +145,14 @@ export function pdfSection(title: string, bodyHtml: string, options: { pageBreak
 }
 
 export async function renderAcadPdfPreview({ filename, title, school, year, subtitle, generatedAt = new Date(), showDocumentTitle = true, centerDocumentTitle = false, pdfSettings, sections, copyLabels, singlePageFit = false }: AcadPdfOptions) {
+  const profileEnabled = import.meta.env.DEV || ["staging", "preview"].includes(import.meta.env.VITE_APP_ENV ?? "");
+  const profileStart = performance.now();
   const layout = getPdfLayout(pdfSettings);
   const doc = new jsPDF({ unit: "mm", format: layout.jsPdfFormat, orientation: "portrait", compress: true });
+  const engineReadyAt = performance.now();
   const viewer = openPdfViewerShell({ filename, title });
   const logoDataUrl = await loadLogoDataUrl(school.logoUrl);
+  const resourcesReadyAt = performance.now();
   const element = document.createElement("div");
   element.className = "acadea-pdf";
   const htmlOptions = { title, school, year, subtitle, generatedAt, logoDataUrl, showDocumentTitle, centerDocumentTitle, sections, pdfSettings: layout.settings, renderWidth: layout.windowWidth };
@@ -166,14 +171,24 @@ export async function renderAcadPdfPreview({ filename, title, school, year, subt
   document.body.appendChild(element);
   await waitForPdfFonts(element);
   applyPdfPageBreakSpacers(element, layout.contentHeight, layout.windowWidth / layout.contentWidth);
+  const contentReadyAt = performance.now();
 
   try {
     if (singlePageFit) await renderPdfCanvasSinglePage(doc, element, layout);
     else await renderPdfCanvasPages(doc, element, layout);
     if (!copyLabels) addPdfFooters(doc, generatedAt);
     const blob = doc.output("blob") as Blob;
+    const blobReadyAt = performance.now();
     const url = URL.createObjectURL(blob);
     showPdfInViewer({ viewer, url, filename, title });
+    if (profileEnabled) console.info("[Acadéa PDF performance]", {
+      document: title,
+      engineMs: Math.round(engineReadyAt - profileStart),
+      resourcesMs: Math.round(resourcesReadyAt - engineReadyAt),
+      contentAndFontsMs: Math.round(contentReadyAt - resourcesReadyAt),
+      renderAndBlobMs: Math.round(blobReadyAt - contentReadyAt),
+      totalMs: Math.round(performance.now() - profileStart),
+    });
   } catch (error) {
     console.error("Erreur de génération PDF Acadéa", error);
     showPdfError(viewer, "La génération du PDF a échoué.");
@@ -700,6 +715,8 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       gap: 8px;
       margin-bottom: 10px;
     }
+    .personnel-photo { display:flex; justify-content:center; margin:0 18px 12px; }
+    .personnel-photo img { width:30mm; height:38mm; object-fit:cover; border:1px solid #dbe4ef; border-radius:3px; }
     .report-info-row .info-grid {
       grid-template-columns: repeat(${pdfSettings.pageSize === "A5" ? 2 : 4}, minmax(0, 1fr));
       gap: 5px;
@@ -1200,21 +1217,25 @@ function isMobilePdfDevice() {
   return mobileUserAgent || (coarsePointer && window.innerWidth <= 900);
 }
 
+const logoDataUrlCache = new Map<string, Promise<string>>();
+
+async function fetchLogoDataUrl(logoUrl: string) {
+  const response = await fetch(logoUrl);
+  if (!response.ok) return "";
+  const blob = await response.blob();
+  return new Promise<string>((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => resolve("");
+    reader.readAsDataURL(blob);
+  });
+}
+
 async function loadLogoDataUrl(logoUrl?: string) {
   if (!logoUrl) return "";
-
-  try {
-    const response = await fetch(logoUrl);
-    if (!response.ok) return "";
-    const blob = await response.blob();
-
-    return await new Promise<string>((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
-      reader.onerror = () => resolve("");
-      reader.readAsDataURL(blob);
-    });
-  } catch {
-    return "";
-  }
+  const cached = logoDataUrlCache.get(logoUrl);
+  if (cached) return cached;
+  const request = fetchLogoDataUrl(logoUrl).catch(() => "");
+  logoDataUrlCache.set(logoUrl, request);
+  return request;
 }

@@ -228,7 +228,7 @@ export async function exportAgeHomogeneityPdf(school: School, year: SchoolYear, 
             label: "Données manquantes",
             value: missingBirthDateCount > 0 ? `${missingBirthDateCount} élève(s) sans date de naissance exploitable` : "Aucune",
           },
-        ]),
+        ], { className: "age-calculation-info-grid", columns: 7 }),
       ),
       pdfSection(
         "Synthèse de l'homogénéité d'âge scolaire par classe",

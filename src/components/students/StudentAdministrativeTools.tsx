@@ -4,7 +4,7 @@ import { AdminDrawer, Metric } from "../ui";
 import { persistFirestorePatch } from "../../services/firestoreData";
 import { createAuditLog } from "../../utils/audit";
 import { getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
-import { operationalSchoolClasses, studentBelongsToOperationalClass, subscribeToSchoolClasses } from "../../services/schoolSubclasses";
+import { canonicalOperationalClasses, studentBelongsToOperationalClass, subscribeToSchoolClasses } from "../../services/schoolSubclasses";
 import { getClassSection, getStudentSection, promoteStudentForNewYear } from "../../utils/studentClasses";
 import { exportAgeHomogeneityPdf } from "../../utils/studentPdf";
 import { isArchivedStudent } from "../../utils/studentUtils";
@@ -217,9 +217,9 @@ export function AgeHomogeneityDrawer({ open, onClose, user, data, school, year, 
     && (archiveStatus === "all" || (archiveStatus === "archived" ? isArchivedStudent(student) : !isArchivedStudent(student)))
   )), [allowedSections, archiveStatus, data?.students, school.id, section, studentSource, year.id]);
   const classes = useMemo(() => {
-    return operationalSchoolClasses(realtimeClasses, school.id, year.id, allowedSections)
+    return canonicalOperationalClasses(realtimeClasses, studentSource ?? data?.students ?? [], school.id, year.id, allowedSections)
       .filter((item) => section === "all" || getClassSection(item.name as import("../../types").SchoolClass) === section);
-  }, [allowedSections, realtimeClasses, school.id, section, year.id]);
+  }, [allowedSections, data?.students, realtimeClasses, school.id, section, studentSource, year.id]);
   const students = useMemo(() => scopedStudents.filter((student) => (
     !className || Boolean(classes.find((item) => item.id === className && studentBelongsToOperationalClass(student, item)))
   )), [className, classes, scopedStudents]);

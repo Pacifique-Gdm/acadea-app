@@ -14,16 +14,15 @@ const mocks = vi.hoisted(() => ({
     doc: vi.fn(),
     collection: vi.fn(),
     batch: vi.fn(),
+    runTransaction: vi.fn(),
   },
 }));
 
 vi.mock("../../api/_lib/firebaseAdmin.js", () => ({
   initAdmin: () => ({ auth: mocks.auth, db: mocks.db }),
-  firebaseAdminPublicError: () => ({
-    code: "internal",
-    message: "Service indisponible.",
-    correlationId: "acadea-test",
-  }),
+  firebaseAdminPublicError: (error: { code?: string }) => error?.code === "auth/email-already-exists"
+    ? { code: error.code, message: "Cette adresse email est déjà utilisée" }
+    : { code: "internal", message: "Service indisponible.", correlationId: "acadea-test" },
 }));
 vi.mock("../../api/_lib/rateLimit.js", () => ({
   API_RATE_LIMITS: { PROVISION_SCHOOL: {}, PROVISION_ACCOUNT: {}, PROVISION_DESTRUCTIVE: {} },
@@ -66,6 +65,7 @@ describe("API de provisionnement Acadéa", () => {
     mocks.auth.updateUser.mockResolvedValue(undefined);
     mocks.auth.revokeRefreshTokens.mockResolvedValue(undefined);
     mocks.db.batch.mockReturnValue({ set: vi.fn(), update: vi.fn(), delete: vi.fn(), commit: vi.fn().mockResolvedValue(undefined) });
+    mocks.db.runTransaction.mockImplementation(async (operation: (transaction: { get: (reference: { get: () => Promise<unknown> }) => Promise<unknown>; set: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn> }) => Promise<unknown>) => operation({ get: (reference) => reference.get(), set: vi.fn(), update: vi.fn() }));
     mocks.db.collection.mockImplementation(() => ({
       doc: vi.fn(() => ({ id: "audit-test", set: vi.fn().mockResolvedValue(undefined) })),
       where: vi.fn(() => ({ where: vi.fn(() => ({ get: vi.fn().mockResolvedValue({ docs: [], empty: true }) })), get: vi.fn().mockResolvedValue({ docs: [], empty: true }) })),
@@ -204,6 +204,49 @@ describe("API de provisionnement Acadéa", () => {
       .map((result) => result.value as { path?: string; set?: ReturnType<typeof vi.fn> })
       .find((ref) => ref.path?.startsWith("schools/school-"));
     expect(schoolRef?.set).toHaveBeenCalledWith(expect.objectContaining({ educationLevels: ["CTEB", "Primaire"] }));
+  });
+
+  it("normalise l’email et refuse proprement un doublon garanti par Firebase Auth", async () => {
+    mocks.auth.createUser.mockRejectedValueOnce(Object.assign(new Error("duplicate"), { code: "auth/email-already-exists" }));
+    const res = response();
+    await provisionSchoolAccount(request({ role: "cashier", schoolId: "school-1", schoolYearId: "year-1", name: "Utilisateur test", email: " USER@ECOLE.CD ", password: "test-password", phone: "0991234567" }), res);
+    expect(mocks.auth.createUser).toHaveBeenCalledWith(expect.objectContaining({ email: "user@ecole.cd" }));
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toMatchObject({ error: "Cette adresse email est déjà utilisée", code: "auth/email-already-exists" });
+    expect(mocks.db.doc).not.toHaveBeenCalledWith("users/created-user");
+  });
+
+  it("autorise la conservation de son propre email lors d’une modification", async () => {
+    mocks.db.doc.mockImplementation((path: string) => ({ path, get: vi.fn().mockResolvedValue({ exists: true, data: () => path === "users/admin-1" ? { role: "school_admin", schoolId: "school-1", status: "active" } : path === "schools/school-1" ? { educationLevels: ["Primaire"] } : { role: "teacher", schoolId: "school-1", status: "active", email: "same@example.invalid" } }) }));
+    const res = response();
+    await provisionSchoolAccount(request({ action: "update-personnel", schoolId: "school-1", personnelId: "teacher-1", name: "Enseignant", phone: "099", email: " SAME@EXAMPLE.INVALID ", sectionIds: ["Primaire"] }), res);
+    expect(res.statusCode).toBe(200);
+    expect(mocks.auth.updateUser).toHaveBeenCalledWith("teacher-1", expect.objectContaining({ email: "same@example.invalid" }));
+  });
+
+  it("alloue un matricule stable dans la transaction tenantée et conserve createdAt", async () => {
+    const reads = new Map<string, { exists: boolean; data: () => Record<string, unknown> }>([
+      ["personnelProfiles/teacher-1", { exists: false, data: () => ({}) }],
+      ["schools/school-1/counters/personnelMatricules", { exists: true, data: () => ({ lastNumber: 4 }) }],
+    ]);
+    const transaction = { get: vi.fn(async (reference: { path: string }) => reads.get(reference.path) ?? { exists: false, data: () => ({}) }), set: vi.fn(), update: vi.fn() };
+    mocks.db.runTransaction.mockImplementationOnce(async (operation: (value: typeof transaction) => Promise<unknown>) => operation(transaction));
+    mocks.db.doc.mockImplementation((path: string) => ({ path, get: vi.fn().mockResolvedValue({ exists: true, data: () => path === "users/admin-1" ? { role: "school_admin", schoolId: "school-1", status: "active" } : path === "schools/school-1" ? { educationLevels: ["Primaire"] } : { role: "teacher", schoolId: "school-1", status: "active" } }) }));
+    const res = response();
+    await provisionSchoolAccount(request({ action: "update-personnel", schoolId: "school-1", personnelId: "teacher-1", name: "Enseignant", phone: "099", email: "teacher@example.test", sectionIds: ["Primaire"], profile: { birthPlace: "Kinshasa" } }), res);
+    expect(res.statusCode).toBe(200);
+    expect(transaction.set).toHaveBeenCalledWith(expect.objectContaining({ path: "personnelProfiles/teacher-1" }), expect.objectContaining({ matricule: "PER-000005", createdAt: expect.any(String), schoolId: "school-1" }));
+    expect(transaction.set).toHaveBeenCalledWith(expect.objectContaining({ path: "schools/school-1/counters/personnelMatricules" }), expect.objectContaining({ lastNumber: 5 }), { merge: true });
+  });
+
+  it("compense Auth si la transaction Firestore échoue", async () => {
+    mocks.db.runTransaction.mockRejectedValueOnce(new Error("transaction failed"));
+    mocks.db.doc.mockImplementation((path: string) => ({ path, get: vi.fn().mockResolvedValue({ exists: true, data: () => path === "users/admin-1" ? { role: "school_admin", schoolId: "school-1", status: "active" } : path === "schools/school-1" ? { educationLevels: ["Primaire"] } : { role: "teacher", schoolId: "school-1", status: "active" } }) }));
+    const res = response();
+    await provisionSchoolAccount(request({ action: "update-personnel", schoolId: "school-1", personnelId: "teacher-1", name: "Nouveau", phone: "099", email: "new@example.test", sectionIds: ["Primaire"] }), res);
+    expect(res.statusCode).toBe(500);
+    expect(mocks.auth.updateUser).toHaveBeenNthCalledWith(1, "teacher-1", { displayName: "Nouveau", email: "new@example.test" });
+    expect(mocks.auth.updateUser).toHaveBeenNthCalledWith(2, "teacher-1", { displayName: "Ancien nom", email: "old@example.invalid" });
   });
 
   it("normalise la section du personnel en CTEB avant l'écriture", async () => {

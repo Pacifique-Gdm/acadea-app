@@ -47,6 +47,28 @@ function normalizeEmail(value) {
   return normalizeText(value).toLowerCase();
 }
 
+function optionalText(value, maxLength = 500) {
+  const normalized = normalizeText(value);
+  if (normalized.length > maxLength) throw Object.assign(new Error("Une information administrative est trop longue."), { statusCode: 400, code: "invalid-argument" });
+  return normalized || null;
+}
+
+function normalizePersonnelProfile(value = {}) {
+  const graduationYear = value.graduationYear === "" || value.graduationYear == null ? null : Number(value.graduationYear);
+  if (graduationYear !== null && (!Number.isInteger(graduationYear) || graduationYear < 1900 || graduationYear > new Date().getFullYear() + 10)) throw Object.assign(new Error("Année d'obtention invalide."), { statusCode: 400, code: "invalid-argument" });
+  const gender = optionalText(value.gender, 20);
+  if (gender && !["F", "M", "Autre"].includes(gender)) throw Object.assign(new Error("Sexe invalide."), { statusCode: 400, code: "invalid-argument" });
+  return {
+    photoUrl: optionalText(value.photoUrl, 2000), photoPath: optionalText(value.photoPath, 500), gender,
+    birthDate: optionalText(value.birthDate, 10), birthPlace: optionalText(value.birthPlace, 150), address: optionalText(value.address, 500),
+    engagementDate: optionalText(value.engagementDate, 10), contractType: optionalText(value.contractType, 100),
+    educationLevel: optionalText(value.educationLevel, 150), diploma: optionalText(value.diploma, 200), specialty: optionalText(value.specialty, 200),
+    trainingInstitution: optionalText(value.trainingInstitution, 250), graduationYear,
+    emergencyContactName: optionalText(value.emergencyContactName, 200), emergencyContactRelationship: optionalText(value.emergencyContactRelationship, 100),
+    emergencyContactPhone: optionalText(value.emergencyContactPhone, 50), observations: optionalText(value.observations, 3000),
+  };
+}
+
 export function normalizeSectionIds(value) {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value)) throw Object.assign(new Error("Sections invalides."), { statusCode: 400, code: "invalid-argument" });
@@ -79,14 +101,6 @@ function configuredSchoolSections(school = {}) {
 function assertSectionsBelongToSchool(sectionIds, school) {
   const available = configuredSchoolSections(school);
   if (sectionIds.some((section) => !available.includes(section))) throw Object.assign(new Error("Une section ne fait pas partie de cette ecole."), { statusCode: 400, code: "invalid-argument" });
-}
-
-function publicError(error) {
-  const code = error?.code ?? "";
-  if (code === "auth/email-already-exists") return "Cet email Firebase est deja utilise.";
-  if (code === "auth/invalid-email") return "Email invalide.";
-  if (code === "auth/invalid-password") return "Mot de passe invalide.";
-  return "Provisionnement impossible. Verifiez les informations et reessayez.";
 }
 
 async function commitBatches(db, refs, buildUpdate) {
@@ -291,22 +305,40 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
     const section = normalizeText(body.section);
     const sectionIds = normalizeSectionIds(body.sectionIds ?? (section ? [section] : []));
     const email = normalizeEmail(body.email);
+    const profile = normalizePersonnelProfile(body.profile);
     if (!name || !phone || !email) throw Object.assign(new Error("Nom, telephone et email sont requis."), { statusCode: 400, code: "invalid-argument" });
     const schoolSnapshot = await db.doc(`schools/${schoolId}`).get();
     assertSectionsBelongToSchool(sectionIds, schoolSnapshot.data());
     const previousAuth = await auth.getUser(personnelId);
     await auth.updateUser(personnelId, { displayName: name, email });
-    const batch = db.batch();
-    batch.update(targetRef, { name, phone, email, section: sectionIds[0] ?? null, sectionIds, updatedAt: now, updatedBy: caller.uid });
-    batch.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.USER_UPDATED, actor: caller, schoolId, resourceType: "user", resourceId: personnelId, metadata: { role: target.role } }));
-    try { await batch.commit(); } catch (error) {
+    const profileRef = db.doc(`personnelProfiles/${personnelId}`);
+    const counterRef = db.doc(`schools/${schoolId}/counters/personnelMatricules`);
+    let savedProfile;
+    try {
+      savedProfile = await db.runTransaction(async (transaction) => {
+        const profileSnapshot = await transaction.get(profileRef);
+        const existing = profileSnapshot.data();
+        let matricule = existing?.matricule;
+        if (!matricule) {
+          const counterSnapshot = await transaction.get(counterRef);
+          const next = Number(counterSnapshot.data()?.lastNumber ?? 0) + 1;
+          matricule = `PER-${String(next).padStart(6, "0")}`;
+          transaction.set(counterRef, { lastNumber: next, updatedAt: now, updatedBy: caller.uid }, { merge: true });
+        }
+        const administrativeProfile = { id: personnelId, schoolId, personnelId, matricule, ...profile, createdAt: existing?.createdAt ?? now, createdBy: existing?.createdBy ?? caller.uid, updatedAt: now, updatedBy: caller.uid };
+        transaction.update(targetRef, { name, phone, email, section: sectionIds[0] ?? null, sectionIds, updatedAt: now, updatedBy: caller.uid });
+        transaction.set(profileRef, administrativeProfile);
+        transaction.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.USER_UPDATED, actor: caller, schoolId, resourceType: "user", resourceId: personnelId, metadata: { role: target.role } }));
+        return administrativeProfile;
+      });
+    } catch (error) {
       const rollback = {};
       if (previousAuth.displayName !== undefined && previousAuth.displayName !== null) rollback.displayName = previousAuth.displayName;
       if (previousAuth.email) rollback.email = previousAuth.email;
       await auth.updateUser(personnelId, rollback).catch(() => undefined);
       throw error;
     }
-    return { user: { ...target, id: personnelId, name, phone, email, section: sectionIds[0], sectionIds, updatedAt: now, updatedBy: caller.uid } };
+    return { user: { ...target, id: personnelId, name, phone, email, section: sectionIds[0], sectionIds, updatedAt: now, updatedBy: caller.uid }, profile: savedProfile };
   }
   const archive = action === "archive-personnel";
   if (archive && (target.status === "inactive" || target.active === false)) return { user: { ...target, id: personnelId }, authStatus: "disabled" };
@@ -505,11 +537,16 @@ export default async function handler(req, res) {
     }
 
     if (sendRateLimitError(res, error)) return;
-    const statusCode = typeof error?.statusCode === "number" ? error.statusCode : 500;
+    const statusCode = typeof error?.statusCode === "number"
+      ? error.statusCode
+      : error?.code === "auth/email-already-exists"
+        ? 409
+        : 500;
     const diagnostic = firebaseAdminPublicError(error, "provision-school-account");
+    const safeAuthError = error?.code === "auth/email-already-exists";
     sendJson(res, statusCode, {
-      error: statusCode === 500 ? diagnostic.message : error.message,
-      code: statusCode === 500 ? diagnostic.code : error?.code ?? (statusCode === 404 ? "not-found" : statusCode === 403 ? "permission-denied" : "invalid-argument"),
+      error: statusCode === 500 || safeAuthError ? diagnostic.message : error.message,
+      code: statusCode === 500 || safeAuthError ? diagnostic.code : error?.code ?? (statusCode === 404 ? "not-found" : statusCode === 403 ? "permission-denied" : "invalid-argument"),
       ...(statusCode === 500 && diagnostic.correlationId ? { correlationId: diagnostic.correlationId } : {}),
     });
   }

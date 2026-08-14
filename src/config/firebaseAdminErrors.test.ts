@@ -15,7 +15,7 @@ describe("diagnostic public Firebase Admin", () => {
 
   it("conserve le vrai code Firebase Auth", () => {
     const error = Object.assign(new Error("Email already exists"), { code: "auth/email-already-exists" });
-    expect(firebaseAdminPublicError(error)).toEqual({ code: "auth/email-already-exists", message: "Un compte utilise déjà cette adresse e-mail." });
+    expect(firebaseAdminPublicError(error)).toEqual({ code: "auth/email-already-exists", message: "Cette adresse email est déjà utilisée" });
   });
 
   it("ne divulgue pas les détails d'une erreur interne inconnue", () => {

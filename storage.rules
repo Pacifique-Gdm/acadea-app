@@ -18,6 +18,15 @@ service firebase.storage {
       return role() in ["school_admin", "admin", "secretary"];
     }
 
+    function validPersonnelPhoto(fileName, schoolId, personnelId) {
+      return request.resource.size > 0
+        && request.resource.size <= 5 * 1024 * 1024
+        && request.resource.metadata.schoolId == schoolId
+        && request.resource.metadata.personnelId == personnelId
+        && request.resource.contentType in ["image/jpeg", "image/png", "image/webp"]
+        && fileName.matches('^[0-9a-fA-F-]{36}\\.(jpg|png|webp)$');
+    }
+
     function validMessageObject(fileName, schoolId, schoolYearId) {
       return request.resource.size > 0
         && request.resource.size <= 10 * 1024 * 1024
@@ -37,6 +46,13 @@ service firebase.storage {
     function schoolAcceptsWrites(schoolId) {
       return firestore.exists(/databases/(default)/documents/schools/$(schoolId))
         && firestore.get(/databases/(default)/documents/schools/$(schoolId)).data.status != "deleting";
+    }
+
+    match /personnel-photos/{schoolId}/{personnelId}/{fileName} {
+      allow read: if signedIn() && role() in ["school_admin", "super_admin"] && (role() == "super_admin" || tenantSchoolId() == schoolId);
+      allow create: if signedIn() && role() == "school_admin" && tenantSchoolId() == schoolId && schoolAcceptsWrites(schoolId) && validPersonnelPhoto(fileName, schoolId, personnelId);
+      allow update: if false;
+      allow delete: if signedIn() && role() == "school_admin" && tenantSchoolId() == schoolId;
     }
 
     function validValveAttachment(fileName, schoolId, schoolYearId, publicationId) {

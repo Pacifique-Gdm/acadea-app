@@ -3,6 +3,7 @@ import { db, firebaseReady } from "../firebase";
 import { loadSuperAdminInitialData } from "./superAdminData";
 import type { AppData, AppUser } from "../types";
 import { resolveDefaultSchoolYear } from "../utils/schoolYears";
+import { userSectionIds } from "../utils/userSections";
 
 type CollectionKey = keyof AppData;
 type PersistableItem = { id: string };
@@ -105,6 +106,15 @@ async function loadCollection<T>(collectionName: string, filters: [string, unkno
   if (!db) return [];
 
   const constraints = filters.map(([field, value]) => where(field, "==", value));
+  const snapshot = await withFirestoreTimeout(getDocs(query(collection(db, collectionName), ...constraints)), collectionName).catch((error) => {
+    throw describeFirestoreError(collectionName, error);
+  });
+  return snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as T[];
+}
+
+async function loadCollectionInSections<T>(collectionName: string, filters: [string, unknown][], sections: readonly string[]) {
+  if (!db) return [];
+  const constraints = [...filters.map(([field, value]) => where(field, "==", value)), where("section", "in", [...sections])];
   const snapshot = await withFirestoreTimeout(getDocs(query(collection(db, collectionName), ...constraints)), collectionName).catch((error) => {
     throw describeFirestoreError(collectionName, error);
   });
@@ -309,9 +319,12 @@ export async function loadDisciplineYearData(user: AppUser, schoolYearId: string
     ["schoolYearId", schoolYearId],
   ];
   const schoolFilter: [string, unknown][] = [["schoolId", user.schoolId]];
+  const assignedSections = userSectionIds(user);
 
   const yearData: DisciplineYearData = {
-    students: await loadCollection<AppData["students"][number]>("students", annualFilter),
+    students: assignedSections.length
+      ? await loadCollectionInSections<AppData["students"][number]>("students", annualFilter, assignedSections)
+      : await loadCollection<AppData["students"][number]>("students", annualFilter),
     parents: await loadCollection<AppData["parents"][number]>("parents", schoolFilter),
     messages: await loadCollection<AppData["messages"][number]>("messages", [...annualFilter, ["schoolRecipient", "discipline"]]),
     notifications: await loadCollection<AppData["notifications"][number]>("notifications", [...annualFilter, ["recipientRole", "school"], ["schoolRecipient", "discipline"]]),

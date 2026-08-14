@@ -26,7 +26,7 @@ describe("outils administratifs Élèves partagés", () => {
     expect(tools).toContain("exportAgeHomogeneityPdf");
     expect(tools).toContain("studentImportKey");
     expect(tools).not.toContain("theoreticalAgeByClass");
-    expect(tools).toContain("operationalSchoolClasses");
+    expect(tools).toContain("canonicalOperationalClasses");
   });
 
   it("propose toutes les classes actives et aligne les trois filtres", () => {

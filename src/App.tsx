@@ -56,6 +56,8 @@ import { markAuthStep, measureAuthStep } from "./utils/authPerformance";
 import { getPlatformSchoolStats } from "./utils/platformSchoolStats";
 import { firebaseErrorCode, logRefreshError, refreshErrorMessage } from "./utils/refreshErrors";
 import { runRefreshTask } from "./utils/refreshTask";
+import { filterByAllowedSections } from "./utils/userSections";
+import { getStudentSection } from "./utils/studentClasses";
 import type { SchoolLevelChoice } from "./utils/schoolConfig";
 import type {
   AppData,
@@ -1208,10 +1210,13 @@ export default function App() {
 }
 
 function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: AppUser) {
-  const students =
+  const tenantStudents =
     user.role === "parent"
       ? data.students.filter((student) => student.parentId === user.parentId && student.schoolId === schoolId && student.schoolYearId === schoolYearId)
       : data.students.filter((student) => student.schoolId === schoolId && student.schoolYearId === schoolYearId);
+  const students = user.role === "discipline_director"
+    ? filterByAllowedSections(user, tenantStudents, getStudentSection)
+    : tenantStudents;
   const studentIds = students.map((student) => student.id);
   const parentIds = new Set(students.map((student) => student.parentId).filter(Boolean));
   const canShowSchoolNotification = (notification: AppNotification) => {

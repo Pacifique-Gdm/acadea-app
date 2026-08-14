@@ -1,7 +1,7 @@
 import { collection, doc, onSnapshot, query, where, writeBatch } from "@firebase/firestore";
 import type { Firestore } from "@firebase/firestore";
 import { db } from "../firebase";
-import type { AppUser, SchoolClassRecord, SchoolSection } from "../types";
+import type { AppUser, SchoolClassRecord, SchoolSection, Student } from "../types";
 import { getClassSection } from "../utils/studentClasses";
 import { normalizeSchoolSection } from "../utils/schoolSections";
 
@@ -59,6 +59,40 @@ export function operationalSchoolClasses<T extends OperationalClass>(classes: re
   return [...unique.values()].sort((first, second) => first.name.localeCompare(second.name, "fr", { numeric: true, sensitivity: "base" }));
 }
 
+/** Source métier commune des classes opérationnelles, avec compatibilité des inscriptions historiques. */
+export function canonicalOperationalClasses(
+  classes: readonly SchoolClassRecord[],
+  students: readonly Student[],
+  schoolId: string,
+  schoolYearId: string,
+  allowedSections?: readonly SchoolSection[],
+) {
+  const structured = operationalSchoolClasses(classes, schoolId, schoolYearId, allowedSections);
+  const result = new Map(structured.map((item) => [normalizedClassName(item.name), item]));
+  students
+    .filter((student) => student.schoolId === schoolId && student.schoolYearId === schoolYearId)
+    .forEach((student) => {
+      const section = normalizeSchoolSection(student.section) ?? getClassSection(student.className);
+      if (allowedSections?.length && !allowedSections.includes(section)) return;
+      const base = student.className.replace(/\s+Humanit[ée]s?$/i, "").trim();
+      const label = section === "Secondaire" && student.option?.trim()
+        ? `${base || student.className} ${student.option.trim()}`
+        : student.className.trim();
+      const key = normalizedClassName(label);
+      if (result.has(key)) return;
+      result.set(key, {
+        id: schoolClassRecordId(schoolId, schoolYearId, label),
+        schoolId,
+        schoolYearId,
+        name: label,
+        section,
+        option: student.option,
+        active: true,
+      });
+    });
+  return [...result.values()].sort((first, second) => first.name.localeCompare(second.name, "fr", { numeric: true, sensitivity: "base" }));
+}
+
 export function studentBelongsToOperationalClass(student: EnrolledStudentClassReference & { classOptionKey?: string; option?: string }, schoolClass: OperationalClass) {
   if (student.schoolId !== schoolClass.schoolId || student.schoolYearId !== schoolClass.schoolYearId) return false;
   if (schoolClass.parentClassId) return student.subClassId === schoolClass.id;
@@ -68,7 +102,11 @@ export function studentBelongsToOperationalClass(student: EnrolledStudentClassRe
   if (classOptionKey) return student.classOptionKey === classOptionKey;
   const option = schoolClass.option?.trim();
   if (option) return student.option?.trim() === option;
-  return student.classId === schoolClass.id || normalizedClassName(student.className ?? "") === normalizedClassName(schoolClass.name);
+  const base = (student.className ?? "").replace(/\s+Humanit[ée]s?$/i, "").trim();
+  const displayed = student.option?.trim() ? `${base || student.className} ${student.option.trim()}` : student.className ?? "";
+  return student.classId === schoolClass.id
+    || normalizedClassName(student.className ?? "") === normalizedClassName(schoolClass.name)
+    || normalizedClassName(displayed) === normalizedClassName(schoolClass.name);
 }
 
 export function classesWithEnrolledStudents(classes: SchoolClassRecord[], students: EnrolledStudentClassReference[], schoolId: string, schoolYearId: string) {

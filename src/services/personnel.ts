@@ -1,7 +1,7 @@
-import { collection, onSnapshot, query, where } from "@firebase/firestore";
+import { collection, doc, onSnapshot, query, where } from "@firebase/firestore";
 import type { Firestore } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
-import type { AppUser, Role, SchoolSection } from "../types";
+import type { AppUser, PersonnelProfile, Role, SchoolSection } from "../types";
 import { resolveApiUrl } from "../config/apiUrl";
 import { getCurrentFirebaseIdToken } from "./auth";
 import { apiErrorMessage } from "../utils/rateLimitErrors";
@@ -26,17 +26,33 @@ export function isArchivedPersonnel(user: AppUser) {
   return user.status === "inactive" || (user as AppUser & { active?: boolean }).active === false;
 }
 
+export function normalizePersonnelSnapshot(users: readonly AppUser[]) {
+  const byUid = new Map<string, AppUser>();
+  users.filter(isInternalPersonnel).forEach((user) => {
+    if (!byUid.has(user.id)) byUid.set(user.id, user);
+  });
+  return [...byUid.values()];
+}
+
 export function subscribeToSchoolPersonnel(input: { user: AppUser; schoolId: string; onData: (users: AppUser[]) => void; onError: (error: Error) => void }) {
   if (!firebaseReady || !db || input.user.role !== "school_admin" || input.user.status === "inactive" || input.user.active === false || input.user.schoolId !== input.schoolId) return () => undefined;
   return onSnapshot(
     query(collection(db as unknown as Firestore, "users"), where("schoolId", "==", input.schoolId), where("role", "in", [...INTERNAL_PERSONNEL_ROLES])),
-    (snapshot) => input.onData(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as AppUser).filter(isInternalPersonnel)),
+    (snapshot) => input.onData(normalizePersonnelSnapshot(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as AppUser))),
     input.onError,
   );
 }
 
+export function subscribeToPersonnelProfile(input: { user: AppUser; schoolId: string; personnelId: string; onData: (profile?: PersonnelProfile) => void; onError: (error: Error) => void }) {
+  if (!firebaseReady || !db || input.user.role !== "school_admin" || input.user.schoolId !== input.schoolId) return () => undefined;
+  return onSnapshot(doc(db as unknown as Firestore, "personnelProfiles", input.personnelId), (snapshot) => {
+    const data = snapshot.data();
+    input.onData(snapshot.exists() && data?.schoolId === input.schoolId ? ({ id: snapshot.id, ...data } as PersonnelProfile) : undefined);
+  }, input.onError);
+}
+
 type PersonnelAction = "update-personnel" | "archive-personnel" | "reactivate-personnel";
-async function requestPersonnelAction(input: { action: PersonnelAction; schoolId: string; personnelId: string; name?: string; phone?: string; email?: string; section?: SchoolSection | null; sectionIds?: SchoolSection[] }) {
+async function requestPersonnelAction(input: { action: PersonnelAction; schoolId: string; personnelId: string; name?: string; phone?: string; email?: string; section?: SchoolSection | null; sectionIds?: SchoolSection[]; profile?: Partial<PersonnelProfile> }) {
   const token = await getCurrentFirebaseIdToken();
   const response = await fetch(resolveApiUrl("/api/provision-school-account"), {
     method: "POST",
@@ -49,7 +65,7 @@ async function requestPersonnelAction(input: { action: PersonnelAction; schoolId
   return payload;
 }
 
-export function updatePersonnel(input: { schoolId: string; personnelId: string; name: string; phone: string; email: string; section?: SchoolSection | null; sectionIds?: SchoolSection[] }) {
+export function updatePersonnel(input: { schoolId: string; personnelId: string; name: string; phone: string; email: string; section?: SchoolSection | null; sectionIds?: SchoolSection[]; profile?: Partial<PersonnelProfile> }) {
   return requestPersonnelAction({ action: "update-personnel", ...input });
 }
 

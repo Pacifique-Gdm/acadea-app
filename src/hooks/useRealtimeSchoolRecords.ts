@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../firebase";
 import type { AppUser, DisciplineSanction, ParentProfile, Student } from "../types";
+import { userSectionIds } from "../utils/userSections";
 
 type RealtimeSchoolRecords = {
   students?: Student[];
@@ -27,7 +28,12 @@ export function useRealtimeSchoolRecords({
 
     const unsubscribes: Array<() => void> = [];
     const annualConstraints = [where("schoolId", "==", schoolId), where("schoolYearId", "==", schoolYearId)];
-    const studentConstraints = user.role === "secretary" ? [where("schoolId", "==", schoolId)] : annualConstraints;
+    const assignedSections = userSectionIds(user);
+    const studentConstraints = user.role === "secretary"
+      ? [where("schoolId", "==", schoolId)]
+      : user.role === "discipline_director" && assignedSections.length
+        ? [...annualConstraints, where("section", "in", assignedSections)]
+        : annualConstraints;
     const canReadStudents = ["school_admin", "cashier", "discipline_director", "secretary"].includes(user.role);
     const canReadParents = ["school_admin", "discipline_director", "secretary"].includes(user.role);
     const canReadSanctions = ["school_admin", "discipline_director"].includes(user.role);

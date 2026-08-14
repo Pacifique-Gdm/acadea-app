@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AppUser, School } from "../types";
 
 const renderAcadPdfPreview = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
-vi.mock("./pdf", () => ({ renderAcadPdfPreview, pdfInfoGrid: (rows: unknown) => rows, pdfTable: (_columns: unknown, rows: unknown) => rows }));
+vi.mock("./pdf", () => ({ renderAcadPdfPreview, escapePdfHtml: (value: unknown) => String(value ?? ""), pdfSection: (title: string, body: unknown) => ({ title, body }), pdfInfoGrid: (rows: unknown) => rows, pdfTable: (_columns: unknown, rows: unknown) => rows }));
 import { printPersonnelListPdf, printPersonnelProfilePdf } from "./personnelPdf";
 
 describe("fiche individuelle du personnel", () => {
@@ -10,9 +10,20 @@ describe("fiche individuelle du personnel", () => {
     const school = { id: "school-a", name: "École A" } as School;
     const personnel = { id: "teacher-a", name: "Alice", email: "alice@example.test", role: "teacher", schoolId: "school-a", sectionIds: ["CTEB"] } as AppUser;
     await printPersonnelProfilePdf(school, personnel, new Date("2026-08-13T12:00:00Z"));
-    expect(renderAcadPdfPreview).toHaveBeenCalledWith(expect.objectContaining({ filename: "fiche-personnel-teacher-a.pdf", title: "Fiche individuelle du personnel", school, singlePageFit: true }));
+    expect(renderAcadPdfPreview).toHaveBeenCalledWith(expect.objectContaining({ filename: "fiche-personnel-teacher-a.pdf", title: "FICHE INDIVIDUELLE DU PERSONNEL", school, singlePageFit: true }));
     expect(JSON.stringify(renderAcadPdfPreview.mock.calls[0][0])).toContain("Alice");
     expect(JSON.stringify(renderAcadPdfPreview.mock.calls[0][0])).not.toContain("teacher-b");
+  });
+
+  it("utilise la date initiale users, affiche la photo et exclut année scolaire et mot de passe", async () => {
+    const school = { id: "school-a", name: "École A" } as School;
+    const personnel = { id: "teacher-a", name: "Alice", email: "alice@example.test", role: "teacher", schoolId: "school-a", createdAt: "2024-02-03T00:00:00.000Z" } as AppUser;
+    await printPersonnelProfilePdf(school, personnel, { id: "teacher-a", personnelId: "teacher-a", schoolId: "school-a", matricule: "PER-000001", photoUrl: "https://example.test/photo.jpg", createdAt: "2026-01-01", createdBy: "admin", updatedAt: "2026-01-01", updatedBy: "admin" });
+    const serialized = JSON.stringify(renderAcadPdfPreview.mock.calls.at(-1)?.[0]);
+    expect(serialized).toContain("03/02/2024");
+    expect(serialized).toContain("photo.jpg");
+    expect(serialized).not.toMatch(/année scolaire|mot de passe/i);
+    expect(serialized).not.toContain("01/01/2026");
   });
 });
 

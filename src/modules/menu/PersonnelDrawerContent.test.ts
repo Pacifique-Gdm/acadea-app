@@ -39,7 +39,7 @@ describe("Drawer Personnels", () => {
     expect(source).toContain('role="menuitem"');
     expect(source).toContain("Modifier</button>");
     expect(source).toContain("Archiver</button>");
-    expect(source).toContain("printPersonnelProfilePdf(school, selected)");
+    expect(source).toContain("printPersonnelProfilePdf(school, selected, profile)");
     expect(source).toContain("Imprimer</button>");
     expect(source).toContain('selected.role === "school_admin"');
   });

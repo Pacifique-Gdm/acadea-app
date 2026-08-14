@@ -194,11 +194,44 @@ export interface SchoolClassRecord {
   schoolId: string;
   schoolYearId: string;
   name: string;
+  section?: SchoolSection;
+  option?: string;
+  vacation?: "morning" | "afternoon";
+  saturdayVacation?: "morning" | "afternoon" | null;
+  saturdayEnabled?: boolean;
   active?: boolean;
   parentClassId?: string;
   /** Operational parent option for a secondary subclass. */
   classOptionKey?: string;
   subClassLabel?: string;
+}
+
+export interface PersonnelProfile {
+  id: string;
+  schoolId: string;
+  personnelId: string;
+  matricule: string;
+  photoUrl?: string;
+  photoPath?: string;
+  gender?: "F" | "M" | "Autre";
+  birthDate?: string;
+  birthPlace?: string;
+  address?: string;
+  engagementDate?: string;
+  contractType?: string;
+  educationLevel?: string;
+  diploma?: string;
+  specialty?: string;
+  trainingInstitution?: string;
+  graduationYear?: number;
+  emergencyContactName?: string;
+  emergencyContactRelationship?: string;
+  emergencyContactPhone?: string;
+  observations?: string;
+  createdAt: string;
+  createdBy: string;
+  updatedAt: string;
+  updatedBy: string;
 }
 
 export interface Expense {

@@ -86,6 +86,20 @@ service cloud.firestore {
               && section == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.section));
     }
 
+    function disciplineDirectorSectionAllowed(section) {
+      return disciplineDirector()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.schoolId == tenantSchoolId()
+        && (((!("sectionIds" in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
+                || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.sectionIds.size() == 0)
+              && (!("section" in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
+                || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.section == null))
+          || (("sectionIds" in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
+              && section in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.sectionIds)
+          || (("section" in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
+              && section == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.section));
+    }
+
     function studyDirectorHasNoSectionScope() {
       return studyDirector()
         && exists(/databases/$(database)/documents/users/$(request.auth.uid))
@@ -494,7 +508,11 @@ service cloud.firestore {
       allow read: if superAdmin()
         || (role() in ["school_admin", "cashier", "secretary"] && sameTenantResource())
         || (studyTenantResource() && (studyDirectorHasNoSectionScope() || (("section" in resource.data) && studyDirectorSectionAllowed(resource.data.section))))
-        || disciplineTenantResource()
+        || (disciplineTenantResource() && ((!("sectionIds" in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
+              || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.sectionIds.size() == 0)
+            && (!("section" in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
+              || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.section == null)
+            || (("section" in resource.data) && disciplineDirectorSectionAllowed(resource.data.section))))
         || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.parentId == tenantParentId());
       allow create: if schoolAdmin() && activeTenantYearCreate() && validStudentClassReferences();
       allow update: if schoolAdmin() && activeTenantYearUpdate() && validStudentClassReferences();
@@ -539,6 +557,12 @@ service cloud.firestore {
         || schoolAdmin() && sameTenantResource()
         || secretary() && sameTenantResource() && resource.data.actorId == request.auth.uid
         || activeCashier() && sameTenantResource() && resource.data.actorId == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
+    match /personnelProfiles/{personnelId} {
+      allow read: if superAdmin()
+        || (schoolAdmin() && resource.data.schoolId == tenantSchoolId());
       allow create, update, delete: if false;
     }
 

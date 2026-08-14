@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeSubclasses, classesWithEnrolledStudents, operationalClasses, operationalSchoolClasses, schoolClassOptionKey, schoolClassRecordId, secondarySubclassesForOption, studentBelongsToOperationalClass, validateSubclassLabels } from "./schoolSubclasses";
+import { activeSubclasses, canonicalOperationalClasses, classesWithEnrolledStudents, operationalClasses, operationalSchoolClasses, schoolClassOptionKey, schoolClassRecordId, secondarySubclassesForOption, studentBelongsToOperationalClass, validateSubclassLabels } from "./schoolSubclasses";
 import fs from "node:fs";
 import type { SchoolClassRecord } from "../types";
 const base = (id: string, extra: Partial<SchoolClassRecord> = {}): SchoolClassRecord => ({ id, schoolId: "school-a", schoolYearId: "year-a", name: id, active: true, ...extra });
@@ -46,6 +46,26 @@ describe("identite operationnelle stable des classes", () => {
   it("conserve une classe active sans eleve et retire une classe desactivee au recalcul", () => {
     expect(operationalSchoolClasses([base("active-empty"), base("inactive", { active: false })], "school-a", "year-a").map((item) => item.id)).toEqual(["active-empty"]);
     expect(operationalSchoolClasses([base("active-empty", { active: false })], "school-a", "year-a")).toEqual([]);
+  });
+});
+
+describe("source canonique partagée entre élèves, vacations et homogénéité", () => {
+  const student = (extra: Record<string, unknown>) => ({
+    id: "student", schoolId: "school-a", schoolYearId: "year-a", matricule: "M", nom: "N", postnom: "P", prenom: "R",
+    sexe: "F" as const, birthDate: "2010-01-01", address: "", phone: "", className: "1ère Humanité" as const, ...extra,
+  });
+
+  it("students class display, vacation classes and age-homogeneity classes share the same canonical class identities", () => {
+    const classes = [base("primary", { name: "2ème Primaire", section: "Primaire" }), base("inactive", { name: "4ème Primaire", active: false })];
+    const result = canonicalOperationalClasses(classes, [student({ option: "Scientifique", section: "Secondaire" })], "school-a", "year-a");
+    expect(result.map((item) => item.name)).toEqual(["1ère Scientifique", "2ème Primaire"]);
+    expect(studentBelongsToOperationalClass(student({ option: "Scientifique" }), result[0])).toBe(true);
+  });
+
+  it("recalcule l’union des sections et retire immédiatement une section", () => {
+    const classes = [base("primary", { name: "2ème Primaire", section: "Primaire" }), base("secondary", { name: "1ère Humanité", section: "Secondaire" })];
+    expect(canonicalOperationalClasses(classes, [], "school-a", "year-a", ["Primaire", "Secondaire"]).map((item) => item.id)).toEqual(["secondary", "primary"]);
+    expect(canonicalOperationalClasses(classes, [], "school-a", "year-a", ["Secondaire"]).map((item) => item.id)).toEqual(["secondary"]);
   });
 });
 

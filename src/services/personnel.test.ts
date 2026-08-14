@@ -10,7 +10,7 @@ const firestore = vi.hoisted(() => ({
 vi.mock("../firebase", () => ({ db: {}, firebaseReady: true }));
 vi.mock("@firebase/firestore", () => firestore);
 
-import { INTERNAL_PERSONNEL_ROLES, isArchivedPersonnel, isInternalPersonnel, subscribeToSchoolPersonnel } from "./personnel";
+import { INTERNAL_PERSONNEL_ROLES, isArchivedPersonnel, isInternalPersonnel, normalizePersonnelSnapshot, subscribeToSchoolPersonnel } from "./personnel";
 
 const admin = { id: "admin-a", name: "Admin", email: "admin@test", role: "school_admin", schoolId: "school-a", status: "active" } as AppUser;
 
@@ -35,6 +35,15 @@ describe("service Personnels", () => {
       { field: "schoolId", operator: "==", value: "school-a" },
       { field: "role", operator: "in", value: [...INTERNAL_PERSONNEL_ROLES] },
     );
+  });
+
+  it("déduplique strictement une même identité Auth par UID sans fusionner deux homonymes", () => {
+    const homonym = { ...admin, id: "admin-b", email: "other@test" };
+    expect(normalizePersonnelSnapshot([admin, { ...admin }, homonym]).map((item) => item.id)).toEqual(["admin-a", "admin-b"]);
+  });
+
+  it("ne masque pas deux UID distincts portant le même email", () => {
+    expect(normalizePersonnelSnapshot([admin, { ...admin, id: "admin-b" }])).toHaveLength(2);
   });
 
   it("refuse avant réseau un autre rôle, une autre école ou un administrateur archivé", () => {
