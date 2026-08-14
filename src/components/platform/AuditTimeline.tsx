@@ -1,5 +1,6 @@
 import { Clock3 } from "lucide-react";
 import type { AuditLog } from "../../types";
+import { formatActivityDateTime } from "../../utils/activityHistory";
 
 export function AuditTimeline({ logs }: { logs: AuditLog[] }) {
   if (logs.length === 0) {
@@ -21,7 +22,7 @@ export function AuditTimeline({ logs }: { logs: AuditLog[] }) {
           <div className="min-w-0">
             <p className="break-words text-sm font-semibold text-ink">{log.action}</p>
             <p className="break-words text-xs text-slate-500">
-              {log.actorName} · {new Date(log.createdAt).toLocaleString("fr-FR")}
+              {log.actorName} · {formatActivityDateTime(log.createdAt)}
             </p>
           </div>
         </div>
