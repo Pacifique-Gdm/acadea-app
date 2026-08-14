@@ -139,7 +139,7 @@ export function studentBelongsToOperationalClass(student: EnrolledStudentClassRe
   const option = schoolClass.option?.trim();
   const base = (student.className ?? "").replace(/\s+Humanit[ée]s?$/i, "").trim();
   const displayed = student.option?.trim() ? `${base || student.className} ${student.option.trim()}` : student.className ?? "";
-  if (option) return student.option?.trim() === option && normalizedClassName(displayed) === normalizedClassName(schoolClass.name);
+  if (option) return normalizedClassName(student.option?.trim() ?? "") === normalizedClassName(option) && normalizedClassName(displayed) === normalizedClassName(schoolClass.name);
   return student.classId === schoolClass.id
     || normalizedClassName(student.className ?? "") === normalizedClassName(schoolClass.name)
     || normalizedClassName(displayed) === normalizedClassName(schoolClass.name);
