@@ -106,6 +106,15 @@ describe("secondary class plus option resolution", () => {
     expect(classesWithEnrolledStudents(canonical, [legacy], "school-a", "year-a").map((item) => item.name)).toEqual(["2ème Littéraire"]);
   });
 
+  it("does not restore the generic parent when legacy optioned and unoptioned students coexist", () => {
+    const parent = base("secondary-1", { name: "1ère Humanité", section: "Secondaire" });
+    const scientific = student({ id: "scientific", classId: undefined, className: parent.name, option: "Scientifique", classOptionKey: undefined });
+    const legacyParent = student({ id: "legacy-parent", classId: parent.id, className: parent.name, option: undefined });
+    const canonical = canonicalOperationalClasses([parent], [scientific, legacyParent], "school-a", "year-a", ["Secondaire"]);
+    expect(canonical.map((item) => item.name)).toEqual(["1ère Scientifique"]);
+    expect(classesWithEnrolledStudents(canonical, [scientific, legacyParent], "school-a", "year-a").map((item) => item.name)).toEqual(["1ère Scientifique"]);
+  });
+
   it("keeps literary and commercial identities separate in filters, homogeneity and vacations", () => {
     const literary = student({ id: "literary", option: "Littéraire" });
     const commercial = student({ id: "commercial", option: "Commerciale" });

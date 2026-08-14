@@ -143,12 +143,8 @@ export function classesWithEnrolledStudents(classes: SchoolClassRecord[], studen
   const optionParents = new Set(scopedClasses.filter((item) => item.parentClassId && (item.option || item.classOptionKey)).map((item) => item.parentClassId!));
   const selected = new Map<string, SchoolClassRecord>();
   students.filter((student) => student.schoolId === schoolId && student.schoolYearId === schoolYearId).forEach((student) => {
-    const option = (student as EnrolledStudentClassReference & { option?: string }).option?.trim();
-    const optionKey = (student as EnrolledStudentClassReference & { classOptionKey?: string }).classOptionKey?.trim();
-    const operationalOption = scopedClasses.find((item) => (
-      (optionKey && item.classOptionKey === optionKey)
-      || (option && item.parentClassId === student.classId && item.option?.trim() === option)
-    ));
+    const optionStudent = student as EnrolledStudentClassReference & { option?: string; classOptionKey?: string };
+    const operationalOption = scopedClasses.find((item) => (item.option || item.classOptionKey) && studentBelongsToOperationalClass(optionStudent, item));
     if (operationalOption) {
       selected.set(operationalOption.id, operationalOption);
       return;
@@ -161,6 +157,7 @@ export function classesWithEnrolledStudents(classes: SchoolClassRecord[], studen
       if (!optionParents.has(resolved.id)) selected.set(resolved.id, resolved);
       return;
     }
+    if (student.classId && optionParents.has(student.classId)) return;
     const name = student.className?.trim();
     if (!name) return;
     const normalized = normalizedClassName(name);
