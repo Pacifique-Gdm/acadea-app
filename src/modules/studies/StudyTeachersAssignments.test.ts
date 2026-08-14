@@ -18,6 +18,22 @@ describe("StudyTeachers assignment editor contract", () => {
     expect(moduleSource).toContain("setWeeklyPeriods(String(current?.weeklyPeriods ?? 1))");
   });
 
+  it("derives sections from the selected teacher and removes manual section selection", () => {
+    expect(moduleSource).toContain("userSectionIds(selectedAssignmentTeacher ?? {})");
+    expect(moduleSource).toContain("teacherSections.includes(studyClassSection(item))");
+    expect(moduleSource).toContain("Section(s) attribuée(s) :");
+    expect(moduleSource).not.toContain(">Section<select");
+    expect(moduleSource).toContain("teacherSections.length === 0");
+  });
+
+  it("keeps the pedagogical drawer actions full width without redundant headings", () => {
+    expect(moduleSource).toContain("Ajouter affectation");
+    expect(moduleSource).toContain("Configurer disponibilité");
+    expect(moduleSource).toContain("primary-button w-full justify-center");
+    expect(moduleSource).not.toContain(">Affectations</h3>");
+    expect(moduleSource).not.toContain(">Disponibilités</h3>");
+  });
+
   it("submits every selected course/class combination through one transactional service", () => {
     expect(moduleSource).toContain("subjectIds: savedSubjectIds, classIds: savedClassIds");
     expect(moduleSource).toContain("current: editingAssignment");

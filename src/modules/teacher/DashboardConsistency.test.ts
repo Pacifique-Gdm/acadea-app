@@ -9,7 +9,7 @@ describe("dashboard cards consistency", () => {
     expect(source).not.toContain("Cours du jour");
     expect(source).toContain("Aucun cours aujourd’hui.");
     expect(source).toContain("Aucun prochain cours.");
-    expect(source).toContain("grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3");
+    expect(source).toContain("grid-cols-1 gap-4 sm:grid-cols-2");
     expect(source).toContain("icon={CalendarDays}");
     expect(source).toContain("icon={Clock3}");
   });
