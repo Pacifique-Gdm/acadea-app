@@ -213,6 +213,10 @@ export interface PersonnelProfile {
   matricule: string;
   photoUrl?: string;
   photoPath?: string;
+  lastName?: string;
+  middleName?: string;
+  firstName?: string;
+  jobTitle?: string;
   gender?: "F" | "M" | "Autre";
   birthDate?: string;
   birthPlace?: string;

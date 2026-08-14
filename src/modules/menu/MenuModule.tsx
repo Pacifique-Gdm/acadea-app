@@ -14,6 +14,7 @@ import { buildFeeTargetChoices, feeTargetClassName } from "../../utils/feeTarget
 import { getSchoolEducationLevels, getSchoolSections, schoolSectionLabels, toggleSchoolEducationLevel } from "../../utils/schoolConfig";
 import { nextSchoolStaffEmail, normalizeProvisioningPhone } from "../../utils/schoolAccountCredentials";
 import { temporaryPasswordAfterPhoneChange } from "../../utils/temporaryPassword";
+import { ERROR_MESSAGE_DURATION_MS, SUCCESS_MESSAGE_DURATION_MS, useAutoDismissMessage } from "../../hooks/useAutoDismissMessage";
 import { subscribeToSchoolTeacherAccounts } from "../../services/teacherAccounts";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import type { AppData, AppUser, FeeKind, FeeType, ParentProfile, School, SchoolSection, SchoolYear, Student, ValvePublication } from "../../types";
@@ -201,6 +202,7 @@ export function MenuModule({
       if (!(target instanceof Node)) return;
       if (newFeeFormRef.current?.contains(target)) return;
       setShowNewFeeForm(false);
+      setNewFeeError("");
     }
 
     document.addEventListener("pointerdown", handlePointerDown);
@@ -208,22 +210,27 @@ export function MenuModule({
       document.removeEventListener("pointerdown", handlePointerDown);
     };
   }, [showNewFeeForm]);
-  useEffect(() => {
-    if (!schoolSaveStatus) return;
-    const timer = window.setTimeout(() => {
-      setSchoolSaveStatus("");
-      setSchoolSaveMessage("");
-    }, 4000);
-    return () => window.clearTimeout(timer);
-  }, [schoolSaveStatus, schoolSaveMessage]);
-  useEffect(() => {
-    if (!cashierError && !cashierSuccess) return;
-    const timer = window.setTimeout(() => {
-      setCashierError("");
-      setCashierSuccess("");
-    }, 4000);
-    return () => window.clearTimeout(timer);
-  }, [cashierError, cashierSuccess]);
+
+  useAutoDismissMessage(schoolSaveMessage, () => { setSchoolSaveStatus(""); setSchoolSaveMessage(""); }, schoolSaveStatus === "error" ? ERROR_MESSAGE_DURATION_MS : SUCCESS_MESSAGE_DURATION_MS);
+  useAutoDismissMessage(cashierError, () => setCashierError(""), ERROR_MESSAGE_DURATION_MS);
+  useAutoDismissMessage(cashierSuccess, () => setCashierSuccess(""), SUCCESS_MESSAGE_DURATION_MS);
+  useAutoDismissMessage(newFeeError, () => setNewFeeError(""), ERROR_MESSAGE_DURATION_MS);
+  useAutoDismissMessage(newYearError, () => setNewYearError(""), ERROR_MESSAGE_DURATION_MS);
+  useAutoDismissMessage(yearActionError, () => setYearActionError(""), ERROR_MESSAGE_DURATION_MS);
+  useAutoDismissMessage(parentDeleteError, () => setParentDeleteError(""), ERROR_MESSAGE_DURATION_MS);
+  useAutoDismissMessage(medicalRecordsError, () => setMedicalRecordsError(""), ERROR_MESSAGE_DURATION_MS);
+  useAutoDismissMessage(teacherAccountsError, () => setTeacherAccountsError(""), ERROR_MESSAGE_DURATION_MS);
+
+  function clearMenuMessages() {
+    setSchoolSaveStatus(""); setSchoolSaveMessage(""); setCashierError(""); setCashierSuccess("");
+    setNewFeeError(""); setNewYearError(""); setYearActionError(""); setParentDeleteError("");
+    setMedicalRecordsError(""); setTeacherAccountsError("");
+  }
+
+  function closeActiveMenuSection() {
+    setActiveMenuSection(null);
+    clearMenuMessages();
+  }
 
   function openParentDeleteDrawer() {
     setParentDeleteOpen(true);
@@ -722,7 +729,7 @@ export function MenuModule({
               </button>
             </div>
           )}
-          {yearActionError && !yearAction && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{yearActionError}</p>}
+          {yearActionError && !yearAction && <p role="alert" aria-live="assertive" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{yearActionError}</p>}
           {newYearOpen && canAdmin && (
             <div className="grid min-w-0 gap-3 rounded border border-amber-200 bg-amber-50 p-4">
               <div className="min-w-0">
@@ -731,7 +738,7 @@ export function MenuModule({
                   Cette opération crée une nouvelle année scolaire active et archive automatiquement l'année active précédente. Les données historiques restent consultables dans leur dossier d'archives.
                 </p>
               </div>
-              {newYearError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{newYearError}</p>}
+              {newYearError && <p role="alert" aria-live="assertive" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{newYearError}</p>}
               <Field label="Nom de la nouvelle année" value={newYearForm.name} onChange={(value) => setNewYearForm({ ...newYearForm, name: value })} />
               <div className="grid min-w-0 gap-2 sm:grid-cols-2">
                 <Field label="Date de début" value={newYearForm.startsAt} onChange={(value) => setNewYearForm({ ...newYearForm, startsAt: value })} type="date" />
@@ -785,7 +792,7 @@ export function MenuModule({
                     : "Cette action définit l'année scolaire sélectionnée comme année active de l'école."}
                 </p>
               </div>
-              {yearActionError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{yearActionError}</p>}
+              {yearActionError && <p role="alert" aria-live="assertive" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{yearActionError}</p>}
               <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
                 Confirmation obligatoire
                 <input
@@ -821,9 +828,9 @@ export function MenuModule({
     if (sectionId === "accounts" && canAdmin) {
       return (
         <div className="grid min-w-0 gap-4">
-          {cashierError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{cashierError}</p>}
+          {cashierError && <p role="alert" aria-live="assertive" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{cashierError}</p>}
           {schoolUserRole === "teacher" && teacherAccountsError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{teacherAccountsError}</p>}
-          {cashierSuccess && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{cashierSuccess}</p>}
+          {cashierSuccess && <p role="status" aria-live="polite" className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{cashierSuccess}</p>}
           <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
             Type d'utilisateur
             <select value={schoolUserRole} onChange={(event) => { setSchoolUserRole(event.target.value as SchoolUserProvisionRole); setSchoolUserEmailManuallyEdited(false); }} className="input">
@@ -909,7 +916,7 @@ export function MenuModule({
           {showNewFeeForm && (
             <div ref={newFeeFormRef} className="rounded border border-slate-100 bg-slate-50 p-3">
               <p className="mb-2 text-sm font-semibold text-ink">Nouveau frais</p>
-              {newFeeError && <p className="mb-2 rounded border border-red-200 bg-red-50 p-2 text-sm font-semibold text-red-700">{newFeeError}</p>}
+              {newFeeError && <p role="alert" aria-live="assertive" className="mb-2 rounded border border-red-200 bg-red-50 p-2 text-sm font-semibold text-red-700">{newFeeError}</p>}
               <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                 <input
                   value={newFeeName}
@@ -1049,7 +1056,7 @@ export function MenuModule({
   return (
     <section className="grid min-w-0 gap-3">
       {schoolSaveStatus && (
-        <p className={`rounded border p-3 text-sm font-semibold ${schoolSaveStatus === "success" ? "border-mint/30 bg-mint/10 text-mint" : "border-red-200 bg-red-50 text-red-700"}`}>
+        <p role={schoolSaveStatus === "success" ? "status" : "alert"} aria-live={schoolSaveStatus === "success" ? "polite" : "assertive"} className={`rounded border p-3 text-sm font-semibold ${schoolSaveStatus === "success" ? "border-mint/30 bg-mint/10 text-mint" : "border-red-200 bg-red-50 text-red-700"}`}>
           {schoolSaveMessage}
         </p>
       )}
@@ -1059,7 +1066,7 @@ export function MenuModule({
         return (
           <button
             key={section.id}
-            onClick={() => section.id === "medicalRecords" ? setMedicalRecordsOpen(true) : setActiveMenuSection(section.id)}
+            onClick={() => { clearMenuMessages(); if (section.id === "medicalRecords") setMedicalRecordsOpen(true); else setActiveMenuSection(section.id); }}
             className={`min-w-0 rounded border p-4 text-left shadow-sm transition ${
               active ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white hover:border-mint"
             }`}
@@ -1078,12 +1085,12 @@ export function MenuModule({
         );
       })}
       {activeMenuSection && activeMenuSectionConfig && (
-        <AdminDrawer title={activeMenuSectionConfig.title} onClose={() => setActiveMenuSection(null)} closeLabel={`Fermer ${activeMenuSectionConfig.title}`}>
+        <AdminDrawer title={activeMenuSectionConfig.title} onClose={closeActiveMenuSection} closeLabel={`Fermer ${activeMenuSectionConfig.title}`}>
           {renderMenuSectionForm(activeMenuSection)}
         </AdminDrawer>
       )}
-      {medicalRecordsError && medicalRecordsOpen && <p className="rounded border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800">{medicalRecordsError}</p>}
-      <SecretaryMedicalRecordsDrawer open={medicalRecordsOpen} onClose={() => setMedicalRecordsOpen(false)} user={user} students={yearData.students} records={medicalRecords} school={school} year={selectedYear} />
+      {medicalRecordsError && medicalRecordsOpen && <p role="alert" aria-live="assertive" className="rounded border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800">{medicalRecordsError}</p>}
+      <SecretaryMedicalRecordsDrawer open={medicalRecordsOpen} onClose={() => { setMedicalRecordsOpen(false); setMedicalRecordsError(""); }} user={user} students={yearData.students} records={medicalRecords} school={school} year={selectedYear} />
       {parentDeleteOpen && (
         <AdminDrawer title="Supprimer un parent" onClose={closeParentDeleteDrawer} closeLabel="Annuler la suppression du parent">
           <div className="grid min-w-0 gap-4">
@@ -1141,7 +1148,7 @@ export function MenuModule({
                 placeholder="SUPPRIMER LE PARENT"
               />
             </label>
-            {parentDeleteError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{parentDeleteError}</p>}
+            {parentDeleteError && <p role="alert" aria-live="assertive" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{parentDeleteError}</p>}
             <div className="grid gap-2 sm:grid-cols-2">
               <button onClick={closeParentDeleteDrawer} type="button" className="secondary-button justify-center" disabled={parentDeleteSaving}>
                 Annuler

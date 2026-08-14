@@ -10,7 +10,7 @@ const firestore = vi.hoisted(() => ({
 vi.mock("../firebase", () => ({ db: {}, firebaseReady: true }));
 vi.mock("@firebase/firestore", () => firestore);
 
-import { INTERNAL_PERSONNEL_ROLES, isArchivedPersonnel, isInternalPersonnel, normalizePersonnelSnapshot, subscribeToSchoolPersonnel } from "./personnel";
+import { INTERNAL_PERSONNEL_ROLES, isArchivedPersonnel, isInternalPersonnel, normalizePersonnelSnapshot, personnelDisplayName, personnelIdentity, subscribeToSchoolPersonnel } from "./personnel";
 
 const admin = { id: "admin-a", name: "Admin", email: "admin@test", role: "school_admin", schoolId: "school-a", status: "active" } as AppUser;
 
@@ -44,6 +44,16 @@ describe("service Personnels", () => {
 
   it("ne masque pas deux UID distincts portant le même email", () => {
     expect(normalizePersonnelSnapshot([admin, { ...admin, id: "admin-b" }])).toHaveLength(2);
+  });
+
+  it("préserve le nom complet legacy sans inventer un postnom ou un prénom", () => {
+    expect(personnelIdentity({ ...admin, name: "Kabeya Ilunga Alice" })).toEqual({ lastName: "Kabeya Ilunga Alice", middleName: "", firstName: "" });
+  });
+
+  it("recompose le nom canonique depuis les trois champs administratifs", () => {
+    const identity = personnelIdentity(admin, { lastName: "Kabeya", middleName: "Ilunga", firstName: "Alice" });
+    expect(identity).toEqual({ lastName: "Kabeya", middleName: "Ilunga", firstName: "Alice" });
+    expect(personnelDisplayName(identity)).toBe("Kabeya Ilunga Alice");
   });
 
   it("refuse avant réseau un autre rôle, une autre école ou un administrateur archivé", () => {

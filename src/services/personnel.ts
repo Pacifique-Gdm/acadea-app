@@ -26,6 +26,25 @@ export function isArchivedPersonnel(user: AppUser) {
   return user.status === "inactive" || (user as AppUser & { active?: boolean }).active === false;
 }
 
+export type PersonnelIdentity = { lastName: string; middleName: string; firstName: string };
+
+export function personnelIdentity(user: AppUser, profile?: Partial<PersonnelProfile>): PersonnelIdentity {
+  if (profile?.lastName || profile?.middleName || profile?.firstName) {
+    return {
+      lastName: profile.lastName ?? "",
+      middleName: profile.middleName ?? "",
+      firstName: profile.firstName ?? "",
+    };
+  }
+  // Les anciens comptes n'ont qu'un nom complet. On le conserve sans inventer
+  // une séparation Nom/Postnom/Prénom potentiellement erronée.
+  return { lastName: user.name ?? "", middleName: "", firstName: "" };
+}
+
+export function personnelDisplayName(identity: PersonnelIdentity) {
+  return [identity.lastName, identity.middleName, identity.firstName].map((value) => value.trim()).filter(Boolean).join(" ");
+}
+
 export function normalizePersonnelSnapshot(users: readonly AppUser[]) {
   const byUid = new Map<string, AppUser>();
   users.filter(isInternalPersonnel).forEach((user) => {

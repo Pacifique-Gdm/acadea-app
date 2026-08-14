@@ -1,13 +1,38 @@
 import type { AppUser, PersonnelProfile, School } from "../types";
-import { isArchivedPersonnel, personnelRoleLabels } from "../services/personnel";
+import { isArchivedPersonnel, personnelIdentity, personnelRoleLabels } from "../services/personnel";
 import { schoolSectionLabels } from "./schoolConfig";
 import { userSectionIds } from "./userSections";
-import { escapePdfHtml, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./pdf";
+import { escapePdfHtml, pdfSection, pdfTable, renderAcadPdfPreview } from "./pdf";
 
-function personnelDate(value?: string) {
-  if (!value) return "Non renseigné";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "Non renseigné" : date.toLocaleDateString("fr-FR");
+function personnelDate(value: unknown) {
+  if (!value) return "-";
+  const timestamp = value as { toDate?: () => Date; toMillis?: () => number };
+  const date = typeof timestamp.toDate === "function"
+    ? timestamp.toDate()
+    : typeof timestamp.toMillis === "function"
+      ? new Date(timestamp.toMillis())
+      : new Date(value as string | number | Date);
+  return Number.isNaN(date.getTime()) ? "-" : date.toLocaleDateString("fr-FR");
+}
+
+function value(value: unknown) {
+  if (value === undefined || value === null || value === "") return "-";
+  if (typeof value === "string" || typeof value === "number") return String(value);
+  return "-";
+}
+
+function lines(rows: Array<{ label: string; value: unknown }>) {
+  return `<div class="personnel-lines">${rows.map((row) => `
+    <div class="personnel-line">
+      <span>${escapePdfHtml(row.label)} :</span>
+      <strong>${escapePdfHtml(value(row.value))}</strong>
+    </div>`).join("")}</div>`;
+}
+
+function genderLabel(gender?: PersonnelProfile["gender"]) {
+  if (gender === "F") return "Féminin";
+  if (gender === "M") return "Masculin";
+  return gender || "-";
 }
 
 export async function printPersonnelListPdf(school: School, personnel: AppUser[], status: "active" | "archived", printedAt = new Date()) {
@@ -28,29 +53,63 @@ export async function printPersonnelListPdf(school: School, personnel: AppUser[]
 export async function printPersonnelProfilePdf(school: School, personnel: AppUser, profileOrPrintedAt?: PersonnelProfile | Date, requestedPrintedAt = new Date()) {
   const profile = profileOrPrintedAt instanceof Date ? undefined : profileOrPrintedAt;
   const printedAt = profileOrPrintedAt instanceof Date ? profileOrPrintedAt : requestedPrintedAt;
+  const identity = personnelIdentity(personnel, profile);
   const role = personnelRoleLabels[personnel.role as keyof typeof personnelRoleLabels] ?? personnel.role;
-  const sections = userSectionIds(personnel).map((section) => schoolSectionLabels[section]).join(", ") || "Non renseignées";
+  const sections = userSectionIds(personnel).map((section) => schoolSectionLabels[section]).join(", ") || "-";
+  const birthDateAndPlace = [personnelDate(profile?.birthDate), value(profile?.birthPlace)].filter((item) => item !== "-").join(" à ") || "-";
+  const photo = profile?.photoUrl
+    ? `<img src="${escapePdfHtml(profile.photoUrl)}" alt="Photo du personnel" />`
+    : '<span aria-label="Photo non renseignée">-</span>';
+
   return renderAcadPdfPreview({
     filename: `fiche-personnel-${personnel.id}.pdf`,
     title: "FICHE INDIVIDUELLE DU PERSONNEL",
+    centerDocumentTitle: true,
+    showGeneratedAt: false,
     school,
     generatedAt: printedAt,
-    sections: [profile?.photoUrl ? `<div class="personnel-photo"><img src="${escapePdfHtml(profile.photoUrl)}" alt="Photo de ${escapePdfHtml(personnel.name)}" /></div>` : "", pdfSection("Identification", pdfInfoGrid([
-      { label: "Matricule", value: profile?.matricule || "Non renseigné" }, { label: "Nom complet", value: personnel.name },
-      { label: "Sexe", value: profile?.gender || "Non renseigné" }, { label: "Date de naissance", value: profile?.birthDate || "Non renseigné" },
-      { label: "Lieu de naissance", value: profile?.birthPlace || "Non renseigné" }, { label: "Adresse", value: profile?.address || "Non renseigné" },
-      { label: "Fonction", value: role },
-      { label: "Sections", value: sections }, { label: "Téléphone", value: personnel.phone || "Non renseigné" },
-      { label: "E-mail", value: personnel.email || "Non renseigné" },
-      { label: "Date d’engagement", value: profile?.engagementDate || "Non renseigné" }, { label: "Type de contrat", value: profile?.contractType || "Non renseigné" },
-      { label: "Niveau d’études", value: profile?.educationLevel || "Non renseigné" }, { label: "Diplôme", value: profile?.diploma || "Non renseigné" },
-      { label: "Spécialité", value: profile?.specialty || "Non renseigné" }, { label: "Établissement de formation", value: profile?.trainingInstitution || "Non renseigné" },
-      { label: "Année d’obtention", value: profile?.graduationYear || "Non renseigné" }, { label: "Contact d’urgence", value: profile?.emergencyContactName || "Non renseigné" },
-      { label: "Lien avec le personnel", value: profile?.emergencyContactRelationship || "Non renseigné" }, { label: "Téléphone d’urgence", value: profile?.emergencyContactPhone || "Non renseigné" },
-      { label: "Statut", value: isArchivedPersonnel(personnel) ? "Archivé" : "Actif" },
-      { label: "École", value: school.name },
-      { label: "Date d’établissement", value: personnelDate(personnel.createdAt) },
-    ])), pdfSection("Observations", `<p class="personnel-observations">${escapePdfHtml(profile?.observations || "Non renseigné")}</p>`)],
+    sections: [
+      pdfSection("IDENTIFICATION", `<div class="personnel-identification-layout"><div>${lines([
+        { label: "Matricule", value: profile?.matricule },
+        { label: "Nom", value: identity.lastName },
+        { label: "Postnom", value: identity.middleName },
+        { label: "Prénom", value: identity.firstName },
+        { label: "Sexe", value: genderLabel(profile?.gender) },
+        { label: "Date et lieu de naissance", value: birthDateAndPlace },
+      ])}</div><div class="personnel-photo-box"><span class="personnel-photo-label">PHOTO</span>${photo}</div></div>`, { className: "personnel-identification" }),
+      pdfSection("COORDONNÉES", lines([
+        { label: "Téléphone", value: personnel.phone },
+        { label: "E-mail", value: personnel.email },
+        { label: "Adresse", value: profile?.address ?? personnel.address },
+      ]), { className: "personnel-coordinates" }),
+      pdfSection("SITUATION PROFESSIONNELLE", lines([
+        { label: "Fonction", value: profile?.jobTitle || role },
+        { label: "Date d’engagement", value: personnelDate(profile?.engagementDate) },
+        { label: "Type de contrat", value: profile?.contractType },
+        { label: "Sections", value: sections },
+        { label: "Statut", value: isArchivedPersonnel(personnel) ? "Archivé" : "Actif" },
+      ]), { className: "personnel-professional" }),
+      pdfSection("FORMATION ET QUALIFICATIONS", lines([
+        { label: "Niveau d’études", value: profile?.educationLevel },
+        { label: "Diplôme", value: profile?.diploma },
+        { label: "Spécialité", value: profile?.specialty },
+        { label: "Établissement", value: profile?.trainingInstitution },
+        { label: "Année d’obtention", value: profile?.graduationYear },
+      ]), { className: "personnel-training" }),
+      pdfSection("INFORMATIONS COMPLÉMENTAIRES", lines([
+        { label: "Personne à contacter", value: profile?.emergencyContactName },
+        { label: "Lien avec la personne", value: profile?.emergencyContactRelationship },
+        { label: "Téléphone", value: profile?.emergencyContactPhone },
+      ]), { className: "personnel-additional" }),
+      pdfSection("OBSERVATIONS", `<p class="personnel-observations">${profile?.observations ? escapePdfHtml(profile.observations) : "&nbsp;"}</p>`, { className: "personnel-observations-section" }),
+      `<section class="personnel-closing">
+        <p class="personnel-established-date"><strong>Date d’établissement de la fiche :</strong> ${escapePdfHtml(personnelDate(personnel.createdAt))}</p>
+        <div class="personnel-signatures">
+          <div><span>Signature du personnel</span></div>
+          <div><span>Signature / Cachet de l’établissement</span></div>
+        </div>
+      </section>`,
+    ],
     singlePageFit: !profile?.observations || profile.observations.length < 500,
   });
 }

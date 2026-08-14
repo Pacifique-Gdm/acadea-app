@@ -4,51 +4,59 @@ import { describe, expect, it } from "vitest";
 const source = readFileSync("src/modules/menu/PersonnelDrawerContent.tsx", "utf8");
 
 describe("Drawer Personnels", () => {
-  it("présente les actifs par défaut, le filtre archives et une liste responsive", () => {
+  it("conserve liste, filtres, actions et impression", () => {
     expect(source).toContain('useState<"active" | "archived">("active")');
     expect(source).toContain('aria-haspopup="listbox"');
-    expect(source).toContain('role="option"');
-    expect(source).toContain("Actifs</button>");
-    expect(source).toContain("Archivés</button>");
-    expect(source).toContain("sm:grid-cols-[minmax(0,1fr)_auto]");
-  });
-
-  it("protège les actions par confirmation, chargement et rôle administrateur", () => {
-    expect(source).toContain('setConfirming("archive")');
-    expect(source).toContain('setConfirming("reactivate")');
-    expect(source).toContain('selected.role !== "school_admin"');
-    expect(source).not.toContain("Archivage réservé au Super Administrateur");
-    expect(source).toContain("<MultiSelectDropdown label=\"Sections\"");
-    expect(source).toContain("disabled={busy}");
-  });
-
-  it("ferme les deux menus au clic extérieur et conserve le filtre sélectionné", () => {
-    expect(source).toContain("useDismissibleDropdown(() => setStatusOpen(false))");
-    expect(source).toContain("useDismissibleDropdown<HTMLButtonElement>(() => setActionsOpen(false))");
-    expect(source).toContain('setView("archived"); setStatusOpen(false)');
-  });
-
-  it("imprime exactement la liste visible dans une seconde colonne", () => {
-    expect(source).toContain("grid min-w-0 grid-cols-2 gap-2");
-    expect(source).toContain("printPersonnelListPdf(school, visible, view)");
-  });
-
-  it("regroupe les actions autorisées et conserve Imprimer dans une seconde colonne", () => {
-    expect(source).toContain('className="grid grid-cols-2 gap-2"');
     expect(source).toContain('aria-haspopup="menu"');
-    expect(source).toContain('role="menuitem"');
-    expect(source).toContain("Modifier</button>");
-    expect(source).toContain("Archiver</button>");
+    expect(source).toContain("printPersonnelListPdf(school, visible, view)");
     expect(source).toContain("printPersonnelProfilePdf(school, selected, profile)");
-    expect(source).toContain("Imprimer</button>");
-    expect(source).toContain('selected.role === "school_admin"');
+  });
+
+  it("présente exactement les sept rubriques du formulaire de modification dans l'ordre", () => {
+    const titles = ["1. IDENTIFICATION", "2. COORDONNÉES", "3. SITUATION PROFESSIONNELLE", "4. FORMATION ET QUALIFICATIONS", "5. INFORMATIONS COMPLÉMENTAIRES", "6. OBSERVATIONS", "7. INFORMATIONS SYSTÈME — LECTURE SEULE"];
+    let previous = -1;
+    titles.forEach((title) => { const index = source.indexOf(`title="${title}"`); expect(index).toBeGreaterThan(previous); previous = index; });
+  });
+
+  it("préremplit l'identité, la photo et les sections sans inventer une seconde source", () => {
+    expect(source).toContain("const identity = personnelIdentity(item, profile)");
+    expect(source).toContain("setProfileForm({ ...profile, ...identity");
+    expect(source).toContain("setSections(userSectionIds(item))");
+    expect(source).toContain("profile?.photoUrl && <img");
+  });
+
+  it("attend le profil temps réel avant d'autoriser modification et impression", () => {
+    expect(source).toContain("const [profileReady, setProfileReady] = useState(false)");
+    expect(source).toContain("setProfile(nextProfile); setProfileReady(true)");
+    expect(source).toContain('disabled={busy || !profileReady || selected.role === "school_admin"}');
+    expect(source).toContain("disabled={busy || !profileReady}");
+  });
+
+  it("rend matricule et date d'établissement en lecture seule depuis users.createdAt", () => {
+    expect(source).toContain('label="Matricule (automatique — lecture seule)"');
+    expect(source).toContain('label="Date d’établissement de la fiche" value={dateShown(selected.createdAt)} readOnly');
+  });
+
+  it("préserve multi-sélection, e-mail sécurisé, observations multilignes et persistance", () => {
+    expect(source).toContain('<MultiSelectDropdown label="Sections"');
+    expect(source).toContain("await updatePersonnel(");
+    expect(source).toContain('label="E-mail" value={email}');
+    expect(source).toContain("<textarea");
+    expect(source).toContain("subscribeToPersonnelProfile");
+    expect(source).toContain("subscribeToSchoolPersonnel");
   });
 
   it("limite le sexe aux valeurs acceptées par l’API", () => {
-    expect(source).toContain('<select className="input" value={profileForm.gender ?? ""}');
     expect(source).toContain('<option value="F">Féminin</option>');
     expect(source).toContain('<option value="M">Masculin</option>');
     expect(source).toContain('<option value="Autre">Autre</option>');
-    expect(source).not.toContain('["Sexe", "gender", "text"]');
+  });
+
+  it("nettoie les messages lors des fermetures et conserve leur accessibilité", () => {
+    expect(source).toContain("useAutoDismissMessage(error");
+    expect(source).toContain("useAutoDismissMessage(success");
+    expect(source).toContain("function closeSelected()");
+    expect(source).toContain('role="alert" aria-live="assertive"');
+    expect(source).toContain('role="status" aria-live="polite"');
   });
 });

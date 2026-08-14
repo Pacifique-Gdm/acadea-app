@@ -59,7 +59,9 @@ function normalizePersonnelProfile(value = {}) {
   const gender = optionalText(value.gender, 20);
   if (gender && !["F", "M", "Autre"].includes(gender)) throw Object.assign(new Error("Sexe invalide."), { statusCode: 400, code: "invalid-argument" });
   return {
-    photoUrl: optionalText(value.photoUrl, 2000), photoPath: optionalText(value.photoPath, 500), gender,
+    photoUrl: optionalText(value.photoUrl, 2000), photoPath: optionalText(value.photoPath, 500),
+    lastName: optionalText(value.lastName, 150), middleName: optionalText(value.middleName, 150), firstName: optionalText(value.firstName, 150),
+    jobTitle: optionalText(value.jobTitle, 150), gender,
     birthDate: optionalText(value.birthDate, 10), birthPlace: optionalText(value.birthPlace, 150), address: optionalText(value.address, 500),
     engagementDate: optionalText(value.engagementDate, 10), contractType: optionalText(value.contractType, 100),
     educationLevel: optionalText(value.educationLevel, 150), diploma: optionalText(value.diploma, 200), specialty: optionalText(value.specialty, 200),

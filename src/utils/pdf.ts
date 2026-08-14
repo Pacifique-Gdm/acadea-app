@@ -22,6 +22,7 @@ type AcadPdfOptions = {
   year?: SchoolYear;
   subtitle?: string;
   generatedAt?: Date;
+  showGeneratedAt?: boolean;
   showDocumentTitle?: boolean;
   centerDocumentTitle?: boolean;
   pdfSettings?: Partial<PdfGenerationSettings>;
@@ -144,7 +145,7 @@ export function pdfSection(title: string, bodyHtml: string, options: { pageBreak
   `;
 }
 
-export async function renderAcadPdfPreview({ filename, title, school, year, subtitle, generatedAt = new Date(), showDocumentTitle = true, centerDocumentTitle = false, pdfSettings, sections, copyLabels, singlePageFit = false }: AcadPdfOptions) {
+export async function renderAcadPdfPreview({ filename, title, school, year, subtitle, generatedAt = new Date(), showGeneratedAt = true, showDocumentTitle = true, centerDocumentTitle = false, pdfSettings, sections, copyLabels, singlePageFit = false }: AcadPdfOptions) {
   const profileEnabled = import.meta.env.DEV || ["staging", "preview"].includes(import.meta.env.VITE_APP_ENV ?? "");
   const profileStart = performance.now();
   const layout = getPdfLayout(pdfSettings);
@@ -155,7 +156,7 @@ export async function renderAcadPdfPreview({ filename, title, school, year, subt
   const resourcesReadyAt = performance.now();
   const element = document.createElement("div");
   element.className = "acadea-pdf";
-  const htmlOptions = { title, school, year, subtitle, generatedAt, logoDataUrl, showDocumentTitle, centerDocumentTitle, sections, pdfSettings: layout.settings, renderWidth: layout.windowWidth };
+  const htmlOptions = { title, school, year, subtitle, generatedAt, showGeneratedAt, logoDataUrl, showDocumentTitle, centerDocumentTitle, sections, pdfSettings: layout.settings, renderWidth: layout.windowWidth };
   element.innerHTML = copyLabels
     ? buildTwoCopyPdfHtml({ ...htmlOptions, copyLabels, renderHeight: layout.contentHeight * (layout.windowWidth / layout.contentWidth) })
     : buildPdfHtml(htmlOptions);
@@ -176,7 +177,7 @@ export async function renderAcadPdfPreview({ filename, title, school, year, subt
   try {
     if (singlePageFit) await renderPdfCanvasSinglePage(doc, element, layout);
     else await renderPdfCanvasPages(doc, element, layout);
-    if (!copyLabels) addPdfFooters(doc, generatedAt);
+    if (!copyLabels) addPdfFooters(doc, generatedAt, showGeneratedAt);
     const blob = doc.output("blob") as Blob;
     const blobReadyAt = performance.now();
     const url = URL.createObjectURL(blob);
@@ -267,6 +268,9 @@ function collectPdfProtectedRanges(element: HTMLElement, renderScale: number, pa
     ".outgoing-signature-row",
     ".report-section",
     ".report-signatures-block",
+    ".personnel-identification",
+    ".personnel-line",
+    ".personnel-signatures",
   ].join(",");
   return Array.from(element.querySelectorAll<HTMLElement>(selectors)).flatMap((node) => {
     const rect = node.getBoundingClientRect();
@@ -353,6 +357,7 @@ type PdfHtmlOptions = {
   year?: SchoolYear;
   subtitle?: string;
   generatedAt: Date;
+  showGeneratedAt?: boolean;
   logoDataUrl: string;
   showDocumentTitle: boolean;
   centerDocumentTitle: boolean;
@@ -395,6 +400,7 @@ function buildPdfContentHtml({
   year,
   subtitle,
   generatedAt,
+  showGeneratedAt,
   logoDataUrl,
   showDocumentTitle,
   centerDocumentTitle,
@@ -422,7 +428,7 @@ function buildPdfContentHtml({
       <p>Acadéa</p>
       <h2>${escapePdfHtml(title)}</h2>
       ${subtitle ? `<span>${escapePdfHtml(subtitle)}</span>` : ""}
-      <small>Date de génération : ${escapePdfHtml(generatedAt.toLocaleString("fr-FR"))}</small>
+      ${showGeneratedAt !== false ? `<small>Date de génération : ${escapePdfHtml(generatedAt.toLocaleString("fr-FR"))}</small>` : ""}
     </div>` : ""}
     ${sections.join("")}
   `;
@@ -715,9 +721,63 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       gap: 8px;
       margin-bottom: 10px;
     }
-    .personnel-photo { display:flex; justify-content:center; margin:0 18px 12px; }
-    .personnel-photo img { width:30mm; height:38mm; object-fit:cover; border:1px solid #dbe4ef; border-radius:3px; }
-    .personnel-observations { margin:0; white-space:pre-wrap; line-height:1.45; overflow-wrap:anywhere; }
+    .personnel-identification-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 34mm;
+      gap: 12px;
+      align-items: stretch;
+    }
+    .personnel-lines { display: grid; gap: 4px; }
+    .personnel-line {
+      display: grid;
+      grid-template-columns: minmax(120px, 35%) minmax(0, 1fr);
+      gap: 8px;
+      min-height: 22px;
+      padding: 3px 0;
+      border-bottom: 1px dotted #aab7c6;
+      align-items: end;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    .personnel-line span { color: #526173; font-size: 9pt; font-weight: 700; }
+    .personnel-line strong { color: #14213d; font-size: 9.5pt; font-weight: 600; overflow-wrap: anywhere; }
+    .personnel-photo-box {
+      display: flex;
+      min-height: 44mm;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      border: 1px solid #aab7c6;
+      border-radius: 3px;
+      background: #ffffff;
+    }
+    .personnel-photo-box img { width: 30mm; height: 38mm; object-fit: contain; }
+    .personnel-photo-box > span:not(.personnel-photo-label) { color: #94a3b8; font-size: 14pt; }
+    .personnel-photo-label { margin-bottom: 3px; color: #526173; font-size: 7.5pt; font-weight: 800; }
+    .personnel-observations-section { min-height: 54px; }
+    .personnel-observations { min-height: 32px; margin:0; white-space:pre-wrap; line-height:1.45; overflow-wrap:anywhere; }
+    .personnel-closing { margin: 0 18px 12px; page-break-inside: avoid; break-inside: avoid; }
+    .personnel-established-date { margin: 0; padding: 8px 0; border-top: 1px solid #dbe4ef; font-size: 9.5pt; }
+    .personnel-signatures {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 36px;
+      min-height: 35mm;
+      margin-top: 8px;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    .personnel-signatures > div {
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      padding: 0 8px 4px;
+      border-bottom: 1px solid #526173;
+      text-align: center;
+      font-size: 9pt;
+      font-weight: 700;
+    }
     .report-info-row .info-grid {
       grid-template-columns: repeat(${pdfSettings.pageSize === "A5" ? 2 : 4}, minmax(0, 1fr));
       gap: 5px;
@@ -982,7 +1042,7 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
   `;
 }
 
-function addPdfFooters(doc: PdfDoc, generatedAt: Date) {
+function addPdfFooters(doc: PdfDoc, generatedAt: Date, showGeneratedAt = true) {
   const pages = doc.getNumberOfPages();
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight?.() ?? 297;
@@ -994,7 +1054,7 @@ function addPdfFooters(doc: PdfDoc, generatedAt: Date) {
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7.5);
     doc.setTextColor(100, 116, 139);
-    doc.text(`Généré par Acadéa | ${generatedAt.toLocaleString("fr-FR")}`, 16, pageHeight - 8);
+    if (showGeneratedAt) doc.text(`Généré par Acadéa | ${generatedAt.toLocaleString("fr-FR")}`, 16, pageHeight - 8);
     doc.text(`Page ${page} / ${pages}`, pageWidth - 38, pageHeight - 8);
   }
 }

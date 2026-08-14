@@ -233,9 +233,9 @@ describe("API de provisionnement Acadéa", () => {
     mocks.db.runTransaction.mockImplementationOnce(async (operation: (value: typeof transaction) => Promise<unknown>) => operation(transaction));
     mocks.db.doc.mockImplementation((path: string) => ({ path, get: vi.fn().mockResolvedValue({ exists: true, data: () => path === "users/admin-1" ? { role: "school_admin", schoolId: "school-1", status: "active" } : path === "schools/school-1" ? { educationLevels: ["Primaire"] } : { role: "teacher", schoolId: "school-1", status: "active" } }) }));
     const res = response();
-    await provisionSchoolAccount(request({ action: "update-personnel", schoolId: "school-1", personnelId: "teacher-1", name: "Enseignant", phone: "099", email: "teacher@example.test", sectionIds: ["Primaire"], profile: { birthPlace: "Kinshasa" } }), res);
+    await provisionSchoolAccount(request({ action: "update-personnel", schoolId: "school-1", personnelId: "teacher-1", name: "Kabeya Ilunga Alice", phone: "099", email: "teacher@example.test", sectionIds: ["Primaire"], profile: { lastName: "Kabeya", middleName: "Ilunga", firstName: "Alice", jobTitle: "Professeure", birthPlace: "Kinshasa" } }), res);
     expect(res.statusCode).toBe(200);
-    expect(transaction.set).toHaveBeenCalledWith(expect.objectContaining({ path: "personnelProfiles/teacher-1" }), expect.objectContaining({ matricule: "PER-000005", createdAt: expect.any(String), schoolId: "school-1" }));
+    expect(transaction.set).toHaveBeenCalledWith(expect.objectContaining({ path: "personnelProfiles/teacher-1" }), expect.objectContaining({ matricule: "PER-000005", createdAt: expect.any(String), schoolId: "school-1", lastName: "Kabeya", middleName: "Ilunga", firstName: "Alice", jobTitle: "Professeure" }));
     expect(transaction.set).toHaveBeenCalledWith(expect.objectContaining({ path: "schools/school-1/counters/personnelMatricules" }), expect.objectContaining({ lastNumber: 5 }), { merge: true });
   });
 

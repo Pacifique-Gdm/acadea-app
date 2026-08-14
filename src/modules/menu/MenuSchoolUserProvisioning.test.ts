@@ -35,4 +35,12 @@ describe("formulaire de création des utilisateurs métier", () => {
     expect(source).toContain('<MultiSelectDropdown label="Sections"');
     expect(source).toContain('sectionIds: schoolUserSections');
   });
+
+  it("conserve strictement les six champs du formulaire de création", () => {
+    const start = source.indexOf('if (sectionId === "accounts" && canAdmin)');
+    const end = source.indexOf('if (sectionId === "fees" && canAdmin)', start);
+    const form = source.slice(start, end);
+    ["Type d'utilisateur", "Sections", "Nom complet", "Téléphone", "Email", "Mot de passe temporaire"].forEach((label) => expect(form).toContain(label));
+    ["Photo", "Matricule", "Postnom", "Prénom", "Date de naissance", "Observations", "Date d’établissement"].forEach((label) => expect(form).not.toContain(label));
+  });
 });
