@@ -121,7 +121,7 @@ const deleteDialogSource = readFileSync(new URL("./SecretaryDocumentDeleteDialog
 
   it("enregistre un courrier existant sans créer de doublon", () => {
     expect(formSource).toContain("current ? act(current.status) : generate()");
-    expect(moduleSource).toContain("editing\n        ? (await updateCorrespondence");
+    expect(moduleSource).toMatch(/editing\r?\n\s+\? \(await updateCorrespondence/);
     expect(moduleSource).toContain(": await createCorrespondence");
     expect(moduleSource).toContain("{ ...editing, ...payload }");
   });
