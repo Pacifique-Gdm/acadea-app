@@ -25,6 +25,25 @@ describe("fiche individuelle du personnel", () => {
     expect(serialized).not.toMatch(/année scolaire|mot de passe/i);
     expect(serialized).not.toContain("01/01/2026");
   });
+
+  it("rend les observations longues dans une section pleine largeur distincte de la grille", async () => {
+    const school = { id: "school-a", name: "École A" } as School;
+    const personnel = { id: "teacher-a", name: "Alice", email: "alice@example.test", role: "teacher", schoolId: "school-a" } as AppUser;
+    const observations = "Observation professionnelle longue ".repeat(40);
+
+    await printPersonnelProfilePdf(school, personnel, {
+      id: "teacher-a", personnelId: "teacher-a", schoolId: "school-a", matricule: "PER-000001",
+      observations, createdAt: "2026-01-01", createdBy: "admin", updatedAt: "2026-01-01", updatedBy: "admin",
+    });
+
+    const options = renderAcadPdfPreview.mock.calls.at(-1)?.[0];
+    expect(options.singlePageFit).toBe(false);
+    expect(options.sections.at(-1)).toEqual({
+      title: "Observations",
+      body: `<p class="personnel-observations">${observations}</p>`,
+    });
+    expect(JSON.stringify(options.sections[0])).not.toContain(observations);
+  });
 });
 
 describe("liste filtrée du personnel", () => {

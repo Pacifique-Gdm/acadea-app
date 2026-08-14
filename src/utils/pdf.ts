@@ -717,6 +717,7 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
     }
     .personnel-photo { display:flex; justify-content:center; margin:0 18px 12px; }
     .personnel-photo img { width:30mm; height:38mm; object-fit:cover; border:1px solid #dbe4ef; border-radius:3px; }
+    .personnel-observations { margin:0; white-space:pre-wrap; line-height:1.45; overflow-wrap:anywhere; }
     .report-info-row .info-grid {
       grid-template-columns: repeat(${pdfSettings.pageSize === "A5" ? 2 : 4}, minmax(0, 1fr));
       gap: 5px;

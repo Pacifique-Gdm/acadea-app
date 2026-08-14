@@ -47,11 +47,10 @@ export async function printPersonnelProfilePdf(school: School, personnel: AppUse
       { label: "Spécialité", value: profile?.specialty || "Non renseigné" }, { label: "Établissement de formation", value: profile?.trainingInstitution || "Non renseigné" },
       { label: "Année d’obtention", value: profile?.graduationYear || "Non renseigné" }, { label: "Contact d’urgence", value: profile?.emergencyContactName || "Non renseigné" },
       { label: "Lien avec le personnel", value: profile?.emergencyContactRelationship || "Non renseigné" }, { label: "Téléphone d’urgence", value: profile?.emergencyContactPhone || "Non renseigné" },
-      { label: "Observations", value: profile?.observations || "Non renseigné" },
       { label: "Statut", value: isArchivedPersonnel(personnel) ? "Archivé" : "Actif" },
       { label: "École", value: school.name },
       { label: "Date d’établissement", value: personnelDate(personnel.createdAt) },
-    ]))],
+    ])), pdfSection("Observations", `<p class="personnel-observations">${escapePdfHtml(profile?.observations || "Non renseigné")}</p>`)],
     singlePageFit: !profile?.observations || profile.observations.length < 500,
   });
 }
