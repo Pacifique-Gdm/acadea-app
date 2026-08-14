@@ -1,4 +1,5 @@
 export { AdminDrawer } from "./AdminDrawer";
+export { DashboardCard } from "./DashboardCard";
 export { ActionSnackbar } from "./ActionSnackbar";
 export { Field } from "./Field";
 export { FormPanel } from "./FormPanel";

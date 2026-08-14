@@ -40,6 +40,7 @@ export interface StudyClass {
   name: string;
   active?: boolean;
   parentClassId?: string;
+  classOptionKey?: string;
   subClassLabel?: string;
   section?: SchoolSection;
   option?: string;

@@ -69,6 +69,46 @@ describe("source canonique partagée entre élèves, vacations et homogénéité
   });
 });
 
+describe("secondary class plus option resolution", () => {
+  const student = (extra: Record<string, unknown>) => ({
+    id: "student", schoolId: "school-a", schoolYearId: "year-a", matricule: "M", nom: "N", postnom: "P", prenom: "R",
+    sexe: "F" as const, birthDate: "2010-01-01", address: "", phone: "", className: "1ère Humanité" as const, section: "Secondaire" as const, ...extra,
+  });
+
+  it("secondary operational classes use class plus option instead of generic Humanité parent", () => {
+    const parent = base("secondary-1", { name: "1ère Humanité", section: "Secondaire" });
+    const classes = [
+      parent,
+      base("secondary-1-literary", { name: "1ère Humanité", section: "Secondaire", option: "Littéraire", parentClassId: parent.id, classOptionKey: schoolClassOptionKey(parent.id, "Littéraire") }),
+      base("secondary-1-commercial", { name: "1ère Humanité", section: "Secondaire", option: "Commerciale", parentClassId: parent.id, classOptionKey: schoolClassOptionKey(parent.id, "Commerciale") }),
+    ];
+    expect(canonicalOperationalClasses(classes, [], "school-a", "year-a", ["Secondaire"]).map((item) => item.name)).toEqual(["1ère Commerciale", "1ère Littéraire"]);
+  });
+
+  it("resolves a legacy option and never invents a missing option", () => {
+    expect(canonicalOperationalClasses([], [student({ className: "2ème Humanité", option: "Littéraire", classId: undefined })], "school-a", "year-a", ["Secondaire"]).map((item) => item.name)).toEqual(["2ème Littéraire"]);
+    expect(canonicalOperationalClasses([], [student({ className: "2ème Humanité", option: undefined, classId: undefined })], "school-a", "year-a", ["Secondaire"]).map((item) => item.name)).toEqual(["2ème Humanité"]);
+  });
+
+  it("matches a legacy option to its structured secondary parent without treating it as a subclass", () => {
+    const parent = base("secondary-2", { name: "2ème Humanité", section: "Secondaire" });
+    const legacy = student({ classId: parent.id, className: parent.name, option: "Scientifique", classOptionKey: undefined });
+    const classes = canonicalOperationalClasses([parent], [legacy], "school-a", "year-a", ["Secondaire"]);
+    const scientific = classes.find((item) => item.name === "2ème Scientifique")!;
+    expect(studentBelongsToOperationalClass(legacy, scientific)).toBe(true);
+  });
+
+  it("keeps literary and commercial identities separate in filters, homogeneity and vacations", () => {
+    const literary = student({ id: "literary", option: "Littéraire" });
+    const commercial = student({ id: "commercial", option: "Commerciale" });
+    const classes = canonicalOperationalClasses([], [literary, commercial], "school-a", "year-a", ["Secondaire"]);
+    expect(classes.map((item) => item.name)).toEqual(["1ère Commerciale", "1ère Littéraire"]);
+    const literaryClass = classes.find((item) => item.name === "1ère Littéraire")!;
+    expect(studentBelongsToOperationalClass(literary, literaryClass)).toBe(true);
+    expect(studentBelongsToOperationalClass(commercial, literaryClass)).toBe(false);
+  });
+});
+
 describe("classes réellement utilisées par les élèves", () => {
   const classes = [
     base("7", { name: "7ème CTEB" }),

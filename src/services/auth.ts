@@ -1,8 +1,8 @@
 import { initializeApp } from "firebase/app";
-import { doc, getDoc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot } from "firebase/firestore";
 import { auth, db, firebaseConfig, firebaseReady } from "../firebase";
 import type { AppUser, Role } from "../types";
-import { markAuthStep } from "../utils/authPerformance";
+import { markAuthStep, measureAuthStep } from "../utils/authPerformance";
 import { normalizeSectionIds } from "../utils/userSections";
 
 interface FirebaseAuthModule {
@@ -63,27 +63,10 @@ export function mergeRealtimeUserProfile(resolvedUser: AppUser, profile: Record<
   } as RawAppUser);
 }
 
-async function loadFirebaseUserProfile(firebaseUser: FirebaseUser, authModule: FirebaseAuthModule) {
+export const AUTH_BOOTSTRAP_WATCHDOG_MS = 15_000;
+
+function resolveFirebaseUserProfile(firebaseUser: FirebaseUser, firestoreDocument: Record<string, unknown>, claims: Record<string, unknown>) {
   assertFirebaseAuthReady();
-
-  const [userSnapshot, tokenResult] = await Promise.all([
-    getDoc(doc(db, "users", firebaseUser.uid)).then((snapshot) => {
-      markAuthStep("auth:profile-loaded");
-      return snapshot;
-    }),
-    authModule.getIdTokenResult(firebaseUser)
-      .then((result) => {
-        markAuthStep("auth:claims-loaded");
-        return result;
-      })
-      .catch(() => ({ claims: {} as Record<string, unknown> })),
-  ]);
-  const claims = tokenResult.claims;
-
-  if (!userSnapshot.exists()) {
-    console.error("[Acadéa auth] Profil utilisateur introuvable.", { code: "auth/profile-not-found" });
-    throw new Error("Aucun profil Acadéa n'est associé à ce compte.");
-  }
 
   if (!isRole(claims.role)) {
     throw new Error("Connexion refusée : le rôle Firebase Custom Claims est manquant ou invalide.");
@@ -97,7 +80,6 @@ async function loadFirebaseUserProfile(firebaseUser: FirebaseUser, authModule: F
     throw new Error("Connexion refusée : les Custom Claims parent sont incomplets.");
   }
 
-  const firestoreDocument = userSnapshot.data();
   if (firestoreDocument.status === "inactive" || firestoreDocument.active === false) {
     throw new Error("Votre compte n’est plus actif dans cet établissement.");
   }
@@ -170,37 +152,95 @@ export async function subscribeToFirebaseUser(
 
   const authModule = (await import("firebase/auth")) as unknown as FirebaseAuthModule;
   let profileUnsubscribe: (() => void) | undefined;
+  let bootstrapWatchdog: ReturnType<typeof setTimeout> | undefined;
+  let generation = 0;
+
+  const stopProfileBootstrap = () => {
+    profileUnsubscribe?.();
+    profileUnsubscribe = undefined;
+    if (bootstrapWatchdog) clearTimeout(bootstrapWatchdog);
+    bootstrapWatchdog = undefined;
+  };
+
+  const failBootstrap = (error: unknown, expectedGeneration: number) => {
+    if (generation !== expectedGeneration) return;
+    generation += 1;
+    stopProfileBootstrap();
+    onError(error);
+  };
+
+  markAuthStep("auth:subscribe-start");
   const authUnsubscribe = authModule.onAuthStateChanged(
     auth,
     (firebaseUser) => {
-      profileUnsubscribe?.();
-      profileUnsubscribe = undefined;
+      generation += 1;
+      const currentGeneration = generation;
+      stopProfileBootstrap();
       markAuthStep("auth:state-resolved");
+      measureAuthStep("auth:state-wait", "auth:subscribe-start", "auth:state-resolved");
       if (!firebaseUser) {
         onUser(null);
         return;
       }
 
-      void loadFirebaseUserProfile(firebaseUser, authModule).then((resolvedUser) => {
-        onUser(resolvedUser);
-        profileUnsubscribe = onSnapshot(doc(db!, "users", firebaseUser.uid), (snapshot) => {
-          const profile = snapshot.data();
-          if (!snapshot.exists() || profile?.status === "inactive" || profile?.active === false) {
-            const error = new Error("Votre compte n’est plus actif dans cet établissement.");
-            profileUnsubscribe?.();
-            profileUnsubscribe = undefined;
-            void authModule.signOut(auth).finally(() => onError(error));
-            return;
-          }
+      markAuthStep("auth:identity-start");
+      markAuthStep("auth:profile-listener-start");
+      const claimsPromise = authModule.getIdTokenResult(firebaseUser)
+        .then((result) => {
+          markAuthStep("auth:claims-loaded");
+          measureAuthStep("auth:claims-wait", "auth:identity-start", "auth:claims-loaded");
+          return result.claims;
+        })
+        .catch(() => ({} as Record<string, unknown>));
+      let resolvedUser: AppUser | undefined;
+      let initialResolution: Promise<void> | undefined;
+
+      bootstrapWatchdog = setTimeout(() => {
+        failBootstrap(new Error("La vérification de la session Firebase a expiré. Vérifiez votre connexion puis réessayez."), currentGeneration);
+      }, AUTH_BOOTSTRAP_WATCHDOG_MS);
+
+      profileUnsubscribe = onSnapshot(doc(db!, "users", firebaseUser.uid), (snapshot) => {
+        if (generation !== currentGeneration) return;
+        const profile = snapshot.data();
+        if (!snapshot.exists()) {
+          console.error("[Acadéa auth] Profil utilisateur introuvable.", { code: "auth/profile-not-found" });
+          failBootstrap(new Error("Aucun profil Acadéa n'est associé à ce compte."), currentGeneration);
+          void authModule.signOut(auth);
+          return;
+        }
+        if (profile?.status === "inactive" || profile?.active === false) {
+          failBootstrap(new Error("Votre compte n’est plus actif dans cet établissement."), currentGeneration);
+          void authModule.signOut(auth);
+          return;
+        }
+        if (resolvedUser) {
           onUser(mergeRealtimeUserProfile(resolvedUser, profile ?? {}));
-        }, onError);
-      }).catch((error) => {
-        void authModule.signOut(auth).finally(() => onError(error));
-      });
+          return;
+        }
+        if (initialResolution) return;
+        markAuthStep("auth:profile-loaded");
+        measureAuthStep("auth:profile-wait", "auth:profile-listener-start", "auth:profile-loaded");
+        initialResolution = claimsPromise.then((claims) => {
+          if (generation !== currentGeneration) return;
+          resolvedUser = resolveFirebaseUserProfile(firebaseUser, profile ?? {}, claims);
+          if (bootstrapWatchdog) clearTimeout(bootstrapWatchdog);
+          bootstrapWatchdog = undefined;
+          markAuthStep("auth:identity-ready");
+          measureAuthStep("auth:identity-total", "auth:identity-start", "auth:identity-ready");
+          onUser(resolvedUser);
+        }).catch((error) => {
+          failBootstrap(error, currentGeneration);
+          void authModule.signOut(auth);
+        });
+      }, (error) => failBootstrap(error, currentGeneration));
     },
-    onError,
+    (error) => {
+      generation += 1;
+      stopProfileBootstrap();
+      onError(error);
+    },
   );
-  return () => { profileUnsubscribe?.(); authUnsubscribe(); };
+  return () => { generation += 1; stopProfileBootstrap(); authUnsubscribe(); };
 }
 
 export function canEnterRoute(user: AppUser | null, route: string) {

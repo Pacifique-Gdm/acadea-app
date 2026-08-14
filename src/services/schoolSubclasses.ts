@@ -17,6 +17,11 @@ function normalizedClassName(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase();
 }
 
+function classOptionFromKey(value?: string) {
+  const option = value?.split("::").at(-1)?.trim();
+  return option || undefined;
+}
+
 export function schoolClassRecordId(schoolId: string, schoolYearId: string, name: string) {
   const slug = normalizedClassName(name).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   return `${schoolId}__${schoolYearId}__${slug}`;
@@ -44,6 +49,13 @@ export function operationalClasses(classes: SchoolClassRecord[]) {
 
 type OperationalClass = SchoolClassRecord & { section?: SchoolSection; option?: string };
 
+function operationalClassIdentity(item: OperationalClass) {
+  if (item.subClassLabel) return `subclass:${item.id}`;
+  if (item.classOptionKey) return `option:${item.classOptionKey}`;
+  if (item.option?.trim()) return `option:${schoolClassOptionKey(item.parentClassId ?? item.id, item.option)}`;
+  return `class:${item.id}`;
+}
+
 export function operationalSchoolClasses<T extends OperationalClass>(classes: readonly T[], schoolId: string, schoolYearId: string, allowedSections?: readonly SchoolSection[]) {
   const scoped = classes.filter((item) => item.schoolId === schoolId && item.schoolYearId === schoolYearId && item.active !== false);
   const subdivided = new Set(scoped.filter((item) => item.parentClassId).map((item) => item.parentClassId!));
@@ -51,8 +63,9 @@ export function operationalSchoolClasses<T extends OperationalClass>(classes: re
   scoped.filter((item) => item.parentClassId || !subdivided.has(item.id)).forEach((item) => {
     const section = normalizeSchoolSection(item.section) ?? getClassSection(item.name as import("../types").SchoolClass);
     if (allowedSections?.length && !allowedSections.includes(section)) return;
-    const option = item.option?.trim();
-    const label = [item.name, option && !item.name.toLocaleLowerCase("fr").includes(option.toLocaleLowerCase("fr")) ? option : "", item.subClassLabel && !item.name.endsWith(item.subClassLabel) ? item.subClassLabel : ""].filter(Boolean).join(" ");
+    const option = item.option?.trim() || classOptionFromKey(item.classOptionKey);
+    const className = section === "Secondaire" && option ? item.name.replace(/\s+Humanit[ée]s?$/i, "").trim() || item.name : item.name;
+    const label = [className, option && !className.toLocaleLowerCase("fr").includes(option.toLocaleLowerCase("fr")) ? option : "", item.subClassLabel && !item.name.endsWith(item.subClassLabel) ? item.subClassLabel : ""].filter(Boolean).join(" ");
     const key = normalizedClassName(label);
     if (!unique.has(key)) unique.set(key, { ...item, name: label });
   });
@@ -68,7 +81,10 @@ export function canonicalOperationalClasses(
   allowedSections?: readonly SchoolSection[],
 ) {
   const structured = operationalSchoolClasses(classes, schoolId, schoolYearId, allowedSections);
-  const result = new Map(structured.map((item) => [normalizedClassName(item.name), item]));
+  const result = new Map(structured.map((item) => [operationalClassIdentity(item), item]));
+  const scopedClasses = classes.filter((item) => item.schoolId === schoolId && item.schoolYearId === schoolYearId);
+  const structuredById = new Map(scopedClasses.map((item) => [item.id, item]));
+  const structuredByName = new Map(scopedClasses.map((item) => [normalizedClassName(item.name), item]));
   students
     .filter((student) => student.schoolId === schoolId && student.schoolYearId === schoolYearId)
     .forEach((student) => {
@@ -78,15 +94,20 @@ export function canonicalOperationalClasses(
       const label = section === "Secondaire" && student.option?.trim()
         ? `${base || student.className} ${student.option.trim()}`
         : student.className.trim();
-      const key = normalizedClassName(label);
+      const parent = (student.classId && structuredById.get(student.classId)) || structuredByName.get(normalizedClassName(student.className));
+      const option = student.option?.trim();
+      const optionKey = option ? (student.classOptionKey?.trim() || schoolClassOptionKey(parent?.id ?? schoolClassRecordId(schoolId, schoolYearId, student.className), option)) : undefined;
+      const id = optionKey || parent?.id || schoolClassRecordId(schoolId, schoolYearId, label);
+      const key = optionKey ? `option:${optionKey}` : parent ? `class:${parent.id}` : `legacy:${normalizedClassName(label)}`;
       if (result.has(key)) return;
       result.set(key, {
-        id: schoolClassRecordId(schoolId, schoolYearId, label),
+        id,
         schoolId,
         schoolYearId,
         name: label,
         section,
-        option: student.option,
+        option,
+        ...(optionKey ? { classOptionKey: optionKey, parentClassId: parent?.id } : {}),
         active: true,
       });
     });
@@ -95,15 +116,15 @@ export function canonicalOperationalClasses(
 
 export function studentBelongsToOperationalClass(student: EnrolledStudentClassReference & { classOptionKey?: string; option?: string }, schoolClass: OperationalClass) {
   if (student.schoolId !== schoolClass.schoolId || student.schoolYearId !== schoolClass.schoolYearId) return false;
-  if (schoolClass.parentClassId) return student.subClassId === schoolClass.id;
+  if (schoolClass.parentClassId && schoolClass.subClassLabel) return student.subClassId === schoolClass.id;
   if (student.subClassId) return student.subClassId === schoolClass.id;
-  if (student.classId && student.classId !== schoolClass.id) return false;
+  if (student.classId && student.classId !== schoolClass.id && student.classId !== schoolClass.parentClassId) return false;
   const classOptionKey = schoolClass.classOptionKey?.trim();
-  if (classOptionKey) return student.classOptionKey === classOptionKey;
+  if (classOptionKey && student.classOptionKey) return student.classOptionKey === classOptionKey;
   const option = schoolClass.option?.trim();
-  if (option) return student.option?.trim() === option;
   const base = (student.className ?? "").replace(/\s+Humanit[ée]s?$/i, "").trim();
   const displayed = student.option?.trim() ? `${base || student.className} ${student.option.trim()}` : student.className ?? "";
+  if (option) return student.option?.trim() === option && normalizedClassName(displayed) === normalizedClassName(schoolClass.name);
   return student.classId === schoolClass.id
     || normalizedClassName(student.className ?? "") === normalizedClassName(schoolClass.name)
     || normalizedClassName(displayed) === normalizedClassName(schoolClass.name);
