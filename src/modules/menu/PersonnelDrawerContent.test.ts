@@ -43,4 +43,12 @@ describe("Drawer Personnels", () => {
     expect(source).toContain("Imprimer</button>");
     expect(source).toContain('selected.role === "school_admin"');
   });
+
+  it("limite le sexe aux valeurs acceptées par l’API", () => {
+    expect(source).toContain('<select className="input" value={profileForm.gender ?? ""}');
+    expect(source).toContain('<option value="F">Féminin</option>');
+    expect(source).toContain('<option value="M">Masculin</option>');
+    expect(source).toContain('<option value="Autre">Autre</option>');
+    expect(source).not.toContain('["Sexe", "gender", "text"]');
+  });
 });
