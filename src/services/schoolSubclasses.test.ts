@@ -115,6 +115,14 @@ describe("secondary class plus option resolution", () => {
     expect(classesWithEnrolledStudents(canonical, [scientific, legacyParent], "school-a", "year-a").map((item) => item.name)).toEqual(["1ère Scientifique"]);
   });
 
+  it("recovers option metadata from a previously materialized deterministic class id", () => {
+    const parent = base("secondary-1", { name: "1ère Humanité", section: "Secondaire" });
+    const materialized = base(schoolClassOptionKey(parent.id, "Scientifique"), { name: "1ère Scientifique", section: undefined, option: undefined, parentClassId: undefined, classOptionKey: undefined });
+    expect(operationalSchoolClasses([parent, materialized], "school-a", "year-a", ["Secondaire"])).toEqual([
+      expect.objectContaining({ id: materialized.id, name: "1ère Scientifique", section: "Secondaire", option: "scientifique", parentClassId: parent.id, classOptionKey: materialized.id }),
+    ]);
+  });
+
   it("keeps literary and commercial identities separate in filters, homogeneity and vacations", () => {
     const literary = student({ id: "literary", option: "Littéraire" });
     const commercial = student({ id: "commercial", option: "Commerciale" });

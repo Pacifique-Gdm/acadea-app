@@ -22,6 +22,10 @@ function classOptionFromKey(value?: string) {
   return option || undefined;
 }
 
+function inferredClassOptionKey(item: Pick<SchoolClassRecord, "id" | "classOptionKey">) {
+  return item.classOptionKey?.trim() || (item.id.includes("::") ? item.id : undefined);
+}
+
 export function schoolClassRecordId(schoolId: string, schoolYearId: string, name: string) {
   const slug = normalizedClassName(name).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   return `${schoolId}__${schoolYearId}__${slug}`;
@@ -58,16 +62,21 @@ function operationalClassIdentity(item: OperationalClass) {
 
 export function operationalSchoolClasses<T extends OperationalClass>(classes: readonly T[], schoolId: string, schoolYearId: string, allowedSections?: readonly SchoolSection[]) {
   const scoped = classes.filter((item) => item.schoolId === schoolId && item.schoolYearId === schoolYearId && item.active !== false);
-  const subdivided = new Set(scoped.filter((item) => item.parentClassId).map((item) => item.parentClassId!));
+  const byId = new Map(scoped.map((item) => [item.id, item]));
+  const parentIdOf = (item: T) => item.parentClassId || inferredClassOptionKey(item)?.split("::")[0];
+  const subdivided = new Set(scoped.map(parentIdOf).filter((value): value is string => Boolean(value)));
   const unique = new Map<string, T>();
-  scoped.filter((item) => item.parentClassId || !subdivided.has(item.id)).forEach((item) => {
-    const section = normalizeSchoolSection(item.section) ?? getClassSection(item.name as import("../types").SchoolClass);
+  scoped.filter((item) => parentIdOf(item) || !subdivided.has(item.id)).forEach((item) => {
+    const classOptionKey = inferredClassOptionKey(item);
+    const parentClassId = parentIdOf(item);
+    const parent = parentClassId ? byId.get(parentClassId) : undefined;
+    const section = normalizeSchoolSection(item.section) ?? normalizeSchoolSection(parent?.section) ?? getClassSection((parent?.name ?? item.name) as import("../types").SchoolClass);
     if (allowedSections?.length && !allowedSections.includes(section)) return;
-    const option = item.option?.trim() || classOptionFromKey(item.classOptionKey);
+    const option = item.option?.trim() || classOptionFromKey(classOptionKey);
     const className = section === "Secondaire" && option ? item.name.replace(/\s+Humanit[ée]s?$/i, "").trim() || item.name : item.name;
     const label = [className, option && !className.toLocaleLowerCase("fr").includes(option.toLocaleLowerCase("fr")) ? option : "", item.subClassLabel && !item.name.endsWith(item.subClassLabel) ? item.subClassLabel : ""].filter(Boolean).join(" ");
     const key = normalizedClassName(label);
-    if (!unique.has(key)) unique.set(key, { ...item, name: label });
+    if (!unique.has(key)) unique.set(key, { ...item, name: label, section, ...(parentClassId ? { parentClassId } : {}), ...(classOptionKey ? { classOptionKey } : {}), ...(option ? { option } : {}) });
   });
   return [...unique.values()].sort((first, second) => first.name.localeCompare(second.name, "fr", { numeric: true, sensitivity: "base" }));
 }
