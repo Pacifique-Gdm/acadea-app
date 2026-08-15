@@ -57,14 +57,19 @@ describe("typographie du moteur PDF HTML", () => {
     expect(source).toContain("layout.contentWidth, renderedHeightMm");
     expect(source).toContain("sliceHeight / pageHeightPx * layout.contentHeight");
     expect(source).not.toContain("transform: scaleX");
+    expect(source).toContain("source.width / Math.max(1, elementRect.width)");
+    expect(source).toContain("source.width / layout.contentWidth");
   });
 
   it("protège les blocs insécables et cherche une ligne blanche avant la coupure raster", () => {
     const source = readFileSync(new URL("./pdf.ts", import.meta.url), "utf8");
-    expect(source).toContain("collectPdfProtectedRanges(element, renderScale, pageHeightPx)");
+    expect(source).toContain("collectPdfProtectedRanges(element, sourcePixelsPerCssPixel, pageHeightPx)");
     expect(source).toContain("avoidProtectedPdfRangeCut");
     expect(source).toContain("findPdfWhitespaceCut");
     expect(source).toContain('".outgoing-signature-row"');
     expect(source).toContain('".report-signatures-block"');
+    expect(source).toMatch(/\.acadea-pdf\s*\{[\s\S]*?padding:\s*0 0 12px;/);
+    expect(source).toMatch(/\.pdf-page-break\s*\{[\s\S]*?padding:\s*0;/);
+    expect(source).toContain("findPdfContentEnd");
   });
 });

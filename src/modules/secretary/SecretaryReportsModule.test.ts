@@ -19,6 +19,8 @@ describe("formulaire Nouveau rapport", () => {
   it("enregistre et réinitialise Heure de début et Heure de fin", () => {
     expect(source).toContain("Heure de début");
     expect(source).toContain("Heure de fin");
+    expect(source).toContain('onInput={(event) => setStartTime(event.currentTarget.value)}');
+    expect(source).toContain('onInput={(event) => setEndTime(event.currentTarget.value)}');
     expect(source).toContain('type="time"');
     expect(source).toContain("startTime, endTime");
     expect(source).toContain('setStartTime("")');
