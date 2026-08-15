@@ -1,6 +1,6 @@
 
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Pencil, Plus } from "lucide-react";
 import { AdminDrawer, MultiSelectDropdown } from "../../components/ui";
 import type { AppUser, School, SchoolYear } from "../../types";
@@ -13,6 +13,7 @@ import { classesWithEnrolledStudents } from "../../services/schoolSubclasses";
 import { primaryTeacherSections, studyClassSection, subjectAppliesToClass } from "./teacherAssignmentScope";
 import { schoolSectionLabels } from "../../utils/schoolConfig";
 import { sectionsAvailableToUser, userSectionIds } from "../../utils/userSections";
+import { replaceStudySubjectFeedbackTimer } from "./studySubjectFeedback";
 
 export function StudyTeachersModule({ user, school, year, data }: { user: AppUser; school: School; year: SchoolYear; data: ReturnType<typeof useStudyData> }) {
   const { teachers, subjects, classes, sourceClasses, students, assignments, error: realtimeError } = data;
@@ -29,6 +30,8 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
   const [feedback, setFeedback] = useState("");
   const [busy, setBusy] = useState(false);
   const [newSubject, setNewSubject] = useState("");
+  const [subjectFeedback, setSubjectFeedback] = useState<{ type: "success" | "error"; message: string }>();
+  const subjectFeedbackTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const activeTeachers = useMemo(() => teachers.filter((teacher) => teacher.status === "active"), [teachers]);
   const availableSections = useMemo(() => sectionsAvailableToUser(user, school), [school, user]);
   const selectedAssignmentTeacher = useMemo(() => activeTeachers.find((teacher) => teacher.id === teacherId), [activeTeachers, teacherId]);
@@ -58,7 +61,21 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
     setTitularClassId(current?.titularClassId ?? "");
     setActive(current?.active ?? true);
     setFeedback("");
+    setSubjectFeedback(undefined);
+    if (subjectFeedbackTimer.current) clearTimeout(subjectFeedbackTimer.current);
     setAssignmentOpen(true);
+  }
+
+  useEffect(() => () => {
+    if (subjectFeedbackTimer.current) clearTimeout(subjectFeedbackTimer.current);
+  }, []);
+
+  function showSubjectFeedback(type: "success" | "error", message: string) {
+    setSubjectFeedback({ type, message });
+    subjectFeedbackTimer.current = replaceStudySubjectFeedbackTimer(subjectFeedbackTimer.current, () => {
+      setSubjectFeedback(undefined);
+      subjectFeedbackTimer.current = undefined;
+    });
   }
 
   useEffect(() => {
@@ -92,9 +109,18 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
   }
 
   async function submitSubject() {
-    setBusy(true); setFeedback("");
-    try { await createStudySubject({ user, schoolId: school.id, schoolYearId: year.id, name: newSubject }); setNewSubject(""); }
-    catch (cause) { setFeedback(cause instanceof Error ? cause.message : "Création impossible."); }
+    if (busy || !newSubject.trim()) return;
+    setBusy(true); setSubjectFeedback(undefined);
+    if (subjectFeedbackTimer.current) clearTimeout(subjectFeedbackTimer.current);
+    try {
+      await createStudySubject({ user, schoolId: school.id, schoolYearId: year.id, name: newSubject });
+      setNewSubject("");
+      showSubjectFeedback("success", "Cours ajouté avec succès.");
+    }
+    catch (cause) {
+      console.error("Ajout du cours impossible.", cause);
+      showSubjectFeedback("error", "Impossible d’ajouter ce cours.");
+    }
     finally { setBusy(false); }
   }
 
@@ -114,7 +140,7 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
       <label className="grid gap-1 text-sm font-semibold">Enseignant<select className="input" value={teacherId} onChange={(event) => { setTeacherId(event.target.value); setClassIds([]); setSubjectIds([]); setTitularClassId(""); }}><option value="">Sélectionner</option>{activeTeachers.map((item) => <option key={item.id} value={item.id}>{item.fullName}</option>)}</select></label>
       <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm" aria-live="polite"><strong>Section(s) attribuée(s) :</strong> {teacherSections.length ? teacherSections.map((item) => schoolSectionLabels[item]).join(", ") : "Aucune section attribuée"}</div>
       {primaryMode ? <p className="rounded border border-blue-200 bg-blue-50 p-3 text-sm">Le titulaire enseigne automatiquement tous les cours applicables à la classe sélectionnée.</p> : <MultiSelectDropdown label="Cours" options={applicableSubjects.map((item) => ({ value: item.id, label: item.name }))} values={subjectIds} onChange={setSubjectIds} />}
-      <div className="rounded border border-dashed border-slate-300 p-3"><label className="grid gap-1 text-sm font-semibold">Nouveau cours<input className="input" value={newSubject} onChange={(event) => setNewSubject(event.target.value)} /></label><button type="button" className="secondary-button mt-2" disabled={busy || !newSubject.trim()} onClick={() => void submitSubject()}>Ajouter un cours</button></div>
+      <div className="grid gap-2 rounded border border-dashed border-slate-300 p-3"><label className="grid gap-1 text-sm font-semibold">Nouveau cours<input className="input" value={newSubject} onChange={(event) => setNewSubject(event.target.value)} /></label><button type="button" className="secondary-button w-full justify-center active:translate-y-px active:scale-[0.99] motion-reduce:transform-none" disabled={busy || !newSubject.trim()} onClick={() => void submitSubject()}>{busy ? "Ajout en cours…" : "Ajouter un cours"}</button>{subjectFeedback && <p role={subjectFeedback.type === "error" ? "alert" : "status"} aria-live="polite" className={`rounded border p-2 text-sm ${subjectFeedback.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}`}>{subjectFeedback.message}</p>}</div>
       <MultiSelectDropdown label="Classes" options={assignmentClasses.map((item) => ({ value: item.id, label: item.name }))} values={classIds} onChange={setClassIds} placeholder="Aucune classe sélectionnée" />
       <label className="grid gap-1 text-sm font-semibold">Nombre de périodes hebdomadaires<input className="input" type="number" min={1} max={60} step={1} value={weeklyPeriods} onChange={(event) => setWeeklyPeriods(event.target.value)} /></label>
       <label className="grid gap-1 text-sm font-semibold">Titulaire de la classe (facultatif)<select className="input" value={titularClassId} onChange={(event) => setTitularClassId(event.target.value)}><option value="">{assignmentClasses.length ? "Choisir classe" : "Aucune classe disponible."}</option>{assignmentClasses.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>

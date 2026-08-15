@@ -226,18 +226,22 @@ async function renderPdfCanvasPages(doc: PdfDoc, element: HTMLElement, layout: R
     logging: false,
     windowWidth: layout.windowWidth,
   });
-  const pageHeightPx = Math.round(layout.contentHeight * (layout.windowWidth / layout.contentWidth) * renderScale);
-  const protectedRanges = collectPdfProtectedRanges(element, renderScale, pageHeightPx);
   const sourceContext = source.getContext("2d");
   if (!sourceContext) throw new Error("Canvas PDF source indisponible.");
+  const elementRect = element.getBoundingClientRect();
+  const sourcePixelsPerCssPixel = source.width / Math.max(1, elementRect.width);
+  const sourcePixelsPerMillimeter = source.width / layout.contentWidth;
+  const pageHeightPx = Math.round(layout.contentHeight * sourcePixelsPerMillimeter);
+  const protectedRanges = collectPdfProtectedRanges(element, sourcePixelsPerCssPixel, pageHeightPx);
+  const sourceContentEnd = findPdfContentEnd(sourceContext, source.width, source.height, Math.ceil(12 * sourcePixelsPerCssPixel));
   let sourceY = 0;
   let pageIndex = 0;
 
-  while (sourceY < source.height) {
+  while (sourceY < sourceContentEnd) {
     if (pageIndex > 0) doc.addPage();
-    const proposedEnd = Math.min(sourceY + pageHeightPx, source.height);
+    const proposedEnd = Math.min(sourceY + pageHeightPx, sourceContentEnd);
     const protectedEnd = avoidProtectedPdfRangeCut(sourceY, proposedEnd, pageHeightPx, protectedRanges);
-    const sliceEnd = protectedEnd < source.height
+    const sliceEnd = protectedEnd < sourceContentEnd
       ? findPdfWhitespaceCut(sourceContext, source.width, sourceY, protectedEnd, pageHeightPx)
       : protectedEnd;
     const sliceHeight = Math.max(1, sliceEnd - sourceY);
@@ -254,6 +258,20 @@ async function renderPdfCanvasPages(doc: PdfDoc, element: HTMLElement, layout: R
     sourceY = sliceEnd;
     pageIndex += 1;
   }
+}
+
+export function findPdfContentEnd(context: CanvasRenderingContext2D, width: number, height: number, bottomBleedPx: number) {
+  const sampleStep = Math.max(1, Math.floor(width / 500));
+  for (let y = height - 1; y >= 0; y -= 1) {
+    const pixels = context.getImageData(0, y, width, 1).data;
+    for (let x = 0; x < width; x += sampleStep) {
+      const index = x * 4;
+      if (pixels[index + 3] > 0 && (pixels[index] < 250 || pixels[index + 1] < 250 || pixels[index + 2] < 250)) {
+        return Math.min(height, y + 1 + bottomBleedPx);
+      }
+    }
+  }
+  return Math.min(height, Math.max(1, bottomBleedPx));
 }
 
 type PdfProtectedRange = { start: number; end: number };
@@ -547,7 +565,7 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       word-spacing: 0.12em;
       text-rendering: geometricPrecision;
       font-kerning: normal;
-      padding: 0;
+      padding: 0 0 12px;
     }
     .acadea-pdf * {
       box-sizing: border-box;
