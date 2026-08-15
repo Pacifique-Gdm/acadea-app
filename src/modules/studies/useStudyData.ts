@@ -5,6 +5,7 @@ import type { PedagogicalAssignment, SchedulePeriod, StudyClass, StudyRoom, Stud
 import { getStudentSection } from "../../utils/studentClasses";
 import { filterByAllowedSections, isSectionAllowed, userSectionIds } from "../../utils/userSections";
 import { canonicalOperationalClasses } from "../../services/schoolSubclasses";
+import { assignmentsForClasses } from "./studyAssignments";
 
 export function useStudyData(user: AppUser, schoolId: string, schoolYearId: string) {
   const [teachers,setTeachers]=useState<StudyTeacher[]>([]),[subjects,setSubjects]=useState<StudySubject[]>([]),[classes,setClasses]=useState<StudyClass[]>([]),[students,setStudents]=useState<Student[]>([]),[assignments,setAssignments]=useState<PedagogicalAssignment[]>([]),[availabilities,setAvailabilities]=useState<TeacherAvailability[]>([]),[periods,setPeriods]=useState<SchedulePeriod[]>([]),[timetables,setTimetables]=useState<Timetable[]>([]),[timetableEntries,setTimetableEntries]=useState<TimetableEntry[]>([]),[rooms,setRooms]=useState<StudyRoom[]>([]);
@@ -15,8 +16,10 @@ export function useStudyData(user: AppUser, schoolId: string, schoolYearId: stri
   const scopedClassIds = useMemo(() => new Set(scopedClasses.map((item) => item.id)), [scopedClasses]);
   const scopedStudents = useMemo(() => filterByAllowedSections(user, students, getStudentSection), [students, user]);
   const scopedTeachers = useMemo(() => teachers.filter((item) => (!item.section && !item.sectionIds?.length) || isSectionAllowed(user, item.section) || item.sectionIds?.some((section) => isSectionAllowed(user, section))), [teachers, user]);
-  const scopedSubjects = useMemo(() => subjects.filter((item) => (!item.section || isSectionAllowed(user, item.section)) && (!item.classIds?.length || item.classIds.some((id) => scopedClassIds.has(id)))), [scopedClassIds, subjects, user]);
+  const classScopedAssignments = useMemo(() => assignmentsForClasses(assignments, scopedClassIds), [assignments, scopedClassIds]);
+  const assignedSubjectIds = useMemo(() => new Set(classScopedAssignments.map((item) => item.subjectId)), [classScopedAssignments]);
+  const scopedSubjects = useMemo(() => subjects.filter((item) => assignedSubjectIds.has(item.id) || ((!item.section || isSectionAllowed(user, item.section)) && (!item.classIds?.length || item.classIds.some((id) => scopedClassIds.has(id))))), [assignedSubjectIds, scopedClassIds, subjects, user]);
   const subjectIds = useMemo(() => new Set(scopedSubjects.map((item) => item.id)), [scopedSubjects]);
-  const scopedAssignments = useMemo(() => assignments.filter((item) => scopedClassIds.has(item.classId) && subjectIds.has(item.subjectId)), [assignments, scopedClassIds, subjectIds]);
+  const scopedAssignments = useMemo(() => classScopedAssignments.filter((item) => subjectIds.has(item.subjectId)), [classScopedAssignments, subjectIds]);
   return {teachers:scopedTeachers,subjects:scopedSubjects,classes:scopedClasses,sourceClasses:classes,students:scopedStudents,assignments:scopedAssignments,availabilities,periods,timetables,timetableEntries,rooms,attendanceSettings,error};
 }

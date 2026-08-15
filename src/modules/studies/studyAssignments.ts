@@ -1,4 +1,4 @@
-import type { PedagogicalAssignment, StudyTeacher } from "./studyTypes";
+import type { PedagogicalAssignment, StudySubject, StudyTeacher } from "./studyTypes";
 
 export const MAX_WEEKLY_PERIODS = 60;
 
@@ -24,6 +24,15 @@ export function expandAssignmentSelections(subjectIds: string[], classIds: strin
 
 export function teacherWorkload(teacherId: string, assignments: PedagogicalAssignment[]) {
   return assignments.filter((assignment) => assignment.teacherId === teacherId && assignment.active).reduce((total, assignment) => total + assignment.weeklyPeriods, 0);
+}
+
+export function assignmentsForClasses(assignments: PedagogicalAssignment[], classIds: ReadonlySet<string>) {
+  return assignments.filter((assignment) => classIds.has(assignment.classId));
+}
+
+export function subjectsReferencedByAssignments(subjects: StudySubject[], assignments: PedagogicalAssignment[]) {
+  const subjectIds = new Set(assignments.map((assignment) => assignment.subjectId));
+  return subjects.filter((subject) => subjectIds.has(subject.id));
 }
 
 export function studyDashboardMetrics(teachers: StudyTeacher[], assignments: PedagogicalAssignment[]) {

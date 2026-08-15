@@ -138,5 +138,45 @@ service firebase.storage {
         && request.auth.uid in message().participantIds;
       allow write: if false;
     }
+
+    match /teacher-documents/{schoolId}/{schoolYearId}/{ownerId}/{teacherId}/{assignmentId}/{documentId}/{fileName} {
+      function ownsActiveAssignment() {
+        return firestore.exists(/databases/(default)/documents/teachers/$(teacherId))
+          && firestore.get(/databases/(default)/documents/teachers/$(teacherId)).data.userId == ownerId
+          && firestore.get(/databases/(default)/documents/teachers/$(teacherId)).data.schoolId == schoolId
+          && firestore.get(/databases/(default)/documents/teachers/$(teacherId)).data.schoolYearId == schoolYearId
+          && firestore.get(/databases/(default)/documents/teachers/$(teacherId)).data.status == "active"
+          && firestore.exists(/databases/(default)/documents/pedagogicalAssignments/$(assignmentId))
+          && firestore.get(/databases/(default)/documents/pedagogicalAssignments/$(assignmentId)).data.teacherId == teacherId
+          && firestore.get(/databases/(default)/documents/pedagogicalAssignments/$(assignmentId)).data.schoolId == schoolId
+          && firestore.get(/databases/(default)/documents/pedagogicalAssignments/$(assignmentId)).data.schoolYearId == schoolYearId
+          && firestore.get(/databases/(default)/documents/pedagogicalAssignments/$(assignmentId)).data.active == true;
+      }
+      function ownActiveTeacher() {
+        return signedIn()
+          && role() == "teacher"
+          && request.auth.uid == ownerId
+          && tenantSchoolId() == schoolId
+          && schoolAcceptsWrites(schoolId)
+          && ownsActiveAssignment();
+      }
+      function validPedagogicalFile() {
+        return request.resource.size > 0
+          && request.resource.size <= 10 * 1024 * 1024
+          && request.resource.metadata.schoolId == schoolId
+          && request.resource.metadata.schoolYearId == schoolYearId
+          && request.resource.metadata.ownerId == ownerId
+          && request.resource.metadata.teacherId == teacherId
+          && request.resource.metadata.assignmentId == assignmentId
+          && request.resource.metadata.documentId == documentId
+          && request.resource.metadata.originalName is string
+          && request.resource.metadata.originalName.size() > 0
+          && request.resource.metadata.originalName.size() <= 120
+          && request.resource.contentType in ["application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation", "image/jpeg", "image/png"];
+      }
+      allow read: if ownActiveTeacher();
+      allow create: if ownActiveTeacher() && validPedagogicalFile();
+      allow update, delete: if false;
+    }
   }
 }

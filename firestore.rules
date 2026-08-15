@@ -790,6 +790,98 @@ service cloud.firestore {
       allow read, create, update, delete: if false;
     }
 
+    function ownTeacherLearningData(data) {
+      return activeTeacher()
+        && data.schoolId == tenantSchoolId()
+        && activeSchoolYearBelongsToSchool(data.schoolYearId, tenantSchoolId())
+        && exists(/databases/$(database)/documents/teachers/$(data.teacherId))
+        && get(/databases/$(database)/documents/teachers/$(data.teacherId)).data.userId == request.auth.uid
+        && get(/databases/$(database)/documents/teachers/$(data.teacherId)).data.schoolId == data.schoolId
+        && get(/databases/$(database)/documents/teachers/$(data.teacherId)).data.schoolYearId == data.schoolYearId;
+    }
+
+    function ownTeacherLearningResource(data) {
+      return ownTeacherLearningData(data)
+        && exists(/databases/$(database)/documents/pedagogicalAssignments/$(data.assignmentId))
+        && get(/databases/$(database)/documents/pedagogicalAssignments/$(data.assignmentId)).data.teacherId == data.teacherId
+        && get(/databases/$(database)/documents/pedagogicalAssignments/$(data.assignmentId)).data.schoolId == data.schoolId
+        && get(/databases/$(database)/documents/pedagogicalAssignments/$(data.assignmentId)).data.schoolYearId == data.schoolYearId
+        && get(/databases/$(database)/documents/pedagogicalAssignments/$(data.assignmentId)).data.classId == data.classId
+        && get(/databases/$(database)/documents/pedagogicalAssignments/$(data.assignmentId)).data.subjectId == data.subjectId
+        && get(/databases/$(database)/documents/pedagogicalAssignments/$(data.assignmentId)).data.active == true;
+    }
+
+    match /teachingProgress/{progressId} {
+      allow read: if ownTeacherLearningData(resource.data) || studyTenantResource();
+      allow create: if request.resource.data.id == progressId
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.status in ["TODO", "IN_PROGRESS", "COMPLETED"]
+        && request.resource.data.periodsUsed is int
+        && request.resource.data.periodsUsed > 0
+        && ownTeacherLearningResource(request.resource.data);
+      allow update: if request.resource.data.id == resource.data.id
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.schoolYearId == resource.data.schoolYearId
+        && request.resource.data.teacherId == resource.data.teacherId
+        && request.resource.data.assignmentId == resource.data.assignmentId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.updatedBy == request.auth.uid
+        && ownTeacherLearningResource(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /teacherStudentObservations/{observationId} {
+      allow read: if ownTeacherLearningData(resource.data) || studyTenantResource();
+      allow create: if request.resource.data.id == observationId
+        && request.resource.data.studentId is string
+        && request.resource.data.observation is string
+        && request.resource.data.observation.size() > 0
+        && request.resource.data.observation.size() <= 2000
+        && request.resource.data.updatedBy == request.auth.uid
+        && ownTeacherLearningResource(request.resource.data)
+        && exists(/databases/$(database)/documents/students/$(request.resource.data.studentId))
+        && get(/databases/$(database)/documents/students/$(request.resource.data.studentId)).data.schoolId == request.resource.data.schoolId
+        && get(/databases/$(database)/documents/students/$(request.resource.data.studentId)).data.schoolYearId == request.resource.data.schoolYearId
+        && (get(/databases/$(database)/documents/students/$(request.resource.data.studentId)).data.subClassId == request.resource.data.classId
+          || get(/databases/$(database)/documents/students/$(request.resource.data.studentId)).data.classId == request.resource.data.classId);
+      allow update: if request.resource.data.id == resource.data.id
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.schoolYearId == resource.data.schoolYearId
+        && request.resource.data.teacherId == resource.data.teacherId
+        && request.resource.data.assignmentId == resource.data.assignmentId
+        && request.resource.data.studentId == resource.data.studentId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.observation is string
+        && request.resource.data.observation.size() > 0
+        && request.resource.data.observation.size() <= 2000
+        && request.resource.data.updatedBy == request.auth.uid
+        && ownTeacherLearningResource(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /pedagogicalDocuments/{documentId} {
+      allow read: if ownTeacherLearningData(resource.data) || studyTenantResource();
+      allow create: if request.resource.data.id == documentId
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.archived == false
+        && ownTeacherLearningResource(request.resource.data);
+      allow update: if request.resource.data.id == resource.data.id
+        && request.resource.data.schoolId == resource.data.schoolId
+        && request.resource.data.schoolYearId == resource.data.schoolYearId
+        && request.resource.data.teacherId == resource.data.teacherId
+        && request.resource.data.assignmentId == resource.data.assignmentId
+        && request.resource.data.storagePath == resource.data.storagePath
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.updatedBy == request.auth.uid
+        && ownTeacherLearningResource(request.resource.data);
+      allow delete: if false;
+    }
+
     match /teacherAvailabilities/{availabilityId} {
       allow read: if superAdmin() || studyTenantResource();
       allow create: if activeStudyYearCreate() && request.resource.data.teacherId is string && request.resource.data.dayOfWeek in ["monday","tuesday","wednesday","thursday","friday","saturday"] && request.resource.data.status in ["available","unavailable","rest"] && request.resource.data.active is bool && request.resource.data.createdBy == request.auth.uid && exists(/databases/$(database)/documents/teachers/$(request.resource.data.teacherId)) && get(/databases/$(database)/documents/teachers/$(request.resource.data.teacherId)).data.schoolId == tenantSchoolId() && get(/databases/$(database)/documents/teachers/$(request.resource.data.teacherId)).data.schoolYearId == request.resource.data.schoolYearId;

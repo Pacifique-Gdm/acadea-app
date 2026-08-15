@@ -2,6 +2,7 @@ import type { PedagogicalAssignment, SchedulePeriod, StudyClass, StudyDay, Study
 import type { AppUser } from "../../types";
 import { isSectionAllowed } from "../../utils/userSections";
 import { studyClassSection } from "../studies/teacherAssignmentScope";
+import { assignmentsForClasses, subjectsReferencedByAssignments } from "../studies/studyAssignments";
 
 export type TeacherPortalData = {
   teacher?: StudyTeacher;
@@ -19,14 +20,14 @@ export type TeacherPortalData = {
 export function scopeTeacherPortalData(user: Pick<AppUser, "section" | "sectionIds">, data: TeacherPortalData): TeacherPortalData {
   const classes = data.classes.filter((item) => isSectionAllowed(user, studyClassSection(item)));
   const classIds = new Set(classes.map((item) => item.id));
-  const assignments = data.assignments.filter((item) => classIds.has(item.classId));
+  const assignments = assignmentsForClasses(data.assignments, classIds);
   const assignmentIds = new Set(assignments.map((item) => item.id));
   const subjectIds = new Set(assignments.map((item) => item.subjectId));
   return {
     ...data,
     classes,
     assignments,
-    subjects: data.subjects.filter((item) => subjectIds.has(item.id)),
+    subjects: subjectsReferencedByAssignments(data.subjects, assignments).filter((item) => subjectIds.has(item.id)),
     entries: data.entries.filter((item) => classIds.has(item.classId) && (!item.assignmentId || assignmentIds.has(item.assignmentId))),
   };
 }

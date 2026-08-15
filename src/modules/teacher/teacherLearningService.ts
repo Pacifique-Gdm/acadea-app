@@ -1,0 +1,12 @@
+import { collection, doc, onSnapshot, query, setDoc, where, type Firestore, type Unsubscribe } from "@firebase/firestore";
+import { db } from "../../firebase";
+import type { AppUser } from "../../types";
+import type { PedagogicalDocument, TeacherStudentObservation, TeachingProgressEntry } from "./teacherLearning";
+
+type LearningData={progress:TeachingProgressEntry[];observations:TeacherStudentObservation[];documents:PedagogicalDocument[]};
+function databaseFor(user:AppUser,schoolId:string){if(!db||user.role!=="teacher"||user.schoolId!==schoolId||user.active===false||user.status==="inactive")throw new Error("Accès Enseignant non autorisé.");return db as unknown as Firestore;}
+export function subscribeTeacherLearning(user:AppUser,schoolId:string,schoolYearId:string,teacherId:string,onData:(value:LearningData)=>void,onError:(error:Error)=>void):Unsubscribe{const database=databaseFor(user,schoolId),state:LearningData={progress:[],observations:[],documents:[]};const emit=()=>onData({...state});const scoped=(name:string)=>query(collection(database,name),where("schoolId","==",schoolId),where("schoolYearId","==",schoolYearId),where("teacherId","==",teacherId));const map=<T,>(snap:{docs:Array<{id:string;data:()=>unknown}>})=>snap.docs.map(item=>({id:item.id,...(item.data() as Record<string,unknown>)}) as T);const unsubs=[onSnapshot(scoped("teachingProgress"),snap=>{state.progress=map(snap);emit()},onError),onSnapshot(scoped("teacherStudentObservations"),snap=>{state.observations=map(snap);emit()},onError),onSnapshot(scoped("pedagogicalDocuments"),snap=>{state.documents=map(snap);emit()},onError)];return()=>unsubs.forEach(unsubscribe=>unsubscribe());}
+export async function saveTeachingProgress(user:AppUser,value:TeachingProgressEntry){const database=databaseFor(user,value.schoolId);await setDoc(doc(database,"teachingProgress",value.id),value);}
+export async function saveTeacherStudentObservation(user:AppUser,value:TeacherStudentObservation){const database=databaseFor(user,value.schoolId);await setDoc(doc(database,"teacherStudentObservations",value.id),value);}
+export async function savePedagogicalDocument(user:AppUser,value:PedagogicalDocument){const database=databaseFor(user,value.schoolId);await setDoc(doc(database,"pedagogicalDocuments",value.id),value);}
+export async function archivePedagogicalDocument(user:AppUser,value:PedagogicalDocument){const database=databaseFor(user,value.schoolId);await setDoc(doc(database,"pedagogicalDocuments",value.id),{...value,archived:true,updatedAt:new Date().toISOString(),updatedBy:user.id});}
