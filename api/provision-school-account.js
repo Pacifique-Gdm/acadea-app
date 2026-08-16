@@ -345,6 +345,27 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
   const archive = action === "archive-personnel";
   if (archive && (target.status === "inactive" || target.active === false)) return { user: { ...target, id: personnelId }, authStatus: "disabled" };
   if (!archive && target.status !== "inactive" && target.active !== false) return { user: { ...target, id: personnelId }, authStatus: "enabled" };
+  const authTarget = await auth.getUser(personnelId);
+  const targetClaims = authTarget.customClaims ?? {};
+  const previousClaims = { ...targetClaims };
+  const claimsNeedRestore = targetClaims.role !== target.role || targetClaims.schoolId !== schoolId;
+  const teacherReset = !archive && target.role === "teacher";
+  const teacherProfiles = teacherReset
+    ? (await db.collection("teachers").where("userId", "==", personnelId).get()).docs
+      .map((snapshot) => ({ snapshot, data: snapshot.data() ?? {} }))
+      .filter(({ data }) => data.schoolId === schoolId)
+    : [];
+  const oldTeacherIds = teacherProfiles.map(({ snapshot }) => snapshot.id);
+  const activeTeacherProfile = teacherProfiles.find(({ data }) => data.active !== false && data.status !== "inactive");
+  const teacherContextRefs = [];
+  if (teacherReset && oldTeacherIds.length) {
+    for (const collectionName of ["pedagogicalAssignments", "teacherAvailabilities", "classTitulars"]) {
+      for (const oldTeacherId of oldTeacherIds) {
+        const snapshots = (await db.collection(collectionName).where("teacherId", "==", oldTeacherId).get()).docs;
+        snapshots.filter((snapshot) => snapshot.data()?.schoolId === schoolId).forEach((snapshot) => teacherContextRefs.push({ ref: snapshot.ref, type: collectionName }));
+      }
+    }
+  }
   await auth.updateUser(personnelId, { disabled: archive });
   if (archive) await auth.revokeRefreshTokens(personnelId);
   const patch = archive
@@ -352,9 +373,15 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
     : { status: "active", active: true, archivedAt: null, archivedBy: null, reactivatedAt: now, reactivatedBy: caller.uid, updatedAt: now, updatedBy: caller.uid };
   const batch = db.batch();
   batch.update(targetRef, patch);
+  if (!archive && claimsNeedRestore) await auth.setCustomUserClaims(personnelId, { role: target.role, schoolId });
+  if (teacherReset) {
+    teacherProfiles.forEach(({ snapshot }) => batch.update(snapshot.ref, { status: snapshot.id === activeTeacherProfile?.snapshot.id ? "active" : "inactive", active: snapshot.id === activeTeacherProfile?.snapshot.id, updatedAt: now, updatedBy: caller.uid }));
+    teacherContextRefs.forEach(({ ref }) => batch.update(ref, { active: false, updatedAt: now, updatedBy: caller.uid }));
+  }
   batch.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: archive ? AUDIT_EVENT_TYPES.USER_DISABLED : AUDIT_EVENT_TYPES.USER_REACTIVATED, actor: caller, schoolId, resourceType: "user", resourceId: personnelId, metadata: { role: target.role } }));
   try { await batch.commit(); } catch (error) {
     await auth.updateUser(personnelId, { disabled: !archive }).catch(() => undefined);
+    if (!archive && claimsNeedRestore) await auth.setCustomUserClaims(personnelId, previousClaims).catch(() => undefined);
     throw error;
   }
   return { user: { ...target, id: personnelId, ...patch }, authStatus: archive ? "disabled" : "enabled" };
