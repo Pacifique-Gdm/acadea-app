@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Student } from "../types";
+import type { SchoolClass, Student } from "../types";
 import { getClassSection, getStudentSection, promoteStudentForNewYear } from "./studentClasses";
 import { getSchoolClassChoices } from "./schoolConfig";
 
@@ -8,6 +8,11 @@ function student(className: Student["className"], option?: string) {
 }
 
 describe("promotions", () => {
+  it("classe les anciennes classes optionnelles Scientifique/Sciences dans le Secondaire", () => {
+    expect(getClassSection("1ère Scientifique" as SchoolClass)).toBe("Secondaire");
+    expect(getClassSection("2ème Sciences" as SchoolClass)).toBe("Secondaire");
+  });
+
   it("classe toujours 7ème et 8ème CTEB dans la section CTEB", () => {
     expect(getClassSection("7ème CTEB")).toBe("CTEB");
     expect(getClassSection("8ème CTEB")).toBe("CTEB");
