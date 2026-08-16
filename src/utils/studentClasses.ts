@@ -5,6 +5,10 @@ import { normalizeSchoolSection } from "./schoolSections";
 export function getClassSection(className: SchoolClass): SchoolSection {
   if (className.includes("Maternelle")) return "Maternelle";
   if (className.includes("CTEB")) return "CTEB";
+  // Compatibilité avec les anciennes classes optionnelles matérialisées sous
+  // « 1ère Scientifique »/« 1ère Sciences » au lieu de la classe Humanité
+  // structurée avec une option. Ces libellés restent du Secondaire.
+  if (/\b(scientifique|sciences)\b/i.test(className)) return "Secondaire";
   if (className.includes("Humanité")) return "Secondaire";
   return "Primaire";
 }

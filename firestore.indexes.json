@@ -343,6 +343,33 @@
         { "fieldPath": "recipientParentId", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "teachingProgress",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "schoolId", "order": "ASCENDING" },
+        { "fieldPath": "schoolYearId", "order": "ASCENDING" },
+        { "fieldPath": "teacherId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "teacherStudentObservations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "schoolId", "order": "ASCENDING" },
+        { "fieldPath": "schoolYearId", "order": "ASCENDING" },
+        { "fieldPath": "teacherId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "pedagogicalDocuments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "schoolId", "order": "ASCENDING" },
+        { "fieldPath": "schoolYearId", "order": "ASCENDING" },
+        { "fieldPath": "teacherId", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

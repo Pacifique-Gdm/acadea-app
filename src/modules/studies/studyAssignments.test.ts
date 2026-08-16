@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { PedagogicalAssignment, StudyTeacher } from "./studyTypes";
-import { hasActiveAssignmentDuplicate, pedagogicalAssignmentId, studyDashboardMetrics, teacherWorkload, validateWeeklyPeriods } from "./studyAssignments";
+import type { PedagogicalAssignment, StudySubject, StudyTeacher } from "./studyTypes";
+import { assignmentsForClasses, hasActiveAssignmentDuplicate, pedagogicalAssignmentId, studyDashboardMetrics, subjectsReferencedByAssignments, teacherWorkload, validateWeeklyPeriods } from "./studyAssignments";
 
 const teacher = (id: string, status: StudyTeacher["status"] = "active"): StudyTeacher => ({ id, schoolId: "school-a", schoolYearId: "year-a", firstName: id, lastName: "Test", fullName: `${id} Test`, status, createdAt: "now", updatedAt: "now", createdBy: "director-a" });
 const assignment = (teacherId: string, subjectId: string, classId: string, weeklyPeriods: number, active = true): PedagogicalAssignment => {
@@ -31,5 +31,12 @@ describe("affectations pédagogiques", () => {
   });
   it("calcule le dashboard et les enseignants sans affectation", () => {
     expect(studyDashboardMetrics([teacher("teacher-a"), teacher("teacher-b"), teacher("teacher-c", "inactive")], [assignment("teacher-a", "math", "4a", 4), assignment("teacher-a", "physics", "5a", 2), assignment("teacher-b", "history", "4a", 8, false)])).toEqual({ teachers: 2, subjects: 2, assignments: 2, workload: 6, teachersWithoutAssignment: 1 });
+  });
+  it("considère l'affectation canonique malgré un classIds de cours legacy", () => {
+    const canonical = assignment("teacher-a", "math", "4a", 4);
+    const legacySubject = { id: "math", schoolId: "school-a", schoolYearId: "year-a", name: "Mathématiques", active: true, classIds: ["5a"] } as StudySubject;
+    const scopedAssignments = assignmentsForClasses([canonical], new Set(["4a"]));
+    expect(scopedAssignments).toEqual([canonical]);
+    expect(subjectsReferencedByAssignments([legacySubject], scopedAssignments)).toEqual([legacySubject]);
   });
 });

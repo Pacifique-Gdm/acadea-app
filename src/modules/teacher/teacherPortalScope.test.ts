@@ -38,4 +38,15 @@ describe("périmètre temps réel Enseignant", () => {
   it("normalise CETB en CTEB en lecture", () => {
     expect(scopeTeacherPortalData(user(["CTEB"]), data).classes.map(({ id }) => id)).toEqual(["c-c"]);
   });
+
+  it("conserve une affectation d’une ancienne classe Scientifique sans section", () => {
+    const legacyData = {
+      ...data,
+      assignments: [{ id: "a-legacy", classId: "c-legacy", subjectId: "s-s", active: true }],
+      classes: [{ id: "c-legacy", name: "1ère Scientifique" }],
+      subjects: [{ id: "s-s" }],
+      entries: [],
+    } as unknown as TeacherPortalData;
+    expect(scopeTeacherPortalData(user(["Secondaire"]), legacyData).assignments.map(({ id }) => id)).toEqual(["a-legacy"]);
+  });
 });
