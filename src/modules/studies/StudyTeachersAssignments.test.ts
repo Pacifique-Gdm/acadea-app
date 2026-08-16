@@ -5,6 +5,16 @@ const moduleSource = readFileSync("src/modules/studies/StudyTeachersModule.tsx",
 const serviceSource = readFileSync("src/modules/studies/studyService.ts", "utf8");
 
 describe("StudyTeachers assignment editor contract", () => {
+  it("retire uniquement la colonne ACTION de la liste des enseignants", () => {
+    expect(moduleSource).toContain('["Nom", "Matières", "Classes", "Affectations", "Charge", "Statut"]');
+    expect(moduleSource).not.toContain('"Action"');
+    expect(moduleSource).not.toContain(">Affecter</button>");
+    expect(moduleSource).toContain('onClick={() => setSelectedTeacher(teacher)}');
+    expect(moduleSource).toContain("Configurer disponibilité");
+    expect(moduleSource).toContain("Fiche pédagogique");
+    expect(moduleSource).toContain("colSpan={6}");
+  });
+
   it("uses the same enabled multi-select controls for create and edit", () => {
     expect(moduleSource).toContain('MultiSelectDropdown label="Cours"');
     expect(moduleSource).toContain('MultiSelectDropdown label="Classes"');
