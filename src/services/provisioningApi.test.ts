@@ -316,6 +316,34 @@ describe("API de provisionnement Acadéa", () => {
     expect(batch.delete).not.toHaveBeenCalled();
   });
 
+  it("réactive un enseignant avec des claims restaurés et un contexte pédagogique réinitialisé", async () => {
+    const oldTeacherRef = { path: "teachers/old-teacher" };
+    const assignmentRef = { path: "pedagogicalAssignments/old-assignment" };
+    const teacherSnapshot = { id: "old-teacher", ref: oldTeacherRef, data: () => ({ userId: "teacher-1", schoolId: "school-1", schoolYearId: "year-1", status: "active", active: true }) };
+    const assignmentSnapshot = { id: "old-assignment", ref: assignmentRef, data: () => ({ teacherId: "old-teacher", schoolId: "school-1", schoolYearId: "year-1", active: true }) };
+    mocks.auth.getUser.mockResolvedValue({ uid: "teacher-1", customClaims: {} });
+    mocks.db.doc.mockImplementation((path: string) => ({
+      path,
+      get: vi.fn().mockResolvedValue(path === "users/admin-1"
+        ? { exists: true, data: () => ({ role: "school_admin", schoolId: "school-1", status: "active" }) }
+        : path === "users/teacher-1"
+          ? { exists: true, data: () => ({ role: "teacher", schoolId: "school-1", status: "inactive", active: false, activeSchoolYearId: "year-1" }) }
+          : { exists: false }),
+    }));
+    mocks.db.collection.mockImplementation((name: string) => ({
+      doc: vi.fn(() => ({ id: "audit-test", set: vi.fn().mockResolvedValue(undefined) })),
+      where: vi.fn(() => ({ get: vi.fn().mockResolvedValue({ docs: name === "teachers" ? [teacherSnapshot] : name === "pedagogicalAssignments" ? [assignmentSnapshot] : [] }) })),
+    }));
+    const res = response();
+    await provisionSchoolAccount(request({ action: "reactivate-personnel", schoolId: "school-1", personnelId: "teacher-1" }), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(mocks.auth.setCustomUserClaims).toHaveBeenCalledWith("teacher-1", { role: "teacher", schoolId: "school-1" });
+    const batch = mocks.db.batch.mock.results[0]?.value;
+    expect(batch.update).toHaveBeenCalledWith(oldTeacherRef, expect.objectContaining({ status: "active", active: true }));
+    expect(batch.update).toHaveBeenCalledWith(assignmentRef, expect.objectContaining({ active: false }));
+  });
+
   it("refuse l’auto-archivage, les parents, les autres écoles et les autres rôles", async () => {
     async function run(caller: Record<string, unknown>, target: Record<string, unknown>, personnelId = "target") {
       mocks.auth.verifyIdToken.mockResolvedValueOnce(caller);
