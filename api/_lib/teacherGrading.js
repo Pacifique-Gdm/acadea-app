@@ -74,13 +74,9 @@ async function loadGrading(db, teacher, schoolId, schoolYearId) {
     scopedDocuments(db, "courseGradingConfigs", schoolId, schoolYearId, assignments, titularClassIds),
     scopedDocuments(db, "gradeEntries", schoolId, schoolYearId, assignments, titularClassIds),
   ]);
-  const students = [];
-  for (const classId of classIds) {
-    for (const field of ["classId", "subClassId"]) {
-      const found = await db.collection("students").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).where(field, "==", classId).get();
-      students.push(...serialize(found).filter((item) => (item.status ?? "ACTIVE") === "ACTIVE" && !item.deletedAt));
-    }
-  }
+  const studentSnapshots = await Promise.all(classIds.flatMap((classId) => ["classId", "subClassId"].map((field) =>
+    db.collection("students").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).where(field, "==", classId).get())));
+  const students = studentSnapshots.flatMap((found) => serialize(found).filter((item) => (item.status ?? "ACTIVE") === "ACTIVE" && !item.deletedAt));
   const allowedSubjectIds = new Set(assignments.map((item) => item.subjectId));
   return {
     teacher: { id: teacher.id, ...teacher.data() }, assignments, titulars,
