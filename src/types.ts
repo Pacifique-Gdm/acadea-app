@@ -265,7 +265,7 @@ export interface Message {
   schoolYearId: string;
   senderId: string;
   senderName?: string;
-  senderRole?: "parent" | "school_admin" | "cashier" | "discipline_director" | "secretary";
+  senderRole?: "parent" | "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary";
   participantIds?: string[];
   recipientIds?: string[];
   recipientParentId: string | "all" | "school";
@@ -301,7 +301,7 @@ export interface Conversation {
   lastMessage: string;
   lastMessageAt: string;
   lastSenderId: string;
-  lastSenderRole: "parent" | "school_admin" | "cashier" | "discipline_director" | "secretary";
+  lastSenderRole: "parent" | "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary";
   messageCount: number;
   unreadParentCount: number;
   unreadAdminCount: number;
@@ -325,7 +325,7 @@ export interface AppNotification {
   disciplineSanctionId?: string;
   attendanceId?: string;
   announcementId?: string;
-  audienceRoles?: Array<"parent" | "school_admin" | "cashier" | "discipline_director" | "secretary">;
+  audienceRoles?: Array<"parent" | "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary">;
   audienceParentIds?: string[];
   audienceSchoolWide?: boolean;
   schoolRecipient?: "admin" | "cashier" | "discipline" | "both";

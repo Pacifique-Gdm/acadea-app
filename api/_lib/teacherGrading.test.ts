@@ -20,9 +20,11 @@ describe("API de cotation Enseignant", () => {
     expect(source).not.toContain('collection("gradeEntries").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).get()');
   });
 
-  it("parallélise les lectures indépendantes des élèves sans élargir leur périmètre", () => {
+  it("regroupe les lectures élèves par classe sans élargir leur périmètre", () => {
     const source = readFileSync(new URL("./teacherGrading.js", import.meta.url), "utf8");
-    expect(source).toContain("const studentSnapshots = await Promise.all(classIds.flatMap");
-    expect(source).toContain('.where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).where(field, "==", classId)');
+    expect(source).toContain('queryInChunks(db, "students", schoolId, schoolYearId, "classId", classIds)');
+    expect(source).toContain('queryInChunks(db, "students", schoolId, schoolYearId, "subClassId", classIds)');
+    expect(source).toContain('.where(field, "in", chunk)');
+    expect(source).not.toContain("classIds.flatMap");
   });
 });

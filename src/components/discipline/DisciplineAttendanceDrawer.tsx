@@ -172,6 +172,14 @@ export function DisciplineAttendanceDrawer({ students, attendance, settings, sch
   const [success, setSuccess] = useState("");
   const todayKey = formatDateKey(new Date());
 
+  useEffect(() => {
+    setManualStudentIds((current) => current.filter((id) => students.some((student) => student.id === id)));
+    if (selectedClass && !students.some((student) => student.className === selectedClass)) {
+      setSelectedClass("");
+      setSelectedOption("");
+    }
+  }, [selectedClass, students]);
+
   const activeSchoolDays = useMemo(() => resolveAttendanceSchoolDays(settings), [settings]);
   const weekDates = useMemo(() => {
     const start = parseLocalDate(weekStart);

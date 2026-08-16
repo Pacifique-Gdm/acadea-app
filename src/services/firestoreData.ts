@@ -4,6 +4,7 @@ import { loadSuperAdminInitialData } from "./superAdminData";
 import type { AppData, AppUser } from "../types";
 import { resolveDefaultSchoolYear } from "../utils/schoolYears";
 import { userSectionIds } from "../utils/userSections";
+import { disciplineAttendanceScope, disciplineParentScope, disciplineSanctionScope, disciplineStudentScope } from "../utils/disciplineSectionScope";
 import { canonicalSchoolOption, normalizeSchoolOptions } from "../utils/schoolOptions";
 
 type CollectionKey = keyof AppData;
@@ -328,20 +329,31 @@ export async function loadDisciplineYearData(user: AppUser, schoolYearId: string
   const schoolFilter: [string, unknown][] = [["schoolId", user.schoolId]];
   const assignedSections = userSectionIds(user);
 
-  const yearData: DisciplineYearData = {
-    students: assignedSections.length
-      ? await loadCollectionInSections<AppData["students"][number]>("students", annualFilter, assignedSections)
-      : await loadCollection<AppData["students"][number]>("students", annualFilter),
-    parents: await loadCollection<AppData["parents"][number]>("parents", schoolFilter),
-    messages: await loadCollection<AppData["messages"][number]>("messages", [...annualFilter, ["schoolRecipient", "discipline"]]),
-    notifications: await loadCollection<AppData["notifications"][number]>("notifications", [...annualFilter, ["recipientRole", "school"], ["schoolRecipient", "discipline"]]),
-    disciplineSanctions: await loadCollection<AppData["disciplineSanctions"][number]>("disciplineSanctions", annualFilter),
-    attendance: await loadAttendanceCollection(annualFilter),
-    attendanceSettings: await loadAttendanceSettingsCollection(annualFilter),
-    valves: await loadValvesCollection(annualFilter),
+  const loadedStudents = assignedSections.length
+    ? await loadCollectionInSections<AppData["students"][number]>("students", annualFilter, assignedSections)
+    : [];
+  const [loadedParents, loadedMessages, loadedNotifications, loadedSanctions, loadedAttendance, loadedAttendanceSettings, loadedValves] = await Promise.all([
+    loadCollection<AppData["parents"][number]>("parents", schoolFilter),
+    loadCollection<AppData["messages"][number]>("messages", [...annualFilter, ["schoolRecipient", "discipline"]]),
+    loadCollection<AppData["notifications"][number]>("notifications", [...annualFilter, ["recipientRole", "school"], ["schoolRecipient", "discipline"]]),
+    loadCollection<AppData["disciplineSanctions"][number]>("disciplineSanctions", annualFilter),
+    loadAttendanceCollection(annualFilter),
+    loadAttendanceSettingsCollection(annualFilter),
+    loadValvesCollection(annualFilter),
+  ]);
+  const students = disciplineStudentScope(user, loadedStudents);
+  const allowedSanctions = disciplineSanctionScope(user, loadedSanctions, students);
+  const allowedSanctionIds = new Set(allowedSanctions.map((sanction) => sanction.id));
+  return {
+    students,
+    parents: disciplineParentScope(user, loadedParents, students),
+    messages: user.role === "discipline_director" ? loadedMessages.filter((message) => !message.disciplineSanctionId || allowedSanctionIds.has(message.disciplineSanctionId)) : loadedMessages,
+    notifications: user.role === "discipline_director" ? loadedNotifications.filter((notification) => !notification.disciplineSanctionId || allowedSanctionIds.has(notification.disciplineSanctionId)) : loadedNotifications,
+    disciplineSanctions: allowedSanctions,
+    attendance: disciplineAttendanceScope(user, loadedAttendance, students),
+    attendanceSettings: user.role === "discipline_director" && assignedSections.length === 0 ? [] : loadedAttendanceSettings,
+    valves: loadedValves,
   };
-
-  return yearData;
 }
 
 export async function loadParentPortalData(user: AppUser) {

@@ -137,6 +137,11 @@ export function DisciplinePortal({
   const [disciplineValvesOpen, setDisciplineValvesOpen] = useState(false);
   const [selectedDisciplineStudentId, setSelectedDisciplineStudentId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
+  useEffect(() => {
+    if (selectedDisciplineStudentId && !yearData.students.some((student) => student.id === selectedDisciplineStudentId)) {
+      setSelectedDisciplineStudentId(null);
+    }
+  }, [selectedDisciplineStudentId, yearData.students]);
   const unread = yearData.notifications.filter((notification) => !notification.read).length;
   const stats = useMemo(() => buildDisciplineStats(yearData.disciplineSanctions), [yearData.disciplineSanctions]);
   const attendanceSettings = useMemo(

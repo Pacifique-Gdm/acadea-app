@@ -10,6 +10,7 @@ const profiles = {
   secretary1: { name: "Secretaire A1", role: "secretary", schoolId: "school-a", status: "active" },
   secretary2: { name: "Secretaire A2", role: "secretary", schoolId: "school-a", status: "active" },
   discipline: { name: "Discipline A", role: "discipline_director", schoolId: "school-a", status: "active" },
+  study: { name: "Études A", role: "study_director", schoolId: "school-a", status: "active" },
   inactive: { name: "Inactif", role: "secretary", schoolId: "school-a", status: "inactive" },
   external: { name: "Admin B", role: "school_admin", schoolId: "school-b", status: "active" },
 };
@@ -37,10 +38,10 @@ function database() {
 
 describe("annuaire des administratifs", () => {
   it.each([
-    ["admin", "school_admin", ["cashier", "discipline", "secretary1", "secretary2"]],
-    ["cashier", "cashier", ["admin", "discipline", "secretary1", "secretary2"]],
-    ["discipline", "discipline_director", ["admin", "cashier", "secretary1", "secretary2"]],
-    ["secretary1", "secretary", ["admin", "cashier", "discipline"]],
+    ["admin", "school_admin", ["cashier", "discipline", "secretary1", "secretary2", "study"]],
+    ["cashier", "cashier", ["admin", "discipline", "secretary1", "secretary2", "study"]],
+    ["discipline", "discipline_director", ["admin", "cashier", "secretary1", "secretary2", "study"]],
+    ["secretary1", "secretary", ["admin", "cashier", "discipline", "study"]],
   ])("retourne a %s les autres administratifs actifs de son ecole", async (uid, role, expected) => {
     const recipients = await listAllowedMessageRecipients(database(), { uid, role, schoolId: "school-a" });
     expect(recipients.filter((item: { role: string }) => item.role !== "parent").map((item: { uid: string }) => item.uid).sort()).toEqual(expected);
@@ -62,10 +63,11 @@ describe("annuaire des administratifs", () => {
   });
 
   it.each([
-    ["school_admin", ["cashier", "secretary", "discipline_director", "parent"]],
-    ["cashier", ["school_admin", "secretary", "discipline_director", "parent"]],
-    ["secretary", ["school_admin", "cashier", "discipline_director", "parent"]],
-    ["discipline_director", ["school_admin", "cashier", "secretary", "parent"]],
+    ["school_admin", ["cashier", "secretary", "discipline_director", "study_director", "parent"]],
+    ["cashier", ["school_admin", "secretary", "discipline_director", "study_director", "parent"]],
+    ["secretary", ["school_admin", "cashier", "discipline_director", "study_director", "parent"]],
+    ["discipline_director", ["school_admin", "cashier", "secretary", "study_director", "parent"]],
+    ["study_director", ["school_admin", "cashier", "discipline_director", "secretary", "parent"]],
   ])("preserve la matrice de destinataires de %s", (role, expected) => {
     expect([...allowedRecipientRoles(role)].sort()).toEqual([...expected].sort());
   });

@@ -7,11 +7,11 @@ import { filterByAllowedSections, isSectionAllowed, userSectionIds } from "../..
 import { canonicalOperationalClasses } from "../../services/schoolSubclasses";
 import { assignmentsForClasses } from "./studyAssignments";
 
-export function useStudyData(user: AppUser, schoolId: string, schoolYearId: string) {
+export function useStudyData(user: AppUser, schoolId: string, schoolYearId: string, refreshToken = 0) {
   const [teachers,setTeachers]=useState<StudyTeacher[]>([]),[subjects,setSubjects]=useState<StudySubject[]>([]),[classes,setClasses]=useState<StudyClass[]>([]),[students,setStudents]=useState<Student[]>([]),[assignments,setAssignments]=useState<PedagogicalAssignment[]>([]),[availabilities,setAvailabilities]=useState<TeacherAvailability[]>([]),[periods,setPeriods]=useState<SchedulePeriod[]>([]),[timetables,setTimetables]=useState<Timetable[]>([]),[timetableEntries,setTimetableEntries]=useState<TimetableEntry[]>([]),[rooms,setRooms]=useState<StudyRoom[]>([]);
   const [attendanceSettings,setAttendanceSettings]=useState<AttendanceSettings>();
   const [error,setError]=useState("");
-  useEffect(()=>{const unsubscribes=subscribeToStudyData({user,schoolId,schoolYearId,onTeachers:setTeachers,onSubjects:setSubjects,onClasses:setClasses,onStudents:setStudents,onAssignments:setAssignments,onAvailabilities:setAvailabilities,onPeriods:setPeriods,onTimetables:setTimetables,onTimetableEntries:setTimetableEntries,onRooms:setRooms,onAttendanceSettings:(items)=>setAttendanceSettings(items[0]),onError:(cause)=>setError(cause.message)});return()=>unsubscribes.forEach(unsubscribe=>unsubscribe());},[schoolId,schoolYearId,user]);
+  useEffect(()=>{const unsubscribes=subscribeToStudyData({user,schoolId,schoolYearId,onTeachers:setTeachers,onSubjects:setSubjects,onClasses:setClasses,onStudents:setStudents,onAssignments:setAssignments,onAvailabilities:setAvailabilities,onPeriods:setPeriods,onTimetables:setTimetables,onTimetableEntries:setTimetableEntries,onRooms:setRooms,onAttendanceSettings:(items)=>setAttendanceSettings(items[0]),onError:(cause)=>setError(cause.message)});return()=>unsubscribes.forEach(unsubscribe=>unsubscribe());},[refreshToken,schoolId,schoolYearId,user]);
   const scopedClasses = useMemo(() => canonicalOperationalClasses(classes, students, schoolId, schoolYearId, userSectionIds(user)), [classes, schoolId, schoolYearId, students, user]);
   const scopedClassIds = useMemo(() => new Set(scopedClasses.map((item) => item.id)), [scopedClasses]);
   const scopedStudents = useMemo(() => filterByAllowedSections(user, students, getStudentSection), [students, user]);
