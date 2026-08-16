@@ -49,14 +49,26 @@ describe("annuaire sécurisé des destinataires de messagerie", () => {
       admin: { name: "Admin", role: "admin", schoolId: "school-a", status: "active", email: "private@test", phone: "secret", claims: { admin: true } },
       cashier: { displayName: "Caissier", role: "cashier", schoolId: "school-a", active: true },
       discipline: { name: "Discipline", role: "discipline_director", schoolId: "school-a", status: "active" },
+      study: { name: "Études", role: "study_director", schoolId: "school-a", status: "active" },
       parent: { name: "Parent", role: "parent", schoolId: "school-a", status: "active" },
       inactive: { name: "Inactif", role: "cashier", schoolId: "school-a", status: "inactive" },
       otherSchool: { name: "Autre école", role: "school_admin", schoolId: "school-b", status: "active" },
       teacher: { name: "Enseignant", role: "teacher", schoolId: "school-a", status: "active" },
     }), { uid: "secretary", role: "secretary", schoolId: "school-a" });
-    expect(recipients.map((recipient: { role: string }) => recipient.role).sort()).toEqual(["cashier", "discipline_director", "parent", "school_admin"]);
+    expect(recipients.map((recipient: { role: string }) => recipient.role).sort()).toEqual(["cashier", "discipline_director", "parent", "school_admin", "study_director"]);
     expect(recipients.some((recipient: { name: string }) => recipient.name === "Autre école")).toBe(false);
     expect(recipients.every((recipient: Record<string, unknown>) => Object.keys(recipient).sort().join(",") === "name,role,uid")).toBe(true);
+  });
+
+  it("inclut le Directeur des études actif de la même école", async () => {
+    const recipients = await listAllowedMessageRecipients(database({
+      caller: { name: "Secrétaire", role: "secretary", schoolId: "school-a", status: "active" },
+      study: { name: "Directeur des études", role: "study_director", schoolId: "school-a", status: "active" },
+      external: { name: "Directeur externe", role: "study_director", schoolId: "school-b", status: "active" },
+      inactive: { name: "Directeur inactif", role: "study_director", schoolId: "school-a", status: "inactive" },
+    }), { uid: "caller", role: "secretary", schoolId: "school-a" });
+    expect(recipients).toContainEqual({ uid: "study", name: "Directeur des études", role: "study_director" });
+    expect(recipients.map((item: { uid: string }) => item.uid)).not.toEqual(expect.arrayContaining(["external", "inactive"]));
   });
 
   it.each(["school_admin", "cashier", "discipline_director"])("retourne chaque Secrétaire séparément au rôle %s", async (role) => {

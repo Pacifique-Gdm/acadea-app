@@ -5,7 +5,7 @@ import { subscribeToTeacherPortalData } from "./teacherPortalService";
 
 const emptyData: TeacherPortalData = { assignments: [], subjects: [], classes: [], rooms: [], periods: [], entries: [], loading: true, error: "" };
 
-export function useTeacherPortalData(user: AppUser, schoolId: string, schoolYearId: string) {
+export function useTeacherPortalData(user: AppUser, schoolId: string, schoolYearId: string, refreshToken = 0) {
   const [data, setData] = useState<TeacherPortalData>(emptyData);
   useEffect(() => {
     setData(emptyData);
@@ -23,6 +23,6 @@ export function useTeacherPortalData(user: AppUser, schoolId: string, schoolYear
         onError: (error) => setData((current) => ({ ...current, loading: false, error: error.message })),
       });
     } catch (error) { setData((current) => ({ ...current, loading: false, error: error instanceof Error ? error.message : "Chargement Enseignant impossible." })); return undefined; }
-  }, [schoolId, schoolYearId, user]);
+  }, [refreshToken, schoolId, schoolYearId, user]);
   return useMemo(() => scopeTeacherPortalData(user, data), [data, user]);
 }

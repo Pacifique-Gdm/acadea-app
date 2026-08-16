@@ -23,9 +23,9 @@ import { useStudyData } from "./useStudyData";
 type MenuDrawer = "requests" | "history" | "periods" | "age" | null;
 const menuButton = "flex items-center gap-3 rounded border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-600";
 
-export function StudyDirectorPortal({ user, school, year, appData, updateData, createId, formatArchiveDate, renderHeader, renderEnvironmentBanner, onLogout }: { user: AppUser; school: School; year: SchoolYear; appData: AppData; updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void; createId: (prefix: string) => string; formatArchiveDate: (value?: string) => string; renderHeader: () => ReactNode; renderEnvironmentBanner: () => ReactNode; onLogout: () => void }) {
+export function StudyDirectorPortal({ user, school, year, appData, refreshToken = 0, updateData, createId, formatArchiveDate, renderHeader, renderEnvironmentBanner, onLogout }: { user: AppUser; school: School; year: SchoolYear; appData: AppData; refreshToken?: number; updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void; createId: (prefix: string) => string; formatArchiveDate: (value?: string) => string; renderHeader: () => ReactNode; renderEnvironmentBanner: () => ReactNode; onLogout: () => void }) {
   const [activeTab, setActiveTab] = useState<StudyDirectorTab>("dashboard"), [drawer, setDrawer] = useState<MenuDrawer>(null), [selectedStudentId, setSelectedStudentId] = useState<string>();
-  const data = useStudyData(user, school.id, year.id);
+  const data = useStudyData(user, school.id, year.id, refreshToken);
   const metrics = studyDashboardMetrics(data.teachers, data.assignments), scheduleMetrics = phase3DashboardMetrics(data.availabilities, data.periods);
   const dashboardCards = [
     ["Enseignants", metrics.teachers, UsersRound, "bg-blue-50 text-blue-700"],

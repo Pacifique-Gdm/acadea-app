@@ -56,12 +56,18 @@ async function assertCourse(db, teacher, schoolId, schoolYearId, classId, subjec
   return assignment;
 }
 
+async function queryInChunks(db, collection, schoolId, schoolYearId, field, values) {
+  const uniqueValues = [...new Set(values.filter(Boolean))];
+  const chunks = Array.from({ length: Math.ceil(uniqueValues.length / 30) }, (_, index) => uniqueValues.slice(index * 30, index * 30 + 30));
+  const snapshots = await Promise.all(chunks.map((chunk) => db.collection(collection).where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).where(field, "in", chunk).get()));
+  return snapshots.flatMap(serialize);
+}
+
 async function scopedDocuments(db, collection, schoolId, schoolYearId, assignments, titularClassIds) {
-  const snapshots = await Promise.all([
-    ...assignments.map(({ classId, subjectId }) => db.collection(collection).where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).where("classId", "==", classId).where("subjectId", "==", subjectId).get()),
-    ...titularClassIds.map((classId) => db.collection(collection).where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).where("classId", "==", classId).get()),
-  ]);
-  return [...new Map(snapshots.flatMap(serialize).map((item) => [item.id, item])).values()];
+  const assignmentPairs = new Set(assignments.map(({ classId, subjectId }) => `${classId}::${subjectId}`));
+  const classIds = [...new Set([...assignments.map((item) => item.classId), ...titularClassIds])];
+  const items = await queryInChunks(db, collection, schoolId, schoolYearId, "classId", classIds);
+  return [...new Map(items.filter((item) => titularClassIds.includes(item.classId) || assignmentPairs.has(`${item.classId}::${item.subjectId}`)).map((item) => [item.id, item])).values()];
 }
 
 async function loadGrading(db, teacher, schoolId, schoolYearId) {
@@ -74,9 +80,11 @@ async function loadGrading(db, teacher, schoolId, schoolYearId) {
     scopedDocuments(db, "courseGradingConfigs", schoolId, schoolYearId, assignments, titularClassIds),
     scopedDocuments(db, "gradeEntries", schoolId, schoolYearId, assignments, titularClassIds),
   ]);
-  const studentSnapshots = await Promise.all(classIds.flatMap((classId) => ["classId", "subClassId"].map((field) =>
-    db.collection("students").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).where(field, "==", classId).get())));
-  const students = studentSnapshots.flatMap((found) => serialize(found).filter((item) => (item.status ?? "ACTIVE") === "ACTIVE" && !item.deletedAt));
+  const [classStudents, subclassStudents] = await Promise.all([
+    queryInChunks(db, "students", schoolId, schoolYearId, "classId", classIds),
+    queryInChunks(db, "students", schoolId, schoolYearId, "subClassId", classIds),
+  ]);
+  const students = [...new Map([...classStudents, ...subclassStudents].filter((item) => (item.status ?? "ACTIVE") === "ACTIVE" && !item.deletedAt).map((item) => [item.id, item])).values()];
   const allowedSubjectIds = new Set(assignments.map((item) => item.subjectId));
   return {
     teacher: { id: teacher.id, ...teacher.data() }, assignments, titulars,

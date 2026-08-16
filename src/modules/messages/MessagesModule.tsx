@@ -109,6 +109,11 @@ export function MessagesModule({
     return () => { active = false; };
   }, [user.id]);
 
+  useEffect(() => {
+    const availableIds = new Set(administrativeRecipients.map((recipient) => recipient.uid));
+    setSelectedAdministrativeIds((current) => current.filter((id) => availableIds.has(id)));
+  }, [administrativeRecipients]);
+
   async function sendToSecureRecipients() {
     if (isSendingAdministrative || !resolvedSecureRecipientIds.length || !subject.trim() || !body.trim()) return;
     const attachmentError = validateMessageAttachments(messageFiles);

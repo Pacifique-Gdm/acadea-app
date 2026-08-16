@@ -5,6 +5,7 @@ const administrativeRoleLabels: Record<Exclude<SchoolMessageRecipient["role"], "
   cashier: "Caissier",
   secretary: "Secrétaire",
   discipline_director: "Directeur de Discipline",
+  study_director: "Directeur des études",
 };
 
 export type AdministrativeRecipientMode = "all" | "selection";

@@ -3,6 +3,7 @@ import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../firebase";
 import type { AppUser, DisciplineSanction, ParentProfile, Student } from "../types";
 import { userSectionIds } from "../utils/userSections";
+import { disciplineParentScope, disciplineSanctionScope, disciplineStudentScope } from "../utils/disciplineSectionScope";
 
 type RealtimeSchoolRecords = {
   students?: Student[];
@@ -27,6 +28,9 @@ export function useRealtimeSchoolRecords({
     if (!db || !user || !schoolId || !schoolYearId) return;
 
     const unsubscribes: Array<() => void> = [];
+    let latestStudents: Student[] = [];
+    let latestSanctions: DisciplineSanction[] = [];
+    let latestParents: ParentProfile[] = [];
     const annualConstraints = [where("schoolId", "==", schoolId), where("schoolYearId", "==", schoolYearId)];
     const assignedSections = userSectionIds(user);
     const studentConstraints = user.role === "secretary"
@@ -41,21 +45,30 @@ export function useRealtimeSchoolRecords({
     if (canReadStudents) {
       unsubscribes.push(onSnapshot(
         query(collection(db, "students"), ...studentConstraints),
-        (snapshot) => onData({ students: snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as Student) }),
+        (snapshot) => {
+          latestStudents = disciplineStudentScope(user, snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as Student));
+          onData({ students: latestStudents, parents: disciplineParentScope(user, latestParents, latestStudents), disciplineSanctions: disciplineSanctionScope(user, latestSanctions, latestStudents) });
+        },
         (error) => onError?.("students", error),
       ));
     }
     if (canReadParents) {
       unsubscribes.push(onSnapshot(
         query(collection(db, "parents"), where("schoolId", "==", schoolId)),
-        (snapshot) => onData({ parents: snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as ParentProfile) }),
+        (snapshot) => {
+          latestParents = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as ParentProfile);
+          onData({ parents: disciplineParentScope(user, latestParents, latestStudents) });
+        },
         (error) => onError?.("parents", error),
       ));
     }
     if (canReadSanctions) {
       unsubscribes.push(onSnapshot(
         query(collection(db, "disciplineSanctions"), ...annualConstraints),
-        (snapshot) => onData({ disciplineSanctions: snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as DisciplineSanction) }),
+        (snapshot) => {
+          latestSanctions = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as DisciplineSanction);
+          onData({ disciplineSanctions: disciplineSanctionScope(user, latestSanctions, latestStudents) });
+        },
         (error) => onError?.("disciplineSanctions", error),
       ));
     }

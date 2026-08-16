@@ -12,14 +12,14 @@ import { TeacherProgressDrawer } from "./TeacherProgressDrawer";
 import { TeacherStudentsDrawer } from "./TeacherStudentsDrawer";
 import { TeacherDocumentsDrawer } from "./TeacherDocumentsDrawer";
 
-export function TeacherPortal({ user, school, year, renderHeader, renderEnvironmentBanner, onLogout }: { user: AppUser; school: School; year: SchoolYear; renderHeader: () => ReactNode; renderEnvironmentBanner: () => ReactNode; onLogout: () => void }) {
+export function TeacherPortal({ user, school, year, refreshToken = 0, renderHeader, renderEnvironmentBanner, onLogout }: { user: AppUser; school: School; year: SchoolYear; refreshToken?: number; renderHeader: () => ReactNode; renderEnvironmentBanner: () => ReactNode; onLogout: () => void }) {
   const [activeTab, setActiveTab] = useState<TeacherTab>("dashboard");
   const [requestsOpen, setRequestsOpen] = useState(false);
   const [gradingOpen, setGradingOpen] = useState(false);
   const [progressOpen, setProgressOpen] = useState(false);
   const [studentsOpen, setStudentsOpen] = useState(false);
   const [documentsOpen, setDocumentsOpen] = useState(false);
-  const data = useTeacherPortalData(user, school.id, year.id);
+  const data = useTeacherPortalData(user, school.id, year.id, refreshToken);
   const periods = useMemo(() => [...data.periods].filter((item) => item.active).sort((left, right) => left.order - right.order), [data.periods]);
   const today = useMemo(() => teacherEntriesForDay(data.entries, periods, currentStudyDay()), [data.entries, periods]);
   const next = useMemo(() => nextTeacherEntry(data.entries, periods), [data.entries, periods]);

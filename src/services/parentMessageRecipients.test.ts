@@ -32,6 +32,7 @@ describe("destinataires dynamiques du Parent", () => {
     secretary: { name: "Secretaire", role: "secretary", schoolId: "school-a", status: "active" },
     cashier: { name: "Caissier", role: "cashier", schoolId: "school-a", status: "active" },
     discipline: { name: "Discipline", role: "discipline_director", schoolId: "school-a", status: "active" },
+    study: { name: "Études", role: "study_director", schoolId: "school-a", status: "active" },
     parent: { name: "Autre parent", role: "parent", schoolId: "school-a", status: "active" },
     inactive: { name: "Inactif", role: "secretary", schoolId: "school-a", status: "inactive" },
     external: { name: "Externe", role: "school_admin", schoolId: "school-b", status: "active" },
@@ -39,7 +40,7 @@ describe("destinataires dynamiques du Parent", () => {
 
   it("liste uniquement les personnels actifs autorises de la meme ecole", async () => {
     const recipients = await listAllowedMessageRecipients(database(profiles), { uid: "caller", role: "parent", schoolId: "school-a" });
-    expect(recipients.map((recipient: { role: string }) => recipient.role).sort()).toEqual(["cashier", "discipline_director", "school_admin", "secretary"]);
+    expect(recipients.map((recipient: { role: string }) => recipient.role).sort()).toEqual(["cashier", "discipline_director", "school_admin", "secretary", "study_director"]);
     expect(recipients.every((recipient: Record<string, unknown>) => Object.keys(recipient).sort().join(",") === "name,role,uid")).toBe(true);
   });
 

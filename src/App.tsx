@@ -177,6 +177,7 @@ export default function App() {
   const [platformCounts, setPlatformCounts] = useState<SuperAdminGlobalCounts | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState("");
+  const [dataRefreshToken, setDataRefreshToken] = useState(0);
   const refreshInFlightRef = useRef(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [pendingPushMessageId, setPendingPushMessageId] = useState(() => {
@@ -584,7 +585,7 @@ export default function App() {
       const next = await loadFirestoreYearData(user, selectedYearId);
       if (!next) throw new Error("Actualisation Firestore indisponible.");
       return next;
-    }, apply: (next) => setData((previous) => ({ ...previous, ...next })), onError: (error) => {
+    }, apply: (next) => { setData((previous) => ({ ...previous, ...next })); setDataRefreshToken((value) => value + 1); }, onError: (error) => {
       logRefreshError({ module: "school-portal", error });
       setRefreshError(refreshErrorMessage(error));
     } });
@@ -597,7 +598,7 @@ export default function App() {
       const next = await loadDisciplineYearData(user, selectedYearId);
       if (!next) throw new Error("Actualisation Firestore indisponible.");
       return next;
-    }, apply: (next) => setData((previous) => ({ ...previous, ...next })), onError: (error) => {
+    }, apply: (next) => { setData((previous) => ({ ...previous, ...next })); setDataRefreshToken((value) => value + 1); }, onError: (error) => {
       logRefreshError({ module: "discipline", error });
       setRefreshError(refreshErrorMessage(error));
     } });
@@ -610,7 +611,7 @@ export default function App() {
       const next = await loadParentPortalData(user);
       if (!next) throw new Error("Actualisation Firestore indisponible.");
       return next;
-    }, apply: (next) => setData((previous) => ({ ...previous, ...next })), onError: (error) => {
+    }, apply: (next) => { setData((previous) => ({ ...previous, ...next })); setDataRefreshToken((value) => value + 1); }, onError: (error) => {
       logRefreshError({ module: "parent", error });
       setRefreshError(refreshErrorMessage(error));
     } });
@@ -841,12 +842,13 @@ export default function App() {
       school={currentSchool}
       year={currentYear}
       appData={data}
+      refreshToken={dataRefreshToken}
       updateData={updateData}
       createId={uid}
       formatArchiveDate={formatArchiveDate}
       onLogout={logout}
       renderEnvironmentBanner={() => <EnvironmentBanner />}
-      renderHeader={() => <Header user={user} data={data} yearData={yearData} school={currentSchool} year={currentYear} unreadNotifications={yearData.notifications.filter((item) => !item.read && item.recipientUserId === user.id).length} notificationsOpen={notificationsOpen} onRefresh={() => undefined} onToggleNotifications={openNotifications} onCloseNotifications={closeNotifications} onRealtimeNotifications={(items) => setData((current) => ({ ...current, notifications: items }))} onRealtimeMessages={(items) => setData((current) => ({ ...current, messages: items }))} roleLabels={roleLabels} messagingEnabled />}
+      renderHeader={() => <Header user={user} data={data} yearData={yearData} school={currentSchool} year={currentYear} unreadNotifications={yearData.notifications.filter((item) => !item.read && item.recipientUserId === user.id).length} notificationsOpen={notificationsOpen} onRefresh={refreshCurrentYearData} onToggleNotifications={openNotifications} onCloseNotifications={closeNotifications} onRealtimeNotifications={(items) => setData((current) => ({ ...current, notifications: items }))} onRealtimeMessages={(items) => setData((current) => ({ ...current, messages: items }))} roleLabels={roleLabels} messagingEnabled />}
     />;
   }
 
@@ -855,9 +857,10 @@ export default function App() {
       user={user}
       school={currentSchool}
       year={currentYear}
+      refreshToken={dataRefreshToken}
       onLogout={logout}
       renderEnvironmentBanner={() => <EnvironmentBanner />}
-      renderHeader={() => <Header user={user} data={data} yearData={yearData} school={currentSchool} year={currentYear} unreadNotifications={yearData.notifications.filter((item) => !item.read && item.recipientUserId === user.id).length} notificationsOpen={notificationsOpen} onRefresh={() => undefined} onToggleNotifications={openNotifications} onCloseNotifications={closeNotifications} onRealtimeNotifications={(items) => setData((current) => ({ ...current, notifications: items }))} onRealtimeMessages={(items) => setData((current) => ({ ...current, messages: items }))} roleLabels={roleLabels} messagingEnabled />}
+      renderHeader={() => <Header user={user} data={data} yearData={yearData} school={currentSchool} year={currentYear} unreadNotifications={yearData.notifications.filter((item) => !item.read && item.recipientUserId === user.id).length} notificationsOpen={notificationsOpen} onRefresh={refreshCurrentYearData} onToggleNotifications={openNotifications} onCloseNotifications={closeNotifications} onRealtimeNotifications={(items) => setData((current) => ({ ...current, notifications: items }))} onRealtimeMessages={(items) => setData((current) => ({ ...current, messages: items }))} roleLabels={roleLabels} messagingEnabled />}
     />;
   }
 
