@@ -17,7 +17,7 @@ import { temporaryPasswordAfterPhoneChange } from "../../utils/temporaryPassword
 import { ERROR_MESSAGE_DURATION_MS, SUCCESS_MESSAGE_DURATION_MS, useAutoDismissMessage } from "../../hooks/useAutoDismissMessage";
 import { subscribeToSchoolTeacherAccounts } from "../../services/teacherAccounts";
 import { persistSchoolSettings } from "../../services/schoolOptionsRepository";
-import { canonicalSchoolOption, normalizeSchoolOptions } from "../../utils/schoolOptions";
+import { canonicalSchoolOption, isSchoolOptionDeleteConfirmation, normalizeSchoolOptions, SCHOOL_OPTION_DELETE_CONFIRMATION } from "../../utils/schoolOptions";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import type { AppData, AppUser, FeeKind, FeeType, ParentProfile, School, SchoolSection, SchoolYear, Student, ValvePublication } from "../../types";
 import { FEE_KINDS } from "../../types";
@@ -117,6 +117,10 @@ export function MenuModule({
   const [customFeeKindChoices, setCustomFeeKindChoices] = useState<FeeKind[]>([]);
   const [newFeeError, setNewFeeError] = useState("");
   const [schoolOptionDraft, setSchoolOptionDraft] = useState("");
+  const [schoolOptionDeleteTarget, setSchoolOptionDeleteTarget] = useState<string | null>(null);
+  const [schoolOptionDeleteConfirmation, setSchoolOptionDeleteConfirmation] = useState("");
+  const [schoolOptionDeleteError, setSchoolOptionDeleteError] = useState("");
+  const [schoolOptionDeleting, setSchoolOptionDeleting] = useState(false);
   const [feeDeleteTarget, setFeeDeleteTarget] = useState<FeeType | null>(null);
   const [feeDeleteConfirmation, setFeeDeleteConfirmation] = useState("");
   const [activeMenuSection, setActiveMenuSection] = useState<MenuSection | null>(initialBiometricsOpen ? "biometrics" : null);
@@ -627,11 +631,43 @@ export function MenuModule({
     setSchoolOptionDraft("");
   }
 
-  function removeSchoolFormOption(option: string) {
-    setSchoolForm((current) => ({
-      ...current,
-      schoolOptions: (current.schoolOptions ?? []).filter((item) => item !== option),
-    }));
+  function requestSchoolOptionRemoval(option: string) {
+    setSchoolOptionDeleteTarget(option);
+    setSchoolOptionDeleteConfirmation("");
+    setSchoolOptionDeleteError("");
+  }
+
+  function closeSchoolOptionRemoval() {
+    setSchoolOptionDeleteTarget(null);
+    setSchoolOptionDeleteConfirmation("");
+    setSchoolOptionDeleteError("");
+  }
+
+  async function confirmSchoolOptionRemoval() {
+    const option = schoolOptionDeleteTarget;
+    if (!option || !isSchoolOptionDeleteConfirmation(schoolOptionDeleteConfirmation)) return;
+    const optionKey = canonicalSchoolOption(option).normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().replace(/\s+/g, " ").toLocaleLowerCase("fr");
+    if (data.students.some((student) => canonicalSchoolOption(student.option ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().replace(/\s+/g, " ").toLocaleLowerCase("fr") === optionKey)) {
+      setSchoolOptionDeleteError("Cette option est encore utilisée par au moins un élève et ne peut pas être supprimée.");
+      return;
+    }
+    setSchoolOptionDeleting(true);
+    setSchoolOptionDeleteError("");
+    try {
+      const desiredSchool = { ...schoolForm, schoolOptions: normalizeSchoolOptions(schoolForm.schoolOptions).filter((item) => item !== option) };
+      const savedSchool = canUseFirestoreData()
+        ? await persistSchoolSettings(school, school.schoolOptions, desiredSchool)
+        : desiredSchool;
+      updateData({ schools: data.schools.map((item) => (item.id === school.id ? savedSchool : item)) }, { persist: false });
+      setSchoolForm(savedSchool);
+      closeSchoolOptionRemoval();
+      setSchoolSaveStatus("success");
+      setSchoolSaveMessage("Option supprimée de l'école.");
+    } catch (error) {
+      setSchoolOptionDeleteError(error instanceof Error ? error.message : "Suppression de l'option impossible.");
+    } finally {
+      setSchoolOptionDeleting(false);
+    }
   }
 
   function renderMenuSectionForm(sectionId: MenuSection) {
@@ -686,7 +722,7 @@ export function MenuModule({
                 <span key={option} className="inline-flex items-center gap-2 rounded bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
                   {option}
                   {canAdmin && (
-                    <button onClick={() => removeSchoolFormOption(option)} type="button" className="text-red-600 hover:text-red-700" aria-label={`Retirer l'option ${option}`}>
+                    <button onClick={() => requestSchoolOptionRemoval(option)} type="button" className="text-red-600 hover:text-red-700" aria-label={`Retirer l'option ${option}`}>
                       <X className="h-3.5 w-3.5" />
                     </button>
                   )}
@@ -703,6 +739,20 @@ export function MenuModule({
             )}
             <p className="text-xs font-medium text-slate-500">Les options configurées ici alimentent les élèves, filtres et listes de l'école.</p>
           </fieldset>
+          {schoolOptionDeleteTarget && (
+            <div role="dialog" aria-modal="true" aria-labelledby="school-option-delete-title" className="grid gap-3 rounded border border-red-200 bg-red-50 p-4">
+              <div>
+                <h3 id="school-option-delete-title" className="font-bold text-red-900">Supprimer l’option {schoolOptionDeleteTarget}</h3>
+                <p className="mt-1 text-sm text-red-800">Cette action supprimera cette option de l’école. Pour confirmer, saisissez exactement : {SCHOOL_OPTION_DELETE_CONFIRMATION}</p>
+              </div>
+              <input aria-label="Confirmation de suppression de l’option" value={schoolOptionDeleteConfirmation} onChange={(event) => setSchoolOptionDeleteConfirmation(event.target.value)} className="input" autoComplete="off" />
+              {schoolOptionDeleteError && <p role="alert" className="text-sm font-semibold text-red-800">{schoolOptionDeleteError}</p>}
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className="secondary-button" onClick={closeSchoolOptionRemoval} disabled={schoolOptionDeleting}>Annuler</button>
+                <button type="button" className="primary-button disabled:cursor-not-allowed disabled:opacity-60" onClick={() => void confirmSchoolOptionRemoval()} disabled={!isSchoolOptionDeleteConfirmation(schoolOptionDeleteConfirmation) || schoolOptionDeleting}>Supprimer</button>
+              </div>
+            </div>
+          )}
           <p className="rounded bg-slate-50 p-3 text-sm font-semibold text-slate-600">Année scolaire : {selectedYear.name}</p>
           {schoolSaveStatus === "error" && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{schoolSaveMessage}</p>}
           {canAdmin && (

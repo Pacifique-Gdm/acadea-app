@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { canonicalSchoolOption, mergeSchoolOptions, normalizeSchoolOptions, reconcileSchoolOptions } from "./schoolOptions";
+import { canonicalSchoolOption, isSchoolOptionDeleteConfirmation, mergeSchoolOptions, normalizeSchoolOptions, reconcileSchoolOptions, reconcileSchoolOptionsFromStudents, SCHOOL_OPTION_DELETE_CONFIRMATION } from "./schoolOptions";
 
 describe("schoolOptions", () => {
+  it("exige la confirmation de suppression exacte, sans trim", () => {
+    expect(SCHOOL_OPTION_DELETE_CONFIRMATION).toBe("SUPPRIMER CETTE OPTION");
+    expect(isSchoolOptionDeleteConfirmation("SUPPRIMER CETTE OPTION")).toBe(true);
+    expect(isSchoolOptionDeleteConfirmation("supprimer cette option")).toBe(false);
+    expect(isSchoolOptionDeleteConfirmation(" SUPPRIMER CETTE OPTION")).toBe(false);
+    expect(isSchoolOptionDeleteConfirmation("SUPPRIMER CETTE OPTION ")).toBe(false);
+  });
   it("normalise le tableau actuel et l'alias historique", () => {
     expect(normalizeSchoolOptions(["Latin-Philo", "  Scientifique  ", "Latin-Philo", null])).toEqual(["Latin-Philo", "Sciences"]);
   });
@@ -32,5 +39,25 @@ describe("schoolOptions", () => {
     expect(reconcileSchoolOptions(["Initiale", "Ajout secrétaire"], ["Initiale"], ["Initiale", "Ajout admin"])).toEqual([
       "Initiale", "Ajout secrétaire", "Ajout admin",
     ]);
+  });
+
+  it("réconcilie les options historiques de la seule école ciblée, toutes années confondues", () => {
+    const students = [
+      { schoolId: "school-a", schoolYearId: "year-1", option: "Sciences" },
+      { schoolId: "school-a", schoolYearId: "year-2", option: " Scientifique " },
+      { schoolId: "school-a", schoolYearId: "year-2", option: "  " },
+      { schoolId: "school-b", schoolYearId: "year-1", option: "Commerciale" },
+      { schoolId: "school-a", schoolYearId: "year-1", option: null },
+    ];
+    expect(reconcileSchoolOptionsFromStudents([], students, "school-a")).toEqual(["Sciences"]);
+    expect(reconcileSchoolOptionsFromStudents(["Commerciale"], students, "school-a")).toEqual(["Commerciale", "Sciences"]);
+  });
+
+  it("est idempotente et ne modifie jamais les références élèves", () => {
+    const students = [{ schoolId: "school-a", option: "Sciences" }];
+    const first = reconcileSchoolOptionsFromStudents([], students, "school-a");
+    const second = reconcileSchoolOptionsFromStudents(first, students, "school-a");
+    expect(second).toEqual(first);
+    expect(students).toEqual([{ schoolId: "school-a", option: "Sciences" }]);
   });
 });

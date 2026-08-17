@@ -22,6 +22,7 @@
     "test:e2e": "playwright test",
     "test:e2e:staging": "playwright test",
     "claims:set": "node scripts/setCustomClaims.cjs",
+    "options:reconcile": "tsx scripts/reconcileSchoolOptions.ts",
     "import:firestore": "echo Firestore import must use real Firebase exports only.",
     "reset:staging": "echo Staging reset from demo data has been removed."
   },

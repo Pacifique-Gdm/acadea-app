@@ -4,6 +4,12 @@ function schoolOptionKey(value: string) {
 
 const sciencesAliases = new Set(["science", "sciences", "scientifique", "section scientifique"]);
 
+export const SCHOOL_OPTION_DELETE_CONFIRMATION = "SUPPRIMER CETTE OPTION";
+
+export function isSchoolOptionDeleteConfirmation(value: string) {
+  return value === SCHOOL_OPTION_DELETE_CONFIRMATION;
+}
+
 /** Canonicalise uniquement un libellé du référentiel des options scolaires. */
 export function canonicalSchoolOption(value: string) {
   const trimmed = value.trim().replace(/\s+/g, " ");
@@ -44,6 +50,23 @@ export function normalizeSchoolOptions(value: unknown): string[] {
 
 export function mergeSchoolOptions(current: unknown, additions: readonly string[]) {
   return normalizedStrings([...normalizeSchoolOptions(current), ...additions]);
+}
+
+export type SchoolOptionStudentReference = {
+  schoolId?: unknown;
+  option?: unknown;
+};
+
+/**
+ * Builds the canonical school option list from legacy student values without
+ * modifying students. The school id and all school years are considered
+ * because an option is a school-level reference, not a year-level setting.
+ */
+export function reconcileSchoolOptionsFromStudents(current: unknown, students: readonly SchoolOptionStudentReference[], schoolId: string) {
+  const legacyOptions = students
+    .filter((student) => student.schoolId === schoolId)
+    .map((student) => (typeof student.option === "string" ? student.option : ""));
+  return mergeSchoolOptions(current, legacyOptions);
 }
 
 /** Préserve les ajouts concurrents tout en appliquant les retraits du formulaire. */

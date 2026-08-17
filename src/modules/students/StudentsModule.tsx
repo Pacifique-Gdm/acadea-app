@@ -86,7 +86,10 @@ export function StudentsModule({
   const studentClassChoices = getSchoolClassChoices(school).filter((className) => studentSectionChoices.includes(getClassSection(className)));
   const availableClasses = studentClassChoices.filter((className) => sectionFilter === "all" || getClassSection(className) === sectionFilter);
   const schoolOptions = normalizeSchoolOptions(school.schoolOptions);
-  const optionChoices = normalizeSchoolOptions([...schoolOptions, ...yearData.students.map((student) => student.option).filter(Boolean)]);
+  // Les choix viennent exclusivement du référentiel persistant de l'école.
+  // Les anciennes options présentes uniquement sur des élèves doivent être
+  // réconciliées par une migration dédiée, jamais réintroduites en mémoire.
+  const optionChoices = schoolOptions;
   const emptyCurrentStudent = () => {
     const className = studentClassChoices[0] ?? CLASSES[0];
     return { ...emptyStudent(school.id, year.id), className, section: getClassSection(className) };
