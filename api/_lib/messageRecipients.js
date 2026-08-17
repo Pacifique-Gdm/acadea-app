@@ -1,12 +1,13 @@
-const ALLOWED_SENDERS = new Set(["school_admin", "admin", "cashier", "discipline_director", "study_director", "secretary", "parent"]);
+const ALLOWED_SENDERS = new Set(["school_admin", "admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent"]);
 
 const RECIPIENTS_BY_ROLE = Object.freeze({
-  school_admin: new Set(["cashier", "secretary", "discipline_director", "study_director", "parent"]),
-  cashier: new Set(["school_admin", "secretary", "discipline_director", "study_director", "parent"]),
-  discipline_director: new Set(["school_admin", "cashier", "secretary", "study_director", "parent"]),
-  study_director: new Set(["school_admin", "cashier", "secretary", "discipline_director", "parent"]),
-  secretary: new Set(["school_admin", "cashier", "discipline_director", "study_director", "parent"]),
-  parent: new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary"]),
+  school_admin: new Set(["cashier", "secretary", "discipline_director", "study_director", "teacher", "parent"]),
+  cashier: new Set(["school_admin", "secretary", "discipline_director", "study_director", "teacher", "parent"]),
+  discipline_director: new Set(["school_admin", "cashier", "secretary", "study_director", "teacher", "parent"]),
+  study_director: new Set(["school_admin", "cashier", "secretary", "discipline_director", "teacher", "parent"]),
+  secretary: new Set(["school_admin", "cashier", "discipline_director", "study_director", "teacher", "parent"]),
+  teacher: new Set(["school_admin", "cashier", "secretary", "discipline_director", "study_director", "parent"]),
+  parent: new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]),
 });
 
 export function normalizedMessagingRole(value) {

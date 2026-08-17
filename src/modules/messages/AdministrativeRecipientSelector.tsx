@@ -4,7 +4,10 @@ import {
   administrativeRoleLabel,
   filterAdministrativeRecipients,
   toggleAdministrativeRecipient,
+  filterRecipientsByDirectoryKind,
+  recipientDirectoryLabel,
   type AdministrativeRecipientMode,
+  type RecipientDirectoryKind,
 } from "./administrativeRecipientSelection";
 
 type AdministrativeRecipientSelectorProps = {
@@ -18,6 +21,7 @@ type AdministrativeRecipientSelectorProps = {
   isLoading: boolean;
   error: string;
   showLabel?: boolean;
+  kind?: RecipientDirectoryKind;
 };
 
 export function AdministrativeRecipientSelector({
@@ -31,9 +35,12 @@ export function AdministrativeRecipientSelector({
   isLoading,
   error,
   showLabel = true,
+  kind = "administrative",
 }: AdministrativeRecipientSelectorProps) {
-  const selectedRecipients = recipients.filter((recipient) => selectedIds.includes(recipient.uid));
-  const searchResults = filterAdministrativeRecipients(recipients, search);
+  const scopedRecipients = filterRecipientsByDirectoryKind(recipients, kind);
+  const selectedRecipients = scopedRecipients.filter((recipient) => selectedIds.includes(recipient.uid));
+  const searchResults = filterAdministrativeRecipients(scopedRecipients, search);
+  const label = recipientDirectoryLabel(kind);
 
   function changeMode(nextMode: AdministrativeRecipientMode) {
     onModeChange(nextMode);
@@ -44,15 +51,15 @@ export function AdministrativeRecipientSelector({
   return (
     <>
       <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
-        {showLabel && <span>Filtre des administratifs</span>}
-        <select aria-label="Filtre des administratifs" value={mode} onChange={(event) => changeMode(event.target.value as AdministrativeRecipientMode)} className="input">
-          <option value="all">Tous les administratifs</option>
-          <option value="selection">Sélection administratif</option>
+        {showLabel && <span>Filtre des {label}s</span>}
+        <select aria-label={`Filtre des ${label}s`} value={mode} onChange={(event) => changeMode(event.target.value as AdministrativeRecipientMode)} className="input">
+          <option value="all">Tous les {label}s</option>
+          <option value="selection">Sélection {label}</option>
         </select>
       </label>
       {mode === "all" ? (
         <p className="rounded bg-slate-50 p-3 text-sm font-semibold text-slate-600">
-          {recipients.length} administratif{recipients.length > 1 ? "s" : ""} destinataire{recipients.length > 1 ? "s" : ""}
+          {scopedRecipients.length} {label}{scopedRecipients.length > 1 ? "s" : ""} destinataire{scopedRecipients.length > 1 ? "s" : ""}
         </p>
       ) : (
         <>
@@ -61,7 +68,7 @@ export function AdministrativeRecipientSelector({
             <input value={search} onChange={(event) => onSearchChange(event.target.value)} className="min-w-0 flex-1 outline-none" placeholder="Rechercher par nom ou fonction" />
           </label>
           {selectedRecipients.length > 0 && (
-            <div className="flex min-w-0 flex-wrap gap-2 rounded bg-blue-50 p-3" aria-label="Administratifs sélectionnés">
+            <div className="flex min-w-0 flex-wrap gap-2 rounded bg-blue-50 p-3" aria-label={`${label}s sélectionnés`}>
               {selectedRecipients.map((recipient) => (
                 <span key={recipient.uid} className="inline-flex max-w-full items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-blue-700">
                   <span className="min-w-0 truncate">{recipient.name} — {administrativeRoleLabel(recipient.role)}</span>
@@ -80,13 +87,13 @@ export function AdministrativeRecipientSelector({
                   <span className="min-w-0"><strong className="block break-words text-sm text-slate-800">{recipient.name}</strong><span className="text-xs text-slate-500">{administrativeRoleLabel(recipient.role)}</span></span>
                 </label>
               ))}
-              {!searchResults.length && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500 sm:col-span-2">Aucun administratif trouvé.</p>}
+              {!searchResults.length && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500 sm:col-span-2">Aucun {label} trouvé.</p>}
             </div>
           ) : <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Recherchez un administratif par nom ou fonction.</p>}
         </>
       )}
-      {isLoading && <p className="text-sm text-slate-500">Chargement des administratifs…</p>}
-      {!isLoading && !recipients.length && !error && <p className="text-sm text-slate-500">Aucun administratif actif disponible.</p>}
+      {isLoading && <p className="text-sm text-slate-500">Chargement des {label}s…</p>}
+      {!isLoading && !scopedRecipients.length && !error && <p className="text-sm text-slate-500">Aucun {label} actif disponible.</p>}
       {error && <p role="alert" className="rounded bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</p>}
     </>
   );

@@ -4,7 +4,7 @@ import { resolveApiUrl } from "../config/apiUrl";
 import type { Message } from "../types";
 import type { PendingMessageAttachment } from "./messageStorage";
 
-export type SchoolMessageRecipientRole = "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary" | "parent";
+export type SchoolMessageRecipientRole = "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher" | "parent";
 export type SchoolMessageRecipient = { uid: string; name: string; role: SchoolMessageRecipientRole };
 
 async function authenticatedRequest(path: string, init: RequestInit) {

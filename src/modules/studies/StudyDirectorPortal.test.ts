@@ -34,4 +34,11 @@ describe("portail Directeur des études — phase 1", () => {
     expect(source).not.toContain("disponibles dans une prochaine phase");
     expect(source).not.toContain("OR-Tools");
   });
+
+  it("place la messagerie dans le Menu juste après l’Assistant IA", () => {
+    const source = readFileSync(new URL("./StudyDirectorPortal.tsx", import.meta.url), "utf8");
+    expect(source).toContain('setDrawer("messages")');
+    expect(source).toContain('<MessagesModule');
+    expect(source).toContain("<StudyAiAssistant");
+  });
 });

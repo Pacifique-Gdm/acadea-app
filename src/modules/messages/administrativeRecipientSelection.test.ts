@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SchoolMessageRecipient } from "../../services/schoolMessaging";
-import { administrativeRoleLabel, filterAdministrativeRecipients, resolveAdministrativeRecipientIds, toggleAdministrativeRecipient } from "./administrativeRecipientSelection";
+import { administrativeRoleLabel, filterAdministrativeRecipients, filterRecipientsByDirectoryKind, resolveAdministrativeRecipientIds, toggleAdministrativeRecipient } from "./administrativeRecipientSelection";
 
 const recipients: SchoolMessageRecipient[] = [
   { uid: "admin", name: "Anne Mbuyi", role: "school_admin" },
@@ -8,11 +8,12 @@ const recipients: SchoolMessageRecipient[] = [
   { uid: "secretary", name: "Marie Kabeya", role: "secretary" },
   { uid: "discipline", name: "Jean Mukendi", role: "discipline_director" },
   { uid: "study", name: "Aline Études", role: "study_director" },
+  { uid: "teacher", name: "Paul Enseignant", role: "teacher" },
 ];
 
 describe("destinataires administratifs", () => {
   it("resout Tous les administratifs en un ensemble unique", () => {
-    expect(resolveAdministrativeRecipientIds("all", recipients, ["secretary"])).toEqual(["admin", "cashier", "secretary", "discipline", "study"]);
+    expect(resolveAdministrativeRecipientIds("all", recipients, ["secretary"])).toEqual(["admin", "cashier", "secretary", "discipline", "study", "teacher"]);
   });
 
   it("ne retourne aucune liste lorsque la recherche est vide", () => {
@@ -37,5 +38,10 @@ describe("destinataires administratifs", () => {
     expect(second).toEqual(["secretary", "cashier"]);
     expect(resolveAdministrativeRecipientIds("selection", recipients, [...second, "cashier", "forged"])).toEqual(["secretary", "cashier"]);
     expect(toggleAdministrativeRecipient(second, "secretary")).toEqual(["cashier"]);
+  });
+
+  it("isole les enseignants du répertoire administratif", () => {
+    expect(filterRecipientsByDirectoryKind(recipients, "teacher").map(({ uid }) => uid)).toEqual(["teacher"]);
+    expect(filterRecipientsByDirectoryKind(recipients, "administrative").map(({ uid }) => uid)).not.toContain("teacher");
   });
 });

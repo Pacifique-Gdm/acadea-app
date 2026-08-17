@@ -39,7 +39,7 @@ describe("annuaire sécurisé des destinataires de messagerie", () => {
   });
 
   it("refuse un rôle inconnu et un profil inactif", async () => {
-    await expect(requireMessagingCaller(authFor({ uid: "teacher", role: "teacher", schoolId: "school-a" }), database({ teacher: { role: "teacher", schoolId: "school-a", status: "active" } }), "token")).rejects.toMatchObject({ code: "not-authorized" });
+    await expect(requireMessagingCaller(authFor({ uid: "unknown", role: "unknown", schoolId: "school-a" }), database({ unknown: { role: "unknown", schoolId: "school-a", status: "active" } }), "token")).rejects.toMatchObject({ code: "not-authorized" });
     await expect(requireMessagingCaller(authFor({ uid: "secretary", role: "secretary", schoolId: "school-a" }), database({ secretary: { role: "secretary", schoolId: "school-a", status: "inactive" } }), "token")).rejects.toMatchObject({ code: "not-authorized" });
   });
 
@@ -55,7 +55,7 @@ describe("annuaire sécurisé des destinataires de messagerie", () => {
       otherSchool: { name: "Autre école", role: "school_admin", schoolId: "school-b", status: "active" },
       teacher: { name: "Enseignant", role: "teacher", schoolId: "school-a", status: "active" },
     }), { uid: "secretary", role: "secretary", schoolId: "school-a" });
-    expect(recipients.map((recipient: { role: string }) => recipient.role).sort()).toEqual(["cashier", "discipline_director", "parent", "school_admin", "study_director"]);
+    expect(recipients.map((recipient: { role: string }) => recipient.role).sort()).toEqual(["cashier", "discipline_director", "parent", "school_admin", "study_director", "teacher"]);
     expect(recipients.some((recipient: { name: string }) => recipient.name === "Autre école")).toBe(false);
     expect(recipients.every((recipient: Record<string, unknown>) => Object.keys(recipient).sort().join(",") === "name,role,uid")).toBe(true);
   });
@@ -69,6 +69,17 @@ describe("annuaire sécurisé des destinataires de messagerie", () => {
     }), { uid: "caller", role: "secretary", schoolId: "school-a" });
     expect(recipients).toContainEqual({ uid: "study", name: "Directeur des études", role: "study_director" });
     expect(recipients.map((item: { uid: string }) => item.uid)).not.toEqual(expect.arrayContaining(["external", "inactive"]));
+  });
+
+  it("inclut uniquement les enseignants actifs de la même école", async () => {
+    const recipients = await listAllowedMessageRecipients(database({
+      caller: { name: "Secrétaire", role: "secretary", schoolId: "school-a", status: "active" },
+      teacher: { name: "Enseignant A", role: "teacher", schoolId: "school-a", status: "active" },
+      inactive: { name: "Enseignant inactif", role: "teacher", schoolId: "school-a", status: "inactive" },
+      external: { name: "Enseignant externe", role: "teacher", schoolId: "school-b", status: "active" },
+    }), { uid: "caller", role: "secretary", schoolId: "school-a" });
+    expect(recipients).toContainEqual({ uid: "teacher", name: "Enseignant A", role: "teacher" });
+    expect(recipients.map((item: { uid: string }) => item.uid)).not.toEqual(expect.arrayContaining(["inactive", "external"]));
   });
 
   it.each(["school_admin", "cashier", "discipline_director"])("retourne chaque Secrétaire séparément au rôle %s", async (role) => {

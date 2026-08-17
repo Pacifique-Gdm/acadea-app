@@ -73,7 +73,7 @@ export async function resolveMessageRecipients(notification: MessageNotification
       message.senderId ? repository.getUser(message.senderId) : Promise.resolve(null),
       repository.findParentUsers(parentId, notification.schoolId),
     ]);
-    const allowedSenderRoles = ["school_admin", "cashier", "discipline_director"];
+    const allowedSenderRoles = ["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"];
     if (!parent || parent.status === "inactive" || parent.schoolId !== notification.schoolId || parent.schoolYearId !== notification.schoolYearId) return null;
     if (!sender || !allowedSenderRoles.includes(sender.role ?? "") || !activeForYear(sender, notification.schoolId, notification.schoolYearId)) return null;
     const authorized = users.filter((user) => user.role === "parent" && user.parentId === parentId && activeForYear(user, notification.schoolId, notification.schoolYearId));
@@ -94,7 +94,7 @@ export async function resolveMessageRecipients(notification: MessageNotification
   if (!parent || parent.status === "inactive" || parent.schoolId !== notification.schoolId || parent.schoolYearId !== notification.schoolYearId) return null;
   if (!sender || sender.role !== "parent" || sender.parentId !== parentId || !activeForYear(sender, notification.schoolId, notification.schoolYearId)) return null;
   const allowedRoles = notification.recipientUserId
-    ? ["school_admin", "cashier", "discipline_director", "secretary"]
+    ? ["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]
     : schoolRolesByRecipient[schoolRecipient!];
   const authorized = users.filter((user) =>
     allowedRoles.includes(user.role ?? "") &&

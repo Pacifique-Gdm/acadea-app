@@ -5,6 +5,8 @@ const administrativeRoleLabels: Partial<Record<AppUser["role"], string>> = {
   cashier: "Caissier",
   secretary: "Secrétaire",
   discipline_director: "Directeur de Discipline",
+  study_director: "Directeur des études",
+  teacher: "Enseignant",
 };
 
 export function administrativeSenderDetails(message: Message, sender?: AppUser) {

@@ -29,7 +29,7 @@ describe("API de messagerie scolaire", () => {
   });
 
   it("refuse un rôle inconnu, un destinataire inexistant ou une autre école", async () => {
-    await expect(resolveRecipients(database({ unknown: { role: "teacher", schoolId: "school-a" } }), { role: "secretary", schoolId: "school-a" }, ["teacher"], ["unknown"])).rejects.toMatchObject({ code: "invalid-recipient" });
+    await expect(resolveRecipients(database({ unknown: { role: "unknown", schoolId: "school-a" } }), { role: "secretary", schoolId: "school-a" }, ["unknown"], ["unknown"])).rejects.toMatchObject({ code: "invalid-recipient" });
     await expect(resolveRecipients(database({}), { role: "secretary", schoolId: "school-a" }, ["cashier"], ["missing"])).rejects.toMatchObject({ code: "invalid-recipient" });
     await expect(resolveRecipients(database({ cashier: { role: "cashier", schoolId: "school-b" } }), { role: "secretary", schoolId: "school-a" }, ["cashier"], ["cashier"])).rejects.toMatchObject({ code: "invalid-recipient" });
   });

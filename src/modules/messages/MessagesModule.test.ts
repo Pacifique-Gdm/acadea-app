@@ -21,8 +21,8 @@ describe("messagerie des modules administratifs", () => {
   });
 
   it("affiche le second filtre et ne rend les resultats qu'apres une recherche en mode selection", () => {
-    expect(selectorSource).toContain('<option value="all">Tous les administratifs</option>');
-    expect(selectorSource).toContain('<option value="selection">Sélection administratif</option>');
+    expect(selectorSource).toContain('Tous les {label}s');
+    expect(selectorSource).toContain('Sélection {label}');
     expect(selectorSource).toContain('mode === "all"');
     expect(selectorSource).toContain("search.trim()");
     expect(selectorSource).toContain("Recherchez un administratif par nom ou fonction.");
@@ -36,10 +36,17 @@ describe("messagerie des modules administratifs", () => {
     expect(source).toContain("selectedAdminParentIds");
   });
 
+  it("ajoute la catégorie Enseignants avec les deux modes de sélection", () => {
+    expect(source).toContain('<option value="teachers">Enseignants</option>');
+    expect(source).toContain('kind="teacher"');
+    expect(selectorSource).toContain("Tous les {label}s");
+    expect(selectorSource).toContain("Sélection {label}");
+  });
+
   it("laisse l'objet manuel pour un Directeur de discipline écrivant aux administratifs", () => {
     expect(source).toContain('user.role === "discipline_director" && recipientCategory === "parents"');
     expect(source).toContain('<input value={subject} onChange={(event) => setSubject(event.target.value)} className="input" placeholder="Objet" />');
-    expect(source).toContain('setRecipientCategory(event.target.value as "parents" | "administrative"); setSubject("")');
+    expect(source).toContain('setRecipientCategory(event.target.value as "parents" | "administrative" | "teachers"); setSubject("")');
     expect(source).toContain('disabled={!subject || !body');
   });
 });

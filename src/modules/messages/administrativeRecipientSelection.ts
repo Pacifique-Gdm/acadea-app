@@ -6,6 +6,7 @@ const administrativeRoleLabels: Record<Exclude<SchoolMessageRecipient["role"], "
   secretary: "Secrétaire",
   discipline_director: "Directeur de Discipline",
   study_director: "Directeur des études",
+  teacher: "Enseignant",
 };
 
 export type AdministrativeRecipientMode = "all" | "selection";
@@ -33,4 +34,14 @@ export function resolveAdministrativeRecipientIds(mode: AdministrativeRecipientM
   return mode === "all"
     ? [...availableIds]
     : [...new Set(selectedIds)].filter((uid) => availableIds.has(uid));
+}
+
+export type RecipientDirectoryKind = "administrative" | "teacher";
+
+export function recipientDirectoryLabel(kind: RecipientDirectoryKind) {
+  return kind === "teacher" ? "enseignant" : "administratif";
+}
+
+export function filterRecipientsByDirectoryKind(recipients: SchoolMessageRecipient[], kind: RecipientDirectoryKind) {
+  return recipients.filter((recipient) => kind === "teacher" ? recipient.role === "teacher" : recipient.role !== "parent" && recipient.role !== "teacher");
 }

@@ -63,11 +63,11 @@ describe("annuaire des administratifs", () => {
   });
 
   it.each([
-    ["school_admin", ["cashier", "secretary", "discipline_director", "study_director", "parent"]],
-    ["cashier", ["school_admin", "secretary", "discipline_director", "study_director", "parent"]],
-    ["secretary", ["school_admin", "cashier", "discipline_director", "study_director", "parent"]],
-    ["discipline_director", ["school_admin", "cashier", "secretary", "study_director", "parent"]],
-    ["study_director", ["school_admin", "cashier", "discipline_director", "secretary", "parent"]],
+    ["school_admin", ["cashier", "secretary", "discipline_director", "study_director", "teacher", "parent"]],
+    ["cashier", ["school_admin", "secretary", "discipline_director", "study_director", "teacher", "parent"]],
+    ["secretary", ["school_admin", "cashier", "discipline_director", "study_director", "teacher", "parent"]],
+    ["discipline_director", ["school_admin", "cashier", "secretary", "study_director", "teacher", "parent"]],
+    ["study_director", ["school_admin", "cashier", "discipline_director", "secretary", "teacher", "parent"]],
   ])("preserve la matrice de destinataires de %s", (role, expected) => {
     expect([...allowedRecipientRoles(role)].sort()).toEqual([...expected].sort());
   });

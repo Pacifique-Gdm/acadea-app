@@ -20,14 +20,14 @@ describe("portail Parent", () => {
   });
 
   it("partage exactement les modes administratifs du Secrétaire sans afficher la liste à vide", () => {
-    expect(selectorSource).toContain('<option value="all">Tous les administratifs</option>');
-    expect(selectorSource).toContain('<option value="selection">Sélection administratif</option>');
+    expect(selectorSource).toContain('Tous les {label}s');
+    expect(selectorSource).toContain('Sélection {label}');
     expect(selectorSource).toContain("Recherchez un administratif par nom ou fonction.");
     expect(selectorSource).toContain("search.trim()");
     expect(source).toContain('useState<AdministrativeRecipientMode>("all")');
-    expect(source).toContain("resolveAdministrativeRecipientIds(messageRecipientMode, messageRecipients, messageRecipientIds)");
+    expect(source).toContain("resolveAdministrativeRecipientIds(messageRecipientMode, scopedMessageRecipients, messageRecipientIds)");
     expect(source).toContain("showLabel={false}");
-    expect(selectorSource).toContain('{showLabel && <span>Filtre des administratifs</span>}');
+    expect(selectorSource).toContain('{showLabel && <span>Filtre des {label}s</span>}');
   });
 
   it("envoie une seule requête sécurisée avec les destinataires résolus et sans pièces jointes", () => {

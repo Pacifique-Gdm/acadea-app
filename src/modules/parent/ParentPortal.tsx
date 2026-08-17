@@ -22,7 +22,7 @@ import type { AppData, AppNotification, AppUser, AuditLog, FeeType, Message, Par
 import { formatMedicalRecordValue, medicalRecordSections } from "../secretary/medicalRecordFields";
 import type { StudentMedicalRecord } from "../secretary/secretaryTypes";
 import { AdministrativeRecipientSelector } from "../messages/AdministrativeRecipientSelector";
-import { resolveAdministrativeRecipientIds, type AdministrativeRecipientMode } from "../messages/administrativeRecipientSelection";
+import { filterRecipientsByDirectoryKind, resolveAdministrativeRecipientIds, type AdministrativeRecipientMode, type RecipientDirectoryKind } from "../messages/administrativeRecipientSelection";
 
 type ParentTab = "children" | "messages" | "menu";
 
@@ -84,6 +84,7 @@ export function ParentPortal({
   const [parentMessageDrawerOpen, setParentMessageDrawerOpen] = useState(false);
   const [messageRecipientIds, setMessageRecipientIds] = useState<string[]>([]);
   const [messageRecipientMode, setMessageRecipientMode] = useState<AdministrativeRecipientMode>("all");
+  const [messageRecipientKind, setMessageRecipientKind] = useState<RecipientDirectoryKind>("administrative");
   const [messageRecipientSearch, setMessageRecipientSearch] = useState("");
   const [messageRecipients, setMessageRecipients] = useState<SchoolMessageRecipient[]>([]);
   const [messageRecipientsLoading, setMessageRecipientsLoading] = useState(false);
@@ -100,12 +101,13 @@ export function ParentPortal({
   const [parentMedicalError, setParentMedicalError] = useState("");
   const parent = yearData.parents.find((item) => item.id === user.parentId);
   const unread = yearData.notifications.filter((notification) => !notification.read).length;
-  const resolvedMessageRecipientIds = resolveAdministrativeRecipientIds(messageRecipientMode, messageRecipients, messageRecipientIds);
+  const scopedMessageRecipients = filterRecipientsByDirectoryKind(messageRecipients, messageRecipientKind);
+  const resolvedMessageRecipientIds = resolveAdministrativeRecipientIds(messageRecipientMode, scopedMessageRecipients, messageRecipientIds);
   const isParentMessageFormComplete = resolvedMessageRecipientIds.length > 0 && messageSubject.trim().length > 0 && messageBody.trim().length > 0;
   const parentMessageQuotaReached = parentMessageQuota ? parentMessageQuota.messageCount >= parentMessageQuota.limit : false;
   const parentIndexes = useMemo(() => buildSchoolYearDataIndexes(yearData.students, yearData.feeTypes, yearData.payments), [yearData.students, yearData.feeTypes, yearData.payments]);
   const selectedParentChild = yearData.students.find((student) => student.id === selectedParentChildId);
-  const selectedMessageRecipients = messageRecipients.filter((recipient) => resolvedMessageRecipientIds.includes(recipient.uid));
+  const selectedMessageRecipients = scopedMessageRecipients.filter((recipient) => resolvedMessageRecipientIds.includes(recipient.uid));
 
   function progressBarTone(percent: number) {
     if (percent >= 100) return "bg-mint";
@@ -489,7 +491,11 @@ export function ParentPortal({
             <FormPanel title="Message">
               <form onSubmit={sendParentMessage} className="grid min-w-0 gap-4">
                 <fieldset className="grid min-w-0 gap-2"><legend className="text-sm font-semibold text-slate-700">Destinataires</legend>
-                  <AdministrativeRecipientSelector showLabel={false} mode={messageRecipientMode} onModeChange={setMessageRecipientMode} search={messageRecipientSearch} onSearchChange={setMessageRecipientSearch} recipients={messageRecipients} selectedIds={messageRecipientIds} onSelectedIdsChange={setMessageRecipientIds} isLoading={messageRecipientsLoading} error={messageRecipientsError} />
+                  <select aria-label="Catégorie de destinataires" value={messageRecipientKind} onChange={(event) => { setMessageRecipientKind(event.target.value as RecipientDirectoryKind); setMessageRecipientIds([]); setMessageRecipientSearch(""); setMessageRecipientMode("all"); }} className="input">
+                    <option value="administrative">Administratifs</option>
+                    <option value="teacher">Enseignants</option>
+                  </select>
+                  <AdministrativeRecipientSelector kind={messageRecipientKind} showLabel={false} mode={messageRecipientMode} onModeChange={setMessageRecipientMode} search={messageRecipientSearch} onSearchChange={setMessageRecipientSearch} recipients={messageRecipients} selectedIds={messageRecipientIds} onSelectedIdsChange={setMessageRecipientIds} isLoading={messageRecipientsLoading} error={messageRecipientsError} />
                 </fieldset>
                 <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
                   Objet

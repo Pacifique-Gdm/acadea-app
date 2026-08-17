@@ -42,7 +42,7 @@ export function MessagesModule({
   canAttachFiles = false,
 }: MessagesModuleProps) {
   const [recipientParentId, setRecipientParentId] = useState<string>("");
-  const [recipientCategory, setRecipientCategory] = useState<"parents" | "administrative">("parents");
+  const [recipientCategory, setRecipientCategory] = useState<"parents" | "administrative" | "teachers">("parents");
   const [adminRecipientMode, setAdminRecipientMode] = useState<"all" | "parents" | "sections" | "classes">("all");
   const [selectedAdminParentIds, setSelectedAdminParentIds] = useState<string[]>([]);
   const [selectedAdminSection, setSelectedAdminSection] = useState<SchoolSection | "">("");
@@ -60,6 +60,9 @@ export function MessagesModule({
   const [isLoadingAdministrativeRecipients, setIsLoadingAdministrativeRecipients] = useState(true);
   const [administrativeLoadError, setAdministrativeLoadError] = useState("");
   const [isSendingAdministrative, setIsSendingAdministrative] = useState(false);
+  const [selectedTeacherIds, setSelectedTeacherIds] = useState<string[]>([]);
+  const [teacherRecipientMode, setTeacherRecipientMode] = useState<AdministrativeRecipientMode>("all");
+  const [teacherSearch, setTeacherSearch] = useState("");
   const [messageFiles, setMessageFiles] = useState<File[]>([]);
   const messageRequestKey = useRef(crypto.randomUUID());
   const canSend = user.role !== "parent" && year.status !== "archived";
@@ -95,7 +98,9 @@ export function MessagesModule({
   const selectedParent = yearData.parents.find((parent) => parent.id === recipientParentId);
   const selectedAdminParents = sameSchoolParents.filter((parent) => selectedAdminParentIds.includes(parent.id));
   const selectedDisciplineParents = yearData.parents.filter((parent) => selectedDisciplineParentIds.includes(parent.id));
+  const teacherRecipients = secureDirectory.filter((recipient) => recipient.role === "teacher");
   const resolvedAdministrativeIds = resolveAdministrativeRecipientIds(administrativeRecipientMode, administrativeRecipients, selectedAdministrativeIds);
+  const resolvedTeacherIds = resolveAdministrativeRecipientIds(teacherRecipientMode, teacherRecipients, selectedTeacherIds);
   const secureParentRecipientIds = new Set(secureDirectory.filter((recipient) => recipient.role === "parent").map((recipient) => recipient.uid));
   const messageFilesTotalBytes = messageFiles.reduce((total, file) => total + file.size, 0);
   useEffect(() => {
@@ -103,7 +108,7 @@ export function MessagesModule({
     setIsLoadingAdministrativeRecipients(true);
     setAdministrativeLoadError("");
     loadSchoolMessageRecipients()
-      .then((recipients) => { if (active) { setSecureDirectory(recipients); setAdministrativeRecipients(recipients.filter((recipient) => recipient.role !== "parent")); } })
+      .then((recipients) => { if (active) { setSecureDirectory(recipients); setAdministrativeRecipients(recipients.filter((recipient) => recipient.role !== "parent" && recipient.role !== "teacher")); } })
       .catch((error) => { if (active) setAdministrativeLoadError(error instanceof Error ? error.message : "Destinataires indisponibles. Veuillez réessayer."); })
       .finally(() => { if (active) setIsLoadingAdministrativeRecipients(false); });
     return () => { active = false; };
@@ -129,6 +134,7 @@ export function MessagesModule({
       const message = await sendSchoolMessage({ schoolYearId: year.id, recipientRoles, recipientIds: resolvedSecureRecipientIds, subject: subject.trim(), body: body.trim(), draftId, attachments: uploaded, idempotencyKey: messageRequestKey.current });
       updateData({ messages: [message, ...data.messages.filter((item) => item.id !== message.id)] }, { persist: false });
       setSelectedAdministrativeIds([]);
+      setSelectedTeacherIds([]);
       setSubject("");
       setBody("");
       setMessageFiles([]);
@@ -173,7 +179,7 @@ export function MessagesModule({
     .filter((recipientId): recipientId is string => Boolean(recipientId));
   const resolvedSecureRecipientIds = isSecretary && recipientCategory === "parents"
     ? [...new Set(resolvedSecretaryParentIds)]
-    : resolvedAdministrativeIds;
+    : recipientCategory === "teachers" ? resolvedTeacherIds : resolvedAdministrativeIds;
 
   useEffect(() => {
     if (!messageFeedback) return undefined;
@@ -211,7 +217,7 @@ export function MessagesModule({
 
   async function sendMessage() {
     setMessageFeedback("");
-    if (recipientCategory === "administrative") {
+    if (recipientCategory === "administrative" || recipientCategory === "teachers") {
       await sendToSecureRecipients();
       return;
     }
@@ -383,13 +389,16 @@ export function MessagesModule({
           <div className="grid min-w-0 gap-2">
             <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
               Destinataires
-              <select value={recipientCategory} onChange={(event) => { setRecipientCategory(event.target.value as "parents" | "administrative"); setSubject(""); setAdministrativeRecipientMode("all"); setAdministrativeSearch(""); changeAdminRecipientMode("all"); setSelectedAdministrativeIds([]); }} className="input">
+              <select value={recipientCategory} onChange={(event) => { setRecipientCategory(event.target.value as "parents" | "administrative" | "teachers"); setSubject(""); setAdministrativeRecipientMode("all"); setAdministrativeSearch(""); setTeacherRecipientMode("all"); setTeacherSearch(""); changeAdminRecipientMode("all"); setSelectedAdministrativeIds([]); setSelectedTeacherIds([]); }} className="input">
                 <option value="parents">Parents d'élèves</option>
                 <option value="administrative">Administratifs</option>
+                <option value="teachers">Enseignants</option>
               </select>
             </label>
             {recipientCategory === "administrative" ? (
               <AdministrativeRecipientSelector mode={administrativeRecipientMode} onModeChange={setAdministrativeRecipientMode} search={administrativeSearch} onSearchChange={setAdministrativeSearch} recipients={administrativeRecipients} selectedIds={selectedAdministrativeIds} onSelectedIdsChange={setSelectedAdministrativeIds} isLoading={isLoadingAdministrativeRecipients} error={administrativeLoadError} />
+            ) : recipientCategory === "teachers" ? (
+              <AdministrativeRecipientSelector kind="teacher" mode={teacherRecipientMode} onModeChange={setTeacherRecipientMode} search={teacherSearch} onSearchChange={setTeacherSearch} recipients={teacherRecipients} selectedIds={selectedTeacherIds} onSelectedIdsChange={setSelectedTeacherIds} isLoading={isLoadingAdministrativeRecipients} error={administrativeLoadError} />
             ) : isSchoolAdmin || isSecretary ? (
               <>
                 <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
@@ -582,7 +591,7 @@ export function MessagesModule({
               {messageFeedback}
             </p>
           )}
-          <button onClick={sendMessage} disabled={!subject || !body || ((recipientCategory === "administrative" || isSecretary) ? isSendingAdministrative || resolvedSecureRecipientIds.length === 0 : (isDisciplineDirector && selectedDisciplineParentIds.length === 0) || (isCashier && !recipientParentId))} className="primary-button disabled:opacity-50">
+          <button onClick={sendMessage} disabled={!subject || !body || ((recipientCategory === "administrative" || recipientCategory === "teachers" || isSecretary) ? isSendingAdministrative || resolvedSecureRecipientIds.length === 0 : (isDisciplineDirector && selectedDisciplineParentIds.length === 0) || (isCashier && !recipientParentId))} className="primary-button disabled:opacity-50">
             <MessageSquare className="h-4 w-4" /> {isSendingAdministrative ? "Envoi en cours…" : "Envoyer"}
           </button>
         </FormPanel>
