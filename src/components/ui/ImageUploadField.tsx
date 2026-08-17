@@ -141,7 +141,7 @@ export function ImageUploadField({
             {processing ? "Compression..." : value ? "Remplacer l'image" : "Choisir une image"}
           </label>
           {value && !disabled && (
-            <button onClick={() => onChange("")} className="rounded border border-red-200 bg-white px-3 py-2 text-xs font-bold text-red-600 transition hover:bg-red-50" type="button">
+            <button onClick={() => onChange("")} className="w-full rounded border border-red-200 bg-white px-3 py-2 text-xs font-bold text-red-600 transition hover:bg-red-50" type="button">
               Supprimer
             </button>
           )}

@@ -17,4 +17,22 @@ describe("référentiel des options dans Paramètres école", () => {
     expect(source).toContain("persistSchoolSettings(school, school.schoolOptions, desiredSchool)");
     expect(source).toContain("Cette option est encore utilisée par au moins un élève");
   });
+
+  it("persiste directement les options ajoutées depuis Paramètres école", () => {
+    expect(source).toContain("persistSchoolOption(school.id, trimmed)");
+    expect(source).toContain("Option « ${persisted.option} » enregistrée dans l'école.");
+    expect(source).toContain("schoolOptionAdding");
+  });
+
+  it("rend la confirmation dans la ligne de l'option et partage les actions en deux colonnes", () => {
+    expect(source).toContain("schoolOptionDeleteTarget === option");
+    expect(source).toContain('className="grid w-full grid-cols-2 gap-2"');
+    expect(source).not.toContain("{schoolOptionDeleteTarget && (");
+  });
+
+  it("ne force pas la largeur du logo avec le viewport", () => {
+    const upload = readFileSync(new URL("../../components/ui/ImageUploadField.tsx", import.meta.url), "utf8");
+    expect(upload).toContain("w-full rounded border border-red-200");
+    expect(upload).not.toContain("100vw");
+  });
 });

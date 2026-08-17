@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { Banknote, BarChart3, BookOpen, CheckCircle2, ChevronRight, Clock3, CreditCard, Fingerprint, HeartPulse, Plus, RefreshCw, Settings, ShieldCheck, Trash2, UserRound, UsersRound, X } from "lucide-react";
 import { AdminDrawer, Field, ImageUploadField, LogoutButton, MultiSelectDropdown, PasswordField } from "../../components/ui";
 import { ParentsDirectoryDrawer } from "../../components/parents/ParentsDirectoryDrawer";
@@ -16,7 +16,7 @@ import { nextSchoolStaffEmail, normalizeProvisioningPhone } from "../../utils/sc
 import { temporaryPasswordAfterPhoneChange } from "../../utils/temporaryPassword";
 import { ERROR_MESSAGE_DURATION_MS, SUCCESS_MESSAGE_DURATION_MS, useAutoDismissMessage } from "../../hooks/useAutoDismissMessage";
 import { subscribeToSchoolTeacherAccounts } from "../../services/teacherAccounts";
-import { persistSchoolSettings } from "../../services/schoolOptionsRepository";
+import { persistSchoolOption, persistSchoolSettings } from "../../services/schoolOptionsRepository";
 import { canonicalSchoolOption, isSchoolOptionDeleteConfirmation, normalizeSchoolOptions, SCHOOL_OPTION_DELETE_CONFIRMATION } from "../../utils/schoolOptions";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import type { AppData, AppUser, FeeKind, FeeType, ParentProfile, School, SchoolSection, SchoolYear, Student, ValvePublication } from "../../types";
@@ -121,6 +121,7 @@ export function MenuModule({
   const [schoolOptionDeleteConfirmation, setSchoolOptionDeleteConfirmation] = useState("");
   const [schoolOptionDeleteError, setSchoolOptionDeleteError] = useState("");
   const [schoolOptionDeleting, setSchoolOptionDeleting] = useState(false);
+  const [schoolOptionAdding, setSchoolOptionAdding] = useState(false);
   const [feeDeleteTarget, setFeeDeleteTarget] = useState<FeeType | null>(null);
   const [feeDeleteConfirmation, setFeeDeleteConfirmation] = useState("");
   const [activeMenuSection, setActiveMenuSection] = useState<MenuSection | null>(initialBiometricsOpen ? "biometrics" : null);
@@ -620,15 +621,29 @@ export function MenuModule({
     });
   }
 
-  function addSchoolFormOption() {
+  async function addSchoolFormOption() {
+    if (schoolOptionAdding) return;
     const trimmed = canonicalSchoolOption(schoolOptionDraft);
     if (!trimmed) return;
-    setSchoolForm((current) => {
-      const currentOptions = normalizeSchoolOptions(current.schoolOptions);
-      const nextOptions = normalizeSchoolOptions([...currentOptions, trimmed]);
-      return nextOptions.length === currentOptions.length ? current : { ...current, schoolOptions: nextOptions };
-    });
-    setSchoolOptionDraft("");
+    setSchoolOptionAdding(true);
+    setSchoolSaveStatus("");
+    setSchoolSaveMessage("");
+    try {
+      const persisted = canUseFirestoreData()
+        ? await persistSchoolOption(school.id, trimmed)
+        : { option: trimmed, schoolOptions: normalizeSchoolOptions([...normalizeSchoolOptions(schoolForm.schoolOptions), trimmed]) };
+      const savedSchool = { ...schoolForm, schoolOptions: persisted.schoolOptions };
+      updateData({ schools: data.schools.map((item) => (item.id === school.id ? { ...item, schoolOptions: persisted.schoolOptions } : item)) }, { persist: false });
+      setSchoolForm(savedSchool);
+      setSchoolOptionDraft("");
+      setSchoolSaveStatus("success");
+      setSchoolSaveMessage(`Option « ${persisted.option} » enregistrée dans l'école.`);
+    } catch (error) {
+      setSchoolSaveStatus("error");
+      setSchoolSaveMessage(error instanceof Error ? error.message : "Impossible d'enregistrer cette option scolaire.");
+    } finally {
+      setSchoolOptionAdding(false);
+    }
   }
 
   function requestSchoolOptionRemoval(option: string) {
@@ -719,40 +734,42 @@ export function MenuModule({
             <div className="flex flex-wrap gap-2">
               {schoolFormOptions.length === 0 && <p className="text-sm text-slate-500">Aucune option configurée.</p>}
               {schoolFormOptions.map((option) => (
-                <span key={option} className="inline-flex items-center gap-2 rounded bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
-                  {option}
-                  {canAdmin && (
-                    <button onClick={() => requestSchoolOptionRemoval(option)} type="button" className="text-red-600 hover:text-red-700" aria-label={`Retirer l'option ${option}`}>
-                      <X className="h-3.5 w-3.5" />
-                    </button>
+                <Fragment key={option}>
+                  <span className="inline-flex min-w-0 items-center gap-2 rounded bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+                    <span className="min-w-0 break-words">{option}</span>
+                    {canAdmin && (
+                      <button onClick={() => requestSchoolOptionRemoval(option)} type="button" className="shrink-0 text-red-600 hover:text-red-700" aria-label={`Retirer l'option ${option}`}>
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </span>
+                  {schoolOptionDeleteTarget === option && (
+                    <div role="dialog" aria-modal="true" aria-labelledby={`school-option-delete-title-${option}`} className="basis-full grid min-w-0 gap-3 rounded border border-red-200 bg-red-50 p-4">
+                      <div className="min-w-0">
+                        <h3 id={`school-option-delete-title-${option}`} className="break-words font-bold text-red-900">Supprimer l’option {schoolOptionDeleteTarget}</h3>
+                        <p className="mt-1 break-words text-sm text-red-800">Cette action supprimera cette option de l’école. Pour confirmer, saisissez exactement : {SCHOOL_OPTION_DELETE_CONFIRMATION}</p>
+                      </div>
+                      <input aria-label="Confirmation de suppression de l’option" value={schoolOptionDeleteConfirmation} onChange={(event) => setSchoolOptionDeleteConfirmation(event.target.value)} className="input min-w-0 w-full" autoComplete="off" />
+                      {schoolOptionDeleteError && <p role="alert" className="break-words text-sm font-semibold text-red-800">{schoolOptionDeleteError}</p>}
+                      <div className="grid w-full grid-cols-2 gap-2">
+                        <button type="button" className="secondary-button min-w-0 w-full justify-center" onClick={closeSchoolOptionRemoval} disabled={schoolOptionDeleting}>Annuler</button>
+                        <button type="button" className="primary-button min-w-0 w-full justify-center disabled:cursor-not-allowed disabled:opacity-60" onClick={() => void confirmSchoolOptionRemoval()} disabled={!isSchoolOptionDeleteConfirmation(schoolOptionDeleteConfirmation) || schoolOptionDeleting}>Supprimer</button>
+                      </div>
+                    </div>
                   )}
-                </span>
+                </Fragment>
               ))}
             </div>
             {canAdmin && (
               <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                 <input value={schoolOptionDraft} onChange={(event) => setSchoolOptionDraft(event.target.value)} className="input" placeholder="Nouvelle option" />
-                <button onClick={addSchoolFormOption} type="button" className="secondary-button justify-center">
+                <button onClick={() => void addSchoolFormOption()} type="button" className="secondary-button justify-center" disabled={schoolOptionAdding}>
                   <Plus className="h-4 w-4" /> Ajouter
                 </button>
               </div>
             )}
             <p className="text-xs font-medium text-slate-500">Les options configurées ici alimentent les élèves, filtres et listes de l'école.</p>
           </fieldset>
-          {schoolOptionDeleteTarget && (
-            <div role="dialog" aria-modal="true" aria-labelledby="school-option-delete-title" className="grid gap-3 rounded border border-red-200 bg-red-50 p-4">
-              <div>
-                <h3 id="school-option-delete-title" className="font-bold text-red-900">Supprimer l’option {schoolOptionDeleteTarget}</h3>
-                <p className="mt-1 text-sm text-red-800">Cette action supprimera cette option de l’école. Pour confirmer, saisissez exactement : {SCHOOL_OPTION_DELETE_CONFIRMATION}</p>
-              </div>
-              <input aria-label="Confirmation de suppression de l’option" value={schoolOptionDeleteConfirmation} onChange={(event) => setSchoolOptionDeleteConfirmation(event.target.value)} className="input" autoComplete="off" />
-              {schoolOptionDeleteError && <p role="alert" className="text-sm font-semibold text-red-800">{schoolOptionDeleteError}</p>}
-              <div className="flex flex-wrap gap-2">
-                <button type="button" className="secondary-button" onClick={closeSchoolOptionRemoval} disabled={schoolOptionDeleting}>Annuler</button>
-                <button type="button" className="primary-button disabled:cursor-not-allowed disabled:opacity-60" onClick={() => void confirmSchoolOptionRemoval()} disabled={!isSchoolOptionDeleteConfirmation(schoolOptionDeleteConfirmation) || schoolOptionDeleting}>Supprimer</button>
-              </div>
-            </div>
-          )}
           <p className="rounded bg-slate-50 p-3 text-sm font-semibold text-slate-600">Année scolaire : {selectedYear.name}</p>
           {schoolSaveStatus === "error" && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{schoolSaveMessage}</p>}
           {canAdmin && (

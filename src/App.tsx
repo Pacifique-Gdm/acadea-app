@@ -40,6 +40,7 @@ import { reconcileRealtimeValves, useRealtimeValves } from "./hooks/useRealtimeV
 import { reconcileRealtimeFeeTypes, useRealtimeFeeTypes } from "./hooks/useRealtimeFeeTypes";
 import { reconcileFinancialSnapshot, useRealtimeFinancialTransactions } from "./hooks/useRealtimeFinancialTransactions";
 import { useRealtimeSchoolRecords } from "./hooks/useRealtimeSchoolRecords";
+import { useRealtimeSchoolSettings } from "./hooks/useRealtimeSchoolSettings";
 import { markNotificationsReadTargeted } from "./services/notificationsPagination";
 import { restorePaymentPushNotifications, stopPaymentPushForegroundListener } from "./services/pushNotifications";
 import { canUseFirestoreData, loadDisciplineYearData, loadFirestoreBootstrapData, loadFirestoreData, loadFirestoreYearData, loadParentPortalData, loadPlatformSettings, persistFirestorePatch } from "./services/firestoreData";
@@ -262,6 +263,21 @@ export default function App() {
     schoolYearId: selectedYearId,
     onData: applyRealtimeSchoolRecords,
     onError: handleSchoolRecordsRealtimeError,
+  });
+  const applyRealtimeSchoolSettings = useCallback((incomingSchool: AppData["schools"][number]) => {
+    setData((current) => ({
+      ...current,
+      schools: current.schools.map((item) => (item.id === incomingSchool.id ? incomingSchool : item)),
+    }));
+  }, []);
+  const handleRealtimeSchoolSettingsError = useCallback((error: Error) => {
+    console.warn("Actualisation temps réel des paramètres école indisponible.", error);
+  }, []);
+  useRealtimeSchoolSettings({
+    user,
+    schoolId: user?.schoolId ?? "",
+    onSchool: applyRealtimeSchoolSettings,
+    onError: handleRealtimeSchoolSettingsError,
   });
 
   useEffect(() => {
