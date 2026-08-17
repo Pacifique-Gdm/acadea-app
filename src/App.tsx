@@ -471,7 +471,7 @@ export default function App() {
         if (cancelled || logoutInProgressRef.current) return;
         if (bootstrapResolved) {
           console.warn("Chargement des données secondaires indisponible.", error);
-          setRefreshError(error instanceof Error ? error.message : "Certaines données n'ont pas pu être chargées.");
+          setRefreshError(refreshErrorMessage(error));
           return;
         }
         console.warn("[Acadéa auth] Chargement initial Firestore indisponible sans invalidation de session.", {
@@ -480,7 +480,7 @@ export default function App() {
           role: bootstrapUser.role,
           schoolId: bootstrapUser.schoolId,
         });
-        setBootstrapError(error instanceof Error ? error.message : "Chargement Firestore impossible après connexion.");
+        setBootstrapError(refreshErrorMessage(error));
       } finally {
         if (!cancelled) setDataLoading(false);
       }

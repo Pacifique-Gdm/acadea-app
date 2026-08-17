@@ -383,7 +383,7 @@ export function MessagesModule({
           <div className="grid min-w-0 gap-2">
             <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
               Destinataires
-              <select value={recipientCategory} onChange={(event) => { setRecipientCategory(event.target.value as "parents" | "administrative"); setAdministrativeRecipientMode("all"); setAdministrativeSearch(""); changeAdminRecipientMode("all"); setSelectedAdministrativeIds([]); }} className="input">
+              <select value={recipientCategory} onChange={(event) => { setRecipientCategory(event.target.value as "parents" | "administrative"); setSubject(""); setAdministrativeRecipientMode("all"); setAdministrativeSearch(""); changeAdminRecipientMode("all"); setSelectedAdministrativeIds([]); }} className="input">
                 <option value="parents">Parents d'élèves</option>
                 <option value="administrative">Administratifs</option>
               </select>
@@ -553,7 +553,7 @@ export function MessagesModule({
               </div>
             )}
           </div>
-          {user.role === "discipline_director" ? (
+          {user.role === "discipline_director" && recipientCategory === "parents" ? (
             <select value={subject} onChange={(event) => setSubject(event.target.value)} className="input">
               <option value="">Choisir le type de message</option>
               {disciplineMessageSubjects.map((item) => (

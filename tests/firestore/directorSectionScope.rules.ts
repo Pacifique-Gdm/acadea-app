@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
-import { doc, getDoc, setDoc } from "firebase/firestore";
-import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
+import { collection, doc, getDoc, getDocs, query, setDoc, where } from "firebase/firestore";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 let env: RulesTestEnvironment;
 const seed = (path: string, data: Record<string, unknown>) => env.withSecurityRulesDisabled((context) => setDoc(doc(context.firestore(), path), data));
@@ -24,4 +24,22 @@ describe("périmètre section des directeurs", () => {
     it(`${role} refuse une autre section`, async () => assertFails(getDoc(doc(database(role, uid), "students", "secondary"))));
     it(`${role} refuse une autre école`, async () => assertFails(getDoc(doc(database(role, uid), "students", "foreign"))));
   }
+
+  it("autorise la query students bornée par école, année et section", async () => {
+    const students = await assertSucceeds(getDocs(query(
+      collection(database("discipline_director", "discipline"), "students"),
+      where("schoolId", "==", "school-a"),
+      where("schoolYearId", "==", "year-a"),
+      where("section", "in", ["Primaire"]),
+    )));
+    expect(students.docs.map((item) => item.id)).toEqual(["primary"]);
+  });
+
+  it("refuse la query students non bornée par section", async () => {
+    await assertFails(getDocs(query(
+      collection(database("discipline_director", "discipline"), "students"),
+      where("schoolId", "==", "school-a"),
+      where("schoolYearId", "==", "year-a"),
+    )));
+  });
 });

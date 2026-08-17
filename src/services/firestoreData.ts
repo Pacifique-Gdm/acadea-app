@@ -147,6 +147,12 @@ async function loadAttendanceSettingsCollection(filters: [string, unknown][]) {
   }
 }
 
+export function disciplineStudentQuerySections(user: Pick<AppUser, "role" | "section" | "sectionIds">) {
+  if (user.role !== "discipline_director") return null;
+  const sections = userSectionIds(user);
+  return sections.length ? sections : null;
+}
+
 async function loadValvesCollection(filters: [string, unknown][]) {
   try {
     return await loadCollection<AppData["valves"][number]>("valves", filters);
@@ -192,12 +198,22 @@ export async function loadFirestoreBootstrapData(user: AppUser): Promise<Firesto
 async function loadSchoolMessages(user: AppUser, schoolId: string, schoolYearId: string) {
   if (!db) return [];
   const base = [where("schoolId", "==", schoolId), where("schoolYearId", "==", schoolYearId)];
-  const legacyRecipients = user.role === "cashier" ? ["cashier", "both"] : ["admin", "both"];
-  const [legacy, personal] = await Promise.all([
-    withFirestoreTimeout(getDocs(query(collection(db, "messages"), ...base, where("schoolRecipient", "in", legacyRecipients))), "messages"),
+  const legacyRecipients = schoolMessageLegacyRecipients(user.role);
+  const queries = [
     withFirestoreTimeout(getDocs(query(collection(db, "messages"), ...base, where("participantIds", "array-contains", user.id))), "messages"),
-  ]).catch((error) => { throw describeFirestoreError("messages", error); });
-  return Array.from(new Map([...legacy.docs, ...personal.docs].map((item) => [item.id, { id: item.id, ...item.data() } as AppData["messages"][number]])).values());
+  ];
+  if (legacyRecipients) {
+    queries.push(withFirestoreTimeout(getDocs(query(collection(db, "messages"), ...base, where("schoolRecipient", "in", legacyRecipients))), "messages"));
+  }
+  const snapshots = await Promise.all(queries).catch((error) => { throw describeFirestoreError("messages", error); });
+  return Array.from(new Map(snapshots.flatMap((snapshot) => snapshot.docs).map((item) => [item.id, { id: item.id, ...item.data() } as AppData["messages"][number]])).values());
+}
+
+export function schoolMessageLegacyRecipients(role: AppUser["role"]): string[] | null {
+  if (role === "school_admin") return ["admin", "both"];
+  if (role === "cashier") return ["cashier", "both"];
+  if (role === "discipline_director") return ["discipline"];
+  return null;
 }
 
 export async function loadFirestoreData(user?: AppUser, schoolYearId?: string, bootstrapData?: FirestoreBootstrapData) {
@@ -263,8 +279,9 @@ export async function loadFirestoreData(user?: AppUser, schoolYearId?: string, b
     }
 
     if (user.role === "discipline_director") {
+      const disciplineSections = disciplineStudentQuerySections(user);
       [scopedData.students, scopedData.parents, scopedData.messages, scopedData.notifications, scopedData.disciplineSanctions, scopedData.attendance, scopedData.attendanceSettings, scopedData.valves] = await Promise.all([
-        loadCollection<AppData["students"][number]>("students", annualFilter),
+        disciplineSections ? loadCollectionInSections<AppData["students"][number]>("students", annualFilter, disciplineSections) : Promise.resolve([]),
         loadCollection<AppData["parents"][number]>("parents", schoolFilter),
         loadCollection<AppData["messages"][number]>("messages", [...annualFilter, ["schoolRecipient", "discipline"]]),
         loadCollection<AppData["notifications"][number]>("notifications", [...annualFilter, ["recipientRole", "school"], ["schoolRecipient", "discipline"]]),
@@ -394,6 +411,12 @@ export async function loadFirestoreYearData(user: AppUser, schoolYearId: string)
   if (!schoolYearId) {
     throw new Error("Chargement Firestore impossible : schoolYearId manquant.");
   }
+
+  // The Studies portal owns its year-scoped listeners (including section
+  // constraints) through useStudyData.  Do not run the generic school refresh
+  // queries here: study directors are intentionally not allowed to read the
+  // financial collections or an unbounded students query.
+  if (user.role === "study_director") return {};
 
   const annualFilter: [string, unknown][] = [
     ["schoolId", user.schoolId],

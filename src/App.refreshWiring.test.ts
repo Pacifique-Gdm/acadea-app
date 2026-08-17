@@ -8,4 +8,10 @@ describe("actualisation des portails spécialisés", () => {
     expect(source).toContain("refreshToken={dataRefreshToken}");
     expect(source.match(/onRefresh=\{refreshCurrentYearData\}/g)?.length).toBeGreaterThanOrEqual(2);
   });
+
+  it("ne remonte pas le message brut Firestore après le bootstrap", () => {
+    const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+    expect(source).toContain("setRefreshError(refreshErrorMessage(error));");
+    expect(source).toContain("setBootstrapError(refreshErrorMessage(error));");
+  });
 });

@@ -72,6 +72,12 @@ async function scopedDocuments(db, collection, schoolId, schoolYearId, assignmen
 
 async function loadGrading(db, teacher, schoolId, schoolYearId) {
   const { assignments, titulars } = await scope(db, teacher, schoolId, schoolYearId);
+  if (assignments.length === 0 && titulars.length === 0) {
+    return {
+      teacher: { id: teacher.id, ...teacher.data() }, assignments, titulars,
+      subjects: [], classes: [], students: [], configs: [], entries: [],
+    };
+  }
   const classIds = [...new Set([...assignments.map((item) => item.classId), ...titulars.map((item) => item.classId)])];
   const titularClassIds = [...new Set(titulars.map((item) => item.classId))];
   const [subjects, classes, configs, entries] = await Promise.all([

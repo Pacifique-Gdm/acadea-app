@@ -165,7 +165,7 @@ export function TeacherGradingDrawer({ user, school, year, onClose }: { user: Ap
     {loading && <p role="status" className="rounded bg-slate-50 p-4">Chargement…</p>}
     {error && <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{error}</p>}
     {success && <p role="status" className="rounded bg-green-50 p-3 text-green-800">{success}</p>}
-    {!loading && data && <div className="grid gap-4">
+    {!loading && data && !data.assignments.length && !data.titulars.length ? <p className="rounded border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">Aucune affectation n’est disponible pour cet enseignant pour l’année scolaire active.</p> : !loading && data && <div className="grid gap-4">
       <div className="grid grid-cols-2 gap-2"><button type="button" className={!titularView ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setTitularView(false)}>Mes cotations</button><button type="button" className={titularView ? "primary-button justify-center" : "secondary-button justify-center"} disabled={!data.titulars.length} onClick={() => setTitularView(true)}>Ma classe titulaire</button></div>
       {titularView ? renderTitularView() : assignments.length === 0 ? <p className="rounded bg-slate-50 p-4">Aucun cours ne vous a encore été affecté par la Direction des études.</p> : <>
         <label className="grid gap-1 text-sm font-semibold">Cours<select className="input" value={assignment?.id} onChange={(event) => setAssignmentId(event.target.value)}>{assignments.map((item) => <option key={item.id} value={item.id}>{data.subjects.find((candidate) => candidate.id === item.subjectId)?.name} — {data.classes.find((candidate) => candidate.id === item.classId)?.name}</option>)}</select></label>

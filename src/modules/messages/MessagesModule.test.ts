@@ -35,4 +35,11 @@ describe("messagerie des modules administratifs", () => {
     expect(source).toContain("selectedDisciplineParentIds");
     expect(source).toContain("selectedAdminParentIds");
   });
+
+  it("laisse l'objet manuel pour un Directeur de discipline écrivant aux administratifs", () => {
+    expect(source).toContain('user.role === "discipline_director" && recipientCategory === "parents"');
+    expect(source).toContain('<input value={subject} onChange={(event) => setSubject(event.target.value)} className="input" placeholder="Objet" />');
+    expect(source).toContain('setRecipientCategory(event.target.value as "parents" | "administrative"); setSubject("")');
+    expect(source).toContain('disabled={!subject || !body');
+  });
 });
