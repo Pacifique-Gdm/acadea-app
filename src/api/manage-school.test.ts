@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   batchCommit: vi.fn(),
 }));
 
-vi.mock("./_lib/firebaseAdmin.js", () => ({
+vi.mock("../../api/_lib/firebaseAdmin.js", () => ({
   initAdmin: () => ({
     auth: { verifyIdToken: mocks.verifyIdToken },
     db: {
@@ -21,14 +21,15 @@ vi.mock("./_lib/firebaseAdmin.js", () => ({
   }),
   firebaseAdminPublicError: () => ({ code: "internal", message: "Service indisponible.", correlationId: "acadea-test" }),
 }));
-vi.mock("./_lib/schoolDeletion.js", () => ({ deleteSchoolCompletely: mocks.deleteSchoolCompletely }));
-vi.mock("./_lib/rateLimit.js", () => ({
+vi.mock("../../api/_lib/schoolDeletion.js", () => ({ deleteSchoolCompletely: mocks.deleteSchoolCompletely }));
+vi.mock("../../api/_lib/rateLimit.js", () => ({
   API_RATE_LIMITS: { SCHOOL_DELETE: {}, SCHOOL_ADMIN: {} },
   enforceApiRateLimit: vi.fn(),
   sendRateLimitError: () => false,
 }));
 
-import handler from "./manage-school.js";
+// @ts-expect-error API JavaScript handler has no declaration file.
+import handler from "../../api/manage-school.js";
 
 function response() {
   return { statusCode: 0, body: {} as Record<string, unknown>, setHeader: vi.fn(), end(value: string) { this.body = JSON.parse(value); } };
