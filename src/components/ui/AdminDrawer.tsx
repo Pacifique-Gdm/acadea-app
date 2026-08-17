@@ -64,19 +64,19 @@ export function AdminDrawer({
     <div className="fixed inset-0 z-50 bg-ink/30 p-3 backdrop-blur-sm" onMouseDown={onClose} role="presentation">
       <div
         ref={drawerRef}
-        className="ml-auto flex h-full min-h-0 w-full max-w-xl flex-col rounded border border-slate-200 bg-white p-4 shadow-2xl"
+        className="box-border ml-auto flex h-full min-h-0 w-full min-w-0 max-w-[calc(100vw-1.5rem)] flex-col rounded border border-slate-200 bg-white p-4 shadow-2xl sm:max-w-xl"
         onMouseDown={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
       >
-        <div className="mb-4 flex items-center justify-between gap-3 border-b border-slate-100 pb-3">
-          <h2 id={titleId} className="break-words text-lg font-bold text-ink">{title}</h2>
+        <div className="mb-4 flex min-w-0 items-center justify-between gap-3 border-b border-slate-100 pb-3">
+          <h2 id={titleId} className="min-w-0 break-words text-lg font-bold text-ink">{title}</h2>
           <button ref={closeButtonRef} onClick={onClose} className="rounded bg-slate-100 p-2 text-slate-700" aria-label={closeLabel} type="button">
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="min-h-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto pr-1 scrollbar-thin">{children}</div>
+        <div className="min-h-0 min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto pr-1 scrollbar-thin">{children}</div>
       </div>
     </div>
   );

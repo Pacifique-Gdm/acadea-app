@@ -46,6 +46,12 @@ describe("Drawer Personnels", () => {
     expect(source).toContain("subscribeToSchoolPersonnel");
   });
 
+  it("affiche un fallback de section compréhensible, y compris lorsque l’école n’en a aucune", () => {
+    expect(source).toContain("const schoolSections = getSchoolSections(school)");
+    expect(source).toContain('placeholder={schoolSections.length ? "Non renseignée" : "Aucune section disponible"}');
+    expect(source).not.toContain("compatibilité historique");
+  });
+
   it("limite le sexe aux valeurs acceptées par l’API", () => {
     expect(source).toContain('<option value="F">Féminin</option>');
     expect(source).toContain('<option value="M">Masculin</option>');

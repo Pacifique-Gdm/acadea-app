@@ -157,6 +157,7 @@ export function MenuModule({
   const feeKindChoices = Array.from(new Set([...FEE_KINDS, ...yearData.feeTypes.map((fee) => fee.name), ...persistedCustomFeeKindChoices, ...customFeeKindChoices]));
   const newFeeFormRef = useRef<HTMLDivElement>(null);
   const schoolFormEducationLevels = getSchoolEducationLevels(schoolForm).filter((level) => level !== "Mixte");
+  const schoolSectionChoices = getSchoolSections(school);
   const schoolFormOptions = normalizeSchoolOptions(schoolForm.schoolOptions);
   const feeClassChoices = buildFeeTargetChoices(yearData.students, feeClassNames);
   const parentDeleteTarget = yearData.parents.find((parent) => parent.id === parentDeleteId && parent.schoolId === school.id);
@@ -842,7 +843,7 @@ export function MenuModule({
               <option value="teacher">Enseignant</option>
             </select>
           </label>
-          <MultiSelectDropdown label="Sections" options={getSchoolSections(school).map((section) => ({ value: section, label: schoolSectionLabels[section] }))} values={schoolUserSections} onChange={(values) => setSchoolUserSections(values as SchoolSection[])} placeholder="Non renseignées (compatibilité historique)" />
+          <MultiSelectDropdown label="Sections" options={schoolSectionChoices.map((section) => ({ value: section, label: schoolSectionLabels[section] }))} values={schoolUserSections} onChange={(values) => setSchoolUserSections(values as SchoolSection[])} placeholder={schoolSectionChoices.length ? "Non renseignée" : "Aucune section disponible"} />
           <Field label="Nom complet" value={cashierName} onChange={setCashierName} />
           <Field label="Téléphone" value={cashierPhone} onChange={(value) => {
             setCashierPhone(value);

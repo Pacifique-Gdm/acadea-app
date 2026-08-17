@@ -31,9 +31,15 @@ describe("formulaire de création des utilisateurs métier", () => {
   });
 
   it("utilise les sections configurées et persiste la sélection multiple", () => {
-    expect(source).toContain('getSchoolSections(school).map');
+    expect(source).toContain('const schoolSectionChoices = getSchoolSections(school)');
+    expect(source).toContain('schoolSectionChoices.map');
     expect(source).toContain('<MultiSelectDropdown label="Sections"');
     expect(source).toContain('sectionIds: schoolUserSections');
+  });
+
+  it("utilise des libellés propres pour le fallback et l’état vide", () => {
+    expect(source).toContain('placeholder={schoolSectionChoices.length ? "Non renseignée" : "Aucune section disponible"}');
+    expect(source).not.toContain("compatibilité historique");
   });
 
   it("conserve strictement les six champs du formulaire de création", () => {

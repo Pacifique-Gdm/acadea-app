@@ -11,4 +11,12 @@ describe("accessibilité des Drawers imbriqués", () => {
     expect(source).toContain("id={titleId}");
     expect(source).not.toContain('id="drawer-title"');
   });
+
+  it("borne le Drawer et ses zones internes au viewport mobile", () => {
+    expect(source).toContain("box-border");
+    expect(source).toContain("max-w-[calc(100vw-1.5rem)]");
+    expect(source).toContain("min-w-0");
+    expect(source).toContain("overflow-y-auto");
+    expect(source).toContain("overflow-x-hidden");
+  });
 });

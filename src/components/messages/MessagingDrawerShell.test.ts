@@ -22,7 +22,7 @@ describe("layout partagé de la Boîte à Messagerie", () => {
   it("reste aligné à droite, pleine hauteur et responsive avec le Drawer Administrateur", () => {
     expect(drawerSource).toContain("fixed inset-0 z-50");
     expect(drawerSource).toContain("ml-auto flex h-full");
-    expect(drawerSource).toContain("w-full max-w-xl");
+    expect(drawerSource).toContain("box-border ml-auto flex h-full min-h-0 w-full min-w-0 max-w-[calc(100vw-1.5rem)] flex-col rounded border border-slate-200 bg-white p-4 shadow-2xl sm:max-w-xl");
     expect(drawerSource).toContain("overflow-x-hidden overflow-y-auto");
   });
 
@@ -36,7 +36,7 @@ describe("layout partagé de la Boîte à Messagerie", () => {
 
   it("conserve le panneau au-dessus du fond overlay dans le même Drawer", () => {
     const overlayIndex = drawerSource.indexOf('className="fixed inset-0 z-50');
-    const panelIndex = drawerSource.indexOf('className="ml-auto flex h-full');
+    const panelIndex = drawerSource.indexOf('className="box-border ml-auto flex h-full');
     expect(overlayIndex).toBeGreaterThanOrEqual(0);
     expect(panelIndex).toBeGreaterThan(overlayIndex);
   });
