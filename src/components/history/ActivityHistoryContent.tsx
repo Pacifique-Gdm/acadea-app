@@ -81,12 +81,12 @@ export function ActivityHistoryContent({
         </select>
       </div>
 
-      <div className="space-y-2">
+      <div className="min-w-0 max-w-full space-y-2">
         {filteredItems.length === 0 && (
           <p className="rounded border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">Aucune activité disponible.</p>
         )}
         {filteredItems.map((item) => (
-          <article key={item.id} className="min-w-0 rounded border border-slate-200 bg-white p-3 text-sm">
+          <article key={item.id} className="box-border w-full min-w-0 max-w-full rounded border border-slate-200 bg-white p-3 text-sm">
             <div className="flex min-w-0 items-start gap-3">
               <div className={`mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded ${historyIconTone(item.type)}`}>
                 {historyIcon(item.type)}

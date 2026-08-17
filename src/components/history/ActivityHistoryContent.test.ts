@@ -10,6 +10,8 @@ describe("Historique responsive", () => {
 
   it("contraint le contenu à la largeur du drawer sans tableau horizontal", () => {
     expect(source).toContain("grid w-full min-w-0 max-w-full gap-4");
+    expect(source).toContain("min-w-0 max-w-full space-y-2");
+    expect(source).toContain("box-border w-full min-w-0 max-w-full rounded");
     expect(source).toContain("input min-w-0 max-w-full");
     expect(source).toContain("break-words text-xs");
     expect(source).not.toContain("overflow-x-auto");
