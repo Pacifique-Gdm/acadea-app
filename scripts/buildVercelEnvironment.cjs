@@ -9,10 +9,9 @@ function runChild(command, args, { env = process.env, platform = process.platfor
     stdio: "inherit",
     env,
     cwd: process.cwd(),
-    // npm.cmd is a shell command on Windows. Using the shell avoids the
-    // EINVAL produced by spawnSync in restricted Windows environments while
-    // keeping direct execution on Linux/Vercel.
-    shell: platform === "win32" && command === resolveNpmCommand(platform),
+    // Invoke npm.cmd directly. A shell-backed invocation requires cmd.exe,
+    // which is unavailable in some Vercel CLI Windows builders.
+    shell: false,
   });
 }
 

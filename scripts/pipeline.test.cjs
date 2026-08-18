@@ -10,13 +10,13 @@ test("resolves npm command per platform", () => {
   assert.equal(resolveNpmCommand("linux"), "npm");
 });
 
-test("build runner propagates environment and uses portable Windows shell", () => {
+test("build runner propagates environment without requiring cmd.exe", () => {
   const calls = [];
   const spawn = (command, args, options) => { calls.push({ command, args, options }); return { status: 0 }; };
   assert.equal(runVercelBuild({ platform: "win32", env: { VITE_APP_ENV: "staging" }, spawn }), 0);
   assert.equal(calls[0].options.shell, false);
   assert.equal(calls[1].command, "npm.cmd");
-  assert.equal(calls[1].options.shell, true);
+  assert.equal(calls[1].options.shell, false);
   assert.equal(calls[1].options.env.VITE_APP_ENV, "staging");
 });
 
