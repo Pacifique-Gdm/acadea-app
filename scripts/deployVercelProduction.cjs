@@ -33,7 +33,9 @@ function deployProduction({ cwd = process.cwd(), env = process.env, platform = p
       env,
       shell: false,
     });
-    for (const args of [["pull", "--yes", "--environment=production"], ["build", "--prod"], ["deploy", "--prebuilt", "--prod"]]) {
+    // Let Vercel build remotely: the local CLI build invokes a shell on Windows,
+    // while the uploaded proof file lets the remote guard verify this exact main SHA.
+    for (const args of [["pull", "--yes", "--environment=production"], ["deploy", "--prod", "--yes"]]) {
       const result = runVercel(args);
       if (result.error) throw result.error;
       if ((result.status ?? 1) !== 0) return result.status ?? 1;
