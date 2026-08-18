@@ -3,7 +3,8 @@ const assert = require("node:assert/strict");
 const { resolveNpmCommand, runVercelBuild } = require("./buildVercelEnvironment.cjs");
 const { verifyVercelProject } = require("./verifyVercelProject.cjs");
 const { deploymentPlan } = require("./deploymentPlan.cjs");
-const { verifyProductionSource } = require("./verifyProductionBranch.cjs");
+const { verifyProductionSource, vercelGitState } = require("./verifyProductionBranch.cjs");
+const { resolveNpxCommand } = require("./deployVercelProduction.cjs");
 
 test("resolves npm command per platform", () => {
   assert.equal(resolveNpmCommand("win32"), "npm.cmd");
@@ -44,7 +45,18 @@ test("deployment plan scopes resources to changed files", () => {
 
 test("production branch guard accepts main from Vercel Git and rejects feature branches", () => {
   assert.equal(verifyProductionSource({ target: "production", env: { VERCEL: "1", VERCEL_GIT_COMMIT_REF: "main", VERCEL_GIT_COMMIT_SHA: "a".repeat(40) } }).branch, "main");
-  assert.throws(() => verifyProductionSource({ target: "production", env: { VERCEL: "1", VERCEL_GIT_COMMIT_REF: "feature/test" } }), /not "main"/);
+  assert.throws(() => verifyProductionSource({ target: "production", env: { VERCEL: "1", VERCEL_GIT_COMMIT_REF: "feature/test", VERCEL_GIT_COMMIT_SHA: "a".repeat(40) } }), /not "main"/);
+});
+
+test("Vercel Git proof requires an official commit SHA", () => {
+  assert.deepEqual(vercelGitState({ VERCEL: "1", VERCEL_GIT_COMMIT_REF: "refs/heads/main", VERCEL_GIT_COMMIT_SHA: "a".repeat(40) }), { branch: "main", sha: "a".repeat(40) });
+  assert.equal(vercelGitState({ VERCEL: "1", VERCEL_GIT_COMMIT_REF: "main" }), null);
+  assert.throws(() => verifyProductionSource({ target: "production", cwd: "C:/path/without/.git", env: { VERCEL: "1", VERCEL_GIT_COMMIT_REF: "main" } }), /no trustworthy Git branch information/);
+});
+
+test("production Vercel runner resolves a direct npx executable", () => {
+  assert.equal(resolveNpxCommand("win32"), "npx.cmd");
+  assert.equal(resolveNpxCommand("linux"), "npx");
 });
 
 test("production branch guard fails closed without branch evidence", () => {

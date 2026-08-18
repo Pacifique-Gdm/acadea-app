@@ -42,13 +42,22 @@ function readCliProof(cwd, now = Date.now()) {
   }
 }
 
+function vercelGitState(env) {
+  if (env.VERCEL !== "1") return null;
+  const rawBranch = typeof env.VERCEL_GIT_COMMIT_REF === "string" ? env.VERCEL_GIT_COMMIT_REF.trim() : "";
+  const branch = rawBranch.replace(/^refs\/heads\//, "");
+  const sha = typeof env.VERCEL_GIT_COMMIT_SHA === "string" ? env.VERCEL_GIT_COMMIT_SHA.trim() : "";
+  if (!branch || !/^[a-f0-9]{40}$/i.test(sha)) return null;
+  return { branch, sha };
+}
+
 function verifyProductionSource({ cwd = process.cwd(), env = process.env, target = env.VERCEL_ENV || process.argv[2] || "", now = Date.now() } = {}) {
   if (target !== "production") return { source: "non-production", branch: "" };
 
-  const vercelBranch = env.VERCEL === "1" ? (env.VERCEL_GIT_COMMIT_REF || "").trim() : "";
-  if (vercelBranch) {
-    assertTrustedMain({ branch: vercelBranch }, "Vercel Git");
-    return { source: "vercel-git", branch: vercelBranch, sha: env.VERCEL_GIT_COMMIT_SHA || "" };
+  const vercel = vercelGitState(env);
+  if (vercel) {
+    assertTrustedMain(vercel, "Vercel Git");
+    return { source: "vercel-git", branch: vercel.branch, sha: vercel.sha };
   }
 
   const local = localGitState(cwd);
@@ -75,4 +84,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { MAX_PROOF_AGE_MS, PROOF_FILE, assertTrustedMain, localGitState, readCliProof, verifyProductionSource };
+module.exports = { MAX_PROOF_AGE_MS, PROOF_FILE, assertTrustedMain, localGitState, readCliProof, vercelGitState, verifyProductionSource };
