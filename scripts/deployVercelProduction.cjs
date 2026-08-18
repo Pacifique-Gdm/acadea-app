@@ -8,6 +8,14 @@ function resolveNpxCommand(platform = process.platform) {
   return platform === "win32" ? "npx.cmd" : "npx";
 }
 
+function resolveVercelInvocation(cwd = process.cwd(), platform = process.platform) {
+  try {
+    return { command: process.execPath, argsPrefix: [require.resolve("vercel/dist/vc.js", { paths: [cwd] })] };
+  } catch {
+    return { command: resolveNpxCommand(platform), argsPrefix: ["vercel"] };
+  }
+}
+
 function deployProduction({ cwd = process.cwd(), env = process.env, platform = process.platform, spawn = spawnSync } = {}) {
   const state = localGitState(cwd);
   if (!state) throw new Error("Production deployment blocked: local Git metadata is unavailable.");
@@ -18,7 +26,8 @@ function deployProduction({ cwd = process.cwd(), env = process.env, platform = p
   const proofPath = join(cwd, PROOF_FILE);
   writeFileSync(proofPath, `${JSON.stringify({ version: 1, target: "production", branch: state.branch, head: state.head, originMain: state.originMain, generatedAt: new Date().toISOString() })}\n`, { flag: "wx" });
   try {
-    const runVercel = (args) => spawn(resolveNpxCommand(platform), ["vercel", ...args], {
+    const invocation = resolveVercelInvocation(cwd, platform);
+    const runVercel = (args) => spawn(invocation.command, [...invocation.argsPrefix, ...args], {
       cwd,
       stdio: "inherit",
       env,
@@ -44,4 +53,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { deployProduction, resolveNpxCommand };
+module.exports = { deployProduction, resolveNpxCommand, resolveVercelInvocation };

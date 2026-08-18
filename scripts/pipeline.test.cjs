@@ -4,7 +4,7 @@ const { resolveNpmCommand, runVercelBuild } = require("./buildVercelEnvironment.
 const { verifyVercelProject } = require("./verifyVercelProject.cjs");
 const { deploymentPlan } = require("./deploymentPlan.cjs");
 const { verifyProductionSource, vercelGitState } = require("./verifyProductionBranch.cjs");
-const { resolveNpxCommand } = require("./deployVercelProduction.cjs");
+const { resolveNpxCommand, resolveVercelInvocation } = require("./deployVercelProduction.cjs");
 
 test("resolves npm command per platform", () => {
   assert.equal(resolveNpmCommand("win32"), "npm.cmd");
@@ -57,6 +57,12 @@ test("Vercel Git proof requires an official commit SHA", () => {
 test("production Vercel runner resolves a direct npx executable", () => {
   assert.equal(resolveNpxCommand("win32"), "npx.cmd");
   assert.equal(resolveNpxCommand("linux"), "npx");
+});
+
+test("production Vercel runner prefers the local JS CLI without a shell", () => {
+  const invocation = resolveVercelInvocation(process.cwd(), "win32");
+  assert.equal(invocation.command, process.execPath);
+  assert.match(invocation.argsPrefix[0], /vercel[\\/]dist[\\/]vc\.js$/);
 });
 
 test("production branch guard fails closed without branch evidence", () => {
