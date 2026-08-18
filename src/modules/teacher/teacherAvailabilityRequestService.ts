@@ -1,5 +1,7 @@
-import { collection, doc, onSnapshot, query, setDoc, where, type Firestore } from "@firebase/firestore";
+import { collection, onSnapshot, query, where, type Firestore } from "@firebase/firestore";
 import { db } from "../../firebase";
+import { resolveApiUrl } from "../../config/apiUrl";
+import { getCurrentFirebaseIdToken } from "../../services/auth";
 import type { AppUser } from "../../types";
 import type { TeacherAvailabilityRequest, AvailabilityRequestType } from "../studies/teacherAvailabilityRequests";
 import { validateAvailabilityRequest } from "../studies/teacherAvailabilityRequests";
@@ -17,6 +19,9 @@ export async function createAvailabilityRequest(input: { user: AppUser; schoolId
   const slot = input.requestType === "FULL_DAY" ? "full-day" : `${input.startTime}-${input.endTime}`.replace(/:/g, "");
   const id = `${input.schoolId}__${input.schoolYearId}__${input.teacherId}__${input.requestedDate}__${slot}`; const now = new Date().toISOString();
   const payload: TeacherAvailabilityRequest = { id, schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, userId: input.user.id, requestedDate: input.requestedDate, requestType: input.requestType, ...(input.requestType === "TIME_RANGE" ? { startTime: input.startTime, endTime: input.endTime } : {}), reason: input.reason.trim(), status: "PENDING", createdAt: now, createdBy: input.user.id };
-  await setDoc(doc(db as unknown as Firestore, "teacherAvailabilityRequests", id), payload);
-  return payload;
+  const token = await getCurrentFirebaseIdToken();
+  const response = await fetch(resolveApiUrl("/api/manage-teacher-availability-request"), { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ action: "CREATE", request: payload }) });
+  const result = await response.json().catch(() => ({})) as { error?: string; request?: TeacherAvailabilityRequest };
+  if (!response.ok || !result.request) throw new Error(result.error || "Création de la demande impossible.");
+  return result.request;
 }

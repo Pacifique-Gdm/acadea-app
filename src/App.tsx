@@ -873,6 +873,7 @@ export default function App() {
       user={user}
       school={currentSchool}
       year={currentYear}
+      appData={data}
       refreshToken={dataRefreshToken}
       onLogout={logout}
       renderEnvironmentBanner={() => <EnvironmentBanner />}

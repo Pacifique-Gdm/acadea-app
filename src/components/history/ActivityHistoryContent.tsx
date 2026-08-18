@@ -15,7 +15,7 @@ export function ActivityHistoryContent({
   user: AppUser;
   data: AppData;
   yearData: ActivityHistoryYearData;
-  role: "admin" | "cashier" | "parent" | "secretary";
+  role: "admin" | "cashier" | "parent" | "secretary" | "teacher" | "study_director";
   loading?: boolean;
   error?: string;
 }) {

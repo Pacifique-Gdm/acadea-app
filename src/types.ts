@@ -329,7 +329,7 @@ export interface AppNotification {
   audienceParentIds?: string[];
   audienceSchoolWide?: boolean;
   schoolRecipient?: "admin" | "cashier" | "discipline" | "both";
-  type: "payment" | "message" | "valve" | "attendance";
+  type: "payment" | "message" | "valve" | "attendance" | "availability";
   module?: "payments" | "attendance" | "discipline" | "announcements";
   event?: "payment_recorded" | "student_absent" | "student_late" | "discipline_incident_created" | "announcement_published";
   destination?: "/dashboard";
