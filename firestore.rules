@@ -28,6 +28,33 @@ service cloud.firestore {
       return signedIn() && role() == "super_admin";
     }
 
+    function coordinator() {
+      return signedIn()
+        && role() == "coordination_admin"
+        && request.auth.token.coordinationId is string;
+    }
+
+    function coordinatorOwnsCoordination(coordinationId) {
+      return coordinator() && coordinationId == request.auth.token.coordinationId
+        && exists(/databases/$(database)/documents/coordinations/$(coordinationId))
+        && get(/databases/$(database)/documents/coordinations/$(coordinationId)).data.status == "active";
+    }
+
+    function coordinatorSchool(schoolId) {
+      return coordinatorOwnsCoordination(request.auth.token.coordinationId)
+        && exists(/databases/$(database)/documents/coordinationSchools/$(request.auth.token.coordinationId + "__" + schoolId))
+        && get(/databases/$(database)/documents/coordinationSchools/$(request.auth.token.coordinationId + "__" + schoolId)).data.schoolId == schoolId
+        && get(/databases/$(database)/documents/coordinationSchools/$(request.auth.token.coordinationId + "__" + schoolId)).data.active == true;
+    }
+
+    function schoolUnderActiveCoordination(schoolId) {
+      return exists(/databases/$(database)/documents/schools/$(schoolId))
+        && get(/databases/$(database)/documents/schools/$(schoolId)).data.get("activeCoordinationId", null) is string
+        && get(/databases/$(database)/documents/schools/$(schoolId)).data.get("activeCoordinationId", "").size() > 0
+        && exists(/databases/$(database)/documents/coordinations/$(get(/databases/$(database)/documents/schools/$(schoolId)).data.get("activeCoordinationId", "")))
+        && get(/databases/$(database)/documents/coordinations/$(get(/databases/$(database)/documents/schools/$(schoolId)).data.get("activeCoordinationId", ""))).data.status == "active";
+    }
+
     function billingControlsShape() {
       return request.resource.data.keys().hasOnly(["valvesUploadsEnabled", "reason", "updatedAt", "updatedBy"])
         && request.resource.data.valvesUploadsEnabled is bool
@@ -351,6 +378,8 @@ service cloud.firestore {
         && schoolId == tenantSchoolId()
         && request.resource.data.id == resource.data.id
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["aiAssistant"])
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["activeSchoolYearId"])
+          || !schoolUnderActiveCoordination(schoolId))
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           "name",
           "motto",
@@ -424,7 +453,7 @@ service cloud.firestore {
     }
 
     match /schools/{schoolId} {
-      allow read: if superAdmin() || (schoolUser() && schoolId == tenantSchoolId()) || (disciplineDirector() && schoolId == tenantSchoolId()) || (studyDirector() && schoolId == tenantSchoolId()) || (activeTeacher() && schoolId == tenantSchoolId());
+      allow read: if superAdmin() || coordinatorSchool(schoolId) || (schoolUser() && schoolId == tenantSchoolId()) || (disciplineDirector() && schoolId == tenantSchoolId()) || (studyDirector() && schoolId == tenantSchoolId()) || (activeTeacher() && schoolId == tenantSchoolId());
       allow create: if superAdmin();
       allow update: if superAdminAiAssistantUpdate() || schoolSettingsUpdate(schoolId) || secretarySchoolOptionsUpdate(schoolId);
       allow delete: if superAdmin();
@@ -436,6 +465,7 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if superAdmin()
+        || (coordinator() && coordinatorSchool(resource.data.schoolId))
         || (signedIn() && request.auth.uid == userId)
         || (schoolAdmin()
           && resource.data.schoolId == tenantSchoolId()
@@ -482,9 +512,9 @@ service cloud.firestore {
     }
 
     match /schoolYears/{yearId} {
-      allow read: if superAdmin() || sameTenantResource() || disciplineTenantResource() || (studyDirector() && resource.data.schoolId == tenantSchoolId()) || teacherTenantResource();
-      allow create: if schoolAdmin() && sameTenantCreate();
-      allow update: if schoolAdmin() && sameTenantUpdate() && sameYearUpdate();
+      allow read: if superAdmin() || coordinatorSchool(resource.data.schoolId) || sameTenantResource() || disciplineTenantResource() || (studyDirector() && resource.data.schoolId == tenantSchoolId()) || teacherTenantResource();
+      allow create: if schoolAdmin() && sameTenantCreate() && !schoolUnderActiveCoordination(tenantSchoolId());
+      allow update: if schoolAdmin() && sameTenantUpdate() && sameYearUpdate() && !schoolUnderActiveCoordination(tenantSchoolId());
       allow delete: if false;
     }
 
@@ -506,6 +536,7 @@ service cloud.firestore {
 
     match /students/{studentId} {
       allow read: if superAdmin()
+        || coordinatorSchool(resource.data.schoolId)
         || (role() in ["school_admin", "cashier", "secretary"] && sameTenantResource())
         || (studyTenantResource() && (studyDirectorHasNoSectionScope() || (("section" in resource.data) && studyDirectorSectionAllowed(resource.data.section))))
         || (disciplineTenantResource() && ((!("sectionIds" in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
@@ -532,6 +563,7 @@ service cloud.firestore {
 
     match /payments/{paymentId} {
       allow read: if superAdmin()
+        || coordinatorSchool(resource.data.schoolId)
         || (role() in ["school_admin", "cashier", "secretary"] && sameTenantResource())
         || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.parentId == tenantParentId());
       // Financial mutations are performed exclusively by the authenticated
@@ -540,7 +572,7 @@ service cloud.firestore {
     }
 
     match /expenses/{expenseId} {
-      allow read: if superAdmin() || role() in ["school_admin", "cashier"] && sameTenantResource();
+      allow read: if superAdmin() || coordinatorSchool(resource.data.schoolId) || role() in ["school_admin", "cashier"] && sameTenantResource();
       allow create, update, delete: if false;
     }
 
@@ -554,14 +586,27 @@ service cloud.firestore {
 
     match /auditLogs/{auditLogId} {
       allow read: if superAdmin()
+        || (coordinator() && resource.data.coordinationId == request.auth.token.coordinationId)
+        || (coordinator() && resource.data.schoolId is string && coordinatorSchool(resource.data.schoolId))
         || schoolAdmin() && sameTenantResource()
         || secretary() && sameTenantResource() && resource.data.actorId == request.auth.uid
         || activeCashier() && sameTenantResource() && resource.data.actorId == request.auth.uid;
       allow create, update, delete: if false;
     }
 
+    match /coordinations/{coordinationId} {
+      allow read: if superAdmin() || coordinatorOwnsCoordination(coordinationId);
+      allow create, update, delete: if superAdmin();
+    }
+
+    match /coordinationSchools/{relationId} {
+      allow read: if superAdmin() || (coordinator() && resource.data.coordinationId == request.auth.token.coordinationId && resource.data.active == true);
+      allow create, update, delete: if superAdmin();
+    }
+
     match /personnelProfiles/{personnelId} {
       allow read: if superAdmin()
+        || coordinatorSchool(resource.data.schoolId)
         || (schoolAdmin() && (
           (exists(/databases/$(database)/documents/personnelProfiles/$(personnelId))
             && resource.data.schoolId == tenantSchoolId())
@@ -621,7 +666,7 @@ service cloud.firestore {
     }
 
     match /feeTypes/{feeTypeId} {
-      allow read: if superAdmin() || sameTenantResource();
+      allow read: if superAdmin() || coordinatorSchool(resource.data.schoolId) || sameTenantResource();
       allow create: if schoolAdmin() && activeTenantYearCreate();
       allow update: if schoolAdmin() && activeTenantYearUpdate();
       allow delete: if schoolAdmin() && sameTenantResource()
@@ -1119,6 +1164,9 @@ service cloud.firestore {
 
     match /messages/{messageId} {
       allow read: if superAdmin()
+        || (coordinatorSchool(resource.data.schoolId)
+          && resource.data.participantIds is list
+          && request.auth.uid in resource.data.participantIds)
         || (schoolAdmin() && sameTenantResource()
           && (resource.data.schoolRecipient in ["admin", "both"] || request.auth.uid in resource.data.participantIds))
         || (signedIn() && role() == "cashier" && sameTenantResource()
@@ -1145,6 +1193,9 @@ service cloud.firestore {
 
     match /conversations/{conversationId} {
       allow read: if superAdmin()
+        || (coordinatorSchool(resource.data.schoolId)
+          && resource.data.participantIds is list
+          && request.auth.uid in resource.data.participantIds)
         || (schoolAdmin() && sameTenantResource()
           && (resource.data.schoolRecipient in ["admin", "both"] || request.auth.uid in resource.data.participantIds))
         || (signedIn() && role() == "cashier" && sameTenantResource()
@@ -1211,6 +1262,8 @@ service cloud.firestore {
 
     match /notifications/{notificationId} {
       allow read: if superAdmin()
+        || (coordinatorSchool(resource.data.schoolId)
+          && resource.data.recipientUserId == request.auth.uid)
         || (role() in ["school_admin", "cashier"] && sameTenantResource()
           && (resource.data.type != "message" || !("recipientUserId" in resource.data) || resource.data.recipientUserId == request.auth.uid))
         || (secretary() && sameTenantResource()

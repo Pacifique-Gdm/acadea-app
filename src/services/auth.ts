@@ -28,6 +28,7 @@ type RawAppUser = Omit<AppUser, "role" | "schoolId"> & {
   tenantId?: string;
   organisationId?: string;
   organizationId?: string;
+  coordinationId?: string;
 };
 
 function assertFirebaseAuthReady() {
@@ -37,7 +38,7 @@ function assertFirebaseAuthReady() {
 }
 
 function isRole(role: unknown): role is AppUser["role"] | "admin" | "superadmin" {
-  return ["super_admin", "school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent", "admin", "superadmin"].includes(String(role));
+  return ["super_admin", "coordination_admin", "school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent", "admin", "superadmin"].includes(String(role));
 }
 
 function normalizeUserProfile(user: RawAppUser): AppUser {
@@ -48,6 +49,7 @@ function normalizeUserProfile(user: RawAppUser): AppUser {
     ...user,
     role: normalizedRole,
     schoolId: normalizedSchoolId,
+    coordinationId: user.coordinationId,
     sectionIds: normalizeSectionIds(user.sectionIds ?? []),
     section: normalizeSectionIds(user.section ? [user.section] : [])[0],
   } as AppUser;
@@ -75,6 +77,9 @@ function resolveFirebaseUserProfile(firebaseUser: FirebaseUser, firestoreDocumen
   if (["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "admin"].includes(String(claims.role)) && typeof claims.schoolId !== "string") {
     throw new Error("Connexion refusée : le Custom Claim schoolId est manquant.");
   }
+  if (claims.role === "coordination_admin" && typeof claims.coordinationId !== "string") {
+    throw new Error("Connexion refusée : le Custom Claim coordinationId est manquant.");
+  }
 
   if (claims.role === "parent" && (typeof claims.schoolId !== "string" || typeof claims.parentId !== "string")) {
     throw new Error("Connexion refusée : les Custom Claims parent sont incomplets.");
@@ -94,6 +99,7 @@ function resolveFirebaseUserProfile(firebaseUser: FirebaseUser, firestoreDocumen
     tenantId: claims.tenantId,
     organisationId: claims.organisationId,
     organizationId: claims.organizationId,
+    coordinationId: claims.coordinationId,
   };
 
   return normalizeUserProfile(rawProfile as RawAppUser);
@@ -247,6 +253,7 @@ export function canEnterRoute(user: AppUser | null, route: string) {
   if (!user) return false;
   if (user.status === "inactive" || user.active === false) return false;
   if (route === "/platform") return user.role === "super_admin";
+  if (route === "/coordination") return user.role === "coordination_admin" && Boolean(user.coordinationId);
   if (route === "/studies") return user.role === "study_director" && Boolean(user.schoolId);
   if (route === "/teacher") return user.role === "teacher" && Boolean(user.schoolId);
   if (route === "/dashboard") return ["school_admin", "cashier", "discipline_director", "secretary"].includes(user.role) && Boolean(user.schoolId);
@@ -286,8 +293,13 @@ export function validatePlatformAdmin(user: AppUser) {
   return user.role === "super_admin";
 }
 
+export function validateCoordinator(user: AppUser) {
+  return user.role === "coordination_admin" && Boolean(user.coordinationId) && user.status !== "inactive" && user.active !== false;
+}
+
 export function getDefaultRoute(role: Role) {
   if (role === "super_admin") return "/platform";
+  if (role === "coordination_admin") return "/coordination";
   if (role === "study_director") return "/studies";
   if (role === "teacher") return "/teacher";
   return "/dashboard";

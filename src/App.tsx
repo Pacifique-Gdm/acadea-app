@@ -1,5 +1,5 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff, validateSecretary, validateStudyDirector, validateTeacher } from "./services/auth";
+import { getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateCoordinator, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff, validateSecretary, validateStudyDirector, validateTeacher } from "./services/auth";
 import { AccessDenied } from "./components/auth/AccessDenied";
 import { ActivityHistoryContent } from "./components/history/ActivityHistoryContent";
 import { LoginScreen } from "./components/auth/LoginScreen";
@@ -25,6 +25,7 @@ import { ParentPortal } from "./modules/parent/ParentPortal";
 import { SecretaryPortal } from "./modules/secretary/SecretaryPortal";
 import { StudyDirectorPortal } from "./modules/studies/StudyDirectorPortal";
 import { TeacherPortal } from "./modules/teacher/TeacherPortal";
+import { CoordinationPortal } from "./modules/coordination/CoordinationPortal";
 import { PublishedTimetableDrawerEntry } from "./modules/studies/PublishedTimetableReadOnly";
 import { canReadPublishedTimetable } from "./modules/studies/publishedTimetableService";
 import { SecretaryCorrespondenceModule } from "./modules/secretary/SecretaryCorrespondenceModule";
@@ -78,6 +79,7 @@ type BeforeInstallPromptEvent = Event & {
 
 const roleLabels: Record<AppUser["role"], string> = {
   super_admin: "Super Administrateur",
+  coordination_admin: "Coordinateur",
   school_admin: "Administrateur d'école",
   cashier: "Caissier",
   discipline_director: "Directeur de Discipline",
@@ -154,7 +156,7 @@ async function applyPlatformLogoAssets() {
 function getInitialRoute() {
   if (typeof window === "undefined") return "/login";
   const path = window.location.pathname;
-  return path === "/platform" ? "/platform" : "/login";
+  return path === "/platform" || path === "/coordination" ? path : "/login";
 }
 
 function isStandaloneDisplayMode() {
@@ -746,6 +748,11 @@ export default function App() {
         schoolTabLabel={schoolTabLabel}
       />
     );
+  }
+
+  if (route === "/coordination") {
+    if (!validateCoordinator(user)) return <AccessDenied onLogout={logout} />;
+    return <CoordinationPortal user={user} onLogout={logout} />;
   }
 
   if (dataLoading) {

@@ -1,4 +1,4 @@
-export type Role = "super_admin" | "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher" | "parent";
+export type Role = "super_admin" | "coordination_admin" | "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher" | "parent";
 
 export type SchoolClass =
   | "Maternelle 1"
@@ -28,6 +28,7 @@ export interface AppUser {
   name: string;
   email: string;
   role: Role;
+  coordinationId?: string;
   schoolId?: string;
   /** Périmètre métier facultatif pour compatibilité avec les comptes historiques. */
   section?: SchoolSection;
@@ -70,6 +71,7 @@ export interface School {
   updatedAt?: string;
   updatedBy?: string;
   activeSchoolYearId: string;
+  activeCoordinationId?: string | null;
   status: "active" | "suspended" | "inactive" | "deleting";
   deletion?: {
     status: "running" | "failed";
@@ -206,6 +208,36 @@ export interface SchoolClassRecord {
   subClassLabel?: string;
 }
 
+export interface Coordination {
+  id: string;
+  name: string;
+  code?: string;
+  status: "active" | "inactive" | "archived";
+  logoUrl?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  principalCoordinatorUserId?: string;
+  referenceSchoolYear?: string;
+  createdAt?: string;
+  createdBy?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+  archivedAt?: string;
+  archivedBy?: string;
+}
+
+export interface CoordinationSchool {
+  id: string;
+  coordinationId: string;
+  schoolId: string;
+  active: boolean;
+  addedAt: string;
+  addedBy: string;
+  removedAt?: string;
+  removedBy?: string;
+}
+
 export interface PersonnelProfile {
   id: string;
   schoolId: string;
@@ -265,7 +297,7 @@ export interface Message {
   schoolYearId: string;
   senderId: string;
   senderName?: string;
-  senderRole?: "parent" | "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher";
+  senderRole?: "parent" | "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher" | "coordination_admin";
   participantIds?: string[];
   recipientIds?: string[];
   recipientParentId: string | "all" | "school";

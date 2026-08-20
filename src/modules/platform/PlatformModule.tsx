@@ -20,6 +20,7 @@ import type { SchoolLevelChoice } from "../../utils/schoolConfig";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import { isArchivedStudent } from "../../utils/studentUtils";
 import { canonicalSchoolOption, normalizeSchoolOptions } from "../../utils/schoolOptions";
+import { CoordinationManagement } from "./CoordinationManagement";
 import type { AppData, AppUser, AuditLog, BiometricTerminal, BiometricTerminalStatus, School, SchoolClass } from "../../types";
 import { CLASSES } from "../../types";
 
@@ -68,7 +69,7 @@ export function PlatformModule({
   roleLabels: Record<AppUser["role"], string>;
   schoolTabLabel: (tab: "overview" | "info" | "admins" | "history") => string;
 }) {
-  type PlatformView = "dashboard" | "students" | "menu";
+  type PlatformView = "dashboard" | "students" | "coordinations" | "menu";
   type SchoolDetailTab = "overview" | "info" | "admins" | "history";
   type SchoolSort = "az" | "recent" | "users";
   const removedSchoolOptions = new Set<string>();
@@ -867,6 +868,7 @@ export function PlatformModule({
   const platformTabs = [
     { id: "dashboard" as const, label: "Dashboard", icon: LayoutDashboard },
     { id: "students" as const, label: "Écoles", icon: Building2 },
+    { id: "coordinations" as const, label: "Coordinations", icon: UsersRound },
     { id: "menu" as const, label: "Menu", icon: MenuIcon },
   ];
 
@@ -1072,6 +1074,10 @@ export function PlatformModule({
             </section>
           )}
 
+          {platformView === "coordinations" && (
+            <CoordinationManagement schools={visibleSchools} />
+          )}
+
           {platformView === "menu" && (
             <section className="grid min-w-0 gap-4">
               <div className="grid min-w-0 gap-3">
@@ -1121,7 +1127,7 @@ export function PlatformModule({
       </div>
 
       <nav className="fixed inset-x-0 bottom-0 z-40 max-w-full overflow-hidden border-t border-slate-200 bg-white/95 px-1 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur sm:px-2">
-        <div className={`mx-auto grid w-full max-w-lg ${showInstallButton ? "grid-cols-4" : "grid-cols-3"} gap-1`}>
+        <div className={`mx-auto grid w-full max-w-2xl ${showInstallButton ? "grid-cols-5" : "grid-cols-4"} gap-1`}>
           {platformTabs.map((tab) => {
             const Icon = tab.icon;
             const active = platformView === tab.id;

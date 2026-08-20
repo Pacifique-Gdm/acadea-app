@@ -145,6 +145,8 @@ export function MenuModule({
   const [teacherAccountsError, setTeacherAccountsError] = useState("");
   const isArchivedContext = selectedYear.status === "archived";
   const canAdmin = user.role === "school_admin" && !isArchivedContext;
+  const yearManagementLocked = Boolean(school.activeCoordinationId);
+  const canManageYears = canAdmin && !yearManagementLocked;
   const menuSections = [
     { id: "valves", title: "Valves", description: "Communiqués, palmarès, points, images et documents.", icon: BookOpen },
     { id: "medicalRecords", title: "Fiches médicales", description: "Création, consultation et suivi des fiches médicales des élèves.", icon: HeartPulse },
@@ -330,6 +332,7 @@ export function MenuModule({
   }
 
   function activateYear(yearId: string) {
+    if (yearManagementLocked) return;
     updateData({
       schools: data.schools.map((item) => (item.id === school.id ? { ...item, activeSchoolYearId: yearId } : item)),
       schoolYears: data.schoolYears.map((year) =>
@@ -341,10 +344,12 @@ export function MenuModule({
   }
 
   function archiveYear(yearId: string) {
+    if (yearManagementLocked) return;
     updateData({ schoolYears: data.schoolYears.map((year) => (year.id === yearId ? { ...year, status: "archived" } : year)) });
   }
 
   function openYearAction(type: "activate" | "archive", yearId: string) {
+    if (yearManagementLocked) return;
     setYearActionConfirmation("");
     setYearActionError("");
 
@@ -373,7 +378,7 @@ export function MenuModule({
   }
 
   function confirmYearAction() {
-    if (!yearAction) return;
+    if (!yearAction || yearManagementLocked) return;
 
     const expectedConfirmation = yearAction.type === "archive" ? "ARCHIVER ECOLE" : "ACTIVER ECOLE";
     if (yearActionConfirmation !== expectedConfirmation) return;
@@ -401,6 +406,7 @@ export function MenuModule({
   }
 
   function openNewYearForm() {
+    if (yearManagementLocked) return;
     const defaults = nextSchoolYearDefaults(years.find((year) => year.status === "active") ?? selectedYear);
     setNewYearForm(defaults);
     setNewYearConfirmation("");
@@ -409,6 +415,7 @@ export function MenuModule({
   }
 
   function createNewSchoolYear() {
+    if (yearManagementLocked) return;
     setNewYearError("");
     if (newYearConfirmation !== "CREER UNE NOUVELLE ANNEE") {
       setNewYearError("Veuillez saisir exactement CREER UNE NOUVELLE ANNEE pour confirmer.");
@@ -786,12 +793,17 @@ export function MenuModule({
     if (sectionId === "years") {
       return (
         <div className="grid min-w-0 gap-4">
+          {yearManagementLocked && (
+            <p className="rounded border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-800">
+              La gestion des années scolaires est assurée par votre Coordination. La consultation reste disponible.
+            </p>
+          )}
           {isArchivedContext && (
             <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">
               Vous consultez une année scolaire archivée en lecture seule. Revenez à l'année active pour créer ou modifier des données.
             </p>
           )}
-          {canAdmin && (
+          {canManageYears && (
             <div className="flex justify-end">
               <button onClick={openNewYearForm} type="button" className="primary-button shadow-sm">
                 <Plus className="h-4 w-4" /> Nouvelle année
@@ -799,7 +811,7 @@ export function MenuModule({
             </div>
           )}
           {yearActionError && !yearAction && <p role="alert" aria-live="assertive" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{yearActionError}</p>}
-          {newYearOpen && canAdmin && (
+          {newYearOpen && canManageYears && (
             <div className="grid min-w-0 gap-3 rounded border border-amber-200 bg-amber-50 p-4">
               <div className="min-w-0">
                 <p className="font-bold text-ink">Créer une nouvelle année scolaire</p>
@@ -842,7 +854,7 @@ export function MenuModule({
                 <div>
                   <p className="text-xs font-medium capitalize text-slate-500">{year.status}</p>
                 </div>
-                {canAdmin && (
+                {canManageYears && (
                   <div className="flex flex-wrap gap-2">
                     <button onClick={() => openYearAction("activate", year.id)} className="rounded bg-mint px-3 py-2 text-xs font-semibold text-white" type="button">Activer</button>
                     {year.status !== "archived" && <button onClick={() => openYearAction("archive", year.id)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700" type="button">Archiver</button>}

@@ -10,6 +10,12 @@ describe("autorisations par rôle", () => {
     expect(getDefaultRoute("super_admin")).toBe("/platform");
   });
 
+  it("réserve la route Coordination au rôle coordination_admin avec coordinationId", () => {
+    expect(canEnterRoute({ role: "coordination_admin", coordinationId: "coord-a" } as AppUser, "/coordination")).toBe(true);
+    expect(canEnterRoute({ role: "coordination_admin" } as AppUser, "/coordination")).toBe(false);
+    expect(canEnterRoute({ role: "school_admin", schoolId: "school-a" } as AppUser, "/coordination")).toBe(false);
+  });
+
   it("exige le schoolId pour le portail école", () => {
     expect(canEnterRoute({ role: "cashier", schoolId: "school-a" } as AppUser, "/dashboard")).toBe(true);
     expect(canEnterRoute({ role: "cashier" } as AppUser, "/dashboard")).toBe(false);
