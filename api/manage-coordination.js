@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { firebaseAdminPublicError, initAdmin } from "./_lib/firebaseAdmin.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
+import { coordinationHttpError, requireActiveCoordinator } from "./_lib/coordination.js";
 
 export const maxDuration = 300;
 
@@ -13,13 +14,16 @@ async function body(req) {
   return chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
 }
 
-async function requireSuperAdmin(req) {
+function bearerToken(req) {
   const token = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : "";
   if (!token) throw Object.assign(new Error("Authentification requise."), { statusCode: 401, code: "unauthenticated" });
-  const { auth, db } = initAdmin();
+  return token;
+}
+
+async function requireSuperAdmin(auth, token) {
   const caller = await auth.verifyIdToken(token, true);
   if (caller.role !== "super_admin") throw Object.assign(new Error("Action réservée au Super Administrateur."), { statusCode: 403, code: "permission-denied" });
-  return { auth, db, caller };
+  return caller;
 }
 
 function validateSchoolIds(value) {
@@ -38,12 +42,141 @@ async function activeCoordinationRelations(db, schoolIds) {
   return relations;
 }
 
+const SUB_COORDINATION_ACTIONS = new Set(["create-sub-coordination", "add-sub-school", "remove-sub-school", "transfer-sub-school", "archive-sub-coordination", "reactivate-sub-coordination"]);
+
+function validateOptionalSchoolIds(value) {
+  if (!Array.isArray(value) || value.length > 100) throw coordinationHttpError(400, "invalid-argument", "Sélection d'écoles invalide.");
+  const ids = [...new Set(value.map(text).filter(Boolean))];
+  if (ids.length !== value.length) throw coordinationHttpError(400, "invalid-argument", "Les écoles doivent être sélectionnées une seule fois.");
+  return ids;
+}
+
+function auditPayload({ id, eventType, caller, coordinationId, subCoordinationId, schoolId, action, now, metadata }) {
+  return { id, eventType, coordinationId, subCoordinationId, ...(schoolId ? { schoolId } : {}), actorId: caller.uid, actorRole: caller.role, actorName: caller.profile?.name ?? caller.name ?? "Coordinateur", action, result: "success", resourceType: "subCoordination", resourceId: subCoordinationId, source: "server", createdAt: now, ...(metadata ? { metadata } : {}) };
+}
+
+async function loadActiveSubAssignments(transaction, db, coordinationId) {
+  const snapshot = await transaction.get(db.collection("subCoordinationSchools").where("coordinationId", "==", coordinationId));
+  return snapshot.docs.map((item) => ({ id: item.id, ref: item.ref, ...item.data() })).filter((item) => item.active === true);
+}
+
+async function validateMainSchoolRelations(transaction, db, coordinationId, schoolIds) {
+  const rows = [];
+  for (const schoolId of schoolIds) {
+    const [relation, school] = await Promise.all([
+      transaction.get(db.doc(`coordinationSchools/${coordinationId}__${schoolId}`)),
+      transaction.get(db.doc(`schools/${schoolId}`)),
+    ]);
+    if (!relation.exists || relation.data()?.active !== true || relation.data()?.coordinationId !== coordinationId || relation.data()?.schoolId !== schoolId || !school.exists || school.data()?.status !== "active") {
+      throw coordinationHttpError(403, "school-outside-coordination", "Une école n'appartient pas activement à cette Coordination.");
+    }
+    rows.push({ schoolId, relation, school });
+  }
+  return rows;
+}
+
+async function manageSubCoordination({ res, auth, db, token, input, action }) {
+  const caller = await requireActiveCoordinator(auth, db, token);
+  await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.coordinationId, action: `coordination.${action}`, ...API_RATE_LIMITS.PROVISION_SCHOOL });
+  const now = new Date().toISOString();
+
+  if (action === "create-sub-coordination") {
+    const identity = input.coordinator ?? {};
+    const lastName = text(identity.lastName);
+    const middleName = text(identity.middleName);
+    const firstName = text(identity.firstName);
+    const name = [lastName, middleName, firstName].filter(Boolean).join(" ");
+    const phone = text(identity.phone);
+    const email = text(identity.email).toLowerCase();
+    const password = text(identity.password);
+    const circumscription = text(input.circumscription);
+    const schoolIds = validateOptionalSchoolIds(input.schoolIds);
+    if (!name || !phone || !email || !email.includes("@") || password.length < 6 || !circumscription) throw coordinationHttpError(400, "invalid-argument", "Identité, téléphone, e-mail, mot de passe et Circonscription sont requis.");
+    const subCoordinationRef = db.collection("subCoordinations").doc();
+    const authUser = await auth.createUser({ email, password, displayName: name, disabled: false });
+    try {
+      await auth.setCustomUserClaims(authUser.uid, { role: "sub_coordination_admin", coordinationId: caller.coordinationId, subCoordinationId: subCoordinationRef.id });
+      await db.runTransaction(async (transaction) => {
+        await validateMainSchoolRelations(transaction, db, caller.coordinationId, schoolIds);
+        const activeAssignments = await loadActiveSubAssignments(transaction, db, caller.coordinationId);
+        if (activeAssignments.some((relation) => schoolIds.includes(relation.schoolId))) throw coordinationHttpError(409, "school-already-delegated", "Une école est déjà attribuée à une autre Sous-coordination active.");
+        transaction.create(subCoordinationRef, { id: subCoordinationRef.id, coordinationId: caller.coordinationId, coordinatorUserId: authUser.uid, circumscription, status: "active", active: true, createdAt: now, createdBy: caller.uid, updatedAt: now, updatedBy: caller.uid, archivedAt: null, archivedBy: null, reactivatedAt: null, reactivatedBy: null });
+        transaction.create(db.doc(`users/${authUser.uid}`), { id: authUser.uid, name, lastName, middleName: middleName || null, firstName: firstName || null, phone, email, role: "sub_coordination_admin", coordinationId: caller.coordinationId, subCoordinationId: subCoordinationRef.id, status: "active", active: true, createdAt: now, createdBy: caller.uid, updatedAt: now, updatedBy: caller.uid });
+        for (const schoolId of schoolIds) transaction.set(db.doc(`subCoordinationSchools/${subCoordinationRef.id}__${schoolId}`), { id: `${subCoordinationRef.id}__${schoolId}`, coordinationId: caller.coordinationId, subCoordinationId: subCoordinationRef.id, schoolId, active: true, addedAt: now, addedBy: caller.uid, removedAt: null, removedBy: null });
+        const auditRef = db.collection("auditLogs").doc();
+        transaction.create(auditRef, auditPayload({ id: auditRef.id, eventType: "subCoordination.created", caller, coordinationId: caller.coordinationId, subCoordinationId: subCoordinationRef.id, action: "Création Sous-coordination", now, metadata: { schoolCount: schoolIds.length, coordinatorUserId: authUser.uid } }));
+      });
+    } catch (error) {
+      await auth.deleteUser(authUser.uid).catch(() => undefined);
+      throw error;
+    }
+    return sendJson(res, 200, { subCoordination: { id: subCoordinationRef.id, coordinationId: caller.coordinationId, coordinatorUserId: authUser.uid, circumscription, status: "active", active: true }, coordinator: { id: authUser.uid, name, email, role: "sub_coordination_admin", coordinationId: caller.coordinationId, subCoordinationId: subCoordinationRef.id }, schoolIds });
+  }
+
+  const subCoordinationId = text(input.subCoordinationId);
+  if (!subCoordinationId) throw coordinationHttpError(400, "invalid-argument", "subCoordinationId requis.");
+  const subRef = db.doc(`subCoordinations/${subCoordinationId}`);
+  const subSnapshot = await subRef.get();
+  const sub = subSnapshot.exists ? subSnapshot.data() : undefined;
+  if (!sub || sub.coordinationId !== caller.coordinationId) throw coordinationHttpError(404, "not-found", "Sous-coordination introuvable.");
+
+  if (action === "archive-sub-coordination" || action === "reactivate-sub-coordination") {
+    const archive = action === "archive-sub-coordination";
+    if ((archive && sub.active === false) || (!archive && sub.active === true)) return sendJson(res, 200, { subCoordinationId, active: !archive, idempotent: true });
+    const authUser = await auth.getUser(sub.coordinatorUserId);
+    if (!archive) await auth.setCustomUserClaims(sub.coordinatorUserId, { role: "sub_coordination_admin", coordinationId: caller.coordinationId, subCoordinationId });
+    await auth.updateUser(sub.coordinatorUserId, { disabled: archive });
+    if (archive) await auth.revokeRefreshTokens(sub.coordinatorUserId);
+    try {
+      const batch = db.batch();
+      batch.update(subRef, archive ? { status: "archived", active: false, archivedAt: now, archivedBy: caller.uid, updatedAt: now, updatedBy: caller.uid } : { status: "active", active: true, archivedAt: null, archivedBy: null, reactivatedAt: now, reactivatedBy: caller.uid, updatedAt: now, updatedBy: caller.uid });
+      batch.update(db.doc(`users/${sub.coordinatorUserId}`), archive ? { status: "inactive", active: false, archivedAt: now, archivedBy: caller.uid, updatedAt: now, updatedBy: caller.uid } : { status: "active", active: true, archivedAt: null, archivedBy: null, reactivatedAt: now, reactivatedBy: caller.uid, updatedAt: now, updatedBy: caller.uid });
+      const auditRef = db.collection("auditLogs").doc();
+      batch.set(auditRef, auditPayload({ id: auditRef.id, eventType: archive ? "subCoordination.archived" : "subCoordination.reactivated", caller, coordinationId: caller.coordinationId, subCoordinationId, action: archive ? "Archivage Sous-coordination" : "Réactivation Sous-coordination", now }));
+      await batch.commit();
+    } catch (error) {
+      await auth.updateUser(sub.coordinatorUserId, { disabled: authUser.disabled }).catch(() => undefined);
+      throw error;
+    }
+    return sendJson(res, 200, { subCoordinationId, active: !archive, idempotent: false });
+  }
+
+  if (action === "add-sub-school" && (sub.active !== true || sub.status !== "active")) throw coordinationHttpError(409, "sub-coordination-inactive", "La Sous-coordination est archivée.");
+  const schoolId = text(input.schoolId);
+  if (!schoolId) throw coordinationHttpError(400, "invalid-argument", "schoolId requis.");
+  const targetId = action === "transfer-sub-school" ? text(input.targetSubCoordinationId) : subCoordinationId;
+  if (action === "transfer-sub-school" && (!targetId || targetId === subCoordinationId)) throw coordinationHttpError(400, "invalid-argument", "Sous-coordination cible invalide.");
+  await db.runTransaction(async (transaction) => {
+    await validateMainSchoolRelations(transaction, db, caller.coordinationId, [schoolId]);
+    const activeAssignments = await loadActiveSubAssignments(transaction, db, caller.coordinationId);
+    const existing = activeAssignments.find((item) => item.schoolId === schoolId);
+    if (action === "add-sub-school" && existing && existing.subCoordinationId !== subCoordinationId) throw coordinationHttpError(409, "school-already-delegated", "Cette école est déjà attribuée à une autre Sous-coordination.");
+    if (action !== "add-sub-school" && (!existing || existing.subCoordinationId !== subCoordinationId)) throw coordinationHttpError(404, "relation-not-found", "Attribution active introuvable.");
+    if (action === "transfer-sub-school") {
+      const targetSnapshot = await transaction.get(db.doc(`subCoordinations/${targetId}`));
+      if (!targetSnapshot.exists || targetSnapshot.data()?.coordinationId !== caller.coordinationId || targetSnapshot.data()?.active !== true) throw coordinationHttpError(404, "target-not-found", "Sous-coordination cible active introuvable.");
+    }
+    if (action === "remove-sub-school" || action === "transfer-sub-school") transaction.update(existing.ref, { active: false, removedAt: now, removedBy: caller.uid });
+    if (action === "add-sub-school" && !existing) transaction.set(db.doc(`subCoordinationSchools/${subCoordinationId}__${schoolId}`), { id: `${subCoordinationId}__${schoolId}`, coordinationId: caller.coordinationId, subCoordinationId, schoolId, active: true, addedAt: now, addedBy: caller.uid, removedAt: null, removedBy: null }, { merge: true });
+    if (action === "add-sub-school" && existing) return;
+    if (action === "transfer-sub-school") transaction.set(db.doc(`subCoordinationSchools/${targetId}__${schoolId}`), { id: `${targetId}__${schoolId}`, coordinationId: caller.coordinationId, subCoordinationId: targetId, schoolId, active: true, addedAt: now, addedBy: caller.uid, removedAt: null, removedBy: null }, { merge: true });
+    const auditRef = db.collection("auditLogs").doc();
+    const eventType = action === "add-sub-school" ? "subCoordination.school.added" : action === "remove-sub-school" ? "subCoordination.school.removed" : "subCoordination.school.transferred";
+    const label = action === "add-sub-school" ? "École ajoutée à la Sous-coordination" : action === "remove-sub-school" ? "École retirée de la Sous-coordination" : "École transférée entre Sous-coordinations";
+    transaction.create(auditRef, auditPayload({ id: auditRef.id, eventType, caller, coordinationId: caller.coordinationId, subCoordinationId, schoolId, action: label, now, metadata: action === "transfer-sub-school" ? { targetSubCoordinationId: targetId } : undefined }));
+  });
+  return sendJson(res, 200, { subCoordinationId, schoolId, active: action === "add-sub-school", ...(action === "transfer-sub-school" ? { targetSubCoordinationId: targetId } : {}) });
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return sendJson(res, 405, { error: "Méthode non autorisée." });
   try {
-    const { auth, db, caller } = await requireSuperAdmin(req);
+    const token = bearerToken(req);
+    const { auth, db } = initAdmin();
     const input = await body(req);
     const action = text(input.action || "create");
+    if (SUB_COORDINATION_ACTIONS.has(action)) return await manageSubCoordination({ res, auth, db, token, input, action });
+    const caller = await requireSuperAdmin(auth, token);
     await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: "platform", action: `coordination.${action}`, ...API_RATE_LIMITS.PROVISION_SCHOOL });
     const now = new Date().toISOString();
     if (action === "create") {
@@ -101,7 +234,9 @@ export default async function handler(req, res) {
     throw Object.assign(new Error("Action invalide."), { statusCode: 400, code: "invalid-argument" });
   } catch (error) {
     if (sendRateLimitError(res, error)) return;
-    const status = Number(error?.statusCode) || 500; const diagnostic = firebaseAdminPublicError(error, "manage-coordination");
-    return sendJson(res, status, { error: diagnostic.message, code: error?.code || diagnostic.code, ...(diagnostic.correlationId ? { correlationId: diagnostic.correlationId } : {}) });
+    const status = Number(error?.statusCode) || 500;
+    if (status < 500) return sendJson(res, status, { error: error.message, code: error?.code || "invalid-request" });
+    const diagnostic = firebaseAdminPublicError(error, "manage-coordination");
+    return sendJson(res, status, { error: diagnostic.message, code: diagnostic.code, ...(diagnostic.correlationId ? { correlationId: diagnostic.correlationId } : {}) });
   }
 }

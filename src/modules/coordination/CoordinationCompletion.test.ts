@@ -10,6 +10,9 @@ const recipientApi = read("api", "coordination-message-recipients.js");
 const yearApi = read("api", "manage-coordination-school-years.js");
 const managementApi = read("api", "manage-coordination.js");
 const readModel = read("src", "services", "coordinationReadModel.ts");
+const subManagement = read("src", "modules", "coordination", "SubCoordinationManagement.tsx");
+const auth = read("src", "services", "auth.ts");
+const rules = read("firestore.rules");
 
 describe("finalisation du module Coordination", () => {
   it("conserve quatre onglets et raccorde Message et les six Drawers du Menu", () => {
@@ -24,7 +27,7 @@ describe("finalisation du module Coordination", () => {
   });
 
   it("revalide côté serveur l'école, le rôle et chaque destinataire", () => {
-    expect(recipientApi).toContain("activeCoordinationSchoolIds");
+    expect(recipientApi).toContain("resolveCoordinationSchoolScope");
     expect(recipientApi).toContain("ALLOWED_ROLES");
     expect(recipientApi).toContain("school-outside-coordination");
     expect(recipientApi).toContain("invalid-recipient");
@@ -45,7 +48,7 @@ describe("finalisation du module Coordination", () => {
     expect(yearApi).toContain("batch.create(yearRef");
     expect(yearApi).toContain("referenceSchoolYear");
     expect(yearApi).toContain('status: "blocked"');
-    expect(yearApi).toContain("activeCoordinationSchoolIds");
+    expect(yearApi).toContain("resolveCoordinationSchoolScope");
     expect(yearApi).not.toContain("input.schoolIds");
   });
 
@@ -80,5 +83,46 @@ describe("finalisation du module Coordination", () => {
     expect(readModel).toContain("limit(500)");
     expect(readModel).toContain("startAfter(cursor)");
     expect(recipientApi).toContain("limit(500)");
+  });
+
+  it("partage le portail avec le Sous-coordinateur sans cinquième onglet", () => {
+    expect(portal).toContain('"sub_coordination_admin"');
+    expect(auth).toContain('role === "sub_coordination_admin"');
+    expect(portal.match(/\["(dashboard|students|messages|menu)"/g)).toHaveLength(4);
+    expect(menu).toContain('user.role === "coordination_admin" ? [["subCoordinations"');
+  });
+
+  it("réutilise les champs et helpers Acadéa pour créer une Sous-coordination", () => {
+    for (const label of ["Nom", "Postnom", "Prénom", "Téléphone", "Email", "Mot de passe temporaire", "Circonscription", "Écoles à superviser"]) expect(subManagement).toContain(label);
+    expect(subManagement).toContain("temporaryPasswordAfterPhoneChange");
+    expect(subManagement).toContain("MultiSelectDropdown");
+    expect(subManagement).toContain("schoolIds.length");
+  });
+
+  it("centralise le périmètre serveur et garde l’année en lecture seule", () => {
+    expect(recipientApi).toContain("resolveCoordinationSchoolScope");
+    expect(yearApi).toContain("requireActiveCoordinationActor");
+    expect(yearApi).toContain('caller.role !== "coordination_admin"');
+    expect(menu).toContain("Consultation uniquement");
+    expect(rules).toContain("function subCoordinator()");
+    expect(rules).toContain("subCoordinationSchools");
+  });
+
+  it("alimente le Dashboard, les élèves, la messagerie et les PDF depuis le même périmètre délégué", () => {
+    expect(portal).toContain('relationCollection = user.role === "sub_coordination_admin" ? "subCoordinationSchools" : "coordinationSchools"');
+    expect(portal).toContain("const activeSchools = useMemo");
+    expect(portal).toContain("const scopedSchools = useMemo");
+    expect(portal).toContain('value: String(scopedSchools.length)');
+    expect(portal).toContain("], visibleStudents");
+    expect(portal).toContain("<CoordinationMessage schools={activeSchools}");
+    expect(portal).toContain("<CoordinationMenu");
+  });
+
+  it("gère création, périmètre, transfert et cycle de vie via l’API existante", () => {
+    for (const action of ["create-sub-coordination", "add-sub-school", "remove-sub-school", "transfer-sub-school", "archive-sub-coordination", "reactivate-sub-coordination"]) expect(managementApi).toContain(action);
+    expect(managementApi).toContain('role: "sub_coordination_admin"');
+    expect(managementApi).toContain("subCoordinationId");
+    expect(managementApi).toContain("transaction.update(existing.ref, { active: false");
+    expect(managementApi).toContain("auth.deleteUser(authUser.uid)");
   });
 });

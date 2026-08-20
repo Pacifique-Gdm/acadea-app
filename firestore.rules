@@ -34,8 +34,19 @@ service cloud.firestore {
         && request.auth.token.coordinationId is string;
     }
 
+    function subCoordinator() {
+      return signedIn()
+        && role() == "sub_coordination_admin"
+        && request.auth.token.coordinationId is string
+        && request.auth.token.subCoordinationId is string;
+    }
+
+    function coordinationActor() {
+      return coordinator() || subCoordinator();
+    }
+
     function coordinatorOwnsCoordination(coordinationId) {
-      return coordinator() && coordinationId == request.auth.token.coordinationId
+      return coordinationActor() && coordinationId == request.auth.token.coordinationId
         && exists(/databases/$(database)/documents/coordinations/$(coordinationId))
         && get(/databases/$(database)/documents/coordinations/$(coordinationId)).data.status == "active";
     }
@@ -44,7 +55,18 @@ service cloud.firestore {
       return coordinatorOwnsCoordination(request.auth.token.coordinationId)
         && exists(/databases/$(database)/documents/coordinationSchools/$(request.auth.token.coordinationId + "__" + schoolId))
         && get(/databases/$(database)/documents/coordinationSchools/$(request.auth.token.coordinationId + "__" + schoolId)).data.schoolId == schoolId
-        && get(/databases/$(database)/documents/coordinationSchools/$(request.auth.token.coordinationId + "__" + schoolId)).data.active == true;
+        && get(/databases/$(database)/documents/coordinationSchools/$(request.auth.token.coordinationId + "__" + schoolId)).data.active == true
+        && (coordinator()
+          || (subCoordinator()
+            && exists(/databases/$(database)/documents/subCoordinations/$(request.auth.token.subCoordinationId))
+            && get(/databases/$(database)/documents/subCoordinations/$(request.auth.token.subCoordinationId)).data.coordinationId == request.auth.token.coordinationId
+            && get(/databases/$(database)/documents/subCoordinations/$(request.auth.token.subCoordinationId)).data.coordinatorUserId == request.auth.uid
+            && get(/databases/$(database)/documents/subCoordinations/$(request.auth.token.subCoordinationId)).data.active == true
+            && get(/databases/$(database)/documents/subCoordinations/$(request.auth.token.subCoordinationId)).data.status == "active"
+            && exists(/databases/$(database)/documents/subCoordinationSchools/$(request.auth.token.subCoordinationId + "__" + schoolId))
+            && get(/databases/$(database)/documents/subCoordinationSchools/$(request.auth.token.subCoordinationId + "__" + schoolId)).data.coordinationId == request.auth.token.coordinationId
+            && get(/databases/$(database)/documents/subCoordinationSchools/$(request.auth.token.subCoordinationId + "__" + schoolId)).data.schoolId == schoolId
+            && get(/databases/$(database)/documents/subCoordinationSchools/$(request.auth.token.subCoordinationId + "__" + schoolId)).data.active == true));
     }
 
     function schoolUnderActiveCoordination(schoolId) {
@@ -465,7 +487,10 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if superAdmin()
-        || (coordinator() && coordinatorSchool(resource.data.schoolId))
+        || (coordinationActor() && coordinatorSchool(resource.data.schoolId))
+        || (coordinator()
+          && resource.data.role == "sub_coordination_admin"
+          && resource.data.coordinationId == request.auth.token.coordinationId)
         || (signedIn() && request.auth.uid == userId)
         || (schoolAdmin()
           && resource.data.schoolId == tenantSchoolId()
@@ -484,7 +509,7 @@ service cloud.firestore {
           && request.resource.data.parentId is string);
       allow update: if signedIn()
         && request.auth.uid == userId
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["id", "role", "schoolId", "parentId", "studentIds", "status", "active", "archivedAt", "archivedBy", "reactivatedAt", "reactivatedBy"]);
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["id", "role", "schoolId", "coordinationId", "subCoordinationId", "parentId", "studentIds", "status", "active", "archivedAt", "archivedBy", "reactivatedAt", "reactivatedBy"]);
       allow delete: if false;
 
       match /pushTokens/{tokenId} {
@@ -587,7 +612,8 @@ service cloud.firestore {
     match /auditLogs/{auditLogId} {
       allow read: if superAdmin()
         || (coordinator() && resource.data.coordinationId == request.auth.token.coordinationId)
-        || (coordinator() && resource.data.schoolId is string && coordinatorSchool(resource.data.schoolId))
+        || (subCoordinator() && resource.data.subCoordinationId == request.auth.token.subCoordinationId)
+        || (coordinationActor() && resource.data.schoolId is string && coordinatorSchool(resource.data.schoolId))
         || schoolAdmin() && sameTenantResource()
         || secretary() && sameTenantResource() && resource.data.actorId == request.auth.uid
         || activeCashier() && sameTenantResource() && resource.data.actorId == request.auth.uid;
@@ -602,6 +628,27 @@ service cloud.firestore {
     match /coordinationSchools/{relationId} {
       allow read: if superAdmin() || (coordinator() && resource.data.coordinationId == request.auth.token.coordinationId && resource.data.active == true);
       allow create, update, delete: if superAdmin();
+    }
+
+    match /subCoordinations/{subCoordinationId} {
+      allow read: if superAdmin()
+        || (coordinator() && resource.data.coordinationId == request.auth.token.coordinationId)
+        || (subCoordinator()
+          && subCoordinationId == request.auth.token.subCoordinationId
+          && resource.data.coordinationId == request.auth.token.coordinationId
+          && resource.data.coordinatorUserId == request.auth.uid
+          && resource.data.active == true);
+      allow create, update, delete: if false;
+    }
+
+    match /subCoordinationSchools/{relationId} {
+      allow read: if superAdmin()
+        || (coordinator() && resource.data.coordinationId == request.auth.token.coordinationId)
+        || (subCoordinator()
+          && resource.data.subCoordinationId == request.auth.token.subCoordinationId
+          && resource.data.coordinationId == request.auth.token.coordinationId
+          && resource.data.active == true);
+      allow create, update, delete: if false;
     }
 
     match /personnelProfiles/{personnelId} {

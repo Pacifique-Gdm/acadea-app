@@ -1,4 +1,4 @@
-export type Role = "super_admin" | "coordination_admin" | "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher" | "parent";
+export type Role = "super_admin" | "coordination_admin" | "sub_coordination_admin" | "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher" | "parent";
 
 export type SchoolClass =
   | "Maternelle 1"
@@ -29,6 +29,7 @@ export interface AppUser {
   email: string;
   role: Role;
   coordinationId?: string;
+  subCoordinationId?: string;
   schoolId?: string;
   /** Périmètre métier facultatif pour compatibilité avec les comptes historiques. */
   section?: SchoolSection;
@@ -238,6 +239,35 @@ export interface CoordinationSchool {
   removedBy?: string;
 }
 
+export interface SubCoordination {
+  id: string;
+  coordinationId: string;
+  coordinatorUserId: string;
+  circumscription: string;
+  status: "active" | "archived";
+  active: boolean;
+  createdAt: string;
+  createdBy: string;
+  updatedAt: string;
+  updatedBy: string;
+  archivedAt?: string | null;
+  archivedBy?: string | null;
+  reactivatedAt?: string | null;
+  reactivatedBy?: string | null;
+}
+
+export interface SubCoordinationSchool {
+  id: string;
+  coordinationId: string;
+  subCoordinationId: string;
+  schoolId: string;
+  active: boolean;
+  addedAt: string;
+  addedBy: string;
+  removedAt?: string | null;
+  removedBy?: string | null;
+}
+
 export interface PersonnelProfile {
   id: string;
   schoolId: string;
@@ -297,7 +327,7 @@ export interface Message {
   schoolYearId: string;
   senderId: string;
   senderName?: string;
-  senderRole?: "parent" | "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher" | "coordination_admin";
+  senderRole?: "parent" | "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher" | "coordination_admin" | "sub_coordination_admin";
   participantIds?: string[];
   recipientIds?: string[];
   recipientParentId: string | "all" | "school";
@@ -375,6 +405,7 @@ export interface AuditLog {
   id: string;
   eventType?: string;
   coordinationId?: string;
+  subCoordinationId?: string;
   schoolId?: string;
   schoolYearId?: string;
   actorId: string;

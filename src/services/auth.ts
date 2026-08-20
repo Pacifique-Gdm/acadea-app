@@ -29,6 +29,7 @@ type RawAppUser = Omit<AppUser, "role" | "schoolId"> & {
   organisationId?: string;
   organizationId?: string;
   coordinationId?: string;
+  subCoordinationId?: string;
 };
 
 function assertFirebaseAuthReady() {
@@ -38,7 +39,7 @@ function assertFirebaseAuthReady() {
 }
 
 function isRole(role: unknown): role is AppUser["role"] | "admin" | "superadmin" {
-  return ["super_admin", "coordination_admin", "school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent", "admin", "superadmin"].includes(String(role));
+  return ["super_admin", "coordination_admin", "sub_coordination_admin", "school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent", "admin", "superadmin"].includes(String(role));
 }
 
 function normalizeUserProfile(user: RawAppUser): AppUser {
@@ -50,6 +51,7 @@ function normalizeUserProfile(user: RawAppUser): AppUser {
     role: normalizedRole,
     schoolId: normalizedSchoolId,
     coordinationId: user.coordinationId,
+    subCoordinationId: user.subCoordinationId,
     sectionIds: normalizeSectionIds(user.sectionIds ?? []),
     section: normalizeSectionIds(user.section ? [user.section] : [])[0],
   } as AppUser;
@@ -62,6 +64,8 @@ export function mergeRealtimeUserProfile(resolvedUser: AppUser, profile: Record<
     id: resolvedUser.id,
     role: resolvedUser.role,
     schoolId: resolvedUser.schoolId,
+    coordinationId: resolvedUser.coordinationId,
+    subCoordinationId: resolvedUser.subCoordinationId,
   } as RawAppUser);
 }
 
@@ -77,8 +81,11 @@ function resolveFirebaseUserProfile(firebaseUser: FirebaseUser, firestoreDocumen
   if (["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "admin"].includes(String(claims.role)) && typeof claims.schoolId !== "string") {
     throw new Error("Connexion refusée : le Custom Claim schoolId est manquant.");
   }
-  if (claims.role === "coordination_admin" && typeof claims.coordinationId !== "string") {
+  if (["coordination_admin", "sub_coordination_admin"].includes(String(claims.role)) && typeof claims.coordinationId !== "string") {
     throw new Error("Connexion refusée : le Custom Claim coordinationId est manquant.");
+  }
+  if (claims.role === "sub_coordination_admin" && typeof claims.subCoordinationId !== "string") {
+    throw new Error("Connexion refusée : le Custom Claim subCoordinationId est manquant.");
   }
 
   if (claims.role === "parent" && (typeof claims.schoolId !== "string" || typeof claims.parentId !== "string")) {
@@ -100,6 +107,7 @@ function resolveFirebaseUserProfile(firebaseUser: FirebaseUser, firestoreDocumen
     organisationId: claims.organisationId,
     organizationId: claims.organizationId,
     coordinationId: claims.coordinationId,
+    subCoordinationId: claims.subCoordinationId,
   };
 
   return normalizeUserProfile(rawProfile as RawAppUser);
@@ -253,7 +261,7 @@ export function canEnterRoute(user: AppUser | null, route: string) {
   if (!user) return false;
   if (user.status === "inactive" || user.active === false) return false;
   if (route === "/platform") return user.role === "super_admin";
-  if (route === "/coordination") return user.role === "coordination_admin" && Boolean(user.coordinationId);
+  if (route === "/coordination") return ["coordination_admin", "sub_coordination_admin"].includes(user.role) && Boolean(user.coordinationId) && (user.role !== "sub_coordination_admin" || Boolean(user.subCoordinationId));
   if (route === "/studies") return user.role === "study_director" && Boolean(user.schoolId);
   if (route === "/teacher") return user.role === "teacher" && Boolean(user.schoolId);
   if (route === "/dashboard") return ["school_admin", "cashier", "discipline_director", "secretary"].includes(user.role) && Boolean(user.schoolId);
@@ -294,12 +302,16 @@ export function validatePlatformAdmin(user: AppUser) {
 }
 
 export function validateCoordinator(user: AppUser) {
-  return user.role === "coordination_admin" && Boolean(user.coordinationId) && user.status !== "inactive" && user.active !== false;
+  return ["coordination_admin", "sub_coordination_admin"].includes(user.role)
+    && Boolean(user.coordinationId)
+    && (user.role !== "sub_coordination_admin" || Boolean(user.subCoordinationId))
+    && user.status !== "inactive"
+    && user.active !== false;
 }
 
 export function getDefaultRoute(role: Role) {
   if (role === "super_admin") return "/platform";
-  if (role === "coordination_admin") return "/coordination";
+  if (role === "coordination_admin" || role === "sub_coordination_admin") return "/coordination";
   if (role === "study_director") return "/studies";
   if (role === "teacher") return "/teacher";
   return "/dashboard";

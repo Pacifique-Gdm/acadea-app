@@ -11,12 +11,15 @@ describe("portail Coordination Phase 1", () => {
     expect(source).toContain('["menu", "Menu", Menu]');
     expect(source).not.toContain("Contrôle");
   });
-  it("refuse un rôle autre que coordination_admin", () => {
-    expect(source).toContain('user.role !== "coordination_admin"');
+  it("partage la route entre Coordinateur et Sous-coordinateur avec leurs claims obligatoires", () => {
+    expect(source).toContain('["coordination_admin", "sub_coordination_admin"].includes(user.role)');
     expect(source).toContain("user.coordinationId");
+    expect(source).toContain("user.subCoordinationId");
   });
   it("écoute uniquement les relations actives de la Coordination", () => {
     expect(source).toContain('where("coordinationId", "==", coordinationId)');
     expect(source).toContain('where("active", "==", true)');
+    expect(source).toContain('where("subCoordinationId", "==", user.subCoordinationId!)');
+    expect(source).toContain('where("coordinationId", "==", coordinationId)');
   });
 });

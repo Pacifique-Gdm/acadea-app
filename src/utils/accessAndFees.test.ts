@@ -12,6 +12,8 @@ describe("autorisations par rôle", () => {
 
   it("réserve la route Coordination au rôle coordination_admin avec coordinationId", () => {
     expect(canEnterRoute({ role: "coordination_admin", coordinationId: "coord-a" } as AppUser, "/coordination")).toBe(true);
+    expect(canEnterRoute({ role: "sub_coordination_admin", coordinationId: "coord-a", subCoordinationId: "sub-a" } as AppUser, "/coordination")).toBe(true);
+    expect(canEnterRoute({ role: "sub_coordination_admin", coordinationId: "coord-a" } as AppUser, "/coordination")).toBe(false);
     expect(canEnterRoute({ role: "coordination_admin" } as AppUser, "/coordination")).toBe(false);
     expect(canEnterRoute({ role: "school_admin", schoolId: "school-a" } as AppUser, "/coordination")).toBe(false);
   });

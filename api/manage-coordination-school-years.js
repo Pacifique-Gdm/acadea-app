@@ -1,13 +1,13 @@
 import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
-import { activeCoordinationSchoolIds, chunks, coordinationHttpError, requireActiveCoordinator } from "./_lib/coordination.js";
+import { chunks, coordinationHttpError, requireActiveCoordinationActor, resolveCoordinationSchoolScope } from "./_lib/coordination.js";
 
 function sendJson(res, status, body) { res.statusCode = status; res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(body)); }
 function text(value, max = 160) { return String(value ?? "").trim().slice(0, max); }
 async function readBody(req) { if (req.body && typeof req.body === "object") return req.body; if (typeof req.body === "string") return JSON.parse(req.body || "{}"); const parts = []; for await (const part of req) parts.push(part); return JSON.parse(Buffer.concat(parts).toString("utf8") || "{}"); }
 
-async function loadScope(db, coordinationId) {
-  const schoolIds = await activeCoordinationSchoolIds(db, coordinationId);
+async function loadScope(db, caller) {
+  const schoolIds = await resolveCoordinationSchoolScope(db, caller);
   const schools = schoolIds.length ? (await db.getAll(...schoolIds.map((id) => db.doc(`schools/${id}`)))).filter((item) => item.exists).map((item) => ({ id: item.id, ...item.data() })) : [];
   const activeYears = [];
   for (const batch of chunks(schoolIds, 30)) {
@@ -22,9 +22,9 @@ export default async function handler(req, res) {
   try {
     const token = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : "";
     if (!token) throw coordinationHttpError(401, "not-authenticated", "Authentification requise.");
-    const { auth, db } = initAdmin(); const caller = await requireActiveCoordinator(auth, db, token); const input = await readBody(req); const action = text(input.action);
+    const { auth, db } = initAdmin(); const caller = await requireActiveCoordinationActor(auth, db, token); const input = await readBody(req); const action = text(input.action);
     await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.coordinationId, action: `coordination.school-year.${action}`, ...API_RATE_LIMITS.SCHOOL_ADMIN });
-    const scope = await loadScope(db, caller.coordinationId);
+    const scope = await loadScope(db, caller);
     const rows = scope.schools.map((school) => {
       const activeYears = scope.activeYears.filter((year) => year.schoolId === school.id);
       const activeYear = activeYears.find((year) => year.id === school.activeSchoolYearId) ?? activeYears[0] ?? null;
@@ -35,6 +35,7 @@ export default async function handler(req, res) {
       const configuredReferenceYear = text(caller.coordination.referenceSchoolYear);
       return sendJson(res, 200, { rows, referenceYear: configuredReferenceYear || rows.find((row) => row.activeYear?.name)?.activeYear.name || null });
     }
+    if (caller.role !== "coordination_admin") throw coordinationHttpError(403, "not-authorized", "La gouvernance annuelle reste réservée au Coordinateur principal.");
     if (!rows.length) throw coordinationHttpError(409, "no-active-schools", "Aucune école activement rattachée.");
     if (input.confirmed !== true) throw coordinationHttpError(400, "confirmation-required", "Confirmation explicite requise.");
     const now = new Date().toISOString(); const batch = db.batch(); const results = [];
