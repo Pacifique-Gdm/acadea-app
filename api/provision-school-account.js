@@ -6,6 +6,7 @@ import { requireActiveSchoolYear } from "./_lib/schoolYear.js";
 
 const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent"]);
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
+const parentUnlinkConfirmation = "DÉLIER LE PARENT";
 const adminRemovalConfirmation = "SUPPRIMER ADMINISTRATEUR";
 const internalPersonnelRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]);
 const schoolSections = new Set(["Maternelle", "Primaire", "CTEB", "Secondaire"]);
@@ -219,6 +220,94 @@ async function deleteParentAccount({ auth, db, caller, body }) {
   };
 }
 
+export async function unlinkParentFromStudent({ db, caller, body }) {
+  const schoolId = normalizeText(body.schoolId);
+  const schoolYearId = normalizeText(body.schoolYearId);
+  const studentId = normalizeText(body.studentId);
+  const parentId = normalizeText(body.parentId);
+  const confirmation = String(body.confirmation ?? "");
+
+  if (!schoolId || !schoolYearId || !studentId || !parentId) {
+    throw Object.assign(new Error("École, année scolaire, élève et parent requis."), { statusCode: 400, code: "invalid-argument" });
+  }
+  if (confirmation !== parentUnlinkConfirmation) {
+    throw Object.assign(new Error("Veuillez saisir exactement DÉLIER LE PARENT."), { statusCode: 400, code: "invalid-confirmation" });
+  }
+  if (!caller?.uid || !["school_admin", "secretary"].includes(caller.role)) {
+    throw Object.assign(new Error("Action réservée à un Administrateur ou un Secrétaire autorisé."), { statusCode: 403, code: "permission-denied" });
+  }
+  if (caller.schoolId !== schoolId) {
+    throw Object.assign(new Error("Action refusée pour cette école."), { statusCode: 403, code: "permission-denied" });
+  }
+
+  await assertAuthorizedCaller({ db, caller, schoolId, allowSecretary: true });
+  await requireActiveSchoolYear(db, schoolId, schoolYearId);
+
+  const callerRef = db.doc(`users/${caller.uid}`);
+  const studentRef = db.doc(`students/${studentId}`);
+  const parentRef = db.doc(`parents/${parentId}`);
+  const parentUsersQuery = db.collection("users").where("schoolId", "==", schoolId).where("parentId", "==", parentId);
+  const auditRef = db.collection("auditLogs").doc(uid("audit"));
+  const now = new Date().toISOString();
+
+  return db.runTransaction(async (transaction) => {
+    const [callerSnapshot, studentSnapshot, parentSnapshot, parentUsersSnapshot] = await Promise.all([
+      transaction.get(callerRef),
+      transaction.get(studentRef),
+      transaction.get(parentRef),
+      transaction.get(parentUsersQuery),
+    ]);
+    const callerProfile = callerSnapshot.exists ? callerSnapshot.data() : undefined;
+    if (!callerProfile
+      || callerProfile.schoolId !== schoolId
+      || callerProfile.role !== caller.role
+      || callerProfile.status === "inactive"
+      || callerProfile.active === false) {
+      throw Object.assign(new Error("Compte utilisateur inactif ou non autorisé."), { statusCode: 403, code: "permission-denied" });
+    }
+    if (!studentSnapshot.exists) {
+      throw Object.assign(new Error("Élève introuvable."), { statusCode: 404, code: "student-not-found" });
+    }
+    if (!parentSnapshot.exists) {
+      throw Object.assign(new Error("Parent introuvable."), { statusCode: 404, code: "parent-not-found" });
+    }
+
+    const student = studentSnapshot.data();
+    const parent = parentSnapshot.data();
+    if (student.schoolId !== schoolId || parent.schoolId !== schoolId) {
+      throw Object.assign(new Error("Élève ou parent hors de cette école."), { statusCode: 403, code: "permission-denied" });
+    }
+    if (student.schoolYearId !== schoolYearId || parent.schoolYearId !== schoolYearId) {
+      throw Object.assign(new Error("Élève ou parent hors de l’année scolaire active."), { statusCode: 409, code: "school-year-mismatch" });
+    }
+    if (student.parentId !== parentId || !Array.isArray(parent.studentIds) || !parent.studentIds.includes(studentId)) {
+      throw Object.assign(new Error("Ce parent n’est plus lié à cet élève."), { statusCode: 409, code: "parent-link-not-found" });
+    }
+
+    const remainingStudentIds = parent.studentIds.filter((linkedStudentId) => linkedStudentId !== studentId);
+    transaction.update(studentRef, { parentId: null, updatedAt: now, updatedBy: caller.uid });
+    transaction.update(parentRef, { studentIds: remainingStudentIds, updatedAt: now, updatedBy: caller.uid });
+    parentUsersSnapshot.docs.forEach((snapshot) => {
+      const userProfile = snapshot.data();
+      if (userProfile.role !== "parent") return;
+      const currentStudentIds = Array.isArray(userProfile.studentIds) ? userProfile.studentIds : parent.studentIds;
+      transaction.update(snapshot.ref, { studentIds: currentStudentIds.filter((linkedStudentId) => linkedStudentId !== studentId), updatedAt: now });
+    });
+    transaction.set(auditRef, buildServerAudit({
+      id: auditRef.id,
+      eventType: AUDIT_EVENT_TYPES.PARENT_UNLINKED_FROM_STUDENT,
+      actor: caller,
+      schoolId,
+      schoolYearId,
+      resourceType: "student-parent-link",
+      resourceId: `${studentId}:${parentId}`,
+      metadata: { studentId, parentId },
+    }));
+
+    return { studentId, parentId, parentStudentIds: remainingStudentIds, auditLogId: auditRef.id };
+  });
+}
+
 async function createAuthUser(auth, { email, password, displayName }) {
   return auth.createUser({
     email,
@@ -414,12 +503,18 @@ export default async function handler(req, res) {
     const caller = await auth.verifyIdToken(token, true);
     const body = await readBody(req);
     const action = normalizeText(body.action);
-    const destructive = action === "delete-parent" || action === "remove-school-admin" || action === "archive-personnel" || action === "reactivate-personnel";
+    const destructive = action === "delete-parent" || action === "unlink-parent-from-student" || action === "remove-school-admin" || action === "archive-personnel" || action === "reactivate-personnel";
     await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? "platform"), action: destructive ? `provision.${action}` : "provision.account", ...(destructive ? API_RATE_LIMITS.PROVISION_DESTRUCTIVE : API_RATE_LIMITS.PROVISION_ACCOUNT) });
 
     if (action === "delete-parent") {
       const result = await deleteParentAccount({ auth, db, caller, body });
       sendJson(res, result.status === "partial" ? 207 : 200, result);
+      return;
+    }
+
+    if (action === "unlink-parent-from-student") {
+      const result = await unlinkParentFromStudent({ db, caller, body });
+      sendJson(res, 200, result);
       return;
     }
 

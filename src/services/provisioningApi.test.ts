@@ -30,7 +30,8 @@ vi.mock("../../api/_lib/rateLimit.js", () => ({
   sendRateLimitError: () => false,
 }));
 
-import provisionSchoolAccount from "../../api/provision-school-account.js";
+// @ts-expect-error The Vercel endpoint is intentionally implemented in JavaScript.
+import provisionSchoolAccount, { unlinkParentFromStudent } from "../../api/provision-school-account.js";
 import provisionSchoolAdmin from "../../api/provision-school-admin.js";
 
 type JsonResponse = { statusCode: number; body?: Record<string, unknown>; setHeader: ReturnType<typeof vi.fn>; end: (value: string) => void };
@@ -84,6 +85,55 @@ describe("API de provisionnement Acadéa", () => {
       delete: vi.fn().mockResolvedValue(undefined),
     }));
   });
+
+  function configureParentUnlinkScenario({
+    callerRole = "school_admin",
+    callerSchoolId = "school-1",
+    callerActive = true,
+    studentExists = true,
+    parentExists = true,
+    studentSchoolId = "school-1",
+    parentSchoolId = "school-1",
+    studentParentId = "parent-1",
+    parentStudentIds = ["student-1", "student-2"],
+  }: {
+    callerRole?: string;
+    callerSchoolId?: string;
+    callerActive?: boolean;
+    studentExists?: boolean;
+    parentExists?: boolean;
+    studentSchoolId?: string;
+    parentSchoolId?: string;
+    studentParentId?: string | null;
+    parentStudentIds?: string[];
+  } = {}) {
+    const parentUserRef = { path: "users/parent-user-1" };
+    const snapshots: Record<string, { exists: boolean; data: () => Record<string, unknown> }> = {
+      "schools/school-1": { exists: true, data: () => ({ id: "school-1", status: "active" }) },
+      "schoolYears/year-1": { exists: true, data: () => ({ id: "year-1", schoolId: "school-1", status: "active" }) },
+      "users/actor-1": { exists: true, data: () => ({ id: "actor-1", role: callerRole, schoolId: callerSchoolId, status: callerActive ? "active" : "inactive", active: callerActive }) },
+      "students/student-1": { exists: studentExists, data: () => ({ id: "student-1", schoolId: studentSchoolId, schoolYearId: "year-1", parentId: studentParentId }) },
+      "parents/parent-1": { exists: parentExists, data: () => ({ id: "parent-1", schoolId: parentSchoolId, schoolYearId: "year-1", studentIds: parentStudentIds, userId: "parent-user-1" }) },
+    };
+    const reference = (path: string) => ({ path, get: vi.fn(async () => snapshots[path] ?? { exists: false, data: () => ({}) }) });
+    const parentUsersQuery = {
+      get: vi.fn(async () => ({
+        docs: [{ ref: parentUserRef, data: () => ({ id: "parent-user-1", role: "parent", schoolId: "school-1", parentId: "parent-1", studentIds: ["student-1", "student-2"] }) }],
+      })),
+    };
+    const auditRef = { id: "audit-unlink", path: "auditLogs/audit-unlink" };
+    mocks.db.doc.mockImplementation(reference);
+    mocks.db.collection.mockImplementation((name: string) => name === "users"
+      ? { where: vi.fn(() => ({ where: vi.fn(() => parentUsersQuery) })) }
+      : { doc: vi.fn(() => auditRef) });
+    const transaction = {
+      get: vi.fn(async (target: { get: () => Promise<unknown> }) => target.get()),
+      update: vi.fn(),
+      set: vi.fn(),
+    };
+    mocks.db.runTransaction.mockImplementation(async (operation: (value: typeof transaction) => Promise<unknown>) => operation(transaction));
+    return { transaction, parentUserRef, auditRef };
+  }
 
   it("retourne le vrai code unauthenticated sans appeler Firebase Admin", async () => {
     const res = response();
@@ -157,6 +207,81 @@ describe("API de provisionnement Acadéa", () => {
     const refused = response();
     await provisionSchoolAccount(request({ role: "parent", schoolId: "school-2", schoolYearId: "year-1", parentId: "parent-2", name: "Parent test", email: "parent2@example.invalid", password: "test-password", studentIds: [] }), refused);
     expect(refused.statusCode).toBe(403);
+  });
+
+  it.each(["school_admin", "secretary"])("délie atomiquement un parent avec le rôle %s sans supprimer son compte ni ses autres enfants", async (role) => {
+    const { transaction, parentUserRef, auditRef } = configureParentUnlinkScenario({ callerRole: role });
+    const result = await unlinkParentFromStudent({
+      db: mocks.db,
+      caller: { uid: "actor-1", role, schoolId: "school-1" },
+      body: { schoolId: "school-1", schoolYearId: "year-1", studentId: "student-1", parentId: "parent-1", confirmation: "DÉLIER LE PARENT" },
+    });
+
+    expect(result).toMatchObject({ studentId: "student-1", parentId: "parent-1", parentStudentIds: ["student-2"], auditLogId: "audit-unlink" });
+    expect(transaction.update).toHaveBeenCalledWith(expect.objectContaining({ path: "students/student-1" }), expect.objectContaining({ parentId: null, updatedBy: "actor-1" }));
+    expect(transaction.update).toHaveBeenCalledWith(expect.objectContaining({ path: "parents/parent-1" }), expect.objectContaining({ studentIds: ["student-2"], updatedBy: "actor-1" }));
+    expect(transaction.update).toHaveBeenCalledWith(parentUserRef, expect.objectContaining({ studentIds: ["student-2"] }));
+    expect(transaction.set).toHaveBeenCalledWith(auditRef, expect.objectContaining({ eventType: "parent.unlinked_from_student", actorId: "actor-1", schoolId: "school-1", schoolYearId: "year-1", source: "server" }));
+    expect(mocks.auth.deleteUser).not.toHaveBeenCalled();
+  });
+
+  it("expose la déliaison via l'action sécurisée de l'API existante", async () => {
+    configureParentUnlinkScenario();
+    mocks.auth.verifyIdToken.mockResolvedValue({ uid: "actor-1", role: "school_admin", schoolId: "school-1" });
+    const res = response();
+    await provisionSchoolAccount(request({
+      action: "unlink-parent-from-student",
+      schoolId: "school-1",
+      schoolYearId: "year-1",
+      studentId: "student-1",
+      parentId: "parent-1",
+      confirmation: "DÉLIER LE PARENT",
+    }), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ studentId: "student-1", parentId: "parent-1", parentStudentIds: ["student-2"] });
+  });
+
+  it("refuse toute écriture lorsque la confirmation n'est pas strictement exacte", async () => {
+    configureParentUnlinkScenario();
+    await expect(unlinkParentFromStudent({
+      db: mocks.db,
+      caller: { uid: "actor-1", role: "school_admin", schoolId: "school-1" },
+      body: { schoolId: "school-1", schoolYearId: "year-1", studentId: "student-1", parentId: "parent-1", confirmation: "DÉLIER LE PARENT " },
+    })).rejects.toMatchObject({ code: "invalid-confirmation", statusCode: 400 });
+    expect(mocks.db.runTransaction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["cashier", "school-1"],
+    ["school_admin", "school-2"],
+  ])("refuse le rôle ou l'école non autorisés (%s, %s)", async (role, callerSchoolId) => {
+    configureParentUnlinkScenario({ callerRole: role, callerSchoolId });
+    await expect(unlinkParentFromStudent({
+      db: mocks.db,
+      caller: { uid: "actor-1", role, schoolId: callerSchoolId },
+      body: { schoolId: "school-1", schoolYearId: "year-1", studentId: "student-1", parentId: "parent-1", confirmation: "DÉLIER LE PARENT" },
+    })).rejects.toMatchObject({ code: "permission-denied", statusCode: 403 });
+    expect(mocks.db.runTransaction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["acteur inactif", { callerActive: false }, "permission-denied"],
+    ["élève absent", { studentExists: false }, "student-not-found"],
+    ["parent absent", { parentExists: false }, "parent-not-found"],
+    ["relation absente", { studentParentId: null }, "parent-link-not-found"],
+    ["relation incohérente", { parentStudentIds: ["student-2"] }, "parent-link-not-found"],
+    ["élève d'une autre école", { studentSchoolId: "school-2" }, "permission-denied"],
+    ["parent d'une autre école", { parentSchoolId: "school-2" }, "permission-denied"],
+  ])("refuse le cas %s sans écriture partielle", async (_label, scenario, code) => {
+    const { transaction } = configureParentUnlinkScenario(scenario);
+    await expect(unlinkParentFromStudent({
+      db: mocks.db,
+      caller: { uid: "actor-1", role: "school_admin", schoolId: "school-1" },
+      body: { schoolId: "school-1", schoolYearId: "year-1", studentId: "student-1", parentId: "parent-1", confirmation: "DÉLIER LE PARENT" },
+    })).rejects.toMatchObject({ code });
+    expect(transaction.update).not.toHaveBeenCalled();
+    expect(transaction.set).not.toHaveBeenCalled();
   });
 
   it("refuse atomiquement un élève d'une autre école avant de créer Auth", async () => {

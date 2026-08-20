@@ -164,6 +164,37 @@ export async function deleteParentAccount(input: DeleteParentAccountInput) {
   return payload;
 }
 
+export type UnlinkParentFromStudentInput = {
+  schoolId: string;
+  schoolYearId: string;
+  studentId: string;
+  parentId: string;
+  confirmation: string;
+};
+
+export type UnlinkParentFromStudentResponse = {
+  studentId: string;
+  parentId: string;
+  parentStudentIds: string[];
+  auditLogId: string;
+};
+
+export async function unlinkParentFromStudent(input: UnlinkParentFromStudentInput) {
+  const payload = await provisionSchoolAccount<UnlinkParentFromStudentResponse & { error?: string }>({
+    action: "unlink-parent-from-student",
+    ...input,
+  }, { showEndpointOnNotFound: true });
+
+  if (payload.studentId !== input.studentId
+    || payload.parentId !== input.parentId
+    || !Array.isArray(payload.parentStudentIds)
+    || !payload.auditLogId) {
+    throw new Error("Réponse de déliaison parent incomplète.");
+  }
+
+  return payload;
+}
+
 type RemoveSchoolAdminInput = {
   schoolId: string;
   adminId: string;

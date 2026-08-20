@@ -1033,7 +1033,7 @@ export default function App() {
             onBack={() => navigate("/dashboard")}
             createId={uid}
             formatArchiveDate={formatArchiveDate}
-            canLinkParent={false}
+            canLinkParent
           />
         ) : (
           <StudentsModule

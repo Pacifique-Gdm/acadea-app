@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { Download, Plus, Search } from "lucide-react";
-import { AdminDrawer, FormPanel, Metric } from "../ui";
+import { Download, Plus, Search, UserMinus } from "lucide-react";
+import { ActionSnackbar, AdminDrawer, FormPanel, Metric } from "../ui";
+import { unlinkParentFromStudent } from "../../services/provisioning";
 import { createAuditLog } from "../../utils/audit";
 import { buildSchoolYearDataIndexes } from "../../utils/dataIndexes";
 import { resolvePaymentCashierName } from "../../utils/finance";
@@ -8,6 +9,7 @@ import { generateReceiptPdf } from "../../utils/pdf";
 import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import { isArchivedStudent } from "../../utils/studentUtils";
+import { applyParentUnlinkResult, isExactParentUnlinkConfirmation, PARENT_UNLINK_CONFIRMATION } from "../../utils/parentStudentLink";
 import type { AppData, AppUser, ParentProfile, School, SchoolYear } from "../../types";
 
 type StudentDetailYearData = Pick<AppData, "students" | "parents" | "feeTypes" | "payments" | "auditLogs">;
@@ -39,6 +41,11 @@ export function StudentDetailPage({
 }) {
   const [parentLinkOpen, setParentLinkOpen] = useState(false);
   const [parentLinkSearch, setParentLinkSearch] = useState("");
+  const [parentUnlinkOpen, setParentUnlinkOpen] = useState(false);
+  const [parentUnlinkConfirmation, setParentUnlinkConfirmation] = useState("");
+  const [parentUnlinkError, setParentUnlinkError] = useState("");
+  const [parentUnlinkBusy, setParentUnlinkBusy] = useState(false);
+  const [parentFeedback, setParentFeedback] = useState("");
   const detailIndexes = useMemo(() => buildSchoolYearDataIndexes(yearData.students, yearData.feeTypes, yearData.payments), [yearData.students, yearData.feeTypes, yearData.payments]);
   const student = detailIndexes.studentsById.get(studentId);
   const parentLinkResults = useMemo(() => {
@@ -52,7 +59,7 @@ export function StudentDetailPage({
   }, [parentLinkSearch, school.id, yearData.parents]);
 
   function linkStudentToParent(parent: ParentProfile) {
-    if (!student || parent.schoolId !== school.id) return;
+    if (!student || !canManageParentLink || parent.schoolId !== school.id) return;
     const parents = data.parents.map((item) => {
       const withoutStudent = item.studentIds.filter((studentId) => studentId !== student.id);
       return item.id === parent.id ? { ...item, studentIds: Array.from(new Set([...withoutStudent, student.id])) } : { ...item, studentIds: withoutStudent };
@@ -73,6 +80,7 @@ export function StudentDetailPage({
     });
     setParentLinkOpen(false);
     setParentLinkSearch("");
+    setParentFeedback("Le parent a été lié à cet élève.");
   }
 
   if (!student) {
@@ -97,12 +105,64 @@ export function StudentDetailPage({
   );
   const payments = detailIndexes.paymentsByStudentId.get(student.id) ?? [];
   const parent = yearData.parents.find((item) => item.id === student.parentId);
+  const canManageParentLink = canLinkParent
+    && (user.role === "school_admin" || user.role === "secretary")
+    && user.schoolId === school.id;
   const progress = balance.expected > 0 ? Math.min(100, Math.round((balance.paid / balance.expected) * 100)) : 0;
   const archived = isArchivedStudent(student);
+
+  function openParentUnlink() {
+    if (!parent || !canManageParentLink) return;
+    setParentUnlinkConfirmation("");
+    setParentUnlinkError("");
+    setParentUnlinkOpen(true);
+  }
+
+  function closeParentUnlink() {
+    if (parentUnlinkBusy) return;
+    setParentUnlinkOpen(false);
+    setParentUnlinkConfirmation("");
+    setParentUnlinkError("");
+  }
+
+  async function confirmParentUnlink() {
+    if (!student || !parent || parentUnlinkBusy) return;
+    if (!isExactParentUnlinkConfirmation(parentUnlinkConfirmation)) {
+      setParentUnlinkError(`Veuillez saisir exactement ${PARENT_UNLINK_CONFIRMATION}.`);
+      return;
+    }
+
+    setParentUnlinkBusy(true);
+    setParentUnlinkError("");
+    const studentIdToUnlink = student.id;
+    const parentIdToUnlink = parent.id;
+    try {
+      const result = await unlinkParentFromStudent({
+        schoolId: school.id,
+        schoolYearId: year.id,
+        studentId: studentIdToUnlink,
+        parentId: parentIdToUnlink,
+        confirmation: parentUnlinkConfirmation,
+      });
+      updateData(applyParentUnlinkResult(data, {
+        studentId: studentIdToUnlink,
+        parentId: parentIdToUnlink,
+        parentStudentIds: result.parentStudentIds,
+      }), { persist: false });
+      setParentUnlinkOpen(false);
+      setParentUnlinkConfirmation("");
+      setParentFeedback("Le parent a été délié de cet élève.");
+    } catch (error) {
+      setParentUnlinkError(error instanceof Error ? error.message : "Déliaison du parent impossible.");
+    } finally {
+      setParentUnlinkBusy(false);
+    }
+  }
 
   return (
     <section className="grid min-w-0 gap-4">
       <button onClick={onBack} className="secondary-button w-fit">← Retour à la liste des élèves</button>
+      <ActionSnackbar message={parentFeedback} onClose={() => setParentFeedback("")} />
 
       <article className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
@@ -127,9 +187,19 @@ export function StudentDetailPage({
           <Metric label="Sexe" value={student.sexe} />
           <Metric label="Date de naissance" value={student.birthDate} />
           <Metric label="Adresse" value={student.address} />
-          {parent ? (
+          {parent && canManageParentLink ? (
+            <div className="min-w-0 rounded border border-slate-100 p-3">
+              <p className="text-xs uppercase tracking-wide text-slate-400">Parent</p>
+              <div className="mt-1 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="break-words font-semibold text-ink">{parent.fullName}</p>
+                <button onClick={openParentUnlink} className="inline-flex w-full items-center justify-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100 sm:w-auto" type="button">
+                  <UserMinus className="h-4 w-4" /> Délier le parent
+                </button>
+              </div>
+            </div>
+          ) : parent ? (
             <Metric label="Parent" value={parent.fullName} />
-          ) : canLinkParent ? (
+          ) : canManageParentLink ? (
             <div className="min-w-0 rounded border border-slate-100 p-3">
               <p className="text-xs uppercase tracking-wide text-slate-400">Parent</p>
               <div className="mt-1 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -177,7 +247,7 @@ export function StudentDetailPage({
           </div>
         </FormPanel>
       </section>
-      {canLinkParent && parentLinkOpen && (
+      {canManageParentLink && parentLinkOpen && (
         <AdminDrawer title="Lier à un parent" onClose={() => setParentLinkOpen(false)} closeLabel="Fermer la liaison parent">
           <div className="grid gap-3">
             <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
@@ -204,6 +274,39 @@ export function StudentDetailPage({
                   {parentItem.address && <span className="mt-1 block break-words text-xs text-slate-400">{parentItem.address}</span>}
                 </button>
               ))}
+            </div>
+          </div>
+        </AdminDrawer>
+      )}
+      {canManageParentLink && parent && parentUnlinkOpen && (
+        <AdminDrawer title="Délier le parent" onClose={closeParentUnlink} closeLabel="Fermer la confirmation de déliaison">
+          <div className="grid gap-4">
+            <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+              <p>Vous êtes sur le point de délier <strong>{parent.fullName}</strong> de l’élève <strong>{student.nom} {student.postnom} {student.prenom}</strong>.</p>
+              <p className="mt-2">Cette action supprimera uniquement leur relation. Le compte Parent et ses liens avec d’autres enfants seront conservés.</p>
+              <p className="mt-2">Pour confirmer, saisissez exactement : <strong>{PARENT_UNLINK_CONFIRMATION}</strong></p>
+            </div>
+            <label className="grid gap-1 text-sm font-semibold">
+              Confirmation
+              <input
+                className="input"
+                value={parentUnlinkConfirmation}
+                disabled={parentUnlinkBusy}
+                placeholder={PARENT_UNLINK_CONFIRMATION}
+                onChange={(event) => setParentUnlinkConfirmation(event.target.value)}
+              />
+            </label>
+            {parentUnlinkError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{parentUnlinkError}</p>}
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" className="secondary-button justify-center" disabled={parentUnlinkBusy} onClick={closeParentUnlink}>Annuler</button>
+              <button
+                type="button"
+                className="rounded bg-red-700 px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={parentUnlinkBusy || !isExactParentUnlinkConfirmation(parentUnlinkConfirmation)}
+                onClick={() => void confirmParentUnlink()}
+              >
+                {parentUnlinkBusy ? "Déliaison…" : "Confirmer la déliaison"}
+              </button>
             </div>
           </div>
         </AdminDrawer>
