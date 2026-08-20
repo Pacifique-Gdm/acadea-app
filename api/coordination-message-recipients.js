@@ -81,7 +81,7 @@ export default async function handler(req, res) {
     if (!token) throw coordinationHttpError(401, "not-authenticated", "Authentification requise.");
     const { auth, db } = initAdmin();
     const caller = await requireActiveCoordinator(auth, db, token);
-    return req.method === "GET" ? loadRecipients(req, res, db, caller) : sendMessage(req, res, db, caller);
+    return await (req.method === "GET" ? loadRecipients(req, res, db, caller) : sendMessage(req, res, db, caller));
   } catch (error) {
     if (sendRateLimitError(res, error)) return;
     const status = Number(error?.statusCode) || 500;

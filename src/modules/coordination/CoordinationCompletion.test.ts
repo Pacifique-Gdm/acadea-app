@@ -30,6 +30,7 @@ describe("finalisation du module Coordination", () => {
     expect(recipientApi).toContain("invalid-recipient");
     expect(recipientApi).toContain("coordinationMessageRequests");
     expect(recipientApi).toContain("batch.create(requestRef");
+    expect(recipientApi).toContain('return await (req.method === "GET"');
   });
 
   it("reste compatible avec la limite Vercel Hobby de douze fonctions", () => {
