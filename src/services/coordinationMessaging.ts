@@ -18,5 +18,5 @@ export async function loadCoordinationRecipients(schoolId = "") {
 }
 
 export async function sendCoordinationMessage(input: { schoolId?: string; recipientIds: string[]; subject: string; body: string; idempotencyKey: string }) {
-  return authenticatedRequest("/api/send-coordination-message", { method: "POST", headers: { "Content-Type": "application/json", "X-Idempotency-Key": input.idempotencyKey }, body: JSON.stringify(input) });
+  return authenticatedRequest("/api/coordination-message-recipients", { method: "POST", headers: { "Content-Type": "application/json", "X-Idempotency-Key": input.idempotencyKey }, body: JSON.stringify(input) });
 }

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -7,7 +7,6 @@ const portal = read("src", "modules", "coordination", "CoordinationPortal.tsx");
 const messages = read("src", "modules", "coordination", "CoordinationMessage.tsx");
 const menu = read("src", "modules", "coordination", "CoordinationMenu.tsx");
 const recipientApi = read("api", "coordination-message-recipients.js");
-const sendApi = read("api", "send-coordination-message.js");
 const yearApi = read("api", "manage-coordination-school-years.js");
 const managementApi = read("api", "manage-coordination.js");
 const readModel = read("src", "services", "coordinationReadModel.ts");
@@ -27,10 +26,16 @@ describe("finalisation du module Coordination", () => {
   it("revalide côté serveur l'école, le rôle et chaque destinataire", () => {
     expect(recipientApi).toContain("activeCoordinationSchoolIds");
     expect(recipientApi).toContain("ALLOWED_ROLES");
-    expect(sendApi).toContain("school-outside-coordination");
-    expect(sendApi).toContain("invalid-recipient");
-    expect(sendApi).toContain("coordinationMessageRequests");
-    expect(sendApi).toContain("batch.create(requestRef");
+    expect(recipientApi).toContain("school-outside-coordination");
+    expect(recipientApi).toContain("invalid-recipient");
+    expect(recipientApi).toContain("coordinationMessageRequests");
+    expect(recipientApi).toContain("batch.create(requestRef");
+  });
+
+  it("reste compatible avec la limite Vercel Hobby de douze fonctions", () => {
+    const functions = readdirSync(join(process.cwd(), "api"), { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".js"));
+    expect(functions).toHaveLength(12);
   });
 
   it("gouverne les années globalement, sans écraser une année existante", () => {
