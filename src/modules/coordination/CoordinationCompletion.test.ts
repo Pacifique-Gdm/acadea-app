@@ -71,6 +71,8 @@ describe("finalisation du module Coordination", () => {
     expect(managementApi).toContain("coordinationId: coordinationRef.id");
     expect(managementApi).toContain('action: "Création Coordination"');
     expect(yearApi).toContain("configuredReferenceYear || rows.find");
+    expect(menu).toContain("item.coordinationId === coordination.id");
+    expect(readModel).not.toContain("!coordinationId || schoolIds.length === 0");
   });
 
   it("borne les lectures multi-écoles par lots et pages", () => {

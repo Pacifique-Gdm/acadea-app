@@ -22,7 +22,7 @@ async function loadBySchools<T>(name: string, schoolIds: string[]) {
 }
 
 export async function loadCoordinationReadModel(coordinationId: string, schoolIds: string[]): Promise<CoordinationReadModel> {
-  if (!db || !coordinationId || schoolIds.length === 0) return emptyModel();
+  if (!db || !coordinationId) return emptyModel();
   const database = db as unknown as Firestore;
   const [feeTypes, payments, expenses, personnel, schoolYears, schoolAudit, coordinationAudit] = await Promise.all([
     loadBySchools<FeeType>("feeTypes", schoolIds), loadBySchools<Payment>("payments", schoolIds), loadBySchools<Expense>("expenses", schoolIds), loadBySchools<AppUser>("users", schoolIds), loadBySchools<SchoolYear>("schoolYears", schoolIds), loadBySchools<AuditLog>("auditLogs", schoolIds), getDocs(query(collection(database, "auditLogs"), where("coordinationId", "==", coordinationId))),

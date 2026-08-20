@@ -53,7 +53,7 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, prin
       && (!personnelStatus || (personnelStatus === "inactive" ? inactive : !inactive))
       && `${item.name} ${item.email ?? ""} ${item.role}`.toLowerCase().includes(search.toLowerCase());
   });
-  const logs = model.auditLogs.filter((item) => (!item.schoolId || schoolIds.includes(item.schoolId)) && `${item.action} ${item.actorName ?? ""} ${item.details ?? ""}`.toLowerCase().includes(search.toLowerCase())).sort((a, b) => activityTimestamp(b.createdAt) - activityTimestamp(a.createdAt));
+  const logs = model.auditLogs.filter((item) => (item.coordinationId === coordination.id || !item.schoolId || schoolIds.includes(item.schoolId)) && `${item.action} ${item.actorName ?? ""} ${item.details ?? ""}`.toLowerCase().includes(search.toLowerCase())).sort((a, b) => activityTimestamp(b.createdAt) - activityTimestamp(a.createdAt));
   const currencyOf = (schoolId: string) => schools.find((item) => item.id === schoolId)?.currency ?? "USD";
   const financialByCurrency = [...new Set([...payments.map((item) => currencyOf(item.schoolId)), ...expenses.map((item) => currencyOf(item.schoolId))])].sort().map((currency) => {
     const income = payments.filter((item) => currencyOf(item.schoolId) === currency).reduce((sum, item) => sum + item.amount, 0);

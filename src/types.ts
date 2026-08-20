@@ -374,6 +374,7 @@ export interface AppNotification {
 export interface AuditLog {
   id: string;
   eventType?: string;
+  coordinationId?: string;
   schoolId?: string;
   schoolYearId?: string;
   actorId: string;
