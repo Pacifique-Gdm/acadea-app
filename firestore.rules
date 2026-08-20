@@ -1226,7 +1226,7 @@ service cloud.firestore {
           && (resource.data.schoolRecipient == "discipline" || request.auth.uid in resource.data.participantIds))
         || (parentUser() && resource.data.schoolId == tenantSchoolId()
           && (resource.data.threadParentId == tenantParentId()
-            || (resource.data.participantIds is list && request.auth.uid in resource.data.participantIds)));
+            || request.auth.uid in resource.data.participantIds));
       allow create: if !request.resource.data.keys().hasAny(["participantIds", "recipientIds", "attachments"])
         && ((signedIn()
           && role() in ["school_admin", "cashier"]
@@ -1255,7 +1255,7 @@ service cloud.firestore {
           && request.auth.uid in resource.data.participantIds)
         || (parentUser() && resource.data.schoolId == tenantSchoolId()
           && (resource.data.parentId == tenantParentId()
-            || (resource.data.participantIds is list && request.auth.uid in resource.data.participantIds)));
+            || request.auth.uid in resource.data.participantIds));
       allow create: if !request.resource.data.keys().hasAny(["participantIds"])
         && ((schoolAdmin()
           && activeTenantYearCreate()
@@ -1317,8 +1317,11 @@ service cloud.firestore {
           && (resource.data.type != "message" || resource.data.recipientUserId == request.auth.uid))
         || ((activeTeacher() || studyDirector()) && resource.data.schoolId == tenantSchoolId()
           && resource.data.recipientUserId == request.auth.uid)
-        || (disciplineTenantResource() && resource.data.type == "message" && resource.data.recipientUserId == request.auth.uid)
-        || (disciplineTenantResource() && resource.data.recipientRole == "school" && resource.data.schoolRecipient == "discipline")
+        || (disciplineTenantResource() && resource.data.recipientUserId == request.auth.uid)
+        || (disciplineTenantResource()
+          && "recipientRole" in resource.data
+          && resource.data.recipientRole == "school"
+          && resource.data.schoolRecipient == "discipline")
         || (parentUser() && resource.data.schoolId == tenantSchoolId()
           && (resource.data.parentId == tenantParentId()
             || resource.data.recipientUserId == request.auth.uid));
@@ -1328,7 +1331,12 @@ service cloud.firestore {
           || (activeDisciplineYearCreate()
             && ((request.resource.data.recipientRole == "school" && request.resource.data.schoolRecipient == "discipline")
               || (request.resource.data.recipientRole == "parent" && request.resource.data.parentId is string))));
-      allow update: if (role() in ["school_admin", "cashier"] && activeTenantYearUpdate())
+      allow update: if (role() in ["school_admin", "cashier"]
+          && activeTenantYearUpdate()
+          && (resource.data.type != "message"
+            || !("recipientUserId" in resource.data)
+            || (resource.data.recipientUserId == request.auth.uid
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["read"]))))
         || (signedIn()
           && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId())
           && resource.data.schoolId == tenantSchoolId()

@@ -40,6 +40,9 @@ beforeEach(async () => {
   await seed("notifications/notification-a", { id: "notification-a", ...shared, parentId: "parent-a", recipientRole: "school", schoolRecipient: "admin" });
   await seed("notifications/notification-admin-personal", { id: "notification-admin-personal", ...shared, recipientUserId: "admin-a", type: "message", read: false, createdAt: "2026-08-08T12:00:00.000Z" });
   await seed("notifications/notification-admin-personal-older", { id: "notification-admin-personal-older", ...shared, recipientUserId: "admin-a", type: "message", read: true, createdAt: "2026-08-08T11:00:00.000Z" });
+  await seed("notifications/notification-cashier-personal", { id: "notification-cashier-personal", ...shared, recipientUserId: "cashier-a", type: "message", read: false, createdAt: "2026-08-08T12:00:00.000Z" });
+  await seed("notifications/notification-secretary-personal", { id: "notification-secretary-personal", ...shared, recipientUserId: "secretary-a", type: "message", read: false, createdAt: "2026-08-08T12:00:00.000Z" });
+  await seed("notifications/notification-discipline-personal", { id: "notification-discipline-personal", ...shared, recipientUserId: "discipline-a", type: "message", read: false, createdAt: "2026-08-08T12:00:00.000Z" });
   await seed("notifications/notification-parent-personal", { id: "notification-parent-personal", ...shared, recipientUserId: "parent-user-a", type: "message", read: false, createdAt: "2026-08-08T12:00:00.000Z" });
   await seed("notifications/notification-teacher-personal", { id: "notification-teacher-personal", ...shared, recipientUserId: "teacher-a", type: "message", read: false, createdAt: "2026-08-08T13:00:00.000Z" });
   await seed("notifications/notification-study-personal", { id: "notification-study-personal", ...shared, recipientUserId: "study-a", type: "message", read: false, createdAt: "2026-08-08T13:00:00.000Z" });
@@ -124,12 +127,41 @@ describe("SEC-015 — communications, notifications et discipline", () => {
     await assertFails(getDoc(doc(otherParent, "notifications", "notification-parent-personal")));
   });
 
+  it("autorise au Parent la query temps réel exacte d'un message personnel et refuse les autres UID", async () => {
+    const parent = auth("parent-user-a", "parent", schoolA, { parentId: "parent-a" });
+    const result = await assertSucceeds(getDocs(query(
+      collection(parent, "messages"),
+      where("schoolId", "==", schoolA),
+      where("schoolYearId", "==", yearA),
+      where("participantIds", "array-contains", "parent-user-a"),
+      orderBy("createdAt", "desc"),
+      limit(30),
+    )));
+    expect(result.docs.map((item) => item.id)).toEqual(["message-secretary-parent"]);
+
+    const otherParent = auth("parent-user-x", "parent", schoolA, { parentId: "parent-x" });
+    await assertFails(getDocs(query(
+      collection(otherParent, "messages"),
+      where("schoolId", "==", schoolA),
+      where("schoolYearId", "==", yearA),
+      where("participantIds", "array-contains", "parent-user-a"),
+      orderBy("createdAt", "desc"),
+      limit(30),
+    )));
+  });
+
   it("isole la lecture des notifications personnelles par destinataire", async () => {
     const admin = auth("admin-a", "school_admin");
     const cashier = auth("cashier-a", "cashier");
+    const parent = auth("parent-user-a", "parent", schoolA, { parentId: "parent-a" });
     await assertSucceeds(getDoc(doc(admin, "notifications", "notification-admin-personal")));
     await assertSucceeds(updateDoc(doc(admin, "notifications", "notification-admin-personal"), { read: true }));
     await assertFails(getDoc(doc(cashier, "notifications", "notification-admin-personal")));
+    await assertFails(updateDoc(doc(admin, "notifications", "notification-cashier-personal"), { read: true }));
+    await assertSucceeds(updateDoc(doc(parent, "notifications", "notification-parent-personal"), { read: true }));
+
+    const cashierNotification = await assertSucceeds(getDoc(doc(cashier, "notifications", "notification-cashier-personal")));
+    expect(cashierNotification.data()?.read).toBe(false);
   });
 
   it.each([
@@ -150,18 +182,25 @@ describe("SEC-015 — communications, notifications et discipline", () => {
     expect(result.docs.some((item) => item.id === "message-administrative-group")).toBe(true);
   });
 
-  it("autorise la query notification exacte au destinataire et isole les autres UID", async () => {
-    const admin = auth("admin-a", "school_admin");
+  it.each([
+    ["admin-a", "school_admin", {}],
+    ["cashier-a", "cashier", {}],
+    ["secretary-a", "secretary", {}],
+    ["discipline-a", "discipline_director", {}],
+    ["study-a", "study_director", {}],
+    ["teacher-a", "teacher", {}],
+    ["parent-user-a", "parent", { parentId: "parent-a" }],
+  ])("autorise la query notification exacte au destinataire %s", async (uid, role, extra) => {
+    const database = auth(uid, role, schoolA, extra);
     const own = await assertSucceeds(getDocs(query(
-      collection(admin, "notifications"),
+      collection(database, "notifications"),
       where("schoolId", "==", schoolA),
       where("schoolYearId", "==", yearA),
-      where("recipientUserId", "==", "admin-a"),
+      where("recipientUserId", "==", uid),
       orderBy("createdAt", "desc"),
       limit(30),
     )));
-    expect(own.docs.map((item) => item.id)).toContain("notification-admin-personal");
-    await assertFails(getDoc(doc(auth("cashier-a", "cashier"), "notifications", "notification-admin-personal")));
+    expect(own.docs.length).toBeGreaterThan(0);
   });
 
   it("autorise la pagination notification exacte avec startAfter", async () => {

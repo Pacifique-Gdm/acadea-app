@@ -92,6 +92,14 @@ const deleteDialogSource = readFileSync(new URL("./SecretaryDocumentDeleteDialog
     for (const label of ["Tous les sens", "Tous les types", "Toutes les priorités", "Tous les modes"]) expect(moduleSource).toContain(label);
   });
 
+  it("maintient tous les contrôles Courriers sur une ligne desktop sans forcer le mobile", () => {
+    expect(moduleSource).toContain("sm:grid-cols-2 lg:grid-cols-[auto_minmax(0,1fr)");
+    expect(moduleSource).not.toContain("xl:grid-cols-7");
+    expect(moduleSource).toContain('primary-button justify-center whitespace-nowrap px-3');
+    expect(moduleSource).toContain('pdf-export-button whitespace-nowrap px-3');
+    expect(moduleSource.match(/className="input min-w-0"/g)).toHaveLength(4);
+  });
+
   it("retire le contenu obligatoire du courrier entrant", () => {
     expect(moduleSource).not.toContain('placeholder="Contenu"');
     expect(moduleSource).not.toContain("et le contenu du courrier");

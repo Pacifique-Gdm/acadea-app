@@ -43,6 +43,14 @@ describe("formulaire Nouveau rapport", () => {
     expect(source).toContain("console.error(\"Échec de la génération du rapport\"");
   });
 
+  it("maintient tous les contrôles Rapports sur une ligne desktop sans forcer le mobile", () => {
+    expect(source).toContain("sm:grid-cols-2 lg:grid-cols-[auto_minmax(0,1fr)");
+    expect(source).not.toContain("xl:grid-cols-[auto_minmax(220px,1fr)");
+    expect(source).toContain('primary-button justify-center whitespace-nowrap px-3');
+    expect(source).toContain('pdf-export-button whitespace-nowrap px-3');
+    expect(source.match(/className="input min-w-0"/g)).toHaveLength(3);
+  });
+
   it("soumet la modification d'un rapport existant sans créer de doublon", () => {
     expect(source).toContain("if (selected) await updateSecretaryReport");
     expect(source).toContain("else await createSecretaryReport");
