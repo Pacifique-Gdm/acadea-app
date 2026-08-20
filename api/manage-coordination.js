@@ -68,7 +68,7 @@ export default async function handler(req, res) {
           batch.update(db.doc(`schools/${schoolId}`), { activeCoordinationId: coordinationRef.id, updatedAt: now });
         }
         const auditRef = db.collection("auditLogs").doc(`coordination-created-${randomUUID()}`);
-        batch.set(auditRef, { id: auditRef.id, eventType: "coordination.created", actorId: caller.uid, actorRole: caller.role, schoolId: "platform", resourceType: "coordination", resourceId: coordinationRef.id, source: "server", createdAt: now, metadata: { schoolCount: schoolIds.length, coordinatorUserId: authUser.uid } });
+        batch.set(auditRef, { id: auditRef.id, eventType: "coordination.created", coordinationId: coordinationRef.id, actorId: caller.uid, actorRole: caller.role, actorName: caller.name ?? "Super Administrateur", action: "Création Coordination", resourceType: "coordination", resourceId: coordinationRef.id, source: "server", createdAt: now, metadata: { schoolCount: schoolIds.length, coordinatorUserId: authUser.uid } });
         await batch.commit();
       } catch (error) { await auth.deleteUser(authUser.uid).catch(() => undefined); throw error; }
       return sendJson(res, 200, { coordination: { id: coordinationRef.id, name, status: "active", principalCoordinatorUserId: authUser.uid }, coordinator: { id: authUser.uid, name: coordinatorName, email, role: "coordination_admin", coordinationId: coordinationRef.id }, schoolIds });

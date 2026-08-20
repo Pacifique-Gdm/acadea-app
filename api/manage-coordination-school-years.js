@@ -31,7 +31,10 @@ export default async function handler(req, res) {
       const readinessError = activeYears.length > 1 ? "Plusieurs années actives" : school.activeSchoolYearId && activeYear?.id !== school.activeSchoolYearId ? "Année active incohérente" : !school.activeSchoolYearId && activeYear ? "Référence d’année absente sur l’école" : null;
       return { schoolId: school.id, schoolName: school.name, activeYear, readinessError };
     });
-    if (action === "status") return sendJson(res, 200, { rows, referenceYear: text(caller.coordination.referenceSchoolYear) || null });
+    if (action === "status") {
+      const configuredReferenceYear = text(caller.coordination.referenceSchoolYear);
+      return sendJson(res, 200, { rows, referenceYear: configuredReferenceYear || rows.find((row) => row.activeYear?.name)?.activeYear.name || null });
+    }
     if (!rows.length) throw coordinationHttpError(409, "no-active-schools", "Aucune école activement rattachée.");
     if (input.confirmed !== true) throw coordinationHttpError(400, "confirmation-required", "Confirmation explicite requise.");
     const now = new Date().toISOString(); const batch = db.batch(); const results = [];

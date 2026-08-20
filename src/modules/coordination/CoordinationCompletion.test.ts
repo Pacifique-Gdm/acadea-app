@@ -62,6 +62,15 @@ describe("finalisation du module Coordination", () => {
     expect(portal).toContain("exportStudentsPdf");
     expect(menu).not.toContain("Créer un paiement");
     expect(menu).not.toContain("Ajouter une dépense");
+    expect(menu).toContain('aria-label="Filtrer par rôle"');
+    expect(menu).toContain('aria-label="Filtrer par statut"');
+    expect(menu).toContain("principalCoordinatorName");
+  });
+
+  it("expose la création dans l'historique et dérive une année de référence initiale", () => {
+    expect(managementApi).toContain("coordinationId: coordinationRef.id");
+    expect(managementApi).toContain('action: "Création Coordination"');
+    expect(yearApi).toContain("configuredReferenceYear || rows.find");
   });
 
   it("borne les lectures multi-écoles par lots et pages", () => {
