@@ -176,6 +176,28 @@ export default async function handler(req, res) {
     const input = await body(req);
     const action = text(input.action || "create");
     if (SUB_COORDINATION_ACTIONS.has(action)) return await manageSubCoordination({ res, auth, db, token, input, action });
+    if (action === "update-settings") {
+      const caller = await requireActiveCoordinator(auth, db, token);
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.coordinationId, action: "coordination.settings_updated", ...API_RATE_LIMITS.PROVISION_SCHOOL });
+      const values = {
+        name: text(input.name),
+        code: text(input.code),
+        phone: text(input.phone),
+        email: text(input.email).toLowerCase(),
+        address: text(input.address),
+        logoUrl: text(input.logoUrl),
+      };
+      if (!values.name || (values.email && !values.email.includes("@"))) throw coordinationHttpError(400, "invalid-argument", "Nom et e-mail valides requis.");
+      if (values.logoUrl && values.logoUrl.length > 2_000_000) throw coordinationHttpError(400, "invalid-argument", "Le logo est trop volumineux.");
+      const now = new Date().toISOString();
+      const coordinationRef = db.doc(`coordinations/${caller.coordinationId}`);
+      const auditRef = db.collection("auditLogs").doc();
+      const batch = db.batch();
+      batch.update(coordinationRef, { ...values, updatedAt: now, updatedBy: caller.uid });
+      batch.create(auditRef, { id: auditRef.id, eventType: "coordination.settings_updated", coordinationId: caller.coordinationId, actorId: caller.uid, actorRole: caller.role, actorName: caller.profile?.name ?? "Coordinateur", action: "Paramètres Coordination modifiés", result: "success", resourceType: "coordination", resourceId: caller.coordinationId, source: "server", createdAt: now, metadata: { fields: Object.keys(values) } });
+      await batch.commit();
+      return sendJson(res, 200, { coordinationId: caller.coordinationId, updatedAt: now });
+    }
     const caller = await requireSuperAdmin(auth, token);
     await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: "platform", action: `coordination.${action}`, ...API_RATE_LIMITS.PROVISION_SCHOOL });
     const now = new Date().toISOString();

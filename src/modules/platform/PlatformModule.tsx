@@ -21,6 +21,7 @@ import { formatStudentClassName } from "../../utils/studentClasses";
 import { isArchivedStudent } from "../../utils/studentUtils";
 import { canonicalSchoolOption, normalizeSchoolOptions } from "../../utils/schoolOptions";
 import { CoordinationManagement } from "./CoordinationManagement";
+import { CoordinationCreateDrawer } from "./CoordinationCreateDrawer";
 import type { AppData, AppUser, AuditLog, BiometricTerminal, BiometricTerminalStatus, School, SchoolClass } from "../../types";
 import { CLASSES } from "../../types";
 
@@ -88,7 +89,7 @@ export function PlatformModule({
   const [selectedSchoolId, setSelectedSchoolId] = useState(data.schools[0]?.id ?? "");
   const [schoolDrawerId, setSchoolDrawerId] = useState("");
   const [detailTab, setDetailTab] = useState<SchoolDetailTab>("overview");
-  const [platformMenuDrawer, setPlatformMenuDrawer] = useState<"create-school" | "logo" | "billing-controls" | null>(null);
+  const [platformMenuDrawer, setPlatformMenuDrawer] = useState<"create-school" | "create-coordination" | "logo" | "billing-controls" | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | School["status"]>("all");
   const [typeFilter, setTypeFilter] = useState<"all" | NonNullable<School["schoolType"]>>("all");
@@ -1082,6 +1083,14 @@ export function PlatformModule({
             <section className="grid min-w-0 gap-4">
               <div className="grid min-w-0 gap-3">
                 <button
+                  onClick={() => setPlatformMenuDrawer("create-coordination")}
+                  className="group flex min-w-0 items-center justify-between gap-3 rounded border border-blue-200 bg-blue-50 p-4 text-left shadow-sm transition hover:border-blue-300 hover:bg-blue-100"
+                  type="button"
+                >
+                  <span className="min-w-0"><span className="block break-words font-bold text-ink">Créer Coordination</span><span className="mt-1 block break-words text-sm text-slate-600">Créer une Coordination multi-écoles depuis un formulaire sécurisé.</span></span>
+                  <Plus className="h-5 w-5 shrink-0 text-blue-700" />
+                </button>
+                <button
                   onClick={() => setPlatformMenuDrawer("create-school")}
                   className="group flex min-w-0 items-center justify-between gap-3 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-200 hover:bg-blue-50/40"
                   type="button"
@@ -1551,6 +1560,9 @@ export function PlatformModule({
             </div>
           </div>
         </AdminDrawer>
+      )}
+      {platformMenuDrawer === "create-coordination" && (
+        <CoordinationCreateDrawer schools={visibleSchools} onClose={() => setPlatformMenuDrawer(null)} onSuccess={() => setSchoolActionSuccess("Coordination créée.")} />
       )}
 
       {aiQuotaResetTarget && (

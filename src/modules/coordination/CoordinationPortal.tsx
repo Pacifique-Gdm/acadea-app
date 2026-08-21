@@ -7,6 +7,7 @@ import { AccessDenied } from "../../components/auth/AccessDenied";
 import { escapePdfHtml, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import { CoordinationMessage } from "./CoordinationMessage";
 import { CoordinationMenu } from "./CoordinationMenu";
+import { coordinationPdfInstitution } from "./coordinationPdfInstitution";
 
 type CoordinationTab = "dashboard" | "students" | "messages" | "menu";
 type CoordinationStudent = { id: string; firstName?: string; lastName?: string; nom?: string; postnom?: string; prenom?: string; schoolId?: string; className?: string };
@@ -84,8 +85,8 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
   }, [scopedSchools, tab]);
 
   async function exportStudentsPdf() {
-    const school = scopedSchools[0] ?? activeSchools[0]; if (!school) return;
-    await renderAcadPdfPreview({ filename: `coordination-eleves-${selectedSchoolId || "toutes"}.pdf`, title: "Élèves — Coordination", school, subtitle: selectedSchoolId ? school.name : "Toutes les écoles", sections: [pdfSection("Élèves", pdfTable([
+    const school = scopedSchools[0] ?? activeSchools[0]; if (!school || !coordination) return;
+    await renderAcadPdfPreview({ filename: `coordination-eleves-${selectedSchoolId || "toutes"}.pdf`, title: "Élèves — Coordination", school: coordinationPdfInstitution(coordination, school), subtitle: selectedSchoolId ? school.name : "Toutes les écoles", sections: [pdfSection("Élèves", pdfTable([
       { header: "Élève", render: (item) => escapePdfHtml([item.prenom ?? item.firstName, item.nom ?? item.lastName, item.postnom].filter(Boolean).join(" ") || item.id) },
       { header: "École", render: (item) => escapePdfHtml(activeSchools.find((entry) => entry.id === item.schoolId)?.name || item.schoolId || "—") },
       { header: "Classe", render: (item) => escapePdfHtml(item.className || "—") },
@@ -94,7 +95,7 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
 
   async function exportDashboardPdf() {
     const school = scopedSchools[0] ?? activeSchools[0]; if (!school || !coordination) return;
-    await renderAcadPdfPreview({ filename: `coordination-dashboard-${selectedSchoolId || "toutes"}.pdf`, title: "Dashboard — Coordination", school, subtitle: selectedSchoolId ? school.name : "Toutes les écoles", sections: [pdfSection("Synthèse", pdfInfoGrid([
+    await renderAcadPdfPreview({ filename: `coordination-dashboard-${selectedSchoolId || "toutes"}.pdf`, title: "Dashboard — Coordination", school: coordinationPdfInstitution(coordination, school), subtitle: selectedSchoolId ? school.name : "Toutes les écoles", sections: [pdfSection("Synthèse", pdfInfoGrid([
       { label: "Coordination", value: coordination.name },
       { label: "Écoles visibles", value: String(scopedSchools.length) },
       { label: "Statut", value: coordination.status === "active" ? "Active" : "Indisponible" },

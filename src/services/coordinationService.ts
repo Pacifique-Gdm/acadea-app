@@ -3,6 +3,7 @@ import { resolveApiUrl } from "../config/apiUrl";
 import type { Coordination, AppUser } from "../types";
 
 type CoordinationInput = { name: string; code?: string; phone?: string; email?: string; address?: string; schoolIds: string[]; coordinator: { name: string; email: string; password: string } };
+export type CoordinationSettingsInput = { name: string; code?: string; phone?: string; email?: string; address?: string; logoUrl?: string };
 type CoordinationResponse = { coordination: Coordination; coordinator: AppUser; schoolIds: string[] };
 
 async function call(input: Record<string, unknown>) {
@@ -16,3 +17,4 @@ async function call(input: Record<string, unknown>) {
 export async function createCoordination(input: CoordinationInput) { return call({ action: "create", ...input }) as Promise<CoordinationResponse>; }
 export async function addCoordinationSchool(coordinationId: string, schoolId: string) { return call({ action: "add-school", coordinationId, schoolId }); }
 export async function removeCoordinationSchool(coordinationId: string, schoolId: string) { return call({ action: "remove-school", coordinationId, schoolId }); }
+export async function updateCoordinationSettings(settings: CoordinationSettingsInput) { return call({ action: "update-settings", ...settings }); }
