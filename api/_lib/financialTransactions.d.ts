@@ -27,6 +27,11 @@ export type FinancialOperationResult = {
   idempotent: boolean;
 };
 
+export function authorizeFinancialCaller(
+  caller: { uid: string; role?: unknown; schoolId?: unknown; email?: unknown },
+  action: string,
+): void;
+
 export function executeFinancialOperation(input: {
   db: unknown;
   caller: { uid: string; role?: unknown; schoolId?: unknown; email?: unknown };

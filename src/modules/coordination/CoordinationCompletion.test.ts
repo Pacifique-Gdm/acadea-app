@@ -4,6 +4,9 @@ import { describe, expect, it } from "vitest";
 
 const read = (...segments: string[]) => readFileSync(join(process.cwd(), ...segments), "utf8");
 const portal = read("src", "modules", "coordination", "CoordinationPortal.tsx");
+const students = read("src", "modules", "coordination", "CoordinationStudents.tsx");
+const control = read("src", "modules", "coordination", "CoordinationControl.tsx");
+const dashboard = read("src", "modules", "coordination", "CoordinationDashboard.tsx");
 const messages = read("src", "modules", "coordination", "CoordinationMessage.tsx");
 const menu = read("src", "modules", "coordination", "CoordinationMenu.tsx");
 const recipientApi = read("api", "coordination-message-recipients.js");
@@ -15,7 +18,7 @@ const auth = read("src", "services", "auth.ts");
 const rules = read("firestore.rules");
 
 describe("finalisation du module Coordination", () => {
-  it("conserve quatre onglets et raccorde Message et les six Drawers du Menu", () => {
+  it("conserve cinq onglets et raccorde Message et les six Drawers du Menu", () => {
     expect(portal).toContain("<CoordinationMessage");
     expect(portal).toContain("<CoordinationMenu");
     for (const label of ["Types de frais", "Rapport financier", "Personnels", "Année scolaire", "Paramètres coordination", "Historique"]) expect(menu).toContain(label);
@@ -61,8 +64,9 @@ describe("finalisation du module Coordination", () => {
   it("maintient les vues financières et personnels en lecture seule avec exports", () => {
     expect(menu).toContain("loadCoordinationReadModel");
     for (const kind of ["fees", "finance", "personnel", "years", "history"]) expect(menu).toContain(`exportPdf("${kind}")`);
-    expect(portal).toContain("exportDashboardPdf");
-    expect(portal).toContain("exportStudentsPdf");
+    expect(portal).toContain("<CoordinationDashboard");
+    expect(dashboard).toContain("exportCoordinationDashboardPdf");
+    expect(students).toContain("Exporter PDF");
     expect(menu).not.toContain("Créer un paiement");
     expect(menu).not.toContain("Ajouter une dépense");
     expect(menu).toContain('aria-label="Filtrer par rôle"');
@@ -85,10 +89,11 @@ describe("finalisation du module Coordination", () => {
     expect(recipientApi).toContain("limit(500)");
   });
 
-  it("partage le portail avec le Sous-coordinateur sans cinquième onglet", () => {
+  it("partage les cinq onglets avec le Sous-coordinateur", () => {
     expect(portal).toContain('"sub_coordination_admin"');
     expect(auth).toContain('role === "sub_coordination_admin"');
-    expect(portal.match(/\["(dashboard|students|messages|menu)"/g)).toHaveLength(4);
+    for (const tab of ["dashboard", "students", "control", "messages", "menu"]) expect(portal).toContain(`["${tab}"`);
+    expect(portal).toContain("grid-cols-5");
     expect(menu).toContain('user.role === "coordination_admin" ? [["subCoordinations"');
   });
 
@@ -111,11 +116,26 @@ describe("finalisation du module Coordination", () => {
   it("alimente le Dashboard, les élèves, la messagerie et les PDF depuis le même périmètre délégué", () => {
     expect(portal).toContain('relationCollection = user.role === "sub_coordination_admin" ? "subCoordinationSchools" : "coordinationSchools"');
     expect(portal).toContain("const activeSchools = useMemo");
-    expect(portal).toContain("const scopedSchools = useMemo");
-    expect(portal).toContain('value: String(scopedSchools.length)');
-    expect(portal).toContain("], visibleStudents");
+    expect(portal).toContain("const supervisionScope = useMemo");
+    expect(dashboard).toContain("buildCoordinationDashboardStats");
+    expect(dashboard).toContain('user.role === "sub_coordination_admin" ? "Toutes mes écoles" : "Toutes les écoles"');
+    expect(portal).toContain("<CoordinationStudents");
+    expect(portal).toContain("<CoordinationControl");
     expect(portal).toContain("<CoordinationMessage schools={activeSchools}");
     expect(portal).toContain("<CoordinationMenu");
+  });
+
+  it("maintient Contrôle en lecture seule sans avertissement ni service de mutation", () => {
+    expect(control).not.toContain("Avertissement");
+    expect(control).not.toContain("createPaymentTransaction");
+    expect(control).not.toContain("updatePaymentTransaction");
+    expect(control).not.toContain("deleteFinancialTransaction");
+    expect(control).toContain("CoordinationStudentRecord");
+  });
+
+  it("place le Menu verticalement et réutilise le bouton Déconnexion partagé", () => {
+    expect(menu).toContain("LogoutButton");
+    expect(menu).not.toContain("sm:grid-cols-2 lg:grid-cols-3");
   });
 
   it("gère création, périmètre, transfert et cycle de vie via l’API existante", () => {

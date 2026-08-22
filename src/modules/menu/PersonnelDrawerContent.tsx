@@ -14,10 +14,10 @@ import { isValidProvisioningPhone } from "../../utils/schoolAccountCredentials";
 import { getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
 import { userSectionIds } from "../../utils/userSections";
 import { printPersonnelListPdf, printPersonnelProfilePdf } from "../../utils/personnelPdf";
+import { PersonnelProfileReadOnly } from "../../components/personnel/PersonnelProfileReadOnly";
 
 type ProfileForm = Partial<Omit<PersonnelProfile, "id" | "schoolId" | "personnelId" | "matricule" | "createdAt" | "createdBy" | "updatedAt" | "updatedBy">>;
 
-const shown = (value: unknown) => value === undefined || value === null || value === "" ? "Non renseigné" : String(value);
 const dateShown = (value: unknown) => {
   if (!value) return "Non renseigné";
   const timestamp = value as { toDate?: () => Date; toMillis?: () => number };
@@ -122,17 +122,6 @@ export function PersonnelDrawerContent({ user, school }: { user: AppUser; school
     finally { setBusy(false); }
   }
 
-  const identity = selected ? personnelIdentity(selected, profile) : { lastName: "", middleName: "", firstName: "" };
-  const detailSections: Array<[string, Array<[string, unknown]>]> = selected ? [
-    ["IDENTIFICATION", [["Matricule", profile?.matricule], ["Nom", identity.lastName], ["Postnom", identity.middleName], ["Prénom", identity.firstName], ["Sexe", profile?.gender], ["Date de naissance", dateShown(profile?.birthDate)], ["Lieu de naissance", profile?.birthPlace]]],
-    ["COORDONNÉES", [["Téléphone", selected.phone], ["E-mail", selected.email], ["Adresse", profile?.address ?? selected.address]]],
-    ["SITUATION PROFESSIONNELLE", [["Fonction", profile?.jobTitle ?? personnelRoleLabels[selected.role as keyof typeof personnelRoleLabels]], ["Date d’engagement", dateShown(profile?.engagementDate)], ["Type de contrat", profile?.contractType], ["Sections", userSectionIds(selected).map((section) => schoolSectionLabels[section]).join(", ")], ["Statut", isArchivedPersonnel(selected) ? "Archivé" : "Actif"]]],
-    ["FORMATION ET QUALIFICATIONS", [["Niveau d’études", profile?.educationLevel], ["Diplôme", profile?.diploma], ["Spécialité", profile?.specialty], ["Établissement de formation", profile?.trainingInstitution], ["Année d’obtention", profile?.graduationYear]]],
-    ["INFORMATIONS COMPLÉMENTAIRES", [["Personne à contacter", profile?.emergencyContactName], ["Lien avec la personne", profile?.emergencyContactRelationship], ["Téléphone", profile?.emergencyContactPhone]]],
-    ["OBSERVATIONS", [["Observations", profile?.observations]]],
-    ["INFORMATIONS SYSTÈME — LECTURE SEULE", [["Date d’établissement de la fiche", dateShown(selected.createdAt)]]],
-  ] : [];
-
   return <div className="grid gap-4">
     <div className="grid min-w-0 grid-cols-2 gap-2"><div ref={statusDropdownRef} className="relative min-w-0"><button type="button" className="secondary-button w-full justify-center" aria-haspopup="listbox" aria-expanded={statusOpen} onClick={() => setStatusOpen((current) => !current)}>Statut : {view === "active" ? "Actifs" : "Archivés"} <ChevronDown className="h-4 w-4"/></button>{statusOpen && <div role="listbox" aria-label="Filtrer les personnels" className="absolute left-0 right-0 top-full z-50 mt-1 grid rounded border border-slate-200 bg-white p-1 shadow-lg"><button role="option" aria-selected={view === "active"} type="button" className="min-h-10 rounded px-3 text-left hover:bg-slate-50" onClick={() => { setView("active"); setStatusOpen(false); }}>Actifs</button><button role="option" aria-selected={view === "archived"} type="button" className="min-h-10 rounded px-3 text-left hover:bg-slate-50" onClick={() => { setView("archived"); setStatusOpen(false); }}>Archivés</button></div>}</div><button type="button" className="primary-button w-full justify-center" disabled={loading || visible.length === 0} onClick={() => void printPersonnelListPdf(school, visible, view)}><Printer className="h-4 w-4"/> Imprimer</button></div>
     {error && <p role="alert" aria-live="assertive" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}{success && <p role="status" aria-live="polite" className="rounded border border-green-200 bg-green-50 p-3 text-sm text-green-800">{success}</p>}
@@ -141,8 +130,9 @@ export function PersonnelDrawerContent({ user, school }: { user: AppUser; school
     {selected && <AdminDrawer title={`Personnel — ${selected.name}`} closeLabel="Fermer la fiche Personnel" onClose={closeSelected}>
       <div className="grid grid-cols-2 gap-2"><div className="relative min-w-0"><button ref={actionsDropdownRef} type="button" className="secondary-button w-full justify-center" aria-haspopup="menu" aria-expanded={actionsOpen} disabled={busy || !profileReady || selected.role === "school_admin"} onClick={() => setActionsOpen((current) => !current)}>Actions <ChevronDown className="h-4 w-4"/></button>{actionsOpen && selected.role !== "school_admin" && <div role="menu" className="absolute left-0 right-0 top-full z-50 mt-1 grid rounded border border-slate-200 bg-white p-1 shadow-lg"><button role="menuitem" type="button" className="flex min-h-10 items-center gap-2 rounded px-3 text-left text-sm hover:bg-slate-50" onClick={() => { setActionsOpen(false); openEdit(selected); }}><Pencil className="h-4 w-4"/> Modifier</button>{isArchivedPersonnel(selected) ? <button role="menuitem" type="button" className="flex min-h-10 items-center gap-2 rounded px-3 text-left text-sm hover:bg-slate-50" onClick={() => { setActionsOpen(false); setConfirming("reactivate"); }}><ArchiveRestore className="h-4 w-4"/> Réactiver</button> : <button role="menuitem" type="button" className="flex min-h-10 items-center gap-2 rounded px-3 text-left text-sm text-red-700 hover:bg-red-50" onClick={() => { setActionsOpen(false); setConfirming("archive"); }}><Archive className="h-4 w-4"/> Archiver</button>}</div>}</div><button type="button" className="primary-button w-full justify-center" disabled={busy || !profileReady} onClick={() => void printPersonnelProfilePdf(school, selected, profile)}><Printer className="h-4 w-4"/> Imprimer</button></div>
       {!profileReady && <p role="status" className="py-4 text-center text-sm text-slate-500">Chargement de la fiche administrative…</p>}
-      {profileReady && profile?.photoUrl && <img src={profile.photoUrl} alt={`Photo de ${selected.name}`} className="mx-auto h-32 w-28 rounded border object-contain"/>}
-      <div className="grid gap-4 text-sm">{detailSections.map(([title, rows]) => <section key={title} className="rounded bg-slate-50 p-4"><h3 className="mb-3 font-bold text-ink">{title}</h3><dl className="grid gap-3 sm:grid-cols-2">{rows.map(([label, item]) => <div key={label}><dt className="font-semibold">{label}</dt><dd className="break-words whitespace-pre-wrap">{shown(item)}</dd></div>)}</dl></section>)}</div>
+      {profileReady && (
+        <PersonnelProfileReadOnly personnel={selected} profile={profile}/>
+      )}
     </AdminDrawer>}
 
     {editing && selected && <AdminDrawer title="Modifier le personnel" closeLabel="Fermer la modification" onClose={closeEdit}>

@@ -253,8 +253,7 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
 export async function executeFinancialOperation({ db, caller: rawCaller, body, now = new Date().toISOString() }) {
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new FinancialApiError(400, "invalid-argument", "Requête financière invalide.");
   const action = text(body.action, 60);
-  const createAction = action === "create-payment" || action === "create-expense";
-  const caller = assertRole(rawCaller, createAction ? ["cashier"] : ["school_admin"]);
+  const caller = authorizeFinancialCaller(rawCaller, action);
   const hash = requestKey(caller.uid, caller.schoolId, body.clientRequestId);
   const idempotencyRef = db.doc(`financialIdempotency/${hash}`);
   return db.runTransaction(async (transaction) => {
@@ -271,4 +270,9 @@ export async function executeFinancialOperation({ db, caller: rawCaller, body, n
     transaction.create(idempotencyRef, { schoolId: caller.schoolId, schoolYearId: body.schoolYearId ?? result.payment?.schoolYearId ?? result.expense?.schoolYearId ?? null, userId: caller.uid, action, result, createdAt: now });
     return { ...result, idempotent: false };
   });
+}
+
+export function authorizeFinancialCaller(rawCaller, action) {
+  const createAction = action === "create-payment" || action === "create-expense";
+  return assertRole(rawCaller, createAction ? ["cashier"] : ["school_admin"]);
 }

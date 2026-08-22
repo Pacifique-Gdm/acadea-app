@@ -1,6 +1,6 @@
 import { getCurrentFirebaseIdToken } from "./auth";
 import { resolveApiUrl } from "../config/apiUrl";
-import type { Coordination, AppUser } from "../types";
+import type { Coordination, AppUser, ParentProfile, PersonnelProfile } from "../types";
 
 type CoordinationInput = { name: string; code?: string; phone?: string; email?: string; address?: string; schoolIds: string[]; coordinator: { name: string; email: string; password: string } };
 export type CoordinationSettingsInput = { name: string; code?: string; phone?: string; email?: string; address?: string; logoUrl?: string };
@@ -18,3 +18,11 @@ export async function createCoordination(input: CoordinationInput) { return call
 export async function addCoordinationSchool(coordinationId: string, schoolId: string) { return call({ action: "add-school", coordinationId, schoolId }); }
 export async function removeCoordinationSchool(coordinationId: string, schoolId: string) { return call({ action: "remove-school", coordinationId, schoolId }); }
 export async function updateCoordinationSettings(settings: CoordinationSettingsInput) { return call({ action: "update-settings", ...settings }); }
+export async function loadCoordinationStudentParent(studentId: string) {
+  const payload = await call({ action: "read-student-parent", studentId }) as { parent?: ParentProfile | null };
+  return payload.parent ?? null;
+}
+export async function loadCoordinationPersonnelProfile(personnelId: string) {
+  const payload = await call({ action: "read-personnel-profile", personnelId }) as { profile?: PersonnelProfile | null };
+  return payload.profile ?? null;
+}

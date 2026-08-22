@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { firebaseAdminPublicError, initAdmin } from "./_lib/firebaseAdmin.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
-import { coordinationHttpError, requireActiveCoordinator } from "./_lib/coordination.js";
+import { coordinationHttpError, requireActiveCoordinationActor, requireActiveCoordinator, resolveCoordinationSchoolScope } from "./_lib/coordination.js";
 
 export const maxDuration = 300;
 
@@ -175,6 +175,39 @@ export default async function handler(req, res) {
     const { auth, db } = initAdmin();
     const input = await body(req);
     const action = text(input.action || "create");
+    if (action === "read-student-parent") {
+      const caller = await requireActiveCoordinationActor(auth, db, token);
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.coordinationId, action: "coordination.read-student-parent", ...API_RATE_LIMITS.MESSAGE_RECIPIENTS });
+      const studentId = text(input.studentId);
+      if (!studentId) throw coordinationHttpError(400, "invalid-argument", "studentId requis.");
+      const studentSnapshot = await db.doc(`students/${studentId}`).get();
+      const student = studentSnapshot.exists ? studentSnapshot.data() : undefined;
+      const schoolIds = new Set(await resolveCoordinationSchoolScope(db, caller));
+      if (!student || !schoolIds.has(student.schoolId)) throw coordinationHttpError(404, "not-found", "Élève introuvable dans le périmètre autorisé.");
+      if (!student.parentId) return sendJson(res, 200, { parent: null });
+      const parentSnapshot = await db.doc(`parents/${student.parentId}`).get();
+      const parent = parentSnapshot.exists ? parentSnapshot.data() : undefined;
+      if (!parent || parent.schoolId !== student.schoolId || parent.schoolYearId !== student.schoolYearId) return sendJson(res, 200, { parent: null });
+      return sendJson(res, 200, { parent: { id: parentSnapshot.id, schoolId: parent.schoolId, schoolYearId: parent.schoolYearId, userId: parent.userId ?? "", fullName: parent.fullName ?? "", phone: parent.phone ?? "", email: parent.email ?? "", address: parent.address ?? "", studentIds: Array.isArray(parent.studentIds) ? parent.studentIds.filter((id) => id === studentId) : [], status: parent.status === "inactive" ? "inactive" : "active" } });
+    }
+    if (action === "read-personnel-profile") {
+      const caller = await requireActiveCoordinationActor(auth, db, token);
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.coordinationId, action: "coordination.read-personnel-profile", ...API_RATE_LIMITS.MESSAGE_RECIPIENTS });
+      const personnelId = text(input.personnelId);
+      if (!personnelId) throw coordinationHttpError(400, "invalid-argument", "personnelId requis.");
+      const personnelSnapshot = await db.doc(`users/${personnelId}`).get();
+      const personnel = personnelSnapshot.exists ? personnelSnapshot.data() : undefined;
+      const schoolIds = new Set(await resolveCoordinationSchoolScope(db, caller));
+      const internalRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]);
+      if (!personnel || !internalRoles.has(personnel.role) || !schoolIds.has(personnel.schoolId)) throw coordinationHttpError(404, "not-found", "Personnel introuvable dans le périmètre autorisé.");
+      const profileSnapshot = await db.doc(`personnelProfiles/${personnelId}`).get();
+      const profile = profileSnapshot.exists ? profileSnapshot.data() : undefined;
+      if (!profile || profile.schoolId !== personnel.schoolId || profile.personnelId !== personnelId) return sendJson(res, 200, { profile: null });
+      const allowed = ["matricule", "photoUrl", "lastName", "middleName", "firstName", "jobTitle", "gender", "birthDate", "birthPlace", "address", "engagementDate", "contractType", "educationLevel", "diploma", "specialty", "trainingInstitution", "graduationYear", "emergencyContactName", "emergencyContactRelationship", "emergencyContactPhone", "observations", "createdAt", "updatedAt"];
+      const safeProfile = { id: profileSnapshot.id, schoolId: profile.schoolId, personnelId };
+      allowed.forEach((key) => { if (profile[key] !== undefined) safeProfile[key] = profile[key]; });
+      return sendJson(res, 200, { profile: safeProfile });
+    }
     if (SUB_COORDINATION_ACTIONS.has(action)) return await manageSubCoordination({ res, auth, db, token, input, action });
     if (action === "update-settings") {
       const caller = await requireActiveCoordinator(auth, db, token);

@@ -1,5 +1,5 @@
 import { initAdmin } from "./_lib/firebaseAdmin.js";
-import { executeFinancialOperation, FinancialApiError } from "./_lib/financialTransactions.js";
+import { authorizeFinancialCaller, executeFinancialOperation, FinancialApiError } from "./_lib/financialTransactions.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 
 async function readBody(req) {
@@ -39,9 +39,10 @@ export default async function handler(req, res) {
     const body = await readBody(req);
     const requestedAction = typeof body.action === "string" ? body.action : "";
     const action = ["create-payment", "create-expense", "update-payment", "update-expense", "delete-payment", "delete-expense"].includes(requestedAction) ? requestedAction : "invalid";
+    const authorizedCaller = authorizeFinancialCaller(caller, action);
     const rate = action === "create-payment" || action === "create-expense" ? API_RATE_LIMITS.FINANCE_CREATE : API_RATE_LIMITS.FINANCE_MUTATE;
-    await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.schoolId, action: `finance.${action}`, idempotencyKey: typeof body.clientRequestId === "string" ? body.clientRequestId : undefined, ...rate });
-    const result = await executeFinancialOperation({ db, caller, body });
+    await enforceApiRateLimit({ db, actorId: authorizedCaller.uid, schoolId: authorizedCaller.schoolId, action: `finance.${action}`, idempotencyKey: typeof body.clientRequestId === "string" ? body.clientRequestId : undefined, ...rate });
+    const result = await executeFinancialOperation({ db, caller: authorizedCaller, body });
     return sendJson(res, 200, result);
   } catch (error) {
     if (sendRateLimitError(res, error)) return;

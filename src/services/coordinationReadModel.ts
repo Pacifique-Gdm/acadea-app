@@ -1,9 +1,12 @@
 import { collection, getDocs, limit, query, startAfter, where, type Firestore, type QueryDocumentSnapshot } from "@firebase/firestore";
 import { db } from "../firebase";
-import type { AppUser, AuditLog, Expense, FeeType, Payment, SchoolYear } from "../types";
+import type { AppUser, AuditLog, Expense, FeeType, Payment, SchoolYear, Student } from "../types";
+import { isInternalPersonnel } from "./personnel";
 
 export type CoordinationReadModel = { feeTypes: FeeType[]; payments: Payment[]; expenses: Expense[]; personnel: AppUser[]; schoolYears: SchoolYear[]; auditLogs: AuditLog[] };
+export type CoordinationDashboardReadModel = { students: Student[]; feeTypes: FeeType[]; payments: Payment[]; expenses: Expense[]; personnel: AppUser[]; schoolYears: SchoolYear[] };
 const emptyModel = (): CoordinationReadModel => ({ feeTypes: [], payments: [], expenses: [], personnel: [], schoolYears: [], auditLogs: [] });
+const emptyDashboardModel = (): CoordinationDashboardReadModel => ({ students: [], feeTypes: [], payments: [], expenses: [], personnel: [], schoolYears: [] });
 
 async function loadBySchools<T>(name: string, schoolIds: string[]) {
   if (!db || schoolIds.length === 0) return [];
@@ -30,5 +33,18 @@ export async function loadCoordinationReadModel(coordinationId: string, schoolId
   const audit = new Map<string, AuditLog>();
   schoolAudit.forEach((item) => audit.set(item.id, item));
   coordinationAudit.docs.forEach((item) => audit.set(item.id, { id: item.id, ...item.data() } as AuditLog));
-  return { feeTypes, payments, expenses, personnel, schoolYears, auditLogs: [...audit.values()] };
+  return { feeTypes, payments, expenses, personnel: personnel.filter(isInternalPersonnel), schoolYears, auditLogs: [...audit.values()] };
+}
+
+export async function loadCoordinationDashboardReadModel(schoolIds: string[]): Promise<CoordinationDashboardReadModel> {
+  if (!db || schoolIds.length === 0) return emptyDashboardModel();
+  const [students, feeTypes, payments, expenses, personnel, schoolYears] = await Promise.all([
+    loadBySchools<Student>("students", schoolIds),
+    loadBySchools<FeeType>("feeTypes", schoolIds),
+    loadBySchools<Payment>("payments", schoolIds),
+    loadBySchools<Expense>("expenses", schoolIds),
+    loadBySchools<AppUser>("users", schoolIds),
+    loadBySchools<SchoolYear>("schoolYears", schoolIds),
+  ]);
+  return { students, feeTypes, payments, expenses, personnel: personnel.filter(isInternalPersonnel), schoolYears };
 }

@@ -50,7 +50,7 @@ export async function printPersonnelListPdf(school: School, personnel: AppUser[]
   });
 }
 
-export async function printPersonnelProfilePdf(school: School, personnel: AppUser, profileOrPrintedAt?: PersonnelProfile | Date, requestedPrintedAt = new Date()) {
+export async function printPersonnelProfilePdf(school: School, personnel: AppUser, profileOrPrintedAt?: PersonnelProfile | Date, requestedPrintedAt = new Date(), context?: { personnelSchoolName?: string }) {
   const profile = profileOrPrintedAt instanceof Date ? undefined : profileOrPrintedAt;
   const printedAt = profileOrPrintedAt instanceof Date ? profileOrPrintedAt : requestedPrintedAt;
   const identity = personnelIdentity(personnel, profile);
@@ -84,6 +84,7 @@ export async function printPersonnelProfilePdf(school: School, personnel: AppUse
       ]), { className: "personnel-coordinates" }),
       pdfSection("SITUATION PROFESSIONNELLE", lines([
         { label: "Fonction", value: profile?.jobTitle || role },
+        ...(context?.personnelSchoolName ? [{ label: "École", value: context.personnelSchoolName }] : []),
         { label: "Date d’engagement", value: personnelDate(profile?.engagementDate) },
         { label: "Type de contrat", value: profile?.contractType },
         { label: "Sections", value: sections },

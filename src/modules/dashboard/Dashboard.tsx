@@ -5,13 +5,14 @@ import { FormPanel, Metric } from "../../components/ui";
 import { buildDashboardFeeShares, buildDashboardFinancialAggregates, buildDashboardTransactionDayRows } from "../../utils/dashboardStats";
 import type { DashboardFeeShare } from "../../utils/dashboardStats";
 import { buildSchoolYearDataIndexes } from "../../utils/dataIndexes";
+import { buildDashboardClassRows } from "../../utils/dashboardClassStats";
+import { formatChartDate, getTransactionPeriodDates } from "../../utils/dashboardDates";
 import { exportDashboardReportPdf } from "../../utils/dashboardPdf";
 import { money } from "../../utils/pdf";
 import { getSchoolClassChoices, getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
 import { buildStats } from "../../utils/stats";
 import { formatStudentClassName, getClassSection } from "../../utils/studentClasses";
 import type { AppUser, Expense, FeeType, ParentProfile, Payment, School, SchoolSection, SchoolYear, Student } from "../../types";
-import { CLASSES } from "../../types";
 
 type DashboardData = {
   students: Student[];
@@ -28,8 +29,8 @@ type DashboardProps = {
   year: SchoolYear;
 };
 
-type TransactionPeriod = "today" | "last5" | "week";
-type TransactionChartItem = {
+export type TransactionPeriod = "today" | "last5" | "week";
+export type TransactionChartItem = {
   id: string;
   kind: "payment" | "expense";
   type: string;
@@ -43,11 +44,11 @@ type TransactionChartItem = {
   feeName?: string;
   agentName?: string;
 };
-type TransactionChartRow = { date: string; label: string; payments: number; expenses: number; transactions: TransactionChartItem[] };
+export type TransactionChartRow = { date: string; label: string; payments: number; expenses: number; transactions: TransactionChartItem[] };
 const transactionAxisStep = 1500;
 const feeShareColors = ["#2563eb", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", "#06b6d4", "#84cc16", "#f97316"];
 
-function FinancialFeeShareChart({ rows }: { rows: DashboardFeeShare[] }) {
+export function FinancialFeeShareChart({ rows, formatAmount = money, totalAriaLabel }: { rows: DashboardFeeShare[]; formatAmount?: (value: number) => string; totalAriaLabel?: string }) {
   const total = rows.reduce((sum, row) => sum + row.amount, 0);
   let cursor = 0;
   const gradient = rows.map((row, index) => {
@@ -62,17 +63,17 @@ function FinancialFeeShareChart({ rows }: { rows: DashboardFeeShare[] }) {
         <p className="rounded bg-white p-4 text-sm text-slate-500">Aucun montant encaissé pour cette sélection.</p>
       ) : (
         <div className="grid min-w-0 items-center gap-5 sm:grid-cols-[180px_minmax(0,1fr)]">
-          <div className="relative mx-auto h-44 w-44 rounded-full" style={{ background: `conic-gradient(${gradient})` }} role="img" aria-label={`Répartition de ${total.toFixed(2)} dollars attendus`}>
+          <div className="relative mx-auto h-44 w-44 rounded-full" style={{ background: `conic-gradient(${gradient})` }} role="img" aria-label={totalAriaLabel ?? `Répartition de ${total.toFixed(2)} dollars attendus`}>
             <div className="absolute inset-8 grid place-items-center rounded-full bg-white text-center">
               <span className="text-xs text-slate-500">Total</span>
-              <strong className="text-sm text-ink">${total.toFixed(2)}</strong>
+              <strong className="text-sm text-ink">{formatAmount(total)}</strong>
             </div>
           </div>
           <ul className="grid min-w-0 gap-2">
             {rows.map((row, index) => (
               <li key={row.name} className="flex min-w-0 items-center justify-between gap-3 rounded bg-white px-3 py-2 text-sm">
                 <span className="flex min-w-0 items-center gap-2"><span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: row.color ?? feeShareColors[index % feeShareColors.length] }} /><span className="truncate">{row.name}</span></span>
-                <strong className="shrink-0 text-ink">${row.amount.toFixed(2)} · {row.percentage.toFixed(1)}%</strong>
+                <strong className="shrink-0 text-ink">{formatAmount(row.amount)} · {row.percentage.toFixed(1)}%</strong>
               </li>
             ))}
           </ul>
@@ -93,30 +94,6 @@ function toDateKey(date: Date) {
   return localDate.toISOString().slice(0, 10);
 }
 
-function getTransactionPeriodDates(period: TransactionPeriod, now = new Date()) {
-  if (period === "today") return [toDateKey(now)];
-  if (period === "last5") {
-    return Array.from({ length: 5 }, (_, index) => {
-      const date = new Date(now);
-      date.setDate(now.getDate() - (4 - index));
-      return toDateKey(date);
-    });
-  }
-  const monday = new Date(now);
-  const day = monday.getDay();
-  const mondayOffset = day === 0 ? -6 : 1 - day;
-  monday.setDate(now.getDate() + mondayOffset);
-  return Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(monday);
-    date.setDate(monday.getDate() + index);
-    return toDateKey(date);
-  });
-}
-
-function formatChartDate(dateKey: string) {
-  return new Intl.DateTimeFormat("fr-FR", { weekday: "short", day: "2-digit" }).format(new Date(`${dateKey}T12:00:00`));
-}
-
 function formatChartTooltipDate(dateKey: string) {
   return new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" }).format(new Date(`${dateKey}T12:00:00`));
 }
@@ -130,14 +107,16 @@ function getChartMaxAmount(rows: TransactionChartRow[]) {
   return Math.max(transactionAxisStep, Math.ceil(maxAmount / transactionAxisStep) * transactionAxisStep);
 }
 
-function TransactionComboChart({
+export function TransactionComboChart({
   rows,
   period,
   onPeriodChange,
+  formatAmount = money,
 }: {
   rows: TransactionChartRow[];
   period: TransactionPeriod;
   onPeriodChange: (period: TransactionPeriod) => void;
+  formatAmount?: (value: number) => string;
 }) {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const chartWidth = Math.max(560, rows.length * 96);
@@ -242,7 +221,7 @@ function TransactionComboChart({
                 }}
                 aria-label={`Afficher les transactions du ${formatChartTooltipDate(row.date)}`}
               >
-                <title>{`${formatChartTooltipDate(row.date)}\nPaiements : ${money(row.payments)}\nDépenses : ${money(row.expenses)}\nTotal : ${money(row.payments + row.expenses)}`}</title>
+                <title>{`${formatChartTooltipDate(row.date)}\nPaiements : ${formatAmount(row.payments)}\nDépenses : ${formatAmount(row.expenses)}\nTotal : ${formatAmount(row.payments + row.expenses)}`}</title>
                 <rect x={paymentX} y={paymentY} width={barWidth} height={paymentHeight} rx="5" fill="#2a9d8f" opacity="0">
                   <animate attributeName="opacity" values="0;1" dur="0.45s" begin={`${index * 0.04}s`} fill="freeze" />
                 </rect>
@@ -263,12 +242,12 @@ function TransactionComboChart({
           </path>
           {paymentPoints.map((point, index) => (
             <circle key={`payment-${rows[index].date}`} cx={point.x} cy={point.y} r="4.5" fill="white" stroke="#2a9d8f" strokeWidth="3">
-              <title>{`${formatChartTooltipDate(rows[index].date)}\nPaiements : ${money(rows[index].payments)}`}</title>
+              <title>{`${formatChartTooltipDate(rows[index].date)}\nPaiements : ${formatAmount(rows[index].payments)}`}</title>
             </circle>
           ))}
           {expensePoints.map((point, index) => (
             <circle key={`expense-${rows[index].date}`} cx={point.x} cy={point.y} r="4.5" fill="white" stroke="#dc2626" strokeWidth="3">
-              <title>{`${formatChartTooltipDate(rows[index].date)}\nDépenses : ${money(rows[index].expenses)}`}</title>
+              <title>{`${formatChartTooltipDate(rows[index].date)}\nDépenses : ${formatAmount(rows[index].expenses)}`}</title>
             </circle>
           ))}
           {rows.map((row, index) => {
@@ -288,7 +267,7 @@ function TransactionComboChart({
                 onTouchStart={() => setSelectedDate(row.date)}
                 aria-label={`Afficher les transactions du ${formatChartTooltipDate(row.date)}`}
               >
-                <title>{`${formatChartTooltipDate(row.date)}\nPaiements : ${money(row.payments)}\nDépenses : ${money(row.expenses)}\nTotal : ${money(row.payments + row.expenses)}`}</title>
+                <title>{`${formatChartTooltipDate(row.date)}\nPaiements : ${formatAmount(row.payments)}\nDépenses : ${formatAmount(row.expenses)}\nTotal : ${formatAmount(row.payments + row.expenses)}`}</title>
               </rect>
             );
           })}
@@ -307,8 +286,8 @@ function TransactionComboChart({
               </button>
             </div>
             <div className="my-3 grid gap-2 text-xs font-semibold text-slate-600 sm:grid-cols-2">
-              <span className="rounded bg-mint/10 px-3 py-2">Encaissé : <strong className="text-mint">{money(selectedRow.payments)}</strong></span>
-              <span className="rounded bg-red-50 px-3 py-2">Dépenses : <strong className="text-red-600">{money(selectedRow.expenses)}</strong></span>
+              <span className="rounded bg-mint/10 px-3 py-2">Encaissé : <strong className="text-mint">{formatAmount(selectedRow.payments)}</strong></span>
+              <span className="rounded bg-red-50 px-3 py-2">Dépenses : <strong className="text-red-600">{formatAmount(selectedRow.expenses)}</strong></span>
             </div>
             <div className="min-h-0 max-h-56 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
               {selectedTransactions.length > 0 ? (
@@ -320,7 +299,7 @@ function TransactionComboChart({
                         <p className="break-words text-xs text-slate-700">{transaction.label || "Sans libellé"}</p>
                       </div>
                       <span className={transaction.kind === "payment" ? "shrink-0 font-bold text-mint" : "shrink-0 font-bold text-red-600"}>
-                        {(transaction.kind === "payment" ? "+" : "-") + "$" + Math.abs(transaction.amount).toFixed(2)}
+                        {(transaction.kind === "payment" ? "+" : "-") + formatAmount(Math.abs(transaction.amount))}
                       </span>
                     </div>
                     <div className="grid gap-1 text-[11px] font-semibold text-slate-500">
@@ -431,32 +410,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
     [dashboardClassChoices, filteredStudents],
   );
   const classDisplayRows = useMemo(
-    () =>
-      Array.from(
-        filteredStudents.reduce<Map<string, { className: string; classOrder: number; optionLabel: string; girls: number; boys: number; total: number }>>((items, student) => {
-          const isSecondary = getClassSection(student.className) === "Secondaire";
-          const className = isSecondary ? formatStudentClassName(student) : student.className;
-          const current = items.get(className) ?? {
-            className,
-            classOrder: CLASSES.indexOf(student.className),
-            optionLabel: isSecondary ? student.option?.trim() ?? "" : "",
-            girls: 0,
-            boys: 0,
-            total: 0,
-          };
-          items.set(className, {
-            ...current,
-            girls: current.girls + (student.sexe === "F" ? 1 : 0),
-            boys: current.boys + (student.sexe === "M" ? 1 : 0),
-            total: current.total + 1,
-          });
-          return items;
-        }, new Map()).values(),
-      ).sort((a, b) => {
-        const classOrder = a.classOrder - b.classOrder;
-        if (classOrder !== 0) return classOrder;
-        return a.optionLabel.localeCompare(b.optionLabel, "fr");
-      }),
+    () => buildDashboardClassRows(filteredStudents),
     [filteredStudents],
   );
   const totalGirls = useMemo(() => classRows.reduce((sum, row) => sum + row.girls, 0), [classRows]);

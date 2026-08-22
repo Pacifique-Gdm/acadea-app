@@ -68,6 +68,14 @@ describe("fiche individuelle du personnel", () => {
     expect(html).toContain("Ancien Personnel");
     expect(html).not.toMatch(/undefined|null/);
   });
+
+  it("conserve l'institution Coordination en en-tête et l'école du personnel dans le corps", async () => {
+    const coordinationInstitution = { ...school, id: "coord-a", name: "Coordination X", logoUrl: "coordination-logo" };
+    await printPersonnelProfilePdf(coordinationInstitution, personnel, profile, new Date("2026-08-22T10:00:00Z"), { personnelSchoolName: "École A" });
+    const options = renderAcadPdfPreview.mock.calls.at(-1)?.[0];
+    expect(options.school).toEqual(coordinationInstitution);
+    expect(JSON.stringify(options.sections)).toContain("École A");
+  });
 });
 
 describe("liste filtrée du personnel", () => {

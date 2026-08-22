@@ -9,6 +9,7 @@ export function PasswordField({
   onToggle,
   placeholder,
   disabled = false,
+  minLength,
 }: {
   label: string;
   value: string;
@@ -17,6 +18,7 @@ export function PasswordField({
   onToggle?: () => void;
   placeholder?: string;
   disabled?: boolean;
+  minLength?: number;
 }) {
   const [internalVisible, setInternalVisible] = useState(false);
   const isVisible = visible ?? internalVisible;
@@ -31,6 +33,7 @@ export function PasswordField({
           onChange={(event) => onChange(event.target.value)}
           type={isVisible ? "text" : "password"}
           disabled={disabled}
+          minLength={minLength}
           className="input pr-10 disabled:bg-slate-100"
           placeholder={placeholder}
         />

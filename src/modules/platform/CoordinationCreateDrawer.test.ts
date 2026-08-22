@@ -9,4 +9,11 @@ describe("création Coordination depuis le Menu Super Administrateur", () => {
     expect(source).toContain('<AdminDrawer title="Créer Coordination"');
     expect(source).toContain("selectedSchools");
   });
+
+  it("réutilise le champ mot de passe accessible avec affichage et masquage", () => {
+    expect(source).toContain("PasswordField");
+    expect(source).toContain('label="Mot de passe temporaire"');
+    expect(source).toContain("minLength={6}");
+    expect(source).not.toContain('type="password" minLength={6}');
+  });
 });
