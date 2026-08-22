@@ -19,4 +19,10 @@ describe("accessibilité des Drawers imbriqués", () => {
     expect(source).toContain("overflow-y-auto");
     expect(source).toContain("overflow-x-hidden");
   });
+
+  it("offre une largeur riche explicite sans modifier le format Admin par défaut", () => {
+    expect(source).toContain('width = "default"');
+    expect(source).toContain('width?: "default" | "wide"');
+    expect(source).toContain('width === "wide" ? "sm:max-w-3xl xl:max-w-4xl" : "sm:max-w-xl"');
+  });
 });

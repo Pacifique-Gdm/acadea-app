@@ -23,6 +23,7 @@ describe("alignement du Dashboard Coordination", () => {
     expect(dashboard).toContain("TransactionComboChart");
     expect(dashboard).toContain("buildDashboardTransactionDayRows");
     expect(dashboard).toContain("buildCoordinationDashboardStats");
+    expect(dashboard).toContain("formatCurrencyMoney");
   });
 
   it("conserve dans les deux vues les mêmes blocs et la grille responsive des cartes", () => {
@@ -46,6 +47,22 @@ describe("alignement du Dashboard Coordination", () => {
     expect(portal).toContain("<CoordinationDashboard");
   });
 
+  it("place le titre et sa description avant la barre responsive complète", () => {
+    const heading = dashboard.indexOf('data-testid="coordination-dashboard-heading"');
+    const title = dashboard.indexOf(">Dashboard</h1>", heading);
+    const description = dashboard.indexOf("Statistiques limitées aux années actives alignées", title);
+    const actions = dashboard.indexOf('data-testid="coordination-dashboard-actions"');
+    expect(heading).toBeGreaterThan(-1);
+    expect(title).toBeGreaterThan(heading);
+    expect(description).toBeGreaterThan(title);
+    expect(actions).toBeGreaterThan(description);
+    expect(dashboard).not.toContain("lg:flex-row lg:items-end lg:justify-between");
+    expect(dashboard).toContain("grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-");
+    for (const control of ["Filtrer par école", "Filtrer par section", "Date de début", "Date de fin", "Réinitialiser", "Exporter PDF"]) {
+      expect(dashboard).toContain(control);
+    }
+  });
+
   it("charge un seul modèle paginé par lots, sans listener par carte", () => {
     expect(dashboard.match(/loadCoordinationDashboardReadModel/g)).toHaveLength(2);
     expect(readModel).toContain("index += 30");
@@ -58,6 +75,13 @@ describe("alignement du Dashboard Coordination", () => {
   it("exporte la vue avec identité Coordination et contexte école", () => {
     expect(pdf).toContain("coordinationPdfInstitution(coordination, contextSchool)");
     expect(pdf).toContain('selectedSchoolId ? contextSchool.name : "Toutes les écoles"');
-    for (const section of ["Indicateurs", "KPI financier", "Types de frais", "Répartition des montants", "Transactions du jour", "Élèves par classe"]) expect(pdf).toContain(section);
+    for (const section of ["Indicateurs", "Synthèse financière", "Types de frais", "Répartition des montants", "Transactions du jour", "Élèves par classe"]) expect(pdf).toContain(section);
+  });
+
+  it("rend les cartes multi-devises sur des lignes distinctes et un graphique par devise", () => {
+    expect(dashboard).toContain('className="grid gap-1 text-xl"');
+    expect(dashboard).toContain("stats.financialGroups.map");
+    expect(dashboard).toContain("chartGroups.map");
+    expect(dashboard).not.toContain('.join(" · ")');
   });
 });

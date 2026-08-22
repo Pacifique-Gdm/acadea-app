@@ -10,6 +10,7 @@ import { buildCoordinationClassChoices, coordinationStudentClassKey } from "../.
 import { formatStudentClassName } from "../../utils/studentClasses";
 import { coordinationPdfInstitution } from "./coordinationPdfInstitution";
 import { CoordinationStudentRecord } from "./CoordinationStudentRecord";
+import { exportCoordinationFinancialTransactions } from "./coordinationFinancialExports";
 
 type HistoryKind = "payments" | "expenses";
 
@@ -59,25 +60,43 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
     ], rows, "Aucun élève ne correspond aux filtres."))] });
   }
 
+  async function exportFinancial(kind: "payments" | "expenses") {
+    await exportCoordinationFinancialTransactions({
+      kind,
+      source: "control",
+      coordination,
+      schools,
+      selectedSchoolId,
+      students: rows.map((row) => row.student),
+      payments: model.payments,
+      expenses: model.expenses,
+      filtersLabel: `Classe : ${classChoices.find((item) => item.value === classKey)?.label ?? "Toutes"} | Montant : ${amountComparator || "Tous"} ${amountThreshold}`.trim(),
+    });
+  }
+
   if (selectedStudent) return <CoordinationStudentRecord student={selectedStudent} user={user} schools={schools} model={model} onBack={() => setSelectedStudentId("")}/>;
 
   return <section className="grid min-w-0 gap-4">
     <SectionTitle title="Contrôle" subtitle="Frais scolaires, paiements, historique et soldes restants en lecture seule."/>
-    <div className="grid w-full min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:flex-nowrap">
-      <select aria-label="Classe" className="input min-w-0 lg:flex-1 lg:basis-0" value={classKey} onChange={(event) => setClassKey(event.target.value)}><option value="">Toutes</option>{classChoices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</select>
-      <select aria-label="Montant payé" className="input min-w-0 lg:flex-1 lg:basis-0" value={amountComparator} onChange={(event) => setAmountComparator(event.target.value)}><option value="">Montant payé</option><option value="all-fees-gte">Tous les frais ≥</option><option value="all-fees-lt">Tous les frais &lt;</option>{feeChoices.flatMap((fee) => [<option key={`${fee.value}-gte`} value={`fee:${fee.value}:gte`}>{fee.label} ≥</option>, <option key={`${fee.value}-lt`} value={`fee:${fee.value}:lt`}>{fee.label} &lt;</option>])}</select>
-      <input aria-label="Filtre" className="input min-w-0 lg:flex-1 lg:basis-0" type="number" placeholder="Filtre" value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)}/>
-      <button type="button" className="pdf-export-button min-w-0 lg:flex-1 lg:basis-0" onClick={() => void exportPdf()}><Download className="h-4 w-4"/> Exporter PDF</button>
-      <button type="button" className="secondary-button min-w-0 justify-center lg:flex-1 lg:basis-0" onClick={() => { setClassKey(""); setAmountComparator(""); setAmountThreshold(""); }}><RotateCcw className="h-4 w-4"/> Réinitialiser</button>
-      <button type="button" className="secondary-button min-w-0 justify-center lg:flex-1 lg:basis-0" onClick={() => setHistoryKind("payments")}>Historique</button>
+    <div className="grid w-full min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-[repeat(3,minmax(0,1fr))_auto_auto_auto_auto]">
+      <select aria-label="Classe" className="input min-w-0 w-full" value={classKey} onChange={(event) => setClassKey(event.target.value)}><option value="">Toutes</option>{classChoices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</select>
+      <select aria-label="Montant payé" className="input min-w-0 w-full" value={amountComparator} onChange={(event) => setAmountComparator(event.target.value)}><option value="">Montant payé</option><option value="all-fees-gte">Tous les frais ≥</option><option value="all-fees-lt">Tous les frais &lt;</option>{feeChoices.flatMap((fee) => [<option key={`${fee.value}-gte`} value={`fee:${fee.value}:gte`}>{fee.label} ≥</option>, <option key={`${fee.value}-lt`} value={`fee:${fee.value}:lt`}>{fee.label} &lt;</option>])}</select>
+      <input aria-label="Filtre" className="input min-w-0 w-full" type="number" placeholder="Filtre" value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)}/>
+      <div className="flex min-w-0 items-stretch justify-end gap-2" data-testid="coordination-control-financial-downloads">
+        <button type="button" className="rounded bg-slate-100 p-2 text-slate-700 transition hover:bg-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-50" disabled={!rows.length} title="Télécharger les paiements PDF" aria-label="Télécharger les paiements PDF" onClick={() => void exportFinancial("payments")}><Download className="h-4 w-4"/></button>
+        <button type="button" className="rounded bg-slate-100 p-2 text-slate-700 transition hover:bg-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-50" disabled={!rows.length} title="Télécharger les dépenses PDF" aria-label="Télécharger les dépenses PDF" onClick={() => void exportFinancial("expenses")}><Download className="h-4 w-4"/></button>
+      </div>
+      <button type="button" className="pdf-export-button min-w-0 w-full xl:w-auto" onClick={() => void exportPdf()}><Download className="h-4 w-4"/> Exporter PDF</button>
+      <button type="button" className="secondary-button min-w-0 w-full justify-center xl:w-auto" onClick={() => { setClassKey(""); setAmountComparator(""); setAmountThreshold(""); }}><RotateCcw className="h-4 w-4"/> Réinitialiser</button>
+      <button type="button" className="secondary-button min-w-0 w-full justify-center xl:w-auto" onClick={() => setHistoryKind("payments")}>Historique</button>
     </div>
     {loading && <p role="status" className="rounded bg-blue-50 p-3 text-sm text-blue-700">Chargement du contrôle…</p>}
     {loadError && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{loadError}</p>}
     {!loading && <div className="grid min-w-0 gap-3">{rows.map(({ student, balance, progress, feeSummaries }) => <article key={student.id} className="min-w-0 rounded border border-slate-200 bg-white p-4"><div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:justify-between"><div className="min-w-0"><button type="button" className="break-words text-left font-bold text-ink hover:text-blue-700 hover:underline" onClick={() => setSelectedStudentId(student.id)}>{student.nom} {student.prenom}</button><p className="break-words text-sm text-slate-500">{student.matricule} | {formatStudentClassName(student)} | {schoolName(student.schoolId)}</p></div><span className={`w-fit shrink-0 rounded px-2 py-1 text-xs font-semibold ${balance.expected > 0 && balance.remaining === 0 ? "bg-mint/10 text-mint" : "bg-amber-100 text-amber-700"}`}>{balance.expected > 0 && balance.remaining === 0 ? "En ordre" : "Non en ordre"}</span></div><div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3"><Metric label="Prévu" value={balance.expected.toFixed(2)}/><Metric label="Payé" value={balance.paid.toFixed(2)}/><Metric label="Solde" value={balance.remaining.toFixed(2)}/></div><div className="mt-4 h-3 overflow-hidden rounded bg-slate-100"><div className="h-full rounded bg-blue-700" style={{ width: `${progress}%` }}/></div>{feeSummaries.length === 0 && <p className="mt-2 text-xs text-slate-500">Aucun frais défini pour cette classe.</p>}</article>)}{rows.length === 0 && <p className="rounded bg-white p-5 text-sm text-slate-500">Aucune donnée de contrôle dans le périmètre sélectionné.</p>}</div>}
-    {historyKind && <AdminDrawer title="Historique du contrôle" closeLabel="Fermer l’historique" onClose={() => setHistoryKind(null)}><div className="grid grid-cols-2 gap-2"><button type="button" className={historyKind === "payments" ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setHistoryKind("payments")}>Paiements</button><button type="button" className={historyKind === "expenses" ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setHistoryKind("expenses")}>Dépenses</button></div>{historyKind === "payments" ? <ReadOnlyTable headers={["Élève", "École", "Montant", "Date"]} rows={scopedPayments.map((payment) => { const student = scopedStudents.find((item) => item.id === payment.studentId); return [student ? `${student.nom} ${student.prenom}` : payment.studentId, schoolName(payment.schoolId), payment.amount.toFixed(2), payment.paidAt]; })}/> : <ReadOnlyTable headers={["École", "Catégorie", "Description", "Montant", "Date"]} rows={scopedExpenses.map((expense) => [schoolName(expense.schoolId), expense.category, expense.description, expense.amount.toFixed(2), expense.spentAt])}/>}</AdminDrawer>}
+    {historyKind && <AdminDrawer width="wide" title="Historique du contrôle" closeLabel="Fermer l’historique" onClose={() => setHistoryKind(null)}><div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><button type="button" className={historyKind === "payments" ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setHistoryKind("payments")}>Paiements</button><button type="button" className={historyKind === "expenses" ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setHistoryKind("expenses")}>Dépenses</button></div>{historyKind === "payments" ? <ReadOnlyTable headers={["Élève", "École", "Montant", "Date"]} rows={scopedPayments.map((payment) => { const student = scopedStudents.find((item) => item.id === payment.studentId); return [student ? `${student.nom} ${student.prenom}` : payment.studentId, schoolName(payment.schoolId), payment.amount.toFixed(2), payment.paidAt]; })}/> : <ReadOnlyTable headers={["École", "Catégorie", "Description", "Montant", "Date"]} rows={scopedExpenses.map((expense) => [schoolName(expense.schoolId), expense.category, expense.description, expense.amount.toFixed(2), expense.spentAt])}/>}</AdminDrawer>}
   </section>;
 }
 
 function ReadOnlyTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
-  return <div className="max-w-full overflow-x-auto"><table className="w-full min-w-[620px] text-left text-sm"><thead><tr className="border-b">{headers.map((header) => <th key={header} className="p-2">{header}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={`${index}-${row.join("-")}`} className="border-b">{row.map((cell, cellIndex) => <td key={`${cellIndex}-${cell}`} className="p-2">{cell}</td>)}</tr>)}</tbody></table>{rows.length === 0 && <p className="p-4 text-sm text-slate-500">Aucune donnée.</p>}</div>;
+  return <div className="max-w-full overflow-x-auto"><table className="w-full min-w-[620px] text-left text-sm"><thead><tr className="border-b">{headers.map((header) => <th key={header} className="p-2">{header}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={`${index}-${row.join("-")}`} className="border-b">{row.map((cell, cellIndex) => <td key={`${cellIndex}-${cell}`} className="break-words p-2">{cell}</td>)}</tr>)}</tbody></table>{rows.length === 0 && <p className="p-4 text-sm text-slate-500">Aucune donnée.</p>}</div>;
 }

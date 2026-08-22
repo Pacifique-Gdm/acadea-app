@@ -1,16 +1,13 @@
 import type { Coordination, School } from "../../types";
 import type { CoordinationDashboardStats, DashboardCurrency } from "../../utils/coordinationDashboardStats";
+import { formatCurrencyMoney } from "../../utils/currency";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import { coordinationPdfInstitution } from "./coordinationPdfInstitution";
 
 type DashboardPdfTransaction = { id: string; type: string; label: string; amount: number; currency: DashboardCurrency; date: string };
 
 function amount(value: number, currency: DashboardCurrency) {
-  return `${value.toFixed(2)} ${currency}`;
-}
-
-function financialValue(stats: CoordinationDashboardStats, field: "expected" | "paid" | "remaining") {
-  return stats.financialGroups.length ? stats.financialGroups.map((group) => amount(group[field], group.currency)).join(" · ") : "0.00 USD";
+  return formatCurrencyMoney(value, currency);
 }
 
 export async function exportCoordinationDashboardPdf({
@@ -33,9 +30,6 @@ export async function exportCoordinationDashboardPdf({
   const contextSchool = schools.find((school) => school.id === selectedSchoolId) ?? schools[0];
   if (!contextSchool) return;
   const context = selectedSchoolId ? contextSchool.name : "Toutes les écoles";
-  const feeRows = stats.financialGroups.flatMap((group) => group.feeProgressRows.map((row) => ({ ...row, currency: group.currency })));
-  const shareRows = stats.financialGroups.flatMap((group) => group.feeShares.map((row) => ({ ...row, currency: group.currency })));
-
   await renderAcadPdfPreview({
     filename: `coordination-dashboard-${selectedSchoolId || "toutes"}.pdf`,
     title: "Dashboard — Coordination",
@@ -49,31 +43,28 @@ export async function exportCoordinationDashboardPdf({
         { label: "Administrateurs", value: stats.administrators },
         { label: "Caissiers", value: stats.cashiers },
         { label: "Directeurs de Discipline", value: stats.disciplineDirectors },
-        { label: "Montant attendu", value: financialValue(stats, "expected") },
-        { label: "Montant total encaissé", value: financialValue(stats, "paid") },
-        { label: "Montant restant à payer", value: financialValue(stats, "remaining") },
       ], { columns: 3 })),
-      ...stats.financialGroups.map((group) => pdfSection(`KPI financier — ${group.currency}`, pdfInfoGrid([
-        { label: "Recouvrement", value: `${group.recoveryRate}%` },
-        { label: "Attendu", value: amount(group.expected, group.currency) },
-        { label: "Encaissé", value: amount(group.paid, group.currency) },
-        { label: "Dépenses", value: amount(group.expenses, group.currency) },
-        { label: "Reste", value: amount(group.remaining, group.currency) },
-      ]))),
-      pdfSection("Types de frais", pdfTable([
-        { header: "Type", render: (row) => row.name },
-        { header: "Devise", render: (row) => row.currency },
-        { header: "Attendu", render: (row) => amount(row.expected, row.currency), align: "right" },
-        { header: "Payé", render: (row) => amount(row.paid, row.currency), align: "right" },
-        { header: "Solde", render: (row) => amount(row.remaining, row.currency), align: "right" },
-        { header: "%", render: (row) => `${row.rate}%`, align: "right" },
-      ], feeRows, "Aucun frais applicable.")),
-      pdfSection("Répartition des montants", pdfTable([
-        { header: "Catégorie", render: (row) => row.name },
-        { header: "Devise", render: (row) => row.currency },
-        { header: "Montant", render: (row) => amount(row.amount, row.currency), align: "right" },
-        { header: "Pourcentage", render: (row) => `${row.percentage.toFixed(1)}%`, align: "right" },
-      ], shareRows, "Aucune répartition disponible.")),
+      ...stats.financialGroups.flatMap((group) => [
+        pdfSection(`Synthèse financière — ${group.currency}`, pdfInfoGrid([
+          { label: "Recouvrement", value: `${group.recoveryRate}%` },
+          { label: "Attendu", value: amount(group.expected, group.currency) },
+          { label: "Encaissé", value: amount(group.paid, group.currency) },
+          { label: "Dépenses", value: amount(group.expenses, group.currency) },
+          { label: "Reste", value: amount(group.remaining, group.currency) },
+        ])),
+        pdfSection(`Types de frais — ${group.currency}`, pdfTable([
+          { header: "Type", render: (row) => row.name },
+          { header: "Attendu", render: (row) => amount(row.expected, group.currency), align: "right" },
+          { header: "Payé", render: (row) => amount(row.paid, group.currency), align: "right" },
+          { header: "Solde", render: (row) => amount(row.remaining, group.currency), align: "right" },
+          { header: "%", render: (row) => `${row.rate}%`, align: "right" },
+        ], group.feeProgressRows, "Aucun frais applicable.")),
+        pdfSection(`Répartition des montants — ${group.currency}`, pdfTable([
+          { header: "Catégorie", render: (row) => row.name },
+          { header: "Montant", render: (row) => amount(row.amount, group.currency), align: "right" },
+          { header: "Pourcentage", render: (row) => `${row.percentage.toFixed(1)}%`, align: "right" },
+        ], group.feeShares, "Aucune répartition disponible.")),
+      ]),
       pdfSection("Transactions du jour", pdfTable([
         { header: "Date", render: (transaction) => transaction.date.slice(0, 10) },
         { header: "Type", render: (transaction) => transaction.type },

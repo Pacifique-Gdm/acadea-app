@@ -7,11 +7,13 @@ export function AdminDrawer({
   children,
   onClose,
   closeLabel,
+  width = "default",
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
   closeLabel: string;
+  width?: "default" | "wide";
 }) {
   const drawerRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -64,7 +66,7 @@ export function AdminDrawer({
     <div className="fixed inset-0 z-50 bg-ink/30 p-3 backdrop-blur-sm" onMouseDown={onClose} role="presentation">
       <div
         ref={drawerRef}
-        className="box-border ml-auto flex h-full min-h-0 w-full min-w-0 max-w-[calc(100vw-1.5rem)] flex-col rounded border border-slate-200 bg-white p-4 shadow-2xl sm:max-w-xl"
+        className={`box-border ml-auto flex h-full min-h-0 w-full min-w-0 max-w-[calc(100vw-1.5rem)] flex-col rounded border border-slate-200 bg-white p-4 shadow-2xl ${width === "wide" ? "sm:max-w-3xl xl:max-w-4xl" : "sm:max-w-xl"}`}
         onMouseDown={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"

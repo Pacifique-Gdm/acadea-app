@@ -3,9 +3,9 @@ import { db } from "../firebase";
 import type { AppUser, AuditLog, Expense, FeeType, Payment, SchoolYear, Student } from "../types";
 import { isInternalPersonnel } from "./personnel";
 
-export type CoordinationReadModel = { feeTypes: FeeType[]; payments: Payment[]; expenses: Expense[]; personnel: AppUser[]; schoolYears: SchoolYear[]; auditLogs: AuditLog[] };
+export type CoordinationReadModel = { students: Student[]; feeTypes: FeeType[]; payments: Payment[]; expenses: Expense[]; personnel: AppUser[]; schoolYears: SchoolYear[]; auditLogs: AuditLog[] };
 export type CoordinationDashboardReadModel = { students: Student[]; feeTypes: FeeType[]; payments: Payment[]; expenses: Expense[]; personnel: AppUser[]; schoolYears: SchoolYear[] };
-const emptyModel = (): CoordinationReadModel => ({ feeTypes: [], payments: [], expenses: [], personnel: [], schoolYears: [], auditLogs: [] });
+const emptyModel = (): CoordinationReadModel => ({ students: [], feeTypes: [], payments: [], expenses: [], personnel: [], schoolYears: [], auditLogs: [] });
 const emptyDashboardModel = (): CoordinationDashboardReadModel => ({ students: [], feeTypes: [], payments: [], expenses: [], personnel: [], schoolYears: [] });
 
 async function loadBySchools<T>(name: string, schoolIds: string[]) {
@@ -27,13 +27,13 @@ async function loadBySchools<T>(name: string, schoolIds: string[]) {
 export async function loadCoordinationReadModel(coordinationId: string, schoolIds: string[], subCoordinationId?: string): Promise<CoordinationReadModel> {
   if (!db || !coordinationId) return emptyModel();
   const database = db as unknown as Firestore;
-  const [feeTypes, payments, expenses, personnel, schoolYears, schoolAudit, coordinationAudit] = await Promise.all([
-    loadBySchools<FeeType>("feeTypes", schoolIds), loadBySchools<Payment>("payments", schoolIds), loadBySchools<Expense>("expenses", schoolIds), loadBySchools<AppUser>("users", schoolIds), loadBySchools<SchoolYear>("schoolYears", schoolIds), loadBySchools<AuditLog>("auditLogs", schoolIds), getDocs(query(collection(database, "auditLogs"), where(subCoordinationId ? "subCoordinationId" : "coordinationId", "==", subCoordinationId ?? coordinationId))),
+  const [students, feeTypes, payments, expenses, personnel, schoolYears, schoolAudit, coordinationAudit] = await Promise.all([
+    loadBySchools<Student>("students", schoolIds), loadBySchools<FeeType>("feeTypes", schoolIds), loadBySchools<Payment>("payments", schoolIds), loadBySchools<Expense>("expenses", schoolIds), loadBySchools<AppUser>("users", schoolIds), loadBySchools<SchoolYear>("schoolYears", schoolIds), loadBySchools<AuditLog>("auditLogs", schoolIds), getDocs(query(collection(database, "auditLogs"), where(subCoordinationId ? "subCoordinationId" : "coordinationId", "==", subCoordinationId ?? coordinationId))),
   ]);
   const audit = new Map<string, AuditLog>();
   schoolAudit.forEach((item) => audit.set(item.id, item));
   coordinationAudit.docs.forEach((item) => audit.set(item.id, { id: item.id, ...item.data() } as AuditLog));
-  return { feeTypes, payments, expenses, personnel: personnel.filter(isInternalPersonnel), schoolYears, auditLogs: [...audit.values()] };
+  return { students, feeTypes, payments, expenses, personnel: personnel.filter(isInternalPersonnel), schoolYears, auditLogs: [...audit.values()] };
 }
 
 export async function loadCoordinationDashboardReadModel(schoolIds: string[]): Promise<CoordinationDashboardReadModel> {

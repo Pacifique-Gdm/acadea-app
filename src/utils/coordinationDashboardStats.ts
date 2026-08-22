@@ -1,10 +1,11 @@
 import type { AppUser, Expense, FeeType, Payment, School, SchoolSection, SchoolYear, Student } from "../types";
-import { buildDashboardFeeShares, buildDashboardFinancialAggregates } from "./dashboardStats";
-import type { DashboardFeeProgressRow, DashboardFeeShare } from "./dashboardStats";
 import { buildDashboardClassRows } from "./dashboardClassStats";
+import { groupCoordinationFinancialsByCurrency } from "./coordinationFinancialsByCurrency";
+import type { CoordinationCurrencyFinancialGroup } from "./coordinationFinancialsByCurrency";
+import type { SchoolCurrency } from "./currency";
 import { getClassSection } from "./studentClasses";
 
-export type DashboardCurrency = "USD" | "CDF";
+export type DashboardCurrency = SchoolCurrency;
 
 export type CoordinationDashboardModel = {
   students: Student[];
@@ -24,18 +25,7 @@ export type CoordinationDashboardClassRow = {
   total: number;
 };
 
-export type CoordinationDashboardFinancialGroup = {
-  currency: DashboardCurrency;
-  expected: number;
-  paid: number;
-  expenses: number;
-  remaining: number;
-  recoveryRate: number;
-  feeProgressRows: DashboardFeeProgressRow[];
-  feeShares: DashboardFeeShare[];
-  payments: Payment[];
-  expenseRows: Expense[];
-};
+export type CoordinationDashboardFinancialGroup = CoordinationCurrencyFinancialGroup;
 
 export type CoordinationDashboardStats = {
   alignedSchoolIds: string[];
@@ -74,20 +64,6 @@ function isDateInRange(value: string, filters: CoordinationDashboardFilters) {
   return (!filters.startDate || date >= filters.startDate) && (!filters.endDate || date <= filters.endDate);
 }
 
-function mergeFeeRows(groups: DashboardFeeProgressRow[][]) {
-  const rows = new Map<string, { name: string; expected: number; paid: number }>();
-  groups.flat().forEach((row) => {
-    const key = row.name.trim().toLocaleLowerCase("fr");
-    const current = rows.get(key) ?? { name: row.name, expected: 0, paid: 0 };
-    rows.set(key, { name: current.name, expected: current.expected + row.expected, paid: current.paid + row.paid });
-  });
-  return [...rows.values()].map((row) => ({
-    ...row,
-    remaining: Math.max(row.expected - row.paid, 0),
-    rate: row.expected > 0 ? Math.round((row.paid / row.expected) * 100) : 0,
-  }));
-}
-
 export function buildCoordinationDashboardStats(
   schools: School[],
   model: CoordinationDashboardModel,
@@ -119,31 +95,12 @@ export function buildCoordinationDashboardStats(
 
   const classRows = buildDashboardClassRows(students, (schoolId) => schoolById.get(schoolId)?.name ?? schoolId) as CoordinationDashboardClassRow[];
 
-  const financialGroups = (["USD", "CDF"] as DashboardCurrency[]).flatMap((currency) => {
-    const currencySchools = alignedSchools.filter((school) => (school.currency ?? "USD") === currency);
-    if (currencySchools.length === 0) return [];
-    const schoolAggregates = currencySchools.map((school) => {
-      const schoolStudents = students.filter((student) => student.schoolId === school.id);
-      const schoolFees = feeTypes.filter((fee) => fee.schoolId === school.id);
-      const schoolPayments = payments.filter((payment) => payment.schoolId === school.id);
-      return buildDashboardFinancialAggregates(schoolStudents, schoolFees, schoolPayments);
-    });
-    const feeProgressRows = mergeFeeRows(schoolAggregates.map((item) => item.feeProgressRows));
-    const expected = schoolAggregates.reduce((sum, item) => sum + item.financialStats.expected, 0);
-    const paid = schoolAggregates.reduce((sum, item) => sum + item.financialStats.paid, 0);
-    const expenseRows = expenses.filter((expense) => (schoolById.get(expense.schoolId)?.currency ?? "USD") === currency);
-    return [{
-      currency,
-      expected,
-      paid,
-      expenses: expenseRows.reduce((sum, expense) => sum + expense.amount, 0),
-      remaining: Math.max(expected - paid, 0),
-      recoveryRate: expected > 0 ? Math.round((paid / expected) * 100) : 0,
-      feeProgressRows,
-      feeShares: buildDashboardFeeShares(feeProgressRows),
-      payments: payments.filter((payment) => (schoolById.get(payment.schoolId)?.currency ?? "USD") === currency),
-      expenseRows,
-    }];
+  const financialGroups = groupCoordinationFinancialsByCurrency({
+    schools: alignedSchools,
+    students,
+    feeTypes,
+    payments,
+    expenses,
   });
 
   return {

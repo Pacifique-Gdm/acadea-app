@@ -6,6 +6,7 @@ import type { AppUser, Coordination, School, SchoolSection } from "../../types";
 import { buildDashboardTransactionDayRows } from "../../utils/dashboardStats";
 import { formatChartDate, getTransactionPeriodDates } from "../../utils/dashboardDates";
 import { buildCoordinationDashboardStats, type DashboardCurrency } from "../../utils/coordinationDashboardStats";
+import { formatCurrencyMoney, resolveSchoolCurrency } from "../../utils/currency";
 import { getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
 import {
   FinancialFeeShareChart,
@@ -23,7 +24,7 @@ function dateKey(date: Date) {
 }
 
 function formatCurrency(value: number, currency: DashboardCurrency) {
-  return `${value.toFixed(2)} ${currency}`;
+  return formatCurrencyMoney(value, currency);
 }
 
 function progressTone(rate: number) {
@@ -95,12 +96,12 @@ export function CoordinationDashboard({
   const visiblePayments = stats.payments.filter((payment) => (!transactionStartDate || payment.paidAt.slice(0, 10) >= transactionStartDate) && (!transactionEndDate || payment.paidAt.slice(0, 10) <= transactionEndDate));
   const visibleExpenses = stats.expenses.filter((expense) => (!transactionStartDate || expense.spentAt.slice(0, 10) >= transactionStartDate) && (!transactionEndDate || expense.spentAt.slice(0, 10) <= transactionEndDate));
   const transactions = [
-    ...visiblePayments.map((payment) => ({ id: `${payment.schoolId}:${payment.id}`, type: "Paiement", label: `${schoolById.get(payment.schoolId)?.name ?? payment.schoolId} · ${payment.cashierName}`, amount: payment.amount, currency: schoolById.get(payment.schoolId)?.currency ?? "USD", date: payment.paidAt, occurredAt: payment.createdAt ?? payment.paidAt })),
-    ...visibleExpenses.map((expense) => ({ id: `${expense.schoolId}:${expense.id}`, type: "Dépense", label: `${schoolById.get(expense.schoolId)?.name ?? expense.schoolId} · ${expense.category}`, amount: -expense.amount, currency: schoolById.get(expense.schoolId)?.currency ?? "USD", date: expense.spentAt, occurredAt: expense.createdAt ?? expense.spentAt })),
+    ...visiblePayments.map((payment) => ({ id: `${payment.schoolId}:${payment.id}`, type: "Paiement", label: `${schoolById.get(payment.schoolId)?.name ?? payment.schoolId} · ${payment.cashierName}`, amount: payment.amount, currency: resolveSchoolCurrency(schoolById.get(payment.schoolId) ?? {}), date: payment.paidAt, occurredAt: payment.createdAt ?? payment.paidAt })),
+    ...visibleExpenses.map((expense) => ({ id: `${expense.schoolId}:${expense.id}`, type: "Dépense", label: `${schoolById.get(expense.schoolId)?.name ?? expense.schoolId} · ${expense.category}`, amount: -expense.amount, currency: resolveSchoolCurrency(schoolById.get(expense.schoolId) ?? {}), date: expense.spentAt, occurredAt: expense.createdAt ?? expense.spentAt })),
   ].sort((first, second) => second.occurredAt.localeCompare(first.occurredAt));
 
   const chartGroups = stats.financialGroups.map((financial) => {
-    const currencySchoolIds = new Set(scopedSchools.filter((school) => (school.currency ?? "USD") === financial.currency).map((school) => school.id));
+    const currencySchoolIds = new Set(scopedSchools.filter((school) => resolveSchoolCurrency(school) === financial.currency).map((school) => school.id));
     const currencyStudents = transactionScope.students.filter((student) => currencySchoolIds.has(student.schoolId));
     const rows = buildDashboardTransactionDayRows({
       dates: chartDates,
@@ -125,9 +126,14 @@ export function CoordinationDashboard({
     return { currency: financial.currency, rows };
   });
 
-  const financialValue = (field: "expected" | "paid" | "remaining") => stats.financialGroups.length
-    ? stats.financialGroups.map((group) => formatCurrency(group[field], group.currency)).join(" · ")
-    : "0.00 USD";
+  const financialValue = (field: "expected" | "paid" | "remaining") => {
+    if (!stats.financialGroups.length) return formatCurrency(0, "USD");
+    if (stats.financialGroups.length === 1) {
+      const group = stats.financialGroups[0];
+      return formatCurrency(group[field], group.currency);
+    }
+    return <span className="grid gap-1 text-xl">{stats.financialGroups.map((group) => <span key={group.currency} className="block"><span className="text-sm font-semibold text-slate-500">{group.currency} :</span> {formatCurrency(group[field], group.currency)}</span>)}</span>;
+  };
   const cards = [
     { label: "Nombre total d'élèves", value: stats.totalStudents, icon: GraduationCap, tone: "bg-mint/10 text-mint" },
     { label: "Nombre de classes", value: stats.totalClasses, icon: BookOpen, tone: "bg-indigo-100 text-indigo-700" },
@@ -162,16 +168,16 @@ export function CoordinationDashboard({
   }
 
   return <section className="grid min-w-0 gap-4">
-    <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-      <div className="min-w-0"><h1 className="text-2xl font-bold text-ink">Dashboard</h1><p className="text-sm text-slate-500">Statistiques limitées aux années actives alignées de la Coordination.</p></div>
-      <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-[190px_180px_150px_150px_auto_auto]">
+    <div className="grid min-w-0 gap-3">
+      <div className="min-w-0" data-testid="coordination-dashboard-heading"><h1 className="text-2xl font-bold text-ink">Dashboard</h1><p className="text-sm text-slate-500">Statistiques limitées aux années actives alignées de la Coordination.</p></div>
+      <div className="grid w-full min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(180px,1.25fr)_minmax(160px,1fr)_minmax(150px,1fr)_minmax(150px,1fr)_auto_auto]" data-testid="coordination-dashboard-actions">
         <select className="input" aria-label="Filtrer par école" value={selectedSchoolId} onChange={(event) => onSchoolChange(event.target.value)}><option value="">{user.role === "sub_coordination_admin" ? "Toutes mes écoles" : "Toutes les écoles"} ({schools.length})</option>{schools.map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}</select>
         <select value={sectionFilter} onChange={(event) => setSectionFilter(event.target.value as typeof sectionFilter)} className="input" aria-label="Filtrer par section"><option value="all">Toutes les sections</option>{sectionChoices.map((section) => <option key={section} value={section}>{schoolSectionLabels[section]}</option>)}</select>
         <input value={startDate} onChange={(event) => updateDate("start", event.target.value)} type="date" max={today} className="input" aria-label="Date de début" />
         <input value={endDate} onChange={(event) => updateDate("end", event.target.value)} type="date" max={today} className="input" aria-label="Date de fin" />
-        <button onClick={resetFilters} type="button" className="rounded border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:border-mint hover:text-mint">Réinitialiser</button>
-        <button onClick={() => void exportPdf()} type="button" disabled={loading || !scopedSchools.length} className="pdf-export-button w-full sm:w-auto"><Download className="h-4 w-4" /> Exporter PDF</button>
-        {dateFilterError && <p className="text-xs font-semibold text-red-600 sm:col-span-2 lg:col-span-6">{dateFilterError}</p>}
+        <button onClick={resetFilters} type="button" className="w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:border-mint hover:text-mint xl:w-auto">Réinitialiser</button>
+        <button onClick={() => void exportPdf()} type="button" disabled={loading || !scopedSchools.length} className="pdf-export-button w-full xl:w-auto"><Download className="h-4 w-4" /> Exporter PDF</button>
+        {dateFilterError && <p className="text-xs font-semibold text-red-600 sm:col-span-2 xl:col-span-6">{dateFilterError}</p>}
       </div>
     </div>
     {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
