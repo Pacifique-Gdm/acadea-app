@@ -43,6 +43,42 @@ async function activeCoordinationRelations(db, schoolIds) {
 }
 
 const SUB_COORDINATION_ACTIONS = new Set(["create-sub-coordination", "add-sub-school", "remove-sub-school", "transfer-sub-school", "archive-sub-coordination", "reactivate-sub-coordination"]);
+const INTERNAL_PERSONNEL_ROLES = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]);
+const PERSONNEL_TRANSFER_CONFIRMATION = "MUTER CE PERSONNEL";
+const SCHOOL_SECTIONS = ["Maternelle", "Primaire", "CTEB", "Secondaire"];
+
+function normalizeSchoolSection(value) {
+  const normalized = text(value).toLowerCase();
+  if (normalized === "maternelle") return "Maternelle";
+  if (normalized === "primaire") return "Primaire";
+  if (normalized === "cteb" || normalized === "cetb") return "CTEB";
+  if (normalized === "secondaire") return "Secondaire";
+  return undefined;
+}
+
+function configuredSchoolSections(school = {}) {
+  const canonical = (value) => {
+    const normalized = text(value).toLowerCase();
+    if (normalized.endsWith(" uniquement")) return normalizeSchoolSection(normalized.replace(" uniquement", ""));
+    if (normalized === "mixte") return "Mixte";
+    return normalizeSchoolSection(value);
+  };
+  const levels = Array.isArray(school.educationLevels) ? school.educationLevels.map(canonical).filter(Boolean) : [];
+  if (levels.includes("Mixte")) return SCHOOL_SECTIONS;
+  if (levels.length) return levels;
+  const type = canonical(school.schoolType);
+  if (type === "Mixte" || !type) return SCHOOL_SECTIONS;
+  if (text(school.schoolType).toLowerCase().endsWith(" uniquement")) return [type];
+  if (type === "Secondaire") return SCHOOL_SECTIONS;
+  if (type === "CTEB") return SCHOOL_SECTIONS.slice(0, 3);
+  if (type === "Primaire") return SCHOOL_SECTIONS.slice(0, 2);
+  return [type];
+}
+
+function personnelSections(personnel) {
+  const values = Array.isArray(personnel.sectionIds) ? personnel.sectionIds : personnel.section ? [personnel.section] : [];
+  return [...new Set(values.map(normalizeSchoolSection).filter(Boolean))];
+}
 
 function validateOptionalSchoolIds(value) {
   if (!Array.isArray(value) || value.length > 100) throw coordinationHttpError(400, "invalid-argument", "Sélection d'écoles invalide.");
@@ -168,6 +204,117 @@ async function manageSubCoordination({ res, auth, db, token, input, action }) {
   return sendJson(res, 200, { subCoordinationId, schoolId, active: action === "add-sub-school", ...(action === "transfer-sub-school" ? { targetSubCoordinationId: targetId } : {}) });
 }
 
+async function transferPersonnel({ res, auth, db, token, input }) {
+  const caller = await requireActiveCoordinator(auth, db, token);
+  await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.coordinationId, action: "coordination.transfer-personnel", ...API_RATE_LIMITS.PROVISION_SCHOOL });
+  const personnelId = text(input.personnelId);
+  const sourceSchoolId = text(input.sourceSchoolId);
+  const destinationSchoolId = text(input.destinationSchoolId);
+  const mutationDate = text(input.mutationDate);
+  const reason = text(input.reason);
+  const confirmation = text(input.confirmation);
+  const parsedMutationDate = /^\d{4}-\d{2}-\d{2}$/.test(mutationDate) ? new Date(`${mutationDate}T00:00:00.000Z`) : new Date(Number.NaN);
+  if (!personnelId || !sourceSchoolId || !destinationSchoolId || Number.isNaN(parsedMutationDate.getTime()) || parsedMutationDate.toISOString().slice(0, 10) !== mutationDate || !reason || reason.length > 1000) {
+    throw coordinationHttpError(400, "invalid-argument", "Personnel, écoles, date et motif valides sont requis.");
+  }
+  if (confirmation !== PERSONNEL_TRANSFER_CONFIRMATION) throw coordinationHttpError(400, "invalid-confirmation", "Confirmation de mutation invalide.");
+  if (sourceSchoolId === destinationSchoolId) throw coordinationHttpError(400, "invalid-argument", "L’école de destination doit être différente de l’école actuelle.");
+  const scope = new Set(await resolveCoordinationSchoolScope(db, caller));
+  if (!scope.has(sourceSchoolId) || !scope.has(destinationSchoolId)) throw coordinationHttpError(403, "school-outside-coordination", "Les deux écoles doivent appartenir activement à cette Coordination.");
+
+  const personnelRef = db.doc(`users/${personnelId}`);
+  const sourceSchoolRef = db.doc(`schools/${sourceSchoolId}`);
+  const destinationSchoolRef = db.doc(`schools/${destinationSchoolId}`);
+  const sourceRelationRef = db.doc(`coordinationSchools/${caller.coordinationId}__${sourceSchoolId}`);
+  const destinationRelationRef = db.doc(`coordinationSchools/${caller.coordinationId}__${destinationSchoolId}`);
+  const profileRef = db.doc(`personnelProfiles/${personnelId}`);
+  const personnelSnapshot = await personnelRef.get();
+  const personnel = personnelSnapshot.exists ? personnelSnapshot.data() : undefined;
+  if (!personnel || !INTERNAL_PERSONNEL_ROLES.has(personnel.role) || personnel.schoolId !== sourceSchoolId) throw coordinationHttpError(404, "not-found", "Personnel introuvable dans l’école source indiquée.");
+  if (personnel.active === false || personnel.status === "inactive") throw coordinationHttpError(409, "personnel-inactive", "Un personnel archivé ne peut pas être muté.");
+
+  const teacherProfiles = personnel.role === "teacher"
+    ? (await db.collection("teachers").where("userId", "==", personnelId).get()).docs.filter((snapshot) => snapshot.data()?.schoolId === sourceSchoolId)
+    : [];
+  const teacherContextRows = [];
+  for (const teacher of teacherProfiles) {
+    for (const collectionName of ["pedagogicalAssignments", "teacherAvailabilities", "classTitulars"]) {
+      const snapshot = await db.collection(collectionName).where("teacherId", "==", teacher.id).get();
+      snapshot.docs.filter((item) => item.data()?.schoolId === sourceSchoolId && item.data()?.active !== false).forEach((item) => teacherContextRows.push(item));
+    }
+  }
+  if (teacherProfiles.length + teacherContextRows.length > 440) throw coordinationHttpError(409, "too-many-related-records", "La mutation comporte trop de relations pédagogiques actives pour une opération atomique.");
+
+  const authTarget = await auth.getUser(personnelId);
+  if (authTarget.disabled) throw coordinationHttpError(409, "personnel-inactive", "Le compte Auth du personnel est désactivé.");
+  const previousClaims = { ...(authTarget.customClaims ?? {}) };
+  const now = new Date().toISOString();
+  let savedUser;
+  let savedProfile = null;
+  let firestoreCommitted = false;
+  try {
+    await auth.updateUser(personnelId, { disabled: true });
+    await auth.revokeRefreshTokens(personnelId);
+    await auth.setCustomUserClaims(personnelId, { role: personnel.role, schoolId: destinationSchoolId });
+    await db.runTransaction(async (transaction) => {
+      const [freshPersonnelSnapshot, sourceSchoolSnapshot, destinationSchoolSnapshot, sourceRelationSnapshot, destinationRelationSnapshot, profileSnapshot] = await Promise.all([
+        transaction.get(personnelRef),
+        transaction.get(sourceSchoolRef),
+        transaction.get(destinationSchoolRef),
+        transaction.get(sourceRelationRef),
+        transaction.get(destinationRelationRef),
+        transaction.get(profileRef),
+      ]);
+      const freshPersonnel = freshPersonnelSnapshot.exists ? freshPersonnelSnapshot.data() : undefined;
+      const sourceSchool = sourceSchoolSnapshot.exists ? sourceSchoolSnapshot.data() : undefined;
+      const destinationSchool = destinationSchoolSnapshot.exists ? destinationSchoolSnapshot.data() : undefined;
+      const sourceRelation = sourceRelationSnapshot.exists ? sourceRelationSnapshot.data() : undefined;
+      const destinationRelation = destinationRelationSnapshot.exists ? destinationRelationSnapshot.data() : undefined;
+      if (!freshPersonnel || freshPersonnel.schoolId !== sourceSchoolId || freshPersonnel.role !== personnel.role) throw coordinationHttpError(409, "personnel-changed", "Le rattachement actuel du personnel a changé. Rechargez la fiche.");
+      if (!sourceSchool || sourceSchool.status !== "active" || !destinationSchool || destinationSchool.status !== "active") throw coordinationHttpError(409, "school-inactive", "Les écoles source et destination doivent être actives.");
+      if (!sourceRelation || sourceRelation.active !== true || sourceRelation.coordinationId !== caller.coordinationId || sourceRelation.schoolId !== sourceSchoolId
+        || !destinationRelation || destinationRelation.active !== true || destinationRelation.coordinationId !== caller.coordinationId || destinationRelation.schoolId !== destinationSchoolId) {
+        throw coordinationHttpError(403, "school-outside-coordination", "Les deux écoles doivent rester rattachées activement à cette Coordination.");
+      }
+      const destinationYearId = text(destinationSchool.activeSchoolYearId);
+      if (!destinationYearId) throw coordinationHttpError(409, "missing-active-school-year", "L’école de destination ne possède aucune année scolaire active.");
+      const destinationYearSnapshot = await transaction.get(db.doc(`schoolYears/${destinationYearId}`));
+      const destinationYear = destinationYearSnapshot.exists ? destinationYearSnapshot.data() : undefined;
+      if (!destinationYear || destinationYear.schoolId !== destinationSchoolId || destinationYear.status !== "active") throw coordinationHttpError(409, "invalid-active-school-year", "L’année scolaire active de l’école de destination est invalide.");
+      const sections = personnelSections(freshPersonnel);
+      const destinationSections = configuredSchoolSections(destinationSchool);
+      if (sections.some((section) => !destinationSections.includes(section))) throw coordinationHttpError(409, "incompatible-sections", "Le périmètre de sections du personnel n’existe pas dans l’école de destination.");
+
+      savedUser = { ...freshPersonnel, id: personnelId, schoolId: destinationSchoolId, activeSchoolYearId: destinationYearId, updatedAt: now, updatedBy: caller.uid };
+      transaction.update(personnelRef, { schoolId: destinationSchoolId, activeSchoolYearId: destinationYearId, updatedAt: now, updatedBy: caller.uid });
+      if (profileSnapshot.exists) {
+        const profile = profileSnapshot.data();
+        if (profile?.personnelId !== personnelId || profile?.schoolId !== sourceSchoolId) throw coordinationHttpError(409, "invalid-personnel-profile", "La fiche administrative du personnel est incohérente avec l’école source.");
+        savedProfile = { ...profile, id: profileSnapshot.id, schoolId: destinationSchoolId, updatedAt: now, updatedBy: caller.uid };
+        transaction.update(profileRef, { schoolId: destinationSchoolId, updatedAt: now, updatedBy: caller.uid });
+      }
+      teacherProfiles.forEach((snapshot) => transaction.update(snapshot.ref, { status: "inactive", active: false, updatedAt: now, updatedBy: caller.uid }));
+      teacherContextRows.forEach((snapshot) => transaction.update(snapshot.ref, { active: false, updatedAt: now, updatedBy: caller.uid }));
+      if (personnel.role === "teacher") {
+        const destinationTeacherId = `${destinationSchoolId}__${destinationYearId}__${personnelId}`;
+        transaction.set(db.doc(`teachers/${destinationTeacherId}`), { id: destinationTeacherId, userId: personnelId, schoolId: destinationSchoolId, schoolYearId: destinationYearId, status: "active", active: true, createdAt: now, createdBy: caller.uid, updatedAt: now, updatedBy: caller.uid }, { merge: true });
+      }
+      const auditRef = db.collection("auditLogs").doc();
+      transaction.create(auditRef, { id: auditRef.id, eventType: "coordination.personnel.transferred", coordinationId: caller.coordinationId, schoolId: sourceSchoolId, actorId: caller.uid, actorRole: caller.role, actorName: caller.profile?.name ?? "Coordinateur", action: "Mutation d’un personnel entre écoles", result: "success", resourceType: "personnel", resourceId: personnelId, source: "server", createdAt: now, metadata: { personnelId, role: personnel.role, sourceSchoolId, destinationSchoolId, mutationDate, reason } });
+    });
+    firestoreCommitted = true;
+    await auth.updateUser(personnelId, { disabled: false });
+  } catch (error) {
+    if (!firestoreCommitted) {
+      await auth.setCustomUserClaims(personnelId, previousClaims).catch(() => undefined);
+      await auth.updateUser(personnelId, { disabled: false }).catch(() => undefined);
+      await auth.revokeRefreshTokens(personnelId).catch(() => undefined);
+    }
+    throw error;
+  }
+  return sendJson(res, 200, { user: savedUser, profile: savedProfile, sourceSchoolId, destinationSchoolId, mutationDate });
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return sendJson(res, 405, { error: "Méthode non autorisée." });
   try {
@@ -175,6 +322,7 @@ export default async function handler(req, res) {
     const { auth, db } = initAdmin();
     const input = await body(req);
     const action = text(input.action || "create");
+    if (action === "transfer-personnel") return await transferPersonnel({ res, auth, db, token, input });
     if (action === "read-student-parent") {
       const caller = await requireActiveCoordinationActor(auth, db, token);
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.coordinationId, action: "coordination.read-student-parent", ...API_RATE_LIMITS.MESSAGE_RECIPIENTS });

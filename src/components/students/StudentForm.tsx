@@ -12,6 +12,7 @@ export function StudentForm({
   parents,
   pendingParent,
   quickParent,
+  quickParentFeedback,
   setQuickParent,
   classChoices,
   optionChoices,
@@ -31,6 +32,7 @@ export function StudentForm({
   parents: ParentProfile[];
   pendingParent?: { id: string; fullName: string; phone: string };
   quickParent: { fullName: string; phone: string; email: string; password: string };
+  quickParentFeedback?: string;
   setQuickParent: (parent: { fullName: string; phone: string; email: string; password: string }) => void;
   classChoices: SchoolClass[];
   optionChoices: string[];
@@ -146,6 +148,7 @@ export function StudentForm({
             onToggle={() => setShowQuickParentPassword(!showQuickParentPassword)}
             placeholder="Mot de passe temporaire"
           />
+          {quickParentFeedback && <p role="status" className="rounded border border-emerald-200 bg-emerald-50 p-2 text-sm font-semibold text-emerald-700">{quickParentFeedback}</p>}
           <button onClick={onCreateParent} className="primary-button" type="button"><Plus className="h-4 w-4" /> Créer et sélectionner</button>
         </div>
       </div>}

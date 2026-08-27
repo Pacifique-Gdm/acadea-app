@@ -34,6 +34,12 @@ type PendingQuickParent = {
   password: string;
 };
 
+type QuickParentForm = { fullName: string; phone: string; email: string; password: string };
+
+function emptyQuickParent(email = ""): QuickParentForm {
+  return { fullName: "", phone: "", email, password: "" };
+}
+
 export function StudentsModule({
   user,
   data,
@@ -65,7 +71,8 @@ export function StudentsModule({
   const [optionFilter, setOptionFilter] = useState("");
   const [archiveFilter, setArchiveFilter] = useState<"active" | "archived" | "all">("all");
   const [form, setForm] = useState<Student>(() => emptyStudent(school.id, year.id));
-  const [quickParent, setQuickParent] = useState({ fullName: "", phone: "", email: "", password: "" });
+  const [quickParent, setQuickParent] = useState<QuickParentForm>(() => emptyQuickParent());
+  const [quickParentFeedback, setQuickParentFeedback] = useState("");
   const [pendingQuickParent, setPendingQuickParent] = useState<PendingQuickParent>();
   const [saveError, setSaveError] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
@@ -120,6 +127,11 @@ export function StudentsModule({
     }, 4000);
     return () => window.clearTimeout(timer);
   }, [saveError, saveMessage]);
+  useEffect(() => {
+    if (!quickParentFeedback) return;
+    const timer = window.setTimeout(() => setQuickParentFeedback(""), 4000);
+    return () => window.clearTimeout(timer);
+  }, [quickParentFeedback]);
 
   const students = yearData.students.filter((student) => {
     const text = `${student.matricule} ${student.nom} ${student.postnom} ${student.prenom}`.toLowerCase();
@@ -270,7 +282,8 @@ export function StudentsModule({
           }, { persist: false });
           setPendingQuickParent(undefined);
           setForm(emptyCurrentStudent());
-          setQuickParent({ fullName: "", phone: "", email: "", password: "" });
+          setQuickParent(emptyQuickParent());
+          setQuickParentFeedback("");
           setShowForm(false);
           setSaveMessage("Élève et compte parent enregistrés avec succès.");
           return;
@@ -311,7 +324,8 @@ export function StudentsModule({
   function openAddStudentForm() {
     if (!studentCapabilities.canCreate) return;
     setForm(emptyCurrentStudent());
-    setQuickParent({ fullName: "", phone: "", email: nextParentEmail(school, data.users, data.parents), password: "" });
+    setQuickParent(emptyQuickParent(nextParentEmail(school, data.users, data.parents)));
+    setQuickParentFeedback("");
     setPendingQuickParent(undefined);
     setSaveError("");
     setSaveMessage("");
@@ -322,6 +336,7 @@ export function StudentsModule({
     if (!studentCapabilities.canEdit || isArchivedStudent(student)) return;
     setForm({ ...student, option: student.option ? canonicalSchoolOption(student.option) : undefined });
     setPendingQuickParent(undefined);
+    setQuickParentFeedback("");
     setSaveError("");
     setSaveMessage("");
     setShowForm(true);
@@ -416,6 +431,7 @@ export function StudentsModule({
   async function createParentForStudent() {
     if (!studentCapabilities.canCreateParent) return;
     setSaveError("");
+    setQuickParentFeedback("");
     if (!quickParent.fullName || !quickParent.phone || !quickParent.email) return;
     const parentId = uid("parent");
     const resolvedEmail = parentEmailExists(quickParent.email, data.users, data.parents) ? nextParentEmail(school, data.users, data.parents) : quickParent.email.trim();
@@ -429,7 +445,8 @@ export function StudentsModule({
       const pendingParent = { parentId, fullName: quickParent.fullName.trim(), phone: quickParent.phone.trim(), email: resolvedEmail, password: quickParent.password };
       setPendingQuickParent(pendingParent);
       setForm({ ...form, parentId });
-      setSaveMessage("Parent prêt à être créé après l’enregistrement de l’élève.");
+      setQuickParent(emptyQuickParent(nextParentEmail(school, data.users, data.parents)));
+      setQuickParentFeedback("Parent prêt et sélectionné. Il sera créé lors de l’enregistrement de l’élève.");
       return;
     }
 
@@ -452,8 +469,8 @@ export function StudentsModule({
         users: [...data.users, provisioned.user],
       }, { persist: false });
       setForm({ ...form, parentId: provisioned.parent.id });
-      setQuickParent({ fullName: "", phone: "", email: "", password: "" });
-      setSaveMessage("Compte parent créé avec succès. Il peut maintenant se connecter avec son email et son mot de passe.");
+      setQuickParent(emptyQuickParent(nextParentEmail(school, [...data.users, provisioned.user], [...data.parents, provisioned.parent])));
+      setQuickParentFeedback("Parent créé et sélectionné avec succès.");
     } catch (error) {
       setSaveError(error instanceof Error ? `Création Firebase Auth parent impossible : ${error.message}` : "Création Firebase Auth parent impossible.");
     }
@@ -609,20 +626,21 @@ export function StudentsModule({
         </div>
       </div>
       {(studentCapabilities.canCreate || studentCapabilities.canEdit) && showForm && (
-        <AdminDrawer title={form.id.startsWith("new") ? "Ajouter un élève" : "Modifier l'élève"} onClose={() => setShowForm(false)} closeLabel="Fermer le formulaire élève">
+        <AdminDrawer title={form.id.startsWith("new") ? "Ajouter un élève" : "Modifier l'élève"} onClose={() => { setShowForm(false); setQuickParentFeedback(""); }} closeLabel="Fermer le formulaire élève">
         <StudentForm
             form={form}
             setForm={setForm}
             parents={yearData.parents}
             pendingParent={pendingQuickParent ? { id: pendingQuickParent.parentId, fullName: pendingQuickParent.fullName, phone: pendingQuickParent.phone } : undefined}
             quickParent={quickParent}
+            quickParentFeedback={quickParentFeedback}
             setQuickParent={setQuickParent}
             classChoices={studentClassChoices}
             optionChoices={optionChoices}
             onAddOption={addSchoolOption}
             onCreateParent={createParentForStudent}
             onSave={saveStudent}
-            onReset={() => { setForm(emptyStudent(school.id, year.id)); setPendingQuickParent(undefined); }}
+            onReset={() => { setForm(emptyStudent(school.id, year.id)); setPendingQuickParent(undefined); setQuickParentFeedback(""); }}
             errorMessage={saveError}
             isSaving={isSaving}
             canCreateParent={studentCapabilities.canCreateParent}

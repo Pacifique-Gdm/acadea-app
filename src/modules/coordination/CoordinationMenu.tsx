@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { BookOpen, CalendarRange, FileClock, Landmark, Network, Printer, Settings, UsersRound } from "lucide-react";
+import { ArrowRightLeft, BookOpen, CalendarRange, FileClock, Landmark, Network, Printer, Settings, UsersRound } from "lucide-react";
 import { AdminDrawer, ImageUploadField, LogoutButton } from "../../components/ui";
 import type { AppUser, Coordination, PersonnelProfile, School, SubCoordination } from "../../types";
 import { loadCoordinationReadModel, type CoordinationReadModel } from "../../services/coordinationReadModel";
 import { closeCoordinationSchoolYears, loadCoordinationSchoolYearStatus, openCoordinationSchoolYears, type CoordinationSchoolYearRow } from "../../services/coordinationSchoolYears";
-import { loadCoordinationPersonnelProfile, updateCoordinationSettings } from "../../services/coordinationService";
+import { loadCoordinationPersonnelProfile, transferCoordinationPersonnel, updateCoordinationSettings } from "../../services/coordinationService";
 import { escapePdfHtml, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import { activityTimestamp, formatActivityDateTime, isSuperAdministratorAuditLog } from "../../utils/activityHistory";
 import { coordinationPdfInstitution } from "./coordinationPdfInstitution";
@@ -19,6 +19,15 @@ import { formatCurrencyMoney } from "../../utils/currency";
 type Drawer = "fees" | "finance" | "personnel" | "years" | "settings" | "history" | "subCoordinations";
 const emptyModel: CoordinationReadModel = { students: [], feeTypes: [], payments: [], expenses: [], personnel: [], schoolYears: [], auditLogs: [] };
 const roleLabel: Record<string, string> = personnelRoleLabels;
+const PERSONNEL_TRANSFER_CONFIRMATION = "MUTER CE PERSONNEL";
+function localDate() {
+  const value = new Date();
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+const emptyTransferForm = () => ({ destinationSchoolId: "", mutationDate: localDate(), reason: "", confirmation: "" });
 
 export function CoordinationMenu({ coordination, schools, selectedSchoolId, principalCoordinatorName, user, subCoordination, onLogout }: { coordination: Coordination; schools: School[]; selectedSchoolId: string; principalCoordinatorName: string; user: AppUser; subCoordination?: SubCoordination | null; onLogout: () => void }) {
   const [drawer, setDrawer] = useState<Drawer | null>(null);
@@ -43,6 +52,11 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, prin
   const [selectedPersonnel, setSelectedPersonnel] = useState<AppUser>();
   const [selectedPersonnelProfile, setSelectedPersonnelProfile] = useState<PersonnelProfile>();
   const [personnelProfileReady, setPersonnelProfileReady] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferForm, setTransferForm] = useState(emptyTransferForm);
+  const [transferBusy, setTransferBusy] = useState(false);
+  const [transferError, setTransferError] = useState("");
+  const [transferMessage, setTransferMessage] = useState("");
   const allSchoolIds = useMemo(() => schools.map((item) => item.id), [schools]);
   const schoolIds = useMemo(() => drawerSchoolId ? [drawerSchoolId] : allSchoolIds, [allSchoolIds, drawerSchoolId]);
 
@@ -88,6 +102,25 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, prin
 
   async function saveSettings() { if (user.role !== "coordination_admin" || settingsBusy) return; setSettingsBusy(true); setError(""); try { await updateCoordinationSettings(settingsForm); } catch (cause) { setError(cause instanceof Error ? cause.message : "Enregistrement impossible."); } finally { setSettingsBusy(false); } }
   async function mutateYears(action: "close" | "open") { if (user.role !== "coordination_admin") { setError("La gouvernance annuelle reste réservée au Coordinateur principal."); return; } setYearBusy(true); try { const response = action === "close" ? await closeCoordinationSchoolYears() : await openCoordinationSchoolYears({ name: yearName, startsAt, endsAt }); setYearResults(response.results); } catch (cause) { setError(cause instanceof Error ? cause.message : "Opération impossible."); } finally { setYearBusy(false); } }
+  function openPersonnelTransfer() { setTransferForm(emptyTransferForm()); setTransferError(""); setTransferMessage(""); setTransferOpen(true); }
+  function closePersonnelTransfer() { if (transferBusy) return; setTransferOpen(false); setTransferForm(emptyTransferForm()); setTransferError(""); }
+  async function submitPersonnelTransfer() {
+    if (!selectedPersonnel?.schoolId || user.role !== "coordination_admin" || transferBusy || transferForm.confirmation !== PERSONNEL_TRANSFER_CONFIRMATION) return;
+    setTransferBusy(true); setTransferError("");
+    try {
+      const result = await transferCoordinationPersonnel({ personnelId: selectedPersonnel.id, sourceSchoolId: selectedPersonnel.schoolId, ...transferForm });
+      setModel((current) => ({ ...current, personnel: current.personnel.map((item) => item.id === result.user.id ? result.user : item) }));
+      setSelectedPersonnel(result.user);
+      setSelectedPersonnelProfile(result.profile ?? undefined);
+      setTransferMessage(`Personnel muté vers ${schoolName(result.destinationSchoolId)} avec succès.`);
+      setTransferOpen(false);
+      setTransferForm(emptyTransferForm());
+    } catch (cause) {
+      setTransferError(cause instanceof Error ? cause.message : "Mutation impossible.");
+    } finally {
+      setTransferBusy(false);
+    }
+  }
 
   const items = [["fees", "Types de frais", BookOpen], ["finance", "Rapport financier", Landmark], ["personnel", "Personnels", UsersRound], ["years", "Année scolaire", CalendarRange], ["settings", "Paramètres coordination", Settings], ["history", "Historique", FileClock], ...(user.role === "coordination_admin" ? [["subCoordinations", "Sous-coordinations", Network] as const] : [])] as const;
   function settingsContent(): ReactNode { if (subCoordination || user.role !== "coordination_admin") return <><p className="break-words"><b>{subCoordination ? "Circonscription" : "Coordination"} :</b> {subCoordination?.circumscription ?? coordination.name}</p>{subCoordination && <><p className="break-words"><b>Sous-coordinateur :</b> {user.name}</p><p><b>Statut :</b> {subCoordination.active ? "Actif" : "Archivé"}</p></>}<p><b>Écoles attribuées :</b> {schools.length}</p><p className="rounded bg-slate-50 p-3">Ces paramètres sont disponibles en lecture seule.</p></>; return <><label className="grid min-w-0 gap-1 font-semibold">Nom<input className="input min-w-0 w-full" value={settingsForm.name} onChange={(event) => setSettingsForm({ ...settingsForm, name: event.target.value })} disabled={settingsBusy} /></label><label className="grid min-w-0 gap-1 font-semibold">Sigle / code<input className="input min-w-0 w-full" value={settingsForm.code} onChange={(event) => setSettingsForm({ ...settingsForm, code: event.target.value })} disabled={settingsBusy} /></label><label className="grid min-w-0 gap-1 font-semibold">Téléphone<input className="input min-w-0 w-full" value={settingsForm.phone} onChange={(event) => setSettingsForm({ ...settingsForm, phone: event.target.value })} disabled={settingsBusy} /></label><label className="grid min-w-0 gap-1 font-semibold">E-mail<input className="input min-w-0 w-full" type="email" value={settingsForm.email} onChange={(event) => setSettingsForm({ ...settingsForm, email: event.target.value })} disabled={settingsBusy} /></label><label className="grid min-w-0 gap-1 font-semibold">Adresse<input className="input min-w-0 w-full" value={settingsForm.address} onChange={(event) => setSettingsForm({ ...settingsForm, address: event.target.value })} disabled={settingsBusy} /></label><ImageUploadField label="Photo / Logo de la Coordination" value={settingsForm.logoUrl} onChange={(logoUrl) => setSettingsForm({ ...settingsForm, logoUrl })} maxWidth={700} maxBytes={250 * 1024} disabled={settingsBusy} previewFit="contain" /><p className="break-words"><b>Coordinateur principal :</b> {principalCoordinatorName || "Non renseigné"}</p><p><b>Écoles :</b> {schools.length} (lecture seule)</p><button type="button" className="primary-button w-full justify-center sm:w-auto" disabled={settingsBusy || !settingsForm.name.trim()} onClick={() => void saveSettings()}>{settingsBusy ? "Enregistrement…" : "Enregistrer les paramètres"}</button></>; }
@@ -100,7 +133,36 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, prin
     if (drawer === "history") return <><SchoolPdfControls schools={schools} schoolId={drawerSchoolId} user={user} onSchoolChange={setDrawerSchoolId} onExport={() => void exportPdf("history")}/><input className="input" placeholder="Rechercher" value={search} onChange={(event) => setSearch(event.target.value)} /><ReadTable headers={["Date", "École", "Action", "Acteur"]} rows={logs.map((item) => [formatActivityDateTime(item.createdAt), schoolName(item.schoolId), item.action, item.actorName ?? "—"])} /></>;
     return user.role === "coordination_admin" ? <SubCoordinationManagement coordination={coordination} schools={schools} currentUser={user} /> : null;
   }
-  return <section className="grid min-w-0 gap-3">{items.map(([id, label, Icon]) => <button key={id} type="button" onClick={() => { setDrawerSchoolId(selectedSchoolId); setDrawer(id); setSearch(""); setSelectedPersonnel(undefined); }} className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint"><div className="flex min-w-0 items-center gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink"><Icon className="h-5 w-5"/></div><span className="break-words font-bold text-ink">{label}</span></div></button>)}<div className="mt-2 border-t border-slate-200 pt-4"><LogoutButton onClick={onLogout}/></div>{drawer && <AdminDrawer width={drawer === "settings" ? "default" : "wide"} title={items.find(([id]) => id === drawer)?.[1] ?? "Coordination"} closeLabel="Fermer" onClose={() => { setDrawer(null); setSelectedPersonnel(undefined); }}>{error && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{error}</p>}{loading && <p className="text-sm text-slate-500">Chargement…</p>}{drawerContent()}</AdminDrawer>}{selectedPersonnel && <AdminDrawer width="wide" title={`Personnel — ${selectedPersonnel.name}`} closeLabel="Fermer la fiche Personnel" onClose={() => setSelectedPersonnel(undefined)}><button type="button" className="primary-button w-full justify-center sm:w-auto" disabled={!personnelProfileReady} onClick={() => { const school = schools.find((item) => item.id === selectedPersonnel.schoolId); if (school) void printPersonnelProfilePdf(coordinationPdfInstitution(coordination, school), selectedPersonnel, selectedPersonnelProfile, new Date(), { personnelSchoolName: school.name }); }}><Printer className="h-4 w-4"/> Imprimer</button>{!personnelProfileReady ? <p role="status" className="py-4 text-center text-sm text-slate-500">Chargement de la fiche administrative…</p> : <PersonnelProfileReadOnly personnel={selectedPersonnel} profile={selectedPersonnelProfile} schoolName={schoolName(selectedPersonnel.schoolId)}/>}</AdminDrawer>}</section>;
+  const transferDestinations = schools.filter((school) => school.id !== selectedPersonnel?.schoolId && school.status === "active");
+  const transferAllowed = user.role === "coordination_admin" && selectedPersonnel?.active !== false && selectedPersonnel?.status !== "inactive" && transferDestinations.length > 0;
+  const transferReady = Boolean(transferForm.destinationSchoolId && transferForm.mutationDate && transferForm.reason.trim() && transferForm.confirmation === PERSONNEL_TRANSFER_CONFIRMATION);
+  return <section className="grid min-w-0 gap-3">
+    {items.map(([id, label, Icon]) => <button key={id} type="button" onClick={() => { setDrawerSchoolId(selectedSchoolId); setDrawer(id); setSearch(""); setSelectedPersonnel(undefined); setTransferMessage(""); }} className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint"><div className="flex min-w-0 items-center gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink"><Icon className="h-5 w-5"/></div><span className="break-words font-bold text-ink">{label}</span></div></button>)}
+    <div className="mt-2 border-t border-slate-200 pt-4"><LogoutButton onClick={onLogout}/></div>
+    {drawer && <AdminDrawer width={drawer === "settings" ? "default" : "wide"} title={items.find(([id]) => id === drawer)?.[1] ?? "Coordination"} closeLabel="Fermer" onClose={() => { setDrawer(null); setSelectedPersonnel(undefined); setTransferOpen(false); }}>{error && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{error}</p>}{loading && <p className="text-sm text-slate-500">Chargement…</p>}{drawerContent()}</AdminDrawer>}
+    {selectedPersonnel && <AdminDrawer width="wide" title={`Personnel — ${selectedPersonnel.name}`} closeLabel="Fermer la fiche Personnel" onClose={() => { setSelectedPersonnel(undefined); setTransferOpen(false); setTransferMessage(""); }}>
+      {transferMessage && <p role="status" className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">{transferMessage}</p>}
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <button type="button" className="primary-button w-full justify-center sm:w-auto" disabled={!personnelProfileReady} onClick={() => { const school = schools.find((item) => item.id === selectedPersonnel.schoolId); if (school) void printPersonnelProfilePdf(coordinationPdfInstitution(coordination, school), selectedPersonnel, selectedPersonnelProfile, new Date(), { personnelSchoolName: school.name }); }}><Printer className="h-4 w-4"/> Imprimer</button>
+        {transferAllowed && <button type="button" className="secondary-button w-full justify-center sm:w-auto" onClick={openPersonnelTransfer}><ArrowRightLeft className="h-4 w-4"/> Muter</button>}
+      </div>
+      {!personnelProfileReady ? <p role="status" className="py-4 text-center text-sm text-slate-500">Chargement de la fiche administrative…</p> : <PersonnelProfileReadOnly personnel={selectedPersonnel} profile={selectedPersonnelProfile} schoolName={schoolName(selectedPersonnel.schoolId)}/>}
+    </AdminDrawer>}
+    {selectedPersonnel?.schoolId && transferOpen && <AdminDrawer title="Muter le personnel" closeLabel="Fermer la mutation" onClose={closePersonnelTransfer}>
+      <div className="grid min-w-0 gap-3 text-sm">
+        {transferError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 font-semibold text-red-700">{transferError}</p>}
+        <label className="grid min-w-0 gap-1 font-semibold">Personnel<input className="input min-w-0 w-full" value={selectedPersonnel.name} disabled /></label>
+        <label className="grid min-w-0 gap-1 font-semibold">Fonction actuelle<input className="input min-w-0 w-full" value={roleLabel[selectedPersonnel.role] ?? selectedPersonnel.role} disabled /></label>
+        <label className="grid min-w-0 gap-1 font-semibold">École actuelle<input className="input min-w-0 w-full" value={schoolName(selectedPersonnel.schoolId)} disabled /></label>
+        <label className="grid min-w-0 gap-1 font-semibold">École de destination<select className="input min-w-0 w-full" value={transferForm.destinationSchoolId} onChange={(event) => setTransferForm({ ...transferForm, destinationSchoolId: event.target.value, confirmation: "" })} disabled={transferBusy}><option value="">Sélectionner une école</option>{transferDestinations.map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}</select></label>
+        {transferForm.destinationSchoolId && <p className="rounded border border-blue-100 bg-blue-50 p-3 text-center font-semibold text-blue-900">{schoolName(selectedPersonnel.schoolId)} → {schoolName(transferForm.destinationSchoolId)}</p>}
+        <label className="grid min-w-0 gap-1 font-semibold">Date de mutation<input className="input min-w-0 w-full" type="date" value={transferForm.mutationDate} onChange={(event) => setTransferForm({ ...transferForm, mutationDate: event.target.value })} disabled={transferBusy} /></label>
+        <label className="grid min-w-0 gap-1 font-semibold">Motif<textarea className="input min-h-24 min-w-0 w-full" maxLength={1000} value={transferForm.reason} onChange={(event) => setTransferForm({ ...transferForm, reason: event.target.value })} disabled={transferBusy} /></label>
+        <label className="grid min-w-0 gap-1 font-semibold">Saisissez exactement « {PERSONNEL_TRANSFER_CONFIRMATION} »<input className="input min-w-0 w-full" autoComplete="off" spellCheck={false} value={transferForm.confirmation} onChange={(event) => setTransferForm({ ...transferForm, confirmation: event.target.value })} disabled={transferBusy || !transferForm.destinationSchoolId} /></label>
+        <button type="button" className="primary-button w-full justify-center" disabled={transferBusy || !transferReady} onClick={() => void submitPersonnelTransfer()}>{transferBusy ? "Mutation…" : "Confirmer la mutation"}</button>
+      </div>
+    </AdminDrawer>}
+  </section>;
 }
 
 function SchoolPdfControls({ schools, schoolId, user, onSchoolChange, onExport }: { schools: School[]; schoolId: string; user: AppUser; onSchoolChange: (schoolId: string) => void; onExport: () => void }) { return <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]"><select className="input min-w-0" aria-label="Filtrer le Drawer par école" value={schoolId} onChange={(event) => onSchoolChange(event.target.value)}><option value="">{user.role === "sub_coordination_admin" ? "Toutes mes écoles" : "Toutes les écoles"}</option>{schools.map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}</select><button className="pdf-export-button min-w-0" type="button" onClick={onExport}>Exporter PDF</button></div>; }

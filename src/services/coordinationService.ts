@@ -4,6 +4,7 @@ import type { Coordination, AppUser, ParentProfile, PersonnelProfile } from "../
 
 type CoordinationInput = { name: string; code?: string; phone?: string; email?: string; address?: string; schoolIds: string[]; coordinator: { name: string; email: string; password: string } };
 export type CoordinationSettingsInput = { name: string; code?: string; phone?: string; email?: string; address?: string; logoUrl?: string };
+export type CoordinationPersonnelTransferInput = { personnelId: string; sourceSchoolId: string; destinationSchoolId: string; mutationDate: string; reason: string; confirmation: string };
 type CoordinationResponse = { coordination: Coordination; coordinator: AppUser; schoolIds: string[] };
 
 async function call(input: Record<string, unknown>) {
@@ -25,4 +26,7 @@ export async function loadCoordinationStudentParent(studentId: string) {
 export async function loadCoordinationPersonnelProfile(personnelId: string) {
   const payload = await call({ action: "read-personnel-profile", personnelId }) as { profile?: PersonnelProfile | null };
   return payload.profile ?? null;
+}
+export async function transferCoordinationPersonnel(input: CoordinationPersonnelTransferInput) {
+  return call({ action: "transfer-personnel", ...input }) as Promise<{ user: AppUser; profile: PersonnelProfile | null; sourceSchoolId: string; destinationSchoolId: string; mutationDate: string }>;
 }

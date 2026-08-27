@@ -24,4 +24,12 @@ describe("création rapide différée d'un Parent", () => {
     expect(source).toContain("provisioned.parent");
     expect(source).toContain("provisioned.user");
   });
+
+  it("affiche un succès local temporaire et réinitialise le mini-formulaire sans mentir sur la création différée", () => {
+    expect(source).toContain('setQuickParentFeedback("Parent créé et sélectionné avec succès.")');
+    expect(source).toContain('setQuickParentFeedback("Parent prêt et sélectionné. Il sera créé lors de l’enregistrement de l’élève.")');
+    expect(source).toContain('window.setTimeout(() => setQuickParentFeedback(""), 4000)');
+    expect(source).toContain("return () => window.clearTimeout(timer)");
+    expect(source).not.toContain("Parent prêt à être créé après l’enregistrement de l’élève.");
+  });
 });
