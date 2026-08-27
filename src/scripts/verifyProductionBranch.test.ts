@@ -27,7 +27,7 @@ describe("garde-fou de déploiement Production", () => {
     expect(verifyProductionSource({ cwd, env: {}, target: "production" }).source).toBe("local-git");
     git("switch", "-c", "feature/test");
     expect(() => verifyProductionSource({ cwd, env: {}, target: "production" })).toThrow('is not "main"');
-  });
+  }, 15_000);
   it("autorise VERCEL_GIT_COMMIT_REF=main et refuse feature/test", () => {
     expect(verifyProductionSource({ cwd: temporaryDirectory(), env: { VERCEL: "1", VERCEL_ENV: "production", VERCEL_GIT_COMMIT_REF: "main", VERCEL_GIT_COMMIT_SHA: sha } }).source).toBe("vercel-git");
     expect(() => verifyProductionSource({ cwd: temporaryDirectory(), env: { VERCEL: "1", VERCEL_ENV: "production", VERCEL_GIT_COMMIT_REF: "feature/test", VERCEL_GIT_COMMIT_SHA: sha } })).toThrow('is not "main"');

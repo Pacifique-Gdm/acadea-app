@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const pdfSource = readFileSync(new URL("./pdf.ts", import.meta.url), "utf8");
+const pdfSource = readFileSync(new URL("./pdf.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const controlSource = readFileSync(new URL("../modules/control/ControlModule.tsx", import.meta.url), "utf8");
 
 describe("documents financiers PDF partagés", () => {

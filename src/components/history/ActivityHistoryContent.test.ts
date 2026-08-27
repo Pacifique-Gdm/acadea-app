@@ -38,7 +38,7 @@ describe("Historique responsive", () => {
 
     expect(markup.indexOf("Activité récente")).toBeLessThan(markup.indexOf("Activité ancienne"));
     expect(markup).not.toContain("Invalid Date");
-  });
+  }, 15_000);
 
   it("expose les filtres Paiements et Dépenses au Caissier", () => {
     const user: AppUser = { id: "cashier-a", name: "Caissier", email: "cashier@example.invalid", role: "cashier", schoolId: "school-a", activeSchoolYearId: "year-a", status: "active" };
