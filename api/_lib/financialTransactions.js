@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 
-const PAYMENT_CREATE_KEYS = ["action", "schoolYearId", "studentId", "feeTypeId", "amount", "clientRequestId"];
+const PAYMENT_CREATE_KEYS = ["action", "schoolYearId", "studentId", "feeTypeId", "amount", "note", "clientRequestId"];
 const EXPENSE_CREATE_KEYS = ["action", "schoolYearId", "amount", "category", "description", "beneficiary", "paymentMethod", "reference", "clientRequestId"];
 const PAYMENT_UPDATE_KEYS = ["action", "transactionId", "amount", "reason", "clientRequestId"];
 const EXPENSE_UPDATE_KEYS = ["action", "transactionId", "amount", "category", "description", "reason", "clientRequestId"];
@@ -104,6 +104,7 @@ async function createPayment(transaction, db, caller, body, hash, now) {
   const { schoolYearId, year, currency, actorName } = await assertContext(transaction, db, caller, body.schoolYearId);
   const studentId = text(body.studentId, 120);
   const feeTypeId = text(body.feeTypeId, 120);
+  const note = text(body.note, 1000);
   if (!studentId || !feeTypeId) throw new FinancialApiError(400, "invalid-argument", "Élève et type de frais requis.");
   const studentRef = db.doc(`students/${studentId}`);
   const feeRef = db.doc(`feeTypes/${feeTypeId}`);
@@ -128,8 +129,12 @@ async function createPayment(transaction, db, caller, body, hash, now) {
   const alreadyPaid = matchingPayments
     .filter((payment) => payment.studentId === studentId && payment.feeTypeId === feeTypeId)
     .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-  if (alreadyPaid + amount > Number(fee.amount)) {
-    throw new FinancialApiError(409, "conflict", "Ce paiement dépasse le montant prévu pour ce frais.");
+  const remaining = Math.max(Number(fee.amount) - alreadyPaid, 0);
+  if (remaining === 0) {
+    throw new FinancialApiError(409, "conflict", "Ce type de frais est déjà soldé.");
+  }
+  if (amount > remaining) {
+    throw new FinancialApiError(409, "conflict", "Le montant saisi dépasse le solde restant pour ce type de frais.");
   }
   const historicalMaximum = counterSnapshot.exists ? 0 : matchingPayments.reduce((maximum, payment) => Math.max(maximum, receiptSequence(payment.receiptNumber)), 0);
   const storedSequence = counterSnapshot.exists ? Number(counterSnapshot.data()?.lastReceiptNumber || 0) : 0;
@@ -144,6 +149,7 @@ async function createPayment(transaction, db, caller, body, hash, now) {
     ...(typeof student.parentId === "string" && student.parentId ? { parentId: student.parentId } : {}),
     feeTypeId,
     amount,
+    ...(note ? { note } : {}),
     paidAt: now.slice(0, 10),
     createdAt: now,
     updatedAt: now,

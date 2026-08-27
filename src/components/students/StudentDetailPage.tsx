@@ -5,7 +5,9 @@ import { unlinkParentFromStudent } from "../../services/provisioning";
 import { createAuditLog } from "../../utils/audit";
 import { buildSchoolYearDataIndexes } from "../../utils/dataIndexes";
 import { resolvePaymentCashierName } from "../../utils/finance";
+import { activityTimestamp } from "../../utils/activityHistory";
 import { generateReceiptPdf } from "../../utils/pdf";
+import { MISSING_FINANCIAL_OPERATION_SCHOOL_ERROR, resolveFinancialOperationSchool } from "../../utils/financialOperationSchool";
 import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import { isArchivedStudent } from "../../utils/studentUtils";
@@ -26,6 +28,7 @@ export function StudentDetailPage({
   createId,
   formatArchiveDate,
   canLinkParent = true,
+  schoolsById,
 }: {
   studentId: string;
   user: AppUser;
@@ -38,6 +41,7 @@ export function StudentDetailPage({
   createId: (prefix: string) => string;
   formatArchiveDate: (value?: string) => string;
   canLinkParent?: boolean;
+  schoolsById?: ReadonlyMap<string, School>;
 }) {
   const [parentLinkOpen, setParentLinkOpen] = useState(false);
   const [parentLinkSearch, setParentLinkSearch] = useState("");
@@ -46,6 +50,7 @@ export function StudentDetailPage({
   const [parentUnlinkError, setParentUnlinkError] = useState("");
   const [parentUnlinkBusy, setParentUnlinkBusy] = useState(false);
   const [parentFeedback, setParentFeedback] = useState("");
+  const [paymentDocumentError, setPaymentDocumentError] = useState("");
   const detailIndexes = useMemo(() => buildSchoolYearDataIndexes(yearData.students, yearData.feeTypes, yearData.payments), [yearData.students, yearData.feeTypes, yearData.payments]);
   const student = detailIndexes.studentsById.get(studentId);
   const parentLinkResults = useMemo(() => {
@@ -93,6 +98,7 @@ export function StudentDetailPage({
       </section>
     );
   }
+  const paymentStudent = student;
 
   const feeSummaries = getStudentFeeSummaries(student, yearData.feeTypes, yearData.payments, detailIndexes);
   const balance = feeSummaries.reduce(
@@ -103,13 +109,32 @@ export function StudentDetailPage({
     }),
     { expected: 0, paid: 0, remaining: 0 },
   );
-  const payments = detailIndexes.paymentsByStudentId.get(student.id) ?? [];
+  const payments = [...(detailIndexes.paymentsByStudentId.get(student.id) ?? [])].sort(
+    (first, second) => activityTimestamp(second.createdAt ?? second.paidAt) - activityTimestamp(first.createdAt ?? first.paidAt),
+  );
   const parent = yearData.parents.find((item) => item.id === student.parentId);
   const canManageParentLink = canLinkParent
     && (user.role === "school_admin" || user.role === "secretary")
     && user.schoolId === school.id;
   const progress = balance.expected > 0 ? Math.min(100, Math.round((balance.paid / balance.expected) * 100)) : 0;
   const archived = isArchivedStudent(student);
+
+  async function generatePaymentReceipt(payment: (typeof payments)[number]) {
+    const fee = detailIndexes.feeTypesById.get(payment.feeTypeId);
+    const operationSchool = schoolsById
+      ? resolveFinancialOperationSchool(payment, schoolsById)
+      : (payment.schoolId === school.id ? school : undefined);
+    if (!operationSchool) {
+      setPaymentDocumentError(MISSING_FINANCIAL_OPERATION_SCHOOL_ERROR);
+      return;
+    }
+    if (!fee) {
+      setPaymentDocumentError("Impossible de générer le document : le type de frais lié à ce paiement est introuvable.");
+      return;
+    }
+    setPaymentDocumentError("");
+    await generateReceiptPdf(payment, paymentStudent, fee, operationSchool, resolvePaymentCashierName(payment, yearData.auditLogs));
+  }
 
   function openParentUnlink() {
     if (!parent || !canManageParentLink) return;
@@ -228,6 +253,7 @@ export function StudentDetailPage({
         </FormPanel>
 
         <FormPanel title="Historique des paiements">
+          {paymentDocumentError && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{paymentDocumentError}</p>}
           <div className="max-h-80 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
             {payments.length === 0 && <p className="text-sm text-slate-500">Aucun paiement enregistré.</p>}
             {payments.map((payment) => {
@@ -236,7 +262,7 @@ export function StudentDetailPage({
                 <div key={payment.id} className="min-w-0 rounded border border-slate-100 p-3 text-sm">
                   <div className="flex items-center justify-between gap-2">
                     <p className="font-semibold text-ink">{fee?.name ?? "Frais"}</p>
-                    <button onClick={() => fee && generateReceiptPdf(payment, student, fee, school, resolvePaymentCashierName(payment, yearData.auditLogs))} className="rounded bg-slate-100 p-2" title="Voir le reçu PDF">
+                    <button type="button" onClick={() => void generatePaymentReceipt(payment)} className="rounded bg-slate-100 p-2" title="Voir le reçu PDF" aria-label={`Voir le reçu PDF du paiement ${payment.receiptNumber ?? payment.id}`}>
                       <Download className="h-4 w-4" />
                     </button>
                   </div>

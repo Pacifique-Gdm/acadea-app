@@ -28,4 +28,16 @@ describe("sécurité des mutations financières du module Contrôle", () => {
     expect(source).not.toContain("generateReceiptNumber");
     expect(readFileSync("src/utils/finance.ts", "utf8")).not.toContain("payments.length + 1");
   });
+
+  it("conserve le sélecteur de frais actif, bloque un solde nul et transmet la description", () => {
+    expect(source).toContain('Ce type de frais est déjà soldé.');
+    expect(source).toContain('Le montant saisi dépasse le solde restant pour ce type de frais.');
+    expect(source).toContain('disabled={!selectedPaymentStudent || payableFeeTypes.length === 0 || paymentSubmitting}');
+    expect(source).not.toContain('select value={selectedFeeTypeValue} onChange={(event) => setFeeTypeId(event.target.value)} disabled={isPaymentEntryDisabled}');
+    expect(source).toContain('const [paymentNote, setPaymentNote] = useState("")');
+    expect(source).toContain('note: trimmedNote || undefined');
+    expect(source).toContain('payment.note &&');
+    expect(source).toContain('payment.note ?? ""');
+    expect(source).toContain('JSON.stringify([year.id, studentId, selectedFeeTypeValue, paymentAmount, trimmedNote])');
+  });
 });

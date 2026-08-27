@@ -9,6 +9,8 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 html,
@@ -65,6 +67,26 @@ textarea {
 }
 
 @layer components {
+  .mobile-bottom-navigation {
+    @apply fixed inset-x-0 bottom-0 z-40 box-border w-full max-w-full overflow-hidden border-t border-slate-200 bg-white/95 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur;
+    padding-left: max(0.25rem, env(safe-area-inset-left));
+    padding-right: max(0.25rem, env(safe-area-inset-right));
+  }
+
+  .mobile-bottom-navigation__grid {
+    @apply mx-auto grid w-full min-w-0 gap-1;
+  }
+
+  .mobile-bottom-navigation__item {
+    @apply flex w-full min-w-0 max-w-full flex-col items-center justify-center gap-1 overflow-hidden rounded-2xl px-0.5 py-2 text-[10px] font-semibold transition min-[360px]:text-[11px] sm:px-1 sm:text-xs;
+    min-inline-size: 0;
+    max-inline-size: 100%;
+  }
+
+  .mobile-bottom-navigation__label {
+    @apply block w-full min-w-0 max-w-full truncate text-center;
+  }
+
   .input {
     @apply w-full max-w-full min-w-0 rounded border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-mint focus:ring-2 focus:ring-mint/20;
   }

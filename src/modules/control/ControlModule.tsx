@@ -6,7 +6,7 @@ import { createExpenseTransaction, createPaymentTransaction, deleteFinancialTran
 import { createAuditLog } from "../../utils/audit";
 import { buildSchoolYearDataIndexes, sumPaymentsForStudentFee } from "../../utils/dataIndexes";
 import { resolveExpenseCashierName, resolvePaymentCashierName } from "../../utils/finance";
-import { escapePdfHtml, generateReceiptPdf, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
+import { escapePdfHtml, generateExpensePdf, generateReceiptPdf, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import type { PdfTableColumn } from "../../utils/pdf";
 import { getStudentBalance } from "../../utils/stats";
 import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
@@ -15,6 +15,7 @@ import { buildControlClassChoices, buildControlFeeGroups, feeNamesForWarningClas
 import { formatStudentClassName } from "../../utils/studentClasses";
 import { formatSchoolMoney } from "../../utils/currency";
 import { compareStudentsForPdfByClass, formatStudentPdfClassName } from "../../utils/studentPdf";
+import { filterControlStudentRows } from "../../utils/controlStudentSearch";
 import type { AppData, AppUser, AuditLog, Expense, FeeType, ParentProfile, Payment, School, SchoolYear, Student } from "../../types";
 
 type ControlYearData = {
@@ -49,6 +50,7 @@ export function ControlModule({
   const [paymentStudentQuery, setPaymentStudentQuery] = useState("");
   const [feeTypeId, setFeeTypeId] = useState(yearData.feeTypes[0]?.id ?? "");
   const [amount, setAmount] = useState("100");
+  const [paymentNote, setPaymentNote] = useState("");
   const [expenseAmount, setExpenseAmount] = useState("");
   const [expenseCategory, setExpenseCategory] = useState("Fournitures");
   const [expenseDescription, setExpenseDescription] = useState("");
@@ -83,6 +85,7 @@ export function ControlModule({
   const [historyQuery, setHistoryQuery] = useState("");
   const [expenseHistoryQuery, setExpenseHistoryQuery] = useState("");
   const [selectedHistoryStudentId, setSelectedHistoryStudentId] = useState("");
+  const [controlStudentSearch, setControlStudentSearch] = useState("");
   const controlIndexes = useMemo(() => buildSchoolYearDataIndexes(yearData.students, yearData.feeTypes, yearData.payments), [yearData.students, yearData.feeTypes, yearData.payments]);
   const paymentHistory = usePaginatedControlHistory<Payment>({
     kind: "payments",
@@ -145,9 +148,6 @@ export function ControlModule({
   const canCorrectPayments = user.role === "school_admin" && !isArchivedContext;
   const canManageExpenses = user.role === "school_admin" && !isArchivedContext;
   const selectedPaymentStudent = controlIndexes.studentsById.get(studentId);
-  const selectedPaymentBalance = selectedPaymentStudent
-    ? getStudentBalance(selectedPaymentStudent.id, yearData.feeTypes, yearData.payments, yearData.students)
-    : { expected: 0, paid: 0, remaining: 0 };
   const payableFeeTypes = selectedPaymentStudent ? controlIndexes.applicableFeeTypesByStudentId.get(selectedPaymentStudent.id) ?? [] : [];
   const selectedFeeTypeValue = payableFeeTypes.some((fee) => fee.id === feeTypeId) ? feeTypeId : payableFeeTypes[0]?.id ?? "";
   const selectedPaymentFee = payableFeeTypes.find((fee) => fee.id === selectedFeeTypeValue);
@@ -155,6 +155,11 @@ export function ControlModule({
     ? sumPaymentsForStudentFee(controlIndexes, selectedPaymentStudent.id, selectedPaymentFee.id)
     : 0;
   const selectedPaymentFeeRemaining = selectedPaymentFee ? Math.max(selectedPaymentFee.amount - selectedPaymentFeePaid, 0) : 0;
+  const selectedPaymentFeeBalance = {
+    expected: selectedPaymentFee?.amount ?? 0,
+    paid: selectedPaymentFeePaid,
+    remaining: selectedPaymentFeeRemaining,
+  };
   const isPaymentEntryDisabled = !selectedPaymentFee || selectedPaymentFeeRemaining <= 0;
   const expenseAmountValue = Number(expenseAmount);
   const isExpenseEntryIncomplete = !expenseCategory.trim()
@@ -209,6 +214,7 @@ export function ControlModule({
       const isGreaterOrEqual = feeFilter ? feeFilter[2] === "gte" : amountComparator === ">=";
       return isGreaterOrEqual ? paidAmount >= threshold : paidAmount < threshold;
     });
+  const visibleRows = filterControlStudentRows(rows, controlStudentSearch);
   const historyPayments = paymentHistory.items
     .map((payment) => {
       const student = controlIndexes.studentsById.get(payment.studentId);
@@ -239,6 +245,7 @@ export function ControlModule({
         payment.paidAt,
         payment.createdAt ?? "",
         payment.receiptNumber ?? "",
+        payment.note ?? "",
       ].join(" ");
       return searchableText.toLowerCase().includes(query);
     })
@@ -360,21 +367,27 @@ export function ControlModule({
           payment.feeTypeId === selectedPaymentFee.id,
       )
       .reduce((sum, payment) => sum + payment.amount, 0);
-    const totalPaidAfterPayment = alreadyPaidForFee + paymentAmount;
-    if (totalPaidAfterPayment > selectedPaymentFee.amount) {
-      setPaymentError("Paiement impossible : ce montant dépasse le montant prévu pour ce frais.");
+    const remaining = Math.max(selectedPaymentFee.amount - alreadyPaidForFee, 0);
+    if (remaining === 0) {
+      setPaymentError("Ce type de frais est déjà soldé.");
       return;
     }
-    const signature = JSON.stringify([year.id, studentId, selectedFeeTypeValue, paymentAmount]);
+    if (paymentAmount > remaining) {
+      setPaymentError("Le montant saisi dépasse le solde restant pour ce type de frais.");
+      return;
+    }
+    const trimmedNote = paymentNote.trim();
+    const signature = JSON.stringify([year.id, studentId, selectedFeeTypeValue, paymentAmount, trimmedNote]);
     const requestId = paymentAttemptRef.current?.signature === signature ? paymentAttemptRef.current.requestId : crypto.randomUUID();
     paymentAttemptRef.current = { signature, requestId };
     paymentSubmittingRef.current = true;
     setPaymentSubmitting(true);
     try {
-      const payment = await createPaymentTransaction({ schoolYearId: year.id, studentId, feeTypeId: selectedFeeTypeValue, amount: paymentAmount, clientRequestId: requestId });
+      const payment = await createPaymentTransaction({ schoolYearId: year.id, studentId, feeTypeId: selectedFeeTypeValue, amount: paymentAmount, note: trimmedNote || undefined, clientRequestId: requestId });
       paymentHistory.prependItem(payment);
       paymentAttemptRef.current = null;
       setAmount("");
+      setPaymentNote("");
       if (user.role === "cashier") {
         setCashierControlFeedback("Paiement enregistré avec succès.");
         setCashierControlFeedbackDrawer("payment");
@@ -507,41 +520,6 @@ export function ControlModule({
       financialMutationRef.current = "";
       setFinancialMutationId("");
     }
-  }
-
-  async function generateExpensePdf(expense: Expense) {
-    const beneficiary = getExpenseField(expense, ["beneficiary", "beneficiaire", "supplier", "fournisseur", "providerName", "payee"]);
-    const paymentMethod = getExpenseField(expense, ["paymentMethod", "modePaiement", "paymentMode", "mode"]);
-    const reference = getExpenseField(expense, ["reference", "referenceNumber", "pieceNumber", "voucherNumber", "receiptNumber"]);
-    await renderAcadPdfPreview({
-      filename: `depense-${expense.spentAt}-${expense.id}.pdf`,
-      title: "Justificatif de dépense",
-      school,
-      year,
-      copyLabels: ["EXEMPLAIRE ÉCOLE", "EXEMPLAIRE BÉNÉFICIAIRE"],
-      sections: [
-        `<section class="pdf-section expense-details">
-          ${pdfInfoGrid([
-            { label: "Date", value: formatExpenseDateTime(expense) },
-            { label: "Libellé / motif", value: expense.description || expense.category },
-            { label: "Catégorie", value: expense.category },
-            { label: "Montant", value: formatMoney(expense.amount) },
-            { label: "Bénéficiaire / fournisseur", value: beneficiary || "-" },
-            { label: "Caissier", value: resolveExpenseCashierName(expense, yearData.auditLogs) },
-            { label: "Mode de paiement", value: paymentMethod || "-" },
-            { label: "Référence / pièce", value: reference || "-" },
-          ])}
-        </section>`,
-        `
-          <section class="signature-row">
-            <div>
-              <span>Signature et cachet</span>
-              <strong></strong>
-            </div>
-          </section>
-        `,
-      ],
-    });
   }
 
   function sendPaymentWarnings() {
@@ -751,6 +729,7 @@ export function ControlModule({
     setAmountComparator("");
     setAmountThreshold("");
     setControlClassKey("");
+    setControlStudentSearch("");
   }
 
   async function printFilteredStudents() {
@@ -927,7 +906,7 @@ export function ControlModule({
                   <p className="break-words text-slate-500">{formatExpenseDateTime(expense)} | {expense.category} | {formatMoney(expense.amount)}</p>
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-1">
-                  <button onClick={() => generateExpensePdf(expense)} className="rounded bg-slate-100 p-2" title="Télécharger le justificatif PDF" type="button">
+                  <button onClick={() => void generateExpensePdf(expense, school, year, resolveExpenseCashierName(expense, yearData.auditLogs))} className="rounded bg-slate-100 p-2" title="Télécharger le justificatif PDF" type="button">
                     <Download className="h-4 w-4" />
                   </button>
                   {user.role !== "cashier" && canManageExpenses && <button onClick={() => openEditExpense(expense)} className="rounded bg-slate-100 p-2" title="Modifier" type="button">
@@ -1105,6 +1084,16 @@ export function ControlModule({
               <button onClick={printFilteredStudents} className="pdf-export-button h-10 min-w-0 px-2 lg:flex-1 lg:basis-0" type="button">
                 <Download className="h-4 w-4" /> Exporter PDF
               </button>
+              <label className="flex h-10 min-w-0 w-full items-center gap-2 rounded border border-slate-200 bg-white px-2 text-sm lg:flex-1 lg:basis-0">
+                <Search className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
+                <input
+                  value={controlStudentSearch}
+                  onChange={(event) => setControlStudentSearch(event.target.value)}
+                  className="min-w-0 flex-1 bg-transparent outline-none"
+                  placeholder="Nom, prénom ou matricule"
+                  aria-label="Rechercher un élève dans le contrôle"
+                />
+              </label>
               <button onClick={resetControlFilters} className="secondary-button h-10 min-w-0 justify-center px-2 lg:flex-1 lg:basis-0" type="button" title="Réinitialiser" aria-label="Réinitialiser"><RotateCcw className="h-4 w-4" /> Réinitialiser</button>
               {user.role !== "cashier" && <button onClick={() => setWarningOpen(true)} className="secondary-button h-10 min-w-0 justify-center px-2 lg:flex-1 lg:basis-0" type="button" title="Avertissement" aria-label="Avertissement">
                 <Bell className="h-4 w-4" /> Avertissement
@@ -1118,7 +1107,7 @@ export function ControlModule({
           </div>
         </div>
         <div className="grid min-w-0 gap-3">
-          {rows.map(({ student, balance, progress, hasApplicableFees }) => (
+          {visibleRows.map(({ student, balance, progress, hasApplicableFees }) => (
             <article key={student.id} className="min-w-0 rounded border border-slate-200 bg-white p-4">
               <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
@@ -1149,6 +1138,11 @@ export function ControlModule({
               </div>
             </article>
           ))}
+          {visibleRows.length === 0 && (
+            <p className="rounded border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
+              Aucun élève ne correspond à la recherche.
+            </p>
+          )}
         </div>
       </div>
       {user.role !== "cashier" && (
@@ -1161,17 +1155,19 @@ export function ControlModule({
               ))}
             </select>
             <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
-              <Metric label="Attendu" value={`$${selectedPaymentBalance.expected}`} />
-              <Metric label="Payé" value={`$${selectedPaymentBalance.paid}`} />
-              <Metric label="Solde" value={`$${selectedPaymentBalance.remaining}`} />
+              <Metric label="Attendu" value={formatMoney(selectedPaymentFeeBalance.expected)} />
+              <Metric label="Payé" value={formatMoney(selectedPaymentFeeBalance.paid)} />
+              <Metric label="Solde" value={formatMoney(selectedPaymentFeeBalance.remaining)} />
             </div>
             {paymentError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{paymentError}</p>}
-            <select value={selectedFeeTypeValue} onChange={(event) => setFeeTypeId(event.target.value)} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60">
+            <select value={selectedFeeTypeValue} onChange={(event) => { setFeeTypeId(event.target.value); setPaymentError(""); }} disabled={!selectedPaymentStudent || payableFeeTypes.length === 0 || paymentSubmitting} className="input disabled:opacity-60">
               {payableFeeTypes.map((fee) => (
                 <option key={fee.id} value={fee.id}>{fee.name} - ${fee.amount}</option>
               ))}
             </select>
+            {selectedPaymentFee && selectedPaymentFeeRemaining === 0 && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">Ce type de frais est déjà soldé.</p>}
             <input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" min="0" max={selectedPaymentFeeRemaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" placeholder="Montant" />
+            <textarea value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} maxLength={1000} className="input min-h-20" placeholder="Description" />
             <button onClick={savePayment} disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button justify-center disabled:opacity-50"><Plus className="h-4 w-4" /> {paymentSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
           </FormPanel>
         )}
@@ -1245,17 +1241,22 @@ export function ControlModule({
                 )}
               </div>
               <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
-                <Metric label="Attendu" value={`$${selectedPaymentBalance.expected}`} />
-                <Metric label="Payé" value={`$${selectedPaymentBalance.paid}`} />
-                <Metric label="Solde" value={`$${selectedPaymentBalance.remaining}`} />
+                <Metric label="Attendu" value={formatMoney(selectedPaymentFeeBalance.expected)} />
+                <Metric label="Payé" value={formatMoney(selectedPaymentFeeBalance.paid)} />
+                <Metric label="Solde" value={formatMoney(selectedPaymentFeeBalance.remaining)} />
               </div>
               {paymentError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{paymentError}</p>}
-              <select value={selectedFeeTypeValue} onChange={(event) => setFeeTypeId(event.target.value)} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60">
+              <select value={selectedFeeTypeValue} onChange={(event) => { setFeeTypeId(event.target.value); setPaymentError(""); }} disabled={!selectedPaymentStudent || payableFeeTypes.length === 0 || paymentSubmitting} className="input disabled:opacity-60">
                 {payableFeeTypes.map((fee) => (
                   <option key={fee.id} value={fee.id}>{fee.name} - ${fee.amount}</option>
                 ))}
               </select>
+              {selectedPaymentFee && selectedPaymentFeeRemaining === 0 && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">Ce type de frais est déjà soldé.</p>}
               <input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" min="0" max={selectedPaymentFeeRemaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" placeholder="Montant" />
+              <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+                Description
+                <textarea value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} maxLength={1000} className="input min-h-20" placeholder="Écrivez la description" />
+              </label>
               <button onClick={savePayment} disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button w-full justify-center" type="button"><Plus className="h-4 w-4" /> {paymentSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
             </>
           )}
@@ -1362,6 +1363,7 @@ export function ControlModule({
                       </div>
                     </div>
                     <p className="break-words text-slate-500">{fee.name} | ${payment.amount} | {payment.paidAt}</p>
+                    {payment.note && <p className="mt-1 break-words text-slate-600">Description : {payment.note}</p>}
                   </div>
                 );
               })}

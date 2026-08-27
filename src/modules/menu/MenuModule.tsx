@@ -11,6 +11,7 @@ import { subscribeToStudentMedicalRecords } from "../../services/studentMedicalR
 import { createAuditLog } from "../../utils/audit";
 import { refreshErrorMessage } from "../../utils/refreshErrors";
 import { buildFeeTargetChoices, feeTargetClassName } from "../../utils/feeTargets";
+import { feeTypeBusinessKey } from "../../utils/feeTypeIdentity";
 import { getSchoolEducationLevels, getSchoolSections, schoolSectionLabels, toggleSchoolEducationLevel } from "../../utils/schoolConfig";
 import { nextSchoolStaffEmail, normalizeProvisioningPhone } from "../../utils/schoolAccountCredentials";
 import { temporaryPasswordAfterPhoneChange } from "../../utils/temporaryPassword";
@@ -112,6 +113,8 @@ export function MenuModule({
   const [feeClassNames, setFeeClassNames] = useState<string[]>([]);
   const [feeAmount, setFeeAmount] = useState("100");
   const [editingFeeId, setEditingFeeId] = useState("");
+  const [feeSaveError, setFeeSaveError] = useState("");
+  const [feeSubmitting, setFeeSubmitting] = useState(false);
   const [showNewFeeForm, setShowNewFeeForm] = useState(false);
   const [newFeeName, setNewFeeName] = useState("");
   const [customFeeKindChoices, setCustomFeeKindChoices] = useState<FeeKind[]>([]);
@@ -163,6 +166,9 @@ export function MenuModule({
   const persistedCustomFeeKindChoices = selectedYear.customFeeKindChoices ?? [];
   const feeKindChoices = Array.from(new Set([...FEE_KINDS, ...yearData.feeTypes.map((fee) => fee.name), ...persistedCustomFeeKindChoices, ...customFeeKindChoices]));
   const newFeeFormRef = useRef<HTMLDivElement>(null);
+  const feeEditorRef = useRef<HTMLDivElement>(null);
+  const feeNameSelectRef = useRef<HTMLSelectElement>(null);
+  const feeSubmittingRef = useRef(false);
   const schoolFormEducationLevels = getSchoolEducationLevels(schoolForm).filter((level) => level !== "Mixte");
   const schoolSectionChoices = getSchoolSections(school);
   const schoolFormOptions = normalizeSchoolOptions(schoolForm.schoolOptions);
@@ -516,17 +522,31 @@ export function MenuModule({
   }
 
   function saveFee() {
-    if (!feeName || feeClassNames.length === 0 || !feeAmount) return;
+    if (feeSubmittingRef.current || !feeName || feeClassNames.length === 0 || !feeAmount) return;
+    setFeeSaveError("");
     const amount = Number(feeAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setFeeSaveError("Le montant du type de frais doit être supérieur à zéro.");
+      return;
+    }
     const selectedClasses = Array.from(new Set(feeClassNames));
     const existingFeeKeys = new Set(
       data.feeTypes
         .filter((fee) => fee.schoolId === school.id && fee.schoolYearId === selectedYear.id && fee.id !== editingFeeId)
-        .map((fee) => `${String(fee.name).trim().toLowerCase()}|${fee.classOptionKey ?? fee.className ?? ""}`),
+        .map(feeTypeBusinessKey),
     );
-    const feesToSave = selectedClasses
-      .filter((target) => !existingFeeKeys.has(`${String(feeName).trim().toLowerCase()}|${target}`))
-      .map((target, index) => {
+    const duplicateTarget = selectedClasses.find((target) => existingFeeKeys.has(feeTypeBusinessKey({
+      schoolId: school.id,
+      schoolYearId: selectedYear.id,
+      name: feeName,
+      className: feeTargetClassName(target),
+      ...(feeTargetHasOption(target) ? { classOptionKey: target } : {}),
+    })));
+    if (duplicateTarget) {
+      setFeeSaveError("Ce type de frais existe déjà pour cette classe.");
+      return;
+    }
+    const feesToSave = selectedClasses.map((target, index) => {
         const fee: FeeType = {
           id: editingFeeId && index === 0 ? editingFeeId : createId("fee"),
           schoolId: school.id,
@@ -540,7 +560,8 @@ export function MenuModule({
         }
         return fee;
       });
-    if (feesToSave.length === 0) return;
+    feeSubmittingRef.current = true;
+    setFeeSubmitting(true);
     const feeAction = editingFeeId ? "Modification type de frais" : "Ajout type de frais";
     const feeActionVerb = editingFeeId ? "modifié" : "ajouté";
     const feeAuditDetails = `Admin ${user.name} a ${feeActionVerb} le type de frais ${feeName}.`;
@@ -554,6 +575,10 @@ export function MenuModule({
     setFeeName("Minerval");
     setFeeClassNames([]);
     setFeeAmount("100");
+    window.requestAnimationFrame(() => {
+      feeSubmittingRef.current = false;
+      setFeeSubmitting(false);
+    });
   }
 
   function editFee(fee: FeeType) {
@@ -562,6 +587,13 @@ export function MenuModule({
     const feeTarget = fee.classOptionKey ?? fee.className;
     setFeeClassNames(feeTarget ? [feeTarget] : []);
     setFeeAmount(String(fee.amount));
+    setShowNewFeeForm(false);
+    setNewFeeError("");
+    setFeeSaveError("");
+    window.requestAnimationFrame(() => {
+      feeEditorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      feeNameSelectRef.current?.focus({ preventScroll: true });
+    });
   }
 
   function toggleFeeClass(className: string) {
@@ -946,8 +978,10 @@ export function MenuModule({
     if (sectionId === "fees" && canAdmin) {
       return (
         <div className="grid min-w-0 gap-4">
-          <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_120px_auto]">
+          {feeSaveError && <p role="alert" aria-live="assertive" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{feeSaveError}</p>}
+          <div ref={feeEditorRef} className="grid min-w-0 scroll-mt-4 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_120px_auto]">
             <select
+              ref={feeNameSelectRef}
               value={feeName}
               onChange={(event) => {
                 if (event.target.value === "__add_fee__") {
@@ -978,7 +1012,7 @@ export function MenuModule({
               </div>
             </fieldset>
             <input value={feeAmount} onChange={(event) => setFeeAmount(event.target.value)} type="number" className="input" />
-            <button onClick={saveFee} disabled={feeClassNames.length === 0} className="primary-button w-full justify-center disabled:opacity-50 sm:w-auto" type="button"><Plus className="h-4 w-4" /> {editingFeeId ? "Enregistrer" : "Ajouter"}</button>
+            <button onClick={saveFee} disabled={feeClassNames.length === 0 || feeSubmitting} className="primary-button w-full justify-center disabled:opacity-50 sm:w-auto" type="button"><Plus className="h-4 w-4" /> {feeSubmitting ? "Enregistrement…" : editingFeeId ? "Enregistrer" : "Ajouter"}</button>
           </div>
           {editingFeeId && (
             <button
@@ -987,6 +1021,7 @@ export function MenuModule({
                 setFeeName("Minerval");
                 setFeeClassNames([]);
                 setFeeAmount("100");
+                setFeeSaveError("");
               }}
               className="secondary-button w-fit"
               type="button"

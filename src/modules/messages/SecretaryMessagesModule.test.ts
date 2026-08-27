@@ -27,7 +27,7 @@ describe("interface Message du Secrétaire", () => {
   });
 
   it("partage avec l'Administrateur le second filtre Parents et tous ses modes", () => {
-    expect(source).toContain("isSchoolAdmin || isSecretary ? (");
+    expect(source).toContain("isSchoolAdmin || isSecretary || isCashier ? (");
     [
       '<option value="all">Tous les parents</option>',
       '<option value="parents">Sélection parent</option>',
@@ -42,7 +42,7 @@ describe("interface Message du Secrétaire", () => {
     expect(source).toContain('changeAdminRecipientMode("all")');
     expect(source).toContain("setSelectedAdministrativeIds([])");
     expect(source).toContain("secureParentRecipientIds");
-    expect(source).toContain("resolvedSecretaryParentIds");
+    expect(source).toContain("resolvedSecureParentIds");
     expect(source).toContain("sendToSecureRecipients");
   });
 

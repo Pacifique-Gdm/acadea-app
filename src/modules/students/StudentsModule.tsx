@@ -26,6 +26,14 @@ export interface StudentModuleCapabilities {
   canManageOptions: boolean;
 }
 
+type PendingQuickParent = {
+  parentId: string;
+  fullName: string;
+  phone: string;
+  email: string;
+  password: string;
+};
+
 export function StudentsModule({
   user,
   data,
@@ -58,6 +66,7 @@ export function StudentsModule({
   const [archiveFilter, setArchiveFilter] = useState<"active" | "archived" | "all">("all");
   const [form, setForm] = useState<Student>(() => emptyStudent(school.id, year.id));
   const [quickParent, setQuickParent] = useState({ fullName: "", phone: "", email: "", password: "" });
+  const [pendingQuickParent, setPendingQuickParent] = useState<PendingQuickParent>();
   const [saveError, setSaveError] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -180,8 +189,9 @@ export function StudentsModule({
       if (selectedSubclasses.length >= 2 && !form.subClassId) { setSaveError("La sous-classe est obligatoire pour cette option subdivisée."); return; }
       if (form.subClassId && !selectedSubclasses.some((item) => item.id === form.subClassId)) { setSaveError("La sous-classe sélectionnée n’appartient pas à cette classe."); return; }
       const selectedParentId = form.parentId?.trim() ?? "";
+      const pendingParentForStudent = pendingQuickParent?.parentId === selectedParentId ? pendingQuickParent : undefined;
       const matchingParents = data.parents.filter((parent) => parent.id === selectedParentId && parent.schoolId === school.id);
-      if (selectedParentId && matchingParents.length === 0) {
+      if (selectedParentId && matchingParents.length === 0 && !pendingParentForStudent) {
         setSaveError("Veuillez lier cet élève à un parent avant d'enregistrer.");
         return;
       }
@@ -194,6 +204,7 @@ export function StudentsModule({
       const matricule = exists ? form.matricule : generateMatricule(data.students, targetYearName, school.id, targetYearId);
       const student = studentForPersistence({
         ...form,
+        id: exists ? form.id : uid("student"),
         option: form.option ? canonicalSchoolOption(form.option) : undefined,
         matricule,
         section: getClassSection(form.className),
@@ -207,7 +218,7 @@ export function StudentsModule({
       if (student.section !== "Secondaire" || !student.option) delete student.option;
       if (!student.classId) delete student.classId;
       if (!student.subClassId) delete student.subClassId;
-      if (selectedParentId) {
+      if (selectedParentId && !pendingParentForStudent) {
         student.parentId = selectedParentId;
       } else {
         delete student.parentId;
@@ -235,6 +246,48 @@ export function StudentsModule({
         },
         { throwOnError: true },
       );
+
+      if (pendingParentForStudent) {
+        try {
+          const provisioned = await provisionParent({
+            schoolId: school.id,
+            schoolYearId: targetYearId,
+            parentId: pendingParentForStudent.parentId,
+            name: pendingParentForStudent.fullName,
+            email: pendingParentForStudent.email,
+            password: pendingParentForStudent.password,
+            phone: pendingParentForStudent.phone,
+            address: "",
+            studentIds: [student.id],
+            status: "active",
+          });
+          const linkedStudent = { ...student, parentId: provisioned.parent.id };
+          updateData({
+            students: [...nextStudents.filter((item) => item.id !== linkedStudent.id), linkedStudent],
+            parents: [...parents.filter((item) => item.id !== provisioned.parent.id), provisioned.parent],
+            users: [...users.filter((item) => item.id !== provisioned.user.id), provisioned.user],
+            auditLogs: [auditLog, ...data.auditLogs],
+          }, { persist: false });
+          setPendingQuickParent(undefined);
+          setForm(emptyCurrentStudent());
+          setQuickParent({ fullName: "", phone: "", email: "", password: "" });
+          setShowForm(false);
+          setSaveMessage("Élève et compte parent enregistrés avec succès.");
+          return;
+        } catch (error) {
+          updateData({
+            students: nextStudents,
+            parents,
+            users,
+            auditLogs: [auditLog, ...data.auditLogs],
+          }, { persist: false });
+          setForm(student);
+          setSaveError(error instanceof Error
+            ? `L’élève a été enregistré, mais le compte Parent n’a pas pu être créé : ${error.message}`
+            : "L’élève a été enregistré, mais le compte Parent n’a pas pu être créé. Vous pouvez reprendre la liaison depuis sa fiche.");
+          return;
+        }
+      }
       updateData({
         students: nextStudents,
         parents,
@@ -242,6 +295,7 @@ export function StudentsModule({
         auditLogs: [auditLog, ...data.auditLogs],
       }, { persist: false });
       setForm(emptyCurrentStudent());
+      setPendingQuickParent(undefined);
       setQuickParent({ fullName: "", phone: "", email: "", password: "" });
       setShowForm(false);
       setSaveMessage(exists ? "Élève modifié avec succès." : "Élève enregistré avec succès.");
@@ -258,6 +312,7 @@ export function StudentsModule({
     if (!studentCapabilities.canCreate) return;
     setForm(emptyCurrentStudent());
     setQuickParent({ fullName: "", phone: "", email: nextParentEmail(school, data.users, data.parents), password: "" });
+    setPendingQuickParent(undefined);
     setSaveError("");
     setSaveMessage("");
     setShowForm(true);
@@ -266,6 +321,7 @@ export function StudentsModule({
   function openEditStudentForm(student: Student) {
     if (!studentCapabilities.canEdit || isArchivedStudent(student)) return;
     setForm({ ...student, option: student.option ? canonicalSchoolOption(student.option) : undefined });
+    setPendingQuickParent(undefined);
     setSaveError("");
     setSaveMessage("");
     setShowForm(true);
@@ -363,65 +419,44 @@ export function StudentsModule({
     if (!quickParent.fullName || !quickParent.phone || !quickParent.email) return;
     const parentId = uid("parent");
     const resolvedEmail = parentEmailExists(quickParent.email, data.users, data.parents) ? nextParentEmail(school, data.users, data.parents) : quickParent.email.trim();
-    let userId: string | undefined;
-    if (!userId) {
-      if (!quickParent.password) {
-        setSaveError("Mot de passe requis pour créer le compte Firebase Auth du parent.");
-        return;
-      }
-      try {
-        const provisioned = await provisionParent({
-          schoolId: school.id,
-          schoolYearId: year.id,
-          parentId,
-          name: quickParent.fullName,
-          email: resolvedEmail,
-          password: quickParent.password,
-          phone: quickParent.phone,
-          address: "",
-          studentIds: [form.id],
-          status: "active",
-        });
-        userId = provisioned.user.id;
-      } catch (error) {
-        setSaveError(error instanceof Error ? `Création Firebase Auth parent impossible : ${error.message}` : "Création Firebase Auth parent impossible.");
-        return;
-      }
+    if (!quickParent.password) {
+      setSaveError("Mot de passe requis pour créer le compte Firebase Auth du parent.");
+      return;
     }
-    const parent: ParentProfile = {
-      id: parentId,
-      schoolId: school.id,
-      schoolYearId: year.id,
-      userId,
-      fullName: quickParent.fullName,
-      phone: quickParent.phone,
-      email: resolvedEmail,
-      address: "",
-      studentIds: [form.id],
-      status: "active",
-    };
-    const parentUser: AppUser = {
-      id: userId,
-      name: parent.fullName,
-      email: parent.email,
-      role: "parent",
-      schoolId: school.id,
-      activeSchoolYearId: year.id,
-      parentId,
-      studentIds: [form.id],
-      status: "active",
-      phone: parent.phone,
-    };
-    updateData(
-      {
-        parents: [...data.parents, parent],
-        users: [...data.users, parentUser],
-      },
-      { persist: false },
-    );
-    setForm({ ...form, parentId });
-    setQuickParent({ fullName: "", phone: "", email: "", password: "" });
-    setSaveMessage("Compte parent créé avec succès. Il peut maintenant se connecter avec son email et son mot de passe.");
+
+    const existingStudent = data.students.find((student) => student.id === form.id);
+    if (!existingStudent) {
+      const pendingParent = { parentId, fullName: quickParent.fullName.trim(), phone: quickParent.phone.trim(), email: resolvedEmail, password: quickParent.password };
+      setPendingQuickParent(pendingParent);
+      setForm({ ...form, parentId });
+      setSaveMessage("Parent prêt à être créé après l’enregistrement de l’élève.");
+      return;
+    }
+
+    try {
+      const provisioned = await provisionParent({
+        schoolId: school.id,
+        schoolYearId: year.id,
+        parentId,
+        name: quickParent.fullName,
+        email: resolvedEmail,
+        password: quickParent.password,
+        phone: quickParent.phone,
+        address: "",
+        studentIds: [existingStudent.id],
+        status: "active",
+      });
+      updateData({
+        students: data.students.map((student) => student.id === existingStudent.id ? { ...student, parentId: provisioned.parent.id } : student),
+        parents: [...data.parents, provisioned.parent],
+        users: [...data.users, provisioned.user],
+      }, { persist: false });
+      setForm({ ...form, parentId: provisioned.parent.id });
+      setQuickParent({ fullName: "", phone: "", email: "", password: "" });
+      setSaveMessage("Compte parent créé avec succès. Il peut maintenant se connecter avec son email et son mot de passe.");
+    } catch (error) {
+      setSaveError(error instanceof Error ? `Création Firebase Auth parent impossible : ${error.message}` : "Création Firebase Auth parent impossible.");
+    }
   }
 
   async function addSchoolOption(option: string) {
@@ -579,6 +614,7 @@ export function StudentsModule({
             form={form}
             setForm={setForm}
             parents={yearData.parents}
+            pendingParent={pendingQuickParent ? { id: pendingQuickParent.parentId, fullName: pendingQuickParent.fullName, phone: pendingQuickParent.phone } : undefined}
             quickParent={quickParent}
             setQuickParent={setQuickParent}
             classChoices={studentClassChoices}
@@ -586,7 +622,7 @@ export function StudentsModule({
             onAddOption={addSchoolOption}
             onCreateParent={createParentForStudent}
             onSave={saveStudent}
-            onReset={() => setForm(emptyStudent(school.id, year.id))}
+            onReset={() => { setForm(emptyStudent(school.id, year.id)); setPendingQuickParent(undefined); }}
             errorMessage={saveError}
             isSaving={isSaving}
             canCreateParent={studentCapabilities.canCreateParent}

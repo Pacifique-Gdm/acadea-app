@@ -14,9 +14,9 @@ describe("service frontend des transactions financières", () => {
   it("attend le paiement confirmé par le serveur et n'envoie pas schoolId ni createdBy", async () => {
     const payment = { id: "payment-a", schoolId: "school-a", schoolYearId: "year-a", studentId: "student-a", feeTypeId: "fee-a", amount: 20, paidAt: "2026-08-07", cashierName: "Caissier" };
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ payment }), { status: 200 }));
-    await expect(createPaymentTransaction({ schoolYearId: "year-a", studentId: "student-a", feeTypeId: "fee-a", amount: 20, clientRequestId: "request-payment-001" })).resolves.toEqual(payment);
+    await expect(createPaymentTransaction({ schoolYearId: "year-a", studentId: "student-a", feeTypeId: "fee-a", amount: 20, note: "Premier acompte", clientRequestId: "request-payment-001" })).resolves.toEqual(payment);
     const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
-    expect(request).toEqual({ action: "create-payment", schoolYearId: "year-a", studentId: "student-a", feeTypeId: "fee-a", amount: 20, clientRequestId: "request-payment-001" });
+    expect(request).toEqual({ action: "create-payment", schoolYearId: "year-a", studentId: "student-a", feeTypeId: "fee-a", amount: 20, note: "Premier acompte", clientRequestId: "request-payment-001" });
     expect(request).not.toHaveProperty("schoolId");
     expect(request).not.toHaveProperty("createdBy");
   });

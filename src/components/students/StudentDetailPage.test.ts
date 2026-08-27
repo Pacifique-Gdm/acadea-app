@@ -26,4 +26,13 @@ describe("fiche Élève — liaison Parent", () => {
     expect(detailSource).toContain("Le parent a été délié de cet élève.");
     expect(detailSource).toContain('role="alert"');
   });
+
+  it("trie les paiements récents et résout strictement leur école source pour le reçu", () => {
+    expect(detailSource).toContain("activityTimestamp(second.createdAt ?? second.paidAt)");
+    expect(detailSource).toContain("resolveFinancialOperationSchool(payment, schoolsById)");
+    expect(detailSource).toContain("payment.schoolId === school.id ? school : undefined");
+    expect(detailSource).toContain("generateReceiptPdf(payment, paymentStudent, fee, operationSchool");
+    expect(detailSource).toContain("MISSING_FINANCIAL_OPERATION_SCHOOL_ERROR");
+    expect(detailSource).toContain("Voir le reçu PDF du paiement");
+  });
 });

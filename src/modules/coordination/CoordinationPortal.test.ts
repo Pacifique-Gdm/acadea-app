@@ -5,12 +5,12 @@ const source = readFileSync(new URL("./CoordinationPortal.tsx", import.meta.url)
 
 describe("portail Coordination", () => {
   it("déclare exactement les cinq onglets métier dans l'ordre attendu", () => {
-    expect(source).toContain('["dashboard", "Dashboard", LayoutDashboard]');
-    expect(source).toContain('["students", "Élèves", GraduationCap]');
-    expect(source).toContain('["control", "Contrôle", Banknote]');
-    expect(source).toContain('["messages", "Message", MessageSquare]');
-    expect(source).toContain('["menu", "Menu", Menu]');
-    expect(source).toContain("grid-cols-5");
+    expect(source).toContain('id: "dashboard" as const, label: "Dashboard", icon: LayoutDashboard');
+    expect(source).toContain('id: "students" as const, label: "Élèves", icon: GraduationCap');
+    expect(source).toContain('id: "control" as const, label: "Contrôle", icon: Banknote');
+    expect(source).toContain('id: "messages" as const, label: "Message", icon: MessageSquare');
+    expect(source).toContain('id: "menu" as const, label: "Menu", icon: Menu');
+    expect(source).toContain("<MobileBottomNavigation");
     const labels = ["Dashboard", "Élèves", "Contrôle", "Message", "Menu"];
     labels.reduce((cursor, label) => {
       const next = source.indexOf(`"${label}"`, cursor + 1);
@@ -33,5 +33,12 @@ describe("portail Coordination", () => {
     expect(source).toContain('where("active", "==", true)');
     expect(source).toContain('where("subCoordinationId", "==", user.subCoordinationId!)');
     expect(source).toContain('where("coordinationId", "==", coordinationId)');
+  });
+  it("rend l’en-tête sticky avec le logo Coordination persistant et son fallback", () => {
+    expect(source).toContain('className="sticky top-0 z-20 border-b');
+    expect(source).toContain("coordination?.logoUrl");
+    expect(source).toContain('src={coordination.logoUrl}');
+    expect(source).toContain("<Building2");
+    expect(source).toContain('onSnapshot(doc(database, "coordinations", coordinationId)');
   });
 });

@@ -65,4 +65,14 @@ describe("Drawer Personnels", () => {
     expect(source).toContain('role="alert" aria-live="assertive"');
     expect(source).toContain('role="status" aria-live="polite"');
   });
+
+  it("exige les phrases exactes pour archiver et désarchiver", () => {
+    expect(source).toContain('"ARCHIVER PERSONNEL"');
+    expect(source).toContain('"DÉSARCHIVER PERSONNEL"');
+    expect(source).toContain('if (statusConfirmation !== expectedConfirmation) return');
+    expect(source).toContain('disabled={busy || statusConfirmation !== expectedConfirmation}');
+    expect(source).toContain('setStatusConfirmation("")');
+    expect(source).not.toContain('statusConfirmation.trim()');
+    expect(source).not.toContain('statusConfirmation.toUpperCase()');
+  });
 });

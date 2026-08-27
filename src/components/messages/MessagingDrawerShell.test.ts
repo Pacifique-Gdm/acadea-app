@@ -5,12 +5,10 @@ const shellSource = readFileSync(new URL("./MessagingDrawerShell.tsx", import.me
 const drawerSource = readFileSync(new URL("../ui/AdminDrawer.tsx", import.meta.url), "utf8");
 const headerSource = readFileSync(new URL("../layout/Header.tsx", import.meta.url), "utf8");
 const contentSource = readFileSync(new URL("./MessageDrawerContent.tsx", import.meta.url), "utf8");
-const bottomNavigationSources = [
-  "../layout/BottomNavigation.tsx",
-  "../layout/SecretaryBottomNavigation.tsx",
-  "../layout/DisciplineBottomNavigation.tsx",
-  "../layout/ParentBottomNavigation.tsx",
-].map((path) => readFileSync(new URL(path, import.meta.url), "utf8"));
+const bottomNavigationSource = [
+  readFileSync(new URL("../layout/MobileBottomNavigation.tsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../../styles.css", import.meta.url), "utf8"),
+].join("\n");
 
 describe("layout partagé de la Boîte à Messagerie", () => {
   it("réutilise directement le grand Drawer commun depuis le Header de tous les rôles", () => {
@@ -32,7 +30,8 @@ describe("layout partagé de la Boîte à Messagerie", () => {
     expect(shellSource).toContain("createPortal(");
     expect(shellSource).toContain("document.body");
     expect(drawerSource).toContain("fixed inset-0 z-50");
-    bottomNavigationSources.forEach((source) => expect(source).toContain("z-40"));
+    expect(bottomNavigationSource).toContain("mobile-bottom-navigation");
+    expect(bottomNavigationSource).toContain("z-40");
   });
 
   it("conserve le panneau au-dessus du fond overlay dans le même Drawer", () => {

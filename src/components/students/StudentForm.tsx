@@ -10,6 +10,7 @@ export function StudentForm({
   form,
   setForm,
   parents,
+  pendingParent,
   quickParent,
   setQuickParent,
   classChoices,
@@ -28,6 +29,7 @@ export function StudentForm({
   form: Student;
   setForm: (student: Student) => void;
   parents: ParentProfile[];
+  pendingParent?: { id: string; fullName: string; phone: string };
   quickParent: { fullName: string; phone: string; email: string; password: string };
   setQuickParent: (parent: { fullName: string; phone: string; email: string; password: string }) => void;
   classChoices: SchoolClass[];
@@ -115,6 +117,7 @@ export function StudentForm({
         <input value={parentQuery} onChange={(event) => setParentQuery(event.target.value)} className="input" placeholder="Rechercher un parent par nom" aria-label="Rechercher un parent" />
         <select value={form.parentId ?? ""} onChange={(event) => setForm({ ...form, parentId: event.target.value || undefined })} className="input">
           <option value="">Aucun parent lié</option>
+          {pendingParent && <option value={pendingParent.id}>{pendingParent.fullName} - {pendingParent.phone} (création en attente)</option>}
           {visibleParents.map((parent) => (
             <option key={parent.id} value={parent.id}>{parent.fullName} - {parent.phone}</option>
           ))}

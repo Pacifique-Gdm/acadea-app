@@ -8,23 +8,24 @@ const subCoordinations = readFileSync(new URL("./SubCoordinationManagement.tsx",
 const drawer = readFileSync(new URL("../../components/ui/AdminDrawer.tsx", import.meta.url), "utf8");
 
 describe("responsive et exports Coordination", () => {
-  it("affiche les deux téléchargements compacts et accessibles dans Élèves et Contrôle", () => {
+  it("retire les téléchargements financiers globaux et conserve Exporter PDF dans Élèves et Contrôle", () => {
     for (const source of [students, control]) {
-      expect(source).toContain("Télécharger les paiements PDF");
-      expect(source).toContain("Télécharger les dépenses PDF");
-      expect(source).toContain("exportCoordinationFinancialTransactions");
-      expect(source).toContain('type="button"');
+      expect(source).not.toContain("Télécharger les paiements PDF");
+      expect(source).not.toContain("Télécharger les dépenses PDF");
+      expect(source).not.toContain("exportCoordinationFinancialTransactions");
+      expect(source).toContain("Exporter PDF");
       expect(source).not.toContain("createPaymentTransaction");
       expect(source).not.toContain("createExpenseTransaction");
     }
   });
 
-  it("alimente les exports avec les élèves réellement filtrés et les données déjà chargées", () => {
-    expect(students).toContain("students,\n      payments: model.payments");
-    expect(students).toContain("selectedSchoolId");
-    expect(control).toContain("students: rows.map((row) => row.student)");
-    expect(control).toContain("payments: model.payments");
-    expect(control).toContain("expenses: model.expenses");
+  it("conserve les PDF individuels et résout l’école source sans fallback Coordination", () => {
+    expect(control).toContain("resolveFinancialOperationSchool(operation, schoolsById)");
+    expect(control).toContain("generateReceiptPdf(payment, student, feeType, school");
+    expect(control).toContain("generateExpensePdf(expense, school, year");
+    expect(control).toContain("MISSING_FINANCIAL_OPERATION_SCHOOL_ERROR");
+    expect(control).toContain('headers={["Élève", "École", "Montant", "Date", "PDF"]}');
+    expect(control).toContain('headers={["École", "Catégorie", "Description", "Montant", "Date", "PDF"]}');
   });
 
   it("empile les commandes mobiles et réserve les colonnes denses au très grand écran", () => {
@@ -47,5 +48,10 @@ describe("responsive et exports Coordination", () => {
     expect(menu).toContain('className="grid gap-2 sm:grid-cols-2"');
     expect(subCoordinations).toContain('className="grid grid-cols-1 gap-2 sm:grid-cols-2"');
     expect(subCoordinations).toContain("min-w-0 break-words");
+  });
+
+  it("retire la phrase Super Administrateur des paramètres et filtre ses audits de la vue Coordination", () => {
+    expect(menu).not.toContain("Le rattachement des écoles reste réservé au Super Administrateur.");
+    expect(menu).toContain("!isSuperAdministratorAuditLog(item)");
   });
 });

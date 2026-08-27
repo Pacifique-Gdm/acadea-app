@@ -92,8 +92,8 @@ describe("finalisation du module Coordination", () => {
   it("partage les cinq onglets avec le Sous-coordinateur", () => {
     expect(portal).toContain('"sub_coordination_admin"');
     expect(auth).toContain('role === "sub_coordination_admin"');
-    for (const tab of ["dashboard", "students", "control", "messages", "menu"]) expect(portal).toContain(`["${tab}"`);
-    expect(portal).toContain("grid-cols-5");
+    for (const tab of ["dashboard", "students", "control", "messages", "menu"]) expect(portal).toContain(`id: "${tab}" as const`);
+    expect(portal).toContain("<MobileBottomNavigation");
     expect(menu).toContain('user.role === "coordination_admin" ? [["subCoordinations"');
   });
 

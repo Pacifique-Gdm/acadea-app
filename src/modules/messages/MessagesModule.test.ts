@@ -36,6 +36,19 @@ describe("messagerie des modules administratifs", () => {
     expect(source).toContain("selectedAdminParentIds");
   });
 
+  it("étend au Caissier les Parents de l'année active avec résolution UID et lots de 50", () => {
+    expect(source).toContain('isSchoolAdmin || isSecretary || isCashier ? (');
+    expect(source).toContain('currentYearParentCandidates');
+    expect(source).toContain('secureParentRecipientIds');
+    expect(source).toContain('[parent.userId, parent.id].find');
+    expect(source).toContain('Math.ceil(resolvedSecureRecipientIds.length / 50)');
+    expect(source).toContain('resolvedSecureRecipientIds.slice(index * 50, (index + 1) * 50)');
+    expect(source).toContain(':parents:${index + 1}:${recipientBatches.length}');
+    expect(source).toContain('<option value="all">Tous les parents</option>');
+    expect(source).toContain('<option value="parents">Sélection parent</option>');
+    expect(source).toContain('removeAdminParent(parent.id)');
+  });
+
   it("ajoute la catégorie Enseignants avec les deux modes de sélection", () => {
     expect(source).toContain('<option value="teachers">Enseignants</option>');
     expect(source).toContain('kind="teacher"');

@@ -24,8 +24,9 @@ export function CoordinationStudentRecord({ student, user, schools, model, onBac
     return () => { cancelled = true; };
   }, [student.id]);
   const data = useMemo(() => detailData(model, parent ? [parent] : []), [model, parent]);
+  const schoolsById = useMemo(() => new Map(schools.map((item) => [item.id, item])), [schools]);
   const school = schools.find((item) => item.id === student.schoolId);
   if (!school) return <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">École de l’élève introuvable.</p>;
   const year = model.schoolYears.find((item) => item.id === student.schoolYearId) ?? fallbackYear(student);
-  return <div className="grid gap-3">{detailError && <p role="alert" className="rounded bg-amber-50 p-3 text-sm text-amber-800">{detailError}</p>}<StudentDetailPage studentId={student.id} user={user} data={data} yearData={{ students: data.students, parents: data.parents, feeTypes: data.feeTypes, payments: data.payments, auditLogs: [] }} year={year} school={school} updateData={() => undefined} onBack={onBack} createId={() => "read-only"} formatArchiveDate={(value) => value || "Non renseignée"} canLinkParent={false}/></div>;
+  return <div className="grid gap-3">{detailError && <p role="alert" className="rounded bg-amber-50 p-3 text-sm text-amber-800">{detailError}</p>}<StudentDetailPage studentId={student.id} user={user} data={data} yearData={{ students: data.students, parents: data.parents, feeTypes: data.feeTypes, payments: data.payments, auditLogs: [] }} year={year} school={school} schoolsById={schoolsById} updateData={() => undefined} onBack={onBack} createId={() => "read-only"} formatArchiveDate={(value) => value || "Non renseignée"} canLinkParent={false}/></div>;
 }

@@ -15,7 +15,7 @@ describe("alignement Coordination / Administrateur", () => {
   });
 
   it("isole Contrôle de toutes les mutations Administrateur", () => {
-    expect(portal).toContain('["control", "Contrôle", Banknote]');
+    expect(portal).toContain('id: "control" as const, label: "Contrôle", icon: Banknote');
     for (const forbidden of ["Avertissement", "Modifier", "Supprimer", "createPaymentTransaction", "updateExpenseTransaction"]) expect(control).not.toContain(forbidden);
     expect(control).toContain("Historique");
     expect(control).toContain("CoordinationStudentRecord");

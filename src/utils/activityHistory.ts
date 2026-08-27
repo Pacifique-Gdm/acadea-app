@@ -60,6 +60,17 @@ export function formatActivityDateTime(value: unknown) {
   return timestamp > 0 ? new Date(timestamp).toLocaleString("fr-FR") : "Date inconnue";
 }
 
+export function isSuperAdministratorAuditLog(log: AuditLog) {
+  if (log.actorRole === "super_admin") return true;
+  const explicitInformation = [log.actorName, log.action, log.details, log.eventType, JSON.stringify(log.metadata ?? {})]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("fr");
+  return /\bsuper[\s_-]*(?:administrateur|administratrice|admin)\b/.test(explicitInformation);
+}
+
 function formatActivityTime(value: unknown) {
   const timestamp = activityTimestamp(value);
   return timestamp > 0 ? new Date(timestamp).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "-";
@@ -76,6 +87,12 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
   const parentsById = new Map(yearData.parents.map((item) => [item.id, item]));
   const indexes = buildSchoolYearDataIndexes(yearData.students, yearData.feeTypes, yearData.payments);
   const auditActionsRepresentedByBusinessData = new Set(["Création paiement", "Création dépense", "Création sanction disciplinaire"]);
+  const visiblePaymentRecords = yearData.payments.filter((payment) => role === "admin" || (role === "cashier" && payment.createdBy === user.id));
+  const visibleExpenseRecords = yearData.expenses.filter((expense) => role === "admin" || (role === "cashier" && expense.createdBy === user.id));
+  const cashierBusinessResources = new Set([
+    ...visiblePaymentRecords.map((payment) => `payment:${payment.id}`),
+    ...visibleExpenseRecords.map((expense) => `expense:${expense.id}`),
+  ]);
   const parseWarningDetails = (details?: string) => {
     if (!details) return null;
     try {
@@ -100,6 +117,13 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
       const action = auditAction(log);
       if (isSessionAuditAction(action)) return false;
       if (role === "admin" && auditActionsRepresentedByBusinessData.has(action)) return false;
+      if (
+        role === "cashier"
+        && auditActionsRepresentedByBusinessData.has(action)
+        && log.resourceType
+        && log.resourceId
+        && cashierBusinessResources.has(`${log.resourceType}:${log.resourceId}`)
+      ) return false;
       const actor = usersById.get(log.actorId);
       const warningDetails = parseWarningDetails(log.details);
       if (warningDetails && role === "parent") return false;
@@ -132,8 +156,8 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
     });
 
   const paymentItems =
-    role === "admin"
-      ? yearData.payments.map<ActivityHistoryItem>((payment) => {
+    role === "admin" || role === "cashier"
+      ? visiblePaymentRecords.map<ActivityHistoryItem>((payment) => {
           const student = indexes.studentsById.get(payment.studentId);
           const fee = indexes.feeTypesById.get(payment.feeTypeId);
           const studentName = student ? `${student.nom} ${student.postnom} ${student.prenom}`.replace(/\s+/g, " ").trim() : "Élève non renseigné";
@@ -150,8 +174,8 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
       : [];
 
   const expenseItems =
-    role === "admin"
-      ? yearData.expenses.map<ActivityHistoryItem>((expense) => ({
+    role === "admin" || role === "cashier"
+      ? visibleExpenseRecords.map<ActivityHistoryItem>((expense) => ({
           id: `expense-${expense.id}`,
           type: "expense",
           title: "Dépense",
@@ -179,7 +203,7 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
     .filter((message) => {
       if (role === "admin") return message.recipientParentId === "school";
       if (role === "parent") return message.threadParentId === user.parentId || message.recipientParentId === user.parentId;
-      if (role === "secretary" || role === "teacher" || role === "study_director") return message.senderId === user.id || message.participantIds?.includes(user.id);
+      if (role === "cashier" || role === "secretary" || role === "teacher" || role === "study_director") return message.senderId === user.id || message.participantIds?.includes(user.id);
       return false;
     })
     .map<ActivityHistoryItem>((message) => {

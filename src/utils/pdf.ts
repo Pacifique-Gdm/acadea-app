@@ -1,5 +1,6 @@
 import jsPDF from "jspdf";
-import type { FeeType, Payment, School, SchoolYear, Student } from "../types";
+import type { Expense, FeeType, Payment, School, SchoolYear, Student } from "../types";
+import { formatSchoolMoney } from "./currency";
 import { getPdfLayout, resolvePdfFont, type PdfGenerationSettings } from "./pdfSettings";
 
 type PdfDoc = InstanceType<typeof jsPDF>;
@@ -346,6 +347,7 @@ export async function generateReceiptPdf(payment: Payment, student: Student, fee
     title: "Reçu de paiement",
     school,
     copyLabels: ["EXEMPLAIRE ÉCOLE", "EXEMPLAIRE PARENT"],
+    singlePageFit: true,
     sections: [
       pdfInfoGrid([
         { label: "Reçu", value: payment.receiptNumber ?? payment.id.toUpperCase() },
@@ -389,6 +391,56 @@ function buildPdfHtml(options: PdfHtmlOptions) {
     <style>${pdfStyles(options.pdfSettings, options.renderWidth)}</style>
     ${buildPdfContentHtml(options)}
   `;
+}
+
+function expensePdfField(expense: Expense, keys: string[]) {
+  const record = expense as Expense & Record<string, unknown>;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function formatExpensePdfDateTime(expense: Expense) {
+  const value = expense.createdAt || expense.spentAt;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return expense.spentAt;
+  return date.toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
+}
+
+export async function generateExpensePdf(expense: Expense, school: School, year?: SchoolYear, cashierName = expense.cashierName) {
+  const beneficiary = expensePdfField(expense, ["beneficiary", "beneficiaire", "supplier", "fournisseur", "providerName", "payee"]);
+  const paymentMethod = expensePdfField(expense, ["paymentMethod", "modePaiement", "paymentMode", "mode"]);
+  const reference = expensePdfField(expense, ["reference", "referenceNumber", "pieceNumber", "voucherNumber", "receiptNumber"]);
+  await renderAcadPdfPreview({
+    filename: `depense-${expense.spentAt}-${expense.id}.pdf`,
+    title: "Justificatif de dépense",
+    school,
+    year,
+    copyLabels: ["EXEMPLAIRE ÉCOLE", "EXEMPLAIRE BÉNÉFICIAIRE"],
+    singlePageFit: true,
+    sections: [
+      `<section class="pdf-section expense-details">
+        ${pdfInfoGrid([
+          { label: "Date", value: formatExpensePdfDateTime(expense) },
+          { label: "Libellé / motif", value: expense.description || expense.category },
+          { label: "Catégorie", value: expense.category },
+          { label: "Montant", value: formatSchoolMoney(expense.amount, school) },
+          { label: "Bénéficiaire / fournisseur", value: beneficiary || "-" },
+          { label: "Caissier", value: cashierName || "-" },
+          { label: "Mode de paiement", value: paymentMethod || "-" },
+          { label: "Référence / pièce", value: reference || "-" },
+        ])}
+      </section>`,
+      `<section class="signature-row">
+        <div>
+          <span>Signature et cachet</span>
+          <strong></strong>
+        </div>
+      </section>`,
+    ],
+  });
 }
 
 export function buildTwoCopyPdfHtml({ copyLabels, renderHeight, ...options }: PdfHtmlOptions & {

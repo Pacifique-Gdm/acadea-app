@@ -39,4 +39,15 @@ describe("Historique responsive", () => {
     expect(markup.indexOf("Activité récente")).toBeLessThan(markup.indexOf("Activité ancienne"));
     expect(markup).not.toContain("Invalid Date");
   });
+
+  it("expose les filtres Paiements et Dépenses au Caissier", () => {
+    const user: AppUser = { id: "cashier-a", name: "Caissier", email: "cashier@example.invalid", role: "cashier", schoolId: "school-a", activeSchoolYearId: "year-a", status: "active" };
+    const data: AppData = { users: [user], schools: [], schoolYears: [], students: [], parents: [], feeTypes: [], payments: [], expenses: [], messages: [], notifications: [], auditLogs: [], valves: [], disciplineSanctions: [], attendance: [], attendanceSettings: [], biometricTerminals: [] };
+    const markup = renderToStaticMarkup(createElement(ActivityHistoryContent, { user, data, role: "cashier", yearData: {
+      students: [], parents: [], users: [user], feeTypes: [], payments: [], expenses: [], messages: [], disciplineSanctions: [], auditLogs: [],
+    } }));
+
+    expect(markup).toContain('<option value="payment">Paiements</option>');
+    expect(markup).toContain('<option value="expense">Dépenses</option>');
+  });
 });

@@ -75,8 +75,8 @@ export function ActivityHistoryContent({
           <option value="activity">Activités</option>
           <option value="message">Messages</option>
           {role !== "parent" && <option value="warning">Avertissements</option>}
-          {role === "admin" && <option value="payment">Paiements</option>}
-          {role === "admin" && <option value="expense">Dépenses</option>}
+          {(role === "admin" || role === "cashier") && <option value="payment">Paiements</option>}
+          {(role === "admin" || role === "cashier") && <option value="expense">Dépenses</option>}
           {role === "admin" && <option value="discipline">Sanctions</option>}
         </select>
       </div>

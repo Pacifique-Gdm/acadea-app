@@ -33,7 +33,7 @@ async function financialRequest(input: Record<string, unknown> & { action: Finan
   return payload;
 }
 
-export function createPaymentTransaction(input: { schoolYearId: string; studentId: string; feeTypeId: string; amount: number; clientRequestId: string }) {
+export function createPaymentTransaction(input: { schoolYearId: string; studentId: string; feeTypeId: string; amount: number; note?: string; clientRequestId: string }) {
   return financialRequest({ action: "create-payment", ...input }).then((result) => {
     if (!result.payment) throw new Error("Réponse de paiement incomplète.");
     return result.payment;
