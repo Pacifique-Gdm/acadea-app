@@ -22,6 +22,23 @@ async function openPersonnel(page: Page) {
   await expect(page.getByRole("dialog", { name: "Personnels" })).toBeVisible();
 }
 
+async function showArchivedPersonnel(page: Page) {
+  const dialog = page.getByRole("dialog", { name: "Personnels" });
+  await dialog.getByRole("button", { name: /^Statut : Actifs/ }).click();
+  await dialog.getByRole("option", { name: "Archivés", exact: true }).click();
+}
+
+async function confirmPersonnelStatus(page: Page, kind: "archive" | "reactivate") {
+  const title = kind === "archive" ? "Archiver ce personnel ?" : "Désarchiver ce personnel ?";
+  const phrase = kind === "archive" ? "ARCHIVER PERSONNEL" : "DÉSARCHIVER PERSONNEL";
+  const action = kind === "archive" ? "Archiver" : "Désarchiver";
+  const success = kind === "archive" ? "Personnel archivé avec succès." : "Personnel réactivé avec succès.";
+  const dialog = page.getByRole("dialog", { name: title });
+  await dialog.getByRole("textbox", { name: "Confirmation", exact: true }).fill(phrase);
+  await dialog.getByRole("button", { name: action, exact: true }).click();
+  await expect(page.getByRole("status")).toContainText(success, { timeout: 30_000 });
+}
+
 test.describe("Phase 2 — archivage Personnels", () => {
   test.skip(!adminEmail || !adminPassword || !directorEmail || !directorPassword, "Identifiants Staging requis.");
   test.setTimeout(300_000);
@@ -62,26 +79,28 @@ test.describe("Phase 2 — archivage Personnels", () => {
       await teacherCard.getByRole("button", { name: "Fermer la fiche pédagogique" }).click();
 
       await login(teacherPage, teacherEmail!, teacherPassword, /\/teacher/);
-      await expect(teacherPage.getByRole("heading", { name: "Tableau de bord Enseignant" })).toBeVisible();
+      await expect(teacherPage.getByRole("heading", { name: "Dashboard Enseignant" })).toBeVisible();
 
       await openPersonnel(adminPage);
       const personnelDialog = adminPage.getByRole("dialog", { name: "Personnels" });
-      await expect(personnelDialog.getByRole("button", { name: "Actifs", exact: true })).toHaveAttribute("class", /primary-button/);
+      await expect(personnelDialog.getByRole("button", { name: /^Statut : Actifs/ })).toBeVisible();
       await expect(personnelDialog.getByText("Parent", { exact: true })).toHaveCount(0);
       await personnelDialog.getByRole("button", { name: teacherName, exact: true }).click();
       const teacherPersonnelCard = adminPage.getByRole("dialog", { name: `Personnel — ${teacherName}` });
       await expect(teacherPersonnelCard).toBeVisible();
-      await teacherPersonnelCard.getByRole("button", { name: "Modifier", exact: true }).click();
+      await teacherPersonnelCard.getByRole("button", { name: "Actions", exact: true }).click();
+      await teacherPersonnelCard.getByRole("menuitem", { name: "Modifier", exact: true }).click();
       const editDialog = adminPage.getByRole("dialog", { name: "Modifier le personnel" });
       const updatedPhone = `098${suffix}`;
-      await editDialog.getByLabel("Téléphone").fill(updatedPhone);
+      await editDialog.getByRole("textbox", { name: "Téléphone", exact: true }).fill(updatedPhone);
       await editDialog.getByRole("button", { name: "Enregistrer", exact: true }).click();
       await expect(teacherPersonnelCard.getByText(updatedPhone, { exact: true })).toBeVisible({ timeout: 20_000 });
-      await teacherPersonnelCard.getByRole("button", { name: "Archiver", exact: true }).click();
+      await teacherPersonnelCard.getByRole("button", { name: "Actions", exact: true }).click();
+      await teacherPersonnelCard.getByRole("menuitem", { name: "Archiver", exact: true }).click();
       const archiveConfirmation = adminPage.getByRole("heading", { name: "Archiver ce personnel ?" }).locator("xpath=ancestor::*[@role='dialog'][1]");
       await expect(archiveConfirmation).toBeVisible();
       const archivedAt = Date.now();
-      await archiveConfirmation.getByRole("button", { name: "Archiver", exact: true }).click();
+      await confirmPersonnelStatus(adminPage, "archive");
       archived = true;
 
       await expect(directorPage.getByRole("button", { name: teacherName, exact: true })).toHaveCount(0, { timeout: 30_000 });
@@ -99,23 +118,25 @@ test.describe("Phase 2 — archivage Personnels", () => {
 
       await openPersonnel(adminPage);
       const archiveList = adminPage.getByRole("dialog", { name: "Personnels" });
-      await archiveList.getByRole("button", { name: "Archivés", exact: true }).click();
+      await showArchivedPersonnel(adminPage);
       await archiveList.getByRole("button", { name: teacherName, exact: true }).click();
-      await adminPage.getByRole("button", { name: "Réactiver", exact: true }).click();
-      await adminPage.getByRole("dialog", { name: "Réactiver ce personnel ?" }).getByRole("button", { name: "Réactiver", exact: true }).click();
+      await adminPage.getByRole("button", { name: "Actions", exact: true }).click();
+      await adminPage.getByRole("menuitem", { name: "Réactiver", exact: true }).click();
+      await confirmPersonnelStatus(adminPage, "reactivate");
       archived = false;
 
       await expect(directorPage.getByRole("button", { name: teacherName, exact: true })).toBeVisible({ timeout: 30_000 });
       await login(teacherPage, teacherEmail!, teacherPassword, /\/teacher/);
-      await expect(teacherPage.getByRole("heading", { name: "Tableau de bord Enseignant" })).toBeVisible();
+      await expect(teacherPage.getByRole("heading", { name: "Dashboard Enseignant" })).toBeVisible();
     } finally {
       if (archived) {
         await openPersonnel(adminPage).catch(() => undefined);
         const dialog = adminPage.getByRole("dialog", { name: "Personnels" });
-        await dialog.getByRole("button", { name: "Archivés", exact: true }).click().catch(() => undefined);
+        await showArchivedPersonnel(adminPage).catch(() => undefined);
         await dialog.getByRole("button", { name: teacherName, exact: true }).click().catch(() => undefined);
-        await adminPage.getByRole("button", { name: "Réactiver", exact: true }).click().catch(() => undefined);
-        await adminPage.getByRole("dialog", { name: "Réactiver ce personnel ?" }).getByRole("button", { name: "Réactiver", exact: true }).click().catch(() => undefined);
+        await adminPage.getByRole("button", { name: "Actions", exact: true }).click().catch(() => undefined);
+        await adminPage.getByRole("menuitem", { name: "Réactiver", exact: true }).click().catch(() => undefined);
+        await confirmPersonnelStatus(adminPage, "reactivate").catch(() => undefined);
       }
       await Promise.all([adminContext.close(), directorContext.close(), teacherContext.close()]);
     }
@@ -131,7 +152,24 @@ test.describe("Phase 2 — archivage Personnels", () => {
 
     try {
       await login(adminPage, adminEmail!, adminPassword!, /\/dashboard/);
-      await login(cashierPage, cashierEmail!, cashierPassword!, /\/dashboard/);
+      await cashierPage.goto("/");
+      await cashierPage.getByPlaceholder("email@ecole.com").fill(cashierEmail!);
+      await cashierPage.getByPlaceholder("Votre mot de passe").fill(cashierPassword!);
+      await cashierPage.getByRole("button", { name: "Se connecter" }).click();
+      const cashierPortal = cashierPage.getByRole("button", { name: "Contrôle", exact: true }).last();
+      const inactiveAccount = cashierPage.getByText(/Votre compte n’est plus actif/);
+      await expect(cashierPortal.or(inactiveAccount)).toBeVisible({ timeout: 60_000 });
+      if (await inactiveAccount.isVisible()) {
+        await openPersonnel(adminPage);
+        await showArchivedPersonnel(adminPage);
+        const archivedCashier = adminPage.getByRole("dialog", { name: "Personnels" }).locator("article").filter({ hasText: cashierEmail! });
+        await archivedCashier.getByRole("button").click();
+        const archivedCard = adminPage.getByRole("dialog", { name: /Personnel —/ }).last();
+        await archivedCard.getByRole("button", { name: "Actions", exact: true }).click();
+        await archivedCard.getByRole("menuitem", { name: "Réactiver", exact: true }).click();
+        await confirmPersonnelStatus(adminPage, "reactivate");
+        await login(cashierPage, cashierEmail!, cashierPassword!, /\/dashboard/);
+      }
       await openPersonnel(adminPage);
       const personnelDialog = adminPage.getByRole("dialog", { name: "Personnels" });
       const cashierRow = personnelDialog.locator("article").filter({ hasText: cashierEmail! });
@@ -139,8 +177,9 @@ test.describe("Phase 2 — archivage Personnels", () => {
       await cashierRow.getByRole("button").click();
       const cashierCard = adminPage.getByRole("dialog", { name: /Personnel —/ }).last();
       await expect(cashierCard.getByText("Caissier", { exact: true })).toBeVisible();
-      await cashierCard.getByRole("button", { name: "Archiver", exact: true }).click();
-      await adminPage.getByRole("dialog", { name: "Archiver ce personnel ?" }).getByRole("button", { name: "Archiver", exact: true }).click();
+      await cashierCard.getByRole("button", { name: "Actions", exact: true }).click();
+      await cashierCard.getByRole("menuitem", { name: "Archiver", exact: true }).click();
+      await confirmPersonnelStatus(adminPage, "archive");
       archived = true;
 
       await expect(cashierPage).toHaveURL(/\/login/, { timeout: 30_000 });
@@ -151,11 +190,13 @@ test.describe("Phase 2 — archivage Personnels", () => {
 
       await openPersonnel(adminPage);
       const archivedList = adminPage.getByRole("dialog", { name: "Personnels" });
-      await archivedList.getByRole("button", { name: "Archivés", exact: true }).click();
+      await showArchivedPersonnel(adminPage);
       const archivedCashierRow = archivedList.locator("article").filter({ hasText: cashierEmail! });
       await archivedCashierRow.getByRole("button").click();
-      await adminPage.getByRole("dialog", { name: /Personnel —/ }).last().getByRole("button", { name: "Réactiver", exact: true }).click();
-      await adminPage.getByRole("dialog", { name: "Réactiver ce personnel ?" }).getByRole("button", { name: "Réactiver", exact: true }).click();
+      const archivedCashierCard = adminPage.getByRole("dialog", { name: /Personnel —/ }).last();
+      await archivedCashierCard.getByRole("button", { name: "Actions", exact: true }).click();
+      await archivedCashierCard.getByRole("menuitem", { name: "Réactiver", exact: true }).click();
+      await confirmPersonnelStatus(adminPage, "reactivate");
       archived = false;
 
       await login(cashierPage, cashierEmail!, cashierPassword!, /\/dashboard/);
@@ -163,11 +204,13 @@ test.describe("Phase 2 — archivage Personnels", () => {
       if (archived) {
         await openPersonnel(adminPage).catch(() => undefined);
         const dialog = adminPage.getByRole("dialog", { name: "Personnels" });
-        await dialog.getByRole("button", { name: "Archivés", exact: true }).click().catch(() => undefined);
+        await showArchivedPersonnel(adminPage).catch(() => undefined);
         const row = dialog.locator("article").filter({ hasText: cashierEmail! });
         await row.getByRole("button").click().catch(() => undefined);
-        await adminPage.getByRole("dialog", { name: /Personnel —/ }).last().getByRole("button", { name: "Réactiver", exact: true }).click().catch(() => undefined);
-        await adminPage.getByRole("dialog", { name: "Réactiver ce personnel ?" }).getByRole("button", { name: "Réactiver", exact: true }).click().catch(() => undefined);
+        const archivedCard = adminPage.getByRole("dialog", { name: /Personnel —/ }).last();
+        await archivedCard.getByRole("button", { name: "Actions", exact: true }).click().catch(() => undefined);
+        await archivedCard.getByRole("menuitem", { name: "Réactiver", exact: true }).click().catch(() => undefined);
+        await confirmPersonnelStatus(adminPage, "reactivate").catch(() => undefined);
       }
       await Promise.all([adminContext.close(), cashierContext.close()]);
     }

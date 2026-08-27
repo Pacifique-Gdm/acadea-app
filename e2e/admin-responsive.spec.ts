@@ -26,7 +26,7 @@ test.describe("responsive Administrateur", () => {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       await openAdminTab(page, "Élèves");
       await expect(page.getByPlaceholder("Rechercher")).toBeVisible();
-      await expect(page.getByRole("button", { name: "Imprimer" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Exporter PDF" })).toBeVisible();
       await expectNoGlobalOverflow(page, `Élèves ${viewport.name}`);
       await expectLocalTableOverflow(page);
 
@@ -78,11 +78,10 @@ async function expectControlToolbar(page: Page) {
   await expect(page.getByLabel("Classe")).toBeVisible();
   await expect(page.getByLabel("Montant payé")).toBeVisible();
   await expect(page.getByLabel("Filtre")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Imprimer" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Exporter PDF" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Réinitialiser" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Avertissement" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Historique de dépenses" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Historique des paiements" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Historique", exact: true })).toBeVisible();
 }
 
 async function validateStudentsInteractions(page: Page) {
@@ -102,7 +101,7 @@ async function validateStudentsInteractions(page: Page) {
     await openAdminTab(page, "Élèves");
   }
 
-  await page.getByRole("button", { name: "Imprimer" }).click();
+  await page.getByRole("button", { name: "Exporter PDF" }).click();
   await expect(page.locator("iframe[data-pdf-frame]")).toBeVisible();
   await page.locator("button[data-pdf-close]").click();
 }
@@ -121,15 +120,16 @@ async function validateControlInteractions(page: Page) {
   await expect(closeWarning).toBeVisible();
   await closeWarning.click();
 
-  await page.getByRole("button", { name: "Historique de dépenses" }).click();
-  await expect(page.getByText("Historique de dépenses", { exact: true }).last()).toBeVisible();
-  await page.getByRole("button", { name: /Fermer l'historique des dépenses/ }).click();
-
-  await page.getByRole("button", { name: "Historique des paiements" }).click();
-  await expect(page.getByText("Historique des paiements", { exact: true }).last()).toBeVisible();
+  await page.getByRole("button", { name: "Historique", exact: true }).click();
+  const historyDrawer = page.getByRole("dialog", { name: "Historique" });
+  await expect(historyDrawer.getByLabel("Type d'historique")).toHaveValue("payments");
+  await historyDrawer.getByLabel("Type d'historique").selectOption("expenses");
+  await expect(historyDrawer.getByLabel("Rechercher dans l'historique des dépenses")).toBeVisible();
+  await historyDrawer.getByLabel("Type d'historique").selectOption("payments");
+  await expect(historyDrawer.getByPlaceholder("Rechercher par nom ou matricule")).toBeVisible();
   await page.getByRole("button", { name: /Fermer l'historique/ }).click();
 
-  await page.getByRole("button", { name: "Imprimer" }).click();
+  await page.getByRole("button", { name: "Exporter PDF" }).click();
   await expect(page.locator("iframe[data-pdf-frame]")).toBeVisible();
   await page.locator("button[data-pdf-close]").click();
 }
