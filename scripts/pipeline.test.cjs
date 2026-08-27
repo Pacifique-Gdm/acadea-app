@@ -1,9 +1,12 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { resolveNpmCommand, runVercelBuild } = require("./buildVercelEnvironment.cjs");
+const { mkdtempSync, writeFileSync } = require("node:fs");
+const { tmpdir } = require("node:os");
+const { join } = require("node:path");
+const { buildEnvironment, resolveNpmCommand, runVercelBuild } = require("./buildVercelEnvironment.cjs");
 const { verifyVercelProject } = require("./verifyVercelProject.cjs");
 const { deploymentPlan } = require("./deploymentPlan.cjs");
-const { verifyProductionSource, vercelGitState } = require("./verifyProductionBranch.cjs");
+const { PROOF_FILE, verifyProductionSource, vercelGitState } = require("./verifyProductionBranch.cjs");
 const { resolveNpxCommand, resolveVercelInvocation } = require("./deployVercelProduction.cjs");
 
 test("resolves npm command per platform", () => {
@@ -26,6 +29,23 @@ test("build runner uses npm on Linux", () => {
   const spawn = (command, args) => { calls.push({ command, args }); return { status: 0 }; };
   assert.equal(runVercelBuild({ platform: "linux", env: { VITE_APP_ENV: "production" }, spawn }), 0);
   assert.equal(calls[1].command, "npm");
+});
+
+test("production CLI proof supplies the commit SHA to the Vite build", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "acadea-vercel-proof-"));
+  const sha = "b".repeat(40);
+  writeFileSync(join(cwd, PROOF_FILE), JSON.stringify({
+    version: 1,
+    target: "production",
+    branch: "main",
+    head: sha,
+    originMain: sha,
+    generatedAt: new Date().toISOString(),
+  }));
+
+  const resolved = buildEnvironment({ VERCEL: "1", VERCEL_GIT_COMMIT_SHA: "", VITE_APP_ENV: "production" }, cwd);
+  assert.equal(resolved.VERCEL_GIT_COMMIT_REF, "main");
+  assert.equal(resolved.VERCEL_GIT_COMMIT_SHA, sha);
 });
 
 test("invalid build target is rejected", () => {
