@@ -64,7 +64,8 @@ describe("alignement du Dashboard Coordination", () => {
   });
 
   it("charge un seul modèle paginé par lots, sans listener par carte", () => {
-    expect(dashboard.match(/loadCoordinationDashboardReadModel/g)).toHaveLength(2);
+    expect(dashboard).not.toContain("loadCoordinationDashboardReadModel");
+    expect(portal.match(/loadCoordinationDashboardReadModel/g)).toHaveLength(2);
     expect(readModel).toContain("index += 30");
     expect(readModel).toContain("limit(500)");
     expect(readModel).toContain("startAfter(cursor)");

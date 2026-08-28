@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
-import { collection, doc, documentId, getDoc, getDocs, query, setDoc, where } from "firebase/firestore";
+import { collection, doc, documentId, getDoc, getDocs, query, setDoc, updateDoc, where } from "firebase/firestore";
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
 
 let environment: RulesTestEnvironment;
@@ -27,7 +27,7 @@ describe("SEC — isolation Coordination", () => {
   }, 30_000);
   beforeEach(async () => {
     await environment.clearFirestore();
-    await seed(`coordinations/${coordinationId}`, { id: coordinationId, status: "active", name: "Coordination A" });
+    await seed(`coordinations/${coordinationId}`, { id: coordinationId, status: "active", name: "Coordination A", principalCoordinatorUserId: "coord-user" });
     await seed(`coordinationSchools/${coordinationId}__${schoolA}`, { id: `${coordinationId}__${schoolA}`, coordinationId, schoolId: schoolA, active: true });
     await seed(`coordinationSchools/${coordinationId}__${schoolB}`, { id: `${coordinationId}__${schoolB}`, coordinationId, schoolId: schoolB, active: false });
     await seed(`coordinationSchools/${coordinationId}__${schoolC}`, { id: `${coordinationId}__${schoolC}`, coordinationId, schoolId: schoolC, active: true });
@@ -43,6 +43,9 @@ describe("SEC — isolation Coordination", () => {
     await seed("subCoordinations/sub-a", { id: "sub-a", coordinationId, coordinatorUserId: "sub-user", circumscription: "Commune de Gombe", status: "active", active: true });
     await seed("subCoordinationSchools/sub-a__school-a", { id: "sub-a__school-a", coordinationId, subCoordinationId: "sub-a", schoolId: schoolA, active: true });
     await seed("users/sub-user", { id: "sub-user", role: "sub_coordination_admin", coordinationId, subCoordinationId: "sub-a", active: true });
+    await seed("users/coord-user", { id: "coord-user", role: "coordination_admin", coordinationId, active: true });
+    await seed("coordinations/coord-other", { id: "coord-other", status: "active", principalCoordinatorUserId: "coord-foreign" });
+    await seed("users/coord-foreign", { id: "coord-foreign", role: "coordination_admin", coordinationId: "coord-other", active: true });
     await seed("feeTypes/fee-a", { id: "fee-a", schoolId: schoolA, schoolYearId: "year-a", name: "Minerval", amount: 10 });
     await seed("payments/payment-a", { id: "payment-a", schoolId: schoolA, schoolYearId: "year-a", amount: 10 });
     await seed("expenses/expense-a", { id: "expense-a", schoolId: schoolA, schoolYearId: "year-a", amount: 2 });
@@ -50,6 +53,7 @@ describe("SEC — isolation Coordination", () => {
     await seed("teachers/teacher-a", { id: "teacher-a", schoolId: schoolA, schoolYearId: "year-a", userId: "teacher-user-a" });
     await seed("gradeEntries/grade-a", { id: "grade-a", schoolId: schoolA, schoolYearId: "year-a", studentId: "student-a", classId: "class-a", subjectId: "subject-a" });
     await seed("timetables/timetable-a", { id: "timetable-a", schoolId: schoolA, schoolYearId: "year-a", status: "draft" });
+    await seed("notifications/notification-coordinator", { id: "notification-coordinator", schoolId: schoolA, schoolYearId: "year-a", recipientUserId: "coord-user", type: "message", read: false });
   });
   afterAll(async () => environment.cleanup(), 30_000);
 
@@ -139,5 +143,24 @@ describe("SEC — isolation Coordination", () => {
     const db = subDatabase("sub-user", "sub-a", "coord-other");
     await assertFails(getDoc(doc(db, "schools", schoolA)));
     await assertFails(getDoc(doc(db, "subCoordinations", "sub-a")));
+  });
+
+  it("expose à l'Administrateur uniquement les Coordinateurs reliés à son école", async () => {
+    const db = environment.authenticatedContext("admin-a", { role: "school_admin", schoolId: schoolA }).firestore();
+    await assertSucceeds(getDoc(doc(db, "coordinations", coordinationId)));
+    await assertSucceeds(getDoc(doc(db, "users", "coord-user")));
+    await assertSucceeds(getDoc(doc(db, "users", "sub-user")));
+    await assertSucceeds(getDoc(doc(db, "subCoordinations", "sub-a")));
+    await assertSucceeds(getDocs(query(collection(db, "subCoordinationSchools"), where("schoolId", "==", schoolA), where("coordinationId", "==", coordinationId))));
+    await assertFails(getDoc(doc(db, "coordinations", "coord-other")));
+    await assertFails(getDoc(doc(db, "users", "coord-foreign")));
+  });
+
+  it("permet au Coordinateur de marquer sa notification comme lue sans autre mutation", async () => {
+    const db = database("coord-user");
+    await assertSucceeds(getDoc(doc(db, "notifications", "notification-coordinator")));
+    await assertSucceeds(updateDoc(doc(db, "notifications", "notification-coordinator"), { read: true }));
+    await assertFails(updateDoc(doc(db, "notifications", "notification-coordinator"), { title: "Altéré" }));
+    await assertFails(updateDoc(doc(db, "notifications", "notification-coordinator"), { recipientUserId: "admin-a" }));
   });
 });

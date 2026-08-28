@@ -5,12 +5,16 @@ import { X } from "lucide-react";
 export function AdminDrawer({
   title,
   children,
+  toolbar,
+  footer,
   onClose,
   closeLabel,
   width = "default",
 }: {
   title: string;
   children: ReactNode;
+  toolbar?: ReactNode;
+  footer?: ReactNode;
   onClose: () => void;
   closeLabel: string;
   width?: "default" | "wide";
@@ -78,7 +82,9 @@ export function AdminDrawer({
             <X className="h-4 w-4" />
           </button>
         </div>
+        {toolbar && <div className="mb-3 min-w-0 shrink-0 border-b border-slate-100 pb-3">{toolbar}</div>}
         <div className="min-h-0 min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto pr-1 scrollbar-thin">{children}</div>
+        {footer && <div className="mt-3 min-w-0 shrink-0 border-t border-slate-100 pt-3">{footer}</div>}
       </div>
     </div>
   );

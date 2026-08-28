@@ -44,7 +44,7 @@ export function MessageDrawerContent({
   focusedMessageId,
 }: {
   user: AppUser;
-  data: AppData;
+  data: Pick<AppData, "users">;
   yearData: MessageDrawerYearData;
   school: School;
   notifications?: AppNotification[];

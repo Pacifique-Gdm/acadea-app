@@ -77,6 +77,33 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/coordinations/$(get(/databases/$(database)/documents/schools/$(schoolId)).data.get("activeCoordinationId", ""))).data.status == "active";
     }
 
+    function schoolAdminRelatedCoordination(coordinationId) {
+      return schoolAdmin()
+        && exists(/databases/$(database)/documents/schools/$(tenantSchoolId()))
+        && get(/databases/$(database)/documents/schools/$(tenantSchoolId())).data.get("activeCoordinationId", null) == coordinationId
+        && exists(/databases/$(database)/documents/coordinations/$(coordinationId))
+        && get(/databases/$(database)/documents/coordinations/$(coordinationId)).data.status == "active"
+        && exists(/databases/$(database)/documents/coordinationSchools/$(coordinationId + "__" + tenantSchoolId()))
+        && get(/databases/$(database)/documents/coordinationSchools/$(coordinationId + "__" + tenantSchoolId())).data.active == true;
+    }
+
+    function schoolAdminRelatedCoordinatorUser(userId) {
+      return schoolAdmin()
+        && resource.data.role in ["coordination_admin", "sub_coordination_admin"]
+        && resource.data.coordinationId is string
+        && schoolAdminRelatedCoordination(resource.data.coordinationId)
+        && ((resource.data.role == "coordination_admin"
+            && get(/databases/$(database)/documents/coordinations/$(resource.data.coordinationId)).data.principalCoordinatorUserId == userId)
+          || (resource.data.role == "sub_coordination_admin"
+            && resource.data.subCoordinationId is string
+            && exists(/databases/$(database)/documents/subCoordinations/$(resource.data.subCoordinationId))
+            && get(/databases/$(database)/documents/subCoordinations/$(resource.data.subCoordinationId)).data.coordinationId == resource.data.coordinationId
+            && get(/databases/$(database)/documents/subCoordinations/$(resource.data.subCoordinationId)).data.coordinatorUserId == userId
+            && get(/databases/$(database)/documents/subCoordinations/$(resource.data.subCoordinationId)).data.active == true
+            && exists(/databases/$(database)/documents/subCoordinationSchools/$(resource.data.subCoordinationId + "__" + tenantSchoolId()))
+            && get(/databases/$(database)/documents/subCoordinationSchools/$(resource.data.subCoordinationId + "__" + tenantSchoolId())).data.active == true));
+    }
+
     function billingControlsShape() {
       return request.resource.data.keys().hasOnly(["valvesUploadsEnabled", "reason", "updatedAt", "updatedBy"])
         && request.resource.data.valvesUploadsEnabled is bool
@@ -495,6 +522,7 @@ service cloud.firestore {
         || (schoolAdmin()
           && resource.data.schoolId == tenantSchoolId()
           && resource.data.role in ["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"])
+        || schoolAdminRelatedCoordinatorUser(userId)
         || (studyDirector()
           && resource.data.schoolId == tenantSchoolId()
           && resource.data.role == "teacher");
@@ -621,7 +649,7 @@ service cloud.firestore {
     }
 
     match /coordinations/{coordinationId} {
-      allow read: if superAdmin() || coordinatorOwnsCoordination(coordinationId);
+      allow read: if superAdmin() || coordinatorOwnsCoordination(coordinationId) || schoolAdminRelatedCoordination(coordinationId);
       allow create, update, delete: if superAdmin();
     }
 
@@ -637,7 +665,12 @@ service cloud.firestore {
           && subCoordinationId == request.auth.token.subCoordinationId
           && resource.data.coordinationId == request.auth.token.coordinationId
           && resource.data.coordinatorUserId == request.auth.uid
-          && resource.data.active == true);
+          && resource.data.active == true)
+        || (schoolAdmin()
+          && resource.data.coordinationId is string
+          && schoolAdminRelatedCoordination(resource.data.coordinationId)
+          && exists(/databases/$(database)/documents/subCoordinationSchools/$(subCoordinationId + "__" + tenantSchoolId()))
+          && get(/databases/$(database)/documents/subCoordinationSchools/$(subCoordinationId + "__" + tenantSchoolId())).data.active == true);
       allow create, update, delete: if false;
     }
 
@@ -647,7 +680,11 @@ service cloud.firestore {
         || (subCoordinator()
           && resource.data.subCoordinationId == request.auth.token.subCoordinationId
           && resource.data.coordinationId == request.auth.token.coordinationId
-          && resource.data.active == true);
+          && resource.data.active == true)
+        || (schoolAdmin()
+          && resource.data.schoolId == tenantSchoolId()
+          && resource.data.get("coordinationId", "") is string
+          && schoolAdminRelatedCoordination(resource.data.get("coordinationId", "")));
       allow create, update, delete: if false;
     }
 
@@ -1337,6 +1374,10 @@ service cloud.firestore {
             || !("recipientUserId" in resource.data)
             || (resource.data.recipientUserId == request.auth.uid
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["read"]))))
+        || (coordinationActor()
+          && coordinatorSchool(resource.data.schoolId)
+          && resource.data.recipientUserId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["read"]))
         || (signedIn()
           && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId())
           && resource.data.schoolId == tenantSchoolId()

@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 // @ts-expect-error The Vercel helper is intentionally implemented in JavaScript.
-import { listAllowedMessageRecipients, requireMessagingCaller } from "../../api/_lib/messageRecipients.js";
+import { isRelatedCoordinationRecipient, listAllowedMessageRecipients, requireMessagingCaller } from "../../api/_lib/messageRecipients.js";
 // @ts-expect-error The Vercel handler is intentionally implemented in JavaScript.
 import messageRecipientsHandler from "../../api/message-recipients.js";
+// @ts-expect-error The Vercel handler is intentionally implemented in JavaScript.
+import { resolveRecipients } from "../../api/send-school-message.js";
 
 type Profile = Record<string, unknown>;
 
@@ -28,6 +30,31 @@ function database(profiles: Record<string, Profile>) {
 
 function authFor(decoded: Profile) {
   return { verifyIdToken: vi.fn(async () => decoded) };
+}
+
+function coordinationDatabase(documents: Record<string, Profile>) {
+  const snapshot = (path: string) => ({
+    id: path.split("/").pop() ?? "",
+    path,
+    exists: Boolean(documents[path]),
+    data: () => documents[path],
+  });
+  return {
+    doc: (path: string) => ({ path, get: vi.fn(async () => snapshot(path)) }),
+    getAll: vi.fn(async (...references: { path: string }[]) => references.map((reference) => snapshot(reference.path))),
+    collection: (name: string) => {
+      const filters: Array<[string, unknown]> = [];
+      const builder = {
+        where: (field: string, _operator: string, value: unknown) => { filters.push([field, value]); return builder; },
+        get: vi.fn(async () => ({
+          docs: Object.entries(documents)
+            .filter(([path, value]) => path.startsWith(`${name}/`) && path.split("/").length === 2 && filters.every(([field, expected]) => value[field] === expected))
+            .map(([path]) => snapshot(path)),
+        })),
+      };
+      return builder;
+    },
+  };
 }
 
 describe("annuaire sécurisé des destinataires de messagerie", () => {
@@ -94,4 +121,44 @@ describe("annuaire sécurisé des destinataires de messagerie", () => {
       { uid: "secretary2", name: "Secrétaire B", role: "secretary" },
     ]);
   });
+
+  it("ajoute au seul Administrateur de l'école les Coordinateurs réellement reliés", async () => {
+    const db = coordinationDatabase({
+      "schools/school-a": { activeCoordinationId: "coord-a", status: "active" },
+      "coordinations/coord-a": { status: "active", principalCoordinatorUserId: "coord-user" },
+      "coordinationSchools/coord-a__school-a": { coordinationId: "coord-a", schoolId: "school-a", active: true },
+      "subCoordinations/sub-a": { coordinationId: "coord-a", coordinatorUserId: "sub-user", active: true, status: "active" },
+      "subCoordinationSchools/sub-a__school-a": { coordinationId: "coord-a", subCoordinationId: "sub-a", schoolId: "school-a", active: true },
+      "users/admin": { name: "Administrateur", role: "school_admin", schoolId: "school-a", status: "active" },
+      "users/coord-user": { name: "Coordinateur", role: "coordination_admin", coordinationId: "coord-a", status: "active" },
+      "users/sub-user": { name: "Sous-coordinateur", role: "sub_coordination_admin", coordinationId: "coord-a", subCoordinationId: "sub-a", status: "active" },
+      "users/foreign": { name: "Coordination étrangère", role: "coordination_admin", coordinationId: "coord-b", status: "active" },
+    });
+    const caller = { uid: "admin", role: "school_admin", schoolId: "school-a" };
+    const recipients = await listAllowedMessageRecipients(db, caller);
+    expect(recipients).toEqual(expect.arrayContaining([
+      { uid: "coord-user", name: "Coordinateur", role: "coordination_admin" },
+      { uid: "sub-user", name: "Sous-coordinateur", role: "sub_coordination_admin" },
+    ]));
+    expect(recipients.map((item: { uid: string }) => item.uid)).not.toContain("foreign");
+    expect(await isRelatedCoordinationRecipient(db, caller, { id: "foreign", ...documentsForForeign() })).toBe(false);
+  });
+
+  it("autorise l'envoi au Coordinateur relié et refuse la Coordination étrangère", async () => {
+    const documents = {
+      "schools/school-a": { activeCoordinationId: "coord-a", status: "active" },
+      "coordinations/coord-a": { status: "active", principalCoordinatorUserId: "coord-user" },
+      "coordinationSchools/coord-a__school-a": { coordinationId: "coord-a", schoolId: "school-a", active: true },
+      "users/coord-user": { name: "Coordinateur", role: "coordination_admin", coordinationId: "coord-a", status: "active" },
+      "users/foreign": { name: "Autre", role: "coordination_admin", coordinationId: "coord-b", status: "active" },
+    };
+    const db = coordinationDatabase(documents);
+    const caller = { uid: "admin", role: "school_admin", schoolId: "school-a" };
+    await expect(resolveRecipients(db, caller, ["coordination_admin"], ["coord-user"], "year-a")).resolves.toHaveLength(1);
+    await expect(resolveRecipients(db, caller, ["coordination_admin"], ["foreign"], "year-a")).rejects.toMatchObject({ code: "invalid-recipient", statusCode: 403 });
+  });
 });
+
+function documentsForForeign() {
+  return { name: "Coordination étrangère", role: "coordination_admin", coordinationId: "coord-b", status: "active" };
+}

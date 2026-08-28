@@ -45,9 +45,33 @@ describe("responsive et exports Coordination", () => {
   it("garde les tableaux dans leur propre zone de défilement et les formulaires mobiles sur une colonne", () => {
     expect(menu).toContain('className="max-w-full overflow-x-auto"');
     expect(control).toContain('className="max-w-full overflow-x-auto"');
-    expect(menu).toContain('className="grid gap-2 sm:grid-cols-2"');
+    expect(menu).toContain('className="grid min-w-0 gap-2 sm:grid-cols-2"');
     expect(subCoordinations).toContain('className="grid grid-cols-1 gap-2 sm:grid-cols-2"');
     expect(subCoordinations).toContain("min-w-0 break-words");
+  });
+
+  it("fixe les barres d'actions hors du contenu verticalement scrollable", () => {
+    expect(drawer).toContain("toolbar?: ReactNode");
+    expect(drawer).toContain("footer?: ReactNode");
+    expect(drawer).toContain("shrink-0 border-b");
+    expect(drawer).toContain("shrink-0 border-t");
+    expect(menu).toContain("toolbar={drawerToolbar()}");
+    expect(menu).toContain("footer={drawerFooter()}");
+    expect(control).toContain('toolbar={<div className="grid grid-cols-1 gap-2 sm:grid-cols-2"');
+    expect(subCoordinations).toContain("sticky top-0 z-10");
+  });
+
+  it("aligne l'année de référence avec l'export et retire les deux dates annuelles", () => {
+    expect(menu).toContain("Année de référence");
+    expect(menu).toContain("schoolYearDatesFromName(yearName)");
+    expect(menu).not.toContain('aria-label="Date de début de l’année"');
+    expect(menu).not.toContain('aria-label="Date de fin de l’année"');
+  });
+
+  it("initialise les deux bornes financières aujourd'hui et bloque le futur", () => {
+    expect(menu).toContain("useState(localDate)");
+    expect(menu.match(/max=\{localDate\(\)\}/g)).toHaveLength(2);
+    expect(menu).toContain("financialDateRangeError");
   });
 
   it("retire la phrase Super Administrateur des paramètres et filtre ses audits de la vue Coordination", () => {

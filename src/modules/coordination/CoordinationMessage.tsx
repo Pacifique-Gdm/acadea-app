@@ -4,7 +4,7 @@ import { loadCoordinationRecipients, sendCoordinationMessage, type CoordinationR
 
 const roleLabels: Record<string, string> = { school_admin: "Administrateurs", discipline_director: "Directeurs de discipline", study_director: "Directeurs des études", cashier: "Caissiers", teacher: "Enseignants", parent: "Parents", secretary: "Secrétaires" };
 
-export function CoordinationMessage({ schools, schoolId }: { schools: School[]; schoolId: string }) {
+export function CoordinationMessage({ schools, schoolId, refreshToken = 0 }: { schools: School[]; schoolId: string; refreshToken?: number }) {
   const [recipients, setRecipients] = useState<CoordinationRecipient[]>([]);
   const [selectedRole, setSelectedRole] = useState("school_admin");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -19,7 +19,7 @@ export function CoordinationMessage({ schools, schoolId }: { schools: School[]; 
     let cancelled = false; setLoading(true); setError(""); setSelectedIds([]);
     loadCoordinationRecipients(schoolId).then((items) => { if (!cancelled) setRecipients(items); }).catch((cause) => { if (!cancelled) setError(cause instanceof Error ? cause.message : "Chargement impossible."); }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [schoolId]);
+  }, [refreshToken, schoolId]);
 
   const visible = useMemo(() => recipients.filter((item) => item.role === selectedRole), [recipients, selectedRole]);
   function toggle(uid: string) { setSelectedIds((current) => current.includes(uid) ? current.filter((item) => item !== uid) : [...current, uid]); }

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { requireActiveSchoolYear } from "./_lib/schoolYear.js";
-import { allowedRecipientRoles, messagingSenderIdentity, normalizedMessagingRole, requireMessagingCaller } from "./_lib/messageRecipients.js";
+import { allowedRecipientRoles, isRelatedCoordinationRecipient, messagingSenderIdentity, normalizedMessagingRole, requireMessagingCaller } from "./_lib/messageRecipients.js";
 
 export const MAX_TOTAL_BYTES = 10 * 1024 * 1024;
 const MAX_ATTACHMENTS = 10;
@@ -60,7 +60,9 @@ export async function resolveRecipients(db, caller, recipientRoles, recipientIds
   if (recipients.some((recipient) => !recipient)) throw httpError(400, "invalid-recipient", "Un destinataire est introuvable.");
   for (const recipient of recipients) {
     const role = normalizedRole(recipient.role);
-    if (recipient.schoolId !== caller.schoolId || !requestedRoles.includes(role) || recipient.active === false || recipient.status === "inactive") {
+    const isSameSchool = recipient.schoolId === caller.schoolId;
+    const isRelatedCoordinator = !isSameSchool && await isRelatedCoordinationRecipient(db, caller, recipient);
+    if ((!isSameSchool && !isRelatedCoordinator) || !requestedRoles.includes(role) || recipient.active === false || recipient.status === "inactive") {
       throw httpError(403, "invalid-recipient", "Un destinataire n'appartient pas a cet etablissement ou n'est pas autorise.");
     }
     if (role === "parent") {

@@ -4,7 +4,7 @@ import { FormPanel } from "../../components/ui";
 import { db } from "../../firebase";
 import { persistMessageWithConversation } from "../../services/conversations";
 import { canUseFirestoreData } from "../../services/firestoreData";
-import { loadSchoolMessageRecipients, sendSchoolMessage, type SchoolMessageRecipient } from "../../services/schoolMessaging";
+import { sendSchoolMessage } from "../../services/schoolMessaging";
 import { deletePendingMessageAttachments, uploadPendingMessageAttachments } from "../../services/messageStorage";
 import { nextMessageThreadId } from "../../utils/messageThreads";
 import { schoolSectionLabels, schoolSectionOrder } from "../../utils/schoolConfig";
@@ -13,6 +13,7 @@ import type { AppData, AppNotification, AppUser, Message, ParentProfile, School,
 import { resolveAdministrativeRecipientIds, type AdministrativeRecipientMode } from "./administrativeRecipientSelection";
 import { AdministrativeRecipientSelector } from "./AdministrativeRecipientSelector";
 import { formatMessageAttachmentSize, MAX_MESSAGE_ATTACHMENTS_TOTAL_SIZE, MESSAGE_ATTACHMENT_ACCEPT, validateMessageAttachments } from "../../utils/messageAttachments";
+import { useSchoolMessageRecipients } from "../../hooks/useSchoolMessageRecipients";
 
 type MessagesYearData = {
   parents: ParentProfile[];
@@ -55,10 +56,6 @@ export function MessagesModule({
   const [selectedAdministrativeIds, setSelectedAdministrativeIds] = useState<string[]>([]);
   const [administrativeRecipientMode, setAdministrativeRecipientMode] = useState<AdministrativeRecipientMode>("all");
   const [administrativeSearch, setAdministrativeSearch] = useState("");
-  const [administrativeRecipients, setAdministrativeRecipients] = useState<SchoolMessageRecipient[]>([]);
-  const [secureDirectory, setSecureDirectory] = useState<SchoolMessageRecipient[]>([]);
-  const [isLoadingAdministrativeRecipients, setIsLoadingAdministrativeRecipients] = useState(true);
-  const [administrativeLoadError, setAdministrativeLoadError] = useState("");
   const [isSendingAdministrative, setIsSendingAdministrative] = useState(false);
   const [selectedTeacherIds, setSelectedTeacherIds] = useState<string[]>([]);
   const [teacherRecipientMode, setTeacherRecipientMode] = useState<AdministrativeRecipientMode>("all");
@@ -71,6 +68,8 @@ export function MessagesModule({
   const isDisciplineDirector = user.role === "discipline_director";
   const isSecretary = user.role === "secretary";
   const disciplineMessageSubjects = ["Avertissement disciplinaire", "Convocation", "Décision disciplinaire", "Notification de fin de sanction"];
+  const { recipients: secureDirectory, loading: isLoadingAdministrativeRecipients, error: administrativeLoadError } = useSchoolMessageRecipients(user, school);
+  const administrativeRecipients = secureDirectory.filter((recipient) => recipient.role !== "parent" && recipient.role !== "teacher");
   const sameSchoolParents = yearData.parents.filter((parent) => parent.schoolId === school.id);
   const sameSchoolStudents = yearData.students.filter((student) => student.schoolId === school.id);
   const adminSectionChoices = Array.from(new Set(sameSchoolStudents.map((student) => getClassSection(student.className)))).sort(
@@ -107,17 +106,6 @@ export function MessagesModule({
   const resolvedTeacherIds = resolveAdministrativeRecipientIds(teacherRecipientMode, teacherRecipients, selectedTeacherIds);
   const secureParentRecipientIds = new Set(secureDirectory.filter((recipient) => recipient.role === "parent").map((recipient) => recipient.uid));
   const messageFilesTotalBytes = messageFiles.reduce((total, file) => total + file.size, 0);
-  useEffect(() => {
-    let active = true;
-    setIsLoadingAdministrativeRecipients(true);
-    setAdministrativeLoadError("");
-    loadSchoolMessageRecipients()
-      .then((recipients) => { if (active) { setSecureDirectory(recipients); setAdministrativeRecipients(recipients.filter((recipient) => recipient.role !== "parent" && recipient.role !== "teacher")); } })
-      .catch((error) => { if (active) setAdministrativeLoadError(error instanceof Error ? error.message : "Destinataires indisponibles. Veuillez réessayer."); })
-      .finally(() => { if (active) setIsLoadingAdministrativeRecipients(false); });
-    return () => { active = false; };
-  }, [user.id]);
-
   useEffect(() => {
     const availableIds = new Set(administrativeRecipients.map((recipient) => recipient.uid));
     setSelectedAdministrativeIds((current) => current.filter((id) => availableIds.has(id)));

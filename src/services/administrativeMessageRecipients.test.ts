@@ -63,7 +63,7 @@ describe("annuaire des administratifs", () => {
   });
 
   it.each([
-    ["school_admin", ["cashier", "secretary", "discipline_director", "study_director", "teacher", "parent"]],
+    ["school_admin", ["cashier", "secretary", "discipline_director", "study_director", "teacher", "parent", "coordination_admin", "sub_coordination_admin"]],
     ["cashier", ["school_admin", "secretary", "discipline_director", "study_director", "teacher", "parent"]],
     ["secretary", ["school_admin", "cashier", "discipline_director", "study_director", "teacher", "parent"]],
     ["discipline_director", ["school_admin", "cashier", "secretary", "study_director", "teacher", "parent"]],

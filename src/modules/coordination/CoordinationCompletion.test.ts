@@ -125,6 +125,22 @@ describe("finalisation du module Coordination", () => {
     expect(portal).toContain("<CoordinationMenu");
   });
 
+  it("maintient un en-tête Coordination fixe avec actualisation et boîte temps réel", () => {
+    expect(portal).toContain('className="sticky top-0 z-20 w-full');
+    expect(portal).toContain('aria-label="Actualiser"');
+    expect(portal).toContain('aria-label="Boîte à Messagerie"');
+    expect(portal).toContain("useCoordinationInbox");
+    expect(portal).toContain("inbox.unreadCount");
+    expect(portal).toContain("<MessagingDrawerShell");
+    expect(portal).toContain("refreshToken={refreshToken}");
+  });
+
+  it("partage le modèle de supervision au lieu de relire le Dashboard", () => {
+    expect(portal).toContain("loadCoordinationDashboardReadModel");
+    expect(portal).toContain("model={supervisionModel}");
+    expect(dashboard).not.toContain("loadCoordinationDashboardReadModel");
+  });
+
   it("maintient Contrôle en lecture seule sans avertissement ni service de mutation", () => {
     expect(control).not.toContain("Avertissement");
     expect(control).not.toContain("createPaymentTransaction");

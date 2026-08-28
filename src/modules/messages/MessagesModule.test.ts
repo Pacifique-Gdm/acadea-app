@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const source = readFileSync(new URL("./MessagesModule.tsx", import.meta.url), "utf8");
 const selectorSource = readFileSync(new URL("./AdministrativeRecipientSelector.tsx", import.meta.url), "utf8");
+const directoryHook = readFileSync(new URL("../../hooks/useSchoolMessageRecipients.ts", import.meta.url), "utf8");
 
 describe("messagerie des modules administratifs", () => {
   it("conserve un seul formulaire principal et supprime le formulaire Secretaire separe", () => {
@@ -61,5 +62,14 @@ describe("messagerie des modules administratifs", () => {
     expect(source).toContain('<input value={subject} onChange={(event) => setSubject(event.target.value)} className="input" placeholder="Objet" />');
     expect(source).toContain('setRecipientCategory(event.target.value as "parents" | "administrative" | "teachers"); setSubject("")');
     expect(source).toContain('disabled={!subject || !body');
+  });
+
+  it("ajoute Coordinateur et Sous-coordinateur via l'annuaire sécurisé temps réel", () => {
+    expect(source).toContain("useSchoolMessageRecipients(user, school)");
+    expect(directoryHook).toContain('collection(db, "subCoordinationSchools")');
+    expect(directoryHook).toContain('doc(db, "coordinations", coordinationId)');
+    expect(directoryHook).toContain('doc(db, "users", id)');
+    expect(directoryHook).toContain("loadSchoolMessageRecipients");
+    expect(directoryHook).not.toContain("setTimeout");
   });
 });

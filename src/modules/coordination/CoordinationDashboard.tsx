@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Banknote, BarChart3, BookOpen, Download, GraduationCap, ShieldCheck, UserRound, UsersRound } from "lucide-react";
 import { FormPanel, Metric } from "../../components/ui";
-import { loadCoordinationDashboardReadModel, type CoordinationDashboardReadModel } from "../../services/coordinationReadModel";
+import type { CoordinationDashboardReadModel } from "../../services/coordinationReadModel";
 import type { AppUser, Coordination, School, SchoolSection } from "../../types";
 import { buildDashboardTransactionDayRows } from "../../utils/dashboardStats";
 import { formatChartDate, getTransactionPeriodDates } from "../../utils/dashboardDates";
@@ -15,8 +15,6 @@ import {
   type TransactionPeriod,
 } from "../dashboard/Dashboard";
 import { exportCoordinationDashboardPdf } from "./coordinationDashboardPdf";
-
-const emptyModel: CoordinationDashboardReadModel = { students: [], feeTypes: [], payments: [], expenses: [], personnel: [], schoolYears: [] };
 
 function dateKey(date: Date) {
   const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
@@ -40,17 +38,20 @@ export function CoordinationDashboard({
   selectedSchoolId,
   onSchoolChange,
   user,
+  model,
+  loading,
+  loadError,
 }: {
   coordination: Coordination;
   schools: School[];
   selectedSchoolId: string;
   onSchoolChange: (schoolId: string) => void;
   user: AppUser;
+  model: CoordinationDashboardReadModel;
+  loading: boolean;
+  loadError: string;
 }) {
   const today = dateKey(new Date());
-  const [model, setModel] = useState<CoordinationDashboardReadModel>(emptyModel);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const [sectionFilter, setSectionFilter] = useState<"all" | SchoolSection>("all");
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
@@ -58,18 +59,6 @@ export function CoordinationDashboard({
   const [dateFilterError, setDateFilterError] = useState("");
   const [transactionPeriod, setTransactionPeriod] = useState<TransactionPeriod>("last5");
   const scopedSchools = useMemo(() => selectedSchoolId ? schools.filter((school) => school.id === selectedSchoolId) : schools, [schools, selectedSchoolId]);
-  const schoolIds = useMemo(() => schools.map((school) => school.id), [schools]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError("");
-    loadCoordinationDashboardReadModel(schoolIds)
-      .then((result) => { if (!cancelled) setModel(result); })
-      .catch(() => { if (!cancelled) setError("Impossible de charger le Dashboard de la Coordination."); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [schoolIds]);
 
   const sectionChoices = useMemo(() => [...new Set(scopedSchools.flatMap((school) => getSchoolSections(school)))], [scopedSchools]);
   useEffect(() => {
@@ -180,7 +169,7 @@ export function CoordinationDashboard({
         {dateFilterError && <p className="text-xs font-semibold text-red-600 sm:col-span-2 xl:col-span-6">{dateFilterError}</p>}
       </div>
     </div>
-    {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+    {loadError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{loadError}</p>}
     {loading && <p className="rounded border bg-white p-4 text-sm text-slate-500">Chargement du Dashboard…</p>}
     {stats.excludedSchoolIds.length > 0 && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{stats.excludedSchoolIds.length} école(s) non alignée(s) sur l’année de référence sont exclues des statistiques.</p>}
 
