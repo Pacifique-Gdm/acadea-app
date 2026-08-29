@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const source = readFileSync(new URL("./MessagesModule.tsx", import.meta.url), "utf8");
 const selectorSource = readFileSync(new URL("./AdministrativeRecipientSelector.tsx", import.meta.url), "utf8");
+const selectionSource = readFileSync(new URL("./administrativeRecipientSelection.ts", import.meta.url), "utf8");
 const directoryHook = readFileSync(new URL("../../hooks/useSchoolMessageRecipients.ts", import.meta.url), "utf8");
 
 describe("messagerie des modules administratifs", () => {
@@ -13,7 +14,7 @@ describe("messagerie des modules administratifs", () => {
   });
 
   it("integre Administratifs au selecteur existant et conserve la selection multiple", () => {
-    expect(source).toContain('<option value="administrative">Administratifs</option>');
+    expect(selectionSource).toContain('{ value: "administrative", label: "Administratifs" }');
     expect(source).toContain("AdministrativeRecipientSelector");
     expect(selectorSource).toContain("searchResults.map");
     expect(selectorSource).toContain('type="checkbox"');
@@ -34,7 +35,7 @@ describe("messagerie des modules administratifs", () => {
   });
 
   it("preserve les categories Parents et les flux existants", () => {
-    expect(source).toContain('<option value="parents">Parents d\'élèves</option>');
+    expect(selectionSource).toContain('{ value: "parents", label: "Parents d\'élèves" }');
     expect(source).toContain("persistMessageWithConversation");
     expect(source).toContain("selectedDisciplineParentIds");
     expect(source).toContain("selectedAdminParentIds");
@@ -54,7 +55,7 @@ describe("messagerie des modules administratifs", () => {
   });
 
   it("ajoute la catégorie Enseignants avec les deux modes de sélection", () => {
-    expect(source).toContain('<option value="teachers">Enseignants</option>');
+    expect(selectionSource).toContain('{ value: "teachers", label: "Enseignants" }');
     expect(source).toContain('kind="teacher"');
     expect(selectorSource).toContain("Tous les {label}s");
     expect(selectorSource).toContain("Sélection {label}");
@@ -63,12 +64,16 @@ describe("messagerie des modules administratifs", () => {
   it("laisse l'objet manuel pour un Directeur de discipline écrivant aux administratifs", () => {
     expect(source).toContain('user.role === "discipline_director" && recipientCategory === "parents"');
     expect(source).toContain('<input value={subject} onChange={(event) => setSubject(event.target.value)} className="input" placeholder="Objet" />');
-    expect(source).toContain('setRecipientCategory(event.target.value as "parents" | "administrative" | "teachers"); setSubject("")');
+    expect(source).toContain('setRecipientCategory(event.target.value as SchoolMessageRecipientCategory); setSubject("")');
     expect(source).toContain('disabled={!subject || !body');
   });
 
   it("ajoute Coordinateur et Sous-coordinateur via l'annuaire sécurisé temps réel", () => {
     expect(source).toContain("useSchoolMessageRecipients(user, school)");
+    expect(source).toContain("schoolMessageRecipientCategories(secureDirectory, isSchoolAdmin)");
+    expect(source).toContain("recipientCategories.map");
+    expect(source).toContain('recipientCategory === "coordination"');
+    expect(source).toContain('recipientCategory === "subCoordination"');
     expect(directoryHook).toContain('collection(db, "subCoordinationSchools")');
     expect(directoryHook).toContain('doc(db, "coordinations", coordinationId)');
     expect(directoryHook).toContain('doc(db, "users", id)');

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SchoolMessageRecipient } from "../../services/schoolMessaging";
-import { administrativeRoleLabel, filterAdministrativeRecipients, filterRecipientsByDirectoryKind, resolveAdministrativeRecipientIds, toggleAdministrativeRecipient } from "./administrativeRecipientSelection";
+import { administrativeRoleLabel, filterAdministrativeRecipients, filterRecipientsByDirectoryKind, resolveAdministrativeRecipientIds, schoolMessageRecipientCategories, schoolMessageRecipientsForCategory, toggleAdministrativeRecipient } from "./administrativeRecipientSelection";
 
 const recipients: SchoolMessageRecipient[] = [
   { uid: "admin", name: "Anne Mbuyi", role: "school_admin" },
@@ -47,5 +47,29 @@ describe("destinataires administratifs", () => {
   it("isole les enseignants du répertoire administratif", () => {
     expect(filterRecipientsByDirectoryKind(recipients, "teacher").map(({ uid }) => uid)).toEqual(["teacher"]);
     expect(filterRecipientsByDirectoryKind(recipients, "administrative").map(({ uid }) => uid)).not.toContain("teacher");
+  });
+
+  it("ajoute dynamiquement Coordinateur et Sous-coordinateur au sélecteur principal Admin", () => {
+    expect(schoolMessageRecipientCategories(recipients, true)).toEqual([
+      { value: "parents", label: "Parents d'élèves" },
+      { value: "administrative", label: "Administratifs" },
+      { value: "teachers", label: "Enseignants" },
+      { value: "coordination", label: "Coordinateur" },
+      { value: "subCoordination", label: "Sous-coordinateur" },
+    ]);
+  });
+
+  it("n'affiche aucune catégorie de coordination sans destinataire valide ou hors portail Admin", () => {
+    const schoolOnly = recipients.filter(({ role }) => role !== "coordination_admin" && role !== "sub_coordination_admin");
+    expect(schoolMessageRecipientCategories(schoolOnly, true).map(({ value }) => value)).toEqual(["parents", "administrative", "teachers"]);
+    expect(schoolMessageRecipientCategories(recipients, false).map(({ value }) => value)).toEqual(["parents", "administrative", "teachers"]);
+  });
+
+  it("isole chaque annuaire Coordination sans doublon dans Administratifs", () => {
+    expect(filterRecipientsByDirectoryKind(recipients, "coordination").map(({ uid }) => uid)).toEqual(["coordination"]);
+    expect(filterRecipientsByDirectoryKind(recipients, "subCoordination").map(({ uid }) => uid)).toEqual(["sub-coordination"]);
+    expect(schoolMessageRecipientsForCategory(recipients, "administrative", true).map(({ uid }) => uid)).not.toContain("coordination");
+    expect(schoolMessageRecipientsForCategory(recipients, "administrative", true).map(({ uid }) => uid)).not.toContain("sub-coordination");
+    expect(schoolMessageRecipientsForCategory(recipients, "administrative", false).map(({ uid }) => uid)).toContain("coordination");
   });
 });

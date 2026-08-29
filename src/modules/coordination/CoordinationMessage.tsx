@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { School } from "../../types";
 import { loadCoordinationRecipients, sendCoordinationMessage, type CoordinationRecipient } from "../../services/coordinationMessaging";
+import { SUCCESS_MESSAGE_DURATION_MS, useAutoDismissMessage } from "../../hooks/useAutoDismissMessage";
 
 const roleLabels: Record<string, string> = { school_admin: "Administrateurs", discipline_director: "Directeurs de discipline", study_director: "Directeurs des études", cashier: "Caissiers", teacher: "Enseignants", parent: "Parents", secretary: "Secrétaires" };
 
@@ -14,6 +15,7 @@ export function CoordinationMessage({ schools, schoolId, refreshToken = 0 }: { s
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  useAutoDismissMessage(success, () => setSuccess(""), SUCCESS_MESSAGE_DURATION_MS);
 
   useEffect(() => {
     let cancelled = false; setLoading(true); setError(""); setSelectedIds([]);

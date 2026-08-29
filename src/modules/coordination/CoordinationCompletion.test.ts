@@ -29,6 +29,12 @@ describe("finalisation du module Coordination", () => {
     expect(messages).toContain("sending ||");
   });
 
+  it("efface uniquement le succès de messagerie avec le timer partagé et nettoyable", () => {
+    expect(messages).toContain("useAutoDismissMessage(success");
+    expect(messages).toContain("SUCCESS_MESSAGE_DURATION_MS");
+    expect(messages).not.toContain("useAutoDismissMessage(error");
+  });
+
   it("revalide côté serveur l'école, le rôle et chaque destinataire", () => {
     expect(recipientApi).toContain("resolveCoordinationSchoolScope");
     expect(recipientApi).toContain("ALLOWED_ROLES");

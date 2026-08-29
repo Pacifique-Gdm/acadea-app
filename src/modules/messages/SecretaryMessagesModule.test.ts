@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 describe("interface Message du Secrétaire", () => {
   const source = readFileSync(new URL("./MessagesModule.tsx", import.meta.url), "utf8");
   const selectorSource = readFileSync(new URL("./AdministrativeRecipientSelector.tsx", import.meta.url), "utf8");
+  const selectionSource = readFileSync(new URL("./administrativeRecipientSelection.ts", import.meta.url), "utf8");
   const appSource = readFileSync(new URL("../../App.tsx", import.meta.url), "utf8");
   const realtimeFeedSource = readFileSync(new URL("../../hooks/useRealtimeMessageFeed.ts", import.meta.url), "utf8");
   const drawerSource = readFileSync(new URL("../../components/messages/MessageDrawerContent.tsx", import.meta.url), "utf8");
@@ -18,8 +19,8 @@ describe("interface Message du Secrétaire", () => {
   });
 
   it("présente Parents d'élèves avant Administratifs et conserve la sélection multiple", () => {
-    const administrativeOption = source.indexOf('<option value="administrative">Administratifs</option>');
-    const parentsOption = source.indexOf('<option value="parents">Parents d\'élèves</option>');
+    const administrativeOption = selectionSource.indexOf('{ value: "administrative", label: "Administratifs" }');
+    const parentsOption = selectionSource.indexOf('{ value: "parents", label: "Parents d\'élèves" }');
     expect(administrativeOption).toBeGreaterThan(-1);
     expect(administrativeOption).toBeGreaterThan(parentsOption);
     expect(selectorSource).toContain('type="checkbox"');
