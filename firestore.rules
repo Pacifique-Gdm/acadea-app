@@ -1249,7 +1249,6 @@ service cloud.firestore {
     match /messages/{messageId} {
       allow read: if superAdmin()
         || (coordinatorSchool(resource.data.schoolId)
-          && resource.data.participantIds is list
           && request.auth.uid in resource.data.participantIds)
         || (schoolAdmin() && sameTenantResource()
           && (resource.data.schoolRecipient in ["admin", "both"] || request.auth.uid in resource.data.participantIds))
@@ -1278,7 +1277,6 @@ service cloud.firestore {
     match /conversations/{conversationId} {
       allow read: if superAdmin()
         || (coordinatorSchool(resource.data.schoolId)
-          && resource.data.participantIds is list
           && request.auth.uid in resource.data.participantIds)
         || (schoolAdmin() && sameTenantResource()
           && (resource.data.schoolRecipient in ["admin", "both"] || request.auth.uid in resource.data.participantIds))

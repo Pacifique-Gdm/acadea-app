@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
-import { collection, doc, documentId, getDoc, getDocs, query, setDoc, updateDoc, where } from "firebase/firestore";
+import { collection, doc, documentId, getDoc, getDocs, limit, orderBy, query, setDoc, updateDoc, where } from "firebase/firestore";
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
 
 let environment: RulesTestEnvironment;
@@ -54,6 +54,24 @@ describe("SEC — isolation Coordination", () => {
     await seed("gradeEntries/grade-a", { id: "grade-a", schoolId: schoolA, schoolYearId: "year-a", studentId: "student-a", classId: "class-a", subjectId: "subject-a" });
     await seed("timetables/timetable-a", { id: "timetable-a", schoolId: schoolA, schoolYearId: "year-a", status: "draft" });
     await seed("notifications/notification-coordinator", { id: "notification-coordinator", schoolId: schoolA, schoolYearId: "year-a", recipientUserId: "coord-user", type: "message", read: false });
+    await seed("messages/message-coordinator", {
+      id: "message-coordinator",
+      schoolId: schoolA,
+      schoolYearId: "year-a",
+      senderId: "admin-a",
+      participantIds: ["admin-a", "coord-user", "sub-user"],
+      recipientIds: ["coord-user", "sub-user"],
+      subject: "Message Coordination",
+      body: "Contenu",
+      createdAt: "2026-08-29T10:00:00.000Z",
+    });
+    await seed("conversations/conversation-coordinator", {
+      id: "conversation-coordinator",
+      schoolId: schoolA,
+      schoolYearId: "year-a",
+      participantIds: ["admin-a", "coord-user", "sub-user"],
+      threadId: "coordination-thread",
+    });
   });
   afterAll(async () => environment.cleanup(), 30_000);
 
@@ -162,5 +180,43 @@ describe("SEC — isolation Coordination", () => {
     await assertSucceeds(updateDoc(doc(db, "notifications", "notification-coordinator"), { read: true }));
     await assertFails(updateDoc(doc(db, "notifications", "notification-coordinator"), { title: "Altéré" }));
     await assertFails(updateDoc(doc(db, "notifications", "notification-coordinator"), { recipientUserId: "admin-a" }));
+  });
+
+  it("autorise le flux paginé des messages uniquement aux participants Coordination reliés", async () => {
+    const coordinatorDb = database("coord-user");
+    const subCoordinatorDb = subDatabase();
+    const foreignDb = database("coord-foreign", "coord-other");
+    const coordinatorQuery = (db: ReturnType<typeof database>, uid: string) => query(
+      collection(db, "messages"),
+      where("schoolId", "==", schoolA),
+      where("schoolYearId", "==", "year-a"),
+      where("participantIds", "array-contains", uid),
+      orderBy("createdAt", "desc"),
+      limit(30),
+    );
+
+    await assertSucceeds(getDoc(doc(coordinatorDb, "messages", "message-coordinator")));
+    await assertSucceeds(getDocs(query(
+      collection(coordinatorDb, "messages"),
+      where("schoolId", "==", schoolA),
+      where("schoolYearId", "==", "year-a"),
+      where("participantIds", "array-contains", "coord-user"),
+    )));
+    await assertSucceeds(getDocs(coordinatorQuery(coordinatorDb, "coord-user")));
+    await assertSucceeds(getDocs(coordinatorQuery(subCoordinatorDb, "sub-user")));
+    await assertFails(getDocs(coordinatorQuery(coordinatorDb, "not-a-participant")));
+    await assertFails(getDocs(coordinatorQuery(foreignDb, "coord-foreign")));
+    await assertSucceeds(getDocs(query(
+      collection(coordinatorDb, "conversations"),
+      where("schoolId", "==", schoolA),
+      where("schoolYearId", "==", "year-a"),
+      where("participantIds", "array-contains", "coord-user"),
+    )));
+    await assertSucceeds(getDocs(query(
+      collection(subCoordinatorDb, "conversations"),
+      where("schoolId", "==", schoolA),
+      where("schoolYearId", "==", "year-a"),
+      where("participantIds", "array-contains", "sub-user"),
+    )));
   });
 });
