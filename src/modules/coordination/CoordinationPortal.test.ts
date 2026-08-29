@@ -35,7 +35,7 @@ describe("portail Coordination", () => {
     expect(source).toContain('where("coordinationId", "==", coordinationId)');
   });
   it("rend l’en-tête sticky avec le logo Coordination persistant et son fallback", () => {
-    expect(source).toContain('className="min-h-screen min-w-0 max-w-full');
+    expect(source).toContain('className="h-screen min-w-0 max-w-full overflow-x-hidden overflow-y-auto');
     expect(source).not.toContain("overflow-x-clip");
     expect(source).toContain('className="sticky top-0 z-20 w-full border-b');
     expect(source).toContain("coordination?.logoUrl");
