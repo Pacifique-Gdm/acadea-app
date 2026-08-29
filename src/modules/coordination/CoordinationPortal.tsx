@@ -114,7 +114,7 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
     { id: "menu" as const, label: "Menu", icon: Menu },
   ];
 
-  return <main className="min-h-screen overflow-x-clip bg-[#F5F7FB] pb-24 text-ink">
+  return <main className="min-h-screen min-w-0 max-w-full bg-[#F5F7FB] pb-24 text-ink">
     <header className="sticky top-0 z-20 w-full border-b border-slate-200 bg-white px-4 py-4 shadow-sm">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
