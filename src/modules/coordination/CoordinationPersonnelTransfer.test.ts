@@ -13,6 +13,14 @@ describe("mutation d'un personnel depuis sa fiche Coordination", () => {
     expect(menu).toContain('Muter</button>');
   });
 
+  it("partage toute la toolbar en deux colonnes égales sans largeur intrinsèque", () => {
+    expect(menu).toContain('grid w-full min-w-0 gap-2');
+    expect(menu).toContain('transferAllowed ? "grid-cols-2" : "grid-cols-1"');
+    expect(menu).toContain('primary-button w-full justify-center');
+    expect(menu).toContain('secondary-button w-full justify-center');
+    expect(menu).not.toContain('sm:w-auto" onClick={openPersonnelTransfer}');
+  });
+
   it("exige la confirmation exacte, non préremplie, avant l'appel serveur", () => {
     expect(menu).toContain('const PERSONNEL_TRANSFER_CONFIRMATION = "MUTER CE PERSONNEL"');
     expect(menu).toContain('confirmation: ""');

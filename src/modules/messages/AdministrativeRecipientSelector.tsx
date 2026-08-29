@@ -22,6 +22,7 @@ type AdministrativeRecipientSelectorProps = {
   error: string;
   showLabel?: boolean;
   kind?: RecipientDirectoryKind;
+  showRecipientsWithoutSearch?: boolean;
 };
 
 export function AdministrativeRecipientSelector({
@@ -36,10 +37,13 @@ export function AdministrativeRecipientSelector({
   error,
   showLabel = true,
   kind = "administrative",
+  showRecipientsWithoutSearch = false,
 }: AdministrativeRecipientSelectorProps) {
   const scopedRecipients = filterRecipientsByDirectoryKind(recipients, kind);
   const selectedRecipients = scopedRecipients.filter((recipient) => selectedIds.includes(recipient.uid));
-  const searchResults = filterAdministrativeRecipients(scopedRecipients, search);
+  const searchResults = showRecipientsWithoutSearch && !search.trim()
+    ? scopedRecipients
+    : filterAdministrativeRecipients(scopedRecipients, search);
   const label = recipientDirectoryLabel(kind);
 
   function changeMode(nextMode: AdministrativeRecipientMode) {
@@ -79,17 +83,15 @@ export function AdministrativeRecipientSelector({
               ))}
             </div>
           )}
-          {search.trim() ? (
-            <div className="grid max-h-60 min-w-0 gap-2 overflow-y-auto pr-1 scrollbar-thin sm:grid-cols-2">
-              {searchResults.map((recipient) => (
-                <label key={recipient.uid} className="flex min-h-11 min-w-0 cursor-pointer items-center gap-3 rounded border border-slate-200 px-3 py-2 transition hover:bg-slate-50 focus-within:ring-2 focus-within:ring-blue-600">
-                  <input type="checkbox" checked={selectedIds.includes(recipient.uid)} onChange={() => onSelectedIdsChange(toggleAdministrativeRecipient(selectedIds, recipient.uid))} />
-                  <span className="min-w-0"><strong className="block break-words text-sm text-slate-800">{recipient.name}</strong><span className="text-xs text-slate-500">{administrativeRoleLabel(recipient.role)}</span></span>
-                </label>
-              ))}
-              {!searchResults.length && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500 sm:col-span-2">Aucun {label} trouvé.</p>}
-            </div>
-          ) : <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Recherchez un administratif par nom ou fonction.</p>}
+          {(showRecipientsWithoutSearch || search.trim()) ? <div className="grid max-h-60 min-w-0 gap-2 overflow-y-auto pr-1 scrollbar-thin sm:grid-cols-2">
+            {searchResults.map((recipient) => (
+              <label key={recipient.uid} className="flex min-h-11 min-w-0 cursor-pointer items-center gap-3 rounded border border-slate-200 px-3 py-2 transition hover:bg-slate-50 focus-within:ring-2 focus-within:ring-blue-600">
+                <input type="checkbox" checked={selectedIds.includes(recipient.uid)} onChange={() => onSelectedIdsChange(toggleAdministrativeRecipient(selectedIds, recipient.uid))} />
+                <strong className="min-w-0 break-words text-sm text-slate-800">{recipient.name} — {administrativeRoleLabel(recipient.role)}</strong>
+              </label>
+            ))}
+            {search.trim() && !searchResults.length && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500 sm:col-span-2">Aucun {label} trouvé.</p>}
+          </div> : <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">{label === "administratif" ? "Recherchez un administratif par nom ou fonction." : "Recherchez un enseignant par nom ou fonction."}</p>}
         </>
       )}
       {isLoading && <p className="text-sm text-slate-500">Chargement des {label}s…</p>}

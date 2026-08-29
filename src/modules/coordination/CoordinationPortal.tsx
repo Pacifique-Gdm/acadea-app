@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { collection, doc, documentId, getDocs, onSnapshot, query, where, type Firestore } from "@firebase/firestore";
 import { Banknote, Bell, Building2, GraduationCap, LayoutDashboard, Menu, MessageSquare, RefreshCw } from "lucide-react";
 import { db } from "../../firebase";
@@ -14,6 +14,7 @@ import { loadCoordinationDashboardReadModel, type CoordinationDashboardReadModel
 import { useCoordinationInbox } from "../../hooks/useCoordinationInbox";
 import { MessagingDrawerShell } from "../../components/messages/MessagingDrawerShell";
 import { MessageDrawerContent } from "../../components/messages/MessageDrawerContent";
+import { runRefreshTask } from "../../utils/refreshTask";
 
 type CoordinationTab = "dashboard" | "students" | "control" | "messages" | "menu";
 const emptySupervisionModel: CoordinationDashboardReadModel = { students: [], feeTypes: [], payments: [], expenses: [], personnel: [], schoolYears: [] };
@@ -31,6 +32,7 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
   const [loadedSupervisionScope, setLoadedSupervisionScope] = useState("");
   const [refreshToken, setRefreshToken] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  const refreshInFlightRef = useRef(false);
   const [refreshError, setRefreshError] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [error, setError] = useState("");
@@ -68,7 +70,7 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
       }, () => setError("Impossible de charger la Sous-coordination."))
       : undefined;
     return () => { stopCoordination(); stopRelations(); stopSubCoordination?.(); };
-  }, [user.coordinationId, user.role, user.subCoordinationId]);
+  }, [refreshToken, user.coordinationId, user.role, user.subCoordinationId]);
 
   const activeSchools = useMemo(() => schools.filter((school) => school.status === "active" && relations.some((relation) => relation.schoolId === school.id)), [relations, schools]);
   const supervisionScope = useMemo(() => activeSchools.map((school) => school.id).sort().join("|"), [activeSchools]);
@@ -92,12 +94,17 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
   }, [loadSupervision, loadedSupervisionScope, supervisionScope, tab]);
 
   async function refreshCoordination() {
-    if (refreshing) return;
-    setRefreshing(true); setRefreshError(""); setRefreshToken((value) => value + 1);
-    try {
-      if (["dashboard", "students", "control"].includes(tab)) await loadSupervision();
-    } catch { setRefreshError("Actualisation impossible. Veuillez réessayer."); }
-    finally { setRefreshing(false); }
+    setRefreshError("");
+    await runRefreshTask({
+      lock: refreshInFlightRef,
+      setRefreshing,
+      load: async () => {
+        if (["dashboard", "students", "control"].includes(tab)) await loadSupervision();
+        return true;
+      },
+      apply: () => setRefreshToken((value) => value + 1),
+      onError: () => setRefreshError("Actualisation impossible. Veuillez réessayer."),
+    });
   }
 
   function openNotifications() {

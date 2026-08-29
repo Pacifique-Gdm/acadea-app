@@ -21,12 +21,15 @@ describe("messagerie des modules administratifs", () => {
     expect(source).toContain("sendSchoolMessage");
   });
 
-  it("affiche le second filtre et ne rend les resultats qu'apres une recherche en mode selection", () => {
+  it("affiche le second filtre et rend les destinataires réels même sans recherche", () => {
     expect(selectorSource).toContain('Tous les {label}s');
     expect(selectorSource).toContain('Sélection {label}');
     expect(selectorSource).toContain('mode === "all"');
-    expect(selectorSource).toContain("search.trim()");
+    expect(selectorSource).toContain("searchResults.map");
+    expect(source).toContain("showRecipientsWithoutSearch={isSchoolAdmin}");
+    expect(selectorSource).toContain("showRecipientsWithoutSearch && !search.trim()");
     expect(selectorSource).toContain("Recherchez un administratif par nom ou fonction.");
+    expect(selectorSource).toContain("{recipient.name} — {administrativeRoleLabel(recipient.role)}");
     expect(selectorSource).toContain('aria-label={`Retirer ${recipient.name}`}');
   });
 

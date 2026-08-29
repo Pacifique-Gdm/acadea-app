@@ -9,14 +9,16 @@ const recipients: SchoolMessageRecipient[] = [
   { uid: "discipline", name: "Jean Mukendi", role: "discipline_director" },
   { uid: "study", name: "Aline Études", role: "study_director" },
   { uid: "teacher", name: "Paul Enseignant", role: "teacher" },
+  { uid: "coordination", name: "Coordination Centrale", role: "coordination_admin" },
+  { uid: "sub-coordination", name: "Sous-coordination Gombe", role: "sub_coordination_admin" },
 ];
 
 describe("destinataires administratifs", () => {
   it("resout Tous les administratifs en un ensemble unique", () => {
-    expect(resolveAdministrativeRecipientIds("all", recipients, ["secretary"])).toEqual(["admin", "cashier", "secretary", "discipline", "study", "teacher"]);
+    expect(resolveAdministrativeRecipientIds("all", recipients, ["secretary"])).toEqual(["admin", "cashier", "secretary", "discipline", "study", "teacher", "coordination", "sub-coordination"]);
   });
 
-  it("ne retourne aucune liste lorsque la recherche est vide", () => {
+  it("conserve le helper de recherche vide pour les autres portails", () => {
     expect(filterAdministrativeRecipients(recipients, "")).toEqual([]);
     expect(filterAdministrativeRecipients(recipients, "   ")).toEqual([]);
   });
@@ -30,6 +32,8 @@ describe("destinataires administratifs", () => {
     expect(filterAdministrativeRecipients(recipients, "directeur des etudes").map(({ uid }) => uid)).toEqual(["study"]);
     expect(administrativeRoleLabel("school_admin")).toBe("Administrateur");
     expect(administrativeRoleLabel("study_director")).toBe("Directeur des études");
+    expect(administrativeRoleLabel("coordination_admin")).toBe("Coordinateur");
+    expect(administrativeRoleLabel("sub_coordination_admin")).toBe("Sous-coordinateur");
   });
 
   it("conserve plusieurs selections, evite les doublons et permet le retrait individuel", () => {

@@ -34,6 +34,12 @@ describe("portail Coordination", () => {
     expect(source).toContain('where("subCoordinationId", "==", user.subCoordinationId!)');
     expect(source).toContain('where("coordinationId", "==", coordinationId)');
   });
+  it("réabonne les listeners racine lors d'une actualisation sans changer d'onglet", () => {
+    expect(source).toContain("refreshToken, user.coordinationId");
+    expect(source).toContain("runRefreshTask");
+    expect(source).toContain("refreshInFlightRef");
+    expect(source).not.toContain("window.location.reload");
+  });
   it("rend l’en-tête sticky avec le logo Coordination persistant et son fallback", () => {
     expect(source).toContain('className="h-screen min-w-0 max-w-full overflow-x-hidden overflow-y-auto');
     expect(source).not.toContain("overflow-x-clip");

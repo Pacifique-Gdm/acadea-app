@@ -144,6 +144,51 @@ describe("annuaire sécurisé des destinataires de messagerie", () => {
     expect(await isRelatedCoordinationRecipient(db, caller, { id: "foreign", ...documentsForForeign() })).toBe(false);
   });
 
+  it("distingue une école directement rattachée d'une école sous Sous-coordination", async () => {
+    const directDb = coordinationDatabase({
+      "schools/school-direct": { activeCoordinationId: "coord-a", status: "active" },
+      "coordinations/coord-a": { status: "active", principalCoordinatorUserId: "coord-user" },
+      "coordinationSchools/coord-a__school-direct": { coordinationId: "coord-a", schoolId: "school-direct", active: true },
+      "users/admin-direct": { name: "Administrateur direct", role: "school_admin", schoolId: "school-direct", status: "active" },
+      "users/coord-user": { name: "Coordinateur", role: "coordination_admin", coordinationId: "coord-a", status: "active" },
+      "users/sub-user": { name: "Sous-coordinateur", role: "sub_coordination_admin", coordinationId: "coord-a", subCoordinationId: "sub-a", status: "active" },
+    });
+    const direct = await listAllowedMessageRecipients(directDb, { uid: "admin-direct", role: "school_admin", schoolId: "school-direct" });
+    expect(direct).toContainEqual({ uid: "coord-user", name: "Coordinateur", role: "coordination_admin" });
+    expect(direct.map((item: { uid: string }) => item.uid)).not.toContain("sub-user");
+
+    const delegatedDb = coordinationDatabase({
+      "schools/school-delegated": { activeCoordinationId: "coord-a", status: "active" },
+      "coordinations/coord-a": { status: "active", principalCoordinatorUserId: "coord-user" },
+      "coordinationSchools/coord-a__school-delegated": { coordinationId: "coord-a", schoolId: "school-delegated", active: true },
+      "subCoordinations/sub-a": { coordinationId: "coord-a", coordinatorUserId: "sub-user", active: true, status: "active" },
+      "subCoordinationSchools/sub-a__school-delegated": { coordinationId: "coord-a", subCoordinationId: "sub-a", schoolId: "school-delegated", active: true },
+      "users/admin-delegated": { name: "Administrateur délégué", role: "school_admin", schoolId: "school-delegated", status: "active" },
+      "users/coord-user": { name: "Coordinateur", role: "coordination_admin", coordinationId: "coord-a", status: "active" },
+      "users/sub-user": { name: "Sous-coordinateur", role: "sub_coordination_admin", coordinationId: "coord-a", subCoordinationId: "sub-a", status: "active" },
+    });
+    const delegated = await listAllowedMessageRecipients(delegatedDb, { uid: "admin-delegated", role: "school_admin", schoolId: "school-delegated" });
+    expect(delegated).toEqual(expect.arrayContaining([
+      { uid: "coord-user", name: "Coordinateur", role: "coordination_admin" },
+      { uid: "sub-user", name: "Sous-coordinateur", role: "sub_coordination_admin" },
+    ]));
+  });
+
+  it("exclut les responsables inactifs même quand le rattachement est valide", async () => {
+    const db = coordinationDatabase({
+      "schools/school-a": { activeCoordinationId: "coord-a", status: "active" },
+      "coordinations/coord-a": { status: "active", principalCoordinatorUserId: "coord-user" },
+      "coordinationSchools/coord-a__school-a": { coordinationId: "coord-a", schoolId: "school-a", active: true },
+      "subCoordinations/sub-a": { coordinationId: "coord-a", coordinatorUserId: "sub-user", active: true, status: "active" },
+      "subCoordinationSchools/sub-a__school-a": { coordinationId: "coord-a", subCoordinationId: "sub-a", schoolId: "school-a", active: true },
+      "users/admin": { name: "Administrateur", role: "school_admin", schoolId: "school-a", status: "active" },
+      "users/coord-user": { name: "Coordinateur inactif", role: "coordination_admin", coordinationId: "coord-a", status: "inactive" },
+      "users/sub-user": { name: "Sous-coordinateur inactif", role: "sub_coordination_admin", coordinationId: "coord-a", subCoordinationId: "sub-a", active: false },
+    });
+    const recipients = await listAllowedMessageRecipients(db, { uid: "admin", role: "school_admin", schoolId: "school-a" });
+    expect(recipients.map((item: { uid: string }) => item.uid)).not.toEqual(expect.arrayContaining(["coord-user", "sub-user"]));
+  });
+
   it("autorise l'envoi au Coordinateur relié et refuse la Coordination étrangère", async () => {
     const documents = {
       "schools/school-a": { activeCoordinationId: "coord-a", status: "active" },
