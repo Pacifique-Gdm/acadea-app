@@ -72,6 +72,9 @@ describe("responsive et exports Coordination", () => {
     expect(menu).toContain("useState(localDate)");
     expect(menu.match(/max=\{localDate\(\)\}/g)).toHaveLength(2);
     expect(menu).toContain("financialDateRangeError");
+    expect(menu).not.toContain('if (nextError.includes("future")) return;');
+    expect(menu).toContain('if (boundary === "from") setFrom(value); else setTo(value);');
+    expect(menu).toContain("if (dateError) return;");
   });
 
   it("retire la phrase Super Administrateur des paramètres et filtre ses audits de la vue Coordination", () => {

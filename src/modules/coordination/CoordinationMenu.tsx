@@ -87,9 +87,8 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, prin
     const nextFrom = boundary === "from" ? value : from;
     const nextTo = boundary === "to" ? value : to;
     const nextError = financialDateRangeError(nextFrom, nextTo);
-    setFinancialDateError(nextError);
-    if (nextError.includes("future")) return;
     if (boundary === "from") setFrom(value); else setTo(value);
+    setFinancialDateError(nextError);
   }
 
   async function exportPdf(kind: Exclude<Drawer, "settings" | "subCoordinations">) {
