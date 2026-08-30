@@ -11,6 +11,7 @@ export function YearScreen({
   onLogout,
   onCreate,
   createId,
+  governance,
 }: {
   user: AppUser;
   years: SchoolYear[];
@@ -19,9 +20,10 @@ export function YearScreen({
   onLogout: () => void;
   onCreate: (year: SchoolYear) => void;
   createId: (prefix: string) => string;
+  governance?: { closed: boolean; loading: boolean; error: string };
 }) {
   const [name, setName] = useState("2026-2027");
-  const canEdit = user.role === "school_admin";
+  const canEdit = user.role === "school_admin" && !governance?.closed && !governance?.loading && !governance?.error;
 
   return (
     <main className="min-h-screen bg-[#f6f8fb] p-4">
@@ -48,6 +50,9 @@ export function YearScreen({
             </button>
           ))}
         </div>
+        {governance?.loading && <p role="status" className="mt-5 rounded border border-slate-200 bg-white p-4">Vérification de la gouvernance des années scolaires…</p>}
+        {governance?.error && <p role="alert" className="mt-5 rounded border border-red-200 bg-red-50 p-4 text-red-800">{governance.error}</p>}
+        {governance?.closed && <p role="status" className="mt-5 rounded border border-blue-200 bg-blue-50 p-4 text-blue-800">Les années scolaires ont été clôturées par la Coordination. Veuillez demander au Coordinateur de créer une nouvelle année scolaire.</p>}
         {canEdit && (
           <div className="mt-5 flex flex-col gap-2 rounded border border-slate-200 bg-white p-4 sm:flex-row">
             <input value={name} onChange={(event) => setName(event.target.value)} className="min-w-0 flex-1 rounded border border-slate-200 px-3 py-2" />

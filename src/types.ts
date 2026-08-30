@@ -209,6 +209,18 @@ export interface SchoolClassRecord {
   subClassLabel?: string;
 }
 
+export interface CoordinationYearGovernance {
+  operationId: string;
+  status: "closed" | "reactivated" | "superseded";
+  years: Array<{ schoolId: string; schoolYearId: string }>;
+  closedAt: string;
+  closedBy: string;
+  reactivatedAt?: string;
+  reactivatedBy?: string;
+  supersededAt?: string;
+  supersededBy?: string;
+}
+
 export interface Coordination {
   id: string;
   name: string;
@@ -220,6 +232,7 @@ export interface Coordination {
   address?: string;
   principalCoordinatorUserId?: string;
   referenceSchoolYear?: string;
+  yearGovernance?: CoordinationYearGovernance;
   createdAt?: string;
   createdBy?: string;
   updatedAt?: string;

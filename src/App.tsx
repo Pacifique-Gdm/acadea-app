@@ -50,6 +50,7 @@ import type { SuperAdminGlobalCounts } from "./services/superAdminData";
 import { isSessionAuditAction } from "./utils/audit";
 import { mergeMessagesById, mergeNotificationsById } from "./utils/realtimeMerges";
 import { resolveDefaultSchoolYear } from "./utils/schoolYears";
+import { useCoordinatedSchoolYears } from "./hooks/useCoordinatedSchoolYears";
 import { attendanceSettingsId } from "./utils/attendance";
 import { canOpenMessageDeepLink, canOpenOperationalDeepLink } from "./utils/pushNotificationRoutes";
 import { feeTargetHasOption, formatFeeTargetValue } from "./utils/feeTargets";
@@ -358,6 +359,10 @@ export default function App() {
   const school = data.schools.find((item) => item.id === user?.schoolId);
   const schoolYears = useMemo(() => (school ? data.schoolYears.filter((year) => year.schoolId === school.id) : []), [data.schoolYears, school]);
   const selectedYear = schoolYears.find((year) => year.id === selectedYearId);
+  const applyCoordinatedYears = useCallback((years: SchoolYear[]) => {
+    setData((previous) => ({ ...previous, schoolYears: years }));
+  }, []);
+  const yearGovernance = useCoordinatedSchoolYears(user, school, applyCoordinatedYears);
   const firestoreBootstrapIdentity = user ? `${user.id}:${user.role}:${user.schoolId ?? ""}` : "";
   const firestoreBootstrapUserRef = useRef(user);
   firestoreBootstrapUserRef.current = user;
@@ -793,6 +798,7 @@ export default function App() {
         user={user}
         years={schoolYears}
         activeYearId={school.activeSchoolYearId}
+        governance={yearGovernance}
         onSelect={enterSchoolYear}
         onLogout={logout}
         onCreate={(year) => setData((prev) => ({ ...prev, schoolYears: [...prev.schoolYears, year] }))}

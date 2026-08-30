@@ -129,6 +129,17 @@ describe("SEC — isolation Coordination", () => {
     await assertSucceeds(setDoc(doc(coordinatedAdmin, "schools", schoolA), { activeSchoolYearId: "" }, { merge: true }));
   });
 
+  it("refuse le contournement direct après clôture gouvernée sans affecter une école indépendante", async () => {
+    await seed(`coordinations/${coordinationId}`, { id: coordinationId, status: "active", yearGovernance: { operationId: "closure-a", status: "closed", years: [{ schoolId: schoolA, schoolYearId: "year-a" }] } });
+    const admin = environment.authenticatedContext("admin-a", { role: "school_admin", schoolId: schoolA }).firestore();
+    const independent = environment.authenticatedContext("admin-b", { role: "school_admin", schoolId: schoolB }).firestore();
+    await assertSucceeds(getDoc(doc(admin, "coordinations", coordinationId)));
+    await assertFails(setDoc(doc(admin, "schoolYears", "bypass-year"), { id: "bypass-year", schoolId: schoolA, status: "draft" }));
+    await assertFails(updateDoc(doc(admin, "coordinations", coordinationId), { yearGovernance: null }));
+    await assertFails(updateDoc(doc(admin, "schools", schoolA), { activeCoordinationId: null }));
+    await assertSucceeds(setDoc(doc(independent, "schoolYears", "independent-year"), { id: "independent-year", schoolId: schoolB, status: "draft" }));
+  });
+
   it("limite le Sous-coordinateur aux seules écoles activement déléguées", async () => {
     const db = subDatabase();
     await assertSucceeds(getDoc(doc(db, "coordinations", coordinationId)));

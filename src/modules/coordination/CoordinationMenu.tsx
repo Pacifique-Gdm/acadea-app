@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ArrowRightLeft, BookOpen, CalendarRange, FileClock, Landmark, Network, Printer, Settings, UsersRound } from "lucide-react";
 import { AdminDrawer, ImageUploadField, LogoutButton } from "../../components/ui";
-import type { AppUser, Coordination, PersonnelProfile, School, SubCoordination } from "../../types";
+import type { AppUser, Coordination, CoordinationYearGovernance, PersonnelProfile, School, SubCoordination } from "../../types";
 import { loadCoordinationReadModel, type CoordinationReadModel } from "../../services/coordinationReadModel";
-import { closeCoordinationSchoolYears, loadCoordinationSchoolYearStatus, openCoordinationSchoolYears, type CoordinationSchoolYearRow } from "../../services/coordinationSchoolYears";
+import { closeCoordinationSchoolYears, loadCoordinationSchoolYearStatus, openCoordinationSchoolYears, reactivateCoordinationSchoolYears, YEAR_CONFIRMATIONS, type CoordinationSchoolYearRow } from "../../services/coordinationSchoolYears";
 import { loadCoordinationPersonnelProfile, transferCoordinationPersonnel, updateCoordinationSettings } from "../../services/coordinationService";
 import { escapePdfHtml, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import { activityTimestamp, formatActivityDateTime, isSuperAdministratorAuditLog } from "../../utils/activityHistory";
@@ -39,6 +39,10 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, prin
   const [referenceYear, setReferenceYear] = useState<string | null>(null);
   const [yearName, setYearName] = useState("");
   const [yearBusy, setYearBusy] = useState(false);
+  const yearLock = useRef(false);
+  const [yearStatusReady, setYearStatusReady] = useState(false);
+  const [yearGovernance, setYearGovernance] = useState<CoordinationYearGovernance | null>(null);
+  const [yearConfirmation, setYearConfirmation] = useState<{ action: "close" | "reactivate"; value: string; requestId: string } | null>(null);
   const [yearResults, setYearResults] = useState<Array<{ schoolId: string; status: string; reason?: string }>>([]);
   const [settingsForm, setSettingsForm] = useState({ name: coordination.name, code: coordination.code ?? "", phone: coordination.phone ?? "", email: coordination.email ?? "", address: coordination.address ?? "", logoUrl: coordination.logoUrl ?? "" });
   const [settingsBusy, setSettingsBusy] = useState(false);
@@ -59,7 +63,10 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, prin
     if (!drawer) return undefined;
     let cancelled = false; setLoading(true); setError("");
     loadCoordinationReadModel(coordination.id, allSchoolIds, user.subCoordinationId).then((result) => { if (!cancelled) setModel(result); }).catch((cause) => { if (!cancelled) setError(cause instanceof Error ? cause.message : "Chargement impossible."); }).finally(() => { if (!cancelled) setLoading(false); });
-    if (drawer === "years") loadCoordinationSchoolYearStatus().then((result) => { if (!cancelled) { setYearRows(result.rows.filter((row) => allSchoolIds.includes(row.schoolId))); setReferenceYear(result.referenceYear); } }).catch(() => { if (!cancelled) setError("Années indisponibles."); });
+    if (drawer === "years") {
+      setYearStatusReady(false);
+      loadCoordinationSchoolYearStatus().then((result) => { if (!cancelled) { setYearRows(result.rows.filter((row) => allSchoolIds.includes(row.schoolId))); setReferenceYear(result.referenceYear); setYearGovernance(result.governance); setYearStatusReady(true); } }).catch(() => { if (!cancelled) setError("Années indisponibles."); });
+    }
     return () => { cancelled = true; };
   }, [allSchoolIds, coordination.id, drawer, refreshToken, user.subCoordinationId]);
   useEffect(() => {
@@ -108,18 +115,27 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, prin
   }
 
   async function saveSettings() { if (user.role !== "coordination_admin" || settingsBusy) return; setSettingsBusy(true); setError(""); try { await updateCoordinationSettings(settingsForm); } catch (cause) { setError(cause instanceof Error ? cause.message : "Enregistrement impossible."); } finally { setSettingsBusy(false); } }
-  async function mutateYears(action: "close" | "open") {
+  async function mutateYears(action: "close" | "reactivate" | "open") {
+    if (yearLock.current || !yearStatusReady) return;
     if (user.role !== "coordination_admin") { setError("La gouvernance annuelle reste réservée au Coordinateur principal."); return; }
+    if (action !== "open" && (yearConfirmation?.action !== action || yearConfirmation.value !== YEAR_CONFIRMATIONS[action])) return;
     const dates = action === "open" ? schoolYearDatesFromName(yearName) : null;
     if (action === "open" && !dates) { setError("Le libellé doit respecter le format 2027-2028."); return; }
-    setYearBusy(true);
+    yearLock.current = true;
+    setYearBusy(true); setError("");
     try {
       const response = action === "close"
-        ? await closeCoordinationSchoolYears()
-        : await openCoordinationSchoolYears({ name: yearName, startsAt: dates?.startsAt ?? "", endsAt: dates?.endsAt ?? "" });
+        ? await closeCoordinationSchoolYears(yearConfirmation!.value, yearConfirmation!.requestId)
+        : action === "reactivate"
+          ? await reactivateCoordinationSchoolYears(yearConfirmation!.value, yearGovernance?.operationId ?? "", yearConfirmation!.requestId)
+          : await openCoordinationSchoolYears({ name: yearName, startsAt: dates?.startsAt ?? "", endsAt: dates?.endsAt ?? "", requestId: crypto.randomUUID() });
       setYearResults(response.results);
+      setYearConfirmation(null);
+      setYearStatusReady(false);
+      const status = await loadCoordinationSchoolYearStatus();
+      setYearRows(status.rows.filter((row) => allSchoolIds.includes(row.schoolId))); setReferenceYear(status.referenceYear); setYearGovernance(status.governance); setYearStatusReady(true);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Opération impossible."); }
-    finally { setYearBusy(false); }
+    finally { yearLock.current = false; setYearBusy(false); }
   }
   function openPersonnelTransfer() { setTransferForm(emptyTransferForm()); setTransferError(""); setTransferMessage(""); setTransferOpen(true); }
   function closePersonnelTransfer() { if (transferBusy) return; setTransferOpen(false); setTransferForm(emptyTransferForm()); setTransferError(""); }
@@ -162,7 +178,7 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, prin
   }
   function drawerFooter(): ReactNode {
     if (drawer === "settings" && user.role === "coordination_admin" && !subCoordination) return <button type="button" className="primary-button w-full justify-center" disabled={settingsBusy || !settingsForm.name.trim()} onClick={() => void saveSettings()}>{settingsBusy ? "Enregistrement…" : "Enregistrer les paramètres"}</button>;
-    if (drawer === "years" && user.role === "coordination_admin") return <div className="grid min-w-0 gap-2 sm:grid-cols-2"><button className="secondary-button w-full justify-center" disabled={yearBusy} type="button" onClick={() => void mutateYears("close")}>Clôturer les années prêtes</button><button className="primary-button w-full justify-center" disabled={yearBusy || !schoolYearDatesFromName(yearName)} type="button" onClick={() => void mutateYears("open")}>Ouvrir la nouvelle année</button></div>;
+    if (drawer === "years" && user.role === "coordination_admin") return <div className="grid min-w-0 gap-2 sm:grid-cols-2"><button className="secondary-button w-full justify-center" disabled={yearBusy || !yearStatusReady} type="button" onClick={() => { setError(""); setYearConfirmation({ action: yearGovernance?.status === "closed" ? "reactivate" : "close", value: "", requestId: crypto.randomUUID() }); }}>{yearGovernance?.status === "closed" ? "Réactiver les années scolaires" : "Clôturer les années scolaires"}</button><button className="primary-button w-full justify-center" disabled={yearBusy || !yearStatusReady || !schoolYearDatesFromName(yearName)} type="button" onClick={() => void mutateYears("open")}>Ouvrir la nouvelle année</button></div>;
     return null;
   }
   const transferDestinations = schools.filter((school) => school.id !== selectedPersonnel?.schoolId && school.status === "active");
@@ -171,7 +187,12 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, prin
   return <section className="grid min-w-0 gap-3">
     {items.map(([id, label, Icon]) => <button key={id} type="button" onClick={() => { setDrawerSchoolId(selectedSchoolId); setDrawer(id); setSearch(""); setSelectedPersonnel(undefined); setTransferMessage(""); }} className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint"><div className="flex min-w-0 items-center gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink"><Icon className="h-5 w-5"/></div><span className="break-words font-bold text-ink">{label}</span></div></button>)}
     <div className="mt-2 border-t border-slate-200 pt-4"><LogoutButton onClick={onLogout}/></div>
-    {drawer && <AdminDrawer width={drawer === "settings" ? "default" : "wide"} title={items.find(([id]) => id === drawer)?.[1] ?? "Coordination"} closeLabel="Fermer" toolbar={drawerToolbar()} footer={drawerFooter()} onClose={() => { setDrawer(null); setSelectedPersonnel(undefined); setTransferOpen(false); }}>{error && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{error}</p>}{loading && <p className="text-sm text-slate-500">Chargement…</p>}{drawerContent()}</AdminDrawer>}
+    {drawer && <AdminDrawer width={drawer === "settings" ? "default" : "wide"} title={items.find(([id]) => id === drawer)?.[1] ?? "Coordination"} closeLabel="Fermer" toolbar={drawerToolbar()} footer={drawerFooter()} onClose={() => { if (yearLock.current) return; setDrawer(null); setYearConfirmation(null); setSelectedPersonnel(undefined); setTransferOpen(false); }}>{error && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{error}</p>}{loading && <p className="text-sm text-slate-500">Chargement…</p>}{drawerContent()}</AdminDrawer>}
+    {drawer === "years" && yearConfirmation && <AdminDrawer title={yearConfirmation.action === "close" ? "Confirmer la clôture des années scolaires" : "Confirmer la réactivation des années scolaires"} closeLabel="Annuler" onClose={() => { if (!yearLock.current) setYearConfirmation(null); }} footer={<button type="button" className="primary-button w-full justify-center" disabled={yearBusy || yearConfirmation.value !== YEAR_CONFIRMATIONS[yearConfirmation.action]} onClick={() => void mutateYears(yearConfirmation.action)}>{yearBusy ? "Traitement…" : "Confirmer"}</button>}>
+      <p className="text-sm text-slate-600">Cette opération concerne toutes les écoles du périmètre de la Coordination, indépendamment du filtre d’affichage. Les données historiques sont conservées.</p>
+      {error && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+      <label className="grid gap-2 text-sm font-semibold">Saisissez exactement « {YEAR_CONFIRMATIONS[yearConfirmation.action]} »<input className="input w-full min-w-0" autoComplete="off" spellCheck={false} disabled={yearBusy} value={yearConfirmation.value} onChange={(event) => setYearConfirmation({ ...yearConfirmation, value: event.target.value })} /></label>
+    </AdminDrawer>}
     {selectedPersonnel && <AdminDrawer width="wide" title={`Personnel — ${selectedPersonnel.name}`} closeLabel="Fermer la fiche Personnel" toolbar={<div className={`grid w-full min-w-0 gap-2 ${transferAllowed ? "grid-cols-2" : "grid-cols-1"}`}><button type="button" className="primary-button w-full justify-center" disabled={!personnelProfileReady} onClick={() => { const school = schools.find((item) => item.id === selectedPersonnel.schoolId); if (school) void printPersonnelProfilePdf(coordinationPdfInstitution(coordination, school), selectedPersonnel, selectedPersonnelProfile, new Date(), { personnelSchoolName: school.name }); }}><Printer className="h-4 w-4"/> Imprimer</button>{transferAllowed && <button type="button" className="secondary-button w-full justify-center" onClick={openPersonnelTransfer}><ArrowRightLeft className="h-4 w-4"/> Muter</button>}</div>} onClose={() => { setSelectedPersonnel(undefined); setTransferOpen(false); setTransferMessage(""); }}>
       {transferMessage && <p role="status" className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">{transferMessage}</p>}
       {!personnelProfileReady ? <p role="status" className="py-4 text-center text-sm text-slate-500">Chargement de la fiche administrative…</p> : <PersonnelProfileReadOnly personnel={selectedPersonnel} profile={selectedPersonnelProfile} schoolName={schoolName(selectedPersonnel.schoolId)}/>}

@@ -54,9 +54,9 @@ describe("finalisation du module Coordination", () => {
   it("gouverne les années globalement, sans écraser une année existante", () => {
     expect(yearApi).toContain('action === "close"');
     expect(yearApi).toContain('action === "open"');
-    expect(yearApi).toContain("batch.create(yearRef");
+    expect(yearApi).toContain("transaction.create(yearRef");
     expect(yearApi).toContain("referenceSchoolYear");
-    expect(yearApi).toContain('status: "blocked"');
+    expect(yearApi).toContain('"active-year-conflict"');
     expect(yearApi).toContain("resolveCoordinationSchoolScope");
     expect(yearApi).not.toContain("input.schoolIds");
   });
