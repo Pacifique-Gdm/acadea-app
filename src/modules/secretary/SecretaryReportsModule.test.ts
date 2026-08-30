@@ -10,7 +10,7 @@ describe("formulaire Nouveau rapport", () => {
   const pdfSource = readFileSync(new URL("../../utils/pdf.ts", import.meta.url), "utf8");
 
   it("laisse le Select actif pour une nouvelle création et expose tous les types", () => {
-    expect(source).toContain('const readOnly = Boolean(selected && selected.status !== "draft")');
+    expect(source).toContain('const readOnly = !canManage || Boolean(selected && selected.status !== "draft")');
     expect(source).toContain('aria-label="Type de rapport"');
     for (const type of ["meeting_minutes", "activity_report", "incident_report", "official_minutes", "administrative_note", "other"]) expect(source).toContain(type);
     expect(source).toContain("setType(event.target.value as SecretaryReportType)");

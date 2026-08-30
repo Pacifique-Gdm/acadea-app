@@ -42,7 +42,7 @@ export function OutgoingCorrespondenceForm({ user, school, year, current, busy, 
   const [pdfSettings, setPdfSettings] = useState<PdfGenerationSettings>(() => current ? normalizePdfSettings(current.pdfSettings) : readStoredPdfSettings());
   const [error, setError] = useState("");
   const [dirty, setDirty] = useState(false);
-  const locked = current?.status === "archived" || (current?.status && current.status !== "draft");
+  const locked = year.status !== "active" || current?.status === "archived" || (current?.status && current.status !== "draft");
   const aiSections = { subject, salutation: outgoing.salutation, introduction: outgoing.introduction, mainMessage: outgoing.mainMessage, details: outgoing.details ?? "", justification: outgoing.justification ?? "", expectedFollowUp: outgoing.expectedFollowUp ?? "", conclusion: outgoing.conclusion, closingFormula: outgoing.closingFormula };
   const aiSectionLabels = { subject: "Objet", salutation: "Formule d’appel", introduction: "Introduction", mainMessage: "Message principal", details: "Détails et modalités", justification: "Justification", expectedFollowUp: "Suite attendue", conclusion: "Conclusion", closingFormula: "Formule de politesse" };
   const editorStyle = pdfEditorStyle(pdfSettings);
@@ -75,6 +75,7 @@ export function OutgoingCorrespondenceForm({ user, school, year, current, busy, 
     return "";
   }
   async function act(status: CorrespondenceStatus) {
+    if (locked || busy) return;
     const validation = validate(); if (validation) { setError(validation); return; }
     setError(""); await onSave({ item: item(), status });
   }

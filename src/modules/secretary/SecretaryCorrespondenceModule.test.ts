@@ -122,7 +122,7 @@ const deleteDialogSource = readFileSync(new URL("./SecretaryDocumentDeleteDialog
     expect(formSource).toContain('generateLabel={current ? "Enregistrer" : "Générer courrier"}');
     for (const removedAction of ["Enregistrer comme brouillon", "Prévisualiser", "Soumettre à validation", "Générer le PDF", "Finaliser"]) expect(formSource).not.toContain(removedAction);
     expect(formSource).toContain('void act("draft")');
-    expect(moduleSource).toContain("if (saveLock.current) return");
+    expect(moduleSource).toContain("if (saveLock.current || readOnly) return");
     expect(moduleSource).toContain("await createCorrespondence({ user, schoolId: school.id, schoolYearId: year.id");
     expect(moduleSource).toContain("finishSuccessfulSave");
   });

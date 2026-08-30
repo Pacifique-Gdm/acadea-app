@@ -844,7 +844,7 @@ export default function App() {
   }
 
   function markNotificationsRead(notificationId?: string) {
-    if (!user) return;
+    if (!user || currentYear.status !== "active") return;
     updateData(
       {
         notifications: data.notifications.map((notification) =>
