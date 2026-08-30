@@ -44,7 +44,9 @@ describe("provisionnement et portail Secrétaire", () => {
     expect(app).toContain("canReactivate: false");
     expect(app).toContain("canCreateParent: true");
     expect(app).toContain("canManageOptions: true");
-    expect(app).toContain("studentImportKey={studentImportKey}");
+    const importer = readFileSync(new URL("../../api/_lib/archivedStudentsImport.js", import.meta.url), "utf8");
+    expect(importer).toContain('from "../../src/utils/studentYearTransition.js"');
+    expect(importer).toContain("studentImportKey(source)");
   });
 
   it("conserve les paiements en lecture seule et borne les écritures Élèves dans les règles", () => {

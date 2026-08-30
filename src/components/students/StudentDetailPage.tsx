@@ -114,6 +114,7 @@ export function StudentDetailPage({
   );
   const parent = yearData.parents.find((item) => item.id === student.parentId);
   const canManageParentLink = canLinkParent
+    && year.status === "active"
     && (user.role === "school_admin" || user.role === "secretary")
     && user.schoolId === school.id;
   const progress = balance.expected > 0 ? Math.min(100, Math.round((balance.paid / balance.expected) * 100)) : 0;

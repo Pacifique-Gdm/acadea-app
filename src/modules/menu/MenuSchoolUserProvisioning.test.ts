@@ -20,7 +20,8 @@ describe("formulaire de création des utilisateurs métier", () => {
   });
 
   it("conserve la restriction school_admin existante", () => {
-    expect(source).toContain('const canAdmin = user.role === "school_admin"');
+    expect(source).toContain('const canReadAdmin = user.role === "school_admin"');
+    expect(source).toContain('const canAdmin = canReadAdmin && !isArchivedContext');
     expect(source).toContain('sectionId === "accounts" && canAdmin');
   });
 
@@ -44,7 +45,7 @@ describe("formulaire de création des utilisateurs métier", () => {
 
   it("conserve strictement les six champs du formulaire de création", () => {
     const start = source.indexOf('if (sectionId === "accounts" && canAdmin)');
-    const end = source.indexOf('if (sectionId === "fees" && canAdmin)', start);
+    const end = source.indexOf('if (sectionId === "fees" && canReadAdmin)', start);
     const form = source.slice(start, end);
     ["Type d'utilisateur", "Sections", "Nom complet", "Téléphone", "Email", "Mot de passe temporaire"].forEach((label) => expect(form).toContain(label));
     ["Photo", "Matricule", "Postnom", "Prénom", "Date de naissance", "Observations", "Date d’établissement"].forEach((label) => expect(form).not.toContain(label));

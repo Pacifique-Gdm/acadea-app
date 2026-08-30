@@ -28,6 +28,7 @@ export function useRealtimeSchoolRecords({
     if (!db || !user || !schoolId || !schoolYearId) return;
 
     const unsubscribes: Array<() => void> = [];
+    let active = true;
     let latestStudents: Student[] = [];
     let latestSanctions: DisciplineSanction[] = [];
     let latestParents: ParentProfile[] = [];
@@ -46,33 +47,36 @@ export function useRealtimeSchoolRecords({
       unsubscribes.push(onSnapshot(
         query(collection(db, "students"), ...studentConstraints),
         (snapshot) => {
+          if (!active) return;
           latestStudents = disciplineStudentScope(user, snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as Student));
           onData({ students: latestStudents, parents: disciplineParentScope(user, latestParents, latestStudents), disciplineSanctions: disciplineSanctionScope(user, latestSanctions, latestStudents) });
         },
-        (error) => onError?.("students", error),
+        (error) => { if (active) onError?.("students", error); },
       ));
     }
     if (canReadParents) {
       unsubscribes.push(onSnapshot(
         query(collection(db, "parents"), where("schoolId", "==", schoolId)),
         (snapshot) => {
+          if (!active) return;
           latestParents = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as ParentProfile);
           onData({ parents: disciplineParentScope(user, latestParents, latestStudents) });
         },
-        (error) => onError?.("parents", error),
+        (error) => { if (active) onError?.("parents", error); },
       ));
     }
     if (canReadSanctions) {
       unsubscribes.push(onSnapshot(
         query(collection(db, "disciplineSanctions"), ...annualConstraints),
         (snapshot) => {
+          if (!active) return;
           latestSanctions = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as DisciplineSanction);
           onData({ disciplineSanctions: disciplineSanctionScope(user, latestSanctions, latestStudents) });
         },
-        (error) => onError?.("disciplineSanctions", error),
+        (error) => { if (active) onError?.("disciplineSanctions", error); },
       ));
     }
 
-    return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
+    return () => { active = false; unsubscribes.forEach((unsubscribe) => unsubscribe()); };
   }, [onData, onError, schoolId, schoolYearId, user]);
 }

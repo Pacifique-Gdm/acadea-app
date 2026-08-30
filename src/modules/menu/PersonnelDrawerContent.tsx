@@ -33,7 +33,7 @@ function NativeField({ label, type = "text", value, onChange, readOnly = false }
   return <label className="grid min-w-0 gap-1 text-sm font-semibold">{label}<input className="input min-w-0" type={type} value={value} readOnly={readOnly} onChange={(event) => onChange?.(event.target.value)} /></label>;
 }
 
-export function PersonnelDrawerContent({ user, school }: { user: AppUser; school: School }) {
+export function PersonnelDrawerContent({ user, school, readOnly = false }: { user: AppUser; school: School; readOnly?: boolean }) {
   const [personnel, setPersonnel] = useState<AppUser[]>([]);
   const [view, setView] = useState<"active" | "archived">("active");
   const [selected, setSelected] = useState<AppUser>();
@@ -85,6 +85,7 @@ export function PersonnelDrawerContent({ user, school }: { user: AppUser; school
   function closeSelected() { if (busy) return; setSelected(undefined); setEditing(false); setConfirming(undefined); setStatusConfirmation(""); clearFeedback(); }
   function closeEdit() { if (busy) return; setEditing(false); setPhotoFile(undefined); setError(""); }
   function openEdit(item: AppUser) {
+    if (readOnly) return;
     const identity = personnelIdentity(item, profile);
     setSelected(item);
     setPhone(item.phone ?? "");
@@ -97,6 +98,7 @@ export function PersonnelDrawerContent({ user, school }: { user: AppUser; school
   }
 
   async function saveEdit() {
+    if (readOnly) return;
     if (!selected || busy) return;
     const displayName = personnelDisplayName({ lastName: profileForm.lastName ?? "", middleName: profileForm.middleName ?? "", firstName: profileForm.firstName ?? "" });
     if (!displayName || !email.trim() || !isValidProvisioningPhone(phone)) return setError("Nom, téléphone valide et e-mail sont requis.");
@@ -114,6 +116,7 @@ export function PersonnelDrawerContent({ user, school }: { user: AppUser; school
   }
 
   async function changeStatus() {
+    if (readOnly) return;
     if (!selected || !confirming || busy) return;
     const expectedConfirmation = confirming === "archive" ? "ARCHIVER PERSONNEL" : "DÉSARCHIVER PERSONNEL";
     if (statusConfirmation !== expectedConfirmation) return;
@@ -131,14 +134,14 @@ export function PersonnelDrawerContent({ user, school }: { user: AppUser; school
     {loading ? <p className="py-8 text-center text-sm text-slate-500">Chargement des personnels…</p> : <div className="grid gap-2">{visible.map((item) => <article key={item.id} className="grid gap-2 rounded border border-slate-200 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"><div className="min-w-0"><button type="button" className="break-words text-left font-semibold text-blue-700 hover:underline focus-visible:ring-2 focus-visible:ring-blue-600" onClick={() => { setSelected(item); setProfile(undefined); clearFeedback(); }}>{item.name}</button><p className="text-sm text-slate-600">{personnelRoleLabels[item.role as keyof typeof personnelRoleLabels]}</p><p className="break-all text-xs text-slate-500">{item.phone || "Non renseigné"} · {item.email}</p></div><span className={`w-fit rounded-full px-2 py-1 text-xs font-semibold ${isArchivedPersonnel(item) ? "bg-slate-200 text-slate-700" : "bg-green-100 text-green-800"}`}>{isArchivedPersonnel(item) ? "Archivé" : "Actif"}</span></article>)}{visible.length === 0 && <p className="rounded bg-slate-50 p-6 text-center text-sm text-slate-500">Aucun personnel {view === "active" ? "actif" : "archivé"}.</p>}</div>}
 
     {selected && <AdminDrawer title={`Personnel — ${selected.name}`} closeLabel="Fermer la fiche Personnel" onClose={closeSelected}>
-      <div className="grid grid-cols-2 gap-2"><div className="relative min-w-0"><button ref={actionsDropdownRef} type="button" className="secondary-button w-full justify-center" aria-haspopup="menu" aria-expanded={actionsOpen} disabled={busy || !profileReady || selected.role === "school_admin"} onClick={() => setActionsOpen((current) => !current)}>Actions <ChevronDown className="h-4 w-4"/></button>{actionsOpen && selected.role !== "school_admin" && <div role="menu" className="absolute left-0 right-0 top-full z-50 mt-1 grid rounded border border-slate-200 bg-white p-1 shadow-lg"><button role="menuitem" type="button" className="flex min-h-10 items-center gap-2 rounded px-3 text-left text-sm hover:bg-slate-50" onClick={() => { setActionsOpen(false); openEdit(selected); }}><Pencil className="h-4 w-4"/> Modifier</button>{isArchivedPersonnel(selected) ? <button role="menuitem" type="button" className="flex min-h-10 items-center gap-2 rounded px-3 text-left text-sm hover:bg-slate-50" onClick={() => { setActionsOpen(false); setStatusConfirmation(""); setConfirming("reactivate"); }}><ArchiveRestore className="h-4 w-4"/> Réactiver</button> : <button role="menuitem" type="button" className="flex min-h-10 items-center gap-2 rounded px-3 text-left text-sm text-red-700 hover:bg-red-50" onClick={() => { setActionsOpen(false); setStatusConfirmation(""); setConfirming("archive"); }}><Archive className="h-4 w-4"/> Archiver</button>}</div>}</div><button type="button" className="primary-button w-full justify-center" disabled={busy || !profileReady} onClick={() => void printPersonnelProfilePdf(school, selected, profile)}><Printer className="h-4 w-4"/> Imprimer</button></div>
+      <div className="grid grid-cols-2 gap-2"><div className="relative min-w-0"><button ref={actionsDropdownRef} type="button" className="secondary-button w-full justify-center" aria-haspopup="menu" aria-expanded={actionsOpen} disabled={readOnly || busy || !profileReady || selected.role === "school_admin"} onClick={() => setActionsOpen((current) => !current)}>Actions <ChevronDown className="h-4 w-4"/></button>{!readOnly && actionsOpen && selected.role !== "school_admin" && <div role="menu" className="absolute left-0 right-0 top-full z-50 mt-1 grid rounded border border-slate-200 bg-white p-1 shadow-lg"><button role="menuitem" type="button" className="flex min-h-10 items-center gap-2 rounded px-3 text-left text-sm hover:bg-slate-50" onClick={() => { setActionsOpen(false); openEdit(selected); }}><Pencil className="h-4 w-4"/> Modifier</button>{isArchivedPersonnel(selected) ? <button role="menuitem" type="button" className="flex min-h-10 items-center gap-2 rounded px-3 text-left text-sm hover:bg-slate-50" onClick={() => { setActionsOpen(false); setStatusConfirmation(""); setConfirming("reactivate"); }}><ArchiveRestore className="h-4 w-4"/> Réactiver</button> : <button role="menuitem" type="button" className="flex min-h-10 items-center gap-2 rounded px-3 text-left text-sm text-red-700 hover:bg-red-50" onClick={() => { setActionsOpen(false); setStatusConfirmation(""); setConfirming("archive"); }}><Archive className="h-4 w-4"/> Archiver</button>}</div>}</div><button type="button" className="primary-button w-full justify-center" disabled={busy || !profileReady} onClick={() => void printPersonnelProfilePdf(school, selected, profile)}><Printer className="h-4 w-4"/> Imprimer</button></div>
       {!profileReady && <p role="status" className="py-4 text-center text-sm text-slate-500">Chargement de la fiche administrative…</p>}
       {profileReady && (
         <PersonnelProfileReadOnly personnel={selected} profile={profile}/>
       )}
     </AdminDrawer>}
 
-    {editing && selected && <AdminDrawer title="Modifier le personnel" closeLabel="Fermer la modification" onClose={closeEdit}>
+    {!readOnly && editing && selected && <AdminDrawer title="Modifier le personnel" closeLabel="Fermer la modification" onClose={closeEdit}>
       <div className="grid min-w-0 gap-4">
         <EditSection title="1. IDENTIFICATION">
           {profile?.photoUrl && <img src={profile.photoUrl} alt={`Photo actuelle de ${selected.name}`} className="mx-auto h-32 w-28 rounded border object-contain"/>}
@@ -157,6 +160,6 @@ export function PersonnelDrawerContent({ user, school }: { user: AppUser; school
       </div>
     </AdminDrawer>}
 
-    {confirming && selected && (() => { const expectedConfirmation = confirming === "archive" ? "ARCHIVER PERSONNEL" : "DÉSARCHIVER PERSONNEL"; return <AdminDrawer title={confirming === "archive" ? "Archiver ce personnel ?" : "Désarchiver ce personnel ?"} closeLabel="Fermer la confirmation" onClose={() => { if (!busy) { setConfirming(undefined); setStatusConfirmation(""); } }}><p>{confirming === "archive" ? "Ce compte ne pourra plus accéder à Acadéa, mais son historique sera conservé." : "Ce compte pourra de nouveau accéder à Acadéa avec ses identifiants existants."}</p><p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">Saisissez exactement : {expectedConfirmation}</p><label className="grid gap-1 text-sm font-semibold">Confirmation<input className="input" value={statusConfirmation} disabled={busy} autoComplete="off" placeholder={expectedConfirmation} onChange={(event) => setStatusConfirmation(event.target.value)}/></label><div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" disabled={busy} onClick={() => { setConfirming(undefined); setStatusConfirmation(""); }}>Annuler</button><button type="button" className={confirming === "archive" ? "rounded bg-red-700 px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50" : "primary-button justify-center"} disabled={busy || statusConfirmation !== expectedConfirmation} onClick={() => void changeStatus()}>{busy ? "Traitement…" : confirming === "archive" ? "Archiver" : "Désarchiver"}</button></div></AdminDrawer>; })()}
+    {!readOnly && confirming && selected && (() => { const expectedConfirmation = confirming === "archive" ? "ARCHIVER PERSONNEL" : "DÉSARCHIVER PERSONNEL"; return <AdminDrawer title={confirming === "archive" ? "Archiver ce personnel ?" : "Désarchiver ce personnel ?"} closeLabel="Fermer la confirmation" onClose={() => { if (!busy) { setConfirming(undefined); setStatusConfirmation(""); } }}><p>{confirming === "archive" ? "Ce compte ne pourra plus accéder à Acadéa, mais son historique sera conservé." : "Ce compte pourra de nouveau accéder à Acadéa avec ses identifiants existants."}</p><p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">Saisissez exactement : {expectedConfirmation}</p><label className="grid gap-1 text-sm font-semibold">Confirmation<input className="input" value={statusConfirmation} disabled={busy} autoComplete="off" placeholder={expectedConfirmation} onChange={(event) => setStatusConfirmation(event.target.value)}/></label><div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" disabled={busy} onClick={() => { setConfirming(undefined); setStatusConfirmation(""); }}>Annuler</button><button type="button" className={confirming === "archive" ? "rounded bg-red-700 px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50" : "primary-button justify-center"} disabled={busy || statusConfirmation !== expectedConfirmation} onClick={() => void changeStatus()}>{busy ? "Traitement…" : confirming === "archive" ? "Archiver" : "Désarchiver"}</button></div></AdminDrawer>; })()}
   </div>;
 }

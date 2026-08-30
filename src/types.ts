@@ -570,22 +570,6 @@ export interface AppData {
   biometricTerminals: BiometricTerminal[];
 }
 
-export const CLASSES: SchoolClass[] = [
-  "Maternelle 1",
-  "Maternelle 2",
-  "Maternelle 3",
-  "1ère Primaire",
-  "2ème Primaire",
-  "3ème Primaire",
-  "4ème Primaire",
-  "5ème Primaire",
-  "6ème Primaire",
-  "7ème CTEB",
-  "8ème CTEB",
-  "1ère Humanité",
-  "2ème Humanité",
-  "3ème Humanité",
-  "4ème Humanité",
-];
+export { CLASSES } from "./utils/studentYearTransition.js";
 
 export const FEE_KINDS: FeeKind[] = ["Minerval", "Fourniture"];

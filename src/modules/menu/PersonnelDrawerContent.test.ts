@@ -28,7 +28,7 @@ describe("Drawer Personnels", () => {
   it("attend le profil temps réel avant d'autoriser modification et impression", () => {
     expect(source).toContain("const [profileReady, setProfileReady] = useState(false)");
     expect(source).toContain("setProfile(nextProfile); setProfileReady(true)");
-    expect(source).toContain('disabled={busy || !profileReady || selected.role === "school_admin"}');
+    expect(source).toContain('disabled={readOnly || busy || !profileReady || selected.role === "school_admin"}');
     expect(source).toContain("disabled={busy || !profileReady}");
   });
 

@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 
 describe("outils administratifs Élèves partagés", () => {
   const tools = readFileSync(new URL("./StudentAdministrativeTools.tsx", import.meta.url), "utf8");
+  const importDrawer = readFileSync(new URL("./ArchivedStudentsImportDrawer.tsx", import.meta.url), "utf8");
+  const importApi = readFileSync(new URL("../../../api/_lib/archivedStudentsImport.js", import.meta.url), "utf8");
   const studentsModule = readFileSync(new URL("../../modules/students/StudentsModule.tsx", import.meta.url), "utf8");
   const drawer = readFileSync(new URL("../ui/AdminDrawer.tsx", import.meta.url), "utf8");
 
@@ -21,10 +23,11 @@ describe("outils administratifs Élèves partagés", () => {
   });
 
   it("réutilise les services, promotions et calculs PDF existants", () => {
-    expect(tools).toContain("persistFirestorePatch");
-    expect(tools).toContain("promoteStudentForNewYear");
+    expect(importDrawer).toContain("requestArchivedStudentsImport");
+    expect(importDrawer).not.toContain("persistFirestorePatch");
+    expect(importApi).toContain("promoteStudentForNewYear");
     expect(tools).toContain("exportAgeHomogeneityPdf");
-    expect(tools).toContain("studentImportKey");
+    expect(importApi).toContain("studentImportKey");
     expect(tools).not.toContain("theoreticalAgeByClass");
     expect(tools).toContain("canonicalOperationalClasses");
   });
@@ -47,17 +50,17 @@ describe("outils administratifs Élèves partagés", () => {
     expect(tools).toContain('user.role === "secretary"');
     expect(tools).toContain('user.status === "active"');
     expect(tools).toContain("user.schoolId === school.id");
-    expect(tools).toContain("student.schoolId === school.id && student.schoolYearId === sourceYearId");
+    expect(importApi).toContain('scoped(db, "students", schoolId, sourceYearId)');
     expect(tools).toContain("student.schoolYearId === year.id");
-    expect(tools).toContain("existingKeys.has(key)");
+    expect(importApi).toContain("byKey.get(studentImportKey(source))");
   });
 
   it("fournit deux Drawers fermables et scrollables sans nouvelle logique métier", () => {
-    expect(tools).toContain("export function ArchivedStudentsImportDrawer");
+    expect(importDrawer).toContain("export function ArchivedStudentsImportDrawer");
     expect(tools).toContain("export function AgeHomogeneityDrawer");
-    expect(tools).toContain('title="Importer les élèves d’une année archivée"');
+    expect(importDrawer).toContain('title="Importer les élèves d’une année archivée"');
     expect(tools).toContain('title="Tableau d’homogénéité d’âge"');
-    expect(tools).toContain("onClose={closeDrawer}");
+    expect(importDrawer).toContain("onClose={close}");
     expect(tools).toContain("onClose={onClose}");
     expect(drawer).toContain("overflow-y-auto");
   });

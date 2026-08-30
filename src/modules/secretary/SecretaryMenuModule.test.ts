@@ -22,12 +22,12 @@ describe("Menu du Secrétaire", () => {
     expect(source).toContain("<ValvesDrawerContent");
     expect(source).toContain("<ParentsDirectoryDrawer");
     expect(source).toContain("<ParentFormEditor");
-    expect(source).toContain("onCreateParent={() => openParentForm()}");
-    expect(source).toContain("onEditParent={(parent) => openParentForm(parent.id)}");
-    expect(source).toContain("onDeleteParent={openParentDelete}");
+    expect(source).toContain('onCreateParent={year.status === "active" ? () => openParentForm() : undefined}');
+    expect(source).toContain('onEditParent={year.status === "active" ? (parent) => openParentForm(parent.id) : undefined}');
+    expect(source).toContain('onDeleteParent={year.status === "active" ? openParentDelete : undefined}');
     expect(source).toContain("deleteParentAccount");
     expect(source).toContain("<BiometricStudentsPage");
-    expect(source).toContain('canManage={user.role === "secretary" && user.status !== "inactive" && user.schoolId === school.id}');
+    expect(source).toContain('canManage={year.status === "active" && user.role === "secretary" && user.status !== "inactive" && user.schoolId === school.id}');
     expect(source).toContain("school={school}");
     expect(source).toContain("year={year}");
   });

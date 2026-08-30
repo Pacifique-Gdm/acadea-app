@@ -90,12 +90,12 @@ export function StudentsModule({
   const [reactivationError, setReactivationError] = useState("");
   const defaultCanManage = user.role === "school_admin" && year.status !== "archived";
   const studentCapabilities: StudentModuleCapabilities = {
-    canCreate: capabilities?.canCreate ?? defaultCanManage,
-    canEdit: capabilities?.canEdit ?? defaultCanManage,
-    canArchive: capabilities?.canArchive ?? defaultCanManage,
-    canReactivate: capabilities?.canReactivate ?? defaultCanManage,
-    canCreateParent: capabilities?.canCreateParent ?? defaultCanManage,
-    canManageOptions: capabilities?.canManageOptions ?? defaultCanManage,
+    canCreate: year.status === "active" && (capabilities?.canCreate ?? defaultCanManage),
+    canEdit: year.status === "active" && (capabilities?.canEdit ?? defaultCanManage),
+    canArchive: year.status === "active" && (capabilities?.canArchive ?? defaultCanManage),
+    canReactivate: year.status === "active" && (capabilities?.canReactivate ?? defaultCanManage),
+    canCreateParent: year.status === "active" && (capabilities?.canCreateParent ?? defaultCanManage),
+    canManageOptions: year.status === "active" && (capabilities?.canManageOptions ?? defaultCanManage),
   };
   const showActionsColumn = studentCapabilities.canEdit || studentCapabilities.canArchive || studentCapabilities.canReactivate;
   const studentSectionChoices = getSchoolSections(school).filter((section) => !allowedSections?.length || allowedSections.includes(section));

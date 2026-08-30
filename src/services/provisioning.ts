@@ -164,6 +164,19 @@ export async function deleteParentAccount(input: DeleteParentAccountInput) {
   return payload;
 }
 
+export type ArchivedStudentsImportStatus = {
+  status: "empty" | "ready" | "partial" | "legacy-incomplete" | "complete";
+  sourceCount: number; uniqueCount?: number; importedCount: number; existingCount: number;
+  remaining: number; complete: boolean; sourceYearId: string; schoolYearId: string;
+};
+
+export async function requestArchivedStudentsImport(input: {
+  schoolId: string; schoolYearId: string; sourceYearId: string;
+  mode: "inspect" | "import"; confirmation?: string;
+}) {
+  return provisionSchoolAccount<ArchivedStudentsImportStatus>({ action: "import-archived-students", ...input });
+}
+
 export type UnlinkParentFromStudentInput = {
   schoolId: string;
   schoolYearId: string;

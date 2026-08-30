@@ -52,7 +52,7 @@ export function SecretaryMedicalRecordsDrawer({ open, onClose, user, students, r
   const saveLock = useRef(false);
   const schoolId = school.id;
   const schoolYearId = year.id;
-  const canEditMedicalRecords = canManageStudentMedicalRecords(user, schoolId);
+  const canEditMedicalRecords = year.status === "active" && canManageStudentMedicalRecords(user, schoolId);
   const recordsByStudent = useMemo(() => new Map([
     ...records.filter((record) => record.schoolId === schoolId && record.schoolYearId === schoolYearId).map((record) => [record.studentId, record] as const),
     ...optimisticRecords,
@@ -69,7 +69,7 @@ export function SecretaryMedicalRecordsDrawer({ open, onClose, user, students, r
   }
 
   async function save() {
-    if (!editingStudent || saveLock.current) return;
+    if (!canEditMedicalRecords || !editingStudent || saveLock.current) return;
     if (!requiredMedicalRecordFields.every((field) => input[field].trim())) {
       setMessage("Renseignez le groupe sanguin et les informations du contact d'urgence.");
       return;
@@ -117,7 +117,7 @@ export function SecretaryMedicalRecordsDrawer({ open, onClose, user, students, r
         </div>
       </div>
     </AdminDrawer>}
-    {editingStudent && <AdminDrawer title={`Fiche médicale · ${editingStudent.nom} ${editingStudent.prenom}`} onClose={() => !saving && setEditingStudent(null)} closeLabel="Fermer">
+    {canEditMedicalRecords && editingStudent && <AdminDrawer title={`Fiche médicale · ${editingStudent.nom} ${editingStudent.prenom}`} onClose={() => !saving && setEditingStudent(null)} closeLabel="Fermer">
       <form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); void save(); }}>
         <MedicalRecordFields mode="edit" input={input} onChange={setInput} />
         {message && <p className="rounded border bg-white p-3 text-sm">{message}</p>}

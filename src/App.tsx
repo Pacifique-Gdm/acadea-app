@@ -69,7 +69,6 @@ import type {
   AttendanceSettings,
   FeeType,
   SchoolYear,
-  Student,
 } from "./types";
 
 type Tab = "dashboard" | "students" | "parents" | "control" | "reports" | "messages" | "menu";
@@ -171,6 +170,7 @@ export default function App() {
   const [data, setData] = useState<AppData>(() => loadInitialData());
   const [user, setUser] = useState<AppUser | null>(null);
   const [selectedYearId, setSelectedYearId] = useState("");
+  const yearRequestVersion = useRef(0);
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [parentFormRequest, setParentFormRequest] = useState<{ parentId?: string; requestId: number } | null>(null);
   const [route, setRoute] = useState(() => getInitialRoute());
@@ -454,6 +454,7 @@ export default function App() {
     if (!bootstrapUser || !canUseFirestoreData()) return;
 
     let cancelled = false;
+    const requestVersion = ++yearRequestVersion.current;
 
     void (async () => {
       if (bootstrapUser.role === "super_admin") {
@@ -490,9 +491,11 @@ export default function App() {
 
         const firestoreData = await loadFirestoreData(bootstrapUser, nextYearId, bootstrap);
         if (!firestoreData || cancelled) return;
+        if (requestVersion !== yearRequestVersion.current) return;
         setData(firestoreData);
       } catch (error) {
         if (cancelled || logoutInProgressRef.current) return;
+        if (requestVersion !== yearRequestVersion.current) return;
         if (bootstrapResolved) {
           console.warn("Chargement des données secondaires indisponible.", error);
           setRefreshError(refreshErrorMessage(error));
@@ -506,7 +509,7 @@ export default function App() {
         });
         setBootstrapError(refreshErrorMessage(error));
       } finally {
-        if (!cancelled) setDataLoading(false);
+        if (!cancelled && requestVersion === yearRequestVersion.current) setDataLoading(false);
       }
     })();
 
@@ -537,6 +540,8 @@ export default function App() {
   }, [school, schoolYears, selectedYearId, user]);
 
   function enterSchoolYear(yearId: string) {
+    if (!user || !schoolYears.some((item) => item.id === yearId && item.schoolId === user.schoolId)) return;
+    const requestVersion = ++yearRequestVersion.current;
     setSelectedYearId(yearId);
     setUser((currentUser) => (currentUser ? { ...currentUser, activeSchoolYearId: yearId } : currentUser));
     setData((prev) => {
@@ -551,16 +556,19 @@ export default function App() {
       loadFirestoreData(user, yearId)
         .then((firestoreData) => {
           if (!firestoreData) return;
+          if (requestVersion !== yearRequestVersion.current) return;
           setData({
             ...firestoreData,
             users: firestoreData.users.map((item) => (item.id === user.id ? { ...item, activeSchoolYearId: yearId } : item)),
           });
         })
         .catch((error) => {
+          if (requestVersion !== yearRequestVersion.current) return;
           console.warn("Chargement Firestore indisponible pour cette année scolaire.", error);
+          setRefreshError(refreshErrorMessage(error));
         })
         .finally(() => {
-          setDataLoading(false);
+          if (requestVersion === yearRequestVersion.current) setDataLoading(false);
         });
     }
   }
@@ -572,6 +580,7 @@ export default function App() {
   }
 
   async function logout() {
+    yearRequestVersion.current += 1;
     logoutInProgressRef.current = true;
     setUser(null);
     setSelectedYearId("");
@@ -604,12 +613,14 @@ export default function App() {
 
   async function refreshCurrentYearData() {
     if (refreshInFlightRef.current || !user || !selectedYearId || !canUseFirestoreData()) return;
+    const requestVersion = yearRequestVersion.current;
     setRefreshError("");
     await runRefreshTask({ lock: refreshInFlightRef, setRefreshing: setIsRefreshing, load: async () => {
       const next = await loadFirestoreYearData(user, selectedYearId);
       if (!next) throw new Error("Actualisation Firestore indisponible.");
       return next;
-    }, apply: (next) => { setData((previous) => ({ ...previous, ...next })); setDataRefreshToken((value) => value + 1); }, onError: (error) => {
+    }, apply: (next) => { if (requestVersion !== yearRequestVersion.current) return; setData((previous) => ({ ...previous, ...next })); setDataRefreshToken((value) => value + 1); }, onError: (error) => {
+      if (requestVersion !== yearRequestVersion.current) return;
       logRefreshError({ module: "school-portal", error });
       setRefreshError(refreshErrorMessage(error));
     } });
@@ -617,12 +628,14 @@ export default function App() {
 
   async function refreshDisciplineData() {
     if (refreshInFlightRef.current || !user || !selectedYearId || !canUseFirestoreData()) return;
+    const requestVersion = yearRequestVersion.current;
     setRefreshError("");
     await runRefreshTask({ lock: refreshInFlightRef, setRefreshing: setIsRefreshing, load: async () => {
       const next = await loadDisciplineYearData(user, selectedYearId);
       if (!next) throw new Error("Actualisation Firestore indisponible.");
       return next;
-    }, apply: (next) => { setData((previous) => ({ ...previous, ...next })); setDataRefreshToken((value) => value + 1); }, onError: (error) => {
+    }, apply: (next) => { if (requestVersion !== yearRequestVersion.current) return; setData((previous) => ({ ...previous, ...next })); setDataRefreshToken((value) => value + 1); }, onError: (error) => {
+      if (requestVersion !== yearRequestVersion.current) return;
       logRefreshError({ module: "discipline", error });
       setRefreshError(refreshErrorMessage(error));
     } });
@@ -1026,7 +1039,7 @@ export default function App() {
             canAttachFiles
           />
         )}
-        renderMenu={() => <div className="grid gap-6"><SecretaryMenuModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} createId={uid} studentImportKey={studentImportKey} onLogout={logout} valvesUploadsEnabled={billingControls.controls.valvesUploadsEnabled} maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES} initialBiometricView={secretaryBiometricView} onBiometricViewChange={(view) => navigate(view === "fingerprints" ? "/secretariat/empreintes" : view === "cards" ? "/secretariat/cartes" : view === "menu" ? "/secretariat/empreintes-cartes" : "/dashboard")} renderPublishedTimetable={() => <PublishedTimetableDrawerEntry user={user} school={school} year={selectedYear} />} /></div>}
+        renderMenu={() => <div className="grid gap-6"><SecretaryMenuModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} createId={uid} onLogout={logout} valvesUploadsEnabled={billingControls.controls.valvesUploadsEnabled} maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES} initialBiometricView={secretaryBiometricView} onBiometricViewChange={(view) => navigate(view === "fingerprints" ? "/secretariat/empreintes" : view === "cards" ? "/secretariat/cartes" : view === "menu" ? "/secretariat/empreintes-cartes" : "/dashboard")} renderPublishedTimetable={() => <PublishedTimetableDrawerEntry user={user} school={school} year={selectedYear} />} /></div>}
         renderStudents={() => secretaryStudentDetailMatch ? (
           <StudentDetailPage
             studentId={secretaryStudentDetailMatch[1]}
@@ -1346,10 +1359,6 @@ function formatFeeTargetLabel(fee: Pick<FeeType, "className" | "classOptionKey">
   return formatFeeTargetValue(fee.classOptionKey ?? fee.className);
 }
 
-function studentImportKey(student: Student) {
-  const identity = [student.nom, student.postnom, student.prenom, student.birthDate].map((value) => value.trim().toLowerCase()).join("|");
-  return student.matricule?.trim().toLowerCase() || identity;
-}
 
 function formatArchiveDate(value?: string) {
   if (!value) return "Date non renseignée";

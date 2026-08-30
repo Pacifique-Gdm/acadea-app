@@ -147,7 +147,8 @@ export function MenuModule({
   const [teacherAccountsLoaded, setTeacherAccountsLoaded] = useState(false);
   const [teacherAccountsError, setTeacherAccountsError] = useState("");
   const isArchivedContext = selectedYear.status === "archived";
-  const canAdmin = user.role === "school_admin" && !isArchivedContext;
+  const canReadAdmin = user.role === "school_admin";
+  const canAdmin = canReadAdmin && !isArchivedContext;
   const yearManagementLocked = Boolean(school.activeCoordinationId);
   const canManageYears = canAdmin && !yearManagementLocked;
   const menuSections = [
@@ -195,7 +196,7 @@ export function MenuModule({
   }, [canAdmin, school.id, user]);
 
   useEffect(() => {
-    if (!medicalRecordsOpen || !canAdmin) return undefined;
+    if (!medicalRecordsOpen || !canReadAdmin) return undefined;
     return subscribeToStudentMedicalRecords({
       user,
       schoolId: school.id,
@@ -203,7 +204,7 @@ export function MenuModule({
       onData: (records) => { setMedicalRecords(records); setMedicalRecordsError(""); },
       onError: (error) => setMedicalRecordsError(refreshErrorMessage(error)),
     });
-  }, [canAdmin, medicalRecordsOpen, school.id, selectedYear.id, user]);
+  }, [canReadAdmin, medicalRecordsOpen, school.id, selectedYear.id, user]);
 
   useEffect(() => {
     if (schoolUserEmailManuallyEdited) return;
@@ -725,7 +726,7 @@ export function MenuModule({
   }
 
   function renderMenuSectionForm(sectionId: MenuSection) {
-    if (sectionId === "biometrics" && canAdmin) {
+    if (sectionId === "biometrics" && canReadAdmin) {
       return (
         <div className="grid gap-3">
           <button type="button" className="flex min-w-0 items-center gap-3 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint hover:bg-slate-50" onClick={() => onOpenBiometrics("fingerprints")}>
@@ -934,8 +935,8 @@ export function MenuModule({
       );
     }
 
-    if (sectionId === "personnel" && canAdmin) {
-      return <PersonnelDrawerContent user={user} school={school} />;
+    if (sectionId === "personnel" && canReadAdmin) {
+      return <PersonnelDrawerContent user={user} school={school} readOnly={isArchivedContext} />;
     }
 
     if (sectionId === "accounts" && canAdmin) {
@@ -975,9 +976,9 @@ export function MenuModule({
       );
     }
 
-    if (sectionId === "fees" && canAdmin) {
+    if (sectionId === "fees" && canReadAdmin) {
       return (
-        <div className="grid min-w-0 gap-4">
+        <fieldset disabled={!canAdmin} className="grid min-w-0 gap-4">
           {feeSaveError && <p role="alert" aria-live="assertive" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{feeSaveError}</p>}
           <div ref={feeEditorRef} className="grid min-w-0 scroll-mt-4 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_120px_auto]">
             <select
@@ -1114,7 +1115,7 @@ export function MenuModule({
               </section>
             </div>
           )}
-        </div>
+        </fieldset>
       );
     }
 
@@ -1126,7 +1127,7 @@ export function MenuModule({
       );
     }
 
-    if (sectionId === "valves" && (canAdmin || user.role === "cashier")) {
+    if (sectionId === "valves" && (canReadAdmin || user.role === "cashier")) {
       return (
         <ValvesDrawerContent
           user={user}
@@ -1143,7 +1144,7 @@ export function MenuModule({
       );
     }
 
-    if (sectionId === "parentsDirectory" && canAdmin) {
+    if (sectionId === "parentsDirectory" && canReadAdmin) {
       return (
         <ParentsDirectoryDrawer
           parents={yearData.parents}
@@ -1152,9 +1153,9 @@ export function MenuModule({
           year={selectedYear}
           schoolId={school.id}
           schoolYearId={selectedYear.id}
-          onCreateParent={onCreateParentFromDirectory}
-          onEditParent={onEditParentFromDirectory}
-          onDeleteParent={openParentDeleteDrawer}
+          onCreateParent={canAdmin ? onCreateParentFromDirectory : undefined}
+          onEditParent={canAdmin ? onEditParentFromDirectory : undefined}
+          onDeleteParent={canAdmin ? openParentDeleteDrawer : undefined}
         />
       );
     }
@@ -1166,7 +1167,7 @@ export function MenuModule({
     return null;
   }
 
-  const visibleMenuSections = menuSections.filter((section) => (canAdmin ? true : user.role === "cashier" && (section.id === "valves" || section.id === "history")));
+  const visibleMenuSections = menuSections.filter((section) => (canReadAdmin ? section.id !== "accounts" || canAdmin : user.role === "cashier" && (section.id === "valves" || section.id === "history")));
   const activeMenuSectionConfig = visibleMenuSections.find((section) => section.id === activeMenuSection);
 
   return (
