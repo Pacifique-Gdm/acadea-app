@@ -23,6 +23,7 @@ type SecretaryMenuModuleProps = {
   yearData: Pick<AppData, "students" | "parents" | "valves" | "auditLogs" | "messages" | "feeTypes" | "payments" | "expenses" | "disciplineSanctions">;
   school: School;
   year: SchoolYear;
+  onYearChange: (id: string) => void;
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
   createId: (prefix: string) => string;
   onLogout: () => void;
@@ -36,7 +37,7 @@ type SecretaryMenuModuleProps = {
 const menuButtonClass = "flex min-w-0 items-center gap-3 rounded border border-slate-200 bg-white p-4 text-left transition hover:border-blue-300 hover:bg-blue-50/40";
 const menuIconClass = "rounded bg-blue-50 p-2 text-blue-700";
 
-export function SecretaryMenuModule({ user, data, yearData, school, year, updateData, createId, onLogout, valvesUploadsEnabled, maxValveDocumentBytes, initialBiometricView, onBiometricViewChange, renderPublishedTimetable }: SecretaryMenuModuleProps) {
+export function SecretaryMenuModule({ user, data, yearData, school, year, onYearChange, updateData, createId, onLogout, valvesUploadsEnabled, maxValveDocumentBytes, initialBiometricView, onBiometricViewChange, renderPublishedTimetable }: SecretaryMenuModuleProps) {
   const [importDrawerOpen, setImportDrawerOpen] = useState(false);
   const [ageDrawerOpen, setAgeDrawerOpen] = useState(false);
   const [statisticsDrawerOpen, setStatisticsDrawerOpen] = useState(false);
@@ -87,6 +88,13 @@ export function SecretaryMenuModule({ user, data, yearData, school, year, update
   }
 
   return <section className="grid gap-4"><SectionTitle title="Menu" subtitle="Fonctions administratives secondaires." />
+    <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+      Année scolaire
+      <select aria-label="Année scolaire" className="input w-full min-w-0" value={year.id} onChange={(event) => onYearChange(event.target.value)}>
+        {data.schoolYears.filter((item) => item.schoolId === school.id && (item.status === "active" || item.status === "archived")).map((item) => <option key={item.id} value={item.id}>{item.name}{item.status === "archived" ? " — Archivée (lecture seule)" : " — Active"}</option>)}
+      </select>
+    </label>
+    {year.status === "archived" && <p role="status" className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Vous consultez une année scolaire archivée en lecture seule.</p>}
     <div className="grid gap-3">
       {renderPublishedTimetable?.()}
       <button type="button" onClick={() => setValvesDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><BookOpen className="h-5 w-5" /></span><span className="font-bold text-ink">Valves</span></button>
