@@ -4,7 +4,7 @@ import { getFirestore, type Firestore } from "firebase-admin/firestore";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
 import { collection, doc, getDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
 import { beforeAll, beforeEach, afterAll, describe, expect, it } from "vitest";
-import { importArchivedStudents, importedStudentDocument } from "../../api/_lib/archivedStudentsImport.js";
+import { importArchivedStudents, importedStudentDocument, reenrollTerminalStudent } from "../../api/_lib/archivedStudentsImport.js";
 import type { Student } from "../../src/types";
 
 const projectId = "demo-acadea-archive-import";
@@ -61,7 +61,7 @@ describe.each([false, true])("import réel Emulator, école coordonnée=%s", (co
   });
   it("récupère un faux indicateur historique avec zéro élève", async () => {
     await db.doc("schoolYears/new").update({ studentsImportedFromArchivedYear: true, studentsImportedFromYearId: "old" });
-    expect(await execute({ mode: "inspect" })).toMatchObject({ status: "legacy-incomplete", complete: false, remaining: 1 });
+    expect(await execute({ mode: "inspect" })).toMatchObject({ status: "legacy-incomplete", complete: false, remaining: 2 });
     expect(await execute()).toMatchObject({ complete: true });
     expect(await targetStudents()).toHaveLength(1);
   });
@@ -150,7 +150,9 @@ describe("limites, sécurité et gros volumes", () => {
       await batch.commit();
     }
     const first = await execute();
-    expect(first).toMatchObject({ complete: false, importedCount: 80, remaining: 521 });
+    // Le premier lot contient une classe structurée puis 79 élèves : 80
+    // écritures annuelles primaires au total, jamais 80 par collection.
+    expect(first).toMatchObject({ complete: false, importedCount: 79, remaining: 522 });
     expect((await db.doc("schoolYears/new").get()).data()?.studentsImportedFromArchivedYear).not.toBe(true);
     // A lost response / interrupted client is resumed from actual committed data.
     let result = first;
@@ -159,4 +161,112 @@ describe("limites, sécurité et gros volumes", () => {
     expect(await targetStudents()).toHaveLength(601);
     expect(new Set((await db.doc("parents/parent-a").get()).data()?.studentIds).size).toBe(602);
   }, 90_000);
+});
+
+describe("nouvelle matrice annuelle et continuité multi-modules", () => {
+  async function replaceSourceStudent(changes: Partial<Student>) {
+    await db.doc("students/s0").set({ ...source("s0"), ...changes });
+  }
+
+  it("ne recrée pas un terminaliste de 4ème Humanité", async () => {
+    await replaceSourceStudent({ className: "4ème Humanité", section: "Secondaire", option: "Sciences" });
+    await db.doc("classes/terminal").set({ id: "terminal", schoolId: "school-a", schoolYearId: "new", name: "4ème Humanité", section: "Secondaire", active: true });
+    expect(await execute()).toMatchObject({ complete: true, terminalExitCount: 1, promotedCount: 0 });
+    expect(await targetStudents()).toHaveLength(0);
+    expect((await db.doc("students/s0").get()).data()?.status).toBe("ACTIVE");
+  });
+
+  it.each(["TRANSFERRED", "DROPPED", "DECEASED"] as const)("ignore un élève %s sans le réactiver", async (status) => {
+    await replaceSourceStudent({ status });
+    expect(await execute()).toMatchObject({ complete: true, skippedCount: 1, promotedCount: 0 });
+    expect(await targetStudents()).toHaveLength(0);
+  });
+
+  it("marque une fin de cycle établissement lorsque le CTEB n'est pas proposé", async () => {
+    await db.doc("schools/school-a").update({ educationLevels: ["Primaire"] });
+    await replaceSourceStudent({ className: "6ème Primaire", section: "Primaire" });
+    await db.doc("classes/old-class").update({ name: "6ème Primaire" });
+    await db.doc("classes/new-class").delete();
+    expect(await execute()).toMatchObject({ complete: true, schoolCycleExitCount: 1, promotedCount: 0 });
+    expect(await targetStudents()).toHaveLength(0);
+  });
+
+  it("promeut 8ème CTEB vers une 1ère Humanité structurée avec option vide", async () => {
+    await db.doc("schools/school-a").update({ educationLevels: ["CTEB", "Secondaire"] });
+    await replaceSourceStudent({ className: "8ème CTEB", section: "CTEB", option: "Ancienne option" });
+    await db.doc("classes/old-class").update({ name: "8ème CTEB", section: "CTEB" });
+    await db.doc("classes/new-class").set({ id: "new-class", schoolId: "school-a", schoolYearId: "new", name: "1ère Humanité", section: "Secondaire", active: true });
+    expect(await execute()).toMatchObject({ complete: true, promotedCount: 1 });
+    const [target] = await targetStudents();
+    expect(target.data()).toMatchObject({ className: "1ère Humanité", classId: "new-class", status: "ACTIVE" });
+    expect(target.data()).not.toHaveProperty("option");
+    expect(target.data()).not.toHaveProperty("classOptionKey");
+  });
+
+  it("reconduit médical, frais et configuration pédagogique sans copier notes ni paiements", async () => {
+    const records: Record<string, Record<string, unknown>> = {
+      "studentMedicalRecords/s0": { id: "s0", studentId: "s0", schoolId: "school-a", schoolYearId: "old", allergies: "Arachide", observations: "Suivi annuel" },
+      "feeTypes/fee-old": { id: "fee-old", schoolId: "school-a", schoolYearId: "old", name: "Minerval", amount: 125, className: "1ère Primaire" },
+      "teachers/teacher-old": { id: "teacher-old", userId: "teacher-user", schoolId: "school-a", schoolYearId: "old", fullName: "Professeur A", status: "active" },
+      "subjects/subject-old": { id: "subject-old", schoolId: "school-a", schoolYearId: "old", name: "Mathématiques", active: true, classIds: ["old-class"] },
+      "rooms/room-old": { id: "room-old", schoolId: "school-a", schoolYearId: "old", name: "Salle 1", active: true },
+      "schedulePeriods/period-old": { id: "period-old", schoolId: "school-a", schoolYearId: "old", label: "P1", startTime: "08:00", endTime: "09:00", order: 1, type: "course", active: true },
+      "pedagogicalAssignments/assignment-old": { id: "assignment-old", schoolId: "school-a", schoolYearId: "old", teacherId: "teacher-old", subjectId: "subject-old", classId: "old-class", preferredRoomId: "room-old", weeklyPeriods: 4, active: true },
+      "timetables/timetable-old": { id: "timetable-old", schoolId: "school-a", schoolYearId: "old", version: 1, status: "PUBLISHED", activeDraft: false, activePublished: true },
+      "timetableEntries/entry-old": { id: "entry-old", scheduleId: "timetable-old", schoolId: "school-a", schoolYearId: "old", teacherId: "teacher-old", subjectId: "subject-old", classId: "old-class", assignmentId: "assignment-old", dayOfWeek: "monday", periodId: "period-old", roomId: "room-old" },
+      "payments/payment-old": { id: "payment-old", schoolId: "school-a", schoolYearId: "old", studentId: "s0", feeTypeId: "fee-old", amount: 125 },
+      "gradeEntries/grade-old": { id: "grade-old", schoolId: "school-a", schoolYearId: "old", studentId: "s0", score: 16 },
+    };
+    const batch = db.batch(); for (const [path, value] of Object.entries(records)) batch.set(db.doc(path), value); await batch.commit();
+    expect(await execute()).toMatchObject({ complete: true, promotedCount: 1 });
+    const [targetStudent] = await targetStudents();
+    expect((await db.doc(`studentMedicalRecords/${targetStudent.id}`).get()).data()).toMatchObject({ studentId: targetStudent.id, schoolYearId: "new", allergies: "Arachide", observations: "Suivi annuel" });
+    const targetFees = await db.collection("feeTypes").where("schoolYearId", "==", "new").get();
+    expect(targetFees.docs.map((item) => item.data())).toEqual([expect.objectContaining({ name: "Minerval", amount: 125 })]);
+    const assignments = await db.collection("pedagogicalAssignments").where("schoolYearId", "==", "new").get();
+    const entries = await db.collection("timetableEntries").where("schoolYearId", "==", "new").get();
+    expect(assignments.size).toBe(1); expect(entries.size).toBe(1);
+    expect(entries.docs[0].data()).toMatchObject({ dayOfWeek: "monday" });
+    expect((await db.collection("payments").where("schoolYearId", "==", "new").get()).size).toBe(0);
+    expect((await db.collection("gradeEntries").where("schoolYearId", "==", "new").get()).size).toBe(0);
+    expect((await db.doc("gradeEntries/grade-old").get()).exists).toBe(true);
+  });
+});
+
+describe("réinscription annuelle d'un terminaliste", () => {
+  const admin = { uid: "admin-a", role: "school_admin", schoolId: "school-a" };
+  const request = (changes: Record<string, unknown> = {}, actor = admin) => reenrollTerminalStudent({ db, caller: actor, body: { schoolId: "school-a", sourceStudentId: "s0", mode: "reenroll", confirmation: "REINSCRIRE CET ELEVE", ...changes } });
+  beforeEach(async () => {
+    await db.doc("users/admin-a").set({ ...admin, status: "active" });
+    await db.doc("students/s0").set({ ...source("s0"), className: "4ème Humanité", section: "Secondaire", option: "Sciences" });
+    await db.doc("classes/terminal-target").set({ id: "terminal-target", schoolId: "school-a", schoolYearId: "new", name: "4ème Humanité", section: "Secondaire", active: true });
+    await db.doc("studentMedicalRecords/s0").set({ id: "s0", studentId: "s0", schoolId: "school-a", schoolYearId: "old", allergies: "Pénicilline" });
+  });
+
+  it("crée une seule fiche annuelle, conserve matricule/parent/médical et écrit un audit unique", async () => {
+    const before = (await db.doc("students/s0").get()).data();
+    const [first, second] = await Promise.all([request(), request()]);
+    expect([first.status, second.status]).toContain("reenrolled");
+    const targets = await targetStudents(); expect(targets).toHaveLength(1);
+    expect(targets[0].data()).toMatchObject({ matricule: "s0", parentId: "parent-a", className: "4ème Humanité", classId: "terminal-target", option: "Sciences", status: "ACTIVE" });
+    expect((await db.doc(`studentMedicalRecords/${targets[0].id}`).get()).data()).toMatchObject({ allergies: "Pénicilline", studentId: targets[0].id, schoolYearId: "new" });
+    expect((await db.doc("students/s0").get()).data()).toEqual(before);
+    expect((await db.collection("auditLogs").where("eventType", "==", "student.terminal_reenrolled").get()).size).toBe(1);
+    expect(new Set((await db.doc("parents/parent-a").get()).data()?.studentIds).size).toBe(2);
+  });
+
+  it.each(["cashier", "discipline_director", "study_director", "parent", "coordination_admin", "sub_coordination_admin"])("refuse le rôle %s", async (role) => {
+    await expect(request({}, { ...admin, role })).rejects.toMatchObject({ code: "permission-denied" });
+    expect(await targetStudents()).toHaveLength(0);
+  });
+
+  it("refuse autre école, année active absente et classe cible absente", async () => {
+    await expect(request({ schoolId: "school-b" })).rejects.toThrow();
+    await db.doc("schools/school-a").update({ activeSchoolYearId: "missing" });
+    await expect(request()).rejects.toThrow("année cible");
+    await db.doc("schools/school-a").update({ activeSchoolYearId: "new" });
+    await db.doc("classes/terminal-target").delete();
+    await expect(request()).rejects.toThrow();
+    expect(await targetStudents()).toHaveLength(0);
+  });
 });

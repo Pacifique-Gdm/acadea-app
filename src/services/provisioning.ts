@@ -168,6 +168,12 @@ export type ArchivedStudentsImportStatus = {
   status: "empty" | "ready" | "partial" | "legacy-incomplete" | "complete";
   sourceCount: number; uniqueCount?: number; importedCount: number; existingCount: number;
   remaining: number; complete: boolean; sourceYearId: string; schoolYearId: string;
+  phase?: string;
+  promotedCount?: number;
+  terminalExitCount?: number;
+  schoolCycleExitCount?: number;
+  skippedCount?: number;
+  importedCollections?: Record<string, number>;
 };
 
 export async function requestArchivedStudentsImport(input: {
@@ -175,6 +181,23 @@ export async function requestArchivedStudentsImport(input: {
   mode: "inspect" | "import"; confirmation?: string;
 }) {
   return provisionSchoolAccount<ArchivedStudentsImportStatus>({ action: "import-archived-students", ...input });
+}
+
+export type TerminalStudentReenrollmentStatus = {
+  status: "ready" | "reenrolled" | "already-reenrolled";
+  created: boolean;
+  sourceStudentId: string;
+  targetStudentId: string;
+  schoolYearId: string;
+};
+
+export async function requestTerminalStudentReenrollment(input: {
+  schoolId: string;
+  sourceStudentId: string;
+  mode: "inspect" | "reenroll";
+  confirmation?: string;
+}) {
+  return provisionSchoolAccount<TerminalStudentReenrollmentStatus>({ action: "reenroll-terminal-student", ...input });
 }
 
 export type UnlinkParentFromStudentInput = {

@@ -135,6 +135,8 @@ export interface Student {
   photoUrl?: string;
   parentId?: string;
   biometric?: StudentBiometric;
+  importedFromStudentId?: string;
+  importedFromSchoolYearId?: string;
 }
 
 export type FingerprintStatus = "not_enrolled" | "enrolled" | "disabled";

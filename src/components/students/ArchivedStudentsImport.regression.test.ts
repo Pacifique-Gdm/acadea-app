@@ -45,7 +45,7 @@ describe("régression de l'import avant normalisation et publication", () => {
     expect(harness.request).toHaveBeenCalledWith({ schoolId: school.id, schoolYearId: year.id, sourceYearId: oldYear.id, mode: "import", confirmation: "IMPORTER LES ELEVES" });
     const payload = importedStudentDocument(student, school.id, year.id, []);
     expect(payload).not.toHaveProperty("option");
-    expect(payload.schoolYearId).toBe(year.id);
+    expect(payload?.schoolYearId).toBe(year.id);
     expect(harness.refresh).toHaveBeenCalledWith(user, year.id);
   });
 });

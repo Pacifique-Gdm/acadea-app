@@ -25,7 +25,7 @@ describe("outils administratifs Élèves partagés", () => {
   it("réutilise les services, promotions et calculs PDF existants", () => {
     expect(importDrawer).toContain("requestArchivedStudentsImport");
     expect(importDrawer).not.toContain("persistFirestorePatch");
-    expect(importApi).toContain("promoteStudentForNewYear");
+    expect(importApi).toContain("annualStudentTransition");
     expect(tools).toContain("exportAgeHomogeneityPdf");
     expect(importApi).toContain("studentImportKey");
     expect(tools).not.toContain("theoreticalAgeByClass");
@@ -50,9 +50,12 @@ describe("outils administratifs Élèves partagés", () => {
     expect(tools).toContain('user.role === "secretary"');
     expect(tools).toContain('user.status === "active"');
     expect(tools).toContain("user.schoolId === school.id");
-    expect(importApi).toContain('scoped(db, "students", schoolId, sourceYearId)');
+    expect(importApi).toContain("ANNUAL_COLLECTIONS.flatMap");
+    expect(importApi).toContain("scoped(db, name, schoolId, sourceYearId)");
     expect(tools).toContain("student.schoolYearId === year.id");
-    expect(importApi).toContain("byKey.get(studentImportKey(source))");
+    expect(importApi).toContain("target.students.filter((item) => studentImportKey(item) === studentImportKey(student))");
+    expect(importApi).toContain("ARCHIVED_IMPORT_CHUNK_SIZE - selected.length");
+    expect(importApi).not.toContain("400 - selected.length");
   });
 
   it("fournit deux Drawers fermables et scrollables sans nouvelle logique métier", () => {

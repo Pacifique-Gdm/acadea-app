@@ -65,7 +65,7 @@ export function ArchivedStudentsImportDrawer({ open, onClose, user, data, school
   if (!open) return null;
   return <AdminDrawer title="Importer les élèves d’une année archivée" onClose={close} closeLabel="Fermer l'import des élèves">
     <div className="grid min-w-0 gap-4">
-      <p className="rounded border border-blue-100 bg-blue-50 p-3 text-sm text-blue-800">Seules les fiches élèves et leurs liens parents seront repris dans l'année active. Paiements, reçus, présences, notes, messages et historiques restent dans leur année d'origine.</p>
+      <p className="rounded border border-blue-100 bg-blue-50 p-3 text-sm text-blue-800">La transition annuelle reprend les élèves éligibles, leurs fiches médicales et les configurations de frais et pédagogiques. Paiements, reçus, présences, notes, cotes, sanctions, messages et historiques restent dans leur année d'origine.</p>
       {!canImport ? <p role="alert">L'import nécessite un Secrétaire actif et l'année active de son école. Les archives restent en lecture seule.</p>
         : archivedYears.length === 0 ? <p>Aucune année archivée disponible pour l'import.</p>
           : <>
@@ -77,14 +77,20 @@ export function ArchivedStudentsImportDrawer({ open, onClose, user, data, school
             </label>
             {checking && <p role="status">Vérification des élèves et de l'import…</p>}
             {status && <Metric label="Élèves disponibles" value={String(status.sourceCount)} />}
+            {status && <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+              <p className="rounded bg-green-50 p-2"><strong>{status.promotedCount ?? 0}</strong><br/>promus</p>
+              <p className="rounded bg-slate-100 p-2"><strong>{status.terminalExitCount ?? 0}</strong><br/>fins de cycle terminal</p>
+              <p className="rounded bg-amber-50 p-2"><strong>{status.schoolCycleExitCount ?? 0}</strong><br/>fins de cycle école</p>
+              <p className="rounded bg-slate-100 p-2"><strong>{status.skippedCount ?? 0}</strong><br/>non réimportés</p>
+            </div>}
             {status?.status === "empty" && <p>Aucun élève dans l'année source archivée.</p>}
-            {status?.complete ? <p role="status" className="rounded bg-mint/10 p-3 text-sm">{finished ? `${status.importedCount} élève(s) importé(s). Import terminé et vérifié.` : "Les élèves ont déjà été importés pour cette année scolaire. Présence et liens vérifiés."}</p> : <>
+            {status?.complete ? <p role="status" className="rounded bg-mint/10 p-3 text-sm">{finished ? `Transition terminée : ${status.promotedCount ?? status.importedCount} élève(s) promu(s), ${status.terminalExitCount ?? 0} fin(s) de cycle terminal, ${status.schoolCycleExitCount ?? 0} fin(s) de cycle dans l’établissement, ${status.skippedCount ?? 0} élève(s) non réimporté(s).` : `Les données de l’année sélectionnée ont déjà été importées vers ${year.name}.`}</p> : <>
               {(status?.status === "legacy-incomplete" || status?.status === "partial") && <p role="status">L'import précédent est incomplet. La reprise conserve les élèves déjà présents et leurs données.</p>}
               <label className="grid gap-1 text-sm font-semibold">Phrase de confirmation
                 <input className="input" placeholder="IMPORTER LES ELEVES" value={confirmation} disabled={busy || checking} onChange={(event) => setConfirmation(event.target.value)} />
               </label>
               <button className="primary-button justify-center disabled:opacity-50" type="button" onClick={() => void importStudents()} disabled={busy || checking || !status?.sourceCount || confirmation !== "IMPORTER LES ELEVES"}>
-                <Upload className="h-4 w-4" />{busy ? `Importation… ${status ? status.sourceCount - status.remaining : 0}/${status?.sourceCount ?? 0}` : "Importer tous les élèves"}
+                <Upload className="h-4 w-4" />{busy ? `Transition annuelle… ${status?.phase ?? "préparation"}` : "Importer les données annuelles"}
               </button>
             </>}
           </>}

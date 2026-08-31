@@ -6,6 +6,7 @@ export const AUDIT_EVENT_TYPES = Object.freeze({
   USER_CREATED: "user.created", USER_UPDATED: "user.updated", USER_DELETED: "user.deleted", USER_DISABLED: "user.disabled", USER_REACTIVATED: "user.reactivated",
   PARENT_UNLINKED_FROM_STUDENT: "parent.unlinked_from_student",
   STUDENTS_IMPORTED: "students.imported_from_archive",
+  STUDENT_TERMINAL_REENROLLED: "student.terminal_reenrolled",
   FINANCE_PAYMENT_CREATED: "finance.payment.created", FINANCE_PAYMENT_UPDATED: "finance.payment.updated", FINANCE_PAYMENT_DELETED: "finance.payment.deleted",
   FINANCE_EXPENSE_CREATED: "finance.expense.created", FINANCE_EXPENSE_UPDATED: "finance.expense.updated", FINANCE_EXPENSE_DELETED: "finance.expense.deleted",
 });
@@ -15,6 +16,7 @@ const labels = Object.freeze({
   [AUDIT_EVENT_TYPES.USER_CREATED]: "Création utilisateur", [AUDIT_EVENT_TYPES.USER_UPDATED]: "Modification utilisateur", [AUDIT_EVENT_TYPES.USER_DELETED]: "Suppression utilisateur", [AUDIT_EVENT_TYPES.USER_DISABLED]: "Désactivation utilisateur", [AUDIT_EVENT_TYPES.USER_REACTIVATED]: "Réactivation utilisateur",
   [AUDIT_EVENT_TYPES.PARENT_UNLINKED_FROM_STUDENT]: "Déliaison parent élève",
   [AUDIT_EVENT_TYPES.STUDENTS_IMPORTED]: "Import élèves année archivée",
+  [AUDIT_EVENT_TYPES.STUDENT_TERMINAL_REENROLLED]: "Réinscription terminale élève",
   [AUDIT_EVENT_TYPES.FINANCE_PAYMENT_CREATED]: "Création paiement", [AUDIT_EVENT_TYPES.FINANCE_PAYMENT_UPDATED]: "Correction paiement", [AUDIT_EVENT_TYPES.FINANCE_PAYMENT_DELETED]: "Suppression paiement",
   [AUDIT_EVENT_TYPES.FINANCE_EXPENSE_CREATED]: "Création dépense", [AUDIT_EVENT_TYPES.FINANCE_EXPENSE_UPDATED]: "Modification dépense", [AUDIT_EVENT_TYPES.FINANCE_EXPENSE_DELETED]: "Suppression dépense",
 });

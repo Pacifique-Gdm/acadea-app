@@ -3,7 +3,7 @@ import { firebaseAdminPublicError, initAdmin } from "./_lib/firebaseAdmin.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./_lib/serverAudit.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { requireActiveSchoolYear } from "./_lib/schoolYear.js";
-import { importArchivedStudents } from "./_lib/archivedStudentsImport.js";
+import { importArchivedStudents, reenrollTerminalStudent } from "./_lib/archivedStudentsImport.js";
 
 const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent"]);
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
@@ -507,6 +507,11 @@ export default async function handler(req, res) {
     if (action === "import-archived-students") {
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: "students.import-archive", ...API_RATE_LIMITS.FINANCE_CREATE });
       sendJson(res, 200, await importArchivedStudents({ db, caller, body }));
+      return;
+    }
+    if (action === "reenroll-terminal-student") {
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: "students.reenroll-terminal", ...API_RATE_LIMITS.PROVISION_DESTRUCTIVE });
+      sendJson(res, 200, await reenrollTerminalStudent({ db, caller, body }));
       return;
     }
     const destructive = action === "delete-parent" || action === "unlink-parent-from-student" || action === "remove-school-admin" || action === "archive-personnel" || action === "reactivate-personnel";
