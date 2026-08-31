@@ -45,7 +45,25 @@
     "js-yaml": "4.3.1",
     "brace-expansion@<1.1.18": "1.1.18",
     "@vercel/python-analysis": {
-      "minimatch": "10.2.6"
+      "minimatch": "10.2.6",
+      "smol-toml": "1.6.1"
+    },
+    "@vercel/backends": {
+      "tsx": "4.22.4",
+      "path-to-regexp": "8.4.0"
+    },
+    "@vercel/node": {
+      "undici": "5.29.0",
+      "path-to-regexp": "6.3.0"
+    },
+    "vercel": {
+      "path-to-regexp@>=6.0.0 <6.3.0": "6.3.0",
+      "path-to-regexp@>=8.0.0 <8.4.0": "8.4.0",
+      "smol-toml": "1.6.1",
+      "@tootallnate/once": "2.0.1",
+      "@vercel/static-config": {
+        "ajv": "8.18.0"
+      }
     }
   },
   "devDependencies": {
