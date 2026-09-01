@@ -643,7 +643,6 @@ export function StudentsModule({
                           <>
                             <IconButton label="Consulter" onClick={() => onOpenStudent(student.id)} icon={Eye} />
                             {studentCapabilities.canReactivate && <IconButton label="Réactiver l'élève" onClick={() => openReactivateStudentDialog(student.id)} icon={RefreshCw} />}
-                            {canReenroll(student) && <IconButton label="Réinscrire en 4ème Humanité" onClick={() => { setTerminalStudent(student); setTerminalConfirmation(""); setTerminalError(""); setTerminalFeedback(""); }} icon={RotateCcw} />}
                           </>
                         ) : (
                           <>
@@ -651,6 +650,7 @@ export function StudentsModule({
                             {studentCapabilities.canArchive && <IconButton label="Archiver" onClick={() => removeStudent(student.id)} icon={Trash2} danger />}
                           </>
                         )}
+                        {canReenroll(student) && <IconButton label="Réinscrire en 4ème Humanité" onClick={() => { setTerminalStudent(student); setTerminalConfirmation(""); setTerminalError(""); setTerminalFeedback(""); }} icon={RotateCcw} />}
                       </div>
                     ) : (
                       <span className="text-xs text-slate-400">Lecture seule</span>

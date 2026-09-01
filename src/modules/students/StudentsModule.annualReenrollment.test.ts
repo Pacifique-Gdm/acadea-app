@@ -20,6 +20,7 @@ describe("réinscription annuelle terminale dans les archives", () => {
   });
   it("affiche une action accessible et une confirmation explicite", () => {
     expect(source).toContain('label="Réinscrire en 4ème Humanité"');
+    expect(source).toContain(')}\n                        {canReenroll(student) && <IconButton label="Réinscrire en 4ème Humanité"');
     expect(source).toContain('title="Réinscrire l’élève"');
     expect(source).toContain('placeholder="REINSCRIRE CET ELEVE"');
     expect(source).toContain('terminalConfirmation !== "REINSCRIRE CET ELEVE"');
