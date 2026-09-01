@@ -83,6 +83,12 @@ export function ArchivedStudentsImportDrawer({ open, onClose, user, data, school
               <p className="rounded bg-amber-50 p-2"><strong>{status.schoolCycleExitCount ?? 0}</strong><br/>fins de cycle école</p>
               <p className="rounded bg-slate-100 p-2"><strong>{status.skippedCount ?? 0}</strong><br/>non réimportés</p>
             </div>}
+            {status && <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4" aria-label="Données annuelles reconduites">
+              <p className="rounded border border-slate-200 p-2"><strong>{status.importedCollections?.studentMedicalRecords ?? 0}</strong><br/>fiches médicales</p>
+              <p className="rounded border border-slate-200 p-2"><strong>{status.importedCollections?.feeTypes ?? 0}</strong><br/>types de frais</p>
+              <p className="rounded border border-slate-200 p-2"><strong>{status.importedCollections?.pedagogicalAssignments ?? 0}</strong><br/>affectations</p>
+              <p className="rounded border border-slate-200 p-2"><strong>{status.importedCollections?.timetableEntries ?? 0}</strong><br/>créneaux d’horaire</p>
+            </div>}
             {status?.status === "empty" && <p>Aucun élève dans l'année source archivée.</p>}
             {status?.complete ? <p role="status" className="rounded bg-mint/10 p-3 text-sm">{finished ? `Transition terminée : ${status.promotedCount ?? status.importedCount} élève(s) promu(s), ${status.terminalExitCount ?? 0} fin(s) de cycle terminal, ${status.schoolCycleExitCount ?? 0} fin(s) de cycle dans l’établissement, ${status.skippedCount ?? 0} élève(s) non réimporté(s).` : `Les données de l’année sélectionnée ont déjà été importées vers ${year.name}.`}</p> : <>
               {(status?.status === "legacy-incomplete" || status?.status === "partial") && <p role="status">L'import précédent est incomplet. La reprise conserve les élèves déjà présents et leurs données.</p>}

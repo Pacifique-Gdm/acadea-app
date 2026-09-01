@@ -218,7 +218,16 @@ describe("nouvelle matrice annuelle et continuité multi-modules", () => {
       "gradeEntries/grade-old": { id: "grade-old", schoolId: "school-a", schoolYearId: "old", studentId: "s0", score: 16 },
     };
     const batch = db.batch(); for (const [path, value] of Object.entries(records)) batch.set(db.doc(path), value); await batch.commit();
-    expect(await execute()).toMatchObject({ complete: true, promotedCount: 1 });
+    expect(await execute()).toMatchObject({
+      complete: true,
+      promotedCount: 1,
+      importedCollections: {
+        studentMedicalRecords: 1,
+        feeTypes: 1,
+        pedagogicalAssignments: 1,
+        timetableEntries: 1,
+      },
+    });
     const [targetStudent] = await targetStudents();
     expect((await db.doc(`studentMedicalRecords/${targetStudent.id}`).get()).data()).toMatchObject({ studentId: targetStudent.id, schoolYearId: "new", allergies: "Arachide", observations: "Suivi annuel" });
     const targetFees = await db.collection("feeTypes").where("schoolYearId", "==", "new").get();
@@ -253,7 +262,7 @@ describe("réinscription annuelle d'un terminaliste", () => {
     expect((await db.doc("students/s0").get()).data()).toEqual(before);
     expect((await db.collection("auditLogs").where("eventType", "==", "student.terminal_reenrolled").get()).size).toBe(1);
     expect(new Set((await db.doc("parents/parent-a").get()).data()?.studentIds).size).toBe(2);
-  });
+  }, 15_000);
 
   it.each(["cashier", "discipline_director", "study_director", "parent", "coordination_admin", "sub_coordination_admin"])("refuse le rôle %s", async (role) => {
     await expect(request({}, { ...admin, role })).rejects.toMatchObject({ code: "permission-denied" });

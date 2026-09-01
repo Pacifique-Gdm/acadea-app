@@ -294,11 +294,14 @@ function importResult({ job, sourceCount, uniqueCount, plan, selected, sourceYea
   const pendingStudentWrites = plan.plans.find((item) => item.name === "students").writes.length;
   const selectedStudentWrites = selected.filter((item) => item.collection === "students").length;
   const existingCount = plan.counts.promotedCount - pendingStudentWrites;
+  const previousCollections = job?.result?.importedCollections ?? {};
   return {
     status: complete ? "complete" : job ? "partial" : "ready", sourceCount, uniqueCount,
     importedCount: (job?.result?.importedCount ?? 0) + selectedStudentWrites, existingCount,
     remaining, complete, sourceYearId, schoolYearId, phase, ...plan.counts,
-    importedCollections: Object.fromEntries(plan.plans.map((item) => [item.name, item.writes.length - Math.max(0, item.writes.length - selected.filter((write) => write.collection === item.name).length)])),
+    importedCollections: Object.fromEntries(plan.plans.map((item) => [item.name,
+      (previousCollections[item.name] ?? 0) + selected.filter((write) => write.collection === item.name).length,
+    ])),
   };
 }
 
@@ -376,7 +379,7 @@ export async function importArchivedStudents({ db, caller, body }) {
     if (complete) {
       transaction.update(yearRef, { studentsImportedFromArchivedYear: true, studentsImportedFromYearId: sourceYearId, studentsImportedAt: new Date().toISOString(), annualImportStatus: "COMPLETED", annualImportJobId: jobId });
       const auditRef = db.doc(`auditLogs/archived-import-${jobId}`);
-      transaction.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.STUDENTS_IMPORTED, actor: caller, schoolId, schoolYearId, resourceType: "schoolYear", resourceId: schoolYearId, metadata: { sourceYearId, ...plan.counts, importedCollections: selected.length } }));
+      transaction.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.STUDENTS_IMPORTED, actor: caller, schoolId, schoolYearId, resourceType: "schoolYear", resourceId: schoolYearId, metadata: { sourceYearId, ...plan.counts, importedItems: processedItems, importedCollections: result.importedCollections } }));
     } else if (year.studentsImportedFromArchivedYear) transaction.update(yearRef, { studentsImportedFromArchivedYear: false, annualImportStatus: "IN_PROGRESS" });
     return { ...result, complete, status: complete ? "complete" : "partial" };
   });

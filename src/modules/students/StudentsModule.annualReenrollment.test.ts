@@ -35,6 +35,10 @@ describe("feedback de la transition annuelle", () => {
     for (const field of ["promotedCount", "terminalExitCount", "schoolCycleExitCount", "skippedCount"]) expect(drawer).toContain(field);
     expect(drawer).toContain("Transition terminée");
   });
+  it("affiche les compteurs cumulés des données annuelles reconduites", () => {
+    for (const field of ["studentMedicalRecords", "feeTypes", "pedagogicalAssignments", "timetableEntries"]) expect(drawer).toContain(field);
+    for (const label of ["fiches médicales", "types de frais", "affectations", "créneaux d’horaire"]) expect(drawer).toContain(label);
+  });
   it("déclare explicitement les historiques jamais copiés", () => {
     for (const label of ["Paiements", "présences", "notes", "cotes", "sanctions", "messages"]) expect(drawer).toContain(label);
   });
