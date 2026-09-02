@@ -18,4 +18,12 @@ describe("Dashboard Admin/Caissier — temps réel et iPhone", () => {
     expect(source).toContain("activeDashboardPersonnelCounts(data.users, school.id)");
     expect(source).toContain("uniqueActiveParentCount(filteredParents)");
   });
+
+  it("conserve le snapshot personnel temps réel hors du chargement annuel tardif", () => {
+    const appSource = readFileSync(new URL("../../App.tsx", import.meta.url), "utf8");
+    expect(appSource).toContain("const [realtimeDashboardUsers, setRealtimeDashboardUsers] = useState<AppUser[]>([])");
+    expect(appSource).toContain("onUsers: setRealtimeDashboardUsers");
+    expect(appSource).toContain("users: realtimeDashboardUsers.length > 0 ? realtimeDashboardUsers : yearData.users");
+    expect(appSource).not.toContain("setData((previous) => ({ ...previous, users: reconcileRealtimeSchoolUsers");
+  });
 });

@@ -42,7 +42,7 @@ import { reconcileRealtimeFeeTypes, useRealtimeFeeTypes } from "./hooks/useRealt
 import { reconcileFinancialSnapshot, useRealtimeFinancialTransactions } from "./hooks/useRealtimeFinancialTransactions";
 import { useRealtimeSchoolRecords } from "./hooks/useRealtimeSchoolRecords";
 import { useRealtimeSchoolSettings } from "./hooks/useRealtimeSchoolSettings";
-import { reconcileRealtimeSchoolUsers, useRealtimeSchoolUsers } from "./hooks/useRealtimeSchoolUsers";
+import { useRealtimeSchoolUsers } from "./hooks/useRealtimeSchoolUsers";
 import { markNotificationsReadTargeted } from "./services/notificationsPagination";
 import { restorePaymentPushNotifications, stopPaymentPushForegroundListener } from "./services/pushNotifications";
 import { canUseFirestoreData, loadDisciplineYearData, loadFirestoreBootstrapData, loadFirestoreData, loadFirestoreYearData, loadParentPortalData, loadPlatformSettings, persistFirestorePatch } from "./services/firestoreData";
@@ -362,11 +362,8 @@ export default function App() {
   const schoolYears = useMemo(() => (school ? data.schoolYears.filter((year) => year.schoolId === school.id) : []), [data.schoolYears, school]);
   const selectedYear = schoolYears.find((year) => year.id === selectedYearId);
   const realtimeDashboardSchoolId = user && (user.role === "school_admin" || user.role === "cashier") ? school?.id ?? "" : "";
-  const applyRealtimeDashboardUsers = useCallback((users: AppUser[]) => {
-    if (!realtimeDashboardSchoolId) return;
-    setData((previous) => ({ ...previous, users: reconcileRealtimeSchoolUsers(previous.users, users, realtimeDashboardSchoolId) }));
-  }, [realtimeDashboardSchoolId]);
-  useRealtimeSchoolUsers({ user, schoolId: realtimeDashboardSchoolId, onUsers: applyRealtimeDashboardUsers });
+  const [realtimeDashboardUsers, setRealtimeDashboardUsers] = useState<AppUser[]>([]);
+  useRealtimeSchoolUsers({ user, schoolId: realtimeDashboardSchoolId, onUsers: setRealtimeDashboardUsers });
   const applyCoordinatedYears = useCallback((years: SchoolYear[]) => {
     setData((previous) => ({ ...previous, schoolYears: years }));
   }, []);
@@ -1147,7 +1144,7 @@ export default function App() {
               navigate("/dashboard");
             }}
           />
-        ) : activeTab === "dashboard" && <Dashboard data={yearData} school={currentSchool} year={selectedYear} />}
+        ) : activeTab === "dashboard" && <Dashboard data={{ ...yearData, users: realtimeDashboardUsers.length > 0 ? realtimeDashboardUsers : yearData.users }} school={currentSchool} year={selectedYear} />}
         {!standaloneAdminRoute && activeTab === "students" && (
           <StudentsModule
             user={user}
