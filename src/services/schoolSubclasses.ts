@@ -35,6 +35,23 @@ export function schoolClassOptionKey(parentClassId: string, option: string) {
   return `${parentClassId}::${normalizedClassName(option)}`;
 }
 
+/** Resolves the option key even before the classes listener has emitted. */
+export function studentSchoolClassOptionKey(
+  classes: readonly SchoolClassRecord[],
+  student: EnrolledStudentClassReference & { option?: string },
+) {
+  const option = student.option?.trim();
+  if (!option) return undefined;
+  const selectedClass = classes.find((item) => !item.parentClassId && (
+    item.id === student.classId
+    || normalizedClassName(item.name) === normalizedClassName(student.className ?? "")
+  ));
+  const parentClassId = selectedClass?.id
+    || student.classId?.trim()
+    || (student.className?.trim() ? schoolClassRecordId(student.schoolId, student.schoolYearId, student.className) : undefined);
+  return parentClassId ? schoolClassOptionKey(parentClassId, option) : undefined;
+}
+
 export function activeSubclasses(classes: SchoolClassRecord[], parentClassId: string, classOptionKey?: string) {
   return classes.filter((item) => item.parentClassId === parentClassId && item.active !== false && (!classOptionKey || item.classOptionKey === classOptionKey));
 }

@@ -3,7 +3,7 @@ import { CheckCircle2, Fingerprint, Plus, Radio } from "lucide-react";
 import { Field, ImageUploadField, PasswordField } from "../ui";
 import { cardStatusLabels, fingerprintStatusLabels, resolveStudentBiometric } from "../../utils/biometrics";
 import { getClassSection } from "../../utils/studentClasses";
-import { schoolClassOptionKey, schoolClassRecordId, secondarySubclassesForOption } from "../../services/schoolSubclasses";
+import { schoolClassRecordId, secondarySubclassesForOption, studentSchoolClassOptionKey } from "../../services/schoolSubclasses";
 import type { ParentProfile, SchoolClass, SchoolClassRecord, Student } from "../../types";
 
 export function StudentForm({
@@ -63,7 +63,7 @@ export function StudentForm({
   const selectedStructuredClass = structuredClasses.find((item) => !item.parentClassId && (item.id === form.classId || item.name === form.className));
   const selectedClass = selectedStructuredClass ?? (form.className ? { id: schoolClassRecordId(form.schoolId, form.schoolYearId, form.className), schoolId: form.schoolId, schoolYearId: form.schoolYearId, name: form.className, active: true } : undefined);
   const isSecondaryClass = getClassSection(form.className) === "Secondaire";
-  const selectedOptionKey = selectedClass && form.option ? schoolClassOptionKey(selectedClass.id, form.option) : undefined;
+  const selectedOptionKey = studentSchoolClassOptionKey(structuredClasses, form);
   const subclasses = selectedClass
     ? isSecondaryClass
       ? secondarySubclassesForOption(structuredClasses, selectedClass.id, selectedOptionKey, form.subClassId)
@@ -173,7 +173,8 @@ export function StudentForm({
                   return;
                 }
                 const option = event.target.value || undefined;
-                setForm({ ...form, option, classOptionKey: selectedClass && option ? schoolClassOptionKey(selectedClass.id, option) : undefined, subClassId: undefined });
+                const nextForm = { ...form, option, subClassId: undefined };
+                setForm({ ...nextForm, classOptionKey: studentSchoolClassOptionKey(structuredClasses, nextForm) });
               }}
               className="input"
             >

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeSubclasses, canonicalOperationalClasses, classesWithEnrolledStudents, operationalClasses, operationalSchoolClasses, schoolClassOptionKey, schoolClassRecordId, secondarySubclassesForOption, studentBelongsToOperationalClass, validateSubclassLabels } from "./schoolSubclasses";
+import { activeSubclasses, canonicalOperationalClasses, classesWithEnrolledStudents, operationalClasses, operationalSchoolClasses, schoolClassOptionKey, schoolClassRecordId, secondarySubclassesForOption, studentBelongsToOperationalClass, studentSchoolClassOptionKey, validateSubclassLabels } from "./schoolSubclasses";
 import fs from "node:fs";
 import type { SchoolClassRecord } from "../types";
 const base = (id: string, extra: Partial<SchoolClassRecord> = {}): SchoolClassRecord => ({ id, schoolId: "school-a", schoolYearId: "year-a", name: id, active: true, ...extra });
@@ -46,6 +46,27 @@ describe("identite operationnelle stable des classes", () => {
   it("conserve une classe active sans eleve et retire une classe desactivee au recalcul", () => {
     expect(operationalSchoolClasses([base("active-empty"), base("inactive", { active: false })], "school-a", "year-a").map((item) => item.id)).toEqual(["active-empty"]);
     expect(operationalSchoolClasses([base("active-empty", { active: false })], "school-a", "year-a")).toEqual([]);
+  });
+});
+
+describe("clé d'option pendant le chargement des classes", () => {
+  it("conserve la clé issue du classId avant le premier snapshot", () => {
+    expect(studentSchoolClassOptionKey([], {
+      schoolId: "school-a",
+      schoolYearId: "year-a",
+      classId: "humanities-1",
+      className: "1ère Humanité",
+      option: "Sciences",
+    })).toBe("humanities-1::sciences");
+  });
+
+  it("résout l'identifiant de la classe chargée pour une inscription legacy", () => {
+    expect(studentSchoolClassOptionKey([base("humanities-1", { name: "1ère Humanité" })], {
+      schoolId: "school-a",
+      schoolYearId: "year-a",
+      className: "1ère Humanité",
+      option: "Commerciale",
+    })).toBe("humanities-1::commerciale");
   });
 });
 

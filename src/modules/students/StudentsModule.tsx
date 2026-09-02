@@ -15,7 +15,7 @@ import { exportStudentsPdf, sortStudentsForPdfByClass } from "../../utils/studen
 import type { AppData, AppUser, ParentProfile, School, SchoolSection, SchoolYear, Student } from "../../types";
 import { CLASSES } from "../../types";
 import type { SchoolClassRecord } from "../../types";
-import { activeSubclasses, createSchoolSubclasses, schoolClassOptionKey, secondarySubclassesForOption, subscribeToSchoolClasses } from "../../services/schoolSubclasses";
+import { activeSubclasses, createSchoolSubclasses, schoolClassOptionKey, secondarySubclassesForOption, studentSchoolClassOptionKey, subscribeToSchoolClasses } from "../../services/schoolSubclasses";
 import { canonicalAnnualClassName, isEligibleForAnnualTransition, studentImportKey } from "../../utils/studentYearTransition.js";
 
 export interface StudentModuleCapabilities {
@@ -229,7 +229,7 @@ export function StudentsModule({
         return;
       }
       const selectedClass = structuredClasses.find((item) => item.id === form.classId && !item.parentClassId);
-      const selectedOptionKey = selectedClass && form.option ? schoolClassOptionKey(selectedClass.id, form.option) : undefined;
+      const selectedOptionKey = studentSchoolClassOptionKey(structuredClasses, form);
       const selectedSubclasses = selectedClass
         ? getClassSection(form.className) === "Secondaire"
           ? secondarySubclassesForOption(structuredClasses, selectedClass.id, selectedOptionKey, form.subClassId)
