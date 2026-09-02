@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AppData, AppUser, ParentProfile, Student } from "../types";
-import { applyParentUnlinkResult, isExactParentUnlinkConfirmation, PARENT_UNLINK_CONFIRMATION } from "./parentStudentLink";
+import { applyParentUnlinkResult, isExactParentUnlinkConfirmation, PARENT_UNLINK_CONFIRMATION, reconcileStudentParentMembership } from "./parentStudentLink";
 
 const studentA = { id: "student-a", parentId: "parent-a" } as Student;
 const studentB = { id: "student-b", parentId: "parent-a" } as Student;
@@ -41,5 +41,19 @@ describe("liaison Parent ↔ Élève", () => {
     expect(result.parents[0].studentIds).toEqual([]);
     expect(result.users).toHaveLength(1);
     expect(result.users[0].studentIds).toEqual([]);
+  });
+
+  it("ne réordonne ni ne réécrit le parent lorsque la liaison existe déjà", () => {
+    const parent = { ...parentA, studentIds: ["student-b", "student-a", "student-c"] };
+    const result = reconcileStudentParentMembership([parent], "student-a", "parent-a");
+    expect(result[0]).toBe(parent);
+    expect(result[0].studentIds).toEqual(["student-b", "student-a", "student-c"]);
+  });
+
+  it("retire l'ancienne liaison et ajoute la nouvelle une seule fois", () => {
+    const parentB = { ...parentA, id: "parent-b", studentIds: [] };
+    const result = reconcileStudentParentMembership([parentA, parentB], "student-a", "parent-b");
+    expect(result[0].studentIds).toEqual(["student-b"]);
+    expect(result[1].studentIds).toEqual(["student-a"]);
   });
 });

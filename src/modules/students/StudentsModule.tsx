@@ -6,6 +6,7 @@ import { persistFirestorePatch } from "../../services/firestoreData";
 import { provisionParent, requestTerminalStudentReenrollment } from "../../services/provisioning";
 import { createAuditLog } from "../../utils/audit";
 import { nextParentEmail, parentEmailExists } from "../../utils/parents";
+import { reconcileStudentParentMembership } from "../../utils/parentStudentLink";
 import { getSchoolClassChoices, getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
 import { canonicalSchoolOption, normalizeSchoolOptions } from "../../utils/schoolOptions";
 import { persistSchoolOption } from "../../services/schoolOptionsRepository";
@@ -272,10 +273,7 @@ export function StudentsModule({
       } else {
         delete student.parentId;
       }
-      const parents = data.parents.map((parent) => {
-        const withoutStudent = parent.studentIds.filter((studentId) => studentId !== student.id);
-        return parent.id === student.parentId ? { ...parent, studentIds: Array.from(new Set([...withoutStudent, student.id])) } : { ...parent, studentIds: withoutStudent };
-      });
+      const parents = reconcileStudentParentMembership(data.parents, student.id, student.parentId);
       const users = data.users.map((item) => {
         if (item.role !== "parent" || !item.parentId) return item;
         const parent = parents.find((parentItem) => parentItem.id === item.parentId);
