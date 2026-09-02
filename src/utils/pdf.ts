@@ -356,7 +356,7 @@ export async function generateReceiptPdf(payment: Payment, student: Student, fee
         { label: "Matricule", value: student.matricule },
         { label: "Classe", value: formatStudentClassName(student) },
         { label: "Type de frais", value: feeType.name },
-        { label: "Montant payé", value: money(payment.amount) },
+        { label: "Montant payé", value: formatSchoolMoney(payment.amount, school) },
         { label: "Caissier", value: cashierName || "-" },
       ]),
       `

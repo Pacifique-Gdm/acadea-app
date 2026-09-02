@@ -151,6 +151,7 @@ export default async function handler(req, res) {
       startsAt: "2026-09-01",
       endsAt: "2027-07-15",
       status: "active",
+      currency,
     };
 
     await db.doc(`schools/${schoolId}`).set(school);

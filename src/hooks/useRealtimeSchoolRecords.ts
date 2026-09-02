@@ -40,7 +40,7 @@ export function useRealtimeSchoolRecords({
         ? [...annualConstraints, where("section", "in", assignedSections)]
         : annualConstraints;
     const canReadStudents = ["school_admin", "cashier", "discipline_director", "secretary"].includes(user.role);
-    const canReadParents = ["school_admin", "discipline_director", "secretary"].includes(user.role);
+    const canReadParents = ["school_admin", "cashier", "discipline_director", "secretary"].includes(user.role);
     const canReadSanctions = ["school_admin", "discipline_director"].includes(user.role);
 
     if (canReadStudents) {

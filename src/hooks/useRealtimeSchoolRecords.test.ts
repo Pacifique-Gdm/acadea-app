@@ -36,12 +36,13 @@ describe("useRealtimeSchoolRecords", () => {
     unsubscribes.forEach((unsubscribe) => expect(unsubscribe).toHaveBeenCalledOnce());
   });
 
-  it("limite le caissier aux élèves nécessaires", () => {
+  it("limite le caissier aux élèves et parents nécessaires au Dashboard", () => {
     mocks.onSnapshot.mockReturnValue(vi.fn());
     useRealtimeSchoolRecords({ user: { ...baseUser, role: "cashier" }, schoolId: "school-1", schoolYearId: "year-1", onData: vi.fn() });
     effects[0]();
-    expect(mocks.onSnapshot).toHaveBeenCalledOnce();
+    expect(mocks.onSnapshot).toHaveBeenCalledTimes(2);
     expect(mocks.collection).toHaveBeenCalledWith({}, "students");
+    expect(mocks.collection).toHaveBeenCalledWith({}, "parents");
   });
 
   it("ne démarre aucune lecture sans contexte complet", () => {

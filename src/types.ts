@@ -101,6 +101,8 @@ export interface SchoolYear {
   startsAt: string;
   endsAt: string;
   status: "active" | "archived" | "draft";
+  /** Devise monétaire propre à l'année. Absente uniquement sur les données historiques. */
+  currency?: "USD" | "CDF";
   studentsImportedFromArchivedYear?: boolean;
   studentsImportedFromYearId?: string;
   studentsImportedAt?: string;

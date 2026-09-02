@@ -14,7 +14,8 @@ import { medicalRecordReadErrorMessage, subscribeToParentMedicalRecords } from "
 import { buildSchoolYearDataIndexes } from "../../utils/dataIndexes";
 import { resolvePaymentCashierName } from "../../utils/finance";
 import { nextMessageThreadId } from "../../utils/messageThreads";
-import { generateReceiptPdf, money } from "../../utils/pdf";
+import { generateReceiptPdf } from "../../utils/pdf";
+import { formatSchoolMoney } from "../../utils/currency";
 import { mergeMessagesById, mergeNotificationsById } from "../../utils/realtimeMerges";
 import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
 import { formatStudentClassName } from "../../utils/studentClasses";
@@ -447,9 +448,9 @@ export function ParentPortal({
                         <div className={`h-full rounded transition-colors ${progressTone}`} style={{ width: `${progress}%` }} />
                       </div>
                       <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                        <Metric label="Total frais" value={money(feeTotals.expected)} />
-                        <Metric label="Total payé" value={money(feeTotals.paid)} />
-                        <Metric label="Solde" value={money(feeTotals.remaining)} />
+                        <Metric label="Total frais" value={formatSchoolMoney(feeTotals.expected, school)} />
+                        <Metric label="Total payé" value={formatSchoolMoney(feeTotals.paid, school)} />
+                        <Metric label="Solde" value={formatSchoolMoney(feeTotals.remaining, school)} />
                       </div>
                       <div className="mt-4 rounded border border-slate-100 bg-slate-50 p-3">
                         <p className="mb-3 text-sm font-semibold text-ink">Progression par type de frais</p>
@@ -463,16 +464,16 @@ export function ParentPortal({
                                 <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                                   <p className="break-words text-sm font-bold text-ink">{summary.feeName}</p>
                                   <p className="break-words text-xs font-semibold text-slate-500">
-                                    {money(summary.paid)} / {money(summary.expected)}
+                                    {formatSchoolMoney(summary.paid, school)} / {formatSchoolMoney(summary.expected, school)}
                                   </p>
                                 </div>
                                 <div className="mt-2 h-2 overflow-hidden rounded bg-slate-100">
                                   <div className={`h-full rounded transition-colors ${summaryProgressTone}`} style={{ width: `${summaryProgress}%` }} />
                                 </div>
                                 <div className="mt-2 grid gap-2 text-xs text-slate-600 sm:grid-cols-3">
-                                  <span>Attendu : <strong>{money(summary.expected)}</strong></span>
-                                  <span>Payé : <strong>{money(summary.paid)}</strong></span>
-                                  <span>Solde : <strong>{money(summary.remaining)}</strong></span>
+                                  <span>Attendu : <strong>{formatSchoolMoney(summary.expected, school)}</strong></span>
+                                  <span>Payé : <strong>{formatSchoolMoney(summary.paid, school)}</strong></span>
+                                  <span>Solde : <strong>{formatSchoolMoney(summary.remaining, school)}</strong></span>
                                 </div>
                               </div>
                             );

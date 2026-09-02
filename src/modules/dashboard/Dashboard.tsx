@@ -9,10 +9,14 @@ import { buildDashboardClassRows } from "../../utils/dashboardClassStats";
 import { formatChartDate, getTransactionPeriodDates } from "../../utils/dashboardDates";
 import { exportDashboardReportPdf } from "../../utils/dashboardPdf";
 import { money } from "../../utils/pdf";
+import { formatSchoolMoney } from "../../utils/currency";
+import { formatCount } from "../../utils/numberFormat";
+import { activeDashboardPersonnelCounts, uniqueActiveParentCount } from "../../utils/dashboardPopulationStats";
+import { canonicalOperationalClasses, subscribeToSchoolClasses } from "../../services/schoolSubclasses";
 import { getSchoolClassChoices, getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
-import { buildStats } from "../../utils/stats";
 import { formatStudentClassName, getClassSection } from "../../utils/studentClasses";
-import type { AppUser, Expense, FeeType, ParentProfile, Payment, School, SchoolSection, SchoolYear, Student } from "../../types";
+import { isArchivedStudent } from "../../utils/studentUtils";
+import type { AppUser, Expense, FeeType, ParentProfile, Payment, School, SchoolClassRecord, SchoolSection, SchoolYear, Student } from "../../types";
 
 type DashboardData = {
   students: Student[];
@@ -338,6 +342,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
   const [dateFilterActive, setDateFilterActive] = useState(false);
   const [dateFilterError, setDateFilterError] = useState("");
   const [transactionPeriod, setTransactionPeriod] = useState<TransactionPeriod>("last5");
+  const [schoolClasses, setSchoolClasses] = useState<SchoolClassRecord[]>([]);
   const dashboardClassChoices = useMemo(() => getSchoolClassChoices(school), [school]);
   const dashboardSectionChoices = useMemo(() => getSchoolSections(school), [school]);
   useEffect(() => {
@@ -345,8 +350,14 @@ export function Dashboard({ data, school, year }: DashboardProps) {
       setSectionFilter("all");
     }
   }, [dashboardSectionChoices, sectionFilter]);
+  useEffect(() => subscribeToSchoolClasses(
+    school.id,
+    year.id,
+    setSchoolClasses,
+    (error) => console.warn("Actualisation des classes du Dashboard indisponible.", error),
+  ), [school.id, year.id]);
   const yearIndexes = useMemo(() => buildSchoolYearDataIndexes(data.students, data.feeTypes, data.payments), [data.students, data.feeTypes, data.payments]);
-  const activeStudents = useMemo(() => data.students.filter((student) => (student.status ?? "ACTIVE") === "ACTIVE"), [data.students]);
+  const activeStudents = useMemo(() => data.students.filter((student) => !isArchivedStudent(student)), [data.students]);
   const filteredStudents = useMemo(() => activeStudents.filter((student) => sectionFilter === "all" || getClassSection(student.className) === sectionFilter), [activeStudents, sectionFilter]);
   const filteredStudentIds = useMemo(() => new Set(filteredStudents.map((student) => student.id)), [filteredStudents]);
   const filteredParents = useMemo(() => {
@@ -370,7 +381,6 @@ export function Dashboard({ data, school, year }: DashboardProps) {
     [data.expenses, dateFilterActive, endDate, sectionFilter, startDate],
   );
   const filteredPaymentIndexes = useMemo(() => buildSchoolYearDataIndexes(filteredStudents, data.feeTypes, filteredPayments), [filteredStudents, data.feeTypes, filteredPayments]);
-  const stats = useMemo(() => buildStats(filteredStudents, filteredParents, data.feeTypes, filteredPayments), [data.feeTypes, filteredParents, filteredPayments, filteredStudents]);
   const dashboardFinancialAggregates = useMemo(
     () => buildDashboardFinancialAggregates(filteredStudents, data.feeTypes, filteredPayments, filteredPaymentIndexes),
     [data.feeTypes, filteredPaymentIndexes, filteredPayments, filteredStudents],
@@ -392,10 +402,15 @@ export function Dashboard({ data, school, year }: DashboardProps) {
   const feeProgressRows = activeFinancialAggregates.feeProgressRows;
   const feeShares = useMemo(() => buildDashboardFeeShares(feeProgressRows), [feeProgressRows]);
   const totalActiveStudents = filteredStudents.length;
-  const totalUniqueParents = filteredParents.length;
-  const admins = useMemo(() => data.users.filter((item) => item.schoolId === school.id && item.role === "school_admin").length, [data.users, school.id]);
-  const cashiers = useMemo(() => data.users.filter((item) => item.schoolId === school.id && item.role === "cashier").length, [data.users, school.id]);
-  const disciplineDirectors = useMemo(() => data.users.filter((item) => item.schoolId === school.id && item.role === "discipline_director").length, [data.users, school.id]);
+  const totalUniqueParents = useMemo(() => uniqueActiveParentCount(filteredParents), [filteredParents]);
+  const personnelCounts = useMemo(() => activeDashboardPersonnelCounts(data.users, school.id), [data.users, school.id]);
+  const operationalClassCount = useMemo(() => canonicalOperationalClasses(
+    schoolClasses,
+    activeStudents,
+    school.id,
+    year.id,
+    sectionFilter === "all" ? undefined : [sectionFilter],
+  ).length, [activeStudents, school.id, schoolClasses, sectionFilter, year.id]);
   const classRows = useMemo(
     () =>
       dashboardClassChoices.map((className) => {
@@ -500,14 +515,14 @@ export function Dashboard({ data, school, year }: DashboardProps) {
   const dateLabel = dateFilterActive ? (startDate || "D\u00e9but") + " au " + (endDate || "Fin") : "Année scolaire complète";
   const cards = [
     { label: "Nombre total d'\u00e9l\u00e8ves", value: totalActiveStudents, icon: GraduationCap, tone: "bg-mint/10 text-mint" },
-    { label: "Nombre de classes", value: stats.classes, icon: BookOpen, tone: "bg-indigo-100 text-indigo-700" },
+    { label: "Nombre de classes", value: operationalClassCount, icon: BookOpen, tone: "bg-indigo-100 text-indigo-700" },
     { label: "Nombre total de parents", value: totalUniqueParents, icon: UsersRound, tone: "bg-coral/10 text-coral" },
-    { label: "Administrateurs", value: admins, icon: ShieldCheck, tone: "bg-blue-100 text-blue-700" },
-    { label: "Caissiers", value: cashiers, icon: UserRound, tone: "bg-pink-100 text-pink-700" },
-    { label: "Directeurs de Discipline", value: disciplineDirectors, icon: ShieldCheck, tone: "bg-violet-100 text-violet-700" },
-    { label: "Montant attendu", value: "$" + dashboardFinancialStats.expected.toFixed(2), icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
-    { label: "Montant total encaiss\u00e9", value: "$" + totalPayments.toFixed(2), icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
-    { label: "Montant restant \u00e0 payer", value: "$" + remaining.toFixed(2), icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
+    { label: "Administrateurs", value: personnelCounts.school_admin, icon: ShieldCheck, tone: "bg-blue-100 text-blue-700" },
+    { label: "Caissiers", value: personnelCounts.cashier, icon: UserRound, tone: "bg-pink-100 text-pink-700" },
+    { label: "Directeurs de Discipline", value: personnelCounts.discipline_director, icon: ShieldCheck, tone: "bg-violet-100 text-violet-700" },
+    { label: "Montant attendu", value: formatSchoolMoney(dashboardFinancialStats.expected, school), icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
+    { label: "Montant total encaiss\u00e9", value: formatSchoolMoney(totalPayments, school), icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
+    { label: "Montant restant \u00e0 payer", value: formatSchoolMoney(remaining, school), icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
   ];
 
   function progressBarTone(rate: number) {
@@ -567,7 +582,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
           <h1 className="text-2xl font-bold text-ink">Dashboard</h1>
           <p className="text-sm text-slate-500">{"Statistiques limit\u00e9es \u00e0 l'ann\u00e9e scolaire s\u00e9lectionn\u00e9e."}</p>
         </div>
-        <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-[180px_150px_150px_auto_auto]">
+        <div data-testid="dashboard-date-controls" className="grid w-full min-w-0 max-w-full gap-2 sm:grid-cols-2 lg:w-auto lg:grid-cols-[180px_150px_150px_auto_auto]">
           <select value={sectionFilter} onChange={(event) => setSectionFilter(event.target.value as typeof sectionFilter)} className="input">
             <option value="all">Toutes les sections</option>
             {dashboardSectionChoices.map((section) => (
@@ -579,14 +594,14 @@ export function Dashboard({ data, school, year }: DashboardProps) {
             onChange={(event) => updateDashboardDateFilter("start", event.target.value)}
             type="date"
             max={today}
-            className="input"
+            className="input block min-w-0 max-w-full [min-inline-size:0]"
           />
           <input
             value={endDate}
             onChange={(event) => updateDashboardDateFilter("end", event.target.value)}
             type="date"
             max={today}
-            className="input"
+            className="input block min-w-0 max-w-full [min-inline-size:0]"
           />
           <button onClick={resetDashboardDateFilter} type="button" className="rounded border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:border-mint hover:text-mint">
             Réinitialiser
@@ -607,7 +622,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
                 <Icon className="h-5 w-5" />
               </div>
               <p className="text-sm text-slate-500">{card.label}</p>
-              <p className="mt-1 break-words text-2xl font-bold text-ink">{card.value}</p>
+              <p className="mt-1 break-words text-2xl font-bold text-ink">{typeof card.value === "number" ? formatCount(card.value) : card.value}</p>
             </article>
           );
         })}
@@ -625,10 +640,10 @@ export function Dashboard({ data, school, year }: DashboardProps) {
           <div className={`h-full rounded ${progressBarTone(recoveryRate)}`} style={{ width: Math.min(100, recoveryRate) + "%" }} />
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-4">
-          <Metric label="Attendu" value={"$" + dashboardFinancialStats.expected.toFixed(2)} />
-          <Metric label={"Encaiss\u00e9"} value={"$" + totalPayments.toFixed(2)} />
-          <Metric label={"D\u00e9penses"} value={"$" + totalExpenses.toFixed(2)} />
-          <Metric label="Reste" value={"$" + remaining.toFixed(2)} />
+          <Metric label="Attendu" value={formatSchoolMoney(dashboardFinancialStats.expected, school)} />
+          <Metric label={"Encaiss\u00e9"} value={formatSchoolMoney(totalPayments, school)} />
+          <Metric label={"D\u00e9penses"} value={formatSchoolMoney(totalExpenses, school)} />
+          <Metric label="Reste" value={formatSchoolMoney(remaining, school)} />
         </div>
         <div className="mt-5 grid gap-3">
           {feeProgressRows.map((row) => (
@@ -644,15 +659,15 @@ export function Dashboard({ data, school, year }: DashboardProps) {
                 <div className={`h-full rounded ${progressBarTone(row.rate)}`} style={{ width: Math.min(100, row.rate) + "%" }} />
               </div>
               <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
-                <span className="rounded bg-white px-2 py-1 text-slate-600">Attendu : <strong className="text-ink">${row.expected.toFixed(2)}</strong></span>
-                <span className="rounded bg-white px-2 py-1 text-slate-600">Payé : <strong className="text-ink">${row.paid.toFixed(2)}</strong></span>
-                <span className="rounded bg-white px-2 py-1 text-slate-600">Solde : <strong className="text-ink">${row.remaining.toFixed(2)}</strong></span>
+                <span className="rounded bg-white px-2 py-1 text-slate-600">Attendu : <strong className="text-ink">{formatSchoolMoney(row.expected, school)}</strong></span>
+                <span className="rounded bg-white px-2 py-1 text-slate-600">Payé : <strong className="text-ink">{formatSchoolMoney(row.paid, school)}</strong></span>
+                <span className="rounded bg-white px-2 py-1 text-slate-600">Solde : <strong className="text-ink">{formatSchoolMoney(row.remaining, school)}</strong></span>
               </div>
             </div>
           ))}
           {feeProgressRows.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun frais applicable pour les filtres sélectionnés.</p>}
         </div>
-        <FinancialFeeShareChart rows={feeShares} />
+        <FinancialFeeShareChart rows={feeShares} formatAmount={(value) => formatSchoolMoney(value, school)} />
       </div>
 
       <FormPanel title="Transactions du jour">
@@ -664,14 +679,14 @@ export function Dashboard({ data, school, year }: DashboardProps) {
                 <p className="break-words text-xs text-slate-500">{transaction.label} | {transaction.date.slice(0, 10)}</p>
               </div>
               <span className={transaction.amount >= 0 ? "shrink-0 font-bold text-mint" : "shrink-0 font-bold text-red-600"}>
-                {(transaction.amount >= 0 ? "+" : "-") + "$" + Math.abs(transaction.amount).toFixed(2)}
+                {(transaction.amount >= 0 ? "+" : "-") + formatSchoolMoney(Math.abs(transaction.amount), school)}
               </span>
             </div>
           ))}
           {transactions.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">{"Aucune transaction pour cette p\u00e9riode."}</p>}
         </div>
         <div className="mt-4 border-t border-slate-100 pt-4">
-          <TransactionComboChart rows={transactionChartRows} period={transactionPeriod} onPeriodChange={setTransactionPeriod} />
+          <TransactionComboChart rows={transactionChartRows} period={transactionPeriod} onPeriodChange={setTransactionPeriod} formatAmount={(value) => formatSchoolMoney(value, school)} />
         </div>
       </FormPanel>
 

@@ -21,9 +21,10 @@ import type { SchoolLevelChoice } from "../../utils/schoolConfig";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import { isArchivedStudent } from "../../utils/studentUtils";
 import { canonicalSchoolOption, normalizeSchoolOptions } from "../../utils/schoolOptions";
+import { resolveSchoolYearCurrency } from "../../utils/currency";
 import { CoordinationManagement } from "./CoordinationManagement";
 import { CoordinationCreateDrawer } from "./CoordinationCreateDrawer";
-import type { AppData, AppUser, AuditLog, BiometricTerminal, BiometricTerminalStatus, School, SchoolClass } from "../../types";
+import type { AppData, AppUser, AuditLog, BiometricTerminal, BiometricTerminalStatus, School, SchoolClass, SchoolYear } from "../../types";
 import { CLASSES } from "../../types";
 
 export function PlatformModule({
@@ -123,6 +124,9 @@ export function PlatformModule({
   const [schoolDeleteLoading, setSchoolDeleteLoading] = useState(false);
   const [schoolLevelChangeTarget, setSchoolLevelChangeTarget] = useState<{ school: School; level: SchoolLevelChoice } | null>(null);
   const [schoolLevelConfirmation, setSchoolLevelConfirmation] = useState("");
+  const [currencyChangeTarget, setCurrencyChangeTarget] = useState<{ school: School; year: SchoolYear; currency: "USD" | "CDF" } | null>(null);
+  const [currencyChangeConfirmation, setCurrencyChangeConfirmation] = useState("");
+  const [currencyChangeLoading, setCurrencyChangeLoading] = useState(false);
   const [biometricSchoolId, setBiometricSchoolId] = useState("");
   const [terminalFormOpen, setTerminalFormOpen] = useState(false);
   const [editingTerminalId, setEditingTerminalId] = useState("");
@@ -167,6 +171,7 @@ export function PlatformModule({
   const biometricSchool = visibleSchools.find((school) => school.id === biometricSchoolId);
   const biometricSchoolTerminals = biometricSchool ? data.biometricTerminals.filter((terminal) => terminal.schoolId === biometricSchool.id).sort((a, b) => activityTimestamp(b.createdAt) - activityTimestamp(a.createdAt)) : [];
   const drawerSchoolOptions = normalizeSchoolOptions(drawerSchool?.schoolOptions).filter(isAllowedSchoolOption);
+  const drawerActiveYear = drawerSchool ? data.schoolYears.find((year) => year.id === drawerSchool.activeSchoolYearId && year.schoolId === drawerSchool.id) : undefined;
   const drawerStats = drawerSchool ? getPlatformSchoolStats(drawerSchool.id, data) : { students: 0, parents: 0, admins: 0, users: 0 };
   const drawerAdmins = drawerSchool ? data.users.filter((item) => item.role === "school_admin" && item.schoolId === drawerSchool.id && !item.removedAt) : [];
   const drawerMainAdmin = drawerSchool ? drawerAdmins.find((admin) => admin.id === drawerSchool.mainAdminId) ?? drawerAdmins[0] : undefined;
@@ -385,13 +390,10 @@ export function PlatformModule({
     if (phone === null) return;
     const email = window.prompt("Email", school.email ?? "");
     if (email === null) return;
-    const currency = window.prompt("Devise (USD ou CDF)", school.currency ?? "USD")?.trim().toUpperCase();
-    if (!currency) return;
-    if (currency !== "USD" && currency !== "CDF") { setSchoolActionError("La devise doit être USD ou CDF."); return; }
     setSchoolActionError("");
     try {
       const payload = await manageSchool({ action: "update", schoolId: school.id, patch: {
-        name: name.trim(), address: address.trim(), phone: phone.trim(), email: email.trim(), currency,
+        name: name.trim(), address: address.trim(), phone: phone.trim(), email: email.trim(),
       } });
       if (!payload.school) throw new Error("Réponse école incomplète.");
       updateData({ schools: data.schools.map((item) => item.id === school.id ? payload.school as School : item) }, { persist: false });
@@ -669,6 +671,51 @@ export function PlatformModule({
       users: data.users.map((item) => (item.id === admin.id ? { ...item, status: nextStatus } : item)),
       auditLogs: [writeAudit(admin.schoolId, `${nextStatus === "inactive" ? "Désactivation" : "Réactivation"} de l'administrateur ${admin.name}`), ...data.auditLogs],
     });
+  }
+
+  function openCurrencyChangeDialog(school: School, currency: "USD" | "CDF") {
+    const activeYear = data.schoolYears.find((year) => year.id === school.activeSchoolYearId && year.schoolId === school.id && year.status === "active");
+    if (!activeYear) {
+      setSchoolActionError("Aucune année scolaire active valide n'est disponible pour ce changement.");
+      return;
+    }
+    if (resolveSchoolYearCurrency(activeYear, school) === currency) return;
+    setSchoolActionError("");
+    setCurrencyChangeTarget({ school, year: activeYear, currency });
+    setCurrencyChangeConfirmation("");
+  }
+
+  function closeCurrencyChangeDialog() {
+    if (currencyChangeLoading) return;
+    setCurrencyChangeTarget(null);
+    setCurrencyChangeConfirmation("");
+  }
+
+  async function confirmCurrencyChange() {
+    if (!currencyChangeTarget || currencyChangeLoading || currencyChangeConfirmation !== "CHANGER LA DEVISE") return;
+    setCurrencyChangeLoading(true);
+    setSchoolActionError("");
+    try {
+      const payload = await manageSchool({
+        action: "change-currency",
+        schoolId: currencyChangeTarget.school.id,
+        schoolYearId: currencyChangeTarget.year.id,
+        currency: currencyChangeTarget.currency,
+        confirmation: currencyChangeConfirmation,
+      });
+      if (!payload.school || !payload.schoolYear) throw new Error("Réponse de changement de devise incomplète.");
+      updateData({
+        schools: data.schools.map((item) => item.id === payload.school?.id ? payload.school as School : item),
+        schoolYears: data.schoolYears.map((item) => item.id === payload.schoolYear?.id ? payload.schoolYear as SchoolYear : item),
+      }, { persist: false });
+      setSchoolActionSuccess(`Devise de l'année ${payload.schoolYear.name} enregistrée avec succès.`);
+      setCurrencyChangeTarget(null);
+      setCurrencyChangeConfirmation("");
+    } catch (error) {
+      setSchoolActionError(error instanceof Error ? error.message : "Changement de devise impossible.");
+    } finally {
+      setCurrencyChangeLoading(false);
+    }
   }
 
   function openSchoolAiAssistantConfirmation(school: School, enabled: boolean) {
@@ -1306,7 +1353,20 @@ export function PlatformModule({
                 <InfoRow label="Adresse" value={drawerSchool.address || "-"} />
                 <InfoRow label="Téléphone" value={drawerSchool.phone || "-"} />
                 <InfoRow label="Email" value={drawerSchool.email || "-"} />
-                <InfoRow label="Devise" value={(drawerSchool.currency ?? "USD") === "CDF" ? "Franc congolais (CDF)" : "Dollar américain (USD)"} />
+                <label className="grid gap-1 rounded bg-slate-50 p-3 text-sm">
+                  <span className="font-semibold text-slate-500">Devise monétaire de l'année active</span>
+                  <select
+                    aria-label="Devise monétaire de l'année active"
+                    className="input font-semibold"
+                    value={resolveSchoolYearCurrency(drawerActiveYear, drawerSchool)}
+                    onChange={(event) => openCurrencyChangeDialog(drawerSchool, event.target.value as "USD" | "CDF")}
+                    disabled={!drawerActiveYear}
+                  >
+                    <option value="USD">Dollar américain (USD)</option>
+                    <option value="CDF">Franc congolais (CDF)</option>
+                  </select>
+                  {!drawerActiveYear && <span className="text-xs text-amber-700">Aucune année active disponible.</span>}
+                </label>
                 <label className="grid gap-1 rounded bg-slate-50 p-3 text-sm">
                   <span className="font-semibold text-slate-500">Niveau de l'école</span>
                   <select
@@ -1668,6 +1728,40 @@ export function PlatformModule({
             </div>
           </section>
         </div>
+      )}
+
+      {currencyChangeTarget && (
+        <AdminDrawer title="Changer la devise monétaire" onClose={closeCurrencyChangeDialog} closeLabel="Annuler le changement de devise">
+          <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">
+            La devise de l'année {currencyChangeTarget.year.name} passera de {resolveSchoolYearCurrency(currencyChangeTarget.year, currencyChangeTarget.school)} à {currencyChangeTarget.currency}. Les montants historiques ne seront ni convertis ni réécrits. Pour confirmer, saisissez exactement : CHANGER LA DEVISE
+          </p>
+          <label className="grid gap-1 text-sm font-medium text-slate-700">
+            Phrase de confirmation
+            <input
+              value={currencyChangeConfirmation}
+              onChange={(event) => setCurrencyChangeConfirmation(event.target.value)}
+              className="input"
+              placeholder="CHANGER LA DEVISE"
+              disabled={currencyChangeLoading}
+            />
+          </label>
+          {currencyChangeConfirmation && currencyChangeConfirmation !== "CHANGER LA DEVISE" && (
+            <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+              Confirmation incorrecte. Saisissez exactement : CHANGER LA DEVISE
+            </p>
+          )}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <button type="button" className="secondary-button justify-center" onClick={closeCurrencyChangeDialog} disabled={currencyChangeLoading}>Annuler</button>
+            <button
+              type="button"
+              className="primary-button justify-center"
+              onClick={() => void confirmCurrencyChange()}
+              disabled={currencyChangeLoading || currencyChangeConfirmation !== "CHANGER LA DEVISE"}
+            >
+              {currencyChangeLoading ? "Enregistrement..." : "Confirmer"}
+            </button>
+          </div>
+        </AdminDrawer>
       )}
 
       {adminRemovalTarget && (

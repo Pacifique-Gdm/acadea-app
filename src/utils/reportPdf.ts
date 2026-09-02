@@ -1,5 +1,6 @@
 import type { Expense, Payment, School, SchoolYear, Student } from "../types";
-import { money, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./pdf";
+import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./pdf";
+import { formatSchoolMoney } from "./currency";
 
 export async function exportReportPdf(
   school: School,
@@ -60,9 +61,9 @@ export async function exportReportPdf(
         "Synthèse",
         pdfInfoGrid([
           { label: "Section", value: sectionLabel },
-          { label: "Paiements", value: money(paid) },
-          { label: "Dépenses", value: money(spent) },
-          { label: "Solde", value: money(paid - spent) },
+          { label: "Paiements", value: formatSchoolMoney(paid, school) },
+          { label: "Dépenses", value: formatSchoolMoney(spent, school) },
+          { label: "Solde", value: formatSchoolMoney(paid - spent, school) },
           { label: "Recouvrement", value: `${recovery}%` },
           ...(showGlobalExpenseNote
             ? [{ label: "Note dépenses", value: "Les dépenses présentées sont globales pour l'école, car elles ne sont pas rattachées à une section." }]
@@ -77,7 +78,7 @@ export async function exportReportPdf(
             { header: "Nom de l'élève", render: studentNameForPayment },
             { header: "Option", render: studentOptionForPayment },
             { header: "Caissier", render: (payment) => payment.cashierName },
-            { header: "Montant", render: (payment) => money(payment.amount), align: "right" },
+            { header: "Montant", render: (payment) => formatSchoolMoney(payment.amount, school), align: "right" },
             { header: "Reçu", render: (payment) => payment.receiptNumber ?? payment.id },
           ],
           sortedPayments.slice(0, 24),
@@ -92,7 +93,7 @@ export async function exportReportPdf(
             { header: "Heure", render: (expense) => timeFromDate(expense.spentAt), align: "center" },
             { header: "Catégorie", render: (expense) => expense.category },
             { header: "Caissier", render: (expense) => expense.cashierName || fallback },
-            { header: "Montant", render: (expense) => money(expense.amount), align: "right" },
+            { header: "Montant", render: (expense) => formatSchoolMoney(expense.amount, school), align: "right" },
             { header: "Description", render: (expense) => expense.description },
           ],
           sortedExpenses.slice(0, 24),

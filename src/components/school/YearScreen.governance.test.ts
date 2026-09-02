@@ -9,7 +9,7 @@ import { isSchoolClosedByCoordination } from "../../hooks/useCoordinatedSchoolYe
 const school = { id: "school-a", activeCoordinationId: "coord-a", activeSchoolYearId: "" } as School;
 const coordination: Coordination = { id: "coord-a", name: "Coordination", status: "active", yearGovernance: { operationId: "closure-a", status: "closed", years: [{ schoolId: "school-a", schoolYearId: "year-a" }], closedAt: "2026-08-30", closedBy: "coordinator" } };
 function render(governance = { closed: false, loading: false, error: "" }) {
-  return renderToStaticMarkup(createElement(YearScreen, { user: { id: "admin-a", role: "school_admin", schoolId: "school-a" } as AppUser, years: [], activeYearId: "", onSelect: vi.fn(), onLogout: vi.fn(), onCreate: vi.fn(), createId: () => "new-year", governance }));
+  return renderToStaticMarkup(createElement(YearScreen, { user: { id: "admin-a", role: "school_admin", schoolId: "school-a" } as AppUser, years: [], activeYearId: "", onSelect: vi.fn(), onLogout: vi.fn(), onCreate: vi.fn(), createId: () => "new-year", currency: "USD", governance }));
 }
 describe("sélection année Administrateur — gouvernance réelle", () => {
   it("masque formulaire et Créer seulement en clôture gouvernée", () => {

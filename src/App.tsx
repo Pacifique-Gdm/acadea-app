@@ -42,6 +42,7 @@ import { reconcileRealtimeFeeTypes, useRealtimeFeeTypes } from "./hooks/useRealt
 import { reconcileFinancialSnapshot, useRealtimeFinancialTransactions } from "./hooks/useRealtimeFinancialTransactions";
 import { useRealtimeSchoolRecords } from "./hooks/useRealtimeSchoolRecords";
 import { useRealtimeSchoolSettings } from "./hooks/useRealtimeSchoolSettings";
+import { reconcileRealtimeSchoolUsers, useRealtimeSchoolUsers } from "./hooks/useRealtimeSchoolUsers";
 import { markNotificationsReadTargeted } from "./services/notificationsPagination";
 import { restorePaymentPushNotifications, stopPaymentPushForegroundListener } from "./services/pushNotifications";
 import { canUseFirestoreData, loadDisciplineYearData, loadFirestoreBootstrapData, loadFirestoreData, loadFirestoreYearData, loadParentPortalData, loadPlatformSettings, persistFirestorePatch } from "./services/firestoreData";
@@ -59,6 +60,7 @@ import { markAuthStep, measureAuthStep } from "./utils/authPerformance";
 import { getPlatformSchoolStats } from "./utils/platformSchoolStats";
 import { firebaseErrorCode, logRefreshError, refreshErrorMessage } from "./utils/refreshErrors";
 import { runRefreshTask } from "./utils/refreshTask";
+import { resolveSchoolCurrency, schoolWithYearCurrency } from "./utils/currency";
 import { filterByAllowedSections } from "./utils/userSections";
 import { getStudentSection } from "./utils/studentClasses";
 import type { SchoolLevelChoice } from "./utils/schoolConfig";
@@ -359,6 +361,12 @@ export default function App() {
   const school = data.schools.find((item) => item.id === user?.schoolId);
   const schoolYears = useMemo(() => (school ? data.schoolYears.filter((year) => year.schoolId === school.id) : []), [data.schoolYears, school]);
   const selectedYear = schoolYears.find((year) => year.id === selectedYearId);
+  const realtimeDashboardSchoolId = user && (user.role === "school_admin" || user.role === "cashier") ? school?.id ?? "" : "";
+  const applyRealtimeDashboardUsers = useCallback((users: AppUser[]) => {
+    if (!realtimeDashboardSchoolId) return;
+    setData((previous) => ({ ...previous, users: reconcileRealtimeSchoolUsers(previous.users, users, realtimeDashboardSchoolId) }));
+  }, [realtimeDashboardSchoolId]);
+  useRealtimeSchoolUsers({ user, schoolId: realtimeDashboardSchoolId, onUsers: applyRealtimeDashboardUsers });
   const applyCoordinatedYears = useCallback((years: SchoolYear[]) => {
     setData((previous) => ({ ...previous, schoolYears: years }));
   }, []);
@@ -816,11 +824,12 @@ export default function App() {
         onLogout={logout}
         onCreate={(year) => setData((prev) => ({ ...prev, schoolYears: [...prev.schoolYears, year] }))}
         createId={uid}
+        currency={resolveSchoolCurrency(school)}
       />
     );
   }
 
-  const currentSchool = school;
+  const currentSchool = schoolWithYearCurrency(school, selectedYear);
   const currentYear = selectedYear;
   const yearData = scopeData(data, currentSchool.id, currentYear.id, user);
   const studentDetailMatch = route.match(/^\/admin\/eleves\/(.+)$/);
@@ -914,7 +923,7 @@ export default function App() {
         user={user}
         data={data}
         yearData={yearData}
-        school={school}
+        school={currentSchool}
         year={selectedYear}
         updateData={updateData}
         onLogout={logout}
@@ -924,7 +933,7 @@ export default function App() {
             user={user}
             data={data}
             yearData={yearData}
-            school={school}
+            school={currentSchool}
             year={selectedYear}
             unreadNotifications={unreadNotifications}
             notificationsOpen={Boolean(focusedPushMessage || focusedOperationalNotification) || notificationsOpen}
@@ -959,7 +968,7 @@ export default function App() {
         user={user}
         data={data}
         yearData={yearData}
-        school={school}
+        school={currentSchool}
         year={selectedYear}
         updateData={updateData}
         onRefresh={refreshDisciplineData}
@@ -987,7 +996,7 @@ export default function App() {
         createId={uid}
         selectAttendanceSettingsForYear={selectAttendanceSettingsForYear}
         maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES}
-        renderPublishedTimetable={() => <PublishedTimetableDrawerEntry user={user} school={school} year={selectedYear} />}
+        renderPublishedTimetable={() => <PublishedTimetableDrawerEntry user={user} school={currentSchool} year={selectedYear} />}
       />
     );
   }
@@ -1086,7 +1095,7 @@ export default function App() {
         user={user}
         data={data}
         yearData={yearData}
-        school={school}
+        school={currentSchool}
         year={selectedYear}
         unreadNotifications={unreadNotifications}
         notificationsOpen={Boolean(focusedPushMessage || focusedOperationalNotification) || notificationsOpen}
@@ -1119,7 +1128,7 @@ export default function App() {
             data={data}
             yearData={yearData}
             year={selectedYear}
-            school={school}
+            school={currentSchool}
             updateData={updateData}
             onBack={() => {
               setActiveTab("students");
@@ -1131,14 +1140,14 @@ export default function App() {
         ) : route === "/admin/rapport-financier" ? (
           <FinancialReportPage
             yearData={yearData}
-            school={school}
+            school={currentSchool}
             year={selectedYear}
             onBack={() => {
               setActiveTab("menu");
               navigate("/dashboard");
             }}
           />
-        ) : activeTab === "dashboard" && <Dashboard data={yearData} school={school} year={selectedYear} />}
+        ) : activeTab === "dashboard" && <Dashboard data={yearData} school={currentSchool} year={selectedYear} />}
         {!standaloneAdminRoute && activeTab === "students" && (
           <StudentsModule
             user={user}
@@ -1156,7 +1165,7 @@ export default function App() {
           <ParentsModule
             data={data}
             yearData={yearData}
-            school={school}
+            school={currentSchool}
             year={selectedYear}
             updateData={updateData}
             createId={uid}
@@ -1167,14 +1176,14 @@ export default function App() {
             user={user}
             data={data}
             yearData={yearData}
-            school={school}
+            school={currentSchool}
             year={selectedYear}
             updateData={updateData}
             createId={uid}
           />
         )}
         {!standaloneAdminRoute && activeTab === "reports" && (
-          <ReportsModule yearData={yearData} school={school} year={selectedYear} />
+          <ReportsModule yearData={yearData} school={currentSchool} year={selectedYear} />
         )}
         {!standaloneAdminRoute && activeTab === "messages" && (
           <MessagesModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} createId={uid} />
@@ -1198,7 +1207,7 @@ export default function App() {
             schoolEducationLevelChoices={schoolEducationLevelChoices}
             feeTargetHasOption={feeTargetHasOption}
             formatFeeTargetLabel={formatFeeTargetLabel}
-            renderFinancialReport={() => <ReportsModule yearData={yearData} school={school} year={selectedYear} />}
+            renderFinancialReport={() => <ReportsModule yearData={yearData} school={currentSchool} year={selectedYear} />}
             renderActivityHistory={(role) => <ActivityHistoryContent user={user} data={data} yearData={yearData} role={role} loading={isRefreshing} error={refreshError} />}
             maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES}
             onOpenBiometrics={(mode) => navigate(mode === "fingerprints" ? "/admin/empreintes" : "/admin/cartes")}
@@ -1230,7 +1239,7 @@ export default function App() {
           <ParentFormEditor
             data={data}
             yearData={yearData}
-            school={school}
+            school={currentSchool}
             year={selectedYear}
             updateData={updateData}
             initialParentId={parentFormRequest.parentId}

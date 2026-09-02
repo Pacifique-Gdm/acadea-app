@@ -29,8 +29,19 @@ describe("utilisateurs d'école en temps réel", () => {
     expect(unsubscribe).toHaveBeenCalledOnce();
   });
 
-  it("refuse un utilisateur non Super Administrateur", () => {
-    expect(subscribeToRealtimeSchoolUsers({} as never, account("admin", "school_admin"), "school-a", vi.fn())).toBeUndefined();
+  it("écoute pour Admin et limite le Caissier aux rôles des cartes Dashboard", () => {
+    mocks.onSnapshot.mockReturnValue(vi.fn());
+    expect(subscribeToRealtimeSchoolUsers({} as never, account("admin", "school_admin"), "school-a", vi.fn())).toBeTypeOf("function");
+    expect(mocks.where).toHaveBeenCalledWith("role", "in", ["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]);
+    vi.clearAllMocks();
+    mocks.onSnapshot.mockReturnValue(vi.fn());
+    expect(subscribeToRealtimeSchoolUsers({} as never, account("cashier", "cashier"), "school-a", vi.fn())).toBeTypeOf("function");
+    expect(mocks.where).toHaveBeenCalledWith("role", "in", ["school_admin", "cashier", "discipline_director"]);
+  });
+
+  it("refuse un rôle non autorisé ou une autre école", () => {
+    expect(subscribeToRealtimeSchoolUsers({} as never, account("secretary", "secretary"), "school-a", vi.fn())).toBeUndefined();
+    expect(subscribeToRealtimeSchoolUsers({} as never, account("cashier", "cashier"), "school-b", vi.fn())).toBeUndefined();
     expect(mocks.onSnapshot).not.toHaveBeenCalled();
   });
 });

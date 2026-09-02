@@ -1,5 +1,6 @@
 import type { School, SchoolClass, SchoolYear } from "../types";
-import { money, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./pdf";
+import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./pdf";
+import { formatSchoolMoney } from "./currency";
 
 type DashboardTransaction = { id: string; type: string; label: string; amount: number; date: string };
 
@@ -45,10 +46,10 @@ export async function exportDashboardReportPdf({
         "KPI financier",
         pdfInfoGrid([
           { label: "Recouvrement", value: `${recoveryRate}%` },
-          { label: "Encaissé", value: money(totalPayments) },
-          { label: "Dépenses", value: money(totalExpenses) },
-          { label: "Attendu", value: money(expected) },
-          { label: "Reste", value: money(remaining) },
+          { label: "Encaissé", value: formatSchoolMoney(totalPayments, school) },
+          { label: "Dépenses", value: formatSchoolMoney(totalExpenses, school) },
+          { label: "Attendu", value: formatSchoolMoney(expected, school) },
+          { label: "Reste", value: formatSchoolMoney(remaining, school) },
         ]),
       ),
       pdfSection(
@@ -58,7 +59,7 @@ export async function exportDashboardReportPdf({
             { header: "Date", render: (transaction) => transaction.date.slice(0, 10) },
             { header: "Type", render: (transaction) => transaction.type },
             { header: "Libellé", render: (transaction) => transaction.label },
-            { header: "Montant", render: (transaction) => money(transaction.amount), align: "right" },
+            { header: "Montant", render: (transaction) => formatSchoolMoney(transaction.amount, school), align: "right" },
           ],
           transactions,
           "Aucune transaction pour cette période.",

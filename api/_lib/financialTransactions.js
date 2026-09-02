@@ -95,7 +95,11 @@ async function assertContext(transaction, db, caller, requestedYearId) {
   if (!userSnapshot.exists || profile.schoolId !== caller.schoolId || profile.status === "inactive" || profileRole !== caller.role) {
     throw new FinancialApiError(403, "permission-denied", "Profil utilisateur financier invalide.");
   }
-  return { schoolYearId, year: yearSnapshot.data(), currency: schoolSnapshot.data()?.currency === "CDF" ? "CDF" : "USD", actorName: text(profile.name, 160) || text(caller.email, 160) || "Utilisateur Acadéa" };
+  const yearCurrency = yearSnapshot.data()?.currency;
+  const currency = yearCurrency === "CDF" || yearCurrency === "USD"
+    ? yearCurrency
+    : schoolSnapshot.data()?.currency === "CDF" ? "CDF" : "USD";
+  return { schoolYearId, year: yearSnapshot.data(), currency, actorName: text(profile.name, 160) || text(caller.email, 160) || "Utilisateur Acadéa" };
 }
 
 async function createPayment(transaction, db, caller, body, hash, now) {

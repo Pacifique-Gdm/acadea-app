@@ -43,7 +43,7 @@ describe("PDF Dashboard Coordination", () => {
     expect(options.sections.join(" ")).toContain("Élèves par classe");
     const financialGrids = vi.mocked(pdfInfoGrid).mock.calls.map(([rows]) => rows).filter((rows) => rows.some((row) => row.label === "Recouvrement"));
     expect(financialGrids).toHaveLength(2);
-    expect(financialGrids[0]).toContainEqual({ label: "Attendu", value: "$100.00" });
-    expect(financialGrids[1]).toContainEqual({ label: "Attendu", value: "20000.00 FC" });
+    expect(financialGrids[0]).toContainEqual({ label: "Attendu", value: "$100,00" });
+    expect(financialGrids[1]).toContainEqual({ label: "Attendu", value: "20\u202f000,00 FC" });
   });
 });

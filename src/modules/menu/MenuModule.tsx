@@ -452,6 +452,7 @@ export function MenuModule({
       startsAt: newYearForm.startsAt,
       endsAt: newYearForm.endsAt,
       status: "active",
+      currency: school.currency === "CDF" ? "CDF" : "USD",
     };
 
     updateData({

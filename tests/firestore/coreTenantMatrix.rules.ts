@@ -34,6 +34,9 @@ beforeEach(async () => {
   }
   await seed("users/admin-a", { id: "admin-a", role: "school_admin", schoolId: schoolA, status: "active" });
   await seed("users/admin-b", { id: "admin-b", role: "school_admin", schoolId: schoolB, status: "active" });
+  await seed("users/cashier-a", { id: "cashier-a", role: "cashier", schoolId: schoolA, status: "active", active: true });
+  await seed("users/discipline-a", { id: "discipline-a", role: "discipline_director", schoolId: schoolA, status: "active" });
+  await seed("users/teacher-a", { id: "teacher-a", role: "teacher", schoolId: schoolA, status: "active" });
   await seed("users/studies-a", { id: "studies-a", role: "study_director", schoolId: schoolA, status: "active" });
 });
 
@@ -87,6 +90,26 @@ describe("SEC-015 — matrice centrale d'isolation tenant", () => {
     await assertSucceeds(getDoc(doc(admin, "users", "admin-a")));
     await assertFails(getDoc(doc(admin, "users", "admin-b")));
     await assertFails(updateDoc(doc(admin, "users", "admin-a"), { role: "super_admin" }));
+  });
+
+  it("autorise au Caissier uniquement les personnels agrégés de son Dashboard et préserve l'isolation école", async () => {
+    const cashier = auth("cashier-a", "cashier");
+    const personnel = await assertSucceeds(getDocs(query(
+      collection(cashier, "users"),
+      where("schoolId", "==", schoolA),
+      where("role", "in", ["school_admin", "cashier", "discipline_director"]),
+    )));
+    expect(personnel.docs.map((item) => item.id).sort()).toEqual(["admin-a", "cashier-a", "discipline-a"]);
+    await assertFails(getDocs(query(
+      collection(cashier, "users"),
+      where("schoolId", "==", schoolB),
+      where("role", "in", ["school_admin", "cashier", "discipline_director"]),
+    )));
+    await assertFails(getDocs(query(
+      collection(cashier, "users"),
+      where("schoolId", "==", schoolA),
+      where("role", "in", ["school_admin", "teacher"]),
+    )));
   });
 
   it("autorise les créations administratives de l'année active et refuse l'année d'une autre école", async () => {

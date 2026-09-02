@@ -92,7 +92,10 @@ async function mutateYears(db, caller, input, action) {
     }
     for (const result of results) {
       const yearRef = db.doc(`schoolYears/${result.schoolYearId}`);
-      if (newYear) transaction.create(yearRef, { ...newYear, id: result.schoolYearId, schoolId: result.schoolId });
+      if (newYear) {
+        const sourceSchool = scope.schools.find((school) => school.id === result.schoolId);
+        transaction.create(yearRef, { ...newYear, id: result.schoolYearId, schoolId: result.schoolId, currency: sourceSchool?.currency === "CDF" ? "CDF" : "USD" });
+      }
       else transaction.update(yearRef, { status: action === "close" ? "archived" : "active" });
       transaction.update(db.doc(`schools/${result.schoolId}`), { activeSchoolYearId: action === "close" ? "" : result.schoolYearId, updatedAt: now });
     }

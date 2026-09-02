@@ -89,6 +89,18 @@ describe("API financière transactionnelle", () => {
     expect(result.payment).toMatchObject({ schoolId: "school-a", schoolYearId: "year-a", studentId: "student-a", feeTypeId: "fee-a", amount: 25, note: "Premier acompte", createdBy: "cashier-a", updatedBy: "cashier-a", createdAt: "2026-08-07T12:00:00.000Z", provenance: "financial-api", receiptNumber: "REC-2026-0001" });
   });
 
+  it("résout la devise depuis l'année plutôt que depuis le fallback global de l'école", async () => {
+    const db = fakeDb({
+      ...baseSeed(),
+      "schools/school-a": { id: "school-a", status: "active", currency: "CDF" },
+      "schoolYears/year-a": { id: "year-a", schoolId: "school-a", name: "2026-2027", status: "active", currency: "USD" },
+      "students/student-a": { id: "student-a", schoolId: "school-a", schoolYearId: "year-a", status: "ACTIVE", parentId: "parent-a", nom: "Élève" },
+    });
+    await executeFinancialOperation({ db, caller: cashier, body: paymentBody("request-annual-currency"), now: "2026-08-07T12:00:00.000Z" });
+    const notification = [...db.documents.entries()].find(([path]) => path.startsWith("notifications/"))?.[1];
+    expect(notification?.body).toContain("$25.00");
+  });
+
   it("distingue un frais soldé d'un montant supérieur au solde restant", async () => {
     const partiallyPaidDb = fakeDb({
       ...baseSeed(),

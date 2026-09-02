@@ -28,7 +28,7 @@ function normalizeText(value) {
 
 function pickSchoolPatch(body) {
   const patch = {};
-  for (const key of ["name", "address", "phone", "email", "subscriptionPlan", "subscriptionStatus", "subscriptionAmount", "currency"]) {
+  for (const key of ["name", "address", "phone", "email", "subscriptionPlan", "subscriptionStatus", "subscriptionAmount"]) {
     if (body[key] !== undefined) patch[key] = body[key];
   }
   return patch;
@@ -59,7 +59,7 @@ export default async function handler(req, res) {
 
     const body = await readBody(req);
     const requestedAction = normalizeText(body.action);
-    const action = ["update", "suspend", "reactivate", "delete"].includes(requestedAction) ? requestedAction : "invalid";
+    const action = ["update", "change-currency", "suspend", "reactivate", "delete"].includes(requestedAction) ? requestedAction : "invalid";
     const schoolId = normalizeText(body.schoolId);
 
     if (!schoolId) {
@@ -81,11 +81,11 @@ export default async function handler(req, res) {
     }
 
     if (action === "update") {
-      const patch = pickSchoolPatch(body.patch ?? {});
-      if (patch.currency !== undefined && !["USD", "CDF"].includes(patch.currency)) {
-        sendJson(res, 400, { error: "Devise invalide. Valeurs autorisees : USD, CDF.", code: "invalid-argument" });
+      if (body.patch?.currency !== undefined) {
+        sendJson(res, 400, { error: "Utilisez l'action sécurisée de changement de devise.", code: "invalid-argument" });
         return;
       }
+      const patch = pickSchoolPatch(body.patch ?? {});
       if (Object.keys(patch).length === 0) {
         sendJson(res, 400, { error: "Aucune modification valide.", code: "invalid-argument" });
         return;
@@ -97,6 +97,71 @@ export default async function handler(req, res) {
       await batch.commit();
       const updated = await schoolRef.get();
       sendJson(res, 200, { school: { id: updated.id, ...updated.data() } });
+      return;
+    }
+
+    if (action === "change-currency") {
+      if (body.confirmation !== "CHANGER LA DEVISE") {
+        sendJson(res, 400, { error: "Confirmation exacte requise.", code: "invalid-argument" });
+        return;
+      }
+      const currency = body.currency;
+      const schoolYearId = normalizeText(body.schoolYearId);
+      const schoolData = schoolSnapshot.data() ?? {};
+      if (!schoolYearId || schoolData.activeSchoolYearId !== schoolYearId) {
+        sendJson(res, 409, { error: "La devise ne peut être changée que pour l'année active de l'école.", code: "failed-precondition" });
+        return;
+      }
+      if (currency !== "USD" && currency !== "CDF") {
+        sendJson(res, 400, { error: "Devise invalide. Valeurs autorisées : USD, CDF.", code: "invalid-argument" });
+        return;
+      }
+      const yearRef = db.doc(`schoolYears/${schoolYearId}`);
+      const [yearSnapshot, yearsSnapshot] = await Promise.all([
+        yearRef.get(),
+        db.collection("schoolYears").where("schoolId", "==", schoolId).get(),
+      ]);
+      const yearData = yearSnapshot.data() ?? {};
+      if (!yearSnapshot.exists || yearData.schoolId !== schoolId || yearData.status !== "active") {
+        sendJson(res, 409, { error: "Année scolaire active invalide.", code: "failed-precondition" });
+        return;
+      }
+      if (yearsSnapshot.docs.length > 496) {
+        sendJson(res, 409, { error: "Trop d'années scolaires pour garantir une mutation atomique.", code: "failed-precondition" });
+        return;
+      }
+      const previousCurrency = yearData.currency === "CDF" || yearData.currency === "USD"
+        ? yearData.currency
+        : schoolData.currency === "CDF" ? "CDF" : "USD";
+      const now = new Date().toISOString();
+      const auditRef = db.collection("auditLogs").doc(`school-currency-${randomUUID()}`);
+      const batch = db.batch();
+      // Matérialiser la devise des années legacy avant de modifier le fallback école
+      // empêche toute requalification rétroactive des opérations historiques.
+      yearsSnapshot.docs.forEach((snapshot) => {
+        const data = snapshot.data() ?? {};
+        if (snapshot.id !== schoolYearId && data.currency !== "USD" && data.currency !== "CDF") {
+          batch.update(snapshot.ref, { currency: previousCurrency, updatedAt: now, updatedBy: caller.uid });
+        }
+      });
+      batch.update(yearRef, { currency, updatedAt: now, updatedBy: caller.uid });
+      batch.update(schoolRef, { currency, updatedAt: now, updatedBy: caller.uid });
+      batch.set(auditRef, buildServerAudit({
+        id: auditRef.id,
+        eventType: AUDIT_EVENT_TYPES.SCHOOL_UPDATED,
+        actor: caller,
+        schoolId,
+        schoolYearId,
+        resourceType: "schoolYear",
+        resourceId: schoolYearId,
+        metadata: { fieldsChanged: "currency", previousCurrency, currency },
+      }));
+      await batch.commit();
+      const [updatedSchool, updatedYear] = await Promise.all([schoolRef.get(), yearRef.get()]);
+      sendJson(res, 200, {
+        school: { id: updatedSchool.id, ...updatedSchool.data() },
+        schoolYear: { id: updatedYear.id, ...updatedYear.data() },
+      });
       return;
     }
 

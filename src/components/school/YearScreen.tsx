@@ -11,6 +11,7 @@ export function YearScreen({
   onLogout,
   onCreate,
   createId,
+  currency,
   governance,
 }: {
   user: AppUser;
@@ -20,6 +21,7 @@ export function YearScreen({
   onLogout: () => void;
   onCreate: (year: SchoolYear) => void;
   createId: (prefix: string) => string;
+  currency: "USD" | "CDF";
   governance?: { closed: boolean; loading: boolean; error: string };
 }) {
   const [name, setName] = useState("2026-2027");
@@ -65,6 +67,7 @@ export function YearScreen({
                   startsAt: `${name.slice(0, 4)}-09-01`,
                   endsAt: `${name.slice(5)}-07-15`,
                   status: "draft",
+                  currency,
                 })
               }
               className="inline-flex items-center justify-center gap-2 rounded bg-ink px-4 py-2 font-semibold text-white"
