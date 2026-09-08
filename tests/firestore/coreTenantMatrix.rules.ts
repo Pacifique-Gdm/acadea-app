@@ -38,6 +38,7 @@ beforeEach(async () => {
   await seed("users/discipline-a", { id: "discipline-a", role: "discipline_director", schoolId: schoolA, status: "active" });
   await seed("users/teacher-a", { id: "teacher-a", role: "teacher", schoolId: schoolA, status: "active" });
   await seed("users/studies-a", { id: "studies-a", role: "study_director", schoolId: schoolA, status: "active" });
+  await seed("users/secretary-a", { id: "secretary-a", role: "secretary", schoolId: schoolA, status: "active" });
 });
 
 afterAll(async () => environment?.cleanup(), 30000);
@@ -144,5 +145,19 @@ describe("SEC-015 — matrice centrale d'isolation tenant", () => {
     await assertFails(setDoc(doc(admin, "schoolYears", "year-b-2"), { id: "year-b-2", schoolId: schoolB, status: "active" }));
     await assertFails(deleteDoc(doc(admin, "schoolYears", "year-a-2")));
     await assertFails(deleteDoc(doc(admin, "users", "admin-a")));
+  });
+
+  it("reproduit le refus de liaison Secrétaire avec un parent historique", async () => {
+    const archivedYear = "year-archive";
+    await seed(`schoolYears/${archivedYear}`, { id: archivedYear, schoolId: schoolA, status: "archived" });
+    await seed("students/student-active", {
+      id: "student-active", schoolId: schoolA, schoolYearId: yearA, status: "ACTIVE", parentId: null,
+    });
+    await seed("parents/parent-historical", {
+      id: "parent-historical", schoolId: schoolA, schoolYearId: archivedYear, status: "active", studentIds: [],
+    });
+    const secretary = auth("secretary-a", "secretary");
+    await assertSucceeds(updateDoc(doc(secretary, "students", "student-active"), { parentId: "parent-historical" }));
+    await assertFails(updateDoc(doc(secretary, "parents", "parent-historical"), { studentIds: ["student-active"] }));
   });
 });

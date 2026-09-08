@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AppData, AppUser, ParentProfile, Student } from "../types";
-import { applyParentUnlinkResult, isExactParentLinkConfirmation, isExactParentStudentUnlinkConfirmation, isExactParentUnlinkConfirmation, PARENT_LINK_CONFIRMATION, PARENT_STUDENT_UNLINK_CONFIRMATION, PARENT_UNLINK_CONFIRMATION, reconcileStudentParentMembership } from "./parentStudentLink";
+import { applyParentLinkResult, applyParentUnlinkResult, isExactParentLinkConfirmation, isExactParentStudentUnlinkConfirmation, isExactParentUnlinkConfirmation, PARENT_LINK_CONFIRMATION, PARENT_STUDENT_UNLINK_CONFIRMATION, PARENT_UNLINK_CONFIRMATION, reconcileStudentParentMembership } from "./parentStudentLink";
 
 const studentA = { id: "student-a", parentId: "parent-a" } as Student;
 const studentB = { id: "student-b", parentId: "parent-a" } as Student;
@@ -37,6 +37,23 @@ describe("liaison Parent ↔ Élève", () => {
     expect(result.parents[0].studentIds).toEqual(["student-b"]);
     expect(result.users).toHaveLength(1);
     expect(result.users[0].studentIds).toEqual(["student-b"]);
+  });
+
+  it("applique le résultat atomique d'une liaison sur l'élève, le parent et le compte parent", () => {
+    const result = applyParentLinkResult({
+      students: [{ ...studentA, parentId: undefined }],
+      parents: [{ ...parentA, studentIds: ["student-b"] }],
+      users: [{ ...parentUser, studentIds: ["student-b"] }],
+    }, {
+      studentId: "student-a",
+      parentId: "parent-a",
+      parentStudentIds: ["student-b", "student-a"],
+      parentUserStudentIds: ["student-b", "student-a"],
+    });
+
+    expect(result.students[0].parentId).toBe("parent-a");
+    expect(result.parents[0].studentIds).toEqual(["student-b", "student-a"]);
+    expect(result.users[0].studentIds).toEqual(["student-b", "student-a"]);
   });
 
   it("conserve le parent et son compte lorsque son dernier enfant est délié", () => {

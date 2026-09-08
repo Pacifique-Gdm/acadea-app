@@ -4,6 +4,7 @@ import { FieldValue } from "firebase-admin/firestore";
 export const AUDIT_EVENT_TYPES = Object.freeze({
   SCHOOL_CREATED: "school.created", SCHOOL_UPDATED: "school.updated", SCHOOL_SUSPENDED: "school.suspended", SCHOOL_REACTIVATED: "school.reactivated",
   USER_CREATED: "user.created", USER_UPDATED: "user.updated", USER_DELETED: "user.deleted", USER_DISABLED: "user.disabled", USER_REACTIVATED: "user.reactivated",
+  PARENT_LINKED_TO_STUDENT: "parent.linked_to_student",
   PARENT_UNLINKED_FROM_STUDENT: "parent.unlinked_from_student",
   STUDENTS_IMPORTED: "students.imported_from_archive",
   STUDENT_TERMINAL_REENROLLED: "student.terminal_reenrolled",
@@ -14,6 +15,7 @@ export const AUDIT_EVENT_TYPES = Object.freeze({
 const labels = Object.freeze({
   [AUDIT_EVENT_TYPES.SCHOOL_CREATED]: "Création école", [AUDIT_EVENT_TYPES.SCHOOL_UPDATED]: "Modification école", [AUDIT_EVENT_TYPES.SCHOOL_SUSPENDED]: "Suspension école", [AUDIT_EVENT_TYPES.SCHOOL_REACTIVATED]: "Réactivation école",
   [AUDIT_EVENT_TYPES.USER_CREATED]: "Création utilisateur", [AUDIT_EVENT_TYPES.USER_UPDATED]: "Modification utilisateur", [AUDIT_EVENT_TYPES.USER_DELETED]: "Suppression utilisateur", [AUDIT_EVENT_TYPES.USER_DISABLED]: "Désactivation utilisateur", [AUDIT_EVENT_TYPES.USER_REACTIVATED]: "Réactivation utilisateur",
+  [AUDIT_EVENT_TYPES.PARENT_LINKED_TO_STUDENT]: "Liaison parent élève",
   [AUDIT_EVENT_TYPES.PARENT_UNLINKED_FROM_STUDENT]: "Déliaison parent élève",
   [AUDIT_EVENT_TYPES.STUDENTS_IMPORTED]: "Import élèves année archivée",
   [AUDIT_EVENT_TYPES.STUDENT_TERMINAL_REENROLLED]: "Réinscription terminale élève",

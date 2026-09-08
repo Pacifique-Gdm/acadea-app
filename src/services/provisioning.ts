@@ -208,6 +208,40 @@ export type UnlinkParentFromStudentInput = {
   confirmation: string;
 };
 
+export type LinkParentToStudentInput = {
+  schoolId: string;
+  schoolYearId: string;
+  studentId: string;
+  parentId: string;
+  confirmation: string;
+};
+
+export type LinkParentToStudentResponse = {
+  studentId: string;
+  parentId: string;
+  parentStudentIds: string[];
+  parentUserStudentIds?: string[];
+  previousParentId?: string;
+  previousParentStudentIds?: string[];
+  auditLogId: string;
+};
+
+export async function linkParentToStudent(input: LinkParentToStudentInput) {
+  const payload = await provisionSchoolAccount<LinkParentToStudentResponse & { error?: string }>({
+    action: "link-parent-to-student",
+    ...input,
+  }, { showEndpointOnNotFound: true });
+
+  if (payload.studentId !== input.studentId
+    || payload.parentId !== input.parentId
+    || !Array.isArray(payload.parentStudentIds)
+    || !payload.auditLogId) {
+    throw new Error("Réponse de liaison parent incomplète.");
+  }
+
+  return payload;
+}
+
 export type UnlinkParentFromStudentResponse = {
   studentId: string;
   parentId: string;

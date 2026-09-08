@@ -1,8 +1,7 @@
 import { useMemo, useState } from "react";
 import { Download, Plus, Search, UserMinus } from "lucide-react";
 import { ActionSnackbar, AdminDrawer, FormPanel, Metric } from "../ui";
-import { unlinkParentFromStudent } from "../../services/provisioning";
-import { createAuditLog } from "../../utils/audit";
+import { linkParentToStudent, unlinkParentFromStudent } from "../../services/provisioning";
 import { buildSchoolYearDataIndexes } from "../../utils/dataIndexes";
 import { resolvePaymentCashierName } from "../../utils/finance";
 import { activityTimestamp } from "../../utils/activityHistory";
@@ -11,7 +10,7 @@ import { MISSING_FINANCIAL_OPERATION_SCHOOL_ERROR, resolveFinancialOperationScho
 import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import { isArchivedStudent } from "../../utils/studentUtils";
-import { applyParentUnlinkResult, isExactParentLinkConfirmation, isExactParentUnlinkConfirmation, PARENT_LINK_CONFIRMATION, PARENT_UNLINK_CONFIRMATION } from "../../utils/parentStudentLink";
+import { applyParentLinkResult, applyParentUnlinkResult, isExactParentLinkConfirmation, isExactParentUnlinkConfirmation, PARENT_LINK_CONFIRMATION, PARENT_UNLINK_CONFIRMATION } from "../../utils/parentStudentLink";
 import type { AppData, AppUser, ParentProfile, School, SchoolYear } from "../../types";
 
 type StudentDetailYearData = Pick<AppData, "students" | "parents" | "feeTypes" | "payments" | "auditLogs">;
@@ -25,7 +24,6 @@ export function StudentDetailPage({
   school,
   updateData,
   onBack,
-  createId,
   formatArchiveDate,
   canLinkParent = true,
   schoolsById,
@@ -48,6 +46,7 @@ export function StudentDetailPage({
   const [parentLinkTarget, setParentLinkTarget] = useState<ParentProfile | null>(null);
   const [parentLinkConfirmation, setParentLinkConfirmation] = useState("");
   const [parentLinkError, setParentLinkError] = useState("");
+  const [parentLinkBusy, setParentLinkBusy] = useState(false);
   const [parentUnlinkOpen, setParentUnlinkOpen] = useState(false);
   const [parentUnlinkConfirmation, setParentUnlinkConfirmation] = useState("");
   const [parentUnlinkError, setParentUnlinkError] = useState("");
@@ -66,32 +65,30 @@ export function StudentDetailPage({
     });
   }, [parentLinkSearch, school.id, yearData.parents]);
 
-  function linkStudentToParent(parent: ParentProfile) {
+  async function linkStudentToParent(parent: ParentProfile) {
     if (!student || !canManageParentLink || parent.schoolId !== school.id) return;
-    const parents = data.parents.map((item) => {
-      const withoutStudent = item.studentIds.filter((studentId) => studentId !== student.id);
-      return item.id === parent.id ? { ...item, studentIds: Array.from(new Set([...withoutStudent, student.id])) } : { ...item, studentIds: withoutStudent };
-    });
-    const users = data.users.map((item) => {
-      if (item.role !== "parent" || !item.parentId) return item;
-      const nextParent = parents.find((parentItem) => parentItem.id === item.parentId);
-      return nextParent ? { ...item, studentIds: nextParent.studentIds } : item;
-    });
-    updateData({
-      students: data.students.map((item) => (item.id === student.id ? { ...item, parentId: parent.id } : item)),
-      parents,
-      users,
-      auditLogs: [
-        createAuditLog(user, school.id, student.schoolYearId, "Liaison parent élève", `${student.matricule} - ${student.nom} ${student.prenom} → ${parent.fullName}`, createId),
-        ...data.auditLogs,
-      ],
-    });
-    setParentLinkOpen(false);
-    setParentLinkSearch("");
-    setParentLinkTarget(null);
-    setParentLinkConfirmation("");
+    setParentLinkBusy(true);
     setParentLinkError("");
-    setParentFeedback("Le parent a été lié à cet élève.");
+    try {
+      const result = await linkParentToStudent({
+        schoolId: school.id,
+        schoolYearId: year.id,
+        studentId: student.id,
+        parentId: parent.id,
+        confirmation: PARENT_LINK_CONFIRMATION,
+      });
+      updateData(applyParentLinkResult(data, result), { persist: false });
+      setParentLinkOpen(false);
+      setParentLinkSearch("");
+      setParentLinkTarget(null);
+      setParentLinkConfirmation("");
+      setParentLinkError("");
+      setParentFeedback("Le parent a été lié à cet élève.");
+    } catch (error) {
+      setParentLinkError(error instanceof Error ? error.message : "Liaison du parent impossible.");
+    } finally {
+      setParentLinkBusy(false);
+    }
   }
 
   if (!student) {
@@ -339,13 +336,13 @@ export function StudentDetailPage({
                   <button
                     type="button"
                     className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={!isExactParentLinkConfirmation(parentLinkConfirmation)}
+                    disabled={parentLinkBusy || !isExactParentLinkConfirmation(parentLinkConfirmation)}
                     onClick={() => {
                       if (!parentLinkTarget || !isExactParentLinkConfirmation(parentLinkConfirmation)) {
                         setParentLinkError(`Veuillez saisir exactement ${PARENT_LINK_CONFIRMATION}.`);
                         return;
                       }
-                      linkStudentToParent(parentLinkTarget);
+                      void linkStudentToParent(parentLinkTarget);
                     }}
                   >
                     Confirmer la liaison

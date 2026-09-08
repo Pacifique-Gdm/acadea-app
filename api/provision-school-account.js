@@ -7,6 +7,7 @@ import { importArchivedStudents, reenrollTerminalStudent } from "./_lib/archived
 
 const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent"]);
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
+const parentLinkConfirmation = "LIER À CE PARENT";
 const parentUnlinkConfirmation = "DÉLIER LE PARENT";
 const parentStudentUnlinkConfirmation = "DÉLIER À CET ÉLÈVE";
 const adminRemovalConfirmation = "SUPPRIMER ADMINISTRATEUR";
@@ -314,6 +315,132 @@ export async function unlinkParentFromStudent({ db, caller, body }) {
   });
 }
 
+export async function linkParentToStudent({ db, caller, body }) {
+  const schoolId = normalizeText(body.schoolId);
+  const schoolYearId = normalizeText(body.schoolYearId);
+  const studentId = normalizeText(body.studentId);
+  const parentId = normalizeText(body.parentId);
+  const confirmation = String(body.confirmation ?? "");
+
+  if (!schoolId || !schoolYearId || !studentId || !parentId) {
+    throw Object.assign(new Error("École, année scolaire, élève et parent requis."), { statusCode: 400, code: "invalid-argument" });
+  }
+  if (confirmation !== parentLinkConfirmation) {
+    throw Object.assign(new Error("Veuillez saisir exactement la confirmation de liaison demandée."), { statusCode: 400, code: "invalid-confirmation" });
+  }
+  if (!caller?.uid || !["school_admin", "secretary"].includes(caller.role)) {
+    throw Object.assign(new Error("Action réservée à un Administrateur ou un Secrétaire autorisé."), { statusCode: 403, code: "permission-denied" });
+  }
+  if (caller.schoolId !== schoolId) {
+    throw Object.assign(new Error("Action refusée pour cette école."), { statusCode: 403, code: "permission-denied" });
+  }
+
+  await assertAuthorizedCaller({ db, caller, schoolId, allowSecretary: true });
+  await requireActiveSchoolYear(db, schoolId, schoolYearId);
+
+  const callerRef = db.doc(`users/${caller.uid}`);
+  const studentRef = db.doc(`students/${studentId}`);
+  const parentRef = db.doc(`parents/${parentId}`);
+  const parentUsersQuery = db.collection("users").where("schoolId", "==", schoolId).where("role", "==", "parent");
+  const auditRef = db.collection("auditLogs").doc(uid("audit"));
+  const now = new Date().toISOString();
+
+  return db.runTransaction(async (transaction) => {
+    const [callerSnapshot, studentSnapshot, parentSnapshot, parentUsersSnapshot] = await Promise.all([
+      transaction.get(callerRef),
+      transaction.get(studentRef),
+      transaction.get(parentRef),
+      transaction.get(parentUsersQuery),
+    ]);
+    const callerProfile = callerSnapshot.exists ? callerSnapshot.data() : undefined;
+    if (!callerProfile
+      || callerProfile.schoolId !== schoolId
+      || callerProfile.role !== caller.role
+      || callerProfile.status === "inactive"
+      || callerProfile.active === false) {
+      throw Object.assign(new Error("Compte utilisateur inactif ou non autorisé."), { statusCode: 403, code: "permission-denied" });
+    }
+    if (!studentSnapshot.exists) {
+      throw Object.assign(new Error("Élève introuvable."), { statusCode: 404, code: "student-not-found" });
+    }
+    if (!parentSnapshot.exists) {
+      throw Object.assign(new Error("Parent introuvable."), { statusCode: 404, code: "parent-not-found" });
+    }
+
+    const student = studentSnapshot.data();
+    const parent = parentSnapshot.data();
+    if (student.schoolId !== schoolId || parent.schoolId !== schoolId) {
+      throw Object.assign(new Error("Élève ou parent hors de cette école."), { statusCode: 403, code: "permission-denied" });
+    }
+    if (student.schoolYearId !== schoolYearId) {
+      throw Object.assign(new Error("Élève hors de l’année scolaire active."), { statusCode: 409, code: "school-year-mismatch" });
+    }
+    if (student.status && student.status !== "ACTIVE") {
+      throw Object.assign(new Error("Cet élève n’est pas actif."), { statusCode: 409, code: "failed-precondition" });
+    }
+    if (parent.status === "inactive") {
+      throw Object.assign(new Error("Ce parent est inactif."), { statusCode: 409, code: "failed-precondition" });
+    }
+
+    const allParentUsers = parentUsersSnapshot.docs.filter((snapshot) => snapshot.data()?.role === "parent");
+    const targetParentUsers = allParentUsers.filter((snapshot) => snapshot.data()?.parentId === parentId);
+    const previousParentId = typeof student.parentId === "string" && student.parentId ? student.parentId : undefined;
+    let previousParentSnapshot;
+    if (previousParentId && previousParentId !== parentId) {
+      previousParentSnapshot = await transaction.get(db.doc(`parents/${previousParentId}`));
+      if (!previousParentSnapshot.exists || previousParentSnapshot.data()?.schoolId !== schoolId) {
+        throw Object.assign(new Error("La relation parent existante est incohérente."), { statusCode: 409, code: "parent-link-inconsistent" });
+      }
+    }
+
+    const currentParentStudentIds = Array.isArray(parent.studentIds) ? parent.studentIds : [];
+    const parentStudentIds = Array.from(new Set([...currentParentStudentIds, studentId]));
+    const previousParentStudentIds = previousParentSnapshot
+      ? (Array.isArray(previousParentSnapshot.data()?.studentIds) ? previousParentSnapshot.data().studentIds.filter((id) => id !== studentId) : [])
+      : undefined;
+    const parentUserStudentIds = targetParentUsers.length
+      ? Array.from(new Set(targetParentUsers.flatMap((snapshot) => Array.isArray(snapshot.data()?.studentIds) ? snapshot.data().studentIds : []).concat(studentId)))
+      : undefined;
+    const previousParentUsers = previousParentId && previousParentId !== parentId
+      ? allParentUsers.filter((snapshot) => snapshot.data()?.parentId === previousParentId)
+      : [];
+    if (targetParentUsers.length > 1 || previousParentUsers.length > 1) {
+      throw Object.assign(new Error("Plusieurs comptes désignent le même parent."), { statusCode: 409, code: "parent-link-inconsistent" });
+    }
+
+    transaction.update(studentRef, { parentId, updatedAt: now, updatedBy: caller.uid });
+    transaction.update(parentRef, { studentIds: parentStudentIds, updatedAt: now, updatedBy: caller.uid });
+    targetParentUsers.forEach((snapshot) => transaction.update(snapshot.ref, { studentIds: parentUserStudentIds, updatedAt: now }));
+    if (previousParentSnapshot && previousParentStudentIds) {
+      transaction.update(previousParentSnapshot.ref, { studentIds: previousParentStudentIds, updatedAt: now, updatedBy: caller.uid });
+    }
+    previousParentUsers.forEach((snapshot) => {
+      const previousIds = Array.isArray(snapshot.data()?.studentIds) ? snapshot.data().studentIds : [];
+      transaction.update(snapshot.ref, { studentIds: previousIds.filter((id) => id !== studentId), updatedAt: now });
+    });
+    transaction.set(auditRef, buildServerAudit({
+      id: auditRef.id,
+      eventType: AUDIT_EVENT_TYPES.PARENT_LINKED_TO_STUDENT,
+      actor: caller,
+      schoolId,
+      schoolYearId,
+      resourceType: "student-parent-link",
+      resourceId: `${studentId}:${parentId}`,
+      metadata: { studentId, parentId, previousParentId: previousParentId ?? "" },
+    }));
+
+    return {
+      studentId,
+      parentId,
+      parentStudentIds,
+      parentUserStudentIds,
+      previousParentId,
+      previousParentStudentIds,
+      auditLogId: auditRef.id,
+    };
+  });
+}
+
 async function createAuthUser(auth, { email, password, displayName }) {
   return auth.createUser({
     email,
@@ -525,6 +652,12 @@ export default async function handler(req, res) {
     if (action === "delete-parent") {
       const result = await deleteParentAccount({ auth, db, caller, body });
       sendJson(res, result.status === "partial" ? 207 : 200, result);
+      return;
+    }
+
+    if (action === "link-parent-to-student") {
+      const result = await linkParentToStudent({ db, caller, body });
+      sendJson(res, 200, result);
       return;
     }
 

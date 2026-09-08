@@ -24,7 +24,8 @@ describe("fiche Élève — liaison Parent", () => {
   it("exige la confirmation exacte pour lier un parent", () => {
     expect(detailSource).toContain("PARENT_LINK_CONFIRMATION");
     expect(detailSource).toContain("isExactParentLinkConfirmation(parentLinkConfirmation)");
-    expect(detailSource).toContain('disabled={!isExactParentLinkConfirmation(parentLinkConfirmation)}');
+    expect(detailSource).toContain('disabled={parentLinkBusy || !isExactParentLinkConfirmation(parentLinkConfirmation)}');
+    expect(detailSource).toContain("await linkParentToStudent");
     expect(detailSource).toContain("Confirmer la liaison");
   });
 

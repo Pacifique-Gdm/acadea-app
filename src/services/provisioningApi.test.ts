@@ -31,7 +31,7 @@ vi.mock("../../api/_lib/rateLimit.js", () => ({
 }));
 
 // @ts-expect-error The Vercel endpoint is intentionally implemented in JavaScript.
-import provisionSchoolAccount, { unlinkParentFromStudent } from "../../api/provision-school-account.js";
+import provisionSchoolAccount, { linkParentToStudent, unlinkParentFromStudent } from "../../api/provision-school-account.js";
 import provisionSchoolAdmin from "../../api/provision-school-admin.js";
 
 type JsonResponse = { statusCode: number; body?: Record<string, unknown>; setHeader: ReturnType<typeof vi.fn>; end: (value: string) => void };
@@ -142,6 +142,27 @@ describe("API de provisionnement Acadéa", () => {
     return { transaction, parentUserRef, auditRef };
   }
 
+  function configureParentLinkScenario({ callerRole = "secretary", parentSchoolYearId = "year-archive", studentParentId = null as string | null, parentStudentIds = [] as string[] } = {}) {
+    const parentUserRef = { path: "users/parent-user-1" };
+    const auditRef = { id: "audit-link", path: "auditLogs/audit-link" };
+    const snapshots: Record<string, { exists: boolean; data: () => Record<string, unknown>; ref?: { path: string } }> = {
+      "schools/school-1": { exists: true, data: () => ({ id: "school-1", status: "active" }) },
+      "schoolYears/year-1": { exists: true, data: () => ({ id: "year-1", schoolId: "school-1", status: "active" }) },
+      "users/actor-1": { exists: true, data: () => ({ id: "actor-1", role: callerRole, schoolId: "school-1", status: "active", active: true }) },
+      "students/student-1": { exists: true, data: () => ({ id: "student-1", schoolId: "school-1", schoolYearId: "year-1", status: "ACTIVE", parentId: studentParentId }), ref: { path: "students/student-1" } },
+      "parents/parent-1": { exists: true, data: () => ({ id: "parent-1", schoolId: "school-1", schoolYearId: parentSchoolYearId, status: "active", studentIds: parentStudentIds }), ref: { path: "parents/parent-1" } },
+    };
+    const reference = (path: string) => ({ path, get: vi.fn(async () => snapshots[path] ?? { exists: false, data: () => ({}) }) });
+    const parentUsersQuery = { get: vi.fn(async () => ({ docs: [{ ref: parentUserRef, data: () => ({ id: "parent-user-1", role: "parent", schoolId: "school-1", parentId: "parent-1", studentIds: parentStudentIds }) }] })) };
+    const transaction = { get: vi.fn(async (target: { get: () => Promise<unknown> }) => target.get()), update: vi.fn(), set: vi.fn() };
+    mocks.db.doc.mockImplementation(reference);
+    mocks.db.collection.mockImplementation((name: string) => name === "users"
+      ? { where: vi.fn(() => ({ where: vi.fn(() => parentUsersQuery) })) }
+      : { doc: vi.fn(() => auditRef) });
+    mocks.db.runTransaction.mockImplementation(async (operation: (value: typeof transaction) => Promise<unknown>) => operation(transaction));
+    return { transaction, parentUserRef, auditRef };
+  }
+
   it("retourne le vrai code unauthenticated sans appeler Firebase Admin", async () => {
     const res = response();
     await provisionSchoolAccount({ method: "POST", headers: {}, body: {} }, res);
@@ -230,6 +251,31 @@ describe("API de provisionnement Acadéa", () => {
     expect(transaction.update).toHaveBeenCalledWith(parentUserRef, expect.objectContaining({ studentIds: ["student-2"] }));
     expect(transaction.set).toHaveBeenCalledWith(auditRef, expect.objectContaining({ eventType: "parent.unlinked_from_student", actorId: "actor-1", schoolId: "school-1", schoolYearId: "year-1", source: "server" }));
     expect(mocks.auth.deleteUser).not.toHaveBeenCalled();
+  });
+
+  it("lie atomiquement un élève actif à un parent historique pour le Secrétaire", async () => {
+    const { transaction, parentUserRef, auditRef } = configureParentLinkScenario();
+    const result = await linkParentToStudent({
+      db: mocks.db,
+      caller: { uid: "actor-1", role: "secretary", schoolId: "school-1" },
+      body: { schoolId: "school-1", schoolYearId: "year-1", studentId: "student-1", parentId: "parent-1", confirmation: "LIER À CE PARENT" },
+    });
+
+    expect(result).toMatchObject({ studentId: "student-1", parentId: "parent-1", parentStudentIds: ["student-1"], parentUserStudentIds: ["student-1"], auditLogId: "audit-link" });
+    expect(transaction.update).toHaveBeenCalledWith(expect.objectContaining({ path: "students/student-1" }), expect.objectContaining({ parentId: "parent-1", updatedBy: "actor-1" }));
+    expect(transaction.update).toHaveBeenCalledWith(expect.objectContaining({ path: "parents/parent-1" }), expect.objectContaining({ studentIds: ["student-1"], updatedBy: "actor-1" }));
+    expect(transaction.update).toHaveBeenCalledWith(parentUserRef, expect.objectContaining({ studentIds: ["student-1"] }));
+    expect(transaction.set).toHaveBeenCalledWith(auditRef, expect.objectContaining({ eventType: "parent.linked_to_student", actorId: "actor-1", schoolId: "school-1", schoolYearId: "year-1", source: "server" }));
+  });
+
+  it("refuse une liaison sans confirmation exacte avant toute transaction", async () => {
+    configureParentLinkScenario();
+    await expect(linkParentToStudent({
+      db: mocks.db,
+      caller: { uid: "actor-1", role: "secretary", schoolId: "school-1" },
+      body: { schoolId: "school-1", schoolYearId: "year-1", studentId: "student-1", parentId: "parent-1", confirmation: "LIER A CE PARENT" },
+    })).rejects.toMatchObject({ code: "invalid-confirmation", statusCode: 400 });
+    expect(mocks.db.runTransaction).not.toHaveBeenCalled();
   });
 
   it("autorise la déliaison d'un élève promu lorsque le profil parent conserve l'année source", async () => {

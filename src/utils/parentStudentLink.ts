@@ -27,6 +27,32 @@ export function applyParentUnlinkResult(
   };
 }
 
+export function applyParentLinkResult(data: Pick<AppData, "students" | "parents" | "users">, result: {
+  studentId: string;
+  parentId: string;
+  parentStudentIds: string[];
+  parentUserStudentIds?: string[];
+  previousParentId?: string;
+  previousParentStudentIds?: string[];
+}) {
+  return {
+    students: data.students.map((student) => (student.id === result.studentId ? { ...student, parentId: result.parentId } : student)),
+    parents: data.parents.map((parent) => {
+      if (parent.id === result.parentId) return { ...parent, studentIds: result.parentStudentIds };
+      if (result.previousParentId && parent.id === result.previousParentId && result.previousParentStudentIds) {
+        return { ...parent, studentIds: result.previousParentStudentIds };
+      }
+      return parent;
+    }),
+    users: data.users.map((user) => {
+      if (user.role !== "parent" || !user.parentId) return user;
+      if (user.parentId === result.parentId && result.parentUserStudentIds) return { ...user, studentIds: result.parentUserStudentIds };
+      if (result.previousParentId && user.parentId === result.previousParentId && result.previousParentStudentIds) return { ...user, studentIds: result.previousParentStudentIds };
+      return user;
+    }),
+  };
+}
+
 /** Keeps stable membership ordering when the selected parent did not change. */
 export function reconcileStudentParentMembership(parents: ParentProfile[], studentId: string, parentId?: string) {
   return parents.map((parent) => {
