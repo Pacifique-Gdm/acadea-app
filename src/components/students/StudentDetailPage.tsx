@@ -58,12 +58,12 @@ export function StudentDetailPage({
   const parentLinkResults = useMemo(() => {
     const search = parentLinkSearch.trim().toLocaleLowerCase("fr");
     if (!search) return [];
-    return yearData.parents.filter((parent) => {
+    return data.parents.filter((parent) => {
       if (parent.schoolId !== school.id) return false;
       const text = `${parent.fullName} ${parent.phone} ${parent.email} ${parent.address}`.toLocaleLowerCase("fr");
       return text.includes(search);
     });
-  }, [parentLinkSearch, school.id, yearData.parents]);
+  }, [data.parents, parentLinkSearch, school.id]);
 
   async function linkStudentToParent(parent: ParentProfile) {
     if (!student || !canManageParentLink || parent.schoolId !== school.id) return;
