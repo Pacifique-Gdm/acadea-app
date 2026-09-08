@@ -9,7 +9,7 @@ describe("sélecteur parent–élèves", () => {
     expect(source).toContain("Filtrer par section");
     expect(source).toContain("Filtrer par classe");
     expect(source).toContain("toggleLinkedStudent");
-    expect(source).toContain("removeLinkedStudent");
+    expect(source).toContain("requestRemoveLinkedStudent");
   });
 
   it("borne les choix à l'école, l'année et aux inscriptions actives", () => {

@@ -80,6 +80,12 @@ async function loadSchoolCollection<T>(collectionName: string, schoolId: string)
   return snapshot.docs.map((item) => normalizeSchoolDomainDocument(collectionName, { id: item.id, ...item.data() })) as T[];
 }
 
+async function loadSchoolYearCollection<T>(collectionName: string, schoolId: string, schoolYearId: string) {
+  const database = ensureFirestore();
+  const snapshot = await getDocs(query(collection(database, collectionName), where("schoolId", "==", schoolId), where("schoolYearId", "==", schoolYearId)));
+  return snapshot.docs.map((item) => normalizeSchoolDomainDocument(collectionName, { id: item.id, ...item.data() })) as T[];
+}
+
 async function loadOptionalSchoolCollection<T>(collectionName: string, schoolId: string) {
   try {
     return await loadSchoolCollection<T>(collectionName, schoolId);
@@ -136,17 +142,20 @@ export async function loadSuperAdminInitialData(userId: string, authenticatedUse
   };
 }
 
-export async function loadSuperAdminSchoolData(schoolId: string): Promise<SuperAdminSchoolData> {
+export async function loadSuperAdminSchoolData(schoolId: string, schoolYearId: string): Promise<SuperAdminSchoolData> {
   const [students, parents, feeTypes, payments, expenses, messages, notifications, auditLogs, valves, biometricTerminals, users] = await Promise.all([
-    loadSchoolCollection<Student>("students", schoolId),
+    loadSchoolYearCollection<Student>("students", schoolId, schoolYearId),
+    // Parent profiles can retain their source year after an annual transition;
+    // their studentIds are filtered against the selected annual student set by
+    // the platform statistics instead of being dropped here.
     loadSchoolCollection<ParentProfile>("parents", schoolId),
-    loadSchoolCollection<FeeType>("feeTypes", schoolId),
-    loadSchoolCollection<Payment>("payments", schoolId),
-    loadSchoolCollection<Expense>("expenses", schoolId),
-    loadSchoolCollection<Message>("messages", schoolId),
-    loadSchoolCollection<AppData["notifications"][number]>("notifications", schoolId),
-    loadSchoolCollection<AuditLog>("auditLogs", schoolId),
-    loadSchoolCollection<ValvePublication>("valves", schoolId),
+    loadSchoolYearCollection<FeeType>("feeTypes", schoolId, schoolYearId),
+    loadSchoolYearCollection<Payment>("payments", schoolId, schoolYearId),
+    loadSchoolYearCollection<Expense>("expenses", schoolId, schoolYearId),
+    loadSchoolYearCollection<Message>("messages", schoolId, schoolYearId),
+    loadSchoolYearCollection<AppData["notifications"][number]>("notifications", schoolId, schoolYearId),
+    loadSchoolYearCollection<AuditLog>("auditLogs", schoolId, schoolYearId),
+    loadSchoolYearCollection<ValvePublication>("valves", schoolId, schoolYearId),
     loadOptionalSchoolCollection<BiometricTerminal>("biometricTerminals", schoolId),
     loadSchoolCollection<AppUser>("users", schoolId),
   ]);

@@ -1,9 +1,19 @@
 import type { AppData, ParentProfile } from "../types";
 
 export const PARENT_UNLINK_CONFIRMATION = "DÉLIER LE PARENT";
+export const PARENT_LINK_CONFIRMATION = "LIER À CE PARENT";
+export const PARENT_STUDENT_UNLINK_CONFIRMATION = "DÉLIER À CET ÉLÈVE";
 
 export function isExactParentUnlinkConfirmation(value: string) {
   return value === PARENT_UNLINK_CONFIRMATION;
+}
+
+export function isExactParentLinkConfirmation(value: string) {
+  return value === PARENT_LINK_CONFIRMATION;
+}
+
+export function isExactParentStudentUnlinkConfirmation(value: string) {
+  return value === PARENT_STUDENT_UNLINK_CONFIRMATION;
 }
 
 export function applyParentUnlinkResult(

@@ -96,6 +96,9 @@ describe("API de provisionnement Acadéa", () => {
     parentSchoolId = "school-1",
     studentParentId = "parent-1",
     parentStudentIds = ["student-1", "student-2"],
+    studentSchoolYearId = "year-1",
+    parentSchoolYearId = "year-1",
+    includeYear2 = false,
   }: {
     callerRole?: string;
     callerSchoolId?: string;
@@ -106,14 +109,18 @@ describe("API de provisionnement Acadéa", () => {
     parentSchoolId?: string;
     studentParentId?: string | null;
     parentStudentIds?: string[];
+    studentSchoolYearId?: string;
+    parentSchoolYearId?: string;
+    includeYear2?: boolean;
   } = {}) {
     const parentUserRef = { path: "users/parent-user-1" };
     const snapshots: Record<string, { exists: boolean; data: () => Record<string, unknown> }> = {
       "schools/school-1": { exists: true, data: () => ({ id: "school-1", status: "active" }) },
       "schoolYears/year-1": { exists: true, data: () => ({ id: "year-1", schoolId: "school-1", status: "active" }) },
+      ...(includeYear2 ? { "schoolYears/year-2": { exists: true, data: () => ({ id: "year-2", schoolId: "school-1", status: "active" }) } } : {}),
       "users/actor-1": { exists: true, data: () => ({ id: "actor-1", role: callerRole, schoolId: callerSchoolId, status: callerActive ? "active" : "inactive", active: callerActive }) },
-      "students/student-1": { exists: studentExists, data: () => ({ id: "student-1", schoolId: studentSchoolId, schoolYearId: "year-1", parentId: studentParentId }) },
-      "parents/parent-1": { exists: parentExists, data: () => ({ id: "parent-1", schoolId: parentSchoolId, schoolYearId: "year-1", studentIds: parentStudentIds, userId: "parent-user-1" }) },
+      "students/student-1": { exists: studentExists, data: () => ({ id: "student-1", schoolId: studentSchoolId, schoolYearId: studentSchoolYearId, parentId: studentParentId }) },
+      "parents/parent-1": { exists: parentExists, data: () => ({ id: "parent-1", schoolId: parentSchoolId, schoolYearId: parentSchoolYearId, studentIds: parentStudentIds, userId: "parent-user-1" }) },
     };
     const reference = (path: string) => ({ path, get: vi.fn(async () => snapshots[path] ?? { exists: false, data: () => ({}) }) });
     const parentUsersQuery = {
@@ -223,6 +230,35 @@ describe("API de provisionnement Acadéa", () => {
     expect(transaction.update).toHaveBeenCalledWith(parentUserRef, expect.objectContaining({ studentIds: ["student-2"] }));
     expect(transaction.set).toHaveBeenCalledWith(auditRef, expect.objectContaining({ eventType: "parent.unlinked_from_student", actorId: "actor-1", schoolId: "school-1", schoolYearId: "year-1", source: "server" }));
     expect(mocks.auth.deleteUser).not.toHaveBeenCalled();
+  });
+
+  it("autorise la déliaison d'un élève promu lorsque le profil parent conserve l'année source", async () => {
+    const { transaction } = configureParentUnlinkScenario({ parentSchoolYearId: "year-archive" });
+    await expect(unlinkParentFromStudent({
+      db: mocks.db,
+      caller: { uid: "actor-1", role: "school_admin", schoolId: "school-1" },
+      body: { schoolId: "school-1", schoolYearId: "year-1", studentId: "student-1", parentId: "parent-1", confirmation: "DÉLIER LE PARENT" },
+    })).resolves.toMatchObject({ studentId: "student-1", parentId: "parent-1" });
+    expect(transaction.update).toHaveBeenCalled();
+  });
+
+  it("refuse une déliaison lorsque l'élève ne correspond pas à l'année active", async () => {
+    const { transaction } = configureParentUnlinkScenario({ studentSchoolYearId: "year-archive", includeYear2: true });
+    await expect(unlinkParentFromStudent({
+      db: mocks.db,
+      caller: { uid: "actor-1", role: "school_admin", schoolId: "school-1" },
+      body: { schoolId: "school-1", schoolYearId: "year-2", studentId: "student-1", parentId: "parent-1", confirmation: "DÉLIER LE PARENT" },
+    })).rejects.toMatchObject({ code: "school-year-mismatch", statusCode: 409 });
+    expect(transaction.update).not.toHaveBeenCalled();
+  });
+
+  it("accepte uniquement la confirmation parent exacte pour la déliaison depuis la fiche Parent", async () => {
+    configureParentUnlinkScenario();
+    await expect(unlinkParentFromStudent({
+      db: mocks.db,
+      caller: { uid: "actor-1", role: "school_admin", schoolId: "school-1" },
+      body: { schoolId: "school-1", schoolYearId: "year-1", studentId: "student-1", parentId: "parent-1", confirmation: "DÉLIER À CET ÉLÈVE" },
+    })).resolves.toMatchObject({ studentId: "student-1", parentId: "parent-1" });
   });
 
   it("expose la déliaison via l'action sécurisée de l'API existante", async () => {

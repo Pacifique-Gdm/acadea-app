@@ -64,7 +64,7 @@ export function PlatformModule({
   schoolEducationLevelChoices: string[];
   schoolLevelChoices: SchoolLevelChoice[];
   defaultSchoolOptions: string[];
-  getPlatformSchoolStats: (schoolId: string, data: AppData) => { students: number; parents: number; admins: number; users: number };
+  getPlatformSchoolStats: (schoolId: string, data: AppData, schoolYearId?: string) => { students: number; parents: number; admins: number; users: number };
   applyPlatformLogoAssets: () => Promise<void>;
   EnvironmentBanner: () => ReactNode;
   InstallPwaNavButton: ({ onInstall }: { onInstall: () => void }) => ReactNode;
@@ -90,6 +90,7 @@ export function PlatformModule({
   const [platformView, setPlatformView] = useState<PlatformView>("dashboard");
   const [selectedSchoolId, setSelectedSchoolId] = useState(data.schools[0]?.id ?? "");
   const [schoolDrawerId, setSchoolDrawerId] = useState("");
+  const [drawerYearId, setDrawerYearId] = useState("");
   const [detailTab, setDetailTab] = useState<SchoolDetailTab>("overview");
   const [platformMenuDrawer, setPlatformMenuDrawer] = useState<"create-school" | "create-coordination" | "logo" | "billing-controls" | null>(null);
   const [search, setSearch] = useState("");
@@ -172,18 +173,34 @@ export function PlatformModule({
   const biometricSchoolTerminals = biometricSchool ? data.biometricTerminals.filter((terminal) => terminal.schoolId === biometricSchool.id).sort((a, b) => activityTimestamp(b.createdAt) - activityTimestamp(a.createdAt)) : [];
   const drawerSchoolOptions = normalizeSchoolOptions(drawerSchool?.schoolOptions).filter(isAllowedSchoolOption);
   const drawerActiveYear = drawerSchool ? data.schoolYears.find((year) => year.id === drawerSchool.activeSchoolYearId && year.schoolId === drawerSchool.id) : undefined;
-  const drawerStats = drawerSchool ? getPlatformSchoolStats(drawerSchool.id, data) : { students: 0, parents: 0, admins: 0, users: 0 };
-  const drawerAdmins = drawerSchool ? data.users.filter((item) => item.role === "school_admin" && item.schoolId === drawerSchool.id && !item.removedAt) : [];
+  const drawerYear = drawerSchool
+    ? data.schoolYears.find((year) => year.id === drawerYearId && year.schoolId === drawerSchool.id) ?? drawerActiveYear
+    : undefined;
+  const drawerStats = drawerSchool ? getPlatformSchoolStats(drawerSchool.id, data, drawerYear?.id) : { students: 0, parents: 0, admins: 0, users: 0 };
+  const drawerAdmins = drawerSchool
+    ? data.users.filter((item) =>
+        item.role === "school_admin" &&
+        item.schoolId === drawerSchool.id &&
+        !item.removedAt &&
+        (!drawerYear?.id || !item.activeSchoolYearId || item.activeSchoolYearId === drawerYear.id),
+      )
+    : [];
   const drawerMainAdmin = drawerSchool ? drawerAdmins.find((admin) => admin.id === drawerSchool.mainAdminId) ?? drawerAdmins[0] : undefined;
   const drawerLogs = drawerSchool
-    ? data.auditLogs.filter((log) => log.schoolId === drawerSchool.id && !isSessionAuditAction(log.action)).sort((a, b) => activityTimestamp(b.createdAt) - activityTimestamp(a.createdAt))
+    ? data.auditLogs
+        .filter((log) =>
+          log.schoolId === drawerSchool.id &&
+          !isSessionAuditAction(log.action) &&
+          (!drawerYear?.id || !log.schoolYearId || log.schoolYearId === drawerYear.id),
+        )
+        .sort((a, b) => activityTimestamp(b.createdAt) - activityTimestamp(a.createdAt))
     : [];
   const drawerClassEnrollment = useMemo(() => {
     if (!drawerSchool) return [];
     const counts = new Map<string, { label: string; className: SchoolClass; count: number }>();
     data.students
       .filter((student) => student.schoolId === drawerSchool.id)
-      .filter((student) => (drawerSchool.activeSchoolYearId ? student.schoolYearId === drawerSchool.activeSchoolYearId : true))
+      .filter((student) => (drawerYear?.id ? student.schoolYearId === drawerYear.id : true))
       .filter((student) => !isArchivedStudent(student))
       .forEach((student) => {
         const label = formatStudentClassName(student);
@@ -201,7 +218,7 @@ export function PlatformModule({
       if (firstClassIndex !== secondClassIndex) return firstClassIndex - secondClassIndex;
       return first.label.localeCompare(second.label, "fr");
     });
-  }, [data.students, drawerSchool]);
+  }, [data.students, drawerSchool, drawerYear?.id]);
   const maxDrawerClassEnrollment = Math.max(1, ...drawerClassEnrollment.map((item) => item.count));
   const adminFormValid =
     adminName.trim().length >= 2 &&
@@ -836,7 +853,7 @@ export function PlatformModule({
     setPlatformView("students");
   }
 
-  function openSchoolDrawer(schoolId: string) {
+  function loadSchoolDrawerData(schoolId: string, schoolYearId: string) {
     const requestId = schoolDetailRequestRef.current + 1;
     schoolDetailRequestRef.current = requestId;
     setAiAssistantMessage("");
@@ -854,7 +871,7 @@ export function PlatformModule({
       setAiAssistantMonthlyLimit(String(schoolAiUsageThisMonth(aiAssistant).monthlyLimit));
       updateData({ schools: data.schools.map((item) => item.id === schoolId ? { ...item, aiAssistant } : item) }, { persist: false });
     }).catch((error) => console.warn("Chargement du quota Assistant IA impossible.", error));
-    loadSuperAdminSchoolData(schoolId)
+    loadSuperAdminSchoolData(schoolId, schoolYearId)
       .then((schoolData) => {
         if (schoolDetailRequestRef.current !== requestId) return;
         updateData(
@@ -887,11 +904,27 @@ export function PlatformModule({
       });
   }
 
+  function openSchoolDrawer(schoolId: string) {
+    const school = visibleSchools.find((item) => item.id === schoolId);
+    const yearId = data.schoolYears.find((year) => year.id === school?.activeSchoolYearId && year.schoolId === schoolId)?.id
+      ?? data.schoolYears.find((year) => year.schoolId === schoolId)?.id
+      ?? "";
+    setDrawerYearId(yearId);
+    loadSchoolDrawerData(schoolId, yearId);
+  }
+
+  function changeDrawerYear(schoolYearId: string) {
+    if (!drawerSchool || !schoolYearId || schoolYearId === drawerYear?.id) return;
+    setDrawerYearId(schoolYearId);
+    loadSchoolDrawerData(drawerSchool.id, schoolYearId);
+  }
+
   function closeSchoolDrawer() {
     schoolDetailRequestRef.current += 1;
     setAiAssistantChangeTarget(null);
     setAiAssistantConfirmation("");
     setSchoolDrawerId("");
+    setDrawerYearId("");
     setBiometricSchoolId("");
     setSchoolDetailLoading(false);
     setSchoolDetailError("");
@@ -1219,6 +1252,14 @@ export function PlatformModule({
                 </div>
               </div>
             </div>
+            <label className="grid gap-1 rounded border border-slate-200 bg-white p-3 text-sm font-semibold">
+              Année scolaire consultée
+              <select aria-label="Année scolaire consultée" className="input" value={drawerYear?.id ?? ""} onChange={(event) => changeDrawerYear(event.target.value)}>
+                {data.schoolYears.filter((year) => year.schoolId === drawerSchool.id && (year.status === "active" || year.status === "archived")).map((year) => (
+                  <option key={year.id} value={year.id}>{year.name}{year.status === "archived" ? " — Archivée" : " — Active"}</option>
+                ))}
+              </select>
+            </label>
             <div className="grid gap-3 rounded border border-slate-200 bg-white p-3 shadow-sm">
               <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4">
                 {(["overview", "info", "admins", "history"] as SchoolDetailTab[]).map((tab) => (
@@ -1354,18 +1395,18 @@ export function PlatformModule({
                 <InfoRow label="Téléphone" value={drawerSchool.phone || "-"} />
                 <InfoRow label="Email" value={drawerSchool.email || "-"} />
                 <label className="grid gap-1 rounded bg-slate-50 p-3 text-sm">
-                  <span className="font-semibold text-slate-500">Devise monétaire de l'année active</span>
+                  <span className="font-semibold text-slate-500">Devise monétaire de l'année sélectionnée</span>
                   <select
                     aria-label="Devise monétaire de l'année active"
                     className="input font-semibold"
-                    value={resolveSchoolYearCurrency(drawerActiveYear, drawerSchool)}
+                    value={resolveSchoolYearCurrency(drawerYear, drawerSchool)}
                     onChange={(event) => openCurrencyChangeDialog(drawerSchool, event.target.value as "USD" | "CDF")}
-                    disabled={!drawerActiveYear}
+                    disabled={!drawerYear}
                   >
                     <option value="USD">Dollar américain (USD)</option>
                     <option value="CDF">Franc congolais (CDF)</option>
                   </select>
-                  {!drawerActiveYear && <span className="text-xs text-amber-700">Aucune année active disponible.</span>}
+                  {!drawerYear && <span className="text-xs text-amber-700">Aucune année scolaire disponible.</span>}
                 </label>
                 <label className="grid gap-1 rounded bg-slate-50 p-3 text-sm">
                   <span className="font-semibold text-slate-500">Niveau de l'école</span>

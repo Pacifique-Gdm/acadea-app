@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AppData, AppUser, ParentProfile, Student } from "../types";
-import { applyParentUnlinkResult, isExactParentUnlinkConfirmation, PARENT_UNLINK_CONFIRMATION, reconcileStudentParentMembership } from "./parentStudentLink";
+import { applyParentUnlinkResult, isExactParentLinkConfirmation, isExactParentStudentUnlinkConfirmation, isExactParentUnlinkConfirmation, PARENT_LINK_CONFIRMATION, PARENT_STUDENT_UNLINK_CONFIRMATION, PARENT_UNLINK_CONFIRMATION, reconcileStudentParentMembership } from "./parentStudentLink";
 
 const studentA = { id: "student-a", parentId: "parent-a" } as Student;
 const studentB = { id: "student-b", parentId: "parent-a" } as Student;
@@ -12,6 +12,15 @@ describe("liaison Parent ↔ Élève", () => {
     expect(isExactParentUnlinkConfirmation(PARENT_UNLINK_CONFIRMATION)).toBe(true);
     for (const value of ["delier le parent", "DÉLIER PARENT", "DÉLIER LE parent", "DÉLIER LE PARENT ", " DELIER LE PARENT"]) {
       expect(isExactParentUnlinkConfirmation(value)).toBe(false);
+    }
+  });
+
+  it("sépare les confirmations exactes de liaison et de déliaison depuis la fiche Parent", () => {
+    expect(isExactParentLinkConfirmation(PARENT_LINK_CONFIRMATION)).toBe(true);
+    expect(isExactParentStudentUnlinkConfirmation(PARENT_STUDENT_UNLINK_CONFIRMATION)).toBe(true);
+    for (const value of ["lier à ce parent", "LIER A CE PARENT", "LIER À CE PARENT ", "DÉLIER À CET ÉLÈVE ", "DÉLIER A CET ELEVE"]) {
+      expect(isExactParentLinkConfirmation(value)).toBe(false);
+      expect(isExactParentStudentUnlinkConfirmation(value)).toBe(false);
     }
   });
 

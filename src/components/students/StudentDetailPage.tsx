@@ -11,7 +11,7 @@ import { MISSING_FINANCIAL_OPERATION_SCHOOL_ERROR, resolveFinancialOperationScho
 import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import { isArchivedStudent } from "../../utils/studentUtils";
-import { applyParentUnlinkResult, isExactParentUnlinkConfirmation, PARENT_UNLINK_CONFIRMATION } from "../../utils/parentStudentLink";
+import { applyParentUnlinkResult, isExactParentLinkConfirmation, isExactParentUnlinkConfirmation, PARENT_LINK_CONFIRMATION, PARENT_UNLINK_CONFIRMATION } from "../../utils/parentStudentLink";
 import type { AppData, AppUser, ParentProfile, School, SchoolYear } from "../../types";
 
 type StudentDetailYearData = Pick<AppData, "students" | "parents" | "feeTypes" | "payments" | "auditLogs">;
@@ -45,6 +45,9 @@ export function StudentDetailPage({
 }) {
   const [parentLinkOpen, setParentLinkOpen] = useState(false);
   const [parentLinkSearch, setParentLinkSearch] = useState("");
+  const [parentLinkTarget, setParentLinkTarget] = useState<ParentProfile | null>(null);
+  const [parentLinkConfirmation, setParentLinkConfirmation] = useState("");
+  const [parentLinkError, setParentLinkError] = useState("");
   const [parentUnlinkOpen, setParentUnlinkOpen] = useState(false);
   const [parentUnlinkConfirmation, setParentUnlinkConfirmation] = useState("");
   const [parentUnlinkError, setParentUnlinkError] = useState("");
@@ -85,6 +88,9 @@ export function StudentDetailPage({
     });
     setParentLinkOpen(false);
     setParentLinkSearch("");
+    setParentLinkTarget(null);
+    setParentLinkConfirmation("");
+    setParentLinkError("");
     setParentFeedback("Le parent a été lié à cet élève.");
   }
 
@@ -142,6 +148,14 @@ export function StudentDetailPage({
     setParentUnlinkConfirmation("");
     setParentUnlinkError("");
     setParentUnlinkOpen(true);
+  }
+
+  function closeParentLink() {
+    setParentLinkOpen(false);
+    setParentLinkTarget(null);
+    setParentLinkConfirmation("");
+    setParentLinkError("");
+    setParentLinkSearch("");
   }
 
   function closeParentUnlink() {
@@ -230,7 +244,7 @@ export function StudentDetailPage({
               <p className="text-xs uppercase tracking-wide text-slate-400">Parent</p>
               <div className="mt-1 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <p className="break-words font-semibold text-ink">Non renseigné</p>
-                <button onClick={() => setParentLinkOpen(true)} className="primary-button w-full justify-center sm:w-auto" type="button">
+                <button onClick={() => { closeParentLink(); setParentLinkOpen(true); }} className="primary-button w-full justify-center sm:w-auto" type="button">
                   <Plus className="h-4 w-4" /> Lier à un parent
                 </button>
               </div>
@@ -275,7 +289,7 @@ export function StudentDetailPage({
         </FormPanel>
       </section>
       {canManageParentLink && parentLinkOpen && (
-        <AdminDrawer title="Lier à un parent" onClose={() => setParentLinkOpen(false)} closeLabel="Fermer la liaison parent">
+        <AdminDrawer title="Lier à un parent" onClose={closeParentLink} closeLabel="Fermer la liaison parent">
           <div className="grid gap-3">
             <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
               <Search className="h-4 w-4 text-slate-400" />
@@ -292,7 +306,11 @@ export function StudentDetailPage({
               {parentLinkResults.map((parentItem) => (
                 <button
                   key={parentItem.id}
-                  onClick={() => linkStudentToParent(parentItem)}
+                  onClick={() => {
+                    setParentLinkTarget(parentItem);
+                    setParentLinkConfirmation("");
+                    setParentLinkError("");
+                  }}
                   className="min-w-0 rounded border border-slate-200 bg-white p-3 text-left transition hover:border-ink hover:bg-slate-50"
                   type="button"
                 >
@@ -302,6 +320,39 @@ export function StudentDetailPage({
                 </button>
               ))}
             </div>
+            {parentLinkTarget && (
+              <div className="grid gap-3 rounded border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950" role="dialog" aria-label="Confirmer la liaison du parent">
+                <p>Vous êtes sur le point de lier <strong>{parentLinkTarget.fullName}</strong> à cet élève.</p>
+                <p>Pour confirmer, saisissez exactement : <strong>{PARENT_LINK_CONFIRMATION}</strong></p>
+                <label className="grid gap-1 font-semibold">
+                  Confirmation
+                  <input
+                    className="input bg-white"
+                    value={parentLinkConfirmation}
+                    placeholder={PARENT_LINK_CONFIRMATION}
+                    onChange={(event) => setParentLinkConfirmation(event.target.value)}
+                  />
+                </label>
+                {parentLinkError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 font-semibold text-red-700">{parentLinkError}</p>}
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" className="secondary-button justify-center" onClick={() => { setParentLinkTarget(null); setParentLinkConfirmation(""); setParentLinkError(""); }}>Annuler</button>
+                  <button
+                    type="button"
+                    className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={!isExactParentLinkConfirmation(parentLinkConfirmation)}
+                    onClick={() => {
+                      if (!parentLinkTarget || !isExactParentLinkConfirmation(parentLinkConfirmation)) {
+                        setParentLinkError(`Veuillez saisir exactement ${PARENT_LINK_CONFIRMATION}.`);
+                        return;
+                      }
+                      linkStudentToParent(parentLinkTarget);
+                    }}
+                  >
+                    Confirmer la liaison
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </AdminDrawer>
       )}

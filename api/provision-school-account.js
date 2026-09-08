@@ -8,6 +8,7 @@ import { importArchivedStudents, reenrollTerminalStudent } from "./_lib/archived
 const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent"]);
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
 const parentUnlinkConfirmation = "DÉLIER LE PARENT";
+const parentStudentUnlinkConfirmation = "DÉLIER À CET ÉLÈVE";
 const adminRemovalConfirmation = "SUPPRIMER ADMINISTRATEUR";
 const internalPersonnelRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]);
 const schoolSections = new Set(["Maternelle", "Primaire", "CTEB", "Secondaire"]);
@@ -231,8 +232,8 @@ export async function unlinkParentFromStudent({ db, caller, body }) {
   if (!schoolId || !schoolYearId || !studentId || !parentId) {
     throw Object.assign(new Error("École, année scolaire, élève et parent requis."), { statusCode: 400, code: "invalid-argument" });
   }
-  if (confirmation !== parentUnlinkConfirmation) {
-    throw Object.assign(new Error("Veuillez saisir exactement DÉLIER LE PARENT."), { statusCode: 400, code: "invalid-confirmation" });
+  if (confirmation !== parentUnlinkConfirmation && confirmation !== parentStudentUnlinkConfirmation) {
+    throw Object.assign(new Error("Veuillez saisir exactement la confirmation de déliaison demandée."), { statusCode: 400, code: "invalid-confirmation" });
   }
   if (!caller?.uid || !["school_admin", "secretary"].includes(caller.role)) {
     throw Object.assign(new Error("Action réservée à un Administrateur ou un Secrétaire autorisé."), { statusCode: 403, code: "permission-denied" });
@@ -278,8 +279,12 @@ export async function unlinkParentFromStudent({ db, caller, body }) {
     if (student.schoolId !== schoolId || parent.schoolId !== schoolId) {
       throw Object.assign(new Error("Élève ou parent hors de cette école."), { statusCode: 403, code: "permission-denied" });
     }
-    if (student.schoolYearId !== schoolYearId || parent.schoolYearId !== schoolYearId) {
-      throw Object.assign(new Error("Élève ou parent hors de l’année scolaire active."), { statusCode: 409, code: "school-year-mismatch" });
+    // Parent profiles predate the annual student transition and can retain the
+    // source year's schoolYearId while their studentIds contains the promoted
+    // student. The student is the annual authority; the relation and tenant
+    // checks below still prevent cross-school or unrelated-parent mutations.
+    if (student.schoolYearId !== schoolYearId) {
+      throw Object.assign(new Error("Élève hors de l’année scolaire active."), { statusCode: 409, code: "school-year-mismatch" });
     }
     if (student.parentId !== parentId || !Array.isArray(parent.studentIds) || !parent.studentIds.includes(studentId)) {
       throw Object.assign(new Error("Ce parent n’est plus lié à cet élève."), { statusCode: 409, code: "parent-link-not-found" });

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, CheckCircle2, Link2, X } from "lucide-react";
 import { Field, FormPanel, PasswordField } from "../ui";
-import { provisionParent } from "../../services/provisioning";
+import { provisionParent, unlinkParentFromStudent } from "../../services/provisioning";
 import { temporaryPasswordAfterPhoneChange } from "../../utils/temporaryPassword";
 import { emptyParent, nextParentEmail } from "../../utils/parents";
+import { applyParentUnlinkResult, isExactParentStudentUnlinkConfirmation, PARENT_STUDENT_UNLINK_CONFIRMATION } from "../../utils/parentStudentLink";
 import type { AppData, AppUser, ParentProfile, School, SchoolYear, Student } from "../../types";
 
 type ParentFormYearData = {
@@ -43,6 +44,10 @@ export function ParentFormEditor({
   const [passwordManuallyEdited, setPasswordManuallyEdited] = useState(false);
   const [studentLinkSearch, setStudentLinkSearch] = useState("");
   const [studentSelectorOpen, setStudentSelectorOpen] = useState(false);
+  const [studentUnlinkTarget, setStudentUnlinkTarget] = useState<string | null>(null);
+  const [studentUnlinkConfirmation, setStudentUnlinkConfirmation] = useState("");
+  const [studentUnlinkError, setStudentUnlinkError] = useState("");
+  const [studentUnlinkBusy, setStudentUnlinkBusy] = useState(false);
   const [studentSectionFilter, setStudentSectionFilter] = useState("");
   const [studentClassFilter, setStudentClassFilter] = useState("");
   const initializedRequestIdRef = useRef<number | null>(null);
@@ -102,6 +107,10 @@ export function ParentFormEditor({
     setPasswordManuallyEdited(false);
     setStudentLinkSearch("");
     setStudentSelectorOpen(false);
+    setStudentUnlinkTarget(null);
+    setStudentUnlinkConfirmation("");
+    setStudentUnlinkError("");
+    setStudentUnlinkBusy(false);
     setStudentSectionFilter("");
     setStudentClassFilter("");
   }, [generatedParentEmail, initialParentId, requestId, school.id, year.id, yearData.parents]);
@@ -203,8 +212,56 @@ export function ParentFormEditor({
     }));
   }
 
-  function removeLinkedStudent(studentId: string) {
-    setForm((current) => ({ ...current, studentIds: current.studentIds.filter((id) => id !== studentId) }));
+  function requestRemoveLinkedStudent(studentId: string) {
+    setStudentUnlinkTarget(studentId);
+    setStudentUnlinkConfirmation("");
+    setStudentUnlinkError("");
+  }
+
+  function closeStudentUnlink() {
+    if (studentUnlinkBusy) return;
+    setStudentUnlinkTarget(null);
+    setStudentUnlinkConfirmation("");
+    setStudentUnlinkError("");
+  }
+
+  async function confirmStudentUnlink() {
+    if (!studentUnlinkTarget || studentUnlinkBusy) return;
+    if (!isExactParentStudentUnlinkConfirmation(studentUnlinkConfirmation)) {
+      setStudentUnlinkError(`Veuillez saisir exactement ${PARENT_STUDENT_UNLINK_CONFIRMATION}.`);
+      return;
+    }
+    const target = studentsById.get(studentUnlinkTarget);
+    if (!form.id.startsWith("new") && (!target || target.parentId !== form.id)) {
+      setStudentUnlinkError("La relation parent-élève n'est pas cohérente côté serveur.");
+      return;
+    }
+    setStudentUnlinkBusy(true);
+    setStudentUnlinkError("");
+    try {
+      if (!form.id.startsWith("new") && target) {
+        const result = await unlinkParentFromStudent({
+          schoolId: school.id,
+          schoolYearId: year.id,
+          studentId: target.id,
+          parentId: form.id,
+          confirmation: PARENT_STUDENT_UNLINK_CONFIRMATION,
+        });
+        updateData(applyParentUnlinkResult(data, {
+          studentId: target.id,
+          parentId: form.id,
+          parentStudentIds: result.parentStudentIds,
+        }), { persist: false });
+      }
+      setForm((current) => ({ ...current, studentIds: current.studentIds.filter((id) => id !== studentUnlinkTarget) }));
+      setStudentUnlinkTarget(null);
+      setStudentUnlinkConfirmation("");
+      setStudentUnlinkError("");
+    } catch (error) {
+      setStudentUnlinkError(error instanceof Error ? error.message : "Déliaison de l'élève impossible.");
+    } finally {
+      setStudentUnlinkBusy(false);
+    }
   }
 
   return (
@@ -305,7 +362,8 @@ export function ParentFormEditor({
                       <p className="truncate text-xs text-slate-500">{classLabel}{student.matricule ? ` · ${student.matricule}` : ""}</p>
                     </div>
                     <button
-                      onClick={() => removeLinkedStudent(student.id)}
+                      onClick={() => requestRemoveLinkedStudent(student.id)}
+                      disabled={studentUnlinkBusy}
                       className="shrink-0 rounded-full p-1 text-slate-500 transition hover:bg-slate-100 hover:text-red-600"
                       type="button"
                       aria-label={`Retirer ${studentLabel}`}
@@ -313,9 +371,24 @@ export function ParentFormEditor({
                       X
                     </button>
                   </div>
-                );
-              })}
+              );
+            })}
             </div>
+            {studentUnlinkTarget && (
+              <div className="grid gap-3 rounded border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950" role="dialog" aria-label="Confirmer la déliaison de l'élève">
+                <p>Vous êtes sur le point de délier cet élève du parent.</p>
+                <p>Pour confirmer, saisissez exactement : <strong>{PARENT_STUDENT_UNLINK_CONFIRMATION}</strong></p>
+                <label className="grid gap-1 font-semibold">
+                  Confirmation
+                  <input className="input bg-white" value={studentUnlinkConfirmation} disabled={studentUnlinkBusy} placeholder={PARENT_STUDENT_UNLINK_CONFIRMATION} onChange={(event) => setStudentUnlinkConfirmation(event.target.value)} />
+                </label>
+                {studentUnlinkError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 font-semibold text-red-700">{studentUnlinkError}</p>}
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" className="secondary-button justify-center" disabled={studentUnlinkBusy} onClick={closeStudentUnlink}>Annuler</button>
+                  <button type="button" className="rounded bg-red-700 px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50" disabled={studentUnlinkBusy || !isExactParentStudentUnlinkConfirmation(studentUnlinkConfirmation)} onClick={() => void confirmStudentUnlink()}>{studentUnlinkBusy ? "Déliaison…" : "Confirmer la déliaison"}</button>
+                </div>
+              </div>
+            )}
           </div>
         )}
         <div className="grid min-w-0 grid-cols-2 gap-2">

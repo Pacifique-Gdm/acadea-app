@@ -21,6 +21,13 @@ describe("fiche Élève — liaison Parent", () => {
     expect(detailSource).toContain("{ persist: false }");
   });
 
+  it("exige la confirmation exacte pour lier un parent", () => {
+    expect(detailSource).toContain("PARENT_LINK_CONFIRMATION");
+    expect(detailSource).toContain("isExactParentLinkConfirmation(parentLinkConfirmation)");
+    expect(detailSource).toContain('disabled={!isExactParentLinkConfirmation(parentLinkConfirmation)}');
+    expect(detailSource).toContain("Confirmer la liaison");
+  });
+
   it("explique que le compte Parent et les autres enfants sont conservés", () => {
     expect(detailSource).toContain("Le compte Parent et ses liens avec d’autres enfants seront conservés.");
     expect(detailSource).toContain("Le parent a été délié de cet élève.");
