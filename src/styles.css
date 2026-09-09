@@ -91,6 +91,15 @@ textarea {
     @apply w-full max-w-full min-w-0 rounded border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-mint focus:ring-2 focus:ring-mint/20;
   }
 
+  .dashboard-date-field {
+    @apply box-border flex w-full min-w-0 max-w-full items-center rounded border border-slate-200 bg-white px-3 py-2 transition focus-within:border-mint focus-within:ring-2 focus-within:ring-mint/20;
+  }
+
+  .dashboard-date-input {
+    @apply block w-full min-w-0 max-w-full border-0 bg-transparent p-0 text-sm text-ink outline-none;
+    min-inline-size: 0;
+  }
+
   .primary-button {
     @apply inline-flex max-w-full min-w-0 items-center justify-center gap-2 rounded bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#1f2f55] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-ink;
   }

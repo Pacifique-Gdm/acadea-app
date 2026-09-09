@@ -4,12 +4,19 @@ import { describe, expect, it } from "vitest";
 describe("Dashboard Admin/Caissier — temps réel et iPhone", () => {
   const source = readFileSync(new URL("./Dashboard.tsx", import.meta.url), "utf8");
 
-  it("supprime la largeur intrinsèque iOS des dates sans masquer le débordement", () => {
+  it("isole le padding hors des inputs date pour contourner le calcul de largeur iOS sans masquer le débordement", () => {
     expect(source).toContain('data-testid="dashboard-date-controls"');
     expect(source.match(/type="date"/g)).toHaveLength(2);
-    expect(source.match(/\[min-inline-size:0\]/g)).toHaveLength(2);
+    expect(source.match(/data-testid="dashboard-date-field"/g)).toHaveLength(2);
+    expect(source.match(/className="dashboard-date-input"/g)).toHaveLength(2);
     expect(source).toContain("grid w-full min-w-0 max-w-full");
     expect(source).not.toContain('data-testid="dashboard-date-controls" className="overflow-x-hidden');
+    expect(source).not.toMatch(/type="date"[\s\S]{0,180}className="input/);
+
+    const styles = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
+    expect(styles).toMatch(/\.dashboard-date-field\s*\{[\s\S]*px-3 py-2/);
+    expect(styles).toMatch(/\.dashboard-date-input\s*\{[\s\S]*p-0/);
+    expect(styles).toContain("min-inline-size: 0;");
   });
 
   it("branche les vraies classes et les compteurs de personnel partagés", () => {

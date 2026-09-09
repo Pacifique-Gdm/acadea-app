@@ -589,20 +589,26 @@ export function Dashboard({ data, school, year }: DashboardProps) {
               <option key={section} value={section}>{schoolSectionLabels[section]}</option>
             ))}
           </select>
-          <input
-            value={startDate}
-            onChange={(event) => updateDashboardDateFilter("start", event.target.value)}
-            type="date"
-            max={today}
-            className="input block min-w-0 max-w-full [min-inline-size:0]"
-          />
-          <input
-            value={endDate}
-            onChange={(event) => updateDashboardDateFilter("end", event.target.value)}
-            type="date"
-            max={today}
-            className="input block min-w-0 max-w-full [min-inline-size:0]"
-          />
+          <div data-testid="dashboard-date-field" className="dashboard-date-field">
+            <input
+              aria-label="Date de début"
+              value={startDate}
+              onChange={(event) => updateDashboardDateFilter("start", event.target.value)}
+              type="date"
+              max={today}
+              className="dashboard-date-input"
+            />
+          </div>
+          <div data-testid="dashboard-date-field" className="dashboard-date-field">
+            <input
+              aria-label="Date de fin"
+              value={endDate}
+              onChange={(event) => updateDashboardDateFilter("end", event.target.value)}
+              type="date"
+              max={today}
+              className="dashboard-date-input"
+            />
+          </div>
           <button onClick={resetDashboardDateFilter} type="button" className="rounded border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:border-mint hover:text-mint">
             Réinitialiser
           </button>
