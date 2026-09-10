@@ -3,9 +3,11 @@ import type { ReactNode } from "react";
 import { ArrowUpDown, BookOpen, Building2, CheckCircle2, Filter, GraduationCap, LayoutDashboard, LogOut, Menu as MenuIcon, Plus, RotateCcw, Search, ShieldCheck, Sparkles, Upload, UsersRound, X } from "lucide-react";
 import { BillingControlsDrawer } from "../../components/platform/BillingControlsDrawer";
 import { AuditTimeline, BiometricTerminalStatusBadge, InfoRow, MiniStat, PlatformCard, SchoolLogo, SchoolSaasCard, StatusBadge } from "../../components/platform";
+import { PlatformStatusDistributionCard } from "../../components/platform/PlatformStatusDistributionCard";
 import { AdminDrawer, Field, FormPanel, ImageUploadField, PasswordField } from "../../components/ui";
 import { MobileBottomNavigation } from "../../components/layout/MobileBottomNavigation";
 import type { UseBillingControlsResult } from "../../hooks/useBillingControls";
+import { useRealtimeCoordinations } from "../../hooks/useRealtimeCoordinations";
 import { reconcileRealtimeSchoolUsers, useRealtimeSchoolUsers } from "../../hooks/useRealtimeSchoolUsers";
 import { savePlatformSettings } from "../../services/firestoreData";
 import { loadSuperAdminSchoolData } from "../../services/superAdminData";
@@ -24,6 +26,7 @@ import { schoolInformationPatch } from "./schoolInformation";
 import type { SchoolInformationDraft } from "./schoolInformation";
 import { isArchivedStudent } from "../../utils/studentUtils";
 import { canonicalSchoolOption, normalizeSchoolOptions } from "../../utils/schoolOptions";
+import { coordinationStatusDistribution } from "../../utils/platformStatusDistribution";
 import { resolveSchoolYearCurrency } from "../../utils/currency";
 import { CoordinationManagement } from "./CoordinationManagement";
 import { CoordinationCreateDrawer } from "./CoordinationCreateDrawer";
@@ -156,6 +159,7 @@ export function PlatformModule({
     current.updateData({ users: reconcileRealtimeSchoolUsers(current.users, users, current.schoolId) }, { persist: false });
   }, []);
   useRealtimeSchoolUsers({ user, schoolId: schoolDrawerId, onUsers: applyRealtimeSchoolUsers });
+  const { coordinations, error: coordinationLoadError } = useRealtimeCoordinations();
 
   const visibleSchools = data.schools.filter((school) => String(school.status) !== "deleted");
   const totalStudents = platformCounts?.students ?? data.students.length;
@@ -169,7 +173,7 @@ export function PlatformModule({
     { label: "En attente", value: visibleSchools.filter((school) => String(school.status) === "pending").length, className: "bg-amber-500", textClassName: "text-amber-700" },
     { label: "Désactivées", value: visibleSchools.filter((school) => String(school.status) === "inactive").length, className: "bg-slate-500", textClassName: "text-slate-600" },
   ];
-  const maxStatusCount = Math.max(1, ...schoolStatusChart.map((item) => item.value));
+  const coordinationStatusChart = coordinationStatusDistribution(coordinations);
   const schoolSections = educationLevelsForSchoolLevel(schoolLevel);
   const hasSecondarySection = schoolSections.includes("Secondaire");
   const hasCustomSchoolOption = selectedSchoolOptions.includes("Autre");
@@ -1062,29 +1066,10 @@ export function PlatformModule({
 
           {platformView === "dashboard" && (
             <section className="grid min-w-0 gap-4">
-              <div className="grid min-w-0 gap-4">
-                <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
-                  <div className="flex min-w-0 flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0">
-                      <h2 className="font-bold text-ink">Répartition des écoles par statut</h2>
-                      <p className="text-sm text-slate-500">État global des établissements de la plateforme.</p>
-                    </div>
-                    <span className="w-fit rounded bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">{visibleSchools.length} école(s)</span>
-                  </div>
-                  <div className="mt-5 grid gap-3">
-                    {schoolStatusChart.map((item) => (
-                      <div key={item.label} className="grid gap-1">
-                        <div className="flex items-center justify-between gap-3 text-sm">
-                          <span className="font-semibold text-slate-700">{item.label}</span>
-                          <span className={`font-bold ${item.textClassName}`}>{item.value}</span>
-                        </div>
-                        <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-                          <div className={`h-full rounded-full ${item.className}`} style={{ width: `${Math.max(4, (item.value / maxStatusCount) * 100)}%` }} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+              {coordinationLoadError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{coordinationLoadError}</p>}
+              <div className="grid min-w-0 gap-4 lg:grid-cols-2">
+                <PlatformStatusDistributionCard title="Répartition des écoles par statut" description="État global des établissements de la plateforme." total={visibleSchools.length} totalLabel="école(s)" items={schoolStatusChart} />
+                <PlatformStatusDistributionCard title="Répartition des Coordinations par statut" description="État global des Coordinations de la plateforme." total={coordinations.length} totalLabel="Coordination(s)" items={coordinationStatusChart} />
               </div>
             </section>
           )}
@@ -1140,7 +1125,7 @@ export function PlatformModule({
           )}
 
           {platformView === "coordinations" && (
-            <CoordinationManagement schools={visibleSchools} />
+            <CoordinationManagement schools={visibleSchools} coordinations={coordinations} coordinationError={coordinationLoadError} />
           )}
 
           {platformView === "menu" && (

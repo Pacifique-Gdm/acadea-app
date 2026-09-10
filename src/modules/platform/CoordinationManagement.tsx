@@ -8,7 +8,7 @@ import type { AppUser, Coordination, CoordinationSchool, School } from "../../ty
 
 const ADD_CONFIRMATION = "AJOUTER CETTE ECOLE";
 const REMOVE_CONFIRMATION = "RETIRER CETTE ECOLE";
-type Props = { schools: School[] };
+type Props = { schools: School[]; coordinations: Coordination[]; coordinationError?: string };
 
 function dateLabel(value?: string) {
   if (!value) return "—";
@@ -16,8 +16,7 @@ function dateLabel(value?: string) {
   return Number.isFinite(date.getTime()) ? date.toLocaleString("fr-FR") : "—";
 }
 
-export function CoordinationManagement({ schools }: Props) {
-  const [coordinations, setCoordinations] = useState<Coordination[]>([]);
+export function CoordinationManagement({ schools, coordinations, coordinationError = "" }: Props) {
   const [relations, setRelations] = useState<CoordinationSchool[]>([]);
   const [coordinators, setCoordinators] = useState<AppUser[]>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -29,10 +28,9 @@ export function CoordinationManagement({ schools }: Props) {
 
   useEffect(() => {
     if (!db) return undefined;
-    const stopCoordinations = onSnapshot(collection(db, "coordinations"), (snapshot) => setCoordinations(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as Coordination)).sort((a, b) => a.name.localeCompare(b.name, "fr"))), () => setError("Impossible de charger les Coordinations."));
     const stopRelations = onSnapshot(collection(db, "coordinationSchools"), (snapshot) => setRelations(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as CoordinationSchool))), () => setError("Impossible de charger les rattachements."));
     getDocs(query(collection(db, "users"), where("role", "==", "coordination_admin"))).then((snapshot) => setCoordinators(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as AppUser)))).catch(() => setError("Impossible de charger les Coordinateurs."));
-    return () => { stopCoordinations(); stopRelations(); };
+    return () => { stopRelations(); };
   }, []);
 
   const selected = coordinations.find((item) => item.id === selectedId) ?? null;
@@ -60,7 +58,7 @@ export function CoordinationManagement({ schools }: Props) {
   }
 
   return <section className="grid min-w-0 gap-4">
-    {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+    {(error || coordinationError) && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error || coordinationError}</p>}
     {message && <p role="status" className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{message}</p>}
     <div className="flex flex-wrap items-center justify-between gap-3 rounded border border-blue-100 bg-blue-50 p-4"><div><h2 className="text-lg font-bold">Coordinations</h2><p className="text-sm text-slate-600">Périmètres multi-écoles administrés exclusivement par le Super Administrateur.</p></div></div>
     <div className="grid min-w-0 gap-4"><div className="grid content-start gap-2 rounded border bg-white p-3 shadow-sm">

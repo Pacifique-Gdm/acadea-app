@@ -23,4 +23,9 @@ describe("gestion Super Administrateur des Coordinations", () => {
     expect(source).toContain("Écoles rattachées");
     expect(source).toContain("<AdminDrawer");
   });
+  it("réutilise la source temps réel partagée avec le Dashboard", () => {
+    expect(source).toContain("coordinations, coordinationError");
+    expect(source).not.toContain("setCoordinations");
+    expect(source).not.toContain('collection(db, "coordinations")');
+  });
 });
