@@ -90,7 +90,7 @@ test("modifie puis restaure atomiquement les informations, la devise institution
   const marker = `Devise E2E ${Date.now()}`;
   await drawer.getByLabel("Devise", { exact: true }).fill(marker);
   await drawer.locator('input[type="file"]').setInputFiles("public/acadea-icon.png");
-  await expect(drawer.locator('img[src^="data:image/png;base64,"]')).toBeVisible();
+  await expect(drawer.locator('img[src^="data:image/webp;base64,"]')).toBeVisible();
   await drawer.getByLabel(/Saisissez exactement/).fill(confirmation);
 
   let schoolId = "";

@@ -16,7 +16,7 @@ import { ADMIN_REMOVAL_CONFIRMATION, canConfirmAdminRemoval, markAdminRemoved } 
 import { aiAssistantConfirmationPhrase, canConfirmAiAssistantChange } from "../../utils/aiAssistantConfirmation";
 import { isSessionAuditAction } from "../../utils/audit";
 import { activityTimestamp } from "../../utils/activityHistory";
-import { schoolLevelFromConfig } from "../../utils/schoolConfig";
+import { educationLevelsForSchoolLevel, schoolLevelFromConfig } from "../../utils/schoolConfig";
 import type { SchoolLevelChoice } from "../../utils/schoolConfig";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import { SchoolInformationEditDrawer } from "./SchoolInformationEditDrawer";
@@ -42,7 +42,6 @@ export function PlatformModule({
   onLogout,
   billingControls,
   uid,
-  schoolEducationLevelChoices,
   schoolLevelChoices,
   defaultSchoolOptions,
   getPlatformSchoolStats,
@@ -64,7 +63,6 @@ export function PlatformModule({
   onLogout: () => void;
   billingControls: UseBillingControlsResult;
   uid: (prefix: string) => string;
-  schoolEducationLevelChoices: string[];
   schoolLevelChoices: SchoolLevelChoice[];
   defaultSchoolOptions: string[];
   getPlatformSchoolStats: (schoolId: string, data: AppData, schoolYearId?: string) => { students: number; parents: number; admins: number; users: number };
@@ -86,7 +84,7 @@ export function PlatformModule({
   const [mainAdminName, setMainAdminName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
-  const [schoolSections, setSchoolSections] = useState<string[]>(["Primaire"]);
+  const [schoolLevel, setSchoolLevel] = useState<SchoolLevelChoice>("Primaire");
   const [schoolCurrency, setSchoolCurrency] = useState<"USD" | "CDF">("USD");
   const [selectedSchoolOptions, setSelectedSchoolOptions] = useState<string[]>([]);
   const [customSchoolOption, setCustomSchoolOption] = useState("");
@@ -172,6 +170,7 @@ export function PlatformModule({
     { label: "Désactivées", value: visibleSchools.filter((school) => String(school.status) === "inactive").length, className: "bg-slate-500", textClassName: "text-slate-600" },
   ];
   const maxStatusCount = Math.max(1, ...schoolStatusChart.map((item) => item.value));
+  const schoolSections = educationLevelsForSchoolLevel(schoolLevel);
   const hasSecondarySection = schoolSections.includes("Secondaire");
   const hasCustomSchoolOption = selectedSchoolOptions.includes("Autre");
   const visibleSchoolOptionChoices = normalizeSchoolOptions([...schoolOptionChoices, ...selectedSchoolOptions.filter((option) => option !== "Autre" && isAllowedSchoolOption(option))]);
@@ -258,7 +257,7 @@ export function PlatformModule({
 
   async function createSchool() {
     if (provisioningLoading) return;
-    if (!schoolName || !mainAdminName || !adminEmail || !adminPassword || schoolSections.length === 0) return;
+    if (!schoolName || !mainAdminName || !adminEmail || !adminPassword) return;
     const trimmedCustomSchoolOption = customSchoolOption.trim();
     if (hasSecondarySection && hasCustomSchoolOption && !trimmedCustomSchoolOption) {
       setProvisioningError("Veuillez préciser la nouvelle option scolaire.");
@@ -284,7 +283,7 @@ export function PlatformModule({
         adminEmail: adminEmail.trim(),
         adminPassword,
         educationLevels: schoolSections,
-        schoolType: schoolSections.length === 1 ? (schoolSections[0] as School["schoolType"]) : "Mixte",
+        schoolType: schoolLevel,
         schoolOptions: nextSchoolOptions,
         currency: schoolCurrency,
       });
@@ -302,7 +301,7 @@ export function PlatformModule({
       setMainAdminName("");
       setAdminEmail("");
       setAdminPassword("");
-      setSchoolSections(["Primaire"]);
+      setSchoolLevel("Primaire");
       setSchoolCurrency("USD");
       setSelectedSchoolOptions([]);
       setCustomSchoolOption("");
@@ -317,18 +316,13 @@ export function PlatformModule({
     }
   }
 
-  function toggleSchoolSection(section: string) {
-    setSchoolSections((current) => {
-      if (current.includes(section)) {
-        if (section === "Secondaire") {
-          setSelectedSchoolOptions([]);
-          setCustomSchoolOption("");
-          setProvisioningError("");
-        }
-        return current.filter((item) => item !== section);
-      }
-      return [...current, section];
-    });
+  function changeSchoolLevel(level: SchoolLevelChoice) {
+    if (!educationLevelsForSchoolLevel(level).includes("Secondaire")) {
+      setSelectedSchoolOptions([]);
+      setCustomSchoolOption("");
+    }
+    setProvisioningError("");
+    setSchoolLevel(level);
   }
 
   function toggleSchoolOption(option: string) {
@@ -984,17 +978,12 @@ export function PlatformModule({
             <option value="CDF">Franc congolais (FC)</option>
           </select>
         </label>
-        <fieldset className="grid gap-2 rounded border border-slate-200 p-3">
-          <legend className="px-1 text-sm font-semibold text-slate-700">Sections disponibles</legend>
-          <div className="flex flex-wrap gap-2">
-            {schoolEducationLevelChoices.map((section) => (
-              <label key={section} className="inline-flex items-center gap-2 rounded bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
-                <input type="checkbox" checked={schoolSections.includes(section)} onChange={() => toggleSchoolSection(section)} className="h-4 w-4 accent-ink" />
-                {section}
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        <label className="grid gap-1 text-sm font-medium text-slate-700">
+          Niveau de l'école
+          <select className="input" value={schoolLevel} onChange={(event) => changeSchoolLevel(event.target.value as SchoolLevelChoice)}>
+            {schoolLevelChoices.map((level) => <option key={level} value={level}>{level}</option>)}
+          </select>
+        </label>
         {hasSecondarySection && (
           <fieldset className="grid gap-2 rounded border border-slate-200 p-3">
             <legend className="px-1 text-sm font-semibold text-slate-700">Options scolaires</legend>
@@ -1030,7 +1019,7 @@ export function PlatformModule({
         {provisioningError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{provisioningError}</p>}
         <button
           onClick={createSchool}
-          disabled={provisioningLoading || !mainAdminName.trim() || schoolSections.length === 0 || (hasSecondarySection && hasCustomSchoolOption && !customSchoolOption.trim())}
+          disabled={provisioningLoading || !mainAdminName.trim() || (hasSecondarySection && hasCustomSchoolOption && !customSchoolOption.trim())}
           className="primary-button w-full justify-center disabled:cursor-not-allowed disabled:opacity-60"
           type="button"
         >

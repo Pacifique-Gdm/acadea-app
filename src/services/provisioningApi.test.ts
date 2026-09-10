@@ -413,6 +413,57 @@ describe("API de provisionnement Acadéa", () => {
     expect(schoolRef?.set).toHaveBeenCalledWith(expect.objectContaining({ educationLevels: ["CTEB", "Primaire"] }));
   });
 
+  it.each([
+    ["Maternelle", ["Maternelle"], false],
+    ["Primaire", ["Maternelle", "Primaire"], false],
+    ["CTEB", ["Maternelle", "Primaire", "CTEB"], false],
+    ["Secondaire", ["Maternelle", "Primaire", "CTEB", "Secondaire"], true],
+    ["Primaire uniquement", ["Primaire"], false],
+    ["CTEB uniquement", ["CTEB"], false],
+    ["Secondaire uniquement", ["Secondaire"], true],
+  ])("persiste le niveau métier %s et ses niveaux dérivés", async (schoolType, educationLevels, keepsOptions) => {
+    mocks.auth.verifyIdToken.mockResolvedValue({ uid: "super-1", role: "super_admin", email: "super@example.invalid" });
+    const res = response();
+    await provisionSchoolAdmin(request({
+      schoolName: `École ${schoolType}`,
+      adminName: "Administrateur test",
+      adminEmail: `${String(schoolType).toLowerCase().replaceAll(" ", ".")}@example.invalid`,
+      adminPassword: "test-password",
+      schoolType,
+      educationLevels,
+      schoolOptions: ["Sciences", "Littéraire"],
+    }), res);
+
+    expect(res.statusCode).toBe(200);
+    const schoolRef = mocks.db.doc.mock.results
+      .map((result) => result.value as { path?: string; set?: ReturnType<typeof vi.fn> })
+      .find((ref) => ref.path?.startsWith("schools/school-"));
+    expect(schoolRef?.set).toHaveBeenCalledWith(expect.objectContaining({
+      schoolType,
+      educationLevels,
+      schoolOptions: keepsOptions ? ["Sciences", "Littéraire"] : [],
+    }));
+  });
+
+  it.each([
+    { schoolType: "Secondaire", educationLevels: ["Secondaire"] },
+    { schoolType: "Secondaire uniquement", educationLevels: ["Secondaire", "Inconnue"] },
+    { schoolType: "Inconnu", educationLevels: ["Primaire"] },
+  ])("refuse un niveau métier incohérent %#", async ({ schoolType, educationLevels }) => {
+    mocks.auth.verifyIdToken.mockResolvedValue({ uid: "super-1", role: "super_admin", email: "super@example.invalid" });
+    const res = response();
+    await provisionSchoolAdmin(request({
+      schoolName: "École invalide",
+      adminName: "Administrateur test",
+      adminEmail: "invalide@example.invalid",
+      adminPassword: "test-password",
+      schoolType,
+      educationLevels,
+    }), res);
+    expect(res.statusCode).toBe(400);
+    expect(mocks.auth.createUser).not.toHaveBeenCalled();
+  });
+
   it("persiste les options initiales dédupliquées avec Sciences comme libellé canonique", async () => {
     mocks.auth.verifyIdToken.mockResolvedValue({ uid: "super-1", role: "super_admin", email: "super@example.invalid" });
     const res = response();

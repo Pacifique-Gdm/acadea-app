@@ -5,6 +5,15 @@ import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib
 import { normalizeSchoolOptions } from "./_lib/schoolOptions.js";
 
 const allowedPlans = new Set(["Starter", "Standard", "Premium"]);
+const schoolLevels = new Map([
+  ["Maternelle", ["Maternelle"]],
+  ["Primaire", ["Maternelle", "Primaire"]],
+  ["CTEB", ["Maternelle", "Primaire", "CTEB"]],
+  ["Secondaire", ["Maternelle", "Primaire", "CTEB", "Secondaire"]],
+  ["Primaire uniquement", ["Primaire"]],
+  ["CTEB uniquement", ["CTEB"]],
+  ["Secondaire uniquement", ["Secondaire"]],
+]);
 
 async function readBody(req) {
   if (req.body && typeof req.body === "object") return req.body;
@@ -99,12 +108,28 @@ export default async function handler(req, res) {
       const value = String(level).trim();
       return ["cteb", "cetb"].includes(value.toLowerCase()) ? "CTEB" : value;
     };
-    const educationLevels = Array.isArray(body.educationLevels)
-      ? body.educationLevels.map(normalizeEducationLevel).filter((level) => allowedEducationLevels.has(level))
+    const rawEducationLevels = Array.isArray(body.educationLevels)
+      ? body.educationLevels.map(normalizeEducationLevel)
       : ["Primaire"];
-    const uniqueEducationLevels = [...new Set(educationLevels.length > 0 ? educationLevels : ["Primaire"])];
-    const schoolType = uniqueEducationLevels.length === 1 ? uniqueEducationLevels[0] : "Mixte";
-    const schoolOptions = normalizeSchoolOptions(body.schoolOptions);
+    if (body.schoolType !== undefined && rawEducationLevels.some((level) => !allowedEducationLevels.has(level))) {
+      sendJson(res, 400, { error: "Niveau d'éducation invalide.", code: "invalid-argument" });
+      return;
+    }
+    const requestedEducationLevels = rawEducationLevels.filter((level) => allowedEducationLevels.has(level));
+    const legacyEducationLevels = [...new Set(requestedEducationLevels.length > 0 ? requestedEducationLevels : ["Primaire"])];
+    const requestedSchoolLevel = String(body.schoolType ?? "").trim();
+    const mappedEducationLevels = schoolLevels.get(requestedSchoolLevel);
+    if (body.schoolType !== undefined && !mappedEducationLevels) {
+      sendJson(res, 400, { error: "Niveau de l'école invalide.", code: "invalid-argument" });
+      return;
+    }
+    if (mappedEducationLevels && (legacyEducationLevels.length !== mappedEducationLevels.length || legacyEducationLevels.some((level, index) => level !== mappedEducationLevels[index]))) {
+      sendJson(res, 400, { error: "Le niveau de l'école et les niveaux d'éducation sont incohérents.", code: "invalid-argument" });
+      return;
+    }
+    const uniqueEducationLevels = mappedEducationLevels ?? legacyEducationLevels;
+    const schoolType = mappedEducationLevels ? requestedSchoolLevel : uniqueEducationLevels.length === 1 ? uniqueEducationLevels[0] : "Mixte";
+    const schoolOptions = uniqueEducationLevels.includes("Secondaire") ? normalizeSchoolOptions(body.schoolOptions) : [];
     const currency = body.currency === undefined || body.currency === "USD" ? "USD" : body.currency === "CDF" ? "CDF" : "INVALID";
 
     if (currency === "INVALID") {

@@ -760,7 +760,6 @@ export default function App() {
         onInstallPwa={installPwa}
         billingControls={billingControls}
         uid={uid}
-        schoolEducationLevelChoices={schoolEducationLevelChoices}
         schoolLevelChoices={schoolLevelChoices}
         defaultSchoolOptions={defaultSchoolOptions}
         getPlatformSchoolStats={getPlatformSchoolStats}
