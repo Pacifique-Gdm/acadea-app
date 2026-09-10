@@ -44,11 +44,13 @@ export function canSaveSchoolInformation(input: {
   confirmation: string;
   saving: boolean;
   logoProcessing: boolean;
+  logoValid?: boolean;
 }) {
   return Boolean(
     input.draft.name.trim()
       && input.confirmation === SCHOOL_INFORMATION_CONFIRMATION
       && !input.saving
-      && !input.logoProcessing,
+      && !input.logoProcessing
+      && input.logoValid !== false,
   );
 }

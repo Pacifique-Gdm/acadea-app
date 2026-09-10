@@ -23,7 +23,8 @@ export function SchoolInformationEditDrawer({
   const [draft, setDraft] = useState(() => schoolInformationDraft(school));
   const [confirmation, setConfirmation] = useState("");
   const [logoProcessing, setLogoProcessing] = useState(false);
-  const canSave = canSaveSchoolInformation({ draft, confirmation, saving, logoProcessing });
+  const [logoValid, setLogoValid] = useState(true);
+  const canSave = canSaveSchoolInformation({ draft, confirmation, saving, logoProcessing, logoValid });
 
   return (
     <AdminDrawer
@@ -47,6 +48,7 @@ export function SchoolInformationEditDrawer({
           value={draft.logoUrl}
           onChange={(logoUrl) => setDraft((current) => ({ ...current, logoUrl }))}
           onProcessingChange={setLogoProcessing}
+          onValidityChange={setLogoValid}
           maxWidth={600}
           maxBytes={200 * 1024}
           disabled={saving}

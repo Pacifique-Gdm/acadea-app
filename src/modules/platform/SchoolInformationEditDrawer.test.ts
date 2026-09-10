@@ -63,6 +63,7 @@ describe("SchoolInformationEditDrawer", () => {
     expect(canSaveSchoolInformation({ draft, confirmation: SCHOOL_INFORMATION_CONFIRMATION, saving: false, logoProcessing: false })).toBe(true);
     expect(canSaveSchoolInformation({ draft, confirmation: SCHOOL_INFORMATION_CONFIRMATION, saving: true, logoProcessing: false })).toBe(false);
     expect(canSaveSchoolInformation({ draft, confirmation: SCHOOL_INFORMATION_CONFIRMATION, saving: false, logoProcessing: true })).toBe(false);
+    expect(canSaveSchoolInformation({ draft, confirmation: SCHOOL_INFORMATION_CONFIRMATION, saving: false, logoProcessing: false, logoValid: false })).toBe(false);
   });
 
   it("conserve un Drawer responsive, le logo, tous les champs et un footer 50/50", () => {
