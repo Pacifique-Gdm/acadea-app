@@ -26,17 +26,20 @@ export function schoolInformationDraft(school: School): SchoolInformationDraft {
   };
 }
 
-export function schoolInformationPatch(draft: SchoolInformationDraft): Partial<School> {
-  return {
+export function schoolInformationPatch(draft: SchoolInformationDraft, school?: School): Partial<School> {
+  const patch: Partial<School> = {
     name: draft.name.trim(),
     address: draft.address.trim(),
     phone: draft.phone.trim(),
     email: draft.email.trim(),
     motto: draft.motto.trim(),
     logoUrl: draft.logoUrl,
-    schoolType: draft.level,
-    educationLevels: educationLevelsForSchoolLevel(draft.level),
   };
+  if (!school || draft.level !== schoolLevelFromConfig(school)) {
+    patch.schoolType = draft.level;
+    patch.educationLevels = educationLevelsForSchoolLevel(draft.level);
+  }
+  return patch;
 }
 
 export function canSaveSchoolInformation(input: {

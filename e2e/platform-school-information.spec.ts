@@ -1,5 +1,4 @@
 import { expect, test, type Page } from "@playwright/test";
-import { educationLevelsForSchoolLevel } from "../src/utils/schoolConfig";
 import type { SchoolLevelChoice } from "../src/utils/schoolConfig";
 
 const email = process.env.E2E_SUPER_ADMIN_EMAIL;
@@ -62,13 +61,14 @@ test("modifie puis restaure atomiquement les informations, la devise institution
   let drawer = page.getByRole("dialog", { name: "Modifier les informations de l'école" });
   await expect(drawer).toBeVisible();
 
+  const originalLogo = drawer.locator("img").first();
   const original = {
     name: await drawer.getByLabel("Nom de l'école").inputValue(),
     address: await drawer.getByLabel("Adresse").inputValue(),
     phone: await drawer.getByLabel("Téléphone").inputValue(),
     email: await drawer.getByLabel("Email").inputValue(),
     motto: await drawer.getByLabel("Devise", { exact: true }).inputValue(),
-    logoUrl: await drawer.locator("img").first().getAttribute("src") ?? "",
+    logoUrl: await originalLogo.count() ? await originalLogo.getAttribute("src") ?? "" : "",
     level: await drawer.getByLabel("Niveau de l'école").inputValue() as SchoolLevelChoice,
   };
   expect(original.name).toBe(schoolName);
@@ -88,9 +88,8 @@ test("modifie puis restaure atomiquement les informations, la devise institution
   await expect(drawer.getByLabel("Devise", { exact: true })).toHaveValue(original.motto);
 
   const marker = `Devise E2E ${Date.now()}`;
-  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
   await drawer.getByLabel("Devise", { exact: true }).fill(marker);
-  await drawer.locator('input[type="file"]').setInputFiles({ name: "logo-e2e.png", mimeType: "image/png", buffer: png });
+  await drawer.locator('input[type="file"]').setInputFiles("public/acadea-icon.png");
   await expect(drawer.locator('img[src^="data:image/png;base64,"]')).toBeVisible();
   await drawer.getByLabel(/Saisissez exactement/).fill(confirmation);
 
@@ -129,8 +128,6 @@ test("modifie puis restaure atomiquement les informations, la devise institution
             email: original.email,
             motto: original.motto,
             logoUrl: original.logoUrl,
-            schoolType: original.level,
-            educationLevels: educationLevelsForSchoolLevel(original.level),
           },
         },
       });

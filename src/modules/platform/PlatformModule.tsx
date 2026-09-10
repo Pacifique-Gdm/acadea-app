@@ -399,7 +399,7 @@ export function PlatformModule({
         action: "update",
         schoolId: schoolEditTarget.id,
         confirmation,
-        patch: schoolInformationPatch(draft),
+        patch: schoolInformationPatch(draft, schoolEditTarget),
       });
       if (!payload.school) throw new Error("Réponse école incomplète.");
       updateData({ schools: data.schools.map((item) => item.id === schoolEditTarget.id ? payload.school as School : item) }, { persist: false });

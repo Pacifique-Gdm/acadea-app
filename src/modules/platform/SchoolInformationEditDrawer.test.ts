@@ -35,15 +35,20 @@ describe("SchoolInformationEditDrawer", () => {
       level: "Secondaire uniquement",
     });
 
-    const patch = schoolInformationPatch({ ...draft, name: "  Nouveau nom  ", motto: "  Nouvelle devise  " });
+    const patch = schoolInformationPatch({ ...draft, name: "  Nouveau nom  ", motto: "  Nouvelle devise  " }, school);
     expect(patch).toMatchObject({
       name: "Nouveau nom",
       motto: "Nouvelle devise",
       logoUrl: school.logoUrl,
-      schoolType: "Secondaire uniquement",
-      educationLevels: ["Secondaire"],
     });
+    expect(patch).not.toHaveProperty("schoolType");
+    expect(patch).not.toHaveProperty("educationLevels");
     expect(patch).not.toHaveProperty("currency");
+
+    expect(schoolInformationPatch({ ...draft, level: "Primaire" }, school)).toMatchObject({
+      schoolType: "Primaire",
+      educationLevels: ["Maternelle", "Primaire"],
+    });
   });
 
   it.each(["", "modifier informations école", "MODIFIER INFORMATIONS ECOLE", "MODIFIER INFORMATIONS ÉCOLE ", " MODIFIER INFORMATIONS ÉCOLE"]) (
