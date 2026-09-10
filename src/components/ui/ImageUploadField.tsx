@@ -80,6 +80,7 @@ export function ImageUploadField({
   disabled = false,
   acceptSvg = false,
   previewFit = "cover",
+  onProcessingChange,
 }: {
   label: string;
   value?: string;
@@ -89,6 +90,7 @@ export function ImageUploadField({
   disabled?: boolean;
   acceptSvg?: boolean;
   previewFit?: "cover" | "contain";
+  onProcessingChange?: (processing: boolean) => void;
 }) {
   const inputId = useId();
   const [error, setError] = useState("");
@@ -102,6 +104,7 @@ export function ImageUploadField({
     if (!file) return;
     setError("");
     setProcessing(true);
+    onProcessingChange?.(true);
     try {
       const isSvg = file.type === "image/svg+xml" || file.name.toLowerCase().endsWith(".svg");
       if (isSvg && !acceptSvg) {
@@ -116,6 +119,7 @@ export function ImageUploadField({
       setError(error instanceof Error ? error.message : "Image impossible à traiter.");
     } finally {
       setProcessing(false);
+      onProcessingChange?.(false);
     }
   }
 

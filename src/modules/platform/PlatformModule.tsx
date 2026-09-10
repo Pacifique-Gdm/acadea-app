@@ -16,9 +16,12 @@ import { ADMIN_REMOVAL_CONFIRMATION, canConfirmAdminRemoval, markAdminRemoved } 
 import { aiAssistantConfirmationPhrase, canConfirmAiAssistantChange } from "../../utils/aiAssistantConfirmation";
 import { isSessionAuditAction } from "../../utils/audit";
 import { activityTimestamp } from "../../utils/activityHistory";
-import { educationLevelsForSchoolLevel, schoolLevelFromConfig } from "../../utils/schoolConfig";
+import { schoolLevelFromConfig } from "../../utils/schoolConfig";
 import type { SchoolLevelChoice } from "../../utils/schoolConfig";
 import { formatStudentClassName } from "../../utils/studentClasses";
+import { SchoolInformationEditDrawer } from "./SchoolInformationEditDrawer";
+import { schoolInformationPatch } from "./schoolInformation";
+import type { SchoolInformationDraft } from "./schoolInformation";
 import { isArchivedStudent } from "../../utils/studentUtils";
 import { canonicalSchoolOption, normalizeSchoolOptions } from "../../utils/schoolOptions";
 import { resolveSchoolYearCurrency } from "../../utils/currency";
@@ -123,8 +126,9 @@ export function PlatformModule({
   const [schoolDeleteTarget, setSchoolDeleteTarget] = useState<School | null>(null);
   const [schoolDeleteConfirmation, setSchoolDeleteConfirmation] = useState("");
   const [schoolDeleteLoading, setSchoolDeleteLoading] = useState(false);
-  const [schoolLevelChangeTarget, setSchoolLevelChangeTarget] = useState<{ school: School; level: SchoolLevelChoice } | null>(null);
-  const [schoolLevelConfirmation, setSchoolLevelConfirmation] = useState("");
+  const [schoolEditTargetId, setSchoolEditTargetId] = useState("");
+  const [schoolEditSaving, setSchoolEditSaving] = useState(false);
+  const [schoolEditError, setSchoolEditError] = useState("");
   const [currencyChangeTarget, setCurrencyChangeTarget] = useState<{ school: School; year: SchoolYear; currency: "USD" | "CDF" } | null>(null);
   const [currencyChangeConfirmation, setCurrencyChangeConfirmation] = useState("");
   const [currencyChangeLoading, setCurrencyChangeLoading] = useState(false);
@@ -139,6 +143,11 @@ export function PlatformModule({
   const [schoolDetailLoading, setSchoolDetailLoading] = useState(false);
   const [schoolDetailError, setSchoolDetailError] = useState("");
   const schoolDetailRequestRef = useRef(0);
+  useEffect(() => {
+    if (!schoolActionSuccess) return;
+    const timeoutId = window.setTimeout(() => setSchoolActionSuccess(""), 4_000);
+    return () => window.clearTimeout(timeoutId);
+  }, [schoolActionSuccess]);
   const realtimeUsersStateRef = useRef({ users: data.users, schoolId: schoolDrawerId, updateData });
   useEffect(() => {
     realtimeUsersStateRef.current = { users: data.users, schoolId: schoolDrawerId, updateData };
@@ -168,6 +177,7 @@ export function PlatformModule({
   const visibleSchoolOptionChoices = normalizeSchoolOptions([...schoolOptionChoices, ...selectedSchoolOptions.filter((option) => option !== "Autre" && isAllowedSchoolOption(option))]);
   const selectedSchool = visibleSchools.find((school) => school.id === selectedSchoolId) ?? visibleSchools[0];
   const drawerSchool = visibleSchools.find((school) => school.id === schoolDrawerId);
+  const schoolEditTarget = visibleSchools.find((school) => school.id === schoolEditTargetId);
   const drawerAiUsage = schoolAiUsageThisMonth(drawerSchool?.aiAssistant);
   const biometricSchool = visibleSchools.find((school) => school.id === biometricSchoolId);
   const biometricSchoolTerminals = biometricSchool ? data.biometricTerminals.filter((terminal) => terminal.schoolId === biometricSchool.id).sort((a, b) => activityTimestamp(b.createdAt) - activityTimestamp(a.createdAt)) : [];
@@ -307,37 +317,6 @@ export function PlatformModule({
     }
   }
 
-  async function updateSchool(schoolId: string, next: Partial<School>) {
-    updateData({
-      schools: data.schools.map((school) => (school.id === schoolId ? { ...school, ...next } : school)),
-      auditLogs: [writeAudit(schoolId, "Mise à jour des informations école"), ...data.auditLogs],
-    });
-  }
-
-  async function updateSchoolLevel(school: School, level: SchoolLevelChoice) {
-    await updateSchool(school.id, {
-      schoolType: level,
-      educationLevels: educationLevelsForSchoolLevel(level),
-    });
-  }
-
-  function openSchoolLevelChangeDialog(school: School, level: SchoolLevelChoice) {
-    if (schoolLevelFromConfig(school) === level) return;
-    setSchoolLevelChangeTarget({ school, level });
-    setSchoolLevelConfirmation("");
-  }
-
-  function closeSchoolLevelChangeDialog() {
-    setSchoolLevelChangeTarget(null);
-    setSchoolLevelConfirmation("");
-  }
-
-  async function confirmSchoolLevelChange() {
-    if (!schoolLevelChangeTarget || schoolLevelConfirmation !== "CHANGER LE NIVEAU DE L'ECOLE") return;
-    await updateSchoolLevel(schoolLevelChangeTarget.school, schoolLevelChangeTarget.level);
-    closeSchoolLevelChangeDialog();
-  }
-
   function toggleSchoolSection(section: string) {
     setSchoolSections((current) => {
       if (current.includes(section)) {
@@ -398,25 +377,38 @@ export function PlatformModule({
     }
   }
 
-  async function editSchool(school: School) {
-    const name = window.prompt("Nom de l'ecole", school.name);
-    if (name === null) return;
-    const address = window.prompt("Adresse", school.address ?? "");
-    if (address === null) return;
-    const phone = window.prompt("Telephone", school.phone ?? "");
-    if (phone === null) return;
-    const email = window.prompt("Email", school.email ?? "");
-    if (email === null) return;
+  function openSchoolEditDrawer(school: School) {
+    setSchoolActionSuccess("");
+    setSchoolEditError("");
+    setSchoolEditTargetId(school.id);
+  }
+
+  function closeSchoolEditDrawer() {
+    if (schoolEditSaving) return;
+    setSchoolEditTargetId("");
+    setSchoolEditError("");
+  }
+
+  async function saveSchoolInformation(draft: SchoolInformationDraft, confirmation: string) {
+    if (!schoolEditTarget || schoolEditSaving) return;
     setSchoolActionError("");
+    setSchoolEditError("");
+    setSchoolEditSaving(true);
     try {
-      const payload = await manageSchool({ action: "update", schoolId: school.id, patch: {
-        name: name.trim(), address: address.trim(), phone: phone.trim(), email: email.trim(),
-      } });
+      const payload = await manageSchool({
+        action: "update",
+        schoolId: schoolEditTarget.id,
+        confirmation,
+        patch: schoolInformationPatch(draft),
+      });
       if (!payload.school) throw new Error("Réponse école incomplète.");
-      updateData({ schools: data.schools.map((item) => item.id === school.id ? payload.school as School : item) }, { persist: false });
+      updateData({ schools: data.schools.map((item) => item.id === schoolEditTarget.id ? payload.school as School : item) }, { persist: false });
+      setSchoolEditTargetId("");
       setSchoolActionSuccess("Informations de l'école enregistrées avec succès.");
     } catch (error) {
-      setSchoolActionError(error instanceof Error ? error.message : "Modification de l'école impossible.");
+      setSchoolEditError(error instanceof Error ? error.message : "Modification de l'école impossible.");
+    } finally {
+      setSchoolEditSaving(false);
     }
   }
 
@@ -924,6 +916,8 @@ export function PlatformModule({
     setAiAssistantChangeTarget(null);
     setAiAssistantConfirmation("");
     setSchoolDrawerId("");
+    setSchoolEditTargetId("");
+    setSchoolEditError("");
     setDrawerYearId("");
     setBiometricSchoolId("");
     setSchoolDetailLoading(false);
@@ -1276,7 +1270,7 @@ export function PlatformModule({
                 ))}
               </div>
               <div className="grid min-w-0 grid-cols-2 gap-2 border-t border-slate-100 pt-3 sm:grid-cols-4">
-                <button onClick={() => void editSchool(drawerSchool)} className="secondary-button justify-center px-2 text-xs sm:px-3 sm:text-sm" type="button">Modifier</button>
+                <button onClick={() => openSchoolEditDrawer(drawerSchool)} className="secondary-button justify-center px-2 text-xs sm:px-3 sm:text-sm" type="button">Modifier</button>
                 <button onClick={() => void changeSchoolStatus(drawerSchool)} className="secondary-button justify-center px-2 text-xs sm:px-3 sm:text-sm" type="button">
                   {drawerSchool.status === "active" ? "Suspendre" : "Reactiver"}
                 </button>
@@ -1394,6 +1388,7 @@ export function PlatformModule({
                 <InfoRow label="Adresse" value={drawerSchool.address || "-"} />
                 <InfoRow label="Téléphone" value={drawerSchool.phone || "-"} />
                 <InfoRow label="Email" value={drawerSchool.email || "-"} />
+                <InfoRow label="Devise" value={drawerSchool.motto?.trim() || "-"} />
                 <label className="grid gap-1 rounded bg-slate-50 p-3 text-sm">
                   <span className="font-semibold text-slate-500">Devise monétaire de l'année sélectionnée</span>
                   <select
@@ -1408,18 +1403,7 @@ export function PlatformModule({
                   </select>
                   {!drawerYear && <span className="text-xs text-amber-700">Aucune année scolaire disponible.</span>}
                 </label>
-                <label className="grid gap-1 rounded bg-slate-50 p-3 text-sm">
-                  <span className="font-semibold text-slate-500">Niveau de l'école</span>
-                  <select
-                    value={schoolLevelFromConfig(drawerSchool)}
-                    onChange={(event) => openSchoolLevelChangeDialog(drawerSchool, event.target.value as SchoolLevelChoice)}
-                    className="min-w-0 rounded border border-slate-200 bg-white px-3 py-2 font-semibold text-ink"
-                  >
-                    {schoolLevelChoices.map((level) => (
-                      <option key={level} value={level}>{level}</option>
-                    ))}
-                  </select>
-                </label>
+                <InfoRow label="Niveau de l'école" value={schoolLevelFromConfig(drawerSchool)} />
                 <InfoRow label="Statut" value={drawerSchool.status} />
                 <InfoRow label="Date de création" value={drawerSchool.createdAt ? new Date(drawerSchool.createdAt).toLocaleDateString("fr-FR") : "-"} />
                 <InfoRow label="Administrateur principal" value={drawerMainAdmin?.name ?? "-"} />
@@ -1476,6 +1460,18 @@ export function PlatformModule({
 
           </div>
         </AdminDrawer>
+      )}
+
+      {schoolEditTarget && (
+        <SchoolInformationEditDrawer
+          key={schoolEditTarget.id}
+          school={schoolEditTarget}
+          schoolLevelChoices={schoolLevelChoices}
+          saving={schoolEditSaving}
+          error={schoolEditError}
+          onClose={closeSchoolEditDrawer}
+          onSave={(draft, confirmation) => void saveSchoolInformation(draft, confirmation)}
+        />
       )}
 
       {biometricSchool && (
@@ -1698,41 +1694,6 @@ export function PlatformModule({
               type="button"
             >
               {schoolDeleteLoading ? "Suppression..." : "Supprimer"}
-            </button>
-          </div>
-        </AdminDrawer>
-      )}
-
-      {schoolLevelChangeTarget && (
-        <AdminDrawer title="Changer le niveau de l'école" onClose={closeSchoolLevelChangeDialog} closeLabel="Annuler le changement de niveau">
-          <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">
-            Cette modification est importante et peut avoir un impact sur le fonctionnement de l'école {schoolLevelChangeTarget.school.name}. Pour confirmer le passage au niveau {schoolLevelChangeTarget.level}, saisissez exactement : CHANGER LE NIVEAU DE L'ECOLE
-          </p>
-          <label className="grid gap-1 text-sm font-medium text-slate-700">
-            Phrase de confirmation
-            <input
-              value={schoolLevelConfirmation}
-              onChange={(event) => setSchoolLevelConfirmation(event.target.value)}
-              className="input"
-              placeholder="CHANGER LE NIVEAU DE L'ECOLE"
-            />
-          </label>
-          {schoolLevelConfirmation && schoolLevelConfirmation !== "CHANGER LE NIVEAU DE L'ECOLE" && (
-            <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
-              Confirmation incorrecte. Saisissez exactement : CHANGER LE NIVEAU DE L'ECOLE
-            </p>
-          )}
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <button onClick={closeSchoolLevelChangeDialog} className="secondary-button justify-center" type="button">
-              Annuler
-            </button>
-            <button
-              onClick={() => void confirmSchoolLevelChange()}
-              disabled={schoolLevelConfirmation !== "CHANGER LE NIVEAU DE L'ECOLE"}
-              className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50"
-              type="button"
-            >
-              Confirmer
             </button>
           </div>
         </AdminDrawer>

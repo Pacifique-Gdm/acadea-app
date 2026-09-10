@@ -76,9 +76,77 @@ describe("API SEC-004 manage-school", () => {
   });
 
   it("refuse de contourner l'action sécurisée via la mise à jour générique", async () => {
-    const res = response(); await handler(request({ action: "update", schoolId: "school-a", patch: { currency: "CDF" } }), res);
+    const res = response(); await handler(request({ action: "update", schoolId: "school-a", confirmation: "MODIFIER INFORMATIONS ÉCOLE", patch: { currency: "CDF" } }), res);
     expect(res.statusCode).toBe(400);
     expect(res.body).toMatchObject({ code: "invalid-argument" });
+  });
+
+  it.each(["", "modifier informations école", "MODIFIER INFORMATIONS ECOLE", "MODIFIER INFORMATIONS ÉCOLE ", " MODIFIER INFORMATIONS ÉCOLE"]) (
+    "refuse la variante de confirmation des informations école %s",
+    async (confirmation) => {
+      const res = response(); await handler(request({ action: "update", schoolId: "school-a", confirmation, patch: { motto: "Unis pour réussir" } }), res);
+      expect(res.statusCode).toBe(400);
+      expect(mocks.batchCommit).not.toHaveBeenCalled();
+    },
+  );
+
+  it("modifie atomiquement les informations, le logo et le niveau sans toucher à la devise monétaire", async () => {
+    const patch = {
+      name: " École Démonstration ",
+      address: " 12 avenue des Écoles ",
+      phone: " +243000000000 ",
+      email: " contact@example.test ",
+      motto: " Unis pour réussir ",
+      logoUrl: "data:image/png;base64,AAAA",
+      schoolType: "Secondaire uniquement",
+      educationLevels: ["Secondaire"],
+    };
+    const res = response(); await handler(request({ action: "update", schoolId: "school-a", confirmation: "MODIFIER INFORMATIONS ÉCOLE", patch }), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(mocks.batchUpdate).toHaveBeenCalledTimes(1);
+    expect(mocks.batchUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ path: "schools/school-a" }),
+      expect.objectContaining({
+        name: "École Démonstration",
+        address: "12 avenue des Écoles",
+        phone: "+243000000000",
+        email: "contact@example.test",
+        motto: "Unis pour réussir",
+        logoUrl: "data:image/png;base64,AAAA",
+        schoolType: "Secondaire uniquement",
+        educationLevels: ["Secondaire"],
+        updatedBy: "super-1",
+      }),
+    );
+    expect(mocks.batchUpdate.mock.calls[0]?.[1]).not.toHaveProperty("currency");
+    expect(mocks.batchSet).toHaveBeenCalledTimes(1);
+    expect(mocks.batchCommit).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuse une combinaison niveau / educationLevels incohérente", async () => {
+    const res = response(); await handler(request({
+      action: "update",
+      schoolId: "school-a",
+      confirmation: "MODIFIER INFORMATIONS ÉCOLE",
+      patch: { schoolType: "Secondaire", educationLevels: ["Secondaire"] },
+    }), res);
+    expect(res.statusCode).toBe(400);
+    expect(mocks.batchCommit).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "data:image/gif;base64,AAAA",
+    "javascript:alert(1)",
+  ])("refuse un logo invalide %s", async (logoUrl) => {
+    const res = response(); await handler(request({
+      action: "update",
+      schoolId: "school-a",
+      confirmation: "MODIFIER INFORMATIONS ÉCOLE",
+      patch: { logoUrl },
+    }), res);
+    expect(res.statusCode).toBe(400);
+    expect(mocks.batchCommit).not.toHaveBeenCalled();
   });
 
   it.each(["changer la devise", "Changer la devise", "CHANGER LA DEVISE ", " CHANGER LA DEVISE", "CHANGER  LA DEVISE"])("refuse la variante de confirmation %s", async (confirmation) => {

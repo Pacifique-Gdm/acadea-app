@@ -26,12 +26,55 @@ function normalizeText(value) {
   return String(value ?? "").trim();
 }
 
+const SCHOOL_INFORMATION_CONFIRMATION = "MODIFIER INFORMATIONS ÉCOLE";
+const SCHOOL_LEVELS = new Map([
+  ["Maternelle", ["Maternelle"]],
+  ["Primaire", ["Maternelle", "Primaire"]],
+  ["CTEB", ["Maternelle", "Primaire", "CTEB"]],
+  ["Secondaire", ["Maternelle", "Primaire", "CTEB", "Secondaire"]],
+  ["Primaire uniquement", ["Primaire"]],
+  ["CTEB uniquement", ["CTEB"]],
+  ["Secondaire uniquement", ["Secondaire"]],
+]);
+const ALLOWED_LOGO_DATA_URL = /^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i;
+
+function sameValues(left, right) {
+  return Array.isArray(left)
+    && Array.isArray(right)
+    && left.length === right.length
+    && left.every((value, index) => value === right[index]);
+}
+
 function pickSchoolPatch(body) {
   const patch = {};
-  for (const key of ["name", "address", "phone", "email", "subscriptionPlan", "subscriptionStatus", "subscriptionAmount"]) {
+  for (const key of ["name", "address", "phone", "email", "motto", "logoUrl", "schoolType", "educationLevels", "subscriptionPlan", "subscriptionStatus", "subscriptionAmount"]) {
     if (body[key] !== undefined) patch[key] = body[key];
   }
   return patch;
+}
+
+function validateSchoolInformationPatch(rawPatch) {
+  const patch = pickSchoolPatch(rawPatch);
+  for (const key of ["name", "address", "phone", "email", "motto"]) {
+    if (patch[key] !== undefined) patch[key] = normalizeText(patch[key]);
+  }
+  if (patch.name !== undefined && !patch.name) return { error: "Le nom de l'école est requis." };
+  if (typeof patch.motto === "string" && patch.motto.length > 500) return { error: "La devise de l'école est trop longue." };
+
+  if (patch.logoUrl !== undefined) {
+    if (typeof patch.logoUrl !== "string" || patch.logoUrl.length > 300_000) return { error: "Le logo de l'école est invalide." };
+    if (patch.logoUrl && !ALLOWED_LOGO_DATA_URL.test(patch.logoUrl) && !/^https:\/\//i.test(patch.logoUrl)) {
+      return { error: "Le format du logo de l'école est invalide." };
+    }
+  }
+
+  if (patch.schoolType !== undefined || patch.educationLevels !== undefined) {
+    const educationLevels = SCHOOL_LEVELS.get(patch.schoolType);
+    if (!educationLevels || !sameValues(patch.educationLevels, educationLevels)) {
+      return { error: "Le niveau de l'école est invalide." };
+    }
+  }
+  return { patch };
 }
 
 
@@ -81,11 +124,20 @@ export default async function handler(req, res) {
     }
 
     if (action === "update") {
+      if (body.confirmation !== SCHOOL_INFORMATION_CONFIRMATION) {
+        sendJson(res, 400, { error: "Confirmation exacte requise.", code: "invalid-argument" });
+        return;
+      }
       if (body.patch?.currency !== undefined) {
         sendJson(res, 400, { error: "Utilisez l'action sécurisée de changement de devise.", code: "invalid-argument" });
         return;
       }
-      const patch = pickSchoolPatch(body.patch ?? {});
+      const validation = validateSchoolInformationPatch(body.patch ?? {});
+      if (validation.error) {
+        sendJson(res, 400, { error: validation.error, code: "invalid-argument" });
+        return;
+      }
+      const patch = validation.patch;
       if (Object.keys(patch).length === 0) {
         sendJson(res, 400, { error: "Aucune modification valide.", code: "invalid-argument" });
         return;
