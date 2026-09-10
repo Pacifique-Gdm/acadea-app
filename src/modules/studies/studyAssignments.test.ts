@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PedagogicalAssignment, StudySubject, StudyTeacher } from "./studyTypes";
-import { assignmentsForClasses, hasActiveAssignmentDuplicate, pedagogicalAssignmentId, studyDashboardMetrics, subjectsReferencedByAssignments, teacherWorkload, validateWeeklyPeriods } from "./studyAssignments";
+import { assignmentsForClasses, hasActiveAssignmentDuplicate, pedagogicalAssignmentId, pedagogicalAssignmentSaveErrorMessage, studyDashboardMetrics, subjectsReferencedByAssignments, teacherWorkload, validateWeeklyPeriods } from "./studyAssignments";
 
 const teacher = (id: string, status: StudyTeacher["status"] = "active"): StudyTeacher => ({ id, schoolId: "school-a", schoolYearId: "year-a", firstName: id, lastName: "Test", fullName: `${id} Test`, status, createdAt: "now", updatedAt: "now", createdBy: "director-a" });
 const assignment = (teacherId: string, subjectId: string, classId: string, weeklyPeriods: number, active = true): PedagogicalAssignment => {
@@ -9,6 +9,12 @@ const assignment = (teacherId: string, subjectId: string, classId: string, weekl
 };
 
 describe("affectations pédagogiques", () => {
+  it("distingue les erreurs de permission, réseau, validation et métier", () => {
+    expect(pedagogicalAssignmentSaveErrorMessage({ code: "permission-denied" })).toContain("autorisation");
+    expect(pedagogicalAssignmentSaveErrorMessage({ code: "unavailable" })).toContain("temporairement indisponible");
+    expect(pedagogicalAssignmentSaveErrorMessage({ code: "invalid-argument" })).toContain("classes sélectionnées");
+    expect(pedagogicalAssignmentSaveErrorMessage(new Error("Référence pédagogique invalide."))).toBe("Référence pédagogique invalide.");
+  });
   it("autorise plusieurs matières et plusieurs classes pour un enseignant", () => {
     const assignments = [assignment("teacher-a", "math", "4a", 4), assignment("teacher-a", "physics", "4a", 2), assignment("teacher-a", "computing", "5a", 3)];
     expect(new Set(assignments.map((item) => item.subjectId)).size).toBe(3);

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Pencil, Plus } from "lucide-react";
 import { AdminDrawer, MultiSelectDropdown } from "../../components/ui";
 import type { AppUser, School, SchoolYear } from "../../types";
-import { hasActiveAssignmentDuplicate, teacherWorkload, validateWeeklyPeriods } from "./studyAssignments";
+import { hasActiveAssignmentDuplicate, pedagogicalAssignmentSaveErrorMessage, teacherWorkload, validateWeeklyPeriods } from "./studyAssignments";
 import { createStudySubject, savePedagogicalAssignments, savePrimaryHomeroomAssignments, setPedagogicalAssignmentActive } from "./studyService";
 import type { PedagogicalAssignment, StudyTeacher } from "./studyTypes";
 import type { useStudyData } from "./useStudyData";
@@ -106,7 +106,7 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
       else if (primaryMode) await savePrimaryHomeroomAssignments({ user, schoolId: school.id, schoolYearId: year.id, teacherId, subjectIds: savedSubjectIds, classId: savedClassIds[0], legacyClass: assignmentClasses.find((item) => item.id === savedClassIds[0] && !sourceClasses.some((current) => current.id === item.id)), weeklyPeriods: periods, active });
       else await savePedagogicalAssignments({ user, schoolId: school.id, schoolYearId: year.id, teacherId, subjectIds:savedSubjectIds, classIds:savedClassIds, legacyClasses: assignmentClasses.filter((item) => savedClassIds.includes(item.id) && !sourceClasses.some((current) => current.id === item.id)), weeklyPeriods: periods, titularClassId: titularClassId || null, active });
       setAssignmentOpen(false);
-    } catch (cause) { console.error("Enregistrement de l’affectation impossible.", cause); setFeedback("Impossible d’enregistrer cette affectation. Vérifiez les classes sélectionnées."); }
+    } catch (cause) { console.error("Enregistrement de l’affectation impossible.", cause); setFeedback(pedagogicalAssignmentSaveErrorMessage(cause)); }
     finally { setBusy(false); }
   }
 

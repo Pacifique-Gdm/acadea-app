@@ -53,6 +53,10 @@ describe("Direction des études — affectations pédagogiques", () => {
     batch.set(doc(database, "pedagogicalAssignments", legacyAssignmentId), assignment({ id: legacyAssignmentId, classId: legacyClassId }));
     await assertSucceeds(batch.commit());
   });
+  it("conserve le refus du payload legacy élargi qui provoquait le permission-denied Staging", async () => {
+    const legacyClassId = `${school}__${year}__legacy-expanded`;
+    await assertFails(setDoc(doc(director(), "classes", legacyClassId), { id: legacyClassId, schoolId: school, schoolYearId: year, name: "Classe legacy", section: null, option: null, parentClassId: null, classOptionKey: null, active: true, createdBy: "director-a", createdAt: now, updatedAt: now }));
+  });
   it("crée atomiquement une classe legacy, son affectation et sa titularité", async () => {
     const database = director();
     const legacyClassId = `${school}__${year}__3eme-humanite`;

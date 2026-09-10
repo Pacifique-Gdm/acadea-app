@@ -1,4 +1,5 @@
 import type { PedagogicalAssignment, StudySubject, StudyTeacher } from "./studyTypes";
+import { firebaseErrorCode } from "../../utils/refreshErrors";
 
 export const MAX_WEEKLY_PERIODS = 60;
 
@@ -10,6 +11,16 @@ export function validateWeeklyPeriods(value: number) {
   return Number.isInteger(value) && value > 0 && value <= MAX_WEEKLY_PERIODS
     ? ""
     : `Le nombre de périodes doit être un entier compris entre 1 et ${MAX_WEEKLY_PERIODS}.`;
+}
+
+export function pedagogicalAssignmentSaveErrorMessage(error: unknown) {
+  const code = firebaseErrorCode(error);
+  if (code === "permission-denied") return "Vous n’avez pas l’autorisation nécessaire pour enregistrer cette affectation.";
+  if (code === "unavailable" || code === "network-request-failed") return "Le service est temporairement indisponible. Vérifiez votre connexion puis réessayez.";
+  if (code === "invalid-argument") return "Impossible d’enregistrer cette affectation. Vérifiez les classes sélectionnées.";
+  return error instanceof Error && code === "unknown" && error.message
+    ? error.message
+    : "Impossible d’enregistrer cette affectation.";
 }
 
 export function hasActiveAssignmentDuplicate(assignments: PedagogicalAssignment[], candidate: Pick<PedagogicalAssignment, "schoolId" | "schoolYearId" | "teacherId" | "subjectId" | "classId">, ignoredId?: string) {

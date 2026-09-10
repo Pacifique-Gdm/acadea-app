@@ -195,7 +195,7 @@ export async function savePedagogicalAssignments(input: { user: AppUser; schoolI
     const titularSnapshot = titularRef ? references[titularIndex] : undefined;
     const previousTitularSnapshot = previousTitularRef ? references[titularIndex + (titularRef ? 1 : 0)] : undefined;
     if (titularSnapshot?.exists() && titularSnapshot.data()?.assignmentId !== input.current?.id) throw new Error("Cette classe opérationnelle possède déjà un titulaire actif.");
-    legacyClasses.forEach((schoolClass) => transaction.set(doc(database, "classes", schoolClass.id), { id: schoolClass.id, schoolId: input.schoolId, schoolYearId: input.schoolYearId, name: schoolClass.name.trim(), section: schoolClass.section ?? null, option: schoolClass.option ?? null, parentClassId: schoolClass.parentClassId ?? null, classOptionKey: schoolClass.classOptionKey ?? null, active: true, createdBy: input.user.id, createdAt: now, updatedAt: now }));
+    legacyClasses.forEach((schoolClass) => transaction.set(doc(database, "classes", schoolClass.id), { id: schoolClass.id, schoolId: input.schoolId, schoolYearId: input.schoolYearId, name: schoolClass.name.trim(), active: true, createdBy: input.user.id, createdAt: now, updatedAt: now }));
     const targetIds = new Set(combinations.map(({ subjectId, classId }) => pedagogicalAssignmentId({ schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, subjectId, classId })));
     if (input.current && !targetIds.has(input.current.id)) transaction.update(doc(database, "pedagogicalAssignments", input.current.id), { active: false, updatedAt: now, updatedBy: input.user.id, titularClassId: null });
     if (previousTitularRef && previousTitularSnapshot?.exists()) transaction.delete(previousTitularRef);
