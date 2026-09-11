@@ -67,6 +67,18 @@ export interface PedagogicalAssignment {
   updatedBy: string;
 }
 
+export interface ClassTitular {
+  id: string;
+  schoolId: string;
+  schoolYearId: string;
+  classId: string;
+  teacherId: string;
+  assignmentId: string;
+  active: boolean;
+  updatedAt: string;
+  updatedBy: string;
+}
+
 export type StudyDay = "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday";
 export type AvailabilityStatus = "available" | "unavailable" | "rest";
 export interface TeacherAvailability { id:string; schoolId:string; schoolYearId:string; teacherId:string; dayOfWeek:StudyDay; status:AvailabilityStatus; startTime?:string; endTime?:string; active:boolean; createdBy:string; createdAt:string; updatedAt:string; }

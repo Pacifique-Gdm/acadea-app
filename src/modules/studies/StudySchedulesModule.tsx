@@ -5,6 +5,7 @@ import type { AppUser, School, SchoolYear } from "../../types";
 import { exportFilteredStudySchedulePdf } from "./studySchedulePdf";
 import { getActiveSchedulePersonnel } from "./studyPersonnel";
 import { getActiveCoursePeriods } from "./studySchedule";
+import { resolveAttendanceSchoolDays } from "../../utils/attendance";
 import { DeterministicTimetableSolver } from "./timetableSolver";
 import { publishTimetable, saveGeneratedTimetable, validateSavedTimetable } from "./studyService";
 import { validateTimetable } from "./scheduleValidation";
@@ -25,7 +26,7 @@ export function StudySchedulesModule({ user, school, year, data }: { user: AppUs
   const current = ordered.find((item) => item.activeDraft) ?? ordered.find((item) => item.activePublished) ?? ordered[0];
   const entries = useMemo(() => current ? data.timetableEntries.filter((item) => item.scheduleId === current.id) : [], [current, data.timetableEntries]);
   const personnel = getActiveSchedulePersonnel(data.teachers, data.assignments);
-  const problem = { schoolId: school.id, schoolYearId: year.id, teachers: personnel.teachers, subjects: data.subjects, classes: data.classes, assignments: personnel.assignments, availabilities: data.availabilities, periods: data.periods, maxSameAssignmentPeriodsPerDay: 2 };
+  const problem = { schoolId: school.id, schoolYearId: year.id, teachers: personnel.teachers, subjects: data.subjects, classes: data.classes, assignments: personnel.assignments, availabilities: data.availabilities, periods: data.periods, days: resolveAttendanceSchoolDays(data.attendanceSettings), maxSameAssignmentPeriodsPerDay: 2 };
   const filtered = entries.filter((item) => view === "class" ? (!selected || item.classId === selected) : (!selected || item.teacherId === selected));
   const choices = view === "class" ? data.classes : data.teachers;
   const selectedLabel = selected ? choices.find((item) => item.id === selected) : undefined;
@@ -33,7 +34,8 @@ export function StudySchedulesModule({ user, school, year, data }: { user: AppUs
   async function generate() {
     setBusy(true); setFeedback("");
     try {
-      if (!personnel.assignments.length || !getActiveCoursePeriods(data.periods).length) throw new Error("Ajoutez au moins une affectation active et une période de cours.");
+      if (!personnel.assignments.length) throw new Error("Aucune affectation active.");
+      if (!getActiveCoursePeriods(data.periods).length) throw new Error("Aucun créneau horaire configuré.");
       const result = solver.solve(problem, { timeoutMs: 750, maxBranches: 100000 });
       if (!result.success) throw new Error(`Impossible de générer l’horaire : ${result.failures.map((item) => item.reason).join(" ")}`);
       const check = validateTimetable(problem, result.entries);

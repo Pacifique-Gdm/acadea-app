@@ -22,7 +22,10 @@ const user = { id: "director", name: "Direction", email: "director@test", role: 
 describe("affectation de classe principale Primaire", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.get.mockImplementation(async (path: string) => ({ exists: () => !String(path).startsWith("classTitulars/"), data: () => ({ schoolId: "school", schoolYearId: "year", status: "active", role: "teacher" }) }));
+    mocks.get.mockImplementation(async (path: string) => {
+      const missing = String(path).startsWith("classTitulars/") || String(path).startsWith("pedagogicalAssignmentLocks/");
+      return { exists: () => !missing, data: () => missing ? undefined : ({ schoolId: "school", schoolYearId: "year", status: "active", role: "teacher" }) };
+    });
   });
 
   it("matérialise et titularise la classe avant de créer séparément les autres cours", async () => {

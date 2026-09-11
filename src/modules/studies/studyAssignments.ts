@@ -2,9 +2,18 @@ import type { PedagogicalAssignment, StudySubject, StudyTeacher } from "./studyT
 import { firebaseErrorCode } from "../../utils/refreshErrors";
 
 export const MAX_WEEKLY_PERIODS = 60;
+export const SUBJECT_RENAME_CONFIRMATION = "MODIFIER NOM DE CE COURS";
+
+export function subjectRenameConfirmed(value: string) {
+  return value === SUBJECT_RENAME_CONFIRMATION;
+}
 
 export function pedagogicalAssignmentId(input: Pick<PedagogicalAssignment, "schoolId" | "schoolYearId" | "teacherId" | "subjectId" | "classId">) {
   return [input.schoolId, input.schoolYearId, input.teacherId, input.subjectId, input.classId].join("__");
+}
+
+export function activeAssignmentLockId(input: Pick<PedagogicalAssignment, "schoolId" | "schoolYearId" | "subjectId" | "classId">) {
+  return [input.schoolId, input.schoolYearId, input.subjectId, input.classId].join("__");
 }
 
 export function validateWeeklyPeriods(value: number) {
@@ -25,6 +34,11 @@ export function pedagogicalAssignmentSaveErrorMessage(error: unknown) {
 
 export function hasActiveAssignmentDuplicate(assignments: PedagogicalAssignment[], candidate: Pick<PedagogicalAssignment, "schoolId" | "schoolYearId" | "teacherId" | "subjectId" | "classId">, ignoredId?: string) {
   return assignments.some((assignment) => assignment.id !== ignoredId && assignment.active && pedagogicalAssignmentId(assignment) === pedagogicalAssignmentId(candidate));
+}
+
+export function hasActiveSubjectClassConflict(assignments: PedagogicalAssignment[], candidate: Pick<PedagogicalAssignment, "schoolId" | "schoolYearId" | "subjectId" | "classId">, ignoredId?: string) {
+  const lockId = activeAssignmentLockId(candidate);
+  return assignments.some((assignment) => assignment.id !== ignoredId && assignment.active && activeAssignmentLockId(assignment) === lockId);
 }
 
 export function expandAssignmentSelections(subjectIds: string[], classIds: string[]) {

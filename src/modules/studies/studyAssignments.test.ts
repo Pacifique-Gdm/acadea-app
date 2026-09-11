@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PedagogicalAssignment, StudySubject, StudyTeacher } from "./studyTypes";
-import { assignmentsForClasses, hasActiveAssignmentDuplicate, pedagogicalAssignmentId, pedagogicalAssignmentSaveErrorMessage, studyDashboardMetrics, subjectsReferencedByAssignments, teacherWorkload, validateWeeklyPeriods } from "./studyAssignments";
+import { assignmentsForClasses, hasActiveAssignmentDuplicate, hasActiveSubjectClassConflict, pedagogicalAssignmentId, pedagogicalAssignmentSaveErrorMessage, studyDashboardMetrics, SUBJECT_RENAME_CONFIRMATION, subjectRenameConfirmed, subjectsReferencedByAssignments, teacherWorkload, validateWeeklyPeriods } from "./studyAssignments";
 
 const teacher = (id: string, status: StudyTeacher["status"] = "active"): StudyTeacher => ({ id, schoolId: "school-a", schoolYearId: "year-a", firstName: id, lastName: "Test", fullName: `${id} Test`, status, createdAt: "now", updatedAt: "now", createdBy: "director-a" });
 const assignment = (teacherId: string, subjectId: string, classId: string, weeklyPeriods: number, active = true): PedagogicalAssignment => {
@@ -30,10 +30,21 @@ describe("affectations pédagogiques", () => {
     expect(hasActiveAssignmentDuplicate([{ ...existing, active: false }], existing)).toBe(false);
     expect(hasActiveAssignmentDuplicate([existing], { ...existing, classId: "5a" })).toBe(false);
   });
+  it("détecte le conflit actif cours/classe même avec un autre enseignant", () => {
+    const existing = assignment("teacher-a", "math", "4a", 4);
+    const sameSubjectClass = { schoolId: existing.schoolId, schoolYearId: existing.schoolYearId, subjectId: existing.subjectId, classId: existing.classId };
+    expect(hasActiveSubjectClassConflict([existing], sameSubjectClass)).toBe(true);
+    expect(hasActiveSubjectClassConflict([{ ...existing, active: false }], sameSubjectClass)).toBe(false);
+    expect(hasActiveSubjectClassConflict([existing], { ...existing, classId: "5a" })).toBe(false);
+  });
   it("valide un nombre entier raisonnable de périodes", () => {
     expect(validateWeeklyPeriods(1)).toBe("");
     expect(validateWeeklyPeriods(60)).toBe("");
     for (const invalid of [0, -1, 1.5, 61]) expect(validateWeeklyPeriods(invalid)).not.toBe("");
+  });
+  it("exige la confirmation de renommage exacte et non préfixée", () => {
+    expect(subjectRenameConfirmed(SUBJECT_RENAME_CONFIRMATION)).toBe(true);
+    for (const value of ["", "modifier nom de ce cours", "MODIFIER NOM", `${SUBJECT_RENAME_CONFIRMATION} `]) expect(subjectRenameConfirmed(value)).toBe(false);
   });
   it("calcule le dashboard et les enseignants sans affectation", () => {
     expect(studyDashboardMetrics([teacher("teacher-a"), teacher("teacher-b"), teacher("teacher-c", "inactive")], [assignment("teacher-a", "math", "4a", 4), assignment("teacher-a", "physics", "5a", 2), assignment("teacher-b", "history", "4a", 8, false)])).toEqual({ teachers: 2, subjects: 2, assignments: 2, workload: 6, teachersWithoutAssignment: 1 });

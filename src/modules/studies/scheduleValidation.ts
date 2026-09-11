@@ -1,7 +1,7 @@
 import { isRestDay, teacherAvailableAt } from "./studySchedule";
-import type { PedagogicalAssignment, SchedulePeriod, ScheduleValidationIssue, ScheduleValidationReport, StudyClass, StudySubject, StudyTeacher, TeacherAvailability, TimetableEntry } from "./studyTypes";
+import type { PedagogicalAssignment, SchedulePeriod, ScheduleValidationIssue, ScheduleValidationReport, StudyClass, StudyDay, StudySubject, StudyTeacher, TeacherAvailability, TimetableEntry } from "./studyTypes";
 
-export interface ScheduleProblem { schoolId:string; schoolYearId:string; teachers?:StudyTeacher[]; subjects?:StudySubject[]; classes?:StudyClass[]; assignments:PedagogicalAssignment[]; availabilities:TeacherAvailability[]; periods:SchedulePeriod[]; maxSameAssignmentPeriodsPerDay?:number; }
+export interface ScheduleProblem { schoolId:string; schoolYearId:string; teachers?:StudyTeacher[]; subjects?:StudySubject[]; classes?:StudyClass[]; assignments:PedagogicalAssignment[]; availabilities:TeacherAvailability[]; periods:SchedulePeriod[]; days?:StudyDay[]; maxSameAssignmentPeriodsPerDay?:number; }
 
 export function adjacentCoursePeriods(first: SchedulePeriod | undefined, second: SchedulePeriod | undefined, allPeriods: SchedulePeriod[]) {
   if (!first || !second) return false;

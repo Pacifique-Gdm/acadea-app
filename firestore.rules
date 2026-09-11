@@ -875,15 +875,26 @@ service cloud.firestore {
           && request.resource.data.createdAt is string
           && request.resource.data.updatedAt is string;
       }
+      function activeAssignmentLockIsValid() {
+        let lockId = request.resource.data.schoolId + "__" + request.resource.data.schoolYearId + "__" + request.resource.data.subjectId + "__" + request.resource.data.classId;
+        let lockPath = /databases/$(database)/documents/pedagogicalAssignmentLocks/$(lockId);
+        return request.resource.data.active == false
+          ? true
+          : (existsAfter(lockPath)
+            && getAfter(lockPath).data.assignmentId == assignmentId
+            && getAfter(lockPath).data.teacherId == request.resource.data.teacherId);
+      }
       allow read: if superAdmin() || studyTenantResource() || teacherOwnAssignment();
       allow create: if activeStudyYearCreate()
         && validAssignmentShape()
         && assignmentReferencesAreValid()
+        && activeAssignmentLockIsValid()
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.updatedBy == request.auth.uid;
       allow update: if activeStudyYearUpdate()
         && validAssignmentShape()
         && assignmentReferencesAreValid()
+        && activeAssignmentLockIsValid()
         && request.resource.data.id == resource.data.id
         && request.resource.data.teacherId == resource.data.teacherId
         && request.resource.data.subjectId == resource.data.subjectId
@@ -891,6 +902,31 @@ service cloud.firestore {
         && request.resource.data.createdBy == resource.data.createdBy
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if false;
+    }
+
+    match /pedagogicalAssignmentLocks/{lockId} {
+      function validAssignmentLockShape() {
+        let assignmentPath = /databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId);
+        return request.resource.data.id == lockId
+          && lockId == request.resource.data.schoolId + "__" + request.resource.data.schoolYearId + "__" + request.resource.data.subjectId + "__" + request.resource.data.classId
+          && request.resource.data.schoolId == tenantSchoolId()
+          && activeSchoolYearBelongsToSchool(request.resource.data.schoolYearId, tenantSchoolId())
+          && request.resource.data.updatedBy == request.auth.uid
+          && existsAfter(assignmentPath)
+          && getAfter(assignmentPath).data.active == true
+          && getAfter(assignmentPath).data.schoolId == request.resource.data.schoolId
+          && getAfter(assignmentPath).data.schoolYearId == request.resource.data.schoolYearId
+          && getAfter(assignmentPath).data.teacherId == request.resource.data.teacherId
+          && getAfter(assignmentPath).data.subjectId == request.resource.data.subjectId
+          && getAfter(assignmentPath).data.classId == request.resource.data.classId;
+      }
+      allow get: if studyDirector() && (!exists(/databases/$(database)/documents/pedagogicalAssignmentLocks/$(lockId)) || studyTenantResource());
+      allow list: if studyTenantResource();
+      allow create: if studyDirector() && validAssignmentLockShape();
+      allow update: if studyDirector() && validAssignmentLockShape()
+        && (request.resource.data.assignmentId == resource.data.assignmentId
+          || getAfter(/databases/$(database)/documents/pedagogicalAssignments/$(resource.data.assignmentId)).data.active != true);
       allow delete: if false;
     }
 
@@ -903,13 +939,18 @@ service cloud.firestore {
           && getAfter(/databases/$(database)/documents/classes/$(request.resource.data.classId)).data.schoolId == tenantSchoolId()
           && getAfter(/databases/$(database)/documents/classes/$(request.resource.data.classId)).data.schoolYearId == request.resource.data.schoolYearId
           && getAfter(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.schoolId == tenantSchoolId()
+          && getAfter(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.schoolYearId == request.resource.data.schoolYearId
           && getAfter(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.teacherId == request.resource.data.teacherId
+          && getAfter(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.classId == request.resource.data.classId
+          && getAfter(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.active == true
           && request.resource.data.updatedBy == request.auth.uid;
       }
-      allow get: if studyDirector() && (!exists(/databases/$(database)/documents/classTitulars/$(titularId)) || sameTenantResource());
+      allow get: if studyDirector() && (!exists(/databases/$(database)/documents/classTitulars/$(titularId)) || studyTenantResource());
       allow list: if studyTenantResource();
-      allow create, update: if studyDirector() && validTitularShape();
-      allow delete: if studyDirector() && sameTenantResource();
+      allow create: if studyDirector() && validTitularShape();
+      allow update: if studyDirector() && validTitularShape()
+        && (request.resource.data.teacherId == resource.data.teacherId || resource.data.active == false);
+      allow delete: if studyTenantResource();
     }
 
     // Cotations are mediated by the authenticated server endpoint, which verifies

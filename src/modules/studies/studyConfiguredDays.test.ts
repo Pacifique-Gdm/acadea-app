@@ -25,6 +25,22 @@ describe("jours scolaires de la Direction des études", () => {
 
   it("retire un jour de l’interface sans supprimer les disponibilités historiques", () => {
     expect(drawerSource).not.toContain("deleteTeacherDayAvailability");
-    expect(drawerSource).toContain("items.filter(x=>x.teacherId===teacherId&&x.dayOfWeek===day&&x.active)");
+    expect(drawerSource).toContain("items.filter((item) => item.teacherId === teacherId && item.dayOfWeek === day && item.active)");
+  });
+
+  it("édite toute la semaine en une sauvegarde avec seulement Disponible et Repos", () => {
+    expect(drawerSource).toContain('data-testid="weekly-availability-editor"');
+    expect(drawerSource).toContain("saveTeacherWeekAvailability");
+    expect(drawerSource).not.toContain("saveTeacherDayAvailability");
+    expect(drawerSource).toContain('<option value="available">Disponible</option>');
+    expect(drawerSource).toContain('<option value="rest">Repos</option>');
+    expect(drawerSource).not.toContain('<option value="unavailable">');
+    expect(drawerSource.match(/onClick=\{\(\) => void save\(\)\}/g)).toHaveLength(1);
+  });
+
+  it("conserve une lecture explicite des indisponibilités historiques", () => {
+    expect(drawerSource).toContain('item.status === "unavailable"');
+    expect(drawerSource).toContain("Indisponible (historique)");
+    expect(drawerSource).toContain("Des indisponibilités historiques existent.");
   });
 });
