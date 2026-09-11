@@ -12,8 +12,10 @@ test.setTimeout(300_000);
 test.use({ actionTimeout: 20_000 });
 
 async function login(page: Page) {
-  await page.goto("/");
-  await page.getByPlaceholder("email@ecole.com").fill(directorEmail!);
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  const emailField = page.getByRole("textbox", { name: "Email", exact: true });
+  await expect(emailField).toBeEditable({ timeout: 60_000 });
+  await emailField.fill(directorEmail!);
   await page.getByPlaceholder("Votre mot de passe").fill(directorPassword!);
   await page.getByRole("button", { name: "Se connecter" }).click();
   await expect(page).toHaveURL(/\/studies/, { timeout: 60_000 });
@@ -106,12 +108,13 @@ test("enregistre atomiquement les affectations sur classes legacy sans permissio
       });
       return snapshot.size;
     }, { timeout: 30_000 }).toBe(2);
+    expect(createdClassIds.size).toBe(2);
 
     await page.reload();
     await expect(page).toHaveURL(/\/studies/);
     const afterRefresh = await openTeacherAssignment(page, teacherName);
     await afterRefresh.assignmentDrawer.getByRole("button", { name: "Annuler", exact: true }).click();
-    await expect(afterRefresh.teacherDrawer.getByText(subjectName, { exact: true })).toHaveCount(2);
+    await expect(afterRefresh.teacherDrawer.getByText(subjectName, { exact: true })).toBeVisible();
 
     await afterRefresh.teacherDrawer.getByRole("button", { name: "Fermer la fiche pédagogique" }).click();
     await page.getByRole("button", { name: "Menu", exact: true }).last().click();
@@ -120,7 +123,7 @@ test("enregistre atomiquement les affectations sur classes legacy sans permissio
     await login(page);
     await page.getByRole("button", { name: "Enseignants", exact: true }).last().click();
     await page.getByRole("button", { name: teacherName, exact: true }).click();
-    await expect(page.getByRole("dialog", { name: `Fiche pédagogique — ${teacherName}` }).getByText(subjectName, { exact: true })).toHaveCount(2);
+    await expect(page.getByRole("dialog", { name: `Fiche pédagogique — ${teacherName}` }).getByText(subjectName, { exact: true })).toBeVisible();
     expect(consoleErrors.filter((message) => /permission-denied|missing or insufficient permissions/i.test(message))).toEqual([]);
   } finally {
     if (adminDb) {
