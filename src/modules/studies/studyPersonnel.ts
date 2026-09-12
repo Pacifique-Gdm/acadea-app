@@ -14,3 +14,13 @@ export function getActiveSchedulePersonnel(
     ),
   };
 }
+
+export function teacherCardAssignments(
+  teacher: StudyTeacher,
+  assignments: PedagogicalAssignment[],
+) {
+  return assignments.filter((assignment) => (
+    assignment.teacherId === teacher.id
+    && (teacher.status !== "active" || assignment.active)
+  ));
+}

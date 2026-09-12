@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { currentTimetableEntries } from "./studyScope";
 import type { TimetableEntry } from "./studyTypes";
+import { teacherCardAssignments } from "./studyPersonnel";
 
 const entry = (id: string, active?: boolean): TimetableEntry => ({
   id,
@@ -36,5 +37,18 @@ describe("réinitialisation pédagogique après réactivation", () => {
     expect(source).toContain('"timetableEntries"');
     expect(source).toContain("assignmentLockRefs.forEach((ref) => batch.delete(ref))");
     expect(source).toContain("resetWriteCount > 500");
+  });
+
+  it("masque le contexte pédagogique inactif après réactivation tout en conservant l’historique archivé", () => {
+    const baseAssignment = {
+      id: "assignment-old",
+      teacherId: "teacher-1",
+      active: false,
+    } as Parameters<typeof teacherCardAssignments>[1][number];
+    const activeTeacher = { id: "teacher-1", status: "active" } as Parameters<typeof teacherCardAssignments>[0];
+    const archivedTeacher = { id: "teacher-1", status: "inactive" } as Parameters<typeof teacherCardAssignments>[0];
+
+    expect(teacherCardAssignments(activeTeacher, [baseAssignment])).toEqual([]);
+    expect(teacherCardAssignments(archivedTeacher, [baseAssignment])).toEqual([baseAssignment]);
   });
 });
