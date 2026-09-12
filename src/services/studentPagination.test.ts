@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   query: vi.fn((...parts) => ({ parts })), startAfter: vi.fn((cursor) => ({ kind: "cursor", cursor })),
   where: vi.fn((field, op, value) => ({ kind: "where", field, op, value })),
 }));
-vi.mock("firebase/firestore", () => mocks);
+vi.mock("@firebase/firestore", () => mocks);
 vi.mock("../firebase", () => ({ db: {} }));
 
 import { filterStudentFallback, studentFilterConstraints, studentQueryKey } from "./studentPagination";

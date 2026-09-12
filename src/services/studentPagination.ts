@@ -13,7 +13,7 @@ import {
   type Firestore,
   type QueryConstraint,
   type QueryDocumentSnapshot,
-} from "firebase/firestore";
+} from "@firebase/firestore";
 import { db } from "../firebase";
 import type { SchoolSection, Student } from "../types";
 import { canonicalSchoolOption } from "../utils/schoolOptions";
