@@ -24,6 +24,10 @@ export const STUDENT_SOURCE_PAGE_SIZE = 50;
 export type StudentArchiveFilter = "active" | "archived" | "all";
 export type StudentPageCursor = QueryDocumentSnapshot<DocumentData>;
 
+function studentFirestore() {
+  return db as unknown as Firestore | undefined;
+}
+
 export interface StudentQueryFilters {
   schoolId: string;
   schoolYearId: string;
@@ -85,28 +89,32 @@ export function subscribeStudentPage(
   onData: (students: Student[], nextCursor?: StudentPageCursor) => void,
   onError: (error: Error) => void,
 ) {
-  if (!db) return () => undefined;
-  return onSnapshot(pageQuery(db, filters, cursor), (snapshot) => {
+  const database = studentFirestore();
+  if (!database) return () => undefined;
+  return onSnapshot(pageQuery(database, filters, cursor), (snapshot) => {
     onData(snapshot.docs.map(studentFromSnapshot), snapshot.docs.at(-1));
   }, onError);
 }
 
 export async function countStudentResults(filters: StudentQueryFilters) {
-  if (!db) return 0;
-  const result = await getCountFromServer(query(collection(db, "students"), ...studentFilterConstraints(filters)));
+  const database = studentFirestore();
+  if (!database) return 0;
+  const result = await getCountFromServer(query(collection(database, "students"), ...studentFilterConstraints(filters)));
   return result.data().count;
 }
 
 export async function loadAllStudentResults(filters: StudentQueryFilters, fallbackStudents: Student[] = []) {
-  if (!db) return filterStudentFallback(fallbackStudents, filters);
-  const snapshot = await getDocs(query(collection(db, "students"), ...studentFilterConstraints(filters), orderBy(documentId())));
+  const database = studentFirestore();
+  if (!database) return filterStudentFallback(fallbackStudents, filters);
+  const snapshot = await getDocs(query(collection(database, "students"), ...studentFilterConstraints(filters), orderBy(documentId())));
   return snapshot.docs.map(studentFromSnapshot);
 }
 
 export async function nextStudentMatricule(yearName: string, schoolId: string, schoolYearId: string) {
-  if (!db) return "";
+  const database = studentFirestore();
+  if (!database) return "";
   const result = await getCountFromServer(query(
-    collection(db, "students"),
+    collection(database, "students"),
     where("schoolId", "==", schoolId),
     where("schoolYearId", "==", schoolYearId),
   ));
