@@ -14,8 +14,9 @@ function actor(role: string) { return environment.authenticatedContext(`${role}-
 async function seed(path: string, data: Record<string, unknown>) { await environment.withSecurityRulesDisabled(async (context) => setDoc(doc(context.firestore(), path), data)); }
 function assignment(overrides: Record<string, unknown> = {}) { return { id: assignmentId, schoolId: school, schoolYearId: year, teacherId: "teacher-a", subjectId: "subject-a", classId: "class-a", weeklyPeriods: 4, active: true, createdAt: now, updatedAt: now, createdBy: "director-a", updatedBy: "director-a", ...overrides }; }
 function assignmentLock(payload: Record<string, unknown>) {
-  const id = `${payload.schoolId}__${payload.schoolYearId}__${payload.subjectId}__${payload.classId}`;
-  return { id, schoolId: payload.schoolId, schoolYearId: payload.schoolYearId, subjectId: payload.subjectId, classId: payload.classId, teacherId: payload.teacherId, assignmentId: payload.id, updatedAt: now, updatedBy: payload.updatedBy };
+  const group = typeof payload.studentGroupKey === "string" ? `__${payload.studentGroupKey}` : "";
+  const id = `${payload.schoolId}__${payload.schoolYearId}__${payload.subjectId}__${payload.classId}${group}`;
+  return { id, schoolId: payload.schoolId, schoolYearId: payload.schoolYearId, subjectId: payload.subjectId, classId: payload.classId, teacherId: payload.teacherId, assignmentId: payload.id, updatedAt: now, updatedBy: payload.updatedBy, ...(payload.studentGroupKey ? { studentGroupKey: payload.studentGroupKey, courseScope: payload.courseScope, targetOptionIds: payload.targetOptionIds } : {}) };
 }
 function createActiveAssignment(database: ReturnType<typeof director>, overrides: Record<string, unknown> = {}) {
   const payload = assignment(overrides);
@@ -48,6 +49,19 @@ describe("Direction des études — affectations pédagogiques", () => {
   it("autorise le Directeur des études de la même école et année", async () => {
     await assertSucceeds(createActiveAssignment(director()));
     await assertSucceeds(getDocs(query(collection(director(), "pedagogicalAssignments"), where("schoolId", "==", school), where("schoolYearId", "==", year))));
+  });
+  it("autorise les portées optionnelles canoniques et refuse les cardinalités ou identités incohérentes", async () => {
+    const targets = ["class-a::scientifique", "class-a::commerciale"];
+    const studentGroupKey = "common--class-a%3A%3Acommerciale--class-a%3A%3Ascientifique";
+    const id = `${school}__${year}__teacher-a__subject-a__class-a__${studentGroupKey}`;
+    await assertSucceeds(createActiveAssignment(director(), { id, courseScope: "common", targetOptionIds: [...targets].sort(), studentGroupKey }));
+    const invalidGroup = "common--class-a%3A%3Ascientifique";
+    const invalidId = `${school}__${year}__teacher-a__subject-b__class-a__${invalidGroup}`;
+    await assertFails(createActiveAssignment(director(), { id: invalidId, subjectId: "subject-b", courseScope: "common", targetOptionIds: [targets[0]], studentGroupKey: invalidGroup }));
+    const duplicateGroup = "common--class-a%3A%3Ascientifique--class-a%3A%3Ascientifique";
+    const duplicateId = `${school}__${year}__teacher-a__subject-b__class-a__${duplicateGroup}`;
+    await assertFails(createActiveAssignment(director(), { id: duplicateId, subjectId: "subject-b", courseScope: "common", targetOptionIds: [targets[0], targets[0]], studentGroupKey: duplicateGroup }));
+    await assertFails(updateDoc(doc(director(), "pedagogicalAssignments", id), { targetOptionIds: ["class-a::litteraire", "class-a::pedagogie"], updatedAt: now }));
   });
   it("refuse les autres rôles et les autres écoles", async () => {
     await assertFails(setDoc(doc(actor("cashier"), "pedagogicalAssignments", assignmentId), assignment({ createdBy: "cashier-a", updatedBy: "cashier-a" })));

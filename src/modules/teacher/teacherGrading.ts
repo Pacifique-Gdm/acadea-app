@@ -3,6 +3,7 @@ import type { PedagogicalAssignment, StudyClass, StudySubject, StudyTeacher } fr
 import { isSectionAllowed } from "../../utils/userSections";
 import type { TeacherGradingData } from "./teacherGradingService";
 import { primaryTeacherSections, studyClassSection } from "../studies/teacherAssignmentScope";
+import { studentBelongsToAssignment } from "../studies/studyCourseScope";
 
 export const GRADING_SLOTS = ["period_1", "period_2", "semester_1_exam", "semester_1_total", "period_3", "period_4", "semester_2_exam", "semester_2_total", "general_total"] as const;
 export type GradingSlot = typeof GRADING_SLOTS[number];
@@ -29,6 +30,7 @@ export function getTeacherGradingScope(teacher:StudyTeacher,assignments:Pedagogi
   return own.filter(item=>subjects.some(subject=>subject.id===item.subjectId&&subject.active));
 }
 export function activeStudentsForClass(students:Student[],schoolId:string,schoolYearId:string,classId:string){return students.filter(student=>student.schoolId===schoolId&&student.schoolYearId===schoolYearId&&(student.subClassId??student.classId)===classId&&(student.status??"ACTIVE")==="ACTIVE"&&!student.deletedAt)}
+export function activeStudentsForAssignment(students:Student[],schoolId:string,schoolYearId:string,assignment:PedagogicalAssignment){return students.filter(student=>student.schoolId===schoolId&&student.schoolYearId===schoolYearId&&studentBelongsToAssignment(student,assignment))}
 
 export function scopeTeacherGradingData(user: Pick<AppUser, "section" | "sectionIds">, data: TeacherGradingData): TeacherGradingData {
   const classes = data.classes.filter((item) => isSectionAllowed(user, studyClassSection(item)));
@@ -41,7 +43,7 @@ export function scopeTeacherGradingData(user: Pick<AppUser, "section" | "section
     assignments,
     titulars: data.titulars.filter((item) => classIds.has(item.classId)),
     subjects: data.subjects.filter((item) => subjectIds.has(item.id)),
-    students: data.students.filter((item) => classIds.has(item.subClassId ?? item.classId ?? "")),
+    students: data.students.filter((item) => assignments.some((assignment) => studentBelongsToAssignment(item, assignment)) || data.titulars.some((titular) => titular.classId === (item.subClassId ?? item.classId))),
     configs: data.configs.filter((item) => classIds.has(item.classId) && subjectIds.has(item.subjectId)),
     entries: data.entries.filter((item) => classIds.has(item.classId) && subjectIds.has(item.subjectId)),
   };

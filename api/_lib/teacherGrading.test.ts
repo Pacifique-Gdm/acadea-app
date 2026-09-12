@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { executeTeacherGrading, GradingApiError } from "./teacherGrading.js";
+import { executeTeacherGrading, GradingApiError, studentMatchesAssignment } from "./teacherGrading.js";
 
 describe("API de cotation Enseignant", () => {
   it("refuse un rôle autre qu'Enseignant avant toute lecture", async () => {
@@ -20,11 +20,20 @@ describe("API de cotation Enseignant", () => {
     expect(source).not.toContain('collection("gradeEntries").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).get()');
   });
 
-  it("regroupe les lectures élèves par classe sans élargir leur périmètre", () => {
+  it("regroupe les lectures élèves par classe et nom sans élargir leur périmètre", () => {
     const source = readFileSync(new URL("./teacherGrading.js", import.meta.url), "utf8");
     expect(source).toContain('queryInChunks(db, "students", schoolId, schoolYearId, "classId", classIds)');
     expect(source).toContain('queryInChunks(db, "students", schoolId, schoolYearId, "subClassId", classIds)');
+    expect(source).toContain('queryInChunks(db, "students", schoolId, schoolYearId, "className", classNames)');
     expect(source).toContain('.where(field, "in", chunk)');
     expect(source).not.toContain("classIds.flatMap");
+  });
+
+  it("filtre les élèves legacy selon les options explicites de l'affectation", () => {
+    const assignment = { classId: "s__y__3eme-humanite", courseScope: "common", targetOptionIds: ["s__y__3eme-humanite::scientifique", "s__y__3eme-humanite::commerciale"] };
+    const schoolClass = { id: assignment.classId, name: "3ème Humanité" };
+    expect(studentMatchesAssignment({ className: "3ème Humanité", option: "Scientifique" }, assignment, schoolClass)).toBe(true);
+    expect(studentMatchesAssignment({ className: "3ème Humanité", option: "Littéraire" }, assignment, schoolClass)).toBe(false);
+    expect(studentMatchesAssignment({ className: "2ème Humanité", option: "Scientifique" }, assignment, schoolClass)).toBe(false);
   });
 });

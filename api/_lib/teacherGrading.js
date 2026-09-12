@@ -21,6 +21,22 @@ const requiredString = (value, label) => {
 };
 
 const serialize = (snapshot) => snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+const normalized = (value) => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase("fr");
+
+export function studentMatchesAssignment(student, assignment, schoolClass) {
+  if (!student || (student.status ?? "ACTIVE") !== "ACTIVE" || student.deletedAt) return false;
+  const optionBaseId = typeof student.classOptionKey === "string" ? student.classOptionKey.split("::")[0]?.trim() : undefined;
+  const sameBase = student.classId === assignment.classId
+    || student.subClassId === assignment.classId
+    || optionBaseId === assignment.classId
+    || normalized(student.className) === normalized(schoolClass?.name);
+  if (!sameBase) return false;
+  const targets = [...new Set((assignment.targetOptionIds ?? []).filter((item) => typeof item === "string" && item.trim()).map((item) => item.trim()))];
+  if (!assignment.courseScope || targets.length === 0) return true;
+  if (typeof student.classOptionKey === "string" && targets.includes(student.classOptionKey.trim())) return true;
+  const studentOption = normalized(student.option);
+  return Boolean(studentOption && targets.some((target) => normalized(target.split("::").at(-1)) === studentOption));
+}
 
 async function identity(db, caller, schoolId, schoolYearId) {
   if (caller.role !== "teacher" || caller.schoolId !== schoolId) {
@@ -86,16 +102,23 @@ async function loadGrading(db, teacher, schoolId, schoolYearId) {
     scopedDocuments(db, "courseGradingConfigs", schoolId, schoolYearId, assignments, titularClassIds),
     scopedDocuments(db, "gradeEntries", schoolId, schoolYearId, assignments, titularClassIds),
   ]);
-  const [classStudents, subclassStudents] = await Promise.all([
+  const classRows = serialize(classes);
+  const classNames = classRows.filter((item) => classIds.includes(item.id)).map((item) => item.name);
+  const [classStudents, subclassStudents, namedStudents] = await Promise.all([
     queryInChunks(db, "students", schoolId, schoolYearId, "classId", classIds),
     queryInChunks(db, "students", schoolId, schoolYearId, "subClassId", classIds),
+    queryInChunks(db, "students", schoolId, schoolYearId, "className", classNames),
   ]);
-  const students = [...new Map([...classStudents, ...subclassStudents].filter((item) => (item.status ?? "ACTIVE") === "ACTIVE" && !item.deletedAt).map((item) => [item.id, item])).values()];
+  const schoolClassById = new Map(classRows.map((item) => [item.id, item]));
+  const students = [...new Map([...classStudents, ...subclassStudents, ...namedStudents].filter((student) =>
+    assignments.some((assignment) => studentMatchesAssignment(student, assignment, schoolClassById.get(assignment.classId)))
+    || titularClassIds.some((classId) => studentMatchesAssignment(student, { classId }, schoolClassById.get(classId))),
+  ).map((item) => [item.id, item])).values()];
   const allowedSubjectIds = new Set(assignments.map((item) => item.subjectId));
   return {
     teacher: { id: teacher.id, ...teacher.data() }, assignments, titulars,
     subjects: serialize(subjects).filter((item) => allowedSubjectIds.has(item.id) || titularClassIds.length > 0),
-    classes: serialize(classes).filter((item) => classIds.includes(item.id)),
+    classes: classRows.filter((item) => classIds.includes(item.id)),
     students: [...new Map(students.map((item) => [item.id, item])).values()],
     configs, entries,
   };
@@ -111,7 +134,7 @@ export async function executeTeacherGrading({ db, caller, body }) {
   const classId = requiredString(body.classId, "Classe");
   const subjectId = requiredString(body.subjectId, "Matière");
   const assignmentId = requiredString(body.assignmentId, "Affectation");
-  await assertCourse(db, teacher, schoolId, schoolYearId, classId, subjectId, assignmentId);
+  const assignment = await assertCourse(db, teacher, schoolId, schoolYearId, classId, subjectId, assignmentId);
   const configId = [schoolId, schoolYearId, classId, subjectId].join("__");
 
   if (action === "save-config") {
@@ -134,6 +157,7 @@ export async function executeTeacherGrading({ db, caller, body }) {
     const maxScore = Number(config.data().maxScore);
     const items = Array.isArray(body.entries) ? body.entries : [];
     if (items.length > 500) throw new GradingApiError(400, "invalid-argument", "Trop de cotes.");
+    const schoolClass = await db.doc(`classes/${classId}`).get();
     const batch = db.batch();
     const now = FieldValue.serverTimestamp();
     for (const item of items) {
@@ -142,8 +166,7 @@ export async function executeTeacherGrading({ db, caller, body }) {
       const status = item.status;
       if (!EDITABLE_SLOTS.has(slot) || !["graded", "not_graded", "absent"].includes(status)) throw new GradingApiError(400, "invalid-argument", "Cotation invalide.");
       const student = await db.doc(`students/${studentId}`).get();
-      const studentClass = student.data()?.subClassId ?? student.data()?.classId;
-      if (!student.exists || student.data()?.schoolId !== schoolId || student.data()?.schoolYearId !== schoolYearId || studentClass !== classId || (student.data()?.status ?? "ACTIVE") !== "ACTIVE" || student.data()?.deletedAt) {
+      if (!student.exists || student.data()?.schoolId !== schoolId || student.data()?.schoolYearId !== schoolYearId || !studentMatchesAssignment(student.data(), assignment, schoolClass.data())) {
         throw new GradingApiError(403, "permission-denied", "Élève hors du périmètre autorisé.");
       }
       const score = status === "graded" ? Number(item.score) : null;

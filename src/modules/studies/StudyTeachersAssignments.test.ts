@@ -24,7 +24,8 @@ describe("StudyTeachers assignment editor contract", () => {
   it("pre-fills current teacher, course, class and functional values", () => {
     expect(moduleSource).toContain("setTeacherId(nextTeacherId)");
     expect(moduleSource).toContain("setSubjectIds(current?.subjectId ? [current.subjectId] : [])");
-    expect(moduleSource).toContain("setClassIds(current?.classId ? [current.classId] : [])");
+    expect(moduleSource).toContain("setClassIds(currentBaseClassId ? [currentBaseClassId] : [])");
+    expect(moduleSource).toContain("normalizedAssignmentScope(current, assignmentScopeClasses)");
     expect(moduleSource).toContain("setWeeklyPeriods(String(current?.weeklyPeriods ?? 1))");
     expect(moduleSource).toContain("setTitularClassIds(current ? data.titulars.filter");
   });
@@ -51,7 +52,10 @@ describe("StudyTeachers assignment editor contract", () => {
     expect(serviceSource).toContain("const targetIds = new Set(targets.map");
     expect(serviceSource).toContain('"pedagogicalAssignmentLocks"');
     expect(serviceSource).toContain("transaction.update(doc(database, \"pedagogicalAssignments\", input.current.id)");
-    expect(serviceSource).toContain("combinations.forEach(({ subjectId, classId })");
+    expect(serviceSource).toContain("combinations.forEach(({ subjectId, classId, courseScope, targetOptionIds, studentGroupKey })");
+    expect(moduleSource).toContain('Type de cours');
+    expect(moduleSource).toContain('Tronc commun');
+    expect(moduleSource).toContain('Cours d’option');
   });
 
   it("keeps deterministic duplicate protection and the raw/canonical class distinction", () => {

@@ -2,12 +2,13 @@ import { collection, doc, onSnapshot, query, runTransaction, setDoc, where } fro
 import type { Firestore } from "@firebase/firestore";
 import { db } from "../../firebase";
 import type { AppUser, AttendanceSettings, Student } from "../../types";
-import { activeAssignmentLockId, expandAssignmentSelections, pedagogicalAssignmentId, validateWeeklyPeriods } from "./studyAssignments";
+import { activeAssignmentLockId, pedagogicalAssignmentId, validateWeeklyPeriods } from "./studyAssignments";
 import type { ClassTitular, PedagogicalAssignment, SchedulePeriod, StudyClass, StudyRoom, StudySubject, StudyTeacher, StudyVacation, TeacherAvailability, Timetable, TimetableEntry } from "./studyTypes";
 import { DAY_LABELS, detectAvailabilityConflicts, validTimeRange, validateAvailabilityRanges, validatePeriod } from "./studySchedule";
 import { persistGeneratedTimetable } from "./timetablePersistence";
 import { normalizeSectionIds, userSectionIds } from "../../utils/userSections";
 import { normalizeSectionField } from "../../utils/schoolSections";
+import { assignmentStudentGroupKey, validateAssignmentClassSelection, type AssignmentClassSelection } from "./studyCourseScope";
 
 function requireScope(user: AppUser, schoolId: string, schoolYearId: string) {
   if (!db || user.role !== "study_director" || user.schoolId !== schoolId || !schoolId || !schoolYearId) throw new Error("Périmètre pédagogique non autorisé.");
@@ -135,7 +136,13 @@ export async function saveTeacherWeekAvailability(input: { user: AppUser; school
 
 export async function saveSchedulePeriod(input:{user:AppUser;item:SchedulePeriod;existing:SchedulePeriod[]}){const database=requireScope(input.user,input.item.schoolId,input.item.schoolYearId);const error=validatePeriod(input.item,input.existing,input.item.id);if(error)throw new Error(error);await setDoc(doc(database,"schedulePeriods",input.item.id),input.item);}
 export async function setSchedulePeriodActive(user:AppUser,item:SchedulePeriod,active:boolean){const database=requireScope(user,item.schoolId,item.schoolYearId);await setDoc(doc(database,"schedulePeriods",item.id),{active,updatedAt:new Date().toISOString()},{merge:true});}
-export async function setStudyClassVacation(input:{user:AppUser;item:StudyClass;vacation:StudyVacation;saturdayEnabled:boolean;saturdayVacation?:StudyVacation|null}){const database=requireScope(input.user,input.item.schoolId,input.item.schoolYearId);await setDoc(doc(database,"classes",input.item.id),{vacation:input.vacation,saturdayEnabled:input.saturdayEnabled,saturdayVacation:input.saturdayEnabled?(input.saturdayVacation??input.vacation):null,updatedAt:new Date().toISOString()},{merge:true});}
+export async function setStudyClassVacation(input:{user:AppUser;item:StudyClass;vacation:StudyVacation;saturdayEnabled:boolean;saturdayVacation?:StudyVacation|null;persisted:boolean}){
+  const database=requireScope(input.user,input.item.schoolId,input.item.schoolYearId);
+  const now=new Date().toISOString();
+  const vacationFields={vacation:input.vacation,saturdayEnabled:input.saturdayEnabled,saturdayVacation:input.saturdayEnabled?(input.saturdayVacation??input.vacation):null,updatedAt:now};
+  if(input.persisted){await setDoc(doc(database,"classes",input.item.id),vacationFields,{merge:true});return;}
+  await setDoc(doc(database,"classes",input.item.id),{id:input.item.id,schoolId:input.item.schoolId,schoolYearId:input.item.schoolYearId,name:input.item.name.trim(),active:true,createdBy:input.user.id,createdAt:now,...vacationFields});
+}
 
 export async function saveGeneratedTimetable(input:{user:AppUser;schoolId:string;schoolYearId:string;version:number;entries:TimetableEntry[];existing:Timetable[];metadata:Timetable["generationMetadata"]}){const database=requireScope(input.user,input.schoolId,input.schoolYearId);return persistGeneratedTimetable(database,input);}
 
@@ -221,14 +228,22 @@ export async function renameStudySubject(input: { user: AppUser; schoolId: strin
   });
 }
 
-export async function savePedagogicalAssignments(input: { user: AppUser; schoolId: string; schoolYearId: string; teacherId: string; subjectIds: string[]; classIds: string[]; legacyClasses?: Array<Pick<StudyClass, "id" | "name" | "schoolId" | "schoolYearId" | "section" | "option" | "parentClassId" | "classOptionKey">>; weeklyPeriods: number; titularClassId?: string | null; titularClassIds?: string[]; existingTitulars?: ClassTitular[]; active: boolean; current?: PedagogicalAssignment }) {
+export async function savePedagogicalAssignments(input: { user: AppUser; schoolId: string; schoolYearId: string; teacherId: string; subjectIds: string[]; classIds: string[]; classSelections?: AssignmentClassSelection[]; knownClasses?: StudyClass[]; legacyClasses?: Array<Pick<StudyClass, "id" | "name" | "schoolId" | "schoolYearId" | "section" | "option" | "parentClassId" | "classOptionKey">>; weeklyPeriods: number; titularClassId?: string | null; titularClassIds?: string[]; existingTitulars?: ClassTitular[]; active: boolean; current?: PedagogicalAssignment }) {
   const database = requireScope(input.user, input.schoolId, input.schoolYearId);
   const subjectIds = [...new Set(input.subjectIds.filter(Boolean))];
   const classIds = [...new Set(input.classIds.filter(Boolean))];
   if (!input.teacherId || subjectIds.length === 0 || classIds.length === 0) throw new Error("L’enseignant, un cours et une classe sont obligatoires.");
   const periodError = validateWeeklyPeriods(input.weeklyPeriods);
   if (periodError) throw new Error(periodError);
-  const combinations = expandAssignmentSelections(subjectIds, classIds);
+  const rawClassSelections: AssignmentClassSelection[] = input.classSelections?.length ? input.classSelections : classIds.map((classId) => ({ classId }));
+  const classSelections: AssignmentClassSelection[] = rawClassSelections
+    .map((selection) => ({ ...selection, targetOptionIds: selection.targetOptionIds ? [...new Set(selection.targetOptionIds)].sort() : undefined }));
+  if (classSelections.length !== classIds.length || new Set(classSelections.map((item) => `${item.classId}|${assignmentStudentGroupKey(item) ?? "legacy"}`)).size !== classSelections.length) throw new Error("Une portée pédagogique de classe est dupliquée ou invalide.");
+  if (input.knownClasses) {
+    const scopeError = classSelections.map((selection) => validateAssignmentClassSelection(selection, input.knownClasses!)).find(Boolean);
+    if (scopeError) throw new Error(scopeError);
+  }
+  const combinations = subjectIds.flatMap((subjectId) => classSelections.map((selection) => ({ subjectId, ...selection, studentGroupKey: assignmentStudentGroupKey(selection) })));
   const requestedTitularClassIds = input.titularClassIds ?? (input.titularClassId ? [input.titularClassId] : []);
   const titularClassIds = input.active ? [...new Set(requestedTitularClassIds.filter(Boolean))] : [];
   if (titularClassIds.some((id) => !classIds.includes(id))) throw new Error("Une classe titulaire doit faire partie des classes affectées.");
@@ -237,11 +252,14 @@ export async function savePedagogicalAssignments(input: { user: AppUser; schoolI
   const legacyClassIds = new Set(legacyClasses.map((item) => item.id));
   if (legacyClassIds.size !== legacyClasses.length || legacyClasses.some((item) => !item.name.trim())) throw new Error("Une classe historique est invalide.");
   const now = new Date().toISOString();
-  const targets = combinations.map(({ subjectId, classId }) => ({
+  const targets = combinations.map(({ subjectId, classId, courseScope, targetOptionIds, studentGroupKey }) => ({
     subjectId,
     classId,
-    assignmentId: pedagogicalAssignmentId({ schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, subjectId, classId }),
-    lockId: activeAssignmentLockId({ schoolId: input.schoolId, schoolYearId: input.schoolYearId, subjectId, classId }),
+    courseScope,
+    targetOptionIds,
+    studentGroupKey,
+    assignmentId: pedagogicalAssignmentId({ schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, subjectId, classId, courseScope, targetOptionIds, studentGroupKey }),
+    lockId: activeAssignmentLockId({ schoolId: input.schoolId, schoolYearId: input.schoolYearId, subjectId, classId, courseScope, targetOptionIds, studentGroupKey }),
   }));
   await runTransaction(database, async (transaction) => {
     const teacherRef = doc(database, "teachers", input.teacherId);
@@ -277,17 +295,18 @@ export async function savePedagogicalAssignments(input: { user: AppUser; schoolI
     removedTitularRefs.forEach((reference, index) => {
       if (removedTitularSnapshots[index]?.exists() && removedTitularSnapshots[index].data()?.teacherId === removedTitulars[index].teacherId) transaction.delete(reference);
     });
-    combinations.forEach(({ subjectId, classId }) => {
-      const id = pedagogicalAssignmentId({ schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, subjectId, classId });
-      transaction.set(doc(database, "pedagogicalAssignments", id), { id, schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, subjectId, classId, weeklyPeriods: input.weeklyPeriods, blockSize: id === input.current?.id ? input.current.blockSize ?? 1 : 1, preferredRoomId: id === input.current?.id ? input.current.preferredRoomId ?? null : null, titularClassId: titularClassIds.includes(classId) && subjectId === subjectIds[0] ? classId : null, active: input.active, createdAt: id === input.current?.id ? input.current.createdAt : now, updatedAt: now, createdBy: id === input.current?.id ? input.current.createdBy : input.user.id, updatedBy: input.user.id });
+    combinations.forEach(({ subjectId, classId, courseScope, targetOptionIds, studentGroupKey }) => {
+      const id = pedagogicalAssignmentId({ schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, subjectId, classId, courseScope, targetOptionIds, studentGroupKey });
+      transaction.set(doc(database, "pedagogicalAssignments", id), { id, schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, subjectId, classId, ...(courseScope ? { courseScope, targetOptionIds, studentGroupKey } : {}), weeklyPeriods: input.weeklyPeriods, blockSize: id === input.current?.id ? input.current.blockSize ?? 1 : 1, preferredRoomId: id === input.current?.id ? input.current.preferredRoomId ?? null : null, titularClassId: titularClassIds.includes(classId) && subjectId === subjectIds[0] ? classId : null, active: input.active, createdAt: id === input.current?.id ? input.current.createdAt : now, updatedAt: now, createdBy: id === input.current?.id ? input.current.createdBy : input.user.id, updatedBy: input.user.id });
     });
     targets.forEach((target, index) => {
       const lockRef = lockRefs[index];
-      if (input.active) transaction.set(lockRef, { id: target.lockId, schoolId: input.schoolId, schoolYearId: input.schoolYearId, subjectId: target.subjectId, classId: target.classId, teacherId: input.teacherId, assignmentId: target.assignmentId, updatedAt: now, updatedBy: input.user.id });
+      if (input.active) transaction.set(lockRef, { id: target.lockId, schoolId: input.schoolId, schoolYearId: input.schoolYearId, subjectId: target.subjectId, classId: target.classId, ...(target.studentGroupKey ? { courseScope: target.courseScope, targetOptionIds: target.targetOptionIds, studentGroupKey: target.studentGroupKey } : {}), teacherId: input.teacherId, assignmentId: target.assignmentId, updatedAt: now, updatedBy: input.user.id });
     });
     titularClassIds.forEach((classId, index) => {
       const id = `${input.schoolId}__${input.schoolYearId}__${classId}`;
-      const assignmentId = pedagogicalAssignmentId({ schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, subjectId: subjectIds[0], classId });
+      const assignmentId = targets.find((target) => target.subjectId === subjectIds[0] && target.classId === classId)?.assignmentId;
+      if (!assignmentId) throw new Error("L’affectation titulaire est introuvable.");
       transaction.set(selectedTitularRefs[index], { id, schoolId: input.schoolId, schoolYearId: input.schoolYearId, classId, teacherId: input.teacherId, assignmentId, active: true, updatedAt: now, updatedBy: input.user.id });
     });
   });
@@ -318,7 +337,7 @@ export async function setPedagogicalAssignmentActive(user: AppUser, assignment: 
       if (!lockedAssignment.exists() || lockedAssignment.data()?.active !== false) throw new Error("Ce cours est déjà affecté activement à cette classe.");
     }
     transaction.update(assignmentRef, { active, updatedAt: now, updatedBy: user.id });
-    if (active) transaction.set(lockRef, { id: lockId, schoolId: assignment.schoolId, schoolYearId: assignment.schoolYearId, subjectId: assignment.subjectId, classId: assignment.classId, teacherId: assignment.teacherId, assignmentId: assignment.id, updatedAt: now, updatedBy: user.id });
+    if (active) transaction.set(lockRef, { id: lockId, schoolId: assignment.schoolId, schoolYearId: assignment.schoolYearId, subjectId: assignment.subjectId, classId: assignment.classId, ...(assignment.studentGroupKey ? { courseScope: assignment.courseScope, targetOptionIds: assignment.targetOptionIds, studentGroupKey: assignment.studentGroupKey } : {}), teacherId: assignment.teacherId, assignmentId: assignment.id, updatedAt: now, updatedBy: user.id });
   });
 }
 

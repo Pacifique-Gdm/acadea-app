@@ -1,5 +1,6 @@
 import { isRestDay, teacherAvailableAt } from "./studySchedule";
 import type { PedagogicalAssignment, SchedulePeriod, ScheduleValidationIssue, ScheduleValidationReport, StudyClass, StudyDay, StudySubject, StudyTeacher, TeacherAvailability, TimetableEntry } from "./studyTypes";
+import { assignmentsShareStudents } from "./studyCourseScope";
 
 export interface ScheduleProblem { schoolId:string; schoolYearId:string; teachers?:StudyTeacher[]; subjects?:StudySubject[]; classes?:StudyClass[]; assignments:PedagogicalAssignment[]; availabilities:TeacherAvailability[]; periods:SchedulePeriod[]; days?:StudyDay[]; maxSameAssignmentPeriodsPerDay?:number; }
 
@@ -14,13 +15,13 @@ export function validateTimetable(problem: ScheduleProblem, entries: TimetableEn
   const errors: ScheduleValidationIssue[]=[];
   const assignments=new Map(problem.assignments.filter(item=>item.active).map(item=>[item.id,item]));
   const periods=new Map(problem.periods.map(item=>[item.id,item]));
-  const keySeen=new Set<string>(); const classSeen=new Set<string>(); const roomSeen=new Set<string>();
+  const keySeen=new Set<string>(); const studentSeen=new Map<string,PedagogicalAssignment[]>(); const roomSeen=new Set<string>();
   for(const entry of entries){
     const assignment=assignments.get(entry.assignmentId); const period=periods.get(entry.periodId);
     const context={entityId:entry.id,day:entry.dayOfWeek,periodId:entry.periodId};
     if(entry.schoolId!==problem.schoolId||entry.schoolYearId!==problem.schoolYearId||!assignment||assignment.teacherId!==entry.teacherId||assignment.classId!==entry.classId||assignment.subjectId!==entry.subjectId||(problem.teachers&&!problem.teachers.some(item=>item.id===entry.teacherId&&item.schoolId===problem.schoolId&&item.schoolYearId===problem.schoolYearId))||(problem.subjects&&!problem.subjects.some(item=>item.id===entry.subjectId&&item.schoolId===problem.schoolId&&item.schoolYearId===problem.schoolYearId))||(problem.classes&&!problem.classes.some(item=>item.id===entry.classId&&item.schoolId===problem.schoolId&&item.schoolYearId===problem.schoolYearId))){errors.push({code:"INVALID_ASSIGNMENT",message:"Le créneau ne correspond pas à une affectation autorisée.",...context});continue;}
     const teacherKey=`${entry.teacherId}|${entry.dayOfWeek}|${entry.periodId}`;if(keySeen.has(teacherKey))errors.push({code:"TEACHER_OVERLAP",message:"Un enseignant est affecté à deux cours simultanés.",...context});keySeen.add(teacherKey);
-    const classKey=`${entry.classId}|${entry.dayOfWeek}|${entry.periodId}`;if(classSeen.has(classKey))errors.push({code:"CLASS_OVERLAP",message:"Une classe possède deux cours simultanés.",...context});classSeen.add(classKey);
+    const studentKey=`${entry.dayOfWeek}|${entry.periodId}`;const simultaneous=studentSeen.get(studentKey)??[];if(assignment&&simultaneous.some(other=>assignmentsShareStudents(assignment,other,problem.classes??[])))errors.push({code:"CLASS_OVERLAP",message:"Un groupe d’élèves possède deux cours simultanés.",...context});if(assignment)studentSeen.set(studentKey,[...simultaneous,assignment]);
     if(entry.roomId){const roomKey=`${entry.roomId}|${entry.dayOfWeek}|${entry.periodId}`;if(roomSeen.has(roomKey))errors.push({code:"ROOM_OVERLAP",message:"Une salle est utilisée deux fois simultanément.",...context});roomSeen.add(roomKey);}
     if(!period||!period.active||period.type!=="course")errors.push({code:"NON_TEACHING_PERIOD",message:"Un cours ne peut pas être placé pendant une pause ou une récréation.",...context});
     else if(isRestDay(entry.teacherId,entry.dayOfWeek,problem.availabilities))errors.push({code:"REST_DAY",message:"L’enseignant est en repos ce jour.",...context});

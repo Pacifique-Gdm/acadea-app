@@ -60,6 +60,12 @@ export interface PedagogicalAssignment {
   blockSize?: 1 | 2;
   preferredRoomId?: string | null;
   titularClassId?: string | null;
+  /** Portée pédagogique définie pour cette classe. Absente sur les affectations historiques. */
+  courseScope?: "common" | "option";
+  /** Identifiants canoniques des groupes d'option qui suivent le cours ensemble. */
+  targetOptionIds?: string[];
+  /** Clé déterministe utilisée par l'identité et le verrou de l'affectation. */
+  studentGroupKey?: string;
   active: boolean;
   createdAt: string;
   updatedAt: string;
@@ -119,6 +125,9 @@ export interface TimetableEntry {
   teacherId: string;
   subjectId: string;
   assignmentId: string;
+  courseScope?: "common" | "option";
+  targetOptionIds?: string[];
+  studentGroupKey?: string;
   dayOfWeek: StudyDay;
   periodId: string;
   roomId: string | null;

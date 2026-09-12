@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { AppUser, School, SchoolYear } from "../../types";
 import { resolveAttendanceSchoolDays } from "../../utils/attendance";
 import { saveSchedulePeriod, setSchedulePeriodActive, setStudyClassVacation } from "./studyService";
 import { operationalClassLabel, studyVacationLabels } from "./studyScope";
 import type { SchedulePeriod, StudyVacation } from "./studyTypes";
 import type { useStudyData } from "./useStudyData";
+import { logicalStudyClasses } from "./studyCourseScope";
 
 const periodTypeLabel = (type: SchedulePeriod["type"]) => type === "course" ? "Cours" : type === "break" ? "Pause" : "Récréation";
 
@@ -16,7 +17,10 @@ export function StudyPeriodsModule({ user, school, year, data }: { user: AppUser
   const [vacation, setVacation] = useState<StudyVacation>("morning");
   const [dayScope, setDayScope] = useState<"weekdays" | "saturday">("weekdays");
   const [error, setError] = useState("");
+  const [vacationError, setVacationError] = useState("");
+  const [savingClassId, setSavingClassId] = useState("");
   const sixDays = resolveAttendanceSchoolDays(data.attendanceSettings).includes("saturday");
+  const periodClasses = useMemo(() => logicalStudyClasses(data.classes, data.sourceClasses), [data.classes, data.sourceClasses]);
   const sorted = [...data.periods].sort((a, b) => (a.vacation ?? "morning").localeCompare(b.vacation ?? "morning") || (a.dayScope ?? "weekdays").localeCompare(b.dayScope ?? "weekdays") || a.order - b.order || a.startTime.localeCompare(b.startTime));
 
   function edit(item?: SchedulePeriod) {
@@ -35,6 +39,17 @@ export function StudyPeriodsModule({ user, school, year, data }: { user: AppUser
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Enregistrement impossible."); }
   }
 
+  async function saveClassVacation(item: (typeof periodClasses)[number], next: { vacation: StudyVacation; saturdayEnabled: boolean; saturdayVacation?: StudyVacation | null }) {
+    setSavingClassId(item.id); setVacationError("");
+    try {
+      await setStudyClassVacation({ user, item, ...next, persisted: data.sourceClasses.some((current) => current.id === item.id) });
+    } catch (cause) {
+      setVacationError(cause instanceof Error ? cause.message : "Enregistrement de la vacation impossible.");
+    } finally {
+      setSavingClassId("");
+    }
+  }
+
   const editor = editorOpen && <div data-testid="period-editor" className="grid min-w-0 gap-3 rounded border bg-white p-4">
     <div className="grid gap-2 sm:grid-cols-2"><select className="input" aria-label="Vacation" value={vacation} onChange={(event) => setVacation(event.target.value as StudyVacation)}><option value="morning">Avant-midi</option><option value="afternoon">Après-midi</option></select><select className="input" aria-label="Jours concernés" value={dayScope} onChange={(event) => setDayScope(event.target.value as typeof dayScope)}><option value="weekdays">Lundi à vendredi</option>{sixDays && <option value="saturday">Samedi (configuration spéciale)</option>}</select></div>
     <input className="input" placeholder="Libellé" value={label} onChange={(event) => setLabel(event.target.value)} />
@@ -47,7 +62,7 @@ export function StudyPeriodsModule({ user, school, year, data }: { user: AppUser
 
   return <section className="grid gap-5">
     <p className="text-sm text-slate-600">Configuration Discipline : {sixDays ? "6 jours (lundi à samedi)" : "5 jours (lundi à vendredi)"}. Les périodes standard sont partagées du lundi au vendredi.</p>
-    <div className="grid gap-3 rounded border bg-white p-3"><h3 className="font-bold">Vacation des classes</h3>{data.classes.map((item) => <label key={item.id} className="grid items-center gap-2 rounded border border-slate-100 p-2 text-sm sm:grid-cols-[minmax(0,1fr)_180px_150px]"><span className="min-w-0 font-medium">{operationalClassLabel(item)}</span><select aria-label={`Vacation de ${operationalClassLabel(item)}`} className="input w-full" value={item.vacation ?? ""} onChange={(event) => void setStudyClassVacation({ user, item, vacation: event.target.value as StudyVacation, saturdayEnabled: item.saturdayEnabled ?? false, saturdayVacation: item.saturdayVacation })}><option value="" disabled>Choisir</option><option value="morning">Avant-midi</option><option value="afternoon">Après-midi</option></select>{sixDays && <span className="flex items-center gap-2"><input type="checkbox" checked={item.saturdayEnabled ?? false} onChange={(event) => void setStudyClassVacation({ user, item, vacation: item.vacation ?? "morning", saturdayEnabled: event.target.checked, saturdayVacation: item.saturdayVacation })} /> Samedi</span>}</label>)}</div>
+    <div className="grid gap-3 rounded border bg-white p-3"><h3 className="font-bold">Vacation des classes</h3>{vacationError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{vacationError}</p>}{periodClasses.map((item) => <label key={item.id} className="grid items-center gap-2 rounded border border-slate-100 p-2 text-sm sm:grid-cols-[minmax(0,1fr)_180px_150px]"><span className="min-w-0 font-medium">{operationalClassLabel(item)}</span><select aria-label={`Vacation de ${operationalClassLabel(item)}`} className="input w-full" disabled={savingClassId === item.id} value={item.vacation ?? ""} onChange={(event) => void saveClassVacation(item, { vacation: event.target.value as StudyVacation, saturdayEnabled: item.saturdayEnabled ?? false, saturdayVacation: item.saturdayVacation })}><option value="" disabled>Choisir</option><option value="morning">Avant-midi</option><option value="afternoon">Après-midi</option></select>{sixDays && <span className="flex items-center gap-2"><input type="checkbox" disabled={savingClassId === item.id} checked={item.saturdayEnabled ?? false} onChange={(event) => void saveClassVacation(item, { vacation: item.vacation ?? "morning", saturdayEnabled: event.target.checked, saturdayVacation: item.saturdayVacation })} /> Samedi</span>}</label>)}</div>
     {editor}
     <button className="primary-button w-full justify-center" onClick={() => edit()}>Ajouter une période</button>
     <div className="grid gap-3">{sorted.map((item) => <article className="grid min-w-0 gap-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm" key={item.id}><p className="font-bold text-ink">{studyVacationLabels[item.vacation ?? "morning"]}</p><p className="font-semibold">{(item.dayScope ?? "weekdays") === "saturday" ? "Samedi" : "Lundi–vendredi"} — {item.label}</p><p className="text-sm text-slate-600">{periodTypeLabel(item.type)} — {item.startTime} → {item.endTime}</p><div className="grid grid-cols-2 gap-2"><button className="secondary-button w-full justify-center" onClick={() => edit(item)}>Modifier</button>{item.active ? <button className="secondary-button w-full justify-center" onClick={() => void setSchedulePeriodActive(user, item, false)}>Désactiver</button> : <span className="flex items-center justify-center rounded bg-slate-100 text-sm text-slate-500">Désactivée</span>}</div></article>)}</div>

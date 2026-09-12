@@ -46,7 +46,7 @@ export function useStudyData(user: AppUser, schoolId: string, schoolYearId: stri
   const scopedClassIds = useMemo(() => new Set(scopedClasses.map((item) => item.id)), [scopedClasses]);
   const scopedStudents = useMemo(() => filterByAllowedSections(user, students, getStudentSection), [students, user]);
   const scopedTeachers = useMemo(() => teachers.filter((item) => (!item.section && !item.sectionIds?.length) || isSectionAllowed(user, item.section) || item.sectionIds?.some((section) => isSectionAllowed(user, section))), [teachers, user]);
-  const classScopedAssignments = useMemo(() => assignmentsForClasses(assignments, scopedClassIds), [assignments, scopedClassIds]);
+  const classScopedAssignments = useMemo(() => assignmentsForClasses(assignments, scopedClassIds, scopedClasses), [assignments, scopedClassIds, scopedClasses]);
   const assignedSubjectIds = useMemo(() => new Set(classScopedAssignments.map((item) => item.subjectId)), [classScopedAssignments]);
   const scopedSubjects = useMemo(() => subjects.filter((item) => assignedSubjectIds.has(item.id) || ((!item.section || isSectionAllowed(user, item.section)) && (!item.classIds?.length || item.classIds.some((id) => scopedClassIds.has(id))))), [assignedSubjectIds, scopedClassIds, subjects, user]);
   const subjectIds = useMemo(() => new Set(scopedSubjects.map((item) => item.id)), [scopedSubjects]);

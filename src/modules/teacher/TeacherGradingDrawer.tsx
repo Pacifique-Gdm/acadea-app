@@ -3,6 +3,7 @@ import { AdminDrawer } from "../../components/ui/AdminDrawer";
 import type { AppUser, School, SchoolYear } from "../../types";
 import {
   GRADING_SLOTS,
+  activeStudentsForAssignment,
   activeStudentsForClass,
   editableGradingSlots,
   gradingProgress,
@@ -65,7 +66,7 @@ export function TeacherGradingDrawer({ user, school, year, onClose }: { user: Ap
   const subject = data?.subjects.find((item) => item.id === assignment?.subjectId);
   const config = data?.configs.find((item) => item.classId === assignment?.classId && item.subjectId === assignment?.subjectId);
   const students = useMemo(
-    () => assignment && data ? activeStudentsForClass(data.students, school.id, year.id, assignment.classId) : [],
+    () => assignment && data ? activeStudentsForAssignment(data.students, school.id, year.id, assignment) : [],
     [assignment, data, school.id, year.id],
   );
   const entries = useMemo(

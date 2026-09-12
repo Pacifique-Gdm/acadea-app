@@ -164,6 +164,13 @@ function remapOptionKey(value, classIds) {
   return value;
 }
 
+export function mappedAssignmentScope(item, classIds, alreadyMapped = false) {
+  if (!item.courseScope) return {};
+  const targetOptionIds = [...new Set((item.targetOptionIds ?? []).map((value) => alreadyMapped ? value : remapOptionKey(value, classIds)).filter(identifier))].sort();
+  const studentGroupKey = `${item.courseScope}--${targetOptionIds.map(encodeURIComponent).join("--")}`;
+  return { courseScope: item.courseScope, targetOptionIds, studentGroupKey };
+}
+
 function genericPayload(_collection, source, id, schoolId, yearId, changes = {}) {
   void _collection;
   return studentForPersistence({
@@ -213,9 +220,19 @@ function planAnnualImport({ school, schoolId, schoolYearId, source, target, pare
   const timetableIds = semanticTargetMap(source.timetables, target.timetables, (item) => `${item.version}|${item.status}`, "timetables", schoolId, schoolYearId);
 
   const assignmentKey = (item, mapped = false) => [
-    mapped ? item.teacherId : teacherIds.get(item.teacherId), mapped ? item.subjectId : subjectIds.get(item.subjectId), mapped ? item.classId : classPlan.ids.get(item.classId), item.active !== false,
+    mapped ? item.teacherId : teacherIds.get(item.teacherId), mapped ? item.subjectId : subjectIds.get(item.subjectId), mapped ? item.classId : classPlan.ids.get(item.classId),
+    mappedAssignmentScope(item, classPlan.ids, mapped).studentGroupKey ?? "legacy", item.active !== false,
   ].join("|");
-  const assignmentIds = semanticTargetMap(source.pedagogicalAssignments, target.pedagogicalAssignments, (item) => assignmentKey(item, item.schoolYearId === schoolYearId), "pedagogicalAssignments", schoolId, schoolYearId);
+  const targetAssignmentsBySource = new Map(target.pedagogicalAssignments.filter((item) => item.annualImportSourceId).map((item) => [item.annualImportSourceId, item]));
+  const targetAssignmentsByKey = new Map(target.pedagogicalAssignments.map((item) => [assignmentKey(item, true), item]));
+  const assignmentIds = new Map(source.pedagogicalAssignments.map((item) => {
+    const existing = targetAssignmentsBySource.get(item.id) ?? targetAssignmentsByKey.get(assignmentKey(item));
+    const mappedScope = mappedAssignmentScope(item, classPlan.ids);
+    const id = existing?.id ?? (mappedScope.studentGroupKey
+      ? [schoolId, schoolYearId, teacherIds.get(item.teacherId), subjectIds.get(item.subjectId), classPlan.ids.get(item.classId), mappedScope.studentGroupKey].join("__")
+      : annualId("pedagogicalAssignments", schoolId, schoolYearId, item.id));
+    return [item.id, id];
+  }));
 
   if (source.subjects.some((item) => item.classIds?.some((classId) => !classPlan.ids.has(classId)))) fail(409, "failed-precondition", "Un cours source référence une classe annuelle absente.");
   if (source.teacherAvailabilities.some((item) => !teacherIds.has(item.teacherId))) fail(409, "failed-precondition", "Une disponibilité source référence un enseignant absent.");
@@ -263,6 +280,7 @@ function planAnnualImport({ school, schoolId, schoolYearId, source, target, pare
   const validAssignments = source.pedagogicalAssignments.filter((item) => teacherIds.has(item.teacherId) && subjectIds.has(item.subjectId) && classPlan.ids.has(item.classId));
   addPlan("pedagogicalAssignments", validAssignments, target.pedagogicalAssignments, assignmentIds, (item, id) => genericPayload("pedagogicalAssignments", item, id, schoolId, schoolYearId, {
     teacherId: teacherIds.get(item.teacherId), subjectId: subjectIds.get(item.subjectId), classId: classPlan.ids.get(item.classId),
+    ...mappedAssignmentScope(item, classPlan.ids),
     preferredRoomId: item.preferredRoomId ? roomIds.get(item.preferredRoomId) : item.preferredRoomId,
     titularClassId: item.titularClassId ? classPlan.ids.get(item.titularClassId) : item.titularClassId,
   }));
@@ -276,6 +294,7 @@ function planAnnualImport({ school, schoolId, schoolYearId, source, target, pare
   const validEntries = source.timetableEntries.filter((item) => timetableIds.has(item.scheduleId) && assignmentIds.has(item.assignmentId) && teacherIds.has(item.teacherId) && subjectIds.has(item.subjectId) && classPlan.ids.has(item.classId) && periodIds.has(item.periodId));
   addPlan("timetableEntries", validEntries, target.timetableEntries, entryIds, (item, id) => genericPayload("timetableEntries", item, id, schoolId, schoolYearId, {
     scheduleId: timetableIds.get(item.scheduleId), assignmentId: assignmentIds.get(item.assignmentId), teacherId: teacherIds.get(item.teacherId), subjectId: subjectIds.get(item.subjectId), classId: classPlan.ids.get(item.classId), periodId: periodIds.get(item.periodId), roomId: item.roomId ? roomIds.get(item.roomId) ?? null : null,
+    ...mappedAssignmentScope(item, classPlan.ids),
   }));
 
   const counts = {

@@ -1,5 +1,7 @@
 import type { PedagogicalAssignment, StudySubject, StudyTeacher } from "./studyTypes";
 import { firebaseErrorCode } from "../../utils/refreshErrors";
+import { assignmentAppliesToClass, assignmentStudentGroupKey } from "./studyCourseScope";
+import type { StudyClass } from "./studyTypes";
 
 export const MAX_WEEKLY_PERIODS = 60;
 export const SUBJECT_RENAME_CONFIRMATION = "MODIFIER NOM DE CE COURS";
@@ -8,12 +10,14 @@ export function subjectRenameConfirmed(value: string) {
   return value === SUBJECT_RENAME_CONFIRMATION;
 }
 
-export function pedagogicalAssignmentId(input: Pick<PedagogicalAssignment, "schoolId" | "schoolYearId" | "teacherId" | "subjectId" | "classId">) {
-  return [input.schoolId, input.schoolYearId, input.teacherId, input.subjectId, input.classId].join("__");
+export function pedagogicalAssignmentId(input: Pick<PedagogicalAssignment, "schoolId" | "schoolYearId" | "teacherId" | "subjectId" | "classId" | "courseScope" | "targetOptionIds" | "studentGroupKey">) {
+  const groupKey = input.studentGroupKey ?? assignmentStudentGroupKey(input);
+  return [input.schoolId, input.schoolYearId, input.teacherId, input.subjectId, input.classId, groupKey].filter(Boolean).join("__");
 }
 
-export function activeAssignmentLockId(input: Pick<PedagogicalAssignment, "schoolId" | "schoolYearId" | "subjectId" | "classId">) {
-  return [input.schoolId, input.schoolYearId, input.subjectId, input.classId].join("__");
+export function activeAssignmentLockId(input: Pick<PedagogicalAssignment, "schoolId" | "schoolYearId" | "subjectId" | "classId" | "courseScope" | "targetOptionIds" | "studentGroupKey">) {
+  const groupKey = input.studentGroupKey ?? assignmentStudentGroupKey(input);
+  return [input.schoolId, input.schoolYearId, input.subjectId, input.classId, groupKey].filter(Boolean).join("__");
 }
 
 export function validateWeeklyPeriods(value: number) {
@@ -32,11 +36,11 @@ export function pedagogicalAssignmentSaveErrorMessage(error: unknown) {
     : "Impossible d’enregistrer cette affectation.";
 }
 
-export function hasActiveAssignmentDuplicate(assignments: PedagogicalAssignment[], candidate: Pick<PedagogicalAssignment, "schoolId" | "schoolYearId" | "teacherId" | "subjectId" | "classId">, ignoredId?: string) {
+export function hasActiveAssignmentDuplicate(assignments: PedagogicalAssignment[], candidate: Pick<PedagogicalAssignment, "schoolId" | "schoolYearId" | "teacherId" | "subjectId" | "classId" | "courseScope" | "targetOptionIds">, ignoredId?: string) {
   return assignments.some((assignment) => assignment.id !== ignoredId && assignment.active && pedagogicalAssignmentId(assignment) === pedagogicalAssignmentId(candidate));
 }
 
-export function hasActiveSubjectClassConflict(assignments: PedagogicalAssignment[], candidate: Pick<PedagogicalAssignment, "schoolId" | "schoolYearId" | "subjectId" | "classId">, ignoredId?: string) {
+export function hasActiveSubjectClassConflict(assignments: PedagogicalAssignment[], candidate: Pick<PedagogicalAssignment, "schoolId" | "schoolYearId" | "subjectId" | "classId" | "courseScope" | "targetOptionIds">, ignoredId?: string) {
   const lockId = activeAssignmentLockId(candidate);
   return assignments.some((assignment) => assignment.id !== ignoredId && assignment.active && activeAssignmentLockId(assignment) === lockId);
 }
@@ -51,8 +55,8 @@ export function teacherWorkload(teacherId: string, assignments: PedagogicalAssig
   return assignments.filter((assignment) => assignment.teacherId === teacherId && assignment.active).reduce((total, assignment) => total + assignment.weeklyPeriods, 0);
 }
 
-export function assignmentsForClasses(assignments: PedagogicalAssignment[], classIds: ReadonlySet<string>) {
-  return assignments.filter((assignment) => classIds.has(assignment.classId));
+export function assignmentsForClasses(assignments: PedagogicalAssignment[], classIds: ReadonlySet<string>, classes: readonly StudyClass[] = []) {
+  return assignments.filter((assignment) => classIds.has(assignment.classId) || classes.some((item) => classIds.has(item.id) && assignmentAppliesToClass(assignment, item, classes)));
 }
 
 export function subjectsReferencedByAssignments(subjects: StudySubject[], assignments: PedagogicalAssignment[]) {

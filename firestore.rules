@@ -801,7 +801,10 @@ service cloud.firestore {
           && request.resource.data.name is string
           && request.resource.data.name.size() > 0
           && request.resource.data.createdBy == request.auth.uid
-          && request.resource.data.keys().hasOnly(["id", "schoolId", "schoolYearId", "name", "active", "createdBy", "createdAt", "updatedAt"]);
+          && request.resource.data.keys().hasOnly(["id", "schoolId", "schoolYearId", "name", "active", "createdBy", "createdAt", "updatedAt", "vacation", "saturdayVacation", "saturdayEnabled"])
+          && (!("vacation" in request.resource.data) || request.resource.data.vacation in ["morning", "afternoon"])
+          && (!("saturdayEnabled" in request.resource.data) || request.resource.data.saturdayEnabled is bool)
+          && (!("saturdayVacation" in request.resource.data) || request.resource.data.saturdayVacation == null || request.resource.data.saturdayVacation in ["morning", "afternoon"]);
       }
       allow read: if superAdmin() || sameTenantResource() || studyTenantResource() || teacherTenantResource();
       allow create: if (schoolAdmin() && activeTenantYearCreate()) || validSubclassCreate() || validSecretaryBaseClassCreate() || validStudyLegacyClassCreate();
@@ -864,7 +867,18 @@ service cloud.firestore {
       }
       function validAssignmentShape() {
         return request.resource.data.id == assignmentId
-          && assignmentId == request.resource.data.schoolId + "__" + request.resource.data.schoolYearId + "__" + request.resource.data.teacherId + "__" + request.resource.data.subjectId + "__" + request.resource.data.classId
+          && (((!("courseScope" in request.resource.data))
+              && !("targetOptionIds" in request.resource.data)
+              && !("studentGroupKey" in request.resource.data)
+              && assignmentId == request.resource.data.schoolId + "__" + request.resource.data.schoolYearId + "__" + request.resource.data.teacherId + "__" + request.resource.data.subjectId + "__" + request.resource.data.classId)
+            || (request.resource.data.courseScope in ["common", "option"]
+              && request.resource.data.targetOptionIds is list
+              && request.resource.data.targetOptionIds.size() == request.resource.data.targetOptionIds.toSet().size()
+              && ((request.resource.data.courseScope == "common" && request.resource.data.targetOptionIds.size() >= 2)
+                || (request.resource.data.courseScope == "option" && request.resource.data.targetOptionIds.size() == 1))
+              && request.resource.data.studentGroupKey is string
+              && request.resource.data.studentGroupKey.matches("^(common|option)--.+$")
+              && assignmentId == request.resource.data.schoolId + "__" + request.resource.data.schoolYearId + "__" + request.resource.data.teacherId + "__" + request.resource.data.subjectId + "__" + request.resource.data.classId + "__" + request.resource.data.studentGroupKey))
           && request.resource.data.weeklyPeriods is int
           && request.resource.data.weeklyPeriods > 0
           && request.resource.data.weeklyPeriods <= 60
@@ -876,7 +890,7 @@ service cloud.firestore {
           && request.resource.data.updatedAt is string;
       }
       function activeAssignmentLockIsValid() {
-        let lockId = request.resource.data.schoolId + "__" + request.resource.data.schoolYearId + "__" + request.resource.data.subjectId + "__" + request.resource.data.classId;
+        let lockId = request.resource.data.schoolId + "__" + request.resource.data.schoolYearId + "__" + request.resource.data.subjectId + "__" + request.resource.data.classId + (("studentGroupKey" in request.resource.data) ? "__" + request.resource.data.studentGroupKey : "");
         let lockPath = /databases/$(database)/documents/pedagogicalAssignmentLocks/$(lockId);
         return request.resource.data.active == false
           ? true
@@ -899,6 +913,9 @@ service cloud.firestore {
         && request.resource.data.teacherId == resource.data.teacherId
         && request.resource.data.subjectId == resource.data.subjectId
         && request.resource.data.classId == resource.data.classId
+        && request.resource.data.get("courseScope", null) == resource.data.get("courseScope", null)
+        && request.resource.data.get("targetOptionIds", []) == resource.data.get("targetOptionIds", [])
+        && request.resource.data.get("studentGroupKey", null) == resource.data.get("studentGroupKey", null)
         && request.resource.data.createdBy == resource.data.createdBy
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.updatedBy == request.auth.uid;
@@ -909,7 +926,7 @@ service cloud.firestore {
       function validAssignmentLockShape() {
         let assignmentPath = /databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId);
         return request.resource.data.id == lockId
-          && lockId == request.resource.data.schoolId + "__" + request.resource.data.schoolYearId + "__" + request.resource.data.subjectId + "__" + request.resource.data.classId
+          && lockId == request.resource.data.schoolId + "__" + request.resource.data.schoolYearId + "__" + request.resource.data.subjectId + "__" + request.resource.data.classId + (("studentGroupKey" in request.resource.data) ? "__" + request.resource.data.studentGroupKey : "")
           && request.resource.data.schoolId == tenantSchoolId()
           && activeSchoolYearBelongsToSchool(request.resource.data.schoolYearId, tenantSchoolId())
           && request.resource.data.updatedBy == request.auth.uid
@@ -919,7 +936,12 @@ service cloud.firestore {
           && getAfter(assignmentPath).data.schoolYearId == request.resource.data.schoolYearId
           && getAfter(assignmentPath).data.teacherId == request.resource.data.teacherId
           && getAfter(assignmentPath).data.subjectId == request.resource.data.subjectId
-          && getAfter(assignmentPath).data.classId == request.resource.data.classId;
+          && getAfter(assignmentPath).data.classId == request.resource.data.classId
+          && (((!("studentGroupKey" in request.resource.data)) && !("studentGroupKey" in getAfter(assignmentPath).data))
+            || (("studentGroupKey" in request.resource.data)
+              && request.resource.data.studentGroupKey == getAfter(assignmentPath).data.studentGroupKey
+              && request.resource.data.courseScope == getAfter(assignmentPath).data.courseScope
+              && request.resource.data.targetOptionIds == getAfter(assignmentPath).data.targetOptionIds));
       }
       allow get: if studyDirector() && (!exists(/databases/$(database)/documents/pedagogicalAssignmentLocks/$(lockId)) || studyTenantResource());
       allow list: if studyTenantResource();
@@ -1164,6 +1186,9 @@ service cloud.firestore {
           && get(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.teacherId == request.resource.data.teacherId
           && get(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.classId == request.resource.data.classId
           && get(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.subjectId == request.resource.data.subjectId
+          && request.resource.data.get("courseScope", null) == get(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.get("courseScope", null)
+          && request.resource.data.get("targetOptionIds", []) == get(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.get("targetOptionIds", [])
+          && request.resource.data.get("studentGroupKey", null) == get(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.get("studentGroupKey", null)
           && exists(/databases/$(database)/documents/schedulePeriods/$(request.resource.data.periodId))
           && get(/databases/$(database)/documents/schedulePeriods/$(request.resource.data.periodId)).data.type == "course"
           && (request.resource.data.roomId == null
