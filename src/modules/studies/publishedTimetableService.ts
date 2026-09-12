@@ -2,6 +2,7 @@ import { collection, onSnapshot, query, where } from "@firebase/firestore";
 import type { Firestore, Unsubscribe } from "@firebase/firestore";
 import { db } from "../../firebase";
 import type { AppUser } from "../../types";
+import { currentTimetableEntries } from "./studyScope";
 import type { Timetable, TimetableEntry } from "./studyTypes";
 
 export type PublishedTimetableSnapshot = { timetable: Timetable; entries: TimetableEntry[] } | null;
@@ -57,7 +58,7 @@ export function subscribeToActivePublishedTimetable(input: {
       ),
       (entriesSnapshot) => input.onData({
         timetable,
-        entries: entriesSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as TimetableEntry),
+        entries: currentTimetableEntries(entriesSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as TimetableEntry)),
       }),
       input.onError,
     );

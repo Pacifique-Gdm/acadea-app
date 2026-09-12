@@ -2,6 +2,7 @@ import { collection, onSnapshot, query, where } from "@firebase/firestore";
 import type { Firestore, Unsubscribe } from "@firebase/firestore";
 import { db } from "../../firebase";
 import type { AppUser } from "../../types";
+import { currentTimetableEntries } from "../studies/studyScope";
 import type { PedagogicalAssignment, SchedulePeriod, StudyClass, StudyRoom, StudySubject, StudyTeacher, Timetable, TimetableEntry } from "../studies/studyTypes";
 
 type Callbacks = {
@@ -51,7 +52,7 @@ export function subscribeToTeacherPortalData(input: { user: AppUser; schoolId: s
         if (scheduleId === timetable.id) return;
         scheduleId = timetable.id;
         entriesUnsubscribe?.();
-        entriesUnsubscribe = onSnapshot(query(scopedQuery("timetableEntries"), where("scheduleId", "==", timetable.id), where("teacherId", "==", teacher.id)), (entries) => { input.onEntries(docs(entries)); input.onReady(); }, input.onError);
+        entriesUnsubscribe = onSnapshot(query(scopedQuery("timetableEntries"), where("scheduleId", "==", timetable.id), where("teacherId", "==", teacher.id)), (entries) => { input.onEntries(currentTimetableEntries(docs(entries))); input.onReady(); }, input.onError);
       }, input.onError),
     ];
   }, input.onError);

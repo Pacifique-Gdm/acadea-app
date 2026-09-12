@@ -577,8 +577,17 @@ describe("API de provisionnement Acadéa", () => {
   it("réactive un enseignant avec des claims restaurés et un contexte pédagogique réinitialisé", async () => {
     const oldTeacherRef = { path: "teachers/old-teacher" };
     const assignmentRef = { path: "pedagogicalAssignments/old-assignment" };
+    const availabilityRef = { path: "teacherAvailabilities/old-availability" };
+    const titularRef = { path: "classTitulars/old-titular" };
+    const timetableEntryRef = { path: "timetableEntries/old-entry" };
+    const assignmentLockRef = { path: "pedagogicalAssignmentLocks/school-1__year-1__subject-1__class-1" };
+    const archivedYearAssignmentRef = { path: "pedagogicalAssignments/archived-year-assignment" };
     const teacherSnapshot = { id: "old-teacher", ref: oldTeacherRef, data: () => ({ userId: "teacher-1", schoolId: "school-1", schoolYearId: "year-1", status: "active", active: true }) };
-    const assignmentSnapshot = { id: "old-assignment", ref: assignmentRef, data: () => ({ teacherId: "old-teacher", schoolId: "school-1", schoolYearId: "year-1", active: true }) };
+    const assignmentSnapshot = { id: "old-assignment", ref: assignmentRef, data: () => ({ teacherId: "old-teacher", schoolId: "school-1", schoolYearId: "year-1", subjectId: "subject-1", classId: "class-1", active: true }) };
+    const availabilitySnapshot = { id: "old-availability", ref: availabilityRef, data: () => ({ teacherId: "old-teacher", schoolId: "school-1", schoolYearId: "year-1", active: true }) };
+    const titularSnapshot = { id: "old-titular", ref: titularRef, data: () => ({ teacherId: "old-teacher", schoolId: "school-1", schoolYearId: "year-1", active: true }) };
+    const timetableEntrySnapshot = { id: "old-entry", ref: timetableEntryRef, data: () => ({ teacherId: "old-teacher", schoolId: "school-1", schoolYearId: "year-1" }) };
+    const archivedYearAssignment = { id: "archived-year-assignment", ref: archivedYearAssignmentRef, data: () => ({ teacherId: "old-teacher", schoolId: "school-1", schoolYearId: "year-0", active: true }) };
     mocks.auth.getUser.mockResolvedValue({ uid: "teacher-1", customClaims: {} });
     mocks.db.doc.mockImplementation((path: string) => ({
       path,
@@ -586,11 +595,13 @@ describe("API de provisionnement Acadéa", () => {
         ? { exists: true, data: () => ({ role: "school_admin", schoolId: "school-1", status: "active" }) }
         : path === "users/teacher-1"
           ? { exists: true, data: () => ({ role: "teacher", schoolId: "school-1", status: "inactive", active: false, activeSchoolYearId: "year-1" }) }
+          : path === assignmentLockRef.path
+            ? { exists: true, data: () => ({ assignmentId: "old-assignment", schoolId: "school-1", schoolYearId: "year-1" }) }
           : { exists: false }),
     }));
     mocks.db.collection.mockImplementation((name: string) => ({
       doc: vi.fn(() => ({ id: "audit-test", set: vi.fn().mockResolvedValue(undefined) })),
-      where: vi.fn(() => ({ get: vi.fn().mockResolvedValue({ docs: name === "teachers" ? [teacherSnapshot] : name === "pedagogicalAssignments" ? [assignmentSnapshot] : [] }) })),
+      where: vi.fn(() => ({ get: vi.fn().mockResolvedValue({ docs: name === "teachers" ? [teacherSnapshot] : name === "pedagogicalAssignments" ? [assignmentSnapshot, archivedYearAssignment] : name === "teacherAvailabilities" ? [availabilitySnapshot] : name === "classTitulars" ? [titularSnapshot] : name === "timetableEntries" ? [timetableEntrySnapshot] : [] }) })),
     }));
     const res = response();
     await provisionSchoolAccount(request({ action: "reactivate-personnel", schoolId: "school-1", personnelId: "teacher-1" }), res);
@@ -600,6 +611,11 @@ describe("API de provisionnement Acadéa", () => {
     const batch = mocks.db.batch.mock.results[0]?.value;
     expect(batch.update).toHaveBeenCalledWith(oldTeacherRef, expect.objectContaining({ status: "active", active: true }));
     expect(batch.update).toHaveBeenCalledWith(assignmentRef, expect.objectContaining({ active: false }));
+    expect(batch.update).toHaveBeenCalledWith(availabilityRef, expect.objectContaining({ active: false, resetOnReactivation: true }));
+    expect(batch.update).toHaveBeenCalledWith(titularRef, expect.objectContaining({ active: false, resetOnReactivation: true }));
+    expect(batch.update).toHaveBeenCalledWith(timetableEntryRef, expect.objectContaining({ active: false, resetOnReactivation: true }));
+    expect(batch.update).not.toHaveBeenCalledWith(archivedYearAssignmentRef, expect.anything());
+    expect(batch.delete).toHaveBeenCalledWith(expect.objectContaining({ path: assignmentLockRef.path }));
   });
 
   it("refuse l’auto-archivage, les parents, les autres écoles et les autres rôles", async () => {

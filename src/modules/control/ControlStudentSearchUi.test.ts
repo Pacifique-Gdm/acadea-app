@@ -14,10 +14,11 @@ describe("recherche des élèves dans le Contrôle Administrateur et Caissier", 
     expect(searchInput).toBeLessThan(resetButton);
   });
 
-  it("filtre uniquement les cartes visibles et conserve les lignes PDF", () => {
-    expect(source).toContain("const visibleRows = filterControlStudentRows(rows, controlStudentSearch)");
-    expect(source).toContain("{visibleRows.map(({ student, balance, progress, hasApplicableFees }) => (");
+  it("filtre et pagine uniquement les cartes visibles tout en conservant les lignes PDF complètes", () => {
+    expect(source).toContain("filterControlStudentRows(rows, controlStudentSearch)");
+    expect(source).toContain("{paginatedControlRows.map(({ student, balance, progress, hasApplicableFees }) => (");
     expect(source).toContain("[...rows].sort(");
     expect(source).not.toContain("[...visibleRows].sort(");
+    expect(source).not.toContain("[...paginatedControlRows].sort(");
   });
 });

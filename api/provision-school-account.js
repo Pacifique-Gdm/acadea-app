@@ -572,21 +572,43 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
   const previousClaims = { ...targetClaims };
   const claimsNeedRestore = targetClaims.role !== target.role || targetClaims.schoolId !== schoolId;
   const teacherReset = !archive && target.role === "teacher";
+  const schoolSnapshot = teacherReset ? await db.doc(`schools/${schoolId}`).get() : null;
+  const currentSchoolYearId = teacherReset
+    ? normalizeText(schoolSnapshot?.data?.()?.activeSchoolYearId ?? target.activeSchoolYearId)
+    : "";
+  if (teacherReset && !currentSchoolYearId) {
+    throw Object.assign(new Error("Année scolaire active introuvable pour réinitialiser le contexte pédagogique."), { statusCode: 409, code: "failed-precondition" });
+  }
   const teacherProfiles = teacherReset
     ? (await db.collection("teachers").where("userId", "==", personnelId).get()).docs
       .map((snapshot) => ({ snapshot, data: snapshot.data() ?? {} }))
-      .filter(({ data }) => data.schoolId === schoolId)
+      .filter(({ data }) => data.schoolId === schoolId && data.schoolYearId === currentSchoolYearId)
     : [];
   const oldTeacherIds = teacherProfiles.map(({ snapshot }) => snapshot.id);
-  const activeTeacherProfile = teacherProfiles.find(({ data }) => data.active !== false && data.status !== "inactive");
+  const activeTeacherProfile = teacherProfiles.find(({ data }) => data.active !== false && data.status !== "inactive") ?? teacherProfiles[0];
   const teacherContextRefs = [];
+  const assignmentLockRefs = [];
   if (teacherReset && oldTeacherIds.length) {
-    for (const collectionName of ["pedagogicalAssignments", "teacherAvailabilities", "classTitulars"]) {
+    for (const collectionName of ["pedagogicalAssignments", "teacherAvailabilities", "classTitulars", "timetableEntries"]) {
       for (const oldTeacherId of oldTeacherIds) {
         const snapshots = (await db.collection(collectionName).where("teacherId", "==", oldTeacherId).get()).docs;
-        snapshots.filter((snapshot) => snapshot.data()?.schoolId === schoolId).forEach((snapshot) => teacherContextRefs.push({ ref: snapshot.ref, type: collectionName }));
+        const currentSnapshots = snapshots.filter((snapshot) => snapshot.data()?.schoolId === schoolId && snapshot.data()?.schoolYearId === currentSchoolYearId);
+        currentSnapshots.forEach((snapshot) => teacherContextRefs.push({ ref: snapshot.ref, type: collectionName }));
+        if (collectionName === "pedagogicalAssignments") {
+          for (const snapshot of currentSnapshots) {
+            const assignment = snapshot.data() ?? {};
+            if (!assignment.subjectId || !assignment.classId) continue;
+            const lockRef = db.doc(`pedagogicalAssignmentLocks/${schoolId}__${currentSchoolYearId}__${assignment.subjectId}__${assignment.classId}`);
+            const lockSnapshot = await lockRef.get();
+            if (lockSnapshot.exists && lockSnapshot.data()?.assignmentId === snapshot.id) assignmentLockRefs.push(lockRef);
+          }
+        }
       }
     }
+  }
+  const resetWriteCount = 2 + teacherProfiles.length + teacherContextRefs.length + assignmentLockRefs.length;
+  if (resetWriteCount > 500) {
+    throw Object.assign(new Error("Le contexte pédagogique est trop volumineux pour une réactivation atomique."), { statusCode: 409, code: "failed-precondition" });
   }
   await auth.updateUser(personnelId, { disabled: archive });
   if (archive) await auth.revokeRefreshTokens(personnelId);
@@ -598,7 +620,8 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
   if (!archive && claimsNeedRestore) await auth.setCustomUserClaims(personnelId, { role: target.role, schoolId });
   if (teacherReset) {
     teacherProfiles.forEach(({ snapshot }) => batch.update(snapshot.ref, { status: snapshot.id === activeTeacherProfile?.snapshot.id ? "active" : "inactive", active: snapshot.id === activeTeacherProfile?.snapshot.id, updatedAt: now, updatedBy: caller.uid }));
-    teacherContextRefs.forEach(({ ref }) => batch.update(ref, { active: false, updatedAt: now, updatedBy: caller.uid }));
+    teacherContextRefs.forEach(({ ref, type }) => batch.update(ref, { active: false, resetOnReactivation: true, resetAt: now, resetBy: caller.uid, updatedAt: now, ...(type === "timetableEntries" ? {} : { updatedBy: caller.uid }) }));
+    assignmentLockRefs.forEach((ref) => batch.delete(ref));
   }
   batch.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: archive ? AUDIT_EVENT_TYPES.USER_DISABLED : AUDIT_EVENT_TYPES.USER_REACTIVATED, actor: caller, schoolId, resourceType: "user", resourceId: personnelId, metadata: { role: target.role } }));
   try { await batch.commit(); } catch (error) {

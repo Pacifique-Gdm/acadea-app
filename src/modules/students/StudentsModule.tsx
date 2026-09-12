@@ -28,6 +28,8 @@ export interface StudentModuleCapabilities {
   canManageOptions: boolean;
 }
 
+const STUDENTS_PAGE_SIZE = 50;
+
 type PendingQuickParent = {
   parentId: string;
   fullName: string;
@@ -72,6 +74,7 @@ export function StudentsModule({
   const [classFilter, setClassFilter] = useState("");
   const [optionFilter, setOptionFilter] = useState("");
   const [archiveFilter, setArchiveFilter] = useState<"active" | "archived" | "all">("all");
+  const [page, setPage] = useState(1);
   const [form, setForm] = useState<Student>(() => emptyStudent(school.id, year.id));
   const [quickParent, setQuickParent] = useState<QuickParentForm>(() => emptyQuickParent());
   const [quickParentFeedback, setQuickParentFeedback] = useState("");
@@ -149,7 +152,7 @@ export function StudentsModule({
     return () => window.clearTimeout(timer);
   }, [quickParentFeedback]);
 
-  const students = yearData.students.filter((student) => {
+  const students = useMemo(() => yearData.students.filter((student) => {
     const text = `${student.matricule} ${student.nom} ${student.postnom} ${student.prenom}`.toLowerCase();
     const archived = isArchivedStudent(student);
     return (
@@ -162,7 +165,11 @@ export function StudentsModule({
       (!classFilter || student.className === classFilter) &&
       (!optionFilter || canonicalSchoolOption(student.option ?? "") === optionFilter)
     );
-  });
+  }), [allowedSections, archiveFilter, classFilter, optionFilter, query, school.id, sectionFilter, year.id, yearData.students]);
+  const pageCount = Math.max(1, Math.ceil(students.length / STUDENTS_PAGE_SIZE));
+  const visibleStudents = students.slice((page - 1) * STUDENTS_PAGE_SIZE, page * STUDENTS_PAGE_SIZE);
+  useEffect(() => { setPage(1); }, [archiveFilter, classFilter, optionFilter, query, sectionFilter, year.id]);
+  useEffect(() => { if (page > pageCount) setPage(pageCount); }, [page, pageCount]);
   const parentsById = useMemo(
     () => new Map(yearData.parents.filter((parent) => parent.schoolId === school.id).map((parent) => [parent.id, parent])),
     [school.id, yearData.parents],
@@ -602,7 +609,7 @@ export function StudentsModule({
               </tr>
             </thead>
             <tbody>
-              {students.map((student) => {
+              {visibleStudents.map((student) => {
                 const archived = isArchivedStudent(student);
                 return (
                 <tr key={student.id} className={`border-t border-slate-100 ${archived ? "bg-slate-50/70" : ""}`}>
@@ -660,6 +667,15 @@ export function StudentsModule({
             </tbody>
           </table>
         </div>
+        {students.length > STUDENTS_PAGE_SIZE && (
+          <nav aria-label="Pagination des élèves" className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
+            <span>{students.length} élèves · page {page}/{pageCount}</span>
+            <div className="flex gap-2">
+              <button type="button" className="secondary-button" disabled={page === 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Précédent</button>
+              <button type="button" className="secondary-button" disabled={page === pageCount} onClick={() => setPage((current) => Math.min(pageCount, current + 1))}>Suivant</button>
+            </div>
+          </nav>
+        )}
       </div>
       {(studentCapabilities.canCreate || studentCapabilities.canEdit) && showForm && (
         <AdminDrawer title={form.id.startsWith("new") ? "Ajouter un élève" : "Modifier l'élève"} onClose={() => { setShowForm(false); setQuickParentFeedback(""); }} closeLabel="Fermer le formulaire élève">

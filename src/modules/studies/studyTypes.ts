@@ -123,6 +123,7 @@ export interface TimetableEntry {
   periodId: string;
   roomId: string | null;
   blockId?: string;
+  active?: boolean;
   createdAt: string;
   updatedAt: string;
 }

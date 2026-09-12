@@ -10,7 +10,35 @@ export interface TimetableSolverOptions { maxBranches?:number; timeoutMs?:number
 export interface TimetableSolver { solve(problem:ScheduleProblem,options?:TimetableSolverOptions):SolverResult; }
 
 type Candidate={day:StudyDay;periodIds:string[]};
-function candidatesFor(assignment:PedagogicalAssignment,problem:ScheduleProblem):Candidate[]{const periods=getActiveCoursePeriods(problem.periods);const schoolClass=problem.classes?.find(item=>item.id===assignment.classId);const size=assignment.blockSize??1;const result:Candidate[]=[];for(const day of problem.days??STUDY_DAYS){const compatible=schoolClass?periods.filter(period=>periodAppliesToClass(period,schoolClass,day)):periods.filter(period=>!period.dayScope||period.dayScope===(day==="saturday"?"saturday":"weekdays"));for(let i=0;i<compatible.length;i+=1){const block=compatible.slice(i,i+size);if(block.length!==size)continue;if(size===2&&!adjacentCoursePeriods(block[0],block[1],problem.periods))continue;if(block.every(period=>teacherAvailableAt(assignment.teacherId,day,period,problem.availabilities)))result.push({day,periodIds:block.map(period=>period.id)});}}return result;}
+export interface AssignmentSlotDiagnostics {
+  activePeriodSlots: number;
+  classCompatibleSlots: number;
+  teacherCompatibleSlots: number;
+  candidateBlocks: number;
+}
+
+function candidateAnalysis(assignment:PedagogicalAssignment,problem:ScheduleProblem):{candidates:Candidate[];diagnostics:AssignmentSlotDiagnostics}{
+  const periods=getActiveCoursePeriods(problem.periods),schoolClass=problem.classes?.find(item=>item.id===assignment.classId),size=assignment.blockSize??1,result:Candidate[]=[];
+  let activePeriodSlots=0,classCompatibleSlots=0,teacherCompatibleSlots=0;
+  for(const day of problem.days??STUDY_DAYS){
+    activePeriodSlots+=periods.length;
+    const compatible=schoolClass?periods.filter(period=>periodAppliesToClass(period,schoolClass,day)):[];
+    classCompatibleSlots+=compatible.length;
+    teacherCompatibleSlots+=compatible.filter(period=>teacherAvailableAt(assignment.teacherId,day,period,problem.availabilities)).length;
+    for(let i=0;i<compatible.length;i+=1){const block=compatible.slice(i,i+size);if(block.length!==size)continue;if(size===2&&!adjacentCoursePeriods(block[0],block[1],problem.periods))continue;if(block.every(period=>teacherAvailableAt(assignment.teacherId,day,period,problem.availabilities)))result.push({day,periodIds:block.map(period=>period.id)});}
+  }
+  return{candidates:result,diagnostics:{activePeriodSlots,classCompatibleSlots,teacherCompatibleSlots,candidateBlocks:result.length}};
+}
+
+export function diagnoseAssignmentSlots(assignment:PedagogicalAssignment,problem:ScheduleProblem){return candidateAnalysis(assignment,problem).diagnostics;}
+
+function zeroCandidateReason(assignment:PedagogicalAssignment,problem:ScheduleProblem,diagnostics:AssignmentSlotDiagnostics){
+  if(!problem.classes?.some(item=>item.id===assignment.classId))return"La classe de l’affectation est introuvable dans l’école et l’année actives.";
+  if(diagnostics.activePeriodSlots===0)return"Aucun créneau horaire actif n’est configuré.";
+  if(diagnostics.classCompatibleSlots===0)return"Aucun créneau horaire ne correspond aux jours et à la vacation de cette classe.";
+  if(diagnostics.teacherCompatibleSlots===0)return"Les disponibilités de l’enseignant excluent tous les créneaux compatibles avec cette classe.";
+  return"Aucun bloc de périodes consécutives ne satisfait la configuration de cette affectation.";
+}
 
 function capacityFailure(jobs:Array<{assignment:PedagogicalAssignment;candidates:Candidate[]}>){
   for(const [label,key] of [["de la classe","classId"],["de l’enseignant","teacherId"]] as const){
@@ -32,8 +60,8 @@ export class DeterministicTimetableSolver implements TimetableSolver{
     if(!active.length)return{success:false,entries:[],failures:[{assignmentId:"unknown",teacherId:"",classId:"",subjectId:"",required:0,availableCapacity:0,reason:"Aucune affectation active."}],statistics:{exploredBranches,durationMs:Date.now()-started,timedOut}};
     if(!getActiveCoursePeriods(problem.periods).length)return{success:false,entries:[],failures:[{assignmentId:active[0].id,teacherId:active[0].teacherId,classId:active[0].classId,subjectId:active[0].subjectId,required:active[0].weeklyPeriods,availableCapacity:0,reason:"Aucun créneau horaire configuré."}],statistics:{exploredBranches,durationMs:Date.now()-started,timedOut}};
     if(invalidScope)return{success:false,entries:[],failures:[{assignmentId:invalidScope.id,teacherId:invalidScope.teacherId,classId:invalidScope.classId,subjectId:invalidScope.subjectId,required:invalidScope.weeklyPeriods,availableCapacity:0,reason:"Affectation hors école ou année scolaire."}],statistics:{exploredBranches,durationMs:Date.now()-started,timedOut}};
-    const jobs=active.map(assignment=>({assignment,blockSize:assignment.blockSize??1,blocks:assignment.weeklyPeriods/(assignment.blockSize??1),candidates:candidatesFor(assignment,problem)})).sort((a,b)=>a.candidates.length-b.candidates.length||b.blockSize-a.blockSize||b.assignment.weeklyPeriods-a.assignment.weeklyPeriods||a.assignment.id.localeCompare(b.assignment.id));
-    const impossible=jobs.find(job=>!Number.isInteger(job.blocks)||job.candidates.length<job.blocks);if(impossible){const noCandidate=impossible.candidates.length===0;return{success:false,entries:[],failures:[{assignmentId:impossible.assignment.id,teacherId:impossible.assignment.teacherId,classId:impossible.assignment.classId,subjectId:impossible.assignment.subjectId,required:impossible.assignment.weeklyPeriods,availableCapacity:impossible.candidates.length*impossible.blockSize,reason:impossible.blockSize===2&&impossible.assignment.weeklyPeriods%2?"Le volume d’un cours double doit être pair.":noCandidate?"L’enseignant ne possède aucun créneau compatible avec cette classe.":`Le volume demandé (${impossible.assignment.weeklyPeriods}) dépasse la capacité compatible (${impossible.candidates.length*impossible.blockSize}).`}],statistics:{exploredBranches,durationMs:Date.now()-started,timedOut}};}
+    const jobs=active.map(assignment=>{const analysis=candidateAnalysis(assignment,problem);return{assignment,blockSize:assignment.blockSize??1,blocks:assignment.weeklyPeriods/(assignment.blockSize??1),...analysis}}).sort((a,b)=>a.candidates.length-b.candidates.length||b.blockSize-a.blockSize||b.assignment.weeklyPeriods-a.assignment.weeklyPeriods||a.assignment.id.localeCompare(b.assignment.id));
+    const impossible=jobs.find(job=>!Number.isInteger(job.blocks)||job.candidates.length<job.blocks);if(impossible){const noCandidate=impossible.candidates.length===0;return{success:false,entries:[],failures:[{assignmentId:impossible.assignment.id,teacherId:impossible.assignment.teacherId,classId:impossible.assignment.classId,subjectId:impossible.assignment.subjectId,required:impossible.assignment.weeklyPeriods,availableCapacity:impossible.candidates.length*impossible.blockSize,reason:impossible.blockSize===2&&impossible.assignment.weeklyPeriods%2?"Le volume d’un cours double doit être pair.":noCandidate?zeroCandidateReason(impossible.assignment,problem,impossible.diagnostics):`Le volume demandé (${impossible.assignment.weeklyPeriods}) dépasse la capacité compatible (${impossible.candidates.length*impossible.blockSize}).`}],statistics:{exploredBranches,durationMs:Date.now()-started,timedOut}};}
     const bottleneck=capacityFailure(jobs);if(bottleneck)return{success:false,entries:[],failures:[{assignmentId:bottleneck.job.assignment.id,teacherId:bottleneck.job.assignment.teacherId,classId:bottleneck.job.assignment.classId,subjectId:bottleneck.job.assignment.subjectId,required:bottleneck.job.assignment.weeklyPeriods,availableCapacity:bottleneck.capacity,reason:bottleneck.reason}],statistics:{exploredBranches,durationMs:Date.now()-started,timedOut}};
     const baselineByAssignment=new Map<string,TimetableEntry[]>();for(const entry of options.baselineEntries??[]){const list=baselineByAssignment.get(entry.assignmentId)??[];list.push(entry);baselineByAssignment.set(entry.assignmentId,list)}const morning=new Set(options.preferredMorningAssignmentIds??[]);const candidateCost=(assignment:PedagogicalAssignment,index:number,candidate:Candidate)=>{const baseline=[...(baselineByAssignment.get(assignment.id)??[])].sort((a,b)=>`${a.dayOfWeek}-${a.periodId}`.localeCompare(`${b.dayOfWeek}-${b.periodId}`));const prior=baseline[index*(assignment.blockSize??1)];let cost=prior?(prior.dayOfWeek===candidate.day?(prior.periodId===candidate.periodIds[0]?0:1):4):2;if(morning.has(assignment.id))cost+=candidate.periodIds.some(id=>problem.periods.find(p=>p.id===id)?.order&&Number(problem.periods.find(p=>p.id===id)!.order)>Math.ceil(getActiveCoursePeriods(problem.periods).length/2))?3:0;return cost};
     const tasks=jobs.flatMap(job=>Array.from({length:job.blocks},(_,index)=>({assignment:job.assignment,index,candidates:[...job.candidates].sort((a,b)=>candidateCost(job.assignment,index,a)-candidateCost(job.assignment,index,b)||`${a.day}-${a.periodIds.join()}`.localeCompare(`${b.day}-${b.periodIds.join()}`))})));const selected:Array<{assignment:PedagogicalAssignment;index:number;candidate:Candidate}>=[];const teacherBusy=new Set<string>(),classBusy=new Set<string>(),roomBusy=new Set<string>();const daily=new Map<string,number>();

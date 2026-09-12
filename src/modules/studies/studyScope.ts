@@ -1,11 +1,15 @@
 import type { SchoolClass, SchoolSection } from "../../types";
 import { getClassSection } from "../../utils/studentClasses";
 import { normalizeSchoolSection } from "../../utils/schoolSections";
-import type { SchedulePeriod, StudyClass, StudyDay, StudySubject, StudyVacation } from "./studyTypes";
+import type { SchedulePeriod, StudyClass, StudyDay, StudySubject, StudyVacation, TimetableEntry } from "./studyTypes";
 
 export const studySectionLabels: Record<SchoolSection, string> = { Maternelle: "Maternelle", Primaire: "Primaire", CTEB: "CTEB", Secondaire: "Secondaire" };
 export const studyVacationLabels: Record<StudyVacation, string> = { morning: "Avant-midi", afternoon: "Après-midi" };
 export const primaryTeacherSections: SchoolSection[] = ["Maternelle", "Primaire"];
+
+export function currentTimetableEntries(entries: TimetableEntry[]) {
+  return entries.filter((item) => item.active !== false);
+}
 
 export function studyClassSection(item: StudyClass): SchoolSection {
   return normalizeSchoolSection(item.section) ?? getClassSection(item.name as SchoolClass);
@@ -27,6 +31,11 @@ export function periodAppliesToClass(period: SchedulePeriod, schoolClass: StudyC
   const saturday = day === "saturday";
   if (saturday && schoolClass.saturdayEnabled === false) return false;
   if ((period.dayScope ?? "weekdays") !== (saturday ? "saturday" : "weekdays")) return false;
-  const vacation = saturday ? (schoolClass.saturdayVacation ?? schoolClass.vacation) : schoolClass.vacation;
-  return Boolean(vacation) && (period.vacation ?? vacation) === vacation;
+  // Les classes historiques n'avaient pas de vacation persistée. Le reste de
+  // l'éditeur les interprète déjà comme des classes du matin ; appliquer la
+  // même normalisation ici évite de supprimer tous leurs créneaux modernes.
+  const vacation = saturday
+    ? (schoolClass.saturdayVacation ?? schoolClass.vacation ?? "morning")
+    : (schoolClass.vacation ?? "morning");
+  return (period.vacation ?? vacation) === vacation;
 }

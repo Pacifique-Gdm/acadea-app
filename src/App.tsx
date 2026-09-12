@@ -45,7 +45,7 @@ import { useRealtimeSchoolSettings } from "./hooks/useRealtimeSchoolSettings";
 import { useRealtimeSchoolUsers } from "./hooks/useRealtimeSchoolUsers";
 import { markNotificationsReadTargeted } from "./services/notificationsPagination";
 import { restorePaymentPushNotifications, stopPaymentPushForegroundListener } from "./services/pushNotifications";
-import { canUseFirestoreData, loadDisciplineYearData, loadFirestoreBootstrapData, loadFirestoreData, loadFirestoreYearData, loadParentPortalData, loadPlatformSettings, persistFirestorePatch } from "./services/firestoreData";
+import { canUseFirestoreData, loadDisciplineYearData, loadFirestoreBootstrapData, loadFirestoreData, loadFirestoreYearData, loadParentPortalData, loadPlatformSettings, persistFirestorePatch, realtimeManagedCollections } from "./services/firestoreData";
 import { loadSuperAdminInitialData } from "./services/superAdminData";
 import type { SuperAdminGlobalCounts } from "./services/superAdminData";
 import { isSessionAuditAction } from "./utils/audit";
@@ -494,10 +494,15 @@ export default function App() {
         markAuthStep("auth:school-loaded");
         measureAuthStep("auth:redirect-to-shell", "auth:redirect-complete", "auth:school-loaded");
 
-        const firestoreData = await loadFirestoreData(bootstrapUser, nextYearId, bootstrap);
+        const firestoreData = await loadFirestoreData(bootstrapUser, nextYearId, bootstrap, { omitRealtimeManagedCollections: true });
         if (!firestoreData || cancelled) return;
         if (requestVersion !== yearRequestVersion.current) return;
-        setData(firestoreData);
+        const realtimeKeys = realtimeManagedCollections(bootstrapUser.role);
+        setData((current) => {
+          const merged = { ...current, ...firestoreData };
+          realtimeKeys.forEach((key) => { merged[key] = current[key] as never; });
+          return merged;
+        });
       } catch (error) {
         if (cancelled || logoutInProgressRef.current) return;
         if (requestVersion !== yearRequestVersion.current) return;

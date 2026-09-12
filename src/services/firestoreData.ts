@@ -22,6 +22,16 @@ export type PlatformSettings = {
 
 export type FirestoreBootstrapData = Pick<AppData, "users" | "schools" | "schoolYears">;
 
+export type RealtimeManagedCollection = "students" | "parents" | "feeTypes" | "payments" | "expenses" | "valves" | "disciplineSanctions";
+
+export function realtimeManagedCollections(role: AppUser["role"]): RealtimeManagedCollection[] {
+  if (role === "school_admin" || role === "cashier") return ["students", "parents", "feeTypes", "payments", "expenses", "valves"];
+  if (role === "discipline_director") return ["students", "parents", "disciplineSanctions", "valves"];
+  if (role === "secretary") return ["students", "parents", "valves"];
+  if (role === "parent") return ["valves"];
+  return [];
+}
+
 const collectionMap: Partial<Record<CollectionKey, string>> = {
   users: "users",
   schools: "schools",
@@ -216,7 +226,12 @@ export function schoolMessageLegacyRecipients(role: AppUser["role"]): string[] |
   return null;
 }
 
-export async function loadFirestoreData(user?: AppUser, schoolYearId?: string, bootstrapData?: FirestoreBootstrapData) {
+export async function loadFirestoreData(
+  user?: AppUser,
+  schoolYearId?: string,
+  bootstrapData?: FirestoreBootstrapData,
+  options: { omitRealtimeManagedCollections?: boolean } = {},
+) {
   if (!canUseFirestoreData() || !db) return null;
 
   if (user?.role === "super_admin") {
@@ -262,6 +277,9 @@ export async function loadFirestoreData(user?: AppUser, schoolYearId?: string, b
 
     if (user.role === "study_director" || user.role === "teacher") return scopedData;
 
+    const omitted = options.omitRealtimeManagedCollections ? new Set(realtimeManagedCollections(user.role)) : new Set<RealtimeManagedCollection>();
+    const maybeLoad = <T>(key: RealtimeManagedCollection, operation: () => Promise<T[]>) => omitted.has(key) ? Promise.resolve([] as T[]) : operation();
+
     if (user.role === "parent") {
       if (!user.parentId) {
         throw new Error("Chargement Firestore impossible : parentId manquant dans les Custom Claims.");
@@ -273,7 +291,7 @@ export async function loadFirestoreData(user?: AppUser, schoolYearId?: string, b
         loadDocument<AppData["parents"][number]>("parents", user.parentId),
         loadCollection<AppData["payments"][number]>("payments", parentFilter),
         loadCollection<AppData["messages"][number]>("messages", [["schoolId", user.schoolId], ["threadParentId", user.parentId]]),
-        loadCollection<AppData["valves"][number]>("valves", schoolFilter),
+        maybeLoad("valves", () => loadCollection<AppData["valves"][number]>("valves", schoolFilter)),
       ]);
       return scopedData;
     }
@@ -281,22 +299,22 @@ export async function loadFirestoreData(user?: AppUser, schoolYearId?: string, b
     if (user.role === "discipline_director") {
       const disciplineSections = disciplineStudentQuerySections(user);
       [scopedData.students, scopedData.parents, scopedData.messages, scopedData.notifications, scopedData.disciplineSanctions, scopedData.attendance, scopedData.attendanceSettings, scopedData.valves] = await Promise.all([
-        disciplineSections ? loadCollectionInSections<AppData["students"][number]>("students", annualFilter, disciplineSections) : Promise.resolve([]),
-        loadCollection<AppData["parents"][number]>("parents", schoolFilter),
+        omitted.has("students") ? Promise.resolve([]) : disciplineSections ? loadCollectionInSections<AppData["students"][number]>("students", annualFilter, disciplineSections) : Promise.resolve([]),
+        maybeLoad("parents", () => loadCollection<AppData["parents"][number]>("parents", schoolFilter)),
         loadCollection<AppData["messages"][number]>("messages", [...annualFilter, ["schoolRecipient", "discipline"]]),
         loadCollection<AppData["notifications"][number]>("notifications", [...annualFilter, ["recipientRole", "school"], ["schoolRecipient", "discipline"]]),
-        loadCollection<AppData["disciplineSanctions"][number]>("disciplineSanctions", annualFilter),
+        maybeLoad("disciplineSanctions", () => loadCollection<AppData["disciplineSanctions"][number]>("disciplineSanctions", annualFilter)),
         loadAttendanceCollection(annualFilter),
         loadAttendanceSettingsCollection(annualFilter),
-        loadValvesCollection(annualFilter),
+        maybeLoad("valves", () => loadValvesCollection(annualFilter)),
       ]);
       return scopedData;
     }
 
     if (user.role === "secretary") {
       [scopedData.students, scopedData.parents, scopedData.feeTypes, scopedData.payments, scopedData.auditLogs] = await Promise.all([
-        loadCollection<AppData["students"][number]>("students", schoolFilter),
-        loadCollection<AppData["parents"][number]>("parents", schoolFilter),
+        maybeLoad("students", () => loadCollection<AppData["students"][number]>("students", schoolFilter)),
+        maybeLoad("parents", () => loadCollection<AppData["parents"][number]>("parents", schoolFilter)),
         loadCollection<AppData["feeTypes"][number]>("feeTypes", annualFilter),
         loadCollection<AppData["payments"][number]>("payments", annualFilter),
         loadCollection<AppData["auditLogs"][number]>("auditLogs", [...schoolFilter, ["actorId", user.id]]),
@@ -305,13 +323,13 @@ export async function loadFirestoreData(user?: AppUser, schoolYearId?: string, b
     }
 
     const commonLoads = await Promise.all([
-      loadCollection<AppData["feeTypes"][number]>("feeTypes", annualFilter),
-      loadCollection<AppData["students"][number]>("students", annualFilter),
-      loadCollection<AppData["parents"][number]>("parents", schoolFilter),
-      loadCollection<AppData["payments"][number]>("payments", annualFilter),
-      loadCollection<AppData["expenses"][number]>("expenses", annualFilter),
+      maybeLoad("feeTypes", () => loadCollection<AppData["feeTypes"][number]>("feeTypes", annualFilter)),
+      maybeLoad("students", () => loadCollection<AppData["students"][number]>("students", annualFilter)),
+      maybeLoad("parents", () => loadCollection<AppData["parents"][number]>("parents", schoolFilter)),
+      maybeLoad("payments", () => loadCollection<AppData["payments"][number]>("payments", annualFilter)),
+      maybeLoad("expenses", () => loadCollection<AppData["expenses"][number]>("expenses", annualFilter)),
       loadSchoolMessages(user, user.schoolId, schoolYearId as string),
-      loadCollection<AppData["valves"][number]>("valves", annualFilter),
+      maybeLoad("valves", () => loadCollection<AppData["valves"][number]>("valves", annualFilter)),
     ]);
     [scopedData.feeTypes, scopedData.students, scopedData.parents, scopedData.payments, scopedData.expenses, scopedData.messages, scopedData.valves] = commonLoads;
     if (user.role === "school_admin") {

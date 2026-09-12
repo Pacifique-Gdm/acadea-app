@@ -37,6 +37,8 @@ type ControlModuleProps = {
   createId: (prefix: string) => string;
 };
 
+const CONTROL_PAGE_SIZE = 50;
+
 export function ControlModule({
   user,
   data,
@@ -86,6 +88,7 @@ export function ControlModule({
   const [expenseHistoryQuery, setExpenseHistoryQuery] = useState("");
   const [selectedHistoryStudentId, setSelectedHistoryStudentId] = useState("");
   const [controlStudentSearch, setControlStudentSearch] = useState("");
+  const [controlPage, setControlPage] = useState(1);
   const controlIndexes = useMemo(() => buildSchoolYearDataIndexes(yearData.students, yearData.feeTypes, yearData.payments), [yearData.students, yearData.feeTypes, yearData.payments]);
   const paymentHistory = usePaginatedControlHistory<Payment>({
     kind: "payments",
@@ -175,7 +178,7 @@ export function ControlModule({
     ? yearData.students.filter((student) => `${student.nom} ${student.postnom} ${student.prenom} ${student.matricule}`.toLowerCase().includes(paymentStudentSearch)).slice(0, 8)
     : [];
 
-  const rows = yearData.students
+  const rows = useMemo(() => yearData.students
     .map((student) => {
       const feeSummaries = getStudentFeeSummaries(student, yearData.feeTypes, yearData.payments, controlIndexes);
       const balance = feeSummaries.reduce(
@@ -213,8 +216,12 @@ export function ControlModule({
         : row.balance.paid;
       const isGreaterOrEqual = feeFilter ? feeFilter[2] === "gte" : amountComparator === ">=";
       return isGreaterOrEqual ? paidAmount >= threshold : paidAmount < threshold;
-    });
-  const visibleRows = filterControlStudentRows(rows, controlStudentSearch);
+    }), [amountComparator, amountFeeGroups, amountThreshold, controlClassKey, controlIndexes, yearData.feeTypes, yearData.payments, yearData.students]);
+  const visibleRows = useMemo(() => filterControlStudentRows(rows, controlStudentSearch), [controlStudentSearch, rows]);
+  const controlPageCount = Math.max(1, Math.ceil(visibleRows.length / CONTROL_PAGE_SIZE));
+  const paginatedControlRows = visibleRows.slice((controlPage - 1) * CONTROL_PAGE_SIZE, controlPage * CONTROL_PAGE_SIZE);
+  useEffect(() => { setControlPage(1); }, [amountComparator, amountThreshold, controlClassKey, controlStudentSearch, year.id]);
+  useEffect(() => { if (controlPage > controlPageCount) setControlPage(controlPageCount); }, [controlPage, controlPageCount]);
   const historyPayments = paymentHistory.items
     .map((payment) => {
       const student = controlIndexes.studentsById.get(payment.studentId);
@@ -1107,7 +1114,7 @@ export function ControlModule({
           </div>
         </div>
         <div className="grid min-w-0 gap-3">
-          {visibleRows.map(({ student, balance, progress, hasApplicableFees }) => (
+          {paginatedControlRows.map(({ student, balance, progress, hasApplicableFees }) => (
             <article key={student.id} className="min-w-0 rounded border border-slate-200 bg-white p-4">
               <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
@@ -1142,6 +1149,15 @@ export function ControlModule({
             <p className="rounded border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
               Aucun élève ne correspond à la recherche.
             </p>
+          )}
+          {visibleRows.length > CONTROL_PAGE_SIZE && (
+            <nav aria-label="Pagination du contrôle" className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <span>{visibleRows.length} élèves · page {controlPage}/{controlPageCount}</span>
+              <div className="flex gap-2">
+                <button type="button" className="secondary-button" disabled={controlPage === 1} onClick={() => setControlPage((current) => Math.max(1, current - 1))}>Précédent</button>
+                <button type="button" className="secondary-button" disabled={controlPage === controlPageCount} onClick={() => setControlPage((current) => Math.min(controlPageCount, current + 1))}>Suivant</button>
+              </div>
+            </nav>
           )}
         </div>
       </div>
