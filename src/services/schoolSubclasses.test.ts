@@ -147,6 +147,35 @@ describe("secondary class plus option resolution", () => {
     expect(classesWithEnrolledStudents(operational, [scientific], "school-a", "year-a").map((item) => item.name)).toEqual(["1ère Scientifique"]);
   });
 
+  it("preserves the vacation of a materialized option class reconciled by a secondary enrolment", () => {
+    const classId = schoolClassOptionKey("secondary-1", "Littéraire");
+    const materialized = base(classId, {
+      name: "1ère Littéraire",
+      section: undefined,
+      option: undefined,
+      parentClassId: undefined,
+      classOptionKey: undefined,
+      vacation: "afternoon",
+    });
+    const enrolled = student({
+      id: "literary",
+      classId: "secondary-1",
+      className: "1ère Humanité",
+      option: "Littéraire",
+      classOptionKey: classId,
+      section: "Secondaire",
+    });
+
+    expect(canonicalOperationalClasses([materialized], [enrolled], "school-a", "year-a", ["Secondaire"])).toEqual([
+      expect.objectContaining({
+        id: classId,
+        name: "1ère Littéraire",
+        section: "Secondaire",
+        vacation: "afternoon",
+      }),
+    ]);
+  });
+
   it("keeps literary and commercial identities separate in filters, homogeneity and vacations", () => {
     const literary = student({ id: "literary", option: "Littéraire" });
     const commercial = student({ id: "commercial", option: "Commerciale" });

@@ -91,7 +91,7 @@ export function operationalSchoolClasses<T extends OperationalClass>(classes: re
     if (allowedSections?.length && !allowedSections.includes(section)) return;
     const option = item.option?.trim() || classOptionFromKey(classOptionKey);
     const className = section === "Secondaire" && option ? item.name.replace(/\s+Humanit[ée]s?$/i, "").trim() || item.name : item.name;
-    const label = [className, option && !className.toLocaleLowerCase("fr").includes(option.toLocaleLowerCase("fr")) ? option : "", item.subClassLabel && !item.name.endsWith(item.subClassLabel) ? item.subClassLabel : ""].filter(Boolean).join(" ");
+    const label = [className, option && !normalizedClassName(className).includes(normalizedClassName(option)) ? option : "", item.subClassLabel && !item.name.endsWith(item.subClassLabel) ? item.subClassLabel : ""].filter(Boolean).join(" ");
     const key = normalizedClassName(label);
     if (!unique.has(key)) unique.set(key, { ...item, name: label, section, ...(parentClassId ? { parentClassId } : {}), ...(classOptionKey ? { classOptionKey } : {}), ...(option ? { option } : {}) });
   });
@@ -106,7 +106,11 @@ export function canonicalOperationalClasses(
   schoolYearId: string,
   allowedSections?: readonly SchoolSection[],
 ) {
-  const structured = operationalSchoolClasses(classes, schoolId, schoolYearId, allowedSections);
+  // Apply the section scope after enrolled students have reconciled legacy
+  // materialized option classes. Some historical option documents only carry
+  // a deterministic `::option` id: their label alone can be misclassified as
+  // Primaire even though the enrolled student still carries Secondaire.
+  const structured = operationalSchoolClasses(classes, schoolId, schoolYearId);
   const result = new Map(structured.map((item) => [operationalClassIdentity(item), item]));
   const scopedClasses = classes.filter((item) => item.schoolId === schoolId && item.schoolYearId === schoolYearId);
   const structuredById = new Map(scopedClasses.map((item) => [item.id, item]));
@@ -128,7 +132,11 @@ export function canonicalOperationalClasses(
       // In Secondary, an option-bearing enrolment makes the generic Humanité
       // record a parent identity, not an assignable operational class.
       if (optionKey && parent) result.delete(`class:${parent.id}`);
-      if (result.has(key)) return;
+      const existing = result.get(key);
+      if (existing) {
+        if (existing.section !== section) result.set(key, { ...existing, section });
+        return;
+      }
       result.set(key, {
         id,
         schoolId,
@@ -143,7 +151,9 @@ export function canonicalOperationalClasses(
   [...result.values()].forEach((item) => {
     if (item.parentClassId && (item.option || item.classOptionKey)) result.delete(`class:${item.parentClassId}`);
   });
-  return [...result.values()].sort((first, second) => first.name.localeCompare(second.name, "fr", { numeric: true, sensitivity: "base" }));
+  return [...result.values()]
+    .filter((item) => !allowedSections?.length || allowedSections.includes(item.section ?? getClassSection(item.name as import("../types").SchoolClass)))
+    .sort((first, second) => first.name.localeCompare(second.name, "fr", { numeric: true, sensitivity: "base" }));
 }
 
 export function studentBelongsToOperationalClass(student: EnrolledStudentClassReference & { classOptionKey?: string; option?: string }, schoolClass: OperationalClass) {
