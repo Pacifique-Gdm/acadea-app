@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Download, Edit3, Eye, Plus, RefreshCw, RotateCcw, Search, Trash2 } from "lucide-react";
 import { StudentForm } from "../../components/students/StudentForm";
 import { AdminDrawer, IconButton, SectionTitle } from "../../components/ui";
@@ -18,6 +18,8 @@ import { CLASSES } from "../../types";
 import type { SchoolClassRecord } from "../../types";
 import { activeSubclasses, createSchoolSubclasses, schoolClassOptionKey, secondarySubclassesForOption, studentSchoolClassOptionKey, subscribeToSchoolClasses } from "../../services/schoolSubclasses";
 import { canonicalAnnualClassName, isEligibleForAnnualTransition, studentImportKey } from "../../utils/studentYearTransition.js";
+import { useStudentPage } from "../../hooks/useStudentPage";
+import { loadAllStudentResults, nextStudentMatricule, STUDENT_SOURCE_PAGE_SIZE, type StudentQueryFilters } from "../../services/studentPagination";
 
 export interface StudentModuleCapabilities {
   canCreate: boolean;
@@ -28,7 +30,7 @@ export interface StudentModuleCapabilities {
   canManageOptions: boolean;
 }
 
-const STUDENTS_PAGE_SIZE = 50;
+const STUDENTS_PAGE_SIZE = STUDENT_SOURCE_PAGE_SIZE;
 
 type PendingQuickParent = {
   parentId: string;
@@ -74,7 +76,6 @@ export function StudentsModule({
   const [classFilter, setClassFilter] = useState("");
   const [optionFilter, setOptionFilter] = useState("");
   const [archiveFilter, setArchiveFilter] = useState<"active" | "archived" | "all">("all");
-  const [page, setPage] = useState(1);
   const [form, setForm] = useState<Student>(() => emptyStudent(school.id, year.id));
   const [quickParent, setQuickParent] = useState<QuickParentForm>(() => emptyQuickParent());
   const [quickParentFeedback, setQuickParentFeedback] = useState("");
@@ -98,6 +99,7 @@ export function StudentsModule({
   const [terminalError, setTerminalError] = useState("");
   const [terminalFeedback, setTerminalFeedback] = useState("");
   const [terminalBusy, setTerminalBusy] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [reenrolledSourceIds, setReenrolledSourceIds] = useState<string[]>([]);
   const [activeYearClasses, setActiveYearClasses] = useState<SchoolClassRecord[]>([]);
   const defaultCanManage = user.role === "school_admin" && year.status !== "archived";
@@ -152,24 +154,28 @@ export function StudentsModule({
     return () => window.clearTimeout(timer);
   }, [quickParentFeedback]);
 
-  const students = useMemo(() => yearData.students.filter((student) => {
-    const text = `${student.matricule} ${student.nom} ${student.postnom} ${student.prenom}`.toLowerCase();
-    const archived = isArchivedStudent(student);
-    return (
-      student.schoolId === school.id &&
-      student.schoolYearId === year.id &&
-      (!allowedSections?.length || allowedSections.includes(getClassSection(student.className))) &&
-      (archiveFilter === "all" || (archiveFilter === "archived" ? archived : !archived)) &&
-      text.includes(query.toLowerCase()) &&
-      (sectionFilter === "all" || getClassSection(student.className) === sectionFilter) &&
-      (!classFilter || student.className === classFilter) &&
-      (!optionFilter || canonicalSchoolOption(student.option ?? "") === optionFilter)
-    );
-  }), [allowedSections, archiveFilter, classFilter, optionFilter, query, school.id, sectionFilter, year.id, yearData.students]);
-  const pageCount = Math.max(1, Math.ceil(students.length / STUDENTS_PAGE_SIZE));
-  const visibleStudents = students.slice((page - 1) * STUDENTS_PAGE_SIZE, page * STUDENTS_PAGE_SIZE);
-  useEffect(() => { setPage(1); }, [archiveFilter, classFilter, optionFilter, query, sectionFilter, year.id]);
-  useEffect(() => { if (page > pageCount) setPage(pageCount); }, [page, pageCount]);
+  const deferredQuery = useDeferredValue(query);
+  const allowedSectionsKey = (allowedSections ?? []).join("|");
+  const studentFilters = useMemo<StudentQueryFilters>(() => ({
+    schoolId: school.id,
+    schoolYearId: year.id,
+    search: deferredQuery,
+    archive: archiveFilter,
+    section: sectionFilter,
+    className: classFilter,
+    option: optionFilter,
+    allowedSections: allowedSectionsKey ? allowedSectionsKey.split("|") as SchoolSection[] : undefined,
+  }), [allowedSectionsKey, archiveFilter, classFilter, deferredQuery, optionFilter, school.id, sectionFilter, year.id]);
+  const studentPage = useStudentPage(studentFilters, yearData.students);
+  const students = studentPage.students;
+  const visibleStudents = students;
+  const page = studentPage.page;
+  const pageCount = studentPage.pageCount;
+  const studentRecords = useMemo(() => {
+    const records = new Map(data.students.map((student) => [student.id, student]));
+    students.forEach((student) => records.set(student.id, student));
+    return [...records.values()];
+  }, [data.students, students]);
   const parentsById = useMemo(
     () => new Map(yearData.parents.filter((parent) => parent.schoolId === school.id).map((parent) => [parent.id, parent])),
     [school.id, yearData.parents],
@@ -184,8 +190,8 @@ export function StudentsModule({
     });
     return index;
   }, [school.id, yearData.parents]);
-  const archiveStudent = archiveStudentId ? data.students.find((student) => student.id === archiveStudentId) : undefined;
-  const reactivationStudent = reactivationStudentId ? data.students.find((student) => student.id === reactivationStudentId) : undefined;
+  const archiveStudent = archiveStudentId ? studentRecords.find((student) => student.id === archiveStudentId) : undefined;
+  const reactivationStudent = reactivationStudentId ? studentRecords.find((student) => student.id === reactivationStudentId) : undefined;
   const archiveReasonChoices = ["Abandon", "Mutation", "Exclusion", "Décès", "Fin de scolarité", "Erreur administrative", "Autre"] as const;
   const reactivationReasonChoices = ["Retour à l'école", "Erreur d'archivage", "Réinscription", "Mutation annulée", "Suspension levée", "Décision administrative", "Autre"] as const;
   const finalArchiveReason = archiveReason === "Autre" ? archiveOtherReason.trim() : archiveReason;
@@ -226,7 +232,7 @@ export function StudentsModule({
     setSaveError("");
     setSaveMessage("");
     try {
-      const exists = data.students.some((item) => item.id === form.id);
+      const exists = !form.id.startsWith("new-");
       if ((exists && !studentCapabilities.canEdit) || (!exists && !studentCapabilities.canCreate)) {
         setSaveError("Votre compte n'est pas autorisé à enregistrer cette fiche élève.");
         return;
@@ -258,7 +264,8 @@ export function StudentsModule({
       }
       const targetYearId = exists ? form.schoolYearId : year.id;
       const targetYearName = exists ? data.schoolYears.find((item) => item.id === form.schoolYearId)?.name ?? year.name : year.name;
-      const matricule = exists ? form.matricule : generateMatricule(data.students, targetYearName, school.id, targetYearId);
+      const generatedMatricule = exists ? "" : await nextStudentMatricule(targetYearName, school.id, targetYearId);
+      const matricule = exists ? form.matricule : generatedMatricule || generateMatricule(studentRecords, targetYearName, school.id, targetYearId);
       const student = studentForPersistence({
         ...form,
         id: exists ? form.id : uid("student"),
@@ -286,7 +293,7 @@ export function StudentsModule({
         const parent = parents.find((parentItem) => parentItem.id === item.parentId);
         return parent ? { ...item, studentIds: parent.studentIds } : item;
       });
-      const nextStudents = exists ? data.students.map((item) => (item.id === student.id ? student : item)) : [...data.students, student];
+      const nextStudents = exists ? studentRecords.map((item) => (item.id === student.id ? student : item)) : [...studentRecords, student];
       const changedParents = parents.filter((parent) => {
         const previousParent = data.parents.find((item) => item.id === parent.id);
         return previousParent && previousParent.studentIds.join("|") !== parent.studentIds.join("|");
@@ -402,7 +409,7 @@ export function StudentsModule({
   function confirmArchiveStudent() {
     const id = archiveStudentId;
     if (!id) return;
-    const student = data.students.find((item) => item.id === id);
+    const student = studentRecords.find((item) => item.id === id);
     if (!student) return;
     const reason = finalArchiveReason;
     if (!archiveReason || !reason) {
@@ -412,15 +419,15 @@ export function StudentsModule({
     const normalized = reason.toLowerCase();
     const status = normalized.includes("décès") || normalized.includes("deces") ? "DECEASED" : normalized.includes("abandon") ? "DROPPED" : "TRANSFERRED";
     updateData({
-      students: data.students.map((item) =>
+      students: studentRecords.map((item) =>
         item.id === id
-          ? {
+          ? studentForPersistence({
               ...item,
               status,
               exitReason: archiveReason as Student["exitReason"],
               exitReasonDetails: reason,
               deletedAt: new Date().toISOString(),
-            }
+            })
           : item,
       ),
       auditLogs: [createAuditLog(user, school.id, year.id, "Archivage élève", `${student.matricule} - ${reason}`, uid), ...data.auditLogs],
@@ -451,17 +458,17 @@ export function StudentsModule({
       setReactivationError(reactivationReason === "Autre" ? "Veuillez préciser la raison de réactivation." : "Le motif de réactivation est obligatoire.");
       return;
     }
-    const student = data.students.find((item) => item.id === id);
+    const student = studentRecords.find((item) => item.id === id);
     if (!student) return;
     updateData({
-      students: data.students.map((item) =>
+      students: studentRecords.map((item) =>
         item.id === id
           ? (() => {
               const activeStudent = { ...item, status: "ACTIVE" as const };
               delete activeStudent.exitReason;
               delete activeStudent.exitReasonDetails;
               delete activeStudent.deletedAt;
-              return activeStudent;
+              return studentForPersistence(activeStudent);
             })()
           : item,
       ),
@@ -482,7 +489,7 @@ export function StudentsModule({
       return;
     }
 
-    const existingStudent = data.students.find((student) => student.id === form.id);
+    const existingStudent = studentRecords.find((student) => student.id === form.id);
     if (!existingStudent) {
       const pendingParent = { parentId, fullName: quickParent.fullName.trim(), phone: quickParent.phone.trim(), email: resolvedEmail, password: quickParent.password };
       setPendingQuickParent(pendingParent);
@@ -506,7 +513,7 @@ export function StudentsModule({
         status: "active",
       });
       updateData({
-        students: data.students.map((student) => student.id === existingStudent.id ? { ...student, parentId: provisioned.parent.id } : student),
+        students: studentRecords.map((student) => student.id === existingStudent.id ? { ...student, parentId: provisioned.parent.id } : student),
         parents: [...data.parents, provisioned.parent],
         users: [...data.users, provisioned.user],
       }, { persist: false });
@@ -532,7 +539,7 @@ export function StudentsModule({
     }
   }
 
-  function printStudentsPdf() {
+  async function printStudentsPdf() {
     const filters = [
       `Recherche: ${query || "Toutes"}`,
       `Statut: ${archiveFilter === "active" ? "Actifs" : archiveFilter === "archived" ? "Archivés" : "Tous"}`,
@@ -540,7 +547,16 @@ export function StudentsModule({
       `Classe: ${classFilter || "Toutes les classes"}`,
       `Option: ${optionFilter || "Toutes les options"}`,
     ];
-    exportStudentsPdf(school, year, sortStudentsForPdfByClass(students), filters);
+    setIsExporting(true);
+    setSaveError("");
+    try {
+      const exportStudents = await loadAllStudentResults(studentFilters, yearData.students);
+      exportStudentsPdf(school, year, sortStudentsForPdfByClass(exportStudents), filters);
+    } catch (cause) {
+      setSaveError(cause instanceof Error ? cause.message : "Impossible de charger les élèves à exporter.");
+    } finally {
+      setIsExporting(false);
+    }
   }
 
   return (
@@ -589,11 +605,13 @@ export function StudentsModule({
               <option key={option} value={option}>{option}</option>
             ))}
           </select>
-          <button onClick={printStudentsPdf} type="button" className="pdf-export-button min-w-0 px-3 lg:flex-1 lg:basis-0">
-            <Download className="h-4 w-4" /> Exporter PDF
+          <button onClick={() => void printStudentsPdf()} disabled={isExporting} type="button" className="pdf-export-button min-w-0 px-3 lg:flex-1 lg:basis-0">
+            <Download className="h-4 w-4" /> {isExporting ? "Chargement…" : "Exporter PDF"}
           </button>
           </div>
         </div>
+        {studentPage.error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Impossible de charger les élèves : {studentPage.error}</p>}
+        {studentPage.loading && <p className="rounded border border-slate-200 bg-white p-3 text-sm text-slate-500">Chargement des élèves…</p>}
         <div className="max-w-full overflow-x-auto rounded border border-slate-200 bg-white">
           <table className="min-w-[980px] w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
@@ -667,12 +685,12 @@ export function StudentsModule({
             </tbody>
           </table>
         </div>
-        {students.length > STUDENTS_PAGE_SIZE && (
+        {studentPage.total > STUDENTS_PAGE_SIZE && (
           <nav aria-label="Pagination des élèves" className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
-            <span>{students.length} élèves · page {page}/{pageCount}</span>
+            <span>{studentPage.total} élèves · page {page}/{pageCount}</span>
             <div className="flex gap-2">
-              <button type="button" className="secondary-button" disabled={page === 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Précédent</button>
-              <button type="button" className="secondary-button" disabled={page === pageCount} onClick={() => setPage((current) => Math.min(pageCount, current + 1))}>Suivant</button>
+              <button type="button" className="secondary-button" disabled={page === 1 || studentPage.loading} onClick={studentPage.previous}>Précédent</button>
+              <button type="button" className="secondary-button" disabled={page === pageCount || studentPage.loading} onClick={studentPage.next}>Suivant</button>
             </div>
           </nav>
         )}

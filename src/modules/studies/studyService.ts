@@ -25,7 +25,7 @@ function scopedSubscription<T>(collectionName: string, schoolId: string, schoolY
   }, onError);
 }
 
-export function subscribeToStudyData(input: { user: AppUser; schoolId: string; schoolYearId: string; onTeachers: (items: StudyTeacher[]) => void; onSubjects: (items: StudySubject[]) => void; onClasses: (items: StudyClass[]) => void; onStudents:(items:Student[])=>void;onAssignments: (items: PedagogicalAssignment[]) => void;onTitulars:(items:ClassTitular[])=>void; onAvailabilities:(items:TeacherAvailability[])=>void;onPeriods:(items:SchedulePeriod[])=>void;onTimetables:(items:Timetable[])=>void;onTimetableEntries:(items:TimetableEntry[])=>void;onRooms:(items:StudyRoom[])=>void;onAttendanceSettings?:(items:AttendanceSettings[])=>void; onError: (error: Error) => void }) {
+export function subscribeToStudyData(input: { user: AppUser; schoolId: string; schoolYearId: string; includeStudents?: boolean; onTeachers: (items: StudyTeacher[]) => void; onSubjects: (items: StudySubject[]) => void; onClasses: (items: StudyClass[]) => void; onStudents:(items:Student[])=>void;onAssignments: (items: PedagogicalAssignment[]) => void;onTitulars:(items:ClassTitular[])=>void; onAvailabilities:(items:TeacherAvailability[])=>void;onPeriods:(items:SchedulePeriod[])=>void;onTimetables:(items:Timetable[])=>void;onTimetableEntries:(items:TimetableEntry[])=>void;onRooms:(items:StudyRoom[])=>void;onAttendanceSettings?:(items:AttendanceSettings[])=>void; onError: (error: Error) => void }) {
   const database = requireScope(input.user, input.schoolId, input.schoolYearId);
   const allowedSections = userSectionIds(input.user);
   let teacherProfiles: StudyTeacher[] = [];
@@ -54,7 +54,7 @@ export function subscribeToStudyData(input: { user: AppUser; schoolId: string; s
     teacherUsersUnsubscribe,
     scopedSubscription("subjects", input.schoolId, input.schoolYearId, input.onSubjects, input.onError),
     scopedSubscription("classes", input.schoolId, input.schoolYearId, input.onClasses, input.onError),
-    scopedSubscription("students", input.schoolId, input.schoolYearId, input.onStudents, input.onError, allowedSections),
+    ...(input.includeStudents === false ? [] : [scopedSubscription("students", input.schoolId, input.schoolYearId, input.onStudents, input.onError, allowedSections)]),
     scopedSubscription("pedagogicalAssignments", input.schoolId, input.schoolYearId, input.onAssignments, input.onError),
     scopedSubscription("classTitulars", input.schoolId, input.schoolYearId, input.onTitulars, input.onError),
     scopedSubscription("teacherAvailabilities",input.schoolId,input.schoolYearId,input.onAvailabilities,input.onError),

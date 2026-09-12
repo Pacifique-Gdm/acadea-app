@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { FileText, GraduationCap, Mail, Menu as MenuIcon, MessageSquare } from "lucide-react";
 import type { SecretaryTab } from "../../components/layout/SecretaryBottomNavigation";
@@ -20,6 +20,7 @@ export function SecretaryPortal({
   renderMenu,
   renderBottomNavigation,
   initialTab = "students",
+  onActiveTabChange,
 }: {
   renderHeader: () => ReactNode;
   renderStudents?: () => ReactNode;
@@ -29,8 +30,10 @@ export function SecretaryPortal({
   renderMenu?: () => ReactNode;
   renderBottomNavigation: (activeTab: SecretaryTab, onTab: (tab: SecretaryTab) => void) => ReactNode;
   initialTab?: SecretaryTab;
+  onActiveTabChange?: (tab: SecretaryTab) => void;
 }) {
   const [activeTab, setActiveTab] = useState<SecretaryTab>(initialTab);
+  useEffect(() => onActiveTabChange?.(activeTab), [activeTab, onActiveTabChange]);
   const section = activeTab === "students" ? undefined : tabContent[activeTab];
   const Icon = section?.icon ?? GraduationCap;
 

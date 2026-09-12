@@ -15,12 +15,14 @@ export function useRealtimeSchoolRecords({
   user,
   schoolId,
   schoolYearId,
+  includeStudents = true,
   onData,
   onError,
 }: {
   user: AppUser | null;
   schoolId: string;
   schoolYearId: string;
+  includeStudents?: boolean;
   onData: (data: RealtimeSchoolRecords) => void;
   onError?: (source: keyof RealtimeSchoolRecords, error: Error) => void;
 }) {
@@ -43,7 +45,7 @@ export function useRealtimeSchoolRecords({
     const canReadParents = ["school_admin", "cashier", "discipline_director", "secretary"].includes(user.role);
     const canReadSanctions = ["school_admin", "discipline_director"].includes(user.role);
 
-    if (canReadStudents) {
+    if (canReadStudents && includeStudents) {
       unsubscribes.push(onSnapshot(
         query(collection(db, "students"), ...studentConstraints),
         (snapshot) => {
@@ -78,5 +80,5 @@ export function useRealtimeSchoolRecords({
     }
 
     return () => { active = false; unsubscribes.forEach((unsubscribe) => unsubscribe()); };
-  }, [onData, onError, schoolId, schoolYearId, user]);
+  }, [includeStudents, onData, onError, schoolId, schoolYearId, user]);
 }

@@ -9,14 +9,18 @@ describe("garde-fous de volumétrie", () => {
     expect(realtimeManagedCollections("study_director")).toEqual([]);
   });
 
-  it("borne le DOM Élèves et Contrôle à 50 éléments sans réduire les résultats de recherche/export", () => {
+  it("utilise une pagination Firestore Élèves bornée à 50 et conserve un export explicite", () => {
     const students = readFileSync(new URL("../modules/students/StudentsModule.tsx", import.meta.url), "utf8");
+    const pagination = readFileSync(new URL("./studentPagination.ts", import.meta.url), "utf8");
     const control = readFileSync(new URL("../modules/control/ControlModule.tsx", import.meta.url), "utf8");
-    expect(students).toContain("const STUDENTS_PAGE_SIZE = 50");
+    expect(pagination).toContain("export const STUDENT_SOURCE_PAGE_SIZE = 50");
+    expect(pagination).toContain("startAfter(cursor)");
+    expect(pagination).toContain("limit(STUDENT_SOURCE_PAGE_SIZE)");
+    expect(students).toContain("useStudentPage(studentFilters");
     expect(students).toContain("visibleStudents.map");
     expect(control).toContain("const CONTROL_PAGE_SIZE = 50");
     expect(control).toContain("paginatedControlRows.map");
-    expect(students).toContain("sortStudentsForPdfByClass(students)");
+    expect(students).toContain("loadAllStudentResults(studentFilters, yearData.students)");
     expect(control).toContain("filterControlStudentRows(rows, controlStudentSearch)");
   });
 });

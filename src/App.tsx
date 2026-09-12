@@ -10,6 +10,7 @@ import { EnvironmentBanner } from "./components/layout/EnvironmentBanner";
 import { InstallPwaNavButton } from "./components/layout/InstallPwaNavButton";
 import { ParentBottomNavigation } from "./components/layout/ParentBottomNavigation";
 import { SecretaryBottomNavigation } from "./components/layout/SecretaryBottomNavigation";
+import type { SecretaryTab } from "./components/layout/SecretaryBottomNavigation";
 import { PlatformLogoSlot } from "./components/layout/PlatformLogoSlot";
 import { YearScreen } from "./components/school/YearScreen";
 import { ParentFormEditor } from "./components/parents/ParentFormEditor";
@@ -174,6 +175,7 @@ export default function App() {
   const [selectedYearId, setSelectedYearId] = useState("");
   const yearRequestVersion = useRef(0);
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
+  const [secretaryActiveTab, setSecretaryActiveTab] = useState<SecretaryTab>("students");
   const [parentFormRequest, setParentFormRequest] = useState<{ parentId?: string; requestId: number } | null>(null);
   const [route, setRoute] = useState(() => getInitialRoute());
   const [authReady, setAuthReady] = useState(false);
@@ -267,6 +269,11 @@ export default function App() {
     user,
     schoolId: user?.schoolId ?? "",
     schoolYearId: selectedYearId,
+    includeStudents: user?.role === "school_admin"
+      ? activeTab !== "students" || route.startsWith("/admin/eleves/")
+      : user?.role === "secretary"
+        ? secretaryActiveTab !== "students" || route.startsWith("/secretariat/eleves/")
+        : true,
     onData: applyRealtimeSchoolRecords,
     onError: handleSchoolRecordsRealtimeError,
   });
@@ -1006,6 +1013,7 @@ export default function App() {
     return (
       <SecretaryPortal
         initialTab={secretaryBiometricView ? "menu" : "students"}
+        onActiveTabChange={setSecretaryActiveTab}
         renderHeader={() => (
           <>
             <EnvironmentBanner />

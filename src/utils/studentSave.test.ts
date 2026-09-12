@@ -67,8 +67,8 @@ describe("flux de soumission du formulaire élève", () => {
 
   it("attend l'écriture, met à jour sans doublon, puis ferme et réinitialise après succès", () => {
     expect(moduleSource).toContain("await persistFirestorePatch(");
-    expect(moduleSource).toContain("data.students.map((item) => (item.id === student.id ? student : item))");
-    expect(moduleSource).toContain("[...data.students, student]");
+    expect(moduleSource).toContain("studentRecords.map((item) => (item.id === student.id ? student : item))");
+    expect(moduleSource).toContain("[...studentRecords, student]");
     expect(moduleSource).toContain("setForm(emptyCurrentStudent());");
     expect(moduleSource).toContain("setShowForm(false);");
   });
@@ -84,5 +84,10 @@ describe("flux de soumission du formulaire élève", () => {
 
   it("supprime une ancienne option lorsqu'une classe sans option est enregistrée", () => {
     expect(moduleSource).toContain('if (student.section !== "Secondaire" || !student.option) delete student.option;');
+  });
+
+  it("réindexe aussi les changements d'archivage et de réactivation", () => {
+    expect(moduleSource).toContain("? studentForPersistence({");
+    expect(moduleSource).toContain("return studentForPersistence(activeStudent);");
   });
 });

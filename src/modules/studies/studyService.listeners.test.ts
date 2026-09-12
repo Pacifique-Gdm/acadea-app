@@ -92,6 +92,14 @@ describe("listeners temps réel Direction des études", () => {
     expect(onAvailabilities).toHaveBeenLastCalledWith([{ id: "unavailable", status: "unavailable", active: true }]);
   });
 
+  it("désactive uniquement le listener global students lorsque la liste paginée est ouverte", () => {
+    subscribe({ includeStudents: false });
+    expect(firestore.subscriptions).toHaveLength(12);
+    expect(firestore.collection.mock.calls.map((call) => call[1])).not.toContain("students");
+    expect(firestore.collection.mock.calls.map((call) => call[1])).toContain("classes");
+    expect(firestore.collection.mock.calls.map((call) => call[1])).toContain("pedagogicalAssignments");
+  });
+
   it("transmet les titularités multiples en temps réel", () => {
     const onTitulars = vi.fn();
     subscribe({ onTitulars });

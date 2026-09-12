@@ -21,6 +21,9 @@ describe("useRealtimeSchoolRecords", () => {
   beforeEach(() => {
     effects.length = 0;
     mocks.onSnapshot.mockReset();
+    mocks.collection.mockClear();
+    mocks.where.mockClear();
+    mocks.query.mockClear();
   });
 
   it("écoute les élèves, parents et sanctions de l'école et nettoie chaque listener", () => {
@@ -49,5 +52,14 @@ describe("useRealtimeSchoolRecords", () => {
     useRealtimeSchoolRecords({ user: baseUser, schoolId: "school-1", schoolYearId: "", onData: vi.fn() });
     effects[0]();
     expect(mocks.onSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("sépare le flux paginé Élèves du listener global sans couper parents et sanctions", () => {
+    mocks.onSnapshot.mockReturnValue(vi.fn());
+    useRealtimeSchoolRecords({ user: baseUser, schoolId: "school-1", schoolYearId: "year-1", includeStudents: false, onData: vi.fn() });
+    effects[0]();
+    expect(mocks.collection).not.toHaveBeenCalledWith({}, "students");
+    expect(mocks.collection).toHaveBeenCalledWith({}, "parents");
+    expect(mocks.collection).toHaveBeenCalledWith({}, "disciplineSanctions");
   });
 });

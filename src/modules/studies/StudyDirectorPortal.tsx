@@ -27,7 +27,7 @@ const menuButton = "flex items-center gap-3 rounded border border-slate-200 bg-w
 
 export function StudyDirectorPortal({ user, school, year, appData, refreshToken = 0, updateData, createId, formatArchiveDate, renderHeader, renderEnvironmentBanner, onLogout }: { user: AppUser; school: School; year: SchoolYear; appData: AppData; refreshToken?: number; updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void; createId: (prefix: string) => string; formatArchiveDate: (value?: string) => string; renderHeader: () => ReactNode; renderEnvironmentBanner: () => ReactNode; onLogout: () => void }) {
   const [activeTab, setActiveTab] = useState<StudyDirectorTab>("dashboard"), [drawer, setDrawer] = useState<MenuDrawer>(null), [selectedStudentId, setSelectedStudentId] = useState<string>();
-  const data = useStudyData(user, school.id, year.id, refreshToken);
+  const data = useStudyData(user, school.id, year.id, refreshToken, activeTab !== "students" || Boolean(selectedStudentId));
   const metrics = studyDashboardMetrics(data.teachers, data.assignments), scheduleMetrics = phase3DashboardMetrics(data.availabilities, data.periods);
   const dashboardCards = [
     ["Enseignants", metrics.teachers, UsersRound, "bg-blue-50 text-blue-700"],

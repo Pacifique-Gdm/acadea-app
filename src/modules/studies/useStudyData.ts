@@ -8,12 +8,13 @@ import { canonicalOperationalClasses } from "../../services/schoolSubclasses";
 import { assignmentsForClasses } from "./studyAssignments";
 import { currentTimetableEntries } from "./studyScope";
 
-export function useStudyData(user: AppUser, schoolId: string, schoolYearId: string, refreshToken = 0) {
+export function useStudyData(user: AppUser, schoolId: string, schoolYearId: string, refreshToken = 0, includeStudents = true) {
   const [teachers,setTeachers]=useState<StudyTeacher[]>([]),[subjects,setSubjects]=useState<StudySubject[]>([]),[classes,setClasses]=useState<StudyClass[]>([]),[students,setStudents]=useState<Student[]>([]),[assignments,setAssignments]=useState<PedagogicalAssignment[]>([]),[titulars,setTitulars]=useState<ClassTitular[]>([]),[availabilities,setAvailabilities]=useState<TeacherAvailability[]>([]),[periods,setPeriods]=useState<SchedulePeriod[]>([]),[timetables,setTimetables]=useState<Timetable[]>([]),[timetableEntries,setTimetableEntries]=useState<TimetableEntry[]>([]),[rooms,setRooms]=useState<StudyRoom[]>([]);
   const [attendanceSettings,setAttendanceSettings]=useState<AttendanceSettings>();
   const [error,setError]=useState("");
   const [loadedSources, setLoadedSources] = useState<Set<string>>(() => new Set());
   useEffect(() => {
+    if (!includeStudents) setStudents([]);
     setLoadedSources(new Set());
     setError("");
     const mark = <T,>(source: string, setter: (items: T[]) => void) => (items: T[]) => {
@@ -21,7 +22,7 @@ export function useStudyData(user: AppUser, schoolId: string, schoolYearId: stri
       setLoadedSources((current) => current.has(source) ? current : new Set(current).add(source));
     };
     const unsubscribes = subscribeToStudyData({
-      user, schoolId, schoolYearId,
+      user, schoolId, schoolYearId, includeStudents,
       onTeachers: mark("teachers", setTeachers),
       onSubjects: mark("subjects", setSubjects),
       onClasses: mark("classes", setClasses),
@@ -40,7 +41,7 @@ export function useStudyData(user: AppUser, schoolId: string, schoolYearId: stri
       onError: (cause) => setError(cause.message),
     });
     return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
-  }, [refreshToken, schoolId, schoolYearId, user]);
+  }, [includeStudents, refreshToken, schoolId, schoolYearId, user]);
   const scopedClasses = useMemo(() => canonicalOperationalClasses(classes, students, schoolId, schoolYearId, userSectionIds(user)), [classes, schoolId, schoolYearId, students, user]);
   const scopedClassIds = useMemo(() => new Set(scopedClasses.map((item) => item.id)), [scopedClasses]);
   const scopedStudents = useMemo(() => filterByAllowedSections(user, students, getStudentSection), [students, user]);

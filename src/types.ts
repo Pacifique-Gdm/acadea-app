@@ -139,6 +139,10 @@ export interface Student {
   biometric?: StudentBiometric;
   importedFromStudentId?: string;
   importedFromSchoolYearId?: string;
+  /** Préfixes normalisés utilisés exclusivement par la recherche paginée Firestore. */
+  searchPrefixes?: string[];
+  /** État d'archivage dénormalisé pour les filtres serveur. */
+  searchArchived?: boolean;
 }
 
 export type FingerprintStatus = "not_enrolled" | "enrolled" | "disabled";
