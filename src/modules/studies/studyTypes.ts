@@ -101,6 +101,7 @@ export interface Timetable {
   status: TimetableStatus;
   activeDraft: boolean;
   activePublished?: boolean;
+  persistenceState?: "PENDING" | "COMPLETE";
   createdBy: string;
   createdAt: string;
   updatedAt: string;

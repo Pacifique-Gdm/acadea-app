@@ -1,6 +1,21 @@
-import type { SchedulePeriod, StudyDay, TeacherAvailability } from "./studyTypes";
+import type { SchedulePeriod, StudyDay, TeacherAvailability, Timetable } from "./studyTypes";
 export const STUDY_DAYS: StudyDay[]=["monday","tuesday","wednesday","thursday","friday","saturday"];
 export const DAY_LABELS:Record<StudyDay,string>={monday:"Lundi",tuesday:"Mardi",wednesday:"Mercredi",thursday:"Jeudi",friday:"Vendredi",saturday:"Samedi"};
+const ALL_DAY_LABELS: Record<string, string> = { ...DAY_LABELS, sunday: "Dimanche" };
+export function studyDayLabel(day: string) { return ALL_DAY_LABELS[day] ?? day; }
+export function schedulePeriodLabel(periodId: string, periods: SchedulePeriod[]) {
+  const period = periods.find((item) => item.id === periodId);
+  if (!period) return "Période inconnue";
+  const timeRange = period.startTime && period.endTime ? `${period.startTime} – ${period.endTime}` : "";
+  return [period.label.trim(), timeRange].filter(Boolean).join(" — ") || "Période inconnue";
+}
+export function completedStudyTimetables(items: Timetable[]) {
+  return items.filter((item) => item.persistenceState !== "PENDING");
+}
+export function currentStudyTimetable(items: Timetable[]) {
+  const visible = completedStudyTimetables(items);
+  return visible.find((item) => item.activeDraft) ?? visible.find((item) => item.activePublished) ?? visible[0];
+}
 export const minutes=(value:string)=>{const [h,m]=value.split(":").map(Number);return h*60+m;};
 export function validTimeRange(start?:string,end?:string){return Boolean(start&&end&&/^\d{2}:\d{2}$/.test(start)&&/^\d{2}:\d{2}$/.test(end)&&minutes(start)<minutes(end));}
 export function overlaps(a:{startTime?:string;endTime?:string},b:{startTime?:string;endTime?:string}){return Boolean(a.startTime&&a.endTime&&b.startTime&&b.endTime&&minutes(a.startTime)<minutes(b.endTime)&&minutes(b.startTime)<minutes(a.endTime));}

@@ -7,6 +7,7 @@ import { filterByAllowedSections, isSectionAllowed, userSectionIds } from "../..
 import { canonicalOperationalClasses } from "../../services/schoolSubclasses";
 import { assignmentsForClasses } from "./studyAssignments";
 import { currentTimetableEntries } from "./studyScope";
+import { completedStudyTimetables } from "./studySchedule";
 
 export function useStudyData(user: AppUser, schoolId: string, schoolYearId: string, refreshToken = 0, includeStudents = true) {
   const [teachers,setTeachers]=useState<StudyTeacher[]>([]),[subjects,setSubjects]=useState<StudySubject[]>([]),[classes,setClasses]=useState<StudyClass[]>([]),[students,setStudents]=useState<Student[]>([]),[assignments,setAssignments]=useState<PedagogicalAssignment[]>([]),[titulars,setTitulars]=useState<ClassTitular[]>([]),[availabilities,setAvailabilities]=useState<TeacherAvailability[]>([]),[periods,setPeriods]=useState<SchedulePeriod[]>([]),[timetables,setTimetables]=useState<Timetable[]>([]),[timetableEntries,setTimetableEntries]=useState<TimetableEntry[]>([]),[rooms,setRooms]=useState<StudyRoom[]>([]);
@@ -31,7 +32,7 @@ export function useStudyData(user: AppUser, schoolId: string, schoolYearId: stri
       onTitulars: mark("titulars", setTitulars),
       onAvailabilities: mark("availabilities", setAvailabilities),
       onPeriods: mark("periods", setPeriods),
-      onTimetables: mark("timetables", setTimetables),
+      onTimetables: mark("timetables", (items: Timetable[]) => setTimetables(completedStudyTimetables(items))),
       onTimetableEntries: mark("timetableEntries", setTimetableEntries),
       onRooms: mark("rooms", setRooms),
       onAttendanceSettings: (items) => {

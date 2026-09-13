@@ -1148,7 +1148,10 @@ service cloud.firestore {
       allow create: if activeStudyYearCreate()
         && validTimetableShape()
         && request.resource.data.status == "DRAFT"
-        && request.resource.data.activeDraft == true
+        && ((request.resource.data.activeDraft == true
+            && request.resource.data.get("persistenceState", "COMPLETE") == "COMPLETE")
+          || (request.resource.data.activeDraft == false
+            && request.resource.data.persistenceState == "PENDING"))
         && request.resource.data.createdBy == request.auth.uid;
       allow update: if activeStudyYearUpdate()
         && validTimetableShape()
@@ -1156,9 +1159,17 @@ service cloud.firestore {
         && request.resource.data.version == resource.data.version
         && request.resource.data.createdBy == resource.data.createdBy
         && request.resource.data.createdAt == resource.data.createdAt
-        && ((resource.data.status == "DRAFT" && request.resource.data.status == "DRAFT"
+        && ((resource.data.status == "DRAFT" && resource.data.get("persistenceState", "COMPLETE") == "PENDING"
+             && request.resource.data.status == "DRAFT"
+             && request.resource.data.activeDraft == true
+             && request.resource.data.persistenceState == "COMPLETE"
+             && resource.data.createdBy == request.auth.uid
+             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["activeDraft", "persistenceState", "updatedAt"]))
+          || (resource.data.status == "DRAFT" && resource.data.get("persistenceState", "COMPLETE") == "COMPLETE"
+             && request.resource.data.status == "DRAFT"
              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["activeDraft", "updatedAt"]))
-          || (resource.data.status == "DRAFT" && request.resource.data.status == "VALID"
+          || (resource.data.status == "DRAFT" && resource.data.get("persistenceState", "COMPLETE") == "COMPLETE"
+             && request.resource.data.status == "VALID"
              && request.resource.data.activeDraft == false
              && request.resource.data.validatedBy == request.auth.uid
              && request.resource.data.validatedAt is string
@@ -1171,7 +1182,13 @@ service cloud.firestore {
           || (resource.data.status == "PUBLISHED" && request.resource.data.status == "PUBLISHED"
              && resource.data.activePublished == true && request.resource.data.activePublished == false
              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["activePublished", "updatedAt"])));
-      allow delete: if false;
+      allow delete: if studyDirector()
+        && resource.data.schoolId == tenantSchoolId()
+        && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId())
+        && resource.data.status == "DRAFT"
+        && resource.data.activeDraft == false
+        && resource.data.get("persistenceState", "COMPLETE") == "PENDING"
+        && resource.data.createdBy == request.auth.uid;
     }
 
     match /timetableEntries/{entryId} {
@@ -1219,7 +1236,16 @@ service cloud.firestore {
         && resource.data.createdAt == request.resource.data.createdAt
         && get(/databases/$(database)/documents/timetables/$(resource.data.scheduleId)).data.status == "DRAFT"
         && entryReferencesAreValid();
-      allow delete: if false;
+      allow delete: if studyDirector()
+        && resource.data.schoolId == tenantSchoolId()
+        && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId())
+        && exists(/databases/$(database)/documents/timetables/$(resource.data.scheduleId))
+        && get(/databases/$(database)/documents/timetables/$(resource.data.scheduleId)).data.schoolId == tenantSchoolId()
+        && get(/databases/$(database)/documents/timetables/$(resource.data.scheduleId)).data.schoolYearId == resource.data.schoolYearId
+        && get(/databases/$(database)/documents/timetables/$(resource.data.scheduleId)).data.status == "DRAFT"
+        && get(/databases/$(database)/documents/timetables/$(resource.data.scheduleId)).data.activeDraft == false
+        && get(/databases/$(database)/documents/timetables/$(resource.data.scheduleId)).data.get("persistenceState", "COMPLETE") == "PENDING"
+        && get(/databases/$(database)/documents/timetables/$(resource.data.scheduleId)).data.createdBy == request.auth.uid;
     }
 
     match /rooms/{roomId} {

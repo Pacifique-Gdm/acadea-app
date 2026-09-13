@@ -28,6 +28,33 @@ describe("persistance complète d’un horaire",()=>{
   });
 });
 
+describe("persistance d’un horaire de taille réelle",()=>{
+  it("autorise un brouillon contenant plus de vingt affectations distinctes",async()=>{
+    const assignments=Array.from({length:25},(_,index)=>`assignment-${index}`);
+    await Promise.all(assignments.map((assignmentId,index)=>seed(`pedagogicalAssignments/${assignmentId}`,{schoolId:school,schoolYearId:year,teacherId:`teacher-${index}`,subjectId:`subject-${index}`,classId:`class-${index}`})));
+    const entries=assignments.map((assignmentId,index)=>({...entry,id:`entry-${index}`,assignmentId,teacherId:`teacher-${index}`,subjectId:`subject-${index}`,classId:`class-${index}`}));
+    const user:AppUser={id:"study_director-user",name:"Direction",email:"direction@test.invalid",role:"study_director",schoolId:school};
+
+    await assertSucceeds(persistGeneratedTimetable(db(),{user,schoolId:school,schoolYearId:year,version:1,entries,existing:[],metadata:{algorithm:"deterministic-backtracking",exploredBranches:25,durationMs:1,maxSameAssignmentPeriodsPerDay:2}}));
+    const saved=await getDoc(doc(db(),"timetables",`${school}__${year}__v1`));
+    expect(saved.data()).toMatchObject({activeDraft:true,persistenceState:"COMPLETE"});
+    expect((await getDocs(query(collection(db(),"timetableEntries"),where("schoolId","==",school),where("schoolYearId","==",year),where("scheduleId","==",saved.id)))).size).toBe(25);
+  });
+  it("autorise uniquement l’auteur à nettoyer une persistance PENDING",async()=>{
+    await seed("timetables/pending",schedule({id:"pending",activeDraft:false,persistenceState:"PENDING"}));
+    await seed("timetableEntries/pending-entry",{...entry,id:"pending-entry",scheduleId:"pending"});
+    await assertFails(deleteDoc(doc(db("cashier"),"timetableEntries","pending-entry")));
+    await assertFails(deleteDoc(doc(db("study_director","school-b"),"timetableEntries","pending-entry")));
+    await assertSucceeds(deleteDoc(doc(db(),"timetableEntries","pending-entry")));
+    await assertSucceeds(deleteDoc(doc(db(),"timetables","pending")));
+  });
+  it("refuse toujours la suppression d’un horaire complet et une entrée sans période valide",async()=>{
+    await seed("timetables/complete",schedule({id:"complete",persistenceState:"COMPLETE"}));
+    await assertFails(deleteDoc(doc(db(),"timetables","complete")));
+    await assertFails(setDoc(doc(db(),"timetableEntries","invalid-entry"),{...entry,id:"invalid-entry",scheduleId:"complete",periodId:"unknown-period"}));
+  });
+});
+
 describe("lecture des classes réellement utilisées",()=>{
   it("autorise le Directeur des études à lire les élèves de son école",async()=>assertSucceeds(getDoc(doc(db(),"students","student-a"))));
   it("refuse une section non attribuée et autorise plusieurs sections",async()=>{await seed("students/student-primary",{schoolId:school,schoolYearId:year,className:"3ème Primaire",section:"Primaire"});await assertFails(getDoc(doc(db(),"students","student-primary")));await seed("users/study_director-user",{id:"study_director-user",role:"study_director",schoolId:school,sectionIds:["Primaire","Secondaire"]});await assertSucceeds(getDoc(doc(db(),"students","student-primary")))});
