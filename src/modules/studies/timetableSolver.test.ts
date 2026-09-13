@@ -64,5 +64,22 @@ describe("moteur déterministe d’horaires",()=>{
   it("refuse une affectation d’une autre école",()=>{const foreign={...assignment("a"),schoolId:"other"};expect(solver.solve(problem([foreign])).failures[0].reason).toContain("hors école")});
   it("refuse une affectation d’une autre année",()=>{const foreign={...assignment("a"),schoolYearId:"other"};expect(solver.solve(problem([foreign])).success).toBe(false)});
   it("reste déterministe",()=>{const input=problem([assignment("a","t","c","m",4)]);expect(solver.solve(input).entries.map(e=>e.id)).toEqual(solver.solve(input).entries.map(e=>e.id))});
+  it("résout sans explosion combinatoire un graphe dense de 260 périodes",()=>{
+    const assignments=Array.from({length:13},(_,teacherIndex)=>{
+      const count=teacherIndex<5?8:7;
+      return Array.from({length:count},(_,assignmentIndex)=>{
+        const weeklyPeriods=teacherIndex<5?(assignmentIndex<4?3:2):(assignmentIndex<6?3:2);
+        return assignment(`dense-${teacherIndex}-${assignmentIndex}`,`teacher-${teacherIndex}`,`class-${(teacherIndex*7+assignmentIndex*3)%23}`,`subject-${teacherIndex}-${assignmentIndex}`,weeklyPeriods);
+      });
+    }).flat();
+    const periods=Array.from({length:4},(_,index)=>period(`p${index+1}`,index+1));
+    const input=problem(assignments,periods);
+    const result=solver.solve(input,{maxBranches:1000,timeoutMs:5000});
+    expect(assignments).toHaveLength(96);
+    expect(assignments.reduce((total,item)=>total+item.weeklyPeriods,0)).toBe(260);
+    expect(result.success).toBe(true);
+    expect(result.entries).toHaveLength(260);
+    expect(result.statistics.exploredBranches).toBeLessThan(1000);
+  });
   it("échoue proprement à la limite d’itérations",()=>{const result=solver.solve(problem([assignment("a")]),{maxBranches:0});expect(result.success).toBe(false);expect(result.statistics.timedOut).toBe(true)});
 });

@@ -40,7 +40,7 @@ export function StudySchedulesModule({ user, school, year, data }: { user: AppUs
       if (!data.generationReady) throw new Error("Les données pédagogiques sont encore en cours de chargement.");
       if (!personnel.assignments.length) throw new Error("Aucune affectation active.");
       if (!getActiveCoursePeriods(data.periods).length) throw new Error("Aucun créneau horaire configuré.");
-      const result = solver.solve(problem, { timeoutMs: 750, maxBranches: 100000 });
+      const result = solver.solve(problem, { timeoutMs: 5000, maxBranches: 100000 });
       if (!result.success) throw new Error(`Impossible de générer l’horaire : ${result.failures.map((item) => item.reason).join(" ")}`);
       const check = validateTimetable(problem, result.entries);
       if (!check.valid) throw new Error(check.errors.map((item) => item.message).join(" "));
