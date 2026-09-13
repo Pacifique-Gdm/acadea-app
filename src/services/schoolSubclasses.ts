@@ -93,7 +93,17 @@ export function operationalSchoolClasses<T extends OperationalClass>(classes: re
     const className = section === "Secondaire" && option ? item.name.replace(/\s+Humanit[ée]s?$/i, "").trim() || item.name : item.name;
     const label = [className, option && !normalizedClassName(className).includes(normalizedClassName(option)) ? option : "", item.subClassLabel && !item.name.endsWith(item.subClassLabel) ? item.subClassLabel : ""].filter(Boolean).join(" ");
     const key = normalizedClassName(label);
-    if (!unique.has(key)) unique.set(key, { ...item, name: label, section, ...(parentClassId ? { parentClassId } : {}), ...(classOptionKey ? { classOptionKey } : {}), ...(option ? { option } : {}) });
+    if (!unique.has(key)) unique.set(key, {
+      ...item,
+      name: label,
+      section,
+      ...(parentClassId ? { parentClassId } : {}),
+      ...(classOptionKey ? { classOptionKey } : {}),
+      ...(option ? { option } : {}),
+      ...(parent?.vacation ? { vacation: parent.vacation } : {}),
+      ...(parent?.saturdayEnabled !== undefined ? { saturdayEnabled: parent.saturdayEnabled } : {}),
+      ...(parent?.saturdayVacation !== undefined ? { saturdayVacation: parent.saturdayVacation } : {}),
+    });
   });
   return [...unique.values()].sort((first, second) => first.name.localeCompare(second.name, "fr", { numeric: true, sensitivity: "base" }));
 }
@@ -145,6 +155,9 @@ export function canonicalOperationalClasses(
         section,
         option,
         ...(optionKey ? { classOptionKey: optionKey, parentClassId: parent?.id } : {}),
+        ...(parent?.vacation ? { vacation: parent.vacation } : {}),
+        ...(parent?.saturdayEnabled !== undefined ? { saturdayEnabled: parent.saturdayEnabled } : {}),
+        ...(parent?.saturdayVacation !== undefined ? { saturdayVacation: parent.saturdayVacation } : {}),
         active: true,
       });
     });

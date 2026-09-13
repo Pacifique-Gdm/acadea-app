@@ -147,6 +147,38 @@ describe("secondary class plus option resolution", () => {
     expect(classesWithEnrolledStudents(operational, [scientific], "school-a", "year-a").map((item) => item.name)).toEqual(["1ère Scientifique"]);
   });
 
+  it("inherits the parent vacation for materialized and student-derived option classes", () => {
+    const parent = base("secondary-1", {
+      name: "1ère Humanité",
+      section: "Secondaire",
+      vacation: "afternoon",
+      saturdayEnabled: true,
+      saturdayVacation: "morning",
+    });
+    const optionId = schoolClassOptionKey(parent.id, "Commerciale");
+    const materialized = base(optionId, {
+      name: "1ère Commerciale",
+      parentClassId: parent.id,
+      classOptionKey: optionId,
+      option: "Commerciale",
+      vacation: "morning",
+    });
+    const enrolled = student({ classId: parent.id, option: "Commerciale", classOptionKey: optionId });
+
+    expect(operationalSchoolClasses([parent, materialized], "school-a", "year-a", ["Secondaire"])[0]).toMatchObject({
+      id: optionId,
+      vacation: "afternoon",
+      saturdayEnabled: true,
+      saturdayVacation: "morning",
+    });
+    expect(canonicalOperationalClasses([parent], [enrolled], "school-a", "year-a", ["Secondaire"])[0]).toMatchObject({
+      id: optionId,
+      vacation: "afternoon",
+      saturdayEnabled: true,
+      saturdayVacation: "morning",
+    });
+  });
+
   it("preserves the vacation of a materialized option class reconciled by a secondary enrolment", () => {
     const classId = schoolClassOptionKey("secondary-1", "Littéraire");
     const materialized = base(classId, {

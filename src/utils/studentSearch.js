@@ -22,9 +22,22 @@ function prefixes(value) {
   return [...values];
 }
 
+function matriculeFragments(value) {
+  const normalized = normalizeStudentSearch(value);
+  if (normalized.length < 2) return [];
+  const values = new Set();
+  for (let start = 0; start < normalized.length - 1; start += 1) {
+    for (let end = start + 2; end <= normalized.length; end += 1) {
+      values.add(normalized.slice(start, end));
+    }
+  }
+  return [...values];
+}
+
 export function studentSearchFields(student) {
   const searchPrefixes = [...new Set([
     ...prefixes(student?.matricule),
+    ...matriculeFragments(student?.matricule),
     ...prefixes(student?.nom),
     ...prefixes(student?.postnom),
     ...prefixes(student?.prenom),
