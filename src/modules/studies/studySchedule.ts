@@ -1,13 +1,31 @@
-import type { SchedulePeriod, StudyDay, TeacherAvailability, Timetable } from "./studyTypes";
+import type { SchedulePeriod, StudyDay, TeacherAvailability, Timetable, TimetableEntry } from "./studyTypes";
 export const STUDY_DAYS: StudyDay[]=["monday","tuesday","wednesday","thursday","friday","saturday"];
 export const DAY_LABELS:Record<StudyDay,string>={monday:"Lundi",tuesday:"Mardi",wednesday:"Mercredi",thursday:"Jeudi",friday:"Vendredi",saturday:"Samedi"};
 const ALL_DAY_LABELS: Record<string, string> = { ...DAY_LABELS, sunday: "Dimanche" };
+const STUDY_DAY_ORDER: Record<string, number> = { monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6, sunday: 7 };
 export function studyDayLabel(day: string) { return ALL_DAY_LABELS[day] ?? day; }
 export function schedulePeriodLabel(periodId: string, periods: SchedulePeriod[]) {
   const period = periods.find((item) => item.id === periodId);
   if (!period) return "Période inconnue";
+  const coursePeriods = periods.filter((item) => item.active && item.type === "course" && (item.vacation ?? "morning") === (period.vacation ?? "morning") && (item.dayScope ?? "weekdays") === (period.dayScope ?? "weekdays")).sort((left, right) => left.order - right.order || left.startTime.localeCompare(right.startTime));
+  const courseIndex = coursePeriods.findIndex((item) => item.id === period.id);
+  const periodNumber = courseIndex >= 0 ? courseIndex + 1 : period.order;
   const timeRange = period.startTime && period.endTime ? `${period.startTime} – ${period.endTime}` : "";
-  return [period.label.trim(), timeRange].filter(Boolean).join(" — ") || "Période inconnue";
+  return [`Période ${periodNumber}`, timeRange].filter(Boolean).join(" — ");
+}
+export function sortTimetableEntriesForDisplay(entries: TimetableEntry[], periods: SchedulePeriod[]) {
+  const periodById = new Map(periods.map((period) => [period.id, period]));
+  return [...entries].sort((left, right) => {
+    const leftPeriod = periodById.get(left.periodId);
+    const rightPeriod = periodById.get(right.periodId);
+    return (STUDY_DAY_ORDER[left.dayOfWeek] ?? Number.MAX_SAFE_INTEGER) - (STUDY_DAY_ORDER[right.dayOfWeek] ?? Number.MAX_SAFE_INTEGER)
+      || (leftPeriod?.order ?? Number.MAX_SAFE_INTEGER) - (rightPeriod?.order ?? Number.MAX_SAFE_INTEGER)
+      || (leftPeriod?.startTime ?? "").localeCompare(rightPeriod?.startTime ?? "")
+      || left.classId.localeCompare(right.classId)
+      || left.teacherId.localeCompare(right.teacherId)
+      || left.subjectId.localeCompare(right.subjectId)
+      || left.id.localeCompare(right.id);
+  });
 }
 export function completedStudyTimetables(items: Timetable[]) {
   return items.filter((item) => item.persistenceState !== "PENDING");
