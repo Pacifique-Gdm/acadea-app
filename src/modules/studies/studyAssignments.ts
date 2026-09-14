@@ -5,9 +5,14 @@ import type { StudyClass } from "./studyTypes";
 
 export const MAX_WEEKLY_PERIODS = 60;
 export const SUBJECT_RENAME_CONFIRMATION = "MODIFIER NOM DE CE COURS";
+export const ASSIGNMENT_DEACTIVATION_CONFIRMATION = "DESACTIVER CE COURS";
 
 export function subjectRenameConfirmed(value: string) {
   return value === SUBJECT_RENAME_CONFIRMATION;
+}
+
+export function assignmentDeactivationConfirmed(value: string) {
+  return value.trim() === ASSIGNMENT_DEACTIVATION_CONFIRMATION;
 }
 
 export function pedagogicalAssignmentId(input: Pick<PedagogicalAssignment, "schoolId" | "schoolYearId" | "teacherId" | "subjectId" | "classId" | "courseScope" | "targetOptionIds" | "studentGroupKey">) {

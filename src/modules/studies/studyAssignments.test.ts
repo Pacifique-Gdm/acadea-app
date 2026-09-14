@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PedagogicalAssignment, StudySubject, StudyTeacher } from "./studyTypes";
-import { assignmentsForClasses, hasActiveAssignmentDuplicate, hasActiveSubjectClassConflict, pedagogicalAssignmentId, pedagogicalAssignmentSaveErrorMessage, studyDashboardMetrics, SUBJECT_RENAME_CONFIRMATION, subjectRenameConfirmed, subjectsReferencedByAssignments, teacherWorkload, validateWeeklyPeriods } from "./studyAssignments";
+import { ASSIGNMENT_DEACTIVATION_CONFIRMATION, assignmentDeactivationConfirmed, assignmentsForClasses, hasActiveAssignmentDuplicate, hasActiveSubjectClassConflict, pedagogicalAssignmentId, pedagogicalAssignmentSaveErrorMessage, studyDashboardMetrics, SUBJECT_RENAME_CONFIRMATION, subjectRenameConfirmed, subjectsReferencedByAssignments, teacherWorkload, validateWeeklyPeriods } from "./studyAssignments";
 
 const teacher = (id: string, status: StudyTeacher["status"] = "active"): StudyTeacher => ({ id, schoolId: "school-a", schoolYearId: "year-a", firstName: id, lastName: "Test", fullName: `${id} Test`, status, createdAt: "now", updatedAt: "now", createdBy: "director-a" });
 const assignment = (teacherId: string, subjectId: string, classId: string, weeklyPeriods: number, active = true): PedagogicalAssignment => {
@@ -45,6 +45,11 @@ describe("affectations pédagogiques", () => {
   it("exige la confirmation de renommage exacte et non préfixée", () => {
     expect(subjectRenameConfirmed(SUBJECT_RENAME_CONFIRMATION)).toBe(true);
     for (const value of ["", "modifier nom de ce cours", "MODIFIER NOM", `${SUBJECT_RENAME_CONFIRMATION} `]) expect(subjectRenameConfirmed(value)).toBe(false);
+  });
+  it("exige la confirmation forte exacte avant de désactiver un cours", () => {
+    expect(assignmentDeactivationConfirmed(ASSIGNMENT_DEACTIVATION_CONFIRMATION)).toBe(true);
+    expect(assignmentDeactivationConfirmed(` ${ASSIGNMENT_DEACTIVATION_CONFIRMATION} `)).toBe(true);
+    for (const value of ["", "desactiver ce cours", "Désactiver ce cours", "DESACTIVER LE COURS", `${ASSIGNMENT_DEACTIVATION_CONFIRMATION} 123`]) expect(assignmentDeactivationConfirmed(value)).toBe(false);
   });
   it("calcule le dashboard et les enseignants sans affectation", () => {
     expect(studyDashboardMetrics([teacher("teacher-a"), teacher("teacher-b"), teacher("teacher-c", "inactive")], [assignment("teacher-a", "math", "4a", 4), assignment("teacher-a", "physics", "5a", 2), assignment("teacher-b", "history", "4a", 8, false)])).toEqual({ teachers: 2, subjects: 2, assignments: 2, workload: 6, teachersWithoutAssignment: 1 });

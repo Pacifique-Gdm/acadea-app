@@ -114,6 +114,7 @@ export interface Timetable {
     exploredBranches: number;
     durationMs: number;
     maxSameAssignmentPeriodsPerDay: number;
+    sourceFingerprint?: string;
   };
 }
 
