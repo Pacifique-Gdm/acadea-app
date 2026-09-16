@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AppData, AppUser, ParentProfile, Student } from "../types";
-import { applyParentLinkResult, applyParentUnlinkResult, isExactParentLinkConfirmation, isExactParentStudentUnlinkConfirmation, isExactParentUnlinkConfirmation, PARENT_LINK_CONFIRMATION, PARENT_STUDENT_UNLINK_CONFIRMATION, PARENT_UNLINK_CONFIRMATION, reconcileStudentParentMembership } from "./parentStudentLink";
+import { applyParentLinkResult, applyParentUnlinkResult, isExactParentLinkConfirmation, isExactParentStudentUnlinkConfirmation, isExactParentUnlinkConfirmation, PARENT_LINK_CONFIRMATION, PARENT_STUDENT_UNLINK_CONFIRMATION, PARENT_UNLINK_CONFIRMATION, reconcileStudentParentMembership, studentBeforeParentMutation } from "./parentStudentLink";
 
 const studentA = { id: "student-a", parentId: "parent-a" } as Student;
 const studentB = { id: "student-b", parentId: "parent-a" } as Student;
@@ -81,5 +81,10 @@ describe("liaison Parent ↔ Élève", () => {
     const result = reconcileStudentParentMembership([parentA, parentB], "student-a", "parent-b");
     expect(result[0].studentIds).toEqual(["student-b"]);
     expect(result[1].studentIds).toEqual(["student-a"]);
+  });
+
+  it("ne change pas la relation persistée avant la transaction serveur", () => {
+    expect(studentBeforeParentMutation({ ...studentA, parentId: "parent-b" }, "parent-a").parentId).toBe("parent-a");
+    expect(studentBeforeParentMutation({ ...studentA, parentId: "parent-b" }).parentId).toBeUndefined();
   });
 });

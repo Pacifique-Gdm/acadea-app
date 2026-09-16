@@ -3,10 +3,10 @@ import { Download, Edit3, Eye, Plus, RefreshCw, RotateCcw, Search, Trash2 } from
 import { StudentForm } from "../../components/students/StudentForm";
 import { AdminDrawer, IconButton, SectionTitle } from "../../components/ui";
 import { persistFirestorePatch } from "../../services/firestoreData";
-import { provisionParent, requestTerminalStudentReenrollment } from "../../services/provisioning";
+import { linkParentToStudent, provisionParent, requestTerminalStudentReenrollment, unlinkParentFromStudent } from "../../services/provisioning";
 import { createAuditLog } from "../../utils/audit";
 import { nextParentEmail, parentEmailExists } from "../../utils/parents";
-import { reconcileStudentParentMembership } from "../../utils/parentStudentLink";
+import { applyParentLinkResult, applyParentUnlinkResult, PARENT_LINK_CONFIRMATION, PARENT_UNLINK_CONFIRMATION, studentBeforeParentMutation } from "../../utils/parentStudentLink";
 import { getSchoolClassChoices, getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
 import { canonicalSchoolOption, normalizeSchoolOptions } from "../../utils/schoolOptions";
 import { persistSchoolOption } from "../../services/schoolOptionsRepository";
@@ -282,29 +282,11 @@ export function StudentsModule({
       if (student.section !== "Secondaire" || !student.option) delete student.option;
       if (!student.classId) delete student.classId;
       if (!student.subClassId) delete student.subClassId;
-      if (selectedParentId && !pendingParentForStudent) {
-        student.parentId = selectedParentId;
-      } else {
-        delete student.parentId;
-      }
-      const parents = reconcileStudentParentMembership(data.parents, student.id, student.parentId);
-      const users = data.users.map((item) => {
-        if (item.role !== "parent" || !item.parentId) return item;
-        const parent = parents.find((parentItem) => parentItem.id === item.parentId);
-        return parent ? { ...item, studentIds: parent.studentIds } : item;
-      });
-      const nextStudents = exists ? studentRecords.map((item) => (item.id === student.id ? student : item)) : [...studentRecords, student];
-      const changedParents = parents.filter((parent) => {
-        const previousParent = data.parents.find((item) => item.id === parent.id);
-        return previousParent && previousParent.studentIds.join("|") !== parent.studentIds.join("|");
-      });
-      const auditLog = createAuditLog(user, school.id, targetYearId, exists ? "Modification élève" : "Création élève", `${student.matricule} - ${student.nom} ${student.prenom}`, uid);
+      const previousParentId = studentRecords.find((item) => item.id === student.id)?.parentId;
+      const persistedStudent = studentForPersistence(studentBeforeParentMutation(student, previousParentId));
+      const nextStudents = exists ? studentRecords.map((item) => (item.id === student.id ? persistedStudent : item)) : [...studentRecords, persistedStudent];
       await persistFirestorePatch(
-        {
-          students: [student],
-          ...(changedParents.length ? { parents: changedParents } : {}),
-          auditLogs: [auditLog],
-        },
+        { students: [persistedStudent] },
         { throwOnError: true },
       );
 
@@ -325,9 +307,8 @@ export function StudentsModule({
           const linkedStudent = { ...student, parentId: provisioned.parent.id };
           updateData({
             students: [...nextStudents.filter((item) => item.id !== linkedStudent.id), linkedStudent],
-            parents: [...parents.filter((item) => item.id !== provisioned.parent.id), provisioned.parent],
-            users: [...users.filter((item) => item.id !== provisioned.user.id), provisioned.user],
-            auditLogs: [auditLog, ...data.auditLogs],
+            parents: [...data.parents.filter((item) => item.id !== provisioned.parent.id), provisioned.parent],
+            users: [...data.users.filter((item) => item.id !== provisioned.user.id), provisioned.user],
           }, { persist: false });
           setPendingQuickParent(undefined);
           setForm(emptyCurrentStudent());
@@ -339,23 +320,56 @@ export function StudentsModule({
         } catch (error) {
           updateData({
             students: nextStudents,
-            parents,
-            users,
-            auditLogs: [auditLog, ...data.auditLogs],
           }, { persist: false });
-          setForm(student);
+          setForm(persistedStudent);
           setSaveError(error instanceof Error
             ? `L’élève a été enregistré, mais le compte Parent n’a pas pu être créé : ${error.message}`
             : "L’élève a été enregistré, mais le compte Parent n’a pas pu être créé. Vous pouvez reprendre la liaison depuis sa fiche.");
           return;
         }
       }
-      updateData({
-        students: nextStudents,
-        parents,
-        users,
-        auditLogs: [auditLog, ...data.auditLogs],
-      }, { persist: false });
+
+      if (selectedParentId) {
+        try {
+          const result = await linkParentToStudent({
+            schoolId: school.id,
+            schoolYearId: targetYearId,
+            studentId: student.id,
+            parentId: selectedParentId,
+            confirmation: PARENT_LINK_CONFIRMATION,
+          });
+          const linked = applyParentLinkResult({ students: nextStudents, parents: data.parents, users: data.users }, result);
+          updateData(linked, { persist: false });
+        } catch (error) {
+          updateData({ students: nextStudents }, { persist: false });
+          setForm(persistedStudent);
+          setSaveError(error instanceof Error
+            ? `L’élève a été enregistré, mais la liaison au parent n’a pas pu être confirmée : ${error.message}`
+            : "L’élève a été enregistré, mais la liaison au parent n’a pas pu être confirmée.");
+          return;
+        }
+      } else if (previousParentId) {
+        try {
+          const result = await unlinkParentFromStudent({
+            schoolId: school.id,
+            schoolYearId: targetYearId,
+            studentId: student.id,
+            parentId: previousParentId,
+            confirmation: PARENT_UNLINK_CONFIRMATION,
+          });
+          const unlinked = applyParentUnlinkResult({ students: nextStudents, parents: data.parents, users: data.users }, result);
+          updateData(unlinked, { persist: false });
+        } catch (error) {
+          updateData({ students: nextStudents }, { persist: false });
+          setForm(persistedStudent);
+          setSaveError(error instanceof Error
+            ? `Les modifications de l’élève ont été enregistrées, mais la déliaison du parent a échoué : ${error.message}`
+            : "Les modifications de l’élève ont été enregistrées, mais la déliaison du parent a échoué.");
+          return;
+        }
+      } else {
+        updateData({ students: nextStudents }, { persist: false });
+      }
       setForm(emptyCurrentStudent());
       setPendingQuickParent(undefined);
       setQuickParent({ fullName: "", phone: "", email: "", password: "" });

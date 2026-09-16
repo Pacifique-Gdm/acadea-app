@@ -67,8 +67,8 @@ describe("flux de soumission du formulaire élève", () => {
 
   it("attend l'écriture, met à jour sans doublon, puis ferme et réinitialise après succès", () => {
     expect(moduleSource).toContain("await persistFirestorePatch(");
-    expect(moduleSource).toContain("studentRecords.map((item) => (item.id === student.id ? student : item))");
-    expect(moduleSource).toContain("[...studentRecords, student]");
+    expect(moduleSource).toContain("studentRecords.map((item) => (item.id === student.id ? persistedStudent : item))");
+    expect(moduleSource).toContain("[...studentRecords, persistedStudent]");
     expect(moduleSource).toContain("setForm(emptyCurrentStudent());");
     expect(moduleSource).toContain("setShowForm(false);");
   });
@@ -89,5 +89,13 @@ describe("flux de soumission du formulaire élève", () => {
   it("réindexe aussi les changements d'archivage et de réactivation", () => {
     expect(moduleSource).toContain("? studentForPersistence({");
     expect(moduleSource).toContain("return studentForPersistence(activeStudent);");
+  });
+
+  it("confirme la liaison parent côté serveur avant tout message de succès", () => {
+    expect(moduleSource).toContain("await linkParentToStudent({");
+    expect(moduleSource).toContain("await unlinkParentFromStudent({");
+    expect(moduleSource).toContain("studentBeforeParentMutation(student, previousParentId)");
+    expect(moduleSource).toContain("L’élève a été enregistré, mais la liaison au parent n’a pas pu être confirmée");
+    expect(moduleSource).not.toContain("students: [student],\n          ...(changedParents.length ? { parents: changedParents } : {}),\n          auditLogs: [auditLog]");
   });
 });

@@ -154,11 +154,8 @@ export function StudentForm({
       </div>}
       <label className="grid gap-1 text-sm font-medium text-slate-700">
         Classe
-        <select value={form.classId || form.className} onChange={(event) => { const selected = structuredClasses.find((item) => item.id === event.target.value); setForm({ ...form, classId: selected?.id, className: (selected?.name ?? event.target.value) as SchoolClass, option: undefined, classOptionKey: undefined, subClassId: undefined }); }} className="input">
-          {structuredClasses.filter((item) => !item.parentClassId && item.active !== false).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-          {classChoices.map((className) => (
-            structuredClasses.some((item) => !item.parentClassId && item.name === className) ? null : <option key={className} value={className}>{className}</option>
-          ))}
+        <select value={form.className} onChange={(event) => { const selected = structuredClasses.find((item) => !item.parentClassId && item.active !== false && item.name === event.target.value); setForm({ ...form, classId: selected?.id, className: event.target.value as SchoolClass, option: undefined, classOptionKey: undefined, subClassId: undefined }); }} className="input">
+          {classChoices.map((className) => <option key={className} value={className}>{className}</option>)}
         </select>
       </label>
       {isSecondaryClass && (

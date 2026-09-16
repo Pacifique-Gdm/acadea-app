@@ -1,4 +1,4 @@
-import type { AppData, ParentProfile } from "../types";
+import type { AppData, ParentProfile, Student } from "../types";
 
 export const PARENT_UNLINK_CONFIRMATION = "DÉLIER LE PARENT";
 export const PARENT_LINK_CONFIRMATION = "LIER À CE PARENT";
@@ -51,6 +51,14 @@ export function applyParentLinkResult(data: Pick<AppData, "students" | "parents"
       return user;
     }),
   };
+}
+
+/** Keeps the persisted relation unchanged until the secured server transaction succeeds. */
+export function studentBeforeParentMutation(student: Student, previousParentId?: string) {
+  const next = { ...student };
+  if (previousParentId) next.parentId = previousParentId;
+  else delete next.parentId;
+  return next;
 }
 
 /** Keeps stable membership ordering when the selected parent did not change. */

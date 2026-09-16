@@ -19,7 +19,7 @@ describe("création rapide différée d'un Parent", () => {
     expect(source).toContain("pendingQuickParent?.parentId === selectedParentId");
     expect(source).not.toContain("!exists && pendingQuickParent?.parentId === selectedParentId");
     expect(source).toContain("L’élève a été enregistré, mais le compte Parent n’a pas pu être créé");
-    expect(source).toContain("setForm(student)");
+    expect(source).toContain("setForm(persistedStudent)");
     expect(source).toContain("provisioned.parent.id");
     expect(source).toContain("provisioned.parent");
     expect(source).toContain("provisioned.user");
