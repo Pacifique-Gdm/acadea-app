@@ -6,7 +6,7 @@ import { AdminDrawer, MultiSelectDropdown } from "../../components/ui";
 import type { AppUser, School, SchoolYear } from "../../types";
 import { ASSIGNMENT_DEACTIVATION_CONFIRMATION, assignmentDeactivationConfirmed, hasActiveSubjectClassConflict, pedagogicalAssignmentSaveErrorMessage, SUBJECT_RENAME_CONFIRMATION, subjectRenameConfirmed, teacherWorkload, validateWeeklyPeriods } from "./studyAssignments";
 import { createStudySubject, renameStudySubject, savePedagogicalAssignments, savePrimaryHomeroomAssignments, setPedagogicalAssignmentActive } from "./studyService";
-import type { PedagogicalAssignment, StudyTeacher } from "./studyTypes";
+import type { AssignmentSessionPattern, PedagogicalAssignment, StudyTeacher } from "./studyTypes";
 import type { useStudyData } from "./useStudyData";
 import { TeacherAvailabilityDrawer, TeacherAvailabilitySummary } from "./TeacherAvailabilityDrawer";
 import { classesWithEnrolledStudents } from "../../services/schoolSubclasses";
@@ -17,6 +17,8 @@ import { replaceStudySubjectFeedbackTimer } from "./studySubjectFeedback";
 import { resolveAttendanceSchoolDays } from "../../utils/attendance";
 import { teacherCardAssignments } from "./studyPersonnel";
 import { assignmentScopeLabel, baseStudyClassId, classOptionId, logicalStudyClasses, normalizedAssignmentScope, optionClassesForBaseClass, validateAssignmentClassSelection, type AssignmentClassSelection, type CourseScope } from "./studyCourseScope";
+import { canonicalAssignmentBlockSizes, validateAssignmentSessionPattern } from "./assignmentSessionPattern";
+import { maxConsecutiveCoursePeriods } from "./studySchedule";
 
 export function StudyTeachersModule({ user, school, year, data }: { user: AppUser; school: School; year: SchoolYear; data: ReturnType<typeof useStudyData> }) {
   const { teachers, subjects, classes, sourceClasses, students, assignments, error: realtimeError } = data;
@@ -29,6 +31,8 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
   const [classIds, setClassIds] = useState<string[]>([]);
   const [classScopes, setClassScopes] = useState<Record<string, { courseScope: CourseScope | ""; targetOptionIds: string[] }>>({});
   const [weeklyPeriods, setWeeklyPeriods] = useState("1");
+  const [sessionMode, setSessionMode] = useState<"normal" | "blocks">("normal");
+  const [sessionBlocks, setSessionBlocks] = useState<number[]>([1]);
   const [titularClassIds, setTitularClassIds] = useState<string[]>([]);
   const [active, setActive] = useState(true);
   const [feedback, setFeedback] = useState("");
@@ -64,6 +68,7 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
   }), [assignmentScopeClasses, assignments, classes, data.titulars, subjects, teachers]);
   const archivedTeachers = useMemo(() => teachers.filter((teacher) => teacher.status === "inactive"), [teachers]);
   const schoolDays = useMemo(() => resolveAttendanceSchoolDays(data.attendanceSettings), [data.attendanceSettings]);
+  const maximumBlockSize = useMemo(() => Math.max(1, maxConsecutiveCoursePeriods(data.periods)), [data.periods]);
 
   function openAssignment(current?: PedagogicalAssignment, preselectedTeacher?: StudyTeacher) {
     setEditingAssignment(current);
@@ -78,6 +83,10 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
       setClassScopes(normalized.optionIds ? { [currentBaseClassId]: { courseScope: current.courseScope ?? "option", targetOptionIds: normalized.optionIds } } : {});
     } else setClassScopes({});
     setWeeklyPeriods(String(current?.weeklyPeriods ?? 1));
+    const legacyBlocks = current && (current.blockSize ?? 1) > 1 ? canonicalAssignmentBlockSizes(current) : undefined;
+    const configuredBlocks = current?.sessionPattern?.blocks ?? legacyBlocks;
+    setSessionMode(configuredBlocks ? "blocks" : "normal");
+    setSessionBlocks(configuredBlocks ? [...configuredBlocks] : [Math.min(current?.weeklyPeriods ?? 1, maximumBlockSize)]);
     setTitularClassIds(current ? data.titulars.filter((item) => item.teacherId === nextTeacherId && item.classId === current.classId && item.active).map((item) => item.classId) : []);
     setActive(current?.active ?? true);
     setFeedback("");
@@ -128,6 +137,9 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
     const periods = Number(weeklyPeriods);
     const periodError = validateWeeklyPeriods(periods);
     if (periodError) return setFeedback(periodError);
+    const sessionPattern: AssignmentSessionPattern | null = sessionMode === "blocks" ? { mode: "blocks", blocks: sessionBlocks } : null;
+    const patternError = validateAssignmentSessionPattern(periods, sessionPattern, maximumBlockSize, schoolDays.length);
+    if (patternError) return setFeedback(patternError);
     const savedSubjectIds = primaryMode ? applicableSubjects.map(item => item.id) : subjectIds;
     const savedClassIds = primaryMode ? classIds.slice(0, 1) : classIds;
     const classSelections: AssignmentClassSelection[] = savedClassIds.map((classId) => {
@@ -145,9 +157,9 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
     if (titularClassIds.some((classId) => data.titulars.some((item) => item.active && item.classId === classId && item.teacherId !== teacherId))) return setFeedback("Une classe opérationnelle sélectionnée possède déjà un autre titulaire actif.");
     setBusy(true); setFeedback("");
     try {
-      if (editingAssignment) await savePedagogicalAssignments({ user, schoolId: school.id, schoolYearId: year.id, teacherId, subjectIds: savedSubjectIds, classIds: savedClassIds, classSelections, knownClasses: assignmentScopeClasses, legacyClasses: assignmentClasses.filter((item) => savedClassIds.includes(item.id) && !sourceClasses.some((current) => current.id === item.id)), weeklyPeriods: periods, titularClassIds, existingTitulars: data.titulars, active, current: editingAssignment });
-      else if (primaryMode) await savePrimaryHomeroomAssignments({ user, schoolId: school.id, schoolYearId: year.id, teacherId, subjectIds: savedSubjectIds, classId: savedClassIds[0], legacyClass: assignmentClasses.find((item) => item.id === savedClassIds[0] && !sourceClasses.some((current) => current.id === item.id)), weeklyPeriods: periods, active });
-      else await savePedagogicalAssignments({ user, schoolId: school.id, schoolYearId: year.id, teacherId, subjectIds:savedSubjectIds, classIds:savedClassIds, classSelections, knownClasses: assignmentScopeClasses, legacyClasses: assignmentClasses.filter((item) => savedClassIds.includes(item.id) && !sourceClasses.some((current) => current.id === item.id)), weeklyPeriods: periods, titularClassIds, existingTitulars: data.titulars, active });
+      if (editingAssignment) await savePedagogicalAssignments({ user, schoolId: school.id, schoolYearId: year.id, teacherId, subjectIds: savedSubjectIds, classIds: savedClassIds, classSelections, knownClasses: assignmentScopeClasses, legacyClasses: assignmentClasses.filter((item) => savedClassIds.includes(item.id) && !sourceClasses.some((current) => current.id === item.id)), weeklyPeriods: periods, sessionPattern, titularClassIds, existingTitulars: data.titulars, active, current: editingAssignment });
+      else if (primaryMode) await savePrimaryHomeroomAssignments({ user, schoolId: school.id, schoolYearId: year.id, teacherId, subjectIds: savedSubjectIds, classId: savedClassIds[0], legacyClass: assignmentClasses.find((item) => item.id === savedClassIds[0] && !sourceClasses.some((current) => current.id === item.id)), weeklyPeriods: periods, sessionPattern, active });
+      else await savePedagogicalAssignments({ user, schoolId: school.id, schoolYearId: year.id, teacherId, subjectIds:savedSubjectIds, classIds:savedClassIds, classSelections, knownClasses: assignmentScopeClasses, legacyClasses: assignmentClasses.filter((item) => savedClassIds.includes(item.id) && !sourceClasses.some((current) => current.id === item.id)), weeklyPeriods: periods, sessionPattern, titularClassIds, existingTitulars: data.titulars, active });
       setAssignmentOpen(false);
     } catch (cause) { console.error("Enregistrement de l’affectation impossible.", cause); setFeedback(pedagogicalAssignmentSaveErrorMessage(cause)); }
     finally { setBusy(false); }
@@ -227,6 +239,7 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
         return <fieldset key={classId} className="grid min-w-0 gap-3 rounded border border-blue-100 bg-blue-50/40 p-3"><legend className="px-1 text-sm font-bold">Organisation du cours — {schoolClass.name}</legend><label className="grid gap-1 text-sm font-semibold">Type de cours<select className="input min-w-0 w-full" value={scope.courseScope} onChange={(event) => setClassScopes((current) => ({ ...current, [classId]: { courseScope: event.target.value as CourseScope, targetOptionIds: [] } }))}><option value="">Choisir</option><option value="common">Tronc commun</option><option value="option">Cours d’option</option></select></label>{scope.courseScope === "common" && <MultiSelectDropdown label="Options concernées" options={options.map((item) => ({ value: classOptionId(item)!, label: item.option ?? item.name }))} values={scope.targetOptionIds} onChange={(targetOptionIds) => setClassScopes((current) => ({ ...current, [classId]: { courseScope: "common", targetOptionIds } }))} placeholder="Sélectionner au moins deux options" />}{scope.courseScope === "option" && <label className="grid gap-1 text-sm font-semibold">Option concernée<select className="input min-w-0 w-full" value={scope.targetOptionIds[0] ?? ""} onChange={(event) => setClassScopes((current) => ({ ...current, [classId]: { courseScope: "option", targetOptionIds: event.target.value ? [event.target.value] : [] } }))}><option value="">Choisir</option>{options.map((item) => <option key={classOptionId(item)} value={classOptionId(item)}>{item.option ?? item.name}</option>)}</select></label>}</fieldset>;
       })}
       <label className="grid gap-1 text-sm font-semibold">Nombre de périodes hebdomadaires<input className="input" type="number" min={1} max={60} step={1} value={weeklyPeriods} onChange={(event) => setWeeklyPeriods(event.target.value)} /></label>
+      <fieldset className="grid min-w-0 gap-3 rounded border border-slate-200 p-3"><legend className="px-1 text-sm font-bold">Organisation des périodes</legend><label className="flex items-center gap-2 text-sm"><input type="radio" name="session-mode" value="normal" checked={sessionMode === "normal"} onChange={() => setSessionMode("normal")} /> Répartition normale</label><label className="flex items-center gap-2 text-sm"><input type="radio" name="session-mode" value="blocks" checked={sessionMode === "blocks"} onChange={() => { setSessionMode("blocks"); if (!sessionBlocks.length) setSessionBlocks([1]); }} /> Blocs consécutifs</label>{sessionMode === "blocks" && <div className="grid min-w-0 gap-3 rounded bg-slate-50 p-3"><div className="grid min-w-0 gap-2">{sessionBlocks.map((block, index) => <div key={`${index}-${block}`} className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]"><label className="grid min-w-0 gap-1 text-sm font-semibold">Bloc {index + 1}<select className="input min-w-0 w-full" aria-label={`Taille du bloc ${index + 1}`} value={block} onChange={(event) => setSessionBlocks((current) => current.map((value, currentIndex) => currentIndex === index ? Number(event.target.value) : value))}>{Array.from({ length: maximumBlockSize }, (_, optionIndex) => optionIndex + 1).map((size) => <option key={size} value={size}>{size} période{size > 1 ? "s" : ""}</option>)}</select></label><button type="button" className="secondary-button self-end justify-center" aria-label={`Supprimer le bloc ${index + 1}`} onClick={() => setSessionBlocks((current) => current.filter((_, currentIndex) => currentIndex !== index))}>Supprimer le bloc</button></div>)}</div><button type="button" className="secondary-button w-full justify-center" disabled={sessionBlocks.length >= schoolDays.length} onClick={() => setSessionBlocks((current) => [...current, 1])}><Plus className="h-4 w-4" /> Ajouter un bloc</button><p className="text-sm font-semibold text-slate-700">Répartition : {sessionBlocks.length ? sessionBlocks.join(" + ") : "0"} = {sessionBlocks.reduce((total, block) => total + block, 0)} périodes/semaine</p></div>}</fieldset>
       <MultiSelectDropdown label="Titulaire de la classe (facultatif)" options={assignmentClasses.filter((item) => classIds.includes(item.id)).map((item) => ({ value: item.id, label: item.name }))} values={titularClassIds} onChange={setTitularClassIds} placeholder={classIds.length ? "Aucune classe titulaire" : "Sélectionnez d’abord les classes"} disabled={classIds.length === 0} />
       {editingAssignment && <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={active} onChange={(event) => setActive(event.target.checked)} /> Affectation active</label>}{feedback && <p role="alert" className="text-sm text-red-700">{feedback}</p>}<div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" disabled={busy} onClick={() => setAssignmentOpen(false)}>Annuler</button><button type="button" className="primary-button justify-center" disabled={busy || !teacherId || teacherSections.length === 0} onClick={() => void submitAssignment()}>{busy ? "Enregistrement…" : "Enregistrer"}</button></div>
     </AdminDrawer>}

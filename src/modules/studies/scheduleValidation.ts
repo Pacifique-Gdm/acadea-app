@@ -1,14 +1,12 @@
-import { isRestDay, teacherAvailableAt } from "./studySchedule";
+import { arePeriodsPedagogicallyConsecutive, isRestDay, teacherAvailableAt } from "./studySchedule";
 import type { PedagogicalAssignment, SchedulePeriod, ScheduleValidationIssue, ScheduleValidationReport, StudyClass, StudyDay, StudySubject, StudyTeacher, TeacherAvailability, TimetableEntry } from "./studyTypes";
 import { assignmentsShareStudents } from "./studyCourseScope";
+import { assignmentUsesDistinctBlockDays, canonicalAssignmentBlockSizes } from "./assignmentSessionPattern";
 
 export interface ScheduleProblem { schoolId:string; schoolYearId:string; teachers?:StudyTeacher[]; subjects?:StudySubject[]; classes?:StudyClass[]; assignments:PedagogicalAssignment[]; availabilities:TeacherAvailability[]; periods:SchedulePeriod[]; days?:StudyDay[]; maxSameAssignmentPeriodsPerDay?:number; }
 
 export function adjacentCoursePeriods(first: SchedulePeriod | undefined, second: SchedulePeriod | undefined, allPeriods: SchedulePeriod[]) {
-  if (!first || !second) return false;
-  const ordered = allPeriods.filter(item => item.active).sort((a,b)=>a.order-b.order || a.startTime.localeCompare(b.startTime));
-  const firstIndex = ordered.findIndex(item=>item.id===first.id);
-  return first.type === "course" && second.type === "course" && firstIndex >= 0 && ordered[firstIndex + 1]?.id === second.id;
+  return Boolean(first && second && arePeriodsPedagogicallyConsecutive([first, second], allPeriods));
 }
 
 export function validateTimetable(problem: ScheduleProblem, entries: TimetableEntry[]): ScheduleValidationReport {
@@ -30,8 +28,19 @@ export function validateTimetable(problem: ScheduleProblem, entries: TimetableEn
   for(const assignment of assignments.values()){
     const assigned=entries.filter(entry=>entry.assignmentId===assignment.id);
     if(assigned.length!==assignment.weeklyPeriods)errors.push({code:"WEEKLY_VOLUME_MISMATCH",message:`${assignment.id} requiert ${assignment.weeklyPeriods} périodes, ${assigned.length} placées.`,entityId:assignment.id,metadata:{required:assignment.weeklyPeriods,actual:assigned.length}});
-    const perDay=new Map<string,number>();assigned.forEach(entry=>perDay.set(entry.dayOfWeek,(perDay.get(entry.dayOfWeek)||0)+1));for(const [day,count] of perDay)if(count>(problem.maxSameAssignmentPeriodsPerDay??2))errors.push({code:"DAILY_ASSIGNMENT_LIMIT",message:"Une affectation dépasse deux périodes dans la journée.",entityId:assignment.id,day:day as TimetableEntry["dayOfWeek"],metadata:{count}});
-    if((assignment.blockSize??1)===2){const groups=new Map(assigned.filter(e=>e.blockId).map(e=>[e.blockId!,assigned.filter(x=>x.blockId===e.blockId)]));if(assigned.length%2!==0||[...groups.values()].some(group=>group.length!==2||group[0].dayOfWeek!==group[1].dayOfWeek||!adjacentCoursePeriods(periods.get(group[0].periodId)!,periods.get(group[1].periodId)!,problem.periods)))errors.push({code:"DOUBLE_PERIOD_BROKEN",message:"Un cours double obligatoire est séparé ou incomplet.",entityId:assignment.id});}
+    const perDay=new Map<string,number>();assigned.forEach(entry=>perDay.set(entry.dayOfWeek,(perDay.get(entry.dayOfWeek)||0)+1));if(!assignmentUsesDistinctBlockDays(assignment))for(const [day,count] of perDay)if(count>(problem.maxSameAssignmentPeriodsPerDay??2))errors.push({code:"DAILY_ASSIGNMENT_LIMIT",message:"Une affectation dépasse deux périodes dans la journée.",entityId:assignment.id,day:day as TimetableEntry["dayOfWeek"],metadata:{count}});
+    if(assignmentUsesDistinctBlockDays(assignment)){
+      const grouped=new Map<string,TimetableEntry[]>();
+      for(const entry of assigned){if(!entry.blockId)continue;grouped.set(entry.blockId,[...(grouped.get(entry.blockId)??[]),entry]);}
+      const groups=[...grouped.values()].map(group=>[...group].sort((left,right)=>(periods.get(left.periodId)?.order??0)-(periods.get(right.periodId)?.order??0)));
+      const expected=canonicalAssignmentBlockSizes(assignment);
+      const actual=groups.map(group=>group.length).sort((left,right)=>left-right);
+      const valid=groups.reduce((total,group)=>total+group.length,0)===assigned.length
+        && JSON.stringify(actual)===JSON.stringify(expected)
+        && new Set(groups.map(group=>group[0]?.dayOfWeek)).size===groups.length
+        && groups.every(group=>group.length>0&&group.every(entry=>entry.dayOfWeek===group[0].dayOfWeek)&&arePeriodsPedagogicallyConsecutive(group.map(entry=>periods.get(entry.periodId)).filter((period):period is SchedulePeriod=>Boolean(period)),problem.periods));
+      if(!valid)errors.push({code:assignment.sessionPattern?"SESSION_PATTERN_BROKEN":"DOUBLE_PERIOD_BROKEN",message:assignment.sessionPattern?"La répartition en blocs consécutifs est séparée, incomplète ou placée plusieurs fois le même jour.":"Un cours double obligatoire est séparé ou incomplet.",entityId:assignment.id});
+    }
   }
   return{valid:errors.length===0,errors,warnings:[],metrics:{entries:entries.length,assignments:assignments.size,teachers:new Set(entries.map(e=>e.teacherId)).size,classes:new Set(entries.map(e=>e.classId)).size,rooms:new Set(entries.map(e=>e.roomId).filter(Boolean)).size}};
 }

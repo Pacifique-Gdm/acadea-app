@@ -110,6 +110,18 @@ describe("Direction des études — affectations pédagogiques", () => {
   it("refuse les périodes nulles, négatives ou excessives", async () => {
     for (const weeklyPeriods of [0, -1, 61]) await assertFails(setDoc(doc(director(), "pedagogicalAssignments", assignmentId), assignment({ weeklyPeriods })));
   });
+  it("autorise un pattern de blocs canonique et refuse les formes ou sommes invalides", async () => {
+    await assertSucceeds(createActiveAssignment(director(), { weeklyPeriods: 9, sessionPattern: { mode: "blocks", blocks: [2, 3, 4] } }));
+    await environment.clearFirestore();
+    await seed(`schools/${school}`, { id: school, status: "active" });
+    await seed(`schoolYears/${year}`, { id: year, schoolId: school, status: "active" });
+    await seed("teachers/teacher-a", { id: "teacher-a", schoolId: school, schoolYearId: year, status: "active", createdBy: "director-a", createdAt: now });
+    await seed("subjects/subject-a", { id: "subject-a", schoolId: school, schoolYearId: year, name: "Mathématiques", active: true, createdBy: "director-a", createdAt: now });
+    await seed("classes/class-a", { id: "class-a", schoolId: school, schoolYearId: year, name: "4e A", active: true });
+    await assertFails(createActiveAssignment(director(), { weeklyPeriods: 9, sessionPattern: { mode: "blocks", blocks: [3, 2] } }));
+    await assertFails(createActiveAssignment(director(), { weeklyPeriods: 9, sessionPattern: { mode: "blocks", blocks: [0, 9] } }));
+    await assertFails(createActiveAssignment(director(), { weeklyPeriods: 9, sessionPattern: { mode: "blocks", blocks: [2, 3, 4], unexpected: true } }));
+  });
   it("accepte une salle préférée active du périmètre et refuse une salle inconnue ou d'une autre école", async () => {
     await assertSucceeds(createActiveAssignment(director(), { preferredRoomId: "room-a" }));
     await assertFails(setDoc(doc(director(), "pedagogicalAssignments", assignmentId), assignment({ preferredRoomId: "unknown" })));

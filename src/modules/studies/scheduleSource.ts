@@ -1,6 +1,7 @@
 import type { ScheduleProblem } from "./scheduleValidation";
 import { STUDY_DAYS } from "./studySchedule";
 import type { Timetable } from "./studyTypes";
+import { canonicalSessionPattern } from "./assignmentSessionPattern";
 
 const normalizedIds = (values?: readonly string[]) => [...new Set(values ?? [])].sort();
 
@@ -20,6 +21,7 @@ export function canonicalScheduleSource(problem: ScheduleProblem) {
       classId: item.classId,
       weeklyPeriods: item.weeklyPeriods,
       blockSize: item.blockSize ?? 1,
+      ...(item.sessionPattern ? { sessionPattern: canonicalSessionPattern(item) } : {}),
       preferredRoomId: item.preferredRoomId ?? null,
       courseScope: item.courseScope ?? null,
       targetOptionIds: normalizedIds(item.targetOptionIds),

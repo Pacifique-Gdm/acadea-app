@@ -865,6 +865,33 @@ service cloud.firestore {
               && get(/databases/$(database)/documents/rooms/$(request.resource.data.preferredRoomId)).data.schoolYearId == request.resource.data.schoolYearId
               && get(/databases/$(database)/documents/rooms/$(request.resource.data.preferredRoomId)).data.active == true));
       }
+      function validAssignmentBlock(blocks, index) {
+        return blocks.size() <= index || (blocks[index] is int && blocks[index] > 0 && blocks[index] <= 60);
+      }
+      function validAssignmentBlockTotal(blocks, weeklyPeriods) {
+        return (blocks.size() == 1 && blocks[0] == weeklyPeriods)
+          || (blocks.size() == 2 && blocks[0] + blocks[1] == weeklyPeriods)
+          || (blocks.size() == 3 && blocks[0] + blocks[1] + blocks[2] == weeklyPeriods)
+          || (blocks.size() == 4 && blocks[0] + blocks[1] + blocks[2] + blocks[3] == weeklyPeriods)
+          || (blocks.size() == 5 && blocks[0] + blocks[1] + blocks[2] + blocks[3] + blocks[4] == weeklyPeriods)
+          || (blocks.size() == 6 && blocks[0] + blocks[1] + blocks[2] + blocks[3] + blocks[4] + blocks[5] == weeklyPeriods);
+      }
+      function validAssignmentSessionPattern() {
+        return !("sessionPattern" in request.resource.data)
+          || (request.resource.data.sessionPattern is map
+            && request.resource.data.sessionPattern.keys().hasOnly(["mode", "blocks"])
+            && request.resource.data.sessionPattern.mode == "blocks"
+            && request.resource.data.sessionPattern.blocks is list
+            && request.resource.data.sessionPattern.blocks.size() >= 1
+            && request.resource.data.sessionPattern.blocks.size() <= 6
+            && validAssignmentBlock(request.resource.data.sessionPattern.blocks, 0)
+            && validAssignmentBlock(request.resource.data.sessionPattern.blocks, 1)
+            && validAssignmentBlock(request.resource.data.sessionPattern.blocks, 2)
+            && validAssignmentBlock(request.resource.data.sessionPattern.blocks, 3)
+            && validAssignmentBlock(request.resource.data.sessionPattern.blocks, 4)
+            && validAssignmentBlock(request.resource.data.sessionPattern.blocks, 5)
+            && validAssignmentBlockTotal(request.resource.data.sessionPattern.blocks, request.resource.data.weeklyPeriods));
+      }
       function validAssignmentShape() {
         return request.resource.data.id == assignmentId
           && (((!("courseScope" in request.resource.data))
@@ -883,6 +910,7 @@ service cloud.firestore {
           && request.resource.data.weeklyPeriods > 0
           && request.resource.data.weeklyPeriods <= 60
           && (!("blockSize" in request.resource.data) || request.resource.data.blockSize in [1, 2])
+          && validAssignmentSessionPattern()
           && request.resource.data.active is bool
           && request.resource.data.createdBy is string
           && request.resource.data.updatedBy is string

@@ -39,6 +39,14 @@ describe("fraîcheur canonique des horaires", () => {
     expect(timetableSourceFingerprint({ ...first, availabilities: [availability] })).not.toBe(timetableSourceFingerprint(first));
     expect(timetableSourceFingerprint({ ...first, availabilities: [{ ...availability, active: false }] })).toBe(timetableSourceFingerprint(first));
   });
+
+  it("inclut le pattern canonique sans invalider sur un simple réordonnancement", () => {
+    const normal = problem([assignment("a", 9)]);
+    const blocks = problem([assignment("a", 9, { sessionPattern: { mode: "blocks", blocks: [2, 3, 4] } })]);
+    const reordered = problem([assignment("a", 9, { sessionPattern: { mode: "blocks", blocks: [4, 2, 3] } })]);
+    expect(timetableSourceFingerprint(blocks)).not.toBe(timetableSourceFingerprint(normal));
+    expect(timetableSourceFingerprint(reordered)).toBe(timetableSourceFingerprint(blocks));
+  });
 });
 
 describe("régénération incrémentale", () => {
@@ -113,5 +121,35 @@ describe("régénération incrémentale", () => {
     const complete = solver.solve(nextProblem);
     expect(complete.success).toBe(true);
     expect(complete.entries.find((item) => item.assignmentId === "a")?.periodId).toBe("p3");
+  });
+
+  it("conserve les blocs inchangés et ajoute un nouveau bloc de même taille sur un autre jour", () => {
+    const base = assignment("a", 6, { sessionPattern: { mode: "blocks", blocks: [3, 3] } });
+    const periods = [period("p1", 1), period("p2", 2), period("p3", 3)];
+    const baselineProblem = problem([base], { periods, maxSameAssignmentPeriodsPerDay: 2 });
+    const baseline = solve(baselineProblem);
+    const expanded = assignment("a", 9, { sessionPattern: { mode: "blocks", blocks: [3, 3, 3] } });
+    const nextProblem = problem([expanded], { periods, maxSameAssignmentPeriodsPerDay: 2 });
+    const fixed = prepareIncrementalFixedEntries(nextProblem, baseline);
+    const result = solver.solve(nextProblem, { fixedEntries: fixed, baselineEntries: baseline });
+    expect(fixed).toHaveLength(6);
+    expect(positions(result.entries).filter((position) => positions(baseline).includes(position))).toHaveLength(6);
+    expect(new Set(result.entries.map((entry) => entry.dayOfWeek)).size).toBe(3);
+  });
+
+  it("réduit des blocs dupliqués de façon déterministe et recalcule seulement la taille modifiée", () => {
+    const periods = [period("p1", 1), period("p2", 2), period("p3", 3), period("p4", 4)];
+    const initial = assignment("a", 10, { sessionPattern: { mode: "blocks", blocks: [3, 3, 4] } });
+    const initialProblem = problem([initial], { periods, maxSameAssignmentPeriodsPerDay: 2 });
+    const baseline = solve(initialProblem);
+    const reduced = assignment("a", 6, { sessionPattern: { mode: "blocks", blocks: [3, 3] } });
+    const reducedProblem = problem([reduced], { periods, maxSameAssignmentPeriodsPerDay: 2 });
+    expect(prepareIncrementalFixedEntries(reducedProblem, baseline)).toHaveLength(6);
+    const modified = assignment("a", 8, { sessionPattern: { mode: "blocks", blocks: [2, 3, 3] } });
+    const modifiedProblem = problem([modified], { periods, maxSameAssignmentPeriodsPerDay: 2 });
+    const fixed = prepareIncrementalFixedEntries(modifiedProblem, baseline);
+    expect(fixed).toHaveLength(6);
+    expect(new Set(fixed.map((entry) => entry.blockId)).size).toBe(2);
+    expect(solver.solve(modifiedProblem, { fixedEntries: fixed, baselineEntries: baseline }).success).toBe(true);
   });
 });

@@ -57,6 +57,8 @@ export interface PedagogicalAssignment {
   subjectId: string;
   classId: string;
   weeklyPeriods: number;
+  /** Organisation explicite de séances indivisibles. Absente = répartition normale. */
+  sessionPattern?: AssignmentSessionPattern;
   blockSize?: 1 | 2;
   preferredRoomId?: string | null;
   titularClassId?: string | null;
@@ -71,6 +73,11 @@ export interface PedagogicalAssignment {
   updatedAt: string;
   createdBy: string;
   updatedBy: string;
+}
+
+export interface AssignmentSessionPattern {
+  mode: "blocks";
+  blocks: number[];
 }
 
 export interface ClassTitular {
@@ -141,6 +148,6 @@ export interface TimetableEntry {
 
 export interface StudyRoom { id:string; schoolId:string; schoolYearId:string; name:string; active:boolean; createdBy:string; createdAt:string; updatedAt:string; }
 
-export type ScheduleValidationCode = "TEACHER_OVERLAP" | "CLASS_OVERLAP" | "ROOM_OVERLAP" | "TEACHER_UNAVAILABLE" | "REST_DAY" | "NON_TEACHING_PERIOD" | "WEEKLY_VOLUME_MISMATCH" | "DAILY_ASSIGNMENT_LIMIT" | "DOUBLE_PERIOD_BROKEN" | "INVALID_ASSIGNMENT" | "INVALID_SCOPE";
+export type ScheduleValidationCode = "TEACHER_OVERLAP" | "CLASS_OVERLAP" | "ROOM_OVERLAP" | "TEACHER_UNAVAILABLE" | "REST_DAY" | "NON_TEACHING_PERIOD" | "WEEKLY_VOLUME_MISMATCH" | "DAILY_ASSIGNMENT_LIMIT" | "DOUBLE_PERIOD_BROKEN" | "SESSION_PATTERN_BROKEN" | "INVALID_ASSIGNMENT" | "INVALID_SCOPE";
 export interface ScheduleValidationIssue { code: ScheduleValidationCode; message: string; entityId?: string; day?: StudyDay; periodId?: string; metadata?: Record<string, unknown>; }
 export interface ScheduleValidationReport { valid: boolean; errors: ScheduleValidationIssue[]; warnings: ScheduleValidationIssue[]; metrics: { entries: number; assignments: number; teachers: number; classes: number; rooms: number; }; }
