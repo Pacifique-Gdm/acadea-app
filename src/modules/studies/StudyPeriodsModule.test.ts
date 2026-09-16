@@ -32,8 +32,9 @@ describe("Périodes & tranches horaires — présentation", () => {
     expect(source).toContain("periodTypeLabel(item.type)");
   });
 
-  it("persiste une classe synthétique et rend les erreurs de vacation visibles", () => {
-    expect(source).toContain("logicalStudyClasses(data.classes, data.sourceClasses)");
+  it("persiste chaque classe opérationnelle et rend les erreurs de vacation visibles", () => {
+    expect(source).toContain("useMemo(() => data.classes, [data.classes])");
+    expect(source).not.toContain("logicalStudyClasses(data.classes, data.sourceClasses)");
     expect(source).toContain("persisted: data.sourceClasses.some");
     expect(source).toContain('setVacationError(cause instanceof Error ? cause.message');
     expect(source).toContain('role="alert"');

@@ -1,7 +1,7 @@
 import { arePeriodsPedagogicallyConsecutive, getActiveCoursePeriods, isRestDay, sortTimetableEntriesForDisplay, STUDY_DAYS, teacherAvailableAt } from "./studySchedule";
 import { validateTimetable, type ScheduleProblem } from "./scheduleValidation";
 import type { PedagogicalAssignment, SchedulePeriod, StudyDay, TimetableEntry } from "./studyTypes";
-import { periodAppliesToClass } from "./studyScope";
+import { periodAppliesToAssignment } from "./studyScope";
 import { assignmentsShareStudents, normalizedAssignmentScope } from "./studyCourseScope";
 import { assignmentUsesDistinctBlockDays, canonicalAssignmentBlockSizes, validateAssignmentSessionPattern } from "./assignmentSessionPattern";
 
@@ -20,11 +20,11 @@ export interface AssignmentSlotDiagnostics {
 }
 
 function candidateAnalysis(assignment:PedagogicalAssignment,problem:ScheduleProblem,size:number):{candidates:Candidate[];diagnostics:AssignmentSlotDiagnostics}{
-  const periods=getActiveCoursePeriods(problem.periods),schoolClass=problem.classes?.find(item=>item.id===assignment.classId),result:Candidate[]=[];
+  const periods=getActiveCoursePeriods(problem.periods),classes=problem.classes??[],result:Candidate[]=[];
   let activePeriodSlots=0,classCompatibleSlots=0,afterTeacherRest=0,teacherCompatibleSlots=0;
   for(const day of problem.days??STUDY_DAYS){
     activePeriodSlots+=periods.length;
-    const compatible=schoolClass?periods.filter(period=>periodAppliesToClass(period,schoolClass,day)):[];
+    const compatible=periods.filter(period=>periodAppliesToAssignment(period,assignment,classes,day));
     classCompatibleSlots+=compatible.length;
     afterTeacherRest+=isRestDay(assignment.teacherId,day,problem.availabilities)?0:compatible.length;
     teacherCompatibleSlots+=compatible.filter(period=>teacherAvailableAt(assignment.teacherId,day,period,problem.availabilities)).length;

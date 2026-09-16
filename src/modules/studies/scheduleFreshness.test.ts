@@ -47,6 +47,15 @@ describe("fraîcheur canonique des horaires", () => {
     expect(timetableSourceFingerprint(blocks)).not.toBe(timetableSourceFingerprint(normal));
     expect(timetableSourceFingerprint(reordered)).toBe(timetableSourceFingerprint(blocks));
   });
+
+  it("devient obsolète lorsque la vacation d'une option ciblée change", () => {
+    const scoped = assignment("a", 1, { classId: "3h", courseScope: "option", targetOptionIds: ["3h::science"] });
+    const parent = schoolClass("3h");
+    const science = { ...schoolClass("3h::science"), parentClassId: "3h", classOptionKey: "3h::science", option: "Sciences", vacation: "morning" as const };
+    const first = problem([scoped], { classes: [parent, science] });
+    const second = { ...first, classes: [parent, { ...science, vacation: "afternoon" as const }] };
+    expect(timetableSourceFingerprint(second)).not.toBe(timetableSourceFingerprint(first));
+  });
 });
 
 describe("régénération incrémentale", () => {

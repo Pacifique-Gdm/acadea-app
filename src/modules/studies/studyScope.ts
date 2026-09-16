@@ -1,7 +1,8 @@
 import type { SchoolClass, SchoolSection } from "../../types";
 import { getClassSection } from "../../utils/studentClasses";
 import { normalizeSchoolSection } from "../../utils/schoolSections";
-import type { SchedulePeriod, StudyClass, StudyDay, StudySubject, StudyVacation, TimetableEntry } from "./studyTypes";
+import type { PedagogicalAssignment, SchedulePeriod, StudyClass, StudyDay, StudySubject, StudyVacation, TimetableEntry } from "./studyTypes";
+import { classOptionId, normalizedAssignmentScope } from "./studyCourseScope";
 
 export const studySectionLabels: Record<SchoolSection, string> = { Maternelle: "Maternelle", Primaire: "Primaire", CTEB: "CTEB", Secondaire: "Secondaire" };
 export const studyVacationLabels: Record<StudyVacation, string> = { morning: "Avant-midi", afternoon: "Après-midi" };
@@ -38,4 +39,22 @@ export function periodAppliesToClass(period: SchedulePeriod, schoolClass: StudyC
     ? (schoolClass.saturdayVacation ?? schoolClass.vacation ?? "morning")
     : (schoolClass.vacation ?? "morning");
   return (period.vacation ?? vacation) === vacation;
+}
+
+export function assignmentVacationClasses(assignment: PedagogicalAssignment, classes: readonly StudyClass[]) {
+  const scope = normalizedAssignmentScope(assignment, classes);
+  if (scope.optionIds?.length) {
+    const targets = new Set(scope.optionIds);
+    return classes.filter((item) => {
+      const optionId = classOptionId(item);
+      return Boolean(optionId && targets.has(optionId));
+    });
+  }
+  const base = classes.find((item) => item.id === scope.baseClassId);
+  return base ? [base] : [];
+}
+
+export function periodAppliesToAssignment(period: SchedulePeriod, assignment: PedagogicalAssignment, classes: readonly StudyClass[], day: StudyDay) {
+  const targetClasses = assignmentVacationClasses(assignment, classes);
+  return targetClasses.length > 0 && targetClasses.every((item) => periodAppliesToClass(period, item, day));
 }

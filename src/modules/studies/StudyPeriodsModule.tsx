@@ -5,7 +5,6 @@ import { saveSchedulePeriod, setSchedulePeriodActive, setStudyClassVacation } fr
 import { operationalClassLabel, studyVacationLabels } from "./studyScope";
 import type { SchedulePeriod, StudyVacation } from "./studyTypes";
 import type { useStudyData } from "./useStudyData";
-import { logicalStudyClasses } from "./studyCourseScope";
 
 const periodTypeLabel = (type: SchedulePeriod["type"]) => type === "course" ? "Cours" : type === "break" ? "Pause" : "Récréation";
 
@@ -20,7 +19,7 @@ export function StudyPeriodsModule({ user, school, year, data }: { user: AppUser
   const [vacationError, setVacationError] = useState("");
   const [savingClassId, setSavingClassId] = useState("");
   const sixDays = resolveAttendanceSchoolDays(data.attendanceSettings).includes("saturday");
-  const periodClasses = useMemo(() => logicalStudyClasses(data.classes, data.sourceClasses), [data.classes, data.sourceClasses]);
+  const periodClasses = useMemo(() => data.classes, [data.classes]);
   const sorted = [...data.periods].sort((a, b) => (a.vacation ?? "morning").localeCompare(b.vacation ?? "morning") || (a.dayScope ?? "weekdays").localeCompare(b.dayScope ?? "weekdays") || a.order - b.order || a.startTime.localeCompare(b.startTime));
 
   function edit(item?: SchedulePeriod) {

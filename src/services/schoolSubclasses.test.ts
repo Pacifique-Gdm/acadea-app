@@ -147,7 +147,7 @@ describe("secondary class plus option resolution", () => {
     expect(classesWithEnrolledStudents(operational, [scientific], "school-a", "year-a").map((item) => item.name)).toEqual(["1ère Scientifique"]);
   });
 
-  it("inherits the parent vacation for materialized and student-derived option classes", () => {
+  it("inherits only legacy parent vacations and preserves an explicit operational vacation", () => {
     const parent = base("secondary-1", {
       name: "1ère Humanité",
       section: "Secondaire",
@@ -167,7 +167,7 @@ describe("secondary class plus option resolution", () => {
 
     expect(operationalSchoolClasses([parent, materialized], "school-a", "year-a", ["Secondaire"])[0]).toMatchObject({
       id: optionId,
-      vacation: "afternoon",
+      vacation: "morning",
       saturdayEnabled: true,
       saturdayVacation: "morning",
     });

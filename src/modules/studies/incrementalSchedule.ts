@@ -1,6 +1,6 @@
 import { assignmentsShareStudents } from "./studyCourseScope";
 import { arePeriodsPedagogicallyConsecutive, sortTimetableEntriesForDisplay, STUDY_DAYS, teacherAvailableAt } from "./studySchedule";
-import { periodAppliesToClass } from "./studyScope";
+import { periodAppliesToAssignment } from "./studyScope";
 import type { ScheduleProblem } from "./scheduleValidation";
 import type { PedagogicalAssignment, SchedulePeriod, TimetableEntry } from "./studyTypes";
 import { assignmentUsesDistinctBlockDays, canonicalAssignmentBlockSizes } from "./assignmentSessionPattern";
@@ -45,8 +45,8 @@ export function classifyScheduleAssignmentChanges(assignments: PedagogicalAssign
 }
 
 function entrySlotIsCompatible(entry: TimetableEntry, assignment: PedagogicalAssignment, problem: ScheduleProblem) {
-  const period=problem.periods.find((item)=>item.id===entry.periodId),schoolClass=problem.classes?.find((item)=>item.id===assignment.classId);
-  return Boolean(period&&schoolClass&&period.active&&period.type==="course"&&(problem.days??STUDY_DAYS).includes(entry.dayOfWeek)&&periodAppliesToClass(period,schoolClass,entry.dayOfWeek)&&teacherAvailableAt(assignment.teacherId,entry.dayOfWeek,period,problem.availabilities));
+  const period=problem.periods.find((item)=>item.id===entry.periodId),classes=problem.classes??[];
+  return Boolean(period&&period.active&&period.type==="course"&&(problem.days??STUDY_DAYS).includes(entry.dayOfWeek)&&periodAppliesToAssignment(period,assignment,classes,entry.dayOfWeek)&&teacherAvailableAt(assignment.teacherId,entry.dayOfWeek,period,problem.availabilities));
 }
 
 function normalizedFixedEntry(entry: TimetableEntry, assignment: PedagogicalAssignment, blockId?: string): TimetableEntry {

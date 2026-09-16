@@ -9,6 +9,7 @@ export function canonicalScheduleSource(problem: ScheduleProblem) {
   const assignmentIds = new Set(problem.assignments.filter((item) => item.active).map((item) => item.id));
   const teacherIds = new Set(problem.assignments.filter((item) => item.active).map((item) => item.teacherId));
   const classIds = new Set(problem.assignments.filter((item) => item.active).map((item) => item.classId));
+  const optionIds = new Set(problem.assignments.filter((item) => item.active).flatMap((item) => item.targetOptionIds ?? []));
   return {
     schoolId: problem.schoolId,
     schoolYearId: problem.schoolYearId,
@@ -35,7 +36,7 @@ export function canonicalScheduleSource(problem: ScheduleProblem) {
       startTime: item.startTime ?? null,
       endTime: item.endTime ?? null,
     })).sort((left, right) => left.id.localeCompare(right.id)),
-    classes: (problem.classes ?? []).filter((item) => classIds.has(item.id)).map((item) => ({
+    classes: (problem.classes ?? []).filter((item) => classIds.has(item.id) || optionIds.has(item.id) || Boolean(item.classOptionKey && optionIds.has(item.classOptionKey))).map((item) => ({
       id: item.id,
       parentClassId: item.parentClassId ?? null,
       classOptionKey: item.classOptionKey ?? null,

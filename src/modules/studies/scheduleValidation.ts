@@ -2,6 +2,7 @@ import { arePeriodsPedagogicallyConsecutive, isRestDay, teacherAvailableAt } fro
 import type { PedagogicalAssignment, SchedulePeriod, ScheduleValidationIssue, ScheduleValidationReport, StudyClass, StudyDay, StudySubject, StudyTeacher, TeacherAvailability, TimetableEntry } from "./studyTypes";
 import { assignmentsShareStudents } from "./studyCourseScope";
 import { assignmentUsesDistinctBlockDays, canonicalAssignmentBlockSizes } from "./assignmentSessionPattern";
+import { periodAppliesToAssignment } from "./studyScope";
 
 export interface ScheduleProblem { schoolId:string; schoolYearId:string; teachers?:StudyTeacher[]; subjects?:StudySubject[]; classes?:StudyClass[]; assignments:PedagogicalAssignment[]; availabilities:TeacherAvailability[]; periods:SchedulePeriod[]; days?:StudyDay[]; maxSameAssignmentPeriodsPerDay?:number; }
 
@@ -22,6 +23,7 @@ export function validateTimetable(problem: ScheduleProblem, entries: TimetableEn
     const studentKey=`${entry.dayOfWeek}|${entry.periodId}`;const simultaneous=studentSeen.get(studentKey)??[];if(assignment&&simultaneous.some(other=>assignmentsShareStudents(assignment,other,problem.classes??[])))errors.push({code:"CLASS_OVERLAP",message:"Un groupe d’élèves possède deux cours simultanés.",...context});if(assignment)studentSeen.set(studentKey,[...simultaneous,assignment]);
     if(entry.roomId){const roomKey=`${entry.roomId}|${entry.dayOfWeek}|${entry.periodId}`;if(roomSeen.has(roomKey))errors.push({code:"ROOM_OVERLAP",message:"Une salle est utilisée deux fois simultanément.",...context});roomSeen.add(roomKey);}
     if(!period||!period.active||period.type!=="course")errors.push({code:"NON_TEACHING_PERIOD",message:"Un cours ne peut pas être placé pendant une pause ou une récréation.",...context});
+    else if(assignment&&problem.classes&&!periodAppliesToAssignment(period,assignment,problem.classes,entry.dayOfWeek))errors.push({code:"CLASS_VACATION",message:"Le créneau ne correspond pas à la vacation de la classe opérationnelle.",...context});
     else if(isRestDay(entry.teacherId,entry.dayOfWeek,problem.availabilities))errors.push({code:"REST_DAY",message:"L’enseignant est en repos ce jour.",...context});
     else if(!teacherAvailableAt(entry.teacherId,entry.dayOfWeek,period,problem.availabilities))errors.push({code:"TEACHER_UNAVAILABLE",message:"L’enseignant est indisponible sur cette période.",...context});
   }
