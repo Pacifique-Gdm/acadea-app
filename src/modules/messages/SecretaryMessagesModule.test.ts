@@ -28,7 +28,7 @@ describe("interface Message du Secrétaire", () => {
   });
 
   it("partage avec l'Administrateur le second filtre Parents et tous ses modes", () => {
-    expect(source).toContain("isSchoolAdmin || isSecretary || isCashier ? (");
+    expect(source).toContain("isSchoolAdmin || isSecretary || isCashier || isDisciplineDirector || isStudyDirector ? (");
     [
       '<option value="all">Tous les parents</option>',
       '<option value="parents">Sélection parent</option>',

@@ -27,6 +27,32 @@ export function allowedRecipientRoles(role) {
   return RECIPIENTS_BY_ROLE[normalizedMessagingRole(role)] ?? new Set();
 }
 
+function callerSectionScope(caller) {
+  const profile = caller?.profile ?? {};
+  const values = Array.isArray(profile.sectionIds) ? profile.sectionIds : profile.section ? [profile.section] : [];
+  return new Set(values.filter((value) => typeof value === "string" && value.trim()).map((value) => value.trim()));
+}
+
+async function scopedParentIds(db, caller, schoolYearId) {
+  if (!schoolYearId || !["discipline_director", "study_director"].includes(normalizedMessagingRole(caller.role))) return null;
+  const sections = callerSectionScope(caller);
+  if (!sections.size) return null;
+  const [studentSnapshot, parentSnapshot] = await Promise.all([
+    db.collection("students").where("schoolId", "==", caller.schoolId).where("schoolYearId", "==", schoolYearId).get(),
+    db.collection("parents").where("schoolId", "==", caller.schoolId).get(),
+  ]);
+  const scopedStudents = studentSnapshot.docs
+    .map((document) => ({ id: document.id, ...document.data() }))
+    .filter((student) => sections.has(student.section));
+  const scopedStudentIds = new Set(scopedStudents.map((student) => student.id));
+  const parentIds = new Set(scopedStudents.map((student) => student.parentId).filter((value) => typeof value === "string" && value));
+  parentSnapshot.docs.forEach((document) => {
+    const parent = document.data();
+    if (Array.isArray(parent.studentIds) && parent.studentIds.some((studentId) => scopedStudentIds.has(studentId))) parentIds.add(document.id);
+  });
+  return parentIds;
+}
+
 function isActive(value) {
   return Boolean(value) && value.active !== false && value.status !== "inactive" && value.status !== "archived";
 }
@@ -114,14 +140,16 @@ export async function requireMessagingCaller(auth, db, token) {
   return { uid: decoded.uid, schoolId: decoded.schoolId, role, profile };
 }
 
-export async function listAllowedMessageRecipients(db, caller) {
+export async function listAllowedMessageRecipients(db, caller, schoolYearId = "") {
   const allowed = allowedRecipientRoles(caller.role);
   if (allowed.size === 0) throw Object.assign(new Error("Action non autorisee."), { statusCode: 403, code: "not-authorized" });
   const snapshot = await db.collection("users").where("schoolId", "==", caller.schoolId).get();
   const relatedRecipients = await relatedCoordinationRecipients(db, caller);
+  const allowedParentIds = await scopedParentIds(db, caller, schoolYearId);
   const recipients = [...snapshot.docs.map((document) => ({ id: document.id, ...document.data() })), ...relatedRecipients];
   return [...new Map(recipients.map((profile) => [profile.id, profile])).values()]
-    .filter((profile) => profile.id !== caller.uid && profile.active !== false && profile.status !== "inactive" && allowed.has(normalizedMessagingRole(profile.role)))
+    .filter((profile) => profile.id !== caller.uid && profile.active !== false && profile.status !== "inactive" && allowed.has(normalizedMessagingRole(profile.role))
+      && (normalizedMessagingRole(profile.role) !== "parent" || allowedParentIds === null || allowedParentIds.has(profile.parentId)))
     .map((profile) => ({
       uid: profile.id,
       name: String(profile.displayName ?? profile.name ?? "Utilisateur").trim() || "Utilisateur",

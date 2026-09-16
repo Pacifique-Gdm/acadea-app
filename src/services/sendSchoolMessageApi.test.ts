@@ -12,6 +12,26 @@ function database(users: Record<string, Record<string, unknown>>) {
   };
 }
 
+function parentScopeDatabase() {
+  const documents: Record<string, Record<string, unknown>> = {
+    "users/parent-primary-user": { role: "parent", parentId: "parent-primary", schoolId: "school-a", status: "active" },
+    "users/parent-humanities-user": { role: "parent", parentId: "parent-humanities", schoolId: "school-a", status: "active" },
+    "parents/parent-primary": { schoolId: "school-a", studentIds: ["student-primary"] },
+    "parents/parent-humanities": { schoolId: "school-a", studentIds: ["student-humanities"] },
+    "students/student-primary": { schoolId: "school-a", schoolYearId: "year-a", section: "primary" },
+    "students/student-humanities": { schoolId: "school-a", schoolYearId: "year-a", section: "humanities" },
+  };
+  const snapshot = (path: string) => ({
+    id: path.split("/").at(-1) ?? "",
+    exists: Boolean(documents[path]),
+    data: () => documents[path],
+  });
+  return {
+    doc: (path: string) => ({ path, get: vi.fn(async () => snapshot(path)) }),
+    getAll: vi.fn(async (...refs: Array<{ path: string }>) => refs.map((ref) => snapshot(ref.path))),
+  };
+}
+
 function bucketWith(files: Record<string, { size: number; type: string; metadata?: Record<string, string> }>) {
   const file = (path: string) => ({
     getMetadata: vi.fn(async () => [{ size: String(files[path]?.size ?? 0), contentType: files[path]?.type, metadata: files[path]?.metadata ?? {} }]),
@@ -32,6 +52,12 @@ describe("API de messagerie scolaire", () => {
     await expect(resolveRecipients(database({ unknown: { role: "unknown", schoolId: "school-a" } }), { role: "secretary", schoolId: "school-a" }, ["unknown"], ["unknown"])).rejects.toMatchObject({ code: "invalid-recipient" });
     await expect(resolveRecipients(database({}), { role: "secretary", schoolId: "school-a" }, ["cashier"], ["missing"])).rejects.toMatchObject({ code: "invalid-recipient" });
     await expect(resolveRecipients(database({ cashier: { role: "cashier", schoolId: "school-b" } }), { role: "secretary", schoolId: "school-a" }, ["cashier"], ["cashier"])).rejects.toMatchObject({ code: "invalid-recipient" });
+  });
+
+  it("autorise uniquement les parents du périmètre de sections des Directeurs", async () => {
+    const caller = { role: "study_director", schoolId: "school-a", profile: { sectionIds: ["primary"] } };
+    await expect(resolveRecipients(parentScopeDatabase(), caller, ["parent"], ["parent-primary-user"], "year-a")).resolves.toHaveLength(1);
+    await expect(resolveRecipients(parentScopeDatabase(), caller, ["parent"], ["parent-humanities-user"], "year-a")).rejects.toMatchObject({ code: "invalid-recipient", statusCode: 403 });
   });
 
   it("accepte exactement 10 Mo d'après Storage et refuse le dépassement ou les métadonnées falsifiées", async () => {

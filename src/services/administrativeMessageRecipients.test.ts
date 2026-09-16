@@ -36,6 +36,42 @@ function database() {
   };
 }
 
+function scopedDirectoryDatabase() {
+  const collections: Record<string, Record<string, Record<string, unknown>>> = {
+    users: {
+      discipline: { name: "Discipline", role: "discipline_director", schoolId: "school-a", status: "active" },
+      parentPrimary: { name: "Parent Primaire", role: "parent", parentId: "parent-primary", schoolId: "school-a", status: "active" },
+      parentHumanities: { name: "Parent Humanités", role: "parent", parentId: "parent-humanities", schoolId: "school-a", status: "active" },
+      parentLegacy: { name: "Parent Legacy", role: "parent", parentId: "parent-legacy", schoolId: "school-a", status: "active" },
+    },
+    students: {
+      studentPrimary: { schoolId: "school-a", schoolYearId: "year-a", section: "primary", parentId: "parent-primary" },
+      studentHumanities: { schoolId: "school-a", schoolYearId: "year-a", section: "humanities", parentId: "parent-humanities" },
+      studentLegacy: { schoolId: "school-a", schoolYearId: "year-a", section: "primary" },
+    },
+    parents: {
+      "parent-primary": { schoolId: "school-a", studentIds: ["studentPrimary"] },
+      "parent-humanities": { schoolId: "school-a", studentIds: ["studentHumanities"] },
+      "parent-legacy": { schoolId: "school-a", studentIds: ["studentLegacy"] },
+    },
+  };
+  return {
+    doc: (path: string) => ({ id: path.split("/").pop() ?? "", get: vi.fn(async () => ({ exists: false, data: () => undefined })) }),
+    collection: (name: string) => {
+      const filters: Array<[string, unknown]> = [];
+      const builder = {
+        where: (field: string, _operator: string, value: unknown) => { filters.push([field, value]); return builder; },
+        get: vi.fn(async () => ({
+          docs: Object.entries(collections[name] ?? {})
+            .filter(([, value]) => filters.every(([field, expected]) => value[field] === expected))
+            .map(([id, value]) => ({ id, data: () => value })),
+        })),
+      };
+      return builder;
+    },
+  };
+}
+
 describe("annuaire des administratifs", () => {
   it.each([
     ["admin", "school_admin", ["cashier", "discipline", "secretary1", "secretary2", "study"]],
@@ -60,6 +96,19 @@ describe("annuaire des administratifs", () => {
   it("construit le snapshot minimal de l'expediteur depuis le profil serveur", () => {
     expect(messagingSenderIdentity({ role: "admin", profile: { name: "Paul Kanku" } })).toEqual({ senderName: "Paul Kanku", senderRole: "school_admin" });
     expect(messagingSenderIdentity({ role: "secretary", profile: {} })).toEqual({ senderName: "Utilisateur administratif", senderRole: "secretary" });
+  });
+
+  it("limite les parents des Directeurs à leur périmètre de sections et conserve les liaisons legacy", async () => {
+    const recipients = await listAllowedMessageRecipients(scopedDirectoryDatabase(), {
+      uid: "discipline",
+      role: "discipline_director",
+      schoolId: "school-a",
+      profile: { sectionIds: ["primary"] },
+    }, "year-a");
+    expect(recipients.filter((item: { role: string }) => item.role === "parent").map((item: { uid: string }) => item.uid).sort()).toEqual([
+      "parentLegacy",
+      "parentPrimary",
+    ]);
   });
 
   it.each([

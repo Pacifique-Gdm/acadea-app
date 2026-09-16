@@ -14,8 +14,9 @@ async function authenticatedRequest(path: string, init: RequestInit) {
   return fetch(resolveApiUrl(path), { ...init, headers: { Authorization: `Bearer ${token}`, ...init.headers } });
 }
 
-export async function loadSchoolMessageRecipients(): Promise<SchoolMessageRecipient[]> {
-  const response = await authenticatedRequest("/api/message-recipients", { method: "GET" });
+export async function loadSchoolMessageRecipients(schoolYearId?: string): Promise<SchoolMessageRecipient[]> {
+  const query = schoolYearId ? `?schoolYearId=${encodeURIComponent(schoolYearId)}` : "";
+  const response = await authenticatedRequest(`/api/message-recipients${query}`, { method: "GET" });
   const payload = await response.json().catch(() => ({})) as { recipients?: SchoolMessageRecipient[]; message?: string; error?: string };
   if (!response.ok) throw Object.assign(new Error(payload.message ?? "Destinataires indisponibles. Veuillez réessayer."), { code: payload.error, status: response.status });
   return Array.isArray(payload.recipients) ? payload.recipients : [];

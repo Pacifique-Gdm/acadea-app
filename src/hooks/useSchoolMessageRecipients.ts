@@ -10,7 +10,7 @@ type DirectoryState = {
   error: string;
 };
 
-export function useSchoolMessageRecipients(user: AppUser, school: School): DirectoryState {
+export function useSchoolMessageRecipients(user: AppUser, school: School, schoolYearId?: string): DirectoryState {
   const [recipients, setRecipients] = useState<SchoolMessageRecipient[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -32,7 +32,7 @@ export function useSchoolMessageRecipients(user: AppUser, school: School): Direc
       queued.current = false;
       if (mounted.current) { setLoading(true); setError(""); }
       try {
-        const next = await loadSchoolMessageRecipients();
+        const next = await loadSchoolMessageRecipients(schoolYearId);
         if (mounted.current) setRecipients(next);
       } catch (cause) {
         if (mounted.current) setError(cause instanceof Error ? cause.message : "Destinataires indisponibles. Veuillez réessayer.");
@@ -40,11 +40,11 @@ export function useSchoolMessageRecipients(user: AppUser, school: School): Direc
     } while (queued.current && mounted.current);
     inFlight.current = false;
     if (mounted.current) setLoading(false);
-  }, []);
+  }, [schoolYearId]);
 
   useEffect(() => {
     void reload();
-  }, [reload, user.id, school.id]);
+  }, [reload, user.id, school.id, schoolYearId]);
 
   useEffect(() => {
     if (!db || user.role !== "school_admin") return;

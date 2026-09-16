@@ -37,12 +37,12 @@ describe("messagerie des modules administratifs", () => {
   it("preserve les categories Parents et les flux existants", () => {
     expect(selectionSource).toContain('{ value: "parents", label: "Parents d\'élèves" }');
     expect(source).toContain("persistMessageWithConversation");
-    expect(source).toContain("selectedDisciplineParentIds");
+    expect(source).toContain("selectedDirectorParentIds");
     expect(source).toContain("selectedAdminParentIds");
   });
 
   it("étend au Caissier les Parents de l'année active avec résolution UID et lots de 50", () => {
-    expect(source).toContain('isSchoolAdmin || isSecretary || isCashier ? (');
+    expect(source).toContain('isSchoolAdmin || isSecretary || isCashier || isDisciplineDirector || isStudyDirector ? (');
     expect(source).toContain('currentYearParentCandidates');
     expect(source).toContain('secureParentRecipientIds');
     expect(source).toContain('[parent.userId, parent.id].find');
@@ -52,6 +52,16 @@ describe("messagerie des modules administratifs", () => {
     expect(source).toContain('<option value="all">Tous les parents</option>');
     expect(source).toContain('<option value="parents">Sélection parent</option>');
     expect(source).toContain('removeAdminParent(parent.id)');
+  });
+
+  it("aligne Discipline et Études sur les deux modes Parents sécurisés", () => {
+    expect(source).toContain("isDisciplineDirector || isStudyDirector");
+    expect(source).toContain('<option value="all">Tous les parents</option>');
+    expect(source).toContain('<option value="parents">Sélection parent</option>');
+    expect(source).toContain("directorParentRecipients");
+    expect(source).toContain("resolvedDirectorParentIds");
+    expect(source).toContain("await sendToSecureRecipients()");
+    expect(source).toContain("useSchoolMessageRecipients(user, school, year.id)");
   });
 
   it("ajoute la catégorie Enseignants avec les deux modes de sélection", () => {
@@ -69,7 +79,7 @@ describe("messagerie des modules administratifs", () => {
   });
 
   it("ajoute Coordinateur et Sous-coordinateur via l'annuaire sécurisé temps réel", () => {
-    expect(source).toContain("useSchoolMessageRecipients(user, school)");
+    expect(source).toContain("useSchoolMessageRecipients(user, school, year.id)");
     expect(source).toContain("schoolMessageRecipientCategories(secureDirectory, isSchoolAdmin)");
     expect(source).toContain("recipientCategories.map");
     expect(source).toContain('recipientCategory === "coordination"');

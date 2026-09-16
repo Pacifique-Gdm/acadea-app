@@ -17,7 +17,8 @@ export default async function handler(req, res) {
     const { auth, db } = initAdmin();
     const caller = await requireMessagingCaller(auth, db, token);
     await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.schoolId, action: "school.message.recipients", ...API_RATE_LIMITS.MESSAGE_RECIPIENTS });
-    const recipients = await listAllowedMessageRecipients(db, caller);
+    const schoolYearId = typeof req.query?.schoolYearId === "string" ? req.query.schoolYearId.trim() : "";
+    const recipients = await listAllowedMessageRecipients(db, caller, schoolYearId);
     sendJson(res, 200, { recipients });
   } catch (error) {
     if (sendRateLimitError(res, error)) return;

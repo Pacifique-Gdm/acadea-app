@@ -71,8 +71,14 @@ export async function resolveRecipients(db, caller, recipientRoles, recipientIds
       const parent = parentSnapshot.exists ? parentSnapshot.data() : undefined;
       if (!parent || parent.schoolId !== caller.schoolId || !Array.isArray(parent.studentIds) || parent.studentIds.length === 0) throw httpError(403, "invalid-recipient", "Parent non rattache a cet etablissement.");
       const studentSnapshots = await db.getAll(...parent.studentIds.map((id) => db.doc(`students/${id}`)));
-      if (!studentSnapshots.some((snapshot) => snapshot.exists && snapshot.data().schoolId === caller.schoolId && snapshot.data().schoolYearId === schoolYearId)) {
+      const activeYearStudents = studentSnapshots.filter((snapshot) => snapshot.exists && snapshot.data().schoolId === caller.schoolId && snapshot.data().schoolYearId === schoolYearId);
+      if (!activeYearStudents.length) {
         throw httpError(403, "invalid-recipient", "Parent sans eleve rattache a l'annee scolaire active.");
+      }
+      const callerSections = new Set(Array.isArray(caller.profile?.sectionIds) ? caller.profile.sectionIds : caller.profile?.section ? [caller.profile.section] : []);
+      if (["discipline_director", "study_director"].includes(normalizedRole(caller.role)) && callerSections.size > 0
+        && !activeYearStudents.some((snapshot) => callerSections.has(snapshot.data().section))) {
+        throw httpError(403, "invalid-recipient", "Parent hors du perimetre de sections autorise.");
       }
     }
   }
