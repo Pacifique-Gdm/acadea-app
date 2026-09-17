@@ -184,6 +184,19 @@ describe("secondary class plus option resolution", () => {
     });
   });
 
+  it("inherits the parent vacation for a certain legacy materialized option", () => {
+    const parent = base("secondary-1", { name: "1ère Humanité", section: "Secondaire", vacation: "afternoon" });
+    const optionId = schoolClassOptionKey(parent.id, "Commerciale");
+    const legacy = base(optionId, { name: "1ère Commerciale", section: undefined, vacation: "morning" });
+    expect(operationalSchoolClasses([parent, legacy], "school-a", "year-a", ["Secondaire"])[0]).toMatchObject({
+      id: optionId,
+      parentClassId: parent.id,
+      classOptionKey: optionId,
+      option: "commerciale",
+      vacation: "afternoon",
+    });
+  });
+
   it("preserves the vacation of a materialized option class reconciled by a secondary enrolment", () => {
     const classId = schoolClassOptionKey("secondary-1", "Littéraire");
     const materialized = base(classId, {

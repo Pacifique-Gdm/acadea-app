@@ -26,6 +26,10 @@ function inferredClassOptionKey(item: Pick<SchoolClassRecord, "id" | "classOptio
   return item.classOptionKey?.trim() || (item.id.includes("::") ? item.id : undefined);
 }
 
+function isCertainLegacyOptionRecord(item: OperationalClass, parent: OperationalClass | undefined) {
+  return Boolean(parent && item.id.includes("::") && !item.parentClassId && !item.classOptionKey && !item.option?.trim() && !item.subClassLabel);
+}
+
 export function schoolClassRecordId(schoolId: string, schoolYearId: string, name: string) {
   const slug = normalizedClassName(name).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   return `${schoolId}__${schoolYearId}__${slug}`;
@@ -92,7 +96,7 @@ export function operationalSchoolClasses<T extends OperationalClass>(classes: re
     const option = item.option?.trim() || classOptionFromKey(classOptionKey);
     const className = section === "Secondaire" && option ? item.name.replace(/\s+Humanit[ée]s?$/i, "").trim() || item.name : item.name;
     const label = [className, option && !normalizedClassName(className).includes(normalizedClassName(option)) ? option : "", item.subClassLabel && !item.name.endsWith(item.subClassLabel) ? item.subClassLabel : ""].filter(Boolean).join(" ");
-    const vacation = item.vacation ?? parent?.vacation;
+    const vacation = isCertainLegacyOptionRecord(item, parent) ? (parent?.vacation ?? item.vacation) : (item.vacation ?? parent?.vacation);
     const saturdayEnabled = item.saturdayEnabled ?? parent?.saturdayEnabled;
     const saturdayVacation = item.saturdayVacation ?? parent?.saturdayVacation;
     const key = normalizedClassName(label);
