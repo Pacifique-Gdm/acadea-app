@@ -23,6 +23,10 @@ export function normalizeSchoolEmailDomain(schoolName: string) {
   return `${normalizedName || "acadea"}.com`;
 }
 
+export function schoolAccountEmailDomain(school: School, legacyName = school.name) {
+  return normalizeSchoolEmailDomain(school.acronym?.trim() || legacyName);
+}
+
 export function schoolAccountEmailExists(email: string, users: AppUser[], parents: ParentProfile[]) {
   const normalizedEmail = email.trim().toLowerCase();
   return [...users, ...parents].some((item) => item.email.trim().toLowerCase() === normalizedEmail);
@@ -30,7 +34,7 @@ export function schoolAccountEmailExists(email: string, users: AppUser[], parent
 
 export function nextSchoolStaffEmail(school: School, role: SchoolStaffRole, users: AppUser[], parents: ParentProfile[]) {
   const prefix = schoolStaffEmailPrefixes[role];
-  const domain = normalizeSchoolEmailDomain(school.name);
+  const domain = schoolAccountEmailDomain(school);
   let number = 1;
   while (schoolAccountEmailExists(`${prefix}${String(number).padStart(3, "0")}@${domain}`, users, parents)) number += 1;
   return `${prefix}${String(number).padStart(3, "0")}@${domain}`;

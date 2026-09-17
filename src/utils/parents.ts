@@ -1,11 +1,11 @@
 import type { AppUser, ParentProfile, School } from "../types";
-import { normalizeEmailDomainLabel } from "./schoolAccountCredentials";
+import { normalizeEmailDomainLabel, schoolAccountEmailDomain } from "./schoolAccountCredentials";
 
 export function parentEmailDomain(school: School) {
-  const cleanedName = normalizeEmailDomainLabel(
+  const legacyName = normalizeEmailDomainLabel(
     school.name.replace(/^(c\.?\s*s\.?|ecole|institut|complexe\s+scolaire|groupe\s+scolaire|college|lycee)\s+/i, ""),
   );
-  return `${cleanedName || "acadea"}.com`;
+  return schoolAccountEmailDomain(school, legacyName);
 }
 
 export function parentEmailExists(email: string, users: AppUser[], parents: ParentProfile[]) {
