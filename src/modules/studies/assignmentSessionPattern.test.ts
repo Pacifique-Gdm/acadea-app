@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canonicalAssignmentBlockSizes,
   canonicalSessionPattern,
+  MAX_ASSIGNMENT_BLOCK_SIZE,
   validateAssignmentSessionPattern,
 } from "./assignmentSessionPattern";
 import type { PedagogicalAssignment } from "./studyTypes";
@@ -47,5 +48,12 @@ describe("organisation canonique des périodes", () => {
     expect(validateAssignmentSessionPattern(4, { mode: "blocks", blocks: [1.5, 2.5] }, 6, 6)).toContain("entier");
     expect(validateAssignmentSessionPattern(7, { mode: "blocks", blocks: [7] }, 6, 6)).toContain("6 périodes consécutives");
     expect(validateAssignmentSessionPattern(7, { mode: "blocks", blocks: [1, 1, 1, 1, 1, 1, 1] }, 6, 6)).toContain("seulement 6 jours");
+  });
+
+  it("accepte 1 à 6 et refuse 7 avec la limite métier par défaut", () => {
+    for (let block = 1; block <= MAX_ASSIGNMENT_BLOCK_SIZE; block += 1) {
+      expect(validateAssignmentSessionPattern(block, { mode: "blocks", blocks: [block] })).toBe("");
+    }
+    expect(validateAssignmentSessionPattern(7, { mode: "blocks", blocks: [7] })).toContain("6 périodes consécutives");
   });
 });

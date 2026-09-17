@@ -900,7 +900,7 @@ service cloud.firestore {
               && get(/databases/$(database)/documents/rooms/$(request.resource.data.preferredRoomId)).data.active == true));
       }
       function validAssignmentBlock(blocks, index) {
-        return blocks.size() <= index || (blocks[index] is int && blocks[index] > 0 && blocks[index] <= 60);
+        return blocks.size() <= index || (blocks[index] is int && blocks[index] > 0 && blocks[index] <= 6);
       }
       function validAssignmentBlockTotal(blocks, weeklyPeriods) {
         return (blocks.size() == 1 && blocks[0] == weeklyPeriods)

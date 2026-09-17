@@ -139,6 +139,8 @@ describe("Direction des études — affectations pédagogiques", () => {
   });
   it("autorise un pattern de blocs canonique et refuse les formes ou sommes invalides", async () => {
     await assertSucceeds(createActiveAssignment(director(), { weeklyPeriods: 9, sessionPattern: { mode: "blocks", blocks: [2, 3, 4] } }));
+    await assertSucceeds(createActiveAssignment(director(), { weeklyPeriods: 6, sessionPattern: { mode: "blocks", blocks: [6] } }));
+    await assertFails(createActiveAssignment(director(), { weeklyPeriods: 7, sessionPattern: { mode: "blocks", blocks: [7] } }));
     await environment.clearFirestore();
     await seed(`schools/${school}`, { id: school, status: "active" });
     await seed(`schoolYears/${year}`, { id: year, schoolId: school, status: "active" });

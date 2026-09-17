@@ -2,6 +2,8 @@ import type { AssignmentSessionPattern, PedagogicalAssignment } from "./studyTyp
 
 export type CanonicalAssignmentSessionPattern = { mode: "normal" } | AssignmentSessionPattern;
 
+export const MAX_ASSIGNMENT_BLOCK_SIZE = 6;
+
 export function canonicalBlockSizes(blocks: readonly number[]) {
   return [...blocks].sort((left, right) => left - right);
 }
@@ -22,7 +24,7 @@ export function assignmentUsesDistinctBlockDays(assignment: Pick<PedagogicalAssi
   return assignment.sessionPattern?.mode === "blocks" || (assignment.blockSize ?? 1) > 1;
 }
 
-export function validateAssignmentSessionPattern(weeklyPeriods: number, pattern: AssignmentSessionPattern | null | undefined, maxBlockSize = Number.POSITIVE_INFINITY, maxDistinctDays = 6) {
+export function validateAssignmentSessionPattern(weeklyPeriods: number, pattern: AssignmentSessionPattern | null | undefined, maxBlockSize = MAX_ASSIGNMENT_BLOCK_SIZE, maxDistinctDays = 6) {
   if (!pattern) return "";
   if (pattern.mode !== "blocks" || !Array.isArray(pattern.blocks) || pattern.blocks.length === 0) return "Ajoutez au moins un bloc de périodes.";
   if (pattern.blocks.length > maxDistinctDays) return `Cette organisation nécessite ${pattern.blocks.length} jours distincts, mais seulement ${maxDistinctDays} jours sont disponibles.`;

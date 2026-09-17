@@ -3,7 +3,7 @@ import { validateTimetable, type ScheduleProblem } from "./scheduleValidation";
 import type { PedagogicalAssignment, SchedulePeriod, StudyDay, TimetableEntry } from "./studyTypes";
 import { periodAppliesToAssignment } from "./studyScope";
 import { assignmentsShareStudents, normalizedAssignmentScope } from "./studyCourseScope";
-import { assignmentUsesDistinctBlockDays, canonicalAssignmentBlockSizes, validateAssignmentSessionPattern } from "./assignmentSessionPattern";
+import { assignmentUsesDistinctBlockDays, canonicalAssignmentBlockSizes, MAX_ASSIGNMENT_BLOCK_SIZE, validateAssignmentSessionPattern } from "./assignmentSessionPattern";
 
 export const DEFAULT_MAX_SAME_ASSIGNMENT_PERIODS_PER_DAY = 2;
 export interface SolverFailure { assignmentId:string; teacherId:string; classId:string; subjectId:string; required:number; availableCapacity:number; reason:string; }
@@ -71,8 +71,8 @@ export class DeterministicTimetableSolver implements TimetableSolver{
     if(!active.length)return failure(undefined,"Aucune affectation active.");
     if(!getActiveCoursePeriods(problem.periods).length)return failure(active[0],"Aucun créneau horaire configuré.");
     if(invalidScope)return failure(invalidScope,"Affectation hors école ou année scolaire.");
-    const configuredDays=problem.days??STUDY_DAYS,invalidPattern=active.find(assignment=>assignment.sessionPattern&&validateAssignmentSessionPattern(assignment.weeklyPeriods,assignment.sessionPattern,Number.POSITIVE_INFINITY,configuredDays.length));
-    if(invalidPattern)return failure(invalidPattern,validateAssignmentSessionPattern(invalidPattern.weeklyPeriods,invalidPattern.sessionPattern,Number.POSITIVE_INFINITY,configuredDays.length));
+    const configuredDays=problem.days??STUDY_DAYS,invalidPattern=active.find(assignment=>assignment.sessionPattern&&validateAssignmentSessionPattern(assignment.weeklyPeriods,assignment.sessionPattern,MAX_ASSIGNMENT_BLOCK_SIZE,configuredDays.length));
+    if(invalidPattern)return failure(invalidPattern,validateAssignmentSessionPattern(invalidPattern.weeklyPeriods,invalidPattern.sessionPattern,MAX_ASSIGNMENT_BLOCK_SIZE,configuredDays.length));
 
     const jobs:BlockJob[]=active.flatMap(assignment=>{const grouped=new Map<number,number[]>();canonicalAssignmentBlockSizes(assignment).forEach((size,index)=>grouped.set(size,[...(grouped.get(size)??[]),index]));return[...grouped].map(([size,indexes])=>{const analysis=candidateAnalysis(assignment,problem,size);return{key:`${assignment.id}|${size}`,assignment,size,indexes,...analysis};});}).sort((left,right)=>left.candidates.length-right.candidates.length||right.size-left.size||right.assignment.weeklyPeriods-left.assignment.weeklyPeriods||left.assignment.id.localeCompare(right.assignment.id));
     const impossible=jobs.find(job=>job.candidates.length<job.indexes.length);if(impossible)return failure(impossible.assignment,impossible.candidates.length===0?zeroCandidateReason(impossible.assignment,problem,impossible.diagnostics):`Le volume demandé (${impossible.assignment.weeklyPeriods}) dépasse la capacité compatible pour ses blocs.`,impossible.candidates.length*impossible.size);
