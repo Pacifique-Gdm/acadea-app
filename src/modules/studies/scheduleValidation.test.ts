@@ -17,7 +17,7 @@ describe("validateur indépendant",()=>{
   it("détecte NON_TEACHING_PERIOD",()=>expect(codes(report([e("1")],undefined,[p("p1",1,"break")]))).toContain("NON_TEACHING_PERIOD"));
   it("détecte WEEKLY_VOLUME_MISMATCH",()=>expect(codes(report([], [a({weeklyPeriods:2})]))).toContain("WEEKLY_VOLUME_MISMATCH"));
   it("détecte DAILY_ASSIGNMENT_LIMIT",()=>expect(codes(report([e("1"),e("2",{periodId:"p2"}),e("3",{periodId:"p3"})],[a({weeklyPeriods:3})],[p("p1",1),p("p2",2),p("p3",3)]))).toContain("DAILY_ASSIGNMENT_LIMIT"));
-  it("détecte DOUBLE_PERIOD_BROKEN",()=>expect(codes(report([e("1",{blockId:"b"}),e("2",{periodId:"p3",blockId:"b"})],[a({weeklyPeriods:2,blockSize:2})],[p("p1",1),p("pause",2,"break"),p("p3",3)]))).toContain("DOUBLE_PERIOD_BROKEN"));
+  it("accepte un cours double traversant une pause officielle",()=>expect(report([e("1",{blockId:"b"}),e("2",{periodId:"p3",blockId:"b"})],[a({weeklyPeriods:2,blockSize:2})],[p("p1",1),p("pause",2,"break"),p("p3",3)]).valid).toBe(true));
   it("détecte un pattern de blocs incomplet ou répété le même jour",()=>expect(codes(report([e("1",{blockId:"b1"}),e("2",{periodId:"p2",blockId:"b1"}),e("3",{periodId:"p3",blockId:"b2"}),e("4",{periodId:"p4",blockId:"b2"})],[a({weeklyPeriods:4,sessionPattern:{mode:"blocks",blocks:[2,2]}})],[p("p1",1),p("p2",2),p("p3",3),p("p4",4)]))).toContain("SESSION_PATTERN_BROKEN"));
   it("détecte INVALID_ASSIGNMENT et portée incorrecte",()=>expect(codes(report([e("1",{schoolId:"other"})]))).toContain("INVALID_ASSIGNMENT"));
 });

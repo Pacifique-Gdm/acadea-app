@@ -44,12 +44,21 @@ export function isRestDay(teacherId:string,day:StudyDay,items:TeacherAvailabilit
 export function teacherAvailableAt(teacherId:string,day:StudyDay,period:SchedulePeriod,items:TeacherAvailability[]){const dayItems=items.filter(x=>x.teacherId===teacherId&&x.dayOfWeek===day&&x.active);if(dayItems.some(x=>x.status==="rest"))return false;const unavailable=dayItems.filter(x=>x.status==="unavailable");if(unavailable.some(x=>!x.startTime||overlaps(x,period)))return false;const available=dayItems.filter(x=>x.status==="available");return available.length===0||available.some(x=>!x.startTime||(minutes(x.startTime)<=minutes(period.startTime)&&minutes(x.endTime!)>=minutes(period.endTime)));}
 export const getActiveCoursePeriods=(items:SchedulePeriod[])=>items.filter(x=>x.active&&x.type==="course").sort((a,b)=>a.order-b.order||minutes(a.startTime)-minutes(b.startTime));
 export const getNonTeachingPeriods=(items:SchedulePeriod[])=>items.filter(x=>x.active&&x.type!=="course").sort((a,b)=>a.order-b.order||minutes(a.startTime)-minutes(b.startTime));
+const isTraversableTeachingBreak=(period:SchedulePeriod)=>period.type==="break"||period.type==="recess";
 export function arePeriodsPedagogicallyConsecutive(periods: readonly SchedulePeriod[], allPeriods: readonly SchedulePeriod[]) {
   if (periods.length <= 1) return periods.length === 1 && periods[0].active && periods[0].type === "course";
   const first = periods[0];
   const template = allPeriods.filter((item) => item.active && (item.vacation ?? "morning") === (first.vacation ?? "morning") && (item.dayScope ?? "weekdays") === (first.dayScope ?? "weekdays")).sort((left, right) => left.order - right.order || minutes(left.startTime) - minutes(right.startTime));
-  return periods.every((period) => period.active && period.type === "course" && (period.vacation ?? "morning") === (first.vacation ?? "morning") && (period.dayScope ?? "weekdays") === (first.dayScope ?? "weekdays"))
-    && periods.every((period, index) => index === 0 || (template.findIndex((item) => item.id === periods[index - 1].id) + 1 === template.findIndex((item) => item.id === period.id) && periods[index - 1].endTime === period.startTime));
+  if (!periods.every((period) => period.active && period.type === "course" && (period.vacation ?? "morning") === (first.vacation ?? "morning") && (period.dayScope ?? "weekdays") === (first.dayScope ?? "weekdays"))) return false;
+  return periods.every((period, index) => {
+    if (index === 0) return true;
+    const previousIndex = template.findIndex((item) => item.id === periods[index - 1].id);
+    const currentIndex = template.findIndex((item) => item.id === period.id);
+    if (previousIndex < 0 || currentIndex <= previousIndex) return false;
+    const sequence = template.slice(previousIndex, currentIndex + 1);
+    return sequence.slice(1, -1).every(isTraversableTeachingBreak)
+      && sequence.every((item, sequenceIndex) => sequenceIndex === 0 || sequence[sequenceIndex - 1].endTime === item.startTime);
+  });
 }
 export function maxConsecutiveCoursePeriods(items: readonly SchedulePeriod[]) {
   const active = items.filter((item) => item.active && item.type === "course");

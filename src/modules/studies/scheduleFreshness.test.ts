@@ -59,6 +59,26 @@ describe("fraîcheur canonique des horaires", () => {
 });
 
 describe("régénération incrémentale", () => {
+  it.each([
+    { before: [3], after: [5] },
+    { before: [4], after: [6] },
+    { before: [4, 4], after: [5, 5] },
+  ])("recalcule le changement de blocs $before vers $after sans verrouiller l’ancien pattern", ({ before, after }) => {
+    const periods = [period("p1", 1), period("p2", 2), period("p3", 3), period("break", 4, "break"), period("p4", 5), period("p5", 6), period("p6", 7)];
+    const previous = assignment("a", before.reduce((total, size) => total + size, 0), { sessionPattern: { mode: "blocks", blocks: before } });
+    const initialProblem = problem([previous], { periods, maxSameAssignmentPeriodsPerDay: 2 });
+    const baseline = solve(initialProblem);
+    const next = assignment("a", after.reduce((total, size) => total + size, 0), { sessionPattern: { mode: "blocks", blocks: after } });
+    const nextProblem = problem([next], { periods, maxSameAssignmentPeriodsPerDay: 2 });
+    expect(timetableSourceFingerprint(nextProblem)).not.toBe(timetableSourceFingerprint(initialProblem));
+    const fixed = prepareIncrementalFixedEntries(nextProblem, baseline);
+    expect(fixed).toHaveLength(0);
+    const result = solver.solve(nextProblem, { fixedEntries: fixed, baselineEntries: baseline });
+    expect(result.success).toBe(true);
+    expect(result.entries).toHaveLength(after.reduce((total, size) => total + size, 0));
+    expect(result.entries.some((entry) => entry.periodId === "break")).toBe(false);
+  });
+
   it("classe les affectations nouvelles, modifiées, supprimées et inchangées", () => {
     const previous = solve(problem([assignment("same"), assignment("modified", 2), assignment("removed")]));
     expect(classifyScheduleAssignmentChanges([assignment("same"), assignment("modified", 3), assignment("new")], previous)).toEqual({ unchangedAssignments: ["same"], newAssignments: ["new"], modifiedAssignments: ["modified"], removedAssignments: ["removed"] });
@@ -120,7 +140,7 @@ describe("régénération incrémentale", () => {
     const sharedClass = "class-shared";
     const existing = assignment("a", 1, { classId: sharedClass, teacherId: "teacher-a" });
     const added = assignment("b", 2, { classId: sharedClass, teacherId: "teacher-b", blockSize: 2 });
-    const periods = [period("p1", 1), period("p2", 2), period("break", 3, "break"), period("p3", 4)];
+    const periods = [period("p1", 1), period("p2", 2), { ...period("p3", 4), startTime: "12:00", endTime: "13:00" }];
     const initialProblem = problem([existing], { periods, classes: [schoolClass(sharedClass)], days: ["monday"] });
     const baseline = solve(initialProblem);
     const nextProblem = problem([existing, added], { periods, classes: [schoolClass(sharedClass)], days: ["monday"] });
