@@ -41,4 +41,17 @@ describe("portail Directeur des études — phase 1", () => {
     expect(source).toContain('<MessagesModule');
     expect(source).toContain("<StudyAiAssistant");
   });
+
+  it("expose la création et la gestion des seuls personnels enseignants", () => {
+    const source = readFileSync(new URL("./StudyDirectorPortal.tsx", import.meta.url), "utf8");
+    const creation = readFileSync(new URL("./StudyTeacherManagement.tsx", import.meta.url), "utf8");
+    expect(source).toContain("Créer enseignant");
+    expect(source).toContain("Personnels enseignants");
+    expect(source).toContain('<StudyTeacherCreateContent');
+    expect(source).toContain('allowedRoles={["teacher"]}');
+    expect(creation).toContain('role: "teacher"');
+    expect(creation).toContain('schoolId: school.id');
+    expect(creation).toContain('schoolYearId: year.id');
+    expect(creation).toContain('<PasswordField');
+  });
 });

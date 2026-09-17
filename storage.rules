@@ -48,11 +48,20 @@ service firebase.storage {
         && firestore.get(/databases/(default)/documents/schools/$(schoolId)).data.status != "deleting";
     }
 
+    function studyDirectorManagesTeacher(schoolId, personnelId) {
+      return signedIn()
+        && role() == "study_director"
+        && tenantSchoolId() == schoolId
+        && firestore.exists(/databases/(default)/documents/users/$(personnelId))
+        && firestore.get(/databases/(default)/documents/users/$(personnelId)).data.schoolId == schoolId
+        && firestore.get(/databases/(default)/documents/users/$(personnelId)).data.role == "teacher";
+    }
+
     match /personnel-photos/{schoolId}/{personnelId}/{fileName} {
-      allow read: if signedIn() && role() in ["school_admin", "super_admin"] && (role() == "super_admin" || tenantSchoolId() == schoolId);
-      allow create: if signedIn() && role() == "school_admin" && tenantSchoolId() == schoolId && schoolAcceptsWrites(schoolId) && validPersonnelPhoto(fileName, schoolId, personnelId);
+      allow read: if (signedIn() && role() in ["school_admin", "super_admin"] && (role() == "super_admin" || tenantSchoolId() == schoolId)) || studyDirectorManagesTeacher(schoolId, personnelId);
+      allow create: if ((signedIn() && role() == "school_admin" && tenantSchoolId() == schoolId) || studyDirectorManagesTeacher(schoolId, personnelId)) && schoolAcceptsWrites(schoolId) && validPersonnelPhoto(fileName, schoolId, personnelId);
       allow update: if false;
-      allow delete: if signedIn() && role() == "school_admin" && tenantSchoolId() == schoolId;
+      allow delete: if (signedIn() && role() == "school_admin" && tenantSchoolId() == schoolId) || studyDirectorManagesTeacher(schoolId, personnelId);
     }
 
     function validValveAttachment(fileName, schoolId, schoolYearId, publicationId) {

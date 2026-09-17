@@ -10,11 +10,21 @@ const upload = (type: string, extension: string, size = 1024, tenant = "school-a
 
 describe("photos du personnel", () => {
   beforeAll(async () => { environment = await initializeTestEnvironment({ projectId: process.env.GCLOUD_PROJECT || "demo-personnel-photos", firestore: { rules: readFileSync("firestore.rules", "utf8") }, storage: { rules: readFileSync("storage.rules", "utf8") } }); }, 30_000);
-  beforeEach(async () => { await environment.clearFirestore(); await environment.clearStorage(); await environment.withSecurityRulesDisabled((admin) => setDoc(doc(admin.firestore(), "schools", "school-a"), { status: "active" })); });
+  beforeEach(async () => { await environment.clearFirestore(); await environment.clearStorage(); await environment.withSecurityRulesDisabled(async (admin) => {
+    await setDoc(doc(admin.firestore(), "schools", "school-a"), { status: "active" });
+    await setDoc(doc(admin.firestore(), "users", "teacher-a"), { role: "teacher", schoolId: "school-a", status: "active" });
+    await setDoc(doc(admin.firestore(), "users", "cashier-a"), { role: "cashier", schoolId: "school-a", status: "active" });
+  }); });
   afterAll(async () => environment.cleanup(), 30_000);
 
   it.each([["image/jpeg", "jpg"], ["image/png", "png"], ["image/webp", "webp"]])("autorise %s same-school", async (type, extension) => { await assertSucceeds(upload(type, extension)); });
   it("autorise la lecture same-school selon la politique Administrateur", async () => { await assertSucceeds(upload("image/jpeg", "jpg")); await assertSucceeds(context().storage().ref(`personnel-photos/school-a/teacher-a/${uuid}.jpg`).getDownloadURL()); });
+  it("autorise le Directeur des études seulement pour un enseignant de sa propre école", async () => {
+    await assertSucceeds(upload("image/jpeg", "jpg", 1024, "school-a", "study_director"));
+    await assertSucceeds(context("director-a", "study_director", "school-a").storage().ref(`personnel-photos/school-a/teacher-a/${uuid}.jpg`).getDownloadURL());
+    await assertFails(context("director-a", "study_director", "school-b").storage().ref(`personnel-photos/school-a/teacher-a/${uuid}.jpg`).getDownloadURL());
+    await assertFails(context("director-a", "study_director", "school-a").storage().ref(`personnel-photos/school-a/cashier-a/${uuid}.jpg`).put(new Uint8Array(1024), { contentType: "image/jpeg", customMetadata: { schoolId: "school-a", personnelId: "cashier-a" } }));
+  });
   it("refuse cross-school, rôle ordinaire et non authentifié", async () => {
     await assertFails(upload("image/jpeg", "jpg", 1024, "school-b"));
     await assertFails(upload("image/jpeg", "jpg", 1024, "school-a", "secretary"));

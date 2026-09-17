@@ -129,12 +129,13 @@ async function cleanup({ auth, db, authUid, refs }) {
   await Promise.allSettled(tasks);
 }
 
-async function assertAuthorizedCaller({ db, caller, schoolId, allowSecretary = false }) {
-  if (caller.role !== "school_admin" && caller.role !== "super_admin" && !(allowSecretary && caller.role === "secretary")) {
+async function assertAuthorizedCaller({ db, caller, schoolId, allowSecretary = false, allowStudyDirectorTeacher = false, targetRole = "" }) {
+  const studyDirectorTeacher = allowStudyDirectorTeacher && targetRole === "teacher" && caller.role === "study_director";
+  if (caller.role !== "school_admin" && caller.role !== "super_admin" && !(allowSecretary && caller.role === "secretary") && !studyDirectorTeacher) {
     throw Object.assign(new Error("Action reservee a un administrateur autorise."), { statusCode: 403 });
   }
 
-  if ((caller.role === "school_admin" || caller.role === "secretary") && caller.schoolId !== schoolId) {
+  if ((caller.role === "school_admin" || caller.role === "secretary" || studyDirectorTeacher) && caller.schoolId !== schoolId) {
     throw Object.assign(new Error("Action refusee pour cette ecole."), { statusCode: 403 });
   }
 
@@ -144,6 +145,13 @@ async function assertAuthorizedCaller({ db, caller, schoolId, allowSecretary = f
   }
   if (["deleting", "inactive", "suspended"].includes(schoolSnapshot.data()?.status)) {
     throw Object.assign(new Error("Cette école n'accepte plus de nouveaux comptes."), { statusCode: 409, code: "failed-precondition" });
+  }
+  if (studyDirectorTeacher) {
+    const callerSnapshot = await db.doc(`users/${caller.uid}`).get();
+    const profile = callerSnapshot.data();
+    if (!callerSnapshot.exists || profile?.role !== "study_director" || profile?.schoolId !== schoolId || profile?.status === "inactive" || profile?.active === false) {
+      throw Object.assign(new Error("Compte Directeur des études non autorisé."), { statusCode: 403, code: "permission-denied" });
+    }
   }
 }
 
@@ -502,14 +510,14 @@ export async function removeSchoolAdmin({ auth, db, caller, body }) {
 export async function managePersonnel({ auth, db, caller, body, action }) {
   const schoolId = normalizeText(body.schoolId);
   const personnelId = normalizeText(body.personnelId);
-  if (caller.role !== "school_admin" || caller.schoolId !== schoolId) {
-    throw Object.assign(new Error("Action reservee a l'Administrateur de cette ecole."), { statusCode: 403, code: "permission-denied" });
+  if (!["school_admin", "study_director"].includes(caller.role) || caller.schoolId !== schoolId) {
+    throw Object.assign(new Error("Action réservée au personnel autorisé de cette école."), { statusCode: 403, code: "permission-denied" });
   }
   if (!schoolId || !personnelId) throw Object.assign(new Error("Ecole et personnel requis."), { statusCode: 400, code: "invalid-argument" });
   const callerSnapshot = await db.doc(`users/${caller.uid}`).get();
   const callerProfile = callerSnapshot.data();
-  if (!callerSnapshot.exists || callerProfile?.role !== "school_admin" || callerProfile?.schoolId !== schoolId || callerProfile?.status === "inactive" || callerProfile?.active === false) {
-    throw Object.assign(new Error("Compte Administrateur non autorise."), { statusCode: 403, code: "permission-denied" });
+  if (!callerSnapshot.exists || callerProfile?.role !== caller.role || !["school_admin", "study_director"].includes(callerProfile?.role) || callerProfile?.schoolId !== schoolId || callerProfile?.status === "inactive" || callerProfile?.active === false) {
+    throw Object.assign(new Error("Compte de gestion du personnel non autorisé."), { statusCode: 403, code: "permission-denied" });
   }
   const targetRef = db.doc(`users/${personnelId}`);
   const targetSnapshot = await targetRef.get();
@@ -520,6 +528,9 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
   }
   if (action === "archive-personnel" && target.role === "school_admin") {
     throw Object.assign(new Error("Seul le Super Administrateur peut archiver un compte Administrateur."), { statusCode: 403, code: "permission-denied" });
+  }
+  if (caller.role === "study_director" && target.role !== "teacher") {
+    throw Object.assign(new Error("Le Directeur des études peut gérer uniquement les enseignants de son école."), { statusCode: 403, code: "permission-denied" });
   }
   const now = new Date().toISOString();
   const auditRef = db.collection("auditLogs").doc(uid("audit"));
@@ -724,7 +735,14 @@ export default async function handler(req, res) {
       return;
     }
 
-    await assertAuthorizedCaller({ db, caller, schoolId, allowSecretary: role === "parent" });
+    await assertAuthorizedCaller({
+      db,
+      caller,
+      schoolId,
+      allowSecretary: role === "parent",
+      allowStudyDirectorTeacher: role === "teacher",
+      targetRole: role,
+    });
     const schoolSnapshot = await db.doc(`schools/${schoolId}`).get();
     assertSectionsBelongToSchool(sectionIds, schoolSnapshot.data());
     await requireActiveSchoolYear(db, schoolId, schoolYearId);

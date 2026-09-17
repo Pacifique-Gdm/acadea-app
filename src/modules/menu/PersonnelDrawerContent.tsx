@@ -7,7 +7,7 @@ import {
   reactivatePersonnel, subscribeToPersonnelProfile, subscribeToSchoolPersonnel, updatePersonnel,
 } from "../../services/personnel";
 import { deletePersonnelPhoto, uploadPersonnelPhoto } from "../../services/personnelPhotoStorage";
-import type { AppUser, PersonnelProfile, School, SchoolSection } from "../../types";
+import type { AppUser, PersonnelProfile, Role, School, SchoolSection } from "../../types";
 import { useAutoDismissMessage, ERROR_MESSAGE_DURATION_MS, SUCCESS_MESSAGE_DURATION_MS } from "../../hooks/useAutoDismissMessage";
 import { useDismissibleDropdown } from "../../hooks/useDismissibleDropdown";
 import { isValidProvisioningPhone } from "../../utils/schoolAccountCredentials";
@@ -33,7 +33,7 @@ function NativeField({ label, type = "text", value, onChange, readOnly = false }
   return <label className="grid min-w-0 gap-1 text-sm font-semibold">{label}<input className="input min-w-0" type={type} value={value} readOnly={readOnly} onChange={(event) => onChange?.(event.target.value)} /></label>;
 }
 
-export function PersonnelDrawerContent({ user, school, readOnly = false }: { user: AppUser; school: School; readOnly?: boolean }) {
+export function PersonnelDrawerContent({ user, school, readOnly = false, allowedRoles }: { user: AppUser; school: School; readOnly?: boolean; allowedRoles?: readonly Role[] }) {
   const [personnel, setPersonnel] = useState<AppUser[]>([]);
   const [view, setView] = useState<"active" | "archived">("active");
   const [selected, setSelected] = useState<AppUser>();
@@ -79,7 +79,10 @@ export function PersonnelDrawerContent({ user, school, readOnly = false }: { use
     });
   }, [school.id, selectedId, user]);
 
-  const visible = useMemo(() => personnel.filter((item) => view === "archived" ? isArchivedPersonnel(item) : !isArchivedPersonnel(item)).sort((left, right) => left.name.localeCompare(right.name, "fr")), [personnel, view]);
+  const visible = useMemo(() => personnel
+    .filter((item) => !allowedRoles || allowedRoles.includes(item.role))
+    .filter((item) => view === "archived" ? isArchivedPersonnel(item) : !isArchivedPersonnel(item))
+    .sort((left, right) => left.name.localeCompare(right.name, "fr")), [allowedRoles, personnel, view]);
 
   function clearFeedback() { setError(""); setSuccess(""); }
   function closeSelected() { if (busy) return; setSelected(undefined); setEditing(false); setConfirming(undefined); setStatusConfirmation(""); clearFeedback(); }

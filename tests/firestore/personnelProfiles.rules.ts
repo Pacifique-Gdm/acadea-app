@@ -21,6 +21,12 @@ describe("profils administratifs du personnel", () => {
     await assertFails(getDoc(doc(context("admin-a", "school_admin"), "personnelProfiles", "legacy-b")));
     await assertFails(getDoc(doc(context("admin-a", "school_admin"), "personnelProfiles", "unknown")));
   });
+  it("autorise le Directeur des études uniquement pour les profils enseignants de sa propre école", async () => {
+    await assertSucceeds(getDoc(doc(context("director-a", "study_director"), "personnelProfiles", "teacher-a")));
+    await assertSucceeds(getDoc(doc(context("director-a", "study_director"), "personnelProfiles", "legacy-a")));
+    await assertFails(getDoc(doc(context("director-a", "study_director"), "personnelProfiles", "teacher-b")));
+    await assertFails(getDoc(doc(context("director-a", "study_director"), "personnelProfiles", "unknown")));
+  });
   it("refuse utilisateur ordinaire, personnel lui-même et non authentifié", async () => {
     await assertFails(getDoc(doc(context("secretary-a", "secretary"), "personnelProfiles", "teacher-a")));
     await assertFails(getDoc(doc(context("teacher-a", "teacher"), "personnelProfiles", "teacher-a")));

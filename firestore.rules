@@ -700,6 +700,17 @@ service cloud.firestore {
           || (!exists(/databases/$(database)/documents/personnelProfiles/$(personnelId))
             && exists(/databases/$(database)/documents/users/$(personnelId))
             && get(/databases/$(database)/documents/users/$(personnelId)).data.schoolId == tenantSchoolId())
+        ))
+        || (studyDirector() && (
+          (exists(/databases/$(database)/documents/personnelProfiles/$(personnelId))
+            && resource.data.schoolId == tenantSchoolId()
+            && exists(/databases/$(database)/documents/users/$(personnelId))
+            && get(/databases/$(database)/documents/users/$(personnelId)).data.schoolId == tenantSchoolId()
+            && get(/databases/$(database)/documents/users/$(personnelId)).data.role == "teacher")
+          || (!exists(/databases/$(database)/documents/personnelProfiles/$(personnelId))
+            && exists(/databases/$(database)/documents/users/$(personnelId))
+            && get(/databases/$(database)/documents/users/$(personnelId)).data.schoolId == tenantSchoolId()
+            && get(/databases/$(database)/documents/users/$(personnelId)).data.role == "teacher")
         ));
       allow create, update, delete: if false;
     }

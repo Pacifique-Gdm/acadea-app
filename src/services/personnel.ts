@@ -54,16 +54,17 @@ export function normalizePersonnelSnapshot(users: readonly AppUser[]) {
 }
 
 export function subscribeToSchoolPersonnel(input: { user: AppUser; schoolId: string; onData: (users: AppUser[]) => void; onError: (error: Error) => void }) {
-  if (!firebaseReady || !db || input.user.role !== "school_admin" || input.user.status === "inactive" || input.user.active === false || input.user.schoolId !== input.schoolId) return () => undefined;
+  if (!firebaseReady || !db || !["school_admin", "study_director"].includes(input.user.role) || input.user.status === "inactive" || input.user.active === false || input.user.schoolId !== input.schoolId) return () => undefined;
+  const roles = input.user.role === "study_director" ? ["teacher"] : [...INTERNAL_PERSONNEL_ROLES];
   return onSnapshot(
-    query(collection(db as unknown as Firestore, "users"), where("schoolId", "==", input.schoolId), where("role", "in", [...INTERNAL_PERSONNEL_ROLES])),
+    query(collection(db as unknown as Firestore, "users"), where("schoolId", "==", input.schoolId), where("role", "in", roles)),
     (snapshot) => input.onData(normalizePersonnelSnapshot(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as AppUser))),
     input.onError,
   );
 }
 
 export function subscribeToPersonnelProfile(input: { user: AppUser; schoolId: string; personnelId: string; onData: (profile?: PersonnelProfile) => void; onError: (error: Error) => void }) {
-  if (!firebaseReady || !db || input.user.role !== "school_admin" || input.user.schoolId !== input.schoolId) return () => undefined;
+  if (!firebaseReady || !db || !["school_admin", "study_director"].includes(input.user.role) || input.user.schoolId !== input.schoolId) return () => undefined;
   return onSnapshot(doc(db as unknown as Firestore, "personnelProfiles", input.personnelId), (snapshot) => {
     const data = snapshot.data();
     input.onData(snapshot.exists() && data?.schoolId === input.schoolId ? ({ id: snapshot.id, ...data } as PersonnelProfile) : undefined);

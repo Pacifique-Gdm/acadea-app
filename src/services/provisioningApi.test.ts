@@ -194,6 +194,29 @@ describe("API de provisionnement Acadéa", () => {
     });
   }
 
+  it("autorise le Directeur des études actif à créer uniquement un enseignant de sa propre école", async () => {
+    mocks.auth.verifyIdToken.mockResolvedValue({ uid: "director-1", role: "study_director", schoolId: "school-1" });
+    mocks.db.doc.mockImplementation((path: string) => ({
+      path,
+      get: vi.fn().mockResolvedValue(path === "schools/school-1"
+        ? { exists: true, data: () => ({ id: "school-1" }) }
+        : path === "schoolYears/year-1"
+          ? { exists: true, data: () => ({ id: "year-1", schoolId: "school-1", status: "active" }) }
+          : path === "users/director-1"
+            ? { exists: true, data: () => ({ role: "study_director", schoolId: "school-1", status: "active", active: true }) }
+            : { exists: false }),
+      set: vi.fn().mockResolvedValue(undefined),
+    }));
+    const allowed = response();
+    await provisionSchoolAccount(request({ role: "teacher", schoolId: "school-1", schoolYearId: "year-1", name: "Enseignant", email: "teacher@example.invalid", password: "test-password", phone: "0991234567" }), allowed);
+    expect(allowed.statusCode).toBe(200);
+    expect(mocks.auth.setCustomUserClaims).toHaveBeenCalledWith("created-user", { role: "teacher", schoolId: "school-1" });
+
+    const denied = response();
+    await provisionSchoolAccount(request({ role: "cashier", schoolId: "school-1", schoolYearId: "year-1", name: "Caissier", email: "cashier@example.invalid", password: "test-password", phone: "0991234567" }), denied);
+    expect(denied.statusCode).toBe(403);
+  });
+
   it("accepte un mot de passe métier personnalisé différent du téléphone", async () => {
     const res = response();
     await provisionSchoolAccount(request({
@@ -634,7 +657,23 @@ describe("API de provisionnement Acadéa", () => {
     expect((await run({ uid: "admin-1", role: "school_admin", schoolId: "school-1", status: "active" }, { role: "school_admin", schoolId: "school-1" }, "admin-2")).statusCode).toBe(403);
     expect((await run({ uid: "admin-1", role: "school_admin", schoolId: "school-1", status: "active" }, { role: "parent", schoolId: "school-1" })).statusCode).toBe(403);
     expect((await run({ uid: "admin-1", role: "school_admin", schoolId: "school-1", status: "active" }, { role: "teacher", schoolId: "school-2" })).statusCode).toBe(403);
-    expect((await run({ uid: "director-1", role: "study_director", schoolId: "school-1", status: "active" }, { role: "teacher", schoolId: "school-1" })).statusCode).toBe(403);
-    expect(mocks.auth.updateUser).not.toHaveBeenCalled();
+    expect((await run({ uid: "director-1", role: "study_director", schoolId: "school-1", status: "active" }, { role: "cashier", schoolId: "school-1" })).statusCode).toBe(403);
+  });
+
+  it("autorise le Directeur des études à archiver uniquement un enseignant de sa propre école", async () => {
+    mocks.auth.verifyIdToken.mockResolvedValue({ uid: "director-1", role: "study_director", schoolId: "school-1" });
+    mocks.db.doc.mockImplementation((path: string) => ({
+      path,
+      get: vi.fn().mockResolvedValue({
+        exists: true,
+        data: () => path === "users/director-1"
+          ? { role: "study_director", schoolId: "school-1", status: "active", active: true }
+          : { role: "teacher", schoolId: "school-1", status: "active", active: true, name: "Enseignant" },
+      }),
+    }));
+    const res = response();
+    await provisionSchoolAccount(request({ action: "archive-personnel", schoolId: "school-1", personnelId: "teacher-1" }), res);
+    expect(res.statusCode).toBe(200);
+    expect(mocks.auth.updateUser).toHaveBeenCalledWith("teacher-1", { disabled: true });
   });
 });

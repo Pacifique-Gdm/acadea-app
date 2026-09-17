@@ -9,7 +9,7 @@ export function subscribeToSchoolTeacherAccounts(input: {
   onData: (users: AppUser[]) => void;
   onError: (error: Error) => void;
 }) {
-  if (!db || input.user.role !== "school_admin" || input.user.schoolId !== input.schoolId || input.user.status === "inactive") return undefined;
+  if (!db || !["school_admin", "study_director"].includes(input.user.role) || input.user.schoolId !== input.schoolId || input.user.status === "inactive" || input.user.active === false) return undefined;
   return onSnapshot(
     query(collection(db as unknown as Firestore, "users"), where("schoolId", "==", input.schoolId), where("role", "==", "teacher")),
     (snapshot) => input.onData(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as AppUser[]),
