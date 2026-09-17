@@ -8,6 +8,11 @@ const subject=(overrides:Partial<StudySubject>={}):StudySubject=>({id:"m",school
 
 describe("périmètre pédagogique section/classe/vacation",()=>{
  it("distingue classe, option et sous-classe",()=>expect(operationalClassLabel({...baseClass,subClassLabel:"A"})).toBe("1ère Commerciale A"));
+ it.each([
+  ["2ème Littéraire", "litteraire"],
+  ["1ère Pédagogie générale", "pedagogie generale"],
+  ["3ème Sciences", "SCIENCES"],
+ ])("n’ajoute pas une option déjà présente malgré les accents ou la casse",(name,option)=>expect(operationalClassLabel({...baseClass,name,option})).toBe(name));
  it("privilégie la section structurée",()=>expect(studyClassSection({...baseClass,name:"5ème Primaire"})).toBe("Secondaire"));
  it("borne un cours par section et classe",()=>{expect(subjectAppliesToClass(subject({section:"Secondaire",classIds:["c"]}),baseClass)).toBe(true);expect(subjectAppliesToClass(subject({section:"Primaire"}),baseClass)).toBe(false);expect(subjectAppliesToClass(subject({classIds:["other"]}),baseClass)).toBe(false)});
  it("applique les périodes de la bonne vacation du lundi au vendredi",()=>{expect(periodAppliesToClass(period(),baseClass,"monday")).toBe(true);expect(periodAppliesToClass(period({vacation:"afternoon"}),baseClass,"monday")).toBe(false);expect(periodAppliesToClass(period(),baseClass,"saturday")).toBe(false)});

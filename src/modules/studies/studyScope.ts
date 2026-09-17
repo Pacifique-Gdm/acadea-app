@@ -16,10 +16,19 @@ export function studyClassSection(item: StudyClass): SchoolSection {
   return normalizeSchoolSection(item.section) ?? getClassSection(item.name as SchoolClass);
 }
 
+function normalizedClassLabel(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase("fr");
+}
+
 export function operationalClassLabel(item: StudyClass) {
   const option = item.option?.trim();
   const subclass = item.subClassLabel?.trim();
-  return [item.name, option && !item.name.toLocaleLowerCase("fr").includes(option.toLocaleLowerCase("fr")) ? option : "", subclass && !item.name.endsWith(subclass) ? subclass : ""].filter(Boolean).join(" ");
+  const normalizedName = normalizedClassLabel(item.name);
+  return [
+    item.name,
+    option && !normalizedName.includes(normalizedClassLabel(option)) ? option : "",
+    subclass && !normalizedName.endsWith(normalizedClassLabel(subclass)) ? subclass : "",
+  ].filter(Boolean).join(" ");
 }
 
 export function subjectAppliesToClass(subject: StudySubject, schoolClass: StudyClass) {
