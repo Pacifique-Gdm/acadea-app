@@ -8,7 +8,7 @@ import { DAY_LABELS, detectAvailabilityConflicts, validTimeRange, validateAvaila
 import { persistGeneratedTimetable } from "./timetablePersistence";
 import { normalizeSectionIds, userSectionIds } from "../../utils/userSections";
 import { normalizeSectionField } from "../../utils/schoolSections";
-import { assignmentStudentGroupKey, validateAssignmentClassSelection, type AssignmentClassSelection } from "./studyCourseScope";
+import { assignmentStudentGroupKey, baseStudyClassId, classOptionId, operationalTitularClasses, validateAssignmentClassSelection, type AssignmentClassSelection } from "./studyCourseScope";
 import { normalizedSessionPattern, validateAssignmentSessionPattern } from "./assignmentSessionPattern";
 
 function requireScope(user: AppUser, schoolId: string, schoolYearId: string) {
@@ -232,7 +232,7 @@ export async function renameStudySubject(input: { user: AppUser; schoolId: strin
   });
 }
 
-export async function savePedagogicalAssignments(input: { user: AppUser; schoolId: string; schoolYearId: string; teacherId: string; subjectIds: string[]; classIds: string[]; classSelections?: AssignmentClassSelection[]; knownClasses?: StudyClass[]; legacyClasses?: Array<Pick<StudyClass, "id" | "name" | "schoolId" | "schoolYearId" | "section" | "option" | "parentClassId" | "classOptionKey">>; weeklyPeriods: number; sessionPattern?: AssignmentSessionPattern | null; titularClassId?: string | null; titularClassIds?: string[]; existingTitulars?: ClassTitular[]; active: boolean; current?: PedagogicalAssignment }) {
+export async function savePedagogicalAssignments(input: { user: AppUser; schoolId: string; schoolYearId: string; teacherId: string; subjectIds: string[]; classIds: string[]; classSelections?: AssignmentClassSelection[]; knownClasses?: StudyClass[]; legacyClasses?: Array<Pick<StudyClass, "id" | "name" | "schoolId" | "schoolYearId" | "section" | "option" | "parentClassId" | "classOptionKey" | "subClassLabel" | "vacation" | "saturdayVacation" | "saturdayEnabled">>; weeklyPeriods: number; sessionPattern?: AssignmentSessionPattern | null; titularClassId?: string | null; titularClassIds?: string[]; existingTitulars?: ClassTitular[]; active: boolean; current?: PedagogicalAssignment }) {
   const database = requireScope(input.user, input.schoolId, input.schoolYearId);
   const subjectIds = [...new Set(input.subjectIds.filter(Boolean))];
   const classIds = [...new Set(input.classIds.filter(Boolean))];
@@ -253,8 +253,12 @@ export async function savePedagogicalAssignments(input: { user: AppUser; schoolI
   const combinations = subjectIds.flatMap((subjectId) => classSelections.map((selection) => ({ subjectId, ...selection, studentGroupKey: assignmentStudentGroupKey(selection) })));
   const requestedTitularClassIds = input.titularClassIds ?? (input.titularClassId ? [input.titularClassId] : []);
   const titularClassIds = input.active ? [...new Set(requestedTitularClassIds.filter(Boolean))] : [];
-  if (titularClassIds.some((id) => !classIds.includes(id))) throw new Error("Une classe titulaire doit faire partie des classes affectées.");
-  const legacyClasses = (input.legacyClasses ?? []).filter((item) => classIds.includes(item.id));
+  const allowedTitularClassIds = new Set(input.knownClasses
+    ? operationalTitularClasses(classSelections, input.knownClasses).map((item) => item.id)
+    : classIds);
+  if (titularClassIds.some((id) => !allowedTitularClassIds.has(id))) throw new Error("Une classe titulaire doit faire partie des classes opérationnelles affectées.");
+  const persistedClassIds = new Set([...classIds, ...titularClassIds]);
+  const legacyClasses = (input.legacyClasses ?? []).filter((item, index, all) => persistedClassIds.has(item.id) && all.findIndex((candidate) => candidate.id === item.id) === index);
   if (legacyClasses.some((item) => item.schoolId !== input.schoolId || item.schoolYearId !== input.schoolYearId)) throw new Error("Une classe historique est hors périmètre.");
   const legacyClassIds = new Set(legacyClasses.map((item) => item.id));
   if (legacyClassIds.size !== legacyClasses.length || legacyClasses.some((item) => !item.name.trim())) throw new Error("Une classe historique est invalide.");
@@ -268,11 +272,20 @@ export async function savePedagogicalAssignments(input: { user: AppUser; schoolI
     assignmentId: pedagogicalAssignmentId({ schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, subjectId, classId, courseScope, targetOptionIds, studentGroupKey }),
     lockId: activeAssignmentLockId({ schoolId: input.schoolId, schoolYearId: input.schoolYearId, subjectId, classId, courseScope, targetOptionIds, studentGroupKey }),
   }));
+  const knownClassById = new Map((input.knownClasses ?? []).map((item) => [item.id, item]));
+  const targetForTitularClass = (titularClassId: string) => {
+    const titularClass = knownClassById.get(titularClassId);
+    const baseClassId = titularClass ? baseStudyClassId(titularClass) : titularClassId;
+    const optionId = titularClass ? classOptionId(titularClass) : undefined;
+    return targets.find((target) => target.subjectId === subjectIds[0]
+      && (target.classId === titularClassId || target.classId === baseClassId)
+      && (!target.targetOptionIds?.length || Boolean(optionId && target.targetOptionIds.includes(optionId))));
+  };
   await runTransaction(database, async (transaction) => {
     const teacherRef = doc(database, "teachers", input.teacherId);
     const subjectRefs = subjectIds.map((id) => doc(database, "subjects", id));
-    const modernClassRefs = classIds.filter((id) => !legacyClassIds.has(id)).map((id) => doc(database, "classes", id));
-    const managedTitulars = (input.existingTitulars ?? []).filter((item) => item.schoolId === input.schoolId && item.schoolYearId === input.schoolYearId && (classIds.includes(item.classId) || item.classId === input.current?.classId) && item.active && (item.teacherId === input.teacherId || item.assignmentId === input.current?.id));
+    const modernClassRefs = [...persistedClassIds].filter((id) => !legacyClassIds.has(id)).map((id) => doc(database, "classes", id));
+    const managedTitulars = (input.existingTitulars ?? []).filter((item) => item.schoolId === input.schoolId && item.schoolYearId === input.schoolYearId && item.active && (item.teacherId === input.teacherId || item.assignmentId === input.current?.id) && (allowedTitularClassIds.has(item.classId) || item.assignmentId === input.current?.id));
     const selectedTitularRefs = titularClassIds.map((id) => doc(database, "classTitulars", `${input.schoolId}__${input.schoolYearId}__${id}`));
     const removedTitulars = managedTitulars.filter((item) => !titularClassIds.includes(item.classId));
     const removedTitularRefs = removedTitulars.map((item) => doc(database, "classTitulars", item.id));
@@ -296,7 +309,23 @@ export async function savePedagogicalAssignments(input: { user: AppUser; schoolI
       const lockedAssignments = await Promise.all(occupiedLocks.map((snapshot) => transaction.get(doc(database, "pedagogicalAssignments", String(snapshot.data()?.assignmentId ?? "")))));
       if (lockedAssignments.some((snapshot) => !snapshot.exists() || snapshot.data()?.active !== false)) throw new Error("Ce cours est déjà affecté activement à cette classe.");
     }
-    legacyClasses.forEach((schoolClass) => transaction.set(doc(database, "classes", schoolClass.id), { id: schoolClass.id, schoolId: input.schoolId, schoolYearId: input.schoolYearId, name: schoolClass.name.trim(), active: true, createdBy: input.user.id, createdAt: now, updatedAt: now }));
+    legacyClasses.forEach((schoolClass) => transaction.set(doc(database, "classes", schoolClass.id), {
+      id: schoolClass.id,
+      schoolId: input.schoolId,
+      schoolYearId: input.schoolYearId,
+      name: schoolClass.name.trim(),
+      active: true,
+      ...(schoolClass.parentClassId ? { parentClassId: schoolClass.parentClassId } : {}),
+      ...(schoolClass.classOptionKey ? { classOptionKey: schoolClass.classOptionKey } : {}),
+      ...(schoolClass.subClassLabel ? { subClassLabel: schoolClass.subClassLabel } : {}),
+      ...(schoolClass.option ? { option: schoolClass.option } : {}),
+      ...(schoolClass.vacation ? { vacation: schoolClass.vacation } : {}),
+      ...(schoolClass.saturdayEnabled !== undefined ? { saturdayEnabled: schoolClass.saturdayEnabled } : {}),
+      ...(schoolClass.saturdayVacation !== undefined ? { saturdayVacation: schoolClass.saturdayVacation } : {}),
+      createdBy: input.user.id,
+      createdAt: now,
+      updatedAt: now,
+    }));
     const targetIds = new Set(targets.map((target) => target.assignmentId));
     if (input.current && !targetIds.has(input.current.id)) transaction.update(doc(database, "pedagogicalAssignments", input.current.id), { active: false, updatedAt: now, updatedBy: input.user.id, titularClassId: null });
     removedTitularRefs.forEach((reference, index) => {
@@ -304,7 +333,10 @@ export async function savePedagogicalAssignments(input: { user: AppUser; schoolI
     });
     combinations.forEach(({ subjectId, classId, courseScope, targetOptionIds, studentGroupKey }) => {
       const id = pedagogicalAssignmentId({ schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, subjectId, classId, courseScope, targetOptionIds, studentGroupKey });
-      transaction.set(doc(database, "pedagogicalAssignments", id), { id, schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, subjectId, classId, ...(courseScope ? { courseScope, targetOptionIds, studentGroupKey } : {}), weeklyPeriods: input.weeklyPeriods, blockSize: input.sessionPattern !== undefined ? 1 : id === input.current?.id ? input.current.blockSize ?? 1 : 1, ...(sessionPattern ? { sessionPattern } : {}), preferredRoomId: id === input.current?.id ? input.current.preferredRoomId ?? null : null, titularClassId: titularClassIds.includes(classId) && subjectId === subjectIds[0] ? classId : null, active: input.active, createdAt: id === input.current?.id ? input.current.createdAt : now, updatedAt: now, createdBy: id === input.current?.id ? input.current.createdBy : input.user.id, updatedBy: input.user.id });
+      const titularClassId = subjectId === subjectIds[0]
+        ? titularClassIds.find((candidate) => targetForTitularClass(candidate)?.assignmentId === id) ?? null
+        : null;
+      transaction.set(doc(database, "pedagogicalAssignments", id), { id, schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, subjectId, classId, ...(courseScope ? { courseScope, targetOptionIds, studentGroupKey } : {}), weeklyPeriods: input.weeklyPeriods, blockSize: input.sessionPattern !== undefined ? 1 : id === input.current?.id ? input.current.blockSize ?? 1 : 1, ...(sessionPattern ? { sessionPattern } : {}), preferredRoomId: id === input.current?.id ? input.current.preferredRoomId ?? null : null, titularClassId, active: input.active, createdAt: id === input.current?.id ? input.current.createdAt : now, updatedAt: now, createdBy: id === input.current?.id ? input.current.createdBy : input.user.id, updatedBy: input.user.id });
     });
     targets.forEach((target, index) => {
       const lockRef = lockRefs[index];
@@ -312,7 +344,7 @@ export async function savePedagogicalAssignments(input: { user: AppUser; schoolI
     });
     titularClassIds.forEach((classId, index) => {
       const id = `${input.schoolId}__${input.schoolYearId}__${classId}`;
-      const assignmentId = targets.find((target) => target.subjectId === subjectIds[0] && target.classId === classId)?.assignmentId;
+      const assignmentId = targetForTitularClass(classId)?.assignmentId;
       if (!assignmentId) throw new Error("L’affectation titulaire est introuvable.");
       transaction.set(selectedTitularRefs[index], { id, schoolId: input.schoolId, schoolYearId: input.schoolYearId, classId, teacherId: input.teacherId, assignmentId, active: true, updatedAt: now, updatedBy: input.user.id });
     });
@@ -320,12 +352,12 @@ export async function savePedagogicalAssignments(input: { user: AppUser; schoolI
   return combinations.length;
 }
 
-export async function savePrimaryHomeroomAssignments(input: { user: AppUser; schoolId: string; schoolYearId: string; teacherId: string; subjectIds: string[]; classId: string; legacyClass?: Pick<StudyClass, "id" | "name" | "schoolId" | "schoolYearId">; weeklyPeriods: number; sessionPattern?: AssignmentSessionPattern | null; active: boolean }) {
+export async function savePrimaryHomeroomAssignments(input: { user: AppUser; schoolId: string; schoolYearId: string; teacherId: string; subjectIds: string[]; classId: string; knownClasses?: StudyClass[]; legacyClass?: Pick<StudyClass, "id" | "name" | "schoolId" | "schoolYearId">; legacyClasses?: Array<Pick<StudyClass, "id" | "name" | "schoolId" | "schoolYearId" | "section" | "option" | "parentClassId" | "classOptionKey" | "subClassLabel" | "vacation" | "saturdayVacation" | "saturdayEnabled">>; titularClassIds?: string[]; existingTitulars?: ClassTitular[]; weeklyPeriods: number; sessionPattern?: AssignmentSessionPattern | null; active: boolean }) {
   const [firstSubjectId, ...remainingSubjectIds] = [...new Set(input.subjectIds.filter(Boolean))];
   if (!firstSubjectId) throw new Error("Aucun cours applicable à cette classe.");
-  await savePedagogicalAssignments({ ...input, subjectIds: [firstSubjectId], classIds: [input.classId], legacyClasses: input.legacyClass ? [input.legacyClass] : [], titularClassId: input.classId });
+  await savePedagogicalAssignments({ ...input, subjectIds: [firstSubjectId], classIds: [input.classId], legacyClasses: input.legacyClasses ?? (input.legacyClass ? [input.legacyClass] : []), titularClassIds: input.titularClassIds?.length ? input.titularClassIds : [input.classId] });
   for (let index = 0; index < remainingSubjectIds.length; index += 3) {
-    await savePedagogicalAssignments({ ...input, subjectIds: remainingSubjectIds.slice(index, index + 3), classIds: [input.classId], legacyClasses: [], titularClassId: null });
+    await savePedagogicalAssignments({ ...input, subjectIds: remainingSubjectIds.slice(index, index + 3), classIds: [input.classId], legacyClasses: [], titularClassId: null, titularClassIds: [] });
   }
   return 1 + remainingSubjectIds.length;
 }

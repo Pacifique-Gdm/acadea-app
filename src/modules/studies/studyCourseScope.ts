@@ -24,6 +24,27 @@ export function optionClassesForBaseClass(classes: readonly StudyClass[], classI
   return classes.filter((item) => baseStudyClassId(item) === classId && Boolean(classOptionId(item)));
 }
 
+/**
+ * Resolves the concrete classes that may receive a homeroom teacher for the
+ * current assignment selections. A logical parent is kept only when it has no
+ * operational child; option/subclass children always take precedence.
+ */
+export function operationalTitularClasses(selections: readonly AssignmentClassSelection[], classes: readonly StudyClass[]) {
+  const resolved = new Map<string, StudyClass>();
+  selections.forEach((selection) => {
+    const scoped = classes.filter((item) => item.active !== false && (
+      item.id === selection.classId || baseStudyClassId(item) === selection.classId
+    ));
+    const detailed = scoped.filter((item) => item.id !== selection.classId || Boolean(item.parentClassId || item.classOptionKey || item.subClassLabel || item.option));
+    const targetOptionIds = new Set(normalizedIds(selection.targetOptionIds));
+    const candidates = detailed.length ? detailed : scoped.filter((item) => item.id === selection.classId);
+    candidates
+      .filter((item) => targetOptionIds.size === 0 || Boolean(classOptionId(item) && targetOptionIds.has(classOptionId(item)!)))
+      .forEach((item) => resolved.set(item.id, item));
+  });
+  return [...resolved.values()].sort((left, right) => left.name.localeCompare(right.name, "fr", { numeric: true, sensitivity: "base" }));
+}
+
 export function logicalStudyClasses(operationalClasses: readonly StudyClass[], sourceClasses: readonly StudyClass[] = []) {
   const all = [...sourceClasses, ...operationalClasses];
   const byId = new Map(all.map((item) => [item.id, item]));

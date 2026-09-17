@@ -817,8 +817,31 @@ service cloud.firestore {
           && (!("saturdayEnabled" in request.resource.data) || request.resource.data.saturdayEnabled is bool)
           && (!("saturdayVacation" in request.resource.data) || request.resource.data.saturdayVacation == null || request.resource.data.saturdayVacation in ["morning", "afternoon"]);
       }
+      function validStudyOperationalClassCreate() {
+        let titularId = request.resource.data.schoolId + "__" + request.resource.data.schoolYearId + "__" + classId;
+        let titularPath = /databases/$(database)/documents/classTitulars/$(titularId);
+        return studyDirector()
+          && activeStudyYearCreate()
+          && request.resource.data.id == classId
+          && request.resource.data.parentClassId is string
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0
+          && (((request.resource.data.classOptionKey is string
+              && classId == request.resource.data.classOptionKey
+              && request.resource.data.classOptionKey.matches("^" + request.resource.data.parentClassId + "::.+$"))
+            || (request.resource.data.subClassLabel is string
+              && request.resource.data.subClassLabel.size() > 0)))
+          && existsAfter(/databases/$(database)/documents/classes/$(request.resource.data.parentClassId))
+          && getAfter(/databases/$(database)/documents/classes/$(request.resource.data.parentClassId)).data.schoolId == tenantSchoolId()
+          && getAfter(/databases/$(database)/documents/classes/$(request.resource.data.parentClassId)).data.schoolYearId == request.resource.data.schoolYearId
+          && request.resource.data.createdBy == request.auth.uid
+          && existsAfter(titularPath)
+          && getAfter(titularPath).data.classId == classId
+          && getAfter(titularPath).data.updatedBy == request.auth.uid
+          && request.resource.data.keys().hasOnly(["id", "schoolId", "schoolYearId", "name", "active", "parentClassId", "classOptionKey", "subClassLabel", "option", "vacation", "saturdayVacation", "saturdayEnabled", "createdBy", "createdAt", "updatedAt"]);
+      }
       allow read: if superAdmin() || sameTenantResource() || studyTenantResource() || teacherTenantResource();
-      allow create: if (schoolAdmin() && activeTenantYearCreate()) || validSubclassCreate() || validSecretaryBaseClassCreate() || validStudyLegacyClassCreate();
+      allow create: if (schoolAdmin() && activeTenantYearCreate()) || validSubclassCreate() || validSecretaryBaseClassCreate() || validStudyLegacyClassCreate() || validStudyOperationalClassCreate();
       allow update: if (schoolAdmin() && activeTenantYearUpdate())
         || (activeStudyYearUpdate()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["vacation", "saturdayVacation", "saturdayEnabled", "updatedAt"])
@@ -992,6 +1015,15 @@ service cloud.firestore {
     }
 
     match /classTitulars/{titularId} {
+      function titularMatchesAssignment() {
+        let assignment = getAfter(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data;
+        let titularClass = getAfter(/databases/$(database)/documents/classes/$(request.resource.data.classId)).data;
+        return assignment.classId == request.resource.data.classId
+          || (titularClass.parentClassId == assignment.classId
+            && (!("classOptionKey" in titularClass)
+              || !("targetOptionIds" in assignment)
+              || titularClass.classOptionKey in assignment.targetOptionIds));
+      }
       function validTitularShape() {
         return request.resource.data.id == titularId
           && titularId == request.resource.data.schoolId + "__" + request.resource.data.schoolYearId + "__" + request.resource.data.classId
@@ -1002,7 +1034,7 @@ service cloud.firestore {
           && getAfter(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.schoolId == tenantSchoolId()
           && getAfter(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.schoolYearId == request.resource.data.schoolYearId
           && getAfter(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.teacherId == request.resource.data.teacherId
-          && getAfter(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.classId == request.resource.data.classId
+          && titularMatchesAssignment()
           && getAfter(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.active == true
           && request.resource.data.updatedBy == request.auth.uid;
       }

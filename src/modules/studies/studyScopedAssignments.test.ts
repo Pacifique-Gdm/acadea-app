@@ -46,12 +46,39 @@ describe("persistance des affectations par groupes d'options", () => {
     await savePedagogicalAssignments({
       user, schoolId: "s", schoolYearId: "y", teacherId: "teacher", subjectIds: ["fr"], classIds: [base.id],
       classSelections: [{ classId: base.id, courseScope: "common", targetOptionIds: [options[0].id, options[1].id] }],
-      knownClasses: [base, ...options], legacyClasses: [base], weeklyPeriods: 4, titularClassIds: [base.id], existingTitulars: [], active: true,
+      knownClasses: [base, ...options], legacyClasses: [base], weeklyPeriods: 4, titularClassIds: [options[0].id], existingTitulars: [], active: true,
     });
     const assignmentCall = mocks.set.mock.calls.find(([path]) => String(path).startsWith("pedagogicalAssignments/"));
     expect(assignmentCall?.[1]).toMatchObject({ courseScope: "common", targetOptionIds: [options[1].id, options[0].id].sort(), weeklyPeriods: 4 });
     expect(mocks.set.mock.calls.filter(([path]) => String(path).startsWith("pedagogicalAssignments/"))).toHaveLength(1);
     const titularCall = mocks.set.mock.calls.find(([path]) => String(path).startsWith("classTitulars/"));
+    expect(titularCall?.[1].classId).toBe(options[0].id);
     expect(titularCall?.[1].assignmentId).toBe(assignmentCall?.[1].id);
+  });
+
+  it("matérialise uniquement la classe opérationnelle explicitement choisie comme titularité", async () => {
+    await savePedagogicalAssignments({
+      user, schoolId: "s", schoolYearId: "y", teacherId: "teacher", subjectIds: ["fr"], classIds: [base.id],
+      classSelections: [{ classId: base.id, courseScope: "option", targetOptionIds: [options[1].id] }],
+      knownClasses: [base, ...options], legacyClasses: [options[1]], weeklyPeriods: 2, titularClassIds: [options[1].id], existingTitulars: [], active: true,
+    });
+    expect(mocks.set).toHaveBeenCalledWith(`classes/${options[1].id}`, expect.objectContaining({
+      id: options[1].id,
+      parentClassId: base.id,
+      classOptionKey: options[1].id,
+      option: "commerciale",
+    }));
+    const assignmentCall = mocks.set.mock.calls.find(([path]) => String(path).startsWith("pedagogicalAssignments/"));
+    expect(assignmentCall?.[1].titularClassId).toBe(options[1].id);
+    expect(mocks.set.mock.calls.filter(([path]) => String(path).startsWith("classes/"))).toHaveLength(1);
+  });
+
+  it("refuse une titularité opérationnelle étrangère à la portée avant toute transaction", async () => {
+    await expect(savePedagogicalAssignments({
+      user, schoolId: "s", schoolYearId: "y", teacherId: "teacher", subjectIds: ["fr"], classIds: [base.id],
+      classSelections: [{ classId: base.id, courseScope: "option", targetOptionIds: [options[0].id] }],
+      knownClasses: [base, ...options], weeklyPeriods: 2, titularClassIds: [options[1].id], existingTitulars: [], active: true,
+    })).rejects.toThrow("classes opérationnelles affectées");
+    expect(mocks.runTransaction).not.toHaveBeenCalled();
   });
 });

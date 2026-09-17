@@ -103,6 +103,33 @@ describe("Direction des études — affectations pédagogiques", () => {
     batch.set(doc(database, "classTitulars", titularId), { id: titularId, schoolId: school, schoolYearId: year, classId: legacyClassId, teacherId: "teacher-a", assignmentId: legacyAssignmentId, active: true, updatedAt: now, updatedBy: "director-a" });
     await assertSucceeds(batch.commit());
   });
+  it("autorise une titularité opérationnelle rattachée à une affectation d'option et refuse une classe étrangère au périmètre", async () => {
+    const database = director();
+    const operationalClassId = "class-a::scientifique";
+    const operationalClass = { id: operationalClassId, schoolId: school, schoolYearId: year, name: "4e Scientifique", parentClassId: "class-a", classOptionKey: operationalClassId, option: "Scientifique", active: true, createdBy: "director-a", createdAt: now, updatedAt: now };
+    await assertFails(setDoc(doc(database, "classes", operationalClassId), operationalClass));
+    const group = "option--class-a%3A%3Ascientifique";
+    const scopedAssignmentId = `${school}__${year}__teacher-a__subject-a__class-a__${group}`;
+    const payload = assignment({
+      id: scopedAssignmentId,
+      courseScope: "option",
+      targetOptionIds: [operationalClassId],
+      studentGroupKey: group,
+      titularClassId: operationalClassId,
+    });
+    const lock = assignmentLock(payload);
+    const titularId = `${school}__${year}__${operationalClassId}`;
+    const batch = writeBatch(database);
+    batch.set(doc(database, "classes", operationalClassId), operationalClass);
+    batch.set(doc(database, "pedagogicalAssignments", scopedAssignmentId), payload);
+    batch.set(doc(database, "pedagogicalAssignmentLocks", String(lock.id)), lock);
+    batch.set(doc(database, "classTitulars", titularId), { id: titularId, schoolId: school, schoolYearId: year, classId: operationalClassId, teacherId: "teacher-a", assignmentId: scopedAssignmentId, active: true, updatedAt: now, updatedBy: "director-a" });
+    await assertSucceeds(batch.commit());
+
+    await seed("classes/class-c::litteraire", { id: "class-c::litteraire", schoolId: school, schoolYearId: year, name: "4e Littéraire", parentClassId: "class-c", classOptionKey: "class-c::litteraire", active: true });
+    const foreignTitularId = `${school}__${year}__class-c::litteraire`;
+    await assertFails(setDoc(doc(database, "classTitulars", foreignTitularId), { id: foreignTitularId, schoolId: school, schoolYearId: year, classId: "class-c::litteraire", teacherId: "teacher-a", assignmentId: scopedAssignmentId, active: true, updatedAt: now, updatedBy: "director-a" }));
+  });
   it("refuse une classe legacy non tenantée ou d'une autre école", async () => {
     await assertFails(setDoc(doc(director(), "classes", "legacy-class__2eme-humanite"), { id: "legacy-class__2eme-humanite", schoolId: school, schoolYearId: year, name: "2ème Humanité", active: true, createdBy: "director-a", createdAt: now, updatedAt: now }));
     await assertFails(setDoc(doc(director(), "classes", `${school}__${year}__foreign`), { id: `${school}__${year}__foreign`, schoolId: "school-b", schoolYearId: "year-b", name: "Classe étrangère", active: true, createdBy: "director-a", createdAt: now, updatedAt: now }));
