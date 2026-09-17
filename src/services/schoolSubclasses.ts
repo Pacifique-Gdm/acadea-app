@@ -227,6 +227,10 @@ export function validateSubclassLabels(labels: string[]) {
   return "";
 }
 
+export function subclassCreationScopeIsValid(parent: Pick<SchoolClassRecord, "schoolId" | "schoolYearId">, schoolId: string, schoolYearId: string) {
+  return Boolean(parent.schoolYearId && parent.schoolId === schoolId && parent.schoolYearId === schoolYearId);
+}
+
 export function subscribeToSchoolClasses(schoolId: string, schoolYearId: string, onData: (items: SchoolClassRecord[]) => void, onError: (error: Error) => void) {
   if (!db) return () => undefined;
   return onSnapshot(query(collection(db as Firestore, "classes"), where("schoolId", "==", schoolId), where("schoolYearId", "==", schoolYearId)), (snapshot) => {
@@ -234,9 +238,9 @@ export function subscribeToSchoolClasses(schoolId: string, schoolYearId: string,
   }, onError);
 }
 
-export async function createSchoolSubclasses(input: { user: AppUser; parent: SchoolClassRecord; labels: string[]; existing: SchoolClassRecord[]; classOptionKey?: string }) {
+export async function createSchoolSubclasses(input: { user: AppUser; schoolYearId: string; parent: SchoolClassRecord; labels: string[]; existing: SchoolClassRecord[]; classOptionKey?: string }) {
   if (!db || !["school_admin", "secretary"].includes(input.user.role) || input.user.schoolId !== input.parent.schoolId) throw new Error("Création de sous-classes non autorisée.");
-  if (!input.parent.schoolYearId || input.user.activeSchoolYearId !== input.parent.schoolYearId) throw new Error("L’année scolaire de la classe est incohérente.");
+  if (!input.user.schoolId || !subclassCreationScopeIsValid(input.parent, input.user.schoolId, input.schoolYearId)) throw new Error("L’année scolaire de la classe est incohérente.");
   const error = validateSubclassLabels(input.labels);
   if (error) throw new Error(error);
   if (input.parent.parentClassId) throw new Error("Une sous-classe ne peut pas être subdivisée.");

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeSubclasses, canonicalOperationalClasses, classesWithEnrolledStudents, operationalClasses, operationalSchoolClasses, schoolClassOptionKey, schoolClassRecordId, secondarySubclassesForOption, studentBelongsToOperationalClass, studentSchoolClassOptionKey, validateSubclassLabels } from "./schoolSubclasses";
+import { activeSubclasses, canonicalOperationalClasses, classesWithEnrolledStudents, operationalClasses, operationalSchoolClasses, schoolClassOptionKey, schoolClassRecordId, secondarySubclassesForOption, studentBelongsToOperationalClass, studentSchoolClassOptionKey, subclassCreationScopeIsValid, validateSubclassLabels } from "./schoolSubclasses";
 import fs from "node:fs";
 import type { SchoolClassRecord } from "../types";
 const base = (id: string, extra: Partial<SchoolClassRecord> = {}): SchoolClassRecord => ({ id, schoolId: "school-a", schoolYearId: "year-a", name: id, active: true, ...extra });
@@ -24,6 +24,11 @@ describe("sous-classes structurées", () => {
     expect(secondarySubclassesForOption(rows, "secondary-1", schoolClassOptionKey("secondary-1", "Scientifique"), "legacy-a").map((item) => item.id)).toEqual(["legacy-a"]);
   });
   it("génère un identifiant stable pour une classe legacy", () => expect(schoolClassRecordId("school-a", "year-a", "7ème CTEB")).toBe("school-a__year-a__7eme-cteb"));
+  it("valide l’année ouverte du module sans dépendre de l’année historique du profil", () => {
+    expect(subclassCreationScopeIsValid(base("parent"), "school-a", "year-a")).toBe(true);
+    expect(subclassCreationScopeIsValid(base("parent"), "school-a", "year-b")).toBe(false);
+    expect(subclassCreationScopeIsValid(base("parent"), "school-b", "year-a")).toBe(false);
+  });
   it("branche le bouton partagé dans l'ordre classe puis option puis sous-classe", () => { const form = fs.readFileSync("src/components/students/StudentForm.tsx", "utf8"); const module = fs.readFileSync("src/modules/students/StudentsModule.tsx", "utf8"); expect(form).toContain("item.name === form.className"); expect(form).toContain("schoolClassRecordId("); expect(form.indexOf("Option")).toBeLessThan(form.indexOf("Ajouter sous-classe")); expect(form).toContain("Sélectionnez d’abord une option."); expect(form).toContain("subClassId: undefined"); expect(form).toContain('useState(["A", "B"])'); expect(form).toContain("Sous-classe ${index + 1}"); expect(module).toContain("subscribeToSchoolClasses"); expect(module).toContain("createSchoolSubclasses"); });
 });
 

@@ -730,7 +730,7 @@ export function StudentsModule({
             canCreateParent={studentCapabilities.canCreateParent}
           canAddOption={studentCapabilities.canManageOptions}
           structuredClasses={structuredClasses}
-          onAddSubclasses={(parent, labels, classOptionKey) => createSchoolSubclasses({ user, parent, labels, classOptionKey, existing: structuredClasses })}
+          onAddSubclasses={(parent, labels, classOptionKey) => createSchoolSubclasses({ user, schoolYearId: year.id, parent, labels, classOptionKey, existing: structuredClasses })}
           />
         </AdminDrawer>
       )}
