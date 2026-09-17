@@ -44,10 +44,15 @@ describe("moteur déterministe d’horaires",()=>{
   it("place un cours double dans un bloc adjacent",()=>{const result=solver.solve(problem([assignment("a","t","c","m",2,2)]));expect(result.success).toBe(true);expect(new Set(result.entries.map(e=>e.blockId)).size).toBe(1)});
   it.each([
     { weeklyPeriods: 4, blocks: [4] },
-    { weeklyPeriods: 6, blocks: [3, 3] },
+    { weeklyPeriods: 5, blocks: [5] },
+    { weeklyPeriods: 6, blocks: [6] },
+    { weeklyPeriods: 8, blocks: [4, 4] },
+    { weeklyPeriods: 8, blocks: [5, 3] },
+    { weeklyPeriods: 8, blocks: [6, 2] },
+    { weeklyPeriods: 10, blocks: [5, 5] },
     { weeklyPeriods: 9, blocks: [2, 3, 4] },
   ])("place exactement les blocs $blocks sur des jours distincts", ({ weeklyPeriods, blocks }) => {
-    const periods = Array.from({ length: 5 }, (_, index) => period(`p${index + 1}`, index + 1));
+    const periods = Array.from({ length: 6 }, (_, index) => period(`p${index + 1}`, index + 1));
     const configured = { ...assignment("blocks", "t", "c", "m", weeklyPeriods), sessionPattern: { mode: "blocks" as const, blocks } };
     const result = solver.solve({ ...problem([configured], periods), maxSameAssignmentPeriodsPerDay: 2 });
     expect(result.success).toBe(true);
@@ -55,6 +60,8 @@ describe("moteur déterministe d’horaires",()=>{
     expect(groups.map((group) => group.length).sort((a, b) => a - b)).toEqual([...blocks].sort((a, b) => a - b));
     expect(new Set(groups.map((group) => group[0].dayOfWeek)).size).toBe(blocks.length);
   });
+  it("refuse un bloc de six coupé par une pause",()=>{const configured={...assignment("a","t","c","m",6),sessionPattern:{mode:"blocks" as const,blocks:[6]}};const result=solver.solve(problem([configured],[period("p1",1),period("p2",2),period("p3",3),period("pause",4,"break"),period("p4",5),period("p5",6),period("p6",7)]));expect(result.success).toBe(false);expect(result.failures[0].reason).toContain("bloc de périodes consécutives")});
+  it("refuse un bloc de cinq si une disponibilité partielle le coupe",()=>{const configured={...assignment("a","t","c","m",5),sessionPattern:{mode:"blocks" as const,blocks:[5]}};const periods=Array.from({length:5},(_,index)=>period(`p${index+1}`,index+1));const rests=(['tuesday','wednesday','thursday','friday','saturday'] as const).map(day=>availability("rest",day));const result=solver.solve(problem([configured],periods,[...rests,availability("unavailable","monday",periods[2].startTime,periods[2].endTime)]));expect(result.success).toBe(false);expect(result.failures[0].reason).toContain("bloc de périodes consécutives")});
   it("refuse un bloc de quatre coupé par une pause",()=>{const configured={...assignment("a","t","c","m",4),sessionPattern:{mode:"blocks" as const,blocks:[4]}};const result=solver.solve(problem([configured],[period("p1",1),period("p2",2),period("pause",3,"break"),period("p3",4),period("p4",5)]));expect(result.success).toBe(false);expect(result.failures[0].reason).toContain("bloc de périodes consécutives")});
   it("refuse un bloc si une seule période est indisponible",()=>{const configured={...assignment("a","t","c","m",4),sessionPattern:{mode:"blocks" as const,blocks:[4]}};const periods=[period("p1",1),period("p2",2),period("p3",3),period("p4",4)];const rests=(['tuesday','wednesday','thursday','friday','saturday'] as const).map(day=>availability("rest",day));const result=solver.solve(problem([configured],periods,[...rests,availability("unavailable","monday",periods[2].startTime,periods[2].endTime)]));expect(result.success).toBe(false)});
   it("respecte les conflits sur chaque période d’un bloc et autorise les groupes disjoints",()=>{const periods=[period("p1",1),period("p2",2)];const blocked={...assignment("block","shared","c1","m1",2),sessionPattern:{mode:"blocks" as const,blocks:[2]}};const sameTeacher=assignment("other","shared","c2","m2",1);expect(solver.solve({...problem([blocked,sameTeacher],periods),days:["monday"]} as const).success).toBe(false);const optionClasses:StudyClass[]=[schoolClass("3h"),{...schoolClass("3h::sci"),parentClassId:"3h",classOptionKey:"3h::sci",option:"Scientifique"},{...schoolClass("3h::com"),parentClassId:"3h",classOptionKey:"3h::com",option:"Commerciale"}];const first={...assignment("science","t1","3h","science",2),courseScope:"option" as const,targetOptionIds:["3h::sci"],studentGroupKey:"option--3h::sci",sessionPattern:{mode:"blocks" as const,blocks:[2]}};const second={...assignment("commerce","t2","3h","commerce",2),courseScope:"option" as const,targetOptionIds:["3h::com"],studentGroupKey:"option--3h::com",sessionPattern:{mode:"blocks" as const,blocks:[2]}};expect(solver.solve({...problem([first,second],periods),classes:optionClasses,days:["monday"]}).success).toBe(true)});
