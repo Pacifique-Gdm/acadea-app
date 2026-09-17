@@ -23,11 +23,12 @@ describe("écoute des comptes Enseignant pour le formulaire Administrateur", () 
       { field: "schoolId", operator: "==", value: "school-a" },
       { field: "role", operator: "==", value: "teacher" },
     );
+    expect(subscribeToSchoolTeacherAccounts({ user: { ...admin, role: "study_director" }, schoolId: "school-a", onData: vi.fn(), onError: vi.fn() })).toBeTypeOf("function");
   });
 
   it("refuse les autres rôles, écoles et comptes inactifs avant réseau", () => {
     for (const user of [
-      { ...admin, role: "study_director" },
+      { ...admin, role: "secretary" },
       { ...admin, schoolId: "school-b" },
       { ...admin, status: "inactive" },
     ] as AppUser[]) expect(subscribeToSchoolTeacherAccounts({ user, schoolId: "school-a", onData: vi.fn(), onError: vi.fn() })).toBeUndefined();
