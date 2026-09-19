@@ -5,6 +5,7 @@ const shellSource = readFileSync(new URL("./MessagingDrawerShell.tsx", import.me
 const drawerSource = readFileSync(new URL("../ui/AdminDrawer.tsx", import.meta.url), "utf8");
 const headerSource = readFileSync(new URL("../layout/Header.tsx", import.meta.url), "utf8");
 const contentSource = readFileSync(new URL("./MessageDrawerContent.tsx", import.meta.url), "utf8");
+const studyPortalSource = readFileSync(new URL("../../modules/studies/StudyDirectorPortal.tsx", import.meta.url), "utf8");
 const bottomNavigationSource = [
   readFileSync(new URL("../layout/MobileBottomNavigation.tsx", import.meta.url), "utf8"),
   readFileSync(new URL("../../styles.css", import.meta.url), "utf8"),
@@ -45,5 +46,12 @@ describe("layout partagé de la Boîte à Messagerie", () => {
     expect(contentSource).toContain("flex h-full min-h-0 min-w-0 flex-col");
     expect(contentSource).toContain("overflow-hidden");
     expect(contentSource).toContain("overflow-y-auto");
+  });
+
+  it("relie une notification d’indisponibilité à la liste de traitement du Directeur des études", () => {
+    expect(contentSource).toContain('item.notification.type === "availability" && user.role === "study_director"');
+    expect(contentSource).toContain("onClick={onOpenAvailabilityRequests}");
+    expect(headerSource).toContain("onOpenAvailabilityRequests={onOpenAvailabilityRequests ?");
+    expect(studyPortalSource).toContain('setDrawer("requests")');
   });
 });

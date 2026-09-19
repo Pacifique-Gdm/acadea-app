@@ -42,6 +42,7 @@ export function MessageDrawerContent({
   realtimeMessages = [],
   notificationPagination,
   focusedMessageId,
+  onOpenAvailabilityRequests,
 }: {
   user: AppUser;
   data: Pick<AppData, "users">;
@@ -52,6 +53,7 @@ export function MessageDrawerContent({
   notificationPagination?: ReactNode;
   roleLabels: Record<AppUser["role"], string>;
   focusedMessageId?: string;
+  onOpenAvailabilityRequests?: () => void;
 }) {
   const focusedMessageRef = useRef<HTMLDivElement | null>(null);
   const isParent = user.role === "parent";
@@ -272,6 +274,11 @@ export function MessageDrawerContent({
         </div>
         {item.notificationSenderLabel && <p className="mt-1 break-words text-sm font-semibold text-slate-700">{item.notificationSenderLabel}</p>}
         <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-slate-600">{item.preview}</p>
+        {item.notification.type === "availability" && user.role === "study_director" && onOpenAvailabilityRequests && (
+          <button type="button" className="secondary-button mt-3" onClick={onOpenAvailabilityRequests}>
+            Ouvrir les demandes d’indisponibilité
+          </button>
+        )}
         <p className="mt-2 text-xs text-slate-500">{formatFeedDate(item.createdAt)}</p>
       </article>
     );

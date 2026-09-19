@@ -26,6 +26,7 @@ type HeaderProps = {
   roleLabels: Record<AppUser["role"], string>;
   focusedMessageId?: string;
   messagingEnabled?: boolean;
+  onOpenAvailabilityRequests?: () => void;
 };
 
 export function Header({
@@ -46,6 +47,7 @@ export function Header({
   roleLabels,
   focusedMessageId,
   messagingEnabled = true,
+  onOpenAvailabilityRequests,
 }: HeaderProps) {
   const [manualRefreshToken, setManualRefreshToken] = useState(0);
   const [manualRefreshing, setManualRefreshing] = useState(false);
@@ -195,6 +197,10 @@ export function Header({
             notificationPagination={notificationPagination}
             roleLabels={roleLabels}
             focusedMessageId={focusedMessageId}
+            onOpenAvailabilityRequests={onOpenAvailabilityRequests ? () => {
+              (onCloseNotifications ?? onToggleNotifications)();
+              onOpenAvailabilityRequests();
+            } : undefined}
           />
         </MessagingDrawerShell>
       )}

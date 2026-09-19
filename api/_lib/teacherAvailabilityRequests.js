@@ -36,7 +36,7 @@ export async function createAvailabilityRequest({ db, caller, request }) {
     transaction.create(requestRef, request);
     const directors = (directorsSnapshot.docs ?? []).filter(item => {
       const director = item.data();
-      return activeUser(director) && director.schoolId === caller.schoolId && (!director.activeSchoolYearId || director.activeSchoolYearId === request.schoolYearId) && (!director.schoolYearId || director.schoolYearId === request.schoolYearId);
+      return activeUser(director) && director.schoolId === caller.schoolId;
     });
     for (const directorSnapshot of directors) {
       const notificationId = `availability_request_${request.id}_${directorSnapshot.id}`;
