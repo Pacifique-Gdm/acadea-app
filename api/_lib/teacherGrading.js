@@ -124,6 +124,23 @@ async function loadGrading(db, teacher, schoolId, schoolYearId) {
   };
 }
 
+async function loadCourseRoster(db, assignment, schoolId, schoolYearId) {
+  const classSnapshot = await db.doc(`classes/${assignment.classId}`).get();
+  const schoolClass = classSnapshot.data();
+  if (!classSnapshot.exists || schoolClass?.schoolId !== schoolId || schoolClass?.schoolYearId !== schoolYearId) {
+    throw new GradingApiError(403, "permission-denied", "Classe hors du périmètre pédagogique.");
+  }
+  const [classStudents, subclassStudents, namedStudents] = await Promise.all([
+    queryInChunks(db, "students", schoolId, schoolYearId, "classId", [assignment.classId]),
+    queryInChunks(db, "students", schoolId, schoolYearId, "subClassId", [assignment.classId]),
+    queryInChunks(db, "students", schoolId, schoolYearId, "className", [schoolClass.name]),
+  ]);
+  const students = [...new Map([...classStudents, ...subclassStudents, ...namedStudents]
+    .filter((student) => studentMatchesAssignment(student, assignment, schoolClass))
+    .map((student) => [student.id, student])).values()];
+  return { assignmentId: assignment.id, students };
+}
+
 export async function executeTeacherGrading({ db, caller, body }) {
   const action = requiredString(body.action, "Action");
   const schoolId = requiredString(body.schoolId, "École");
@@ -135,6 +152,7 @@ export async function executeTeacherGrading({ db, caller, body }) {
   const subjectId = requiredString(body.subjectId, "Matière");
   const assignmentId = requiredString(body.assignmentId, "Affectation");
   const assignment = await assertCourse(db, teacher, schoolId, schoolYearId, classId, subjectId, assignmentId);
+  if (action === "load-roster") return loadCourseRoster(db, assignment, schoolId, schoolYearId);
   const configId = [schoolId, schoolYearId, classId, subjectId].join("__");
 
   if (action === "save-config") {

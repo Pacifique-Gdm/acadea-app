@@ -52,3 +52,10 @@ export function validateScore(score:number|null,status:GradeEntry["status"],maxS
 export function validateMaxScore(next:number,entries:GradeEntry[]){if(!Number.isFinite(next)||next<=0)return"La cote maximale doit être supérieure à zéro.";const highest=Math.max(0,...entries.filter(item=>item.status==="graded"&&item.score!==null).map(item=>item.score!));return next<highest?`La cote maximale ne peut pas être abaissée à ${next} car certaines cotes existantes dépassent cette valeur.`:""}
 export function gradingProgress(entries:GradeEntry[],studentIds:string[]){const graded=new Set(entries.filter(item=>studentIds.includes(item.studentId)&&item.status!=="not_graded").map(item=>item.studentId)).size;return{graded,total:studentIds.length,status:graded===studentIds.length&&studentIds.length>0?"Complet":"En cours" as "Complet"|"En cours"}}
 export const gradeCalculationService={calculateSemester1Total:()=>null,calculateSemester2Total:()=>null,calculateGeneralTotal:()=>null};
+export function maxScoreActionLabel(hasPersistedConfig:boolean){return hasPersistedConfig?"Modifier la côte":"Enregistrer maximum"}
+export function reconcileGradeDrafts(students:Student[],entries:GradeEntry[],previous:Record<string,{score:string;status:GradeEntry["status"]}>,reset:boolean){
+  return Object.fromEntries(students.map(student=>{
+    const entry=entries.find(item=>item.studentId===student.id);
+    return [student.id,!reset&&previous[student.id]?previous[student.id]:{score:entry?.score==null?"":String(entry.score),status:entry?.status??"not_graded"}];
+  }));
+}

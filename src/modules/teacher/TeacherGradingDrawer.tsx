@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AdminDrawer } from "../../components/ui/AdminDrawer";
 import type { AppUser, School, SchoolYear } from "../../types";
 import {
@@ -8,6 +8,8 @@ import {
   editableGradingSlots,
   gradingProgress,
   gradingSlotLabels,
+  maxScoreActionLabel,
+  reconcileGradeDrafts,
   scopeTeacherGradingData,
   validateMaxScore,
   validateScore,
@@ -16,6 +18,7 @@ import {
 } from "./teacherGrading";
 import {
   loadTeacherGrading,
+  loadTeacherGradingRoster,
   saveTeacherGradeEntries,
   saveTeacherGradingConfig,
   type TeacherGradingData,
@@ -43,6 +46,9 @@ export function TeacherGradingDrawer({ user, school, year, onClose }: { user: Ap
   const [titularClassId, setTitularClassId] = useState("");
   const [titularStudentId, setTitularStudentId] = useState("");
   const [showConsolidated, setShowConsolidated] = useState(false);
+  const [roster, setRoster] = useState<{ assignmentId: string; students: TeacherGradingData["students"] }>();
+  const [rosterError, setRosterError] = useState("");
+  const draftContext = useRef<{ assignmentId: string; slot: EditableGradingSlot; entries: GradeEntry[] } | undefined>(undefined);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -65,9 +71,28 @@ export function TeacherGradingDrawer({ user, school, year, onClose }: { user: Ap
   const schoolClass = data?.classes.find((item) => item.id === assignment?.classId);
   const subject = data?.subjects.find((item) => item.id === assignment?.subjectId);
   const config = data?.configs.find((item) => item.classId === assignment?.classId && item.subjectId === assignment?.subjectId);
+  useEffect(() => {
+    if (!assignment) return;
+    let active = true;
+    let inFlight = false;
+    const refreshRoster = async () => {
+      if (!active || inFlight || document.visibilityState === "hidden") return;
+      inFlight = true;
+      try {
+        const next = await loadTeacherGradingRoster({ schoolId: school.id, schoolYearId: year.id, assignmentId: assignment.id, classId: assignment.classId, subjectId: assignment.subjectId });
+        if (active) { setRoster(next); setRosterError(""); }
+      } catch (cause) {
+        if (active) setRosterError(cause instanceof Error ? cause.message : "Actualisation des élèves impossible.");
+      } finally { inFlight = false; }
+    };
+    const interval = window.setInterval(() => void refreshRoster(), 30_000);
+    const onVisibilityChange = () => { if (document.visibilityState === "visible") void refreshRoster(); };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => { active = false; window.clearInterval(interval); document.removeEventListener("visibilitychange", onVisibilityChange); };
+  }, [assignment, school.id, year.id]);
   const students = useMemo(
-    () => assignment && data ? activeStudentsForAssignment(data.students, school.id, year.id, assignment) : [],
-    [assignment, data, school.id, year.id],
+    () => assignment && data ? activeStudentsForAssignment(roster?.assignmentId === assignment.id ? roster.students : data.students, school.id, year.id, assignment) : [],
+    [assignment, data, roster, school.id, year.id],
   );
   const entries = useMemo(
     () => (data?.entries ?? []).filter((item) => item.classId === assignment?.classId && item.subjectId === assignment?.subjectId && item.gradingSlot === slot),
@@ -79,13 +104,13 @@ export function TeacherGradingDrawer({ user, school, year, onClose }: { user: Ap
     if (assignment && assignment.id !== assignmentId) setAssignmentId(assignment.id);
   }, [assignment, assignmentId]);
 
+  useEffect(() => { setMaxScore(config ? String(config.maxScore) : ""); }, [config]);
+
   useEffect(() => {
-    setMaxScore(config ? String(config.maxScore) : "");
-    setDrafts(Object.fromEntries(students.map((student) => {
-      const entry = entries.find((item) => item.studentId === student.id);
-      return [student.id, { score: entry?.score == null ? "" : String(entry.score), status: entry?.status ?? "not_graded" }];
-    })));
-  }, [config, entries, students]);
+    const reset = draftContext.current?.assignmentId !== assignment?.id || draftContext.current?.slot !== slot || draftContext.current?.entries !== entries;
+    draftContext.current = { assignmentId: assignment?.id ?? "", slot, entries };
+    setDrafts((previous) => reconcileGradeDrafts(students, entries, previous, reset));
+  }, [assignment?.id, entries, slot, students]);
 
   const titular = data?.titulars.find((item) => item.classId === titularClassId) ?? data?.titulars[0];
   const titularStudents = useMemo(
@@ -165,12 +190,13 @@ export function TeacherGradingDrawer({ user, school, year, onClose }: { user: Ap
   return <AdminDrawer title="Fiche de cotation" closeLabel="Fermer la fiche de cotation" onClose={onClose}>
     {loading && <p role="status" className="rounded bg-slate-50 p-4">Chargement…</p>}
     {error && <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{error}</p>}
+    {rosterError && <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{rosterError}</p>}
     {success && <p role="status" className="rounded bg-green-50 p-3 text-green-800">{success}</p>}
     {!loading && data && !data.assignments.length && !data.titulars.length ? <p className="rounded border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">Aucune affectation n’est disponible pour cet enseignant pour l’année scolaire active.</p> : !loading && data && <div className="grid gap-4">
       <div className="grid grid-cols-2 gap-2"><button type="button" className={!titularView ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setTitularView(false)}>Mes cotations</button><button type="button" className={titularView ? "primary-button justify-center" : "secondary-button justify-center"} disabled={!data.titulars.length} onClick={() => setTitularView(true)}>Ma classe titulaire</button></div>
       {titularView ? renderTitularView() : assignments.length === 0 ? <p className="rounded bg-slate-50 p-4">Aucun cours ne vous a encore été affecté par la Direction des études.</p> : <>
         <label className="grid gap-1 text-sm font-semibold">Cours<select className="input" value={assignment?.id} onChange={(event) => setAssignmentId(event.target.value)}>{assignments.map((item) => <option key={item.id} value={item.id}>{data.subjects.find((candidate) => candidate.id === item.subjectId)?.name} — {data.classes.find((candidate) => candidate.id === item.classId)?.name}</option>)}</select></label>
-        <div className="rounded border bg-white p-3"><p className="font-bold">{subject?.name} — {schoolClass?.name}</p><div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]"><input className="input" type="number" min="0.01" step="0.01" aria-label="Cote maximale" value={maxScore} onChange={(event) => setMaxScore(event.target.value)} /><button type="button" className="secondary-button justify-center" disabled={saving} onClick={() => void saveMax()}>Enregistrer maximum</button></div></div>
+        <div className="rounded border bg-white p-3"><p className="font-bold">{subject?.name} — {schoolClass?.name}</p><div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]"><input className="input" type="number" min="0.01" step="0.01" aria-label="Cote maximale" value={maxScore} onChange={(event) => setMaxScore(event.target.value)} /><button type="button" className="secondary-button justify-center" disabled={saving} onClick={() => void saveMax()}>{maxScoreActionLabel(Boolean(config))}</button></div></div>
         <label className="grid gap-1 text-sm font-semibold">Période<select className="input" value={slot} onChange={(event) => setSlot(event.target.value as EditableGradingSlot)}>{editableGradingSlots.map((value) => <option key={value} value={value}>{gradingSlotLabels[value]}</option>)}</select></label>
         <p className="text-sm font-semibold">{progress.graded} / {progress.total} élèves cotés · {progress.status}</p>
         {!config ? <p className="rounded bg-amber-50 p-3 text-sm">Définissez la cote maximale de ce cours avant de commencer la cotation.</p> : students.length === 0 ? <p className="rounded bg-slate-50 p-3">Aucun élève actif n’est inscrit dans cette classe.</p> : <div className="grid gap-2">{students.map((student) => {
