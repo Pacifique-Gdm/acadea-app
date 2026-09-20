@@ -77,4 +77,17 @@ describe("portée pédagogique par classe et options", () => {
     expect(studentBelongsToAssignment(unkeyed, scoped, legacyClasses)).toBe(true);
     expect(studentBelongsToAssignment(wrongOption, scoped, legacyClasses)).toBe(false);
   });
+
+  it("ne réinterprète pas une sous-classe moderne comme une option legacy", () => {
+    const parentId = "s__y__4eme-primaire";
+    const subclassId = `${parentId}::a`;
+    const primaryClasses = [
+      { id: parentId, schoolId: "s", schoolYearId: "y", name: "4ème Primaire", section: "Primaire" },
+      { id: subclassId, schoolId: "s", schoolYearId: "y", name: "4ème Primaire A", section: "Primaire", parentClassId: parentId, subClassLabel: "A" },
+    ] as StudyClass[];
+    const scoped = { ...assignment("reading"), classId: subclassId };
+    const student = { id: "primary-a", schoolId: "s", schoolYearId: "y", classId: parentId, subClassId: subclassId, className: "4ème Primaire", status: "ACTIVE" } as Student;
+
+    expect(studentBelongsToAssignment(student, scoped, primaryClasses)).toBe(true);
+  });
 });

@@ -151,4 +151,14 @@ describe("API de cotation Enseignant", () => {
     const result = await executeTeacherGrading({ db: legacyDb, caller: { uid: "u", role: "teacher", schoolId: "s" }, body: { action: "load-roster", schoolId: "s", schoolYearId: "y", assignmentId: "legacy-a", classId: literaryId, subjectId: "english" } });
     expect(result.students.map((item: { id: string }) => item.id).sort()).toEqual(["keyed", "unkeyed"]);
   });
+
+  it("conserve le roster d'une sous-classe moderne dont l'id contient le séparateur legacy", () => {
+    const parentId = "s__y__4eme-primaire";
+    const subclass = { id: `${parentId}::a`, name: "4ème Primaire A", parentClassId: parentId, subClassLabel: "A" };
+    const parent = { id: parentId, name: "4ème Primaire" };
+    const assignment = { classId: subclass.id, schoolId: "s", schoolYearId: "y" };
+    const student = { schoolId: "s", schoolYearId: "y", classId: parentId, subClassId: subclass.id, className: "4ème Primaire", status: "ACTIVE" };
+
+    expect(studentMatchesAssignment(student, assignment, subclass, parent)).toBe(true);
+  });
 });

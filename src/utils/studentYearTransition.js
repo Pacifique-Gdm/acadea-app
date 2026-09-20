@@ -39,6 +39,10 @@ export function canonicalClassNameFromRecordId(value) {
 export function operationalClassOptionKey(item) {
   const explicit = typeof item?.classOptionKey === "string" ? item.classOptionKey.trim() : "";
   if (explicit) return explicit;
+  // A deterministic `base::child` id may describe either a historical option
+  // or a modern subclass. Explicit subclass metadata is authoritative and must
+  // never be reinterpreted as an option by the legacy fallback.
+  if (typeof item?.subClassLabel === "string" && item.subClassLabel.trim()) return undefined;
   const id = typeof item?.id === "string" ? item.id.trim() : "";
   return id.includes("::") ? id : undefined;
 }
