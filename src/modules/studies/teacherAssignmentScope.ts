@@ -5,8 +5,13 @@ import type { StudyClass, StudySubject } from "./studyTypes";
 
 export const primaryTeacherSections: SchoolSection[] = ["Maternelle", "Primaire"];
 
-export function studyClassSection(item: StudyClass): SchoolSection {
-  return normalizeSchoolSection(item.section) ?? getClassSection(item.name as SchoolClass);
+export function studyClassSection(item: StudyClass, classes: readonly StudyClass[] = []): SchoolSection {
+  const explicit = normalizeSchoolSection(item.section);
+  if (explicit) return explicit;
+  const parentId = item.parentClassId?.trim() || item.classOptionKey?.split("::")[0]?.trim();
+  const parent = parentId && parentId !== item.id ? classes.find((candidate) => candidate.id === parentId) : undefined;
+  if (parent) return studyClassSection(parent, classes.filter((candidate) => candidate.id !== item.id));
+  return getClassSection(item.name as SchoolClass);
 }
 
 export function subjectAppliesToClass(subject: StudySubject, schoolClass: StudyClass) {

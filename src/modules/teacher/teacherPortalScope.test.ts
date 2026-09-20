@@ -49,4 +49,35 @@ describe("périmètre temps réel Enseignant", () => {
     } as unknown as TeacherPortalData;
     expect(scopeTeacherPortalData(user(["Secondaire"]), legacyData).assignments.map(({ id }) => id)).toEqual(["a-legacy"]);
   });
+
+  it("hérite la section du parent pour toutes les options opérationnelles legacy", () => {
+    const optionNames = ["2ème Sciences", "3ème Littéraire", "4ème Pédagogie générale", "4ème Commerciale"];
+    const legacyData = {
+      ...data,
+      assignments: optionNames.map((_, index) => ({ id: `a-${index}`, classId: `secondary-option-${index}`, subjectId: `subject-${index}`, active: true, weeklyPeriods: 2 })),
+      classes: [
+        { id: "secondary-parent", name: "3ème Humanité", section: "Secondaire" },
+        ...optionNames.map((name, index) => ({ id: `secondary-option-${index}`, name, parentClassId: "secondary-parent", classOptionKey: `secondary-parent::option-${index}` })),
+        { id: "modern-secondary", name: "Classe moderne", section: "Secondaire" },
+        { id: "primary", name: "4ème Primaire", section: "Primaire" },
+        { id: "cteb", name: "7ème CTEB", section: "CTEB" },
+        { id: "preschool", name: "3ème Maternelle", section: "Maternelle" },
+      ],
+      subjects: optionNames.map((_, index) => ({ id: `subject-${index}` })),
+      entries: optionNames.map((_, index) => ({ id: `entry-${index}`, classId: `secondary-option-${index}`, assignmentId: `a-${index}` })),
+    } as unknown as TeacherPortalData;
+
+    const scoped = scopeTeacherPortalData(user(["Secondaire"]), legacyData);
+    expect(scoped.assignments.map(({ id }) => id)).toEqual(["a-0", "a-1", "a-2", "a-3"]);
+    expect(scoped.subjects).toHaveLength(4);
+    expect(scoped.entries).toHaveLength(4);
+    expect(scoped.classes.map(({ id }) => id)).toEqual([
+      "secondary-parent",
+      "secondary-option-0",
+      "secondary-option-1",
+      "secondary-option-2",
+      "secondary-option-3",
+      "modern-secondary",
+    ]);
+  });
 });

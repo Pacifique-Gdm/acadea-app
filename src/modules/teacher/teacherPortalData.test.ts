@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { PedagogicalAssignment, SchedulePeriod, StudyClass, StudySubject, TimetableEntry } from "../studies/studyTypes";
 import { currentStudyDay, nextTeacherEntry, scopeTeacherPortalData, teacherEntriesForDay, weeklyWorkload } from "./teacherPortalData";
@@ -18,9 +19,11 @@ describe("données du portail Enseignant", () => {
     expect(teacherEntriesForDay(entries, periods, "monday").map((entry) => entry.id)).toEqual(["e1", "e2"]);
   });
 
-  it("détermine le prochain cours sans exposer un autre jour", () => {
+  it("détermine le prochain cours aujourd’hui puis sur les jours scolaires suivants", () => {
     expect(nextTeacherEntry(entries, periods, new Date(2026, 7, 10, 8, 30))?.id).toBe("e1");
-    expect(nextTeacherEntry(entries, periods, new Date(2026, 7, 10, 10, 30))).toBeUndefined();
+    expect(nextTeacherEntry(entries, periods, new Date(2026, 7, 10, 10, 30))?.id).toBe("e3");
+    expect(nextTeacherEntry([{ id: "monday", dayOfWeek: "monday", periodId: "p1" }] as TimetableEntry[], periods, new Date(2026, 7, 14, 18, 0))?.id).toBe("monday");
+    expect(nextTeacherEntry([], periods, new Date(2026, 7, 10, 10, 30))).toBeUndefined();
   });
 
   it("calcule uniquement la charge des affectations actives", () => {
@@ -35,5 +38,12 @@ describe("données du portail Enseignant", () => {
     });
     expect(scoped.assignments).toEqual([assignment]);
     expect(scoped.subjects).toEqual([subject]);
+  });
+
+  it("conserve la frontière de publication de Mon horaire", () => {
+    const source = readFileSync(new URL("./teacherPortalService.ts", import.meta.url), "utf8");
+    expect(source).toContain('where("status", "==", "PUBLISHED")');
+    expect(source).toContain('where("activePublished", "==", true)');
+    expect(source).not.toContain('where("persistenceState", "==", "COMPLETE")');
   });
 });

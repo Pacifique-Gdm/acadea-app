@@ -18,7 +18,7 @@ export type TeacherPortalData = {
 };
 
 export function scopeTeacherPortalData(user: Pick<AppUser, "section" | "sectionIds">, data: TeacherPortalData): TeacherPortalData {
-  const classes = data.classes.filter((item) => isSectionAllowed(user, studyClassSection(item)));
+  const classes = data.classes.filter((item) => isSectionAllowed(user, studyClassSection(item, data.classes)));
   const classIds = new Set(classes.map((item) => item.id));
   const assignments = assignmentsForClasses(data.assignments, classIds, classes);
   const assignmentIds = new Set(assignments.map((item) => item.id));
@@ -46,9 +46,18 @@ export function teacherEntriesForDay(entries: TimetableEntry[], periods: Schedul
 }
 
 export function nextTeacherEntry(entries: TimetableEntry[], periods: SchedulePeriod[], date = new Date()) {
-  const today = teacherEntriesForDay(entries, periods, currentStudyDay(date));
+  const dayIndexes: Record<StudyDay, number> = { monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
+  const periodById = new Map(periods.map((period) => [period.id, period]));
   const now = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-  return today.find((entry) => (periods.find((period) => period.id === entry.periodId)?.endTime ?? "") > now);
+  return entries
+    .filter((entry) => entry.active !== false)
+    .map((entry) => ({
+      entry,
+      daysAhead: (dayIndexes[entry.dayOfWeek] - date.getDay() + 7) % 7,
+      period: periodById.get(entry.periodId),
+    }))
+    .filter(({ daysAhead, period }) => Boolean(period) && (daysAhead > 0 || period!.endTime > now))
+    .sort((left, right) => left.daysAhead - right.daysAhead || left.period!.order - right.period!.order)[0]?.entry;
 }
 
 export function weeklyWorkload(assignments: PedagogicalAssignment[]) {
