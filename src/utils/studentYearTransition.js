@@ -26,6 +26,29 @@ export function canonicalAnnualClassName(value) {
   return CLASSES.find((item) => normalizeAnnualClassName(item) === normalized);
 }
 
+/** Recovers a canonical class name from deterministic class record ids.
+ * Modern metadata remains authoritative; this only supports historical ids
+ * generated from `schoolId__schoolYearId__class-name` and `base::option`. */
+export function canonicalClassNameFromRecordId(value) {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const baseId = value.split("::")[0]?.trim();
+  const slug = baseId?.split("__").at(-1)?.replace(/[-_]+/g, " ");
+  return canonicalAnnualClassName(slug);
+}
+
+export function operationalClassOptionKey(item) {
+  const explicit = typeof item?.classOptionKey === "string" ? item.classOptionKey.trim() : "";
+  if (explicit) return explicit;
+  const id = typeof item?.id === "string" ? item.id.trim() : "";
+  return id.includes("::") ? id : undefined;
+}
+
+export function operationalBaseClassId(item) {
+  const parent = typeof item?.parentClassId === "string" ? item.parentClassId.trim() : "";
+  if (parent) return parent;
+  return operationalClassOptionKey(item)?.split("::")[0]?.trim() || item?.id;
+}
+
 export function getClassSection(className) {
   const canonical = canonicalAnnualClassName(className) ?? className;
   if (canonical.includes("Maternelle")) return "Maternelle";

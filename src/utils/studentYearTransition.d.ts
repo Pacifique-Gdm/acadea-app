@@ -8,6 +8,9 @@ export const ANNUAL_TRANSITION_RESULTS: Readonly<{
 }>;
 export function normalizeAnnualClassName(value: unknown): string;
 export function canonicalAnnualClassName(value: unknown): SchoolClass | undefined;
+export function canonicalClassNameFromRecordId(value: unknown): SchoolClass | undefined;
+export function operationalClassOptionKey(item: { id?: string; classOptionKey?: string } | null | undefined): string | undefined;
+export function operationalBaseClassId(item: { id: string; parentClassId?: string; classOptionKey?: string }): string;
 export function getClassSection(className: SchoolClass): SchoolSection;
 export function isEligibleForAnnualTransition(student: Partial<Student> & { active?: boolean; archivedAt?: string }): boolean;
 export function annualStudentTransition(student: Omit<Partial<Student>, "className"> & { className?: string; active?: boolean; archivedAt?: string }, targetClassAvailable?: boolean): {

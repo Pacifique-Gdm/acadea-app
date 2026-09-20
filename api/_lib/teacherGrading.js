@@ -1,4 +1,5 @@
 import { FieldValue } from "firebase-admin/firestore";
+import { canonicalClassNameFromRecordId, operationalBaseClassId, operationalClassOptionKey } from "../../src/utils/studentYearTransition.js";
 
 const EDITABLE_SLOTS = new Set([
   "period_1", "period_2", "semester_1_exam",
@@ -22,11 +23,11 @@ const requiredString = (value, label) => {
 
 const serialize = (snapshot) => snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
 const normalized = (value) => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase("fr");
-const classBaseId = (schoolClass) => schoolClass?.parentClassId?.trim() || schoolClass?.classOptionKey?.split("::")[0]?.trim() || schoolClass?.id;
+const classBaseId = (schoolClass) => operationalBaseClassId(schoolClass);
 const assignmentOptionIds = (assignment, schoolClass) => {
   const explicit = [...new Set((assignment.targetOptionIds ?? []).filter((item) => typeof item === "string" && item.trim()).map((item) => item.trim()))];
   if (assignment.courseScope && explicit.length > 0) return explicit;
-  const historical = schoolClass?.classOptionKey?.trim() || (schoolClass?.option?.trim() && schoolClass?.parentClassId ? schoolClass.id : undefined);
+  const historical = operationalClassOptionKey(schoolClass) || (schoolClass?.option?.trim() && schoolClass?.parentClassId ? schoolClass.id : undefined);
   return historical ? [historical] : [];
 };
 
@@ -36,11 +37,13 @@ export function studentMatchesAssignment(student, assignment, schoolClass, paren
   if (assignment.schoolYearId && student.schoolYearId !== assignment.schoolYearId) return false;
   if (schoolClass?.subClassLabel && student.subClassId !== schoolClass.id) return false;
   const baseId = classBaseId(schoolClass) || assignment.classId;
+  const canonicalBaseName = canonicalClassNameFromRecordId(baseId);
   const optionBaseId = typeof student.classOptionKey === "string" ? student.classOptionKey.split("::")[0]?.trim() : undefined;
   const sameBase = student.classId === baseId
     || student.subClassId === assignment.classId
     || optionBaseId === baseId
-    || normalized(student.className) === normalized(parentClass?.name ?? schoolClass?.name);
+    || normalized(student.className) === normalized(parentClass?.name ?? schoolClass?.name)
+    || Boolean(canonicalBaseName && normalized(student.className) === normalized(canonicalBaseName));
   if (!sameBase) return false;
   const targets = assignmentOptionIds(assignment, schoolClass);
   if (targets.length === 0) return true;
@@ -122,7 +125,7 @@ async function loadGrading(db, teacher, schoolId, schoolYearId) {
   const baseClassIds = [...new Set(assignedClasses.map(classBaseId).filter(Boolean))];
   const candidateClassIds = [...new Set([...classIds, ...baseClassIds])];
   const optionIds = [...new Set(assignments.flatMap((assignment) => assignmentOptionIds(assignment, schoolClassById.get(assignment.classId))))];
-  const classNames = [...new Set(assignedClasses.flatMap((item) => [item.name, schoolClassById.get(classBaseId(item))?.name]).filter(Boolean))];
+  const classNames = [...new Set(assignedClasses.flatMap((item) => [item.name, schoolClassById.get(classBaseId(item))?.name, canonicalClassNameFromRecordId(classBaseId(item))]).filter(Boolean))];
   const [classStudents, subclassStudents, namedStudents, optionStudents] = await Promise.all([
     queryInChunks(db, "students", schoolId, schoolYearId, "classId", candidateClassIds),
     queryInChunks(db, "students", schoolId, schoolYearId, "subClassId", classIds),
@@ -156,7 +159,7 @@ async function loadCourseRoster(db, assignment, schoolId, schoolYearId) {
   const [classStudents, subclassStudents, namedStudents, optionStudents] = await Promise.all([
     queryInChunks(db, "students", schoolId, schoolYearId, "classId", [assignment.classId, baseId]),
     queryInChunks(db, "students", schoolId, schoolYearId, "subClassId", [assignment.classId]),
-    queryInChunks(db, "students", schoolId, schoolYearId, "className", [schoolClass.name, parentClass?.name]),
+    queryInChunks(db, "students", schoolId, schoolYearId, "className", [schoolClass.name, parentClass?.name, canonicalClassNameFromRecordId(baseId)]),
     queryInChunks(db, "students", schoolId, schoolYearId, "classOptionKey", optionIds),
   ]);
   const students = [...new Map([...classStudents, ...subclassStudents, ...namedStudents, ...optionStudents]

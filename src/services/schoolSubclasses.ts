@@ -4,6 +4,7 @@ import { db } from "../firebase";
 import type { AppUser, SchoolClassRecord, SchoolSection, Student } from "../types";
 import { getClassSection } from "../utils/studentClasses";
 import { normalizeSchoolSection } from "../utils/schoolSections";
+import { operationalBaseClassId, operationalClassOptionKey } from "../utils/studentYearTransition.js";
 
 export interface EnrolledStudentClassReference {
   schoolId: string;
@@ -23,7 +24,7 @@ function classOptionFromKey(value?: string) {
 }
 
 function inferredClassOptionKey(item: Pick<SchoolClassRecord, "id" | "classOptionKey">) {
-  return item.classOptionKey?.trim() || (item.id.includes("::") ? item.id : undefined);
+  return operationalClassOptionKey(item);
 }
 
 function isCertainLegacyOptionRecord(item: OperationalClass, parent: OperationalClass | undefined) {
@@ -84,7 +85,7 @@ function operationalClassIdentity(item: OperationalClass) {
 export function operationalSchoolClasses<T extends OperationalClass>(classes: readonly T[], schoolId: string, schoolYearId: string, allowedSections?: readonly SchoolSection[]) {
   const scoped = classes.filter((item) => item.schoolId === schoolId && item.schoolYearId === schoolYearId && item.active !== false);
   const byId = new Map(scoped.map((item) => [item.id, item]));
-  const parentIdOf = (item: T) => item.parentClassId || inferredClassOptionKey(item)?.split("::")[0];
+  const parentIdOf = (item: T) => operationalBaseClassId(item) === item.id ? undefined : operationalBaseClassId(item);
   const subdivided = new Set(scoped.map(parentIdOf).filter((value): value is string => Boolean(value)));
   const unique = new Map<string, T>();
   scoped.filter((item) => parentIdOf(item) || !subdivided.has(item.id)).forEach((item) => {

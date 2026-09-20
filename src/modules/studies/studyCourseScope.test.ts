@@ -60,4 +60,21 @@ describe("portée pédagogique par classe et options", () => {
     expect(studentBelongsToAssignment({ ...baseStudent, subClassId: scientificA.id }, scoped, [...classes, scientificA])).toBe(true);
     expect(studentBelongsToAssignment({ ...baseStudent, subClassId: "3h::scientifique::b" }, scoped, [...classes, scientificA])).toBe(false);
   });
+
+  it("résout une option legacy matérialisée uniquement par son identifiant déterministe", () => {
+    const parentId = "s__y__3eme-humanite";
+    const literaryId = `${parentId}::litteraire`;
+    const legacyClasses = [
+      { id: parentId, schoolId: "s", schoolYearId: "y", name: "3ème" },
+      { id: literaryId, schoolId: "s", schoolYearId: "y", name: "3ème Littéraire" },
+    ] as StudyClass[];
+    const scoped = { ...assignment("english"), classId: literaryId };
+    const keyed = { id: "keyed", schoolId: "s", schoolYearId: "y", className: "3ème Humanité", classOptionKey: literaryId, option: "Littéraire", status: "ACTIVE" } as Student;
+    const unkeyed = { ...keyed, id: "unkeyed", classOptionKey: undefined };
+    const wrongOption = { ...keyed, id: "wrong", classOptionKey: `${parentId}::sciences`, option: "Sciences" };
+
+    expect(studentBelongsToAssignment(keyed, scoped, legacyClasses)).toBe(true);
+    expect(studentBelongsToAssignment(unkeyed, scoped, legacyClasses)).toBe(true);
+    expect(studentBelongsToAssignment(wrongOption, scoped, legacyClasses)).toBe(false);
+  });
 });

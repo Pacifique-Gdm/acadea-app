@@ -109,4 +109,46 @@ describe("API de cotation Enseignant", () => {
     expect(studentMatchesAssignment({ className: "3ème Humanité", option: "Littéraire" }, assignment, schoolClass)).toBe(false);
     expect(studentMatchesAssignment({ className: "2ème Humanité", option: "Scientifique" }, assignment, schoolClass)).toBe(false);
   });
+
+  it("charge le roster Production legacy sans métadonnées modernes sur la classe opérationnelle", async () => {
+    const parentId = "s__y__3eme-humanite";
+    const literaryId = `${parentId}::litteraire`;
+    const reads: Array<{ collection: string; conditions: Array<[string, string, unknown]> }> = [];
+    const source = {
+      users: [{ id: "u", role: "teacher", schoolId: "s", active: true }],
+      schoolYears: [{ id: "y", schoolId: "s" }],
+      teachers: [{ id: "t", schoolId: "s", schoolYearId: "y", userId: "u", status: "active" }],
+      pedagogicalAssignments: [{ id: "legacy-a", schoolId: "s", schoolYearId: "y", teacherId: "t", active: true, classId: literaryId, subjectId: "english" }],
+      classTitulars: [],
+      classes: [
+        { id: parentId, schoolId: "s", schoolYearId: "y", name: "3ème" },
+        { id: literaryId, schoolId: "s", schoolYearId: "y", name: "3ème Littéraire" },
+      ],
+      students: [
+        { id: "keyed", schoolId: "s", schoolYearId: "y", className: "3ème Humanité", classOptionKey: literaryId, option: "Littéraire", status: "ACTIVE" },
+        { id: "unkeyed", schoolId: "s", schoolYearId: "y", className: "3ème Humanité", option: "Littéraire", status: "ACTIVE" },
+        { id: "wrong-option", schoolId: "s", schoolYearId: "y", className: "3ème Humanité", classOptionKey: `${parentId}::sciences`, option: "Sciences", status: "ACTIVE" },
+      ],
+      subjects: [{ id: "english", schoolId: "s", schoolYearId: "y" }],
+      courseGradingConfigs: [],
+      gradeEntries: [],
+    };
+    const snapshot = (item?: { id: string; [key: string]: unknown }) => ({ id: item?.id, exists: Boolean(item), data: () => item });
+    const legacyDb = {
+      doc: (path: string) => ({ get: async () => { const [collection, id] = path.split("/"); return snapshot(source[collection as keyof typeof source]?.find((item) => item.id === id)); } }),
+      collection: (collection: keyof typeof source) => {
+        const query = (conditions: Array<[string, string, unknown]>): unknown => ({
+          where: (field: string, op: string, value: unknown) => query([...conditions, [field, op, value]]),
+          get: async () => {
+            reads.push({ collection, conditions });
+            const docs = source[collection].filter((item) => conditions.every(([field, op, value]) => op === "in" ? (value as unknown[]).includes(item[field as keyof typeof item]) : item[field as keyof typeof item] === value)).map(snapshot);
+            return { docs, size: docs.length };
+          },
+        });
+        return query([]);
+      },
+    };
+    const result = await executeTeacherGrading({ db: legacyDb, caller: { uid: "u", role: "teacher", schoolId: "s" }, body: { action: "load-roster", schoolId: "s", schoolYearId: "y", assignmentId: "legacy-a", classId: literaryId, subjectId: "english" } });
+    expect(result.students.map((item: { id: string }) => item.id).sort()).toEqual(["keyed", "unkeyed"]);
+  });
 });

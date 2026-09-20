@@ -1,5 +1,6 @@
 import type { Student } from "../../types";
 import { schoolClassOptionKey, schoolClassRecordId } from "../../services/schoolSubclasses";
+import { operationalBaseClassId, operationalClassOptionKey } from "../../utils/studentYearTransition.js";
 import type { PedagogicalAssignment, StudyClass } from "./studyTypes";
 
 export type CourseScope = NonNullable<PedagogicalAssignment["courseScope"]>;
@@ -13,11 +14,11 @@ export interface AssignmentClassSelection {
 const normalizedIds = (values?: readonly string[]) => [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))].sort();
 
 export function classOptionId(item: Pick<StudyClass, "id" | "classOptionKey" | "option">) {
-  return item.classOptionKey?.trim() || (item.option?.trim() ? item.id : undefined);
+  return operationalClassOptionKey(item) || (item.option?.trim() ? item.id : undefined);
 }
 
 export function baseStudyClassId(item: Pick<StudyClass, "id" | "parentClassId" | "classOptionKey">) {
-  return item.parentClassId?.trim() || item.classOptionKey?.split("::")[0]?.trim() || item.id;
+  return operationalBaseClassId(item);
 }
 
 export function optionClassesForBaseClass(classes: readonly StudyClass[], classId: string) {

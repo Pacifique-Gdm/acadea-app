@@ -80,4 +80,34 @@ describe("périmètre temps réel Enseignant", () => {
       "modern-secondary",
     ]);
   });
+
+  it("reproduit les options Production sans métadonnées modernes et conserve toutes les affectations", () => {
+    const parentId = "school__year__3eme-humanite";
+    const optionNames = ["Commerciale et Gestion", "Littéraire", "Pédagogie générale", "Sciences"];
+    const legacyData = {
+      ...data,
+      assignments: optionNames.map((name) => ({
+        id: `assignment-${name}`,
+        classId: `${parentId}::${name.toLocaleLowerCase().replaceAll(" ", "-")}`,
+        subjectId: "english",
+        active: true,
+        weeklyPeriods: 2,
+      })),
+      classes: [
+        { id: parentId, name: "3ème" },
+        ...optionNames.map((name) => ({
+          id: `${parentId}::${name.toLocaleLowerCase().replaceAll(" ", "-")}`,
+          name: `3ème ${name}`,
+        })),
+        { id: "cteb-7", name: "7ème CTEB" },
+      ],
+      subjects: [{ id: "english" }],
+      entries: [],
+    } as unknown as TeacherPortalData;
+
+    const scoped = scopeTeacherPortalData(user(["Secondaire"]), legacyData);
+    expect(scoped.assignments).toHaveLength(4);
+    expect(scoped.assignments.reduce((total, item) => total + item.weeklyPeriods, 0)).toBe(8);
+    expect(scopeTeacherPortalData(user(["CTEB"]), legacyData).classes.map(({ id }) => id)).toEqual(["cteb-7"]);
+  });
 });
