@@ -18,11 +18,11 @@ import {
 } from "./teacherGrading";
 import {
   loadTeacherGrading,
-  loadTeacherGradingRoster,
   saveTeacherGradeEntries,
   saveTeacherGradingConfig,
   type TeacherGradingData,
 } from "./teacherGradingService";
+import { useTeacherGradingRoster } from "./useTeacherGradingRoster";
 
 type Draft = { score: string; status: GradeEntry["status"] };
 
@@ -46,8 +46,6 @@ export function TeacherGradingDrawer({ user, school, year, onClose }: { user: Ap
   const [titularClassId, setTitularClassId] = useState("");
   const [titularStudentId, setTitularStudentId] = useState("");
   const [showConsolidated, setShowConsolidated] = useState(false);
-  const [roster, setRoster] = useState<{ assignmentId: string; students: TeacherGradingData["students"] }>();
-  const [rosterError, setRosterError] = useState("");
   const draftContext = useRef<{ assignmentId: string; slot: EditableGradingSlot; entries: GradeEntry[] } | undefined>(undefined);
 
   const reload = useCallback(async () => {
@@ -71,27 +69,9 @@ export function TeacherGradingDrawer({ user, school, year, onClose }: { user: Ap
   const schoolClass = data?.classes.find((item) => item.id === assignment?.classId);
   const subject = data?.subjects.find((item) => item.id === assignment?.subjectId);
   const config = data?.configs.find((item) => item.classId === assignment?.classId && item.subjectId === assignment?.subjectId);
-  useEffect(() => {
-    if (!assignment) return;
-    let active = true;
-    let inFlight = false;
-    const refreshRoster = async () => {
-      if (!active || inFlight || document.visibilityState === "hidden") return;
-      inFlight = true;
-      try {
-        const next = await loadTeacherGradingRoster({ schoolId: school.id, schoolYearId: year.id, assignmentId: assignment.id, classId: assignment.classId, subjectId: assignment.subjectId });
-        if (active) { setRoster(next); setRosterError(""); }
-      } catch (cause) {
-        if (active) setRosterError(cause instanceof Error ? cause.message : "Actualisation des élèves impossible.");
-      } finally { inFlight = false; }
-    };
-    const interval = window.setInterval(() => void refreshRoster(), 30_000);
-    const onVisibilityChange = () => { if (document.visibilityState === "visible") void refreshRoster(); };
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => { active = false; window.clearInterval(interval); document.removeEventListener("visibilitychange", onVisibilityChange); };
-  }, [assignment, school.id, year.id]);
+  const { roster, error: rosterError } = useTeacherGradingRoster(assignment, school.id, year.id);
   const students = useMemo(
-    () => assignment && data ? activeStudentsForAssignment(roster?.assignmentId === assignment.id ? roster.students : data.students, school.id, year.id, assignment) : [],
+    () => assignment && data ? activeStudentsForAssignment(roster?.assignmentId === assignment.id ? roster.students : data.students, school.id, year.id, assignment, data.classes) : [],
     [assignment, data, roster, school.id, year.id],
   );
   const entries = useMemo(
@@ -114,7 +94,7 @@ export function TeacherGradingDrawer({ user, school, year, onClose }: { user: Ap
 
   const titular = data?.titulars.find((item) => item.classId === titularClassId) ?? data?.titulars[0];
   const titularStudents = useMemo(
-    () => titular && data ? activeStudentsForClass(data.students, school.id, year.id, titular.classId) : [],
+    () => titular && data ? activeStudentsForClass(data.students, school.id, year.id, titular.classId, data.classes) : [],
     [data, school.id, titular, year.id],
   );
   const selectedTitularStudent = titularStudents.find((item) => item.id === titularStudentId) ?? titularStudents[0];

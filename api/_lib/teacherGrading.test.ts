@@ -8,9 +8,12 @@ describe("API de cotation Enseignant", () => {
       users: [{ id: "u", role: "teacher", schoolId: "s", active: true }],
       schoolYears: [{ id: "y", schoolId: "s" }],
       teachers: [{ id: "t", schoolId: "s", schoolYearId: "y", userId: "u", status: "active" }],
-      pedagogicalAssignments: [{ id: "a", schoolId: "s", schoolYearId: "y", teacherId: "t", active: true, classId: "c", subjectId: "m", courseScope: "option", targetOptionIds: ["c::sciences"] }],
+      pedagogicalAssignments: [{ id: "a", schoolId: "s", schoolYearId: "y", teacherId: "t", active: true, classId: "c::sciences", subjectId: "m" }],
       classTitulars: [],
-      classes: [{ id: "c", schoolId: "s", schoolYearId: "y", name: "2ème Humanité" }],
+      classes: [
+        { id: "c", schoolId: "s", schoolYearId: "y", name: "2ème Humanité", section: "Secondaire" },
+        { id: "c::sciences", schoolId: "s", schoolYearId: "y", name: "2ème Sciences", parentClassId: "c", classOptionKey: "c::sciences", option: "Sciences" },
+      ],
       students: [
         { id: "allowed", schoolId: "s", schoolYearId: "y", classId: "c", classOptionKey: "c::sciences", status: "ACTIVE" },
         { id: "other-option", schoolId: "s", schoolYearId: "y", classId: "c", classOptionKey: "c::litteraire", status: "ACTIVE" },
@@ -44,23 +47,31 @@ describe("API de cotation Enseignant", () => {
 
   it("actualise seulement les élèves actifs de l'affectation, de l'option, de l'école et de l'année autorisées", async () => {
     const { db, reads } = rosterDb();
-    const body = { action: "load-roster", schoolId: "s", schoolYearId: "y", assignmentId: "a", classId: "c", subjectId: "m" };
+    const body = { action: "load-roster", schoolId: "s", schoolYearId: "y", assignmentId: "a", classId: "c::sciences", subjectId: "m" };
     const result = await executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body });
     expect(result).toMatchObject({ assignmentId: "a", students: [{ id: "allowed" }] });
     expect(result.students).toHaveLength(1);
     const studentReads = reads.filter((read) => read.collection === "students");
-    expect(studentReads).toHaveLength(3);
+    expect(studentReads).toHaveLength(4);
     for (const read of studentReads) {
       expect(read.conditions).toContainEqual(["schoolId", "==", "s"]);
       expect(read.conditions).toContainEqual(["schoolYearId", "==", "y"]);
-      expect(read.conditions.some(([field, op, value]) => ["classId", "subClassId", "className"].includes(field) && op === "in" && (value as unknown[]).length === 1)).toBe(true);
+      expect(read.conditions.some(([field, op, value]) => ["classId", "subClassId", "className", "classOptionKey"].includes(field) && op === "in" && (value as unknown[]).length > 0)).toBe(true);
     }
+  });
+
+  it("charge le parent, l’option opérationnelle et son roster dans les données initiales", async () => {
+    const { db } = rosterDb();
+    const result = await executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body: { action: "load", schoolId: "s", schoolYearId: "y" } });
+    expect(result.assignments.map((item: { id: string }) => item.id)).toEqual(["a"]);
+    expect(result.classes.map((item: { id: string }) => item.id)).toEqual(["c", "c::sciences"]);
+    expect(result.students.map((item: { id: string }) => item.id)).toEqual(["allowed"]);
   });
 
   it("refuse l'actualisation d'une classe ou d'un cours non affecté avant toute lecture élève", async () => {
     const { db, reads } = rosterDb();
     for (const override of [{ classId: "other" }, { subjectId: "other" }, { assignmentId: "other" }]) {
-      await expect(executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body: { action: "load-roster", schoolId: "s", schoolYearId: "y", assignmentId: "a", classId: "c", subjectId: "m", ...override } })).rejects.toMatchObject<Partial<GradingApiError>>({ code: "permission-denied", status: 403 });
+      await expect(executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body: { action: "load-roster", schoolId: "s", schoolYearId: "y", assignmentId: "a", classId: "c::sciences", subjectId: "m", ...override } })).rejects.toMatchObject<Partial<GradingApiError>>({ code: "permission-denied", status: 403 });
     }
     expect(reads.some((read) => read.collection === "students")).toBe(false);
   });
@@ -83,9 +94,10 @@ describe("API de cotation Enseignant", () => {
 
   it("regroupe les lectures élèves par classe et nom sans élargir leur périmètre", () => {
     const source = readFileSync(new URL("./teacherGrading.js", import.meta.url), "utf8");
-    expect(source).toContain('queryInChunks(db, "students", schoolId, schoolYearId, "classId", classIds)');
+    expect(source).toContain('queryInChunks(db, "students", schoolId, schoolYearId, "classId", candidateClassIds)');
     expect(source).toContain('queryInChunks(db, "students", schoolId, schoolYearId, "subClassId", classIds)');
     expect(source).toContain('queryInChunks(db, "students", schoolId, schoolYearId, "className", classNames)');
+    expect(source).toContain('queryInChunks(db, "students", schoolId, schoolYearId, "classOptionKey", optionIds)');
     expect(source).toContain('.where(field, "in", chunk)');
     expect(source).not.toContain("classIds.flatMap");
   });

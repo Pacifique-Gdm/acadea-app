@@ -89,21 +89,26 @@ export function assignmentAppliesToClass(assignment: Pick<PedagogicalAssignment,
   return Boolean(optionId && scope.optionIds.includes(optionId));
 }
 
-export function studentBelongsToAssignment(student: Student, assignment: Pick<PedagogicalAssignment, "classId" | "courseScope" | "targetOptionIds">) {
+export function studentBelongsToAssignment(student: Student, assignment: Pick<PedagogicalAssignment, "classId" | "courseScope" | "targetOptionIds"> & Partial<Pick<PedagogicalAssignment, "schoolId" | "schoolYearId">>, classes: readonly StudyClass[] = []) {
   if ((student.status ?? "ACTIVE") !== "ACTIVE" || student.deletedAt) return false;
+  if (assignment.schoolId && student.schoolId !== assignment.schoolId) return false;
+  if (assignment.schoolYearId && student.schoolYearId !== assignment.schoolYearId) return false;
+  const assignedClass = classes.find((item) => item.id === assignment.classId);
+  if (assignedClass?.subClassLabel && student.subClassId !== assignedClass.id) return false;
+  const scope = normalizedAssignmentScope(assignment, classes);
   const derivedBaseId = student.schoolId && student.schoolYearId && student.className
     ? schoolClassRecordId(student.schoolId, student.schoolYearId, student.className)
     : undefined;
   const explicitOptionBaseId = student.classOptionKey?.split("::")[0]?.trim();
-  const belongsToBase = student.classId === assignment.classId
+  const belongsToBase = student.classId === scope.baseClassId
     || student.subClassId === assignment.classId
-    || explicitOptionBaseId === assignment.classId
-    || derivedBaseId === assignment.classId;
+    || explicitOptionBaseId === scope.baseClassId
+    || derivedBaseId === scope.baseClassId;
   if (!belongsToBase) return false;
-  const targets = normalizedIds(assignment.targetOptionIds);
-  if (!assignment.courseScope || targets.length === 0) return true;
+  const targets = scope.optionIds ?? [];
+  if (targets.length === 0) return true;
   const optionId = student.classOptionKey?.trim()
-    || (student.option?.trim() ? schoolClassOptionKey(assignment.classId, student.option) : undefined);
+    || (student.option?.trim() ? schoolClassOptionKey(scope.baseClassId, student.option) : undefined);
   return Boolean(optionId && targets.includes(optionId));
 }
 

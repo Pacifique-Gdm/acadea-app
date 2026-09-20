@@ -22,20 +22,34 @@ const requiredString = (value, label) => {
 
 const serialize = (snapshot) => snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
 const normalized = (value) => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase("fr");
+const classBaseId = (schoolClass) => schoolClass?.parentClassId?.trim() || schoolClass?.classOptionKey?.split("::")[0]?.trim() || schoolClass?.id;
+const assignmentOptionIds = (assignment, schoolClass) => {
+  const explicit = [...new Set((assignment.targetOptionIds ?? []).filter((item) => typeof item === "string" && item.trim()).map((item) => item.trim()))];
+  if (assignment.courseScope && explicit.length > 0) return explicit;
+  const historical = schoolClass?.classOptionKey?.trim() || (schoolClass?.option?.trim() && schoolClass?.parentClassId ? schoolClass.id : undefined);
+  return historical ? [historical] : [];
+};
 
-export function studentMatchesAssignment(student, assignment, schoolClass) {
+export function studentMatchesAssignment(student, assignment, schoolClass, parentClass) {
   if (!student || (student.status ?? "ACTIVE") !== "ACTIVE" || student.deletedAt) return false;
+  if (assignment.schoolId && student.schoolId !== assignment.schoolId) return false;
+  if (assignment.schoolYearId && student.schoolYearId !== assignment.schoolYearId) return false;
+  if (schoolClass?.subClassLabel && student.subClassId !== schoolClass.id) return false;
+  const baseId = classBaseId(schoolClass) || assignment.classId;
   const optionBaseId = typeof student.classOptionKey === "string" ? student.classOptionKey.split("::")[0]?.trim() : undefined;
-  const sameBase = student.classId === assignment.classId
+  const sameBase = student.classId === baseId
     || student.subClassId === assignment.classId
-    || optionBaseId === assignment.classId
-    || normalized(student.className) === normalized(schoolClass?.name);
+    || optionBaseId === baseId
+    || normalized(student.className) === normalized(parentClass?.name ?? schoolClass?.name);
   if (!sameBase) return false;
-  const targets = [...new Set((assignment.targetOptionIds ?? []).filter((item) => typeof item === "string" && item.trim()).map((item) => item.trim()))];
-  if (!assignment.courseScope || targets.length === 0) return true;
+  const targets = assignmentOptionIds(assignment, schoolClass);
+  if (targets.length === 0) return true;
   if (typeof student.classOptionKey === "string" && targets.includes(student.classOptionKey.trim())) return true;
   const studentOption = normalized(student.option);
-  return Boolean(studentOption && targets.some((target) => normalized(target.split("::").at(-1)) === studentOption));
+  return Boolean(studentOption && (
+    normalized(schoolClass?.option) === studentOption
+    || targets.some((target) => normalized(target.split("::").at(-1)) === studentOption)
+  ));
 }
 
 async function identity(db, caller, schoolId, schoolYearId) {
@@ -103,22 +117,27 @@ async function loadGrading(db, teacher, schoolId, schoolYearId) {
     scopedDocuments(db, "gradeEntries", schoolId, schoolYearId, assignments, titularClassIds),
   ]);
   const classRows = serialize(classes);
-  const classNames = classRows.filter((item) => classIds.includes(item.id)).map((item) => item.name);
-  const [classStudents, subclassStudents, namedStudents] = await Promise.all([
-    queryInChunks(db, "students", schoolId, schoolYearId, "classId", classIds),
+  const schoolClassById = new Map(classRows.map((item) => [item.id, item]));
+  const assignedClasses = classIds.map((id) => schoolClassById.get(id)).filter(Boolean);
+  const baseClassIds = [...new Set(assignedClasses.map(classBaseId).filter(Boolean))];
+  const candidateClassIds = [...new Set([...classIds, ...baseClassIds])];
+  const optionIds = [...new Set(assignments.flatMap((assignment) => assignmentOptionIds(assignment, schoolClassById.get(assignment.classId))))];
+  const classNames = [...new Set(assignedClasses.flatMap((item) => [item.name, schoolClassById.get(classBaseId(item))?.name]).filter(Boolean))];
+  const [classStudents, subclassStudents, namedStudents, optionStudents] = await Promise.all([
+    queryInChunks(db, "students", schoolId, schoolYearId, "classId", candidateClassIds),
     queryInChunks(db, "students", schoolId, schoolYearId, "subClassId", classIds),
     queryInChunks(db, "students", schoolId, schoolYearId, "className", classNames),
+    queryInChunks(db, "students", schoolId, schoolYearId, "classOptionKey", optionIds),
   ]);
-  const schoolClassById = new Map(classRows.map((item) => [item.id, item]));
-  const students = [...new Map([...classStudents, ...subclassStudents, ...namedStudents].filter((student) =>
-    assignments.some((assignment) => studentMatchesAssignment(student, assignment, schoolClassById.get(assignment.classId)))
-    || titularClassIds.some((classId) => studentMatchesAssignment(student, { classId }, schoolClassById.get(classId))),
+  const students = [...new Map([...classStudents, ...subclassStudents, ...namedStudents, ...optionStudents].filter((student) =>
+    assignments.some((assignment) => { const schoolClass = schoolClassById.get(assignment.classId); return studentMatchesAssignment(student, assignment, schoolClass, schoolClassById.get(classBaseId(schoolClass))); })
+    || titularClassIds.some((classId) => { const schoolClass = schoolClassById.get(classId); return studentMatchesAssignment(student, { classId, schoolId, schoolYearId }, schoolClass, schoolClassById.get(classBaseId(schoolClass))); }),
   ).map((item) => [item.id, item])).values()];
   const allowedSubjectIds = new Set(assignments.map((item) => item.subjectId));
   return {
     teacher: { id: teacher.id, ...teacher.data() }, assignments, titulars,
     subjects: serialize(subjects).filter((item) => allowedSubjectIds.has(item.id) || titularClassIds.length > 0),
-    classes: classRows.filter((item) => classIds.includes(item.id)),
+    classes: classRows.filter((item) => candidateClassIds.includes(item.id)),
     students: [...new Map(students.map((item) => [item.id, item])).values()],
     configs, entries,
   };
@@ -126,17 +145,22 @@ async function loadGrading(db, teacher, schoolId, schoolYearId) {
 
 async function loadCourseRoster(db, assignment, schoolId, schoolYearId) {
   const classSnapshot = await db.doc(`classes/${assignment.classId}`).get();
-  const schoolClass = classSnapshot.data();
+  const schoolClass = classSnapshot.exists ? { id: classSnapshot.id ?? assignment.classId, ...classSnapshot.data() } : undefined;
   if (!classSnapshot.exists || schoolClass?.schoolId !== schoolId || schoolClass?.schoolYearId !== schoolYearId) {
     throw new GradingApiError(403, "permission-denied", "Classe hors du périmètre pédagogique.");
   }
-  const [classStudents, subclassStudents, namedStudents] = await Promise.all([
-    queryInChunks(db, "students", schoolId, schoolYearId, "classId", [assignment.classId]),
+  const baseId = classBaseId(schoolClass);
+  const parentSnapshot = baseId && baseId !== assignment.classId ? await db.doc(`classes/${baseId}`).get() : undefined;
+  const parentClass = parentSnapshot?.exists ? { id: parentSnapshot.id ?? baseId, ...parentSnapshot.data() } : undefined;
+  const optionIds = assignmentOptionIds(assignment, schoolClass);
+  const [classStudents, subclassStudents, namedStudents, optionStudents] = await Promise.all([
+    queryInChunks(db, "students", schoolId, schoolYearId, "classId", [assignment.classId, baseId]),
     queryInChunks(db, "students", schoolId, schoolYearId, "subClassId", [assignment.classId]),
-    queryInChunks(db, "students", schoolId, schoolYearId, "className", [schoolClass.name]),
+    queryInChunks(db, "students", schoolId, schoolYearId, "className", [schoolClass.name, parentClass?.name]),
+    queryInChunks(db, "students", schoolId, schoolYearId, "classOptionKey", optionIds),
   ]);
-  const students = [...new Map([...classStudents, ...subclassStudents, ...namedStudents]
-    .filter((student) => studentMatchesAssignment(student, assignment, schoolClass))
+  const students = [...new Map([...classStudents, ...subclassStudents, ...namedStudents, ...optionStudents]
+    .filter((student) => studentMatchesAssignment(student, assignment, schoolClass, parentClass))
     .map((student) => [student.id, student])).values()];
   return { assignmentId: assignment.id, students };
 }
@@ -176,6 +200,9 @@ export async function executeTeacherGrading({ db, caller, body }) {
     const items = Array.isArray(body.entries) ? body.entries : [];
     if (items.length > 500) throw new GradingApiError(400, "invalid-argument", "Trop de cotes.");
     const schoolClass = await db.doc(`classes/${classId}`).get();
+    const schoolClassData = schoolClass.exists ? { id: schoolClass.id ?? classId, ...schoolClass.data() } : undefined;
+    const baseId = classBaseId(schoolClassData);
+    const parentClass = baseId && baseId !== classId ? await db.doc(`classes/${baseId}`).get() : undefined;
     const batch = db.batch();
     const now = FieldValue.serverTimestamp();
     for (const item of items) {
@@ -184,7 +211,7 @@ export async function executeTeacherGrading({ db, caller, body }) {
       const status = item.status;
       if (!EDITABLE_SLOTS.has(slot) || !["graded", "not_graded", "absent"].includes(status)) throw new GradingApiError(400, "invalid-argument", "Cotation invalide.");
       const student = await db.doc(`students/${studentId}`).get();
-      if (!student.exists || student.data()?.schoolId !== schoolId || student.data()?.schoolYearId !== schoolYearId || !studentMatchesAssignment(student.data(), assignment, schoolClass.data())) {
+      if (!student.exists || student.data()?.schoolId !== schoolId || student.data()?.schoolYearId !== schoolYearId || !studentMatchesAssignment(student.data(), assignment, schoolClassData, parentClass?.data())) {
         throw new GradingApiError(403, "permission-denied", "Élève hors du périmètre autorisé.");
       }
       const score = status === "graded" ? Number(item.score) : null;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PedagogicalAssignment, StudyClass } from "./studyTypes";
-import { assignmentAppliesToClass, assignmentStudentGroupKey, assignmentsShareStudents, logicalStudyClasses, validateAssignmentClassSelection } from "./studyCourseScope";
+import { assignmentAppliesToClass, assignmentStudentGroupKey, assignmentsShareStudents, logicalStudyClasses, studentBelongsToAssignment, validateAssignmentClassSelection } from "./studyCourseScope";
+import type { Student } from "../../types";
 
 const base: StudyClass = { id: "3h", schoolId: "s", schoolYearId: "y", name: "3ème Humanité", section: "Secondaire" };
 const option = (name: string): StudyClass => ({ id: `3h::${name.toLowerCase()}`, schoolId: "s", schoolYearId: "y", name: `3ème ${name}`, section: "Secondaire", parentClassId: "3h", classOptionKey: `3h::${name.toLowerCase()}`, option: name });
@@ -37,5 +38,26 @@ describe("portée pédagogique par classe et options", () => {
 
   it("regroupe les classes opérationnelles par classe parente", () => {
     expect(logicalStudyClasses(classes.slice(1), classes)).toEqual([expect.objectContaining({ id: "3h", name: "3ème Humanité" })]);
+  });
+
+  it("associe un élève parent à l’affectation de son option opérationnelle sans fuite", () => {
+    const scientific = classes[1];
+    const scoped = { ...assignment("physics"), classId: scientific.id };
+    const student = (id: string, classOptionKey: string, extra: Partial<Student> = {}) => ({
+      id, schoolId: "s", schoolYearId: "y", classId: base.id, className: base.name,
+      classOptionKey, option: classOptionKey.split("::").at(-1), status: "ACTIVE",
+      ...extra,
+    }) as Student;
+    expect(studentBelongsToAssignment(student("science", scientific.classOptionKey!), scoped, classes)).toBe(true);
+    expect(studentBelongsToAssignment(student("commercial", classes[2].classOptionKey!), scoped, classes)).toBe(false);
+    expect(studentBelongsToAssignment(student("other-year", scientific.classOptionKey!, { schoolYearId: "other" }), scoped, classes)).toBe(false);
+  });
+
+  it("respecte simultanément option et sous-classe", () => {
+    const scientificA = { ...classes[1], id: "3h::scientifique::a", subClassLabel: "A" };
+    const scoped = { ...assignment("physics"), classId: scientificA.id };
+    const baseStudent = { id: "student", schoolId: "s", schoolYearId: "y", classId: base.id, className: base.name, classOptionKey: classes[1].classOptionKey, option: "Scientifique", status: "ACTIVE" } as Student;
+    expect(studentBelongsToAssignment({ ...baseStudent, subClassId: scientificA.id }, scoped, [...classes, scientificA])).toBe(true);
+    expect(studentBelongsToAssignment({ ...baseStudent, subClassId: "3h::scientifique::b" }, scoped, [...classes, scientificA])).toBe(false);
   });
 });

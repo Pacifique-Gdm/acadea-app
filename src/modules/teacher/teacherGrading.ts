@@ -26,14 +26,14 @@ export function getTeacherGradingScope(teacher:StudyTeacher,assignments:Pedagogi
   const classIds=[...new Set(own.map(item=>item.classId))];
   if(classIds.length!==1)return[];
   const schoolClass=classes.find(item=>item.id===classIds[0]);
-  if(!schoolClass||!isPrimaryOrPreschoolSection(studyClassSection(schoolClass)))return[];
+  if(!schoolClass||!isPrimaryOrPreschoolSection(studyClassSection(schoolClass,classes)))return[];
   return own.filter(item=>subjects.some(subject=>subject.id===item.subjectId&&subject.active));
 }
-export function activeStudentsForClass(students:Student[],schoolId:string,schoolYearId:string,classId:string){return students.filter(student=>student.schoolId===schoolId&&student.schoolYearId===schoolYearId&&(student.subClassId??student.classId)===classId&&(student.status??"ACTIVE")==="ACTIVE"&&!student.deletedAt)}
-export function activeStudentsForAssignment(students:Student[],schoolId:string,schoolYearId:string,assignment:PedagogicalAssignment){return students.filter(student=>student.schoolId===schoolId&&student.schoolYearId===schoolYearId&&studentBelongsToAssignment(student,assignment))}
+export function activeStudentsForClass(students:Student[],schoolId:string,schoolYearId:string,classId:string,classes:StudyClass[]=[]){return students.filter(student=>student.schoolId===schoolId&&student.schoolYearId===schoolYearId&&studentBelongsToAssignment(student,{classId,schoolId,schoolYearId},classes))}
+export function activeStudentsForAssignment(students:Student[],schoolId:string,schoolYearId:string,assignment:PedagogicalAssignment,classes:StudyClass[]=[]){return students.filter(student=>student.schoolId===schoolId&&student.schoolYearId===schoolYearId&&studentBelongsToAssignment(student,assignment,classes))}
 
 export function scopeTeacherGradingData(user: Pick<AppUser, "section" | "sectionIds">, data: TeacherGradingData): TeacherGradingData {
-  const classes = data.classes.filter((item) => isSectionAllowed(user, studyClassSection(item)));
+  const classes = data.classes.filter((item) => isSectionAllowed(user, studyClassSection(item, data.classes)));
   const classIds = new Set(classes.map((item) => item.id));
   const assignments = data.assignments.filter((item) => classIds.has(item.classId));
   const subjectIds = new Set(assignments.map((item) => item.subjectId));
@@ -43,7 +43,7 @@ export function scopeTeacherGradingData(user: Pick<AppUser, "section" | "section
     assignments,
     titulars: data.titulars.filter((item) => classIds.has(item.classId)),
     subjects: data.subjects.filter((item) => subjectIds.has(item.id)),
-    students: data.students.filter((item) => assignments.some((assignment) => studentBelongsToAssignment(item, assignment)) || data.titulars.some((titular) => titular.classId === (item.subClassId ?? item.classId))),
+    students: data.students.filter((item) => assignments.some((assignment) => studentBelongsToAssignment(item, assignment, data.classes)) || data.titulars.some((titular) => studentBelongsToAssignment(item, { classId: titular.classId, schoolId: titular.schoolId, schoolYearId: titular.schoolYearId }, data.classes))),
     configs: data.configs.filter((item) => classIds.has(item.classId) && subjectIds.has(item.subjectId)),
     entries: data.entries.filter((item) => classIds.has(item.classId) && subjectIds.has(item.subjectId)),
   };

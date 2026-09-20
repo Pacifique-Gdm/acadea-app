@@ -4,12 +4,17 @@ describe("Fiche de cotation Enseignant",()=>{const portal=readFileSync(new URL("
 
 describe("Actualisation des élèves de la fiche", () => {
   const drawer = readFileSync(new URL("./TeacherGradingDrawer.tsx", import.meta.url), "utf8");
+  const rosterHook = readFileSync(new URL("./useTeacherGradingRoster.ts", import.meta.url), "utf8");
+  const studentsDrawer = readFileSync(new URL("./TeacherStudentsDrawer.tsx", import.meta.url), "utf8");
   it("rafraîchit seulement le cours sélectionné sans reload et nettoie l'intervalle au démontage", () => {
-    expect(drawer).toContain("loadTeacherGradingRoster({ schoolId: school.id, schoolYearId: year.id, assignmentId: assignment.id, classId: assignment.classId, subjectId: assignment.subjectId })");
-    expect(drawer).toContain("window.setInterval(() => void refreshRoster(), 30_000)");
-    expect(drawer).toContain('document.addEventListener("visibilitychange", onVisibilityChange)');
-    expect(drawer).toContain("window.clearInterval(interval)");
+    expect(drawer).toContain("useTeacherGradingRoster(assignment, school.id, year.id)");
+    expect(studentsDrawer).toContain("useTeacherGradingRoster(current, school.id, year.id)");
+    expect(rosterHook).toContain("loadTeacherGradingRoster({ schoolId, schoolYearId, assignmentId: assignment.id, classId: assignment.classId, subjectId: assignment.subjectId })");
+    expect(rosterHook).toContain("window.setInterval(() => void refreshRoster(), 30_000)");
+    expect(rosterHook).toContain('document.addEventListener("visibilitychange", onVisibilityChange)');
+    expect(rosterHook).toContain("window.clearInterval(interval)");
     expect(drawer).toContain("roster?.assignmentId === assignment.id ? roster.students : data.students");
+    expect(studentsDrawer).toContain("roster?.assignmentId === current.id ? roster.students : grading.students");
     expect(drawer).not.toContain("window.location.reload()");
   });
   it("ajoute un nouvel élève sans effacer une cote non encore enregistrée", () => {
