@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import indexes from "../../firestore.indexes.json";
 
 const mocks = vi.hoisted(() => ({
   collection: vi.fn((_db, name) => name), documentId: vi.fn(() => "__name__"), getCountFromServer: vi.fn(), getDocs: vi.fn(),
@@ -15,6 +16,20 @@ const filters = { schoolId: "school-a", schoolYearId: "year-a", search: " Él ",
 
 describe("pagination source des élèves", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("déclare l’index composite nécessaire à la première page active triée globalement", () => {
+    expect(indexes.indexes).toContainEqual({
+      collectionGroup: "students",
+      queryScope: "COLLECTION",
+      fields: [
+        { fieldPath: "schoolId", order: "ASCENDING" },
+        { fieldPath: "schoolYearId", order: "ASCENDING" },
+        { fieldPath: "searchArchived", order: "ASCENDING" },
+        { fieldPath: "sortName", order: "ASCENDING" },
+        { fieldPath: "__name__", order: "ASCENDING" },
+      ],
+    });
+  });
 
   it("construit une requête tenant/année avec filtres et préfixe normalisé", () => {
     studentFilterConstraints(filters);

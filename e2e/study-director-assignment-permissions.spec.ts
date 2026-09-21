@@ -96,6 +96,11 @@ test("enregistre atomiquement les affectations sur classes legacy sans permissio
     await classOptions.nth(0).click();
     await classOptions.nth(1).click();
     await page.keyboard.press("Escape");
+    const courseOrganizations = assignmentDrawer.getByRole("group", { name: /^Organisation du cours/ });
+    for (const organization of await courseOrganizations.all()) {
+      await organization.getByLabel("Type de cours").selectOption("option");
+      await organization.getByLabel("Option concernée").selectOption({ index: 1 });
+    }
     await assignmentDrawer.getByLabel("Nombre de périodes hebdomadaires").fill("2");
     await assignmentDrawer.getByRole("button", { name: "Enregistrer", exact: true }).click();
     await expect(assignmentDrawer).toBeHidden({ timeout: 30_000 });
@@ -114,7 +119,7 @@ test("enregistre atomiquement les affectations sur classes legacy sans permissio
     await expect(page).toHaveURL(/\/studies/);
     const afterRefresh = await openTeacherAssignment(page, teacherName);
     await afterRefresh.assignmentDrawer.getByRole("button", { name: "Annuler", exact: true }).click();
-    await expect(afterRefresh.teacherDrawer.getByText(subjectName, { exact: true })).toBeVisible();
+    await expect(afterRefresh.teacherDrawer.getByText(subjectName, { exact: true })).toHaveCount(2);
 
     await afterRefresh.teacherDrawer.getByRole("button", { name: "Fermer la fiche pédagogique" }).click();
     await page.getByRole("button", { name: "Menu", exact: true }).last().click();
@@ -123,7 +128,7 @@ test("enregistre atomiquement les affectations sur classes legacy sans permissio
     await login(page);
     await page.getByRole("button", { name: "Enseignants", exact: true }).last().click();
     await page.getByRole("button", { name: teacherName, exact: true }).click();
-    await expect(page.getByRole("dialog", { name: `Fiche pédagogique — ${teacherName}` }).getByText(subjectName, { exact: true })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: `Fiche pédagogique — ${teacherName}` }).getByText(subjectName, { exact: true })).toHaveCount(2);
     expect(consoleErrors.filter((message) => /permission-denied|missing or insufficient permissions/i.test(message))).toEqual([]);
   } finally {
     if (adminDb) {

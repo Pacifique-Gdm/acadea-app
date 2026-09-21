@@ -6,6 +6,17 @@
       "fields": [
         { "fieldPath": "schoolId", "order": "ASCENDING" },
         { "fieldPath": "schoolYearId", "order": "ASCENDING" },
+        { "fieldPath": "searchArchived", "order": "ASCENDING" },
+        { "fieldPath": "sortName", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "students",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "schoolId", "order": "ASCENDING" },
+        { "fieldPath": "schoolYearId", "order": "ASCENDING" },
         { "fieldPath": "section", "order": "ASCENDING" }
       ]
     },
