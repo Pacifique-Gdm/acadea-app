@@ -30,6 +30,12 @@ describe("pagination source des élèves", () => {
     expect(studentQueryKey({ ...filters, allowedSections: ["Primaire", "CTEB"] })).toBe(studentQueryKey({ ...filters, allowedSections: ["CTEB", "Primaire"] }));
   });
 
+  it("pagine globalement sur la clé alphabétique canonique avant l’identifiant", () => {
+    subscribeStudentPage(filters, undefined, vi.fn(), vi.fn());
+    expect(mocks.orderBy).toHaveBeenCalledWith("sortName");
+    expect(mocks.orderBy).toHaveBeenCalledWith("__name__");
+  });
+
   it("trouve hors première page par préfixe, avec accents normalisés", () => {
     const students = Array.from({ length: 80 }, (_, index) => ({ id: `s-${String(index).padStart(3, "0")}`, schoolId: "school-a", schoolYearId: "year-a", matricule: `ACD-${index}`, nom: index === 79 ? "Élise" : `Nom${index}`, postnom: "", prenom: "Test", className: "1ère Primaire", section: "Primaire", status: "ACTIVE" })) as never[];
     expect(filterStudentFallback(students, { ...filters, className: "", search: "eli" }).map((item) => item.id)).toEqual(["s-079"]);
@@ -64,8 +70,17 @@ describe("pagination source des élèves", () => {
       { id: "s-3", schoolId: "school-a", schoolYearId: "year-a", matricule: "ACD-2027-004200", nom: "Élise", prenom: "Chantal", className: "1ère Primaire", section: "Primaire", status: "ACTIVE" },
     ] as never[];
     const base = { ...filters, className: "" };
-    expect(filterStudentFallback(students, { ...base, search: "58" }).map((item) => item.id)).toEqual(["s-1", "s-2"]);
+    expect(filterStudentFallback(students, { ...base, search: "58" }).map((item) => item.id)).toEqual(["s-2", "s-1"]);
     expect(filterStudentFallback(students, { ...base, search: "394" }).map((item) => item.id)).toEqual(["s-1"]);
     expect(filterStudentFallback(students, { ...base, search: "eli" }).map((item) => item.id)).toEqual(["s-3"]);
+  });
+
+  it("trie aussi le fallback globalement par nom, postnom puis prénom", () => {
+    const students = [
+      { id: "s-3", schoolId: "school-a", schoolYearId: "year-a", matricule: "3", nom: "Zulu", postnom: "", prenom: "A", className: "1ère Primaire", section: "Primaire", status: "ACTIVE" },
+      { id: "s-2", schoolId: "school-a", schoolYearId: "year-a", matricule: "2", nom: "Alpha", postnom: "B", prenom: "A", className: "1ère Primaire", section: "Primaire", status: "ACTIVE" },
+      { id: "s-1", schoolId: "school-a", schoolYearId: "year-a", matricule: "1", nom: "Alpha", postnom: "A", prenom: "B", className: "1ère Primaire", section: "Primaire", status: "ACTIVE" },
+    ] as never[];
+    expect(filterStudentFallback(students, { ...filters, search: "", archive: "all" }).map((student) => student.id)).toEqual(["s-1", "s-2", "s-3"]);
   });
 });

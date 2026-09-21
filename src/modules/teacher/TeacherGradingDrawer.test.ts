@@ -14,8 +14,20 @@ describe("Actualisation des élèves de la fiche", () => {
     expect(rosterHook).toContain('document.addEventListener("visibilitychange", onVisibilityChange)');
     expect(rosterHook).toContain("window.clearInterval(interval)");
     expect(drawer).toContain("roster?.assignmentId === assignment.id ? roster.students : data.students");
-    expect(studentsDrawer).toContain("roster?.assignmentId === current.id ? roster.students : grading.students");
+    expect(studentsDrawer).toContain("roster?.assignmentId === current?.id ? roster.students : grading?.students ?? []");
     expect(drawer).not.toContain("window.location.reload()");
+  });
+
+  it("laisse la saisie d’une cote non cotée active et verrouille seulement le statut absent", () => {
+    expect(drawer).toContain('disabled={value.status === "absent"}');
+    expect(drawer).not.toContain('disabled={value.status !== "graded"}');
+    expect(drawer).toContain('status: "graded"');
+  });
+
+  it("affiche immédiatement le shell depuis les données déjà chargées du portail", () => {
+    expect(drawer).toContain("portalData: TeacherPortalData");
+    expect(drawer).toContain("const initialData = useMemo");
+    expect(drawer).not.toContain("!loading && data && <div");
   });
   it("ajoute un nouvel élève sans effacer une cote non encore enregistrée", () => {
     const students = [{ id: "existing" }, { id: "new" }] as Parameters<typeof reconcileGradeDrafts>[0];

@@ -8,6 +8,10 @@ export function canonicalBlockSizes(blocks: readonly number[]) {
   return [...blocks].sort((left, right) => left - right);
 }
 
+export function weeklyPeriodsFromBlocks(blocks: readonly number[]) {
+  return blocks.reduce((total, block) => total + block, 0);
+}
+
 export function canonicalSessionPattern(assignment: Pick<PedagogicalAssignment, "weeklyPeriods" | "blockSize" | "sessionPattern">): CanonicalAssignmentSessionPattern {
   if (assignment.sessionPattern?.mode === "blocks") return { mode: "blocks", blocks: canonicalBlockSizes(assignment.sessionPattern.blocks) };
   return { mode: "normal" };
@@ -31,7 +35,7 @@ export function validateAssignmentSessionPattern(weeklyPeriods: number, pattern:
   if (pattern.blocks.some((block) => !Number.isInteger(block) || block < 1)) return "Chaque bloc doit contenir un nombre entier positif de périodes.";
   const longest = Math.max(...pattern.blocks);
   if (longest > maxBlockSize) return `Un bloc ne peut pas dépasser ${maxBlockSize} périodes consécutives avec les tranches horaires configurées.`;
-  const total = pattern.blocks.reduce((sum, block) => sum + block, 0);
+  const total = weeklyPeriodsFromBlocks(pattern.blocks);
   return total === weeklyPeriods ? "" : `La répartition des blocs totalise ${total} périodes, mais ce cours doit avoir ${weeklyPeriods} périodes par semaine.`;
 }
 

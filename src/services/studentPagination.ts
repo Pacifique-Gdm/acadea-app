@@ -18,7 +18,7 @@ import { db } from "../firebase";
 import type { SchoolSection, Student } from "../types";
 import { canonicalSchoolOption } from "../utils/schoolOptions";
 import { getClassSection } from "../utils/studentClasses";
-import { normalizeStudentSearch, studentSearchFields } from "../utils/studentSearch.js";
+import { compareStudentsAlphabetically, normalizeStudentSearch, studentSearchFields } from "../utils/studentSearch.js";
 
 export const STUDENT_SOURCE_PAGE_SIZE = 50;
 export type StudentArchiveFilter = "active" | "archived" | "all";
@@ -73,6 +73,7 @@ function pageQuery(database: Firestore, filters: StudentQueryFilters, cursor?: S
   return query(
     collection(database, "students"),
     ...studentFilterConstraints(filters),
+    orderBy("sortName"),
     orderBy(documentId()),
     ...(cursor ? [startAfter(cursor)] : []),
     limit(STUDENT_SOURCE_PAGE_SIZE),
@@ -106,7 +107,7 @@ export async function countStudentResults(filters: StudentQueryFilters) {
 export async function loadAllStudentResults(filters: StudentQueryFilters, fallbackStudents: Student[] = []) {
   const database = studentFirestore();
   if (!database) return filterStudentFallback(fallbackStudents, filters);
-  const snapshot = await getDocs(query(collection(database, "students"), ...studentFilterConstraints(filters), orderBy(documentId())));
+  const snapshot = await getDocs(query(collection(database, "students"), ...studentFilterConstraints(filters), orderBy("sortName"), orderBy(documentId())));
   return snapshot.docs.map(studentFromSnapshot);
 }
 
@@ -136,5 +137,5 @@ export function filterStudentFallback(students: Student[], filters: StudentQuery
       && (filters.section === "all" || section === filters.section)
       && (!filters.className || student.className === filters.className)
       && (!filters.option || canonicalSchoolOption(student.option ?? "") === canonicalSchoolOption(filters.option));
-  }).sort((left, right) => left.id.localeCompare(right.id));
+  }).sort(compareStudentsAlphabetically);
 }

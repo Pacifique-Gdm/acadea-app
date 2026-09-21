@@ -266,7 +266,7 @@ export default async function handler(req, res) {
         threadParentId: caller.parentId,
         threadId,
         conversationId,
-        subject: `${recipientLabel} - ${subject}`,
+        subject,
         body: messageBody,
         createdAt,
       };
@@ -296,7 +296,6 @@ export default async function handler(req, res) {
 
       message.recipientIds = recipients.map((recipient) => recipient.id);
       message.participantIds = participantIds;
-      message.subject = `${recipientLabel} - ${subject}`;
       const notifications = recipients.map((recipient, index) => ({
         id: index === 0 ? notificationId : uid("notif"), schoolId: caller.schoolId, schoolYearId,
         recipientRole: "school", recipientUserId: recipient.id, audienceRoles: [recipient.role], messageId, type: "message",

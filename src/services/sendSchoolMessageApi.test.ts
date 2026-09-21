@@ -85,6 +85,7 @@ describe("API de messagerie scolaire", () => {
       createdAt: "2026-08-09T10:00:00.000Z",
     });
     expect(document).toMatchObject({ senderId: "secretary-a", senderName: "Marie Kabeya", senderRole: "secretary", schoolId: "school-a", recipientIds: ["admin-a", "cashier-a"] });
+    expect(document.subject).toBe("Objet");
     expect(document.attachments).toEqual(attachments);
   });
 

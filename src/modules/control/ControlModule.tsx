@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Bell, Download, Edit3, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
-import { AdminDrawer, Field, FormPanel, Metric, SectionTitle } from "../../components/ui";
+import { AdminDrawer, Field, FormPanel, Metric, MoneyInput, SectionTitle } from "../../components/ui";
 import { usePaginatedControlHistory } from "../../hooks/usePaginatedControlHistory";
 import { createExpenseTransaction, createPaymentTransaction, deleteFinancialTransaction, updateExpenseTransaction, updatePaymentTransaction } from "../../services/financialTransactions";
 import { createAuditLog } from "../../utils/audit";
@@ -569,7 +569,7 @@ export function ControlModule({
         `Nous vous informons que le paiement de ${warningFeeSummary} relatif à ${childLabel} ${studentNames} n'a pas encore atteint le montant requis par l'établissement.`,
         "",
         `Détails Type de frais : ${warningFeeSummary}.`,
-        `Montant requis : $${requiredAmount.toFixed(2)}`,
+        `Montant requis : ${formatMoney(requiredAmount)}`,
         `Date limite de régularisation : ${warningDeadline}.`,
         "",
         "Nous vous invitons à régulariser votre situation avant cette échéance afin d'éviter tout désagrément et de permettre à votre enfant de poursuivre sa scolarité dans les meilleures conditions.",
@@ -722,7 +722,7 @@ export function ControlModule({
             ))}
           </select>
         </label>
-        <Field label="Montant requis" value={warningRequiredAmount} onChange={setWarningRequiredAmount} type="number" />
+        <label className="grid gap-1 text-sm font-semibold">Montant requis<MoneyInput value={warningRequiredAmount} onChange={setWarningRequiredAmount} /></label>
         <Field label="Date limite de régularisation" value={warningDeadline} onChange={setWarningDeadline} type="date" />
         <button onClick={sendPaymentWarnings} disabled={!warningFeeName} className="primary-button justify-center disabled:opacity-50" type="button">
           <Bell className="h-4 w-4" /> Envoyer
@@ -746,8 +746,8 @@ export function ControlModule({
       !amountComparator || amountComparator === "all" || !amountThreshold
         ? "Montant payé : tous"
         : selectedPdfFeeGroup && feeFilter
-          ? `${selectedPdfFeeGroup.name} ${feeFilter[2] === "gte" ? ">=" : "<"} ${amountThreshold}`
-          : `Montant payé ${amountComparator} ${amountThreshold}`;
+          ? `${selectedPdfFeeGroup.name} ${feeFilter[2] === "gte" ? ">=" : "<"} ${formatMoney(Number(amountThreshold))}`
+          : `Montant payé ${amountComparator} ${formatMoney(Number(amountThreshold))}`;
     const pdfBalanceForRow = (row: (typeof rows)[number]) => {
       if (!selectedPdfFeeGroup) return row.balance;
       const expected = yearData.feeTypes
@@ -1087,7 +1087,7 @@ export function ControlModule({
                   </option>
                 ))}
               </select>
-              <input value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)} type="number" className="h-10 min-w-0 w-full rounded border border-slate-200 bg-white px-2 text-sm lg:flex-1 lg:basis-0" placeholder="Filtre" aria-label="Filtre" />
+              <MoneyInput value={amountThreshold} onChange={setAmountThreshold} className="h-10 min-w-0 w-full rounded border border-slate-200 bg-white px-2 text-sm lg:flex-1 lg:basis-0" placeholder="Filtre" ariaLabel="Filtre" />
               <button onClick={printFilteredStudents} className="pdf-export-button h-10 min-w-0 px-2 lg:flex-1 lg:basis-0" type="button">
                 <Download className="h-4 w-4" /> Exporter PDF
               </button>
@@ -1178,11 +1178,11 @@ export function ControlModule({
             {paymentError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{paymentError}</p>}
             <select value={selectedFeeTypeValue} onChange={(event) => { setFeeTypeId(event.target.value); setPaymentError(""); }} disabled={!selectedPaymentStudent || payableFeeTypes.length === 0 || paymentSubmitting} className="input disabled:opacity-60">
               {payableFeeTypes.map((fee) => (
-                <option key={fee.id} value={fee.id}>{fee.name} - ${fee.amount}</option>
+                <option key={fee.id} value={fee.id}>{fee.name} - {formatMoney(fee.amount)}</option>
               ))}
             </select>
             {selectedPaymentFee && selectedPaymentFeeRemaining === 0 && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">Ce type de frais est déjà soldé.</p>}
-            <input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" min="0" max={selectedPaymentFeeRemaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" placeholder="Montant" />
+            <MoneyInput value={amount} onChange={setAmount} max={selectedPaymentFeeRemaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" />
             <textarea value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} maxLength={1000} className="input min-h-20" placeholder="Description" />
             <button onClick={savePayment} disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button justify-center disabled:opacity-50"><Plus className="h-4 w-4" /> {paymentSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
           </FormPanel>
@@ -1196,7 +1196,7 @@ export function ControlModule({
               <option>Maintenance</option>
               <option>Autres</option>
             </select>
-            <input value={expenseAmount} onChange={(event) => setExpenseAmount(event.target.value)} type="number" min="0" className="input" placeholder="Montant" />
+            <MoneyInput value={expenseAmount} onChange={setExpenseAmount} />
             <textarea value={expenseDescription} onChange={(event) => setExpenseDescription(event.target.value)} className="input min-h-24" placeholder="Description" />
             <button onClick={saveExpense} disabled={isExpenseEntryIncomplete || expenseSubmitting} className="primary-button justify-center"><Plus className="h-4 w-4" /> {expenseSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
           </FormPanel>
@@ -1264,11 +1264,11 @@ export function ControlModule({
               {paymentError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{paymentError}</p>}
               <select value={selectedFeeTypeValue} onChange={(event) => { setFeeTypeId(event.target.value); setPaymentError(""); }} disabled={!selectedPaymentStudent || payableFeeTypes.length === 0 || paymentSubmitting} className="input disabled:opacity-60">
                 {payableFeeTypes.map((fee) => (
-                  <option key={fee.id} value={fee.id}>{fee.name} - ${fee.amount}</option>
+                  <option key={fee.id} value={fee.id}>{fee.name} - {formatMoney(fee.amount)}</option>
                 ))}
               </select>
               {selectedPaymentFee && selectedPaymentFeeRemaining === 0 && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">Ce type de frais est déjà soldé.</p>}
-              <input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" min="0" max={selectedPaymentFeeRemaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" placeholder="Montant" />
+              <MoneyInput value={amount} onChange={setAmount} max={selectedPaymentFeeRemaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" />
               <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
                 Description
                 <textarea value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} maxLength={1000} className="input min-h-20" placeholder="Écrivez la description" />
@@ -1293,7 +1293,7 @@ export function ControlModule({
                 <option>Maintenance</option>
                 <option>Autre</option>
               </select>
-              <input value={expenseAmount} onChange={(event) => setExpenseAmount(event.target.value)} type="number" min="0" className="input" placeholder="Montant" />
+              <MoneyInput value={expenseAmount} onChange={setExpenseAmount} />
               <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
                 Description
                 <textarea
@@ -1378,7 +1378,7 @@ export function ControlModule({
                         {canCorrectPayments && <button onClick={() => deletePayment(payment)} disabled={financialMutationId === payment.id} className="rounded bg-red-50 p-2 text-red-700 disabled:opacity-50" title="Supprimer"><Trash2 className="h-4 w-4" /></button>}
                       </div>
                     </div>
-                    <p className="break-words text-slate-500">{fee.name} | ${payment.amount} | {payment.paidAt}</p>
+                    <p className="break-words text-slate-500">{fee.name} | {formatMoney(payment.amount)} | {payment.paidAt}</p>
                     {payment.note && <p className="mt-1 break-words text-slate-600">Description : {payment.note}</p>}
                   </div>
                 );
@@ -1408,7 +1408,7 @@ export function ControlModule({
               <option>Autre</option>
             </select>
           </label>
-          <Field label="Montant" value={expenseEditAmount} onChange={setExpenseEditAmount} type="number" />
+          <label className="grid gap-1 text-sm font-semibold">Montant<MoneyInput value={expenseEditAmount} onChange={setExpenseEditAmount} /></label>
           <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
             Libellé ou motif
             <textarea

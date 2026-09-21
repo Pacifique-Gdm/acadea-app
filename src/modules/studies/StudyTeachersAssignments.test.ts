@@ -62,6 +62,12 @@ describe("StudyTeachers assignment editor contract", () => {
     expect(moduleSource).toContain("hasActiveSubjectClassConflict(assignments, candidate, editingAssignment?.id)");
     expect(moduleSource).toContain("!sourceClasses.some((current) => current.id === item.id)");
   });
+  it("dérive le volume hebdomadaire des blocs et empêche toute divergence manuelle", () => {
+    expect(moduleSource).toContain('sessionMode === "blocks" ? blockWeeklyPeriods : Number(weeklyPeriods)');
+    expect(moduleSource).toContain('value={sessionMode === "blocks" ? blockWeeklyPeriods : weeklyPeriods}');
+    expect(moduleSource).toContain('readOnly={sessionMode === "blocks"}');
+    expect(moduleSource).toContain('disabled={sessionBlocks.length === 1}');
+  });
   it("renomme la source canonique avec une confirmation exacte vide par défaut", () => {
     expect(moduleSource).toContain("renameStudySubject({ user, schoolId: school.id, schoolYearId: year.id");
     expect(moduleSource).toContain('setRenameConfirmation("")');

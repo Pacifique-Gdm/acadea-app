@@ -46,7 +46,17 @@ export function studentSearchFields(student) {
   return {
     searchPrefixes,
     searchArchived: Boolean(student?.deletedAt) || status !== "ACTIVE",
+    sortName: studentAlphabeticalKey(student),
   };
+}
+
+export function studentAlphabeticalKey(student) {
+  return normalizeStudentSearch([student?.nom, student?.postnom, student?.prenom].filter(Boolean).join(" "));
+}
+
+export function compareStudentsAlphabetically(left, right) {
+  const keyDifference = studentAlphabeticalKey(left).localeCompare(studentAlphabeticalKey(right), "fr", { sensitivity: "base" });
+  return keyDifference || String(left?.id ?? "").localeCompare(String(right?.id ?? ""), "fr");
 }
 
 export function isStudentDocument(value) {

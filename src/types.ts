@@ -143,6 +143,8 @@ export interface Student {
   searchPrefixes?: string[];
   /** État d'archivage dénormalisé pour les filtres serveur. */
   searchArchived?: boolean;
+  /** Clé canonique nom/postnom/prénom utilisée pour la pagination alphabétique globale. */
+  sortName?: string;
 }
 
 export type FingerprintStatus = "not_enrolled" | "enrolled" | "disabled";
@@ -412,7 +414,7 @@ export interface AppNotification {
   audienceParentIds?: string[];
   audienceSchoolWide?: boolean;
   schoolRecipient?: "admin" | "cashier" | "discipline" | "both";
-  type: "payment" | "message" | "valve" | "attendance" | "availability";
+  type: "payment" | "message" | "valve" | "attendance" | "availability" | "observation";
   module?: "payments" | "attendance" | "discipline" | "announcements";
   event?: "payment_recorded" | "student_absent" | "student_late" | "discipline_incident_created" | "announcement_published";
   destination?: "/dashboard";

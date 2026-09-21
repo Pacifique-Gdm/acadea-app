@@ -60,4 +60,11 @@ describe("destinataires dynamiques du Parent", () => {
     expect(source).not.toMatch(/existingCount\s*\+\s*recipients\.length/);
     expect(source).toContain("notifications = recipients.map");
   });
+
+  it("conserve l’objet saisi du Parent sans préfixe de destinataire, y compris pour les conversations existantes", () => {
+    const source = readFileSync(new URL("../../api/send-parent-message.js", import.meta.url), "utf8");
+    expect(source).toMatch(/const message = \{[\s\S]*?\bsubject,\s*body: messageBody/);
+    expect(source).not.toMatch(/message\.subject\s*=/);
+    expect(source).not.toMatch(/subject:\s*`\$\{recipientLabel\}/);
+  });
 });

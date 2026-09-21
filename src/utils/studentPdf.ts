@@ -2,6 +2,7 @@ import type { School, SchoolClass, SchoolYear, Student } from "../types";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./pdf";
 import type { PdfTableColumn } from "./pdf";
 import { formatStudentClassName } from "./studentClasses";
+import { compareStudentsAlphabetically } from "./studentSearch.js";
 
 export function formatStudentPdfClassName(student: Pick<Student, "className" | "option">) {
   return student.className;
@@ -37,8 +38,13 @@ export function sortStudentsForPdfByClass<T extends Pick<Student, "className">>(
   return [...students].sort(compareStudentsForPdfByClass);
 }
 
+export function sortStudentsAlphabeticallyForPdf<T extends Pick<Student, "id" | "nom" | "postnom" | "prenom">>(students: T[]) {
+  return [...students].sort(compareStudentsAlphabetically);
+}
+
 export async function exportStudentsPdf(school: School, year: SchoolYear, students: Student[], filters: string[]) {
-  const showOptionColumn = students.some((student) => Boolean(student.option));
+  const orderedStudents = sortStudentsAlphabeticallyForPdf(students);
+  const showOptionColumn = orderedStudents.some((student) => Boolean(student.option));
   const totalLabelColspan = showOptionColumn ? 5 : 4;
   const studentColumns: PdfTableColumn<Student>[] = [
     { header: "Matricule", render: (student) => student.matricule || "-" },
@@ -61,13 +67,13 @@ export async function exportStudentsPdf(school: School, year: SchoolYear, studen
         "Élèves",
         pdfTable(
           studentColumns,
-          students,
+          orderedStudents,
           "Aucun élève ne correspond aux filtres appliqués.",
           {
             footerHtml: `
               <tr>
                 <td colspan="${totalLabelColspan}">Total élèves</td>
-                <td class="align-right">${students.length}</td>
+                <td class="align-right">${orderedStudents.length}</td>
               </tr>
             `,
           },

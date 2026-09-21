@@ -62,7 +62,7 @@ async function run() {
         const samePrefixes = Array.isArray(current.searchPrefixes)
           && current.searchPrefixes.length === next.searchPrefixes.length
           && current.searchPrefixes.every((value, index) => value === next.searchPrefixes[index]);
-        if (!samePrefixes || current.searchArchived !== next.searchArchived) updates.push({ reference: document.ref, next });
+        if (!samePrefixes || current.searchArchived !== next.searchArchived || current.sortName !== next.sortName) updates.push({ reference: document.ref, next });
       }
       changed += updates.length;
       if (apply && updates.length) {

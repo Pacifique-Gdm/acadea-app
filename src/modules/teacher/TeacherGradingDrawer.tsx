@@ -23,6 +23,7 @@ import {
   type TeacherGradingData,
 } from "./teacherGradingService";
 import { useTeacherGradingRoster } from "./useTeacherGradingRoster";
+import type { TeacherPortalData } from "./teacherPortalData";
 
 type Draft = { score: string; status: GradeEntry["status"] };
 
@@ -32,8 +33,18 @@ const entryValue = (entry: GradeEntry | undefined) => {
   return String(entry.score ?? "Non coté");
 };
 
-export function TeacherGradingDrawer({ user, school, year, onClose }: { user: AppUser; school: School; year: SchoolYear; onClose: () => void }) {
-  const [rawData, setRawData] = useState<TeacherGradingData>();
+export function TeacherGradingDrawer({ user, school, year, portalData, onClose }: { user: AppUser; school: School; year: SchoolYear; portalData: TeacherPortalData; onClose: () => void }) {
+  const initialData = useMemo<TeacherGradingData | undefined>(() => portalData.teacher ? ({
+    teacher: portalData.teacher,
+    assignments: portalData.assignments,
+    titulars: [],
+    subjects: portalData.subjects,
+    classes: portalData.classes,
+    students: [],
+    configs: [],
+    entries: [],
+  }) : undefined, [portalData.assignments, portalData.classes, portalData.subjects, portalData.teacher]);
+  const [rawData, setRawData] = useState<TeacherGradingData | undefined>(initialData);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -51,14 +62,19 @@ export function TeacherGradingDrawer({ user, school, year, onClose }: { user: Ap
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      setRawData(await loadTeacherGrading(school.id, year.id));
+      const loaded = await loadTeacherGrading(school.id, year.id);
+      setRawData({
+        ...loaded,
+        subjects: loaded.subjects.length ? loaded.subjects : portalData.subjects,
+        classes: loaded.classes.length ? loaded.classes : portalData.classes,
+      });
       setError("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Chargement impossible.");
     } finally {
       setLoading(false);
     }
-  }, [school.id, year.id]);
+  }, [portalData.classes, portalData.subjects, school.id, year.id]);
 
   useEffect(() => { void reload(); }, [reload]);
 
@@ -172,7 +188,7 @@ export function TeacherGradingDrawer({ user, school, year, onClose }: { user: Ap
     {error && <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{error}</p>}
     {rosterError && <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{rosterError}</p>}
     {success && <p role="status" className="rounded bg-green-50 p-3 text-green-800">{success}</p>}
-    {!loading && data && !data.assignments.length && !data.titulars.length ? <p className="rounded border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">Aucune affectation n’est disponible pour cet enseignant pour l’année scolaire active.</p> : !loading && data && <div className="grid gap-4">
+    {data && !data.assignments.length && !data.titulars.length && !loading ? <p className="rounded border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">Aucune affectation n’est disponible pour cet enseignant pour l’année scolaire active.</p> : data && <div className="grid gap-4">
       <div className="grid grid-cols-2 gap-2"><button type="button" className={!titularView ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setTitularView(false)}>Mes cotations</button><button type="button" className={titularView ? "primary-button justify-center" : "secondary-button justify-center"} disabled={!data.titulars.length} onClick={() => setTitularView(true)}>Ma classe titulaire</button></div>
       {titularView ? renderTitularView() : assignments.length === 0 ? <p className="rounded bg-slate-50 p-4">Aucun cours ne vous a encore été affecté par la Direction des études.</p> : <>
         <label className="grid gap-1 text-sm font-semibold">Cours<select className="input" value={assignment?.id} onChange={(event) => setAssignmentId(event.target.value)}>{assignments.map((item) => <option key={item.id} value={item.id}>{data.subjects.find((candidate) => candidate.id === item.subjectId)?.name} — {data.classes.find((candidate) => candidate.id === item.classId)?.name}</option>)}</select></label>
@@ -181,7 +197,7 @@ export function TeacherGradingDrawer({ user, school, year, onClose }: { user: Ap
         <p className="text-sm font-semibold">{progress.graded} / {progress.total} élèves cotés · {progress.status}</p>
         {!config ? <p className="rounded bg-amber-50 p-3 text-sm">Définissez la cote maximale de ce cours avant de commencer la cotation.</p> : students.length === 0 ? <p className="rounded bg-slate-50 p-3">Aucun élève actif n’est inscrit dans cette classe.</p> : <div className="grid gap-2">{students.map((student) => {
           const value = drafts[student.id] ?? { score: "", status: "not_graded" as const };
-          return <article key={student.id} className="grid gap-2 rounded border bg-white p-3 sm:grid-cols-[minmax(0,1fr)_120px_130px] sm:items-center"><span className="font-semibold">{student.nom} {student.postnom} {student.prenom}</span><input aria-label={`Cote de ${student.nom}`} className="input" type="number" min="0" max={config.maxScore} step="0.01" value={value.score} disabled={value.status !== "graded"} onChange={(event) => setDrafts((current) => ({ ...current, [student.id]: { ...value, score: event.target.value, status: "graded" } }))} /><select aria-label={`Statut de ${student.nom}`} className="input" value={value.status} onChange={(event) => setDrafts((current) => ({ ...current, [student.id]: { score: event.target.value === "graded" ? value.score : "", status: event.target.value as GradeEntry["status"] } }))}><option value="not_graded">Non coté</option><option value="graded">Coté</option><option value="absent">Absent</option></select></article>;
+          return <article key={student.id} className="grid gap-2 rounded border bg-white p-3 sm:grid-cols-[minmax(0,1fr)_120px_130px] sm:items-center"><span className="font-semibold">{student.nom} {student.postnom} {student.prenom}</span><input aria-label={`Cote de ${student.nom}`} className="input" type="number" min="0" max={config.maxScore} step="0.01" value={value.score} disabled={value.status === "absent"} onChange={(event) => setDrafts((current) => ({ ...current, [student.id]: { ...value, score: event.target.value, status: "graded" } }))} /><select aria-label={`Statut de ${student.nom}`} className="input" value={value.status} onChange={(event) => setDrafts((current) => ({ ...current, [student.id]: { score: event.target.value === "graded" ? value.score : "", status: event.target.value as GradeEntry["status"] } }))}><option value="not_graded">Non coté</option><option value="graded">Coté</option><option value="absent">Absent</option></select></article>;
         })}<button type="button" className="primary-button justify-center" disabled={saving} onClick={() => void saveEntries()}>{saving ? "Enregistrement…" : "Enregistrer"}</button></div>}
       </>}
     </div>}

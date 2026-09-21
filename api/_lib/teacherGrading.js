@@ -126,7 +126,7 @@ async function loadGrading(db, teacher, schoolId, schoolYearId) {
   const candidateClassIds = [...new Set([...classIds, ...baseClassIds])];
   const optionIds = [...new Set(assignments.flatMap((assignment) => assignmentOptionIds(assignment, schoolClassById.get(assignment.classId))))];
   const classNames = [...new Set(assignedClasses.flatMap((item) => [item.name, schoolClassById.get(classBaseId(item))?.name, canonicalClassNameFromRecordId(classBaseId(item))]).filter(Boolean))];
-  const [classStudents, subclassStudents, namedStudents, optionStudents] = await Promise.all([
+  const [classStudents, subclassStudents, namedStudents, optionStudents] = titularClassIds.length === 0 ? [[], [], [], []] : await Promise.all([
     queryInChunks(db, "students", schoolId, schoolYearId, "classId", candidateClassIds),
     queryInChunks(db, "students", schoolId, schoolYearId, "subClassId", classIds),
     queryInChunks(db, "students", schoolId, schoolYearId, "className", classNames),
@@ -144,6 +144,73 @@ async function loadGrading(db, teacher, schoolId, schoolYearId) {
     students: [...new Map(students.map((item) => [item.id, item])).values()],
     configs, entries,
   };
+}
+
+async function parentUsersForIds(db, schoolId, parentIds) {
+  const chunks = Array.from({ length: Math.ceil(parentIds.length / 30) }, (_, index) => parentIds.slice(index * 30, index * 30 + 30));
+  const snapshots = await Promise.all(chunks.map((chunk) => db.collection("users").where("schoolId", "==", schoolId).where("parentId", "in", chunk).get()));
+  return snapshots.flatMap(serialize);
+}
+
+async function saveObservation(db, caller, teacher, assignment, schoolId, schoolYearId, body) {
+  const studentId = requiredString(body.studentId, "Élève");
+  const observation = requiredString(body.observation, "Observation");
+  if (observation.length > 2000) throw new GradingApiError(400, "invalid-argument", "L’observation ne peut pas dépasser 2 000 caractères.");
+  const [studentSnapshot, classSnapshot] = await Promise.all([
+    db.doc(`students/${studentId}`).get(),
+    db.doc(`classes/${assignment.classId}`).get(),
+  ]);
+  const schoolClass = classSnapshot.exists ? { id: classSnapshot.id ?? assignment.classId, ...classSnapshot.data() } : undefined;
+  const baseId = classBaseId(schoolClass);
+  const parentClassSnapshot = baseId && baseId !== assignment.classId ? await db.doc(`classes/${baseId}`).get() : undefined;
+  const parentClass = parentClassSnapshot?.exists ? { id: parentClassSnapshot.id ?? baseId, ...parentClassSnapshot.data() } : undefined;
+  if (!studentSnapshot.exists || studentSnapshot.data()?.schoolId !== schoolId || studentSnapshot.data()?.schoolYearId !== schoolYearId || !studentMatchesAssignment(studentSnapshot.data(), assignment, schoolClass, parentClass)) {
+    throw new GradingApiError(403, "permission-denied", "Élève hors du périmètre autorisé.");
+  }
+  const observationId = [schoolId, schoolYearId, teacher.id, assignment.id, studentId].join("__");
+  const observationRef = db.doc(`teacherStudentObservations/${observationId}`);
+  const previous = await observationRef.get();
+  const now = new Date().toISOString();
+  const payload = {
+    id: observationId, schoolId, schoolYearId, teacherId: teacher.id, assignmentId: assignment.id,
+    classId: assignment.classId, subjectId: assignment.subjectId, studentId, observation,
+    createdAt: previous.exists ? previous.data().createdAt : now,
+    createdBy: previous.exists ? previous.data().createdBy : caller.uid,
+    updatedAt: now, updatedBy: caller.uid,
+  };
+  await observationRef.set(payload);
+
+  const directParentId = typeof studentSnapshot.data()?.parentId === "string" ? studentSnapshot.data().parentId.trim() : "";
+  const linkedParents = await db.collection("parents").where("schoolId", "==", schoolId).where("studentIds", "array-contains", studentId).get();
+  const parentIds = [...new Set([directParentId, ...linkedParents.docs.map((item) => item.id)].filter(Boolean))];
+  let notificationCount = 0;
+  let notificationWarning = "";
+  if (parentIds.length) {
+    try {
+      const parentUsers = await parentUsersForIds(db, schoolId, parentIds);
+      const recipients = parentUsers.filter((item) => item.role === "parent" && item.status !== "inactive" && item.active !== false && parentIds.includes(item.parentId));
+      if (recipients.length) {
+        const batch = db.batch();
+        const student = studentSnapshot.data();
+        const studentName = [student.nom, student.postnom, student.prenom].filter(Boolean).join(" ").replace(/\s+/g, " ").trim() || "cet élève";
+        recipients.forEach((recipient) => {
+          const id = `${observationId}__${recipient.id}`;
+          batch.set(db.doc(`notifications/${id}`), {
+            id, schoolId, schoolYearId, recipientRole: "parent", recipientUserId: recipient.id,
+            parentId: recipient.parentId, studentId, studentName, type: "observation",
+            title: "Nouvelle observation pédagogique",
+            body: `Une nouvelle observation pédagogique concernant ${studentName} a été enregistrée par son enseignant.`,
+            createdAt: now, read: false,
+          });
+        });
+        await batch.commit();
+        notificationCount = recipients.length;
+      }
+    } catch (error) {
+      notificationWarning = "L’observation est enregistrée, mais la notification parent n’a pas pu être envoyée.";
+    }
+  }
+  return { ok: true, observation: payload, notificationCount, notificationWarning };
 }
 
 async function loadCourseRoster(db, assignment, schoolId, schoolYearId) {
@@ -180,6 +247,7 @@ export async function executeTeacherGrading({ db, caller, body }) {
   const assignmentId = requiredString(body.assignmentId, "Affectation");
   const assignment = await assertCourse(db, teacher, schoolId, schoolYearId, classId, subjectId, assignmentId);
   if (action === "load-roster") return loadCourseRoster(db, assignment, schoolId, schoolYearId);
+  if (action === "save-observation") return saveObservation(db, caller, teacher, assignment, schoolId, schoolYearId, body);
   const configId = [schoolId, schoolYearId, classId, subjectId].join("__");
 
   if (action === "save-config") {

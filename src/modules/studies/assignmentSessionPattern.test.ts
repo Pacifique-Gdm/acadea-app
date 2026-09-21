@@ -4,6 +4,7 @@ import {
   canonicalSessionPattern,
   MAX_ASSIGNMENT_BLOCK_SIZE,
   validateAssignmentSessionPattern,
+  weeklyPeriodsFromBlocks,
 } from "./assignmentSessionPattern";
 import type { PedagogicalAssignment } from "./studyTypes";
 
@@ -55,5 +56,11 @@ describe("organisation canonique des périodes", () => {
       expect(validateAssignmentSessionPattern(block, { mode: "blocks", blocks: [block] })).toBe("");
     }
     expect(validateAssignmentSessionPattern(7, { mode: "blocks", blocks: [7] })).toContain("6 périodes consécutives");
+  });
+
+  it.each([
+    [[4], 4], [[5], 5], [[6], 6], [[4, 4], 8], [[5, 5], 10], [[5, 3], 8], [[6, 2], 8], [[2, 3, 4], 9],
+  ])("calcule automatiquement le volume hebdomadaire de %j", (blocks, expected) => {
+    expect(weeklyPeriodsFromBlocks(blocks)).toBe(expected);
   });
 });

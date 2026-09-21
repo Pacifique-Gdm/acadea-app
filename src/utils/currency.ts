@@ -28,3 +28,19 @@ export function formatCurrencyMoney(value: number, currency: SchoolCurrency) {
 export function formatSchoolMoney(value: number, school: Pick<School, "currency">) {
   return formatCurrencyMoney(value, resolveSchoolCurrency(school));
 }
+
+export function parseMoneyInput(value: string) {
+  const compact = value.replace(/[\s\u00a0\u202f]/g, "").replace(",", ".").replace(/[^\d.]/g, "");
+  if (!compact) return "";
+  const [integer = "", ...decimalParts] = compact.split(".");
+  const normalizedInteger = integer.replace(/^0+(?=\d)/, "") || "0";
+  return decimalParts.length ? `${normalizedInteger}.${decimalParts.join("")}` : normalizedInteger;
+}
+
+export function formatMoneyInput(value: string) {
+  const canonical = parseMoneyInput(value);
+  if (!canonical) return "";
+  const [integer, decimals] = canonical.split(".");
+  const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  return decimals === undefined ? grouped : `${grouped},${decimals}`;
+}

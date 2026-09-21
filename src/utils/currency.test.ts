@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatCurrencyMoney, formatSchoolMoney, resolveSchoolCurrency, resolveSchoolYearCurrency, schoolCurrencySymbol, schoolWithYearCurrency } from "./currency";
+import { formatCurrencyMoney, formatMoneyInput, formatSchoolMoney, parseMoneyInput, resolveSchoolCurrency, resolveSchoolYearCurrency, schoolCurrencySymbol, schoolWithYearCurrency } from "./currency";
 
 describe("devise d'école", () => {
   it("utilise USD comme fallback historique", () => {
@@ -23,5 +23,17 @@ describe("devise d'école", () => {
     expect(resolveSchoolYearCurrency({ currency: "CDF" }, { currency: "USD" })).toBe("CDF");
     expect(resolveSchoolYearCurrency({}, { currency: "CDF" })).toBe("CDF");
     expect(schoolWithYearCurrency({ id: "school", currency: "CDF" } as import("../types").School, { currency: "USD" }).currency).toBe("USD");
+  });
+
+  it.each([
+    ["0", "0"], ["1000", "1 000"], ["1000000", "1 000 000"], ["25000000", "25 000 000"], ["1 234,50", "1 234,50"],
+  ])("formate la saisie %s sans changer sa valeur numérique", (raw, formatted) => {
+    expect(formatMoneyInput(raw)).toBe(formatted);
+    expect(Number(parseMoneyInput(formatted))).toBe(Number(parseMoneyInput(raw)));
+  });
+
+  it("accepte le copier-coller avec espaces et conserve une saisie vide", () => {
+    expect(parseMoneyInput(" 2\u202f500\u00a0000,75 FC ")).toBe("2500000.75");
+    expect(formatMoneyInput("")).toBe("");
   });
 });

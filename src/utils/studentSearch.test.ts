@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeStudentSearch, studentSearchFields } from "./studentSearch.js";
+import { compareStudentsAlphabetically, normalizeStudentSearch, studentSearchFields } from "./studentSearch.js";
 
 describe("index de recherche élève", () => {
   it("normalise casse, accents et espaces", () => {
@@ -11,6 +11,7 @@ describe("index de recherche élève", () => {
     expect(fields.searchPrefixes).toEqual(expect.arrayContaining(["acd", "26", "004", "42", "kabu", "kas", "eli"]));
     expect(fields.searchPrefixes).not.toContain("buya");
     expect(fields.searchArchived).toBe(false);
+    expect(fields.sortName).toBe("kabuya kasai elise");
   });
 
   it("retrouve un matricule complet par ses fragments internes de 2, 3 ou 4 caractères", () => {
@@ -36,5 +37,14 @@ describe("index de recherche élève", () => {
   it("marque les dossiers archivés de façon déterministe", () => {
     expect(studentSearchFields({ status: "TRANSFERRED" }).searchArchived).toBe(true);
     expect(studentSearchFields({ status: "ACTIVE", deletedAt: "2026-01-01" }).searchArchived).toBe(true);
+  });
+
+  it("trie par nom, postnom, prénom sans dépendre de la casse ou des accents", () => {
+    const students = [
+      { id: "3", nom: "Élise", postnom: "", prenom: "Chantal" },
+      { id: "2", nom: "ilunga", postnom: "Mutombo", prenom: "Benoît" },
+      { id: "1", nom: "ILUNGA", postnom: "Kabamba", prenom: "Alice" },
+    ];
+    expect(students.sort(compareStudentsAlphabetically).map((student) => student.id)).toEqual(["3", "1", "2"]);
   });
 });

@@ -12,7 +12,7 @@ import { canonicalSchoolOption, normalizeSchoolOptions } from "../../utils/schoo
 import { persistSchoolOption } from "../../services/schoolOptionsRepository";
 import { formatStudentClassName, getClassSection } from "../../utils/studentClasses";
 import { emptyStudent, generateMatricule, isArchivedStudent, studentForPersistence, validateStudentForSave } from "../../utils/studentUtils";
-import { exportStudentsPdf, sortStudentsForPdfByClass } from "../../utils/studentPdf";
+import { exportStudentsPdf } from "../../utils/studentPdf";
 import type { AppData, AppUser, ParentProfile, School, SchoolSection, SchoolYear, Student } from "../../types";
 import { CLASSES } from "../../types";
 import type { SchoolClassRecord } from "../../types";
@@ -565,7 +565,7 @@ export function StudentsModule({
     setSaveError("");
     try {
       const exportStudents = await loadAllStudentResults(studentFilters, yearData.students);
-      exportStudentsPdf(school, year, sortStudentsForPdfByClass(exportStudents), filters);
+      exportStudentsPdf(school, year, exportStudents, filters);
     } catch (cause) {
       setSaveError(cause instanceof Error ? cause.message : "Impossible de charger les élèves à exporter.");
     } finally {
