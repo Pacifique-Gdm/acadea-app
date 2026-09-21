@@ -31,6 +31,24 @@ describe("pagination source des élèves", () => {
     });
   });
 
+  it("déclare les index demandés pour chaque combinaison de filtres paginés", () => {
+    for (let mask = 0; mask < 32; mask += 1) {
+      const fields: Array<{ fieldPath: string; order?: string; arrayConfig?: string }> = [];
+      if (mask & 8) fields.push({ fieldPath: "searchPrefixes", arrayConfig: "CONTAINS" });
+      if (mask & 2) fields.push({ fieldPath: "className", order: "ASCENDING" });
+      if (mask & 1) fields.push({ fieldPath: "option", order: "ASCENDING" });
+      fields.push({ fieldPath: "schoolId", order: "ASCENDING" }, { fieldPath: "schoolYearId", order: "ASCENDING" });
+      if (mask & 16) fields.push({ fieldPath: "searchArchived", order: "ASCENDING" });
+      if (mask & 4) fields.push({ fieldPath: "section", order: "ASCENDING" });
+      fields.push({ fieldPath: "sortName", order: "ASCENDING" }, { fieldPath: "__name__", order: "ASCENDING" });
+      expect(indexes.indexes, `Filtres élèves ${mask.toString(2).padStart(5, "0")}`).toContainEqual({
+        collectionGroup: "students",
+        queryScope: "COLLECTION",
+        fields,
+      });
+    }
+  });
+
   it("construit une requête tenant/année avec filtres et préfixe normalisé", () => {
     studentFilterConstraints(filters);
     expect(mocks.where).toHaveBeenCalledWith("schoolId", "==", "school-a");
