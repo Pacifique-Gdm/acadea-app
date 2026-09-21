@@ -33,6 +33,8 @@ describe("portail Parent", () => {
   it("envoie une seule requête sécurisée avec les destinataires résolus et sans pièces jointes", () => {
     expect(source).toContain("recipientIds: resolvedMessageRecipientIds");
     expect(source).toContain("sendParentMessageWithQuota");
+    expect(source).toContain("subject,\n      body,");
+    expect(source).not.toMatch(/subject:\s*`\$\{recipientLabel\}/);
     expect(source).not.toContain("uploadPendingMessageAttachments");
     expect(source).not.toContain("canAttachFiles");
   });

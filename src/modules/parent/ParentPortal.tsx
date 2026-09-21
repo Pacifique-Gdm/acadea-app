@@ -273,7 +273,7 @@ export function ParentPortal({
       participantIds: [user.id, ...resolvedMessageRecipientIds],
       threadParentId: user.parentId,
       threadId,
-      subject: `${recipientLabel} - ${subject}`,
+      subject,
       body,
       createdAt,
     };
