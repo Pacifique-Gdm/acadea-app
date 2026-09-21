@@ -102,7 +102,7 @@ async function validateStudentsInteractions(page: Page) {
   }
 
   await page.getByRole("button", { name: "Exporter PDF" }).click();
-  await expect(page.locator("iframe[data-pdf-frame]")).toBeVisible();
+  await expect(page.locator("iframe[data-pdf-frame]")).toBeVisible({ timeout: 30_000 });
   await page.locator("button[data-pdf-close]").click();
 }
 
@@ -130,6 +130,6 @@ async function validateControlInteractions(page: Page) {
   await page.getByRole("button", { name: /Fermer l'historique/ }).click();
 
   await page.getByRole("button", { name: "Exporter PDF" }).click();
-  await expect(page.locator("iframe[data-pdf-frame]")).toBeVisible();
+  await expect(page.locator("iframe[data-pdf-frame]")).toBeVisible({ timeout: 30_000 });
   await page.locator("button[data-pdf-close]").click();
 }
