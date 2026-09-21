@@ -14,6 +14,8 @@ export interface TeacherAssignmentView { assignment:PedagogicalAssignment; subje
 
 export function teacherAssignmentViews(assignments:PedagogicalAssignment[],subjects:StudySubject[],classes:StudyClass[]):TeacherAssignmentView[]{return assignments.filter(item=>item.active).map(assignment=>({assignment,subject:subjects.find(item=>item.id===assignment.subjectId),schoolClass:classes.find(item=>item.id===assignment.classId)}));}
 export function progressPercent(entries:TeachingProgressEntry[]){if(!entries.length)return 0;return Math.round(entries.filter(item=>item.status==="COMPLETED").length*100/entries.length);}
-export function teachingProgressDocument(value:TeachingProgressEntry):TeachingProgressEntry{return Object.fromEntries(Object.entries(value).filter(([,field])=>field!==undefined)) as unknown as TeachingProgressEntry;}
+function definedDocument<T extends object>(value:T):T{return Object.fromEntries(Object.entries(value).filter(([,field])=>field!==undefined)) as T;}
+export function teachingProgressDocument(value:TeachingProgressEntry):TeachingProgressEntry{return definedDocument(value);}
+export function pedagogicalDocumentData(value:PedagogicalDocument):PedagogicalDocument{return definedDocument(value);}
 export function studentsForAssignment(students:Student[],assignment:PedagogicalAssignment,classes:StudyClass[]=[]){return students.filter(student=>studentBelongsToAssignment(student,assignment,classes));}
 export function gradesForStudent(entries:GradeEntry[],assignment:PedagogicalAssignment,studentId:string){return entries.filter(item=>item.studentId===studentId&&item.classId===assignment.classId&&item.subjectId===assignment.subjectId);}

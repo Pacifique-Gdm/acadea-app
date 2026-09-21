@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Student } from "../../types";
 import type { PedagogicalAssignment } from "../studies/studyTypes";
-import { gradesForStudent, pedagogicalDocumentCategories, progressPercent, studentsForAssignment, teacherAssignmentViews, teachingProgressDocument } from "./teacherLearning";
+import { gradesForStudent, pedagogicalDocumentCategories, pedagogicalDocumentData, progressPercent, studentsForAssignment, teacherAssignmentViews, teachingProgressDocument } from "./teacherLearning";
 
 const assignment={id:"a",schoolId:"s",schoolYearId:"y",teacherId:"t",subjectId:"m",classId:"c",weeklyPeriods:2,active:true} as PedagogicalAssignment;
 describe("outils pédagogiques Enseignant",()=>{
@@ -12,4 +12,5 @@ describe("outils pédagogiques Enseignant",()=>{
   it("limite les cotes à l'élève, la classe et la matière",()=>expect(gradesForStudent([{id:"g",studentId:"1",classId:"c",subjectId:"m"},{id:"x",studentId:"2",classId:"c",subjectId:"m"}] as never,assignment,"1").map(item=>item.id)).toEqual(["g"]));
   it("centralise les neuf catégories documentaires",()=>expect(pedagogicalDocumentCategories).toHaveLength(9));
   it("omet les champs optionnels absents avant l'écriture Firestore",()=>expect(teachingProgressDocument({id:"p",schoolId:"s",schoolYearId:"y",teacherId:"t",assignmentId:"a",classId:"c",subjectId:"m",title:"Leçon",chapter:undefined,theme:undefined,plannedAt:undefined,taughtAt:undefined,periodsUsed:1,status:"TODO",observation:undefined,createdAt:"now",createdBy:"u",updatedAt:"now",updatedBy:"u"})).toEqual({id:"p",schoolId:"s",schoolYearId:"y",teacherId:"t",assignmentId:"a",classId:"c",subjectId:"m",title:"Leçon",periodsUsed:1,status:"TODO",createdAt:"now",createdBy:"u",updatedAt:"now",updatedBy:"u"}));
+  it("omet aussi les métadonnées documentaires optionnelles absentes",()=>expect(pedagogicalDocumentData({id:"d",schoolId:"s",schoolYearId:"y",teacherId:"t",assignmentId:"a",classId:"c",subjectId:"m",category:"RESOURCE",title:"Ressource",description:undefined,chapter:undefined,fileUrl:"https://test",storagePath:"teacher-documents/test",originalFileName:"test.pdf",mimeType:"application/pdf",size:10,archived:false,createdAt:"now",createdBy:"u",updatedAt:"now",updatedBy:"u"})).not.toHaveProperty("description"));
 });
