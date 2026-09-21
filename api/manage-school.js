@@ -102,7 +102,7 @@ export default async function handler(req, res) {
 
     const body = await readBody(req);
     const requestedAction = normalizeText(body.action);
-    const action = ["update", "change-currency", "suspend", "reactivate", "delete"].includes(requestedAction) ? requestedAction : "invalid";
+    const action = ["update", "change-acronym", "change-currency", "suspend", "reactivate", "delete"].includes(requestedAction) ? requestedAction : "invalid";
     const schoolId = normalizeText(body.schoolId);
 
     if (!schoolId) {
@@ -120,6 +120,35 @@ export default async function handler(req, res) {
         return;
       }
       sendJson(res, 404, { error: "Ecole introuvable.", code: "not-found" });
+      return;
+    }
+
+    if (action === "change-acronym") {
+      if (body.confirmation !== "MODIFIER LE SIGLE") {
+        sendJson(res, 400, { error: "Confirmation exacte requise.", code: "invalid-argument" });
+        return;
+      }
+      if (typeof body.acronym !== "string" || body.acronym.length > 100) {
+        sendJson(res, 400, { error: "Sigle invalide.", code: "invalid-argument" });
+        return;
+      }
+      const acronym = body.acronym.trim();
+      const domainLabel = acronym.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+      if (!domainLabel || domainLabel.length > 63) {
+        sendJson(res, 400, { error: "Le sigle doit produire un domaine email valide (1 à 63 caractères).", code: "invalid-argument" });
+        return;
+      }
+      if (acronym === schoolSnapshot.data()?.acronym) {
+        sendJson(res, 400, { error: "Le sigle est inchangé.", code: "invalid-argument" });
+        return;
+      }
+      const auditRef = db.collection("auditLogs").doc(`school-acronym-${randomUUID()}`);
+      const batch = db.batch();
+      batch.update(schoolRef, { acronym, updatedAt: new Date().toISOString(), updatedBy: caller.uid });
+      batch.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.SCHOOL_UPDATED, actor: caller, schoolId, resourceType: "school", resourceId: schoolId, metadata: { fieldsChanged: "acronym" } }));
+      await batch.commit();
+      const updated = await schoolRef.get();
+      sendJson(res, 200, { school: { id: updated.id, ...updated.data() } });
       return;
     }
 

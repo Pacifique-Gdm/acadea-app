@@ -21,7 +21,9 @@ import { activityTimestamp } from "../../utils/activityHistory";
 import { educationLevelsForSchoolLevel, schoolLevelFromConfig } from "../../utils/schoolConfig";
 import type { SchoolLevelChoice } from "../../utils/schoolConfig";
 import { formatStudentClassName } from "../../utils/studentClasses";
+import { orderSchoolYears } from "../../utils/schoolYears";
 import { SchoolInformationEditDrawer } from "./SchoolInformationEditDrawer";
+import { SchoolAcronymEditDrawer } from "./SchoolAcronymEditDrawer";
 import { schoolInformationPatch } from "./schoolInformation";
 import type { SchoolInformationDraft } from "./schoolInformation";
 import { isArchivedStudent } from "../../utils/studentUtils";
@@ -130,6 +132,9 @@ export function PlatformModule({
   const [schoolEditTargetId, setSchoolEditTargetId] = useState("");
   const [schoolEditSaving, setSchoolEditSaving] = useState(false);
   const [schoolEditError, setSchoolEditError] = useState("");
+  const [schoolAcronymTargetId, setSchoolAcronymTargetId] = useState("");
+  const [schoolAcronymSaving, setSchoolAcronymSaving] = useState(false);
+  const [schoolAcronymError, setSchoolAcronymError] = useState("");
   const [currencyChangeTarget, setCurrencyChangeTarget] = useState<{ school: School; year: SchoolYear; currency: "USD" | "CDF" } | null>(null);
   const [currencyChangeConfirmation, setCurrencyChangeConfirmation] = useState("");
   const [currencyChangeLoading, setCurrencyChangeLoading] = useState(false);
@@ -181,6 +186,7 @@ export function PlatformModule({
   const selectedSchool = visibleSchools.find((school) => school.id === selectedSchoolId) ?? visibleSchools[0];
   const drawerSchool = visibleSchools.find((school) => school.id === schoolDrawerId);
   const schoolEditTarget = visibleSchools.find((school) => school.id === schoolEditTargetId);
+  const schoolAcronymTarget = visibleSchools.find((school) => school.id === schoolAcronymTargetId);
   const drawerAiUsage = schoolAiUsageThisMonth(drawerSchool?.aiAssistant);
   const biometricSchool = visibleSchools.find((school) => school.id === biometricSchoolId);
   const biometricSchoolTerminals = biometricSchool ? data.biometricTerminals.filter((terminal) => terminal.schoolId === biometricSchool.id).sort((a, b) => activityTimestamp(b.createdAt) - activityTimestamp(a.createdAt)) : [];
@@ -407,6 +413,23 @@ export function PlatformModule({
       setSchoolEditError(error instanceof Error ? error.message : "Modification de l'école impossible.");
     } finally {
       setSchoolEditSaving(false);
+    }
+  }
+
+  async function saveSchoolAcronym(acronym: string, confirmation: string) {
+    if (!schoolAcronymTarget || schoolAcronymSaving) return;
+    setSchoolAcronymError("");
+    setSchoolAcronymSaving(true);
+    try {
+      const payload = await manageSchool({ action: "change-acronym", schoolId: schoolAcronymTarget.id, acronym, confirmation });
+      if (!payload.school || payload.school.acronym !== acronym) throw new Error("Relecture du nouveau sigle incomplète.");
+      updateData({ schools: data.schools.map((item) => item.id === schoolAcronymTarget.id ? payload.school as School : item) }, { persist: false });
+      setSchoolAcronymTargetId("");
+      setSchoolActionSuccess("Sigle de l'école enregistré avec succès.");
+    } catch (error) {
+      setSchoolAcronymError(error instanceof Error ? error.message : "Modification du sigle impossible.");
+    } finally {
+      setSchoolAcronymSaving(false);
     }
   }
 
@@ -1223,7 +1246,7 @@ export function PlatformModule({
             <label className="grid gap-1 rounded border border-slate-200 bg-white p-3 text-sm font-semibold">
               Année scolaire consultée
               <select aria-label="Année scolaire consultée" className="input" value={drawerYear?.id ?? ""} onChange={(event) => changeDrawerYear(event.target.value)}>
-                {data.schoolYears.filter((year) => year.schoolId === drawerSchool.id && (year.status === "active" || year.status === "archived")).map((year) => (
+                {orderSchoolYears(data.schoolYears.filter((year) => year.schoolId === drawerSchool.id && (year.status === "active" || year.status === "archived")), drawerSchool.activeSchoolYearId).map((year) => (
                   <option key={year.id} value={year.id}>{year.name}{year.status === "archived" ? " — Archivée" : " — Active"}</option>
                 ))}
               </select>
@@ -1358,7 +1381,7 @@ export function PlatformModule({
             {detailTab === "info" && (
               <div className="grid gap-3 sm:grid-cols-2">
                 <InfoRow label="Nom" value={drawerSchool.name} />
-                <InfoRow label="Sigle" value={drawerSchool.acronym ?? "-"} />
+                <div className="grid gap-2"><InfoRow label="Sigle" value={drawerSchool.acronym ?? "-"} /><button type="button" className="secondary-button justify-center" onClick={() => { setSchoolAcronymError(""); setSchoolAcronymTargetId(drawerSchool.id); }}>Modifier le sigle</button></div>
                 <InfoRow label="Adresse" value={drawerSchool.address || "-"} />
                 <InfoRow label="Téléphone" value={drawerSchool.phone || "-"} />
                 <InfoRow label="Email" value={drawerSchool.email || "-"} />
@@ -1447,6 +1470,8 @@ export function PlatformModule({
           onSave={(draft, confirmation) => void saveSchoolInformation(draft, confirmation)}
         />
       )}
+
+      {schoolAcronymTarget && <SchoolAcronymEditDrawer key={schoolAcronymTarget.id} school={schoolAcronymTarget} saving={schoolAcronymSaving} error={schoolAcronymError} onClose={() => !schoolAcronymSaving && setSchoolAcronymTargetId("")} onSave={(acronym, confirmation) => void saveSchoolAcronym(acronym, confirmation)} />}
 
       {biometricSchool && (
         <AdminDrawer title="Terminal biométrique" onClose={closeBiometricDrawer} closeLabel="Fermer les terminaux biométriques">

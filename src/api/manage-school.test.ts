@@ -70,6 +70,35 @@ describe("API SEC-004 manage-school", () => {
     expect(mocks.batchCommit).not.toHaveBeenCalled();
   });
 
+  it("réserve le changement de sigle au Super Administrateur", async () => {
+    mocks.verifyIdToken.mockResolvedValue({ uid: "admin", role: "school_admin", schoolId: "school-a" });
+    const res = response(); await handler(request({ action: "change-acronym", schoolId: "school-a", acronym: "LUMB", confirmation: "MODIFIER LE SIGLE" }), res);
+    expect(res.statusCode).toBe(403);
+    expect(mocks.batchCommit).not.toHaveBeenCalled();
+  });
+
+  it.each(["modifier le sigle", "Modifier le sigle", "MODIFIER SIGLE", "MODIFIER LE SIGLE ", " MODIFIER LE SIGLE"])("refuse le texte de confirmation sigle non exact : %s", async (confirmation) => {
+    const res = response(); await handler(request({ action: "change-acronym", schoolId: "school-a", acronym: "LUMB", confirmation }), res);
+    expect(res.statusCode).toBe(400);
+    expect(mocks.batchCommit).not.toHaveBeenCalled();
+  });
+
+  it("enregistre uniquement le nouveau sigle avec audit puis relit l'école", async () => {
+    const res = response(); await handler(request({ action: "change-acronym", schoolId: "school-a", acronym: " LUMB ", confirmation: "MODIFIER LE SIGLE" }), res);
+    expect(res.statusCode).toBe(200);
+    expect(mocks.batchUpdate).toHaveBeenCalledTimes(1);
+    expect(mocks.batchUpdate).toHaveBeenCalledWith(expect.objectContaining({ path: "schools/school-a" }), expect.objectContaining({ acronym: "LUMB", updatedBy: "super-1" }));
+    expect(mocks.batchUpdate.mock.calls[0]?.[1]).not.toHaveProperty("email");
+    expect(mocks.batchSet).toHaveBeenCalledTimes(1);
+    expect(mocks.batchCommit).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["", "...", "A".repeat(64)])("refuse un sigle sans domaine email valide : %s", async (acronym) => {
+    const res = response(); await handler(request({ action: "change-acronym", schoolId: "school-a", acronym, confirmation: "MODIFIER LE SIGLE" }), res);
+    expect(res.statusCode).toBe(400);
+    expect(mocks.batchCommit).not.toHaveBeenCalled();
+  });
+
   it("exige la confirmation textuelle exacte", async () => {
     const res = response(); await handler(request({ action: "delete", schoolId: "school-a", confirmation: "supprimer ecole" }), res);
     expect(res.statusCode).toBe(400); expect(mocks.deleteSchoolCompletely).not.toHaveBeenCalled();

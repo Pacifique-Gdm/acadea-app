@@ -41,6 +41,16 @@ describe("identifiants temporaires des comptes métier", () => {
     expect(nextParentEmail(school, [], parents)).toBe("parent0002@cslg.com");
   });
 
+  it("ne change que les futures propositions après modification du sigle et saute les adresses déjà utilisées", () => {
+    const existing = [user("enseignant001@cslg.com"), user("enseignant001@lumb.com"), user("enseignant002@lumb.com")];
+    const updated = { ...school, acronym: "LUMB" };
+    expect(existing[0].email).toBe("enseignant001@cslg.com");
+    expect(nextSchoolStaffEmail(updated, "teacher", existing, [])).toBe("enseignant003@lumb.com");
+    expect(nextSchoolStaffEmail(updated, "secretary", existing, [])).toBe("secretaire001@lumb.com");
+    expect(nextSchoolStaffEmail(updated, "study_director", existing, [])).toBe("etudes001@lumb.com");
+    expect(nextParentEmail(updated, [], [])).toBe("parent0001@lumb.com");
+  });
+
   it("conserve explicitement les domaines historiques lorsque le sigle est absent", () => {
     const legacy = { id: "legacy", name: "Complexe Scolaire La Grâce" } as School;
     expect(nextSchoolStaffEmail(legacy, "teacher", [], [])).toBe("enseignant001@complexescolairelagrace.com");

@@ -51,7 +51,7 @@ import { loadSuperAdminInitialData } from "./services/superAdminData";
 import type { SuperAdminGlobalCounts } from "./services/superAdminData";
 import { isSessionAuditAction } from "./utils/audit";
 import { mergeMessagesById, mergeNotificationsById } from "./utils/realtimeMerges";
-import { resolveDefaultSchoolYear } from "./utils/schoolYears";
+import { orderSchoolYears, resolveDefaultSchoolYear } from "./utils/schoolYears";
 import { useCoordinatedSchoolYears } from "./hooks/useCoordinatedSchoolYears";
 import { attendanceSettingsId } from "./utils/attendance";
 import { canOpenMessageDeepLink, canOpenOperationalDeepLink } from "./utils/pushNotificationRoutes";
@@ -366,7 +366,7 @@ export default function App() {
   }, []);
 
   const school = data.schools.find((item) => item.id === user?.schoolId);
-  const schoolYears = useMemo(() => (school ? data.schoolYears.filter((year) => year.schoolId === school.id) : []), [data.schoolYears, school]);
+  const schoolYears = useMemo(() => (school ? orderSchoolYears(data.schoolYears.filter((year) => year.schoolId === school.id), school.activeSchoolYearId) : []), [data.schoolYears, school]);
   const selectedYear = schoolYears.find((year) => year.id === selectedYearId);
   const realtimeDashboardSchoolId = user && (user.role === "school_admin" || user.role === "cashier") ? school?.id ?? "" : "";
   const [realtimeDashboardUsers, setRealtimeDashboardUsers] = useState<AppUser[]>([]);

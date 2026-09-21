@@ -4,6 +4,7 @@ import { AdminDrawer, Metric } from "../ui";
 import { requestArchivedStudentsImport, type ArchivedStudentsImportStatus } from "../../services/provisioning";
 import { loadFirestoreYearData } from "../../services/firestoreData";
 import type { AppData, AppUser, School, SchoolYear } from "../../types";
+import { orderSchoolYears } from "../../utils/schoolYears";
 
 export function ArchivedStudentsImportDrawer({ open, onClose, user, data, school, year, updateData }: {
   open: boolean; onClose: () => void; user: AppUser; data: AppData; school: School; year: SchoolYear;
@@ -20,7 +21,7 @@ export function ArchivedStudentsImportDrawer({ open, onClose, user, data, school
   const contextVersion = useRef(0);
   const canImport = user.role === "secretary" && user.status === "active" && user.schoolId === school.id
     && year.status === "active" && school.activeSchoolYearId === year.id;
-  const archivedYears = data.schoolYears.filter((item) => item.schoolId === school.id && item.status === "archived" && item.id !== year.id);
+  const archivedYears = orderSchoolYears(data.schoolYears.filter((item) => item.schoolId === school.id && item.status === "archived" && item.id !== year.id));
 
   useEffect(() => {
     const version = ++contextVersion.current;
