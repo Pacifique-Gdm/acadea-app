@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AppNotification, AppUser } from "../types";
+import { parentUnreadCount } from "../services/notificationsPagination";
 import { mergeRealtimeNotifications } from "./usePaginatedNotifications";
 
 const admin = { id: "admin-a", role: "school_admin", schoolId: "school-a" } as AppUser;
@@ -9,6 +10,11 @@ function notification(id: string, recipientUserId: string): AppNotification {
 }
 
 describe("badge personnel de messagerie", () => {
+  it("ne compte qu'une fois une notification parent présente dans les deux portées", () => {
+    expect(parentUnreadCount(1, 1, 1)).toBe(1);
+    expect(parentUnreadCount(2, 1, 0)).toBe(3);
+  });
+
   it("passe de 3 a 2 puis a 0 lorsque les snapshots non lus se vident", () => {
     const three = [notification("3", "admin-a"), notification("2", "admin-a"), notification("1", "admin-a")];
     expect(mergeRealtimeNotifications(admin, [], [three])).toHaveLength(3);

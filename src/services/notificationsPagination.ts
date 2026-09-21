@@ -11,6 +11,10 @@ export type NotificationsPage = {
   hasMore: boolean;
 };
 
+export function parentUnreadCount(legacyCount: number, personalCount: number, overlappingCount: number) {
+  return Math.max(0, legacyCount + personalCount - overlappingCount);
+}
+
 function requireFirestore() {
   if (!firebaseReady || !db) {
     throw new Error("Firestore indisponible pour les notifications.");
@@ -63,11 +67,12 @@ export async function countUnreadNotifications(user: AppUser, schoolId: string, 
   ];
 
   if (user.role === "parent") {
-    const [legacySnapshot, personalSnapshot] = await Promise.all([
+    const [legacySnapshot, personalSnapshot, overlappingSnapshot] = await Promise.all([
       getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("parentId", "==", user.parentId))),
       getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("recipientUserId", "==", user.id))),
+      getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("parentId", "==", user.parentId), where("recipientUserId", "==", user.id))),
     ]);
-    return legacySnapshot.data().count + personalSnapshot.data().count;
+    return parentUnreadCount(legacySnapshot.data().count, personalSnapshot.data().count, overlappingSnapshot.data().count);
   }
   if (["secretary", "teacher", "study_director", "coordination_admin", "sub_coordination_admin"].includes(user.role)) {
     const snapshot = await getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("recipientUserId", "==", user.id)));
