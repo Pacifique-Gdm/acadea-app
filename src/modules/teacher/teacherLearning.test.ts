@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Student } from "../../types";
 import type { PedagogicalAssignment } from "../studies/studyTypes";
-import { gradesForStudent, pedagogicalDocumentCategories, progressPercent, studentsForAssignment, teacherAssignmentViews } from "./teacherLearning";
+import { gradesForStudent, pedagogicalDocumentCategories, progressPercent, studentsForAssignment, teacherAssignmentViews, teachingProgressDocument } from "./teacherLearning";
 
 const assignment={id:"a",schoolId:"s",schoolYearId:"y",teacherId:"t",subjectId:"m",classId:"c",weeklyPeriods:2,active:true} as PedagogicalAssignment;
 describe("outils pédagogiques Enseignant",()=>{
@@ -11,4 +11,5 @@ describe("outils pédagogiques Enseignant",()=>{
   it("respecte les groupes d'options d'un tronc commun",()=>{const scoped={...assignment,classId:"s__y__3eme-humanite",courseScope:"common" as const,targetOptionIds:["s__y__3eme-humanite::scientifique","s__y__3eme-humanite::commerciale"]};const students=[{id:"sci",schoolId:"s",schoolYearId:"y",className:"3ème Humanité",option:"Scientifique",status:"ACTIVE"},{id:"com",schoolId:"s",schoolYearId:"y",className:"3ème Humanité",option:"Commerciale",status:"ACTIVE"},{id:"lit",schoolId:"s",schoolYearId:"y",className:"3ème Humanité",option:"Littéraire",status:"ACTIVE"}] as Student[];expect(studentsForAssignment(students,scoped).map(item=>item.id)).toEqual(["sci","com"])});
   it("limite les cotes à l'élève, la classe et la matière",()=>expect(gradesForStudent([{id:"g",studentId:"1",classId:"c",subjectId:"m"},{id:"x",studentId:"2",classId:"c",subjectId:"m"}] as never,assignment,"1").map(item=>item.id)).toEqual(["g"]));
   it("centralise les neuf catégories documentaires",()=>expect(pedagogicalDocumentCategories).toHaveLength(9));
+  it("omet les champs optionnels absents avant l'écriture Firestore",()=>expect(teachingProgressDocument({id:"p",schoolId:"s",schoolYearId:"y",teacherId:"t",assignmentId:"a",classId:"c",subjectId:"m",title:"Leçon",chapter:undefined,theme:undefined,plannedAt:undefined,taughtAt:undefined,periodsUsed:1,status:"TODO",observation:undefined,createdAt:"now",createdBy:"u",updatedAt:"now",updatedBy:"u"})).toEqual({id:"p",schoolId:"s",schoolYearId:"y",teacherId:"t",assignmentId:"a",classId:"c",subjectId:"m",title:"Leçon",periodsUsed:1,status:"TODO",createdAt:"now",createdBy:"u",updatedAt:"now",updatedBy:"u"}));
 });
