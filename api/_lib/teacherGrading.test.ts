@@ -32,6 +32,8 @@ describe("API de cotation Enseignant", () => {
       ],
       teacherStudentObservations: [],
       notifications: [],
+      courseGradingConfigs: [{ id: "s__y__c::sciences__m", schoolId: "s", schoolYearId: "y", classId: "c::sciences", subjectId: "m", maxScore: 20 }],
+      gradeEntries: [],
     };
     const reads: Array<{ collection: string; conditions: Array<[string, string, unknown]> }> = [];
     const writes: Array<{ path: string; value: Record<string, unknown> }> = [];
@@ -119,6 +121,19 @@ describe("API de cotation Enseignant", () => {
   it("refuse un enseignant d'une autre école avant toute lecture", async () => {
     const db = new Proxy({}, { get: () => { throw new Error("La base ne devait pas être appelée"); } });
     await expect(executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "other" }, body: { action: "load", schoolId: "s", schoolYearId: "y" } })).rejects.toMatchObject<Partial<GradingApiError>>({ code: "permission-denied", status: 403 });
+  });
+
+  it.each([null, undefined, "", -1, 21])("refuse une cote invalide côté serveur sans la convertir (%s)", async (score) => {
+    const { db, writes } = rosterDb();
+    await expect(executeTeacherGrading({
+      db,
+      caller: { uid: "u", role: "teacher", schoolId: "s" },
+      body: {
+        action: "save-entries", schoolId: "s", schoolYearId: "y", assignmentId: "a", classId: "c::sciences", subjectId: "m",
+        entries: [{ studentId: "allowed", gradingSlot: "period_1", score, status: "graded" }],
+      },
+    })).rejects.toMatchObject<Partial<GradingApiError>>({ code: "invalid-argument", status: 400 });
+    expect(writes).toHaveLength(0);
   });
 
   it("conserve l'auteur initial et cible les lectures par cours ou classe titulaire", () => {

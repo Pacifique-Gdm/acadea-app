@@ -285,8 +285,8 @@ export async function executeTeacherGrading({ db, caller, body }) {
       if (!student.exists || student.data()?.schoolId !== schoolId || student.data()?.schoolYearId !== schoolYearId || !studentMatchesAssignment(student.data(), assignment, schoolClassData, parentClass?.data())) {
         throw new GradingApiError(403, "permission-denied", "Élève hors du périmètre autorisé.");
       }
-      const score = status === "graded" ? Number(item.score) : null;
-      if (status === "graded" && (!Number.isFinite(score) || score < 0 || score > maxScore)) throw new GradingApiError(400, "invalid-argument", `La cote doit être comprise entre 0 et ${maxScore}.`);
+      const score = status === "graded" && item.score !== null && item.score !== undefined && item.score !== "" ? Number(item.score) : null;
+      if (status === "graded" && (score === null || !Number.isFinite(score) || score < 0 || score > maxScore)) throw new GradingApiError(400, "invalid-argument", `La cote doit être comprise entre 0 et ${maxScore}.`);
       const id = [schoolId, schoolYearId, classId, subjectId, studentId, slot].join("__");
       const ref = db.doc(`gradeEntries/${id}`);
       const previous = await ref.get();
