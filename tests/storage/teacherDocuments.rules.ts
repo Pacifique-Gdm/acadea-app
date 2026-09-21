@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
 import { doc, setDoc } from "firebase/firestore";
-import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 let env:RulesTestEnvironment;const school="school-a",year="year-a",uid="teacher-user-a",teacher="teacher-a",assignment="assignment-a",documentId="document-a",file="123e4567-e89b-12d3-a456-426614174000.pdf";
 const context=(id=uid,role="teacher",tenant=school)=>env.authenticatedContext(id,{role,schoolId:tenant});
 const put=(id=uid,role="teacher",tenant=school,type="application/pdf",size=1024,assignmentId=assignment)=>context(id,role,tenant).storage().ref(`teacher-documents/${school}/${year}/${uid}/${teacher}/${assignmentId}/${documentId}/${file}`).put(new Uint8Array(size),{contentType:type,customMetadata:{schoolId:school,schoolYearId:year,ownerId:uid,teacherId:teacher,assignmentId,documentId,originalName:"fiche.pdf"}});
@@ -9,4 +9,4 @@ describe("documents pédagogiques Storage",()=>{beforeAll(async()=>{env=await in
 it("autorise le teacher propriétaire actif",async()=>assertSucceeds(put()));
 it("refuse autre UID, rôle, école et MIME",async()=>{await assertFails(put("other"));await assertFails(put(uid,"secretary"));await assertFails(put(uid,"teacher","school-b"));await assertFails(put(uid,"teacher",school,"text/html"));await assertFails(put(uid,"teacher",school,"application/pdf",1024,"assignment-other"));});
 it("refuse vide et supérieur à 10 Mo",async()=>{await assertFails(put(uid,"teacher",school,"application/pdf",0));await assertFails(put(uid,"teacher",school,"application/pdf",10*1024*1024+1));});});
-
+describe("budget de lectures Firestore",()=>{it("ne dépend que du profil enseignant et de l'affectation",()=>{const rules=readFileSync("storage.rules","utf8"),teacherRule=rules.slice(rules.indexOf("match /teacher-documents"));expect(teacherRule).not.toContain("schoolAcceptsWrites(schoolId)");expect(teacherRule).toContain("firestore.get(/databases/(default)/documents/teachers/$(teacherId))");expect(teacherRule).toContain("firestore.get(/databases/(default)/documents/pedagogicalAssignments/$(assignmentId))");});});

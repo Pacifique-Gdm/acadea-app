@@ -166,7 +166,6 @@ service firebase.storage {
           && role() == "teacher"
           && request.auth.uid == ownerId
           && tenantSchoolId() == schoolId
-          && schoolAcceptsWrites(schoolId)
           && ownsActiveAssignment();
       }
       function validPedagogicalFile() {
