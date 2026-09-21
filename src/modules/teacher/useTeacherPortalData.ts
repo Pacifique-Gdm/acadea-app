@@ -5,13 +5,17 @@ import { subscribeToTeacherPortalData } from "./teacherPortalService";
 
 const emptyData: TeacherPortalData = { assignments: [], subjects: [], classes: [], rooms: [], periods: [], entries: [], loading: true, error: "" };
 
+export function applyTeacherSnapshot(current: TeacherPortalData, teacher: TeacherPortalData["teacher"]): TeacherPortalData {
+  return { ...current, teacher, ...(teacher ? { error: "" } : {}) };
+}
+
 export function useTeacherPortalData(user: AppUser, schoolId: string, schoolYearId: string, refreshToken = 0) {
   const [data, setData] = useState<TeacherPortalData>(emptyData);
   useEffect(() => {
     setData(emptyData);
     try {
       return subscribeToTeacherPortalData({ user, schoolId, schoolYearId,
-        onTeacher: (teacher) => setData((current) => ({ ...current, teacher })),
+        onTeacher: (teacher) => setData((current) => applyTeacherSnapshot(current, teacher)),
         onTimetable: (activeTimetable) => setData((current) => ({ ...current, activeTimetable })),
         onAssignments: (assignments) => setData((current) => ({ ...current, assignments })),
         onSubjects: (subjects) => setData((current) => ({ ...current, subjects })),
