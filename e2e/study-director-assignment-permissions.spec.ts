@@ -101,7 +101,10 @@ test("enregistre atomiquement les affectations sur classes legacy sans permissio
       await organization.getByLabel("Type de cours").selectOption("option");
       await organization.getByLabel("Option concernée").selectOption({ index: 1 });
     }
-    await assignmentDrawer.getByLabel("Nombre de périodes hebdomadaires").fill("2");
+    await assignmentDrawer.getByLabel("Blocs consécutifs").check();
+    await assignmentDrawer.getByRole("button", { name: "Ajouter un bloc" }).click();
+    await expect(assignmentDrawer.getByLabel("Nombre de périodes hebdomadaires")).toHaveValue("2");
+    await expect(assignmentDrawer.getByLabel("Nombre de périodes hebdomadaires")).toHaveAttribute("readonly", "");
     await assignmentDrawer.getByRole("button", { name: "Enregistrer", exact: true }).click();
     await expect(assignmentDrawer).toBeHidden({ timeout: 30_000 });
 
@@ -114,6 +117,11 @@ test("enregistre atomiquement les affectations sur classes legacy sans permissio
       return snapshot.size;
     }, { timeout: 30_000 }).toBe(2);
     expect(createdClassIds.size).toBe(2);
+    const persistedAssignments = await adminDb.collection("pedagogicalAssignments").where("subjectId", "==", subjectId).get();
+    for (const persisted of persistedAssignments.docs) {
+      expect(persisted.data().weeklyPeriods).toBe(2);
+      expect(persisted.data().sessionPattern).toEqual({ mode: "blocks", blocks: [1, 1] });
+    }
 
     await page.reload();
     await expect(page).toHaveURL(/\/studies/);

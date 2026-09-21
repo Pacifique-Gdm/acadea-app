@@ -13,7 +13,7 @@ const roles: RoleCase[] = [
   { name: "Administrateur", prefix: "SCHOOL_ADMIN", expectedPath: /\/dashboard/, forbiddenPath: "/platform", defaultPortalText: /Dashboard|Élèves|Acadéa/i },
   { name: "Caissier", prefix: "CASHIER", expectedPath: /\/dashboard/, forbiddenPath: "/platform", defaultPortalText: /Contrôle|Paiement|Acadéa/i },
   { name: "Parent", prefix: "PARENT", expectedPath: /\/dashboard/, forbiddenPath: "/platform", defaultPortalText: /Enfant|Messages|Acadéa/i },
-  { name: "Directeur de Discipline", prefix: "DISCIPLINE_DIRECTOR", expectedPath: /\/dashboard/, forbiddenPath: "/platform", defaultPortalText: /Discipline|Présence|Acadéa/i },
+  { name: "Directeur de Discipline", prefix: "DISCIPLINE", expectedPath: /\/dashboard/, forbiddenPath: "/platform", defaultPortalText: /Discipline|Présence|Acadéa/i },
   { name: "Directeur des études", prefix: "STUDY_DIRECTOR", expectedPath: /\/studies/, forbiddenPath: "/dashboard", defaultPortalText: /Direction des études|Enseignants|Acadéa/i },
 ];
 
@@ -43,6 +43,13 @@ for (const role of roles) {
       await page.reload();
       await expect(page).toHaveURL(role.expectedPath, { timeout: 60_000 });
       await expect(page.getByText(role.defaultPortalText).first()).toBeVisible({ timeout: 30_000 });
+
+      if (role.prefix === "DISCIPLINE") {
+        const refresh = page.getByRole("button", { name: "Actualiser" });
+        await refresh.click();
+        await expect(refresh).toBeDisabled({ timeout: 5_000 });
+        await expect(refresh).toBeEnabled({ timeout: 30_000 });
+      }
 
       await page.goto(role.forbiddenPath);
       if (role.prefix === "SUPER_ADMIN") await expect(page).toHaveURL(/\/platform/);
