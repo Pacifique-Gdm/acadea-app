@@ -2,7 +2,7 @@ import { collection, doc, onSnapshot, query, where, writeBatch } from "@firebase
 import type { Firestore } from "@firebase/firestore";
 import { db } from "../firebase";
 import type { AppUser, SchoolClassRecord, SchoolSection, Student } from "../types";
-import { getClassSection } from "../utils/studentClasses";
+import { formatStudentClassName, getClassSection } from "../utils/studentClasses";
 import { normalizeSchoolSection } from "../utils/schoolSections";
 import { operationalBaseClassId, operationalClassOptionKey } from "../utils/studentYearTransition.js";
 
@@ -55,6 +55,64 @@ export function studentSchoolClassOptionKey(
     || student.classId?.trim()
     || (student.className?.trim() ? schoolClassRecordId(student.schoolId, student.schoolYearId, student.className) : undefined);
   return parentClassId ? schoolClassOptionKey(parentClassId, option) : undefined;
+}
+
+export function resolveStudentParentClass(
+  classes: readonly SchoolClassRecord[],
+  student: EnrolledStudentClassReference,
+) {
+  const scopedParents = classes.filter((item) => (
+    item.schoolId === student.schoolId
+    && item.schoolYearId === student.schoolYearId
+    && item.active !== false
+    && !item.parentClassId
+  ));
+  const classId = student.classId?.trim();
+  if (classId) {
+    return scopedParents.find((item) => item.id === classId);
+  }
+  const className = student.className?.trim();
+  if (!className) return undefined;
+  return scopedParents.find((item) => normalizedClassName(item.name) === normalizedClassName(className));
+}
+
+export function resolveStudentSubclass(
+  classes: readonly SchoolClassRecord[],
+  student: EnrolledStudentClassReference & { classOptionKey?: string },
+) {
+  const subClassId = student.subClassId?.trim();
+  if (!subClassId) return undefined;
+  const parent = resolveStudentParentClass(classes, student);
+  if (!parent) return undefined;
+  const subclass = classes.find((item) => (
+    item.id === subClassId
+    && item.schoolId === student.schoolId
+    && item.schoolYearId === student.schoolYearId
+    && item.active !== false
+    && item.parentClassId === parent.id
+  ));
+  if (!subclass) return undefined;
+  if (subclass.classOptionKey && subclass.classOptionKey !== student.classOptionKey?.trim()) return undefined;
+  return subclass;
+}
+
+function appendSubclassLabel(label: string, subClassLabel?: string) {
+  const suffix = subClassLabel?.trim();
+  if (!suffix) return label;
+  const normalizedLabel = normalizedClassName(label);
+  const normalizedSuffix = normalizedClassName(suffix);
+  const lastToken = normalizedLabel.split(/[\s-]+/).at(-1);
+  return lastToken === normalizedSuffix ? label : `${label} ${suffix}`;
+}
+
+export function formatOperationalStudentClassName(
+  student: EnrolledStudentClassReference & { classOptionKey?: string; option?: string },
+  classes: readonly SchoolClassRecord[],
+) {
+  return appendSubclassLabel(
+    formatStudentClassName({ className: student.className as Student["className"], option: student.option }),
+    resolveStudentSubclass(classes, student)?.subClassLabel,
+  );
 }
 
 export function activeSubclasses(classes: SchoolClassRecord[], parentClassId: string, classOptionKey?: string) {

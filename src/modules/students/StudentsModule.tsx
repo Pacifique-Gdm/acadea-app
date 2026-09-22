@@ -10,13 +10,13 @@ import { applyParentLinkResult, applyParentUnlinkResult, PARENT_LINK_CONFIRMATIO
 import { getSchoolClassChoices, getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
 import { canonicalSchoolOption, normalizeSchoolOptions } from "../../utils/schoolOptions";
 import { persistSchoolOption } from "../../services/schoolOptionsRepository";
-import { formatStudentClassName, getClassSection } from "../../utils/studentClasses";
+import { getClassSection } from "../../utils/studentClasses";
 import { emptyStudent, generateMatricule, isArchivedStudent, studentForPersistence, validateStudentForSave } from "../../utils/studentUtils";
 import { exportStudentsPdf } from "../../utils/studentPdf";
 import type { AppData, AppUser, ParentProfile, School, SchoolSection, SchoolYear, Student } from "../../types";
 import { CLASSES } from "../../types";
 import type { SchoolClassRecord } from "../../types";
-import { activeSubclasses, createSchoolSubclasses, schoolClassOptionKey, secondarySubclassesForOption, studentSchoolClassOptionKey, subscribeToSchoolClasses } from "../../services/schoolSubclasses";
+import { activeSubclasses, createSchoolSubclasses, formatOperationalStudentClassName, resolveStudentParentClass, schoolClassOptionKey, secondarySubclassesForOption, studentSchoolClassOptionKey, subscribeToSchoolClasses } from "../../services/schoolSubclasses";
 import { canonicalAnnualClassName, isEligibleForAnnualTransition, studentImportKey } from "../../utils/studentYearTransition.js";
 import { useStudentPage } from "../../hooks/useStudentPage";
 import { loadAllStudentResults, nextStudentMatricule, STUDENT_SOURCE_PAGE_SIZE, type StudentQueryFilters } from "../../services/studentPagination";
@@ -242,7 +242,7 @@ export function StudentsModule({
         setSaveError(validationError);
         return;
       }
-      const selectedClass = structuredClasses.find((item) => item.id === form.classId && !item.parentClassId);
+      const selectedClass = resolveStudentParentClass(structuredClasses, form);
       const selectedOptionKey = studentSchoolClassOptionKey(structuredClasses, form);
       const selectedSubclasses = selectedClass
         ? getClassSection(form.className) === "Secondaire"
@@ -279,6 +279,7 @@ export function StudentsModule({
       });
       if (selectedOptionKey) student.classOptionKey = selectedOptionKey;
       else delete student.classOptionKey;
+      if (selectedClass) student.classId = selectedClass.id;
       if (student.section !== "Secondaire" || !student.option) delete student.option;
       if (!student.classId) delete student.classId;
       if (!student.subClassId) delete student.subClassId;
@@ -565,7 +566,7 @@ export function StudentsModule({
     setSaveError("");
     try {
       const exportStudents = await loadAllStudentResults(studentFilters, yearData.students);
-      exportStudentsPdf(school, year, exportStudents, filters);
+      exportStudentsPdf(school, year, exportStudents, filters, structuredClasses);
     } catch (cause) {
       setSaveError(cause instanceof Error ? cause.message : "Impossible de charger les élèves à exporter.");
     } finally {
@@ -661,7 +662,7 @@ export function StudentsModule({
                     )}
                   </td>
                   <td className="px-3 py-3">{student.sexe}</td>
-                  <td className="px-3 py-3">{formatStudentClassName(student)}</td>
+                  <td className="px-3 py-3">{formatOperationalStudentClassName(student, structuredClasses)}</td>
                   <td className="px-3 py-3">{studentParentPhone(student)}</td>
                   <td className="px-3 py-3">
                     {archived ? (

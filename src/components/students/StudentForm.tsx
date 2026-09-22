@@ -3,7 +3,7 @@ import { CheckCircle2, Fingerprint, Plus, Radio } from "lucide-react";
 import { Field, ImageUploadField, PasswordField } from "../ui";
 import { cardStatusLabels, fingerprintStatusLabels, resolveStudentBiometric } from "../../utils/biometrics";
 import { getClassSection } from "../../utils/studentClasses";
-import { schoolClassRecordId, secondarySubclassesForOption, studentSchoolClassOptionKey } from "../../services/schoolSubclasses";
+import { resolveStudentParentClass, schoolClassRecordId, secondarySubclassesForOption, studentSchoolClassOptionKey } from "../../services/schoolSubclasses";
 import type { ParentProfile, SchoolClass, SchoolClassRecord, Student } from "../../types";
 
 export function StudentForm({
@@ -60,7 +60,7 @@ export function StudentForm({
   const [parentQuery, setParentQuery] = useState("");
   const normalizedParentQuery = parentQuery.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase("fr");
   const visibleParents = parents.filter((parent) => !normalizedParentQuery || `${parent.fullName} ${parent.phone}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("fr").includes(normalizedParentQuery));
-  const selectedStructuredClass = structuredClasses.find((item) => !item.parentClassId && (item.id === form.classId || item.name === form.className));
+  const selectedStructuredClass = resolveStudentParentClass(structuredClasses, form);
   const selectedClass = selectedStructuredClass ?? (form.className ? { id: schoolClassRecordId(form.schoolId, form.schoolYearId, form.className), schoolId: form.schoolId, schoolYearId: form.schoolYearId, name: form.className, active: true } : undefined);
   const isSecondaryClass = getClassSection(form.className) === "Secondaire";
   const selectedOptionKey = studentSchoolClassOptionKey(structuredClasses, form);

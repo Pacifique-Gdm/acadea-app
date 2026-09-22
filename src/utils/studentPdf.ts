@@ -1,11 +1,24 @@
-import type { School, SchoolClass, SchoolYear, Student } from "../types";
+import type { School, SchoolClass, SchoolClassRecord, SchoolYear, Student } from "../types";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./pdf";
 import type { PdfTableColumn } from "./pdf";
-import { formatStudentClassName } from "./studentClasses";
+import { formatStudentClassName, getClassSection } from "./studentClasses";
+import { formatOperationalStudentClassName, resolveStudentSubclass } from "../services/schoolSubclasses";
 import { compareStudentsAlphabetically } from "./studentSearch.js";
 
-export function formatStudentPdfClassName(student: Pick<Student, "className" | "option">) {
-  return student.className;
+export function formatStudentPdfClassName(student: Student, classes: readonly SchoolClassRecord[] = []) {
+  return getClassSection(student.className) === "Secondaire"
+    ? student.className
+    : formatOperationalStudentClassName(student, classes);
+}
+
+export function formatStudentPdfOptionName(student: Student, classes: readonly SchoolClassRecord[] = []) {
+  const option = student.option?.trim();
+  if (!option) return "-";
+  const subClassLabel = resolveStudentSubclass(classes, student)?.subClassLabel?.trim();
+  if (!subClassLabel) return option;
+  const lastToken = option.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase().split(/[\s-]+/).at(-1);
+  const normalizedSubClass = subClassLabel.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase();
+  return lastToken === normalizedSubClass ? option : `${option} ${subClassLabel}`;
 }
 
 const studentPdfClassOrder: SchoolClass[] = [
@@ -42,7 +55,7 @@ export function sortStudentsAlphabeticallyForPdf<T extends Pick<Student, "id" | 
   return [...students].sort(compareStudentsAlphabetically);
 }
 
-export async function exportStudentsPdf(school: School, year: SchoolYear, students: Student[], filters: string[]) {
+export async function exportStudentsPdf(school: School, year: SchoolYear, students: Student[], filters: string[], classes: readonly SchoolClassRecord[] = []) {
   const orderedStudents = sortStudentsAlphabeticallyForPdf(students);
   const showOptionColumn = orderedStudents.some((student) => Boolean(student.option));
   const totalLabelColspan = showOptionColumn ? 5 : 4;
@@ -50,11 +63,11 @@ export async function exportStudentsPdf(school: School, year: SchoolYear, studen
     { header: "Matricule", render: (student) => student.matricule || "-" },
     { header: "Nom complet", render: (student) => `${student.nom} ${student.postnom} ${student.prenom}`.trim() || "-" },
     { header: "Sexe", render: (student) => student.sexe || "-", align: "center" },
-    { header: "Classe", render: (student) => formatStudentPdfClassName(student) || "-" },
+    { header: "Classe", render: (student) => formatStudentPdfClassName(student, classes) || "-" },
     { header: "Téléphone", render: (student) => student.phone || "-" },
   ];
   if (showOptionColumn) {
-    studentColumns.splice(4, 0, { header: "Option", render: (student) => student.option || "-" });
+    studentColumns.splice(4, 0, { header: "Option", render: (student) => formatStudentPdfOptionName(student, classes) });
   }
   await renderAcadPdfPreview({
     filename: `eleves-${year.name}.pdf`,

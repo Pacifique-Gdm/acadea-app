@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeSubclasses, canonicalOperationalClasses, classesWithEnrolledStudents, operationalClasses, operationalSchoolClasses, schoolClassOptionKey, schoolClassRecordId, secondarySubclassesForOption, studentBelongsToOperationalClass, studentSchoolClassOptionKey, subclassCreationScopeIsValid, validateSubclassLabels } from "./schoolSubclasses";
+import { activeSubclasses, canonicalOperationalClasses, classesWithEnrolledStudents, formatOperationalStudentClassName, operationalClasses, operationalSchoolClasses, resolveStudentParentClass, schoolClassOptionKey, schoolClassRecordId, secondarySubclassesForOption, studentBelongsToOperationalClass, studentSchoolClassOptionKey, subclassCreationScopeIsValid, validateSubclassLabels } from "./schoolSubclasses";
 import fs from "node:fs";
 import type { SchoolClassRecord } from "../types";
 const base = (id: string, extra: Partial<SchoolClassRecord> = {}): SchoolClassRecord => ({ id, schoolId: "school-a", schoolYearId: "year-a", name: id, active: true, ...extra });
@@ -29,7 +29,56 @@ describe("sous-classes structurées", () => {
     expect(subclassCreationScopeIsValid(base("parent"), "school-a", "year-b")).toBe(false);
     expect(subclassCreationScopeIsValid(base("parent"), "school-b", "year-a")).toBe(false);
   });
-  it("branche le bouton partagé dans l'ordre classe puis option puis sous-classe", () => { const form = fs.readFileSync("src/components/students/StudentForm.tsx", "utf8"); const module = fs.readFileSync("src/modules/students/StudentsModule.tsx", "utf8"); expect(form).toContain("item.name === form.className"); expect(form).toContain("schoolClassRecordId("); expect(form.indexOf("Option")).toBeLessThan(form.indexOf("Ajouter sous-classe")); expect(form).toContain("Sélectionnez d’abord une option."); expect(form).toContain("subClassId: undefined"); expect(form).toContain('useState(["A", "B"])'); expect(form).toContain("Sous-classe ${index + 1}"); expect(module).toContain("subscribeToSchoolClasses"); expect(module).toContain("createSchoolSubclasses"); });
+  it("branche le bouton partagé dans l'ordre classe puis option puis sous-classe", () => { const form = fs.readFileSync("src/components/students/StudentForm.tsx", "utf8"); const module = fs.readFileSync("src/modules/students/StudentsModule.tsx", "utf8"); expect(form).toContain("resolveStudentParentClass(structuredClasses, form)"); expect(form).toContain("schoolClassRecordId("); expect(form.indexOf("Option")).toBeLessThan(form.indexOf("Ajouter sous-classe")); expect(form).toContain("Sélectionnez d’abord une option."); expect(form).toContain("subClassId: undefined"); expect(form).toContain('useState(["A", "B"])'); expect(form).toContain("Sous-classe ${index + 1}"); expect(module).toContain("subscribeToSchoolClasses"); expect(module).toContain("createSchoolSubclasses"); });
+
+  it("résout le parent tenanté d'un formulaire legacy sans classId", () => {
+    const parent = base("cteb-7", { name: "7ème CTEB" });
+    expect(resolveStudentParentClass([parent], {
+      schoolId: "school-a",
+      schoolYearId: "year-a",
+      className: "7ème CTEB",
+    })?.id).toBe(parent.id);
+  });
+
+  it("refuse de résoudre un parent homonyme d'une autre école ou année", () => {
+    const foreignSchool = { ...base("foreign-school", { name: "7ème CTEB" }), schoolId: "school-b" };
+    const foreignYear = { ...base("foreign-year", { name: "7ème CTEB" }), schoolYearId: "year-b" };
+    expect(resolveStudentParentClass([foreignSchool, foreignYear], {
+      schoolId: "school-a",
+      schoolYearId: "year-a",
+      className: "7ème CTEB",
+    })).toBeUndefined();
+  });
+
+  it("préserve l'appartenance école, année, classe et option de la sous-classe", () => {
+    const parent = base("humanity-1", { name: "1ère Humanité", section: "Secondaire" });
+    const literaryKey = schoolClassOptionKey(parent.id, "Littéraire");
+    const literaryA = base("literary-a", { parentClassId: parent.id, classOptionKey: literaryKey, subClassLabel: "A" });
+    const student = { schoolId: "school-a", schoolYearId: "year-a", classId: parent.id, subClassId: literaryA.id, classOptionKey: literaryKey, className: "1ère Humanité" };
+    expect(resolveStudentParentClass([parent, literaryA], student)?.id).toBe(parent.id);
+    expect(formatOperationalStudentClassName({ ...student, option: "Littéraire" }, [parent, literaryA])).toBe("1ère Littéraire A");
+    expect(formatOperationalStudentClassName({ ...student, schoolId: "school-b", option: "Littéraire" }, [parent, literaryA])).toBe("1ère Littéraire");
+    expect(formatOperationalStudentClassName({ ...student, schoolYearId: "year-b", option: "Littéraire" }, [parent, literaryA])).toBe("1ère Littéraire");
+    expect(formatOperationalStudentClassName({ ...student, classId: "other", option: "Littéraire" }, [parent, literaryA])).toBe("1ère Littéraire");
+    expect(formatOperationalStudentClassName({ ...student, classOptionKey: schoolClassOptionKey(parent.id, "Sciences"), option: "Sciences" }, [parent, literaryA])).toBe("1ère Sciences");
+  });
+
+  it("affiche les sous-classes CTEB et Humanités comme classes opérationnelles distinctes", () => {
+    const cteb = base("cteb-7", { name: "7ème CTEB" });
+    const ctebA = base("cteb-7-a", { name: "7ème CTEB - A", parentClassId: cteb.id, subClassLabel: "A" });
+    const humanity = base("humanity-1", { name: "1ère Humanité", section: "Secondaire" });
+    const literaryKey = schoolClassOptionKey(humanity.id, "Littéraire");
+    const literaryA = base("literary-a", { name: "1ère Humanité - Littéraire - A", parentClassId: humanity.id, classOptionKey: literaryKey, subClassLabel: "A" });
+    const classes = [cteb, ctebA, humanity, literaryA];
+    expect(formatOperationalStudentClassName({ schoolId: "school-a", schoolYearId: "year-a", classId: cteb.id, subClassId: ctebA.id, className: "7ème CTEB" }, classes)).toBe("7ème CTEB A");
+    expect(formatOperationalStudentClassName({ schoolId: "school-a", schoolYearId: "year-a", classId: humanity.id, subClassId: literaryA.id, classOptionKey: literaryKey, className: "1ère Humanité", option: "Littéraire" }, classes)).toBe("1ère Littéraire A");
+  });
+
+  it("la sauvegarde canonise classId avant de persister subClassId", () => {
+    const module = fs.readFileSync("src/modules/students/StudentsModule.tsx", "utf8");
+    expect(module).toContain("const selectedClass = resolveStudentParentClass(structuredClasses, form)");
+    expect(module).toContain("if (selectedClass) student.classId = selectedClass.id");
+  });
 });
 
 describe("identite operationnelle stable des classes", () => {
