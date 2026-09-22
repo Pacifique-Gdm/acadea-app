@@ -25,6 +25,7 @@ import type {
 } from "../../types";
 import {
   buildValveClassChoices,
+  buildValveVisibilityChoices,
   formatValveClassChoiceLabel,
   getApproximateValveDocumentSize,
   getPublicationAttachmentDrafts,
@@ -108,6 +109,7 @@ export function ValvesDrawerContent({
   const isPublishingRef = useRef(false);
   const currentParent = user.parentId ? yearData.parents.find((parent) => parent.id === user.parentId) : undefined;
   const valveClassChoices = buildValveClassChoices(yearData.students, targetClassKey);
+  const valveVisibilityChoices = buildValveVisibilityChoices(school, editingId ? visibility : undefined);
   const canReadSchoolValves = user.role === "cashier" || user.role === "discipline_director" || user.role === "secretary";
   const visiblePublications = [...yearData.valves]
     .filter((publication) => canManage || canReadSchoolValves || (currentParent ? parentCanViewValvePublication(publication, currentParent, yearData.students) : false))
@@ -188,6 +190,7 @@ export function ValvesDrawerContent({
     try {
       const trimmedTitle = title.trim();
       const trimmedBody = body.trim();
+      const existingPublication = yearData.valves.find((publication) => publication.id === editingId);
       if (!trimmedTitle || !trimmedBody) {
         setFeedback("Veuillez renseigner le titre et le contenu de la publication.");
         return;
@@ -196,12 +199,15 @@ export function ValvesDrawerContent({
         setFeedback("Veuillez sélectionner une classe précise.");
         return;
       }
+      if (!buildValveVisibilityChoices(school, existingPublication?.visibility).includes(visibility)) {
+        setFeedback("Cette section n’est plus active dans les paramètres de l’école.");
+        return;
+      }
       if (editingId && modifyConfirmation !== "MODIFIER LA PUBLICATION") {
         setFeedback("Veuillez saisir exactement MODIFIER LA PUBLICATION pour confirmer la modification.");
         return;
       }
       const now = new Date().toISOString();
-      const existingPublication = yearData.valves.find((publication) => publication.id === editingId);
       const publicationId = existingPublication?.id ?? createId("valve");
       const attachmentValidationError = validateValveAttachmentDrafts(attachments);
       if (attachmentValidationError) {
@@ -472,7 +478,7 @@ export function ValvesDrawerContent({
               }}
               className="input"
             >
-              {(Object.keys(valveVisibilityLabels) as ValveVisibility[]).map((item) => (
+              {valveVisibilityChoices.map((item) => (
                 <option key={item} value={item}>{valveVisibilityLabels[item]}</option>
               ))}
             </select>

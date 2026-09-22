@@ -1,6 +1,7 @@
-import type { ParentProfile, SchoolClass, SchoolSection, Student, ValvePublication, ValveVisibility } from "../types";
+import type { ParentProfile, School, SchoolClass, SchoolSection, Student, ValvePublication, ValveVisibility } from "../types";
 import { CLASSES } from "../types";
 import { getClassSection } from "./studentClasses";
+import { getSchoolSections } from "./schoolConfig";
 import { formatValveAttachmentSize, MAX_VALVE_ATTACHMENTS, MAX_VALVE_ATTACHMENTS_TOTAL_SIZE, validateValveAttachments } from "./valvesMedia";
 
 const valveClassSeparator = "::option::";
@@ -11,6 +12,17 @@ export type ValveClassChoice = {
   value: string;
   label: string;
 };
+
+export function buildValveVisibilityChoices(
+  school: Pick<School, "educationLevels" | "schoolType">,
+  currentVisibility?: ValveVisibility,
+): ValveVisibility[] {
+  const choices: ValveVisibility[] = ["all_parents", ...getSchoolSections(school), "class"];
+  if (currentVisibility && currentVisibility !== "all_parents" && currentVisibility !== "class" && !choices.includes(currentVisibility)) {
+    choices.splice(choices.length - 1, 0, currentVisibility);
+  }
+  return choices;
+}
 
 export type ValveAttachmentDraft = {
   name: string;
