@@ -2,6 +2,7 @@ import { doc, runTransaction } from "firebase/firestore";
 import { db } from "../firebase";
 import type { School } from "../types";
 import { canonicalSchoolOption, mergeSchoolOptions, normalizeSchoolOptions, reconcileSchoolOptions } from "../utils/schoolOptions";
+import { getSchoolEducationLevels, toggleSchoolEducationLevel } from "../utils/schoolConfig";
 
 export async function persistSchoolOption(schoolId: string, option: string) {
   if (!db) throw new Error("Persistance Firestore indisponible.");
@@ -34,13 +35,32 @@ export async function persistSchoolSettings(currentSchool: School, baselineOptio
       email: desiredSchool.email,
       logoUrl: desiredSchool.logoUrl ?? "",
       acronym: desiredSchool.acronym ?? "",
-      educationLevels: desiredSchool.educationLevels ?? [],
       schoolOptions: normalizeSchoolOptions(schoolOptions),
-      schoolType: desiredSchool.schoolType ?? "Mixte",
       activeSchoolYearId: desiredSchool.activeSchoolYearId,
     } satisfies Partial<School>;
     const savedSchool: School = { ...latest, ...settings };
     transaction.update(schoolRef, settings);
     return savedSchool;
+  });
+}
+
+export async function persistSchoolEducationLevel(schoolId: string, level: string, wasChecked: boolean): Promise<School> {
+  if (!db) throw new Error("Persistance Firestore indisponible.");
+  const schoolRef = doc(db, "schools", schoolId);
+  return runTransaction(db, async (transaction) => {
+    const snapshot = await transaction.get(schoolRef);
+    if (!snapshot.exists()) throw new Error("École introuvable.");
+    const latest = { id: schoolId, ...snapshot.data() } as School;
+    const currentLevels = getSchoolEducationLevels(latest).filter((item) => item !== "Mixte");
+    if (currentLevels.includes(level) !== wasChecked) {
+      throw new Error("Cette section a changé depuis l'ouverture du formulaire. Réessayez avec son état actuel.");
+    }
+    const educationLevels = toggleSchoolEducationLevel(currentLevels, level);
+    if (educationLevels.includes(level) === wasChecked) {
+      throw new Error("L'école doit conserver au moins une section.");
+    }
+    const schoolType = educationLevels.length === 1 ? educationLevels[0] as School["schoolType"] : "Mixte";
+    transaction.update(schoolRef, { educationLevels, schoolType });
+    return { ...latest, educationLevels, schoolType };
   });
 }

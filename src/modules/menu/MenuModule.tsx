@@ -17,7 +17,8 @@ import { nextSchoolStaffEmail, normalizeProvisioningPhone } from "../../utils/sc
 import { temporaryPasswordAfterPhoneChange } from "../../utils/temporaryPassword";
 import { ERROR_MESSAGE_DURATION_MS, SUCCESS_MESSAGE_DURATION_MS, useAutoDismissMessage } from "../../hooks/useAutoDismissMessage";
 import { subscribeToSchoolTeacherAccounts } from "../../services/teacherAccounts";
-import { persistSchoolOption, persistSchoolSettings } from "../../services/schoolOptionsRepository";
+import { persistSchoolEducationLevel, persistSchoolOption, persistSchoolSettings } from "../../services/schoolOptionsRepository";
+import { isSchoolSectionConfirmation, SCHOOL_SECTION_CONFIRMATIONS, type SchoolSectionAction } from "../../utils/schoolSectionConfirmation";
 import { canonicalSchoolOption, isSchoolOptionDeleteConfirmation, normalizeSchoolOptions, SCHOOL_OPTION_DELETE_CONFIRMATION } from "../../utils/schoolOptions";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import type { AppData, AppUser, FeeKind, FeeType, ParentProfile, School, SchoolSection, SchoolYear, Student, ValvePublication } from "../../types";
@@ -97,6 +98,11 @@ export function MenuModule({
   const [schoolSaveStatus, setSchoolSaveStatus] = useState<"success" | "error" | "">("");
   const [schoolSaveMessage, setSchoolSaveMessage] = useState("");
   const [schoolSaving, setSchoolSaving] = useState(false);
+  const [schoolSectionPending, setSchoolSectionPending] = useState<{ level: string; action: SchoolSectionAction; wasChecked: boolean } | null>(null);
+  const [schoolSectionConfirmation, setSchoolSectionConfirmation] = useState("");
+  const [schoolSectionError, setSchoolSectionError] = useState("");
+  const [schoolSectionSaving, setSchoolSectionSaving] = useState(false);
+  const schoolSectionSavingRef = useRef(false);
   const [schoolUserRole, setSchoolUserRole] = useState<SchoolUserProvisionRole>("cashier");
   const [schoolUserSections, setSchoolUserSections] = useState<SchoolSection[]>([]);
   const [cashierName, setCashierName] = useState("");
@@ -170,7 +176,7 @@ export function MenuModule({
   const feeEditorRef = useRef<HTMLDivElement>(null);
   const feeNameSelectRef = useRef<HTMLSelectElement>(null);
   const feeSubmittingRef = useRef(false);
-  const schoolFormEducationLevels = getSchoolEducationLevels(schoolForm).filter((level) => level !== "Mixte");
+  const schoolFormEducationLevels = getSchoolEducationLevels(school).filter((level) => level !== "Mixte");
   const schoolSectionChoices = getSchoolSections(school);
   const schoolFormOptions = normalizeSchoolOptions(schoolForm.schoolOptions);
   const feeClassChoices = buildFeeTargetChoices(yearData.students, feeClassNames);
@@ -245,6 +251,8 @@ export function MenuModule({
   }
 
   function closeActiveMenuSection() {
+    if (schoolSectionSavingRef.current) return;
+    closeSchoolSectionConfirmation();
     setActiveMenuSection(null);
     clearMenuMessages();
   }
@@ -650,16 +658,44 @@ export function MenuModule({
     setShowNewFeeForm(false);
   }
 
-  function toggleSchoolFormEducationLevel(level: string) {
-    setSchoolForm((current) => {
-      const currentLevels = getSchoolEducationLevels(current).filter((item) => item !== "Mixte");
-      const normalizedLevels = toggleSchoolEducationLevel(currentLevels, level);
-      return {
-        ...current,
-        educationLevels: normalizedLevels,
-        schoolType: normalizedLevels.length === 1 ? (normalizedLevels[0] as School["schoolType"]) : "Mixte",
-      };
-    });
+  function closeSchoolSectionConfirmation() {
+    setSchoolSectionPending(null);
+    setSchoolSectionConfirmation("");
+    setSchoolSectionError("");
+  }
+
+  function requestSchoolSectionChange(level: string) {
+    if (!canAdmin || schoolSectionSavingRef.current || schoolSaving) return;
+    const wasChecked = schoolFormEducationLevels.includes(level);
+    setSchoolSectionPending({ level, wasChecked, action: wasChecked ? "uncheck" : "check" });
+    setSchoolSectionConfirmation("");
+    setSchoolSectionError("");
+  }
+
+  async function confirmSchoolSectionChange() {
+    const pending = schoolSectionPending;
+    if (!canAdmin || !pending || schoolSectionSavingRef.current || !isSchoolSectionConfirmation(pending.action, schoolSectionConfirmation)) return;
+    schoolSectionSavingRef.current = true;
+    setSchoolSectionSaving(true);
+    setSchoolSectionError("");
+    try {
+      const savedSchool = canUseFirestoreData()
+        ? await persistSchoolEducationLevel(school.id, pending.level, pending.wasChecked)
+        : (() => {
+            const educationLevels = toggleSchoolEducationLevel(schoolFormEducationLevels, pending.level);
+            return { ...school, educationLevels, schoolType: educationLevels.length === 1 ? educationLevels[0] as School["schoolType"] : "Mixte" as const };
+          })();
+      updateData({ schools: data.schools.map((item) => item.id === school.id ? savedSchool : item) }, { persist: false });
+      setSchoolForm((current) => ({ ...current, educationLevels: savedSchool.educationLevels, schoolType: savedSchool.schoolType }));
+      closeSchoolSectionConfirmation();
+      setSchoolSaveStatus("success");
+      setSchoolSaveMessage(`Section « ${pending.level} » ${pending.action === "check" ? "cochée" : "décochée"} avec succès.`);
+    } catch (error) {
+      setSchoolSectionError(error instanceof Error ? error.message : "Impossible de modifier cette section. Veuillez réessayer.");
+    } finally {
+      schoolSectionSavingRef.current = false;
+      setSchoolSectionSaving(false);
+    }
   }
 
   async function addSchoolFormOption() {
@@ -760,15 +796,29 @@ export function MenuModule({
                   <input
                     type="checkbox"
                     checked={schoolFormEducationLevels.includes(level)}
-                    onChange={() => toggleSchoolFormEducationLevel(level)}
-                    disabled={!canAdmin || (schoolFormEducationLevels.length === 1 && schoolFormEducationLevels.includes(level))}
+                    onChange={() => requestSchoolSectionChange(level)}
+                    disabled={!canAdmin || schoolSectionSaving || schoolSaving || (schoolFormEducationLevels.length === 1 && schoolFormEducationLevels.includes(level))}
                     className="h-4 w-4 accent-ink disabled:opacity-50"
                   />
                   {level}
                 </label>
               ))}
             </div>
-            <p className="text-xs font-medium text-slate-500">Ces sections peuvent évoluer après la création de l'école.</p>
+            {schoolSectionPending && (
+              <div role="group" aria-labelledby="school-section-confirmation-title" className="grid min-w-0 max-w-full gap-3 rounded border border-amber-200 bg-amber-50 p-3">
+                <p id="school-section-confirmation-title" className="break-words text-sm font-semibold text-amber-950">
+                  Pour {schoolSectionPending.action === "check" ? "cocher" : "décocher"} la section « {schoolSectionPending.level} », saisissez exactement : {SCHOOL_SECTION_CONFIRMATIONS[schoolSectionPending.action]}
+                </p>
+                <input aria-label="Phrase de confirmation de la section" value={schoolSectionConfirmation} onChange={(event) => setSchoolSectionConfirmation(event.target.value)} className="input min-w-0 w-full max-w-full" autoComplete="off" disabled={schoolSectionSaving} />
+                {schoolSectionError && <p role="alert" className="break-words text-sm font-semibold text-red-700">{schoolSectionError}</p>}
+                <div className="grid min-w-0 grid-cols-2 gap-2">
+                  <button type="button" className="secondary-button min-w-0 w-full justify-center" onClick={closeSchoolSectionConfirmation} disabled={schoolSectionSaving}>Annuler</button>
+                  <button type="button" className="primary-button min-w-0 w-full justify-center disabled:cursor-not-allowed disabled:opacity-60" onClick={() => void confirmSchoolSectionChange()} disabled={!isSchoolSectionConfirmation(schoolSectionPending.action, schoolSectionConfirmation) || schoolSectionSaving}>
+                    {schoolSectionSaving ? "Enregistrement..." : "Confirmer"}
+                  </button>
+                </div>
+              </div>
+            )}
           </fieldset>
           <fieldset className="grid gap-2 rounded border border-slate-200 p-3">
             <legend className="px-1 text-sm font-semibold text-slate-700">Options actuelles de l'école</legend>
@@ -814,7 +864,7 @@ export function MenuModule({
           <p className="rounded bg-slate-50 p-3 text-sm font-semibold text-slate-600">Année scolaire : {selectedYear.name}</p>
           {schoolSaveStatus === "error" && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{schoolSaveMessage}</p>}
           {canAdmin && (
-            <button onClick={saveSchool} disabled={schoolSaving} className="primary-button disabled:cursor-not-allowed disabled:opacity-60" type="button">
+            <button onClick={saveSchool} disabled={schoolSaving || schoolSectionSaving || Boolean(schoolSectionPending)} className="primary-button disabled:cursor-not-allowed disabled:opacity-60" type="button">
               <RefreshCw className={`h-4 w-4 ${schoolSaving ? "animate-spin" : "hidden"}`} />
               {!schoolSaving && <Settings className="h-4 w-4" />}
               {schoolSaving ? "Enregistrement..." : "Enregistrer"}
@@ -1187,7 +1237,7 @@ export function MenuModule({
             onClick={() => {
               clearMenuMessages(); if (section.id === "medicalRecords") setMedicalRecordsOpen(true);
               else {
-                if (section.id === "school") setSchoolForm({ ...school, schoolOptions: normalizeSchoolOptions(school.schoolOptions) });
+                if (section.id === "school") { setSchoolForm({ ...school, schoolOptions: normalizeSchoolOptions(school.schoolOptions) }); closeSchoolSectionConfirmation(); }
                 setActiveMenuSection(section.id);
               }
             }}
