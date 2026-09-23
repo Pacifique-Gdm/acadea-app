@@ -17,7 +17,7 @@ function createBackend(options?: { commitError?: Error }) {
     collection: vi.fn(() => ({ doc: vi.fn(() => ({ id: "audit-1" })) })),
     batch: vi.fn(() => ({ update, set, commit })),
   };
-  const auth = { updateUser: vi.fn().mockResolvedValue(undefined) };
+  const auth = { updateUser: vi.fn().mockResolvedValue(undefined), revokeRefreshTokens: vi.fn().mockResolvedValue(undefined) };
   return { auth, db, update, set, commit };
 }
 
@@ -56,6 +56,8 @@ describe("API de retrait d'un administrateur", () => {
     }));
     expect(backend.update.mock.calls[0][1]).not.toHaveProperty("schoolId");
     expect(backend.commit).toHaveBeenCalledTimes(1);
+    expect(backend.auth.revokeRefreshTokens).toHaveBeenCalledWith("admin-1");
+    expect(backend.auth.revokeRefreshTokens.mock.invocationCallOrder[0]).toBeGreaterThan(backend.commit.mock.invocationCallOrder[0]);
     expect(result).toMatchObject({ adminId: "admin-1", status: "inactive", authStatus: "disabled" });
   });
 
@@ -68,5 +70,6 @@ describe("API de retrait d'un administrateur", () => {
     })).rejects.toThrow("Firestore indisponible");
     expect(backend.auth.updateUser).toHaveBeenNthCalledWith(1, "admin-1", { disabled: true });
     expect(backend.auth.updateUser).toHaveBeenNthCalledWith(2, "admin-1", { disabled: false });
+    expect(backend.auth.revokeRefreshTokens).not.toHaveBeenCalled();
   });
 });

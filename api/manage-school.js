@@ -3,6 +3,7 @@ import { firebaseAdminPublicError, initAdmin } from "./_lib/firebaseAdmin.js";
 import { deleteSchoolCompletely } from "./_lib/schoolDeletion.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./_lib/serverAudit.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
+import { requireActiveApiUser } from "./_lib/activeUser.js";
 
 export const maxDuration = 300;
 
@@ -99,6 +100,7 @@ export default async function handler(req, res) {
       sendJson(res, 403, { error: "Action reservee au super administrateur.", code: "permission-denied" });
       return;
     }
+    await requireActiveApiUser(db, caller);
 
     const body = await readBody(req);
     const requestedAction = normalizeText(body.action);
@@ -289,6 +291,10 @@ export default async function handler(req, res) {
     sendJson(res, 400, { error: "Action invalide.", code: "invalid-argument" });
   } catch (error) {
     if (sendRateLimitError(res, error)) return;
+    if (error?.statusCode === 403 && error?.code === "permission-denied") {
+      sendJson(res, 403, { error: error.message, code: error.code });
+      return;
+    }
     const diagnostic = firebaseAdminPublicError(error, "manage-school");
     sendJson(res, 500, {
       error: diagnostic.message,

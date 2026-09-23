@@ -57,6 +57,17 @@ describe("API SEC-004 manage-school", () => {
     mocks.batchCommit.mockResolvedValue(undefined);
   });
 
+  it("refuse l'ancien token d'un Super Administrateur dont le profil est devenu inactif", async () => {
+    const school = mocks.documentGet.getMockImplementation();
+    mocks.documentGet.mockImplementation(async (path: string) => path === "users/super-1"
+      ? { exists: true, data: () => ({ id: "super-1", role: "super_admin", status: "inactive" }) }
+      : school?.(path));
+    const res = response();
+    await handler(request({ action: "change-acronym", schoolId: "school-a", acronym: "LUMB", confirmation: "MODIFIER LE SIGLE" }), res);
+    expect(res.statusCode).toBe(403);
+    expect(mocks.batchCommit).not.toHaveBeenCalled();
+  });
+
   it("réserve la suppression au Super Administrateur", async () => {
     mocks.verifyIdToken.mockResolvedValue({ uid: "admin", role: "school_admin", schoolId: "school-a" });
     const res = response(); await handler(request({ action: "delete", schoolId: "school-a", confirmation: "SUPPRIMER ECOLE" }), res);
@@ -222,7 +233,9 @@ describe("API SEC-004 manage-school", () => {
   });
 
   it("rend le second appel idempotent lorsque l'école est déjà absente", async () => {
-    mocks.documentGet.mockResolvedValue({ exists: false });
+    mocks.documentGet.mockImplementation(async (path: string) => path === "users/super-1"
+      ? { exists: true, data: () => ({ id: "super-1", role: "super_admin", status: "active" }) }
+      : { exists: false });
     const res = response(); await handler(request({ action: "delete", schoolId: "school-a", confirmation: "SUPPRIMER ECOLE" }), res);
     expect(res.statusCode).toBe(200); expect(res.body).toMatchObject({ schoolId: "school-a", status: "complete", alreadyDeleted: true });
   });

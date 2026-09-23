@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { firebaseAdminPublicError, initAdmin } from "./_lib/firebaseAdmin.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { coordinationHttpError, requireActiveCoordinationActor, requireActiveCoordinator, resolveCoordinationSchoolScope } from "./_lib/coordination.js";
+import { requireActiveApiUser } from "./_lib/activeUser.js";
 
 export const maxDuration = 300;
 
@@ -20,10 +21,10 @@ function bearerToken(req) {
   return token;
 }
 
-async function requireSuperAdmin(auth, token) {
+async function requireSuperAdmin(auth, db, token) {
   const caller = await auth.verifyIdToken(token, true);
   if (caller.role !== "super_admin") throw Object.assign(new Error("Action réservée au Super Administrateur."), { statusCode: 403, code: "permission-denied" });
-  return caller;
+  return requireActiveApiUser(db, caller);
 }
 
 function validateSchoolIds(value) {
@@ -379,7 +380,7 @@ export default async function handler(req, res) {
       await batch.commit();
       return sendJson(res, 200, { coordinationId: caller.coordinationId, updatedAt: now });
     }
-    const caller = await requireSuperAdmin(auth, token);
+    const caller = await requireSuperAdmin(auth, db, token);
     await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: "platform", action: `coordination.${action}`, ...API_RATE_LIMITS.PROVISION_SCHOOL });
     const now = new Date().toISOString();
     if (action === "create") {

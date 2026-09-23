@@ -4,6 +4,7 @@ import { AUDIT_EVENT_TYPES, buildServerAudit } from "./_lib/serverAudit.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { requireActiveSchoolYear } from "./_lib/schoolYear.js";
 import { importArchivedStudents, reenrollTerminalStudent } from "./_lib/archivedStudentsImport.js";
+import { requireActiveApiUser } from "./_lib/activeUser.js";
 
 const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent"]);
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
@@ -504,6 +505,7 @@ export async function removeSchoolAdmin({ auth, db, caller, body }) {
     await auth.updateUser(adminId, { disabled: false }).catch(() => undefined);
     throw error;
   }
+  await auth.revokeRefreshTokens(adminId);
   return { adminId, status: "inactive", authStatus: "disabled", removedAt };
 }
 
@@ -668,6 +670,7 @@ export default async function handler(req, res) {
     adminDb = db;
 
     const caller = await auth.verifyIdToken(token, true);
+    await requireActiveApiUser(db, caller);
     const body = await readBody(req);
     const action = normalizeText(body.action);
     if (action === "import-archived-students") {

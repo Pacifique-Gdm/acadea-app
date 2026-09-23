@@ -75,6 +75,8 @@ describe("API de provisionnement Acadéa", () => {
       path,
       get: vi.fn().mockResolvedValue(path === "schools/school-1"
         ? { exists: true, data: () => ({ id: "school-1" }) }
+        : ["users/admin-1", "users/secretary-1", "users/super-1"].includes(path)
+          ? { exists: true, data: () => ({ id: path.slice(6), status: "active", active: true }) }
         : path === "schoolYears/year-1"
           ? { exists: true, data: () => ({ id: "year-1", schoolId: "school-1", status: "active" }) }
         : path === "students/student-1"
@@ -555,6 +557,8 @@ describe("API de provisionnement Acadéa", () => {
       path,
       get: vi.fn().mockResolvedValue(path === "schools/school-1"
         ? { exists: true, data: () => ({ id: "school-1", educationLevels: ["Primaire", "CETB"] }) }
+        : path === "users/admin-1"
+          ? { exists: true, data: () => ({ id: "admin-1", role: "school_admin", schoolId: "school-1", status: "active" }) }
         : path === "schoolYears/year-1"
           ? { exists: true, data: () => ({ id: "year-1", schoolId: "school-1", status: "active" }) }
           : { exists: false }),
