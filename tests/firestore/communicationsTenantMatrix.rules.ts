@@ -28,6 +28,14 @@ beforeEach(async () => {
   await seed(`schoolYears/${yearB}`, { id: yearB, schoolId: schoolB, status: "active" });
   const shared = { schoolId: schoolA, schoolYearId: yearA };
   await seed("users/teacher-a", { id: "teacher-a", role: "teacher", schoolId: schoolA, status: "active", active: true });
+  for (const [uid, role, tenant] of [
+    ["admin-a", "school_admin", schoolA], ["admin-b", "school_admin", schoolB],
+    ["secretary-a", "secretary", schoolA], ["secretary-b", "secretary", schoolB],
+    ["cashier-a", "cashier", schoolA], ["discipline-a", "discipline_director", schoolA],
+    ["study-a", "study_director", schoolA], ["parent-user-a", "parent", schoolA],
+    ["parent-a", "parent", schoolA], ["parent-user-x", "parent", schoolA],
+    ["secretary-other-school", "secretary", schoolB], ["unknown-a", "unknown", schoolA],
+  ]) await seed(`users/${uid}`, { id: uid, role, schoolId: tenant, status: "active", active: true });
   await seed("messages/message-a", { id: "message-a", ...shared, threadParentId: "parent-a", schoolRecipient: "admin" });
   await seed("messages/message-secretary", { id: "message-secretary", ...shared, senderId: "admin-a", recipientParentId: "school", participantIds: ["admin-a", "secretary-a"], recipientIds: ["secretary-a"], subject: "Objet", body: "Corps", createdAt: "2026-08-08T10:00:00.000Z" });
   await seed("messages/message-secretary-parent", { id: "message-secretary-parent", ...shared, senderId: "secretary-a", recipientParentId: "school", participantIds: ["secretary-a", "parent-user-a"], recipientIds: ["parent-user-a"], subject: "Objet parent", body: "Corps", createdAt: "2026-08-08T11:00:00.000Z" });

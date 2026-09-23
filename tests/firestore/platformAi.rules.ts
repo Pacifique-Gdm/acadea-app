@@ -13,6 +13,7 @@ beforeAll(async () => { environment = await initializeTestEnvironment({ projectI
 beforeEach(async () => {
   await env().clearFirestore();
   await env().withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "users", "super-1"), { id: "super-1", role: "super_admin", status: "active" });
     await setDoc(doc(context.firestore(), "schools", "school-a"), { id: "school-a", aiAssistant: { enabled: true, monthlyLimit: 50, monthlyUsage: 17, usageMonth: "2026-08", updatedAt: new Date(), updatedBy: "system" } });
     await setDoc(doc(context.firestore(), "schools", "school-b"), { id: "school-b", aiAssistant: { enabled: false, monthlyLimit: 25, monthlyUsage: 9, usageMonth: "2026-08", updatedAt: new Date(), updatedBy: "system" } });
   });

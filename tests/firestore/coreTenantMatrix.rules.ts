@@ -39,6 +39,7 @@ beforeEach(async () => {
   await seed("users/teacher-a", { id: "teacher-a", role: "teacher", schoolId: schoolA, status: "active" });
   await seed("users/studies-a", { id: "studies-a", role: "study_director", schoolId: schoolA, status: "active" });
   await seed("users/secretary-a", { id: "secretary-a", role: "secretary", schoolId: schoolA, status: "active" });
+  await seed("users/super-a", { id: "super-a", role: "super_admin", status: "active" });
 });
 
 afterAll(async () => environment?.cleanup(), 30000);

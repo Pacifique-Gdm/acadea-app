@@ -19,6 +19,7 @@ beforeAll(async () => { environment = await initializeTestEnvironment({ projectI
 beforeEach(async () => {
   await environment.clearFirestore();
   await environment.withSecurityRulesDisabled(async (context) => setDoc(doc(context.firestore(), "schoolYears", schoolYearId), { id: schoolYearId, schoolId, status: "active" }));
+  await environment.withSecurityRulesDisabled(async (context) => setDoc(doc(context.firestore(), "users", "secretary-a"), { id: "secretary-a", role: "secretary", schoolId, status: "active" }));
 });
 afterAll(async () => environment.cleanup(), 30_000);
 

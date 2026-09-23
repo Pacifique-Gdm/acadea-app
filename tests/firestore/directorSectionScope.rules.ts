@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
-import { collection, doc, getDoc, getDocs, query, setDoc, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, setDoc, updateDoc, where } from "firebase/firestore";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 let env: RulesTestEnvironment;
@@ -41,5 +41,18 @@ describe("périmètre section des directeurs", () => {
       where("schoolId", "==", "school-a"),
       where("schoolYearId", "==", "year-a"),
     )));
+  });
+
+  it("refuse l'auto-élargissement des sections et conserve les champs de profil personnels", async () => {
+    const director = database("study_director", "studies");
+    await assertSucceeds(getDoc(doc(director, "students", "primary")));
+    await assertFails(getDoc(doc(director, "students", "secondary")));
+    await assertFails(updateDoc(doc(director, "users", "studies"), { sectionIds: ["Primaire", "Secondaire"] }));
+    await assertFails(updateDoc(doc(director, "users", "studies"), { section: "Secondaire" }));
+    await assertFails(updateDoc(doc(director, "users", "studies"), { role: "school_admin" }));
+    await assertFails(updateDoc(doc(director, "users", "studies"), { schoolId: "school-b" }));
+    await assertFails(updateDoc(doc(director, "users", "studies"), { status: "inactive" }));
+    await assertSucceeds(updateDoc(doc(director, "users", "studies"), { phone: "+243000000000" }));
+    await assertFails(getDoc(doc(director, "students", "secondary")));
   });
 });

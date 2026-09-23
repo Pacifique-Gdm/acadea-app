@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
-import { collection, doc, documentId, getDoc, getDocs, limit, orderBy, query, setDoc, updateDoc, where } from "firebase/firestore";
+import { collection, deleteDoc, doc, documentId, getDoc, getDocs, limit, orderBy, query, setDoc, updateDoc, where } from "firebase/firestore";
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
 
 let environment: RulesTestEnvironment;
@@ -44,12 +44,14 @@ describe("SEC — isolation Coordination", () => {
     await seed("subCoordinationSchools/sub-a__school-a", { id: "sub-a__school-a", coordinationId, subCoordinationId: "sub-a", schoolId: schoolA, active: true });
     await seed("users/sub-user", { id: "sub-user", role: "sub_coordination_admin", coordinationId, subCoordinationId: "sub-a", active: true });
     await seed("users/coord-user", { id: "coord-user", role: "coordination_admin", coordinationId, active: true });
+    await seed("users/coord-a", { id: "coord-a", role: "coordination_admin", coordinationId, active: true });
     await seed("coordinations/coord-other", { id: "coord-other", status: "active", principalCoordinatorUserId: "coord-foreign" });
     await seed("users/coord-foreign", { id: "coord-foreign", role: "coordination_admin", coordinationId: "coord-other", active: true });
     await seed("feeTypes/fee-a", { id: "fee-a", schoolId: schoolA, schoolYearId: "year-a", name: "Minerval", amount: 10 });
     await seed("payments/payment-a", { id: "payment-a", schoolId: schoolA, schoolYearId: "year-a", amount: 10 });
     await seed("expenses/expense-a", { id: "expense-a", schoolId: schoolA, schoolYearId: "year-a", amount: 2 });
     await seed("users/admin-a", { id: "admin-a", schoolId: schoolA, role: "school_admin", active: true });
+    await seed("users/admin-b", { id: "admin-b", schoolId: schoolB, role: "school_admin", active: true });
     await seed("teachers/teacher-a", { id: "teacher-a", schoolId: schoolA, schoolYearId: "year-a", userId: "teacher-user-a" });
     await seed("gradeEntries/grade-a", { id: "grade-a", schoolId: schoolA, schoolYearId: "year-a", studentId: "student-a", classId: "class-a", subjectId: "subject-a" });
     await seed("timetables/timetable-a", { id: "timetable-a", schoolId: schoolA, schoolYearId: "year-a", status: "draft" });
@@ -183,6 +185,20 @@ describe("SEC — isolation Coordination", () => {
     await assertSucceeds(getDocs(query(collection(db, "subCoordinationSchools"), where("schoolId", "==", schoolA), where("coordinationId", "==", coordinationId))));
     await assertFails(getDoc(doc(db, "coordinations", "coord-other")));
     await assertFails(getDoc(doc(db, "users", "coord-foreign")));
+  });
+
+  it("refuse à un Administrateur désactivé la lecture des Sous-coordinateurs liés", async () => {
+    const db = environment.authenticatedContext("admin-a", { role: "school_admin", schoolId: schoolA }).firestore();
+    await assertSucceeds(getDoc(doc(db, "users", "sub-user")));
+    await seed("users/admin-a", { id: "admin-a", schoolId: schoolA, role: "school_admin", status: "inactive", active: false });
+    await assertFails(getDoc(doc(db, "users", "sub-user")));
+  });
+
+  it("refuse la lecture du Sous-coordinateur lorsque la relation déléguée manque", async () => {
+    const db = environment.authenticatedContext("admin-a", { role: "school_admin", schoolId: schoolA }).firestore();
+    await assertSucceeds(getDoc(doc(db, "users", "sub-user")));
+    await environment.withSecurityRulesDisabled((context) => deleteDoc(doc(context.firestore(), "subCoordinationSchools", "sub-a__school-a")));
+    await assertFails(getDoc(doc(db, "users", "sub-user")));
   });
 
   it("permet au Coordinateur de marquer sa notification comme lue sans autre mutation", async () => {

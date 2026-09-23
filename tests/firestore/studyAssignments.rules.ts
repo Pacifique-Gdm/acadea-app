@@ -32,6 +32,10 @@ beforeEach(async () => {
   await environment.clearFirestore();
   await seed(`schools/${school}`, { id: school, status: "active" });
   await seed("schools/school-b", { id: "school-b", status: "active" });
+  await seed("users/director-a", { id: "director-a", role: "study_director", schoolId: school, status: "active" });
+  await seed("users/director-update", { id: "director-update", role: "study_director", schoolId: school, status: "active" });
+  await seed("users/director-b", { id: "director-b", role: "study_director", schoolId: "school-b", status: "active" });
+  await seed("users/cashier-a", { id: "cashier-a", role: "cashier", schoolId: school, status: "active" });
   await seed(`schoolYears/${year}`, { id: year, schoolId: school, status: "active" });
   await seed("schoolYears/year-b", { id: "year-b", schoolId: "school-b", status: "active" });
   await seed("teachers/teacher-a", { id: "teacher-a", schoolId: school, schoolYearId: year, status: "active", createdBy: "director-a", createdAt: now });
@@ -143,6 +147,7 @@ describe("Direction des études — affectations pédagogiques", () => {
     await assertFails(createActiveAssignment(director(), { weeklyPeriods: 7, sessionPattern: { mode: "blocks", blocks: [7] } }));
     await environment.clearFirestore();
     await seed(`schools/${school}`, { id: school, status: "active" });
+    await seed("users/director-a", { id: "director-a", role: "study_director", schoolId: school, status: "active" });
     await seed(`schoolYears/${year}`, { id: year, schoolId: school, status: "active" });
     await seed("teachers/teacher-a", { id: "teacher-a", schoolId: school, schoolYearId: year, status: "active", createdBy: "director-a", createdAt: now });
     await seed("subjects/subject-a", { id: "subject-a", schoolId: school, schoolYearId: year, name: "Mathématiques", active: true, createdBy: "director-a", createdAt: now });

@@ -33,6 +33,9 @@ beforeEach(async () => {
   await seed(`schoolYears/${yearA1}`, { id: yearA1, schoolId: schoolA, status: "active" });
   await seed(`schoolYears/${yearA2}`, { id: yearA2, schoolId: schoolA, status: "archived" });
   await seed(`schoolYears/${yearB1}`, { id: yearB1, schoolId: schoolB, status: "active" });
+  for (const role of ["school_admin", "secretary", "discipline_director", "cashier", "parent"] as const) {
+    await seed(`users/${role}-a`, { id: `${role}-a`, role, schoolId: schoolA, status: "active" });
+  }
 });
 
 afterAll(async () => environment?.cleanup(), 30_000);

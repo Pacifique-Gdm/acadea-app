@@ -24,6 +24,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   await testEnvironment().clearFirestore();
   await testEnvironment().withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "users", "secretary-a"), { id: "secretary-a", role: "secretary", schoolId, status: "active" });
     await setDoc(doc(context.firestore(), "schoolYears", schoolYearId), { id: schoolYearId, schoolId, status: "active" });
   });
 });

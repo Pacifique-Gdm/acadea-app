@@ -11,6 +11,7 @@ const child = (overrides: Record<string, unknown> = {}) => ({ id: "sub-a", schoo
 
 beforeAll(async () => { environment = await initializeTestEnvironment({ projectId: "demo-acadea-subclasses", firestore: { rules: readFileSync("firestore.rules", "utf8") } }); }, 30_000);
 beforeEach(async () => { await environment.clearFirestore(); await seed(`schools/${school}`, { id: school, status: "active" }); await seed("schools/school-b", { id: "school-b", status: "active" }); await seed(`schoolYears/${year}`, { id: year, schoolId: school, status: "active" }); await seed("schoolYears/year-b", { id: "year-b", schoolId: "school-b", status: "active" }); await seed("classes/parent", { id: "parent", schoolId: school, schoolYearId: year, name: "7ème CTEB", active: true }); await seed("classes/foreign", { id: "foreign", schoolId: "school-b", schoolYearId: "year-b", name: "8ème", active: true }); });
+beforeEach(async () => { await seed("users/secretary-a", { id: "secretary-a", role: "secretary", schoolId: school, status: "active" }); await seed("users/cashier-a", { id: "cashier-a", role: "cashier", schoolId: school, status: "active" }); });
 afterAll(async () => environment?.cleanup(), 30_000);
 
 describe("classes et sous-classes structurées", () => {

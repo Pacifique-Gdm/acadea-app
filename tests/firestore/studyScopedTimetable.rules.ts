@@ -19,6 +19,7 @@ beforeAll(async () => {
 }, 30_000);
 beforeEach(async () => {
   await environment.clearFirestore();
+  await seed(`users/${userId}`, { id: userId, role: "study_director", schoolId, status: "active" });
   await seed(`schools/${schoolId}`, { id: schoolId, status: "active" });
   await seed(`schoolYears/${schoolYearId}`, { id: schoolYearId, schoolId, status: "active" });
   await seed("teachers/teacher-a", { id: "teacher-a", schoolId, schoolYearId, status: "active" });

@@ -2,7 +2,13 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() {
-      return request.auth != null;
+      return request.auth != null && activeActorProfile();
+    }
+
+    function activeActorProfile() {
+      let profile = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return profile.get("status", "active") != "inactive"
+        && profile.get("active", true) != false;
     }
 
     function role() {
@@ -47,7 +53,6 @@ service cloud.firestore {
 
     function coordinatorOwnsCoordination(coordinationId) {
       return coordinationActor() && coordinationId == request.auth.token.coordinationId
-        && exists(/databases/$(database)/documents/coordinations/$(coordinationId))
         && get(/databases/$(database)/documents/coordinations/$(coordinationId)).data.status == "active";
     }
 
@@ -79,11 +84,8 @@ service cloud.firestore {
 
     function schoolAdminRelatedCoordination(coordinationId) {
       return schoolAdmin()
-        && exists(/databases/$(database)/documents/schools/$(tenantSchoolId()))
         && get(/databases/$(database)/documents/schools/$(tenantSchoolId())).data.get("activeCoordinationId", null) == coordinationId
-        && exists(/databases/$(database)/documents/coordinations/$(coordinationId))
         && get(/databases/$(database)/documents/coordinations/$(coordinationId)).data.status == "active"
-        && exists(/databases/$(database)/documents/coordinationSchools/$(coordinationId + "__" + tenantSchoolId()))
         && get(/databases/$(database)/documents/coordinationSchools/$(coordinationId + "__" + tenantSchoolId())).data.active == true;
     }
 
@@ -96,11 +98,9 @@ service cloud.firestore {
             && get(/databases/$(database)/documents/coordinations/$(resource.data.coordinationId)).data.principalCoordinatorUserId == userId)
           || (resource.data.role == "sub_coordination_admin"
             && resource.data.subCoordinationId is string
-            && exists(/databases/$(database)/documents/subCoordinations/$(resource.data.subCoordinationId))
             && get(/databases/$(database)/documents/subCoordinations/$(resource.data.subCoordinationId)).data.coordinationId == resource.data.coordinationId
             && get(/databases/$(database)/documents/subCoordinations/$(resource.data.subCoordinationId)).data.coordinatorUserId == userId
             && get(/databases/$(database)/documents/subCoordinations/$(resource.data.subCoordinationId)).data.active == true
-            && exists(/databases/$(database)/documents/subCoordinationSchools/$(resource.data.subCoordinationId + "__" + tenantSchoolId()))
             && get(/databases/$(database)/documents/subCoordinationSchools/$(resource.data.subCoordinationId + "__" + tenantSchoolId())).data.active == true));
     }
 
@@ -359,6 +359,19 @@ service cloud.firestore {
       return schoolUser() && resource.data.schoolId == tenantSchoolId();
     }
 
+    function parentLinkedAcademicResource() {
+      return parentUser()
+        && resource.data.schoolId == tenantSchoolId()
+        && ("studentId" in resource.data)
+        && resource.data.studentId is string
+        && exists(/databases/$(database)/documents/students/$(resource.data.studentId))
+        && get(/databases/$(database)/documents/students/$(resource.data.studentId)).data.schoolId == tenantSchoolId()
+        && get(/databases/$(database)/documents/students/$(resource.data.studentId)).data.parentId == tenantParentId()
+        && (!("schoolYearId" in resource.data)
+          || get(/databases/$(database)/documents/students/$(resource.data.studentId)).data.schoolYearId == resource.data.schoolYearId)
+        && (!("parentId" in resource.data) || resource.data.parentId == tenantParentId());
+    }
+
     function sameTenantCreate() {
       return schoolUser()
         && tenantSchoolNotDeleting()
@@ -390,7 +403,6 @@ service cloud.firestore {
     function schoolYearBelongsToSchool(schoolYearId, schoolId) {
       return schoolYearId is string
         && schoolYearId.size() > 0
-        && exists(/databases/$(database)/documents/schoolYears/$(schoolYearId))
         && get(/databases/$(database)/documents/schoolYears/$(schoolYearId)).data.schoolId == schoolId;
     }
 
@@ -540,7 +552,7 @@ service cloud.firestore {
           && request.resource.data.parentId is string);
       allow update: if signedIn()
         && request.auth.uid == userId
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["id", "role", "schoolId", "coordinationId", "subCoordinationId", "parentId", "studentIds", "status", "active", "archivedAt", "archivedBy", "reactivatedAt", "reactivatedBy"]);
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["id", "role", "schoolId", "coordinationId", "subCoordinationId", "parentId", "studentIds", "section", "sectionIds", "status", "active", "archivedAt", "archivedBy", "reactivatedAt", "reactivatedBy"]);
       allow delete: if false;
 
       match /pushTokens/{tokenId} {
@@ -1264,11 +1276,9 @@ service cloud.firestore {
 
     match /timetableEntries/{entryId} {
       function entryReferencesAreValid() {
-        return existsAfter(/databases/$(database)/documents/timetables/$(request.resource.data.scheduleId))
-          && getAfter(/databases/$(database)/documents/timetables/$(request.resource.data.scheduleId)).data.schoolId == request.resource.data.schoolId
+        return getAfter(/databases/$(database)/documents/timetables/$(request.resource.data.scheduleId)).data.schoolId == request.resource.data.schoolId
           && getAfter(/databases/$(database)/documents/timetables/$(request.resource.data.scheduleId)).data.schoolYearId == request.resource.data.schoolYearId
           && getAfter(/databases/$(database)/documents/timetables/$(request.resource.data.scheduleId)).data.status == "DRAFT"
-          && exists(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId))
           && get(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.schoolId == request.resource.data.schoolId
           && get(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.schoolYearId == request.resource.data.schoolYearId
           && get(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.teacherId == request.resource.data.teacherId
@@ -1277,11 +1287,9 @@ service cloud.firestore {
           && request.resource.data.get("courseScope", null) == get(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.get("courseScope", null)
           && request.resource.data.get("targetOptionIds", []) == get(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.get("targetOptionIds", [])
           && request.resource.data.get("studentGroupKey", null) == get(/databases/$(database)/documents/pedagogicalAssignments/$(request.resource.data.assignmentId)).data.get("studentGroupKey", null)
-          && exists(/databases/$(database)/documents/schedulePeriods/$(request.resource.data.periodId))
           && get(/databases/$(database)/documents/schedulePeriods/$(request.resource.data.periodId)).data.type == "course"
           && (request.resource.data.roomId == null
-            || (exists(/databases/$(database)/documents/rooms/$(request.resource.data.roomId))
-              && get(/databases/$(database)/documents/rooms/$(request.resource.data.roomId)).data.schoolId == request.resource.data.schoolId
+            || (get(/databases/$(database)/documents/rooms/$(request.resource.data.roomId)).data.schoolId == request.resource.data.schoolId
               && get(/databases/$(database)/documents/rooms/$(request.resource.data.roomId)).data.schoolYearId == request.resource.data.schoolYearId
               && get(/databases/$(database)/documents/rooms/$(request.resource.data.roomId)).data.active == true));
       }
@@ -1340,7 +1348,7 @@ service cloud.firestore {
     }
 
     match /grades/{gradeId} {
-      allow read: if superAdmin() || sameTenantResource();
+      allow read: if superAdmin() || (sameTenantResource() && role() != "parent") || parentLinkedAcademicResource();
       allow create: if schoolAdmin() && activeTenantYearCreate();
       allow update: if schoolAdmin() && activeTenantYearUpdate();
       allow delete: if schoolAdmin() && sameTenantResource()
@@ -1349,7 +1357,8 @@ service cloud.firestore {
 
     match /attendance/{attendanceId} {
       allow read: if superAdmin()
-        || sameTenantResource()
+        || (sameTenantResource() && role() != "parent")
+        || parentLinkedAcademicResource()
         || disciplineTenantResource();
       allow create: if activeDisciplineYearCreate()
         && request.resource.data.schoolYearId is string
@@ -1379,7 +1388,7 @@ service cloud.firestore {
     }
 
     match /bulletins/{bulletinId} {
-      allow read: if superAdmin() || sameTenantResource();
+      allow read: if superAdmin() || (sameTenantResource() && role() != "parent") || parentLinkedAcademicResource();
       allow create: if schoolAdmin() && activeTenantYearCreate();
       allow update: if schoolAdmin() && activeTenantYearUpdate();
       allow delete: if schoolAdmin() && sameTenantResource()
@@ -1387,7 +1396,7 @@ service cloud.firestore {
     }
 
     match /documents/{documentId} {
-      allow read: if superAdmin() || sameTenantResource();
+      allow read: if superAdmin() || (sameTenantResource() && role() != "parent") || parentLinkedAcademicResource();
       allow create: if schoolAdmin() && activeTenantYearCreate();
       allow update: if schoolAdmin() && activeTenantYearUpdate();
       allow delete: if schoolAdmin() && sameTenantResource()

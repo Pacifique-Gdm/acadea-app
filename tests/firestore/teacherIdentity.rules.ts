@@ -16,6 +16,8 @@ describe("identité Enseignant pour la Direction des études", () => {
   }, 30_000);
   beforeEach(async () => {
     await environment.clearFirestore();
+    await seed("users/director-a", { id: "director-a", role: "study_director", schoolId, status: "active" });
+    await seed("users/admin-a", { id: "admin-a", role: "school_admin", schoolId, status: "active" });
     await seed("users/teacher-a", { id: "teacher-a", name: "Enseignant A", email: "teacher-a@example.test", role: "teacher", schoolId, status: "active" });
     await seed("users/teacher-inactive", { id: "teacher-inactive", name: "Enseignant inactif", email: "inactive@example.test", role: "teacher", schoolId, status: "inactive" });
     await seed("users/cashier-a", { id: "cashier-a", name: "Caissier", email: "cashier@example.test", role: "cashier", schoolId, status: "active" });

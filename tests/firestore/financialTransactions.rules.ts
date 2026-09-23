@@ -13,6 +13,9 @@ beforeEach(async () => {
   await environment.clearFirestore();
   await environment.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
+    for (const role of ["cashier", "school_admin", "admin", "secretary", "teacher"]) {
+      await setDoc(doc(db, "users", `${role}-user`), { id: `${role}-user`, role, schoolId: "school-a", status: "active" });
+    }
     await setDoc(doc(db, "payments", "payment-a"), { id: "payment-a", schoolId: "school-a", schoolYearId: "year-a", studentId: "student-a", feeTypeId: "fee-a", amount: 10, createdBy: "cashier-a", createdAt: "2026-08-07T12:00:00.000Z", receiptNumber: "REC-2026-0001" });
     await setDoc(doc(db, "expenses", "expense-a"), { id: "expense-a", schoolId: "school-a", schoolYearId: "year-a", amount: 10, category: "Fournitures", description: "Papier", createdBy: "cashier-a", createdAt: "2026-08-07T12:00:00.000Z" });
   });

@@ -13,6 +13,8 @@ beforeAll(async () => {
 beforeEach(async () => {
   await environment.clearFirestore();
   await environment.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "users", "super"), { id: "super", role: "super_admin", status: "active" });
+    await setDoc(doc(context.firestore(), "users", "admin"), { id: "admin", role: "school_admin", schoolId: "school-a", status: "active" });
     await setDoc(doc(context.firestore(), "publicConfig", "appConfig"), { loginLogoUrl: "https://example.invalid/logo.png", updatedAt: "2026-08-08T00:00:00.000Z" });
     await setDoc(doc(context.firestore(), "platform", "appConfig"), { loginLogoUrl: "legacy", privateApiEndpoint: "internal-only", updatedAt: "2026-08-01T00:00:00.000Z" });
   });

@@ -19,6 +19,9 @@ beforeEach(async () => {
     await setDoc(doc(context.firestore(), "auditLogs", "cashier-own"), { ...forged, id: "cashier-own", schoolId: "school-a", schoolYearId: "year-a", actorId: "cashier", actorRole: "cashier", createdAt: new Date() });
     await setDoc(doc(context.firestore(), "auditLogs", "cashier-legacy"), { id: "cashier-legacy", schoolId: "school-a", actorId: "cashier", actorName: "Caissier", action: "Ancien paiement", createdAt: "2025-01-01" });
     await setDoc(doc(context.firestore(), "users", "cashier"), { id: "cashier", schoolId: "school-a", role: "cashier", status: "active", active: true });
+    await setDoc(doc(context.firestore(), "users", "admin"), { id: "admin", schoolId: "school-a", role: "school_admin", status: "active" });
+    await setDoc(doc(context.firestore(), "users", "secretary"), { id: "secretary", schoolId: "school-a", role: "secretary", status: "active" });
+    await setDoc(doc(context.firestore(), "users", "super"), { id: "super", role: "super_admin", status: "active" });
   });
 });
 afterAll(async () => environment?.cleanup(), 30_000);
