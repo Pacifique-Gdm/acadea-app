@@ -4,23 +4,23 @@ const mocks = vi.hoisted(() => ({
   verifyIdToken: vi.fn().mockRejectedValue(Object.assign(new Error("Invalid token"), { code: "auth/invalid-id-token" })),
 }));
 
-vi.mock("./_lib/firebaseAdmin.js", async (importOriginal) => ({
+vi.mock("../api/_lib/firebaseAdmin.js", async (importOriginal) => ({
   ...await importOriginal(),
   initAdmin: () => ({ auth: { verifyIdToken: mocks.verifyIdToken }, db: {} }),
 }));
 
-import coordinationRecipients from "./coordination-message-recipients.js";
-import coordinationYears from "./manage-coordination-school-years.js";
-import manageCoordination from "./manage-coordination.js";
-import manageFinance from "./manage-financial-transaction.js";
-import manageSchool from "./manage-school.js";
-import manageAvailability from "./manage-teacher-availability-request.js";
-import manageGrading from "./manage-teacher-grading.js";
-import messageRecipients from "./message-recipients.js";
-import provisionAccount from "./provision-school-account.js";
-import provisionAdmin from "./provision-school-admin.js";
-import sendParentMessage from "./send-parent-message.js";
-import sendSchoolMessage from "./send-school-message.js";
+import coordinationRecipients from "../api/coordination-message-recipients.js";
+import coordinationYears from "../api/manage-coordination-school-years.js";
+import manageCoordination from "../api/manage-coordination.js";
+import manageFinance from "../api/manage-financial-transaction.js";
+import manageSchool from "../api/manage-school.js";
+import manageAvailability from "../api/manage-teacher-availability-request.js";
+import manageGrading from "../api/manage-teacher-grading.js";
+import messageRecipients from "../api/message-recipients.js";
+import provisionAccount from "../api/provision-school-account.js";
+import provisionAdmin from "../api/provision-school-admin.js";
+import sendParentMessage from "../api/send-parent-message.js";
+import sendSchoolMessage from "../api/send-school-message.js";
 
 const endpoints = [
   ["coordination-message-recipients", coordinationRecipients, "GET"],
