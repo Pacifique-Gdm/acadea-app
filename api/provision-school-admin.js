@@ -16,14 +16,19 @@ const schoolLevels = new Map([
   ["Secondaire uniquement", ["Secondaire"]],
 ]);
 
+function parseJsonBody(raw) {
+  try { return JSON.parse(raw || "{}"); }
+  catch { throw Object.assign(new Error("Corps JSON invalide."), { statusCode: 400, code: "invalid-argument" }); }
+}
+
 async function readBody(req) {
   if (req.body && typeof req.body === "object") return req.body;
-  if (typeof req.body === "string") return JSON.parse(req.body || "{}");
+  if (typeof req.body === "string") return parseJsonBody(req.body);
 
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
   const rawBody = Buffer.concat(chunks).toString("utf8");
-  return rawBody ? JSON.parse(rawBody) : {};
+  return parseJsonBody(rawBody);
 }
 
 function sendJson(res, statusCode, body) {
@@ -225,7 +230,7 @@ export default async function handler(req, res) {
       await cleanup({ auth: adminAuth, db: adminDb, adminUid, refs: createdRefs });
     }
     if (sendRateLimitError(res, error)) return;
-    if (error?.statusCode === 401 || (error?.statusCode === 403 && error?.code === "permission-denied")) {
+    if (error?.statusCode === 400 || error?.statusCode === 401 || (error?.statusCode === 403 && error?.code === "permission-denied")) {
       sendJson(res, error.statusCode, { error: error.message, code: error.code });
       return;
     }

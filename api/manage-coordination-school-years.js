@@ -7,7 +7,8 @@ const CONFIRMATIONS = { close: "CLOTURER LES ANNEES SCOLAIRES", reactivate: "REA
 
 function sendJson(res, status, body) { res.statusCode = status; res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(body)); }
 function text(value, max = 160) { return String(value ?? "").trim().slice(0, max); }
-async function readBody(req) { if (req.body && typeof req.body === "object") return req.body; if (typeof req.body === "string") return JSON.parse(req.body || "{}"); const parts = []; for await (const part of req) parts.push(part); return JSON.parse(Buffer.concat(parts).toString("utf8") || "{}"); }
+function parseJsonBody(raw) { try { return JSON.parse(raw || "{}"); } catch { throw coordinationHttpError(400, "invalid-argument", "Corps JSON invalide."); } }
+async function readBody(req) { if (req.body && typeof req.body === "object") return req.body; if (typeof req.body === "string") return parseJsonBody(req.body); const parts = []; for await (const part of req) parts.push(part); return parseJsonBody(Buffer.concat(parts).toString("utf8")); }
 
 async function loadScope(db, caller, transaction) {
   const read = (target) => transaction ? transaction.get(target) : target.get();

@@ -7,7 +7,8 @@ const ALLOWED_ROLES = new Set(["school_admin", "discipline_director", "study_dir
 function sendJson(res, status, body) { res.statusCode = status; res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(body)); }
 function text(value, max = 5000) { return String(value ?? "").trim().slice(0, max); }
 function stableId(prefix, ...parts) { return `${prefix}-${createHash("sha256").update(parts.join("\u001f")).digest("hex").slice(0, 24)}`; }
-async function readBody(req) { if (req.body && typeof req.body === "object") return req.body; if (typeof req.body === "string") return JSON.parse(req.body || "{}"); const parts = []; for await (const part of req) parts.push(part); return JSON.parse(Buffer.concat(parts).toString("utf8") || "{}"); }
+function parseJsonBody(raw) { try { return JSON.parse(raw || "{}"); } catch { throw coordinationHttpError(400, "invalid-argument", "Corps JSON invalide."); } }
+async function readBody(req) { if (req.body && typeof req.body === "object") return req.body; if (typeof req.body === "string") return parseJsonBody(req.body); const parts = []; for await (const part of req) parts.push(part); return parseJsonBody(Buffer.concat(parts).toString("utf8")); }
 
 async function loadRecipients(req, res, db, caller) {
   const schoolIds = await resolveCoordinationSchoolScope(db, caller);

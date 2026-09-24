@@ -15,6 +15,8 @@ vi.mock("../../api/_lib/coordination.js", () => ({
 }));
 
 import handler from "../../api/manage-coordination-school-years.js";
+// @ts-expect-error The Vercel handler is implemented in JavaScript.
+import messageRecipientsHandler from "../../api/coordination-message-recipients.js";
 
 function response() {
   return { statusCode: 0, body: {} as Record<string, unknown>, setHeader: vi.fn(), end(value: string) { this.body = JSON.parse(value) as Record<string, unknown>; } };
@@ -46,5 +48,15 @@ describe("gouvernance annuelle Sous-coordinateur", () => {
     expect(res.statusCode).toBe(403);
     expect(res.body).toMatchObject({ error: "not-authorized" });
     expect(mocks.db.batch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["années scolaires", handler],
+    ["messagerie", messageRecipientsHandler],
+  ])("répond 400 au JSON malformé de %s", async (_name, endpoint) => {
+    const res = response();
+    await endpoint({ method: "POST", headers: { authorization: "Bearer staging-token" }, body: "{" }, res);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ error: "invalid-argument" });
   });
 });

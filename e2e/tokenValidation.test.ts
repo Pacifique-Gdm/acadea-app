@@ -2,11 +2,17 @@ import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   verifyIdToken: vi.fn().mockRejectedValue(Object.assign(new Error("Invalid token"), { code: "auth/invalid-id-token" })),
+  enforceApiRateLimit: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../api/_lib/firebaseAdmin.js", async (importOriginal) => ({
   ...await importOriginal(),
-  initAdmin: () => ({ auth: { verifyIdToken: mocks.verifyIdToken }, db: {} }),
+  initAdmin: () => ({ auth: { verifyIdToken: mocks.verifyIdToken }, db: { doc: () => ({ get: async () => ({ exists: true, data: () => ({ status: "active", active: true }) }) }) } }),
+}));
+
+vi.mock("../api/_lib/rateLimit.js", async (importOriginal) => ({
+  ...await importOriginal(),
+  enforceApiRateLimit: mocks.enforceApiRateLimit,
 }));
 
 import coordinationRecipients from "../api/coordination-message-recipients.js";
@@ -49,10 +55,48 @@ function response() {
 }
 
 describe("authentification des 12 API Vercel", () => {
+  it.each(endpoints)("%s répond 401 sans jeton", async (_name, handler, method) => {
+    const res = response();
+    await handler({ method, headers: {}, body: {} }, res);
+    expect(res.statusCode).toBe(401);
+  });
+
   it.each(endpoints)("%s répond 401 à un jeton invalide", async (_name, handler, method) => {
     const res = response();
     await handler({ method, headers: { authorization: "Bearer invalid-token" }, body: {} }, res);
     expect(res.statusCode).toBe(401);
     expect(JSON.stringify(res.body)).not.toContain("Invalid token");
+  });
+
+  it.each(endpoints)("%s répond 401 à un jeton expiré", async (_name, handler, method) => {
+    mocks.verifyIdToken.mockRejectedValueOnce(Object.assign(new Error("Expired token"), { code: "auth/id-token-expired" }));
+    const res = response();
+    await handler({ method, headers: { authorization: "Bearer expired-token" }, body: {} }, res);
+    expect(res.statusCode).toBe(401);
+    expect(JSON.stringify(res.body)).not.toContain("Expired token");
+  });
+});
+
+describe("entrée invalide de l’API des indisponibilités", () => {
+  it("répond 400 à un JSON malformé après authentification", async () => {
+    mocks.verifyIdToken.mockResolvedValueOnce({ uid: "director", role: "study_director", schoolId: "school-a" });
+    const res = response();
+    await manageAvailability({ method: "POST", headers: { authorization: "Bearer valid-token" }, body: "{" }, res);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ code: "invalid-argument" });
+  });
+});
+
+describe("corps JSON malformé des API protégées", () => {
+  it.each([
+    ["manage-financial-transaction", manageFinance, "school_admin"],
+    ["manage-school", manageSchool, "super_admin"],
+    ["provision-school-admin", provisionAdmin, "super_admin"],
+  ])("%s répond 400 sans mutation", async (_name, handler, role) => {
+    mocks.verifyIdToken.mockResolvedValueOnce({ uid: "e2e-user", role, schoolId: "school-a" });
+    const res = response();
+    await handler({ method: "POST", headers: { authorization: "Bearer valid-token" }, body: "{" }, res);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ code: "invalid-argument" });
   });
 });

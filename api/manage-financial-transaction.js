@@ -3,6 +3,11 @@ import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
 import { authorizeFinancialCaller, executeFinancialOperation, FinancialApiError } from "./_lib/financialTransactions.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 
+function parseJsonBody(raw) {
+  try { return JSON.parse(raw || "{}"); }
+  catch { throw new FinancialApiError(400, "invalid-argument", "Corps JSON invalide."); }
+}
+
 async function readBody(req) {
   if (req.body && typeof req.body === "object") {
     if (Buffer.byteLength(JSON.stringify(req.body), "utf8") > 64 * 1024) throw new FinancialApiError(400, "invalid-argument", "Requête financière trop volumineuse.");
@@ -10,7 +15,7 @@ async function readBody(req) {
   }
   if (typeof req.body === "string") {
     if (Buffer.byteLength(req.body, "utf8") > 64 * 1024) throw new FinancialApiError(400, "invalid-argument", "Requête financière trop volumineuse.");
-    return JSON.parse(req.body || "{}");
+    return parseJsonBody(req.body);
   }
   const chunks = [];
   let size = 0;
@@ -20,7 +25,7 @@ async function readBody(req) {
     chunks.push(chunk);
   }
   const raw = Buffer.concat(chunks).toString("utf8");
-  return raw ? JSON.parse(raw) : {};
+  return parseJsonBody(raw);
 }
 
 function sendJson(res, status, body) {
