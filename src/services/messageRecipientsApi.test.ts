@@ -105,6 +105,18 @@ describe("annuaire sécurisé des destinataires de messagerie", () => {
     expect(recipients.map((item: { uid: string }) => item.uid)).not.toEqual(expect.arrayContaining(["external", "inactive"]));
   });
 
+  it.each(["study_director", "discipline_director"])("refuse une année étrangère sans sections explicites pour %s", async (role) => {
+    const db = coordinationDatabase({
+      "schoolYears/year-foreign": { id: "year-foreign", schoolId: "school-b", status: "active" },
+      "schoolYears/year-own": { id: "year-own", schoolId: "school-a", status: "active" },
+      "users/director": { role, schoolId: "school-a", status: "active" },
+      "users/parent": { role: "parent", schoolId: "school-a", status: "active", parentId: "parent-a" },
+    });
+    const caller = { uid: "director", role, schoolId: "school-a", profile: { sectionIds: [] } };
+    await expect(listAllowedMessageRecipients(db, caller, "year-foreign")).rejects.toMatchObject({ statusCode: 400, code: "invalid-argument" });
+    await expect(listAllowedMessageRecipients(db, caller, "year-own")).resolves.toContainEqual(expect.objectContaining({ uid: "parent", role: "parent" }));
+  });
+
   it("inclut uniquement les enseignants actifs de la même école", async () => {
     const recipients = await listAllowedMessageRecipients(database({
       caller: { name: "Secrétaire", role: "secretary", schoolId: "school-a", status: "active" },

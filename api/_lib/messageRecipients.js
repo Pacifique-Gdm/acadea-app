@@ -1,4 +1,5 @@
 import { verifyActorIdToken } from "./activeUser.js";
+import { requireActiveSchoolYear } from "./schoolYear.js";
 
 const ALLOWED_SENDERS = new Set(["school_admin", "admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent"]);
 
@@ -38,7 +39,10 @@ function callerSectionScope(caller) {
 async function scopedParentIds(db, caller, schoolYearId) {
   if (!schoolYearId || !["discipline_director", "study_director"].includes(normalizedMessagingRole(caller.role))) return null;
   const sections = callerSectionScope(caller);
-  if (!sections.size) return null;
+  if (!sections.size) {
+    await requireActiveSchoolYear(db, caller.schoolId, schoolYearId);
+    return null;
+  }
   const [studentSnapshot, parentSnapshot] = await Promise.all([
     db.collection("students").where("schoolId", "==", caller.schoolId).where("schoolYearId", "==", schoolYearId).get(),
     db.collection("parents").where("schoolId", "==", caller.schoolId).get(),
