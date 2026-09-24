@@ -596,6 +596,8 @@ service cloud.firestore {
           || (request.resource.data.subClassId is string
             && get(/databases/$(database)/documents/classes/$(request.resource.data.subClassId)).data.schoolId == tenantSchoolId()
             && get(/databases/$(database)/documents/classes/$(request.resource.data.subClassId)).data.schoolYearId == request.resource.data.schoolYearId
+            && (!("active" in get(/databases/$(database)/documents/classes/$(request.resource.data.subClassId)).data)
+              || get(/databases/$(database)/documents/classes/$(request.resource.data.subClassId)).data.active != false)
             && get(/databases/$(database)/documents/classes/$(request.resource.data.subClassId)).data.parentClassId == request.resource.data.classId
             && (!("classOptionKey" in get(/databases/$(database)/documents/classes/$(request.resource.data.subClassId)).data)
               || (("classOptionKey" in request.resource.data)
@@ -792,21 +794,6 @@ service cloud.firestore {
     }
 
     match /classes/{classId} {
-      function validSubclassCreate() {
-        return secretary()
-          && activeTenantYearCreate()
-          && request.resource.data.parentClassId is string
-          && request.resource.data.subClassLabel is string
-          && request.resource.data.subClassLabel.size() > 0
-          && (!("classOptionKey" in request.resource.data)
-            || (request.resource.data.classOptionKey is string
-              && request.resource.data.classOptionKey.matches("^" + request.resource.data.parentClassId + "::.+$")))
-          && existsAfter(/databases/$(database)/documents/classes/$(request.resource.data.parentClassId))
-          && getAfter(/databases/$(database)/documents/classes/$(request.resource.data.parentClassId)).data.schoolId == tenantSchoolId()
-          && getAfter(/databases/$(database)/documents/classes/$(request.resource.data.parentClassId)).data.schoolYearId == request.resource.data.schoolYearId
-          && !("parentClassId" in getAfter(/databases/$(database)/documents/classes/$(request.resource.data.parentClassId)).data)
-          && request.resource.data.createdBy == request.auth.uid;
-      }
       function validSecretaryBaseClassCreate() {
         return secretary()
           && activeTenantYearCreate()
@@ -853,14 +840,16 @@ service cloud.firestore {
           && request.resource.data.keys().hasOnly(["id", "schoolId", "schoolYearId", "name", "active", "parentClassId", "classOptionKey", "subClassLabel", "option", "vacation", "saturdayVacation", "saturdayEnabled", "createdBy", "createdAt", "updatedAt"]);
       }
       allow read: if superAdmin() || sameTenantResource() || studyTenantResource() || teacherTenantResource();
-      allow create: if (schoolAdmin() && activeTenantYearCreate()) || validSubclassCreate() || validSecretaryBaseClassCreate() || validStudyLegacyClassCreate() || validStudyOperationalClassCreate();
-      allow update: if (schoolAdmin() && activeTenantYearUpdate())
+      allow create: if (schoolAdmin() && activeTenantYearCreate() && !("parentClassId" in request.resource.data)) || validSecretaryBaseClassCreate() || validStudyLegacyClassCreate() || validStudyOperationalClassCreate();
+      allow update: if (schoolAdmin() && activeTenantYearUpdate()
+          && (!("parentClassId" in resource.data)
+            || request.resource.data.diff(resource.data).affectedKeys().hasOnly(["vacation", "saturdayVacation", "saturdayEnabled", "updatedAt"])))
         || (activeStudyYearUpdate()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["vacation", "saturdayVacation", "saturdayEnabled", "updatedAt"])
           && request.resource.data.vacation in ["morning", "afternoon"]
           && request.resource.data.saturdayEnabled is bool
           && (request.resource.data.saturdayVacation == null || request.resource.data.saturdayVacation in ["morning", "afternoon"]));
-      allow delete: if schoolAdmin() && sameTenantResource()
+      allow delete: if schoolAdmin() && sameTenantResource() && !("parentClassId" in resource.data)
         && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
     }
 

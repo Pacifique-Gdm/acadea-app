@@ -1,11 +1,40 @@
 import { describe, expect, it } from "vitest";
-import { activeSubclasses, canonicalOperationalClasses, classesWithEnrolledStudents, formatOperationalStudentClassName, operationalClasses, operationalSchoolClasses, resolveStudentParentClass, schoolClassOptionKey, schoolClassRecordId, secondarySubclassesForOption, studentBelongsToOperationalClass, studentSchoolClassOptionKey, subclassCreationScopeIsValid, validateSubclassLabels } from "./schoolSubclasses";
+import { activeSubclasses, canonicalOperationalClasses, classesWithEnrolledStudents, formatOperationalStudentClassName, operationalClasses, operationalSchoolClasses, resolveStudentParentClass, schoolClassOptionKey, schoolClassRecordId, secondarySubclassesForOption, studentBelongsToOperationalClass, studentSchoolClassOptionKey, subclassCreationScopeIsValid, validateSubclassLabels, validateSubclassCreation, validateStudentAcademicSelection } from "./schoolSubclasses";
 import fs from "node:fs";
 import type { SchoolClassRecord } from "../types";
 const base = (id: string, extra: Partial<SchoolClassRecord> = {}): SchoolClassRecord => ({ id, schoolId: "school-a", schoolYearId: "year-a", name: id, active: true, ...extra });
 it("filtre les classes opérationnelles par école, année et sections", () => { const items = [base("parent", { name: "1ère Humanité" }), base("commerciale", { name: "1ère Humanité Commerciale", parentClassId: "parent" }), base("Primaire", { name: "1ère Primaire" }), { ...base("foreign", { name: "2ème Humanité" }), schoolId: "school-b" }]; expect(operationalSchoolClasses(items, "school-a", "year-a", ["Secondaire"]).map((item) => item.id)).toEqual(["commerciale"]); });
 describe("sous-classes structurées", () => {
-  it("autorise zéro, refuse une seule et accepte deux ou plus", () => { expect(activeSubclasses([base("parent")], "parent")).toEqual([]); expect(validateSubclassLabels(["A"])).toContain("au moins deux"); expect(validateSubclassLabels(["A", "B"])).toBe(""); expect(validateSubclassLabels(["A", "B", "C"])).toBe(""); });
+  it("reproduit l'ajout incrémental et borne les vrais doublons au parent, à l'école, à l'année et à l'option", () => {
+    const parent = base("parent", { name: "7ème CTEB" });
+    const a = base("a", { parentClassId: parent.id, subClassLabel: "A" });
+    expect(validateSubclassCreation(["B"], [parent, a], parent)).toBe("");
+    expect(validateSubclassCreation(["A"], [parent, a], parent)).toContain("existe déjà");
+    expect(validateSubclassCreation([" a "], [parent, a], parent)).toContain("existe déjà");
+    expect(validateSubclassCreation(["A"], [parent, { ...a, parentClassId: "other" }], parent)).toBe("");
+    expect(validateSubclassCreation(["A"], [parent, { ...a, schoolId: "school-b" }], parent)).toBe("");
+    expect(validateSubclassCreation(["A"], [parent, { ...a, schoolYearId: "year-b" }], parent)).toBe("");
+  });
+  it("refuse l'option ou la sous-classe manquante et les références hors périmètre", () => {
+    const humanites = base("humanites", { name: "1ère Humanité" });
+    const literary = schoolClassOptionKey(humanites.id, "Littéraire");
+    const a = base("lit-a", { parentClassId: humanites.id, classOptionKey: literary, subClassLabel: "A" });
+    const cteb = base("cteb", { name: "7ème CTEB" });
+    const ctebA = base("cteb-a", { parentClassId: cteb.id, subClassLabel: "A" });
+    const rows = [humanites, a, cteb, ctebA];
+    const student = { schoolId: "school-a", schoolYearId: "year-a", classId: humanites.id, className: humanites.name };
+    expect(validateStudentAcademicSelection(rows, student, ["Littéraire", "Sciences"])).toContain("option");
+    expect(validateStudentAcademicSelection(rows, { ...student, option: "Littéraire" }, ["Littéraire", "Sciences"])).toContain("sous-classe");
+    expect(validateStudentAcademicSelection(rows, { ...student, option: "Littéraire", subClassId: a.id }, ["Littéraire", "Sciences"])).toBe("");
+    expect(validateStudentAcademicSelection(rows, { ...student, option: "Sciences", subClassId: a.id }, ["Littéraire", "Sciences"])).toContain("sous-classe");
+    expect(validateStudentAcademicSelection(rows, { ...student, option: "Inconnue" }, ["Littéraire", "Sciences"])).toContain("option");
+    expect(validateStudentAcademicSelection(rows, { ...student, option: "Littéraire", subClassId: "foreign" }, ["Littéraire", "Sciences"])).toContain("sous-classe");
+    expect(validateStudentAcademicSelection([humanites, { ...a, schoolId: "school-b" }], { ...student, option: "Littéraire", subClassId: a.id }, ["Littéraire", "Sciences"])).toContain("sous-classe");
+    expect(validateStudentAcademicSelection([humanites, { ...a, schoolYearId: "year-b" }], { ...student, option: "Littéraire", subClassId: a.id }, ["Littéraire", "Sciences"])).toContain("sous-classe");
+    expect(validateStudentAcademicSelection(rows, { schoolId: "school-a", schoolYearId: "year-a", classId: cteb.id, className: cteb.name }, [])).toContain("sous-classe");
+    expect(validateStudentAcademicSelection(rows, { schoolId: "school-a", schoolYearId: "year-a", classId: cteb.id, className: cteb.name, subClassId: ctebA.id }, [])).toBe("");
+  });
+  it("autorise l'ajout d'une seule sous-classe, mais refuse un libellé vide", () => { expect(activeSubclasses([base("parent")], "parent")).toEqual([]); expect(validateSubclassLabels(["A"])).toBe(""); expect(validateSubclassLabels([""])).toContain("au moins une"); expect(validateSubclassLabels(["A", "B"])).toBe(""); });
   it("refuse les doublons normalisés", () => expect(validateSubclassLabels([" A ", "a"])).toContain("uniques"));
   it("expose les sous-classes comme unités opérationnelles", () => { const rows = [base("parent"), base("a", { parentClassId: "parent" }), base("b", { parentClassId: "parent" }), base("normal")]; expect(operationalClasses(rows).map((item) => item.id)).toEqual(["a", "b", "normal"]); });
   it("ne mélange pas deux classes principales", () => { const rows = [base("a", { parentClassId: "x" }), base("b", { parentClassId: "y" })]; expect(activeSubclasses(rows, "x").map((item) => item.id)).toEqual(["a"]); });
@@ -29,7 +58,7 @@ describe("sous-classes structurées", () => {
     expect(subclassCreationScopeIsValid(base("parent"), "school-a", "year-b")).toBe(false);
     expect(subclassCreationScopeIsValid(base("parent"), "school-b", "year-a")).toBe(false);
   });
-  it("branche le bouton partagé dans l'ordre classe puis option puis sous-classe", () => { const form = fs.readFileSync("src/components/students/StudentForm.tsx", "utf8"); const module = fs.readFileSync("src/modules/students/StudentsModule.tsx", "utf8"); expect(form).toContain("resolveStudentParentClass(structuredClasses, form)"); expect(form).toContain("schoolClassRecordId("); expect(form.indexOf("Option")).toBeLessThan(form.indexOf("Ajouter sous-classe")); expect(form).toContain("Sélectionnez d’abord une option."); expect(form).toContain("subClassId: undefined"); expect(form).toContain('useState(["A", "B"])'); expect(form).toContain("Sous-classe ${index + 1}"); expect(module).toContain("subscribeToSchoolClasses"); expect(module).toContain("createSchoolSubclasses"); });
+  it("branche le bouton partagé dans l'ordre classe puis option puis sous-classe", () => { const form = fs.readFileSync("src/components/students/StudentForm.tsx", "utf8"); const module = fs.readFileSync("src/modules/students/StudentsModule.tsx", "utf8"); expect(form).toContain("resolveStudentParentClass(structuredClasses, form)"); expect(form).toContain("schoolClassRecordId("); expect(form.indexOf("Option")).toBeLessThan(form.indexOf("Ajouter sous-classe")); expect(form).toContain("Sélectionnez d’abord une option."); expect(form).toContain("subClassId: undefined"); expect(form).toContain('useState([""])'); expect(form).toContain("Sous-classe ${index + 1}"); expect(module).toContain("subscribeToSchoolClasses"); expect(module).toContain("createSchoolSubclasses"); });
 
   it("résout le parent tenanté d'un formulaire legacy sans classId", () => {
     const parent = base("cteb-7", { name: "7ème CTEB" });

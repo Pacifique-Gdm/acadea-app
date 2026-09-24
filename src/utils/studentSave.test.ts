@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { emptyStudent, studentForPersistence, validateStudentForSave } from "./studentUtils";
+import { studentSearchFields } from "./studentSearch.js";
 
 describe("validation de l'enregistrement d'un élève", () => {
   const validStudent = () => ({ ...emptyStudent("school-a", "year-a"), nom: "Kabuya", prenom: "Aline" });
@@ -11,7 +12,9 @@ describe("validation de l'enregistrement d'un élève", () => {
 
   it("refuse les champs d'identité obligatoires absents", () => {
     expect(validateStudentForSave({ ...validStudent(), nom: " " }, "school-a", "year-a")).toContain("nom");
-    expect(validateStudentForSave({ ...validStudent(), prenom: " " }, "school-a", "year-a")).toContain("prénom");
+    expect(validateStudentForSave({ ...validStudent(), prenom: " " }, "school-a", "year-a")).toBe("");
+    expect(validateStudentForSave({ ...validStudent(), prenom: "", address: "" }, "school-a", "year-a")).toBe("");
+    expect(studentSearchFields({ ...validStudent(), prenom: "", address: "" }).sortName).toBe("kabuya");
     expect(validateStudentForSave(validStudent(), "", "year-a")).toContain("année scolaire");
     expect(validateStudentForSave(validStudent(), "school-a", "")).toContain("année scolaire");
   });

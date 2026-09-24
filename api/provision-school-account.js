@@ -5,6 +5,8 @@ import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib
 import { requireActiveSchoolYear } from "./_lib/schoolYear.js";
 import { importArchivedStudents, reenrollTerminalStudent } from "./_lib/archivedStudentsImport.js";
 import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
+import { deleteSchoolSubclass } from "./_lib/schoolSubclassDeletion.js";
+import { createSchoolSubclasses } from "./_lib/schoolSubclassCreation.js";
 
 const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent"]);
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
@@ -685,12 +687,22 @@ export default async function handler(req, res) {
       sendJson(res, 200, await reenrollTerminalStudent({ db, caller, body }));
       return;
     }
-    const destructive = action === "delete-parent" || action === "unlink-parent-from-student" || action === "remove-school-admin" || action === "archive-personnel" || action === "reactivate-personnel";
+    const destructive = action === "delete-parent" || action === "delete-school-subclass" || action === "unlink-parent-from-student" || action === "remove-school-admin" || action === "archive-personnel" || action === "reactivate-personnel";
     await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? "platform"), action: destructive ? `provision.${action}` : "provision.account", ...(destructive ? API_RATE_LIMITS.PROVISION_DESTRUCTIVE : API_RATE_LIMITS.PROVISION_ACCOUNT) });
 
     if (action === "delete-parent") {
       const result = await deleteParentAccount({ auth, db, caller, body });
       sendJson(res, result.status === "partial" ? 207 : 200, result);
+      return;
+    }
+
+    if (action === "delete-school-subclass") {
+      sendJson(res, 200, await deleteSchoolSubclass({ db, caller, body }));
+      return;
+    }
+
+    if (action === "create-school-subclasses") {
+      sendJson(res, 200, await createSchoolSubclasses({ db, caller, body }));
       return;
     }
 

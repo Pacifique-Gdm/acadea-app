@@ -61,7 +61,7 @@ export async function exportStudentsPdf(school: School, year: SchoolYear, studen
   const totalLabelColspan = showOptionColumn ? 5 : 4;
   const studentColumns: PdfTableColumn<Student>[] = [
     { header: "Matricule", render: (student) => student.matricule || "-" },
-    { header: "Nom complet", render: (student) => `${student.nom} ${student.postnom} ${student.prenom}`.trim() || "-" },
+    { header: "Nom complet", render: (student) => [student.nom, student.postnom, student.prenom].filter(Boolean).join(" ").trim() || "-" },
     { header: "Sexe", render: (student) => student.sexe || "-", align: "center" },
     { header: "Classe", render: (student) => formatStudentPdfClassName(student, classes) || "-" },
     { header: "Téléphone", render: (student) => student.phone || "-" },

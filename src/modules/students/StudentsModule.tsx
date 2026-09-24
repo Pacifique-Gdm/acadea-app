@@ -3,7 +3,7 @@ import { Download, Edit3, Eye, Plus, RefreshCw, RotateCcw, Search, Trash2 } from
 import { StudentForm } from "../../components/students/StudentForm";
 import { AdminDrawer, IconButton, SectionTitle } from "../../components/ui";
 import { persistFirestorePatch } from "../../services/firestoreData";
-import { linkParentToStudent, provisionParent, requestTerminalStudentReenrollment, unlinkParentFromStudent } from "../../services/provisioning";
+import { createSchoolSubclasses, linkParentToStudent, provisionParent, requestSchoolSubclassDeletion, requestTerminalStudentReenrollment, unlinkParentFromStudent } from "../../services/provisioning";
 import { createAuditLog } from "../../utils/audit";
 import { nextParentEmail, parentEmailExists } from "../../utils/parents";
 import { applyParentLinkResult, applyParentUnlinkResult, PARENT_LINK_CONFIRMATION, PARENT_UNLINK_CONFIRMATION, studentBeforeParentMutation } from "../../utils/parentStudentLink";
@@ -16,7 +16,7 @@ import { exportStudentsPdf } from "../../utils/studentPdf";
 import type { AppData, AppUser, ParentProfile, School, SchoolSection, SchoolYear, Student } from "../../types";
 import { CLASSES } from "../../types";
 import type { SchoolClassRecord } from "../../types";
-import { activeSubclasses, createSchoolSubclasses, formatOperationalStudentClassName, resolveStudentParentClass, schoolClassOptionKey, secondarySubclassesForOption, studentSchoolClassOptionKey, subscribeToSchoolClasses } from "../../services/schoolSubclasses";
+import { formatOperationalStudentClassName, resolveStudentParentClass, schoolClassOptionKey, studentSchoolClassOptionKey, subscribeToSchoolClasses, validateStudentAcademicSelection } from "../../services/schoolSubclasses";
 import { canonicalAnnualClassName, isEligibleForAnnualTransition, studentImportKey } from "../../utils/studentYearTransition.js";
 import { useStudentPage } from "../../hooks/useStudentPage";
 import { loadAllStudentResults, nextStudentMatricule, STUDENT_SOURCE_PAGE_SIZE, type StudentQueryFilters } from "../../services/studentPagination";
@@ -86,6 +86,7 @@ export function StudentsModule({
   const saveInProgressRef = useRef(false);
   const [showForm, setShowForm] = useState(false);
   const [structuredClasses, setStructuredClasses] = useState<SchoolClassRecord[]>([]);
+  const [structuredClassesLoaded, setStructuredClassesLoaded] = useState(false);
   const [archiveStudentId, setArchiveStudentId] = useState<string | null>(null);
   const [archiveReason, setArchiveReason] = useState("");
   const [archiveOtherReason, setArchiveOtherReason] = useState("");
@@ -129,7 +130,8 @@ export function StudentsModule({
   };
 
   useEffect(() => {
-    return subscribeToSchoolClasses(school.id, year.id, setStructuredClasses, (cause) => setSaveError(cause.message));
+    setStructuredClassesLoaded(false);
+    return subscribeToSchoolClasses(school.id, year.id, (items) => { setStructuredClasses(items); setStructuredClassesLoaded(true); }, (cause) => { setStructuredClassesLoaded(false); setSaveError(cause.message); });
   }, [school.id, year.id]);
   useEffect(() => {
     if (!canReenrollTerminal || !activeTargetYear) { setActiveYearClasses([]); return; }
@@ -242,15 +244,15 @@ export function StudentsModule({
         setSaveError(validationError);
         return;
       }
+      if (!structuredClassesLoaded) { setSaveError("Chargement des classes en cours. Veuillez réessayer."); return; }
+      const previousStudent = exists ? studentRecords.find((item) => item.id === form.id) : undefined;
+      const academicChanged = !previousStudent || previousStudent.classId !== form.classId
+        || previousStudent.className !== form.className || previousStudent.option !== form.option
+        || previousStudent.subClassId !== form.subClassId || previousStudent.classOptionKey !== form.classOptionKey;
+      const academicError = academicChanged ? validateStudentAcademicSelection(structuredClasses, form, optionChoices) : "";
+      if (academicError) { setSaveError(academicError); return; }
       const selectedClass = resolveStudentParentClass(structuredClasses, form);
       const selectedOptionKey = studentSchoolClassOptionKey(structuredClasses, form);
-      const selectedSubclasses = selectedClass
-        ? getClassSection(form.className) === "Secondaire"
-          ? secondarySubclassesForOption(structuredClasses, selectedClass.id, selectedOptionKey, form.subClassId)
-          : activeSubclasses(structuredClasses, selectedClass.id)
-        : [];
-      if (selectedSubclasses.length >= 2 && !form.subClassId) { setSaveError("La sous-classe est obligatoire pour cette option subdivisée."); return; }
-      if (form.subClassId && !selectedSubclasses.some((item) => item.id === form.subClassId)) { setSaveError("La sous-classe sélectionnée n’appartient pas à cette classe."); return; }
       const selectedParentId = form.parentId?.trim() ?? "";
       const pendingParentForStudent = pendingQuickParent?.parentId === selectedParentId ? pendingQuickParent : undefined;
       const matchingParents = data.parents.filter((parent) => parent.id === selectedParentId && parent.schoolId === school.id);
@@ -268,6 +270,8 @@ export function StudentsModule({
       const matricule = exists ? form.matricule : generatedMatricule || generateMatricule(studentRecords, targetYearName, school.id, targetYearId);
       const student = studentForPersistence({
         ...form,
+        prenom: form.prenom?.trim() ?? "",
+        address: form.address?.trim() ?? "",
         id: exists ? form.id : uid("student"),
         option: form.option ? canonicalSchoolOption(form.option) : undefined,
         matricule,
@@ -731,7 +735,8 @@ export function StudentsModule({
             canCreateParent={studentCapabilities.canCreateParent}
           canAddOption={studentCapabilities.canManageOptions}
           structuredClasses={structuredClasses}
-          onAddSubclasses={(parent, labels, classOptionKey) => createSchoolSubclasses({ user, schoolYearId: year.id, parent, labels, classOptionKey, existing: structuredClasses })}
+          onAddSubclasses={(parent, labels, classOptionKey, confirmation) => createSchoolSubclasses({ schoolId: school.id, schoolYearId: year.id, parentId: parent.id, parentName: parent.name, labels, classOptionKey, confirmation }).then(() => undefined)}
+          onDeleteSubclass={(subclass, confirmation) => requestSchoolSubclassDeletion({ schoolId: school.id, schoolYearId: year.id, subclassId: subclass.id, confirmation }).then(() => undefined)}
           />
         </AdminDrawer>
       )}

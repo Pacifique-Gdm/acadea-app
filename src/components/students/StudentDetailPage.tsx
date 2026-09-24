@@ -204,7 +204,7 @@ export function StudentDetailPage({
       <article className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
           <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded bg-slate-100 text-2xl font-bold text-ink">
-            {student.photoUrl ? <img src={student.photoUrl} alt="" className="h-full w-full object-cover" /> : student.prenom.slice(0, 1)}
+            {student.photoUrl ? <img src={student.photoUrl} alt="" className="h-full w-full object-cover" /> : (student.prenom?.slice(0, 1) || student.nom?.slice(0, 1) || "?")}
           </div>
           <div className="min-w-0">
             <h1 className="break-words text-2xl font-bold text-ink">{student.nom} {student.postnom} {student.prenom}</h1>

@@ -1,7 +1,7 @@
-import { collection, doc, onSnapshot, query, where, writeBatch } from "@firebase/firestore";
+import { collection, onSnapshot, query, where } from "@firebase/firestore";
 import type { Firestore } from "@firebase/firestore";
 import { db } from "../firebase";
-import type { AppUser, SchoolClassRecord, SchoolSection, Student } from "../types";
+import type { SchoolClassRecord, SchoolSection, Student } from "../types";
 import { formatStudentClassName, getClassSection } from "../utils/studentClasses";
 import { normalizeSchoolSection } from "../utils/schoolSections";
 import { operationalBaseClassId, operationalClassOptionKey } from "../utils/studentYearTransition.js";
@@ -284,9 +284,39 @@ export function classesWithEnrolledStudents(classes: SchoolClassRecord[], studen
 
 export function validateSubclassLabels(labels: string[]) {
   const clean = labels.map((label) => label.trim()).filter(Boolean);
-  if (clean.length < 2) return "Une subdivision doit contenir au moins deux sous-classes.";
-  const normalized = clean.map((label) => label.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase());
+  if (clean.length < 1) return "Saisissez au moins une sous-classe.";
+  const normalized = clean.map((label) => normalizedClassName(label).replace(/\s+/g, " "));
   if (new Set(normalized).size !== normalized.length) return "Les libellés des sous-classes doivent être uniques.";
+  return "";
+}
+
+export function validateSubclassCreation(labels: string[], existing: SchoolClassRecord[], parent: SchoolClassRecord, classOptionKey?: string) {
+  const error = validateSubclassLabels(labels);
+  if (error) return error;
+  const normalizedExisting = new Set(existing.filter((item) => item.schoolId === parent.schoolId
+    && item.schoolYearId === parent.schoolYearId && item.parentClassId === parent.id
+    && item.active !== false && (item.classOptionKey ?? "") === (classOptionKey ?? ""))
+    .map((item) => normalizedClassName(item.subClassLabel ?? "").replace(/\s+/g, " ")));
+  return labels.some((label) => normalizedExisting.has(normalizedClassName(label).replace(/\s+/g, " ")))
+    ? "Cette sous-classe existe déjà." : "";
+}
+
+export function validateStudentAcademicSelection(
+  classes: SchoolClassRecord[],
+  student: EnrolledStudentClassReference & { option?: string; classOptionKey?: string; className: string },
+  availableOptions: string[],
+) {
+  const parent = resolveStudentParentClass(classes, student);
+  const isHumanity = /Humanit[ée]s?/i.test(student.className);
+  const option = student.option?.trim() ?? "";
+  if (isHumanity && !option) return "L’option est obligatoire pour cette classe des Humanités.";
+  if (option && !availableOptions.some((choice) => normalizedClassName(choice) === normalizedClassName(option))) return "L’option sélectionnée n’est pas disponible pour cette école.";
+  const optionKey = studentSchoolClassOptionKey(classes, student);
+  const subclasses = parent ? classes.filter((item) => item.schoolId === student.schoolId
+    && item.schoolYearId === student.schoolYearId && item.parentClassId === parent.id && item.active !== false
+    && ((isHumanity && item.classOptionKey === optionKey) || (!isHumanity && !item.classOptionKey))) : [];
+  if (subclasses.length && !student.subClassId) return "La sous-classe est obligatoire pour cette classe subdivisée.";
+  if (student.subClassId && !subclasses.some((item) => item.id === student.subClassId)) return "La sous-classe sélectionnée n’appartient pas à cette classe ou option.";
   return "";
 }
 
@@ -299,26 +329,4 @@ export function subscribeToSchoolClasses(schoolId: string, schoolYearId: string,
   return onSnapshot(query(collection(db as Firestore, "classes"), where("schoolId", "==", schoolId), where("schoolYearId", "==", schoolYearId)), (snapshot) => {
     onData(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as SchoolClassRecord));
   }, onError);
-}
-
-export async function createSchoolSubclasses(input: { user: AppUser; schoolYearId: string; parent: SchoolClassRecord; labels: string[]; existing: SchoolClassRecord[]; classOptionKey?: string }) {
-  if (!db || !["school_admin", "secretary"].includes(input.user.role) || input.user.schoolId !== input.parent.schoolId) throw new Error("Création de sous-classes non autorisée.");
-  if (!input.user.schoolId || !subclassCreationScopeIsValid(input.parent, input.user.schoolId, input.schoolYearId)) throw new Error("L’année scolaire de la classe est incohérente.");
-  const error = validateSubclassLabels(input.labels);
-  if (error) throw new Error(error);
-  if (input.parent.parentClassId) throw new Error("Une sous-classe ne peut pas être subdivisée.");
-  const normalizedExisting = new Set(activeSubclasses(input.existing, input.parent.id, input.classOptionKey).map((item) => item.subClassLabel?.trim().toLocaleLowerCase()));
-  const labels = input.labels.map((label) => label.trim());
-  if (labels.some((label) => normalizedExisting.has(label.toLocaleLowerCase()))) throw new Error("Cette sous-classe existe déjà.");
-  const database = db as Firestore;
-  const batch = writeBatch(database);
-  const now = new Date().toISOString();
-  if (!input.existing.some((item) => item.id === input.parent.id)) {
-    batch.set(doc(database, "classes", input.parent.id), { id: input.parent.id, schoolId: input.parent.schoolId, schoolYearId: input.parent.schoolYearId, name: input.parent.name, active: true, createdBy: input.user.id, createdAt: now, updatedAt: now });
-  }
-  labels.forEach((label) => {
-    const id = `${input.parent.id}__${crypto.randomUUID()}`;
-    batch.set(doc(database, "classes", id), { id, schoolId: input.parent.schoolId, schoolYearId: input.parent.schoolYearId, name: `${input.parent.name}${input.classOptionKey ? ` - ${input.classOptionKey.split("::").at(-1)}` : ""} - ${label}`, parentClassId: input.parent.id, ...(input.classOptionKey ? { classOptionKey: input.classOptionKey } : {}), subClassLabel: label, active: true, createdBy: input.user.id, createdAt: now, updatedAt: now });
-  });
-  await batch.commit();
 }

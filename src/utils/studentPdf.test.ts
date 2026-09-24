@@ -31,4 +31,10 @@ describe("identité opérationnelle dans les PDF élèves", () => {
     expect(formatStudentPdfClassName(student, classes)).toBe("1ère Humanité");
     expect(formatStudentPdfOptionName(student, classes)).toBe("Littéraire A");
   });
+  it("revient au parent et à l'option après désactivation d'une sous-classe sans référence fantôme", () => {
+    const inactive = classes.map((item) => item.id === "literary-a" ? { ...item, active: false } : item);
+    const student = { schoolId: "school-a", schoolYearId: "year-a", classId: "humanity", className: "1ère Humanité", option: "Littéraire" } as Student;
+    expect(formatStudentPdfClassName(student, inactive)).toBe("1ère Humanité");
+    expect(formatStudentPdfOptionName(student, inactive)).toBe("Littéraire");
+  });
 });

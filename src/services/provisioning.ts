@@ -164,6 +164,28 @@ export async function deleteParentAccount(input: DeleteParentAccountInput) {
   return payload;
 }
 
+export async function requestSchoolSubclassDeletion(input: { schoolId: string; schoolYearId: string; subclassId: string; confirmation: string }) {
+  const payload = await provisionSchoolAccount<{ subclassId?: string; updatedStudents?: number; status?: "deactivated" | "already-inactive" }>({
+    action: "delete-school-subclass",
+    ...input,
+  }, { showEndpointOnNotFound: true });
+  if (payload.subclassId !== input.subclassId || typeof payload.updatedStudents !== "number" || !payload.status) {
+    throw new Error("Réponse de suppression de sous-classe incomplète.");
+  }
+  return payload;
+}
+
+export async function createSchoolSubclasses(input: { schoolId: string; schoolYearId: string; parentId: string; parentName: string; labels: string[]; classOptionKey?: string; confirmation: string }) {
+  const payload = await provisionSchoolAccount<{ parentId?: string; subclassIds?: string[] }>({
+    action: "create-school-subclasses",
+    ...input,
+  }, { showEndpointOnNotFound: true });
+  if (payload.parentId !== input.parentId || !Array.isArray(payload.subclassIds) || payload.subclassIds.length !== input.labels.length) {
+    throw new Error("Réponse de création de sous-classe incomplète.");
+  }
+  return payload;
+}
+
 export type ArchivedStudentsImportStatus = {
   status: "empty" | "ready" | "partial" | "legacy-incomplete" | "complete";
   sourceCount: number; uniqueCount?: number; importedCount: number; existingCount: number;
