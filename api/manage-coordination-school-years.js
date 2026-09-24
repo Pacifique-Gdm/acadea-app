@@ -7,8 +7,8 @@ const CONFIRMATIONS = { close: "CLOTURER LES ANNEES SCOLAIRES", reactivate: "REA
 
 function sendJson(res, status, body) { res.statusCode = status; res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(body)); }
 function text(value, max = 160) { return String(value ?? "").trim().slice(0, max); }
-function parseJsonBody(raw) { try { return JSON.parse(raw || "{}"); } catch { throw coordinationHttpError(400, "invalid-argument", "Corps JSON invalide."); } }
-async function readBody(req) { if (req.body && typeof req.body === "object") return req.body; if (typeof req.body === "string") return parseJsonBody(req.body); const parts = []; for await (const part of req) parts.push(part); return parseJsonBody(Buffer.concat(parts).toString("utf8")); }
+function parseJsonBody(raw) { try { const parsed = JSON.parse(raw || "{}"); if (parsed && typeof parsed === "object") return parsed; } catch { /* réponse uniforme ci-dessous */ } throw coordinationHttpError(400, "invalid-argument", "Corps JSON invalide."); }
+async function readBody(req) { if (req.body === null) throw coordinationHttpError(400, "invalid-argument", "Corps JSON invalide."); if (req.body && typeof req.body === "object") return req.body; if (typeof req.body === "string") return parseJsonBody(req.body); const parts = []; for await (const part of req) parts.push(part); return parseJsonBody(Buffer.concat(parts).toString("utf8")); }
 
 async function loadScope(db, caller, transaction) {
   const read = (target) => transaction ? transaction.get(target) : target.get();
@@ -125,6 +125,7 @@ export default async function handler(req, res) {
     return sendJson(res, 200, await mutateYears(db, caller, input, action));
   } catch (error) {
     if (sendRateLimitError(res, error)) return;
+    if (error?.statusCode === 400 && !error?.code) return sendJson(res, 400, { error: "invalid-argument", message: "Corps JSON invalide." });
     const status = Number(error?.statusCode) || 500;
     return sendJson(res, status, { error: status >= 500 ? "server-error" : error.code, message: status >= 500 ? "Gouvernance des années impossible." : error.message });
   }

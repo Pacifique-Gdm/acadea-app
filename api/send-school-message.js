@@ -20,12 +20,14 @@ function sendJson(res, statusCode, body) {
   res.end(JSON.stringify(body));
 }
 
+function parseJsonBody(raw) { try { const parsed = JSON.parse(raw || "{}"); if (parsed && typeof parsed === "object") return parsed; } catch { /* réponse uniforme ci-dessous */ } throw httpError(400, "invalid-argument", "Corps JSON invalide."); }
 async function readBody(req) {
+  if (req.body === null) throw httpError(400, "invalid-argument", "Corps JSON invalide.");
   if (req.body && typeof req.body === "object") return req.body;
-  if (typeof req.body === "string") return JSON.parse(req.body || "{}");
+  if (typeof req.body === "string") return parseJsonBody(req.body);
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
-  return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+  return parseJsonBody(Buffer.concat(chunks).toString("utf8"));
 }
 
 function text(value, max = 2000) {
@@ -199,6 +201,7 @@ export default async function handler(req, res) {
     sendJson(res, 200, { message: savedMessage });
   } catch (error) {
     if (sendRateLimitError(res, error)) return;
+    if (error?.statusCode === 400 && !error?.code) return sendJson(res, 400, { error: "invalid-argument", message: "Corps JSON invalide." });
     if (finalPaths.length || temporaryPaths.length) {
       try {
         const { bucket } = initAdmin();

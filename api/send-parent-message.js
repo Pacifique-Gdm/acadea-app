@@ -9,14 +9,16 @@ import { allowedRecipientRoles, normalizedMessagingRole } from "./_lib/messageRe
 const messageLimit = 3;
 const quotaWindowMs = 12 * 60 * 60 * 1000;
 
+function parseJsonBody(raw) { try { const parsed = JSON.parse(raw || "{}"); if (parsed && typeof parsed === "object") return parsed; } catch { /* réponse uniforme ci-dessous */ } throw Object.assign(new Error("Corps JSON invalide."), { statusCode: 400, code: "invalid-argument" }); }
 async function readBody(req) {
+  if (req.body === null) throw Object.assign(new Error("Corps JSON invalide."), { statusCode: 400, code: "invalid-argument" });
   if (req.body && typeof req.body === "object") return req.body;
-  if (typeof req.body === "string") return JSON.parse(req.body || "{}");
+  if (typeof req.body === "string") return parseJsonBody(req.body);
 
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
   const rawBody = Buffer.concat(chunks).toString("utf8");
-  return rawBody ? JSON.parse(rawBody) : {};
+  return parseJsonBody(rawBody);
 }
 
 function sendJson(res, statusCode, body) {
@@ -171,6 +173,7 @@ async function currentQuota({ db, caller, schoolYearId, now = new Date() }) {
 }
 
 function publicError(error) {
+  if (error?.statusCode === 400 && !error?.code) return { statusCode: 400, body: { error: "invalid-argument", message: "Corps JSON invalide." } };
   if (error?.code === "unauthenticated") return { statusCode: 401, body: { error: "unauthenticated", message: error.message } };
   if (error?.code === "quota-exceeded") return { statusCode: 429, body: { error: "quota-exceeded", message: "Vous avez atteint la limite de 3 messages pour 12 heures." } };
   if (error?.code === "not-authorized") return { statusCode: error.statusCode ?? 403, body: { error: "not-authorized", message: "Action non autorisee." } };

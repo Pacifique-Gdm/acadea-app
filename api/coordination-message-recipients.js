@@ -7,8 +7,8 @@ const ALLOWED_ROLES = new Set(["school_admin", "discipline_director", "study_dir
 function sendJson(res, status, body) { res.statusCode = status; res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(body)); }
 function text(value, max = 5000) { return String(value ?? "").trim().slice(0, max); }
 function stableId(prefix, ...parts) { return `${prefix}-${createHash("sha256").update(parts.join("\u001f")).digest("hex").slice(0, 24)}`; }
-function parseJsonBody(raw) { try { return JSON.parse(raw || "{}"); } catch { throw coordinationHttpError(400, "invalid-argument", "Corps JSON invalide."); } }
-async function readBody(req) { if (req.body && typeof req.body === "object") return req.body; if (typeof req.body === "string") return parseJsonBody(req.body); const parts = []; for await (const part of req) parts.push(part); return parseJsonBody(Buffer.concat(parts).toString("utf8")); }
+function parseJsonBody(raw) { try { const parsed = JSON.parse(raw || "{}"); if (parsed && typeof parsed === "object") return parsed; } catch { /* réponse uniforme ci-dessous */ } throw coordinationHttpError(400, "invalid-argument", "Corps JSON invalide."); }
+async function readBody(req) { if (req.body === null) throw coordinationHttpError(400, "invalid-argument", "Corps JSON invalide."); if (req.body && typeof req.body === "object") return req.body; if (typeof req.body === "string") return parseJsonBody(req.body); const parts = []; for await (const part of req) parts.push(part); return parseJsonBody(Buffer.concat(parts).toString("utf8")); }
 
 async function loadRecipients(req, res, db, caller) {
   const schoolIds = await resolveCoordinationSchoolScope(db, caller);
@@ -85,6 +85,7 @@ export default async function handler(req, res) {
     return await (req.method === "GET" ? loadRecipients(req, res, db, caller) : sendMessage(req, res, db, caller));
   } catch (error) {
     if (sendRateLimitError(res, error)) return;
+    if (error?.statusCode === 400 && !error?.code) return sendJson(res, 400, { error: "invalid-argument", message: "Corps JSON invalide." });
     const status = Number(error?.statusCode) || 500;
     return sendJson(res, status, { error: error?.code || "server-error", message: status >= 500 ? (req.method === "GET" ? "Destinataires indisponibles." : "Message non envoyé.") : error.message });
   }

@@ -4,11 +4,13 @@ import { authorizeFinancialCaller, executeFinancialOperation, FinancialApiError 
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 
 function parseJsonBody(raw) {
-  try { return JSON.parse(raw || "{}"); }
-  catch { throw new FinancialApiError(400, "invalid-argument", "Corps JSON invalide."); }
+  try { const parsed = JSON.parse(raw || "{}"); if (parsed && typeof parsed === "object") return parsed; }
+  catch { /* réponse uniforme ci-dessous */ }
+  throw new FinancialApiError(400, "invalid-argument", "Corps JSON invalide.");
 }
 
 async function readBody(req) {
+  if (req.body === null) throw new FinancialApiError(400, "invalid-argument", "Corps JSON invalide.");
   if (req.body && typeof req.body === "object") {
     if (Buffer.byteLength(JSON.stringify(req.body), "utf8") > 64 * 1024) throw new FinancialApiError(400, "invalid-argument", "Requête financière trop volumineuse.");
     return req.body;
@@ -54,6 +56,7 @@ export default async function handler(req, res) {
   } catch (error) {
     if (sendRateLimitError(res, error)) return;
     if (error instanceof FinancialApiError) return sendJson(res, error.status, { error: error.message, code: error.code });
+    if (error?.statusCode === 400 && !error?.code) return sendJson(res, 400, { error: "Corps JSON invalide.", code: "invalid-argument" });
     if (error?.statusCode === 401) return sendJson(res, 401, { error: error.message, code: error.code });
     if (error?.statusCode === 403 && error?.code === "permission-denied") return sendJson(res, 403, { error: error.message, code: error.code });
     console.error("[Acadéa finance] Opération financière échouée.", { code: typeof error?.code === "string" ? error.code : "internal" });

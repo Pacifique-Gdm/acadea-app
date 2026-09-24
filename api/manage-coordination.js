@@ -8,11 +8,13 @@ export const maxDuration = 300;
 
 function sendJson(res, status, body) { res.statusCode = status; res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(body)); }
 function text(value) { return String(value ?? "").trim(); }
+function parseJsonBody(raw) { try { const parsed = JSON.parse(raw || "{}"); if (parsed && typeof parsed === "object") return parsed; } catch { /* réponse uniforme ci-dessous */ } throw Object.assign(new Error("Corps JSON invalide."), { statusCode: 400, code: "invalid-argument" }); }
 async function body(req) {
+  if (req.body === null) throw Object.assign(new Error("Corps JSON invalide."), { statusCode: 400, code: "invalid-argument" });
   if (req.body && typeof req.body === "object") return req.body;
-  if (typeof req.body === "string") return JSON.parse(req.body || "{}");
+  if (typeof req.body === "string") return parseJsonBody(req.body);
   const chunks = []; for await (const chunk of req) chunks.push(chunk);
-  return chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
+  return chunks.length ? parseJsonBody(Buffer.concat(chunks).toString("utf8")) : {};
 }
 
 function bearerToken(req) {
@@ -438,6 +440,7 @@ export default async function handler(req, res) {
     throw Object.assign(new Error("Action invalide."), { statusCode: 400, code: "invalid-argument" });
   } catch (error) {
     if (sendRateLimitError(res, error)) return;
+    if (error?.statusCode === 400 && !error?.code) return sendJson(res, 400, { error: "Corps JSON invalide.", code: "invalid-argument" });
     const status = Number(error?.statusCode) || 500;
     if (status < 500) return sendJson(res, status, { error: error.message, code: error?.code || "invalid-request" });
     const diagnostic = firebaseAdminPublicError(error, "manage-coordination");

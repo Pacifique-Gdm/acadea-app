@@ -24,14 +24,16 @@ function normalizeSchoolSection(value) {
   return undefined;
 }
 
+function parseJsonBody(raw) { try { const parsed = JSON.parse(raw || "{}"); if (parsed && typeof parsed === "object") return parsed; } catch { /* réponse uniforme ci-dessous */ } throw Object.assign(new Error("Corps JSON invalide."), { statusCode: 400, code: "invalid-argument" }); }
 async function readBody(req) {
+  if (req.body === null) throw Object.assign(new Error("Corps JSON invalide."), { statusCode: 400, code: "invalid-argument" });
   if (req.body && typeof req.body === "object") return req.body;
-  if (typeof req.body === "string") return JSON.parse(req.body || "{}");
+  if (typeof req.body === "string") return parseJsonBody(req.body);
 
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
   const rawBody = Buffer.concat(chunks).toString("utf8");
-  return rawBody ? JSON.parse(rawBody) : {};
+  return parseJsonBody(rawBody);
 }
 
 function sendJson(res, statusCode, body) {
@@ -854,6 +856,7 @@ export default async function handler(req, res) {
     }
 
     if (sendRateLimitError(res, error)) return;
+    if (error?.statusCode === 400 && !error?.code) return sendJson(res, 400, { error: "Corps JSON invalide.", code: "invalid-argument" });
     const statusCode = typeof error?.statusCode === "number"
       ? error.statusCode
       : error?.code === "auth/email-already-exists"

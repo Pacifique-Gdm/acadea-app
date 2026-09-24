@@ -59,4 +59,26 @@ describe("gouvernance annuelle Sous-coordinateur", () => {
     expect(res.statusCode).toBe(400);
     expect(res.body).toMatchObject({ error: "invalid-argument" });
   });
+
+  it.each([
+    ["années scolaires", handler],
+    ["messagerie", messageRecipientsHandler],
+  ])("traduit le getter JSON invalide de Vercel pour %s", async (_name, endpoint) => {
+    const req = { method: "POST", headers: { authorization: "Bearer staging-token" } };
+    Object.defineProperty(req, "body", { get() { throw Object.assign(new Error("Invalid JSON"), { statusCode: 400 }); } });
+    const res = response();
+    await endpoint(req, res);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ error: "invalid-argument" });
+  });
+
+  it.each([
+    ["années scolaires", handler],
+    ["messagerie", messageRecipientsHandler],
+  ])("refuse le JSON null pour %s", async (_name, endpoint) => {
+    const res = response();
+    await endpoint({ method: "POST", headers: { authorization: "Bearer staging-token" }, body: null }, res);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ error: "invalid-argument" });
+  });
 });

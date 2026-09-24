@@ -3,11 +3,12 @@ import { describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   verifyIdToken: vi.fn().mockRejectedValue(Object.assign(new Error("Invalid token"), { code: "auth/invalid-id-token" })),
   enforceApiRateLimit: vi.fn().mockResolvedValue(undefined),
+  profileData: {} as Record<string, unknown>,
 }));
 
 vi.mock("../api/_lib/firebaseAdmin.js", async (importOriginal) => ({
   ...await importOriginal(),
-  initAdmin: () => ({ auth: { verifyIdToken: mocks.verifyIdToken }, db: { doc: () => ({ get: async () => ({ exists: true, data: () => ({ status: "active", active: true }) }) }) } }),
+  initAdmin: () => ({ auth: { verifyIdToken: mocks.verifyIdToken }, db: { doc: () => ({ get: async () => ({ exists: true, data: () => ({ status: "active", active: true, ...mocks.profileData }) }) }) } }),
 }));
 
 vi.mock("../api/_lib/rateLimit.js", async (importOriginal) => ({
@@ -98,5 +99,58 @@ describe("corps JSON malformé des API protégées", () => {
     await handler({ method: "POST", headers: { authorization: "Bearer valid-token" }, body: "{" }, res);
     expect(res.statusCode).toBe(400);
     expect(res.body).toMatchObject({ code: "invalid-argument" });
+  });
+
+  it.each([
+    ["manage-financial-transaction", manageFinance, "school_admin"],
+    ["manage-school", manageSchool, "super_admin"],
+    ["manage-teacher-availability-request", manageAvailability, "study_director"],
+    ["manage-teacher-grading", manageGrading, "teacher"],
+    ["provision-school-admin", provisionAdmin, "super_admin"],
+  ])("%s traite le getter JSON invalide du runtime Vercel", async (_name, handler, role) => {
+    mocks.verifyIdToken.mockResolvedValueOnce({ uid: "e2e-user", role, schoolId: "school-a" });
+    const req = { method: "POST", headers: { authorization: "Bearer valid-token" } };
+    Object.defineProperty(req, "body", { get() { throw Object.assign(new Error("Invalid JSON"), { statusCode: 400 }); } });
+    const res = response();
+    await handler(req, res);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ code: "invalid-argument" });
+  });
+
+  it.each([
+    ["manage-financial-transaction", manageFinance, "school_admin"],
+    ["manage-school", manageSchool, "super_admin"],
+    ["provision-school-account", provisionAccount, "school_admin"],
+  ])("%s refuse le JSON null sans erreur serveur", async (_name, handler, role) => {
+    mocks.verifyIdToken.mockResolvedValueOnce({ uid: "e2e-user", role, schoolId: "school-a" });
+    const res = response();
+    await handler({ method: "POST", headers: { authorization: "Bearer valid-token" }, body: null }, res);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ code: "invalid-argument" });
+  });
+
+  it("manage-coordination refuse le JSON null avant la vérification du jeton", async () => {
+    const res = response();
+    await manageCoordination({ method: "POST", headers: { authorization: "Bearer valid-token" }, body: null }, res);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ code: "invalid-argument" });
+  });
+
+  it.each([
+    ["send-parent-message", sendParentMessage, "parent"],
+    ["send-school-message", sendSchoolMessage, "school_admin"],
+  ])("%s refuse JSON null et le getter invalide sans 500", async (_name, handler, role) => {
+    mocks.profileData = { role, schoolId: "school-a", parentId: "parent-a" };
+    try {
+      for (const body of [null, "{"]) {
+        mocks.verifyIdToken.mockResolvedValueOnce({ uid: "e2e-user", role, schoolId: "school-a", parentId: "parent-a" });
+        const res = response();
+        await handler({ method: "POST", headers: { authorization: "Bearer valid-token" }, body }, res);
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toMatchObject({ error: "invalid-argument" });
+      }
+    } finally {
+      mocks.profileData = {};
+    }
   });
 });
