@@ -19,14 +19,14 @@ function fixture(siblings: Array<{ id: string; schoolId?: string; schoolYearId?:
     collection: vi.fn(() => ({ where: (field: string) => ({ field }) })),
     runTransaction: vi.fn((callback: (value: unknown) => unknown) => callback(transaction)),
   };
-  const input = { db, caller: { uid: "actor", role: "secretary", schoolId: "school-a" }, body: { schoolId: "school-a", schoolYearId: "year-a", parentId: "parent", parentName, labels: ["B"], confirmation: "AJOUTER CETTE SOUS-CLASSE" } };
+  const input = { db, caller: { uid: "actor", role: "secretary", schoolId: "school-a" }, body: { schoolId: "school-a", schoolYearId: "year-a", parentId: "parent", parentName, labels: ["A"], confirmation: "AJOUTER CETTE SOUS-CLASSE" } };
   return { input, transaction, db };
 }
 
 describe("création serveur de sous-classes", () => {
   it("ajoute B après A sans dupliquer A", async () => {
     const { input, transaction } = fixture([{ id: "a", subClassLabel: "A" }]);
-    await expect(createSchoolSubclasses(input)).resolves.toMatchObject({ parentId: "parent", subclassIds: [expect.any(String)] });
+    await expect(createSchoolSubclasses({ ...input, body: { ...input.body, labels: ["B"] } })).resolves.toMatchObject({ parentId: "parent", subclassIds: [expect.any(String)] });
     expect(transaction.create).toHaveBeenCalledTimes(1);
     expect(transaction.create.mock.calls[0]?.[1]).toMatchObject({ subClassLabel: "B", parentClassId: "parent", schoolId: "school-a", schoolYearId: "year-a" });
   });
@@ -61,8 +61,8 @@ describe("création serveur de sous-classes", () => {
     expect(transaction.create).not.toHaveBeenCalled();
   });
   it("réactive l'identité historique d'une sous-classe supprimée sans doublon", async () => {
-    const { input, transaction } = fixture([{ id: "old-b", subClassLabel: "B", active: false }]);
-    await expect(createSchoolSubclasses(input)).resolves.toMatchObject({ subclassIds: ["old-b"] });
+    const { input, transaction } = fixture([{ id: "a", subClassLabel: "A" }, { id: "old-b", subClassLabel: "B", active: false }]);
+    await expect(createSchoolSubclasses({ ...input, body: { ...input.body, labels: ["B"] } })).resolves.toMatchObject({ subclassIds: ["old-b"] });
     expect(transaction.update).toHaveBeenCalledWith(expect.objectContaining({ path: "classes/old-b" }), expect.objectContaining({ active: true }));
     expect(transaction.create).not.toHaveBeenCalled();
   });
@@ -75,5 +75,12 @@ describe("création serveur de sous-classes", () => {
     const { input, db } = fixture();
     await expect(createSchoolSubclasses({ ...input, caller: { ...input.caller, schoolId: "school-b" } })).rejects.toMatchObject({ code: "permission-denied" });
     expect(db.runTransaction).not.toHaveBeenCalled();
+  });
+  it("n'accepte ni nom libre ni saut de la prochaine lettre, mais permet A/B en une opération", async () => {
+    const { input, transaction } = fixture();
+    await expect(createSchoolSubclasses({ ...input, body: { ...input.body, labels: ["Rouge"] } })).rejects.toMatchObject({ code: "invalid-subclass-label" });
+    await expect(createSchoolSubclasses({ ...input, body: { ...input.body, labels: ["C"] } })).rejects.toMatchObject({ code: "invalid-subclass-sequence" });
+    await expect(createSchoolSubclasses({ ...input, body: { ...input.body, labels: ["A", "B"] } })).resolves.toMatchObject({ subclassIds: [expect.any(String), expect.any(String)] });
+    expect(transaction.create).toHaveBeenCalledTimes(2);
   });
 });

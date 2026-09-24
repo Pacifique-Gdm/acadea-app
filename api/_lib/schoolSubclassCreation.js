@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { requireActiveSchoolYear } from "./schoolYear.js";
+import { isCanonicalSubclassLetter, nextSubclassLetters } from "../../src/utils/subclassLetters.js";
 
 const confirmationText = "AJOUTER CETTE SOUS-CLASSE";
 
@@ -75,6 +76,9 @@ export async function createSchoolSubclasses({ db, caller, body }) {
     if (labels.some((label) => siblings.some((snapshot) => snapshot.data().active !== false && normalized(snapshot.data().subClassLabel) === normalized(label)))) {
       reject("Cette sous-classe existe déjà.", 409, "duplicate-subclass");
     }
+    if (labels.some((label) => !isCanonicalSubclassLetter(label))) reject("Les sous-classes doivent porter des lettres majuscules automatiques.", 400, "invalid-subclass-label");
+    const expectedLabels = nextSubclassLetters(siblings.filter((snapshot) => snapshot.data().active !== false).map((snapshot) => snapshot.data().subClassLabel), labels.length);
+    if (labels.some((label, index) => label !== expectedLabels[index])) reject("La prochaine lettre de sous-classe a changé. Rouvrez le formulaire.", 409, "invalid-subclass-sequence");
     const now = new Date().toISOString();
     if (!parent) transaction.create(parentRef, { id: parentId, schoolId, schoolYearId, name: parentName, active: true, createdBy: caller.uid, createdAt: now, updatedAt: now });
     const ids = labels.map((label) => {

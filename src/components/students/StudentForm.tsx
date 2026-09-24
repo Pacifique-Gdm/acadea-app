@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, Fingerprint, Plus, Radio, X } from "lucide-react";
 import { Field, ImageUploadField, PasswordField } from "../ui";
 import { cardStatusLabels, fingerprintStatusLabels, resolveStudentBiometric } from "../../utils/biometrics";
 import { getClassSection } from "../../utils/studentClasses";
 import { resolveStudentParentClass, schoolClassRecordId, secondarySubclassesForOption, studentSchoolClassOptionKey, validateSubclassCreation } from "../../services/schoolSubclasses";
+import { nextSubclassLetters } from "../../utils/subclassLetters.js";
 import type { ParentProfile, SchoolClass, SchoolClassRecord, Student } from "../../types";
 
 export function StudentForm({
@@ -56,8 +57,8 @@ export function StudentForm({
   const [showCardMessage, setShowCardMessage] = useState(false);
   const [fingerprintMessageTrigger, setFingerprintMessageTrigger] = useState(0);
   const [cardMessageTrigger, setCardMessageTrigger] = useState(0);
-  const [subclassOpen, setSubclassOpen] = useState(false);
-  const [subclassLabels, setSubclassLabels] = useState([""]);
+  const [subclassMode, setSubclassMode] = useState<"add" | "delete" | null>(null);
+  const [subclassLabels, setSubclassLabels] = useState<string[]>([]);
   const [subclassError, setSubclassError] = useState("");
   const [subclassAddConfirmation, setSubclassAddConfirmation] = useState("");
   const [subclassAddPending, setSubclassAddPending] = useState(false);
@@ -65,6 +66,7 @@ export function StudentForm({
   const [subclassDeleteTarget, setSubclassDeleteTarget] = useState<SchoolClassRecord>();
   const [subclassDeleteConfirmation, setSubclassDeleteConfirmation] = useState("");
   const [subclassDeletePending, setSubclassDeletePending] = useState(false);
+  const subclassControlsRef = useRef<HTMLDivElement>(null);
   const [parentQuery, setParentQuery] = useState("");
   const normalizedParentQuery = parentQuery.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase("fr");
   const visibleParents = parents.filter((parent) => !normalizedParentQuery || `${parent.fullName} ${parent.phone}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("fr").includes(normalizedParentQuery));
@@ -77,8 +79,49 @@ export function StudentForm({
       ? secondarySubclassesForOption(structuredClasses, selectedClass.id, selectedOptionKey, form.subClassId)
       : structuredClasses.filter((item) => item.parentClassId === selectedClass.id && item.active !== false)
     : [];
+  const existingSubclassLabels = selectedClass ? structuredClasses.filter((item) => item.schoolId === selectedClass.schoolId
+    && item.schoolYearId === selectedClass.schoolYearId && item.parentClassId === selectedClass.id
+    && item.active !== false && (item.classOptionKey ?? "") === (selectedOptionKey ?? ""))
+    .map((item) => item.subClassLabel ?? "") : [];
   const canAddSubclass = Boolean(selectedClass && onAddSubclasses && (!isSecondaryClass || selectedOptionKey));
   const biometric = resolveStudentBiometric(form);
+
+  const resetSubclassContext = useCallback(() => {
+    setSubclassMode(null);
+    setSubclassLabels([]);
+    setSubclassError("");
+    setSubclassAddConfirmation("");
+    setSubclassAddPending(false);
+    setSubclassAddSaving(false);
+    setSubclassDeleteTarget(undefined);
+    setSubclassDeleteConfirmation("");
+    setSubclassDeletePending(false);
+  }, []);
+
+  useEffect(() => { resetSubclassContext(); }, [form.schoolId, form.schoolYearId, form.classId, form.className, selectedOptionKey, resetSubclassContext]);
+
+  useEffect(() => {
+    if (!subclassMode) return undefined;
+    const onOutsidePointerDown = (event: PointerEvent) => {
+      if (subclassAddSaving || subclassDeletePending || subclassControlsRef.current?.contains(event.target as Node)) return;
+      resetSubclassContext();
+    };
+    document.addEventListener("pointerdown", onOutsidePointerDown);
+    return () => document.removeEventListener("pointerdown", onOutsidePointerDown);
+  }, [subclassMode, subclassAddSaving, subclassDeletePending, resetSubclassContext]);
+
+  function toggleAddSubclass() {
+    if (subclassMode === "add") { resetSubclassContext(); return; }
+    resetSubclassContext();
+    setSubclassLabels(nextSubclassLetters(existingSubclassLabels, existingSubclassLabels.length ? 1 : 2));
+    setSubclassMode("add");
+  }
+
+  function toggleDeleteSubclass() {
+    if (subclassMode === "delete") { resetSubclassContext(); return; }
+    resetSubclassContext();
+    setSubclassMode("delete");
+  }
 
   useEffect(() => {
     if (fingerprintMessageTrigger === 0) return undefined;
@@ -124,7 +167,7 @@ export function StudentForm({
       <Field label="Adresse" value={form.address} onChange={(value) => setForm({ ...form, address: value })} />
       <label className="grid gap-1 text-sm font-medium text-slate-700">
         Classe
-        <select value={form.className} onChange={(event) => { const selected = structuredClasses.find((item) => !item.parentClassId && item.active !== false && item.name === event.target.value); setSubclassAddPending(false); setSubclassDeleteTarget(undefined); setForm({ ...form, classId: selected?.id, className: event.target.value as SchoolClass, option: undefined, classOptionKey: undefined, subClassId: undefined }); }} className="input">
+        <select value={form.className} disabled={subclassAddSaving || subclassDeletePending} onChange={(event) => { const selected = structuredClasses.find((item) => !item.parentClassId && item.active !== false && item.name === event.target.value); resetSubclassContext(); setForm({ ...form, classId: selected?.id, className: event.target.value as SchoolClass, option: undefined, classOptionKey: undefined, subClassId: undefined }); }} className="input">
           {classChoices.map((className) => <option key={className} value={className}>{className}</option>)}
         </select>
       </label>
@@ -134,6 +177,7 @@ export function StudentForm({
             Option
             <select
               value={optionChoices.includes(form.option ?? "") ? form.option : ""}
+              disabled={subclassAddSaving || subclassDeletePending}
               onChange={(event) => {
                 if (event.target.value === "__add_option__") {
                   setShowOptionForm(true);
@@ -141,8 +185,7 @@ export function StudentForm({
                 }
                 const option = event.target.value || undefined;
                 const nextForm = { ...form, option, subClassId: undefined };
-                setSubclassAddPending(false);
-                setSubclassDeleteTarget(undefined);
+                resetSubclassContext();
                 setForm({ ...nextForm, classOptionKey: studentSchoolClassOptionKey(structuredClasses, nextForm) });
               }}
               className="input"
@@ -167,14 +210,27 @@ export function StudentForm({
           )}
         </div>
       )}
-      <button type="button" className="secondary-button justify-center" disabled={!canAddSubclass} title={!selectedClass ? "Sélectionnez d’abord une classe principale." : isSecondaryClass && !selectedOptionKey ? "Sélectionnez d’abord une option." : undefined} onClick={() => setSubclassOpen((open) => !open)}><Plus className="h-4 w-4" /> Ajouter sous-classe</button>
       {!selectedClass && <p className="text-xs text-slate-500">Sélectionnez d’abord une classe principale pour ajouter des sous-classes.</p>}
       {selectedClass && isSecondaryClass && !selectedOptionKey && <p className="text-xs text-slate-500">Sélectionnez d’abord une option pour ajouter ou choisir ses sous-classes.</p>}
-      {selectedClass && subclasses.length > 0 && <label className="grid gap-1 text-sm font-medium text-slate-700">Sous-classe <span className="text-red-700">obligatoire</span><select className="input" required value={form.subClassId ?? ""} onChange={(event) => setForm({ ...form, subClassId: event.target.value || undefined })}><option value="">Choisir une sous-classe</option>{subclasses.map((item) => <option key={item.id} value={item.id}>{item.subClassLabel ?? item.name}</option>)}</select></label>}
-      {selectedClass && subclasses.length > 0 && onDeleteSubclass && <ul className="grid gap-1" aria-label="Sous-classes existantes">{subclasses.map((item) => <li key={item.id} className="flex min-w-0 items-center justify-between gap-2 rounded border border-slate-200 p-2 text-sm"><span className="min-w-0 break-words">{item.subClassLabel ?? item.name}</span><button type="button" className="shrink-0 rounded p-1 text-red-700 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-600" aria-label={`Supprimer la sous-classe ${item.subClassLabel ?? item.name}`} onClick={() => { setSubclassDeleteTarget(item); setSubclassDeleteConfirmation(""); setSubclassError(""); }}><X className="h-4 w-4" /></button></li>)}</ul>}
-      {subclassOpen && selectedClass && onAddSubclasses && canAddSubclass && <section className="grid min-w-0 gap-2 rounded border border-slate-200 bg-slate-50 p-3"><p className="font-semibold">Sous-classes de {selectedClass.name}{form.option ? ` — ${form.option}` : ""}</p>{subclassLabels.map((label, index) => <input key={index} className="input min-w-0" aria-label={`Sous-classe ${index + 1}`} value={label} onChange={(event) => setSubclassLabels((items) => items.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} />)}<button type="button" className="secondary-button justify-center" onClick={() => setSubclassLabels((items) => [...items, ""])}>Ajouter une autre sous-classe</button>{subclassError && <p role="alert" className="text-sm text-red-700">{subclassError}</p>}<button type="button" className="primary-button justify-center" onClick={() => { const error = validateSubclassCreation(subclassLabels, structuredClasses, selectedClass, selectedOptionKey); if (error) { setSubclassError(error); return; } setSubclassError(""); setSubclassAddConfirmation(""); setSubclassAddPending(true); }}>Enregistrer les sous-classes</button></section>}
-      {subclassAddPending && selectedClass && onAddSubclasses && <div role="dialog" aria-label="Confirmer l'ajout de sous-classe" className="grid min-w-0 gap-2 rounded border border-amber-200 bg-amber-50 p-3"><p>Saisissez exactement <strong>AJOUTER CETTE SOUS-CLASSE</strong> pour confirmer l’ajout à {selectedClass.name}.</p><input className="input min-w-0" aria-label="Confirmation de l'ajout" value={subclassAddConfirmation} onChange={(event) => setSubclassAddConfirmation(event.target.value)} /><div className="flex flex-wrap gap-2"><button type="button" className="secondary-button" disabled={subclassAddSaving} onClick={() => setSubclassAddPending(false)}>Annuler</button><button type="button" className="primary-button" disabled={subclassAddSaving || subclassAddConfirmation !== "AJOUTER CETTE SOUS-CLASSE"} onClick={() => { setSubclassAddSaving(true); void onAddSubclasses(selectedClass, subclassLabels, selectedOptionKey, subclassAddConfirmation).then(() => { setSubclassOpen(false); setSubclassAddPending(false); setSubclassLabels([""]); setSubclassError(""); }).catch((cause) => { setSubclassAddPending(false); setSubclassError(cause instanceof Error ? cause.message : "Création impossible."); }).finally(() => setSubclassAddSaving(false)); }}>Confirmer l’ajout</button></div></div>}
-      {subclassDeleteTarget && onDeleteSubclass && <div role="dialog" aria-label="Confirmer la suppression de sous-classe" className="grid min-w-0 gap-2 rounded border border-red-200 bg-red-50 p-3"><p>Supprimer la sous-classe <strong>{subclassDeleteTarget.subClassLabel ?? subclassDeleteTarget.name}</strong> de {selectedClass?.name} ? Les élèves seront conservés dans la classe parent et leur option, sans cette sous-classe.</p><p>Saisissez exactement <strong>SUPPRIMER CETTE SOUS-CLASSE</strong>.</p><input className="input min-w-0" aria-label="Confirmation de la suppression" value={subclassDeleteConfirmation} onChange={(event) => setSubclassDeleteConfirmation(event.target.value)} /><div className="flex flex-wrap gap-2"><button type="button" className="secondary-button" disabled={subclassDeletePending} onClick={() => setSubclassDeleteTarget(undefined)}>Annuler</button><button type="button" className="primary-button" disabled={subclassDeletePending || subclassDeleteConfirmation !== "SUPPRIMER CETTE SOUS-CLASSE"} onClick={() => { setSubclassDeletePending(true); void onDeleteSubclass(subclassDeleteTarget, subclassDeleteConfirmation).then(() => { if (form.subClassId === subclassDeleteTarget.id) setForm({ ...form, subClassId: undefined }); setSubclassDeleteTarget(undefined); setSubclassDeleteConfirmation(""); setSubclassError(""); }).catch((cause) => setSubclassError(cause instanceof Error ? cause.message : "Suppression impossible.")).finally(() => setSubclassDeletePending(false)); }}>Supprimer définitivement</button></div>{subclassError && <p role="alert" className="text-sm text-red-700">{subclassError}</p>}</div>}
+      {selectedClass && subclasses.length > 0 && <label className="grid gap-1 text-sm font-medium text-slate-700">Sous-classe<select className="input" required disabled={subclassAddSaving || subclassDeletePending} value={form.subClassId ?? ""} onChange={(event) => setForm({ ...form, subClassId: event.target.value || undefined })}><option value="">Choisir une sous-classe</option>{subclasses.map((item) => <option key={item.id} value={item.id}>{item.subClassLabel ?? item.name}</option>)}</select></label>}
+      <div ref={subclassControlsRef} className="grid min-w-0 gap-2">
+        <div className="grid min-w-0 grid-cols-2 gap-2">
+          <button type="button" className="secondary-button w-full min-w-0 whitespace-normal px-2 text-center leading-tight" disabled={!canAddSubclass || subclassAddSaving || subclassDeletePending} title={!selectedClass ? "Sélectionnez d’abord une classe principale." : isSecondaryClass && !selectedOptionKey ? "Sélectionnez d’abord une option." : undefined} onClick={toggleAddSubclass}><Plus className="h-4 w-4 shrink-0" /> Ajouter sous-classe</button>
+          <button type="button" className="secondary-button w-full min-w-0 whitespace-normal px-2 text-center leading-tight" disabled={!onDeleteSubclass || subclasses.length === 0 || subclassAddSaving || subclassDeletePending} onClick={toggleDeleteSubclass}>Supprimer sous-classe</button>
+        </div>
+        {subclassMode === "add" && selectedClass && onAddSubclasses && canAddSubclass && <section className="grid min-w-0 gap-2 rounded border border-slate-200 bg-slate-50 p-3">
+          <p className="font-semibold">Sous-classes de {selectedClass.name}{form.option ? ` — ${form.option}` : ""}</p>
+          {subclassLabels.map((label, index) => <input key={index} className="input min-w-0" aria-label={`Sous-classe ${index + 1}`} value={label} readOnly />)}
+          {!subclassAddPending && <><button type="button" className="secondary-button justify-center" disabled={subclassLabels.length >= 20} onClick={() => setSubclassLabels((items) => [...items, ...nextSubclassLetters([...existingSubclassLabels, ...items])])}>Ajouter une autre sous-classe</button>
+            {subclassError && <p role="alert" className="text-sm text-red-700">{subclassError}</p>}
+            <button type="button" className="primary-button justify-center" onClick={() => { const error = validateSubclassCreation(subclassLabels, structuredClasses, selectedClass, selectedOptionKey); if (error) { setSubclassError(error); return; } if (subclassLabels.some((label, index) => label !== nextSubclassLetters(existingSubclassLabels, subclassLabels.length)[index])) { setSubclassError("Les sous-classes ont changé. Rouvrez le formulaire."); return; } setSubclassError(""); setSubclassAddConfirmation(""); setSubclassAddPending(true); }}>Enregistrer les sous-classes</button></>}
+          {subclassAddPending && <div role="dialog" aria-label="Confirmer l'ajout de sous-classe" className="grid min-w-0 gap-2 rounded border border-amber-200 bg-amber-50 p-3"><p>Saisissez exactement <strong>AJOUTER CETTE SOUS-CLASSE</strong> pour confirmer l’ajout à {selectedClass.name}.</p><input className="input min-w-0" aria-label="Confirmation de l'ajout" value={subclassAddConfirmation} onChange={(event) => setSubclassAddConfirmation(event.target.value)} /><div className="grid min-w-0 grid-cols-2 gap-2"><button type="button" className="secondary-button w-full min-w-0 whitespace-normal px-2 text-center" disabled={subclassAddSaving} onClick={resetSubclassContext}>Annuler</button><button type="button" className="primary-button w-full min-w-0 whitespace-normal px-2 text-center" disabled={subclassAddSaving || subclassAddConfirmation !== "AJOUTER CETTE SOUS-CLASSE"} onClick={() => { setSubclassAddSaving(true); void onAddSubclasses(selectedClass, subclassLabels, selectedOptionKey, subclassAddConfirmation).then(resetSubclassContext).catch((cause) => setSubclassError(cause instanceof Error ? cause.message : "Création impossible.")).finally(() => setSubclassAddSaving(false)); }}>Confirmer l’ajout</button></div>{subclassError && <p role="alert" className="text-sm text-red-700">{subclassError}</p>}</div>}
+        </section>}
+        {subclassMode === "delete" && selectedClass && onDeleteSubclass && <ul className="grid min-w-0 gap-1" aria-label="Sous-classes existantes">{subclasses.map((item) => <li key={item.id} className="grid min-w-0 gap-2 rounded border border-slate-200 p-2 text-sm"><div className="flex min-w-0 items-center justify-between gap-2"><span className="min-w-0 break-words">{item.subClassLabel ?? item.name}</span><button type="button" className="shrink-0 rounded p-2 text-red-700 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-600" aria-label={`Supprimer la sous-classe ${item.subClassLabel ?? item.name}`} onClick={() => { setSubclassDeleteTarget(item); setSubclassDeleteConfirmation(""); setSubclassError(""); }}><X className="h-4 w-4" /></button></div>
+          {subclassDeleteTarget?.id === item.id && <div role="dialog" aria-label="Confirmer la suppression de sous-classe" className="grid min-w-0 gap-2 rounded border border-red-200 bg-red-50 p-3"><p>Supprimer la sous-classe <strong>{item.subClassLabel ?? item.name}</strong> de {selectedClass.name} ?</p><p>Saisissez exactement <strong>SUPPRIMER CETTE SOUS-CLASSE</strong>.</p><input className="input min-w-0" aria-label="Confirmation de la suppression" value={subclassDeleteConfirmation} onChange={(event) => setSubclassDeleteConfirmation(event.target.value)} /><div className="grid min-w-0 grid-cols-2 gap-2"><button type="button" className="secondary-button w-full min-w-0 whitespace-normal px-2 text-center" disabled={subclassDeletePending} onClick={() => { setSubclassDeleteTarget(undefined); setSubclassDeleteConfirmation(""); setSubclassError(""); }}>Annuler</button><button type="button" className="primary-button w-full min-w-0 whitespace-normal px-2 text-center" disabled={subclassDeletePending || subclassDeleteConfirmation !== "SUPPRIMER CETTE SOUS-CLASSE"} onClick={() => { setSubclassDeletePending(true); void onDeleteSubclass(item, subclassDeleteConfirmation).then(() => { if (form.subClassId === item.id) setForm({ ...form, subClassId: undefined }); resetSubclassContext(); }).catch((cause) => setSubclassError(cause instanceof Error ? cause.message : "Suppression impossible.")).finally(() => setSubclassDeletePending(false)); }}>Supprimer définitivement</button></div>{subclassError && <p role="alert" className="text-sm text-red-700">{subclassError}</p>}</div>}
+        </li>)}</ul>}
+      </div>
+      <ImageUploadField label="Photo de l'élève" value={form.photoUrl ?? ""} onChange={(value) => setForm({ ...form, photoUrl: value })} maxWidth={800} maxBytes={300 * 1024} />
       <label className="grid gap-1 text-sm font-medium text-slate-700">
         Parent
         <input value={parentQuery} onChange={(event) => setParentQuery(event.target.value)} className="input" placeholder="Rechercher un parent par nom" aria-label="Rechercher un parent" />
@@ -201,7 +257,6 @@ export function StudentForm({
           <button onClick={onCreateParent} className="primary-button" type="button"><Plus className="h-4 w-4" /> Créer et sélectionner</button>
         </div>
       </div>}
-      <ImageUploadField label="Photo de l'élève" value={form.photoUrl ?? ""} onChange={(value) => setForm({ ...form, photoUrl: value })} maxWidth={800} maxBytes={300 * 1024} />
       <section className="grid min-w-0 gap-3 rounded border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
         <h3 className="break-words text-base font-bold text-ink">Identification biométrique</h3>
         <div className="grid min-w-0 gap-3">
