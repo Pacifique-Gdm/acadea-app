@@ -92,7 +92,7 @@ async function assertContext(transaction, db, caller, requestedYearId) {
   }
   const profile = userSnapshot.data() ?? {};
   const profileRole = profile.role === "admin" ? "school_admin" : profile.role;
-  if (!userSnapshot.exists || profile.schoolId !== caller.schoolId || profile.status === "inactive" || profileRole !== caller.role) {
+  if (!userSnapshot.exists || profile.schoolId !== caller.schoolId || profile.status === "inactive" || profile.active === false || profileRole !== caller.role) {
     throw new FinancialApiError(403, "permission-denied", "Profil utilisateur financier invalide.");
   }
   const yearCurrency = yearSnapshot.data()?.currency;

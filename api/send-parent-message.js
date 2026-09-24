@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { initAdmin } from "./_lib/firebaseAdmin.js";
+import { verifyActorIdToken } from "./_lib/activeUser.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { requireActiveSchoolYear } from "./_lib/schoolYear.js";
 import { allowedRecipientRoles, normalizedMessagingRole } from "./_lib/messageRecipients.js";
@@ -95,7 +96,7 @@ function nextMessageThreadId(messages, senderId, recipientParentId, threadParent
 }
 
 async function requireParentContext({ auth, db, token }) {
-  const caller = await auth.verifyIdToken(token, true);
+  const caller = await verifyActorIdToken(auth, token);
   if (caller.role !== "parent" || !caller.schoolId || !caller.parentId) {
     throw Object.assign(new Error("Action reservee a un parent autorise."), { statusCode: 403, code: "not-authorized" });
   }
@@ -170,6 +171,7 @@ async function currentQuota({ db, caller, schoolYearId, now = new Date() }) {
 }
 
 function publicError(error) {
+  if (error?.code === "unauthenticated") return { statusCode: 401, body: { error: "unauthenticated", message: error.message } };
   if (error?.code === "quota-exceeded") return { statusCode: 429, body: { error: "quota-exceeded", message: "Vous avez atteint la limite de 3 messages pour 12 heures." } };
   if (error?.code === "not-authorized") return { statusCode: error.statusCode ?? 403, body: { error: "not-authorized", message: "Action non autorisee." } };
   if (error?.code === "invalid-recipient") return { statusCode: 400, body: { error: "invalid-recipient", message: "Destinataire invalide." } };

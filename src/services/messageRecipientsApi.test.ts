@@ -70,6 +70,13 @@ describe("annuaire sécurisé des destinataires de messagerie", () => {
     await expect(requireMessagingCaller(authFor({ uid: "secretary", role: "secretary", schoolId: "school-a" }), database({ secretary: { role: "secretary", schoolId: "school-a", status: "inactive" } }), "token")).rejects.toMatchObject({ code: "not-authorized" });
   });
 
+  it("répond 401 à un jeton invalide avant toute lecture", async () => {
+    const auth = { verifyIdToken: vi.fn().mockRejectedValue(Object.assign(new Error("Invalid token"), { code: "auth/invalid-id-token" })) };
+    const db = { doc: vi.fn() };
+    await expect(requireMessagingCaller(auth, db, "invalid")).rejects.toMatchObject({ statusCode: 401, code: "unauthenticated" });
+    expect(db.doc).not.toHaveBeenCalled();
+  });
+
   it("retourne au Secrétaire uniquement Admin, Caissier, Discipline et Parents actifs de son école", async () => {
     const recipients = await listAllowedMessageRecipients(database({
       secretary: { name: "Secrétaire", role: "secretary", schoolId: "school-a", status: "active" },

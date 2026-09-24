@@ -1,3 +1,5 @@
+import { verifyActorIdToken } from "./activeUser.js";
+
 const ALLOWED_SENDERS = new Set(["school_admin", "admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent"]);
 
 const RECIPIENTS_BY_ROLE = Object.freeze({
@@ -127,7 +129,7 @@ async function relatedCoordinationRecipients(db, caller) {
 }
 
 export async function requireMessagingCaller(auth, db, token) {
-  const decoded = await auth.verifyIdToken(token, true);
+  const decoded = await verifyActorIdToken(auth, token);
   const role = normalizedMessagingRole(decoded.role);
   if (!decoded.schoolId || !ALLOWED_SENDERS.has(decoded.role) || allowedRecipientRoles(role).size === 0) {
     throw Object.assign(new Error("Action non autorisee."), { statusCode: 403, code: "not-authorized" });

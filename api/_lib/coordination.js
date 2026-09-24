@@ -1,9 +1,11 @@
+import { verifyActorIdToken } from "./activeUser.js";
+
 export function coordinationHttpError(statusCode, code, message) {
   return Object.assign(new Error(message), { statusCode, code });
 }
 
 export async function requireActiveCoordinator(auth, db, token) {
-  const decoded = await auth.verifyIdToken(token, true);
+  const decoded = await verifyActorIdToken(auth, token);
   if (decoded.role !== "coordination_admin" || typeof decoded.coordinationId !== "string" || !decoded.coordinationId) {
     throw coordinationHttpError(403, "not-authorized", "Action réservée au Coordinateur.");
   }
@@ -20,7 +22,7 @@ export async function requireActiveCoordinator(auth, db, token) {
 }
 
 export async function requireActiveCoordinationActor(auth, db, token) {
-  const decoded = await auth.verifyIdToken(token, true);
+  const decoded = await verifyActorIdToken(auth, token);
   const role = decoded.role;
   if (!["coordination_admin", "sub_coordination_admin"].includes(role)
     || typeof decoded.coordinationId !== "string"

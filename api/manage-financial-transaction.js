@@ -1,4 +1,5 @@
 import { initAdmin } from "./_lib/firebaseAdmin.js";
+import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
 import { authorizeFinancialCaller, executeFinancialOperation, FinancialApiError } from "./_lib/financialTransactions.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 
@@ -35,11 +36,12 @@ export default async function handler(req, res) {
     const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
     if (!token) throw new FinancialApiError(401, "unauthenticated", "Authentification requise.");
     const { auth, db } = initAdmin();
-    const caller = await auth.verifyIdToken(token, true);
+    const caller = await verifyActorIdToken(auth, token);
     const body = await readBody(req);
     const requestedAction = typeof body.action === "string" ? body.action : "";
     const action = ["create-payment", "create-expense", "update-payment", "update-expense", "delete-payment", "delete-expense"].includes(requestedAction) ? requestedAction : "invalid";
     const authorizedCaller = authorizeFinancialCaller(caller, action);
+    await requireActiveApiUser(db, authorizedCaller);
     const rate = action === "create-payment" || action === "create-expense" ? API_RATE_LIMITS.FINANCE_CREATE : API_RATE_LIMITS.FINANCE_MUTATE;
     await enforceApiRateLimit({ db, actorId: authorizedCaller.uid, schoolId: authorizedCaller.schoolId, action: `finance.${action}`, idempotencyKey: typeof body.clientRequestId === "string" ? body.clientRequestId : undefined, ...rate });
     const result = await executeFinancialOperation({ db, caller: authorizedCaller, body });
@@ -47,6 +49,8 @@ export default async function handler(req, res) {
   } catch (error) {
     if (sendRateLimitError(res, error)) return;
     if (error instanceof FinancialApiError) return sendJson(res, error.status, { error: error.message, code: error.code });
+    if (error?.statusCode === 401) return sendJson(res, 401, { error: error.message, code: error.code });
+    if (error?.statusCode === 403 && error?.code === "permission-denied") return sendJson(res, 403, { error: error.message, code: error.code });
     console.error("[Acadéa finance] Opération financière échouée.", { code: typeof error?.code === "string" ? error.code : "internal" });
     return sendJson(res, 500, { error: "Opération financière impossible.", code: "internal" });
   }

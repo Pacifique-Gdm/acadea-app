@@ -10,6 +10,14 @@ function coordinatorDb(profile: Record<string, unknown>, coordination: Record<st
 }
 
 describe("sécurité serveur Coordination", () => {
+  it.each([requireActiveCoordinator, requireActiveCoordinationActor])("répond 401 pour un jeton invalide sans lire les profils", async (authorize) => {
+    const auth = { verifyIdToken: vi.fn().mockRejectedValue(Object.assign(new Error("Invalid token"), { code: "auth/invalid-id-token" })) };
+    const db = { doc: vi.fn(), getAll: vi.fn() };
+    await expect(authorize(auth, db, "invalid")).rejects.toMatchObject({ statusCode: 401, code: "unauthenticated" });
+    expect(db.doc).not.toHaveBeenCalled();
+    expect(db.getAll).not.toHaveBeenCalled();
+  });
+
   it("valide simultanément claim, profil actif et Coordination active", async () => {
     const auth = { verifyIdToken: vi.fn(async () => ({ uid: "coord-user", role: "coordination_admin", coordinationId: "coord-a" })) };
     const db = coordinatorDb({ role: "coordination_admin", coordinationId: "coord-a", active: true }, { status: "active" });
