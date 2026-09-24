@@ -3,7 +3,7 @@ import { firebaseAdminPublicError, initAdmin } from "./_lib/firebaseAdmin.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./_lib/serverAudit.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { normalizeSchoolOptions } from "./_lib/schoolOptions.js";
-import { requireActiveApiUser } from "./_lib/activeUser.js";
+import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
 
 const allowedPlans = new Set(["Starter", "Standard", "Premium"]);
 const schoolLevels = new Map([
@@ -91,7 +91,7 @@ export default async function handler(req, res) {
     adminAuth = auth;
     adminDb = db;
 
-    const caller = await auth.verifyIdToken(token, true);
+    const caller = await verifyActorIdToken(auth, token);
     if (caller.role !== "super_admin") {
       sendJson(res, 403, { error: "Action réservée au super administrateur.", code: "permission-denied" });
       return;
@@ -225,8 +225,8 @@ export default async function handler(req, res) {
       await cleanup({ auth: adminAuth, db: adminDb, adminUid, refs: createdRefs });
     }
     if (sendRateLimitError(res, error)) return;
-    if (error?.statusCode === 403 && error?.code === "permission-denied") {
-      sendJson(res, 403, { error: error.message, code: error.code });
+    if (error?.statusCode === 401 || (error?.statusCode === 403 && error?.code === "permission-denied")) {
+      sendJson(res, error.statusCode, { error: error.message, code: error.code });
       return;
     }
     const diagnostic = firebaseAdminPublicError(error, "provision-school-admin");

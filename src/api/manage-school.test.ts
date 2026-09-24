@@ -57,6 +57,15 @@ describe("API SEC-004 manage-school", () => {
     mocks.batchCommit.mockResolvedValue(undefined);
   });
 
+  it("retourne 401 pour un jeton invalide sans effectuer de mutation", async () => {
+    mocks.verifyIdToken.mockRejectedValue(Object.assign(new Error("Invalid token"), { code: "auth/argument-error" }));
+    const res = response();
+    await handler(request({ action: "change-acronym", schoolId: "school-a", acronym: "LUMB", confirmation: "MODIFIER LE SIGLE" }), res);
+    expect(res.statusCode).toBe(401);
+    expect(res.body.code).toBe("unauthenticated");
+    expect(mocks.batchCommit).not.toHaveBeenCalled();
+  });
+
   it("refuse l'ancien token d'un Super Administrateur dont le profil est devenu inactif", async () => {
     const school = mocks.documentGet.getMockImplementation();
     mocks.documentGet.mockImplementation(async (path: string) => path === "users/super-1"

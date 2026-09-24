@@ -4,7 +4,7 @@ import { AUDIT_EVENT_TYPES, buildServerAudit } from "./_lib/serverAudit.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { requireActiveSchoolYear } from "./_lib/schoolYear.js";
 import { importArchivedStudents, reenrollTerminalStudent } from "./_lib/archivedStudentsImport.js";
-import { requireActiveApiUser } from "./_lib/activeUser.js";
+import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
 
 const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent"]);
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
@@ -669,7 +669,7 @@ export default async function handler(req, res) {
     adminAuth = auth;
     adminDb = db;
 
-    const caller = await auth.verifyIdToken(token, true);
+    const caller = await verifyActorIdToken(auth, token);
     await requireActiveApiUser(db, caller);
     const body = await readBody(req);
     const action = normalizeText(body.action);
