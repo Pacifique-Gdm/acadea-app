@@ -27,8 +27,8 @@ describe("Types de frais", () => {
   });
 
   it("supprime le document canonique avant de retirer le frais de l'état local", () => {
-    expect(source).toContain("await deleteFeeType(user, fee, feeAuditLog)");
-    expect(source.indexOf("await deleteFeeType(user, fee, feeAuditLog)")).toBeLessThan(source.indexOf("feeTypes: data.feeTypes.filter"));
+    expect(source).toContain("await deleteFeeType(user, fee)");
+    expect(source.indexOf("await deleteFeeType(user, fee)")).toBeLessThan(source.indexOf("feeTypes: data.feeTypes.filter"));
     expect(source).toContain("des paiements historiques y sont liés");
   });
 

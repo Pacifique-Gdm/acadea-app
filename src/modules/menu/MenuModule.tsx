@@ -654,7 +654,7 @@ export function MenuModule({
     setFeeSaveError("");
     const feeAuditLog = createAuditLog(user, school.id, selectedYear.id, "Suppression type de frais", `Admin ${user.name} a supprimé le type de frais ${fee.name}.`, createId);
     try {
-      await deleteFeeType(user, fee, feeAuditLog);
+      await deleteFeeType(user, fee);
       updateData({
         feeTypes: data.feeTypes.filter((item) => item.id !== fee.id),
         auditLogs: [feeAuditLog, ...data.auditLogs],
