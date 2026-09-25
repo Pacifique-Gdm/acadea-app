@@ -89,6 +89,11 @@ declare module "firebase/firestore" {
   export function where(field: string, operator: "==" | "in" | "array-contains", value: unknown): unknown;
   export function setDoc(ref: unknown, data: unknown, options?: { merge?: boolean }): Promise<void>;
   export function deleteDoc(ref: unknown): Promise<void>;
+  export function writeBatch(db: unknown): {
+    delete(ref: unknown): void;
+    set(ref: unknown, data: unknown, options?: { merge?: boolean }): void;
+    commit(): Promise<void>;
+  };
   export function getDoc(ref: unknown): Promise<{ id: string; exists(): boolean; data(): Record<string, unknown> }>;
   export function getDocs(ref: unknown): Promise<{ size: number; docs: Array<{ id: string; ref: unknown; data(): Record<string, unknown> }> }>;
   export function onSnapshot(ref: DocumentReference, next: (snapshot: DocumentSnapshot) => void, error?: (error: Error) => void): () => void;

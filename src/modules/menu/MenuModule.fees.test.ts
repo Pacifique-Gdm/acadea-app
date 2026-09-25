@@ -18,4 +18,24 @@ describe("Types de frais", () => {
     expect(source).toContain('setFeeName(fee.name)');
     expect(source).toContain('setFeeAmount(String(fee.amount))');
   });
+
+  it("exige la confirmation exacte avant une création et attend la persistance", () => {
+    expect(source).toContain('confirmation !== "AJOUTER CE FRAIS"');
+    expect(source).toContain('feeAddConfirmation !== "AJOUTER CE FRAIS"');
+    expect(source).toContain("await persistFirestorePatch({ feeTypes: feesToSave, auditLogs: [feeAuditLog] }, { throwOnError: true })");
+    expect(source.indexOf("await persistFirestorePatch")).toBeLessThan(source.indexOf("updateData({", source.indexOf("await persistFirestorePatch")));
+  });
+
+  it("supprime le document canonique avant de retirer le frais de l'état local", () => {
+    expect(source).toContain("await deleteFeeType(user, fee, feeAuditLog)");
+    expect(source.indexOf("await deleteFeeType(user, fee, feeAuditLog)")).toBeLessThan(source.indexOf("feeTypes: data.feeTypes.filter"));
+    expect(source).toContain("des paiements historiques y sont liés");
+  });
+
+  it("affiche la devise annuelle de l'école sans forcer le dollar", () => {
+    expect(source).toContain("resolveSchoolYearCurrency(selectedYear, school)");
+    expect(source).toContain("schoolCurrencySymbol({ currency: feeCurrency })");
+    expect(source).toContain("formatCurrencyMoney(fee.amount, feeCurrency)");
+    expect(source).not.toContain("<strong>${fee.amount}</strong>");
+  });
 });
