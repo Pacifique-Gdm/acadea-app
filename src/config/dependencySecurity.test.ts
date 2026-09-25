@@ -11,6 +11,11 @@ const lock = JSON.parse(readFileSync(new URL("../../package-lock.json", import.m
 const version = (path: string) => lock.packages[path]?.version;
 
 describe("correctifs transitifs de sécurité Vercel", () => {
+  it("verrouille Firebase Auth sur la version corrigeant la fermeture IndexedDB en arrière-plan", () => {
+    expect(version("node_modules/firebase")).toBe("12.19.0");
+    expect(version("node_modules/@firebase/auth")).toBe("1.13.6");
+  });
+
   it("verrouille uniquement des versions corrigées pour les advisories détectées", () => {
     expect(version("node_modules/path-to-regexp")).toBe("8.4.0");
     expect(version("node_modules/@vercel/node/node_modules/path-to-regexp")).toBe("6.3.0");

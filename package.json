@@ -33,7 +33,7 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.4",
-    "firebase": "12.17.1",
+    "firebase": "12.19.0",
     "firebase-admin": "14.2.0",
     "jspdf": "4.2.1",
     "lucide-react": "^0.546.0",
