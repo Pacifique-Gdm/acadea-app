@@ -117,13 +117,10 @@ export async function loadSuperAdminInitialData(userId: string, authenticatedUse
     throw new Error("Chargement Firestore impossible : profil Super Administrateur introuvable.");
   }
 
-  const [schools, schoolYears, biometricTerminals, studentsCount, parentsCount, adminsCount] = await Promise.all([
+  const [schools, schoolYears, biometricTerminals] = await Promise.all([
     loadCollection<School>("schools"),
     loadCollection<SchoolYear>("schoolYears"),
     loadOptionalCollection<BiometricTerminal>("biometricTerminals"),
-    loadGlobalCount("students"),
-    loadGlobalCount("parents"),
-    loadGlobalCount("users", [["role", "school_admin"]]),
   ]);
 
   const data = emptySuperAdminData();
@@ -132,14 +129,16 @@ export async function loadSuperAdminInitialData(userId: string, authenticatedUse
   data.schoolYears = schoolYears;
   data.biometricTerminals = biometricTerminals;
 
-  return {
-    data,
-    counts: {
-      students: studentsCount,
-      parents: parentsCount,
-      admins: adminsCount,
-    } satisfies SuperAdminGlobalCounts,
-  };
+  return { data };
+}
+
+export async function loadSuperAdminGlobalCounts(): Promise<SuperAdminGlobalCounts> {
+  const [students, parents, admins] = await Promise.all([
+    loadGlobalCount("students"),
+    loadGlobalCount("parents"),
+    loadGlobalCount("users", [["role", "school_admin"]]),
+  ]);
+  return { students, parents, admins };
 }
 
 export async function loadSuperAdminSchoolData(schoolId: string, schoolYearId: string): Promise<SuperAdminSchoolData> {

@@ -42,6 +42,7 @@ describe("formulaire Élève partagé Admin/Secrétaire", () => {
     const html = render();
     const source = readFileSync("src/components/students/StudentForm.tsx", "utf8");
     expect(html).toContain("Ajouter sous-classe");
+    expect(html).toMatch(/<button[^>]*>Ajouter sous-classe<\/button>/);
     expect(html).toContain("Supprimer sous-classe");
     expect(html).not.toContain('aria-label="Supprimer la sous-classe A"');
     expect(source).toContain("AJOUTER CETTE SOUS-CLASSE");
@@ -69,5 +70,16 @@ describe("formulaire Élève partagé Admin/Secrétaire", () => {
     expect(source).toContain('document.removeEventListener("pointerdown", onOutsidePointerDown)');
     expect(source).toContain('setSubclassDeleteConfirmation("")');
     expect(source).toContain('setSubclassAddConfirmation("")');
+  });
+  it("signale temporairement une classe sans sous-classe au-dessus des actions", () => {
+    const source = readFileSync("src/components/students/StudentForm.tsx", "utf8");
+    expect(source).toContain("Cette classe n'a pas de sous-classe");
+    expect(source.indexOf("Cette classe n'a pas de sous-classe")).toBeLessThan(source.indexOf("Supprimer sous-classe"));
+    expect(source).toContain('className="text-sm font-medium text-red-700"');
+    expect(source).toContain('if (subclasses.length === 0)');
+    expect(source).toContain('setShowEmptySubclassMessage(true)');
+    expect(source).toContain('window.setTimeout(() => setShowEmptySubclassMessage(false), 4000)');
+    expect(source).toContain('window.clearTimeout(timer)');
+    expect(source).not.toContain('disabled={!onDeleteSubclass || subclasses.length === 0');
   });
 });

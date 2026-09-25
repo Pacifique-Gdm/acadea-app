@@ -47,7 +47,7 @@ import { useRealtimeSchoolUsers } from "./hooks/useRealtimeSchoolUsers";
 import { markNotificationsReadTargeted } from "./services/notificationsPagination";
 import { restorePaymentPushNotifications, stopPaymentPushForegroundListener } from "./services/pushNotifications";
 import { canUseFirestoreData, loadDisciplineYearData, loadFirestoreBootstrapData, loadFirestoreData, loadFirestoreYearData, loadParentPortalData, loadPlatformSettings, persistFirestorePatch, realtimeManagedCollections } from "./services/firestoreData";
-import { loadSuperAdminInitialData } from "./services/superAdminData";
+import { loadSuperAdminGlobalCounts, loadSuperAdminInitialData } from "./services/superAdminData";
 import type { SuperAdminGlobalCounts } from "./services/superAdminData";
 import { isSessionAuditAction } from "./utils/audit";
 import { mergeMessagesById, mergeNotificationsById } from "./utils/realtimeMerges";
@@ -184,6 +184,7 @@ export default function App() {
   const [bootstrapError, setBootstrapError] = useState("");
   const [bootstrapRetry, setBootstrapRetry] = useState(0);
   const [platformCounts, setPlatformCounts] = useState<SuperAdminGlobalCounts | null>(null);
+  const [platformLoadError, setPlatformLoadError] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState("");
   const [dataRefreshToken, setDataRefreshToken] = useState(0);
@@ -398,6 +399,7 @@ export default function App() {
       setActiveTab("dashboard");
       setDataLoading(false);
       setPlatformCounts(null);
+      setPlatformLoadError("");
       setData(loadInitialData());
       navigate("/login");
       return;
@@ -470,16 +472,26 @@ export default function App() {
 
     void (async () => {
       if (bootstrapUser.role === "super_admin") {
-        try {
-          const { data: firestoreData, counts } = await loadSuperAdminInitialData(bootstrapUser.id, bootstrapUser);
+        setPlatformCounts(null);
+        setPlatformLoadError("");
+        void loadSuperAdminGlobalCounts().then((counts) => {
           if (cancelled) return;
           setPlatformCounts(counts);
+        }).catch((error) => {
+          if (cancelled || logoutInProgressRef.current) return;
+          console.warn("Chargement des compteurs globaux indisponible.", error);
+          setPlatformLoadError("Statistiques globales indisponibles. Réessayez après actualisation.");
+        });
+        try {
+          const { data: firestoreData } = await loadSuperAdminInitialData(bootstrapUser.id, bootstrapUser);
+          if (cancelled) return;
           setData(firestoreData);
         } catch (error) {
           if (cancelled || logoutInProgressRef.current) return;
           console.warn("Chargement Firestore indisponible.", error);
           setPlatformCounts(null);
           setData({ ...loadInitialData(), users: [bootstrapUser] });
+          setPlatformLoadError("Impossible de charger les écoles. Réessayez après actualisation.");
           setAuthError(error instanceof Error ? error.message : "Chargement Firestore impossible après connexion.");
         }
         return;
@@ -765,6 +777,7 @@ export default function App() {
         data={data}
         updateData={updateData}
         platformCounts={platformCounts}
+        platformLoadError={platformLoadError}
         platformLogoUrl={platformLogoUrl}
         onPlatformLogoSaved={setPlatformLogoUrl}
         onLogout={logout}

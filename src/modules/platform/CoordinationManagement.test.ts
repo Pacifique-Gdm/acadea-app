@@ -28,4 +28,13 @@ describe("gestion Super Administrateur des Coordinations", () => {
     expect(source).not.toContain("setCoordinations");
     expect(source).not.toContain('collection(db, "coordinations")');
   });
+  it("attache l'ajout à l'école ciblée et réinitialise confirmation et clic extérieur", () => {
+    expect(source).toContain('availableSchools.map((school) => <div key={school.id}');
+    expect(source).toContain('pendingRelation.school.id === school.id && relationConfirmation()');
+    expect(source).toContain('pendingRelation?.action === "remove" && relationConfirmation()');
+    expect(source).toContain('setPendingRelation({ action, school }); setConfirmation("")');
+    expect(source).toContain('document.addEventListener("pointerdown", onOutsidePointerDown)');
+    expect(source).toContain('document.removeEventListener("pointerdown", onOutsidePointerDown)');
+    expect(source).toContain('onClick={cancelRelation}');
+  });
 });

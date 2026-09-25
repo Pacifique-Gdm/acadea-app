@@ -40,6 +40,7 @@ export function PlatformModule({
   data,
   updateData,
   platformCounts,
+  platformLoadError,
   platformLogoUrl,
   onPlatformLogoSaved,
   showInstallButton,
@@ -61,6 +62,7 @@ export function PlatformModule({
   data: AppData;
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
   platformCounts: SuperAdminGlobalCounts | null;
+  platformLoadError: string;
   platformLogoUrl: string;
   onPlatformLogoSaved: (logoUrl: string) => void;
   showInstallButton: boolean;
@@ -167,9 +169,9 @@ export function PlatformModule({
   const { coordinations, error: coordinationLoadError } = useRealtimeCoordinations();
 
   const visibleSchools = data.schools.filter((school) => String(school.status) !== "deleted");
-  const totalStudents = platformCounts?.students ?? data.students.length;
-  const totalParents = platformCounts?.parents ?? data.parents.length;
-  const totalAdmins = platformCounts?.admins ?? data.users.filter((item) => item.role === "school_admin").length;
+  const totalStudents = platformCounts?.students ?? "—";
+  const totalParents = platformCounts?.parents ?? "—";
+  const totalAdmins = platformCounts?.admins ?? "—";
   const activeSchools = visibleSchools.filter((school) => school.status === "active").length;
   const suspendedSchools = visibleSchools.filter((school) => school.status === "suspended").length;
   const schoolStatusChart = [
@@ -1075,6 +1077,7 @@ export function PlatformModule({
         </header>
 
         <main className="mx-auto grid w-full max-w-7xl min-w-0 gap-5 overflow-x-hidden px-3 py-5 sm:px-6 lg:px-8">
+          {platformLoadError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{platformLoadError}</p>}
           {schoolActionError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{schoolActionError}</p>}
           {schoolActionSuccess && <p className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">{schoolActionSuccess}</p>}
 

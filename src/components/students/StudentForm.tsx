@@ -60,6 +60,8 @@ export function StudentForm({
   const [subclassMode, setSubclassMode] = useState<"add" | "delete" | null>(null);
   const [subclassLabels, setSubclassLabels] = useState<string[]>([]);
   const [subclassError, setSubclassError] = useState("");
+  const [showEmptySubclassMessage, setShowEmptySubclassMessage] = useState(false);
+  const [emptySubclassMessageTrigger, setEmptySubclassMessageTrigger] = useState(0);
   const [subclassAddConfirmation, setSubclassAddConfirmation] = useState("");
   const [subclassAddPending, setSubclassAddPending] = useState(false);
   const [subclassAddSaving, setSubclassAddSaving] = useState(false);
@@ -90,6 +92,7 @@ export function StudentForm({
     setSubclassMode(null);
     setSubclassLabels([]);
     setSubclassError("");
+    setShowEmptySubclassMessage(false);
     setSubclassAddConfirmation("");
     setSubclassAddPending(false);
     setSubclassAddSaving(false);
@@ -120,8 +123,19 @@ export function StudentForm({
   function toggleDeleteSubclass() {
     if (subclassMode === "delete") { resetSubclassContext(); return; }
     resetSubclassContext();
+    if (subclasses.length === 0) {
+      setShowEmptySubclassMessage(true);
+      setEmptySubclassMessageTrigger((trigger) => trigger + 1);
+      return;
+    }
     setSubclassMode("delete");
   }
+
+  useEffect(() => {
+    if (emptySubclassMessageTrigger === 0) return undefined;
+    const timer = window.setTimeout(() => setShowEmptySubclassMessage(false), 4000);
+    return () => window.clearTimeout(timer);
+  }, [emptySubclassMessageTrigger]);
 
   useEffect(() => {
     if (fingerprintMessageTrigger === 0) return undefined;
@@ -214,9 +228,10 @@ export function StudentForm({
       {selectedClass && isSecondaryClass && !selectedOptionKey && <p className="text-xs text-slate-500">Sélectionnez d’abord une option pour ajouter ou choisir ses sous-classes.</p>}
       {selectedClass && subclasses.length > 0 && <label className="grid gap-1 text-sm font-medium text-slate-700">Sous-classe<select className="input" required disabled={subclassAddSaving || subclassDeletePending} value={form.subClassId ?? ""} onChange={(event) => setForm({ ...form, subClassId: event.target.value || undefined })}><option value="">Choisir une sous-classe</option>{subclasses.map((item) => <option key={item.id} value={item.id}>{item.subClassLabel ?? item.name}</option>)}</select></label>}
       <div ref={subclassControlsRef} className="grid min-w-0 gap-2">
+        {showEmptySubclassMessage && <p role="alert" className="text-sm font-medium text-red-700">Cette classe n'a pas de sous-classe</p>}
         <div className="grid min-w-0 grid-cols-2 gap-2">
-          <button type="button" className="secondary-button w-full min-w-0 whitespace-normal px-2 text-center leading-tight" disabled={!canAddSubclass || subclassAddSaving || subclassDeletePending} title={!selectedClass ? "Sélectionnez d’abord une classe principale." : isSecondaryClass && !selectedOptionKey ? "Sélectionnez d’abord une option." : undefined} onClick={toggleAddSubclass}><Plus className="h-4 w-4 shrink-0" /> Ajouter sous-classe</button>
-          <button type="button" className="secondary-button w-full min-w-0 whitespace-normal px-2 text-center leading-tight" disabled={!onDeleteSubclass || subclasses.length === 0 || subclassAddSaving || subclassDeletePending} onClick={toggleDeleteSubclass}>Supprimer sous-classe</button>
+          <button type="button" className="secondary-button w-full min-w-0 whitespace-normal px-2 text-center leading-tight" disabled={!canAddSubclass || subclassAddSaving || subclassDeletePending} title={!selectedClass ? "Sélectionnez d’abord une classe principale." : isSecondaryClass && !selectedOptionKey ? "Sélectionnez d’abord une option." : undefined} onClick={toggleAddSubclass}>Ajouter sous-classe</button>
+          <button type="button" className="secondary-button w-full min-w-0 whitespace-normal px-2 text-center leading-tight" disabled={!selectedClass || !onDeleteSubclass || subclassAddSaving || subclassDeletePending} onClick={toggleDeleteSubclass}>Supprimer sous-classe</button>
         </div>
         {subclassMode === "add" && selectedClass && onAddSubclasses && canAddSubclass && <section className="grid min-w-0 gap-2 rounded border border-slate-200 bg-slate-50 p-3">
           <p className="font-semibold">Sous-classes de {selectedClass.name}{form.option ? ` — ${form.option}` : ""}</p>

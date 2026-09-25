@@ -961,7 +961,6 @@ export function ControlModule({
               <ArrowLeft className="h-5 w-5" />
             </button>
             <div className="min-w-0">
-              <p className="text-sm font-semibold uppercase text-mint">Historique individuel</p>
               <h1 className="break-words text-2xl font-bold text-ink">{studentFullName(selectedHistoryStudent)}</h1>
               <p className="break-words text-sm text-slate-500">
                 {selectedHistoryStudent.matricule} | {formatStudentClassName(selectedHistoryStudent)}
@@ -975,10 +974,17 @@ export function ControlModule({
           </div>
         </div>
 
-        <div className="grid min-w-0 gap-3 sm:grid-cols-3">
-          <Metric label="Total attendu" value={formatMoney(selectedHistoryFeeTotals.expected)} />
-          <Metric label="Total payé" value={formatMoney(selectedHistoryFeeTotals.paid)} />
-          <Metric label="Total restant" value={formatMoney(selectedHistoryFeeTotals.remaining)} />
+        <div className="grid min-w-0 grid-cols-3 divide-x divide-slate-200 rounded border border-slate-200 bg-slate-50 shadow-sm">
+          {([
+            ["Total attendu", selectedHistoryFeeTotals.expected],
+            ["Total payé", selectedHistoryFeeTotals.paid],
+            ["Total restant", selectedHistoryFeeTotals.remaining],
+          ] as const).map(([label, amount]) => (
+            <div key={label} className="min-w-0 px-1 py-2 text-center sm:px-3 sm:py-3">
+              <p className="break-words text-[10px] leading-tight text-slate-600 sm:text-xs">{label}</p>
+              <p className="mt-1 min-w-0 break-words text-[11px] font-bold leading-tight text-ink sm:text-base">{formatMoney(amount)}</p>
+            </div>
+          ))}
         </div>
 
         <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
