@@ -43,7 +43,8 @@ describe("formulaire Élève partagé Admin/Secrétaire", () => {
     const source = readFileSync("src/components/students/StudentForm.tsx", "utf8");
     expect(html).toContain("Ajouter sous-classe");
     expect(html).toMatch(/<button[^>]*>Ajouter sous-classe<\/button>/);
-    expect(html).toContain("Supprimer sous-classe");
+    expect(html).toContain("Supp. sous-classe");
+    expect(html).not.toContain(">Supprimer sous-classe<");
     expect(html).not.toContain('aria-label="Supprimer la sous-classe A"');
     expect(source).toContain("AJOUTER CETTE SOUS-CLASSE");
     expect(source).toContain("SUPPRIMER CETTE SOUS-CLASSE");
@@ -56,8 +57,8 @@ describe("formulaire Élève partagé Admin/Secrétaire", () => {
   it("garde deux boutons de gestion sur une ligne et les formulaires sous ces boutons", () => {
     const html = render();
     const source = readFileSync("src/components/students/StudentForm.tsx", "utf8");
-    expect(html).toMatch(/grid-cols-2[^]*?Ajouter sous-classe[^]*?Supprimer sous-classe/);
-    expect(source.indexOf('subclassMode === "add" &&')).toBeGreaterThan(source.indexOf("Supprimer sous-classe"));
+    expect(html).toMatch(/grid-cols-2[^]*?Ajouter sous-classe[^]*?Supp\. sous-classe/);
+    expect(source.indexOf('subclassMode === "add" &&')).toBeGreaterThan(source.indexOf("Supp. sous-classe"));
     expect(source.indexOf('subclassMode === "delete" &&')).toBeGreaterThan(source.indexOf('subclassMode === "add" &&'));
     expect(source).toContain('className="grid min-w-0 grid-cols-2 gap-2"');
     expect(source).not.toContain("Les élèves seront conservés dans la classe parent et leur option, sans cette sous-classe.");
@@ -74,12 +75,20 @@ describe("formulaire Élève partagé Admin/Secrétaire", () => {
   it("signale temporairement une classe sans sous-classe au-dessus des actions", () => {
     const source = readFileSync("src/components/students/StudentForm.tsx", "utf8");
     expect(source).toContain("Cette classe n'a pas de sous-classe");
-    expect(source.indexOf("Cette classe n'a pas de sous-classe")).toBeLessThan(source.indexOf("Supprimer sous-classe"));
+    expect(source.indexOf("Cette classe n'a pas de sous-classe")).toBeLessThan(source.indexOf("Supp. sous-classe"));
     expect(source).toContain('className="text-sm font-medium text-red-700"');
     expect(source).toContain('if (subclasses.length === 0)');
     expect(source).toContain('setShowEmptySubclassMessage(true)');
     expect(source).toContain('window.setTimeout(() => setShowEmptySubclassMessage(false), 4000)');
     expect(source).toContain('window.clearTimeout(timer)');
     expect(source).not.toContain('disabled={!onDeleteSubclass || subclasses.length === 0');
+  });
+  it("utilise une saisie texte jj/mm/aaaa sans calendrier natif", () => {
+    const html = render();
+    const source = readFileSync("src/components/students/StudentForm.tsx", "utf8");
+    expect(html).toContain('placeholder="jj/mm/aaaa"');
+    expect(html).toContain('pattern="[0-9]{2}/[0-9]{2}/[0-9]{4}"');
+    expect(source).not.toContain('type="date"');
+    expect(source).toContain("parseStudentBirthDateInput");
   });
 });

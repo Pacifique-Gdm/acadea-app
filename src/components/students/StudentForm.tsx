@@ -5,6 +5,7 @@ import { cardStatusLabels, fingerprintStatusLabels, resolveStudentBiometric } fr
 import { getClassSection } from "../../utils/studentClasses";
 import { resolveStudentParentClass, schoolClassRecordId, secondarySubclassesForOption, studentSchoolClassOptionKey, validateSubclassCreation } from "../../services/schoolSubclasses";
 import { nextSubclassLetters } from "../../utils/subclassLetters.js";
+import { formatStudentBirthDateInput, parseStudentBirthDateInput } from "../../utils/studentBirthDate";
 import type { ParentProfile, SchoolClass, SchoolClassRecord, Student } from "../../types";
 
 export function StudentForm({
@@ -57,6 +58,8 @@ export function StudentForm({
   const [showCardMessage, setShowCardMessage] = useState(false);
   const [fingerprintMessageTrigger, setFingerprintMessageTrigger] = useState(0);
   const [cardMessageTrigger, setCardMessageTrigger] = useState(0);
+  const [birthDateInput, setBirthDateInput] = useState(() => formatStudentBirthDateInput(form.birthDate));
+  const [birthDateError, setBirthDateError] = useState("");
   const [subclassMode, setSubclassMode] = useState<"add" | "delete" | null>(null);
   const [subclassLabels, setSubclassLabels] = useState<string[]>([]);
   const [subclassError, setSubclassError] = useState("");
@@ -102,6 +105,11 @@ export function StudentForm({
   }, []);
 
   useEffect(() => { resetSubclassContext(); }, [form.schoolId, form.schoolYearId, form.classId, form.className, selectedOptionKey, resetSubclassContext]);
+
+  useEffect(() => {
+    setBirthDateInput(formatStudentBirthDateInput(form.birthDate));
+    setBirthDateError("");
+  }, [form.birthDate, form.id]);
 
   useEffect(() => {
     if (!subclassMode) return undefined;
@@ -163,6 +171,10 @@ export function StudentForm({
       aria-busy={isSaving}
       onSubmit={(event) => {
         event.preventDefault();
+        if (parseStudentBirthDateInput(birthDateInput) === null) {
+          setBirthDateError("Saisissez une date valide au format jj/mm/aaaa.");
+          return;
+        }
         void onSave();
       }}
     >
@@ -177,7 +189,29 @@ export function StudentForm({
           <option value="F">F</option>
         </select>
       </label>
-      <Field label="Date de naissance" value={form.birthDate} onChange={(value) => setForm({ ...form, birthDate: value })} type="date" />
+      <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+        Date de naissance
+        <input
+          value={birthDateInput}
+          onChange={(event) => {
+            const value = event.target.value;
+            const parsed = parseStudentBirthDateInput(value);
+            setBirthDateInput(value);
+            setBirthDateError(parsed === null && value.length === 10 ? "Saisissez une date valide au format jj/mm/aaaa." : "");
+            if (parsed !== null) setForm({ ...form, birthDate: parsed });
+          }}
+          type="text"
+          inputMode="text"
+          autoComplete="bday"
+          placeholder="jj/mm/aaaa"
+          maxLength={10}
+          pattern="[0-9]{2}/[0-9]{2}/[0-9]{4}"
+          aria-describedby={birthDateError ? "student-birth-date-error" : undefined}
+          aria-invalid={Boolean(birthDateError)}
+          className="input"
+        />
+        {birthDateError && <span id="student-birth-date-error" role="alert" className="text-sm font-medium text-red-700">{birthDateError}</span>}
+      </label>
       <Field label="Adresse" value={form.address} onChange={(value) => setForm({ ...form, address: value })} />
       <label className="grid gap-1 text-sm font-medium text-slate-700">
         Classe
@@ -231,7 +265,7 @@ export function StudentForm({
         {showEmptySubclassMessage && <p role="alert" className="text-sm font-medium text-red-700">Cette classe n'a pas de sous-classe</p>}
         <div className="grid min-w-0 grid-cols-2 gap-2">
           <button type="button" className="secondary-button w-full min-w-0 whitespace-normal px-2 text-center leading-tight" disabled={!canAddSubclass || subclassAddSaving || subclassDeletePending} title={!selectedClass ? "Sélectionnez d’abord une classe principale." : isSecondaryClass && !selectedOptionKey ? "Sélectionnez d’abord une option." : undefined} onClick={toggleAddSubclass}>Ajouter sous-classe</button>
-          <button type="button" className="secondary-button w-full min-w-0 whitespace-normal px-2 text-center leading-tight" disabled={!selectedClass || !onDeleteSubclass || subclassAddSaving || subclassDeletePending} onClick={toggleDeleteSubclass}>Supprimer sous-classe</button>
+          <button type="button" className="secondary-button w-full min-w-0 whitespace-normal px-2 text-center leading-tight" disabled={!selectedClass || !onDeleteSubclass || subclassAddSaving || subclassDeletePending} onClick={toggleDeleteSubclass}>Supp. sous-classe</button>
         </div>
         {subclassMode === "add" && selectedClass && onAddSubclasses && canAddSubclass && <section className="grid min-w-0 gap-2 rounded border border-slate-200 bg-slate-50 p-3">
           <p className="font-semibold">Sous-classes de {selectedClass.name}{form.option ? ` — ${form.option}` : ""}</p>
