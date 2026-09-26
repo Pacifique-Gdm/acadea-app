@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Fragment, type ReactNode } from "react";
 import { Banknote, BarChart3, BookOpen, CheckCircle2, ChevronRight, Clock3, CreditCard, Fingerprint, HeartPulse, Plus, RefreshCw, Settings, ShieldCheck, Trash2, UserRound, UsersRound, X } from "lucide-react";
-import { AdminDrawer, Field, ImageUploadField, LogoutButton, MultiSelectDropdown, PasswordField } from "../../components/ui";
+import { AdminDrawer, Field, ImageUploadField, LogoutButton, MoneyInput, MultiSelectDropdown, PasswordField } from "../../components/ui";
 import { ParentsDirectoryDrawer } from "../../components/parents/ParentsDirectoryDrawer";
 import { ParentDrawerBackButton } from "../../components/parents/ParentFormEditor";
 import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent";
@@ -1146,7 +1146,7 @@ export function MenuModule({
             <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
               Montant ({feeCurrencySymbol})
               <span className="relative min-w-0">
-              <input value={feeAmount} onChange={(event) => setFeeAmount(event.target.value)} type="number" className="input w-full pr-12" aria-label={`Montant (${feeCurrencySymbol})`} />
+              <MoneyInput value={feeAmount} onChange={setFeeAmount} className="input min-w-0 w-full pr-12" ariaLabel={`Montant (${feeCurrencySymbol})`} />
               <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm font-semibold text-slate-500" aria-hidden="true">{feeCurrencySymbol}</span>
               </span>
             </label>

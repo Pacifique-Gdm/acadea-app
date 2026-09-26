@@ -40,6 +40,7 @@ test("Types de frais — persistance, confirmations, classement et responsive is
     await target.getByRole("button", { name: /Types de frais/ }).click();
   }
   const drawer = () => page.getByRole("dialog", { name: "Types de frais", exact: true });
+  const amountInput = () => drawer().getByRole("textbox", { name: /^Montant \(/ });
   async function reopen() {
     await page.getByRole("button", { name: "Fermer Types de frais", exact: true }).click();
     await page.getByRole("button", { name: /Types de frais/ }).click();
@@ -81,13 +82,35 @@ test("Types de frais — persistance, confirmations, classement et responsive is
       await db.doc(`feeTypes/${legacyId}`).set({ id: legacyId, schoolId, schoolYearId: yearId, name: "Legacy E2E", amount: 3 });
     }
     await login(page, 0);
+    for (const [raw, formatted] of [["1000", "1 000"], ["15000", "15 000"], ["125000", "125 000"], ["1000000", "1 000 000"], ["2500000", "2 500 000"]]) {
+      await amountInput().fill(raw);
+      await expect(amountInput()).toHaveValue(formatted);
+    }
+    await amountInput().fill("");
+    for (const [digits, formatted] of [["1", "1"], ["0", "10"], ["0", "100"], ["0", "1 000"], ["0", "10 000"], ["0", "100 000"], ["0", "1 000 000"]]) {
+      await amountInput().pressSequentially(digits);
+      await expect(amountInput()).toHaveValue(formatted);
+    }
+    await amountInput().press("Backspace");
+    await expect(amountInput()).toHaveValue("100 000");
+    await amountInput().press("ControlOrMeta+A");
+    await amountInput().press("Backspace");
+    await expect(amountInput()).toHaveValue("");
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.evaluate(() => navigator.clipboard.writeText("2 500 000,75"));
+    await amountInput().press("ControlOrMeta+V");
+    await expect(amountInput()).toHaveValue("2 500 000,75");
     for (const width of [1440, 768, 390]) await layout(width);
     await expect(drawer().getByTestId("fee-groups").locator("h3")).toHaveText(["Primaire", "CTEB", "Toutes les classes / références historiques"]);
     await expect(drawer().getByTestId("fee-groups").locator("h4")).toHaveText(["1ère Primaire", "6ème Primaire", "7ème CTEB", "8ème CTEB"]);
     await drawer().getByLabel("Frais", { exact: true }).selectOption("Minerval");
     await drawer().getByText("1ère Primaire", { exact: true }).first().locator("..").getByRole("checkbox").check();
     await drawer().getByText("7ème CTEB", { exact: true }).first().locator("..").getByRole("checkbox").check();
-    await drawer().getByRole("spinbutton").fill("27");
+    await amountInput().fill("0");
+    await drawer().getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(drawer().getByRole("alert")).toContainText("supérieur à zéro");
+    await amountInput().fill("1500000.75");
+    await expect(amountInput()).toHaveValue("1 500 000,75");
     const before = (await fees(0)).size;
     await drawer().getByRole("button", { name: "Enregistrer", exact: true }).click();
     const addDialog = page.getByRole("dialog", { name: "Ajouter le type de frais", exact: true });
@@ -98,20 +121,24 @@ test("Types de frais — persistance, confirmations, classement et responsive is
     await expect(addDialog).toHaveCount(0);
     await expect.poll(async () => (await fees(0)).size).toBe(before + 2);
     const created = (await fees(0)).docs.filter(d => d.data().name === "Minerval");
+    expect(created.map(d => d.data().amount)).toEqual([1500000.75, 1500000.75]);
+    expect(created.every(d => typeof d.data().amount === "number")).toBe(true);
     const id = created[0].id;
     const row = () => drawer().locator(`[data-fee-id="${id}"]`);
     await row().getByRole("button", { name: "Modifier", exact: true }).click();
+    await expect(amountInput()).toHaveValue("1 500 000,75");
     for (const width of [1440, 768, 390]) await layout(width);
-    await drawer().getByRole("spinbutton").fill("39");
+    await amountInput().fill("2500000.75");
+    await expect(amountInput()).toHaveValue("2 500 000,75");
     await drawer().getByTestId("fee-editor-actions").getByRole("button", { name: "Enregistrer", exact: true }).click();
     const editDialog = page.getByRole("dialog", { name: "Modifier le type de frais", exact: true });
     const confirm = editDialog.getByPlaceholder("MODIFIER CE FRAIS");
     await expect(confirm).toHaveValue("");
-    expect((await db.doc(`feeTypes/${id}`).get()).data()!.amount).toBe(27);
+    expect((await db.doc(`feeTypes/${id}`).get()).data()!.amount).toBe(1500000.75);
     for (const wrong of ["modifier ce frais", "MODIFIER CE FRAI", "MODIFIER CE FRAIS "]) {
       await confirm.fill(wrong);
       await expect(editDialog.getByRole("button", { name: "Confirmer la modification", exact: true })).toBeDisabled();
-      expect((await db.doc(`feeTypes/${id}`).get()).data()!.amount).toBe(27);
+      expect((await db.doc(`feeTypes/${id}`).get()).data()!.amount).toBe(1500000.75);
     }
     await editDialog.getByRole("button", { name: "Annuler", exact: true }).click();
     await drawer().getByTestId("fee-editor-actions").getByRole("button", { name: "Enregistrer", exact: true }).click();
@@ -119,22 +146,27 @@ test("Types de frais — persistance, confirmations, classement et responsive is
     await confirm.pressSequentially("MODIFIER CE FRAIS");
     await editDialog.getByRole("button", { name: "Confirmer la modification", exact: true }).click();
     await expect(editDialog).toHaveCount(0);
-    expect((await db.doc(`feeTypes/${id}`).get()).data()!.amount).toBe(39);
+    expect((await db.doc(`feeTypes/${id}`).get()).data()!.amount).toBe(2500000.75);
+    expect(typeof (await db.doc(`feeTypes/${id}`).get()).data()!.amount).toBe("number");
+    expect((await db.doc(`feeTypes/${schools[0]}-seed-0`).get()).data()!.amount).toBe(10);
     await reopen();
-    await expect(row()).toContainText("39");
+    await expect(row()).toContainText(/2[\s\u00a0\u202f]500[\s\u00a0\u202f]000,75 FC/);
     await row().getByRole("button", { name: "Modifier", exact: true }).click();
-    await drawer().getByRole("spinbutton").fill("99");
+    await amountInput().fill("99");
     await drawer().getByTestId("fee-editor-actions").getByRole("button", { name: "Annuler", exact: true }).click();
-    await expect(drawer().getByRole("spinbutton")).toHaveValue("100");
-    expect((await db.doc(`feeTypes/${id}`).get()).data()!.amount).toBe(39);
+    await expect(amountInput()).toHaveValue("100");
+    expect((await db.doc(`feeTypes/${id}`).get()).data()!.amount).toBe(2500000.75);
     await page.reload();
     await page.getByRole("button", { name: "Menu", exact: true }).click();
     await page.getByRole("button", { name: /Types de frais/ }).click();
-    await expect(row()).toContainText("39");
+    await expect(row()).toContainText(/2[\s\u00a0\u202f]500[\s\u00a0\u202f]000,75 FC/);
     await page.getByRole("button", { name: "Fermer Types de frais", exact: true }).click();
     await page.getByRole("button", { name: /Déconnexion|Se déconnecter/, exact: true }).click();
     await login(page, 0);
-    await expect(row()).toContainText("39");
+    await expect(row()).toContainText(/2[\s\u00a0\u202f]500[\s\u00a0\u202f]000,75 FC/);
+    await row().getByRole("button", { name: "Modifier", exact: true }).click();
+    await expect(amountInput()).toHaveValue("2 500 000,75");
+    await drawer().getByTestId("fee-editor-actions").getByRole("button", { name: "Annuler", exact: true }).click();
     await row().getByRole("button", { name: "Supprimer", exact: true }).click();
     const deletion = page.getByRole("dialog", { name: "Supprimer le frais", exact: true });
     await deletion.getByPlaceholder("SUPPRIMER LE FRAIS").pressSequentially("SUPPRIMER LE FRAIS");
@@ -158,6 +190,8 @@ test("Types de frais — persistance, confirmations, classement et responsive is
       await login(target, 0);
       const editor = target.getByTestId("fee-editor");
       await target.locator(`[data-fee-id="${schools[0]}-seed-0"]`).getByRole("button", { name: "Modifier", exact: true }).click();
+      await editor.getByRole("textbox", { name: /^Montant \(/ }).fill("2500000.75");
+      await expect(editor.getByRole("textbox", { name: /^Montant \(/ })).toHaveValue("2 500 000,75");
       const dimensions = await editor.evaluate(el => ({
         columns: getComputedStyle(el).gridTemplateColumns.split(" ").length,
         buttons: [...el.querySelectorAll('[data-testid="fee-editor-actions"] button')].map(b => { const r = b.getBoundingClientRect(); return { y: r.y, width: r.width }; }),

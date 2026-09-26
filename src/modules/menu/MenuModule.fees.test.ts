@@ -4,6 +4,11 @@ import { describe, expect, it } from "vitest";
 const source = readFileSync(new URL("./MenuModule.tsx", import.meta.url), "utf8");
 
 describe("Types de frais", () => {
+  it("réutilise la saisie monétaire formatée sans changer le stockage numérique", () => {
+    expect(source).toContain("<MoneyInput value={feeAmount} onChange={setFeeAmount}");
+    expect(source).toContain("const amount = Number(feeAmount)");
+    expect(source).not.toContain('value={feeAmount} onChange={(event) => setFeeAmount(event.target.value)} type="number"');
+  });
   it("garde le formulaire vertical et les actions d'édition équilibrées", () => {
     const editor = source.slice(source.indexOf('<div ref={feeEditorRef}'), source.indexOf('{showNewFeeForm &&', source.indexOf('<div ref={feeEditorRef}')));
     expect(editor).not.toContain("sm:grid-cols");

@@ -26,7 +26,7 @@ describe("devise d'école", () => {
   });
 
   it.each([
-    ["0", "0"], ["1000", "1 000"], ["1000000", "1 000 000"], ["25000000", "25 000 000"], ["1 234,50", "1 234,50"],
+    ["0", "0"], ["1000", "1 000"], ["15000", "15 000"], ["125000", "125 000"], ["1000000", "1 000 000"], ["2500000", "2 500 000"], ["25000000", "25 000 000"], ["1 234,50", "1 234,50"],
   ])("formate la saisie %s sans changer sa valeur numérique", (raw, formatted) => {
     expect(formatMoneyInput(raw)).toBe(formatted);
     expect(Number(parseMoneyInput(formatted))).toBe(Number(parseMoneyInput(raw)));
