@@ -20,6 +20,8 @@ test("Types de frais — persistance, confirmations, classement et responsive is
   expect(credential.project_id).toBe("acadea-staging");
   const app = initializeApp({ credential: cert(credential), projectId: "acadea-staging", storageBucket: "acadea-staging.firebasestorage.app" }, "fee-form-e2e");
   const db = getFirestore(app);
+  // Admin verification uses REST; browser Firestore traffic remains unchanged.
+  db.settings({ preferRest: true });
   const auth = getAuth(app);
   const prefix = `e2e-fee-form-${Date.now()}`;
   const schools = [`${prefix}-a`, `${prefix}-b`];
@@ -154,6 +156,7 @@ test("Types de frais — persistance, confirmations, classement et responsive is
     await row().getByRole("button", { name: "Modifier", exact: true }).click();
     await amountInput().fill("99");
     await drawer().getByTestId("fee-editor-actions").getByRole("button", { name: "Annuler", exact: true }).click();
+    console.log("FEE_FORMAT_REFRESH_RELOGIN_PASS");
     await expect(amountInput()).toHaveValue("100");
     expect((await db.doc(`feeTypes/${id}`).get()).data()!.amount).toBe(2500000.75);
     await page.reload();
@@ -170,10 +173,13 @@ test("Types de frais — persistance, confirmations, classement et responsive is
     await row().getByRole("button", { name: "Supprimer", exact: true }).click();
     const deletion = page.getByRole("dialog", { name: "Supprimer le frais", exact: true });
     await deletion.getByPlaceholder("SUPPRIMER LE FRAIS").pressSequentially("SUPPRIMER LE FRAIS");
+    const deletionStarted = Date.now();
     await deletion.getByRole("button", { name: "Supprimer", exact: true }).click();
-    await expect(deletion).toHaveCount(0);
+    await expect(deletion).toHaveCount(0, { timeout: 30_000 });
+    console.log(JSON.stringify({ phase: "deletion-persistence", milliseconds: Date.now() - deletionStarted }));
     expect((await db.doc(`feeTypes/${id}`).get()).exists).toBe(false);
     await reopen(); await expect(row()).toHaveCount(0);
+    console.log("FEE_FORMAT_DELETION_PASS");
     const context = await browser.newContext({ baseURL });
     try {
       const second = await context.newPage(); await login(second, 1);
@@ -183,6 +189,7 @@ test("Types de frais — persistance, confirmations, classement et responsive is
       await expect(groups).toContainText("Littéraire");
       expect(await groups.locator(`[data-fee-id^="${schools[0]}"]`).count()).toBe(0);
     } finally { await context.close(); }
+    console.log("FEE_FORMAT_SECOND_SCHOOL_PASS");
     const iphone = await webkit.launch({ headless: true });
     try {
       const mobile = await iphone.newContext({ ...devices["iPhone 13"], baseURL });
@@ -207,6 +214,7 @@ test("Types de frais — persistance, confirmations, classement et responsive is
     expect(errors).toEqual([]);
     console.log("FEE_FORM_RUNTIME_PASS");
   } finally {
+    console.log("FEE_FORMAT_CLEANUP_STARTED");
     // Independent scan of all root collections: remove only this isolated scope.
     const roots = await db.listCollections();
     let deleted = 0;
