@@ -4,6 +4,20 @@ import { describe, expect, it } from "vitest";
 const source = readFileSync(new URL("./MenuModule.tsx", import.meta.url), "utf8");
 
 describe("Types de frais", () => {
+  it("garde le formulaire vertical et les actions d'édition équilibrées", () => {
+    const editor = source.slice(source.indexOf('<div ref={feeEditorRef}'), source.indexOf('{showNewFeeForm &&', source.indexOf('<div ref={feeEditorRef}')));
+    expect(editor).not.toContain("sm:grid-cols");
+    expect(editor).toContain("grid-cols-2 gap-2");
+    expect(editor).toContain("Annuler</button>");
+    expect(source).not.toContain("Annuler la modification");
+  });
+  it("protège aussi la modification par une confirmation exacte et réinitialisée", () => {
+    expect(source).toContain('editingFeeId && confirmation !== "MODIFIER CE FRAIS"');
+    expect(source).toContain('feeEditConfirmation !== "MODIFIER CE FRAIS"');
+    expect(source).toContain('setFeeEditConfirmation("")');
+    expect(source).toContain("onClick={cancelFeeEdit}");
+    expect(source).toContain("groupFeeTypes(yearData.feeTypes, school, selectedYear.id)");
+  });
   it("refuse explicitement les doublons normalisés et les doubles soumissions", () => {
     expect(source).toContain("feeTypeBusinessKey");
     expect(source).toContain("Ce type de frais existe déjà pour cette classe.");

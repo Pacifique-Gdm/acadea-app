@@ -25,6 +25,7 @@ import { formatStudentClassName } from "../../utils/studentClasses";
 import { formatCurrencyMoney, resolveSchoolYearCurrency, schoolCurrencySymbol } from "../../utils/currency";
 import type { AppData, AppUser, FeeKind, FeeType, ParentProfile, School, SchoolSection, SchoolYear, Student, ValvePublication } from "../../types";
 import { FEE_KINDS } from "../../types";
+import { groupFeeTypes } from "./feeTypeGroups";
 import { SecretaryMedicalRecordsDrawer } from "../secretary/SecretaryMedicalTools";
 import { PersonnelDrawerContent } from "./PersonnelDrawerContent";
 import type { StudentMedicalRecord } from "../secretary/secretaryTypes";
@@ -138,6 +139,8 @@ export function MenuModule({
   const [feeDeleteSaving, setFeeDeleteSaving] = useState(false);
   const [feeAddPending, setFeeAddPending] = useState(false);
   const [feeAddConfirmation, setFeeAddConfirmation] = useState("");
+  const [feeEditPending, setFeeEditPending] = useState(false);
+  const [feeEditConfirmation, setFeeEditConfirmation] = useState("");
   const [activeMenuSection, setActiveMenuSection] = useState<MenuSection | null>(initialBiometricsOpen ? "biometrics" : null);
   const [newYearOpen, setNewYearOpen] = useState(false);
   const [newYearForm, setNewYearForm] = useState(() => nextSchoolYearDefaults(selectedYear));
@@ -187,6 +190,7 @@ export function MenuModule({
   const schoolSectionChoices = getSchoolSections(school);
   const schoolFormOptions = normalizeSchoolOptions(schoolForm.schoolOptions);
   const feeClassChoices = buildFeeTargetChoices(yearData.students, feeClassNames);
+  const feeGroups = groupFeeTypes(yearData.feeTypes, school, selectedYear.id);
   const parentDeleteTarget = yearData.parents.find((parent) => parent.id === parentDeleteId && parent.schoolId === school.id);
   const generatedSchoolUserEmail = useMemo(
     () => nextSchoolStaffEmail(school, schoolUserRole, [...data.users, ...teacherAccountUsers], data.parents),
@@ -259,6 +263,9 @@ export function MenuModule({
 
   function closeActiveMenuSection() {
     if (schoolSectionSavingRef.current) return;
+    if (feeSubmittingRef.current) return;
+    setFeeEditPending(false);
+    setFeeEditConfirmation("");
     closeSchoolSectionConfirmation();
     setActiveMenuSection(null);
     clearMenuMessages();
@@ -568,6 +575,11 @@ export function MenuModule({
       setFeeAddPending(true);
       return;
     }
+    if (editingFeeId && confirmation !== "MODIFIER CE FRAIS") {
+      setFeeEditConfirmation("");
+      setFeeEditPending(true);
+      return;
+    }
     const feesToSave = selectedClasses.map((target, index) => {
         const fee: FeeType = {
           id: editingFeeId && index === 0 ? editingFeeId : createId("fee"),
@@ -602,6 +614,8 @@ export function MenuModule({
       setFeeAmount("100");
       setFeeAddPending(false);
       setFeeAddConfirmation("");
+      setFeeEditPending(false);
+      setFeeEditConfirmation("");
     } catch (error) {
       setFeeSaveError(error instanceof Error ? error.message : "Enregistrement du type de frais impossible.");
     } finally {
@@ -611,6 +625,10 @@ export function MenuModule({
   }
 
   function editFee(fee: FeeType) {
+    setFeeEditPending(false);
+    setFeeEditConfirmation("");
+    setFeeAddPending(false);
+    setFeeAddConfirmation("");
     setEditingFeeId(fee.id);
     setFeeName(fee.name);
     const feeTarget = fee.classOptionKey ?? fee.className;
@@ -640,6 +658,22 @@ export function MenuModule({
     if (feeDeleteSaving) return;
     setFeeDeleteTarget(null);
     setFeeDeleteConfirmation("");
+  }
+
+  function cancelFeeEdit() {
+    if (feeSubmittingRef.current) return;
+    setEditingFeeId("");
+    setFeeName("Minerval");
+    setFeeClassNames([]);
+    setFeeAmount("100");
+    setFeeSaveError("");
+    setFeeEditPending(false);
+    setFeeEditConfirmation("");
+    setFeeAddPending(false);
+    setFeeAddConfirmation("");
+    setShowNewFeeForm(false);
+    setNewFeeName("");
+    setNewFeeError("");
   }
 
   async function confirmDeleteFee() {
@@ -1061,12 +1095,24 @@ export function MenuModule({
     }
 
     if (sectionId === "fees" && canReadAdmin) {
+      const feeRow = (fee: FeeType) => (
+        <div key={fee.id} data-fee-id={fee.id} className="flex min-w-0 flex-col gap-3 rounded bg-slate-50 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+          <span className="min-w-0 break-words font-semibold text-ink">{fee.name} - {formatFeeTargetLabel(fee)}</span>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <strong>{formatCurrencyMoney(fee.amount, feeCurrency)}</strong>
+            <button onClick={() => editFee(fee)} type="button" className="rounded bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100">Modifier</button>
+            <button onClick={() => deleteFee(fee)} type="button" className="rounded bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100">Supprimer</button>
+          </div>
+        </div>
+      );
       return (
         <fieldset disabled={!canAdmin} className="grid min-w-0 gap-4">
           {feeSaveError && <p role="alert" aria-live="assertive" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{feeSaveError}</p>}
-          <div ref={feeEditorRef} className="grid min-w-0 scroll-mt-4 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_120px_auto]">
+          <div ref={feeEditorRef} className="grid min-w-0 scroll-mt-4 gap-2" data-testid="fee-editor">
+            <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">Frais
             <select
               ref={feeNameSelectRef}
+              aria-label="Frais"
               value={feeName}
               onChange={(event) => {
                 if (event.target.value === "__add_fee__") {
@@ -1082,6 +1128,7 @@ export function MenuModule({
               ))}
               <option value="__add_fee__">Ajouter un frais</option>
             </select>
+            </label>
             <fieldset className="max-h-40 min-w-0 overflow-y-auto rounded border border-slate-200 bg-white p-2 text-sm text-slate-700 scrollbar-thin">
               <legend className="mb-1 px-1 text-xs font-semibold text-slate-500">Classes concernées</legend>
               <div className="grid gap-1">
@@ -1096,28 +1143,18 @@ export function MenuModule({
                 )}
               </div>
             </fieldset>
-            <label className="relative min-w-0">
-              <span className="sr-only">Montant ({feeCurrencySymbol})</span>
+            <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
+              Montant ({feeCurrencySymbol})
+              <span className="relative min-w-0">
               <input value={feeAmount} onChange={(event) => setFeeAmount(event.target.value)} type="number" className="input w-full pr-12" aria-label={`Montant (${feeCurrencySymbol})`} />
               <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm font-semibold text-slate-500" aria-hidden="true">{feeCurrencySymbol}</span>
+              </span>
             </label>
-            <button onClick={() => void saveFee()} disabled={feeClassNames.length === 0 || feeSubmitting} className="primary-button w-full justify-center disabled:opacity-50 sm:w-auto" type="button"><Plus className="h-4 w-4" /> {feeSubmitting ? "Enregistrement…" : editingFeeId ? "Enregistrer" : "Ajouter"}</button>
+            <div className={editingFeeId ? "grid min-w-0 grid-cols-2 gap-2" : "grid min-w-0"} data-testid="fee-editor-actions">
+              {editingFeeId && <button onClick={cancelFeeEdit} disabled={feeSubmitting} className="secondary-button w-full min-w-0 justify-center disabled:opacity-50" type="button">Annuler</button>}
+              <button onClick={() => void saveFee()} disabled={feeClassNames.length === 0 || feeSubmitting} className="primary-button w-full min-w-0 justify-center disabled:opacity-50" type="button">{feeSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
+            </div>
           </div>
-          {editingFeeId && (
-            <button
-              onClick={() => {
-                setEditingFeeId("");
-                setFeeName("Minerval");
-                setFeeClassNames([]);
-                setFeeAmount("100");
-                setFeeSaveError("");
-              }}
-              className="secondary-button w-fit"
-              type="button"
-            >
-              Annuler la modification
-            </button>
-          )}
           {showNewFeeForm && (
             <div ref={newFeeFormRef} className="rounded border border-slate-100 bg-slate-50 p-3">
               <p className="mb-2 text-sm font-semibold text-ink">Nouveau frais</p>
@@ -1138,22 +1175,35 @@ export function MenuModule({
               </div>
             </div>
           )}
-          <div className="space-y-2">
-            {yearData.feeTypes.map((fee) => (
-              <div key={fee.id} className="flex min-w-0 flex-col gap-3 rounded bg-slate-50 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-                <span className="min-w-0 break-words font-semibold text-ink">{fee.name} - {formatFeeTargetLabel(fee)}</span>
-                <div className="flex shrink-0 flex-wrap items-center gap-2">
-                  <strong>{formatCurrencyMoney(fee.amount, feeCurrency)}</strong>
-                  <button onClick={() => editFee(fee)} type="button" className="rounded bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100">
-                    Modifier
-                  </button>
-                  <button onClick={() => deleteFee(fee)} type="button" className="rounded bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100">
-                    Supprimer
-                  </button>
-                </div>
-              </div>
-            ))}
+          <div className="min-w-0 space-y-4" data-testid="fee-groups">
+            {feeGroups.groups.map((group) => <section key={group.section} className="min-w-0 space-y-3">
+              <h3 className="font-bold text-ink">{schoolSectionLabels[group.section]}</h3>
+              {group.classes.map((parent) => <section key={parent.name} className="min-w-0 space-y-2">
+                <h4 className="text-sm font-semibold text-slate-600">{parent.name}</h4>
+                {parent.fees.map(feeRow)}
+              </section>)}
+            </section>)}
+            {feeGroups.legacy.length > 0 && <section className="min-w-0 space-y-2"><h3 className="font-bold text-ink">Toutes les classes / références historiques</h3>{feeGroups.legacy.map(feeRow)}</section>}
           </div>
+          {feeEditPending && (
+            <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-4" role="dialog" aria-modal="true" aria-labelledby="fee-edit-title">
+              <section className="w-full max-w-md rounded border border-slate-200 bg-white p-4 shadow-2xl">
+                <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
+                  <h2 id="fee-edit-title" className="break-words text-lg font-bold text-ink">Modifier le type de frais</h2>
+                  <button onClick={() => { if (!feeSubmitting) { setFeeEditPending(false); setFeeEditConfirmation(""); } }} disabled={feeSubmitting} type="button" className="rounded bg-slate-100 p-2 text-slate-700 disabled:opacity-50" aria-label="Annuler la confirmation de modification du frais"><X className="h-4 w-4" /></button>
+                </div>
+                <div className="mt-4 grid gap-3">
+                  <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">Pour confirmer la modification, saisissez exactement : MODIFIER CE FRAIS</p>
+                  <label className="grid gap-1 text-sm font-semibold text-slate-700">Phrase de confirmation<input value={feeEditConfirmation} onChange={(event) => setFeeEditConfirmation(event.target.value)} className="input" placeholder="MODIFIER CE FRAIS" /></label>
+                  {feeEditConfirmation && feeEditConfirmation !== "MODIFIER CE FRAIS" && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">Phrase incorrecte. Veuillez saisir exactement : MODIFIER CE FRAIS</p>}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button onClick={() => { if (!feeSubmitting) { setFeeEditPending(false); setFeeEditConfirmation(""); } }} disabled={feeSubmitting} type="button" className="secondary-button min-w-0 justify-center disabled:opacity-50">Annuler</button>
+                    <button onClick={() => void saveFee(feeEditConfirmation)} disabled={feeSubmitting || feeEditConfirmation !== "MODIFIER CE FRAIS"} type="button" className="primary-button min-w-0 justify-center disabled:opacity-50">{feeSubmitting ? "Enregistrement…" : "Confirmer la modification"}</button>
+                  </div>
+                </div>
+              </section>
+            </div>
+          )}
           {feeDeleteTarget && (
             <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-4" role="dialog" aria-modal="true" aria-labelledby="fee-delete-title">
               <section className="w-full max-w-md rounded border border-slate-200 bg-white p-4 shadow-2xl">
