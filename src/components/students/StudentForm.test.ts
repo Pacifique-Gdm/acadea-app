@@ -91,4 +91,7 @@ describe("formulaire Élève partagé Admin/Secrétaire", () => {
     expect(source).not.toContain('type="date"');
     expect(source).toContain("parseStudentBirthDateInput");
   });
+  it("favorise le clavier numérique pour la date partagée Admin/Secrétaire", () => {
+    expect(render()).toMatch(/<input[^>]*inputMode="numeric"[^>]*placeholder="jj\/mm\/aaaa"/);
+  });
 });

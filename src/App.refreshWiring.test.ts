@@ -14,4 +14,11 @@ describe("actualisation des portails spécialisés", () => {
     expect(source).toContain("setRefreshError(refreshErrorMessage(error));");
     expect(source).toContain("setBootstrapError(refreshErrorMessage(error));");
   });
+  it("attend les listeners Enseignant et remonte leurs erreurs sans faux succès", () => {
+    const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+    expect(source).toContain("isRefreshing={isRefreshing || teacherRefreshing}");
+    expect(source).toContain("refreshError={refreshError || teacherRefreshError}");
+    const portal = readFileSync(new URL("./modules/teacher/TeacherPortal.tsx", import.meta.url), "utf8");
+    expect(portal).toContain("renderHeader({ isRefreshing: data.loading, refreshError: data.error })");
+  });
 });

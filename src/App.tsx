@@ -934,7 +934,7 @@ export default function App() {
       refreshToken={dataRefreshToken}
       onLogout={logout}
       renderEnvironmentBanner={() => <EnvironmentBanner />}
-      renderHeader={() => <Header user={user} data={data} yearData={yearData} school={currentSchool} year={currentYear} unreadNotifications={yearData.notifications.filter((item) => !item.read && item.recipientUserId === user.id).length} notificationsOpen={notificationsOpen} onRefresh={refreshCurrentYearData} onToggleNotifications={openNotifications} onCloseNotifications={closeNotifications} onRealtimeNotifications={(items) => setData((current) => ({ ...current, notifications: items }))} onRealtimeMessages={(items) => setData((current) => ({ ...current, messages: items }))} roleLabels={roleLabels} messagingEnabled />}
+      renderHeader={({ isRefreshing: teacherRefreshing, refreshError: teacherRefreshError }) => <Header user={user} data={data} yearData={yearData} school={currentSchool} year={currentYear} unreadNotifications={yearData.notifications.filter((item) => !item.read && item.recipientUserId === user.id).length} notificationsOpen={notificationsOpen} isRefreshing={isRefreshing || teacherRefreshing} refreshError={refreshError || teacherRefreshError} onRefresh={refreshCurrentYearData} onToggleNotifications={openNotifications} onCloseNotifications={closeNotifications} onRealtimeNotifications={(items) => setData((current) => ({ ...current, notifications: items }))} onRealtimeMessages={(items) => setData((current) => ({ ...current, messages: items }))} roleLabels={roleLabels} messagingEnabled />}
     />;
   }
 

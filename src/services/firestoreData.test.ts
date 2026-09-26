@@ -42,6 +42,6 @@ describe("queries messages autorisées par rôle", () => {
 describe("actualisation du portail Direction des études", () => {
   it("ne lance pas les queries génériques interdites", () => {
     const source = readFileSync(new URL("./firestoreData.ts", import.meta.url), "utf8");
-    expect(source).toContain('if (user.role === "study_director") return {};');
+    expect(source).toContain('if (user.role === "study_director" || user.role === "teacher") return {};');
   });
 });

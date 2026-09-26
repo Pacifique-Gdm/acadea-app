@@ -7,9 +7,8 @@ function isCalendarDate(year: number, month: number, day: number) {
 }
 
 export function parseStudentBirthDateInput(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) return "";
-  const match = DISPLAY_DATE_PATTERN.exec(trimmed);
+  if (!value) return "";
+  const match = DISPLAY_DATE_PATTERN.exec(value);
   if (!match) return null;
   const [, dayText, monthText, yearText] = match;
   const day = Number(dayText);
@@ -17,6 +16,27 @@ export function parseStudentBirthDateInput(value: string) {
   const year = Number(yearText);
   if (!isCalendarDate(year, month, day)) return null;
   return `${yearText}-${monthText}-${dayText}`;
+}
+
+export function guideStudentBirthDateInput(value: string) {
+  const digits = value.replace(/[^0-9]/g, "").slice(0, 8);
+  if (digits.length < 2) return digits;
+  if (digits.length < 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
+export function deleteStudentBirthDateInput(value: string, start: number, end: number, backward: boolean) {
+  const digits = value.replace(/[^0-9]/g, "");
+  let from = value.slice(0, start).replace(/[^0-9]/g, "").length;
+  let to = value.slice(0, end).replace(/[^0-9]/g, "").length;
+  if (from === to) {
+    if (backward) from = Math.max(0, from - 1);
+    else to = Math.min(digits.length, to + 1);
+  }
+  return {
+    value: guideStudentBirthDateInput(digits.slice(0, from) + digits.slice(to)),
+    caret: guideStudentBirthDateInput(digits.slice(0, from)).length,
+  };
 }
 
 export function formatStudentBirthDateInput(value: string) {

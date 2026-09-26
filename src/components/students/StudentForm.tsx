@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CheckCircle2, Fingerprint, Plus, Radio, X } from "lucide-react";
 import { Field, ImageUploadField, PasswordField } from "../ui";
 import { cardStatusLabels, fingerprintStatusLabels, resolveStudentBiometric } from "../../utils/biometrics";
 import { getClassSection } from "../../utils/studentClasses";
 import { resolveStudentParentClass, schoolClassRecordId, secondarySubclassesForOption, studentSchoolClassOptionKey, validateSubclassCreation } from "../../services/schoolSubclasses";
 import { nextSubclassLetters } from "../../utils/subclassLetters.js";
-import { formatStudentBirthDateInput, parseStudentBirthDateInput } from "../../utils/studentBirthDate";
+import { deleteStudentBirthDateInput, formatStudentBirthDateInput, guideStudentBirthDateInput, parseStudentBirthDateInput } from "../../utils/studentBirthDate";
 import type { ParentProfile, SchoolClass, SchoolClassRecord, Student } from "../../types";
 
 export function StudentForm({
@@ -60,6 +60,22 @@ export function StudentForm({
   const [cardMessageTrigger, setCardMessageTrigger] = useState(0);
   const [birthDateInput, setBirthDateInput] = useState(() => formatStudentBirthDateInput(form.birthDate));
   const [birthDateError, setBirthDateError] = useState("");
+  const birthDateRef = useRef<HTMLInputElement>(null);
+  const birthDateCaretRef = useRef<number | null>(null);
+
+  function changeBirthDate(value: string, caret: number) {
+    const parsed = parseStudentBirthDateInput(value);
+    birthDateCaretRef.current = caret;
+    setBirthDateInput(value);
+    setBirthDateError(parsed === null && value.length === 10 ? "Saisissez une date valide au format jj/mm/aaaa." : "");
+    if (parsed !== null) setForm({ ...form, birthDate: parsed });
+  }
+
+  useLayoutEffect(() => {
+    if (birthDateCaretRef.current === null) return;
+    birthDateRef.current?.setSelectionRange(birthDateCaretRef.current, birthDateCaretRef.current);
+    birthDateCaretRef.current = null;
+  }, [birthDateInput]);
   const [subclassMode, setSubclassMode] = useState<"add" | "delete" | null>(null);
   const [subclassLabels, setSubclassLabels] = useState<string[]>([]);
   const [subclassError, setSubclassError] = useState("");
@@ -192,16 +208,39 @@ export function StudentForm({
       <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
         Date de naissance
         <input
+          ref={birthDateRef}
           value={birthDateInput}
           onChange={(event) => {
-            const value = event.target.value;
-            const parsed = parseStudentBirthDateInput(value);
-            setBirthDateInput(value);
-            setBirthDateError(parsed === null && value.length === 10 ? "Saisissez une date valide au format jj/mm/aaaa." : "");
-            if (parsed !== null) setForm({ ...form, birthDate: parsed });
+            const raw = event.target.value;
+            changeBirthDate(guideStudentBirthDateInput(raw), guideStudentBirthDateInput(raw.slice(0, event.target.selectionStart ?? raw.length)).length);
+          }}
+          onKeyDown={(event) => {
+            if (event.ctrlKey || event.metaKey || event.altKey) return;
+            if (event.key === "Backspace" || event.key === "Delete") {
+              event.preventDefault();
+              const edit = deleteStudentBirthDateInput(birthDateInput, event.currentTarget.selectionStart ?? 0, event.currentTarget.selectionEnd ?? 0, event.key === "Backspace");
+              changeBirthDate(edit.value, edit.caret);
+            } else if (event.key.length === 1 && !/^[0-9]$/.test(event.key)) event.preventDefault();
+          }}
+          onBeforeInput={(event) => {
+            const input = event.nativeEvent as InputEvent;
+            if (input.inputType === "deleteContentBackward" || input.inputType === "deleteContentForward") {
+              event.preventDefault();
+              const edit = deleteStudentBirthDateInput(birthDateInput, event.currentTarget.selectionStart ?? 0, event.currentTarget.selectionEnd ?? 0, input.inputType === "deleteContentBackward");
+              changeBirthDate(edit.value, edit.caret);
+            } else if (input.data && /[^0-9]/.test(input.data)) event.preventDefault();
+          }}
+          onPaste={(event) => {
+            event.preventDefault();
+            const input = event.currentTarget;
+            const start = input.selectionStart ?? 0;
+            const end = input.selectionEnd ?? start;
+            const inserted = event.clipboardData.getData("text").replace(/[^0-9]/g, "");
+            const prefix = birthDateInput.slice(0, start);
+            changeBirthDate(guideStudentBirthDateInput(prefix + inserted + birthDateInput.slice(end)), guideStudentBirthDateInput(prefix + inserted).length);
           }}
           type="text"
-          inputMode="text"
+          inputMode="numeric"
           autoComplete="bday"
           placeholder="jj/mm/aaaa"
           maxLength={10}

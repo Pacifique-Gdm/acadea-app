@@ -430,11 +430,9 @@ export async function loadFirestoreYearData(user: AppUser, schoolYearId: string)
     throw new Error("Chargement Firestore impossible : schoolYearId manquant.");
   }
 
-  // The Studies portal owns its year-scoped listeners (including section
-  // constraints) through useStudyData.  Do not run the generic school refresh
-  // queries here: study directors are intentionally not allowed to read the
-  // financial collections or an unbounded students query.
-  if (user.role === "study_director") return {};
+  // Studies and Teacher portals own their scoped listeners. The refresh token
+  // reconnects those listeners; neither role may run global school queries.
+  if (user.role === "study_director" || user.role === "teacher") return {};
 
   const annualFilter: [string, unknown][] = [
     ["schoolId", user.schoolId],
