@@ -51,6 +51,7 @@ for (const role of roles) {
       await expect.poll(() => firestoreTargets, { timeout: 30_000 }).toBeGreaterThan(targetsBefore);
       await expect(refresh).toBeEnabled({ timeout: 30_000 });
       expect(refreshErrors, "échec technique réel d'actualisation").toEqual([]);
+      await expect(page.getByRole("alert")).toHaveCount(0);
       const box = await refresh.boundingBox();
       expect(box).not.toBeNull();
       expect(box!.x).toBeGreaterThanOrEqual(0);
@@ -62,6 +63,7 @@ for (const role of roles) {
     await expect.poll(() => firestoreRequests, { timeout: 30_000 }).toBeGreaterThan(afterNavigation);
     await expect(page.getByRole("button", { name: "Actualiser", exact: true })).toBeEnabled({ timeout: 30_000 });
     expect(refreshErrors).toEqual([]);
+    await expect(page.getByRole("alert")).toHaveCount(0);
     if (role === "SECRETARY") {
       const years = page.getByRole("combobox", { name: "Année scolaire", exact: true });
       const initial = await years.inputValue();
@@ -72,11 +74,13 @@ for (const role of roles) {
       await expect(page.getByRole("button", { name: "Actualiser", exact: true })).toBeEnabled({ timeout: 30_000 });
       await page.getByRole("button", { name: "Actualiser", exact: true }).click();
       await expect(page.getByRole("button", { name: "Actualiser", exact: true })).toBeEnabled({ timeout: 30_000 });
+      await navigation.click();
       await years.selectOption(initial);
       await expect(page.getByRole("button", { name: "Actualiser", exact: true })).toBeEnabled({ timeout: 30_000 });
       expect(refreshErrors).toEqual([]);
     }
-    await page.getByRole("button", { name: role === "PARENT" ? "Enfants" : "Dashboard", exact: true }).click();
+    const home = role === "PARENT" ? "Enfants" : role === "SECRETARY" ? "Élèves" : role === "DISCIPLINE" ? "Statut" : "Dashboard";
+    await page.getByRole("button", { name: home, exact: true }).click();
     const beforeRapidClicks = firestoreTargets;
     await page.getByRole("button", { name: "Actualiser", exact: true }).dblclick();
     await expect.poll(() => firestoreTargets, { timeout: 30_000 }).toBeGreaterThan(beforeRapidClicks);
@@ -96,6 +100,7 @@ for (const role of roles) {
     await expect.poll(() => firestoreTargets, { timeout: 30_000 }).toBeGreaterThan(afterLogin);
     await expect(page.getByRole("button", { name: "Actualiser", exact: true })).toBeEnabled({ timeout: 30_000 });
     expect(refreshErrors).toEqual([]);
+    await expect(page.getByRole("alert")).toHaveCount(0);
   });
 }
 
@@ -104,7 +109,7 @@ for (const role of ["SCHOOL_ADMIN", "SECRETARY"] as const) {
     await login(page, role);
     await page.getByRole("button", { name: "Élèves", exact: true }).click();
     await page.getByRole("button", { name: "Ajouter un élève", exact: true }).click();
-    const date = page.getByLabel("Date de naissance", { exact: true });
+    const date = page.getByPlaceholder("jj/mm/aaaa", { exact: true });
     await date.pressSequentially("15082014");
     await expect(date).toHaveValue("15/08/2014");
     await date.press("Space");
