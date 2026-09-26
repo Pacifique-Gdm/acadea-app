@@ -53,8 +53,10 @@ test("Types de frais — persistance, confirmations, classement et responsive is
     const buttons = editor.getByTestId("fee-editor-actions").getByRole("button");
     if (await buttons.count() === 2) {
       const a = await buttons.nth(0).boundingBox(); const b = await buttons.nth(1).boundingBox();
-      expect(Math.abs(a!.y - b!.y)).toBeLessThan(1);
-      expect(Math.abs(a!.width - b!.width)).toBeLessThan(1);
+      const sameFrame = await buttons.evaluateAll(elements => elements.map(el => { const r = el.getBoundingClientRect(); return { y: r.y, width: r.width }; }));
+      console.log(JSON.stringify({ phase: "edit-buttons", width, sequentialDeltaY: Math.abs(a!.y - b!.y), sameFrameDeltaY: Math.abs(sameFrame[0].y - sameFrame[1].y), sameFrameWidths: sameFrame.map(r => r.width) }));
+      expect(Math.abs(sameFrame[0].y - sameFrame[1].y)).toBeLessThan(1);
+      expect(Math.abs(sameFrame[0].width - sameFrame[1].width)).toBeLessThan(1);
     }
     console.log(JSON.stringify({ phase: "layout", width, pass: true }));
   }
@@ -80,8 +82,8 @@ test("Types de frais — persistance, confirmations, classement et responsive is
     }
     await login(page, 0);
     for (const width of [1440, 768, 390]) await layout(width);
-    expect(await drawer().getByTestId("fee-groups").locator("h3").allTextContents()).toEqual(["Primaire", "CTEB", "Toutes les classes / références historiques"]);
-    expect(await drawer().getByTestId("fee-groups").locator("h4").allTextContents()).toEqual(["1ère Primaire", "6ème Primaire", "7ème CTEB", "8ème CTEB"]);
+    await expect(drawer().getByTestId("fee-groups").locator("h3")).toHaveText(["Primaire", "CTEB", "Toutes les classes / références historiques"]);
+    await expect(drawer().getByTestId("fee-groups").locator("h4")).toHaveText(["1ère Primaire", "6ème Primaire", "7ème CTEB", "8ème CTEB"]);
     await drawer().getByLabel("Frais", { exact: true }).selectOption("Minerval");
     await drawer().getByText("1ère Primaire", { exact: true }).first().locator("..").getByRole("checkbox").check();
     await drawer().getByText("7ème CTEB", { exact: true }).first().locator("..").getByRole("checkbox").check();
@@ -144,7 +146,7 @@ test("Types de frais — persistance, confirmations, classement et responsive is
     try {
       const second = await context.newPage(); await login(second, 1);
       const groups = second.getByTestId("fee-groups");
-      expect(await groups.locator("h3").allTextContents()).toEqual(["Maternelle", "Primaire", "Secondaire", "Toutes les classes / références historiques"]);
+      await expect(groups.locator("h3")).toHaveText(["Maternelle", "Primaire", "Secondaire", "Toutes les classes / références historiques"]);
       await expect(groups).toContainText("1ère Humanité");
       await expect(groups).toContainText("Littéraire");
       expect(await groups.locator(`[data-fee-id^="${schools[0]}"]`).count()).toBe(0);
