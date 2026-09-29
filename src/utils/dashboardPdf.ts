@@ -1,6 +1,6 @@
 import type { School, SchoolClass, SchoolYear } from "../types";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./pdf";
-import { formatSchoolMoney } from "./currency";
+import { formatCurrencyMoney, formatSchoolMoney, type SchoolCurrency } from "./currency";
 
 type DashboardTransaction = { id: string; type: string; label: string; amount: number; date: string };
 
@@ -11,6 +11,7 @@ export async function exportDashboardReportPdf({
   dateLabel,
   recoveryRate,
   totalPayments,
+  arrearsCollections,
   totalExpenses,
   expected,
   remaining,
@@ -26,6 +27,7 @@ export async function exportDashboardReportPdf({
   dateLabel: string;
   recoveryRate: number;
   totalPayments: number;
+  arrearsCollections: { currency: SchoolCurrency; amount: number }[];
   totalExpenses: number;
   expected: number;
   remaining: number;
@@ -46,7 +48,8 @@ export async function exportDashboardReportPdf({
         "KPI financier",
         pdfInfoGrid([
           { label: "Recouvrement", value: `${recoveryRate}%` },
-          { label: "Encaissé", value: formatSchoolMoney(totalPayments, school) },
+          { label: "Frais de l'année encaissés", value: formatSchoolMoney(totalPayments, school) },
+          ...arrearsCollections.map((group) => ({ label: `Arriérés encaissés (${group.currency})`, value: formatCurrencyMoney(group.amount, group.currency) })),
           { label: "Dépenses", value: formatSchoolMoney(totalExpenses, school) },
           { label: "Attendu", value: formatSchoolMoney(expected, school) },
           { label: "Reste", value: formatSchoolMoney(remaining, school) },

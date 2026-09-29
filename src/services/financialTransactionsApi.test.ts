@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { executeFinancialOperation, FinancialApiError } from "../../api/_lib/financialTransactions.js";
+import { executeFinancialOperation, FinancialApiError, listStudentArrears } from "../../api/_lib/financialTransactions.js";
 
 type StoredDocument = Record<string, unknown>;
 type Reference = { path: string };
@@ -83,6 +83,135 @@ const admin = { uid: "admin-a", role: "school_admin", schoolId: "school-a", emai
 const paymentBody = (clientRequestId: string) => ({ action: "create-payment", schoolYearId: "year-a", studentId: "student-a", feeTypeId: "fee-a", amount: 25, clientRequestId });
 
 describe("API financière transactionnelle", () => {
+  function historicalSeed() {
+    return {
+      ...baseSeed(),
+      "schools/school-a": { id: "school-a", status: "active", activeSchoolYearId: "year-current", currency: "CDF" },
+      "schoolYears/year-a": { id: "year-a", schoolId: "school-a", name: "2026-2027", status: "archived", startsAt: "2026-09-01", currency: "CDF" },
+      "schoolYears/year-current": { id: "year-current", schoolId: "school-a", name: "2027-2028", status: "active", startsAt: "2027-09-01", currency: "CDF" },
+      "students/student-a": { id: "student-a", schoolId: "school-a", schoolYearId: "year-a", status: "ACTIVE", matricule: "ACD-26-0001", className: "6ème Primaire", nom: "Élève" },
+      "students/student-current": { id: "student-current", schoolId: "school-a", schoolYearId: "year-current", status: "ACTIVE", matricule: "ACD-26-0001", importedFromStudentId: "student-a", className: "7ème CTEB", nom: "Élève" },
+      "feeTypes/fee-a": { id: "fee-a", schoolId: "school-a", schoolYearId: "year-a", name: "Minerval", amount: 100, className: "6ème Primaire" },
+      "feeTypes/fee-current": { id: "fee-current", schoolId: "school-a", schoolYearId: "year-current", name: "Minerval", amount: 200, className: "7ème CTEB" },
+      "payments/payment-existing": { id: "payment-existing", schoolId: "school-a", schoolYearId: "year-a", studentId: "student-a", feeTypeId: "fee-a", amount: 70 },
+    };
+  }
+
+  it("permet de solder partiellement une créance archivée depuis l'année active sans altérer le frais actuel", async () => {
+    const db = fakeDb(historicalSeed());
+    const result = await executeFinancialOperation({ db, caller: cashier, body: {
+      action: "create-payment", schoolYearId: "year-current", studentId: "student-current", debtSchoolYearId: "year-a", feeTypeId: "fee-a", amount: 20, clientRequestId: "historical-payment-001",
+    }, now: "2027-10-01T12:00:00.000Z" });
+    expect(result.payment).toMatchObject({ schoolYearId: "year-a", studentId: "student-a", feeTypeId: "fee-a", collectionSchoolYearId: "year-current", currentStudentId: "student-current", amount: 20, paidAt: "2027-10-01" });
+    expect(db.documents.get("feeTypes/fee-current")?.amount).toBe(200);
+    expect(db.documents.get("payments/payment-existing")?.amount).toBe(70);
+  });
+
+  it("refuse une créance d'un autre élève ou d'une autre école", async () => {
+    const db = fakeDb({ ...historicalSeed(),
+      "students/other-historical": { id: "other-historical", schoolId: "school-a", schoolYearId: "year-a", status: "ACTIVE", matricule: "OTHER", className: "6ème Primaire" },
+      "feeTypes/other-fee": { id: "other-fee", schoolId: "school-b", schoolYearId: "year-a", amount: 100 },
+    });
+    await expect(executeFinancialOperation({ db, caller: cashier, body: { action: "create-payment", schoolYearId: "year-current", studentId: "student-current", debtSchoolYearId: "year-a", feeTypeId: "other-fee", amount: 20, clientRequestId: "historical-payment-002" } })).rejects.toMatchObject({ code: "invalid-argument" });
+    await expect(executeFinancialOperation({ db, caller: { ...cashier, role: "teacher" }, body: { action: "create-payment", schoolYearId: "year-current", studentId: "student-current", debtSchoolYearId: "year-a", feeTypeId: "fee-a", amount: 20, clientRequestId: "historical-payment-003" } })).rejects.toMatchObject({ code: "permission-denied" });
+  });
+
+  it("liste les arriérés par frais et année, exclut les créances soldées et garde leur historique", async () => {
+    const db = fakeDb({ ...historicalSeed(),
+      "schoolYears/year-older": { id: "year-older", schoolId: "school-a", name: "2025-2026", status: "archived", startsAt: "2025-09-01", currency: "CDF" },
+      "students/student-older": { id: "student-older", schoolId: "school-a", schoolYearId: "year-older", status: "ACTIVE", matricule: "ACD-26-0001", className: "5ème Primaire", nom: "Élève" },
+      "feeTypes/fee-older": { id: "fee-older", schoolId: "school-a", schoolYearId: "year-older", name: "Minerval", amount: 50, className: "5ème Primaire" },
+      "feeTypes/fee-school": { id: "fee-school", schoolId: "school-a", schoolYearId: "year-a", name: "Frais scolaires", amount: 80, className: "6ème Primaire" },
+      "feeTypes/fee-settled": { id: "fee-settled", schoolId: "school-a", schoolYearId: "year-a", name: "Transport", amount: 40, className: "6ème Primaire" },
+      "payments/payment-settled": { id: "payment-settled", schoolId: "school-a", schoolYearId: "year-a", studentId: "student-a", feeTypeId: "fee-settled", amount: 40 },
+    });
+    const result = await listStudentArrears({ db, caller: cashier, body: { action: "list-arrears", schoolYearId: "year-current", studentId: "student-current" } });
+    expect(result.debts.map((debt) => [debt.yearName, debt.feeName, debt.remaining])).toEqual([
+      ["2025-2026", "Minerval", 50], ["2026-2027", "Frais scolaires", 80], ["2026-2027", "Minerval", 30],
+    ]);
+    expect(result.settled).toMatchObject([{ yearName: "2026-2027", feeName: "Transport", remaining: 0 }]);
+  });
+
+  it("recalcule les acomptes en transaction et retire la dette après solde complet", async () => {
+    const db = fakeDb(historicalSeed());
+    const body = { action: "create-payment", schoolYearId: "year-current", studentId: "student-current", debtSchoolYearId: "year-a", feeTypeId: "fee-a" };
+    await executeFinancialOperation({ db, caller: cashier, body: { ...body, amount: 20, clientRequestId: "historical-installment-a" } });
+    expect((await listStudentArrears({ db, caller: cashier, body: { action: "list-arrears", schoolYearId: "year-current", studentId: "student-current" } })).debts[0]?.remaining).toBe(10);
+    await expect(executeFinancialOperation({ db, caller: cashier, body: { ...body, amount: 11, clientRequestId: "historical-overpayment" } })).rejects.toMatchObject({ code: "conflict" });
+    await executeFinancialOperation({ db, caller: cashier, body: { ...body, amount: 10, clientRequestId: "historical-installment-b" } });
+    const result = await listStudentArrears({ db, caller: cashier, body: { action: "list-arrears", schoolYearId: "year-current", studentId: "student-current" } });
+    expect(result.debts).toEqual([]);
+    expect(result.settled).toMatchObject([{ feeTypeId: "fee-a", paid: 100, remaining: 0 }]);
+    expect([...db.documents.keys()].filter((path) => path.startsWith("payments/"))).toHaveLength(3);
+  });
+
+  it("n'attribue jamais au mauvais élève une créance ayant le même type", async () => {
+    const db = fakeDb({ ...historicalSeed(),
+      "students/other-current": { id: "other-current", schoolId: "school-a", schoolYearId: "year-current", status: "ACTIVE", matricule: "DIFFERENT", className: "7ème CTEB" },
+    });
+    await expect(executeFinancialOperation({ db, caller: cashier, body: { action: "create-payment", schoolYearId: "year-current", studentId: "other-current", debtSchoolYearId: "year-a", feeTypeId: "fee-a", amount: 20, clientRequestId: "wrong-student-debt" } })).rejects.toMatchObject({ code: "invalid-argument" });
+    const result = await listStudentArrears({ db, caller: cashier, body: { action: "list-arrears", schoolYearId: "year-current", studentId: "other-current" } });
+    expect(result.debts).toEqual([]);
+  });
+
+  it("refuse le profil inactif et l'année active détournée", async () => {
+    const seed = historicalSeed();
+    const db = fakeDb({ ...seed, "users/cashier-a": { ...seed["users/cashier-a"], status: "inactive" } });
+    await expect(listStudentArrears({ db, caller: cashier, body: { action: "list-arrears", schoolYearId: "year-current", studentId: "student-current" } })).rejects.toMatchObject({ code: "permission-denied" });
+    const activeDb = fakeDb(seed);
+    await expect(listStudentArrears({ db: activeDb, caller: cashier, body: { action: "list-arrears", schoolYearId: "year-a", studentId: "student-a" } })).rejects.toMatchObject({ code: "failed-precondition" });
+  });
+
+  it("conserve une dette d'origine quand la classe, la sous-classe et l'option actuelles changent", async () => {
+    const seed = historicalSeed();
+    const db = fakeDb({ ...seed,
+      "students/student-a": { ...seed["students/student-a"], className: "2ème Humanité", option: "Littéraire", subClassId: "ancienne-a" },
+      "students/student-current": { ...seed["students/student-current"], className: "3ème Humanité", option: "Scientifique", subClassId: "nouvelle-b" },
+      "feeTypes/fee-a": { ...seed["feeTypes/fee-a"], className: "2ème Humanité", classOptionKey: "2ème Humanité::option::Littéraire" },
+    });
+    const listed = await listStudentArrears({ db, caller: cashier, body: { action: "list-arrears", schoolYearId: "year-current", studentId: "student-current" } });
+    expect(listed.debts).toMatchObject([{ feeTypeId: "fee-a", remaining: 30 }]);
+  });
+
+  it("isole deux années antérieures portant le même nom de frais et ne dépend pas du frais actuel", async () => {
+    const seed = historicalSeed();
+    const withoutCurrentFee = Object.fromEntries(Object.entries(seed).filter(([path]) => path !== "feeTypes/fee-current"));
+    const db = fakeDb({ ...withoutCurrentFee,
+      "schoolYears/year-older": { id: "year-older", schoolId: "school-a", name: "2025-2026", status: "archived", startsAt: "2025-09-01", currency: "USD" },
+      "students/student-older": { id: "student-older", schoolId: "school-a", schoolYearId: "year-older", matricule: "ACD-26-0001", className: "5ème Primaire", nom: "Élève" },
+      "feeTypes/fee-older": { id: "fee-older", schoolId: "school-a", schoolYearId: "year-older", name: "Minerval", amount: 60, className: "5ème Primaire" },
+    });
+    const listed = await listStudentArrears({ db, caller: cashier, body: { action: "list-arrears", schoolYearId: "year-current", studentId: "student-current" } });
+    expect(listed.debts.map((debt) => [debt.schoolYearId, debt.feeTypeId, debt.remaining, debt.currency])).toEqual([
+      ["year-older", "fee-older", 60, "USD"], ["year-a", "fee-a", 30, "CDF"],
+    ]);
+  });
+
+  it("refuse la lecture inter-écoles, le corps manipulé et une filiation par matricule contradictoire", async () => {
+    const seed = historicalSeed();
+    const db = fakeDb({ ...seed,
+      "students/foreign-current": { id: "foreign-current", schoolId: "school-b", schoolYearId: "year-current", status: "ACTIVE", matricule: "ACD-26-0001" },
+    });
+    await expect(listStudentArrears({ db, caller: cashier, body: { action: "list-arrears", schoolYearId: "year-current", studentId: "foreign-current" } })).rejects.toMatchObject({ code: "invalid-argument" });
+    await expect(listStudentArrears({ db, caller: cashier, body: { action: "list-arrears", schoolYearId: "year-current", studentId: "student-current", schoolId: "school-b" } })).rejects.toMatchObject({ code: "invalid-argument" });
+    const collisionDb = fakeDb({ ...seed,
+      "students/student-current": { ...seed["students/student-current"], importedFromStudentId: "" },
+      "students/student-a": { ...seed["students/student-a"], nom: "Une autre personne" },
+    });
+    const listed = await listStudentArrears({ db: collisionDb, caller: cashier, body: { action: "list-arrears", schoolYearId: "year-current", studentId: "student-current" } });
+    expect(listed.debts).toEqual([]);
+  });
+
+  it("n'enregistre qu'un paiement historique idempotent sans recopier le frais dans l'année active", async () => {
+    const db = fakeDb(historicalSeed());
+    const body = { action: "create-payment", schoolYearId: "year-current", studentId: "student-current", debtSchoolYearId: "year-a", feeTypeId: "fee-a", amount: 20, clientRequestId: "historical-idempotent-1" };
+    const first = await executeFinancialOperation({ db, caller: cashier, body });
+    const second = await executeFinancialOperation({ db, caller: cashier, body });
+    expect(first.payment?.id).toBe(second.payment?.id);
+    expect([...db.documents.entries()].filter(([path]) => path.startsWith("payments/"))).toHaveLength(2);
+    expect([...db.documents.entries()].filter(([path, fee]) => path.startsWith("feeTypes/") && fee.schoolId === "school-a")).toHaveLength(2);
+    expect(db.documents.get(`financialCounters/school-a_year-current_receipt`)?.lastReceiptNumber).toBe(1);
+  });
   it("impose le tenant, la provenance et les horodatages depuis le serveur", async () => {
     const db = fakeDb(baseSeed());
     const result = await executeFinancialOperation({ db, caller: cashier, body: { ...paymentBody("request-payment-001"), note: " Premier acompte " }, now: "2026-08-07T12:00:00.000Z" });

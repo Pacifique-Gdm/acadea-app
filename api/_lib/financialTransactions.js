@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 
-const PAYMENT_CREATE_KEYS = ["action", "schoolYearId", "studentId", "feeTypeId", "amount", "note", "clientRequestId"];
+const PAYMENT_CREATE_KEYS = ["action", "schoolYearId", "studentId", "feeTypeId", "debtSchoolYearId", "amount", "note", "clientRequestId"];
+const ARREARS_READ_KEYS = ["action", "schoolYearId", "studentId"];
 const EXPENSE_CREATE_KEYS = ["action", "schoolYearId", "amount", "category", "description", "beneficiary", "paymentMethod", "reference", "clientRequestId"];
 const PAYMENT_UPDATE_KEYS = ["action", "transactionId", "amount", "reason", "clientRequestId"];
 const EXPENSE_UPDATE_KEYS = ["action", "transactionId", "amount", "category", "description", "reason", "clientRequestId"];
@@ -99,29 +100,145 @@ async function assertContext(transaction, db, caller, requestedYearId) {
   const currency = yearCurrency === "CDF" || yearCurrency === "USD"
     ? yearCurrency
     : schoolSnapshot.data()?.currency === "CDF" ? "CDF" : "USD";
-  return { schoolYearId, year: yearSnapshot.data(), currency, actorName: text(profile.name, 160) || text(caller.email, 160) || "Utilisateur Acadéa" };
+  return { schoolYearId, year: yearSnapshot.data(), school: schoolSnapshot.data(), currency, actorName: text(profile.name, 160) || text(caller.email, 160) || "Utilisateur Acadéa" };
+}
+
+function feeAppliesToHistoricalStudent(fee, student) {
+  if (typeof fee.classOptionKey === "string" && fee.classOptionKey) {
+    const option = typeof student.option === "string" ? student.option.trim() : "";
+    const target = option && String(student.className).includes("Humanité")
+      ? `${student.className}::option::${option}` : student.className;
+    return fee.classOptionKey === target;
+  }
+  return !fee.className || fee.className === student.className;
+}
+
+async function historicalStudentRecords(transaction, db, caller, currentStudent, currentYear) {
+  const records = new Map();
+  const known = new Set([currentStudent.id]);
+  let ancestorId = text(currentStudent.importedFromStudentId, 120);
+  for (let depth = 0; ancestorId && depth < 30; depth += 1) {
+    if (known.has(ancestorId)) throw new FinancialApiError(409, "conflict", "La filiation annuelle de l'élève est ambiguë.");
+    known.add(ancestorId);
+    const snapshot = await transaction.get(db.doc(`students/${ancestorId}`));
+    if (!snapshot.exists || snapshot.data()?.schoolId !== caller.schoolId) {
+      throw new FinancialApiError(409, "conflict", "La filiation annuelle de l'élève est invalide.");
+    }
+    records.set(ancestorId, { id: ancestorId, ...snapshot.data() });
+    ancestorId = text(snapshot.data()?.importedFromStudentId, 120);
+  }
+  if (ancestorId) throw new FinancialApiError(409, "conflict", "La filiation annuelle de l'élève est trop longue.");
+  const matricule = text(currentStudent.matricule, 120);
+  if (matricule) {
+    const matches = await transaction.get(db.collection("students").where("matricule", "==", matricule));
+    for (const document of matches.docs) {
+      const student = document.data();
+      const sameIdentity = ["nom", "postnom", "prenom", "birthDate"].every((field) => {
+        const currentValue = text(currentStudent[field], 160).toLocaleLowerCase("fr");
+        const historicalValue = text(student[field], 160).toLocaleLowerCase("fr");
+        return !currentValue || !historicalValue || currentValue === historicalValue;
+      });
+      const sharedIdentity = ["nom", "postnom", "prenom", "birthDate"].some((field) => {
+        const currentValue = text(currentStudent[field], 160).toLocaleLowerCase("fr");
+        return currentValue && currentValue === text(student[field], 160).toLocaleLowerCase("fr");
+      });
+      if (student.schoolId === caller.schoolId && document.id !== currentStudent.id && sameIdentity && sharedIdentity) {
+        records.set(document.id, { id: document.id, ...student });
+      }
+    }
+  }
+  const yearsSnapshot = await transaction.get(db.collection("schoolYears").where("schoolId", "==", caller.schoolId));
+  const years = new Map(yearsSnapshot.docs.map((document) => [document.id, { id: document.id, ...document.data() }]));
+  const byYear = new Map();
+  for (const student of records.values()) {
+    const year = years.get(student.schoolYearId);
+    if (!year || year.status !== "archived" || (currentYear.startsAt && year.startsAt && year.startsAt >= currentYear.startsAt)) continue;
+    if (byYear.has(year.id)) throw new FinancialApiError(409, "conflict", "Plusieurs fiches historiques correspondent à cet élève pour la même année.");
+    byYear.set(year.id, { student, year });
+  }
+  return [...byYear.values()];
+}
+
+async function historicalDebts(transaction, db, caller, currentStudent, currentYear, school) {
+  const records = await historicalStudentRecords(transaction, db, caller, currentStudent, currentYear);
+  const debts = [];
+  for (const { student, year } of records) {
+    const [feeSnapshot, paymentSnapshot] = await Promise.all([
+      transaction.get(db.collection("feeTypes").where("schoolYearId", "==", year.id)),
+      transaction.get(db.collection("payments").where("studentId", "==", student.id)),
+    ]);
+    const payments = paymentSnapshot.docs.map((document) => document.data())
+      .filter((payment) => payment.schoolId === caller.schoolId && payment.schoolYearId === year.id);
+    for (const document of feeSnapshot.docs) {
+      const fee = document.data();
+      if (fee.schoolId !== caller.schoolId || !feeAppliesToHistoricalStudent(fee, student)) continue;
+      const expected = Number(fee.amount);
+      if (!Number.isFinite(expected) || expected <= 0) continue;
+      const paid = payments.filter((payment) => payment.feeTypeId === document.id)
+        .reduce((total, payment) => total + Number(payment.amount || 0), 0);
+      const currency = year.currency === "USD" || year.currency === "CDF" ? year.currency : school.currency === "CDF" ? "CDF" : "USD";
+      debts.push({ schoolYearId: year.id, yearName: year.name, studentId: student.id, feeTypeId: document.id,
+        feeName: text(fee.name, 160) || "Frais", expected, paid, remaining: Math.max(expected - paid, 0), currency });
+    }
+  }
+  return debts.sort((a, b) => String(a.yearName).localeCompare(String(b.yearName), "fr") || a.feeName.localeCompare(b.feeName, "fr"));
+}
+
+export async function listStudentArrears({ db, caller: rawCaller, body }) {
+  assertAllowedKeys(body, ARREARS_READ_KEYS);
+  const caller = assertRole(rawCaller, ["cashier", "school_admin"]);
+  return db.runTransaction(async (transaction) => {
+    const { schoolYearId, year, school } = await assertContext(transaction, db, caller, body.schoolYearId);
+    if (year.status !== "active" || school.activeSchoolYearId !== schoolYearId) {
+      throw new FinancialApiError(409, "failed-precondition", "L'année scolaire active est requise.");
+    }
+    const studentId = text(body.studentId, 120);
+    const snapshot = studentId ? await transaction.get(db.doc(`students/${studentId}`)) : { exists: false };
+    const student = snapshot.data?.() ?? {};
+    if (!snapshot.exists || student.schoolId !== caller.schoolId || student.schoolYearId !== schoolYearId || student.status !== "ACTIVE") {
+      throw new FinancialApiError(400, "invalid-argument", "Élève invalide pour cet établissement et cette année.");
+    }
+    const debts = await historicalDebts(transaction, db, caller, { id: studentId, ...student }, year, school);
+    return { debts: debts.filter((debt) => debt.remaining > 0), settled: debts.filter((debt) => debt.remaining === 0) };
+  });
 }
 
 async function createPayment(transaction, db, caller, body, hash, now) {
   assertAllowedKeys(body, PAYMENT_CREATE_KEYS);
   const amount = positiveAmount(body.amount);
-  const { schoolYearId, year, currency, actorName } = await assertContext(transaction, db, caller, body.schoolYearId);
-  const studentId = text(body.studentId, 120);
+  const { schoolYearId: collectionSchoolYearId, year, school, currency, actorName } = await assertContext(transaction, db, caller, body.schoolYearId);
+  const currentStudentId = text(body.studentId, 120);
   const feeTypeId = text(body.feeTypeId, 120);
+  const debtSchoolYearId = text(body.debtSchoolYearId, 120);
   const note = text(body.note, 1000);
-  if (!studentId || !feeTypeId) throw new FinancialApiError(400, "invalid-argument", "Élève et type de frais requis.");
-  const studentRef = db.doc(`students/${studentId}`);
+  if (!currentStudentId || !feeTypeId) throw new FinancialApiError(400, "invalid-argument", "Élève et type de frais requis.");
+  const currentStudentRef = db.doc(`students/${currentStudentId}`);
   const feeRef = db.doc(`feeTypes/${feeTypeId}`);
-  const [studentSnapshot, feeSnapshot] = await Promise.all([transaction.get(studentRef), transaction.get(feeRef)]);
-  const student = studentSnapshot.data() ?? {};
+  const [currentStudentSnapshot, feeSnapshot] = await Promise.all([transaction.get(currentStudentRef), transaction.get(feeRef)]);
+  const currentStudent = currentStudentSnapshot.data() ?? {};
   const fee = feeSnapshot.data() ?? {};
-  if (!studentSnapshot.exists || student.schoolId !== caller.schoolId || student.schoolYearId !== schoolYearId || student.status !== "ACTIVE") {
+  if (!currentStudentSnapshot.exists || currentStudent.schoolId !== caller.schoolId || currentStudent.schoolYearId !== collectionSchoolYearId || currentStudent.status !== "ACTIVE") {
     throw new FinancialApiError(400, "invalid-argument", "Élève invalide pour cet établissement et cette année.");
   }
-  if (!feeSnapshot.exists || fee.schoolId !== caller.schoolId || fee.schoolYearId !== schoolYearId || !Number.isFinite(Number(fee.amount)) || Number(fee.amount) <= 0) {
+  if (!feeSnapshot.exists || fee.schoolId !== caller.schoolId || !Number.isFinite(Number(fee.amount)) || Number(fee.amount) <= 0) {
     throw new FinancialApiError(400, "invalid-argument", "Type de frais invalide pour cet établissement et cette année.");
   }
-  const counterId = `${caller.schoolId}_${schoolYearId}_receipt`;
+  let schoolYearId = collectionSchoolYearId;
+  let studentId = currentStudentId;
+  let debt;
+  if (debtSchoolYearId) {
+    if (debtSchoolYearId === collectionSchoolYearId || year.status !== "active" || school.activeSchoolYearId !== collectionSchoolYearId) {
+      throw new FinancialApiError(409, "failed-precondition", "Une créance historique exige l'année scolaire active.");
+    }
+    const debts = await historicalDebts(transaction, db, caller, { id: currentStudentId, ...currentStudent }, year, school);
+    debt = debts.find((item) => item.schoolYearId === debtSchoolYearId && item.feeTypeId === feeTypeId);
+    if (!debt) throw new FinancialApiError(400, "invalid-argument", "Créance historique invalide pour cet élève.");
+    schoolYearId = debt.schoolYearId;
+    studentId = debt.studentId;
+  } else if (fee.schoolYearId !== collectionSchoolYearId) {
+    throw new FinancialApiError(400, "invalid-argument", "Type de frais invalide pour cet établissement et cette année.");
+  }
+  const counterId = `${caller.schoolId}_${collectionSchoolYearId}_receipt`;
   const counterRef = db.doc(`financialCounters/${counterId}`);
   const counterSnapshot = await transaction.get(counterRef);
   let paymentsQuery = db.collection("payments")
@@ -140,7 +257,16 @@ async function createPayment(transaction, db, caller, body, hash, now) {
   if (amount > remaining) {
     throw new FinancialApiError(409, "conflict", "Le montant saisi dépasse le solde restant pour ce type de frais.");
   }
-  const historicalMaximum = counterSnapshot.exists ? 0 : matchingPayments.reduce((maximum, payment) => Math.max(maximum, receiptSequence(payment.receiptNumber)), 0);
+  let historicalMaximum = counterSnapshot.exists || debt ? 0 : matchingPayments.reduce((maximum, payment) => Math.max(maximum, receiptSequence(payment.receiptNumber)), 0);
+  if (debt && !counterSnapshot.exists) {
+    const [annualSnapshot, collectedSnapshot] = await Promise.all([
+      transaction.get(db.collection("payments").where("schoolId", "==", caller.schoolId).where("schoolYearId", "==", collectionSchoolYearId)),
+      transaction.get(db.collection("payments").where("schoolId", "==", caller.schoolId).where("collectionSchoolYearId", "==", collectionSchoolYearId)),
+    ]);
+    historicalMaximum = [...annualSnapshot.docs, ...collectedSnapshot.docs].map((document) => document.data())
+      .filter((payment) => payment.schoolId === caller.schoolId)
+      .reduce((maximum, payment) => Math.max(maximum, receiptSequence(payment.receiptNumber)), historicalMaximum);
+  }
   const storedSequence = counterSnapshot.exists ? Number(counterSnapshot.data()?.lastReceiptNumber || 0) : 0;
   const sequence = Math.max(historicalMaximum, storedSequence) + 1;
   const receiptNumber = `${receiptPrefix(year)}-${String(sequence).padStart(4, "0")}`;
@@ -150,8 +276,9 @@ async function createPayment(transaction, db, caller, body, hash, now) {
     schoolId: caller.schoolId,
     schoolYearId,
     studentId,
-    ...(typeof student.parentId === "string" && student.parentId ? { parentId: student.parentId } : {}),
+    ...(typeof currentStudent.parentId === "string" && currentStudent.parentId ? { parentId: currentStudent.parentId } : {}),
     feeTypeId,
+    ...(debt ? { collectionSchoolYearId, currentStudentId, debtSchoolYearName: debt.yearName, feeName: debt.feeName, currency: debt.currency } : {}),
     amount,
     ...(note ? { note } : {}),
     paidAt: now.slice(0, 10),
@@ -165,19 +292,19 @@ async function createPayment(transaction, db, caller, body, hash, now) {
     clientRequestIdHash: hash,
   };
   transaction.set(db.doc(`payments/${paymentId}`), payment);
-  transaction.set(counterRef, { schoolId: caller.schoolId, schoolYearId, kind: "receipt", lastReceiptNumber: sequence, updatedAt: now }, { merge: true });
+  transaction.set(counterRef, { schoolId: caller.schoolId, schoolYearId: collectionSchoolYearId, kind: "receipt", lastReceiptNumber: sequence, updatedAt: now }, { merge: true });
   const auditId = `audit_fin_${hash.slice(0, 24)}`;
-  transaction.set(db.doc(`auditLogs/${auditId}`), buildServerAudit({ id: auditId, eventType: AUDIT_EVENT_TYPES.FINANCE_PAYMENT_CREATED, actor: { ...caller, name: actorName }, schoolId: caller.schoolId, schoolYearId, resourceType: "payment", resourceId: paymentId, metadata: { receiptNumber, amount } }));
-  if (typeof student.parentId === "string" && student.parentId) {
+  transaction.set(db.doc(`auditLogs/${auditId}`), buildServerAudit({ id: auditId, eventType: AUDIT_EVENT_TYPES.FINANCE_PAYMENT_CREATED, actor: { ...caller, name: actorName }, schoolId: caller.schoolId, schoolYearId: collectionSchoolYearId, resourceType: "payment", resourceId: paymentId, metadata: { receiptNumber, amount, ...(debt ? { debtSchoolYearId, feeTypeId } : {}) } }));
+  if (typeof currentStudent.parentId === "string" && currentStudent.parentId) {
     const notificationId = `notif_fin_${hash.slice(0, 24)}`;
-    const studentName = [student.nom, student.postnom, student.prenom].map((value) => text(value, 120)).filter(Boolean).join(" ") || "Élève";
-    const symbol = currency === "CDF" ? "FC" : "$";
+    const studentName = [currentStudent.nom, currentStudent.postnom, currentStudent.prenom].map((value) => text(value, 120)).filter(Boolean).join(" ") || "Élève";
+    const symbol = (debt?.currency ?? currency) === "CDF" ? "FC" : "$";
     const formatAmount = (value) => symbol === "$" ? `$${value.toFixed(2)}` : `${value.toFixed(2)} FC`;
     const remaining = Math.max(Number(fee.amount) - alreadyPaid - amount, 0);
     transaction.set(db.doc(`notifications/${notificationId}`), {
-      id: notificationId, schoolId: caller.schoolId, schoolYearId, parentId: student.parentId, studentId,
+      id: notificationId, schoolId: caller.schoolId, schoolYearId: collectionSchoolYearId, parentId: currentStudent.parentId, studentId: currentStudentId,
       recipientRole: "parent", type: "payment", module: "payments", event: "payment_recorded", destination: "/dashboard",
-      title: "Paiement enregistré", body: `Élève : ${studentName}\nType de frais : ${text(fee.name, 160) || "Frais"}\nMontant payé : ${formatAmount(amount)}\nReste à payer : ${formatAmount(remaining)}`,
+      title: "Paiement enregistré", body: `Élève : ${studentName}\nType de frais : ${text(fee.name, 160) || "Frais"}${debt ? ` — Arriéré ${debt.yearName}` : ""}\nMontant payé : ${formatAmount(amount)}\nReste à payer : ${formatAmount(remaining)}`,
       createdAt: now, read: false,
     });
   }
@@ -284,5 +411,5 @@ export async function executeFinancialOperation({ db, caller: rawCaller, body, n
 
 export function authorizeFinancialCaller(rawCaller, action) {
   const createAction = action === "create-payment" || action === "create-expense";
-  return assertRole(rawCaller, createAction ? ["cashier"] : ["school_admin"]);
+  return assertRole(rawCaller, action === "list-arrears" ? ["cashier", "school_admin"] : createAction ? ["cashier"] : ["school_admin"]);
 }

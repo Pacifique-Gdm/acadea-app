@@ -188,6 +188,12 @@ export interface Payment {
   studentId: string;
   parentId?: string;
   feeTypeId: string;
+  /** For an arrears payment, schoolYearId/studentId remain the origin debt. */
+  collectionSchoolYearId?: string;
+  currentStudentId?: string;
+  debtSchoolYearName?: string;
+  feeName?: string;
+  currency?: "USD" | "CDF";
   amount: number;
   paidAt: string;
   createdAt?: string;

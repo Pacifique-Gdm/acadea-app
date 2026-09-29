@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Bell, Download, Edit3, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 import { AdminDrawer, Field, FormPanel, Metric, MoneyInput, SectionTitle } from "../../components/ui";
 import { usePaginatedControlHistory } from "../../hooks/usePaginatedControlHistory";
-import { createExpenseTransaction, createPaymentTransaction, deleteFinancialTransaction, updateExpenseTransaction, updatePaymentTransaction } from "../../services/financialTransactions";
+import { createExpenseTransaction, createPaymentTransaction, deleteFinancialTransaction, loadStudentArrears, updateExpenseTransaction, updatePaymentTransaction } from "../../services/financialTransactions";
+import type { HistoricalDebt } from "../../services/financialTransactions";
 import { createAuditLog } from "../../utils/audit";
 import { buildSchoolYearDataIndexes, sumPaymentsForStudentFee } from "../../utils/dataIndexes";
 import { resolveExpenseCashierName, resolvePaymentCashierName } from "../../utils/finance";
@@ -13,7 +14,7 @@ import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
 import { feeAppliesToStudent } from "../../utils/feeTargets";
 import { buildControlClassChoices, buildControlFeeGroups, feeNamesForWarningClass, getControlClassKey, selectPaymentWarningRecipients } from "../../utils/controlFilters";
 import { formatStudentClassName } from "../../utils/studentClasses";
-import { formatSchoolMoney } from "../../utils/currency";
+import { formatCurrencyMoney, formatSchoolMoney } from "../../utils/currency";
 import { compareStudentsForPdfByClass, formatStudentPdfClassName } from "../../utils/studentPdf";
 import { filterControlStudentRows } from "../../utils/controlStudentSearch";
 import type { AppData, AppUser, AuditLog, Expense, FeeType, ParentProfile, Payment, School, SchoolYear, Student } from "../../types";
@@ -87,6 +88,10 @@ export function ControlModule({
   const [historyQuery, setHistoryQuery] = useState("");
   const [expenseHistoryQuery, setExpenseHistoryQuery] = useState("");
   const [selectedHistoryStudentId, setSelectedHistoryStudentId] = useState("");
+  const [paymentArrears, setPaymentArrears] = useState<HistoricalDebt[]>([]);
+  const [historyArrears, setHistoryArrears] = useState<HistoricalDebt[]>([]);
+  const [arrearsError, setArrearsError] = useState("");
+  const [arrearsLoading, setArrearsLoading] = useState(false);
   const [controlStudentSearch, setControlStudentSearch] = useState("");
   const [controlPage, setControlPage] = useState(1);
   const controlIndexes = useMemo(() => buildSchoolYearDataIndexes(yearData.students, yearData.feeTypes, yearData.payments), [yearData.students, yearData.feeTypes, yearData.payments]);
@@ -152,18 +157,42 @@ export function ControlModule({
   const canManageExpenses = user.role === "school_admin" && !isArchivedContext;
   const selectedPaymentStudent = controlIndexes.studentsById.get(studentId);
   const payableFeeTypes = selectedPaymentStudent ? controlIndexes.applicableFeeTypesByStudentId.get(selectedPaymentStudent.id) ?? [] : [];
-  const selectedFeeTypeValue = payableFeeTypes.some((fee) => fee.id === feeTypeId) ? feeTypeId : payableFeeTypes[0]?.id ?? "";
+  const selectedFeeTypeValue = payableFeeTypes.some((fee) => fee.id === feeTypeId) || paymentArrears.some((debt) => debt.feeTypeId === feeTypeId)
+    ? feeTypeId : payableFeeTypes[0]?.id ?? paymentArrears[0]?.feeTypeId ?? "";
   const selectedPaymentFee = payableFeeTypes.find((fee) => fee.id === selectedFeeTypeValue);
+  const selectedPaymentDebt = paymentArrears.find((debt) => debt.feeTypeId === selectedFeeTypeValue);
   const selectedPaymentFeePaid = selectedPaymentStudent && selectedPaymentFee
     ? sumPaymentsForStudentFee(controlIndexes, selectedPaymentStudent.id, selectedPaymentFee.id)
-    : 0;
-  const selectedPaymentFeeRemaining = selectedPaymentFee ? Math.max(selectedPaymentFee.amount - selectedPaymentFeePaid, 0) : 0;
+    : selectedPaymentDebt?.paid ?? 0;
+  const selectedPaymentFeeRemaining = selectedPaymentFee ? Math.max(selectedPaymentFee.amount - selectedPaymentFeePaid, 0) : selectedPaymentDebt?.remaining ?? 0;
   const selectedPaymentFeeBalance = {
-    expected: selectedPaymentFee?.amount ?? 0,
+    expected: selectedPaymentFee?.amount ?? selectedPaymentDebt?.expected ?? 0,
     paid: selectedPaymentFeePaid,
     remaining: selectedPaymentFeeRemaining,
   };
-  const isPaymentEntryDisabled = !selectedPaymentFee || selectedPaymentFeeRemaining <= 0;
+  const isPaymentEntryDisabled = (!selectedPaymentFee && !selectedPaymentDebt) || selectedPaymentFeeRemaining <= 0;
+  useEffect(() => {
+    if (!studentId || year.status !== "active") { setPaymentArrears([]); setArrearsError(""); return; }
+    let cancelled = false;
+    setPaymentArrears([]);
+    setArrearsLoading(true);
+    setArrearsError("");
+    void loadStudentArrears({ schoolYearId: year.id, studentId }).then((result) => {
+      if (!cancelled) setPaymentArrears(result.debts);
+    }).catch((error) => {
+      if (!cancelled) setArrearsError(error instanceof Error ? error.message : "Chargement des arriérés impossible.");
+    }).finally(() => { if (!cancelled) setArrearsLoading(false); });
+    return () => { cancelled = true; };
+  }, [studentId, year.id, year.status]);
+  useEffect(() => {
+    if (!selectedHistoryStudentId || year.status !== "active") { setHistoryArrears([]); return; }
+    let cancelled = false;
+    setHistoryArrears([]);
+    void loadStudentArrears({ schoolYearId: year.id, studentId: selectedHistoryStudentId }).then((result) => {
+      if (!cancelled) setHistoryArrears([...result.debts, ...result.settled]);
+    }).catch(() => { if (!cancelled) setHistoryArrears([]); });
+    return () => { cancelled = true; };
+  }, [selectedHistoryStudentId, year.id, year.status]);
   const expenseAmountValue = Number(expenseAmount);
   const isExpenseEntryIncomplete = !expenseCategory.trim()
     || !expenseAmount.trim()
@@ -222,13 +251,13 @@ export function ControlModule({
   const paginatedControlRows = visibleRows.slice((controlPage - 1) * CONTROL_PAGE_SIZE, controlPage * CONTROL_PAGE_SIZE);
   useEffect(() => { setControlPage(1); }, [amountComparator, amountThreshold, controlClassKey, controlStudentSearch, year.id]);
   useEffect(() => { if (controlPage > controlPageCount) setControlPage(controlPageCount); }, [controlPage, controlPageCount]);
-  const historyPayments = paymentHistory.items
+  const historyPayments = [...new Map([...paymentHistory.items, ...yearData.payments.filter((payment) => payment.collectionSchoolYearId === year.id)].map((payment) => [payment.id, payment])).values()]
     .map((payment) => {
-      const student = controlIndexes.studentsById.get(payment.studentId);
-      const fee = controlIndexes.feeTypesById.get(payment.feeTypeId);
+      const student = controlIndexes.studentsById.get(payment.currentStudentId ?? payment.studentId);
+      const fee = controlIndexes.feeTypesById.get(payment.feeTypeId) ?? (payment.feeName ? { name: payment.feeName } : undefined);
       return student && fee ? { payment, student, fee } : null;
     })
-    .filter((item): item is { payment: Payment; student: Student; fee: FeeType } => Boolean(item));
+    .filter((item): item is { payment: Payment; student: Student; fee: { name: string } } => Boolean(item));
   function historyTimestamp(dateValue?: string, fallbackDateValue?: string) {
     const primaryDate = dateValue ? new Date(dateValue) : null;
     if (primaryDate && !Number.isNaN(primaryDate.getTime())) return primaryDate.getTime();
@@ -288,6 +317,9 @@ export function ControlModule({
       remaining: Math.max(selectedHistoryBalance.expected - selectedHistoryRunningPaid, 0),
     };
   });
+  const selectedHistoryArrearPayments = selectedHistoryStudent
+    ? yearData.payments.filter((payment) => payment.collectionSchoolYearId === year.id && payment.currentStudentId === selectedHistoryStudent.id)
+    : [];
   const normalizedExpenseQuery = expenseHistoryQuery.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase("fr");
   const sortedExpenses = expenseHistory.items.filter((expense) => {
     if (!normalizedExpenseQuery) return true;
@@ -361,20 +393,20 @@ export function ControlModule({
       setPaymentError("Montant de paiement invalide.");
       return;
     }
-    if (!selectedPaymentStudent || !selectedPaymentFee) {
+    if (!selectedPaymentStudent || (!selectedPaymentFee && !selectedPaymentDebt)) {
       setPaymentError("Type de frais indisponible pour cet élève.");
       return;
     }
-    const alreadyPaidForFee = yearData.payments
+    const alreadyPaidForFee = selectedPaymentDebt?.paid ?? yearData.payments
       .filter(
         (payment) =>
           payment.schoolId === school.id &&
           payment.schoolYearId === year.id &&
           payment.studentId === selectedPaymentStudent.id &&
-          payment.feeTypeId === selectedPaymentFee.id,
+          payment.feeTypeId === selectedPaymentFee?.id,
       )
       .reduce((sum, payment) => sum + payment.amount, 0);
-    const remaining = Math.max(selectedPaymentFee.amount - alreadyPaidForFee, 0);
+    const remaining = Math.max((selectedPaymentFee?.amount ?? selectedPaymentDebt?.expected ?? 0) - alreadyPaidForFee, 0);
     if (remaining === 0) {
       setPaymentError("Ce type de frais est déjà soldé.");
       return;
@@ -384,14 +416,24 @@ export function ControlModule({
       return;
     }
     const trimmedNote = paymentNote.trim();
-    const signature = JSON.stringify([year.id, studentId, selectedFeeTypeValue, paymentAmount, trimmedNote]);
+    const signature = JSON.stringify([year.id, studentId, selectedFeeTypeValue, selectedPaymentDebt?.schoolYearId, paymentAmount, trimmedNote]);
     const requestId = paymentAttemptRef.current?.signature === signature ? paymentAttemptRef.current.requestId : crypto.randomUUID();
     paymentAttemptRef.current = { signature, requestId };
     paymentSubmittingRef.current = true;
     setPaymentSubmitting(true);
     try {
-      const payment = await createPaymentTransaction({ schoolYearId: year.id, studentId, feeTypeId: selectedFeeTypeValue, amount: paymentAmount, note: trimmedNote || undefined, clientRequestId: requestId });
+      const payment = await createPaymentTransaction({ schoolYearId: year.id, studentId, feeTypeId: selectedFeeTypeValue, ...(selectedPaymentDebt ? { debtSchoolYearId: selectedPaymentDebt.schoolYearId } : {}), amount: paymentAmount, note: trimmedNote || undefined, clientRequestId: requestId });
       paymentHistory.prependItem(payment);
+      if (selectedPaymentDebt) {
+        try {
+          const refreshed = await loadStudentArrears({ schoolYearId: year.id, studentId });
+          setPaymentArrears(refreshed.debts);
+          if (selectedHistoryStudentId === studentId) setHistoryArrears(refreshed.debts);
+        } catch {
+          setPaymentArrears([]);
+          setArrearsError("Paiement enregistré. Actualisez les arriérés avant un autre règlement.");
+        }
+      }
       paymentAttemptRef.current = null;
       setAmount("");
       setPaymentNote("");
@@ -987,6 +1029,23 @@ export function ControlModule({
           ))}
         </div>
 
+        <div className="min-w-0 rounded border border-amber-200 bg-amber-50 p-4 shadow-sm">
+          <h2 className="text-lg font-bold text-ink">Dettes des années antérieures</h2>
+          {historyArrears.length === 0 && <p className="mt-2 text-sm text-slate-600">Aucune créance historique trouvée pour cet élève.</p>}
+          <div className="mt-2 grid gap-2">
+            {historyArrears.map((debt) => <div key={`${debt.schoolYearId}:${debt.feeTypeId}`} className="min-w-0 rounded border border-amber-200 bg-white p-3 text-sm">
+              <p className="break-words font-semibold">{debt.feeName} · {debt.yearName} {debt.remaining === 0 ? "· Soldée" : "· À payer"}</p>
+              <p className="break-words text-slate-600">Attendu : {formatCurrencyMoney(debt.expected, debt.currency)} · Payé : {formatCurrencyMoney(debt.paid, debt.currency)} · Solde : {formatCurrencyMoney(debt.remaining, debt.currency)}</p>
+            </div>)}
+          </div>
+          {selectedHistoryArrearPayments.length > 0 && <div className="mt-3 grid gap-2">
+            <h3 className="font-semibold">Règlements des arriérés encaissés cette année</h3>
+            {selectedHistoryArrearPayments.map((payment) => <p key={payment.id} className="break-words rounded bg-white p-2 text-sm">
+              {payment.paidAt} · {payment.feeName ?? "Frais"} · {payment.debtSchoolYearName ?? payment.schoolYearId} · {formatCurrencyMoney(payment.amount, payment.currency ?? "USD")}
+            </p>)}
+          </div>}
+        </div>
+
         <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-4 min-w-0">
             <h2 className="break-words text-lg font-bold text-ink">Résumé par type de frais</h2>
@@ -1075,7 +1134,7 @@ export function ControlModule({
   return (
     <section className="grid min-w-0 gap-4">
       <div className="min-w-0">
-        <SectionTitle title="Contrôle" subtitle="Frais scolaires, paiements, historique et soldes restants en dollar américain." />
+        <SectionTitle title="Contrôle" subtitle="Frais scolaires, paiements, historique et soldes restants." />
         <div className="mb-3 w-full min-w-0 max-w-full">
           <div className="grid w-full min-w-0 grid-cols-1 items-stretch gap-2 box-border sm:grid-cols-2 lg:flex lg:flex-nowrap lg:items-center lg:gap-1.5">
               <select value={controlClassKey} onChange={(event) => setControlClassKey(event.target.value)} className="h-10 min-w-0 w-full rounded border border-slate-200 bg-white px-2 text-sm lg:flex-1 lg:basis-0" aria-label="Classe">
@@ -1177,16 +1236,22 @@ export function ControlModule({
               ))}
             </select>
             <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
-              <Metric label="Attendu" value={formatMoney(selectedPaymentFeeBalance.expected)} />
-              <Metric label="Payé" value={formatMoney(selectedPaymentFeeBalance.paid)} />
-              <Metric label="Solde" value={formatMoney(selectedPaymentFeeBalance.remaining)} />
+              <Metric label="Attendu" value={selectedPaymentDebt ? formatCurrencyMoney(selectedPaymentFeeBalance.expected, selectedPaymentDebt.currency) : formatMoney(selectedPaymentFeeBalance.expected)} />
+              <Metric label="Payé" value={selectedPaymentDebt ? formatCurrencyMoney(selectedPaymentFeeBalance.paid, selectedPaymentDebt.currency) : formatMoney(selectedPaymentFeeBalance.paid)} />
+              <Metric label="Solde" value={selectedPaymentDebt ? formatCurrencyMoney(selectedPaymentFeeBalance.remaining, selectedPaymentDebt.currency) : formatMoney(selectedPaymentFeeBalance.remaining)} />
             </div>
             {paymentError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{paymentError}</p>}
-            <select value={selectedFeeTypeValue} onChange={(event) => { setFeeTypeId(event.target.value); setPaymentError(""); }} disabled={!selectedPaymentStudent || payableFeeTypes.length === 0 || paymentSubmitting} className="input disabled:opacity-60">
-              {payableFeeTypes.map((fee) => (
-                <option key={fee.id} value={fee.id}>{fee.name} - {formatMoney(fee.amount)}</option>
-              ))}
+            <select aria-label="Type de frais" value={selectedFeeTypeValue} onChange={(event) => { setFeeTypeId(event.target.value); setPaymentError(""); }} disabled={!selectedPaymentStudent || (payableFeeTypes.length === 0 && paymentArrears.length === 0) || paymentSubmitting} className="input disabled:opacity-60">
+              <optgroup label={`Année actuelle — ${year.name}`}>
+                {payableFeeTypes.map((fee) => <option key={fee.id} value={fee.id}>{fee.name} — {year.name} — {formatMoney(fee.amount)}</option>)}
+              </optgroup>
+              {paymentArrears.length > 0 && <optgroup label="Dettes antérieures">
+                {paymentArrears.map((debt) => <option key={debt.feeTypeId} value={debt.feeTypeId}>{debt.feeName} — Arriéré {debt.yearName} — Reste : {formatCurrencyMoney(debt.remaining, debt.currency)}</option>)}
+              </optgroup>}
             </select>
+            {arrearsLoading && <p className="text-sm text-slate-500">Recherche des arriérés antérieurs…</p>}
+            {arrearsError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{arrearsError}</p>}
+            {selectedPaymentDebt && <p className="rounded bg-amber-50 p-3 text-sm font-semibold text-amber-800">Créance de {selectedPaymentDebt.yearName} · encaissement en {year.name} · montant en {selectedPaymentDebt.currency}</p>}
             {selectedPaymentFee && selectedPaymentFeeRemaining === 0 && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">Ce type de frais est déjà soldé.</p>}
             <MoneyInput value={amount} onChange={setAmount} max={selectedPaymentFeeRemaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" />
             <textarea value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} maxLength={1000} className="input min-h-20" placeholder="Description" />
@@ -1263,16 +1328,22 @@ export function ControlModule({
                 )}
               </div>
               <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
-                <Metric label="Attendu" value={formatMoney(selectedPaymentFeeBalance.expected)} />
-                <Metric label="Payé" value={formatMoney(selectedPaymentFeeBalance.paid)} />
-                <Metric label="Solde" value={formatMoney(selectedPaymentFeeBalance.remaining)} />
+                <Metric label="Attendu" value={selectedPaymentDebt ? formatCurrencyMoney(selectedPaymentFeeBalance.expected, selectedPaymentDebt.currency) : formatMoney(selectedPaymentFeeBalance.expected)} />
+                <Metric label="Payé" value={selectedPaymentDebt ? formatCurrencyMoney(selectedPaymentFeeBalance.paid, selectedPaymentDebt.currency) : formatMoney(selectedPaymentFeeBalance.paid)} />
+                <Metric label="Solde" value={selectedPaymentDebt ? formatCurrencyMoney(selectedPaymentFeeBalance.remaining, selectedPaymentDebt.currency) : formatMoney(selectedPaymentFeeBalance.remaining)} />
               </div>
               {paymentError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{paymentError}</p>}
-              <select value={selectedFeeTypeValue} onChange={(event) => { setFeeTypeId(event.target.value); setPaymentError(""); }} disabled={!selectedPaymentStudent || payableFeeTypes.length === 0 || paymentSubmitting} className="input disabled:opacity-60">
-                {payableFeeTypes.map((fee) => (
-                  <option key={fee.id} value={fee.id}>{fee.name} - {formatMoney(fee.amount)}</option>
-                ))}
+              <select aria-label="Type de frais" value={selectedFeeTypeValue} onChange={(event) => { setFeeTypeId(event.target.value); setPaymentError(""); }} disabled={!selectedPaymentStudent || (payableFeeTypes.length === 0 && paymentArrears.length === 0) || paymentSubmitting} className="input disabled:opacity-60">
+                <optgroup label={`Année actuelle — ${year.name}`}>
+                  {payableFeeTypes.map((fee) => <option key={fee.id} value={fee.id}>{fee.name} — {year.name} — {formatMoney(fee.amount)}</option>)}
+                </optgroup>
+                {paymentArrears.length > 0 && <optgroup label="Dettes antérieures">
+                  {paymentArrears.map((debt) => <option key={debt.feeTypeId} value={debt.feeTypeId}>{debt.feeName} — Arriéré {debt.yearName} — Reste : {formatCurrencyMoney(debt.remaining, debt.currency)}</option>)}
+                </optgroup>}
               </select>
+              {arrearsLoading && <p className="text-sm text-slate-500">Recherche des arriérés antérieurs…</p>}
+              {arrearsError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{arrearsError}</p>}
+              {selectedPaymentDebt && <p className="rounded bg-amber-50 p-3 text-sm font-semibold text-amber-800">Créance de {selectedPaymentDebt.yearName} · encaissement en {year.name} · montant en {selectedPaymentDebt.currency}</p>}
               {selectedPaymentFee && selectedPaymentFeeRemaining === 0 && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">Ce type de frais est déjà soldé.</p>}
               <MoneyInput value={amount} onChange={setAmount} max={selectedPaymentFeeRemaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" />
               <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
@@ -1380,11 +1451,11 @@ export function ControlModule({
                         <button onClick={() => generateReceiptPdf(payment, student, fee, school, resolvePaymentCashierName(payment, yearData.auditLogs))} className="rounded bg-slate-100 p-2" title="Voir le reçu PDF">
                           <Download className="h-4 w-4" />
                         </button>
-                        {canCorrectPayments && <button onClick={() => correctPayment(payment)} disabled={financialMutationId === payment.id} className="rounded bg-slate-100 p-2 disabled:opacity-50" title="Corriger"><Edit3 className="h-4 w-4" /></button>}
-                        {canCorrectPayments && <button onClick={() => deletePayment(payment)} disabled={financialMutationId === payment.id} className="rounded bg-red-50 p-2 text-red-700 disabled:opacity-50" title="Supprimer"><Trash2 className="h-4 w-4" /></button>}
+                        {canCorrectPayments && !payment.collectionSchoolYearId && <button onClick={() => correctPayment(payment)} disabled={financialMutationId === payment.id} className="rounded bg-slate-100 p-2 disabled:opacity-50" title="Corriger"><Edit3 className="h-4 w-4" /></button>}
+                        {canCorrectPayments && !payment.collectionSchoolYearId && <button onClick={() => deletePayment(payment)} disabled={financialMutationId === payment.id} className="rounded bg-red-50 p-2 text-red-700 disabled:opacity-50" title="Supprimer"><Trash2 className="h-4 w-4" /></button>}
                       </div>
                     </div>
-                    <p className="break-words text-slate-500">{fee.name} | {formatMoney(payment.amount)} | {payment.paidAt}</p>
+                    <p className="break-words text-slate-500">{fee.name} {payment.collectionSchoolYearId ? `| Arriéré ${payment.debtSchoolYearName ?? payment.schoolYearId}` : ""} | {payment.currency ? formatCurrencyMoney(payment.amount, payment.currency) : formatMoney(payment.amount)} | {payment.paidAt}</p>
                     {payment.note && <p className="mt-1 break-words text-slate-600">Description : {payment.note}</p>}
                   </div>
                 );

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Download } from "lucide-react";
 import { Field, FormPanel, Metric } from "../../components/ui";
 import { exportReportPdf } from "../../utils/reportPdf";
+import { formatCurrencyMoney, formatSchoolMoney, resolveSchoolYearCurrency } from "../../utils/currency";
 import { getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
 import { buildStats } from "../../utils/stats";
 import { getClassSection } from "../../utils/studentClasses";
@@ -39,6 +40,8 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
   const filteredStudents = yearData.students.filter((student) => sectionFilter === "all" || getClassSection(student.className) === sectionFilter);
   const filteredStudentIds = new Set(filteredStudents.map((student) => student.id));
   const payments = yearData.payments.filter((payment) => payment.paidAt >= startDate && payment.paidAt <= endDate && filteredStudentIds.has(payment.studentId));
+  const arrearsPayments = yearData.payments.filter((payment) => payment.collectionSchoolYearId === year.id && payment.paidAt >= startDate && payment.paidAt <= endDate && filteredStudentIds.has(payment.currentStudentId ?? ""));
+  const arrearsByCurrency = (["USD", "CDF"] as const).map((currency) => ({ currency, amount: arrearsPayments.filter((payment) => payment.currency === currency).reduce((total, payment) => total + payment.amount, 0) })).filter((group) => group.amount > 0);
   const expenses = yearData.expenses.filter((expense) => expense.spentAt >= startDate && expense.spentAt <= endDate);
   const paid = payments.reduce((sum, payment) => sum + payment.amount, 0);
   const spent = expenses.reduce((sum, expense) => sum + expense.amount, 0);
@@ -61,7 +64,7 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
               ))}
             </select>
           </label>
-          <button onClick={() => exportReportPdf(school, year, startDate, endDate, sectionLabels[sectionFilter], usesSectionFilter, paid, spent, recovery, payments, expenses, filteredStudents)} className="primary-button self-end">
+          <button onClick={() => exportReportPdf(school, year, startDate, endDate, sectionLabels[sectionFilter], usesSectionFilter, paid, spent, recovery, payments, expenses, filteredStudents, arrearsPayments)} className="primary-button self-end">
             <Download className="h-4 w-4" /> Export PDF
           </button>
         </div>
@@ -72,11 +75,16 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
         )}
       </div>
       <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Metric label="Paiements" value={`$${paid.toFixed(2)}`} />
-        <Metric label="Dépenses" value={`$${spent.toFixed(2)}`} />
-        <Metric label="Solde net" value={`$${(paid - spent).toFixed(2)}`} />
+        <Metric label="Paiements des frais de l'année" value={formatSchoolMoney(paid, { currency: resolveSchoolYearCurrency(year, school) })} />
+        <Metric label="Dépenses" value={formatSchoolMoney(spent, { currency: resolveSchoolYearCurrency(year, school) })} />
+        <Metric label="Solde net hors arriérés" value={formatSchoolMoney(paid - spent, { currency: resolveSchoolYearCurrency(year, school) })} />
         <Metric label="Recouvrement période" value={`${recovery}%`} />
       </div>
+      {arrearsByCurrency.length > 0 && <div className="rounded border border-amber-200 bg-amber-50 p-4 text-sm">
+        <h2 className="font-bold">Arriérés encaissés pendant la période</h2>
+        <p className="text-slate-600">Ces encaissements sont distincts du recouvrement des frais de l'année actuelle.</p>
+        {arrearsByCurrency.map((group) => <p key={group.currency} className="font-semibold">{formatCurrencyMoney(group.amount, group.currency)}</p>)}
+      </div>}
       <div className="grid min-w-0 gap-4 xl:grid-cols-2">
         <FormPanel title="Paiements">
           <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
@@ -92,6 +100,17 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
             {payments.length === 0 && <p className="text-sm text-slate-500">Aucun paiement sur cette période.</p>}
           </div>
         </FormPanel>
+        {arrearsPayments.length > 0 && <FormPanel title="Règlements de dettes antérieures">
+          <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+            {arrearsPayments.map((payment) => {
+              const student = filteredStudents.find((item) => item.id === payment.currentStudentId);
+              return <div key={payment.id} className="min-w-0 rounded bg-amber-50 p-3 text-sm">
+                <p className="break-words font-semibold">{student ? `${student.nom} ${student.prenom}` : "Élève"} · {payment.feeName ?? "Frais"} · {payment.debtSchoolYearName ?? payment.schoolYearId}</p>
+                <p className="break-words text-slate-600">{payment.paidAt} · {formatCurrencyMoney(payment.amount, payment.currency ?? "USD")} · {payment.receiptNumber ?? payment.id}</p>
+              </div>;
+            })}
+          </div>
+        </FormPanel>}
         <FormPanel title="Dépenses">
           <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
             {expenses.map((expense) => (

@@ -9,7 +9,7 @@ const pdf = readFileSync(new URL("./coordinationDashboardPdf.ts", import.meta.ur
 
 describe("alignement du Dashboard Coordination", () => {
   it("reprend les neuf cartes Administrateur dans l'ordre exact", () => {
-    const labels = ["Nombre total d'élèves", "Nombre de classes", "Nombre total de parents", "Administrateurs", "Caissiers", "Directeurs de Discipline", "Montant attendu", "Montant total encaissé", "Montant restant à payer"];
+    const labels = ["Nombre total d'élèves", "Nombre de classes", "Nombre total de parents", "Administrateurs", "Caissiers", "Directeurs de Discipline", "Montant attendu", "Frais de l'année encaissés", "Montant restant à payer"];
     let cursor = -1;
     labels.forEach((label) => {
       const next = dashboard.indexOf(`label: "${label}"`);

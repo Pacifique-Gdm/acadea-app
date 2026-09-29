@@ -83,6 +83,17 @@ export function CoordinationDashboard({
   const transactionStartDate = dateFilterActive ? startDate : today;
   const transactionEndDate = dateFilterActive ? endDate : today;
   const visiblePayments = stats.payments.filter((payment) => (!transactionStartDate || payment.paidAt.slice(0, 10) >= transactionStartDate) && (!transactionEndDate || payment.paidAt.slice(0, 10) <= transactionEndDate));
+  const visibleStudentKeys = new Set(stats.students.map((student) => `${student.schoolId}:${student.id}`));
+  const arrearsCollections = (["USD", "CDF"] as const).map((currency) => ({
+    currency,
+    amount: model.payments.filter((payment) => payment.collectionSchoolYearId
+      && stats.alignedSchoolIds.includes(payment.schoolId)
+      && scopedSchools.find((school) => school.id === payment.schoolId)?.activeSchoolYearId === payment.collectionSchoolYearId
+      && visibleStudentKeys.has(`${payment.schoolId}:${payment.currentStudentId ?? ""}`)
+      && payment.currency === currency
+      && (!dateFilterActive || ((!startDate || payment.paidAt >= startDate) && (!endDate || payment.paidAt <= endDate))))
+      .reduce((total, payment) => total + payment.amount, 0),
+  })).filter((group) => group.amount > 0);
   const visibleExpenses = stats.expenses.filter((expense) => (!transactionStartDate || expense.spentAt.slice(0, 10) >= transactionStartDate) && (!transactionEndDate || expense.spentAt.slice(0, 10) <= transactionEndDate));
   const transactions = [
     ...visiblePayments.map((payment) => ({ id: `${payment.schoolId}:${payment.id}`, type: "Paiement", label: `${schoolById.get(payment.schoolId)?.name ?? payment.schoolId} · ${payment.cashierName}`, amount: payment.amount, currency: resolveSchoolCurrency(schoolById.get(payment.schoolId) ?? {}), date: payment.paidAt, occurredAt: payment.createdAt ?? payment.paidAt })),
@@ -131,7 +142,7 @@ export function CoordinationDashboard({
     { label: "Caissiers", value: stats.cashiers, icon: UserRound, tone: "bg-pink-100 text-pink-700" },
     { label: "Directeurs de Discipline", value: stats.disciplineDirectors, icon: ShieldCheck, tone: "bg-violet-100 text-violet-700" },
     { label: "Montant attendu", value: financialValue("expected"), icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
-    { label: "Montant total encaissé", value: financialValue("paid"), icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
+    { label: "Frais de l'année encaissés", value: financialValue("paid"), icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
     { label: "Montant restant à payer", value: financialValue("remaining"), icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
   ];
 
@@ -153,7 +164,7 @@ export function CoordinationDashboard({
   }
 
   async function exportPdf() {
-    await exportCoordinationDashboardPdf({ coordination, schools: scopedSchools, selectedSchoolId, stats, sectionLabel: sectionFilter === "all" ? "Toutes les sections" : schoolSectionLabels[sectionFilter], dateLabel: dateFilterActive ? `${startDate || "Début"} au ${endDate || "Fin"}` : "Année scolaire active", transactions });
+    await exportCoordinationDashboardPdf({ coordination, schools: scopedSchools, selectedSchoolId, stats, arrearsCollections, sectionLabel: sectionFilter === "all" ? "Toutes les sections" : schoolSectionLabels[sectionFilter], dateLabel: dateFilterActive ? `${startDate || "Début"} au ${endDate || "Fin"}` : "Année scolaire active", transactions });
   }
 
   return <section className="grid min-w-0 gap-4">
@@ -174,6 +185,7 @@ export function CoordinationDashboard({
     {stats.excludedSchoolIds.length > 0 && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{stats.excludedSchoolIds.length} école(s) non alignée(s) sur l’année de référence sont exclues des statistiques.</p>}
 
     <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">{cards.map((card) => { const Icon = card.icon; return <article key={card.label} className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm"><div className={`mb-4 flex h-10 w-10 items-center justify-center rounded ${card.tone}`}><Icon className="h-5 w-5" /></div><p className="text-sm text-slate-500">{card.label}</p><p className="mt-1 break-words text-2xl font-bold text-ink">{card.value}</p></article>; })}</div>
+    {arrearsCollections.length > 0 && <div className="rounded border border-amber-200 bg-amber-50 p-4 text-sm"><p className="font-bold">Arriérés encaissés, hors recouvrement de l'année courante</p>{arrearsCollections.map((group) => <p key={group.currency}>{formatCurrency(group.amount, group.currency)}</p>)}</div>}
 
     {stats.financialGroups.map((financial) => {
       const recoveryTone = financial.recoveryRate >= 80 ? "text-mint bg-mint/10" : financial.recoveryRate >= 50 ? "text-amber-700 bg-amber-100" : "text-red-700 bg-red-50";
@@ -181,7 +193,7 @@ export function CoordinationDashboard({
       return <div key={financial.currency} className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-ink">KPI financier{stats.financialGroups.length > 1 ? ` · ${financial.currency}` : ""}</h2><p className="text-sm text-slate-500">Recouvrement selon les filtres sélectionnés.</p></div><span className={`rounded px-3 py-2 text-sm font-bold ${recoveryTone}`}>{financial.recoveryRate}% recouvré</span></div>
         <div className="mt-4 h-3 overflow-hidden rounded bg-slate-100"><div className={`h-full rounded ${progressTone(financial.recoveryRate)}`} style={{ width: `${Math.min(100, financial.recoveryRate)}%` }} /></div>
-        <div className="mt-4 grid gap-2 sm:grid-cols-4"><Metric label="Attendu" value={amount(financial.expected)} /><Metric label="Encaissé" value={amount(financial.paid)} /><Metric label="Dépenses" value={amount(financial.expenses)} /><Metric label="Reste" value={amount(financial.remaining)} /></div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-4"><Metric label="Attendu" value={amount(financial.expected)} /><Metric label="Frais de l'année encaissés" value={amount(financial.paid)} /><Metric label="Dépenses" value={amount(financial.expenses)} /><Metric label="Reste" value={amount(financial.remaining)} /></div>
         <div className="mt-5 grid gap-3">{financial.feeProgressRows.map((row) => <div key={row.name} className="rounded border border-slate-100 bg-slate-50 p-3"><div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><p className="break-words text-sm font-bold text-ink">{row.name}</p><p className="break-words text-xs text-slate-500">Toutes les classes confondues</p></div><span className="shrink-0 rounded bg-white px-2.5 py-1 text-xs font-bold text-mint">{row.rate}%</span></div><div className="mt-3 h-2.5 overflow-hidden rounded bg-white"><div className={`h-full rounded ${progressTone(row.rate)}`} style={{ width: `${Math.min(100, row.rate)}%` }} /></div><div className="mt-3 grid gap-2 text-xs sm:grid-cols-3"><span className="rounded bg-white px-2 py-1 text-slate-600">Attendu : <strong className="text-ink">{amount(row.expected)}</strong></span><span className="rounded bg-white px-2 py-1 text-slate-600">Payé : <strong className="text-ink">{amount(row.paid)}</strong></span><span className="rounded bg-white px-2 py-1 text-slate-600">Solde : <strong className="text-ink">{amount(row.remaining)}</strong></span></div></div>)}{financial.feeProgressRows.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun frais applicable pour les filtres sélectionnés.</p>}</div>
         <FinancialFeeShareChart rows={financial.feeShares} formatAmount={amount} totalAriaLabel={`Répartition des montants attendus en ${financial.currency}`} />
       </div>;

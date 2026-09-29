@@ -1,6 +1,6 @@
 import type { Expense, Payment, School, SchoolYear, Student } from "../types";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./pdf";
-import { formatSchoolMoney } from "./currency";
+import { formatCurrencyMoney, formatSchoolMoney } from "./currency";
 
 export async function exportReportPdf(
   school: School,
@@ -15,6 +15,7 @@ export async function exportReportPdf(
   payments: Payment[],
   expenses: Expense[],
   students: Student[],
+  arrearsPayments: Payment[] = [],
 ) {
   const studentById = new Map(students.map((student) => [student.id, student]));
   const fallback = "—";
@@ -38,11 +39,11 @@ export async function exportReportPdf(
   const sortedPayments = [...payments].sort((first, second) => compareByPrimaryThenCreatedAt(first, second, first.paidAt, second.paidAt));
   const sortedExpenses = [...expenses].sort((first, second) => compareByPrimaryThenCreatedAt(first, second, first.spentAt, second.spentAt));
   const studentNameForPayment = (payment: Payment) => {
-    const student = studentById.get(payment.studentId);
+    const student = studentById.get(payment.currentStudentId ?? payment.studentId);
     if (!student) return fallback;
     return `${student.nom} ${student.postnom} ${student.prenom}`.trim() || fallback;
   };
-  const studentOptionForPayment = (payment: Payment) => studentById.get(payment.studentId)?.option || fallback;
+  const studentOptionForPayment = (payment: Payment) => studentById.get(payment.currentStudentId ?? payment.studentId)?.option || fallback;
   const timeFromDate = (value?: string) => {
     if (!value) return fallback;
     const date = new Date(value);
@@ -85,6 +86,21 @@ export async function exportReportPdf(
           "Aucun paiement pour cette période.",
         ),
       ),
+      ...(arrearsPayments.length ? [pdfSection(
+        "Arriérés encaissés pendant la période — hors recouvrement courant",
+        pdfTable(
+          [
+            { header: "Date", render: (payment: Payment) => payment.paidAt },
+            { header: "Élève", render: studentNameForPayment },
+            { header: "Frais d'origine", render: (payment: Payment) => payment.feeName ?? fallback },
+            { header: "Année d'origine", render: (payment: Payment) => payment.debtSchoolYearName ?? payment.schoolYearId },
+            { header: "Montant", render: (payment: Payment) => formatCurrencyMoney(payment.amount, payment.currency ?? "USD"), align: "right" },
+            { header: "Reçu", render: (payment: Payment) => payment.receiptNumber ?? payment.id },
+          ],
+          arrearsPayments,
+          "Aucun règlement d'arriéré.",
+        ),
+      )] : []),
       pdfSection(
         "Dépenses",
         pdfTable(

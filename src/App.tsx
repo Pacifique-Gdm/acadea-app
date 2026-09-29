@@ -1325,7 +1325,10 @@ function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: 
           ),
     users: data.users.filter((item) => item.schoolId === schoolId),
     feeTypes: data.feeTypes.filter((fee) => fee.schoolId === schoolId && fee.schoolYearId === schoolYearId),
-    payments: data.payments.filter((payment) => payment.schoolId === schoolId && payment.schoolYearId === schoolYearId && studentIds.includes(payment.studentId)),
+    payments: data.payments.filter((payment) => payment.schoolId === schoolId && (
+      (payment.schoolYearId === schoolYearId && studentIds.includes(payment.studentId))
+      || (payment.collectionSchoolYearId === schoolYearId && Boolean(payment.currentStudentId && studentIds.includes(payment.currentStudentId)))
+    )),
     expenses: data.expenses.filter((expense) => expense.schoolId === schoolId && expense.schoolYearId === schoolYearId),
     auditLogs: data.auditLogs.filter((log) => log.schoolId === schoolId && (!log.schoolYearId || log.schoolYearId === schoolYearId) && !isSessionAuditAction(log.action)),
     valves: data.valves.filter((publication) => publication.schoolId === schoolId && publication.schoolYearId === schoolYearId),

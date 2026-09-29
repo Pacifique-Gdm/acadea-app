@@ -10,8 +10,24 @@ describe("transactions financières temps réel", () => {
     expect(source).toContain('annualQuery("expenses")');
     expect(source).toContain('where("schoolId", "==", schoolId)');
     expect(source).toContain('where("schoolYearId", "==", schoolYearId)');
+    expect(source).toContain('where("collectionSchoolYearId", "==", schoolYearId)');
+    expect(source).toContain("unsubscribeCollectedArrears()");
     expect(source).toContain("unsubscribePayments()");
     expect(source).toContain("unsubscribeExpenses()");
+  });
+
+  it("réconcilie un règlement d'arriéré par année d'encaissement sans le dupliquer", () => {
+    const arrears: Payment = {
+      id: "pay-arrears", schoolId: "school-a", schoolYearId: "year-old", studentId: "student-old",
+      collectionSchoolYearId: "year-current", currentStudentId: "student-current", feeTypeId: "fee-old",
+      amount: 20, paidAt: "2027-10-01", cashierName: "Caissier",
+    };
+    const scope = { schoolId: "school-a", schoolYearId: "year-current" };
+    const first = reconcileFinancialSnapshot<Payment>([], [arrears], scope);
+    const second = reconcileFinancialSnapshot<Payment>(first, [arrears, arrears], scope);
+    expect(first).toEqual([arrears]);
+    expect(second).toEqual([arrears]);
+    expect(reconcileFinancialSnapshot<Payment>(second, [], scope)).toEqual([]);
   });
 
   it("conserve le paiement serveur au premier snapshot sans duplication", () => {

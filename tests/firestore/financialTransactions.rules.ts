@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
 import { initializeTestEnvironment, assertFails, assertSucceeds, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
-import { doc, getDoc, setDoc, updateDoc, deleteDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, setDoc, updateDoc, deleteDoc, where } from "firebase/firestore";
 
 let environment: RulesTestEnvironment;
 const projectId = "acadea-financial-rules";
@@ -17,6 +17,7 @@ beforeEach(async () => {
       await setDoc(doc(db, "users", `${role}-user`), { id: `${role}-user`, role, schoolId: "school-a", status: "active" });
     }
     await setDoc(doc(db, "payments", "payment-a"), { id: "payment-a", schoolId: "school-a", schoolYearId: "year-a", studentId: "student-a", feeTypeId: "fee-a", amount: 10, createdBy: "cashier-a", createdAt: "2026-08-07T12:00:00.000Z", receiptNumber: "REC-2026-0001" });
+    await setDoc(doc(db, "payments", "payment-arrears"), { id: "payment-arrears", schoolId: "school-a", schoolYearId: "year-old", collectionSchoolYearId: "year-a", currentStudentId: "student-a", studentId: "student-old", feeTypeId: "fee-old", amount: 5 });
     await setDoc(doc(db, "expenses", "expense-a"), { id: "expense-a", schoolId: "school-a", schoolYearId: "year-a", amount: 10, category: "Fournitures", description: "Papier", createdBy: "cashier-a", createdAt: "2026-08-07T12:00:00.000Z" });
   });
 });
@@ -52,6 +53,13 @@ describe("écritures financières réservées au serveur", () => {
   it("conserve les lectures nécessaires dans la même école", async () => {
     await assertSucceeds(getDoc(doc(db("cashier"), "payments", "payment-a")));
     await assertSucceeds(getDoc(doc(db("school_admin"), "expenses", "expense-a")));
+  });
+  it("autorise la lecture des arriérés encaissés uniquement par école et année d'encaissement", async () => {
+    const cashierDb = db("cashier");
+    const result = await assertSucceeds(getDocs(query(collection(cashierDb, "payments"), where("schoolId", "==", "school-a"), where("collectionSchoolYearId", "==", "year-a"))));
+    if (result.docs.length !== 1 || result.docs[0].id !== "payment-arrears") throw new Error("Lecture des arriérés inattendue.");
+    await assertFails(getDocs(query(collection(db("cashier", "school-b"), "payments"), where("schoolId", "==", "school-a"), where("collectionSchoolYearId", "==", "year-a"))));
+    await assertFails(setDoc(doc(cashierDb, "payments", "payment-arrears-client"), { ...newPayment, collectionSchoolYearId: "year-a" }));
   });
   it("refuse les lectures financières d'une autre école", async () => {
     await assertFails(getDoc(doc(db("cashier", "school-b"), "payments", "payment-a")));

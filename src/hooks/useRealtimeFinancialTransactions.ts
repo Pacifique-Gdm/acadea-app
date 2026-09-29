@@ -11,7 +11,7 @@ export function reconcileFinancialSnapshot<T extends FinancialTransaction>(
   scope: { schoolId: string; schoolYearId: string },
 ) {
   const outsideScope = current.filter(
-    (item) => item.schoolId !== scope.schoolId || item.schoolYearId !== scope.schoolYearId,
+    (item) => item.schoolId !== scope.schoolId || (item.schoolYearId !== scope.schoolYearId && (!("collectionSchoolYearId" in item) || item.collectionSchoolYearId !== scope.schoolYearId)),
   );
   const snapshotById = new Map(snapshot.map((item) => [item.id, item]));
   return [...outsideScope, ...snapshotById.values()];
@@ -39,9 +39,17 @@ export function useRealtimeFinancialTransactions({
       where("schoolId", "==", schoolId),
       where("schoolYearId", "==", schoolYearId),
     );
+    let annualPayments: Payment[] = [];
+    let collectedArrears: Payment[] = [];
+    const emitPayments = () => onPayments([...new Map([...annualPayments, ...collectedArrears].map((item) => [item.id, item])).values()]);
     const unsubscribePayments = onSnapshot(
       annualQuery("payments"),
-      (snapshot) => onPayments(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as Payment)),
+      (snapshot) => { annualPayments = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as Payment); emitPayments(); },
+      (error) => onError?.(error),
+    );
+    const unsubscribeCollectedArrears = onSnapshot(
+      query(collection(db, "payments"), where("schoolId", "==", schoolId), where("collectionSchoolYearId", "==", schoolYearId)),
+      (snapshot) => { collectedArrears = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as Payment); emitPayments(); },
       (error) => onError?.(error),
     );
     const unsubscribeExpenses = onSnapshot(
@@ -51,6 +59,7 @@ export function useRealtimeFinancialTransactions({
     );
     return () => {
       unsubscribePayments();
+      unsubscribeCollectedArrears();
       unsubscribeExpenses();
     };
   }, [enabled, onError, onExpenses, onPayments, schoolId, schoolYearId]);

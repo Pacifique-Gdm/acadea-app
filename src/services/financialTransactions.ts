@@ -19,9 +19,23 @@ type FinancialResponse = {
   idempotent?: boolean;
   error?: string;
   code?: string;
+  debts?: HistoricalDebt[];
+  settled?: HistoricalDebt[];
 };
 
-async function financialRequest(input: Record<string, unknown> & { action: FinancialAction; clientRequestId: string }) {
+export type HistoricalDebt = {
+  schoolYearId: string;
+  yearName: string;
+  studentId: string;
+  feeTypeId: string;
+  feeName: string;
+  expected: number;
+  paid: number;
+  remaining: number;
+  currency: "USD" | "CDF";
+};
+
+async function financialRequest(input: Record<string, unknown> & { action: FinancialAction | "list-arrears"; clientRequestId?: string }) {
   const token = await getCurrentFirebaseIdToken();
   const response = await fetch(resolveApiUrl("/api/manage-financial-transaction"), {
     method: "POST",
@@ -33,10 +47,17 @@ async function financialRequest(input: Record<string, unknown> & { action: Finan
   return payload;
 }
 
-export function createPaymentTransaction(input: { schoolYearId: string; studentId: string; feeTypeId: string; amount: number; note?: string; clientRequestId: string }) {
+export function createPaymentTransaction(input: { schoolYearId: string; studentId: string; feeTypeId: string; debtSchoolYearId?: string; amount: number; note?: string; clientRequestId: string }) {
   return financialRequest({ action: "create-payment", ...input }).then((result) => {
     if (!result.payment) throw new Error("Réponse de paiement incomplète.");
     return result.payment;
+  });
+}
+
+export function loadStudentArrears(input: { schoolYearId: string; studentId: string }) {
+  return financialRequest({ action: "list-arrears", ...input }).then((result) => {
+    if (!Array.isArray(result.debts) || !Array.isArray(result.settled)) throw new Error("Réponse des arriérés incomplète.");
+    return { debts: result.debts, settled: result.settled };
   });
 }
 

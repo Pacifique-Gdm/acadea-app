@@ -1,6 +1,6 @@
 import jsPDF from "jspdf";
-import type { Expense, FeeType, Payment, School, SchoolYear, Student } from "../types";
-import { formatSchoolMoney } from "./currency";
+import type { Expense, Payment, School, SchoolYear, Student } from "../types";
+import { formatCurrencyMoney, formatSchoolMoney } from "./currency";
 import { getPdfLayout, resolvePdfFont, type PdfGenerationSettings } from "./pdfSettings";
 
 type PdfDoc = InstanceType<typeof jsPDF>;
@@ -341,7 +341,7 @@ function applyPdfPageBreakSpacers(element: HTMLElement, contentHeightMm: number,
   }
 }
 
-export async function generateReceiptPdf(payment: Payment, student: Student, feeType: FeeType, school: School, cashierName = payment.cashierName) {
+export async function generateReceiptPdf(payment: Payment, student: Student, feeType: { name: string }, school: School, cashierName = payment.cashierName) {
   await renderAcadPdfPreview({
     filename: `recu-${student.matricule}-${payment.id}.pdf`,
     title: "Reçu de paiement",
@@ -355,8 +355,12 @@ export async function generateReceiptPdf(payment: Payment, student: Student, fee
         { label: "Élève", value: `${student.nom} ${student.postnom} ${student.prenom}`.trim() },
         { label: "Matricule", value: student.matricule },
         { label: "Classe", value: formatStudentClassName(student) },
-        { label: "Type de frais", value: feeType.name },
-        { label: "Montant payé", value: formatSchoolMoney(payment.amount, school) },
+        { label: "Type de frais", value: payment.feeName ?? feeType.name },
+        ...(payment.collectionSchoolYearId ? [
+          { label: "Nature", value: "Règlement d'un arriéré" },
+          { label: "Année de la créance", value: payment.debtSchoolYearName ?? payment.schoolYearId },
+        ] : []),
+        { label: "Montant payé", value: payment.currency ? formatCurrencyMoney(payment.amount, payment.currency) : formatSchoolMoney(payment.amount, school) },
         { label: "Caissier", value: cashierName || "-" },
       ]),
       `

@@ -124,6 +124,14 @@ async function loadCollection<T>(collectionName: string, filters: [string, unkno
   return snapshot.docs.map((item) => normalizeSchoolDomainDocument(collectionName, { id: item.id, ...item.data() })) as T[];
 }
 
+async function loadPaymentsForYear(schoolId: string, schoolYearId: string) {
+  const [annual, collected] = await Promise.all([
+    loadCollection<AppData["payments"][number]>("payments", [["schoolId", schoolId], ["schoolYearId", schoolYearId]]),
+    loadCollection<AppData["payments"][number]>("payments", [["schoolId", schoolId], ["collectionSchoolYearId", schoolYearId]]),
+  ]);
+  return [...new Map([...annual, ...collected].map((payment) => [payment.id, payment])).values()];
+}
+
 async function loadCollectionInSections<T>(collectionName: string, filters: [string, unknown][], sections: readonly string[]) {
   if (!db) return [];
   const constraints = [...filters.map(([field, value]) => where(field, "==", value)), where("section", "in", [...sections])];
@@ -326,7 +334,7 @@ export async function loadFirestoreData(
       maybeLoad("feeTypes", () => loadCollection<AppData["feeTypes"][number]>("feeTypes", annualFilter)),
       maybeLoad("students", () => loadCollection<AppData["students"][number]>("students", annualFilter)),
       maybeLoad("parents", () => loadCollection<AppData["parents"][number]>("parents", schoolFilter)),
-      maybeLoad("payments", () => loadCollection<AppData["payments"][number]>("payments", annualFilter)),
+      maybeLoad("payments", () => targetSchoolYearId ? loadPaymentsForYear(user.schoolId!, targetSchoolYearId) : loadCollection<AppData["payments"][number]>("payments", annualFilter)),
       maybeLoad("expenses", () => loadCollection<AppData["expenses"][number]>("expenses", annualFilter)),
       loadSchoolMessages(user, user.schoolId, schoolYearId as string),
       maybeLoad("valves", () => loadCollection<AppData["valves"][number]>("valves", annualFilter)),
@@ -453,7 +461,7 @@ export async function loadFirestoreYearData(user: AppUser, schoolYearId: string)
   const yearData: FirestoreYearData = {
     students: await loadCollection<AppData["students"][number]>("students", annualFilter),
     feeTypes: await loadCollection<AppData["feeTypes"][number]>("feeTypes", annualFilter),
-    payments: await loadCollection<AppData["payments"][number]>("payments", annualFilter),
+    payments: await loadPaymentsForYear(user.schoolId, schoolYearId),
     expenses: await loadCollection<AppData["expenses"][number]>("expenses", annualFilter),
     messages: await loadSchoolMessages(user, user.schoolId, schoolYearId),
     valves: await loadCollection<AppData["valves"][number]>("valves", annualFilter),

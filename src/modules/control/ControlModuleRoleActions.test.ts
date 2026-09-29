@@ -59,8 +59,8 @@ describe("actions Contrôle partagées selon le rôle", () => {
   it("maintient les mutations interdites hors du DOM du Caissier", () => {
     expect(source).toContain('const canCorrectPayments = user.role === "school_admin"');
     expect(source).toContain('const canManageExpenses = user.role === "school_admin"');
-    expect(source).toContain('{canCorrectPayments && <button onClick={() => correctPayment(payment)}');
-    expect(source).toContain('{canCorrectPayments && <button onClick={() => deletePayment(payment)}');
+    expect(source).toContain('{canCorrectPayments && !payment.collectionSchoolYearId && <button onClick={() => correctPayment(payment)}');
+    expect(source).toContain('{canCorrectPayments && !payment.collectionSchoolYearId && <button onClick={() => deletePayment(payment)}');
     expect(source).toContain('{user.role !== "cashier" && canManageExpenses && <button onClick={() => openEditExpense(expense)}');
     expect(source).toContain('{user.role !== "cashier" && canManageExpenses && <button onClick={() => setExpenseDeleteTarget(expense)}');
   });

@@ -32,6 +32,24 @@ export function authorizeFinancialCaller(
   action: string,
 ): void;
 
+export type HistoricalDebt = {
+  schoolYearId: string;
+  yearName: string;
+  studentId: string;
+  feeTypeId: string;
+  feeName: string;
+  expected: number;
+  paid: number;
+  remaining: number;
+  currency: "CDF" | "USD";
+};
+
+export function listStudentArrears(input: {
+  db: unknown;
+  caller: { uid: string; role?: unknown; schoolId?: unknown; email?: unknown };
+  body: Record<string, unknown>;
+}): Promise<{ debts: HistoricalDebt[]; settled: HistoricalDebt[] }>;
+
 export function executeFinancialOperation(input: {
   db: unknown;
   caller: { uid: string; role?: unknown; schoolId?: unknown; email?: unknown };

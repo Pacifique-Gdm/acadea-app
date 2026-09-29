@@ -15,6 +15,7 @@ export async function exportCoordinationDashboardPdf({
   schools,
   selectedSchoolId,
   stats,
+  arrearsCollections = [],
   sectionLabel,
   dateLabel,
   transactions,
@@ -23,6 +24,7 @@ export async function exportCoordinationDashboardPdf({
   schools: School[];
   selectedSchoolId: string;
   stats: CoordinationDashboardStats;
+  arrearsCollections?: { currency: DashboardCurrency; amount: number }[];
   sectionLabel: string;
   dateLabel: string;
   transactions: DashboardPdfTransaction[];
@@ -48,7 +50,8 @@ export async function exportCoordinationDashboardPdf({
         pdfSection(`Synthèse financière — ${group.currency}`, pdfInfoGrid([
           { label: "Recouvrement", value: `${group.recoveryRate}%` },
           { label: "Attendu", value: amount(group.expected, group.currency) },
-          { label: "Encaissé", value: amount(group.paid, group.currency) },
+          { label: "Frais de l'année encaissés", value: amount(group.paid, group.currency) },
+          ...arrearsCollections.filter((item) => item.currency === group.currency).map((item) => ({ label: "Arriérés encaissés (hors recouvrement)", value: amount(item.amount, item.currency) })),
           { label: "Dépenses", value: amount(group.expenses, group.currency) },
           { label: "Reste", value: amount(group.remaining, group.currency) },
         ])),

@@ -9,7 +9,7 @@ import { buildDashboardClassRows } from "../../utils/dashboardClassStats";
 import { formatChartDate, getTransactionPeriodDates } from "../../utils/dashboardDates";
 import { exportDashboardReportPdf } from "../../utils/dashboardPdf";
 import { money } from "../../utils/pdf";
-import { formatSchoolMoney } from "../../utils/currency";
+import { formatCurrencyMoney, formatSchoolMoney } from "../../utils/currency";
 import { formatCount } from "../../utils/numberFormat";
 import { activeDashboardPersonnelCounts, uniqueActiveParentCount } from "../../utils/dashboardPopulationStats";
 import { canonicalOperationalClasses, subscribeToSchoolClasses } from "../../services/schoolSubclasses";
@@ -393,6 +393,13 @@ export function Dashboard({ data, school, year }: DashboardProps) {
   const activeFinancialAggregates = hasDashboardFinancialFilter ? dashboardFinancialAggregates : fullYearFinancialAggregates;
   const dashboardFinancialStats = activeFinancialAggregates.financialStats;
   const totalPayments = dashboardFinancialStats.paid;
+  const arrearsCollections = useMemo(() => (["USD", "CDF"] as const).map((currency) => ({
+    currency,
+    amount: data.payments.filter((payment) => payment.collectionSchoolYearId === year.id
+      && payment.currency === currency && filteredStudentIds.has(payment.currentStudentId ?? "")
+      && (!dateFilterActive || ((!startDate || payment.paidAt >= startDate) && (!endDate || payment.paidAt <= endDate))))
+      .reduce((sum, payment) => sum + payment.amount, 0),
+  })).filter((group) => group.amount > 0), [data.payments, dateFilterActive, endDate, filteredStudentIds, startDate, year.id]);
   const fullYearExpenses = useMemo(() => data.expenses.reduce((sum, expense) => sum + expense.amount, 0), [data.expenses]);
   const filteredExpensesTotal = useMemo(() => filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0), [filteredExpenses]);
   const totalExpenses = hasDashboardFinancialFilter ? filteredExpensesTotal : fullYearExpenses;
@@ -521,7 +528,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
     { label: "Caissiers", value: personnelCounts.cashier, icon: UserRound, tone: "bg-pink-100 text-pink-700" },
     { label: "Directeurs de Discipline", value: personnelCounts.discipline_director, icon: ShieldCheck, tone: "bg-violet-100 text-violet-700" },
     { label: "Montant attendu", value: formatSchoolMoney(dashboardFinancialStats.expected, school), icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
-    { label: "Montant total encaiss\u00e9", value: formatSchoolMoney(totalPayments, school), icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
+    { label: "Frais de l'année encaissés", value: formatSchoolMoney(totalPayments, school), icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
     { label: "Montant restant \u00e0 payer", value: formatSchoolMoney(remaining, school), icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
   ];
 
@@ -540,6 +547,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
       dateLabel,
       recoveryRate,
       totalPayments,
+      arrearsCollections,
       totalExpenses,
       expected: dashboardFinancialStats.expected,
       remaining,
@@ -647,10 +655,14 @@ export function Dashboard({ data, school, year }: DashboardProps) {
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-4">
           <Metric label="Attendu" value={formatSchoolMoney(dashboardFinancialStats.expected, school)} />
-          <Metric label={"Encaiss\u00e9"} value={formatSchoolMoney(totalPayments, school)} />
+          <Metric label={"Frais de l'année encaissés"} value={formatSchoolMoney(totalPayments, school)} />
           <Metric label={"D\u00e9penses"} value={formatSchoolMoney(totalExpenses, school)} />
           <Metric label="Reste" value={formatSchoolMoney(remaining, school)} />
         </div>
+        {arrearsCollections.length > 0 && <div className="mt-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm">
+          <p className="font-semibold">Arriérés encaissés pendant la période, hors recouvrement des frais de l'année</p>
+          {arrearsCollections.map((group) => <p key={group.currency}>{formatCurrencyMoney(group.amount, group.currency)}</p>)}
+        </div>}
         <div className="mt-5 grid gap-3">
           {feeProgressRows.map((row) => (
             <div key={row.name} className="rounded border border-slate-100 bg-slate-50 p-3">
