@@ -5,7 +5,7 @@ const source = readFileSync(new URL("./StudentsModule.tsx", import.meta.url), "u
 
 describe("création rapide différée d'un Parent", () => {
   it("persiste l'élève avant de provisionner le Parent avec son véritable ID", () => {
-    const persistence = source.indexOf("await persistFirestorePatch(");
+    const persistence = source.indexOf("await saveManualStudent(");
     const provisionAfterPersistence = source.indexOf("const provisioned = await provisionParent(", persistence);
     expect(persistence).toBeGreaterThan(-1);
     expect(provisionAfterPersistence).toBeGreaterThan(persistence);

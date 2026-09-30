@@ -116,7 +116,8 @@ describe("SEC-015 — matrice centrale d'isolation tenant", () => {
 
   it("autorise les créations administratives de l'année active et refuse l'année d'une autre école", async () => {
     const admin = auth("admin-a", "school_admin");
-    for (const name of ["students", "parents", "teachers", "classes", "feeTypes"]) {
+    await assertFails(setDoc(doc(admin, "students", "students-new"), { id: "students-new", schoolId: schoolA, schoolYearId: yearA, status: "ACTIVE" }));
+    for (const name of ["parents", "teachers", "classes", "feeTypes"]) {
       await assertSucceeds(setDoc(doc(admin, name, `${name}-new`), { id: `${name}-new`, schoolId: schoolA, schoolYearId: yearA, status: "active" }));
       await assertFails(setDoc(doc(admin, name, `${name}-foreign-year`), { id: `${name}-foreign-year`, schoolId: schoolA, schoolYearId: yearB, status: "active" }));
     }

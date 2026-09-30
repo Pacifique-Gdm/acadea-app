@@ -306,16 +306,14 @@ service cloud.firestore {
     }
 
     function secretaryStudentCreate() {
-      return secretary()
-        && activeTenantYearCreate()
-        && request.resource.data.status == "ACTIVE";
+      return false; // Manual creation is mediated by the atomic student API.
     }
 
     function secretaryStudentUpdate() {
       return secretary()
         && activeTenantYearUpdate()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          "nom", "postnom", "prenom", "sexe", "birthDate", "address", "phone",
+          "sexe", "birthDate", "address", "phone",
           "className", "classId", "subClassId", "classOptionKey", "section", "option", "photoUrl", "parentId", "updatedAt"
         ]);
     }
@@ -615,8 +613,11 @@ service cloud.firestore {
               || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.section == null)
             || (("section" in resource.data) && disciplineDirectorSectionAllowed(resource.data.section))))
         || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.parentId == tenantParentId());
-      allow create: if schoolAdmin() && activeTenantYearCreate() && validStudentClassReferences();
-      allow update: if schoolAdmin() && activeTenantYearUpdate() && validStudentClassReferences();
+      allow create: if false; // Annual import and manual creation use Admin SDK server workflows.
+      allow update: if schoolAdmin() && activeTenantYearUpdate() && validStudentClassReferences()
+        && request.resource.data.get("nom", "") == resource.data.get("nom", "")
+        && request.resource.data.get("postnom", "") == resource.data.get("postnom", "")
+        && request.resource.data.get("prenom", "") == resource.data.get("prenom", "");
       allow delete: if false;
     }
 
@@ -1596,8 +1597,8 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
-    // Secretary writes are intentionally limited to student administration.
-    // The existing school administrator rules above remain unchanged.
+    // Secretary writes remain limited to student administration; manual
+    // identity changes and student creation are mediated by the server API.
     match /students/{studentId} {
       allow create: if secretaryStudentCreate() && validStudentClassReferences();
       allow update: if secretaryStudentUpdate() && validStudentClassReferences();

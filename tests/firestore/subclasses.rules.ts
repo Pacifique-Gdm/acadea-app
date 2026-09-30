@@ -34,9 +34,9 @@ describe("classes et sous-classes structurées", () => {
   it("refuse la matérialisation d'une classe legacy d'une autre école", async () => assertFails(setDoc(doc(context("secretary"), "classes", "foreign-legacy"), { id: "foreign-legacy", schoolId: "school-b", schoolYearId: "year-b", name: "Classe étrangère", active: true, createdBy: "secretary-a", createdAt: "2026-08-10", updatedAt: "2026-08-10" })));
   it("autorise l'élève seulement avec la sous-classe de l'option sélectionnée", async () => {
     await seed("classes/sub-a", child());
-    const student = { id: "student-a", schoolId: school, schoolYearId: year, status: "ACTIVE", classId: "parent", subClassId: "sub-a", classOptionKey: "parent::scientifique" };
-    await assertSucceeds(setDoc(doc(context("secretary"), "students", "student-a"), student));
-    await assertFails(setDoc(doc(context("secretary"), "students", "student-b"), { ...student, id: "student-b", classOptionKey: "parent::litteraire" }));
+    await seed("students/student-a", { id: "student-a", schoolId: school, schoolYearId: year, status: "ACTIVE" });
+    await assertSucceeds(updateDoc(doc(context("secretary"), "students", "student-a"), { classId: "parent", subClassId: "sub-a", classOptionKey: "parent::scientifique" }));
+    await assertFails(updateDoc(doc(context("secretary"), "students", "student-a"), { classOptionKey: "parent::litteraire" }));
   });
   it("refuse toute nouvelle référence vers une sous-classe désactivée", async () => {
     await seed("classes/sub-a", child({ active: false }));

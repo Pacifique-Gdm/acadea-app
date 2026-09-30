@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Bell, Download, Edit3, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, Bell, Download, Edit3, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { AdminDrawer, Field, FormPanel, Metric, MoneyInput, SectionTitle } from "../../components/ui";
 import { usePaginatedControlHistory } from "../../hooks/usePaginatedControlHistory";
 import { createExpenseTransaction, createPaymentTransaction, deleteFinancialTransaction, loadStudentArrears, updateExpenseTransaction, updatePaymentTransaction } from "../../services/financialTransactions";
@@ -81,6 +81,8 @@ export function ControlModule({
   const [expenseSubmitting, setExpenseSubmitting] = useState(false);
   const [financialMutationId, setFinancialMutationId] = useState("");
   const paymentAttemptRef = useRef<{ signature: string; requestId: string } | null>(null);
+  const paymentStudentRequestRef = useRef(0);
+  const paymentStudentSearchRef = useRef<HTMLInputElement>(null);
   const expenseAttemptRef = useRef<{ signature: string; requestId: string } | null>(null);
   const paymentSubmittingRef = useRef(false);
   const expenseSubmittingRef = useRef(false);
@@ -172,16 +174,17 @@ export function ControlModule({
   };
   const isPaymentEntryDisabled = (!selectedPaymentFee && !selectedPaymentDebt) || selectedPaymentFeeRemaining <= 0;
   useEffect(() => {
+    const requestId = ++paymentStudentRequestRef.current;
     if (!studentId || year.status !== "active") { setPaymentArrears([]); setArrearsError(""); return; }
     let cancelled = false;
     setPaymentArrears([]);
     setArrearsLoading(true);
     setArrearsError("");
     void loadStudentArrears({ schoolYearId: year.id, studentId }).then((result) => {
-      if (!cancelled) setPaymentArrears(result.debts);
+      if (!cancelled && requestId === paymentStudentRequestRef.current) setPaymentArrears(result.debts);
     }).catch((error) => {
-      if (!cancelled) setArrearsError(error instanceof Error ? error.message : "Chargement des arriérés impossible.");
-    }).finally(() => { if (!cancelled) setArrearsLoading(false); });
+      if (!cancelled && requestId === paymentStudentRequestRef.current) setArrearsError(error instanceof Error ? error.message : "Chargement des arriérés impossible.");
+    }).finally(() => { if (!cancelled && requestId === paymentStudentRequestRef.current) setArrearsLoading(false); });
     return () => { cancelled = true; };
   }, [studentId, year.id, year.status]);
   useEffect(() => {
@@ -368,14 +371,36 @@ export function ControlModule({
     return balance.expected > 0 && balance.paid >= balance.expected;
   }
 
+  function resetStudentDependentPaymentState() {
+    paymentStudentRequestRef.current += 1;
+    setFeeTypeId("");
+    setPaymentArrears([]);
+    setArrearsError("");
+    setArrearsLoading(false);
+    setAmount("");
+    setPaymentNote("");
+    setPaymentError("");
+    paymentAttemptRef.current = null;
+  }
+
   function selectPaymentStudent(student: Student) {
+    resetStudentDependentPaymentState();
     setStudentId(student.id);
     setPaymentStudentQuery(`${student.nom} ${student.postnom} ${student.prenom} | ${student.matricule}`.replace(/\s+/g, " ").trim());
   }
 
   function updatePaymentStudentQuery(value: string) {
+    if (studentId) resetStudentDependentPaymentState();
     setPaymentStudentQuery(value);
     setStudentId("");
+  }
+
+  function clearPaymentStudent() {
+    if (paymentSubmittingRef.current) return;
+    resetStudentDependentPaymentState();
+    setStudentId("");
+    setPaymentStudentQuery("");
+    paymentStudentSearchRef.current?.focus();
   }
 
   async function savePayment() {
@@ -1292,6 +1317,7 @@ export function ControlModule({
                 <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
                   <Search className="h-4 w-4 shrink-0 text-slate-400" />
                   <input
+                    ref={paymentStudentSearchRef}
                     value={paymentStudentQuery}
                     onChange={(event) => updatePaymentStudentQuery(event.target.value)}
                     className="min-w-0 flex-1 outline-none"
@@ -1322,9 +1348,10 @@ export function ControlModule({
                   </div>
                 )}
                 {selectedPaymentStudent && (
-                  <p className="rounded bg-mint/10 p-3 text-sm font-semibold text-mint">
-                    Élève sélectionné : {selectedPaymentStudent.nom} {selectedPaymentStudent.postnom} {selectedPaymentStudent.prenom}
-                  </p>
+                  <div className="flex min-w-0 items-center gap-2 rounded bg-mint/10 py-1.5 pl-3 pr-1.5 text-sm font-semibold text-mint">
+                    <span className="min-w-0 flex-1 break-words">Élève sélectionné : {selectedPaymentStudent.nom} {selectedPaymentStudent.postnom} {selectedPaymentStudent.prenom}</span>
+                    <button type="button" aria-label="Effacer l’élève sélectionné" title="Effacer l’élève sélectionné" onClick={clearPaymentStudent} disabled={paymentSubmitting} className="flex h-9 w-9 shrink-0 items-center justify-center rounded hover:bg-mint/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-mint disabled:opacity-50"><X className="h-4 w-4" aria-hidden="true" /></button>
+                  </div>
                 )}
               </div>
               <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">

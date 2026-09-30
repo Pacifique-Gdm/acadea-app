@@ -2,8 +2,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Download, Edit3, Eye, Plus, RefreshCw, RotateCcw, Search, Trash2 } from "lucide-react";
 import { StudentForm } from "../../components/students/StudentForm";
 import { AdminDrawer, IconButton, SectionTitle } from "../../components/ui";
-import { persistFirestorePatch } from "../../services/firestoreData";
-import { createSchoolSubclasses, linkParentToStudent, provisionParent, requestSchoolSubclassDeletion, requestTerminalStudentReenrollment, unlinkParentFromStudent } from "../../services/provisioning";
+import { createSchoolSubclasses, linkParentToStudent, provisionParent, requestSchoolSubclassDeletion, requestTerminalStudentReenrollment, saveManualStudent, unlinkParentFromStudent } from "../../services/provisioning";
 import { createAuditLog } from "../../utils/audit";
 import { nextParentEmail, parentEmailExists } from "../../utils/parents";
 import { applyParentLinkResult, applyParentUnlinkResult, PARENT_LINK_CONFIRMATION, PARENT_UNLINK_CONFIRMATION, studentBeforeParentMutation } from "../../utils/parentStudentLink";
@@ -288,12 +287,8 @@ export function StudentsModule({
       if (!student.classId) delete student.classId;
       if (!student.subClassId) delete student.subClassId;
       const previousParentId = studentRecords.find((item) => item.id === student.id)?.parentId;
-      const persistedStudent = studentForPersistence(studentBeforeParentMutation(student, previousParentId));
+      const persistedStudent = await saveManualStudent(studentForPersistence(studentBeforeParentMutation(student, previousParentId)));
       const nextStudents = exists ? studentRecords.map((item) => (item.id === student.id ? persistedStudent : item)) : [...studentRecords, persistedStudent];
-      await persistFirestorePatch(
-        { students: [persistedStudent] },
-        { throwOnError: true },
-      );
 
       if (pendingParentForStudent) {
         try {
@@ -382,7 +377,9 @@ export function StudentsModule({
       setSaveMessage(exists ? "Élève modifié avec succès." : "Élève enregistré avec succès.");
     } catch (error) {
       if (import.meta.env.DEV) console.error("Enregistrement de l'élève impossible.", error);
-      setSaveError("Impossible d'enregistrer l'élève. Vérifiez les informations saisies.");
+      setSaveError(error instanceof Error && error.message.includes("Un élève avec le même nom, post-nom et prénom existe déjà.")
+        ? error.message
+        : "Impossible d'enregistrer l'élève. Vérifiez les informations saisies.");
     } finally {
       saveInProgressRef.current = false;
       setIsSaving(false);

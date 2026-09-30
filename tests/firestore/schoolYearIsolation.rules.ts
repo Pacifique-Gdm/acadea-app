@@ -41,8 +41,8 @@ beforeEach(async () => {
 afterAll(async () => environment?.cleanup(), 30_000);
 
 describe("SEC-009 — isolation stricte par année scolaire", () => {
-  it("autorise une création dans l'année active de la même école", async () => {
-    await assertSucceeds(setDoc(doc(user("school_admin"), "students", "student-active"), {
+  it("réserve aussi la création dans l'année active à la transaction serveur", async () => {
+    await assertFails(setDoc(doc(user("school_admin"), "students", "student-active"), {
       id: "student-active", schoolId: schoolA, schoolYearId: yearA1, status: "ACTIVE", nom: "Élève actif",
     }));
   });

@@ -56,7 +56,8 @@ describe("provisionnement et portail Secrétaire", () => {
     expect(detail).not.toContain("persistFirestorePatch");
     expect(rules).toContain("allow create: if secretaryStudentCreate()");
     expect(rules).toContain("allow update: if secretaryStudentUpdate()");
-    expect(rules).toContain('affectedKeys().hasOnly([\n          "nom", "postnom"');
+    expect(rules).toContain('function secretaryStudentCreate() {\n      return false;');
+    expect(rules).toContain('affectedKeys().hasOnly([\n          "sexe", "birthDate"');
     expect(rules).toContain('role() == "cashier"');
   });
 });

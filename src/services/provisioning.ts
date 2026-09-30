@@ -1,5 +1,5 @@
 import { getCurrentFirebaseIdToken } from "./auth";
-import type { AppUser, AuditLog, ParentProfile, School, SchoolSection, SchoolYear } from "../types";
+import type { AppUser, AuditLog, ParentProfile, School, SchoolSection, SchoolYear, Student } from "../types";
 import { resolveApiUrl } from "../config/apiUrl";
 import { apiErrorMessage } from "../utils/rateLimitErrors";
 
@@ -120,6 +120,12 @@ export async function provisionSchoolUser(input: ProvisionSchoolUserInput) {
 
 export async function provisionCashier(input: ProvisionCashierInput) {
   return provisionSchoolUser({ role: "cashier", ...input });
+}
+
+export async function saveManualStudent(student: Student) {
+  const payload = await provisionSchoolAccount<{ student?: Student }>({ action: "save-manual-student", student });
+  if (!payload.student || payload.student.id !== student.id) throw new Error("Réponse d’enregistrement de l’élève incomplète.");
+  return payload.student;
 }
 
 export async function provisionParent(input: ProvisionParentInput) {

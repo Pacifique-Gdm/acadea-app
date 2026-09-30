@@ -1,9 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { compareStudentsAlphabetically, normalizeStudentSearch, studentSearchFields } from "./studentSearch.js";
+import { compareStudentsAlphabetically, normalizeStudentSearch, studentIdentityKey, studentSearchFields } from "./studentSearch.js";
 
 describe("index de recherche élève", () => {
   it("normalise casse, accents et espaces", () => {
     expect(normalizeStudentSearch("  ÉlÈve   KASÁÏ ")).toBe("eleve kasai");
+  });
+
+  it("compare les trois champs de l’identité complète sans tronquer les noms longs", () => {
+    const key = studentIdentityKey({ nom: "  KABAMBA  ", postnom: " ILUNGA ", prenom: " Jean " });
+    expect(key).toBe(studentIdentityKey({ nom: "kabamba", postnom: "ilunga", prenom: "JEAN" }));
+    expect(key).not.toBe(studentIdentityKey({ nom: "kabamba", postnom: "ilunga", prenom: "Paul" }));
+    expect(studentIdentityKey({ nom: "kabamba", postnom: "ilunga", prenom: "" })).toBe(studentIdentityKey({ nom: "KABAMBA", postnom: "ILUNGA", prenom: "   " }));
+    expect(studentIdentityKey({ nom: "a".repeat(70) + "b", postnom: "", prenom: "" })).not.toBe(studentIdentityKey({ nom: "a".repeat(70) + "c", postnom: "", prenom: "" }));
   });
 
   it("indexe les préfixes des noms et toutes les sous-chaînes du matricule à partir de deux caractères", () => {

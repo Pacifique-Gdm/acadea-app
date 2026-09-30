@@ -2,13 +2,21 @@ const MAX_PREFIX_LENGTH = 64;
 
 export function normalizeStudentSearch(value) {
   if (typeof value !== "string") return "";
+  return normalizeStudentIdentityPart(value).slice(0, MAX_PREFIX_LENGTH);
+}
+
+export function normalizeStudentIdentityPart(value) {
+  if (typeof value !== "string") return "";
   return value
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim()
-    .replace(/\s+/g, " ")
-    .slice(0, MAX_PREFIX_LENGTH);
+    .replace(/\s+/g, " ");
+}
+
+export function studentIdentityKey(student) {
+  return JSON.stringify([student?.nom, student?.postnom, student?.prenom].map(normalizeStudentIdentityPart));
 }
 
 function prefixes(value) {

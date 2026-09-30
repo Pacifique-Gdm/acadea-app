@@ -31,9 +31,9 @@ beforeEach(async () => {
 afterAll(async () => environment?.cleanup(), 30_000);
 
 describe("documents du Secrétaire", () => {
-  it("autorise la création d'un élève et la gestion d'un parent dans son école uniquement", async () => {
+  it("réserve la création d'un élève au serveur et conserve la gestion d'un parent dans son école uniquement", async () => {
     const firestore = secretary();
-    await assertSucceeds(setDoc(doc(firestore, "students", "student-a"), { id: "student-a", schoolId, schoolYearId, status: "ACTIVE", nom: "Test" }));
+    await assertFails(setDoc(doc(firestore, "students", "student-a"), { id: "student-a", schoolId, schoolYearId, status: "ACTIVE", nom: "Test" }));
     await assertSucceeds(setDoc(doc(firestore, "parents", "parent-a"), { id: "parent-a", schoolId, schoolYearId, fullName: "Parent", studentIds: ["student-a"], status: "active" }));
     await assertSucceeds(setDoc(doc(firestore, "parents", "parent-a"), { id: "parent-a", schoolId, schoolYearId, fullName: "Parent modifié", studentIds: ["student-a"], status: "active" }));
     await assertFails(setDoc(doc(firestore, "parents", "parent-b"), { id: "parent-b", schoolId: "school-b", schoolYearId, fullName: "Hors école", studentIds: [], status: "active" }));

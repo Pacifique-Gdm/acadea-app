@@ -69,7 +69,8 @@ describe("flux de soumission du formulaire élève", () => {
   });
 
   it("attend l'écriture, met à jour sans doublon, puis ferme et réinitialise après succès", () => {
-    expect(moduleSource).toContain("await persistFirestorePatch(");
+    expect(moduleSource).toContain("await saveManualStudent(");
+    expect(moduleSource).not.toContain("await persistFirestorePatch(");
     expect(moduleSource).toContain("studentRecords.map((item) => (item.id === student.id ? persistedStudent : item))");
     expect(moduleSource).toContain("[...studentRecords, persistedStudent]");
     expect(moduleSource).toContain("setForm(emptyCurrentStudent());");

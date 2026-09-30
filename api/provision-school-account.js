@@ -7,6 +7,7 @@ import { importArchivedStudents, reenrollTerminalStudent } from "./_lib/archived
 import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
 import { deleteSchoolSubclass } from "./_lib/schoolSubclassDeletion.js";
 import { createSchoolSubclasses } from "./_lib/schoolSubclassCreation.js";
+import { saveManualStudent } from "./_lib/manualStudentSave.js";
 
 const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent"]);
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
@@ -685,6 +686,11 @@ export default async function handler(req, res) {
     if (action === "reenroll-terminal-student") {
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: "students.reenroll-terminal", ...API_RATE_LIMITS.PROVISION_DESTRUCTIVE });
       sendJson(res, 200, await reenrollTerminalStudent({ db, caller, body }));
+      return;
+    }
+    if (action === "save-manual-student") {
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: "students.save-manual", ...API_RATE_LIMITS.FINANCE_CREATE });
+      sendJson(res, 200, await saveManualStudent({ db, caller, body }));
       return;
     }
     const destructive = action === "delete-parent" || action === "delete-school-subclass" || action === "unlink-parent-from-student" || action === "remove-school-admin" || action === "archive-personnel" || action === "reactivate-personnel";
