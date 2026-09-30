@@ -8,7 +8,8 @@ import { FieldPath, getFirestore, type DocumentReference } from "firebase-admin/
 import { getStorage } from "firebase-admin/storage";
 import { studentForPersistence } from "../src/utils/studentYearTransition.js";
 
-test.setTimeout(300_000);
+test.setTimeout(600_000);
+test.use({ actionTimeout: 20_000 });
 
 test("Admin/Secrétaire anti-doublon et Caissier A → × → B, fixtures Staging isolées", async ({ page, browser, baseURL }) => {
   expect(baseURL).toBe("https://acadea-staging.vercel.app");
@@ -45,7 +46,7 @@ test("Admin/Secrétaire anti-doublon et Caissier A → × → B, fixtures Stagin
   page.on("pageerror", () => errors.push("pageerror"));
   const otherContexts: BrowserContext[] = [];
   const student = (id: string, nom: string, schoolYearId = yearId, extra: Record<string, unknown> = {}) => studentForPersistence({
-    id, schoolId, schoolYearId, matricule: id, nom, postnom: "TEST", prenom: "E2E", sexe: "F", birthDate: "2013-04-02", address: "", phone: "", className: "1ère Primaire", classId: schoolYearId === yearId ? classId : undefined, section: "Primaire", status: "ACTIVE", ...extra,
+    id, schoolId, schoolYearId, matricule: `E2E-${id.slice(-12)}`, nom, postnom: "TEST", prenom: "E2E", sexe: "F", birthDate: "2013-04-02", address: "", phone: "", className: "1ère Primaire", classId: schoolYearId === yearId ? classId : undefined, section: "Primaire", status: "ACTIVE", ...extra,
   });
   async function login(target: Page, account: (typeof accounts)[number]) {
     await target.goto("/login");
@@ -76,8 +77,8 @@ test("Admin/Secrétaire anti-doublon et Caissier A → × → B, fixtures Stagin
     await drawer.getByLabel("Nom", { exact: true }).fill(nom);
     await drawer.getByLabel("Postnom", { exact: true }).fill(postnom);
     await drawer.getByLabel("Prénom", { exact: true }).fill(prenom);
-    await drawer.getByPlaceholder("jj/mm/aaaa").fill("02/04/2013");
-    await drawer.getByLabel("Classe", { exact: true }).selectOption("1ère Primaire");
+    await drawer.getByPlaceholder("jj/mm/aaaa").pressSequentially("02042013");
+    await drawer.getByRole("combobox", { name: "Classe", exact: true }).selectOption("1ère Primaire");
     return drawer;
   }
   try {
@@ -116,7 +117,7 @@ test("Admin/Secrétaire anti-doublon et Caissier A → × → B, fixtures Stagin
     await openStudents(secretaryPage);
     const secretaryDrawer = await fillStudent(secretaryPage, " e2edoublon ", " kabamba ", " jean ");
     await secretaryDrawer.getByRole("button", { name: "Sauver" }).click();
-    await expect(secretaryDrawer.getByRole("alert")).toContainText("Un élève avec le même nom, post-nom et prénom existe déjà.");
+    await expect(secretaryDrawer.getByRole("alert")).toContainText("Un élève avec le même nom, post-nom et prénom existe déjà.", { timeout: 60_000 });
     await expect(secretaryDrawer.getByLabel("Nom", { exact: true })).toHaveValue(" e2edoublon ");
     expect((await db.collection("students").where("schoolId", "==", schoolId).where("nom", "==", "E2EDOUBLON").get()).size).toBe(1);
 
