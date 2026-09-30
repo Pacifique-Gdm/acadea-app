@@ -36,6 +36,7 @@ test("Admin/Secrétaire anti-doublon et Caissier A → × → B, fixtures Stagin
   const classId = `${prefix}-class`;
   const studentAId = `${prefix}-student-a`;
   const studentBId = `${prefix}-student-b`;
+  const studentLongId = `${prefix}-student-long-name`;
   const oldStudentAId = `${prefix}-old-student-a`;
   const oldStudentBId = `${prefix}-old-student-b`;
   const oldFeeAId = `${prefix}-old-fee-a`;
@@ -83,6 +84,11 @@ test("Admin/Secrétaire anti-doublon et Caissier A → × → B, fixtures Stagin
   async function fillStudent(target: Page, nom: string, postnom: string, prenom: string) {
     await target.getByRole("button", { name: "Ajouter un élève" }).click();
     const drawer = target.getByRole("dialog", { name: "Ajouter un élève" });
+    for (const width of [1440, 768, 390]) {
+      await target.setViewportSize({ width, height: 900 });
+      expect(await drawer.evaluate((element) => element.getBoundingClientRect().left >= 0 && element.getBoundingClientRect().right <= window.innerWidth + 1)).toBe(true);
+    }
+    await target.setViewportSize({ width: 1440, height: 900 });
     await drawer.getByLabel("Nom", { exact: true }).fill(nom);
     await drawer.getByLabel("Postnom", { exact: true }).fill(postnom);
     await drawer.getByLabel("Prénom", { exact: true }).fill(prenom);
@@ -109,6 +115,7 @@ test("Admin/Secrétaire anti-doublon et Caissier A → × → B, fixtures Stagin
     await db.doc(`students/${oldStudentBId}`).set(student(oldStudentBId, "E2EVB", oldBId));
     await db.doc(`students/${studentAId}`).set(student(studentAId, "E2EVA", yearId, { importedFromStudentId: oldStudentAId, importedFromSchoolYearId: oldAId }));
     await db.doc(`students/${studentBId}`).set(student(studentBId, "E2EVB", yearId, { importedFromStudentId: oldStudentBId, importedFromSchoolYearId: oldBId }));
+    await db.doc(`students/${studentLongId}`).set(student(studentLongId, "E2ELONGNOMFAMILIALPOURMOBILE"));
     await db.doc(`feeTypes/${oldFeeAId}`).set({ id: oldFeeAId, schoolId, schoolYearId: oldAId, name: "Minerval", amount: 111, className: "1ère Primaire" });
     await db.doc(`feeTypes/${oldFeeBId}`).set({ id: oldFeeBId, schoolId, schoolYearId: oldBId, name: "Frais scolaires", amount: 222, className: "1ère Primaire" });
 
@@ -124,14 +131,18 @@ test("Admin/Secrétaire anti-doublon et Caissier A → × → B, fixtures Stagin
     const secretaryPage = await secretaryContext.newPage();
     await login(secretaryPage, accounts[1]);
     await openStudents(secretaryPage);
-    const secretaryDrawer = await fillStudent(secretaryPage, " e2edoublon ", " kabamba ", " jean ");
+    const secretaryDrawer = await fillStudent(secretaryPage, "E2EDOUBLON", "KABAMBA", "JEAN");
     await secretaryDrawer.getByRole("button", { name: "Sauver" }).click();
     await expect(secretaryDrawer.getByRole("alert")).toContainText("Un élève avec le même nom, post-nom et prénom existe déjà.", { timeout: 60_000 });
-    await expect(secretaryDrawer.getByLabel("Nom", { exact: true })).toHaveValue(" e2edoublon ");
+    await expect(secretaryDrawer.getByLabel("Nom", { exact: true })).toHaveValue("E2EDOUBLON");
     expect((await db.collection("students").where("schoolId", "==", schoolId).where("nom", "==", "E2EDOUBLON").get()).size).toBe(1);
 
     const adminToken = await idToken(accounts[0]);
     const secretaryToken = await idToken(accounts[1]);
+    const normalizedDuplicate = await manualApi(secretaryToken, studentForPersistence({ ...student(`student-${prefix}-normalized`, " e2edoublon "), postnom: " kabamba ", prenom: " jean " }));
+    expect(normalizedDuplicate.status()).toBe(409);
+    const otherPrenom = await manualApi(adminToken, studentForPersistence({ ...student(`student-${prefix}-other-prenom`, "E2EDOUBLON"), postnom: "KABAMBA", prenom: "PAUL" }));
+    expect(otherPrenom.status()).toBe(200);
     const candidate = (id: string) => studentForPersistence({ ...student(id, "E2ECONCURRENT"), postnom: "SIMULTANE", prenom: "A" });
     const attempts = await Promise.all([manualApi(adminToken, candidate(`student-${prefix}-admin`)), manualApi(secretaryToken, candidate(`student-${prefix}-secretary`))]);
     expect(attempts.map((response) => response.status()).sort()).toEqual([200, 409]);
@@ -178,6 +189,10 @@ test("Admin/Secrétaire anti-doublon et Caissier A → × → B, fixtures Stagin
       await feeSelect.selectOption(oldFeeBId);
       await expect(paymentDrawer.getByText(/Créance de 2026-2027/)).toBeVisible({ timeout: 30_000 });
       await expect(paymentDrawer.getByText(/Créance de 2025-2026/)).toHaveCount(0);
+      await paymentDrawer.getByRole("button", { name: "Effacer l’élève sélectionné" }).click();
+      await search.fill("E2ELONGNOMFAMILIALPOURMOBILE");
+      await paymentDrawer.getByRole("button", { name: /E2ELONGNOMFAMILIALPOURMOBILE TEST E2E/ }).click();
+      expect(await paymentDrawer.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
       await paymentDrawer.getByRole("button", { name: "Effacer l’élève sélectionné" }).click();
     }
     expect((await db.collection("payments").where("schoolId", "==", schoolId).get()).size).toBe(0);
