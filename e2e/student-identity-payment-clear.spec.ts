@@ -67,6 +67,15 @@ test("Admin/Secrétaire anti-doublon et Caissier A → × → B, fixtures Stagin
   async function manualApi(token: string, value: Record<string, unknown>) {
     return page.request.post(`${baseURL}/api/provision-school-account`, { headers: { Authorization: `Bearer ${token}` }, data: { action: "save-manual-student", student: value } });
   }
+  async function cleanupRequest<T>(operation: () => Promise<T>): Promise<T> {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      try { return await operation(); } catch (error) {
+        if (attempt === 3 || !/ECONNRESET|ETIMEDOUT|EAI_AGAIN|fetch failed/i.test(String(error))) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+      }
+    }
+    throw new Error("Nettoyage E2E Staging impossible.");
+  }
   async function openStudents(target: Page) {
     await target.getByRole("button", { name: "Élèves", exact: true }).last().click();
     await expect(target.getByRole("button", { name: "Ajouter un élève" })).toBeVisible({ timeout: 30_000 });
@@ -175,30 +184,30 @@ test("Admin/Secrétaire anti-doublon et Caissier A → × → B, fixtures Stagin
     expect(errors).toEqual([]);
   } finally {
     for (const context of otherContexts) await context.close().catch(() => undefined);
-    for (const collection of await db.listCollections()) {
+    for (const collection of await cleanupRequest(() => db.listCollections())) {
       const refs = new Map<string, DocumentReference>();
-      for (const tenant of [schoolId, otherSchoolId]) (await collection.where("schoolId", "==", tenant).get()).docs.forEach((snapshot) => refs.set(snapshot.ref.path, snapshot.ref));
-      (await collection.where(FieldPath.documentId(), ">=", prefix).where(FieldPath.documentId(), "<", `${prefix}\uf8ff`).get()).docs.forEach((snapshot) => refs.set(snapshot.ref.path, snapshot.ref));
-      for (const ref of refs.values()) await ref.delete();
+      for (const tenant of [schoolId, otherSchoolId]) (await cleanupRequest(() => collection.where("schoolId", "==", tenant).get())).docs.forEach((snapshot) => refs.set(snapshot.ref.path, snapshot.ref));
+      (await cleanupRequest(() => collection.where(FieldPath.documentId(), ">=", prefix).where(FieldPath.documentId(), "<", `${prefix}\uf8ff`).get())).docs.forEach((snapshot) => refs.set(snapshot.ref.path, snapshot.ref));
+      for (const ref of refs.values()) await cleanupRequest(() => ref.delete());
     }
     for (const action of ["students.save-manual", "finance.list-arrears"]) {
       for (const tenant of [schoolId, otherSchoolId]) {
         const hash = createHash("sha256").update(`school\u001f${tenant}\u001f${action}`).digest("hex");
-        for (const snapshot of (await db.collection("_rateLimits").where("schoolIdHash", "==", hash).get()).docs) await snapshot.ref.delete();
+        for (const snapshot of (await cleanupRequest(() => db.collection("_rateLimits").where("schoolIdHash", "==", hash).get())).docs) await cleanupRequest(() => snapshot.ref.delete());
       }
     }
     for (const account of accounts) {
-      await auth.deleteUser(account.uid).catch((error: { code?: string }) => {
+      await cleanupRequest(() => auth.deleteUser(account.uid)).catch((error: { code?: string }) => {
         if (error.code !== "auth/user-not-found") return Promise.reject(error);
       });
     }
     let firestoreResidues = 0;
-    for (const collection of await db.listCollections()) {
-      for (const tenant of [schoolId, otherSchoolId]) firestoreResidues += (await collection.where("schoolId", "==", tenant).get()).size;
-      firestoreResidues += (await collection.where(FieldPath.documentId(), ">=", prefix).where(FieldPath.documentId(), "<", `${prefix}\uf8ff`).get()).size;
+    for (const collection of await cleanupRequest(() => db.listCollections())) {
+      for (const tenant of [schoolId, otherSchoolId]) firestoreResidues += (await cleanupRequest(() => collection.where("schoolId", "==", tenant).get())).size;
+      firestoreResidues += (await cleanupRequest(() => collection.where(FieldPath.documentId(), ">=", prefix).where(FieldPath.documentId(), "<", `${prefix}\uf8ff`).get())).size;
     }
-    for (const account of accounts) await expect(auth.getUser(account.uid)).rejects.toMatchObject({ code: "auth/user-not-found" });
-    const [files] = await bucket.getFiles({ prefix });
+    for (const account of accounts) await expect(cleanupRequest(() => auth.getUser(account.uid))).rejects.toMatchObject({ code: "auth/user-not-found" });
+    const [files] = await cleanupRequest(() => bucket.getFiles({ prefix }));
     expect({ firestoreResidues, storageResidues: files.length }).toEqual({ firestoreResidues: 0, storageResidues: 0 });
     await deleteApp(app);
   }
