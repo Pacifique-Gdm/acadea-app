@@ -60,6 +60,7 @@ export async function saveManualStudent({ db, caller, body }) {
   const actorRef = db.doc(`users/${caller.uid}`);
   const schoolRef = db.doc(`schools/${schoolId}`);
   const yearRef = db.doc(`schoolYears/${schoolYearId}`);
+  const counterRef = db.doc(`studentMatriculeCounters/${schoolId}__${schoolYearId}`);
   const schoolStudentsQuery = db.collection("students").where("schoolId", "==", schoolId);
   return db.runTransaction(async (transaction) => {
     const [actorSnapshot, schoolSnapshot, yearSnapshot, existingSnapshot] = await Promise.all([
@@ -74,12 +75,11 @@ export async function saveManualStudent({ db, caller, body }) {
     if (!existing && (!id.startsWith("student-") || input.status !== "ACTIVE")) reject("Création d’élève invalide.");
     const next = existing ? { ...existing, ...fields } : {
       id, schoolId, schoolYearId, annee_scolaire_id: schoolYearId,
-      matricule: boundedText(input.matricule, 100), status: "ACTIVE",
+      matricule: "", status: "ACTIVE",
       postnom: "", prenom: "", sexe: "M", birthDate: "", address: "", phone: "",
       ...fields,
       biometric: input.biometric && typeof input.biometric === "object" && !Array.isArray(input.biometric) ? input.biometric : undefined,
     };
-    if (!existing && !next.matricule) reject("Matricule requis.");
     if (existing) for (const key of OPTIONAL_FIELDS) if (!(key in fields)) delete next[key];
     await validClassReferences(transaction, db, next);
     const oldKey = existing ? studentIdentityKey(existing) : "";
@@ -88,8 +88,9 @@ export async function saveManualStudent({ db, caller, body }) {
     let oldLockRef;
     let oldLockSnapshot;
     let newLockRef;
+    let students;
     if (identityChanged) {
-      const students = await transaction.get(schoolStudentsQuery);
+      students = await transaction.get(schoolStudentsQuery);
       if (students.docs.some((snapshot) => snapshot.id !== id && studentIdentityKey(snapshot.data()) === newKey)) reject(DUPLICATE_MESSAGE, 409, "duplicate-student");
       newLockRef = db.doc(`studentIdentityLocks/${identityLockId(schoolId, newKey)}`);
       const newLockSnapshot = await transaction.get(newLockRef);
@@ -100,9 +101,27 @@ export async function saveManualStudent({ db, caller, body }) {
         if (oldLockSnapshot.exists && oldLockSnapshot.data()?.studentId === id && !students.docs.some((snapshot) => snapshot.id !== id && studentIdentityKey(snapshot.data()) === oldKey)) transaction.delete(oldLockRef);
       }
     }
+    let sequence;
+    if (!existing) {
+      const yearName = yearSnapshot.data()?.name;
+      if (typeof yearName !== "string" || !/^\d{4}/.test(yearName)) reject("Année scolaire invalide.", 409, "failed-precondition");
+      const prefix = `ACD-${yearName.slice(2, 4)}-`;
+      const counterSnapshot = await transaction.get(counterRef);
+      const sameYear = students.docs.filter((snapshot) => snapshot.data().schoolYearId === schoolYearId);
+      const highestExisting = sameYear.reduce((maximum, snapshot) => {
+        const matricule = snapshot.data().matricule;
+        if (typeof matricule !== "string" || !matricule.startsWith(prefix)) return maximum;
+        const suffix = matricule.slice(prefix.length);
+        return /^\d+$/.test(suffix) ? Math.max(maximum, Number(suffix)) : maximum;
+      }, 0);
+      const lastAllocated = counterSnapshot.exists ? counterSnapshot.data()?.lastAllocated : 0;
+      sequence = Math.max(sameYear.length, highestExisting, Number.isSafeInteger(lastAllocated) && lastAllocated >= 0 ? lastAllocated : 0) + 1;
+      next.matricule = `${prefix}${String(sequence).padStart(4, "0")}`;
+    }
     const student = studentForPersistence(next);
     if (existing) transaction.set(studentRef, student);
     else transaction.create(studentRef, student);
+    if (!existing) transaction.set(counterRef, { schoolId, schoolYearId, lastAllocated: sequence });
     if (identityChanged) transaction.set(newLockRef, { schoolId, studentId: id, key: newKey });
     return { student };
   });

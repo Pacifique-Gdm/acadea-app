@@ -27,9 +27,9 @@ beforeEach(async () => {
   await environment.withSecurityRulesDisabled(async (context) => {
     const firestore = context.firestore();
     await setDoc(doc(firestore, "schools", "school-a"), { id: "school-a", status: "active" });
-    await setDoc(doc(firestore, "schoolYears", "year-a"), { id: "year-a", schoolId: "school-a", status: "active" });
+    await setDoc(doc(firestore, "schoolYears", "year-a"), { id: "year-a", schoolId: "school-a", name: "2026-2027", status: "active" });
     await setDoc(doc(firestore, "schools", "school-b"), { id: "school-b", status: "active" });
-    await setDoc(doc(firestore, "schoolYears", "year-b"), { id: "year-b", schoolId: "school-b", status: "active" });
+    await setDoc(doc(firestore, "schoolYears", "year-b"), { id: "year-b", schoolId: "school-b", name: "2026-2027", status: "active" });
     await setDoc(doc(firestore, "users", "admin-a"), { id: "admin-a", role: "school_admin", schoolId: "school-a", status: "active" });
     await setDoc(doc(firestore, "users", "admin-b"), { id: "admin-b", role: "school_admin", schoolId: "school-b", status: "active" });
     await setDoc(doc(firestore, "users", "secretary-a"), { id: "secretary-a", role: "secretary", schoolId: "school-a", status: "active" });
@@ -51,6 +51,52 @@ describe("identité élève médiée par le serveur", () => {
 });
 
 describe("enregistrement manuel atomique", () => {
+  it("alloue deux matricules distincts à deux identités créées simultanément par Admin et Secrétaire", async () => {
+    const attempts = await Promise.all([
+      save(student("student-concurrent-admin", { nom: "MUTOMBO", prenom: "ALICE", matricule: "ACD-26-0002" })),
+      save(student("student-concurrent-secretary", { nom: "KASONGO", prenom: "BRUNO", matricule: "ACD-26-0002" }), "secretary-a", "secretary"),
+    ]);
+    expect(attempts.map(({ student: saved }) => saved.matricule).sort()).toEqual(["ACD-26-0002", "ACD-26-0003"]);
+    expect((await db.doc("studentMatriculeCounters/school-a__year-a").get()).data()?.lastAllocated).toBe(3);
+  }, 60_000);
+
+  it("ignore le matricule fourni par le client et reprend au-delà des suffixes historiques", async () => {
+    await db.doc("students/historical-high").set(student("historical-high", { nom: "AUTRE", matricule: "ACD-26-0099" }));
+    const created = await save(student("student-after-history", { prenom: "PAUL", matricule: "ACD-26-0001" }));
+    expect(created.student.matricule).toBe("ACD-26-0100");
+    expect(created.student.searchPrefixes).toContain("0100");
+    const edited = await save(student("student-after-history", { prenom: "PAUL", address: "Nouvelle adresse", matricule: "FAKE" }));
+    expect(edited.student.matricule).toBe("ACD-26-0100");
+    expect((await db.doc("studentMatriculeCounters/school-a__year-a").get()).data()?.lastAllocated).toBe(100);
+  }, 60_000);
+
+  it("maintient des séquences indépendantes entre écoles", async () => {
+    const first = await save(student("student-school-a", { prenom: "PAUL", matricule: "" }));
+    const second = await save(student("student-school-b", { schoolId: "school-b", schoolYearId: "year-b", prenom: "PAUL", matricule: "" }), "admin-b", "school_admin", "school-b");
+    expect(first.student.matricule).toBe("ACD-26-0002");
+    expect(second.student.matricule).toBe("ACD-26-0001");
+  }, 60_000);
+
+  it("préserve le matricule importé et démarre une séquence distincte dans la nouvelle année", async () => {
+    await db.doc("schoolYears/year-next").set({ id: "year-next", schoolId: school, name: "2027-2028", status: "active" });
+    await db.doc("students/imported-next").set(student("imported-next", { schoolYearId: "year-next", matricule: "ACD-26-0042", importedFromStudentId: "existing" }));
+    const created = await save(student("student-new-year", { schoolYearId: "year-next", nom: "AUTRE", matricule: "" }));
+    expect((await db.doc("students/imported-next").get()).data()?.matricule).toBe("ACD-26-0042");
+    expect(created.student.matricule).toBe("ACD-27-0002");
+  }, 60_000);
+
+  it("refuse l’écriture directe du compteur par un client scolaire", async () => {
+    const firestore = environment.authenticatedContext("admin-a", { role: "school_admin", schoolId: school }).firestore();
+    await assertFails(setDoc(doc(firestore, "studentMatriculeCounters", "school-a__year-a"), { lastAllocated: 1000 }));
+  });
+
+  it("alloue dix matricules uniques sous concurrence", async () => {
+    const attempts = await Promise.all(Array.from({ length: 10 }, (_, index) => save(student(`student-batch-${index}`, { nom: `NOM-${index}`, prenom: "TEST", matricule: "" }))));
+    const matricules = attempts.map(({ student: saved }) => saved.matricule);
+    expect(new Set(matricules).size).toBe(10);
+    expect(matricules.sort()).toEqual(Array.from({ length: 10 }, (_, index) => `ACD-26-${String(index + 2).padStart(4, "0")}`));
+  }, 120_000);
+
   it("refuse un legacy identique, ses variantes de casse et d’espaces, ainsi que le prénom vide", async () => {
     for (const [index, value] of [
       student("student-duplicate-1"),

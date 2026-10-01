@@ -77,6 +77,12 @@ describe("flux de soumission du formulaire élève", () => {
     expect(moduleSource).toContain("setShowForm(false);");
   });
 
+  it("laisse le serveur attribuer le matricule à la création", () => {
+    expect(moduleSource).not.toContain("nextStudentMatricule(");
+    expect(moduleSource).not.toContain("generateMatricule(");
+    expect(moduleSource).toContain('matricule: exists ? form.matricule : ""');
+  });
+
   it("conserve une erreur visible et restaure toujours le verrou", () => {
     expect(formSource).toContain('role="alert"');
     expect(moduleSource).toContain("} finally {");

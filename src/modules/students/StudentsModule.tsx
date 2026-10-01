@@ -10,7 +10,7 @@ import { getSchoolClassChoices, getSchoolSections, schoolSectionLabels } from ".
 import { canonicalSchoolOption, normalizeSchoolOptions } from "../../utils/schoolOptions";
 import { persistSchoolOption } from "../../services/schoolOptionsRepository";
 import { getClassSection } from "../../utils/studentClasses";
-import { emptyStudent, generateMatricule, isArchivedStudent, studentForPersistence, validateStudentForSave } from "../../utils/studentUtils";
+import { emptyStudent, isArchivedStudent, studentForPersistence, validateStudentForSave } from "../../utils/studentUtils";
 import { exportStudentsPdf } from "../../utils/studentPdf";
 import type { AppData, AppUser, ParentProfile, School, SchoolSection, SchoolYear, Student } from "../../types";
 import { CLASSES } from "../../types";
@@ -18,7 +18,7 @@ import type { SchoolClassRecord } from "../../types";
 import { formatOperationalStudentClassName, resolveStudentParentClass, schoolClassOptionKey, studentSchoolClassOptionKey, subscribeToSchoolClasses, validateStudentAcademicSelection } from "../../services/schoolSubclasses";
 import { canonicalAnnualClassName, isEligibleForAnnualTransition, studentImportKey } from "../../utils/studentYearTransition.js";
 import { useStudentPage } from "../../hooks/useStudentPage";
-import { loadAllStudentResults, nextStudentMatricule, STUDENT_SOURCE_PAGE_SIZE, type StudentQueryFilters } from "../../services/studentPagination";
+import { loadAllStudentResults, STUDENT_SOURCE_PAGE_SIZE, type StudentQueryFilters } from "../../services/studentPagination";
 
 export interface StudentModuleCapabilities {
   canCreate: boolean;
@@ -264,16 +264,13 @@ export function StudentsModule({
         return;
       }
       const targetYearId = exists ? form.schoolYearId : year.id;
-      const targetYearName = exists ? data.schoolYears.find((item) => item.id === form.schoolYearId)?.name ?? year.name : year.name;
-      const generatedMatricule = exists ? "" : await nextStudentMatricule(targetYearName, school.id, targetYearId);
-      const matricule = exists ? form.matricule : generatedMatricule || generateMatricule(studentRecords, targetYearName, school.id, targetYearId);
       const student = studentForPersistence({
         ...form,
         prenom: form.prenom?.trim() ?? "",
         address: form.address?.trim() ?? "",
         id: exists ? form.id : uid("student"),
         option: form.option ? canonicalSchoolOption(form.option) : undefined,
-        matricule,
+        matricule: exists ? form.matricule : "",
         section: getClassSection(form.className),
         status: form.status ?? "ACTIVE",
         schoolId: school.id,
