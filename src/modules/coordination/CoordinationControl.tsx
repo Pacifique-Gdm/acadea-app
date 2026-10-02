@@ -95,7 +95,7 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
     await generateExpensePdf(expense, school, year, resolveExpenseCashierName(expense, []));
   }
 
-  if (selectedStudent) return <CoordinationStudentRecord student={selectedStudent} user={user} schools={schools} model={model} onBack={() => setSelectedStudentId("")}/>;
+  if (selectedStudent) return <CoordinationStudentRecord student={selectedStudent} user={user} schools={schools} years={model.schoolYears} onBack={() => setSelectedStudentId("")}/>;
 
   return <section className="grid min-w-0 gap-4">
     <SectionTitle title="Contrôle" subtitle="Frais scolaires, paiements, historique et soldes restants en lecture seule."/>

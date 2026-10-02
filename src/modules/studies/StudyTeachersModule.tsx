@@ -5,7 +5,8 @@ import { Pencil, Plus } from "lucide-react";
 import { AdminDrawer, MultiSelectDropdown } from "../../components/ui";
 import type { AppUser, School, SchoolYear } from "../../types";
 import { ASSIGNMENT_DEACTIVATION_CONFIRMATION, assignmentDeactivationConfirmed, hasActiveSubjectClassConflict, pedagogicalAssignmentSaveErrorMessage, SUBJECT_RENAME_CONFIRMATION, subjectRenameConfirmed, teacherWorkload, validateWeeklyPeriods } from "./studyAssignments";
-import { createStudySubject, renameStudySubject, savePedagogicalAssignments, savePrimaryHomeroomAssignments, setPedagogicalAssignmentActive } from "./studyService";
+import { createStudySubject, renameStudySubject } from "./studyService";
+import { saveStudyAssignmentsServer, setStudyAssignmentActiveServer } from "../../services/studyAssignmentMutations";
 import type { AssignmentSessionPattern, PedagogicalAssignment, StudyTeacher } from "./studyTypes";
 import type { useStudyData } from "./useStudyData";
 import { TeacherAvailabilityDrawer, TeacherAvailabilitySummary } from "./TeacherAvailabilityDrawer";
@@ -171,9 +172,7 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
     const materializedClasses = assignmentScopeClasses.filter((item, index, all) => (savedClassIds.includes(item.id) || titularClassIds.includes(item.id)) && !sourceClasses.some((current) => current.id === item.id) && all.findIndex((candidate) => candidate.id === item.id) === index);
     setBusy(true); setFeedback("");
     try {
-      if (editingAssignment) await savePedagogicalAssignments({ user, schoolId: school.id, schoolYearId: year.id, teacherId, subjectIds: savedSubjectIds, classIds: savedClassIds, classSelections, knownClasses: assignmentScopeClasses, legacyClasses: materializedClasses, weeklyPeriods: periods, sessionPattern, titularClassIds, existingTitulars: data.titulars, active, current: editingAssignment });
-      else if (primaryMode) await savePrimaryHomeroomAssignments({ user, schoolId: school.id, schoolYearId: year.id, teacherId, subjectIds: savedSubjectIds, classId: savedClassIds[0], knownClasses: assignmentScopeClasses, legacyClasses: materializedClasses, titularClassIds, existingTitulars: data.titulars, weeklyPeriods: periods, sessionPattern, active });
-      else await savePedagogicalAssignments({ user, schoolId: school.id, schoolYearId: year.id, teacherId, subjectIds:savedSubjectIds, classIds:savedClassIds, classSelections, knownClasses: assignmentScopeClasses, legacyClasses: materializedClasses, weeklyPeriods: periods, sessionPattern, titularClassIds, existingTitulars: data.titulars, active });
+      await saveStudyAssignmentsServer({ schoolId: school.id, schoolYearId: year.id, teacherId, subjectIds: savedSubjectIds, classSelections, legacyClasses: materializedClasses, weeklyPeriods: periods, sessionPattern, titularClassIds, existingTitularIds: data.titulars.filter((item) => item.active && (item.teacherId === teacherId || item.assignmentId === editingAssignment?.id)).map((item) => item.classId), active, currentId: editingAssignment?.id });
       setAssignmentOpen(false);
     } catch (cause) { console.error("Enregistrement de l’affectation impossible.", cause); setFeedback(pedagogicalAssignmentSaveErrorMessage(cause)); }
     finally { setBusy(false); }
@@ -219,7 +218,7 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
     if (!deactivatingAssignment || !assignmentDeactivationConfirmed(deactivationConfirmation)) return;
     setBusy(true); setFeedback("");
     try {
-      await setPedagogicalAssignmentActive(user, deactivatingAssignment, false);
+      await setStudyAssignmentActiveServer({ schoolId: deactivatingAssignment.schoolId, schoolYearId: deactivatingAssignment.schoolYearId, assignmentId: deactivatingAssignment.id, active: false });
       setDeactivatingAssignment(undefined);
       setDeactivationConfirmation("");
     } catch (cause) { setFeedback(cause instanceof Error ? cause.message : "Désactivation impossible."); }

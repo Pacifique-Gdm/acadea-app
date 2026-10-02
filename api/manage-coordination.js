@@ -288,19 +288,19 @@ async function transferPersonnel({ res, auth, db, token, input }) {
       const destinationSections = configuredSchoolSections(destinationSchool);
       if (sections.some((section) => !destinationSections.includes(section))) throw coordinationHttpError(409, "incompatible-sections", "Le périmètre de sections du personnel n’existe pas dans l’école de destination.");
 
-      savedUser = { ...freshPersonnel, id: personnelId, schoolId: destinationSchoolId, activeSchoolYearId: destinationYearId, updatedAt: now, updatedBy: caller.uid };
-      transaction.update(personnelRef, { schoolId: destinationSchoolId, activeSchoolYearId: destinationYearId, updatedAt: now, updatedBy: caller.uid });
+      savedUser = { ...freshPersonnel, id: personnelId, schoolId: destinationSchoolId, activeSchoolYearId: destinationYearId, ...(personnel.role === "teacher" ? { storageAssignmentKeys: [] } : {}), updatedAt: now, updatedBy: caller.uid };
+      transaction.update(personnelRef, { schoolId: destinationSchoolId, activeSchoolYearId: destinationYearId, ...(personnel.role === "teacher" ? { storageAssignmentKeys: [] } : {}), updatedAt: now, updatedBy: caller.uid });
       if (profileSnapshot.exists) {
         const profile = profileSnapshot.data();
         if (profile?.personnelId !== personnelId || profile?.schoolId !== sourceSchoolId) throw coordinationHttpError(409, "invalid-personnel-profile", "La fiche administrative du personnel est incohérente avec l’école source.");
         savedProfile = { ...profile, id: profileSnapshot.id, schoolId: destinationSchoolId, updatedAt: now, updatedBy: caller.uid };
         transaction.update(profileRef, { schoolId: destinationSchoolId, updatedAt: now, updatedBy: caller.uid });
       }
-      teacherProfiles.forEach((snapshot) => transaction.update(snapshot.ref, { status: "inactive", active: false, updatedAt: now, updatedBy: caller.uid }));
+      teacherProfiles.forEach((snapshot) => transaction.update(snapshot.ref, { status: "inactive", active: false, storageAssignmentIds: [], updatedAt: now, updatedBy: caller.uid }));
       teacherContextRows.forEach((snapshot) => transaction.update(snapshot.ref, { active: false, updatedAt: now, updatedBy: caller.uid }));
       if (personnel.role === "teacher") {
         const destinationTeacherId = `${destinationSchoolId}__${destinationYearId}__${personnelId}`;
-        transaction.set(db.doc(`teachers/${destinationTeacherId}`), { id: destinationTeacherId, userId: personnelId, schoolId: destinationSchoolId, schoolYearId: destinationYearId, status: "active", active: true, createdAt: now, createdBy: caller.uid, updatedAt: now, updatedBy: caller.uid }, { merge: true });
+        transaction.set(db.doc(`teachers/${destinationTeacherId}`), { id: destinationTeacherId, userId: personnelId, schoolId: destinationSchoolId, schoolYearId: destinationYearId, status: "active", active: true, storageAssignmentIds: [], createdAt: now, createdBy: caller.uid, updatedAt: now, updatedBy: caller.uid }, { merge: true });
       }
       const auditRef = db.collection("auditLogs").doc();
       transaction.create(auditRef, { id: auditRef.id, eventType: "coordination.personnel.transferred", coordinationId: caller.coordinationId, schoolId: sourceSchoolId, actorId: caller.uid, actorRole: caller.role, actorName: caller.profile?.name ?? "Coordinateur", action: "Mutation d’un personnel entre écoles", result: "success", resourceType: "personnel", resourceId: personnelId, source: "server", createdAt: now, metadata: { personnelId, role: personnel.role, sourceSchoolId, destinationSchoolId, mutationDate, reason } });

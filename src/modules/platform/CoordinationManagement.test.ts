@@ -37,4 +37,13 @@ describe("gestion Super Administrateur des Coordinations", () => {
     expect(source).toContain('document.removeEventListener("pointerdown", onOutsidePointerDown)');
     expect(source).toContain('onClick={cancelRelation}');
   });
+  it("ne rend pas le retrait inerte si la liste des écoles n'a pas encore cette relation", () => {
+    expect(source).toContain('school ?? { id: relation.schoolId, name: schoolName(relation.schoolId) }');
+    expect(source).not.toContain('if (school) requestRelation("remove", school)');
+  });
+  it("affiche l'état canonique de l'école, sans confondre rattachement et activité", () => {
+    expect(source).toContain('school?.status === "suspended" ? "Suspendue"');
+    expect(source).toContain('school?.status === "active" ? "Active"');
+    expect(source).not.toContain('relation.active ? "Active"');
+  });
 });

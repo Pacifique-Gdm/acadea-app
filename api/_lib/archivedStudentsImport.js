@@ -262,7 +262,7 @@ function planAnnualImport({ school, schoolId, schoolYearId, source, target, pare
 
   const feeIds = semanticTargetMap(source.feeTypes, target.feeTypes, (item) => [normalized(item.name), Number(item.amount), normalizeAnnualClassName(item.className), normalized(remapOptionKey(item.classOptionKey, classPlan.ids))].join("|"), "feeTypes", schoolId, schoolYearId);
   addPlan("feeTypes", source.feeTypes, target.feeTypes, feeIds, (item, id) => genericPayload("feeTypes", item, id, schoolId, schoolYearId, { classOptionKey: remapOptionKey(item.classOptionKey, classPlan.ids) }));
-  addPlan("teachers", source.teachers, target.teachers, teacherIds, (item, id) => genericPayload("teachers", item, id, schoolId, schoolYearId));
+  addPlan("teachers", source.teachers, target.teachers, teacherIds, (item, id) => genericPayload("teachers", item, id, schoolId, schoolYearId, { storageAssignmentIds: [] }));
   addPlan("subjects", source.subjects, target.subjects, subjectIds, (item, id) => genericPayload("subjects", item, id, schoolId, schoolYearId, { classIds: item.classIds?.map((classId) => classPlan.ids.get(classId)).filter(Boolean) }));
   addPlan("rooms", source.rooms, target.rooms, roomIds, (item, id) => genericPayload("rooms", item, id, schoolId, schoolYearId));
   addPlan("schedulePeriods", source.schedulePeriods, target.schedulePeriods, periodIds, (item, id) => genericPayload("schedulePeriods", item, id, schoolId, schoolYearId));
@@ -378,8 +378,36 @@ export async function importArchivedStudents({ db, caller, body }) {
     if (!perform) return { ...result, complete: false, status: job ? "partial" : year.studentsImportedFromArchivedYear ? "legacy-incomplete" : "ready" };
 
     const parentLinks = new Map(), userLinks = new Map();
+    const grantsByTeacher = new Map();
     for (const item of selected) {
-      if (item.kind !== "student-link") transaction.create(db.doc(`${item.collection}/${item.id}`), item.payload);
+      if (item.collection !== "pedagogicalAssignments" || item.payload.active !== true) continue;
+      const ids = grantsByTeacher.get(item.payload.teacherId) ?? [];
+      ids.push(item.id);
+      grantsByTeacher.set(item.payload.teacherId, ids);
+    }
+    const newlyCreatedTeachers = new Set(selected.filter((item) => item.collection === "teachers").map((item) => item.id));
+    const teacherProfilesById = new Map([...target.teachers, ...selected.filter((item) => item.collection === "teachers").map((item) => ({ ...item.payload, id: item.id }))].map((item) => [item.id, item]));
+    const storageKeysByUser = new Map();
+    for (const item of selected) {
+      if (item.collection !== "pedagogicalAssignments" || item.payload.active !== true) continue;
+      const teacherProfile = teacherProfilesById.get(item.payload.teacherId);
+      if (!teacherProfile?.userId || teacherProfile.schoolId !== schoolId || teacherProfile.schoolYearId !== schoolYearId) continue;
+      const keys = storageKeysByUser.get(teacherProfile.userId) ?? [];
+      keys.push([schoolId, schoolYearId, item.payload.teacherId, item.id].join("/"));
+      storageKeysByUser.set(teacherProfile.userId, keys);
+    }
+    const storageUsers = new Map();
+    for (const userId of storageKeysByUser.keys()) {
+      const snapshot = await transaction.get(db.doc(`users/${userId}`));
+      if (snapshot.exists && snapshot.data()?.role === "teacher" && snapshot.data()?.schoolId === schoolId && snapshot.data()?.status === "active" && snapshot.data()?.active === true) {
+        if (snapshot.data()?.storageAssignmentKeys !== undefined && !Array.isArray(snapshot.data().storageAssignmentKeys)) fail(409, "failed-precondition", "Droits Storage de l'enseignant incohérents.");
+        storageUsers.set(userId, snapshot);
+      }
+    }
+    for (const item of selected) {
+      if (item.kind !== "student-link") transaction.create(db.doc(`${item.collection}/${item.id}`), item.collection === "teachers"
+        ? { ...item.payload, storageAssignmentIds: grantsByTeacher.get(item.id) ?? [] }
+        : item.payload);
       if (!['student', 'student-link'].includes(item.kind) || !item.source.parentId) continue;
       const parent = parents.get(item.source.parentId);
       if (!parent) fail(409, "failed-precondition", "Un parent source est absent ou appartient à une autre école.");
@@ -390,6 +418,10 @@ export async function importArchivedStudents({ db, caller, body }) {
       parentLinks.set(parent.id, [...(parentLinks.get(parent.id) ?? []), targetStudentId]);
       if (parentUser) userLinks.set(parentUser.id, [...(userLinks.get(parentUser.id) ?? []), targetStudentId]);
     }
+    for (const [teacherId, ids] of grantsByTeacher) {
+      if (!newlyCreatedTeachers.has(teacherId)) transaction.update(db.doc(`teachers/${teacherId}`), { storageAssignmentIds: FieldValue.arrayUnion(...ids) });
+    }
+    for (const [userId, snapshot] of storageUsers) transaction.update(snapshot.ref, { storageAssignmentKeys: FieldValue.arrayUnion(...storageKeysByUser.get(userId)) });
     for (const [id, ids] of parentLinks) transaction.update(db.doc(`parents/${id}`), { studentIds: FieldValue.arrayUnion(...ids) });
     for (const [id, ids] of userLinks) transaction.update(db.doc(`users/${id}`), { studentIds: FieldValue.arrayUnion(...ids) });
     const processedItems = (job?.processedItems ?? 0) + selected.length;

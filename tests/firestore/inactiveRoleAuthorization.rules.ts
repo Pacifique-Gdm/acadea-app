@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
-import { deleteDoc, doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import { arrayUnion, deleteDoc, deleteField, doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
 
 const projectId = "demo-inactive-role-authorization";
@@ -43,6 +43,29 @@ beforeEach(async () => {
 afterAll(() => environment.cleanup(), 30_000);
 
 describe("profil désactivé avec ancien claim de rôle", () => {
+  it("interdit toute auto-attribution ou suppression des droits Storage, y compris arrayUnion et remplacement", async () => {
+    const caller = database("teacher");
+    const reference = doc(caller, "users", "user-teacher");
+    const forged = "school-a/year-a/teacher-a/assignment-forged";
+    await assertFails(updateDoc(reference, { storageAssignmentKeys: [forged] }));
+    await assertFails(updateDoc(reference, { storageAssignmentKeys: arrayUnion(forged) }));
+    await seed("users/user-teacher", { id: "user-teacher", role: "teacher", schoolId: "school-a", status: "active", active: true, storageAssignmentKeys: ["school-a/year-a/teacher-a/assignment-a"] });
+    await assertFails(updateDoc(reference, { storageAssignmentKeys: [] }));
+    await assertFails(updateDoc(reference, { storageAssignmentKeys: deleteField() }));
+    await assertFails(setDoc(reference, { id: "user-teacher", role: "teacher", schoolId: "school-a", status: "active", active: true, storageAssignmentKeys: [forged] }));
+    await assertFails(updateDoc(doc(database("school_admin"), "users", "user-teacher"), { storageAssignmentKeys: [forged] }));
+  });
+  it("une école suspendue conserve sa page d'état mais ferme les données métier aux rôles scolaires", async () => {
+    await seed("schools/school-a", { id: "school-a", status: "suspended", activeSchoolYearId: "year-a" });
+    for (const role of ["school_admin", "secretary", "cashier", "study_director", "discipline_director", "teacher", "parent"]) {
+      const caller = database(role);
+      await assertSucceeds(getDoc(doc(caller, "users", `user-${role}`)));
+      await assertSucceeds(getDoc(doc(caller, "schools", "school-a")));
+      await assertFails(getDoc(doc(caller, "students", "child-a")));
+    }
+    await assertSucceeds(getDoc(doc(database("super_admin"), "students", "child-a")));
+    await assertSucceeds(getDoc(doc(database("coordination_admin"), "students", "child-a")));
+  });
   it("préserve les profils historiques actifs sans champ active ou status", async () => {
     const caller = database("school_admin");
     await seed("users/user-school_admin", { id: "user-school_admin", role: "school_admin", schoolId: "school-a", status: "active" });

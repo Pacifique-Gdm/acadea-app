@@ -51,9 +51,34 @@ describe("persistance des affectations par groupes d'options", () => {
     const assignmentCall = mocks.set.mock.calls.find(([path]) => String(path).startsWith("pedagogicalAssignments/"));
     expect(assignmentCall?.[1]).toMatchObject({ courseScope: "common", targetOptionIds: [options[1].id, options[0].id].sort(), weeklyPeriods: 4 });
     expect(mocks.set.mock.calls.filter(([path]) => String(path).startsWith("pedagogicalAssignments/"))).toHaveLength(1);
+    expect(mocks.update.mock.calls.filter(([path]) => String(path).startsWith("teachers/"))).toHaveLength(0);
     const titularCall = mocks.set.mock.calls.find(([path]) => String(path).startsWith("classTitulars/"));
     expect(titularCall?.[1].classId).toBe(options[0].id);
     expect(titularCall?.[1].assignmentId).toBe(assignmentCall?.[1].id);
+  });
+
+  it("synchronise le grant uniquement pour un profil moderne déjà initialisé", async () => {
+    mocks.get.mockImplementation(async (path: string) => {
+      const missing = path.startsWith("pedagogicalAssignmentLocks/") || path.startsWith("classTitulars/");
+      return { exists: () => !missing, data: () => missing ? undefined : { schoolId: "s", schoolYearId: "y", status: "active", ...(path === "teachers/teacher" ? { storageAssignmentIds: [] } : {}) } };
+    });
+    await savePedagogicalAssignments({
+      user, schoolId: "s", schoolYearId: "y", teacherId: "teacher", subjectIds: ["fr"], classIds: [options[0].id],
+      knownClasses: [base, ...options], weeklyPeriods: 2, existingTitulars: [], active: true,
+    });
+    const assignmentCall = mocks.set.mock.calls.find(([path]) => String(path).startsWith("pedagogicalAssignments/"));
+    expect(mocks.update).toHaveBeenCalledWith("teachers/teacher", { storageAssignmentIds: [assignmentCall?.[1].id] });
+  });
+
+  it("refuse une liste de grants malformée sans la traiter comme un profil legacy", async () => {
+    mocks.get.mockImplementation(async (path: string) => {
+      const missing = path.startsWith("pedagogicalAssignmentLocks/") || path.startsWith("classTitulars/");
+      return { exists: () => !missing, data: () => missing ? undefined : { schoolId: "s", schoolYearId: "y", status: "active", ...(path === "teachers/teacher" ? { storageAssignmentIds: "invalid" } : {}) } };
+    });
+    await expect(savePedagogicalAssignments({
+      user, schoolId: "s", schoolYearId: "y", teacherId: "teacher", subjectIds: ["fr"], classIds: [options[0].id],
+      knownClasses: [base, ...options], weeklyPeriods: 2, existingTitulars: [], active: true,
+    })).rejects.toThrow("Autorisations documentaires de l'enseignant non initialisées.");
   });
 
   it("matérialise uniquement la classe opérationnelle explicitement choisie comme titularité", async () => {

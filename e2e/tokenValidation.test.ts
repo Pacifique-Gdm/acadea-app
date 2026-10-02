@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   verifyIdToken: vi.fn().mockRejectedValue(Object.assign(new Error("Invalid token"), { code: "auth/invalid-id-token" })),
   enforceApiRateLimit: vi.fn().mockResolvedValue(undefined),
-  profileData: {} as Record<string, unknown>,
+  profileData: { schoolId: "school-a" } as Record<string, unknown>,
 }));
 
 vi.mock("../api/_lib/firebaseAdmin.js", async (importOriginal) => ({
@@ -150,7 +150,7 @@ describe("corps JSON malformé des API protégées", () => {
         expect(res.body).toMatchObject({ error: "invalid-argument" });
       }
     } finally {
-      mocks.profileData = {};
+      mocks.profileData = { schoolId: "school-a" };
     }
   });
 });

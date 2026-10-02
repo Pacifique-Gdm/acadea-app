@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type RecordData = Record<string, unknown>;
 type Ref = { path: string; id: string; get: () => Promise<Snapshot> };
-type Snapshot = { id: string; exists: boolean; data: () => RecordData | undefined };
+type Snapshot = { id: string; ref: Ref; exists: boolean; data: () => RecordData | undefined };
 const state = vi.hoisted(() => ({ records: new Map<string, RecordData>(), role: "coordination_admin", db: {} as Record<string, unknown>, commits: 0 }));
 vi.mock("../../api/_lib/firebaseAdmin.js", () => ({ initAdmin: () => ({ auth: {}, db: state.db }) }));
 vi.mock("../../api/_lib/rateLimit.js", () => ({ API_RATE_LIMITS: { SCHOOL_ADMIN: {} }, enforceApiRateLimit: vi.fn(), sendRateLimitError: () => false }));
@@ -12,7 +12,7 @@ vi.mock("../../api/_lib/coordination.js", async (original) => ({
 }));
 import handler from "../../api/manage-coordination-school-years.js";
 
-function snapshot(path: string): Snapshot { return { id: path.split("/").at(-1)!, exists: state.records.has(path), data: () => structuredClone(state.records.get(path)) }; }
+function snapshot(path: string): Snapshot { return { id: path.split("/").at(-1)!, ref: ref(path), exists: state.records.has(path), data: () => structuredClone(state.records.get(path)) }; }
 function ref(path: string): Ref { return { path, id: path.split("/").at(-1)!, get: async () => snapshot(path) }; }
 function collection(path: string, predicates: Array<(data: RecordData) => boolean> = []) {
   return {
@@ -69,6 +69,12 @@ describe("gouvernance Coordination — régression clôture/réactivation", () =
     expect(governance()).toMatchObject({ status: "closed", years: [{ schoolId: "school-a", schoolYearId: "year-a" }, { schoolId: "school-b", schoolYearId: "year-b" }] });
     expect(state.records.get("schoolYears/old-archive")?.status).toBe("archived");
     expect((await call("status")).body).toMatchObject({ governance: { status: "closed" } });
+  });
+  it("révoque les grants Storage de la cohorte clôturée dans la même transaction", async () => {
+    state.records.set("users/teacher-a", { id: "teacher-a", role: "teacher", schoolId: "school-a", status: "active", active: true, storageAssignmentKeys: ["school-a/year-a/teacher-profile/assignment-a", "school-a/old-archive/teacher-profile/assignment-old"] });
+    expect((await call("close")).statusCode).toBe(200);
+    expect(state.records.get("users/teacher-a")?.storageAssignmentKeys).toEqual(["school-a/old-archive/teacher-profile/assignment-old"]);
+    expect(state.records.get("schoolYears/year-a")?.status).toBe("archived");
   });
   it.each(["reactiver les annees scolaires", "RÉACTIVER LES ANNÉES SCOLAIRES", " REACTIVER LES ANNEES SCOLAIRES", "REACTIVER LES ANNEES SCOLAIRES "])("refuse la réactivation non exacte : %s", async (confirmation) => {
     await call("close");

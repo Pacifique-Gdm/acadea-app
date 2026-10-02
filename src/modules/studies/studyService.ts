@@ -16,6 +16,17 @@ function requireScope(user: AppUser, schoolId: string, schoolYearId: string) {
   return db as unknown as Firestore;
 }
 
+function updatedStorageAssignmentIds(value: unknown, additions: string[], removals: string[]): string[] | undefined {
+  // Legacy profiles have no Storage grant field. Keep pedagogical assignment
+  // writes available, while Storage itself remains fail-closed until migration.
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.some((id) => typeof id !== "string")) throw new Error("Autorisations documentaires de l'enseignant non initialisées.");
+  const ids = new Set<string>(value);
+  removals.forEach((id) => ids.delete(id));
+  additions.forEach((id) => ids.add(id));
+  return [...ids].sort();
+}
+
 function scopedSubscription<T>(collectionName: string, schoolId: string, schoolYearId: string, onData: (items: T[]) => void, onError: (error: Error) => void, sections?: string[]) {
   if (!db) return () => undefined;
   const database = db as unknown as Firestore;
@@ -176,6 +187,7 @@ export async function savePedagogicalAssignment(input: { user: AppUser; schoolId
   const now = new Date().toISOString();
   await runTransaction(database, async (transaction) => {
     const teacherRef = doc(database, "teachers", input.teacherId);
+    const oldTeacherRef = input.current && input.current.teacherId !== input.teacherId ? doc(database, "teachers", input.current.teacherId) : undefined;
     const subjectRef = doc(database, "subjects", input.subjectId);
     const classRef = doc(database, "classes", input.classId);
     const roomRef = input.preferredRoomId ? doc(database, "rooms", input.preferredRoomId) : undefined;
@@ -188,7 +200,7 @@ export async function savePedagogicalAssignment(input: { user: AppUser; schoolId
     // Do not read a target that may not exist: tenant-scoped read rules cannot
     // authorize a missing resource. The deterministic write remains validated
     // by the assignment create/update rules and the references read below.
-    const [teacher, subject, schoolClass, room, titularClass, lock, titular, previousTitular] = await Promise.all([transaction.get(teacherRef), transaction.get(subjectRef), transaction.get(classRef), roomRef ? transaction.get(roomRef) : Promise.resolve(undefined), titularClassRef ? transaction.get(titularClassRef) : Promise.resolve(undefined), transaction.get(lockRef), titularRef ? transaction.get(titularRef) : Promise.resolve(undefined), previousTitularRef ? transaction.get(previousTitularRef) : Promise.resolve(undefined)]);
+    const [teacher, subject, schoolClass, room, titularClass, lock, titular, previousTitular, oldTeacher] = await Promise.all([transaction.get(teacherRef), transaction.get(subjectRef), transaction.get(classRef), roomRef ? transaction.get(roomRef) : Promise.resolve(undefined), titularClassRef ? transaction.get(titularClassRef) : Promise.resolve(undefined), transaction.get(lockRef), titularRef ? transaction.get(titularRef) : Promise.resolve(undefined), previousTitularRef ? transaction.get(previousTitularRef) : Promise.resolve(undefined), oldTeacherRef ? transaction.get(oldTeacherRef) : Promise.resolve(undefined)]);
     const teacherData = teacher.data();
     if (teacherData?.status === "inactive") throw new Error("Cet enseignant est archivé et ne peut plus recevoir de nouvelle affectation.");
     if (typeof teacherData?.userId === "string") {
@@ -200,6 +212,7 @@ export async function savePedagogicalAssignment(input: { user: AppUser; schoolId
     }
     const validReference = (snapshot: typeof teacher) => { const value = snapshot.data(); return snapshot.exists() && value?.schoolId === input.schoolId && value.schoolYearId === input.schoolYearId; };
     if (!validReference(teacher) || !validReference(subject) || !validReference(schoolClass)) throw new Error("Une référence pédagogique est inconnue ou hors périmètre.");
+    if (oldTeacher && !validReference(oldTeacher)) throw new Error("L'ancien profil enseignant est inconnu ou hors périmètre.");
     if (room && (!room.exists() || room.data()?.schoolId !== input.schoolId || room.data()?.schoolYearId !== input.schoolYearId || room.data()?.active !== true)) throw new Error("La salle préférée est inconnue, inactive ou hors périmètre.");
     if (titularClass && (!titularClass.exists() || titularClass.data()?.schoolId !== input.schoolId || titularClass.data()?.schoolYearId !== input.schoolYearId || titularClass.data()?.active === false)) throw new Error("La classe de titulariat est inconnue, inactive ou hors périmètre.");
     if (input.active && lock.exists() && (!input.current || lock.data()?.assignmentId !== input.current.id)) {
@@ -210,6 +223,12 @@ export async function savePedagogicalAssignment(input: { user: AppUser; schoolId
     const payload = { id: targetId, schoolId: input.schoolId, schoolYearId: input.schoolYearId, teacherId: input.teacherId, subjectId: input.subjectId, classId: input.classId, weeklyPeriods: input.weeklyPeriods, blockSize: input.sessionPattern !== undefined ? 1 : input.blockSize ?? input.current?.blockSize ?? 1, ...(sessionPattern ? { sessionPattern } : {}), preferredRoomId: input.preferredRoomId ?? input.current?.preferredRoomId ?? null, titularClassId: input.titularClassId ?? null, active: input.active, createdAt: input.current?.createdAt ?? now, updatedAt: now, createdBy: input.current?.createdBy ?? input.user.id, updatedBy: input.user.id };
     if (input.current && input.current.id !== targetId) transaction.update(doc(database, "pedagogicalAssignments", input.current.id), { active: false, updatedAt: now, updatedBy: input.user.id });
     transaction.set(targetRef, payload);
+    const storageAssignmentIds = updatedStorageAssignmentIds(teacherData?.storageAssignmentIds, input.active ? [targetId] : [], [input.current?.teacherId === input.teacherId ? input.current.id : undefined, ...(input.active ? [] : [targetId])].filter((id): id is string => Boolean(id) && id !== (input.active ? targetId : "")));
+    if (storageAssignmentIds) transaction.update(teacherRef, { storageAssignmentIds });
+    if (oldTeacherRef && oldTeacher && input.current) {
+      const oldStorageAssignmentIds = updatedStorageAssignmentIds(oldTeacher.data()?.storageAssignmentIds, [], [input.current.id]);
+      if (oldStorageAssignmentIds) transaction.update(oldTeacherRef, { storageAssignmentIds: oldStorageAssignmentIds });
+    }
     if (input.active) transaction.set(lockRef, { id: lockId, schoolId: input.schoolId, schoolYearId: input.schoolYearId, subjectId: input.subjectId, classId: input.classId, teacherId: input.teacherId, assignmentId: targetId, updatedAt: now, updatedBy: input.user.id });
     if (previousTitularRef && previousTitular?.exists()) transaction.delete(previousTitularRef);
     if (titularRef) transaction.set(titularRef, { id: `${input.schoolId}__${input.schoolYearId}__${input.titularClassId}`, schoolId: input.schoolId, schoolYearId: input.schoolYearId, classId: input.titularClassId, teacherId: input.teacherId, assignmentId: targetId, active: input.active, updatedAt: now, updatedBy: input.user.id });
@@ -283,6 +302,7 @@ export async function savePedagogicalAssignments(input: { user: AppUser; schoolI
   };
   await runTransaction(database, async (transaction) => {
     const teacherRef = doc(database, "teachers", input.teacherId);
+    const oldTeacherRef = input.current && input.current.teacherId !== input.teacherId ? doc(database, "teachers", input.current.teacherId) : undefined;
     const subjectRefs = subjectIds.map((id) => doc(database, "subjects", id));
     const modernClassRefs = [...persistedClassIds].filter((id) => !legacyClassIds.has(id)).map((id) => doc(database, "classes", id));
     const managedTitulars = (input.existingTitulars ?? []).filter((item) => item.schoolId === input.schoolId && item.schoolYearId === input.schoolYearId && item.active && (item.teacherId === input.teacherId || item.assignmentId === input.current?.id) && (allowedTitularClassIds.has(item.classId) || item.assignmentId === input.current?.id));
@@ -290,9 +310,11 @@ export async function savePedagogicalAssignments(input: { user: AppUser; schoolI
     const removedTitulars = managedTitulars.filter((item) => !titularClassIds.includes(item.classId));
     const removedTitularRefs = removedTitulars.map((item) => doc(database, "classTitulars", item.id));
     const lockRefs = targets.map((target) => doc(database, "pedagogicalAssignmentLocks", target.lockId));
-    const [teacher, ...references] = await Promise.all([transaction.get(teacherRef), ...subjectRefs.map((ref) => transaction.get(ref)), ...modernClassRefs.map((ref) => transaction.get(ref)), ...selectedTitularRefs.map((ref) => transaction.get(ref)), ...removedTitularRefs.map((ref) => transaction.get(ref)), ...lockRefs.map((ref) => transaction.get(ref))]);
+    const [teacher, ...references] = await Promise.all([transaction.get(teacherRef), ...subjectRefs.map((ref) => transaction.get(ref)), ...modernClassRefs.map((ref) => transaction.get(ref)), ...selectedTitularRefs.map((ref) => transaction.get(ref)), ...removedTitularRefs.map((ref) => transaction.get(ref)), ...lockRefs.map((ref) => transaction.get(ref)), ...(oldTeacherRef ? [transaction.get(oldTeacherRef)] : [])]);
+    const oldTeacher = oldTeacherRef ? references.at(-1) : undefined;
     const validReference = (snapshot: typeof teacher) => snapshot.exists() && snapshot.data()?.schoolId === input.schoolId && snapshot.data()?.schoolYearId === input.schoolYearId;
     if (!validReference(teacher) || teacher.data()?.status === "inactive" || references.slice(0, subjectRefs.length + modernClassRefs.length).some((snapshot) => !validReference(snapshot))) throw new Error("Une référence pédagogique est inconnue, inactive ou hors périmètre.");
+    if (oldTeacher && !validReference(oldTeacher)) throw new Error("L'ancien profil enseignant est inconnu ou hors périmètre.");
     if (typeof teacher.data()?.userId === "string") {
       const teacherUser = await transaction.get(doc(database, "users", teacher.data()?.userId));
       const profile = teacherUser.data();
@@ -328,6 +350,15 @@ export async function savePedagogicalAssignments(input: { user: AppUser; schoolI
     }));
     const targetIds = new Set(targets.map((target) => target.assignmentId));
     if (input.current && !targetIds.has(input.current.id)) transaction.update(doc(database, "pedagogicalAssignments", input.current.id), { active: false, updatedAt: now, updatedBy: input.user.id, titularClassId: null });
+    const revokedIds = [input.current?.teacherId === input.teacherId ? input.current.id : undefined, ...(!input.active ? [...targetIds] : [])]
+      .filter((id): id is string => typeof id === "string" && id.length > 0)
+      .filter((id) => !input.active || !targetIds.has(id));
+    const storageAssignmentIds = updatedStorageAssignmentIds(teacher.data()?.storageAssignmentIds, input.active ? [...targetIds] : [], revokedIds);
+    if (storageAssignmentIds) transaction.update(teacherRef, { storageAssignmentIds });
+    if (oldTeacherRef && oldTeacher && input.current) {
+      const oldStorageAssignmentIds = updatedStorageAssignmentIds(oldTeacher.data()?.storageAssignmentIds, [], [input.current.id]);
+      if (oldStorageAssignmentIds) transaction.update(oldTeacherRef, { storageAssignmentIds: oldStorageAssignmentIds });
+    }
     removedTitularRefs.forEach((reference, index) => {
       if (removedTitularSnapshots[index]?.exists() && removedTitularSnapshots[index].data()?.teacherId === removedTitulars[index].teacherId) transaction.delete(reference);
     });
@@ -369,13 +400,17 @@ export async function setPedagogicalAssignmentActive(user: AppUser, assignment: 
   const lockRef = doc(database, "pedagogicalAssignmentLocks", lockId);
   const now = new Date().toISOString();
   await runTransaction(database, async (transaction) => {
-    const [current, lock] = await Promise.all([transaction.get(assignmentRef), transaction.get(lockRef)]);
+    const teacherRef = doc(database, "teachers", assignment.teacherId);
+    const [current, lock, teacher] = await Promise.all([transaction.get(assignmentRef), transaction.get(lockRef), transaction.get(teacherRef)]);
     if (!current.exists() || current.data()?.schoolId !== assignment.schoolId || current.data()?.schoolYearId !== assignment.schoolYearId) throw new Error("Cette affectation n’existe plus.");
+    if (!teacher.exists() || teacher.data()?.schoolId !== assignment.schoolId || teacher.data()?.schoolYearId !== assignment.schoolYearId) throw new Error("Profil enseignant invalide.");
     if (active && lock.exists() && lock.data()?.assignmentId !== assignment.id) {
       const lockedAssignment = await transaction.get(doc(database, "pedagogicalAssignments", String(lock.data()?.assignmentId ?? "")));
       if (!lockedAssignment.exists() || lockedAssignment.data()?.active !== false) throw new Error("Ce cours est déjà affecté activement à cette classe.");
     }
     transaction.update(assignmentRef, { active, updatedAt: now, updatedBy: user.id });
+    const storageAssignmentIds = updatedStorageAssignmentIds(teacher.data()?.storageAssignmentIds, active ? [assignment.id] : [], active ? [] : [assignment.id]);
+    if (storageAssignmentIds) transaction.update(teacherRef, { storageAssignmentIds });
     if (active) transaction.set(lockRef, { id: lockId, schoolId: assignment.schoolId, schoolYearId: assignment.schoolYearId, subjectId: assignment.subjectId, classId: assignment.classId, ...(assignment.studentGroupKey ? { courseScope: assignment.courseScope, targetOptionIds: assignment.targetOptionIds, studentGroupKey: assignment.studentGroupKey } : {}), teacherId: assignment.teacherId, assignmentId: assignment.id, updatedAt: now, updatedBy: user.id });
   });
 }

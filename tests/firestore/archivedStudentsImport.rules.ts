@@ -211,6 +211,7 @@ describe("nouvelle matrice annuelle et continuité multi-modules", () => {
       "studentMedicalRecords/s0": { id: "s0", studentId: "s0", schoolId: "school-a", schoolYearId: "old", allergies: "Arachide", observations: "Suivi annuel" },
       "feeTypes/fee-old": { id: "fee-old", schoolId: "school-a", schoolYearId: "old", name: "Minerval", amount: 125, className: "1ère Primaire" },
       "teachers/teacher-old": { id: "teacher-old", userId: "teacher-user", schoolId: "school-a", schoolYearId: "old", fullName: "Professeur A", status: "active" },
+      "users/teacher-user": { id: "teacher-user", role: "teacher", schoolId: "school-a", status: "active", active: true },
       "subjects/subject-old": { id: "subject-old", schoolId: "school-a", schoolYearId: "old", name: "Mathématiques", active: true, classIds: ["old-class"] },
       "rooms/room-old": { id: "room-old", schoolId: "school-a", schoolYearId: "old", name: "Salle 1", active: true },
       "schedulePeriods/period-old": { id: "period-old", schoolId: "school-a", schoolYearId: "old", label: "P1", startTime: "08:00", endTime: "09:00", order: 1, type: "course", active: true },
@@ -238,6 +239,9 @@ describe("nouvelle matrice annuelle et continuité multi-modules", () => {
     const assignments = await db.collection("pedagogicalAssignments").where("schoolYearId", "==", "new").get();
     const entries = await db.collection("timetableEntries").where("schoolYearId", "==", "new").get();
     expect(assignments.size).toBe(1); expect(entries.size).toBe(1);
+    expect((await db.doc("users/teacher-user").get()).data()?.storageAssignmentKeys).toEqual([
+      `school-a/new/${assignments.docs[0].data().teacherId}/${assignments.docs[0].id}`,
+    ]);
     expect(entries.docs[0].data()).toMatchObject({ dayOfWeek: "monday" });
     expect((await db.collection("payments").where("schoolYearId", "==", "new").get()).size).toBe(0);
     expect((await db.collection("gradeEntries").where("schoolYearId", "==", "new").get()).size).toBe(0);

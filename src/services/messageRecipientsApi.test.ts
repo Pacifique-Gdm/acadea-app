@@ -67,7 +67,7 @@ describe("annuaire sécurisé des destinataires de messagerie", () => {
 
   it("refuse un rôle inconnu et un profil inactif", async () => {
     await expect(requireMessagingCaller(authFor({ uid: "unknown", role: "unknown", schoolId: "school-a" }), database({ unknown: { role: "unknown", schoolId: "school-a", status: "active" } }), "token")).rejects.toMatchObject({ code: "not-authorized" });
-    await expect(requireMessagingCaller(authFor({ uid: "secretary", role: "secretary", schoolId: "school-a" }), database({ secretary: { role: "secretary", schoolId: "school-a", status: "inactive" } }), "token")).rejects.toMatchObject({ code: "not-authorized" });
+    await expect(requireMessagingCaller(authFor({ uid: "secretary", role: "secretary", schoolId: "school-a" }), database({ secretary: { role: "secretary", schoolId: "school-a", status: "inactive" } }), "token")).rejects.toMatchObject({ code: "permission-denied" });
   });
 
   it("répond 401 à un jeton invalide avant toute lecture", async () => {

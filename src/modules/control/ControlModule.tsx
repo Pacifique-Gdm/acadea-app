@@ -17,6 +17,7 @@ import { formatStudentClassName } from "../../utils/studentClasses";
 import { formatCurrencyMoney, formatSchoolMoney } from "../../utils/currency";
 import { compareStudentsForPdfByClass, formatStudentPdfClassName } from "../../utils/studentPdf";
 import { filterControlStudentRows } from "../../utils/controlStudentSearch";
+import { historicalArrearsPdfSection } from "./historicalArrearsPdf";
 import type { AppData, AppUser, AuditLog, Expense, FeeType, ParentProfile, Payment, School, SchoolYear, Student } from "../../types";
 
 type ControlYearData = {
@@ -92,6 +93,8 @@ export function ControlModule({
   const [selectedHistoryStudentId, setSelectedHistoryStudentId] = useState("");
   const [paymentArrears, setPaymentArrears] = useState<HistoricalDebt[]>([]);
   const [historyArrears, setHistoryArrears] = useState<HistoricalDebt[]>([]);
+  const [historyPdfLoading, setHistoryPdfLoading] = useState(false);
+  const [historyPdfError, setHistoryPdfError] = useState("");
   const [arrearsError, setArrearsError] = useState("");
   const [arrearsLoading, setArrearsLoading] = useState(false);
   const [controlStudentSearch, setControlStudentSearch] = useState("");
@@ -856,8 +859,13 @@ export function ControlModule({
 
   async function createStudentHistoryPdf(action: "view" | "print") {
     if (!selectedHistoryStudent) return;
-
-    await renderAcadPdfPreview({
+    setHistoryPdfError("");
+    setHistoryPdfLoading(true);
+    try {
+      const arrears = year.status === "active"
+        ? await loadStudentArrears({ schoolYearId: year.id, studentId: selectedHistoryStudent.id })
+        : null;
+      await renderAcadPdfPreview({
       filename: `historique-${selectedHistoryStudent.matricule}.pdf`,
       title: action === "print" ? "Historique individuel des paiements" : "Historique individuel des paiements",
       school,
@@ -919,8 +927,16 @@ export function ControlModule({
             },
           ),
         ),
+        arrears
+          ? historicalArrearsPdfSection([...arrears.debts, ...arrears.settled])
+          : pdfSection("Arriérés des années antérieures", "<p>Consultation disponible depuis l'année scolaire active.</p>"),
       ],
-    });
+      });
+    } catch (error) {
+      setHistoryPdfError(error instanceof Error ? error.message : "Impossible de charger les arriérés pour le PDF.");
+    } finally {
+      setHistoryPdfLoading(false);
+    }
   }
 
   function renderPaymentHistoryPagination() {
@@ -1035,11 +1051,12 @@ export function ControlModule({
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap justify-center gap-2 sm:justify-start">
-            <button onClick={() => createStudentHistoryPdf("print")} className="primary-button justify-center" type="button">
-              <Download className="h-4 w-4" /> Imprimer PDF
+            <button onClick={() => void createStudentHistoryPdf("print")} className="primary-button justify-center" type="button" disabled={historyPdfLoading}>
+              <Download className="h-4 w-4" /> {historyPdfLoading ? "Préparation du PDF…" : "Imprimer PDF"}
             </button>
           </div>
         </div>
+        {historyPdfError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{historyPdfError}</p>}
 
         <div className="grid min-w-0 grid-cols-3 divide-x divide-slate-200 rounded border border-slate-200 bg-slate-50 shadow-sm">
           {([

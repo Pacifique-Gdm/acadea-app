@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { collection, doc, documentId, getDocs, onSnapshot, query, where, type Firestore } from "@firebase/firestore";
+import { collection, doc, documentId, onSnapshot, query, where, type Firestore } from "@firebase/firestore";
 import { Banknote, Bell, Building2, GraduationCap, LayoutDashboard, Menu, MessageSquare, RefreshCw } from "lucide-react";
 import { db } from "../../firebase";
 import type { AppUser, Coordination, CoordinationSchool, School, SubCoordination, SubCoordinationSchool } from "../../types";
@@ -49,19 +49,26 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
     const relationQuery = user.role === "sub_coordination_admin"
       ? query(collection(database, relationCollection), where("subCoordinationId", "==", user.subCoordinationId!), where("coordinationId", "==", coordinationId), where("active", "==", true))
       : query(collection(database, relationCollection), where("coordinationId", "==", coordinationId), where("active", "==", true));
-    const stopRelations = onSnapshot(relationQuery, async (snapshot) => {
+    let stopSchoolListeners: Array<() => void> = [];
+    let relationRevision = 0;
+    const stopRelations = onSnapshot(relationQuery, (snapshot) => {
+      stopSchoolListeners.forEach((stop) => stop());
+      stopSchoolListeners = [];
+      const revision = ++relationRevision;
       const nextRelations = snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as CoordinationSchool | SubCoordinationSchool));
       setRelations(nextRelations);
-      try {
-        const schoolIds = [...new Set(nextRelations.map((relation) => relation.schoolId))];
-        const loaded: School[] = [];
-        for (let index = 0; index < schoolIds.length; index += 30) {
-          const schoolsSnapshot = await getDocs(query(collection(database, "schools"), where(documentId(), "in", schoolIds.slice(index, index + 30))));
-          schoolsSnapshot.docs.forEach((item) => loaded.push({ id: item.id, ...item.data() } as School));
-        }
-        setSchools(loaded);
-        setSelectedSchoolId((current) => current && !nextRelations.some((item) => item.schoolId === current) ? "" : current);
-      } catch { setError("Impossible de charger les écoles rattachées."); }
+      const schoolIds = [...new Set(nextRelations.map((relation) => relation.schoolId))];
+      const chunks = Array.from({ length: Math.ceil(schoolIds.length / 30) }, (_, index) => schoolIds.slice(index * 30, index * 30 + 30));
+      const loaded = new Map<number, School[]>();
+      if (chunks.length === 0) setSchools([]);
+      chunks.forEach((ids, index) => {
+        stopSchoolListeners.push(onSnapshot(query(collection(database, "schools"), where(documentId(), "in", ids)), (schoolsSnapshot) => {
+          if (revision !== relationRevision) return;
+          loaded.set(index, schoolsSnapshot.docs.map((item) => ({ id: item.id, ...item.data() } as School)));
+          if (loaded.size === chunks.length) setSchools([...loaded.values()].flat());
+        }, () => setError("Impossible de charger les écoles rattachées.")));
+      });
+      setSelectedSchoolId((current) => current && !nextRelations.some((item) => item.schoolId === current) ? "" : current);
     }, () => setError("Impossible de charger les écoles rattachées."));
     const stopSubCoordination = user.role === "sub_coordination_admin" && user.subCoordinationId
       ? onSnapshot(doc(database, "subCoordinations", user.subCoordinationId), (snapshot) => {
@@ -69,7 +76,7 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
         setSubCoordination({ id: snapshot.id, ...snapshot.data() } as SubCoordination);
       }, () => setError("Impossible de charger la Sous-coordination."))
       : undefined;
-    return () => { stopCoordination(); stopRelations(); stopSubCoordination?.(); };
+    return () => { relationRevision++; stopSchoolListeners.forEach((stop) => stop()); stopCoordination(); stopRelations(); stopSubCoordination?.(); };
   }, [refreshToken, user.coordinationId, user.role, user.subCoordinationId]);
 
   const activeSchools = useMemo(() => schools.filter((school) => school.status === "active" && relations.some((relation) => relation.schoolId === school.id)), [relations, schools]);
@@ -89,7 +96,7 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
   }, [activeSchools, supervisionScope]);
 
   useEffect(() => {
-    if (!["dashboard", "students", "control"].includes(tab) || !supervisionScope || loadedSupervisionScope === supervisionScope) return;
+    if (!["dashboard", "control"].includes(tab) || !supervisionScope || loadedSupervisionScope === supervisionScope) return;
     void loadSupervision().catch(() => undefined);
   }, [loadSupervision, loadedSupervisionScope, supervisionScope, tab]);
 
@@ -99,7 +106,7 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
       lock: refreshInFlightRef,
       setRefreshing,
       load: async () => {
-        if (["dashboard", "students", "control"].includes(tab)) await loadSupervision();
+        if (["dashboard", "control"].includes(tab)) await loadSupervision();
         return true;
       },
       apply: () => setRefreshToken((value) => value + 1),
@@ -140,7 +147,7 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
       {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
       {tab === "dashboard" && coordination && <CoordinationDashboard coordination={coordination} schools={activeSchools} selectedSchoolId={selectedSchoolId} onSchoolChange={setSelectedSchoolId} user={user} model={supervisionModel} loading={supervisionLoading} loadError={supervisionError} />}
       {tab === "students" && coordination && (
-        <CoordinationStudents user={user} coordination={coordination} schools={activeSchools} selectedSchoolId={selectedSchoolId} model={supervisionModel} loading={supervisionLoading} loadError={supervisionError}/>
+        <CoordinationStudents user={user} coordination={coordination} schools={activeSchools} selectedSchoolId={selectedSchoolId} refreshToken={refreshToken}/>
       )}
       {tab === "control" && coordination && (
         <CoordinationControl user={user} coordination={coordination} schools={activeSchools} selectedSchoolId={selectedSchoolId} model={supervisionModel} loading={supervisionLoading} loadError={supervisionError}/>

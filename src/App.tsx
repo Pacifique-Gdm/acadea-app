@@ -1,6 +1,7 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateCoordinator, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff, validateSecretary, validateStudyDirector, validateTeacher } from "./services/auth";
 import { AccessDenied } from "./components/auth/AccessDenied";
+import { SuspendedSchool } from "./components/auth/SuspendedSchool";
 import { ActivityHistoryContent } from "./components/history/ActivityHistoryContent";
 import { LoginScreen } from "./components/auth/LoginScreen";
 import { Header } from "./components/layout/Header";
@@ -46,7 +47,7 @@ import { useRealtimeSchoolSettings } from "./hooks/useRealtimeSchoolSettings";
 import { useRealtimeSchoolUsers } from "./hooks/useRealtimeSchoolUsers";
 import { markNotificationsReadTargeted } from "./services/notificationsPagination";
 import { restorePaymentPushNotifications, stopPaymentPushForegroundListener } from "./services/pushNotifications";
-import { canUseFirestoreData, loadDisciplineYearData, loadFirestoreBootstrapData, loadFirestoreData, loadFirestoreYearData, loadParentPortalData, loadPlatformSettings, persistFirestorePatch, realtimeManagedCollections } from "./services/firestoreData";
+import { canUseFirestoreData, loadDisciplineYearData, loadFirestoreBootstrapData, loadFirestoreData, loadFirestoreYearData, loadParentPortalData, loadPlatformSettings, persistFirestorePatch, realtimeManagedCollections, SchoolSuspendedError } from "./services/firestoreData";
 import { loadSuperAdminGlobalCounts, loadSuperAdminInitialData } from "./services/superAdminData";
 import type { SuperAdminGlobalCounts } from "./services/superAdminData";
 import { isSessionAuditAction } from "./utils/audit";
@@ -182,6 +183,8 @@ export default function App() {
   const [authError, setAuthError] = useState("");
   const [dataLoading, setDataLoading] = useState(false);
   const [bootstrapError, setBootstrapError] = useState("");
+  const [schoolSuspended, setSchoolSuspended] = useState(false);
+  const suspendedSchoolRef = useRef(false);
   const [bootstrapRetry, setBootstrapRetry] = useState(0);
   const [platformCounts, setPlatformCounts] = useState<SuperAdminGlobalCounts | null>(null);
   const [platformLoadError, setPlatformLoadError] = useState("");
@@ -281,8 +284,18 @@ export default function App() {
   const applyRealtimeSchoolSettings = useCallback((incomingSchool: AppData["schools"][number]) => {
     setData((current) => ({
       ...current,
-      schools: current.schools.map((item) => (item.id === incomingSchool.id ? incomingSchool : item)),
+      schools: current.schools.some((item) => item.id === incomingSchool.id)
+        ? current.schools.map((item) => (item.id === incomingSchool.id ? incomingSchool : item))
+        : [...current.schools, incomingSchool],
     }));
+    if (incomingSchool.status === "suspended") {
+      suspendedSchoolRef.current = true;
+      setSchoolSuspended(true);
+    } else if (suspendedSchoolRef.current) {
+      suspendedSchoolRef.current = false;
+      setSchoolSuspended(false);
+      setBootstrapRetry((value) => value + 1);
+    }
   }, []);
   const handleRealtimeSchoolSettingsError = useCallback((error: Error) => {
     console.warn("Actualisation temps réel des paramètres école indisponible.", error);
@@ -393,6 +406,8 @@ export default function App() {
     setBootstrapError("");
 
     if (!nextUser) {
+      suspendedSchoolRef.current = false;
+      setSchoolSuspended(false);
       authenticatedUserIdRef.current = "";
       setUser(null);
       setSelectedYearId("");
@@ -413,6 +428,8 @@ export default function App() {
     }
 
     authenticatedUserIdRef.current = nextUser.id;
+    suspendedSchoolRef.current = false;
+    setSchoolSuspended(false);
     setDataLoading(nextUser.role !== "super_admin");
     setUser(nextUser);
     setSelectedYearId("");
@@ -525,6 +542,11 @@ export default function App() {
       } catch (error) {
         if (cancelled || logoutInProgressRef.current) return;
         if (requestVersion !== yearRequestVersion.current) return;
+        if (error instanceof SchoolSuspendedError) {
+          suspendedSchoolRef.current = true;
+          setSchoolSuspended(true);
+          return;
+        }
         if (bootstrapResolved) {
           console.warn("Chargement des données secondaires indisponible.", error);
           setRefreshError(refreshErrorMessage(error));
@@ -611,6 +633,8 @@ export default function App() {
   async function logout() {
     yearRequestVersion.current += 1;
     logoutInProgressRef.current = true;
+    suspendedSchoolRef.current = false;
+    setSchoolSuspended(false);
     setUser(null);
     setSelectedYearId("");
     setActiveTab("dashboard");
@@ -756,7 +780,7 @@ export default function App() {
       <main className="grid min-h-screen place-items-center bg-[#F5F7FB] px-4 text-center">
         <div>
           <PlatformLogoSlot logoUrl={platformLogoUrl} compact />
-          <p className="font-semibold text-ink">Vérification de la session Firebase...</p>
+          <p className="font-semibold text-ink">Préparation de votre espace Acadéa...</p>
         </div>
       </main>
     );
@@ -764,6 +788,10 @@ export default function App() {
 
   if (!user || route === "/login") {
     return <LoginScreen onLogin={loginWithCredentials} initialError={authError} platformLogoUrl={platformLogoUrl} />;
+  }
+
+  if (schoolSuspended || school?.status === "suspended") {
+    return <SuspendedSchool logoUrl={platformLogoUrl} onLogout={logout} />;
   }
 
   if (route === "/platform") {

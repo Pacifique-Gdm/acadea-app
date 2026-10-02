@@ -7,6 +7,11 @@ import { normalizeSchoolOptions } from "../utils/schoolOptions";
 const allowedRoles = new Set<AppUser["role"]>([
   "school_admin",
   "secretary",
+  "cashier",
+  "study_director",
+  "discipline_director",
+  "teacher",
+  "parent",
 ]);
 
 export function canSubscribeToRealtimeSchoolSettings(user: AppUser | null, schoolId: string) {

@@ -8,6 +8,7 @@ import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
 import { deleteSchoolSubclass } from "./_lib/schoolSubclassDeletion.js";
 import { createSchoolSubclasses } from "./_lib/schoolSubclassCreation.js";
 import { saveManualStudent } from "./_lib/manualStudentSave.js";
+import { saveStudyAssignments, setStudyAssignmentActive } from "./_lib/studyAssignmentGrants.js";
 
 const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent"]);
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
@@ -583,8 +584,9 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
     return { user: { ...target, id: personnelId, name, phone, email, section: sectionIds[0], sectionIds, updatedAt: now, updatedBy: caller.uid }, profile: savedProfile };
   }
   const archive = action === "archive-personnel";
-  if (archive && (target.status === "inactive" || target.active === false)) return { user: { ...target, id: personnelId }, authStatus: "disabled" };
-  if (!archive && target.status !== "inactive" && target.active !== false) return { user: { ...target, id: personnelId }, authStatus: "enabled" };
+  const userAlreadyInactive = target.status === "inactive" || target.active === false;
+  if (archive && userAlreadyInactive && target.role !== "teacher") return { user: { ...target, id: personnelId }, authStatus: "disabled" };
+  if (!archive && !userAlreadyInactive) return { user: { ...target, id: personnelId }, authStatus: "enabled" };
   const authTarget = await auth.getUser(personnelId);
   const targetClaims = authTarget.customClaims ?? {};
   const previousClaims = { ...targetClaims };
@@ -597,11 +599,21 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
   if (teacherReset && !currentSchoolYearId) {
     throw Object.assign(new Error("Année scolaire active introuvable pour réinitialiser le contexte pédagogique."), { statusCode: 409, code: "failed-precondition" });
   }
-  const teacherProfiles = teacherReset
+  const teacherProfiles = target.role === "teacher"
     ? (await db.collection("teachers").where("userId", "==", personnelId).get()).docs
       .map((snapshot) => ({ snapshot, data: snapshot.data() ?? {} }))
-      .filter(({ data }) => data.schoolId === schoolId && data.schoolYearId === currentSchoolYearId)
+      .filter(({ data }) => data.schoolId === schoolId && (!teacherReset || data.schoolYearId === currentSchoolYearId))
     : [];
+  const teacherProfilesNeedingArchive = archive ? teacherProfiles.filter(({ data }) =>
+    data.status !== "inactive" || data.active !== false || ("storageAssignmentIds" in data && (!Array.isArray(data.storageAssignmentIds) || data.storageAssignmentIds.length > 0))) : [];
+  const teacherGrantNeedsClear = target.role === "teacher" && "storageAssignmentKeys" in target
+    && (!Array.isArray(target.storageAssignmentKeys) || target.storageAssignmentKeys.length > 0);
+  if (archive && userAlreadyInactive && authTarget.disabled === true && teacherProfilesNeedingArchive.length === 0 && !teacherGrantNeedsClear) {
+    return { user: { ...target, id: personnelId }, authStatus: "disabled" };
+  }
+  if (archive && (userAlreadyInactive ? 0 : 1) + teacherProfilesNeedingArchive.length + 1 > 500) {
+    throw Object.assign(new Error("Trop de profils Enseignant à archiver atomiquement."), { statusCode: 409, code: "failed-precondition" });
+  }
   const oldTeacherIds = teacherProfiles.map(({ snapshot }) => snapshot.id);
   const activeTeacherProfile = teacherProfiles.find(({ data }) => data.active !== false && data.status !== "inactive") ?? teacherProfiles[0];
   const teacherContextRefs = [];
@@ -628,22 +640,26 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
   if (resetWriteCount > 500) {
     throw Object.assign(new Error("Le contexte pédagogique est trop volumineux pour une réactivation atomique."), { statusCode: 409, code: "failed-precondition" });
   }
-  await auth.updateUser(personnelId, { disabled: archive });
-  if (archive) await auth.revokeRefreshTokens(personnelId);
+  const authChanged = authTarget.disabled !== archive;
+  if (authChanged) await auth.updateUser(personnelId, { disabled: archive });
+  if (archive && (!userAlreadyInactive || authChanged)) await auth.revokeRefreshTokens(personnelId);
   const patch = archive
     ? { status: "inactive", active: false, archivedAt: now, archivedBy: caller.uid, updatedAt: now, updatedBy: caller.uid }
     : { status: "active", active: true, archivedAt: null, archivedBy: null, reactivatedAt: now, reactivatedBy: caller.uid, updatedAt: now, updatedBy: caller.uid };
+  if (target.role === "teacher") patch.storageAssignmentKeys = [];
   const batch = db.batch();
-  batch.update(targetRef, patch);
+  if (!archive || !userAlreadyInactive || teacherGrantNeedsClear) batch.update(targetRef, patch);
   if (!archive && claimsNeedRestore) await auth.setCustomUserClaims(personnelId, { role: target.role, schoolId });
   if (teacherReset) {
-    teacherProfiles.forEach(({ snapshot }) => batch.update(snapshot.ref, { status: snapshot.id === activeTeacherProfile?.snapshot.id ? "active" : "inactive", active: snapshot.id === activeTeacherProfile?.snapshot.id, updatedAt: now, updatedBy: caller.uid }));
+    teacherProfiles.forEach(({ snapshot }) => batch.update(snapshot.ref, { status: snapshot.id === activeTeacherProfile?.snapshot.id ? "active" : "inactive", active: snapshot.id === activeTeacherProfile?.snapshot.id, storageAssignmentIds: [], updatedAt: now, updatedBy: caller.uid }));
     teacherContextRefs.forEach(({ ref, type }) => batch.update(ref, { active: false, resetOnReactivation: true, resetAt: now, resetBy: caller.uid, updatedAt: now, ...(type === "timetableEntries" ? {} : { updatedBy: caller.uid }) }));
     assignmentLockRefs.forEach((ref) => batch.delete(ref));
+  } else if (archive && target.role === "teacher") {
+    teacherProfilesNeedingArchive.forEach(({ snapshot, data }) => batch.update(snapshot.ref, { status: "inactive", active: false, ...("storageAssignmentIds" in data ? { storageAssignmentIds: [] } : {}), updatedAt: now, updatedBy: caller.uid }));
   }
   batch.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: archive ? AUDIT_EVENT_TYPES.USER_DISABLED : AUDIT_EVENT_TYPES.USER_REACTIVATED, actor: caller, schoolId, resourceType: "user", resourceId: personnelId, metadata: { role: target.role } }));
   try { await batch.commit(); } catch (error) {
-    await auth.updateUser(personnelId, { disabled: !archive }).catch(() => undefined);
+    if (authChanged) await auth.updateUser(personnelId, { disabled: authTarget.disabled }).catch(() => undefined);
     if (!archive && claimsNeedRestore) await auth.setCustomUserClaims(personnelId, previousClaims).catch(() => undefined);
     throw error;
   }
@@ -675,8 +691,8 @@ export default async function handler(req, res) {
     adminDb = db;
 
     const caller = await verifyActorIdToken(auth, token);
-    await requireActiveApiUser(db, caller);
     const body = await readBody(req);
+    await requireActiveApiUser(db, caller);
     const action = normalizeText(body.action);
     if (action === "import-archived-students") {
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: "students.import-archive", ...API_RATE_LIMITS.FINANCE_CREATE });
@@ -691,6 +707,14 @@ export default async function handler(req, res) {
     if (action === "save-manual-student") {
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: "students.save-manual", ...API_RATE_LIMITS.FINANCE_CREATE });
       sendJson(res, 200, await saveManualStudent({ db, caller, body }));
+      return;
+    }
+    if (action === "save-study-assignments" || action === "set-study-assignment-active") {
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: `study.${action}`, ...API_RATE_LIMITS.FINANCE_CREATE });
+      const result = action === "save-study-assignments"
+        ? await saveStudyAssignments({ db, caller, body })
+        : await setStudyAssignmentActive({ db, caller, body });
+      sendJson(res, 200, result);
       return;
     }
     const destructive = action === "delete-parent" || action === "delete-school-subclass" || action === "unlink-parent-from-student" || action === "remove-school-admin" || action === "archive-personnel" || action === "reactivate-personnel";
@@ -809,6 +833,7 @@ export default async function handler(req, res) {
           schoolId,
           schoolYearId,
           status: "active",
+          storageAssignmentIds: [],
           createdAt: now,
           updatedAt: now,
           createdBy: caller.uid,

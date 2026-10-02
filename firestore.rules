@@ -2,7 +2,16 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() {
-      return request.auth != null && activeActorProfile();
+      return request.auth != null && activeActorProfile()
+        && (request.auth.token.role in ["super_admin", "coordination_admin", "sub_coordination_admin"]
+          || tenantSchoolActive());
+    }
+
+    function tenantSchoolActive() {
+      let schoolPath = /databases/$(database)/documents/schools/$(request.auth.token.schoolId);
+      return tenantSchoolId() is string
+        && (!exists(schoolPath)
+          || !(get(schoolPath).data.get("status", "active") in ["suspended", "inactive", "deleting"]));
     }
 
     function activeActorProfile() {
@@ -31,20 +40,18 @@ service cloud.firestore {
     }
 
     function superAdmin() {
-      return signedIn() && role() == "super_admin";
+      return request.auth != null && role() == "super_admin" && signedIn();
     }
 
     function coordinator() {
-      return signedIn()
-        && role() == "coordination_admin"
-        && request.auth.token.coordinationId is string;
+      return request.auth != null && role() == "coordination_admin"
+        && request.auth.token.coordinationId is string && signedIn();
     }
 
     function subCoordinator() {
-      return signedIn()
-        && role() == "sub_coordination_admin"
+      return request.auth != null && role() == "sub_coordination_admin"
         && request.auth.token.coordinationId is string
-        && request.auth.token.subCoordinationId is string;
+        && request.auth.token.subCoordinationId is string && signedIn();
     }
 
     function coordinationActor() {
@@ -113,30 +120,29 @@ service cloud.firestore {
     }
 
     function schoolUser() {
-      return signedIn()
+      return request.auth != null
         && role() in ["school_admin", "cashier", "secretary", "parent"]
-        && tenantSchoolId() is string;
+        && tenantSchoolId() is string && signedIn();
     }
 
     function schoolAdmin() {
-      return signedIn() && role() == "school_admin" && tenantSchoolId() is string;
+      return request.auth != null && role() == "school_admin" && tenantSchoolId() is string && signedIn();
     }
 
     function parentUser() {
-      return signedIn()
-        && role() == "parent"
+      return request.auth != null && role() == "parent"
         && tenantSchoolId() is string
-        && tenantParentId() is string;
+        && tenantParentId() is string && signedIn();
     }
 
     function secretary() {
-      return signedIn() && role() == "secretary" && tenantSchoolId() is string;
+      return request.auth != null && role() == "secretary" && tenantSchoolId() is string && signedIn();
     }
 
     function activeCashier() {
-      return signedIn()
-        && role() == "cashier"
+      return request.auth != null && role() == "cashier"
         && tenantSchoolId() is string
+        && signedIn()
         && exists(/databases/$(database)/documents/users/$(request.auth.uid))
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.schoolId == tenantSchoolId()
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "cashier"
@@ -145,7 +151,7 @@ service cloud.firestore {
     }
 
     function studyDirector() {
-      return signedIn() && role() == "study_director" && tenantSchoolId() is string;
+      return request.auth != null && role() == "study_director" && tenantSchoolId() is string && signedIn();
     }
 
     function studyDirectorSectionAllowed(section) {
@@ -187,9 +193,9 @@ service cloud.firestore {
     }
 
     function activeTeacher() {
-      return signedIn()
-        && role() == "teacher"
+      return request.auth != null && role() == "teacher"
         && tenantSchoolId() is string
+        && signedIn()
         && exists(/databases/$(database)/documents/users/$(request.auth.uid))
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.schoolId == tenantSchoolId()
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "teacher"
@@ -348,9 +354,8 @@ service cloud.firestore {
     }
 
     function disciplineDirector() {
-      return signedIn()
-        && role() == "discipline_director"
-        && tenantSchoolId() is string;
+      return request.auth != null && role() == "discipline_director"
+        && tenantSchoolId() is string && signedIn();
     }
 
     function sameTenantResource() {
@@ -512,7 +517,7 @@ service cloud.firestore {
     }
 
     match /schools/{schoolId} {
-      allow read: if superAdmin() || coordinatorSchool(schoolId) || (schoolUser() && schoolId == tenantSchoolId()) || (disciplineDirector() && schoolId == tenantSchoolId()) || (studyDirector() && schoolId == tenantSchoolId()) || (activeTeacher() && schoolId == tenantSchoolId());
+      allow read: if superAdmin() || coordinatorSchool(schoolId) || (request.auth != null && activeActorProfile() && schoolId == tenantSchoolId()) || (schoolUser() && schoolId == tenantSchoolId()) || (disciplineDirector() && schoolId == tenantSchoolId()) || (studyDirector() && schoolId == tenantSchoolId()) || (activeTeacher() && schoolId == tenantSchoolId());
       allow create: if superAdmin();
       allow update: if superAdminAiAssistantUpdate() || schoolSettingsUpdate(schoolId) || secretarySchoolOptionsUpdate(schoolId);
       allow delete: if superAdmin();
@@ -528,7 +533,7 @@ service cloud.firestore {
         || (coordinator()
           && resource.data.role == "sub_coordination_admin"
           && resource.data.coordinationId == request.auth.token.coordinationId)
-        || (signedIn() && request.auth.uid == userId)
+        || (request.auth != null && activeActorProfile() && request.auth.uid == userId)
         || (schoolAdmin()
           && resource.data.schoolId == tenantSchoolId()
           && resource.data.role in ["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"])
@@ -542,15 +547,17 @@ service cloud.firestore {
       allow create: if (superAdmin()
           && request.resource.data.id == userId
           && request.resource.data.role == "school_admin"
-          && request.resource.data.schoolId is string)
+          && request.resource.data.schoolId is string
+          && !('storageAssignmentKeys' in request.resource.data))
         || (schoolAdmin()
           && request.resource.data.id == userId
           && request.resource.data.role == "parent"
           && request.resource.data.schoolId == tenantSchoolId()
-          && request.resource.data.parentId is string);
+          && request.resource.data.parentId is string
+          && !('storageAssignmentKeys' in request.resource.data));
       allow update: if signedIn()
         && request.auth.uid == userId
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["id", "role", "schoolId", "coordinationId", "subCoordinationId", "parentId", "studentIds", "section", "sectionIds", "status", "active", "archivedAt", "archivedBy", "reactivatedAt", "reactivatedBy"]);
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["id", "role", "schoolId", "coordinationId", "subCoordinationId", "parentId", "studentIds", "section", "sectionIds", "status", "active", "archivedAt", "archivedBy", "reactivatedAt", "reactivatedBy", "storageAssignmentKeys"]);
       allow delete: if false;
 
       match /pushTokens/{tokenId} {
@@ -788,8 +795,15 @@ service cloud.firestore {
 
     match /teachers/{teacherId} {
       allow read: if superAdmin() || sameTenantResource() || studyTenantResource() || teacherOwnProfile();
-      allow create: if schoolAdmin() && activeTenantYearCreate();
-      allow update: if schoolAdmin() && activeTenantYearUpdate();
+      allow create: if schoolAdmin() && activeTenantYearCreate()
+        && request.resource.data.get("storageAssignmentIds", []) == [];
+      allow update: if (schoolAdmin() && activeTenantYearUpdate()
+          && request.resource.data.get("storageAssignmentIds", []) == resource.data.get("storageAssignmentIds", []))
+        || (activeStudyYearUpdate()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["storageAssignmentIds"])
+          && request.resource.data.storageAssignmentIds is list
+          && request.resource.data.storageAssignmentIds.size() <= 200
+          && request.resource.data.storageAssignmentIds.size() == request.resource.data.storageAssignmentIds.toSet().size());
       allow delete: if schoolAdmin() && sameTenantResource()
         && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
     }
@@ -871,6 +885,18 @@ service cloud.firestore {
     }
 
     match /pedagogicalAssignments/{assignmentId} {
+      function clientCannotBypassServerGrantSync() {
+        let teacher = get(/databases/$(database)/documents/teachers/$(request.resource.data.teacherId)).data;
+        return !(teacher.get("userId", null) is string)
+          || !('storageAssignmentKeys' in get(/databases/$(database)/documents/users/$(teacher.userId)).data);
+      }
+      function storageGrantMatchesAssignment() {
+        let teacher = getAfter(/databases/$(database)/documents/teachers/$(request.resource.data.teacherId)).data;
+        return !('storageAssignmentIds' in teacher)
+          || (teacher.storageAssignmentIds is list
+            && ((request.resource.data.active == true && assignmentId in teacher.storageAssignmentIds)
+              || (request.resource.data.active == false && !(assignmentId in teacher.storageAssignmentIds))));
+      }
       function assignmentTeacherIsActive() {
         let teacher = get(/databases/$(database)/documents/teachers/$(request.resource.data.teacherId)).data;
         return teacher.status != "inactive"
@@ -966,12 +992,17 @@ service cloud.firestore {
       allow create: if activeStudyYearCreate()
         && validAssignmentShape()
         && assignmentReferencesAreValid()
+        && clientCannotBypassServerGrantSync()
+        && storageGrantMatchesAssignment()
         && activeAssignmentLockIsValid()
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.updatedBy == request.auth.uid;
       allow update: if activeStudyYearUpdate()
         && validAssignmentShape()
         && assignmentReferencesAreValid()
+        && (clientCannotBypassServerGrantSync()
+          || request.resource.data.diff(resource.data).affectedKeys().hasOnly(["blockSize", "updatedAt", "updatedBy"]))
+        && storageGrantMatchesAssignment()
         && activeAssignmentLockIsValid()
         && request.resource.data.id == resource.data.id
         && request.resource.data.teacherId == resource.data.teacherId
@@ -1133,6 +1164,7 @@ service cloud.firestore {
     match /pedagogicalDocuments/{documentId} {
       allow read: if ownTeacherLearningData(resource.data) || studyTenantResource();
       allow create: if request.resource.data.id == documentId
+        && !("fileUrl" in request.resource.data)
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.updatedBy == request.auth.uid
         && request.resource.data.archived == false
@@ -1143,6 +1175,7 @@ service cloud.firestore {
         && request.resource.data.teacherId == resource.data.teacherId
         && request.resource.data.assignmentId == resource.data.assignmentId
         && request.resource.data.storagePath == resource.data.storagePath
+        && request.resource.data.get("fileUrl", null) == resource.data.get("fileUrl", null)
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.createdBy == resource.data.createdBy
         && request.resource.data.updatedBy == request.auth.uid

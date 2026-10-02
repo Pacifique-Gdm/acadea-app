@@ -1,4 +1,4 @@
-import { verifyActorIdToken } from "./activeUser.js";
+import { requireActiveApiUser, verifyActorIdToken } from "./activeUser.js";
 import { requireActiveSchoolYear } from "./schoolYear.js";
 
 const ALLOWED_SENDERS = new Set(["school_admin", "admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent"]);
@@ -138,6 +138,7 @@ export async function requireMessagingCaller(auth, db, token) {
   if (!decoded.schoolId || !ALLOWED_SENDERS.has(decoded.role) || allowedRecipientRoles(role).size === 0) {
     throw Object.assign(new Error("Action non autorisee."), { statusCode: 403, code: "not-authorized" });
   }
+  await requireActiveApiUser(db, decoded);
   const snapshot = await db.doc(`users/${decoded.uid}`).get();
   const profile = snapshot.exists ? snapshot.data() : undefined;
   if (!profile || normalizedMessagingRole(profile.role) !== role || profile.schoolId !== decoded.schoolId || profile.active === false || profile.status === "inactive") {

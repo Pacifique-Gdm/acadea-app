@@ -51,6 +51,14 @@ beforeEach(async () => {
 afterAll(async () => environment?.cleanup(), 30_000);
 
 describe("pieces jointes Valves", () => {
+  it("refuse upload et lecture déjà autorisée après suspension de l'école", async () => {
+    await assertSucceeds(put("secretary", `${fileId}.pdf`, "application/pdf"));
+    await testEnvironment().withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), "schools", schoolId), { id: schoolId, status: "suspended" });
+    });
+    await assertFails(put("secretary", "222e4567-e89b-12d3-a456-426614174000.pdf", "application/pdf"));
+    await assertFails(context("secretary").storage().ref(`valves/${schoolId}/${yearId}/${publicationId}/${fileId}.pdf`).getDownloadURL());
+  });
   it("refuse un nouvel upload pendant la suppression de l'école", async () => {
     await testEnvironment().withSecurityRulesDisabled(async (admin) => {
       await setDoc(doc(admin.firestore(), "schools", schoolId), { id: schoolId, status: "deleting" });

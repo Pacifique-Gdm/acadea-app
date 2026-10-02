@@ -24,6 +24,12 @@ describe("profil actif pour les API Vercel", () => {
   ])("refuse un profil inactif ou absent malgré un ancien token", async (profile) => {
     await expect(requireActiveApiUser(database(profile), caller)).rejects.toMatchObject({ statusCode: 403, code: "permission-denied" });
   });
+
+  it("refuse les API métier d'une école suspendue sans bloquer la supervision", async () => {
+    const db = { doc: vi.fn((path: string) => ({ get: vi.fn(async () => ({ exists: true, data: () => path.startsWith("schools/") ? { status: "suspended" } : { role: "school_admin", schoolId: "school-a", status: "active" } })) })) };
+    await expect(requireActiveApiUser(db, { uid: "admin-a", role: "school_admin", schoolId: "school-a" })).rejects.toMatchObject({ statusCode: 403, code: "permission-denied" });
+    await expect(requireActiveApiUser(db, { uid: "admin-a", role: "super_admin" })).resolves.toMatchObject({ role: "super_admin" });
+  });
 });
 
 describe("jeton d'acteur API", () => {

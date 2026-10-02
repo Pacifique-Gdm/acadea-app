@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const moduleSource = readFileSync("src/modules/studies/StudyTeachersModule.tsx", "utf8");
-const serviceSource = readFileSync("src/modules/studies/studyService.ts", "utf8");
+const serviceSource = readFileSync("api/_lib/studyAssignmentGrants.js", "utf8");
 
 describe("StudyTeachers assignment editor contract", () => {
   it("retire la colonne ACTION et affiche la titularité dans la liste des enseignants", () => {
@@ -47,12 +47,13 @@ describe("StudyTeachers assignment editor contract", () => {
   });
 
   it("submits every selected course/class combination through one transactional service", () => {
-    expect(moduleSource).toContain("subjectIds: savedSubjectIds, classIds: savedClassIds");
-    expect(moduleSource).toContain("current: editingAssignment");
+    expect(moduleSource).toContain("saveStudyAssignmentsServer({ schoolId: school.id");
+    expect(moduleSource).toContain("subjectIds: savedSubjectIds, classSelections");
+    expect(moduleSource).toContain("currentId: editingAssignment?.id");
     expect(serviceSource).toContain("const targetIds = new Set(targets.map");
-    expect(serviceSource).toContain('"pedagogicalAssignmentLocks"');
-    expect(serviceSource).toContain("transaction.update(doc(database, \"pedagogicalAssignments\", input.current.id)");
-    expect(serviceSource).toContain("combinations.forEach(({ subjectId, classId, courseScope, targetOptionIds, studentGroupKey })");
+    expect(serviceSource).toContain("pedagogicalAssignmentLocks/${target.lockId}");
+    expect(serviceSource).toContain("transaction.update(current.ref, { active: false");
+    expect(serviceSource).toContain("updateUserGrants(transaction, teacherUser, additions, removals)");
     expect(moduleSource).toContain('Type de cours');
     expect(moduleSource).toContain('Tronc commun');
     expect(moduleSource).toContain('Cours d’option');

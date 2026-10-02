@@ -91,6 +91,20 @@ async function mutateYears(db, caller, input, action) {
       newYear = { name, startsAt, endsAt, status: "active", createdAt: now, createdBy: caller.uid };
       if (previous?.status === "closed") governance = { ...previous, status: "superseded", supersededAt: now, supersededBy: caller.uid };
     }
+    let storageGrantRevocations = [];
+    if (action === "close") {
+      const closedPrefixes = results.map((item) => `${item.schoolId}/${item.schoolYearId}/`);
+      const teacherUsers = await transaction.get(db.collection("users").where("role", "==", "teacher"));
+      storageGrantRevocations = teacherUsers.docs.flatMap((snapshot) => {
+        const current = snapshot.data().storageAssignmentKeys;
+        if (current === undefined) return [];
+        if (!Array.isArray(current) || current.some((key) => typeof key !== "string")) throw coordinationHttpError(409, "invalid-storage-grants", "Droits Storage Enseignant incohérents. Aucune année n'a été clôturée.");
+        const next = current.filter((key) => !closedPrefixes.some((prefix) => key.startsWith(prefix)));
+        return next.length === current.length ? [] : [{ ref: snapshot.ref, keys: next }];
+      });
+      if (storageGrantRevocations.length + results.length * 2 + 2 > 500) throw coordinationHttpError(409, "too-many-storage-grants", "Trop de droits Storage à révoquer atomiquement. Aucune année n'a été clôturée.");
+    }
+    for (const item of storageGrantRevocations) transaction.update(item.ref, { storageAssignmentKeys: item.keys });
     for (const result of results) {
       const yearRef = db.doc(`schoolYears/${result.schoolYearId}`);
       if (newYear) {

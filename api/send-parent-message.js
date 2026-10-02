@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { initAdmin } from "./_lib/firebaseAdmin.js";
-import { verifyActorIdToken } from "./_lib/activeUser.js";
+import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { requireActiveSchoolYear } from "./_lib/schoolYear.js";
 import { allowedRecipientRoles, normalizedMessagingRole } from "./_lib/messageRecipients.js";
@@ -99,6 +99,7 @@ function nextMessageThreadId(messages, senderId, recipientParentId, threadParent
 
 async function requireParentContext({ auth, db, token }) {
   const caller = await verifyActorIdToken(auth, token);
+  await requireActiveApiUser(db, caller);
   if (caller.role !== "parent" || !caller.schoolId || !caller.parentId) {
     throw Object.assign(new Error("Action reservee a un parent autorise."), { statusCode: 403, code: "not-authorized" });
   }

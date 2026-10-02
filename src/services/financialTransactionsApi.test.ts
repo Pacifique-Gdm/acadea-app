@@ -132,6 +132,23 @@ describe("API financière transactionnelle", () => {
     expect(result.settled).toMatchObject([{ yearName: "2026-2027", feeName: "Transport", remaining: 0 }]);
   });
 
+  it("autorise le parent lié à lire uniquement les arriérés de son enfant actif dans son école", async () => {
+    const seed = historicalSeed();
+    const db = fakeDb({ ...seed,
+      "users/parent-a": { id: "parent-a", schoolId: "school-a", role: "parent", parentId: "parent-profile-a", status: "active" },
+      "students/student-current": { ...seed["students/student-current"], parentId: "parent-profile-a" },
+      "students/unrelated": { id: "unrelated", schoolId: "school-a", schoolYearId: "year-current", status: "ACTIVE", parentId: "parent-profile-b" },
+      "students/foreign": { id: "foreign", schoolId: "school-b", schoolYearId: "year-current", status: "ACTIVE", parentId: "parent-profile-a" },
+    });
+    const parent = { uid: "parent-a", role: "parent", schoolId: "school-a", parentId: "parent-profile-a" };
+    const body = { action: "list-arrears", schoolYearId: "year-current", studentId: "student-current" };
+    await expect(listStudentArrears({ db, caller: parent, body })).resolves.toMatchObject({ debts: [{ feeTypeId: "fee-a", remaining: 30 }] });
+    await expect(listStudentArrears({ db, caller: parent, body: { ...body, studentId: "unrelated" } })).rejects.toMatchObject({ code: "permission-denied" });
+    await expect(listStudentArrears({ db, caller: parent, body: { ...body, studentId: "foreign" } })).rejects.toMatchObject({ code: "invalid-argument" });
+    const inactiveDb = fakeDb({ ...Object.fromEntries(db.documents), "users/parent-a": { schoolId: "school-a", role: "parent", parentId: "parent-profile-a", status: "inactive" } });
+    await expect(listStudentArrears({ db: inactiveDb, caller: parent, body })).rejects.toMatchObject({ code: "permission-denied" });
+  });
+
   it("recalcule les acomptes en transaction et retire la dette après solde complet", async () => {
     const db = fakeDb(historicalSeed());
     const body = { action: "create-payment", schoolYearId: "year-current", studentId: "student-current", debtSchoolYearId: "year-a", feeTypeId: "fee-a" };

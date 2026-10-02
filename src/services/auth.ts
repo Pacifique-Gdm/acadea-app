@@ -34,7 +34,7 @@ type RawAppUser = Omit<AppUser, "role" | "schoolId"> & {
 
 function assertFirebaseAuthReady() {
   if (!firebaseReady || !auth || !db) {
-    throw new Error("Configuration Firebase requise pour l'authentification.");
+    throw new Error("Le service de connexion est indisponible. Veuillez réessayer.");
   }
 }
 
@@ -75,21 +75,21 @@ function resolveFirebaseUserProfile(firebaseUser: FirebaseUser, firestoreDocumen
   assertFirebaseAuthReady();
 
   if (!isRole(claims.role)) {
-    throw new Error("Connexion refusée : le rôle Firebase Custom Claims est manquant ou invalide.");
+    throw new Error("Connexion refusée : votre profil d'accès est incomplet.");
   }
 
   if (["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "admin"].includes(String(claims.role)) && typeof claims.schoolId !== "string") {
-    throw new Error("Connexion refusée : le Custom Claim schoolId est manquant.");
+    throw new Error("Connexion refusée : votre établissement n'est pas renseigné.");
   }
   if (["coordination_admin", "sub_coordination_admin"].includes(String(claims.role)) && typeof claims.coordinationId !== "string") {
-    throw new Error("Connexion refusée : le Custom Claim coordinationId est manquant.");
+    throw new Error("Connexion refusée : votre Coordination n'est pas renseignée.");
   }
   if (claims.role === "sub_coordination_admin" && typeof claims.subCoordinationId !== "string") {
-    throw new Error("Connexion refusée : le Custom Claim subCoordinationId est manquant.");
+    throw new Error("Connexion refusée : votre Sous-coordination n'est pas renseignée.");
   }
 
   if (claims.role === "parent" && (typeof claims.schoolId !== "string" || typeof claims.parentId !== "string")) {
-    throw new Error("Connexion refusée : les Custom Claims parent sont incomplets.");
+    throw new Error("Connexion refusée : votre profil Parent est incomplet.");
   }
 
   if (firestoreDocument.status === "inactive" || firestoreDocument.active === false) {
@@ -151,7 +151,7 @@ export async function getCurrentFirebaseIdToken() {
 
   const currentUser = (auth as { currentUser?: unknown | null }).currentUser;
   if (!currentUser) {
-    throw new Error("Session Firebase requise.");
+    throw new Error("Connexion requise.");
   }
 
   const authModule = (await import("firebase/auth")) as unknown as FirebaseAuthModule;
@@ -210,7 +210,7 @@ export async function subscribeToFirebaseUser(
       let initialResolution: Promise<void> | undefined;
 
       bootstrapWatchdog = setTimeout(() => {
-        failBootstrap(new Error("La vérification de la session Firebase a expiré. Vérifiez votre connexion puis réessayez."), currentGeneration);
+        failBootstrap(new Error("La préparation de votre session a expiré. Vérifiez votre connexion puis réessayez."), currentGeneration);
       }, AUTH_BOOTSTRAP_WATCHDOG_MS);
 
       profileUnsubscribe = onSnapshot(doc(db!, "users", firebaseUser.uid), (snapshot) => {

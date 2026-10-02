@@ -100,7 +100,7 @@ async function assertContext(transaction, db, caller, requestedYearId) {
   const currency = yearCurrency === "CDF" || yearCurrency === "USD"
     ? yearCurrency
     : schoolSnapshot.data()?.currency === "CDF" ? "CDF" : "USD";
-  return { schoolYearId, year: yearSnapshot.data(), school: schoolSnapshot.data(), currency, actorName: text(profile.name, 160) || text(caller.email, 160) || "Utilisateur Acadéa" };
+  return { schoolYearId, year: yearSnapshot.data(), school: schoolSnapshot.data(), profile, currency, actorName: text(profile.name, 160) || text(caller.email, 160) || "Utilisateur Acadéa" };
 }
 
 function feeAppliesToHistoricalStudent(fee, student) {
@@ -186,9 +186,9 @@ async function historicalDebts(transaction, db, caller, currentStudent, currentY
 
 export async function listStudentArrears({ db, caller: rawCaller, body }) {
   assertAllowedKeys(body, ARREARS_READ_KEYS);
-  const caller = assertRole(rawCaller, ["cashier", "school_admin"]);
+  const caller = assertRole(rawCaller, ["cashier", "school_admin", "parent"]);
   return db.runTransaction(async (transaction) => {
-    const { schoolYearId, year, school } = await assertContext(transaction, db, caller, body.schoolYearId);
+    const { schoolYearId, year, school, profile } = await assertContext(transaction, db, caller, body.schoolYearId);
     if (year.status !== "active" || school.activeSchoolYearId !== schoolYearId) {
       throw new FinancialApiError(409, "failed-precondition", "L'année scolaire active est requise.");
     }
@@ -197,6 +197,9 @@ export async function listStudentArrears({ db, caller: rawCaller, body }) {
     const student = snapshot.data?.() ?? {};
     if (!snapshot.exists || student.schoolId !== caller.schoolId || student.schoolYearId !== schoolYearId || student.status !== "ACTIVE") {
       throw new FinancialApiError(400, "invalid-argument", "Élève invalide pour cet établissement et cette année.");
+    }
+    if (caller.role === "parent" && (!text(caller.parentId, 120) || profile.parentId !== caller.parentId || student.parentId !== caller.parentId)) {
+      throw new FinancialApiError(403, "permission-denied", "Cet élève n'est pas lié à ce parent.");
     }
     const debts = await historicalDebts(transaction, db, caller, { id: studentId, ...student }, year, school);
     return { debts: debts.filter((debt) => debt.remaining > 0), settled: debts.filter((debt) => debt.remaining === 0) };
@@ -411,5 +414,5 @@ export async function executeFinancialOperation({ db, caller: rawCaller, body, n
 
 export function authorizeFinancialCaller(rawCaller, action) {
   const createAction = action === "create-payment" || action === "create-expense";
-  return assertRole(rawCaller, action === "list-arrears" ? ["cashier", "school_admin"] : createAction ? ["cashier"] : ["school_admin"]);
+  return assertRole(rawCaller, action === "list-arrears" ? ["cashier", "school_admin", "parent"] : createAction ? ["cashier"] : ["school_admin"]);
 }

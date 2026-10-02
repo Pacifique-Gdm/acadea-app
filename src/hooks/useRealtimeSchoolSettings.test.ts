@@ -19,11 +19,14 @@ const user = (role: AppUser["role"], schoolId = "school-a") => ({ id: "user-a", 
 describe("useRealtimeSchoolSettings", () => {
   beforeEach(() => { vi.clearAllMocks(); mocks.onSnapshot.mockReturnValue(vi.fn()); });
 
-  it("réserve l'écoute aux administrateurs et secrétaires de la même école", () => {
+  it("réserve l'écoute aux rôles scolaires de leur propre école", () => {
     expect(canSubscribeToRealtimeSchoolSettings(user("school_admin"), "school-a")).toBe(true);
     expect(canSubscribeToRealtimeSchoolSettings(user("secretary"), "school-a")).toBe(true);
     expect(canSubscribeToRealtimeSchoolSettings(user("school_admin"), "school-b")).toBe(false);
-    expect(canSubscribeToRealtimeSchoolSettings(user("teacher"), "school-a")).toBe(false);
+    for (const role of ["cashier", "study_director", "discipline_director", "teacher", "parent"] as const) {
+      expect(canSubscribeToRealtimeSchoolSettings(user(role), "school-a")).toBe(true);
+      expect(canSubscribeToRealtimeSchoolSettings(user(role), "school-b")).toBe(false);
+    }
   });
 
   it("normalise et transmet l'école reçue en temps réel", () => {

@@ -59,13 +59,14 @@ async function identity(db, caller, schoolId, schoolYearId) {
   if (caller.role !== "teacher" || caller.schoolId !== schoolId) {
     throw new GradingApiError(403, "permission-denied", "Accès Enseignant non autorisé.");
   }
-  const [user, profiles, year] = await Promise.all([
+  const [user, profiles, year, school] = await Promise.all([
     db.doc(`users/${caller.uid}`).get(),
     db.collection("teachers").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).where("userId", "==", caller.uid).get(),
     db.doc(`schoolYears/${schoolYearId}`).get(),
+    db.doc(`schools/${schoolId}`).get(),
   ]);
   const profile = profiles.docs[0];
-  if (!user.exists || user.data()?.status === "inactive" || user.data()?.active === false || profiles.size !== 1 || profile.data().status === "inactive" || !year.exists || year.data()?.schoolId !== schoolId) {
+  if (!user.exists || user.data()?.status === "inactive" || user.data()?.active === false || profiles.size !== 1 || profile.data().status === "inactive" || !year.exists || year.data()?.schoolId !== schoolId || !school.exists || ["suspended", "inactive", "deleting"].includes(school.data()?.status)) {
     throw new GradingApiError(403, "permission-denied", "Profil pédagogique actif introuvable.");
   }
   return profile;

@@ -5,6 +5,7 @@ import { executeTeacherGrading, GradingApiError, studentMatchesAssignment } from
 describe("API de cotation Enseignant", () => {
   const rosterDb = () => {
     const records: Record<string, Array<{ id: string; [key: string]: unknown }>> = {
+      schools: [{ id: "s", status: "active" }],
       users: [
         { id: "u", role: "teacher", schoolId: "s", active: true },
         { id: "parent-user", role: "parent", schoolId: "s", parentId: "parent-1", active: true },
@@ -81,6 +82,15 @@ describe("API de cotation Enseignant", () => {
       expect(read.conditions).toContainEqual(["schoolYearId", "==", "y"]);
       expect(read.conditions.some(([field, op, value]) => ["classId", "subClassId", "className", "classOptionKey"].includes(field) && op === "in" && (value as unknown[]).length > 0)).toBe(true);
     }
+  });
+
+  it("refuse la cotation quand l'école de l'Enseignant est suspendue", async () => {
+    const { db } = rosterDb();
+    const originalDoc = db.doc;
+    db.doc = ((path: string) => path === "schools/s"
+      ? { get: async () => ({ exists: true, data: () => ({ status: "suspended" }) }), set: async () => undefined }
+      : originalDoc(path)) as typeof db.doc;
+    await expect(executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body: { action: "load", schoolId: "s", schoolYearId: "y" } })).rejects.toMatchObject({ status: 403, code: "permission-denied" });
   });
 
   it("charge le parent et l’option opérationnelle sans dupliquer le roster demandé séparément", async () => {
@@ -167,6 +177,7 @@ describe("API de cotation Enseignant", () => {
     const reads: Array<{ collection: string; conditions: Array<[string, string, unknown]> }> = [];
     const source = {
       users: [{ id: "u", role: "teacher", schoolId: "s", active: true }],
+      schools: [{ id: "s", status: "active" }],
       schoolYears: [{ id: "y", schoolId: "s" }],
       teachers: [{ id: "t", schoolId: "s", schoolYearId: "y", userId: "u", status: "active" }],
       pedagogicalAssignments: [{ id: "legacy-a", schoolId: "s", schoolYearId: "y", teacherId: "t", active: true, classId: literaryId, subjectId: "english" }],

@@ -4,6 +4,15 @@ export async function requireActiveApiUser(db, caller) {
   if (!profile || profile.status === "inactive" || profile.active === false) {
     throw Object.assign(new Error("Compte utilisateur inactif ou introuvable."), { statusCode: 403, code: "permission-denied" });
   }
+  if (["admin", "school_admin", "secretary", "cashier", "study_director", "discipline_director", "teacher", "parent"].includes(caller.role)) {
+    if (!caller.schoolId || profile.schoolId !== caller.schoolId) {
+      throw Object.assign(new Error("École du compte invalide."), { statusCode: 403, code: "permission-denied" });
+    }
+    const schoolSnapshot = await db.doc(`schools/${caller.schoolId}`).get();
+    if (!schoolSnapshot.exists || ["suspended", "inactive", "deleting"].includes(schoolSnapshot.data()?.status)) {
+      throw Object.assign(new Error("École indisponible."), { statusCode: 403, code: "permission-denied" });
+    }
+  }
   return caller;
 }
 

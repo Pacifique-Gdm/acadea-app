@@ -189,6 +189,13 @@ async function loadDocument<T>(collectionName: string, id?: string) {
   return snapshot.exists() ? ([normalizeSchoolDomainDocument(collectionName, { id: snapshot.id, ...snapshot.data() })] as T[]) : [];
 }
 
+export class SchoolSuspendedError extends Error {
+  constructor() {
+    super("École suspendue.");
+    this.name = "SchoolSuspendedError";
+  }
+}
+
 export async function loadFirestoreBootstrapData(user: AppUser): Promise<FirestoreBootstrapData | null> {
   if (!canUseFirestoreData() || !db) return null;
   if (!user.schoolId) {
@@ -196,19 +203,23 @@ export async function loadFirestoreBootstrapData(user: AppUser): Promise<Firesto
   }
 
   const schoolFilter: [string, unknown][] = [["schoolId", user.schoolId]];
-  const [schools, schoolYears] = await Promise.all([
+  const [schoolsResult, schoolYearsResult] = await Promise.allSettled([
     loadDocument<AppData["schools"][number]>("schools", user.schoolId),
     loadCollection<AppData["schoolYears"][number]>("schoolYears", schoolFilter),
   ]);
+  if (schoolsResult.status === "rejected") throw schoolsResult.reason;
+  const schools = schoolsResult.value;
   if (schools.length === 0) {
     throw new Error("Chargement Firestore impossible : ecole introuvable pour ce schoolId.");
   }
   if (schools[0].status === "suspended") {
-    throw new Error("Connexion refusee : cette ecole est suspendue.");
+    throw new SchoolSuspendedError();
   }
   if (schools[0].status === "deleting" || schools[0].status === "inactive") {
     throw new Error("Connexion refusee : cette ecole n'est pas active.");
   }
+  if (schoolYearsResult.status === "rejected") throw schoolYearsResult.reason;
+  const schoolYears = schoolYearsResult.value;
 
   return { users: [user], schools, schoolYears };
 }

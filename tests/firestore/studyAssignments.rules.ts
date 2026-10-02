@@ -50,6 +50,33 @@ beforeEach(async () => {
 afterAll(async () => environment?.cleanup(), 30_000);
 
 describe("Direction des études — affectations pédagogiques", () => {
+  it("un profil migré interdit les mutations client qui désynchroniseraient users", async () => {
+    await seed("users/teacher-a", { id: "teacher-a", role: "teacher", schoolId: school, status: "active", active: true, storageAssignmentKeys: [`${school}/${year}/teacher-a/${assignmentId}`] });
+    await seed("teachers/teacher-a", { id: "teacher-a", userId: "teacher-a", schoolId: school, schoolYearId: year, status: "active", storageAssignmentIds: [assignmentId] });
+    await seed(`pedagogicalAssignments/${assignmentId}`, assignment());
+    const database = director();
+    await assertFails(updateDoc(doc(database, "pedagogicalAssignments", assignmentId), { active: false, updatedAt: now }));
+    await assertFails(createActiveAssignment(database, { id: `${assignmentId}-other` }));
+  });
+  it("synchronise le grant Storage dans le même batch et refuse l'auto-attribution", async () => {
+    await seed("users/teacher-a", { id: "teacher-a", role: "teacher", schoolId: school, status: "active", active: true });
+    await seed("teachers/teacher-a", { id: "teacher-a", userId: "teacher-a", schoolId: school, schoolYearId: year, status: "active", storageAssignmentIds: [], createdBy: "director-a", createdAt: now });
+    const database = director();
+    const teacherRef = doc(database, "teachers", "teacher-a");
+    await assertFails(updateDoc(doc(actor("teacher"), "teachers", "teacher-a"), { storageAssignmentIds: [assignmentId] }));
+    await assertFails(updateDoc(doc(actor("cashier"), "teachers", "teacher-a"), { storageAssignmentIds: [assignmentId] }));
+    await assertFails(createActiveAssignment(database));
+    const batch = writeBatch(database);
+    batch.update(teacherRef, { storageAssignmentIds: [assignmentId] });
+    batch.set(doc(database, "pedagogicalAssignments", assignmentId), assignment());
+    batch.set(doc(database, "pedagogicalAssignmentLocks", `${school}__${year}__subject-a__class-a`), assignmentLock(assignment()));
+    await assertSucceeds(batch.commit()).catch((error) => { throw new Error(`activation atomique refusée : ${String(error)}`); });
+    await assertFails(updateDoc(doc(database, "pedagogicalAssignments", assignmentId), { active: false, updatedAt: now }));
+    const deactivate = writeBatch(database);
+    deactivate.update(teacherRef, { storageAssignmentIds: [] });
+    deactivate.update(doc(database, "pedagogicalAssignments", assignmentId), { active: false, updatedAt: now });
+    await assertSucceeds(deactivate.commit()).catch((error) => { throw new Error(`désactivation atomique refusée : ${String(error)}`); });
+  });
   it("autorise le Directeur des études de la même école et année", async () => {
     await assertSucceeds(createActiveAssignment(director()));
     await assertSucceeds(getDocs(query(collection(director(), "pedagogicalAssignments"), where("schoolId", "==", school), where("schoolYearId", "==", year))));

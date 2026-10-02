@@ -1,5 +1,5 @@
 import{beforeEach,describe,expect,it,vi}from"vitest";import type{AppUser}from"../../types";import type{Timetable,TimetableEntry}from"./studyTypes";
-const mocks=vi.hoisted(()=>{const set=vi.fn(),update=vi.fn(),remove=vi.fn(),commit=vi.fn(async()=>undefined),get=vi.fn();return{set,update,remove,commit,get,writeBatch:vi.fn(()=>({set,update,delete:remove,commit})),runTransaction:vi.fn(async(_db:unknown,callback:(transaction:{get:typeof get;set:typeof set;update:typeof update;delete:typeof remove})=>unknown)=>callback({get,set,update,delete:remove})),doc:vi.fn((_db:unknown,...parts:string[])=>parts.join("/"))}});
+const mocks=vi.hoisted(()=>{const set=vi.fn(),update=vi.fn(),remove=vi.fn(),commit=vi.fn(async()=>undefined),get=vi.fn();const scopedGet=vi.fn(async(path:string)=>{const snapshot=await get(path);return path.startsWith("teachers/")&&snapshot?.exists?.()?{...snapshot,data:()=>({...snapshot.data(),storageAssignmentIds:snapshot.data().storageAssignmentIds??[]})}:snapshot});return{set,update,remove,commit,get,writeBatch:vi.fn(()=>({set,update,delete:remove,commit})),runTransaction:vi.fn(async(_db:unknown,callback:(transaction:{get:typeof scopedGet;set:typeof set;update:typeof update;delete:typeof remove})=>unknown)=>callback({get:scopedGet,set,update,delete:remove})),doc:vi.fn((_db:unknown,...parts:string[])=>parts.join("/"))}});
 vi.mock("../../firebase",()=>({db:{}}));vi.mock("@firebase/firestore",()=>({collection:vi.fn(),query:vi.fn(),where:vi.fn(),onSnapshot:vi.fn(),setDoc:vi.fn(),...mocks}));
 import{publishTimetable,renameStudySubject,saveGeneratedTimetable,savePedagogicalAssignment,savePedagogicalAssignments,saveTeacherWeekAvailability,validateSavedTimetable}from"./studyService";
 import{timetableEntryBatches}from"./timetablePersistence";
@@ -12,3 +12,21 @@ describe("affectation pédagogique",()=>{beforeEach(()=>{vi.clearAllMocks();mock
 describe("disponibilités hebdomadaires",()=>{beforeEach(()=>{vi.clearAllMocks();mocks.get.mockResolvedValue({exists:()=>true,data:()=>({})})});it("enregistre tous les jours dans une transaction unique",async()=>{await saveTeacherWeekAvailability({user,schoolId:"s",schoolYearId:"y",teacherId:"t",days:[{dayOfWeek:"monday",status:"available",ranges:[]},{dayOfWeek:"tuesday",status:"rest",ranges:[]}],existing:[]});expect(mocks.runTransaction).toHaveBeenCalledOnce();expect(mocks.set).toHaveBeenCalledWith("teacherAvailabilities/s__y__t__monday__available__0",expect.objectContaining({dayOfWeek:"monday",status:"available",active:true}));expect(mocks.set).toHaveBeenCalledWith("teacherAvailabilities/s__y__t__tuesday__rest__0",expect.objectContaining({dayOfWeek:"tuesday",status:"rest",active:true}))});it("valide toutes les journées avant la transaction",async()=>{await expect(saveTeacherWeekAvailability({user,schoolId:"s",schoolYearId:"y",teacherId:"t",days:[{dayOfWeek:"monday",status:"available",ranges:[{startTime:"10:00",endTime:"09:00"}]}],existing:[]})).rejects.toThrow("Lundi");expect(mocks.runTransaction).not.toHaveBeenCalled()})});
 
 describe("persistance de l’organisation des périodes",()=>{beforeEach(()=>{vi.clearAllMocks();mocks.get.mockImplementation(async(path:string)=>{const missing=path.startsWith("pedagogicalAssignmentLocks/")||path.startsWith("classTitulars/");return{exists:()=>!missing,data:()=>missing?undefined:{schoolId:"s",schoolYearId:"y"}}})});it("canonicalise les blocs et ne persiste aucune chaîne d’affichage",async()=>{await savePedagogicalAssignments({user,schoolId:"s",schoolYearId:"y",teacherId:"t",subjectIds:["m"],classIds:["c"],weeklyPeriods:9,sessionPattern:{mode:"blocks",blocks:[4,2,3]},active:true});expect(mocks.set).toHaveBeenCalledWith("pedagogicalAssignments/s__y__t__m__c",expect.objectContaining({weeklyPeriods:9,blockSize:1,sessionPattern:{mode:"blocks",blocks:[2,3,4]}}));expect(JSON.stringify(mocks.set.mock.calls)).not.toContain("2 + 3 + 4")});it("refuse la sauvegarde si la somme ne correspond pas",async()=>{await expect(savePedagogicalAssignments({user,schoolId:"s",schoolYearId:"y",teacherId:"t",subjectIds:["m"],classIds:["c"],weeklyPeriods:9,sessionPattern:{mode:"blocks",blocks:[3,2]},active:true})).rejects.toThrow("totalise 5 périodes");expect(mocks.runTransaction).not.toHaveBeenCalled()})});
+
+describe("grants Storage des affectations", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.get.mockImplementation(async (path: string) => {
+      const missing = path.startsWith("pedagogicalAssignmentLocks/") || path.startsWith("classTitulars/");
+      return { exists: () => !missing, data: () => missing ? undefined : { schoolId: "s", schoolYearId: "y", storageAssignmentIds: path === "teachers/old" ? ["s__y__old__m__c"] : [] } };
+    });
+  });
+  it("retire l'ancien grant et ajoute le nouveau dans la même transaction lors d'un changement d'enseignant", async () => {
+    const current = { id: "s__y__old__m__c", schoolId: "s", schoolYearId: "y", teacherId: "old", subjectId: "m", classId: "c", weeklyPeriods: 2, active: true, createdAt: "n", createdBy: "director", updatedAt: "n", updatedBy: "director" };
+    await savePedagogicalAssignments({ user, schoolId: "s", schoolYearId: "y", teacherId: "new", subjectIds: ["m"], classIds: ["c"], weeklyPeriods: 2, active: true, current });
+    expect(mocks.update).toHaveBeenCalledWith("teachers/old", { storageAssignmentIds: [] });
+    expect(mocks.update).toHaveBeenCalledWith("teachers/new", { storageAssignmentIds: ["s__y__new__m__c"] });
+    expect(mocks.update).toHaveBeenCalledWith("pedagogicalAssignments/s__y__old__m__c", expect.objectContaining({ active: false }));
+    expect(mocks.runTransaction).toHaveBeenCalledOnce();
+  });
+});

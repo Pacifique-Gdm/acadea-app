@@ -63,7 +63,7 @@ describe("bootstrap de session", () => {
 
   it("bloque toujours une école suspendue avant le rendu", async () => {
     firestoreMocks.getDoc.mockResolvedValue({ id: "school-1", exists: () => true, data: () => ({ status: "suspended" }) });
-    firestoreMocks.getDocs.mockResolvedValue({ docs: [] });
+    firestoreMocks.getDocs.mockRejectedValue(new Error("Années interdites pendant la suspension"));
     await expect(loadFirestoreBootstrapData(admin)).rejects.toThrow("suspendue");
   });
 

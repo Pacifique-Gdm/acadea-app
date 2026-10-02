@@ -6,6 +6,7 @@ import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent
 import { db } from "../../firebase";
 import { markConversationUnreadCountRead } from "../../services/conversations";
 import { canUseFirestoreData } from "../../services/firestoreData";
+import { loadStudentArrears, type HistoricalDebt } from "../../services/financialTransactions";
 import { markNotificationsReadTargeted } from "../../services/notificationsPagination";
 import { fetchParentMessageQuota, sendParentMessageWithQuota } from "../../services/parentMessaging";
 import type { ParentMessageQuota } from "../../services/parentMessaging";
@@ -15,7 +16,7 @@ import { buildSchoolYearDataIndexes } from "../../utils/dataIndexes";
 import { resolvePaymentCashierName } from "../../utils/finance";
 import { nextMessageThreadId } from "../../utils/messageThreads";
 import { generateReceiptPdf } from "../../utils/pdf";
-import { formatSchoolMoney } from "../../utils/currency";
+import { formatCurrencyMoney, formatSchoolMoney } from "../../utils/currency";
 import { mergeMessagesById, mergeNotificationsById } from "../../utils/realtimeMerges";
 import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
 import { formatStudentClassName } from "../../utils/studentClasses";
@@ -94,6 +95,9 @@ export function ParentPortal({
   const [messageBody, setMessageBody] = useState("");
   const [messageFeedback, setMessageFeedback] = useState("");
   const [selectedParentChildId, setSelectedParentChildId] = useState<string | null>(null);
+  const [childArrears, setChildArrears] = useState<HistoricalDebt[]>([]);
+  const [childArrearsLoading, setChildArrearsLoading] = useState(false);
+  const [childArrearsError, setChildArrearsError] = useState("");
   const [parentMessageQuota, setParentMessageQuota] = useState<ParentMessageQuota | null>(null);
   const [isParentMessageQuotaLoading, setIsParentMessageQuotaLoading] = useState(false);
   const [isSendingParentMessage, setIsSendingParentMessage] = useState(false);
@@ -108,6 +112,25 @@ export function ParentPortal({
   const parentMessageQuotaReached = parentMessageQuota ? parentMessageQuota.messageCount >= parentMessageQuota.limit : false;
   const parentIndexes = useMemo(() => buildSchoolYearDataIndexes(yearData.students, yearData.feeTypes, yearData.payments), [yearData.students, yearData.feeTypes, yearData.payments]);
   const selectedParentChild = yearData.students.find((student) => student.id === selectedParentChildId);
+  const selectedParentChildArrearsId = selectedParentChild?.id;
+  useEffect(() => {
+    if (!selectedParentChildArrearsId || year.status !== "active") {
+      setChildArrears([]);
+      setChildArrearsError("");
+      setChildArrearsLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setChildArrears([]);
+    setChildArrearsError("");
+    setChildArrearsLoading(true);
+    void loadStudentArrears({ schoolYearId: year.id, studentId: selectedParentChildArrearsId }).then((result) => {
+      if (!cancelled) setChildArrears([...result.debts, ...result.settled]);
+    }).catch((error) => {
+      if (!cancelled) setChildArrearsError(error instanceof Error ? error.message : "Chargement des arriérés impossible.");
+    }).finally(() => { if (!cancelled) setChildArrearsLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedParentChildArrearsId, year.id, year.status]);
   const selectedMessageRecipients = scopedMessageRecipients.filter((recipient) => resolvedMessageRecipientIds.includes(recipient.uid));
 
   function progressBarTone(percent: number) {
@@ -395,6 +418,19 @@ export function ParentPortal({
                     <div className="mb-4 flex min-w-0 items-center gap-3">
                       <button onClick={() => setSelectedParentChildId(null)} className="secondary-button h-10 w-10 shrink-0 px-0" type="button" aria-label="Retour aux enfants" title="Retour aux enfants"><ArrowLeft className="h-4 w-4" /></button>
                       <div className="min-w-0"><h2 className="text-lg font-bold text-ink">Historique des paiements</h2><p className="break-words text-sm text-slate-500">{student.nom} {student.postnom} {student.prenom}</p></div>
+                    </div>
+                    <div className="mb-4 min-w-0 rounded border border-amber-200 bg-amber-50 p-3">
+                      <h3 className="font-semibold text-ink">Arriérés des années antérieures</h3>
+                      {childArrearsLoading && <p role="status" className="mt-2 text-sm">Chargement des arriérés…</p>}
+                      {childArrearsError && <p role="alert" className="mt-2 text-sm text-red-700">{childArrearsError}</p>}
+                      {!childArrearsLoading && !childArrearsError && year.status === "active" && childArrears.length === 0 && <p className="mt-2 text-sm">Aucun arriéré.</p>}
+                      {year.status !== "active" && <p className="mt-2 text-sm">Consultation disponible depuis l'année scolaire active.</p>}
+                      {!childArrearsLoading && <div className="mt-2 grid gap-2">
+                        {childArrears.map((debt) => <div key={`${debt.schoolYearId}:${debt.feeTypeId}`} className="min-w-0 rounded bg-white p-3 text-sm">
+                          <p className="break-words font-semibold">{debt.yearName} · {debt.feeName}</p>
+                          <p className="break-words">Attendu : {formatCurrencyMoney(debt.expected, debt.currency)} · Payé : {formatCurrencyMoney(debt.paid, debt.currency)} · Restant : {formatCurrencyMoney(debt.remaining, debt.currency)}</p>
+                        </div>)}
+                      </div>}
                     </div>
                     <div className="max-h-[60vh] space-y-2 overflow-y-auto pr-1 scrollbar-thin">
                       {payments.length === 0 && <p className="text-sm text-slate-500">Aucun paiement enregistré.</p>}
