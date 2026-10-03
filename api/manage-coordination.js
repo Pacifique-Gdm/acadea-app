@@ -3,6 +3,8 @@ import { firebaseAdminPublicError, initAdmin } from "./_lib/firebaseAdmin.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { coordinationHttpError, requireActiveCoordinationActor, requireActiveCoordinator, resolveCoordinationSchoolScope } from "./_lib/coordination.js";
 import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
+import { listScopedStudentArrears } from "./_lib/financialTransactions.js";
+import { manageCoordinationAdministrator } from "./_lib/coordinationAdministrators.js";
 
 export const maxDuration = 300;
 
@@ -325,6 +327,12 @@ export default async function handler(req, res) {
     const { auth, db } = initAdmin();
     const input = await body(req);
     const action = text(input.action || "create");
+    if (action === "read-student-arrears") {
+      const caller = await requireActiveCoordinationActor(auth, db, token);
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.coordinationId, action: "coordination.read-student-arrears", ...API_RATE_LIMITS.MESSAGE_RECIPIENTS });
+      const schoolIds = await resolveCoordinationSchoolScope(db, caller);
+      return sendJson(res, 200, await listScopedStudentArrears({ db, studentId: text(input.studentId), schoolIds }));
+    }
     if (action === "transfer-personnel") return await transferPersonnel({ res, auth, db, token, input });
     if (action === "read-student-parent") {
       const caller = await requireActiveCoordinationActor(auth, db, token);
@@ -415,6 +423,9 @@ export default async function handler(req, res) {
     const coordinationId = text(input.coordinationId); if (!coordinationId) throw Object.assign(new Error("coordinationId requis."), { statusCode: 400, code: "invalid-argument" });
     const coordinationRef = db.doc(`coordinations/${coordinationId}`); const coordinationSnapshot = await coordinationRef.get();
     if (!coordinationSnapshot.exists) throw Object.assign(new Error("Coordination introuvable."), { statusCode: 404, code: "not-found" });
+    if (["update-coordination", "create-coordinator", "update-coordinator", "suspend-coordinator", "reactivate-coordinator", "remove-coordinator"].includes(action)) {
+      return sendJson(res, 200, await manageCoordinationAdministrator({ auth, db, caller, input, coordination: { ...coordinationSnapshot.data(), id: coordinationId }, now }));
+    }
     if (action === "add-school" || action === "remove-school") {
       const schoolId = text(input.schoolId); const schoolRef = db.doc(`schools/${schoolId}`); const schoolSnapshot = schoolId ? await schoolRef.get() : null;
       if (!schoolId || !schoolSnapshot?.exists) throw Object.assign(new Error("École introuvable."), { statusCode: 404, code: "not-found" });
@@ -441,7 +452,7 @@ export default async function handler(req, res) {
   } catch (error) {
     if (sendRateLimitError(res, error)) return;
     if (error?.statusCode === 400 && !error?.code) return sendJson(res, 400, { error: "Corps JSON invalide.", code: "invalid-argument" });
-    const status = Number(error?.statusCode) || 500;
+    const status = Number(error?.statusCode ?? error?.status) || 500;
     if (status < 500) return sendJson(res, status, { error: error.message, code: error?.code || "invalid-request" });
     const diagnostic = firebaseAdminPublicError(error, "manage-coordination");
     return sendJson(res, status, { error: diagnostic.message, code: diagnostic.code, ...(diagnostic.correlationId ? { correlationId: diagnostic.correlationId } : {}) });

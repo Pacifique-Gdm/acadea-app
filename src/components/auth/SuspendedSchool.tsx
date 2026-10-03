@@ -1,6 +1,6 @@
 import { PlatformLogoSlot } from "../layout/PlatformLogoSlot";
 
-export const SUSPENDED_SCHOOL_MESSAGE = "CETTE ÉCOLE A ÉTÉ SUSPENDRE, VEUILLEZ CONTACTER L'ÉQUIPE ACADÉA. MERCI";
+export const SUSPENDED_SCHOOL_MESSAGE = "CETTE ÉCOLE A ÉTÉ SUSPENDUE, VEUILLEZ CONTACTER L'ÉQUIPE ACADÉA. MERCI";
 
 export function SuspendedSchool({ logoUrl, onLogout }: { logoUrl: string; onLogout: () => void }) {
   return <main className="grid min-h-screen place-items-center bg-[#F5F7FB] px-4 py-8 text-center text-ink">

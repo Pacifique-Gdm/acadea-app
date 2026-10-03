@@ -4,7 +4,7 @@ import { FormPanel, Metric } from "../../components/ui";
 import type { CoordinationDashboardReadModel } from "../../services/coordinationReadModel";
 import type { AppUser, Coordination, School, SchoolSection } from "../../types";
 import { buildDashboardTransactionDayRows } from "../../utils/dashboardStats";
-import { formatChartDate, getTransactionPeriodDates } from "../../utils/dashboardDates";
+import { formatChartDate, getTransactionPeriodDates, isInDashboardDateRange } from "../../utils/dashboardDates";
 import { buildCoordinationDashboardStats, type DashboardCurrency } from "../../utils/coordinationDashboardStats";
 import { formatCurrencyMoney, resolveSchoolCurrency } from "../../utils/currency";
 import { getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
@@ -91,7 +91,7 @@ export function CoordinationDashboard({
       && scopedSchools.find((school) => school.id === payment.schoolId)?.activeSchoolYearId === payment.collectionSchoolYearId
       && visibleStudentKeys.has(`${payment.schoolId}:${payment.currentStudentId ?? ""}`)
       && payment.currency === currency
-      && (!dateFilterActive || ((!startDate || payment.paidAt >= startDate) && (!endDate || payment.paidAt <= endDate))))
+      && (!dateFilterActive || isInDashboardDateRange(payment.paidAt, startDate, endDate)))
       .reduce((total, payment) => total + payment.amount, 0),
   })).filter((group) => group.amount > 0);
   const visibleExpenses = stats.expenses.filter((expense) => (!transactionStartDate || expense.spentAt.slice(0, 10) >= transactionStartDate) && (!transactionEndDate || expense.spentAt.slice(0, 10) <= transactionEndDate));

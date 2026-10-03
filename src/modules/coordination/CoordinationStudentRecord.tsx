@@ -1,9 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { StudentDetailPage } from "../../components/students/StudentDetailPage";
-import { loadCoordinationStudentParent } from "../../services/coordinationService";
+import { loadCoordinationStudentArrears, loadCoordinationStudentParent } from "../../services/coordinationService";
+import type { HistoricalDebt } from "../../services/financialTransactions";
+import { historicalArrearsPdfSection } from "../control/historicalArrearsPdf";
+import { formatCurrencyMoney, resolveSchoolCurrency } from "../../utils/currency";
+import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
+import { pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
+import { coordinationPdfInstitution } from "./coordinationPdfInstitution";
 import { loadCoordinationStudentFinancialDetails } from "../../services/coordinationStudentPagination";
 import type { CoordinationDashboardReadModel } from "../../services/coordinationReadModel";
-import type { AppData, AppUser, ParentProfile, School, SchoolYear, Student } from "../../types";
+import type { AppData, AppUser, Coordination, ParentProfile, School, SchoolYear, Student } from "../../types";
 
 function detailData(model: CoordinationDashboardReadModel, parents: ParentProfile[]): AppData {
   return { users: model.personnel, schools: [], schoolYears: model.schoolYears, students: model.students, parents, feeTypes: model.feeTypes, payments: model.payments, expenses: model.expenses, messages: [], notifications: [], auditLogs: [], valves: [], disciplineSanctions: [], attendance: [], attendanceSettings: [], biometricTerminals: [] };
@@ -13,16 +19,17 @@ function fallbackYear(student: Student): SchoolYear {
   return { id: student.schoolYearId, schoolId: student.schoolId, name: "Année scolaire", startsAt: "", endsAt: "", status: "active" };
 }
 
-export function CoordinationStudentRecord({ student, user, schools, years, onBack }: { student: Student; user: AppUser; schools: School[]; years: SchoolYear[]; onBack: () => void }) {
+export function CoordinationStudentRecord({ student, user, coordination, schools, years, onBack }: { student: Student; user: AppUser; coordination: Coordination; schools: School[]; years: SchoolYear[]; onBack: () => void }) {
   const [parent, setParent] = useState<ParentProfile | null>(null);
   const [financial, setFinancial] = useState<Pick<CoordinationDashboardReadModel, "feeTypes" | "payments">>({ feeTypes: [], payments: [] });
   const [loading, setLoading] = useState(true);
   const [detailError, setDetailError] = useState("");
+  const [arrears, setArrears] = useState<HistoricalDebt[]>([]);
   useEffect(() => {
     let cancelled = false;
-    setParent(null); setFinancial({ feeTypes: [], payments: [] }); setLoading(true); setDetailError("");
-    loadCoordinationStudentFinancialDetails(student)
-      .then((value) => { if (!cancelled) setFinancial(value); })
+    setParent(null); setFinancial({ feeTypes: [], payments: [] }); setArrears([]); setLoading(true); setDetailError("");
+    Promise.all([loadCoordinationStudentFinancialDetails(student), loadCoordinationStudentArrears(student.id)])
+      .then(([value, historical]) => { if (!cancelled) { setFinancial(value); setArrears([...historical.debts, ...historical.settled]); } })
       .catch(() => { if (!cancelled) setDetailError("Les données financières ne sont pas disponibles."); })
       .finally(() => { if (!cancelled) setLoading(false); });
     loadCoordinationStudentParent(student.id)
@@ -36,5 +43,24 @@ export function CoordinationStudentRecord({ student, user, schools, years, onBac
   const school = schools.find((item) => item.id === student.schoolId);
   if (!school) return <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">École de l’élève introuvable.</p>;
   const year = model.schoolYears.find((item) => item.id === student.schoolYearId) ?? fallbackYear(student);
-  return <div className="grid gap-3">{loading && <p role="status">Chargement de la fiche…</p>}{detailError && <p role="alert" className="rounded bg-amber-50 p-3 text-sm text-amber-800">{detailError}</p>}{!loading && <StudentDetailPage studentId={student.id} user={user} data={data} yearData={{ students: data.students, parents: data.parents, feeTypes: data.feeTypes, payments: data.payments, auditLogs: [] }} year={year} school={school} schoolsById={schoolsById} updateData={() => undefined} onBack={onBack} createId={() => "read-only"} formatArchiveDate={(value) => value || "Non renseignée"} canLinkParent={false}/>}</div>;
+  async function printPdf() {
+    if (!school || loading || detailError) return;
+    const currency = resolveSchoolCurrency({ ...school, currency: year.currency ?? school.currency });
+    try {
+      await renderAcadPdfPreview({ filename: `fiche-financiere-${student.id}.pdf`, title: "Fiche financière individuelle", school: coordinationPdfInstitution(coordination, school), subtitle: `${student.nom} ${student.postnom ?? ""} ${student.prenom} | ${school.name} | ${year.name}`, sections: [
+        pdfSection("Frais de l'année sélectionnée", pdfTable([
+          { header: "Frais", render: (row) => row.feeName },
+          { header: "Attendu", render: (row) => formatCurrencyMoney(row.expected, currency), align: "right" },
+          { header: "Payé", render: (row) => formatCurrencyMoney(row.paid, currency), align: "right" },
+          { header: "Restant", render: (row) => formatCurrencyMoney(row.remaining, currency), align: "right" },
+        ], getStudentFeeSummaries(student, financial.feeTypes, financial.payments), "Aucun frais.")),
+        historicalArrearsPdfSection(arrears),
+      ] });
+    } catch { setDetailError("Impossible de générer le PDF."); }
+  }
+  return <div className="grid min-w-0 gap-3">{loading && <p role="status">Chargement de la fiche…</p>}{detailError && <p role="alert" className="rounded bg-amber-50 p-3 text-sm text-amber-800">{detailError}</p>}{!loading && <>
+    <button type="button" className="pdf-export-button justify-center" disabled={Boolean(detailError)} onClick={() => void printPdf()}>Imprimer PDF</button>
+    <StudentDetailPage studentId={student.id} user={user} data={data} yearData={{ students: data.students, parents: data.parents, feeTypes: data.feeTypes, payments: data.payments, auditLogs: [] }} year={year} school={school} schoolsById={schoolsById} updateData={() => undefined} onBack={onBack} createId={() => "read-only"} formatArchiveDate={(value) => value || "Non renseignée"} canLinkParent={false}/>
+    {!detailError && <section className="grid min-w-0 gap-3 rounded border border-amber-200 bg-amber-50 p-4"><h3 className="font-bold">Dettes des années antérieures</h3>{arrears.length === 0 && <p>Aucun arriéré pour cet élève.</p>}{arrears.map((debt) => <article key={`${debt.schoolYearId}:${debt.feeTypeId}`} className="min-w-0 rounded border bg-white p-3"><h4 className="break-words font-semibold">{debt.feeName} — {debt.yearName}</h4><div className="grid min-w-0 gap-2 sm:grid-cols-3"><p>Attendu : {formatCurrencyMoney(debt.expected, debt.currency)}</p><p>Payé : {formatCurrencyMoney(debt.paid, debt.currency)}</p><p>Restant : {formatCurrencyMoney(debt.remaining, debt.currency)}</p></div><p>{debt.remaining === 0 ? "Soldée" : "À payer"}</p></article>)}</section>}
+  </>}</div>;
 }

@@ -6,7 +6,7 @@ import { buildDashboardFeeShares, buildDashboardFinancialAggregates, buildDashbo
 import type { DashboardFeeShare } from "../../utils/dashboardStats";
 import { buildSchoolYearDataIndexes } from "../../utils/dataIndexes";
 import { buildDashboardClassRows } from "../../utils/dashboardClassStats";
-import { formatChartDate, getTransactionPeriodDates } from "../../utils/dashboardDates";
+import { formatChartDate, getTransactionPeriodDates, isInDashboardDateRange } from "../../utils/dashboardDates";
 import { exportDashboardReportPdf } from "../../utils/dashboardPdf";
 import { money } from "../../utils/pdf";
 import { formatCurrencyMoney, formatSchoolMoney } from "../../utils/currency";
@@ -397,7 +397,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
     currency,
     amount: data.payments.filter((payment) => payment.collectionSchoolYearId === year.id
       && payment.currency === currency && filteredStudentIds.has(payment.currentStudentId ?? "")
-      && (!dateFilterActive || ((!startDate || payment.paidAt >= startDate) && (!endDate || payment.paidAt <= endDate))))
+      && (!dateFilterActive || isInDashboardDateRange(payment.paidAt, startDate, endDate)))
       .reduce((sum, payment) => sum + payment.amount, 0),
   })).filter((group) => group.amount > 0), [data.payments, dateFilterActive, endDate, filteredStudentIds, startDate, year.id]);
   const fullYearExpenses = useMemo(() => data.expenses.reduce((sum, expense) => sum + expense.amount, 0), [data.expenses]);

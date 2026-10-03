@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Building2, Check, ChevronRight, X } from "lucide-react";
-import { collection, getDocs, onSnapshot, query, where } from "firebase/firestore";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../../firebase";
 import { AdminDrawer } from "../../components/ui";
 import { addCoordinationSchool, removeCoordinationSchool } from "../../services/coordinationService";
 import type { AppUser, Coordination, CoordinationSchool, School } from "../../types";
+import { CoordinationAdminActions } from "./CoordinationAdminActions";
 
 const ADD_CONFIRMATION = "AJOUTER CETTE ECOLE";
 const REMOVE_CONFIRMATION = "RETIRER CETTE ECOLE";
@@ -41,8 +42,8 @@ export function CoordinationManagement({ schools, coordinations, coordinationErr
   useEffect(() => {
     if (!db) return undefined;
     const stopRelations = onSnapshot(collection(db, "coordinationSchools"), (snapshot) => setRelations(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as CoordinationSchool))), () => setError("Impossible de charger les rattachements."));
-    getDocs(query(collection(db, "users"), where("role", "==", "coordination_admin"))).then((snapshot) => setCoordinators(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as AppUser)))).catch(() => setError("Impossible de charger les Coordinateurs."));
-    return () => { stopRelations(); };
+    const stopCoordinators = onSnapshot(query(collection(db, "users"), where("role", "==", "coordination_admin")), (snapshot) => setCoordinators(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as AppUser))), () => setError("Impossible de charger les Coordinateurs."));
+    return () => { stopRelations(); stopCoordinators(); };
   }, []);
 
   const selected = coordinations.find((item) => item.id === selectedId) ?? null;
@@ -88,6 +89,7 @@ export function CoordinationManagement({ schools, coordinations, coordinationErr
       {coordinations.map((item) => { const count = relations.filter((relation) => relation.coordinationId === item.id && relation.active).length; return <button key={item.id} type="button" onClick={() => { setSelectedId(item.id); cancelRelation(); }} className="flex min-w-0 items-center justify-between gap-3 rounded border border-slate-200 bg-white p-3 text-left hover:border-blue-400 hover:bg-blue-50"><span className="min-w-0"><strong className="block truncate">{item.name}</strong><span className="text-xs text-slate-500">{item.status === "active" ? "Active" : item.status} · {count} école{count > 1 ? "s" : ""}</span></span><ChevronRight className="h-4 w-4 shrink-0 text-slate-400" /></button>; })}
     </div></div>
     {selected && <AdminDrawer title={selected.name} closeLabel="Fermer la fiche Coordination" onClose={() => { setSelectedId(""); cancelRelation(); }}><div className="grid min-w-0 gap-4">
+      <CoordinationAdminActions key={selected.id} coordination={selected} coordinators={coordinators}/>
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-3">{selected.logoUrl && <img src={selected.logoUrl} alt={`Logo ${selected.name}`} className="h-12 w-12 rounded object-contain" />}<div><h3 className="text-xl font-bold">{selected.name}</h3><p className="text-sm text-slate-500">{selected.code || "Sans sigle"} · {selected.status}</p></div></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold">{coordinator?.name || selected.principalCoordinatorUserId || "Coordinateur non chargé"}</span></div>
       <div className="grid gap-2 text-sm sm:grid-cols-2"><p><b>E-mail :</b> {selected.email || "—"}</p><p><b>Téléphone :</b> {selected.phone || "—"}</p><p><b>Adresse :</b> {selected.address || "—"}</p><p><b>Créée le :</b> {dateLabel(selected.createdAt)}</p></div>
       <div><h4 className="mb-2 font-semibold">Écoles rattachées ({activeRelations.length})</h4><div className="grid gap-2">{selectedRelations.map((relation) => { const school = schools.find((item) => item.id === relation.schoolId); const status = !relation.active ? `Retirée le ${dateLabel(relation.removedAt)}` : school?.status === "suspended" ? "Suspendue" : school?.status === "active" ? "Active" : "État indisponible"; return <div key={relation.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded border border-slate-200 p-2 text-sm"><span className="inline-flex min-w-0 items-center gap-2"><Building2 className="h-4 w-4 shrink-0 text-blue-600" /><span className="break-words">{schoolName(relation.schoolId)}</span><span className={`rounded px-2 py-0.5 text-xs ${status === "Active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{status}</span></span>{relation.active && <button type="button" disabled={busy} onClick={() => requestRelation("remove", school ?? { id: relation.schoolId, name: schoolName(relation.schoolId) })} className="inline-flex shrink-0 items-center gap-1 rounded border border-red-200 px-2 py-1 text-xs font-semibold text-red-700"><X className="h-3 w-3" />Retirer de la Coordination</button>}</div>; })}</div></div>

@@ -206,6 +206,26 @@ export async function listStudentArrears({ db, caller: rawCaller, body }) {
   });
 }
 
+// Read-only supervision: the caller's school scope is resolved server-side by
+// requireActiveCoordinationActor, never supplied by the client.
+export async function listScopedStudentArrears({ db, studentId, schoolIds }) {
+  const id = text(studentId, 120);
+  if (!id || id.includes("/")) throw new FinancialApiError(400, "invalid-argument", "Élève requis.");
+  return db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(db.doc(`students/${id}`));
+    const student = snapshot.data?.();
+    if (!snapshot.exists || !schoolIds.includes(student?.schoolId)) throw new FinancialApiError(404, "not-found", "Élève introuvable dans le périmètre autorisé.");
+    const [schoolSnapshot, yearSnapshot] = await Promise.all([
+      transaction.get(db.doc(`schools/${student.schoolId}`)),
+      transaction.get(db.doc(`schoolYears/${student.schoolYearId}`)),
+    ]);
+    const school = schoolSnapshot.data?.(), year = yearSnapshot.data?.();
+    if (!schoolSnapshot.exists || school.status !== "active" || !yearSnapshot.exists || year.schoolId !== student.schoolId) throw new FinancialApiError(409, "failed-precondition", "Contexte scolaire indisponible.");
+    const debts = await historicalDebts(transaction, db, { schoolId: student.schoolId }, { ...student, id }, year, school);
+    return { debts: debts.filter((debt) => debt.remaining > 0), settled: debts.filter((debt) => debt.remaining === 0) };
+  });
+}
+
 async function createPayment(transaction, db, caller, body, hash, now) {
   assertAllowedKeys(body, PAYMENT_CREATE_KEYS);
   const amount = positiveAmount(body.amount);

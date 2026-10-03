@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { executeFinancialOperation, FinancialApiError, listStudentArrears } from "../../api/_lib/financialTransactions.js";
+import { executeFinancialOperation, FinancialApiError, listStudentArrears, listScopedStudentArrears } from "../../api/_lib/financialTransactions.js";
 
 type StoredDocument = Record<string, unknown>;
 type Reference = { path: string };
@@ -104,6 +104,23 @@ describe("API financière transactionnelle", () => {
     }, now: "2027-10-01T12:00:00.000Z" });
     expect(result.payment).toMatchObject({ schoolYearId: "year-a", studentId: "student-a", feeTypeId: "fee-a", collectionSchoolYearId: "year-current", currentStudentId: "student-current", amount: 20, paidAt: "2027-10-01" });
     expect(db.documents.get("feeTypes/fee-current")?.amount).toBe(200);
+    expect(db.documents.get("payments/payment-existing")?.amount).toBe(70);
+  });
+
+  it("partage exactement le calcul canonique des arriérés avec la supervision sans aucune écriture", async () => {
+    const db = fakeDb(historicalSeed());
+    const before = [...db.documents];
+    const canonical = await listStudentArrears({ db, caller: cashier, body: { action: "list-arrears", schoolYearId: "year-current", studentId: "student-current" } });
+    expect(await listScopedStudentArrears({ db, studentId: "student-current", schoolIds: ["school-a"] })).toEqual(canonical);
+    expect([...db.documents]).toEqual(before);
+  });
+
+  it("refuse les arriérés hors périmètre ou dans un contexte scolaire incohérent", async () => {
+    const db = fakeDb(historicalSeed());
+    await expect(listScopedStudentArrears({ db, studentId: "student-current", schoolIds: ["school-b"] })).rejects.toMatchObject({ status: 404 });
+    await expect(listScopedStudentArrears({ db, studentId: "student-current", schoolIds: [] })).rejects.toMatchObject({ status: 404 });
+    db.documents.set("schoolYears/year-current", { schoolId: "school-b" });
+    await expect(listScopedStudentArrears({ db, studentId: "student-current", schoolIds: ["school-a"] })).rejects.toMatchObject({ status: 409 });
     expect(db.documents.get("payments/payment-existing")?.amount).toBe(70);
   });
 

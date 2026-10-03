@@ -99,7 +99,7 @@ export function CoordinationStudents({ user, coordination, schools, selectedScho
     finally { setExporting(false); }
   }
 
-  if (selectedStudent && selectedStudentScope === filterKey) return <CoordinationStudentRecord student={selectedStudent} user={user} schools={schools} years={years} onBack={() => setSelectedStudent(null)}/>;
+  if (selectedStudent && selectedStudentScope === filterKey) return <CoordinationStudentRecord student={selectedStudent} user={user} coordination={coordination} schools={schools} years={years} onBack={() => setSelectedStudent(null)}/>;
   return <section className="grid min-w-0 gap-4">
     <div><h2 className="text-lg font-bold">Élèves</h2><p className="text-sm text-slate-600">Consultation en lecture seule · page {pageIndex + 1} · {students.length} élève(s) affiché(s).</p></div>
     <div className="grid w-full min-w-0 grid-cols-1 items-stretch gap-2 sm:grid-cols-2 xl:grid-cols-[repeat(5,minmax(0,1fr))_auto]">

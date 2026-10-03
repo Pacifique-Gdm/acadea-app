@@ -50,6 +50,12 @@ export function listStudentArrears(input: {
   body: Record<string, unknown>;
 }): Promise<{ debts: HistoricalDebt[]; settled: HistoricalDebt[] }>;
 
+export function listScopedStudentArrears(input: {
+  db: unknown;
+  studentId: string;
+  schoolIds: string[];
+}): Promise<{ debts: HistoricalDebt[]; settled: HistoricalDebt[] }>;
+
 export function executeFinancialOperation(input: {
   db: unknown;
   caller: { uid: string; role?: unknown; schoolId?: unknown; email?: unknown };
