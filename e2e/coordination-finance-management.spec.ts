@@ -168,7 +168,9 @@ test("Coordination finances et gestion Super Admin — validation finale Staging
       await management.getByRole("button", { name: "Enregistrer", exact: true }).click();
       const edited = management.getByRole("article", { name: "Coordinateur Coordinateur E2E A modifié", exact: true });
       await expect(edited).toBeVisible();
+      const suspension = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/manage-coordination" && response.request().postDataJSON()?.action === "suspend-coordinator");
       await edited.getByRole("button", { name: "Suspendre", exact: true }).click();
+      expect((await suspension).status()).toBe(200);
       await expect(edited).toContainText("Suspendu");
       const userA = await fixture.auth.getUserByEmail(identities[0].email), userB = await fixture.auth.getUserByEmail(identities[1].email);
       expect(userA.disabled).toBe(true); expect(userB.disabled).toBe(false);
@@ -178,7 +180,9 @@ test("Coordination finances et gestion Super Admin — validation finale Staging
       const deniedRead = await request.get(`https://firestore.googleapis.com/v1/projects/acadea-staging/databases/(default)/documents/schools/${fixture.schoolId}`, { headers: { Authorization: `Bearer ${oldToken}` } });
       expect([401, 403]).toContain(deniedRead.status());
       await secondContext.close();
-      await edited.getByRole("button", { name: "Réactiver", exact: true }).click(); await expect(edited).toContainText("Actif");
+      const reactivation = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/manage-coordination" && response.request().postDataJSON()?.action === "reactivate-coordinator");
+      await edited.getByRole("button", { name: "Réactiver", exact: true }).click();
+      expect((await reactivation).status()).toBe(200); await expect(edited).toContainText("Actif");
       await edited.getByRole("button", { name: "Supprimer", exact: true }).click();
       await management.getByLabel("Tapez SUPPRIMER CE COORDINATEUR").fill("NON");
       await expect(management.getByRole("button", { name: "Confirmer la suppression" })).toBeDisabled();
