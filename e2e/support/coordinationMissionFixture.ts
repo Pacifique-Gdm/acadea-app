@@ -74,6 +74,8 @@ export async function coordinationMissionFixture(cleanupPrefix?: string) {
     ]) await db.doc(`payments/${payment.id}`).set({ schoolId, cashierId: accounts[2].uid, cashierName: "Caissier E2E", createdAt: `${today}T12:00:00.000Z`, receiptNumber: `E2E-${payment.id}`, ...payment });
   }
   async function login(page: Page, role: string, credentials?: { email: string; password: string }) {
+    page.setDefaultTimeout(30000);
+    page.setDefaultNavigationTimeout(45000);
     const account = credentials ?? accounts.find((row) => row.role === role);
     if (!account) throw new Error("Compte fixture inconnu.");
     await page.goto("https://acadea-staging.vercel.app/login");

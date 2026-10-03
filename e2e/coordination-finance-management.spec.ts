@@ -4,6 +4,8 @@ import { test, expect, type Page, type BrowserContext } from "@playwright/test";
 import { coordinationMissionFixture } from "./support/coordinationMissionFixture";
 import { formatCurrencyMoney } from "../src/utils/currency";
 
+test.use({ actionTimeout: 30000, navigationTimeout: 45000 });
+
 async function responsive(page: Page, name: string) {
   for (const width of [1440, 768, 390]) {
     await page.setViewportSize({ width, height: 900 });
@@ -27,24 +29,28 @@ test("Coordination finances et gestion Super Admin — validation finale Staging
   const api = (token: string, data: Record<string, unknown>, endpoint = "manage-coordination") => request.post(`/api/${endpoint}`, { headers: { Authorization: `Bearer ${token}` }, data });
   try {
     await fixture.seed();
+    console.log(JSON.stringify({ phase: "fixtures créées" }));
     const canonicalResponse = await api(await fixture.token("cashier"), { action: "list-arrears", studentId: fixture.studentId, schoolYearId: fixture.yearId }, "manage-financial-transaction");
     expect(canonicalResponse.status()).toBe(200);
     const canonical = await canonicalResponse.json();
     expect(canonical.debts).toHaveLength(2); expect(canonical.settled).toHaveLength(1);
     for (const role of ["coordination_admin", "sub_coordination_admin", "school_admin", "cashier"]) {
       await test.step(`Arriérés et dates ${role}`, async () => {
+        console.log(JSON.stringify({ phase: "connexion", role }));
         const context = await browser.newContext({ viewport: { width: 1440, height: 900 } }); contexts.push(context);
         const page = await context.newPage();
         const pageFailures: string[] = [];
         page.on("pageerror", (error) => pageFailures.push(error.name));
         page.on("response", (response) => { if (response.status() >= 400) pageFailures.push(`HTTP ${response.status()} ${new URL(response.url()).pathname}`); });
         await fixture.login(page, role);
+        console.log(JSON.stringify({ phase: "Dashboard ouvert", role }));
         const title = role.includes("coordination") ? "Arriérés encaissés, hors recouvrement de l'année courante" : "Arriérés encaissés";
         const arrearsCard = page.getByText(title, { exact: role.includes("coordination") }).first().locator("..");
         await expect(arrearsCard).toContainText(formatCurrencyMoney(35, "USD"), { timeout: 60000 });
-        const currentFees = page.getByText("Frais de l'année encaissés", { exact: true }).locator("..");
+        const currentFees = page.getByText("Frais de l'année encaissés", { exact: true }).last().locator("..");
         await expect(currentFees).toContainText(formatCurrencyMoney(25, "USD"));
         const start = page.getByLabel("Date de début", { exact: true });
+        console.log(JSON.stringify({ phase: "filtres de dates", role }));
         await start.fill(fixture.yesterdayKey); await start.fill(fixture.today);
         await expect(arrearsCard).toContainText(formatCurrencyMoney(25, "USD"));
         await expect(arrearsCard).toContainText(formatCurrencyMoney(1000, "CDF"));
@@ -67,17 +73,17 @@ test("Coordination finances et gestion Super Admin — validation finale Staging
           await page.getByRole("button", { name: "Contrôle", exact: true }).last().click();
           await page.locator("article").filter({ hasText: "7ème CTEB" }).getByRole("button", { name: "Finance Élève", exact: true }).click({ timeout: 30000 });
           await expect(page.getByText("Dettes des années antérieures", { exact: true })).toBeVisible({ timeout: 60000 });
-          const debts = page.locator("section").filter({ has: page.getByRole("heading", { name: "Dettes des années antérieures" }) });
+          const debts = page.getByRole("heading", { name: "Dettes des années antérieures", exact: true }).locator("..");
           await expect(debts).toContainText("2024-2025"); await expect(debts).toContainText("2025-2026");
           await expect(debts).toContainText(formatCurrencyMoney(65, "USD")); await expect(debts).toContainText(formatCurrencyMoney(9000, "CDF")); await expect(debts).toContainText("Soldée");
           await responsive(page, `${role}-fiche`);
-          const popupPromise = page.waitForEvent("popup");
+          await debts.scrollIntoViewIfNeeded();
+          await responsive(page, `${role}-arrears`);
           await page.getByRole("button", { name: "Imprimer PDF", exact: true }).click();
-          const popup = await popupPromise;
-          await expect(popup.locator("iframe[data-pdf-frame]")).toHaveAttribute("src", /^blob:/, { timeout: 120000 });
-          const bytes = await popup.evaluate(async () => Array.from(new Uint8Array(await (await fetch(document.querySelector<HTMLIFrameElement>("iframe[data-pdf-frame]")!.src)).arrayBuffer())));
+          await expect(page.locator("[data-pdf-download]")).toHaveAttribute("href", /^blob:/, { timeout: 120000 });
+          const bytes = await page.evaluate(async () => Array.from(new Uint8Array(await (await fetch(document.querySelector<HTMLAnchorElement>("[data-pdf-download]")!.href)).arrayBuffer())));
           await writeFile(testInfo.outputPath(`${role}-arrears.pdf`), Buffer.from(bytes));
-          expect(bytes.length).toBeGreaterThan(1000); await popup.close();
+          expect(bytes.length).toBeGreaterThan(1000); await page.locator("[data-pdf-close]").click();
           await page.reload(); await expect(page.getByRole("button", { name: "Dashboard", exact: true }).last()).toBeVisible({ timeout: 60000 });
         }
         expect(pageFailures).toEqual([]);
