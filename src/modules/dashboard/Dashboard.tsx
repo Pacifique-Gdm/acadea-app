@@ -393,13 +393,15 @@ export function Dashboard({ data, school, year }: DashboardProps) {
   const activeFinancialAggregates = hasDashboardFinancialFilter ? dashboardFinancialAggregates : fullYearFinancialAggregates;
   const dashboardFinancialStats = activeFinancialAggregates.financialStats;
   const totalPayments = dashboardFinancialStats.paid;
+  const transactionStartDate = dateFilterActive ? startDate : today;
+  const transactionEndDate = dateFilterActive ? endDate : today;
   const arrearsCollections = useMemo(() => (["USD", "CDF"] as const).map((currency) => ({
     currency,
     amount: data.payments.filter((payment) => payment.collectionSchoolYearId === year.id
       && payment.currency === currency && filteredStudentIds.has(payment.currentStudentId ?? "")
-      && (!dateFilterActive || isInDashboardDateRange(payment.paidAt, startDate, endDate)))
+      && isInDashboardDateRange(payment.paidAt, transactionStartDate, transactionEndDate))
       .reduce((sum, payment) => sum + payment.amount, 0),
-  })).filter((group) => group.amount > 0), [data.payments, dateFilterActive, endDate, filteredStudentIds, startDate, year.id]);
+  })).filter((group) => group.amount > 0), [data.payments, transactionEndDate, filteredStudentIds, transactionStartDate, year.id]);
   const fullYearExpenses = useMemo(() => data.expenses.reduce((sum, expense) => sum + expense.amount, 0), [data.expenses]);
   const filteredExpensesTotal = useMemo(() => filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0), [filteredExpenses]);
   const totalExpenses = hasDashboardFinancialFilter ? filteredExpensesTotal : fullYearExpenses;
@@ -440,8 +442,6 @@ export function Dashboard({ data, school, year }: DashboardProps) {
   const totalStudents = totalGirls + totalBoys;
   const studentsById = yearIndexes.studentsById;
   const feeTypesById = yearIndexes.feeTypesById;
-  const transactionStartDate = dateFilterActive ? startDate : today;
-  const transactionEndDate = dateFilterActive ? endDate : today;
   const transactionPayments = useMemo(
     () =>
       data.payments.filter((payment) => {

@@ -1,63 +1,85 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Download, RotateCcw } from "lucide-react";
 import { AdminDrawer, Metric, SectionTitle } from "../../components/ui";
-import type { CoordinationDashboardReadModel } from "../../services/coordinationReadModel";
-import type { AppUser, Coordination, Expense, Payment, School } from "../../types";
-import { buildSchoolYearDataIndexes } from "../../utils/dataIndexes";
+import type { AppUser, Coordination, Expense, Payment, School, Student } from "../../types";
 import { escapePdfHtml, generateExpensePdf, generateReceiptPdf, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import { activityTimestamp } from "../../utils/activityHistory";
 import { resolveExpenseCashierName, resolvePaymentCashierName } from "../../utils/finance";
 import { MISSING_FINANCIAL_OPERATION_SCHOOL_ERROR, resolveFinancialOperationSchool } from "../../utils/financialOperationSchool";
-import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
-import { buildCoordinationClassChoices, coordinationStudentClassKey } from "../../utils/coordinationSupervision";
+import type { CoordinationStudentStatus } from "../../utils/coordinationSupervision";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import { coordinationPdfInstitution } from "./coordinationPdfInstitution";
 import { CoordinationStudentRecord } from "./CoordinationStudentRecord";
+import { useCoordinationControlPage } from "./useCoordinationControlPage";
+import { loadCoordinationControlHistory, loadCoordinationControlPage, type CoordinationControlCursor, type ControlRow } from "../../services/coordinationControlPagination";
+import { controlHistoryCurrency, matchesControlHistory } from "../../utils/coordinationControlHistory";
+import { formatCurrencyMoney } from "../../utils/currency";
 
 type HistoryKind = "payments" | "expenses";
 
-export function CoordinationControl({ user, coordination, schools, selectedSchoolId, model, loading, loadError }: { user: AppUser; coordination: Coordination; schools: School[]; selectedSchoolId: string; model: CoordinationDashboardReadModel; loading: boolean; loadError: string }) {
+export function CoordinationControl({ user, coordination, schools, selectedSchoolId, refreshToken }: { user: AppUser; coordination: Coordination; schools: School[]; selectedSchoolId: string; refreshToken: number }) {
   const [classKey, setClassKey] = useState("");
   const [amountComparator, setAmountComparator] = useState("");
   const [amountThreshold, setAmountThreshold] = useState("");
   const [historyKind, setHistoryKind] = useState<HistoryKind | null>(null);
+  const [historySchoolId, setHistorySchoolId] = useState("");
+  const [historyStart, setHistoryStart] = useState("");
+  const [historyEnd, setHistoryEnd] = useState("");
   const [selectedStudentId, setSelectedStudentId] = useState("");
   const [documentError, setDocumentError] = useState("");
-  const scopedStudents = useMemo(() => model.students.filter((student) => !selectedSchoolId || student.schoolId === selectedSchoolId), [model.students, selectedSchoolId]);
-  const scopedFeeTypes = useMemo(() => model.feeTypes.filter((fee) => !selectedSchoolId || fee.schoolId === selectedSchoolId), [model.feeTypes, selectedSchoolId]);
-  const scopedPayments = useMemo(() => model.payments.filter((payment) => !selectedSchoolId || payment.schoolId === selectedSchoolId), [model.payments, selectedSchoolId]);
-  const scopedExpenses = useMemo(() => model.expenses.filter((expense) => !selectedSchoolId || expense.schoolId === selectedSchoolId), [model.expenses, selectedSchoolId]);
-  const indexes = useMemo(() => buildSchoolYearDataIndexes(scopedStudents, scopedFeeTypes, scopedPayments), [scopedFeeTypes, scopedPayments, scopedStudents]);
+  const page = useCoordinationControlPage(user, schools, selectedSchoolId, refreshToken, classKey, amountComparator, amountThreshold);
+  const { rows, loading, error: loadError, classChoices } = page;
+  const [history, setHistory] = useState<{ students: Student[]; payments: Payment[]; expenses: Expense[] }>({ students: [], payments: [], expenses: [] });
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const historyScope = schools.filter((school) => !selectedSchoolId || school.id === selectedSchoolId).map((school) => school.id).sort().join("|");
+  const historyOpen = Boolean(historyKind);
+  useEffect(() => {
+    if (!historyOpen) return;
+    let cancelled = false;
+    setHistory({ students: [], payments: [], expenses: [] }); setHistoryLoading(true); setDocumentError("");
+    loadCoordinationControlHistory(historyScope ? historyScope.split("|") : [])
+      .then((value) => { if (!cancelled) setHistory(value); })
+      .catch(() => { if (!cancelled) setDocumentError("Impossible de charger l'historique du contrôle."); })
+      .finally(() => { if (!cancelled) setHistoryLoading(false); });
+    return () => { cancelled = true; };
+  }, [historyOpen, historyScope, refreshToken]);
+  useEffect(() => { setSelectedStudentId(""); }, [page.filterKey]);
   const schoolsById = useMemo(() => new Map(schools.map((school) => [school.id, school])), [schools]);
-  const studentsById = useMemo(() => new Map(model.students.map((student) => [student.id, student])), [model.students]);
-  const feeTypesById = useMemo(() => new Map(model.feeTypes.map((fee) => [fee.id, fee])), [model.feeTypes]);
-  const classChoices = useMemo(() => buildCoordinationClassChoices(scopedStudents, schools, selectedSchoolId), [schools, scopedStudents, selectedSchoolId]);
-  const feeChoices = useMemo(() => scopedFeeTypes.map((fee) => ({ value: fee.id, label: `${fee.name}${selectedSchoolId ? "" : ` — ${schools.find((school) => school.id === fee.schoolId)?.name ?? fee.schoolId}`}` })), [schools, scopedFeeTypes, selectedSchoolId]);
-  const rows = useMemo(() => scopedStudents.map((student) => {
-    const feeSummaries = getStudentFeeSummaries(student, scopedFeeTypes, scopedPayments, indexes);
-    const balance = feeSummaries.reduce((total, item) => ({ expected: total.expected + item.expected, paid: total.paid + item.paid, remaining: total.remaining + item.remaining }), { expected: 0, paid: 0, remaining: 0 });
-    const progress = balance.expected ? Math.min(100, Math.round((balance.paid / balance.expected) * 100)) : 0;
-    return { student, feeSummaries, balance, progress };
-  }).filter((row) => {
-    if (classKey && coordinationStudentClassKey(row.student) !== classKey) return false;
-    if (!amountComparator || !amountThreshold) return true;
-    const threshold = Number(amountThreshold);
-    if (!Number.isFinite(threshold)) return true;
-    if (amountComparator === "all-fees-gte") return row.feeSummaries.length > 0 && row.feeSummaries.every((summary) => summary.paid >= threshold);
-    if (amountComparator === "all-fees-lt") return row.feeSummaries.some((summary) => summary.paid < threshold);
-    const match = amountComparator.match(/^fee:(.+):(gte|lt)$/);
-    if (!match) return true;
-    const summary = row.feeSummaries.find((item) => item.feeTypeId === match[1]);
-    return Boolean(summary && (match[2] === "gte" ? summary.paid >= threshold : summary.paid < threshold));
-  }), [amountComparator, amountThreshold, classKey, indexes, scopedFeeTypes, scopedPayments, scopedStudents]);
-  const selectedStudent = model.students.find((student) => student.id === selectedStudentId);
+  const studentsById = useMemo(() => new Map(history.students.map((student) => [student.id, student])), [history.students]);
+  const feeTypesById = useMemo(() => new Map(page.fees.map((fee) => [fee.id, fee])), [page.fees]);
+  const feeChoices = page.fees.filter((fee) => (!selectedSchoolId || fee.schoolId === selectedSchoolId) && (!page.selectedYearId || fee.schoolYearId === page.selectedYearId)).map((fee) => ({ value: fee.id, label: `${fee.name}${selectedSchoolId ? "" : ` — ${schoolsById.get(fee.schoolId)?.name ?? fee.schoolId}`}` }));
+  const selectedStudent = rows.find((row) => row.student.id === selectedStudentId)?.student;
   const schoolName = (schoolId: string) => schools.find((school) => school.id === schoolId)?.name ?? schoolId;
-  const historyPayments = useMemo(() => [...scopedPayments].sort((first, second) => activityTimestamp(second.createdAt ?? second.paidAt) - activityTimestamp(first.createdAt ?? first.paidAt)), [scopedPayments]);
-  const historyExpenses = useMemo(() => [...scopedExpenses].sort((first, second) => activityTimestamp(second.createdAt ?? second.spentAt) - activityTimestamp(first.createdAt ?? first.spentAt)), [scopedExpenses]);
+  const historyFilters = useMemo(() => ({ schoolId: historySchoolId, startDate: historyStart, endDate: historyEnd }), [historySchoolId, historyStart, historyEnd]);
+  const historyPayments = useMemo(() => history.payments.filter((payment) => matchesControlHistory(payment, historyFilters)).sort((first, second) => activityTimestamp(second.createdAt ?? second.paidAt) - activityTimestamp(first.createdAt ?? first.paidAt)), [history.payments, historyFilters]);
+  const historyExpenses = useMemo(() => history.expenses.filter((expense) => matchesControlHistory(expense, historyFilters)).sort((first, second) => activityTimestamp(second.createdAt ?? second.spentAt) - activityTimestamp(first.createdAt ?? first.spentAt)), [history.expenses, historyFilters]);
+  const historyMoney = (operation: Payment | Expense) => formatCurrencyMoney(operation.amount, controlHistoryCurrency(operation, schools, page.years));
+  useEffect(() => { setHistorySchoolId(selectedSchoolId); }, [selectedSchoolId]);
+
+  async function exportHistory() {
+    const contextSchool = schools.find((school) => school.id === (historySchoolId || selectedSchoolId)) ?? schools[0];
+    if (!contextSchool || historyLoading) return;
+    const title = historyKind === "payments" ? "Paiements" : "Dépenses";
+    const reportRows = historyKind === "payments" ? historyPayments.map((payment) => {
+      const student = studentsById.get(payment.studentId);
+      return { school: schoolName(payment.schoolId), date: payment.paidAt.slice(0, 10), label: `${student ? `${student.nom} ${student.prenom}` : payment.studentId} — ${feeTypesById.get(payment.feeTypeId)?.name ?? payment.feeName ?? "Frais"}`, amount: historyMoney(payment) };
+    }) : historyExpenses.map((expense) => ({ school: schoolName(expense.schoolId), date: expense.spentAt.slice(0, 10), label: `${expense.category} — ${expense.description}`, amount: historyMoney(expense) }));
+    try {
+      await renderAcadPdfPreview({ filename: `historique-controle-${historyKind}.pdf`, title: `Historique du contrôle — ${title}`, school: coordinationPdfInstitution(coordination, contextSchool), subtitle: `École : ${historySchoolId ? schoolName(historySchoolId) : selectedSchoolId ? schoolName(selectedSchoolId) : "Toutes les écoles"} | Période : ${historyStart || "Début"} au ${historyEnd || "Fin"}`, sections: [pdfSection(title, pdfTable([
+        { header: "École", render: (row) => escapePdfHtml(row.school) }, { header: "Date", render: (row) => row.date }, { header: "Libellé", render: (row) => escapePdfHtml(row.label) }, { header: "Montant / devise", render: (row) => row.amount, align: "right" },
+      ], reportRows, "Aucune opération pour ces filtres."))] });
+    } catch { setDocumentError("Impossible d’exporter l’historique."); }
+  }
 
   async function exportPdf() {
     const contextSchool = schools.find((school) => school.id === selectedSchoolId) ?? schools[0];
     if (!contextSchool) return;
+    const exportRows: ControlRow[] = [];
+    let cursor: CoordinationControlCursor | undefined;
+    do {
+      const result = await loadCoordinationControlPage(page.filters, page.fees, page.amountFilter, cursor);
+      exportRows.push(...result.rows); cursor = result.nextCursor;
+    } while (cursor);
     await renderAcadPdfPreview({ filename: `controle-coordination-${selectedSchoolId || "toutes"}.pdf`, title: "Contrôle", school: coordinationPdfInstitution(coordination, contextSchool), subtitle: `École : ${selectedSchoolId ? contextSchool.name : "Toutes les écoles"} | Classe : ${classChoices.find((item) => item.value === classKey)?.label ?? "Toutes"} | Montant : ${amountComparator || "Tous"} ${amountThreshold}`.trim(), sections: [pdfSection("Suivi des paiements", pdfTable([
       { header: "Élève", render: (row) => escapePdfHtml(`${row.student.nom} ${row.student.prenom}`) },
       { header: "École", render: (row) => escapePdfHtml(schoolName(row.student.schoolId)) },
@@ -65,7 +87,7 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
       { header: "Prévu", render: (row) => row.balance.expected.toFixed(2), align: "right" },
       { header: "Payé", render: (row) => row.balance.paid.toFixed(2), align: "right" },
       { header: "Solde", render: (row) => row.balance.remaining.toFixed(2), align: "right" },
-    ], rows, "Aucun élève ne correspond aux filtres."))] });
+    ], exportRows, "Aucun élève ne correspond aux filtres."))] });
   }
 
   function operationSchool(operation: { schoolId: string }) {
@@ -90,28 +112,44 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
   async function downloadExpenseProof(expense: Expense) {
     const school = operationSchool(expense);
     if (!school) return;
-    const year = model.schoolYears.find((item) => item.id === expense.schoolYearId && item.schoolId === expense.schoolId);
+    const year = page.years.find((item) => item.id === expense.schoolYearId && item.schoolId === expense.schoolId);
     setDocumentError("");
     await generateExpensePdf(expense, school, year, resolveExpenseCashierName(expense, []));
   }
 
-  if (selectedStudent) return <CoordinationStudentRecord student={selectedStudent} user={user} coordination={coordination} schools={schools} years={model.schoolYears} onBack={() => setSelectedStudentId("")}/>;
+  if (selectedStudent) return <CoordinationStudentRecord context="control" student={selectedStudent} user={user} coordination={coordination} schools={schools} years={page.years} onBack={() => setSelectedStudentId("")}/>;
 
   return <section className="grid min-w-0 gap-4">
     <SectionTitle title="Contrôle" subtitle="Frais scolaires, paiements, historique et soldes restants en lecture seule."/>
+    <div className="grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      <input className="input" aria-label="Rechercher un élève dans le contrôle" placeholder="Nom, prénom ou matricule" value={page.search} onChange={(event) => page.setSearch(event.target.value)} />
+      <select className="input" aria-label="Année scolaire" value={page.selectedYearId} onChange={(event) => page.setSelectedYearId(event.target.value)}><option value="">Toutes les années</option>{page.years.filter((year) => !selectedSchoolId || year.schoolId === selectedSchoolId).map((year) => <option key={year.id} value={year.id}>{year.name} — {schoolName(year.schoolId)}</option>)}</select>
+      <select className="input" aria-label="Statut des élèves" value={page.status} onChange={(event) => page.setStatus(event.target.value as CoordinationStudentStatus)}><option value="all">Tous</option><option value="active">Actifs</option><option value="archived">Archivés</option></select>
+      <select className="input" aria-label="Option" value={page.option} onChange={(event) => page.setOption(event.target.value)}><option value="">Toutes les options</option>{page.options.map((option) => <option key={option}>{option}</option>)}</select>
+    </div>
     <div className="grid w-full min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-[repeat(3,minmax(0,1fr))_auto_auto_auto]">
       <select aria-label="Classe" className="input min-w-0 w-full" value={classKey} onChange={(event) => setClassKey(event.target.value)}><option value="">Toutes</option>{classChoices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</select>
       <select aria-label="Montant payé" className="input min-w-0 w-full" value={amountComparator} onChange={(event) => setAmountComparator(event.target.value)}><option value="">Montant payé</option><option value="all-fees-gte">Tous les frais ≥</option><option value="all-fees-lt">Tous les frais &lt;</option>{feeChoices.flatMap((fee) => [<option key={`${fee.value}-gte`} value={`fee:${fee.value}:gte`}>{fee.label} ≥</option>, <option key={`${fee.value}-lt`} value={`fee:${fee.value}:lt`}>{fee.label} &lt;</option>])}</select>
       <input aria-label="Filtre" className="input min-w-0 w-full" type="number" placeholder="Filtre" value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)}/>
       <button type="button" className="pdf-export-button min-w-0 w-full xl:w-auto" onClick={() => void exportPdf()}><Download className="h-4 w-4"/> Exporter PDF</button>
-      <button type="button" className="secondary-button min-w-0 w-full justify-center xl:w-auto" onClick={() => { setClassKey(""); setAmountComparator(""); setAmountThreshold(""); }}><RotateCcw className="h-4 w-4"/> Réinitialiser</button>
+      <button type="button" className="secondary-button min-w-0 w-full justify-center xl:w-auto" onClick={() => { setClassKey(""); setAmountComparator(""); setAmountThreshold(""); page.setSearch(""); page.setSelectedYearId(""); page.setStatus("all"); page.setOption(""); }}><RotateCcw className="h-4 w-4"/> Réinitialiser</button>
       <button type="button" className="secondary-button min-w-0 w-full justify-center xl:w-auto" onClick={() => setHistoryKind("payments")}>Historique</button>
     </div>
     {loading && <p role="status" className="rounded bg-blue-50 p-3 text-sm text-blue-700">Chargement du contrôle…</p>}
     {loadError && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{loadError}</p>}
+    <nav aria-label="Pagination du contrôle" className="flex flex-wrap items-center justify-between gap-2"><span>Page {page.pageIndex + 1} · {rows.length} élèves · 50 maximum par page</span><div className="flex gap-2"><button type="button" className="secondary-button" disabled={loading || page.pageIndex === 0} onClick={page.previous}>Précédente</button><button type="button" className="secondary-button" disabled={loading || !page.hasNext} onClick={page.next}>Suivante</button></div></nav>
     {!historyKind && documentError && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{documentError}</p>}
     {!loading && <div className="grid min-w-0 gap-3">{rows.map(({ student, balance, progress, feeSummaries }) => <article key={student.id} className="min-w-0 rounded border border-slate-200 bg-white p-4"><div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:justify-between"><div className="min-w-0"><button type="button" className="break-words text-left font-bold text-ink hover:text-blue-700 hover:underline" onClick={() => setSelectedStudentId(student.id)}>{student.nom} {student.prenom}</button><p className="break-words text-sm text-slate-500">{student.matricule} | {formatStudentClassName(student)} | {schoolName(student.schoolId)}</p></div><span className={`w-fit shrink-0 rounded px-2 py-1 text-xs font-semibold ${balance.expected > 0 && balance.remaining === 0 ? "bg-mint/10 text-mint" : "bg-amber-100 text-amber-700"}`}>{balance.expected > 0 && balance.remaining === 0 ? "En ordre" : "Non en ordre"}</span></div><div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3"><Metric label="Prévu" value={balance.expected.toFixed(2)}/><Metric label="Payé" value={balance.paid.toFixed(2)}/><Metric label="Solde" value={balance.remaining.toFixed(2)}/></div><div className="mt-4 h-3 overflow-hidden rounded bg-slate-100"><div className="h-full rounded bg-blue-700" style={{ width: `${progress}%` }}/></div>{feeSummaries.length === 0 && <p className="mt-2 text-xs text-slate-500">Aucun frais défini pour cette classe.</p>}</article>)}{rows.length === 0 && <p className="rounded bg-white p-5 text-sm text-slate-500">Aucune donnée de contrôle dans le périmètre sélectionné.</p>}</div>}
-    {historyKind && <AdminDrawer width="wide" title="Historique du contrôle" closeLabel="Fermer l’historique" toolbar={<div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><button type="button" className={historyKind === "payments" ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setHistoryKind("payments")}>Paiements</button><button type="button" className={historyKind === "expenses" ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setHistoryKind("expenses")}>Dépenses</button></div>} onClose={() => { setHistoryKind(null); setDocumentError(""); }}>{documentError && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{documentError}</p>}{historyKind === "payments" ? <ReadOnlyTable headers={["Élève", "École", "Montant", "Date", "PDF"]} rows={historyPayments.map((payment) => { const student = studentsById.get(payment.studentId); return [student ? `${student.nom} ${student.prenom}` : payment.studentId, schoolName(payment.schoolId), payment.amount.toFixed(2), payment.paidAt, <button type="button" className="rounded bg-slate-100 p-2 text-slate-700" title="Voir le reçu PDF" aria-label={`Voir le reçu PDF du paiement ${payment.receiptNumber ?? payment.id}`} onClick={() => void downloadPaymentReceipt(payment)}><Download className="h-4 w-4"/></button>]; })}/> : <ReadOnlyTable headers={["École", "Catégorie", "Description", "Montant", "Date", "PDF"]} rows={historyExpenses.map((expense) => [schoolName(expense.schoolId), expense.category, expense.description, expense.amount.toFixed(2), expense.spentAt, <button type="button" className="rounded bg-slate-100 p-2 text-slate-700" title="Voir le justificatif PDF" aria-label={`Voir le justificatif PDF de la dépense ${expense.reference ?? expense.id}`} onClick={() => void downloadExpenseProof(expense)}><Download className="h-4 w-4"/></button>])}/>}</AdminDrawer>}
+    {historyKind && <AdminDrawer width="wide" title="Historique du contrôle" closeLabel="Fermer l’historique" toolbar={<div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><button type="button" className={historyKind === "payments" ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setHistoryKind("payments")}>Paiements</button><button type="button" className={historyKind === "expenses" ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setHistoryKind("expenses")}>Dépenses</button></div>} onClose={() => { setHistoryKind(null); setDocumentError(""); }}>
+      <div className="mb-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <label className="grid min-w-0 gap-1 text-sm">École<select aria-label="École de l’historique" className="input" value={historySchoolId} onChange={(event) => setHistorySchoolId(event.target.value)}><option value="">Toutes les écoles du périmètre</option>{schools.filter((school) => !selectedSchoolId || school.id === selectedSchoolId).map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}</select></label>
+        <label className="grid min-w-0 gap-1 text-sm">Date début<input type="date" aria-label="Date début historique" className="input min-w-0" value={historyStart} onChange={(event) => setHistoryStart(event.target.value)}/></label>
+        <label className="grid min-w-0 gap-1 text-sm">Date fin<input type="date" aria-label="Date fin historique" className="input min-w-0" value={historyEnd} onChange={(event) => setHistoryEnd(event.target.value)}/></label>
+        <button type="button" className="pdf-export-button min-w-0 self-end justify-center" disabled={historyLoading || Boolean(documentError)} onClick={() => void exportHistory()}><Download className="h-4 w-4"/>Exporter PDF</button>
+      </div>
+      {historyLoading && <p role="status">Chargement de l’historique…</p>}
+      {documentError && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{documentError}</p>}
+      {historyKind === "payments" ? <ReadOnlyTable headers={["Élève", "École", "Montant", "Date", "PDF"]} rows={historyPayments.map((payment) => { const student = studentsById.get(payment.studentId); return [student ? `${student.nom} ${student.prenom}` : payment.studentId, schoolName(payment.schoolId), historyMoney(payment), payment.paidAt, <button type="button" className="rounded bg-slate-100 p-2 text-slate-700" title="Voir le reçu PDF" aria-label={`Voir le reçu PDF du paiement ${payment.receiptNumber ?? payment.id}`} onClick={() => void downloadPaymentReceipt(payment)}><Download className="h-4 w-4"/></button>]; })}/> : <ReadOnlyTable headers={["École", "Catégorie", "Description", "Montant", "Date", "PDF"]} rows={historyExpenses.map((expense) => [schoolName(expense.schoolId), expense.category, expense.description, historyMoney(expense), expense.spentAt, <button type="button" className="rounded bg-slate-100 p-2 text-slate-700" title="Voir le justificatif PDF" aria-label={`Voir le justificatif PDF de la dépense ${expense.reference ?? expense.id}`} onClick={() => void downloadExpenseProof(expense)}><Download className="h-4 w-4"/></button>])}/>}</AdminDrawer>}
   </section>;
 }
 

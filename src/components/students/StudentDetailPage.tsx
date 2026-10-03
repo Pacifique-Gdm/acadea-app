@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Download, Plus, Search, UserMinus } from "lucide-react";
 import { ActionSnackbar, AdminDrawer, FormPanel, Metric } from "../ui";
 import { linkParentToStudent, unlinkParentFromStudent } from "../../services/provisioning";
@@ -27,6 +27,11 @@ export function StudentDetailPage({
   formatArchiveDate,
   canLinkParent = true,
   schoolsById,
+  header,
+  financialLoading = false,
+  financialError = "",
+  parentLoading = false,
+  parentError = "",
 }: {
   studentId: string;
   user: AppUser;
@@ -40,6 +45,11 @@ export function StudentDetailPage({
   formatArchiveDate: (value?: string) => string;
   canLinkParent?: boolean;
   schoolsById?: ReadonlyMap<string, School>;
+  header?: ReactNode;
+  financialLoading?: boolean;
+  financialError?: string;
+  parentLoading?: boolean;
+  parentError?: string;
 }) {
   const [parentLinkOpen, setParentLinkOpen] = useState(false);
   const [parentLinkSearch, setParentLinkSearch] = useState("");
@@ -198,10 +208,10 @@ export function StudentDetailPage({
 
   return (
     <section className="grid min-w-0 gap-4">
-      <button onClick={onBack} className="secondary-button w-fit">← Retour à la liste des élèves</button>
+      {!header && <button onClick={onBack} className="secondary-button w-fit">← Retour à la liste des élèves</button>}
       <ActionSnackbar message={parentFeedback} onClose={() => setParentFeedback("")} />
 
-      <article className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
+      {header ?? <article className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
           <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded bg-slate-100 text-2xl font-bold text-ink">
             {student.photoUrl ? <img src={student.photoUrl} alt="" className="h-full w-full object-cover" /> : (student.prenom?.slice(0, 1) || student.nom?.slice(0, 1) || "?")}
@@ -217,14 +227,14 @@ export function StudentDetailPage({
             </div>
           </div>
         </div>
-      </article>
+      </article>}
 
       <section className="grid min-w-0 gap-4">
         <FormPanel title="Informations générales">
           <Metric label="Sexe" value={student.sexe} />
           <Metric label="Date de naissance" value={student.birthDate} />
           <Metric label="Adresse" value={student.address} />
-          {parent && canManageParentLink ? (
+          {parentLoading ? <p role="status">Chargement du parent…</p> : parentError ? <p role="alert">{parentError}</p> : parent && canManageParentLink ? (
             <div className="min-w-0 rounded border border-slate-100 p-3">
               <p className="text-xs uppercase tracking-wide text-slate-400">Parent</p>
               <div className="mt-1 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -255,7 +265,7 @@ export function StudentDetailPage({
           )}
         </FormPanel>
 
-        <FormPanel title="Paiements">
+        {financialLoading ? <p role="status">Chargement des paiements…</p> : financialError ? <p role="alert">{financialError}</p> : <><FormPanel title="Paiements">
           <Metric label="Total frais" value={`$${balance.expected}`} />
           <Metric label="Total payé" value={`$${balance.paid}`} />
           <Metric label="Solde" value={`$${balance.remaining}`} />
@@ -283,7 +293,7 @@ export function StudentDetailPage({
               );
             })}
           </div>
-        </FormPanel>
+        </FormPanel></>}
       </section>
       {canManageParentLink && parentLinkOpen && (
         <AdminDrawer title="Lier à un parent" onClose={closeParentLink} closeLabel="Fermer la liaison parent">

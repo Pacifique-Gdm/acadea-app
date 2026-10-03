@@ -31,7 +31,10 @@ describe("gestion Super Administrateur des Coordinations", () => {
   it("attache l'ajout à l'école ciblée et réinitialise confirmation et clic extérieur", () => {
     expect(source).toContain('availableSchools.map((school) => <div key={school.id}');
     expect(source).toContain('pendingRelation.school.id === school.id && relationConfirmation()');
-    expect(source).toContain('pendingRelation?.action === "remove" && relationConfirmation()');
+    expect(source).toContain('pendingRelation?.action === "remove" && pendingRelation.school.id === relation.schoolId && relationConfirmation()');
+    expect(source).not.toContain('pendingRelation?.action === "remove" && relationConfirmation()');
+    expect(source).toContain('scrollIntoView({ block: "nearest" })');
+    expect(source).toContain('focus({ preventScroll: true })');
     expect(source).toContain('setPendingRelation({ action, school }); setConfirmation("")');
     expect(source).toContain('document.addEventListener("pointerdown", onOutsidePointerDown)');
     expect(source).toContain('document.removeEventListener("pointerdown", onOutsidePointerDown)');

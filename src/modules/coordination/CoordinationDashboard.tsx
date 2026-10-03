@@ -91,7 +91,7 @@ export function CoordinationDashboard({
       && scopedSchools.find((school) => school.id === payment.schoolId)?.activeSchoolYearId === payment.collectionSchoolYearId
       && visibleStudentKeys.has(`${payment.schoolId}:${payment.currentStudentId ?? ""}`)
       && payment.currency === currency
-      && (!dateFilterActive || isInDashboardDateRange(payment.paidAt, startDate, endDate)))
+      && isInDashboardDateRange(payment.paidAt, transactionStartDate, transactionEndDate))
       .reduce((total, payment) => total + payment.amount, 0),
   })).filter((group) => group.amount > 0);
   const visibleExpenses = stats.expenses.filter((expense) => (!transactionStartDate || expense.spentAt.slice(0, 10) >= transactionStartDate) && (!transactionEndDate || expense.spentAt.slice(0, 10) <= transactionEndDate));

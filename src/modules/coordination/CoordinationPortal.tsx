@@ -96,7 +96,7 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
   }, [activeSchools, supervisionScope]);
 
   useEffect(() => {
-    if (!["dashboard", "control"].includes(tab) || !supervisionScope || loadedSupervisionScope === supervisionScope) return;
+    if (tab !== "dashboard" || !supervisionScope || loadedSupervisionScope === supervisionScope) return;
     void loadSupervision().catch(() => undefined);
   }, [loadSupervision, loadedSupervisionScope, supervisionScope, tab]);
 
@@ -106,7 +106,7 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
       lock: refreshInFlightRef,
       setRefreshing,
       load: async () => {
-        if (["dashboard", "control"].includes(tab)) await loadSupervision();
+        if (tab === "dashboard") await loadSupervision();
         return true;
       },
       apply: () => setRefreshToken((value) => value + 1),
@@ -150,7 +150,7 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
         <CoordinationStudents user={user} coordination={coordination} schools={activeSchools} selectedSchoolId={selectedSchoolId} refreshToken={refreshToken}/>
       )}
       {tab === "control" && coordination && (
-        <CoordinationControl user={user} coordination={coordination} schools={activeSchools} selectedSchoolId={selectedSchoolId} model={supervisionModel} loading={supervisionLoading} loadError={supervisionError}/>
+        <CoordinationControl user={user} coordination={coordination} schools={activeSchools} selectedSchoolId={selectedSchoolId} refreshToken={refreshToken}/>
       )}
       {tab === "messages" && <CoordinationMessage schools={activeSchools} schoolId={selectedSchoolId} refreshToken={refreshToken}/>}
       {tab === "menu" && coordination && (
