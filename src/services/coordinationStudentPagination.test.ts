@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@firebase/firestore", () => mocks);
 vi.mock("../firebase", () => ({ db: {} }));
 
-import { COORDINATION_STUDENT_PAGE_SIZE, coordinationStudentConstraints, coordinationStudentSources, loadCoordinationStudentPage } from "./coordinationStudentPagination";
+import { COORDINATION_ACTIVE_YEAR, COORDINATION_STUDENT_PAGE_SIZE, coordinationStudentConstraints, coordinationStudentSources, coordinationYearChoices, loadCoordinationStudentPage } from "./coordinationStudentPagination";
 import type { CoordinationStudentFilters } from "./coordinationStudentPagination";
 
 const school = (id: string, status: "active" | "suspended") => ({ id, status, name: id, address: "", phone: "", email: "", activeSchoolYearId: `year-${id}`, subscriptionPlan: "Starter" as const, subscriptionAmount: 0 });
@@ -35,6 +35,16 @@ describe("pagination serveur Coordination / Sous-coordination", () => {
     expect(coordinationStudentSources({ ...filters, selectedSchoolId: "school-a", selectedYearId: "year-a" })).toEqual([{ schoolId: "school-a", schoolYearId: "year-a" }]);
     expect(coordinationStudentSources({ ...filters, filterSchoolId: "school-b" })).toEqual([{ schoolId: "school-b", schoolYearId: "year-b" }]);
     expect(coordinationStudentSources({ ...filters, selectedSchoolId: "school-out" })).toEqual([]);
+  });
+
+  it("résout l'année active indépendamment par école, conserve l'historique explicite et trie les choix", () => {
+    const oldA = { ...year("old-a", "school-a"), name: "2024-2025", startsAt: "2024-09-01", status: "archived" as const };
+    const nextYears = [oldA, { ...years[1], startsAt: "2026-09-01" }, { ...years[0], startsAt: "2025-09-01" }, years[2]];
+    const active = { ...filters, schools: schools.slice(0, 2).map((school) => ({ ...school, activeSchoolYearId: school.id === "school-a" ? "year-a" : "year-b" })), years: nextYears, selectedYearId: COORDINATION_ACTIVE_YEAR };
+    expect(coordinationStudentSources(active)).toEqual([{ schoolId: "school-b", schoolYearId: "year-b" }, { schoolId: "school-a", schoolYearId: "year-a" }]);
+    expect(coordinationStudentSources({ ...active, selectedYearId: "old-a" })).toEqual([{ schoolId: "school-a", schoolYearId: "old-a" }]);
+    expect(coordinationStudentSources({ ...active, selectedSchoolId: "school-b", selectedYearId: "old-a" })).toEqual([]);
+    expect(coordinationYearChoices([...nextYears, { ...year("future-a", "school-a"), startsAt: "2027-09-01" }], active.schools).map((item) => item.id)).toEqual(["year-b", "year-a", "future-a", "old-a"]);
   });
 
   it("applique le périmètre et les filtres côté requête, sans chargement global", () => {

@@ -1,7 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Expense, Payment, School, SchoolYear } from "../types";
-import { controlHistoryCurrency, matchesControlHistory } from "./coordinationControlHistory";
+import { controlHistoryCurrency, defaultControlHistoryDate, matchesControlHistory } from "./coordinationControlHistory";
 describe("Historique Contrôle — filtres export et écran", () => {
+  it("préremplit les deux bornes avec le jour local métier", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-10-03T12:00:00Z"));
+      expect(defaultControlHistoryDate()).toBe(new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10));
+    } finally { vi.useRealTimers(); }
+  });
   it.each(["paidAt", "spentAt"])("filtre école et bornes inclusives sur %s", (field) => {
     const operation = (schoolId: string, date: string) => ({ schoolId, [field]: date } as unknown as Payment | Expense);
     const filters = { schoolId: "b", startDate: "2026-10-01", endDate: "2026-10-03" };

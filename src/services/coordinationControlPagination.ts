@@ -66,7 +66,8 @@ export async function loadCoordinationControlPage(filters: CoordinationStudentFi
       const feeSummaries = getStudentFeeSummaries(student, scopedFees, payments);
       const balance = feeSummaries.reduce((total, item) => ({ expected: total.expected + item.expected, paid: total.paid + item.paid, remaining: total.remaining + item.remaining }), { expected: 0, paid: 0, remaining: 0 });
       const row = { student, feeSummaries, balance, progress: balance.expected ? Math.min(100, Math.round(balance.paid / balance.expected * 100)) : 0 };
-      if (controlRowMatches(row, amountFilter) && matchesArrearsFilter(arrears[student.id], arrearsFilter)) pending.push(row);
+      const school = filters.schools.find((item) => item.id === student.schoolId);
+      if (school && controlRowMatches(row, amountFilter) && matchesArrearsFilter(arrears[student.id], arrearsFilter, school)) pending.push(row);
     }
   }
   return { rows, fetchedStudents, nextCursor: pending.length || !exhausted ? { pending, studentCursor, exhausted } : undefined };

@@ -5,10 +5,10 @@ import { coordinationPdfInstitution } from "./coordinationPdfInstitution";
 import { escapePdfHtml, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import { formatStudentClassName, getClassSection } from "../../utils/studentClasses";
 import { isArchivedStudent } from "../../utils/studentUtils";
-import { getSchoolClassChoices } from "../../utils/schoolConfig";
+import { getSchoolClassChoices, getSchoolSections } from "../../utils/schoolConfig";
 import { canonicalSchoolOption, normalizeSchoolOptions } from "../../utils/schoolOptions";
 import type { CoordinationStudentStatus } from "../../utils/coordinationSupervision";
-import { COORDINATION_STUDENT_PAGE_SIZE, loadCoordinationStudentPage, loadCoordinationStudentYears, type CoordinationStudentCursor, type CoordinationStudentFilters, type CoordinationStudentPage } from "../../services/coordinationStudentPagination";
+import { COORDINATION_ACTIVE_YEAR, COORDINATION_STUDENT_PAGE_SIZE, coordinationYearChoices, loadCoordinationStudentPage, loadCoordinationStudentYears, type CoordinationStudentCursor, type CoordinationStudentFilters, type CoordinationStudentPage } from "../../services/coordinationStudentPagination";
 import { CoordinationStudentRecord } from "./CoordinationStudentRecord";
 
 type Choice = { value: string; label: string; schoolId: string; name: string };
@@ -18,7 +18,7 @@ export function CoordinationStudents({ user, coordination, schools, selectedScho
   const [years, setYears] = useState<SchoolYear[]>([]);
   const [yearsLoading, setYearsLoading] = useState(true);
   const [yearsError, setYearsError] = useState("");
-  const [selectedYearId, setSelectedYearId] = useState("");
+  const [selectedYearId, setSelectedYearId] = useState<string>(COORDINATION_ACTIVE_YEAR);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<CoordinationStudentStatus>("all");
   const [classKey, setClassKey] = useState("");
@@ -34,6 +34,7 @@ export function CoordinationStudents({ user, coordination, schools, selectedScho
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
   const schoolIdsKey = schools.map((school) => school.id).sort().join("|");
+  const activeYearKey = schools.map((school) => `${school.id}:${school.activeSchoolYearId ?? ""}`).sort().join("|");
 
   useEffect(() => {
     let cancelled = false;
@@ -43,16 +44,21 @@ export function CoordinationStudents({ user, coordination, schools, selectedScho
       .catch(() => { if (!cancelled) setYearsError("Impossible de charger les années scolaires."); })
       .finally(() => { if (!cancelled) setYearsLoading(false); });
     return () => { cancelled = true; };
-  }, [schoolIdsKey, refreshToken]);
+  }, [schoolIdsKey, activeYearKey, refreshToken]);
 
   const visibleSchools = useMemo(() => schools.filter((school) => !selectedSchoolId || school.id === selectedSchoolId), [schools, selectedSchoolId]);
   const allowedSections = useMemo<SchoolSection[]>(() => user.sectionIds?.length ? user.sectionIds : user.section ? [user.section] : [], [user.section, user.sectionIds]);
   const classes = useMemo<Choice[]>(() => visibleSchools.flatMap((school) => getSchoolClassChoices(school).filter((name) => !allowedSections.length || allowedSections.includes(getClassSection(name))).map((name) => ({ value: `${school.id}::${name}`, label: `${name}${selectedSchoolId ? "" : ` — ${school.name}`}`, schoolId: school.id, name }))), [allowedSections, visibleSchools, selectedSchoolId]);
   const classChoice = classes.find((choice) => choice.value === classKey);
-  const options = useMemo<Choice[]>(() => allowedSections.length && !allowedSections.includes("Secondaire") ? [] : visibleSchools.filter((school) => !classChoice || school.id === classChoice.schoolId).flatMap((school) => normalizeSchoolOptions(school.schoolOptions).map((name) => ({ value: `${school.id}::${canonicalSchoolOption(name)}`, label: `${name}${selectedSchoolId ? "" : ` — ${school.name}`}`, schoolId: school.id, name: canonicalSchoolOption(name) }))), [allowedSections, classChoice, visibleSchools, selectedSchoolId]);
+  const options = useMemo<Choice[]>(() => {
+    if (allowedSections.length && !allowedSections.includes("Secondaire")) return [];
+    const eligible = visibleSchools.filter((school) => getSchoolSections(school).includes("Secondaire") && (!classChoice || classChoice.schoolId === school.id && getClassSection(classChoice.name as Student["className"]) === "Secondaire")
+      && (selectedYearId === COORDINATION_ACTIVE_YEAR ? years.some((year) => year.id === school.activeSchoolYearId && year.schoolId === school.id) : !selectedYearId || years.some((year) => year.id === selectedYearId && year.schoolId === school.id)));
+    return normalizeSchoolOptions(eligible.flatMap((school) => normalizeSchoolOptions(school.schoolOptions))).map(canonicalSchoolOption).sort((a, b) => a.localeCompare(b, "fr")).map((name) => ({ value: name, label: name, schoolId: "", name }));
+  }, [allowedSections, classChoice, visibleSchools, selectedYearId, years]);
   const optionChoice = options.find((choice) => choice.value === optionKey);
-  const filters = useMemo<CoordinationStudentFilters>(() => ({ schools, years, selectedSchoolId, selectedYearId, filterSchoolId: classChoice?.schoolId || optionChoice?.schoolId || "", search, status, className: classChoice?.name ?? "", option: optionChoice?.name ?? "", allowedSections }), [allowedSections, classChoice?.name, classChoice?.schoolId, optionChoice?.name, optionChoice?.schoolId, schools, years, selectedSchoolId, selectedYearId, search, status]);
-  const filterKey = JSON.stringify({ schools: schoolIdsKey, years: years.map((year) => year.id).sort(), selectedSchoolId, selectedYearId, search, status, classKey, optionKey, allowedSections, refreshToken });
+  const filters = useMemo<CoordinationStudentFilters>(() => ({ schools, years, selectedSchoolId, selectedYearId, filterSchoolId: classChoice?.schoolId || "", search, status, className: classChoice?.name ?? "", option: optionChoice?.name ?? "", allowedSections }), [allowedSections, classChoice?.name, classChoice?.schoolId, optionChoice?.name, schools, years, selectedSchoolId, selectedYearId, search, status]);
+  const filterKey = JSON.stringify({ schools: schoolIdsKey, activeYearKey, years: years.map((year) => year.id).sort(), selectedSchoolId, selectedYearId, search, status, classKey, optionKey, allowedSections, refreshToken });
   const currentPageKey = `${filterKey}|${pageIndex}`;
   const students = pageKey === currentPageKey ? page.students : [];
 
@@ -69,8 +75,8 @@ export function CoordinationStudents({ user, coordination, schools, selectedScho
   }, [cursors, currentPageKey, filters, pageIndex, yearsError, yearsLoading]);
 
   useEffect(() => { if (classKey && !classes.some((choice) => choice.value === classKey)) setClassKey(""); }, [classKey, classes]);
-  useEffect(() => { if (optionKey && !options.some((choice) => choice.value === optionKey)) setOptionKey(""); }, [optionKey, options]);
-  useEffect(() => { if (selectedYearId && !years.some((year) => year.id === selectedYearId && (!selectedSchoolId || year.schoolId === selectedSchoolId))) setSelectedYearId(""); }, [selectedSchoolId, selectedYearId, years]);
+  useEffect(() => { if (!yearsLoading && optionKey && !options.some((choice) => choice.value === optionKey)) setOptionKey(""); }, [optionKey, options, yearsLoading]);
+  useEffect(() => { if (!yearsLoading && selectedYearId && selectedYearId !== COORDINATION_ACTIVE_YEAR && !years.some((year) => year.id === selectedYearId && (!selectedSchoolId || year.schoolId === selectedSchoolId))) setSelectedYearId(COORDINATION_ACTIVE_YEAR); }, [selectedSchoolId, selectedYearId, years, yearsLoading]);
 
   async function exportPdf() {
     const contextSchool = schools.find((school) => school.id === selectedSchoolId) ?? schools[0];
@@ -87,7 +93,7 @@ export function CoordinationStudents({ user, coordination, schools, selectedScho
       } while (cursor);
       await renderAcadPdfPreview({
         filename: `coordination-eleves-${selectedSchoolId || "toutes"}.pdf`, title: "Élèves — Coordination", school: coordinationPdfInstitution(coordination, contextSchool),
-        subtitle: `École : ${selectedSchoolId ? contextSchool.name : "Toutes les écoles"} | Année : ${selectedYearId || "Toutes"} | Recherche : ${search || "Toutes"} | Statut : ${status === "all" ? "Tous" : status === "active" ? "Actifs" : "Archivés"} | Classe : ${classChoice?.label ?? "Toutes les classes"} | Option : ${optionChoice?.label ?? "Toutes les options"}`,
+        subtitle: `École : ${selectedSchoolId ? contextSchool.name : "Toutes les écoles"} | Année : ${selectedYearId === COORDINATION_ACTIVE_YEAR ? "Année active" : selectedYearId || "Toutes"} | Recherche : ${search || "Toutes"} | Statut : ${status === "all" ? "Tous" : status === "active" ? "Actifs" : "Archivés"} | Classe : ${classChoice?.label ?? "Toutes les classes"} | Option : ${optionChoice?.label ?? "Toutes les options"}`,
         sections: [pdfSection("Élèves", pdfTable([
           { header: "Matricule", render: (student) => escapePdfHtml(student.matricule || "—") },
           { header: "Élève", render: (student) => escapePdfHtml(`${student.nom} ${student.postnom} ${student.prenom}`.trim()) },
@@ -104,7 +110,7 @@ export function CoordinationStudents({ user, coordination, schools, selectedScho
     <div><h2 className="text-lg font-bold">Élèves</h2><p className="text-sm text-slate-600">Consultation en lecture seule · page {pageIndex + 1} · {students.length} élève(s) affiché(s).</p></div>
     <div className="grid w-full min-w-0 grid-cols-1 items-stretch gap-2 sm:grid-cols-2 xl:grid-cols-[repeat(5,minmax(0,1fr))_auto]">
       <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2"><Search className="h-4 w-4 shrink-0 text-slate-400"/><input className="min-w-0 flex-1 outline-none" placeholder="Rechercher" value={search} onChange={(event) => setSearch(event.target.value)}/></label>
-      <select aria-label="Année scolaire" className="input min-w-0 w-full" value={selectedYearId} onChange={(event) => setSelectedYearId(event.target.value)}><option value="">Toutes les années</option>{years.filter((year) => !selectedSchoolId || year.schoolId === selectedSchoolId).map((year) => <option key={year.id} value={year.id}>{year.name}{selectedSchoolId ? "" : ` — ${schools.find((school) => school.id === year.schoolId)?.name ?? year.schoolId}`}</option>)}</select>
+      <select aria-label="Année scolaire" className="input min-w-0 w-full" value={selectedYearId} onChange={(event) => setSelectedYearId(event.target.value)}><option value={COORDINATION_ACTIVE_YEAR}>Année active</option>{coordinationYearChoices(years, visibleSchools).map((year) => <option key={year.id} value={year.id}>{year.name}{selectedSchoolId ? "" : ` — ${schools.find((school) => school.id === year.schoolId)?.name ?? year.schoolId}`}</option>)}<option value="">Toutes les années</option></select>
       <select aria-label="Statut des élèves" className="input min-w-0 w-full" value={status} onChange={(event) => setStatus(event.target.value as CoordinationStudentStatus)}><option value="all">Tous</option><option value="active">Actifs</option><option value="archived">Archivés</option></select>
       <select aria-label="Classe" className="input min-w-0 w-full" value={classKey} onChange={(event) => { setClassKey(event.target.value); setOptionKey(""); }}><option value="">Toutes les classes</option>{classes.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</select>
       <select aria-label="Option" className="input min-w-0 w-full" value={optionKey} onChange={(event) => setOptionKey(event.target.value)}><option value="">Toutes les options</option>{options.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</select>

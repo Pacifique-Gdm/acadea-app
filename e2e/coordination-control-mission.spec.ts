@@ -10,6 +10,15 @@ async function responsive(page: Page, label: string) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
     const drawer = page.getByRole("dialog");
     if (await drawer.count()) expect(await drawer.last().evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    const paidPanel = page.getByRole("group", { name: "Filtres de montant payé" });
+    if (await paidPanel.count()) {
+      const box = await paidPanel.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(width + 1);
+      expect(box!.y).toBeGreaterThanOrEqual(0);
+      expect(box!.y + box!.height).toBeLessThanOrEqual(901);
+    }
     await page.screenshot({ path: test.info().outputPath(`${label}-${width}.png`) });
     console.log(JSON.stringify({ responsive: label, width, result: "PASS" }));
   }
@@ -33,7 +42,8 @@ test("Dashboards, Contrôle et retrait Coordination — Staging final", async ({
   const bSchool = `${fixture.prefix}-scope-b`, bYear = `${fixture.prefix}-year-b`;
   try {
     await fixture.seed();
-    await fixture.db.doc(`schools/${bSchool}`).set({ id: bSchool, name: "École B Finance", schoolType: "Mixte", educationLevels: ["Primaire", "CTEB"], currency: "CDF", status: "active", activeSchoolYearId: bYear, activeCoordinationId: fixture.coordinationId, subscriptionStatus: "active", subscriptionPlan: "Premium" });
+    await fixture.db.doc(`schools/${fixture.schoolId}`).update({ educationLevels: ["Primaire", "CTEB", "Secondaire"], schoolOptions: ["Littéraire", "Pédagogie"] });
+    await fixture.db.doc(`schools/${bSchool}`).set({ id: bSchool, name: "École B Finance", schoolType: "Mixte", educationLevels: ["Primaire", "CTEB", "Secondaire"], schoolOptions: ["Pédagogie", "Commerciale"], currency: "CDF", status: "active", activeSchoolYearId: bYear, activeCoordinationId: fixture.coordinationId, subscriptionStatus: "active", subscriptionPlan: "Premium" });
     await fixture.db.doc(`schoolYears/${bYear}`).set({ id: bYear, schoolId: bSchool, name: "2026-2027", startsAt: "2026-09-01", endsAt: "2027-07-31", status: "active", currency: "CDF" });
     await fixture.db.doc(`coordinationSchools/${fixture.coordinationId}__${bSchool}`).set({ coordinationId: fixture.coordinationId, schoolId: bSchool, active: true });
     await fixture.db.doc(`subCoordinationSchools/${fixture.subCoordinationId}__${bSchool}`).set({ coordinationId: fixture.coordinationId, subCoordinationId: fixture.subCoordinationId, schoolId: bSchool, active: true });
@@ -42,11 +52,11 @@ test("Dashboards, Contrôle et retrait Coordination — Staging final", async ({
       await fixture.db.doc(`students/${id}`).set(studentForPersistence({ id, schoolId: i < 30 ? fixture.schoolId : bSchool, schoolYearId: i < 30 ? fixture.yearId : bYear, nom: `Pagination${String(i).padStart(2, "0")}`, prenom: "Test", postnom: "", matricule: `${fixture.prefix}-P${i}`, birthDate: "2013-01-01", sexe: "F", status: "ACTIVE", className: "7ème CTEB" }));
     }
     const bOldYear = `${fixture.prefix}-old-b`, bOldStudent = `${fixture.prefix}-old-student-b`;
-    await fixture.db.doc(`schoolYears/${bOldYear}`).set({ schoolId: bSchool, name: "2025-2026", startsAt: "2025-09-01", endsAt: "2026-07-31", status: "archived", currency: "USD" });
+    await fixture.db.doc(`schoolYears/${bOldYear}`).set({ schoolId: bSchool, name: "2025-2026", startsAt: "2025-09-01", endsAt: "2026-07-31", status: "archived", currency: "CDF" });
     await fixture.db.doc(`students/${bOldStudent}`).set(studentForPersistence({ id: bOldStudent, schoolId: bSchool, schoolYearId: bOldYear, nom: "Pagination59", prenom: "Test", postnom: "", matricule: `${fixture.prefix}-P59`, birthDate: "2013-01-01", sexe: "F", status: "ACTIVE", className: "6ème Primaire" }));
     await fixture.db.doc(`students/${fixture.prefix}-page-59`).update({ importedFromStudentId: bOldStudent });
-    await fixture.db.doc(`feeTypes/${fixture.prefix}-old-fee-b`).set({ schoolId: bSchool, schoolYearId: bOldYear, name: "Ancien frais B", amount: 100, className: "6ème Primaire" });
-    await fixture.db.doc(`payments/${fixture.prefix}-old-payment-b`).set({ schoolId: bSchool, schoolYearId: bOldYear, studentId: bOldStudent, feeTypeId: `${fixture.prefix}-old-fee-b`, amount: 35, paidAt: "2025-10-01", currency: "USD" });
+    await fixture.db.doc(`feeTypes/${fixture.prefix}-old-fee-b`).set({ schoolId: bSchool, schoolYearId: bOldYear, name: "Ancien frais B", amount: 9065, className: "6ème Primaire" });
+    await fixture.db.doc(`payments/${fixture.prefix}-old-payment-b`).set({ schoolId: bSchool, schoolYearId: bOldYear, studentId: bOldStudent, feeTypeId: `${fixture.prefix}-old-fee-b`, amount: 65, paidAt: "2025-10-01", currency: "CDF" });
     await fixture.db.doc(`feeTypes/${fixture.prefix}-fee-b`).set({ schoolId: bSchool, schoolYearId: bYear, name: "Frais école B", amount: 20000, className: "7ème CTEB" });
     await fixture.db.doc(`payments/${fixture.prefix}-payment-b`).set({ schoolId: bSchool, schoolYearId: bYear, studentId: `${fixture.prefix}-page-30`, feeTypeId: `${fixture.prefix}-fee-b`, amount: 1370, paidAt: fixture.today, currency: "CDF", cashierName: "Test B" });
     for (const [suffix, schoolId, schoolYearId, amount, spentAt] of [["today", fixture.schoolId, fixture.yearId, 7, fixture.today], ["yesterday", fixture.schoolId, fixture.yearId, 3, fixture.yesterdayKey], ["b", bSchool, bYear, 500, fixture.today]] as const) {
@@ -75,25 +85,33 @@ test("Dashboards, Contrôle et retrait Coordination — Staging final", async ({
       await page.reload(); await expect(card).toContainText(formatCurrencyMoney(25, "USD"), { timeout: 60000 });
       await page.getByRole("button", { name: "Contrôle", exact: true }).last().click();
       const debtRows = () => page.locator("article button");
+      await expect(page.getByLabel("Devise des arriérés")).toHaveCount(0);
+      await expect(page.getByLabel("Arriérés ≥", { exact: true })).toHaveCount(0);
+      await page.getByRole("button", { name: "Montant payé", exact: true }).click();
       await page.getByLabel("Arriérés ≥", { exact: true }).fill("65");
       await page.getByLabel("Arriérés <", { exact: true }).fill("66");
-      await expect(debtRows()).toHaveCount(role.includes("coordination") ? 2 : 1, { timeout: 120000 });
+      await expect(debtRows()).toHaveCount(1, { timeout: 120000 });
       await expect(debtRows().filter({ hasText: "Finance" })).toHaveCount(1);
-      if (role.includes("coordination")) await expect(page.locator("article button").filter({ hasText: "Pagination59" })).toHaveCount(1);
+      if (role.includes("coordination")) await expect(page.locator("article button").filter({ hasText: "Pagination59" })).toHaveCount(0);
       await page.getByLabel("Arriérés <", { exact: true }).fill("65");
-      if (role.includes("coordination")) await expect(debtRows()).toHaveCount(0, { timeout: 120000 });
-      else await expect(debtRows().filter({ hasText: "Finance" })).toHaveCount(0, { timeout: 120000 });
+      await expect(debtRows().filter({ hasText: "Finance" })).toHaveCount(0, { timeout: 120000 });
       if (role.includes("coordination")) {
         await page.getByLabel("Arriérés ≥", { exact: true }).fill("0"); await page.getByLabel("Arriérés <", { exact: true }).fill("1");
         await expect(debtRows()).toHaveCount(50, { timeout: 120000 });
         await page.getByRole("button", { name: "Suivante", exact: true }).click();
-        await expect(debtRows()).toHaveCount(12, { timeout: 120000 });
+        await expect(page.getByRole("navigation", { name: "Pagination du contrôle" })).toContainText("Page 2", { timeout: 120000 });
+        expect(await debtRows().count()).toBeGreaterThan(0);
+        expect(await debtRows().count()).toBeLessThan(50);
         await page.getByRole("button", { name: "Précédente", exact: true }).click();
         await expect(debtRows()).toHaveCount(50, { timeout: 120000 });
       }
-      await page.getByLabel("Devise des arriérés").selectOption("CDF");
       await page.getByLabel("Arriérés ≥", { exact: true }).fill("9000"); await page.getByLabel("Arriérés <", { exact: true }).fill("9001");
-      await expect(debtRows().filter({ hasText: "Finance" })).toHaveCount(role.includes("coordination") ? 2 : 1, { timeout: 120000 });
+      await expect(debtRows().filter({ hasText: "Pagination59" })).toHaveCount(role.includes("coordination") ? 1 : 0, { timeout: 120000 });
+      await expect(debtRows().filter({ hasText: "Finance" })).toHaveCount(0);
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("group", { name: "Filtres de montant payé" })).toHaveCount(0);
+      await page.getByRole("button", { name: "Montant payé", exact: true }).click();
+      await expect(page.getByLabel("Arriérés ≥", { exact: true })).toHaveValue("9000");
       await responsive(page, `${role}-arrears-filter`);
       await page.getByRole("button", { name: "Réinitialiser", exact: true }).click();
       const batchToken = await fixture.token(role);
@@ -104,20 +122,46 @@ test("Dashboards, Contrôle et retrait Coordination — Staging final", async ({
       console.log(JSON.stringify({ arrearsFilter: role, result: "PASS", partialUSD: 65, partialCDF: 9000, exclusiveUpperBound: true }));
       if (role.includes("coordination")) {
         await page.getByRole("button", { name: "Contrôle", exact: true }).last().click();
+        const schoolScope = page.getByLabel("Filtrer par école", { exact: true });
+        await schoolScope.selectOption(bSchool);
+        await expect(page.getByLabel("Option", { exact: true }).locator("option")).toHaveText(["Toutes les options", "Commerciale", "Pédagogie"]);
+        await expect(page.locator("article button")).toHaveCount(30, { timeout: 60000 });
+        await page.getByRole("button", { name: "Montant payé", exact: true }).click();
+        await page.getByLabel("Arriérés ≥", { exact: true }).fill("9000");
+        await page.getByLabel("Arriérés <", { exact: true }).fill("9001");
+        await expect(page.locator("article button")).toHaveText("Pagination59 Test", { timeout: 120000 });
+        await schoolScope.selectOption(fixture.schoolId);
+        await expect(page.getByLabel("Option", { exact: true }).locator("option")).toHaveText(["Toutes les options", "Littéraire", "Pédagogie"]);
+        await page.getByLabel("Arriérés ≥", { exact: true }).fill("65");
+        await page.getByLabel("Arriérés <", { exact: true }).fill("66");
+        await expect(page.locator("article button")).toHaveText("Finance Élève", { timeout: 120000 });
+        await page.getByRole("button", { name: "Réinitialiser", exact: true }).click();
+        await expect(page.locator("article button")).toHaveCount(31, { timeout: 60000 });
+        await schoolScope.selectOption("");
+        const controlYear = page.getByLabel("Année scolaire", { exact: true });
+        const controlOption = page.getByLabel("Option", { exact: true });
+        await expect(controlYear).toHaveValue("active");
+        await expect(controlOption.locator("option")).toHaveText(["Toutes les options", "Commerciale", "Littéraire", "Pédagogie"]);
+        await controlYear.selectOption(bYear);
+        await expect(controlOption.locator("option")).toHaveText(["Toutes les options", "Commerciale", "Pédagogie"]);
+        await controlYear.selectOption(fixture.yearId);
+        await expect(controlOption.locator("option")).toHaveText(["Toutes les options", "Littéraire", "Pédagogie"]);
+        await controlYear.selectOption("active");
         await expect(page.getByRole("navigation", { name: "Pagination du contrôle" })).toContainText("50 élèves", { timeout: 60000 });
+        expect((await page.getByRole("navigation", { name: "Pagination du contrôle" }).boundingBox())!.y).toBeGreaterThan((await page.locator("article").last().boundingBox())!.y);
         const names = () => page.locator("article button").allTextContents();
         const first = await names(); expect(first).toHaveLength(50);
         await page.getByRole("button", { name: "Suivante", exact: true }).click();
-        await expect(page.getByRole("navigation", { name: "Pagination du contrôle" })).toContainText("14 élèves", { timeout: 60000 });
-        const second = await names(); expect(second).toHaveLength(14);
+        await expect(page.getByRole("navigation", { name: "Pagination du contrôle" })).toContainText("11 élèves", { timeout: 60000 });
+        const second = await names(); expect(second).toHaveLength(11);
         expect(first.filter((name) => second.includes(name))).toEqual([]);
         await page.getByRole("button", { name: "Précédente", exact: true }).click();
         await expect(page.getByRole("navigation", { name: "Pagination du contrôle" })).toContainText("50 élèves", { timeout: 60000 });
         expect(await names()).toEqual(first);
         await responsive(page, `${role}-pagination`);
         await page.getByLabel("Rechercher un élève dans le contrôle").fill("Pagination59");
-        await expect(page.locator("article button")).toHaveCount(2, { timeout: 60000 });
-        await expect(page.locator("article button")).toHaveText(["Pagination59 Test", "Pagination59 Test"]);
+        await expect(page.locator("article button")).toHaveCount(1, { timeout: 60000 });
+        await expect(page.locator("article button")).toHaveText("Pagination59 Test");
         await page.getByLabel("Rechercher un élève dans le contrôle").fill("");
         await page.getByLabel("Année scolaire", { exact: true }).selectOption(fixture.yearId);
         await expect(page.locator("article button")).toHaveCount(31, { timeout: 60000 });
@@ -125,6 +169,14 @@ test("Dashboards, Contrôle et retrait Coordination — Staging final", async ({
         await expect(page.locator("article button")).toHaveCount(50, { timeout: 60000 });
         for (const tab of ["Contrôle", "Élèves"]) {
           await page.getByRole("button", { name: tab, exact: true }).last().click();
+          if (tab === "Élèves") {
+            const studentYear = page.getByLabel("Année scolaire", { exact: true });
+            await expect(studentYear).toHaveValue("active");
+            await expect(page.getByLabel("Option", { exact: true }).locator("option")).toHaveText(["Toutes les options", "Commerciale", "Littéraire", "Pédagogie"]);
+            await studentYear.selectOption(bOldYear);
+            await expect(page.getByRole("row").filter({ hasText: "Pagination59" })).toHaveCount(1, { timeout: 60000 });
+            await studentYear.selectOption("active");
+          }
           const target = tab === "Contrôle" ? page.locator("article").filter({ hasText: "7ème CTEB" }).getByRole("button", { name: "Finance Élève", exact: true }) : page.getByRole("row").filter({ hasText: "7ème CTEB" }).getByRole("button", { name: /Finance.*E2E.*Élève/ });
           await expect(target).toBeVisible({ timeout: 60000 });
           const calls: { path: string; action: string; ms: number }[] = [];
@@ -150,6 +202,8 @@ test("Dashboards, Contrôle et retrait Coordination — Staging final", async ({
         await page.getByRole("button", { name: "Contrôle", exact: true }).last().click();
         await page.getByRole("button", { name: "Historique", exact: true }).click();
         const drawer = page.getByRole("dialog", { name: "Historique du contrôle" });
+        await expect(drawer.getByLabel("Date début historique")).toHaveValue(fixture.today);
+        await expect(drawer.getByLabel("Date fin historique")).toHaveValue(fixture.today);
         await expect(drawer.getByText("Chargement de l’historique…", { exact: true })).toHaveCount(0, { timeout: 60000 });
         await drawer.getByLabel("École de l’historique").selectOption(fixture.schoolId);
         await drawer.getByLabel("Date début historique").fill(fixture.yesterdayKey); await drawer.getByLabel("Date fin historique").fill(fixture.yesterdayKey);

@@ -5,7 +5,7 @@ import { usePaginatedControlHistory } from "../../hooks/usePaginatedControlHisto
 import { createExpenseTransaction, createPaymentTransaction, deleteFinancialTransaction, loadStudentArrears, updateExpenseTransaction, updatePaymentTransaction } from "../../services/financialTransactions";
 import type { HistoricalDebt } from "../../services/financialTransactions";
 import { loadStudentArrearsBatch } from "../../services/financialTransactions";
-import { ArrearsFilterFields } from "../../components/ArrearsFilterFields";
+import { PaidAmountDropdown } from "../../components/PaidAmountDropdown";
 import { arrearsFilterActive, emptyArrearsFilter, matchesArrearsFilter, type ArrearsTotals } from "../../utils/arrearsFilter";
 import { createAuditLog } from "../../utils/audit";
 import { buildSchoolYearDataIndexes, sumPaymentsForStudentFee } from "../../utils/dataIndexes";
@@ -251,7 +251,7 @@ export function ControlModule({
       return { student, balance, progress, feeSummaries, hasApplicableFees: feeSummaries.length > 0 };
     })
     .filter((row) => {
-      if (!matchesArrearsFilter(filterArrears[row.student.id], arrearsFilter)) return false;
+      if (!matchesArrearsFilter(filterArrears[row.student.id], arrearsFilter, school)) return false;
       if (controlClassKey && controlClassKey !== "all" && getControlClassKey(row.student) !== controlClassKey) return false;
       if (!amountComparator || amountComparator === "all" || !amountThreshold) return true;
       const threshold = Number(amountThreshold);
@@ -275,7 +275,7 @@ export function ControlModule({
         : row.balance.paid;
       const isGreaterOrEqual = feeFilter ? feeFilter[2] === "gte" : amountComparator === ">=";
       return isGreaterOrEqual ? paidAmount >= threshold : paidAmount < threshold;
-    }), [amountComparator, amountFeeGroups, amountThreshold, controlClassKey, controlIndexes, yearData.feeTypes, yearData.payments, yearData.students, filterArrears, arrearsFilter]);
+    }), [amountComparator, amountFeeGroups, amountThreshold, controlClassKey, controlIndexes, yearData.feeTypes, yearData.payments, yearData.students, filterArrears, arrearsFilter, school]);
   const visibleRows = useMemo(() => filterControlStudentRows(rows, controlStudentSearch), [controlStudentSearch, rows]);
   const controlPageCount = Math.max(1, Math.ceil(visibleRows.length / CONTROL_PAGE_SIZE));
   const paginatedControlRows = visibleRows.slice((controlPage - 1) * CONTROL_PAGE_SIZE, controlPage * CONTROL_PAGE_SIZE);
@@ -1203,7 +1203,6 @@ export function ControlModule({
       <div className="min-w-0">
         <SectionTitle title="Contrôle" subtitle="Frais scolaires, paiements, historique et soldes restants." />
         <div className="mb-3 w-full min-w-0 max-w-full">
-          <ArrearsFilterFields value={arrearsFilter} onChange={setArrearsFilter}/>
           {filterArrearsLoading && <p role="status">Calcul des arriérés du contrôle…</p>}
           {filterArrearsError && <p role="alert" className="text-red-700">{filterArrearsError}</p>}
           <div className="grid w-full min-w-0 grid-cols-1 items-stretch gap-2 box-border sm:grid-cols-2 lg:flex lg:flex-nowrap lg:items-center lg:gap-1.5">
@@ -1212,7 +1211,8 @@ export function ControlModule({
                 <option value="all">Toutes</option>
                 {classChoices.map((choice) => <option key={choice.key} value={choice.key}>{choice.label}</option>)}
               </select>
-              <select value={amountComparator} onChange={(event) => setAmountComparator(event.target.value)} className="h-10 min-w-0 w-full rounded border border-slate-200 bg-white px-2 text-sm lg:flex-1 lg:basis-0" aria-label="Montant payé">
+              <PaidAmountDropdown arrearsFilter={arrearsFilter} onArrearsChange={setArrearsFilter} className="lg:flex-1 lg:basis-0">
+              <select value={amountComparator} onChange={(event) => setAmountComparator(event.target.value)} className="input min-w-0 w-full" aria-label="Critère de montant payé">
                 <option value="" disabled hidden>Montant payé</option>
                 <option value="all-fees-gte">Tous les frais ≥</option>
                 <option value="all-fees-lt">Tous les frais &lt;</option>
@@ -1222,7 +1222,8 @@ export function ControlModule({
                   </option>
                 ))}
               </select>
-              <MoneyInput value={amountThreshold} onChange={setAmountThreshold} className="h-10 min-w-0 w-full rounded border border-slate-200 bg-white px-2 text-sm lg:flex-1 lg:basis-0" placeholder="Filtre" ariaLabel="Filtre" />
+              <MoneyInput value={amountThreshold} onChange={setAmountThreshold} className="input min-w-0 w-full" placeholder="Filtre" ariaLabel="Filtre" />
+              </PaidAmountDropdown>
               <button onClick={printFilteredStudents} disabled={filterArrearsLoading || Boolean(filterArrearsError)} className="pdf-export-button h-10 min-w-0 px-2 lg:flex-1 lg:basis-0" type="button">
                 <Download className="h-4 w-4" /> Exporter PDF
               </button>

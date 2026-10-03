@@ -6,6 +6,7 @@ import { normalizeStudentSearch } from "../utils/studentSearch.js";
 import type { CoordinationStudentStatus } from "../utils/coordinationSupervision";
 
 export const COORDINATION_STUDENT_PAGE_SIZE = 50;
+export const COORDINATION_ACTIVE_YEAR = "active";
 const SOURCE_FETCH_SIZE = 8;
 
 export type CoordinationStudentFilters = {
@@ -31,13 +32,19 @@ export type CoordinationStudentCursor = { sortName: string; id: string; sourceSt
 export type CoordinationStudentPage = { students: Student[]; nextCursor?: CoordinationStudentCursor; fetchedDocuments: number; queryCount: number };
 
 export function coordinationStudentSources(filters: CoordinationStudentFilters) {
-  const allowedSchoolIds = new Set(filters.schools.filter((school) => school.status === "active").map((school) => school.id));
+  const allowedSchools = new Map(filters.schools.filter((school) => school.status === "active").map((school) => [school.id, school]));
   return filters.years
-    .filter((year) => allowedSchoolIds.has(year.schoolId)
+    .filter((year) => allowedSchools.has(year.schoolId)
       && (!filters.selectedSchoolId || year.schoolId === filters.selectedSchoolId)
       && (!filters.filterSchoolId || year.schoolId === filters.filterSchoolId)
-      && (!filters.selectedYearId || year.id === filters.selectedYearId))
+      && (filters.selectedYearId === COORDINATION_ACTIVE_YEAR ? year.id === allowedSchools.get(year.schoolId)?.activeSchoolYearId : !filters.selectedYearId || year.id === filters.selectedYearId))
     .map((year) => ({ schoolId: year.schoolId, schoolYearId: year.id }));
+}
+
+export function coordinationYearChoices(years: readonly SchoolYear[], schools: readonly School[]) {
+  const allowed = new Set(schools.map((school) => school.id));
+  const active = new Set(schools.map((school) => school.activeSchoolYearId).filter(Boolean));
+  return years.filter((year) => allowed.has(year.schoolId)).sort((a, b) => Number(active.has(b.id)) - Number(active.has(a.id)) || b.startsAt.localeCompare(a.startsAt) || b.name.localeCompare(a.name, "fr") || a.schoolId.localeCompare(b.schoolId) || a.id.localeCompare(b.id));
 }
 
 export function coordinationStudentConstraints(filters: CoordinationStudentFilters, source: { schoolId: string; schoolYearId: string }): QueryConstraint[] {

@@ -1,6 +1,10 @@
 import type { Expense, Payment, School, SchoolYear } from "../types";
-import { isInDashboardDateRange } from "./dashboardDates";
+import { getTransactionPeriodDates, isInDashboardDateRange } from "./dashboardDates";
 import { resolveSchoolCurrency } from "./currency";
+
+export function defaultControlHistoryDate() {
+  return getTransactionPeriodDates("today")[0];
+}
 
 export type ControlHistoryFilters = { schoolId: string; startDate: string; endDate: string };
 export function matchesControlHistory(operation: Payment | Expense, filters: ControlHistoryFilters) {

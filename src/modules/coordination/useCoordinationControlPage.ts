@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { AppUser, FeeType, School, SchoolYear } from "../../types";
-import { loadCoordinationStudentYears, type CoordinationStudentFilters } from "../../services/coordinationStudentPagination";
+import { COORDINATION_ACTIVE_YEAR, loadCoordinationStudentYears, type CoordinationStudentFilters } from "../../services/coordinationStudentPagination";
 import { loadCoordinationControlFees, loadCoordinationControlPage, type CoordinationControlCursor, type CoordinationControlPage } from "../../services/coordinationControlPagination";
-import { getSchoolClassChoices } from "../../utils/schoolConfig";
+import { getSchoolClassChoices, getSchoolSections } from "../../utils/schoolConfig";
 import { getClassSection } from "../../utils/studentClasses";
 import { normalizeSchoolOptions } from "../../utils/schoolOptions";
 import type { CoordinationStudentStatus } from "../../utils/coordinationSupervision";
@@ -14,7 +14,7 @@ export function useCoordinationControlPage(user: AppUser, schools: School[], sel
   const [fees, setFees] = useState<FeeType[]>([]);
   const [metadataKey, setMetadataKey] = useState("");
   const [metadataError, setMetadataError] = useState("");
-  const [selectedYearId, setSelectedYearId] = useState("");
+  const [selectedYearId, setSelectedYearId] = useState<string>(COORDINATION_ACTIVE_YEAR);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<CoordinationStudentStatus>("all");
   const [option, setOption] = useState("");
@@ -25,7 +25,8 @@ export function useCoordinationControlPage(user: AppUser, schools: School[], sel
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const schoolKey = schools.map((school) => school.id).sort().join("|");
-  const contextKey = `${schoolKey}:${refreshToken}`;
+  const activeYearKey = schools.map((school) => `${school.id}:${school.activeSchoolYearId ?? ""}`).sort().join("|");
+  const contextKey = `${schoolKey}:${activeYearKey}:${refreshToken}`;
   useEffect(() => {
     let cancelled = false;
     setMetadataKey(""); setMetadataError("");
@@ -38,8 +39,10 @@ export function useCoordinationControlPage(user: AppUser, schools: School[], sel
   const sections = useMemo(() => user.sectionIds?.length ? user.sectionIds : user.section ? [user.section] : [], [user.sectionIds, user.section]);
   const visibleSchools = useMemo(() => schools.filter((school) => !selectedSchoolId || school.id === selectedSchoolId), [schools, selectedSchoolId]);
   const classChoices = useMemo(() => visibleSchools.flatMap((school) => getSchoolClassChoices(school).filter((name) => !sections.length || sections.includes(getClassSection(name))).map((name) => ({ value: `${school.id}::${name}`, name, schoolId: school.id, label: `${name}${selectedSchoolId ? "" : ` — ${school.name}`}` }))), [visibleSchools, sections, selectedSchoolId]);
-  const options = useMemo(() => [...new Set(visibleSchools.flatMap((school) => normalizeSchoolOptions(school.schoolOptions)))], [visibleSchools]);
-  const choice = classChoices.find((item) => item.value === classKey);
+  const choice = useMemo(() => classChoices.find((item) => item.value === classKey), [classChoices, classKey]);
+  const options = useMemo(() => sections.length && !sections.includes("Secondaire") ? [] : normalizeSchoolOptions(visibleSchools.filter((school) => getSchoolSections(school).includes("Secondaire") && (!choice || choice.schoolId === school.id && getClassSection(choice.name) === "Secondaire")
+    && (selectedYearId === COORDINATION_ACTIVE_YEAR ? years.some((year) => year.id === school.activeSchoolYearId && year.schoolId === school.id) : !selectedYearId || years.some((year) => year.id === selectedYearId && year.schoolId === school.id)))
+    .flatMap((school) => normalizeSchoolOptions(school.schoolOptions))).sort((a, b) => a.localeCompare(b, "fr")), [visibleSchools, sections, choice, selectedYearId, years]);
   const filters = useMemo<CoordinationStudentFilters>(() => ({ schools, years, selectedSchoolId, selectedYearId, filterSchoolId: choice?.schoolId ?? "", search, status, className: choice?.name ?? "", option, allowedSections: sections }), [schools, years, selectedSchoolId, selectedYearId, choice?.schoolId, choice?.name, search, status, option, sections]);
   const amountFilter = useMemo(() => ({ comparator: amountComparator, threshold: amountThreshold }), [amountComparator, amountThreshold]);
   const filterKey = JSON.stringify({ contextKey, selectedSchoolId, selectedYearId, classKey, search, status, option, sections, amountFilter, arrearsFilter });
@@ -55,7 +58,9 @@ export function useCoordinationControlPage(user: AppUser, schools: School[], sel
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [metadataKey, contextKey, pageIndex, cursors, currentPageKey, filters, fees, amountFilter, arrearsFilter]);
-  useEffect(() => { setSelectedYearId(""); setOption(""); }, [selectedSchoolId]);
+  useEffect(() => { setSelectedYearId(COORDINATION_ACTIVE_YEAR); setOption(""); }, [selectedSchoolId]);
+  useEffect(() => { if (metadataKey === contextKey && selectedYearId && selectedYearId !== COORDINATION_ACTIVE_YEAR && !years.some((year) => year.id === selectedYearId && (!selectedSchoolId || year.schoolId === selectedSchoolId))) setSelectedYearId(COORDINATION_ACTIVE_YEAR); }, [contextKey, metadataKey, selectedSchoolId, selectedYearId, years]);
+  useEffect(() => { if (metadataKey === contextKey && option && !options.includes(option)) setOption(""); }, [contextKey, metadataKey, option, options]);
   return { years, fees, classChoices, options, filters, amountFilter, filterKey, selectedYearId, setSelectedYearId, search, setSearch, status, setStatus, option, setOption,
     rows: pageKey === currentPageKey ? page.rows : [], loading: loading || (!metadataError && metadataKey !== contextKey), error: metadataError || error, pageIndex,
     hasNext: pageKey === currentPageKey && Boolean(page.nextCursor),
