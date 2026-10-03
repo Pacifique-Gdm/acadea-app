@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Building2, Check, ChevronRight, X } from "lucide-react";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../../firebase";
 import { AdminDrawer } from "../../components/ui";
 import { addCoordinationSchool, removeCoordinationSchool } from "../../services/coordinationService";
@@ -9,7 +9,7 @@ import { CoordinationAdminActions } from "./CoordinationAdminActions";
 
 const ADD_CONFIRMATION = "AJOUTER CETTE ECOLE";
 const REMOVE_CONFIRMATION = "RETIRER CETTE ECOLE";
-type Props = { schools: School[]; coordinations: Coordination[]; coordinationError?: string };
+type Props = { schools: School[]; coordinations: Coordination[]; coordinationError?: string; onSchoolUpdated: (school: School) => void };
 
 function dateLabel(value?: string) {
   if (!value) return "—";
@@ -17,7 +17,7 @@ function dateLabel(value?: string) {
   return Number.isFinite(date.getTime()) ? date.toLocaleString("fr-FR") : "—";
 }
 
-export function CoordinationManagement({ schools, coordinations, coordinationError = "" }: Props) {
+export function CoordinationManagement({ schools, coordinations, coordinationError = "", onSchoolUpdated }: Props) {
   const [relations, setRelations] = useState<CoordinationSchool[]>([]);
   const [coordinators, setCoordinators] = useState<AppUser[]>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -81,6 +81,10 @@ export function CoordinationManagement({ schools, coordinations, coordinationErr
     try {
       if (pendingRelation.action === "add") await addCoordinationSchool(selected.id, pendingRelation.school.id);
       else await removeCoordinationSchool(selected.id, pendingRelation.school.id);
+      if (db) {
+        const updatedSchool = await getDoc(doc(db, "schools", pendingRelation.school.id));
+        if (updatedSchool.exists()) onSchoolUpdated({ ...updatedSchool.data(), id: updatedSchool.id } as School);
+      }
       setPendingRelation(null); setConfirmation(""); setMessage(pendingRelation.action === "add" ? "École rattachée." : "École retirée du périmètre. L’école et ses données sont conservées.");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Modification impossible."); }
     finally { setBusy(false); }

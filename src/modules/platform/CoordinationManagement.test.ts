@@ -49,4 +49,11 @@ describe("gestion Super Administrateur des Coordinations", () => {
     expect(source).toContain('school?.status === "active" ? "Active"');
     expect(source).not.toContain('relation.active ? "Active"');
   });
+  it("resynchronise uniquement l'école mutée dans les données Super Admin sans réécriture client", () => {
+    const platform = readFileSync(new URL("./PlatformModule.tsx", import.meta.url), "utf8");
+    expect(source).toContain('getDoc(doc(db, "schools", pendingRelation.school.id))');
+    expect(source.indexOf('getDoc(doc(db, "schools"')).toBeGreaterThan(source.indexOf('await removeCoordinationSchool'));
+    expect(source).toContain('onSchoolUpdated({ ...updatedSchool.data(), id: updatedSchool.id } as School)');
+    expect(platform).toContain('onSchoolUpdated={(school) => updateData({ schools: data.schools.map((item) => item.id === school.id ? school : item) }, { persist: false })}');
+  });
 });

@@ -1151,7 +1151,7 @@ export function PlatformModule({
           )}
 
           {platformView === "coordinations" && (
-            <CoordinationManagement schools={visibleSchools} coordinations={coordinations} coordinationError={coordinationLoadError} />
+            <CoordinationManagement schools={visibleSchools} coordinations={coordinations} coordinationError={coordinationLoadError} onSchoolUpdated={(school) => updateData({ schools: data.schools.map((item) => item.id === school.id ? school : item) }, { persist: false })} />
           )}
 
           {platformView === "menu" && (

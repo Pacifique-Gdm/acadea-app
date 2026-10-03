@@ -80,12 +80,20 @@ test("Dashboards, Contrôle et retrait Coordination — Staging final", async ({
         await expect(page.getByRole("navigation", { name: "Pagination du contrôle" })).toContainText("50 élèves", { timeout: 60000 });
         expect(await names()).toEqual(first);
         await responsive(page, `${role}-pagination`);
+        await page.getByLabel("Rechercher un élève dans le contrôle").fill("Pagination59");
+        await expect(page.locator("article button")).toHaveCount(1, { timeout: 60000 });
+        await expect(page.locator("article button")).toHaveText("Pagination59 Test");
+        await page.getByLabel("Rechercher un élève dans le contrôle").fill("");
+        await page.getByLabel("Année scolaire", { exact: true }).selectOption(fixture.yearId);
+        await expect(page.locator("article button")).toHaveCount(31, { timeout: 60000 });
+        await page.getByRole("button", { name: "Réinitialiser", exact: true }).click();
+        await expect(page.locator("article button")).toHaveCount(50, { timeout: 60000 });
         for (const tab of ["Contrôle", "Élèves"]) {
           await page.getByRole("button", { name: tab, exact: true }).last().click();
           const target = tab === "Contrôle" ? page.locator("article").filter({ hasText: "7ème CTEB" }).getByRole("button", { name: "Finance Élève", exact: true }) : page.getByRole("row").filter({ hasText: "7ème CTEB" }).getByRole("button", { name: /Finance.*E2E.*Élève/ });
           await expect(target).toBeVisible({ timeout: 60000 });
-          const calls: { path: string; ms: number }[] = [];
-          const record = (req: import("@playwright/test").Request) => { const url = new URL(req.url()); if (url.pathname.startsWith("/api/")) calls.push({ path: url.pathname, ms: Math.round(req.timing().responseEnd) }); };
+          const calls: { path: string; action: string; ms: number }[] = [];
+          const record = (req: import("@playwright/test").Request) => { const url = new URL(req.url()); if (url.pathname.startsWith("/api/")) calls.push({ path: url.pathname, action: String(req.postDataJSON()?.action ?? ""), ms: Math.round(req.timing().responseEnd) }); };
           page.on("requestfinished", record);
           const t0 = Date.now(); await target.click();
           await expect(page.getByRole("heading", { name: /Finance.*Élève/ }).first()).toBeVisible(); const usefulMs = Date.now() - t0;
@@ -108,6 +116,13 @@ test("Dashboards, Contrôle et retrait Coordination — Staging final", async ({
         await page.getByRole("button", { name: "Historique", exact: true }).click();
         const drawer = page.getByRole("dialog", { name: "Historique du contrôle" });
         await expect(drawer.getByText("Chargement de l’historique…", { exact: true })).toHaveCount(0, { timeout: 60000 });
+        await drawer.getByLabel("École de l’historique").selectOption(fixture.schoolId);
+        await drawer.getByLabel("Date début historique").fill(fixture.yesterdayKey); await drawer.getByLabel("Date fin historique").fill(fixture.yesterdayKey);
+        await expect(drawer.locator("tbody tr")).toHaveCount(1);
+        await expect(drawer.locator("tbody")).toContainText(formatCurrencyMoney(10, "USD"));
+        await drawer.getByRole("button", { name: "Exporter PDF", exact: true }).click(); await savePdf(page, `${role}-payments-school-a-yesterday`);
+        await drawer.getByLabel("Date début historique").fill("2020-01-01"); await drawer.getByLabel("Date fin historique").fill("2020-01-02");
+        await expect(drawer.locator("tbody tr")).toHaveCount(0);
         await drawer.getByLabel("École de l’historique").selectOption(bSchool);
         await drawer.getByLabel("Date début historique").fill(fixture.today); await drawer.getByLabel("Date fin historique").fill(fixture.today);
         await expect(drawer.locator("tbody")).toContainText(formatCurrencyMoney(1370, "CDF"));
@@ -116,6 +131,10 @@ test("Dashboards, Contrôle et retrait Coordination — Staging final", async ({
         await drawer.getByRole("button", { name: "Dépenses", exact: true }).click(); await expect(drawer.locator("tbody")).toContainText(formatCurrencyMoney(500, "CDF"));
         await drawer.getByRole("button", { name: "Exporter PDF", exact: true }).click(); await savePdf(page, `${role}-expenses-school-b`);
         await responsive(page, `${role}-history`);
+        await drawer.getByLabel("École de l’historique").selectOption(fixture.schoolId);
+        await drawer.getByLabel("Date début historique").fill(fixture.yesterdayKey); await drawer.getByLabel("Date fin historique").fill(fixture.yesterdayKey);
+        await expect(drawer.locator("tbody tr")).toHaveCount(1);
+        await expect(drawer.locator("tbody")).toContainText(formatCurrencyMoney(3, "USD"));
         await page.getByRole("button", { name: "Fermer l’historique" }).click();
         const token = await fixture.token(role);
         const denied = await request.post("/api/manage-coordination", { headers: { Authorization: `Bearer ${token}` }, data: { action: "read-student-arrears", studentId: `${fixture.prefix}-foreign-student` } });
@@ -137,16 +156,34 @@ test("Dashboards, Contrôle et retrait Coordination — Staging final", async ({
       const confirmation = page.getByRole("alertdialog", { name: "Confirmation de périmètre" });
       await expect(confirmation).toBeVisible();
       const box = await confirmation.boundingBox(); expect(box!.y).toBeGreaterThanOrEqual(0); expect(box!.y + box!.height).toBeLessThanOrEqual(900);
+      await page.screenshot({ path: test.info().outputPath(`remove-confirmation-${width}.png`) });
       await confirmation.getByRole("button", { name: "Annuler", exact: true }).click();
+      if (width === 1440) {
+        await page.route("**/api/manage-coordination", async (route) => {
+          if (route.request().postDataJSON()?.action === "remove-school") await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "Refus E2E contrôlé" }) });
+          else await route.continue();
+        });
+        await remove.click(); await confirmation.getByLabel("Texte de confirmation").fill("RETIRER CETTE ECOLE");
+        await confirmation.getByRole("button", { name: "Confirmer", exact: true }).click();
+        await expect(page.getByRole("dialog").getByRole("alert")).toContainText("Refus E2E contrôlé");
+        expect((await fixture.db.doc(`coordinationSchools/${fixture.coordinationId}__${bSchool}`).get()).data()?.active).toBe(true);
+        await page.unroute("**/api/manage-coordination");
+        await confirmation.getByRole("button", { name: "Annuler", exact: true }).click();
+      }
       await remove.click(); await confirmation.getByLabel("Texte de confirmation").fill("RETIRER CETTE ECOLE");
       await confirmation.getByRole("button", { name: "Confirmer", exact: true }).click();
       await expect(confirmation).toHaveCount(0, { timeout: 30000 });
       expect((await fixture.db.doc(`schools/${bSchool}`).get()).exists).toBe(true);
+      expect((await fixture.db.doc(`schools/${bSchool}`).get()).data()?.activeCoordinationId).toBeNull();
       expect((await fixture.db.doc(`coordinationSchools/${fixture.coordinationId}__${bSchool}`).get()).data()?.active).toBe(false);
       await page.getByRole("button", { name: "École B Finance", exact: true }).click();
       await confirmation.getByLabel("Texte de confirmation").fill("AJOUTER CETTE ECOLE"); await confirmation.getByRole("button", { name: "Confirmer", exact: true }).click();
       await expect(confirmation).toHaveCount(0, { timeout: 30000 });
       await page.reload();
+      await page.getByRole("button", { name: "Menu", exact: true }).last().click();
+      await page.getByRole("button", { name: "Déconnexion", exact: true }).click();
+      await expect(page.getByRole("button", { name: "Se connecter", exact: true })).toBeVisible();
+      await fixture.login(page, "super_admin");
       console.log(JSON.stringify({ removeSchool: width, result: "PASS" }));
     }
   } finally {
