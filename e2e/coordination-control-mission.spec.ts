@@ -105,6 +105,7 @@ test("Dashboards, Contrôle et retrait Coordination — Staging final", async ({
         await page.getByRole("button", { name: "Précédente", exact: true }).click();
         await expect(debtRows()).toHaveCount(50, { timeout: 120000 });
       }
+      if (!await page.getByRole("group", { name: "Filtres de montant payé" }).count()) await page.getByRole("button", { name: "Montant payé", exact: true }).click();
       await page.getByLabel("Arriérés ≥", { exact: true }).fill("9000"); await page.getByLabel("Arriérés <", { exact: true }).fill("9001");
       await expect(debtRows().filter({ hasText: "Pagination59" })).toHaveCount(role.includes("coordination") ? 1 : 0, { timeout: 120000 });
       await expect(debtRows().filter({ hasText: "Finance" })).toHaveCount(0);
