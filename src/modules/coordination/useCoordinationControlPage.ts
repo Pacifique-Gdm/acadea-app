@@ -6,9 +6,10 @@ import { getSchoolClassChoices } from "../../utils/schoolConfig";
 import { getClassSection } from "../../utils/studentClasses";
 import { normalizeSchoolOptions } from "../../utils/schoolOptions";
 import type { CoordinationStudentStatus } from "../../utils/coordinationSupervision";
+import type { ArrearsFilter } from "../../utils/arrearsFilter";
 
 const emptyPage: CoordinationControlPage = { rows: [], fetchedStudents: 0 };
-export function useCoordinationControlPage(user: AppUser, schools: School[], selectedSchoolId: string, refreshToken: number, classKey: string, amountComparator: string, amountThreshold: string) {
+export function useCoordinationControlPage(user: AppUser, schools: School[], selectedSchoolId: string, refreshToken: number, classKey: string, amountComparator: string, amountThreshold: string, arrearsFilter: ArrearsFilter) {
   const [years, setYears] = useState<SchoolYear[]>([]);
   const [fees, setFees] = useState<FeeType[]>([]);
   const [metadataKey, setMetadataKey] = useState("");
@@ -41,19 +42,19 @@ export function useCoordinationControlPage(user: AppUser, schools: School[], sel
   const choice = classChoices.find((item) => item.value === classKey);
   const filters = useMemo<CoordinationStudentFilters>(() => ({ schools, years, selectedSchoolId, selectedYearId, filterSchoolId: choice?.schoolId ?? "", search, status, className: choice?.name ?? "", option, allowedSections: sections }), [schools, years, selectedSchoolId, selectedYearId, choice?.schoolId, choice?.name, search, status, option, sections]);
   const amountFilter = useMemo(() => ({ comparator: amountComparator, threshold: amountThreshold }), [amountComparator, amountThreshold]);
-  const filterKey = JSON.stringify({ contextKey, selectedSchoolId, selectedYearId, classKey, search, status, option, sections, amountFilter });
+  const filterKey = JSON.stringify({ contextKey, selectedSchoolId, selectedYearId, classKey, search, status, option, sections, amountFilter, arrearsFilter });
   const currentPageKey = `${filterKey}:${pageIndex}`;
   useEffect(() => { setPageIndex(0); setCursors([undefined]); setPage(emptyPage); setPageKey(""); }, [filterKey]);
   useEffect(() => {
     if (metadataKey !== contextKey || pageIndex >= cursors.length) return;
     let cancelled = false;
     setLoading(true); setError("");
-    loadCoordinationControlPage(filters, fees, amountFilter, cursors[pageIndex])
+    loadCoordinationControlPage(filters, fees, amountFilter, cursors[pageIndex], arrearsFilter)
       .then((result) => { if (!cancelled) { setPage(result); setPageKey(currentPageKey); } })
       .catch(() => { if (!cancelled) setError("Impossible de charger la page du contrôle."); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [metadataKey, contextKey, pageIndex, cursors, currentPageKey, filters, fees, amountFilter]);
+  }, [metadataKey, contextKey, pageIndex, cursors, currentPageKey, filters, fees, amountFilter, arrearsFilter]);
   useEffect(() => { setSelectedYearId(""); setOption(""); }, [selectedSchoolId]);
   return { years, fees, classChoices, options, filters, amountFilter, filterKey, selectedYearId, setSelectedYearId, search, setSearch, status, setStatus, option, setOption,
     rows: pageKey === currentPageKey ? page.rows : [], loading: loading || (!metadataError && metadataKey !== contextKey), error: metadataError || error, pageIndex,

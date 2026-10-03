@@ -2,6 +2,7 @@ import type { Expense, Payment } from "../types";
 import { resolveApiUrl } from "../config/apiUrl";
 import { apiErrorMessage } from "../utils/rateLimitErrors";
 import { getCurrentFirebaseIdToken } from "./auth";
+import { validateArrearsTotals, type ArrearsTotals } from "../utils/arrearsFilter";
 
 type FinancialAction =
   | "create-payment"
@@ -21,6 +22,7 @@ type FinancialResponse = {
   code?: string;
   debts?: HistoricalDebt[];
   settled?: HistoricalDebt[];
+  totals?: ArrearsTotals;
 };
 
 export type HistoricalDebt = {
@@ -35,7 +37,7 @@ export type HistoricalDebt = {
   currency: "USD" | "CDF";
 };
 
-async function financialRequest(input: Record<string, unknown> & { action: FinancialAction | "list-arrears"; clientRequestId?: string }) {
+async function financialRequest(input: Record<string, unknown> & { action: FinancialAction | "list-arrears" | "list-arrears-batch"; clientRequestId?: string }) {
   const token = await getCurrentFirebaseIdToken();
   const response = await fetch(resolveApiUrl("/api/manage-financial-transaction"), {
     method: "POST",
@@ -59,6 +61,11 @@ export function loadStudentArrears(input: { schoolYearId: string; studentId: str
     if (!Array.isArray(result.debts) || !Array.isArray(result.settled)) throw new Error("Réponse des arriérés incomplète.");
     return { debts: result.debts, settled: result.settled };
   });
+}
+
+export async function loadStudentArrearsBatch(schoolYearId: string, studentIds: string[]) {
+  const result = await financialRequest({ action: "list-arrears-batch", schoolYearId, studentIds });
+  return validateArrearsTotals(result.totals, studentIds);
 }
 
 export function createExpenseTransaction(input: { schoolYearId: string; amount: number; category: string; description: string; beneficiary: string; paymentMethod: string; reference?: string; clientRequestId: string }) {

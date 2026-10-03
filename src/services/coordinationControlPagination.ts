@@ -3,6 +3,8 @@ import { db } from "../firebase";
 import type { Expense, FeeType, Payment, Student } from "../types";
 import { getStudentFeeSummaries, type StudentFeeSummary } from "../utils/studentFeeSummary";
 import { COORDINATION_STUDENT_PAGE_SIZE, loadCoordinationStudentPage, type CoordinationStudentCursor, type CoordinationStudentFilters } from "./coordinationStudentPagination";
+import { loadCoordinationStudentArrearsBatch } from "./coordinationService";
+import { arrearsFilterActive, emptyArrearsFilter, matchesArrearsFilter, type ArrearsFilter, type ArrearsTotals } from "../utils/arrearsFilter";
 
 export type ControlRow = { student: Student; feeSummaries: StudentFeeSummary[]; balance: { expected: number; paid: number; remaining: number }; progress: number };
 export type ControlAmountFilter = { comparator: string; threshold: string };
@@ -44,7 +46,7 @@ export function controlRowMatches(row: ControlRow, filter: ControlAmountFilter) 
   return Boolean(summary && (match[2] === "gte" ? summary.paid >= threshold : summary.paid < threshold));
 }
 
-export async function loadCoordinationControlPage(filters: CoordinationStudentFilters, fees: FeeType[], amountFilter: ControlAmountFilter, cursor?: CoordinationControlCursor): Promise<CoordinationControlPage> {
+export async function loadCoordinationControlPage(filters: CoordinationStudentFilters, fees: FeeType[], amountFilter: ControlAmountFilter, cursor?: CoordinationControlCursor, arrearsFilter: ArrearsFilter = emptyArrearsFilter): Promise<CoordinationControlPage> {
   const rows: ControlRow[] = [];
   const pending = [...(cursor?.pending ?? [])];
   let studentCursor = cursor?.studentCursor, exhausted = cursor?.exhausted ?? false, fetchedStudents = 0;
@@ -54,14 +56,17 @@ export async function loadCoordinationControlPage(filters: CoordinationStudentFi
     const page = await loadCoordinationStudentPage(filters, studentCursor);
     fetchedStudents += page.fetchedDocuments;
     studentCursor = page.nextCursor; exhausted = !page.nextCursor;
-    const payments = await loadControlPagePayments(page.students);
+    const [payments, arrears] = await Promise.all([
+      loadControlPagePayments(page.students),
+      arrearsFilterActive(arrearsFilter) && page.students.length ? loadCoordinationStudentArrearsBatch(page.students.map((student) => student.id)) : Promise.resolve<ArrearsTotals>({}),
+    ]);
     for (const student of page.students) {
       // The shared fee helper expects a single school/year scope.
       const scopedFees = fees.filter((fee) => fee.schoolId === student.schoolId && fee.schoolYearId === student.schoolYearId);
       const feeSummaries = getStudentFeeSummaries(student, scopedFees, payments);
       const balance = feeSummaries.reduce((total, item) => ({ expected: total.expected + item.expected, paid: total.paid + item.paid, remaining: total.remaining + item.remaining }), { expected: 0, paid: 0, remaining: 0 });
       const row = { student, feeSummaries, balance, progress: balance.expected ? Math.min(100, Math.round(balance.paid / balance.expected * 100)) : 0 };
-      if (controlRowMatches(row, amountFilter)) pending.push(row);
+      if (controlRowMatches(row, amountFilter) && matchesArrearsFilter(arrears[student.id], arrearsFilter)) pending.push(row);
     }
   }
   return { rows, fetchedStudents, nextCursor: pending.length || !exhausted ? { pending, studentCursor, exhausted } : undefined };

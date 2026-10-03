@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { parse } from "dotenv";
 import { cert, deleteApp, initializeApp } from "firebase-admin/app";
 import { getFirestore, FieldPath } from "firebase-admin/firestore";
@@ -21,7 +22,11 @@ try {
     while (true) {
       const base = root.orderBy(FieldPath.documentId()).limit(500);
       const snapshot = await (cursor ? base.startAfter(cursor) : base).get();
-      for (const document of snapshot.docs) if (prefixes.some((prefix) => document.id.includes(prefix) || JSON.stringify(document.data()).includes(prefix))) firestore++;
+      for (const document of snapshot.docs) {
+        const data = document.data();
+        const rateLimitOwned = root.id === "_rateLimits" && prefixes.some((prefix) => ["super_admin", "school_admin", "cashier", "coordination_admin", "sub_coordination_admin"].some((role) => createHash("sha256").update(`${prefix}-${role}\u001factor\u001f${data.action}`).digest("hex") === data.actorIdHash));
+        if (rateLimitOwned || prefixes.some((prefix) => document.id.includes(prefix) || JSON.stringify(data).includes(prefix))) firestore++;
+      }
       if (snapshot.size < 500) break;
       cursor = snapshot.docs.at(-1)!.id;
     }

@@ -14,6 +14,8 @@ import { useCoordinationControlPage } from "./useCoordinationControlPage";
 import { loadCoordinationControlHistory, loadCoordinationControlPage, type CoordinationControlCursor, type ControlRow } from "../../services/coordinationControlPagination";
 import { controlHistoryCurrency, matchesControlHistory } from "../../utils/coordinationControlHistory";
 import { formatCurrencyMoney } from "../../utils/currency";
+import { ArrearsFilterFields } from "../../components/ArrearsFilterFields";
+import { emptyArrearsFilter } from "../../utils/arrearsFilter";
 
 type HistoryKind = "payments" | "expenses";
 
@@ -21,13 +23,14 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
   const [classKey, setClassKey] = useState("");
   const [amountComparator, setAmountComparator] = useState("");
   const [amountThreshold, setAmountThreshold] = useState("");
+  const [arrearsFilter, setArrearsFilter] = useState(emptyArrearsFilter);
   const [historyKind, setHistoryKind] = useState<HistoryKind | null>(null);
   const [historySchoolId, setHistorySchoolId] = useState("");
   const [historyStart, setHistoryStart] = useState("");
   const [historyEnd, setHistoryEnd] = useState("");
   const [selectedStudentId, setSelectedStudentId] = useState("");
   const [documentError, setDocumentError] = useState("");
-  const page = useCoordinationControlPage(user, schools, selectedSchoolId, refreshToken, classKey, amountComparator, amountThreshold);
+  const page = useCoordinationControlPage(user, schools, selectedSchoolId, refreshToken, classKey, amountComparator, amountThreshold, arrearsFilter);
   const { rows, loading, error: loadError, classChoices } = page;
   const [history, setHistory] = useState<{ students: Student[]; payments: Payment[]; expenses: Expense[] }>({ students: [], payments: [], expenses: [] });
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -77,7 +80,7 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
     const exportRows: ControlRow[] = [];
     let cursor: CoordinationControlCursor | undefined;
     do {
-      const result = await loadCoordinationControlPage(page.filters, page.fees, page.amountFilter, cursor);
+      const result = await loadCoordinationControlPage(page.filters, page.fees, page.amountFilter, cursor, arrearsFilter);
       exportRows.push(...result.rows); cursor = result.nextCursor;
     } while (cursor);
     await renderAcadPdfPreview({ filename: `controle-coordination-${selectedSchoolId || "toutes"}.pdf`, title: "Contrôle", school: coordinationPdfInstitution(coordination, contextSchool), subtitle: `École : ${selectedSchoolId ? contextSchool.name : "Toutes les écoles"} | Classe : ${classChoices.find((item) => item.value === classKey)?.label ?? "Toutes"} | Montant : ${amountComparator || "Tous"} ${amountThreshold}`.trim(), sections: [pdfSection("Suivi des paiements", pdfTable([
@@ -127,12 +130,13 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
       <select className="input" aria-label="Statut des élèves" value={page.status} onChange={(event) => page.setStatus(event.target.value as CoordinationStudentStatus)}><option value="all">Tous</option><option value="active">Actifs</option><option value="archived">Archivés</option></select>
       <select className="input" aria-label="Option" value={page.option} onChange={(event) => page.setOption(event.target.value)}><option value="">Toutes les options</option>{page.options.map((option) => <option key={option}>{option}</option>)}</select>
     </div>
+    <ArrearsFilterFields value={arrearsFilter} onChange={setArrearsFilter}/>
     <div className="grid w-full min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-[repeat(3,minmax(0,1fr))_auto_auto_auto]">
       <select aria-label="Classe" className="input min-w-0 w-full" value={classKey} onChange={(event) => setClassKey(event.target.value)}><option value="">Toutes</option>{classChoices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</select>
       <select aria-label="Montant payé" className="input min-w-0 w-full" value={amountComparator} onChange={(event) => setAmountComparator(event.target.value)}><option value="">Montant payé</option><option value="all-fees-gte">Tous les frais ≥</option><option value="all-fees-lt">Tous les frais &lt;</option>{feeChoices.flatMap((fee) => [<option key={`${fee.value}-gte`} value={`fee:${fee.value}:gte`}>{fee.label} ≥</option>, <option key={`${fee.value}-lt`} value={`fee:${fee.value}:lt`}>{fee.label} &lt;</option>])}</select>
       <input aria-label="Filtre" className="input min-w-0 w-full" type="number" placeholder="Filtre" value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)}/>
       <button type="button" className="pdf-export-button min-w-0 w-full xl:w-auto" onClick={() => void exportPdf()}><Download className="h-4 w-4"/> Exporter PDF</button>
-      <button type="button" className="secondary-button min-w-0 w-full justify-center xl:w-auto" onClick={() => { setClassKey(""); setAmountComparator(""); setAmountThreshold(""); page.setSearch(""); page.setSelectedYearId(""); page.setStatus("all"); page.setOption(""); }}><RotateCcw className="h-4 w-4"/> Réinitialiser</button>
+      <button type="button" className="secondary-button min-w-0 w-full justify-center xl:w-auto" onClick={() => { setArrearsFilter(emptyArrearsFilter); setClassKey(""); setAmountComparator(""); setAmountThreshold(""); page.setSearch(""); page.setSelectedYearId(""); page.setStatus("all"); page.setOption(""); }}><RotateCcw className="h-4 w-4"/> Réinitialiser</button>
       <button type="button" className="secondary-button min-w-0 w-full justify-center xl:w-auto" onClick={() => setHistoryKind("payments")}>Historique</button>
     </div>
     {loading && <p role="status" className="rounded bg-blue-50 p-3 text-sm text-blue-700">Chargement du contrôle…</p>}

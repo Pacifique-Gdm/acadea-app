@@ -74,7 +74,7 @@ function assertRole(caller, roles) {
   return { ...caller, role: normalizedRole };
 }
 
-async function assertContext(transaction, db, caller, requestedYearId) {
+async function assertContext(transaction, db, caller, requestedYearId, readOnly = false) {
   const schoolYearId = text(requestedYearId, 120);
   if (!schoolYearId) throw new FinancialApiError(400, "invalid-argument", "Année scolaire requise.");
   const [schoolSnapshot, yearSnapshot, userSnapshot] = await Promise.all([
@@ -88,7 +88,7 @@ async function assertContext(transaction, db, caller, requestedYearId) {
   if (!yearSnapshot.exists || yearSnapshot.data()?.schoolId !== caller.schoolId) {
     throw new FinancialApiError(400, "invalid-argument", "Année scolaire invalide pour cet établissement.");
   }
-  if (yearSnapshot.data()?.status === "archived") {
+  if (yearSnapshot.data()?.status === "archived" && !readOnly) {
     throw new FinancialApiError(409, "failed-precondition", "Cette année scolaire est archivée en lecture seule.");
   }
   const profile = userSnapshot.data() ?? {};
@@ -113,24 +113,31 @@ function feeAppliesToHistoricalStudent(fee, student) {
   return !fee.className || fee.className === student.className;
 }
 
-async function historicalStudentRecords(transaction, db, caller, currentStudent, currentYear) {
+async function historicalStudentRecords(transaction, db, caller, currentStudent, currentYear, reads) {
   const records = new Map();
-  const known = new Set([currentStudent.id]);
-  let ancestorId = text(currentStudent.importedFromStudentId, 120);
-  for (let depth = 0; ancestorId && depth < 30; depth += 1) {
-    if (known.has(ancestorId)) throw new FinancialApiError(409, "conflict", "La filiation annuelle de l'élève est ambiguë.");
-    known.add(ancestorId);
-    const snapshot = await transaction.get(db.doc(`students/${ancestorId}`));
-    if (!snapshot.exists || snapshot.data()?.schoolId !== caller.schoolId) {
-      throw new FinancialApiError(409, "conflict", "La filiation annuelle de l'élève est invalide.");
+  const collectAncestors = async () => {
+    const known = new Set([currentStudent.id]);
+    let ancestorId = text(currentStudent.importedFromStudentId, 120);
+    for (let depth = 0; ancestorId && depth < 30; depth += 1) {
+      if (known.has(ancestorId)) throw new FinancialApiError(409, "conflict", "La filiation annuelle de l'élève est ambiguë.");
+      known.add(ancestorId);
+      const snapshot = reads ? reads.students.get(ancestorId) : await transaction.get(db.doc(`students/${ancestorId}`));
+      if (!snapshot?.exists || snapshot.data()?.schoolId !== caller.schoolId) {
+        throw new FinancialApiError(409, "conflict", "La filiation annuelle de l'élève est invalide.");
+      }
+      records.set(ancestorId, { id: ancestorId, ...snapshot.data() });
+      ancestorId = text(snapshot.data()?.importedFromStudentId, 120);
     }
-    records.set(ancestorId, { id: ancestorId, ...snapshot.data() });
-    ancestorId = text(snapshot.data()?.importedFromStudentId, 120);
-  }
-  if (ancestorId) throw new FinancialApiError(409, "conflict", "La filiation annuelle de l'élève est trop longue.");
+    if (ancestorId) throw new FinancialApiError(409, "conflict", "La filiation annuelle de l'élève est trop longue.");
+  };
   const matricule = text(currentStudent.matricule, 120);
+  // These independent reads need not wait for each ancestry hop.
+  const [, matches, yearsSnapshot] = await Promise.all([
+    collectAncestors(),
+    reads ? { docs: reads.matches.filter((document) => document.data().matricule === matricule) } : matricule ? transaction.get(db.collection("students").where("matricule", "==", matricule)) : { docs: [] },
+    reads ? { docs: reads.years.filter((document) => document.data().schoolId === caller.schoolId) } : transaction.get(db.collection("schoolYears").where("schoolId", "==", caller.schoolId)),
+  ]);
   if (matricule) {
-    const matches = await transaction.get(db.collection("students").where("matricule", "==", matricule));
     for (const document of matches.docs) {
       const student = document.data();
       const sameIdentity = ["nom", "postnom", "prenom", "birthDate"].every((field) => {
@@ -147,7 +154,6 @@ async function historicalStudentRecords(transaction, db, caller, currentStudent,
       }
     }
   }
-  const yearsSnapshot = await transaction.get(db.collection("schoolYears").where("schoolId", "==", caller.schoolId));
   const years = new Map(yearsSnapshot.docs.map((document) => [document.id, { id: document.id, ...document.data() }]));
   const byYear = new Map();
   for (const student of records.values()) {
@@ -159,11 +165,14 @@ async function historicalStudentRecords(transaction, db, caller, currentStudent,
   return [...byYear.values()];
 }
 
-async function historicalDebts(transaction, db, caller, currentStudent, currentYear, school) {
-  const records = await historicalStudentRecords(transaction, db, caller, currentStudent, currentYear);
-  const debts = [];
-  for (const { student, year } of records) {
-    const [feeSnapshot, paymentSnapshot] = await Promise.all([
+async function historicalDebts(transaction, db, caller, currentStudent, currentYear, school, reads, knownRecords) {
+  const records = knownRecords ?? await historicalStudentRecords(transaction, db, caller, currentStudent, currentYear, reads);
+  const groups = await Promise.all(records.map(async ({ student, year }) => {
+    const debts = [];
+    const [feeSnapshot, paymentSnapshot] = reads ? [
+      { docs: reads.fees.filter((document) => document.data().schoolYearId === year.id) },
+      { docs: reads.payments.filter((document) => document.data().studentId === student.id) },
+    ] : await Promise.all([
       transaction.get(db.collection("feeTypes").where("schoolYearId", "==", year.id)),
       transaction.get(db.collection("payments").where("studentId", "==", student.id)),
     ]);
@@ -180,8 +189,74 @@ async function historicalDebts(transaction, db, caller, currentStudent, currentY
       debts.push({ schoolYearId: year.id, yearName: year.name, studentId: student.id, feeTypeId: document.id,
         feeName: text(fee.name, 160) || "Frais", expected, paid, remaining: Math.max(expected - paid, 0), currency });
     }
+    return debts;
+  }));
+  return groups.flat().sort((a, b) => String(a.yearName).localeCompare(String(b.yearName), "fr") || a.feeName.localeCompare(b.feeName, "fr"));
+}
+
+// Request-local grouped reads only: no persisted projection and no second debt formula.
+// Each source page is at most 50 students. Firestore `in` operands stay <= 30.
+async function arrearsBatch(transaction, db, studentIds, schoolIds, requestedYearId) {
+  if (!Array.isArray(studentIds) || !studentIds.length || studentIds.length > 50 || studentIds.some((id) => typeof id !== "string" || !id || id.length > 120 || id.includes("/")) || new Set(studentIds).size !== studentIds.length) {
+    throw new FinancialApiError(400, "invalid-argument", "Une liste de 1 à 50 élèves distincts est requise.");
   }
-  return debts.sort((a, b) => String(a.yearName).localeCompare(String(b.yearName), "fr") || a.feeName.localeCompare(b.feeName, "fr"));
+  const documents = await transaction.getAll(...studentIds.map((id) => db.doc(`students/${id}`)));
+  if (documents.some((document) => !document.exists || !schoolIds.includes(document.data().schoolId) || (requestedYearId && document.data().schoolYearId !== requestedYearId))) {
+    throw new FinancialApiError(404, "not-found", "Élève introuvable dans le périmètre autorisé.");
+  }
+  const queryMany = async (collection, field, values) => {
+    const unique = [...new Set(values.filter(Boolean))];
+    const snapshots = await Promise.all(Array.from({ length: Math.ceil(unique.length / 30) }, (_, i) => transaction.get(db.collection(collection).where(field, "in", unique.slice(i * 30, i * 30 + 30)))));
+    return snapshots.flatMap((snapshot) => snapshot.docs);
+  };
+  const usedSchools = [...new Set(documents.map((document) => document.data().schoolId))];
+  const [schools, years, matches] = await Promise.all([
+    transaction.getAll(...usedSchools.map((id) => db.doc(`schools/${id}`))),
+    queryMany("schoolYears", "schoolId", usedSchools),
+    queryMany("students", "matricule", documents.map((document) => text(document.data().matricule, 120))),
+  ]);
+  const reads = { students: new Map(documents.map((document) => [document.id, document])), years, matches, fees: [], payments: [] };
+  // Fetch each ancestry level together; the canonical traversal below still rejects
+  // missing/foreign ancestors, cycles, chains >30 and ambiguous records per year.
+  let frontier = documents;
+  for (let depth = 0; depth < 30; depth++) {
+    const ids = [...new Set(frontier.map((document) => text(document.data()?.importedFromStudentId, 120)).filter((id) => id && !reads.students.has(id)))];
+    if (!ids.length) break;
+    frontier = await transaction.getAll(...ids.map((id) => db.doc(`students/${id}`)));
+    frontier.forEach((document) => reads.students.set(document.id, document));
+  }
+  const contexts = await Promise.all(documents.map(async (document) => {
+    const student = { ...document.data(), id: document.id };
+    const schoolSnapshot = schools.find((item) => item.id === student.schoolId);
+    const yearSnapshot = years.find((item) => item.id === student.schoolYearId);
+    const school = schoolSnapshot?.data(), year = yearSnapshot?.data();
+    if (!schoolSnapshot?.exists || school?.status !== "active" || !year || year.schoolId !== student.schoolId) throw new FinancialApiError(409, "failed-precondition", "Contexte scolaire indisponible.");
+    const records = await historicalStudentRecords(transaction, db, { schoolId: student.schoolId }, student, year, reads);
+    return { student, school, year, records };
+  }));
+  [reads.fees, reads.payments] = await Promise.all([
+    queryMany("feeTypes", "schoolYearId", contexts.flatMap((context) => context.records.map(({ year }) => year.id))),
+    queryMany("payments", "studentId", contexts.flatMap((context) => context.records.map(({ student }) => student.id))),
+  ]);
+  const totals = {};
+  for (const { student, school, year, records } of contexts) {
+    const debts = await historicalDebts(transaction, db, { schoolId: student.schoolId }, student, year, school, reads, records);
+    totals[student.id] = debts.reduce((sum, debt) => ({ ...sum, [debt.currency]: sum[debt.currency] + debt.remaining }), { USD: 0, CDF: 0 });
+  }
+  return { totals };
+}
+
+export function listScopedStudentArrearsBatch({ db, studentIds, schoolIds }) {
+  return db.runTransaction((transaction) => arrearsBatch(transaction, db, studentIds, schoolIds));
+}
+
+export function listStudentArrearsBatch({ db, caller: rawCaller, body }) {
+  assertAllowedKeys(body, ["action", "schoolYearId", "studentIds"]);
+  const caller = assertRole(rawCaller, ["school_admin", "cashier"]);
+  return db.runTransaction(async (transaction) => {
+    const { schoolYearId } = await assertContext(transaction, db, caller, body.schoolYearId, true);
+    return arrearsBatch(transaction, db, body.studentIds, [caller.schoolId], schoolYearId);
+  });
 }
 
 export async function listStudentArrears({ db, caller: rawCaller, body }) {
@@ -434,5 +509,5 @@ export async function executeFinancialOperation({ db, caller: rawCaller, body, n
 
 export function authorizeFinancialCaller(rawCaller, action) {
   const createAction = action === "create-payment" || action === "create-expense";
-  return assertRole(rawCaller, action === "list-arrears" ? ["cashier", "school_admin", "parent"] : createAction ? ["cashier"] : ["school_admin"]);
+  return assertRole(rawCaller, action === "list-arrears" ? ["cashier", "school_admin", "parent"] : action === "list-arrears-batch" ? ["cashier", "school_admin"] : createAction ? ["cashier"] : ["school_admin"]);
 }

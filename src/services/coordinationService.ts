@@ -2,6 +2,7 @@ import { getCurrentFirebaseIdToken } from "./auth";
 import { resolveApiUrl } from "../config/apiUrl";
 import type { Coordination, AppUser, ParentProfile, PersonnelProfile } from "../types";
 import type { HistoricalDebt } from "./financialTransactions";
+import { validateArrearsTotals, type ArrearsTotals } from "../utils/arrearsFilter";
 
 type CoordinationInput = { name: string; code?: string; phone?: string; email?: string; address?: string; schoolIds: string[]; coordinator: { name: string; email: string; password: string } };
 export type CoordinationSettingsInput = { name: string; code?: string; phone?: string; email?: string; address?: string; logoUrl?: string };
@@ -27,6 +28,10 @@ export async function removeCoordinationSchool(coordinationId: string, schoolId:
 export async function updateCoordinationSettings(settings: CoordinationSettingsInput) { return call({ action: "update-settings", ...settings }); }
 export async function loadCoordinationStudentArrears(studentId: string) {
   return call({ action: "read-student-arrears", studentId }) as Promise<{ debts: HistoricalDebt[]; settled: HistoricalDebt[] }>;
+}
+export async function loadCoordinationStudentArrearsBatch(studentIds: string[]) {
+  const result = await call({ action: "read-student-arrears-batch", studentIds }) as { totals?: ArrearsTotals };
+  return validateArrearsTotals(result.totals, studentIds);
 }
 export async function loadCoordinationStudentParent(studentId: string) {
   const payload = await call({ action: "read-student-parent", studentId }) as { parent?: ParentProfile | null };

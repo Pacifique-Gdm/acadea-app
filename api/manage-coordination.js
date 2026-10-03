@@ -3,7 +3,7 @@ import { firebaseAdminPublicError, initAdmin } from "./_lib/firebaseAdmin.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { coordinationHttpError, requireActiveCoordinationActor, requireActiveCoordinator, resolveCoordinationSchoolScope } from "./_lib/coordination.js";
 import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
-import { listScopedStudentArrears } from "./_lib/financialTransactions.js";
+import { listScopedStudentArrears, listScopedStudentArrearsBatch } from "./_lib/financialTransactions.js";
 import { manageCoordinationAdministrator } from "./_lib/coordinationAdministrators.js";
 
 export const maxDuration = 300;
@@ -327,10 +327,11 @@ export default async function handler(req, res) {
     const { auth, db } = initAdmin();
     const input = await body(req);
     const action = text(input.action || "create");
-    if (action === "read-student-arrears") {
+    if (action === "read-student-arrears" || action === "read-student-arrears-batch") {
       const caller = await requireActiveCoordinationActor(auth, db, token);
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.coordinationId, action: "coordination.read-student-arrears", ...API_RATE_LIMITS.MESSAGE_RECIPIENTS });
       const schoolIds = await resolveCoordinationSchoolScope(db, caller);
+      if (action === "read-student-arrears-batch") return sendJson(res, 200, await listScopedStudentArrearsBatch({ db, studentIds: input.studentIds, schoolIds }));
       return sendJson(res, 200, await listScopedStudentArrears({ db, studentId: text(input.studentId), schoolIds }));
     }
     if (action === "transfer-personnel") return await transferPersonnel({ res, auth, db, token, input });

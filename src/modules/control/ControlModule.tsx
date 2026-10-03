@@ -4,6 +4,9 @@ import { AdminDrawer, Field, FormPanel, Metric, MoneyInput, SectionTitle } from 
 import { usePaginatedControlHistory } from "../../hooks/usePaginatedControlHistory";
 import { createExpenseTransaction, createPaymentTransaction, deleteFinancialTransaction, loadStudentArrears, updateExpenseTransaction, updatePaymentTransaction } from "../../services/financialTransactions";
 import type { HistoricalDebt } from "../../services/financialTransactions";
+import { loadStudentArrearsBatch } from "../../services/financialTransactions";
+import { ArrearsFilterFields } from "../../components/ArrearsFilterFields";
+import { arrearsFilterActive, emptyArrearsFilter, matchesArrearsFilter, type ArrearsTotals } from "../../utils/arrearsFilter";
 import { createAuditLog } from "../../utils/audit";
 import { buildSchoolYearDataIndexes, sumPaymentsForStudentFee } from "../../utils/dataIndexes";
 import { resolveExpenseCashierName, resolvePaymentCashierName } from "../../utils/finance";
@@ -99,6 +102,26 @@ export function ControlModule({
   const [arrearsLoading, setArrearsLoading] = useState(false);
   const [controlStudentSearch, setControlStudentSearch] = useState("");
   const [controlPage, setControlPage] = useState(1);
+  const [arrearsFilter, setArrearsFilter] = useState(emptyArrearsFilter);
+  const [filterArrears, setFilterArrears] = useState<ArrearsTotals>({});
+  const [filterArrearsLoading, setFilterArrearsLoading] = useState(false);
+  const [filterArrearsError, setFilterArrearsError] = useState("");
+  const needsArrears = arrearsFilterActive(arrearsFilter);
+  useEffect(() => {
+    let cancelled = false;
+    setFilterArrears({}); setFilterArrearsError(""); setFilterArrearsLoading(needsArrears);
+    if (!needsArrears) return;
+    // Process every source batch before display pagination. Never a per-student API.
+    void (async () => {
+      const totals: ArrearsTotals = {};
+      for (let offset = 0; offset < yearData.students.length && !cancelled; offset += 50) {
+        Object.assign(totals, await loadStudentArrearsBatch(year.id, yearData.students.slice(offset, offset + 50).map((student) => student.id)));
+      }
+      if (!cancelled) setFilterArrears(totals);
+    })().catch(() => { if (!cancelled) setFilterArrearsError("Impossible de calculer les arriérés du contrôle."); })
+      .finally(() => { if (!cancelled) setFilterArrearsLoading(false); });
+    return () => { cancelled = true; };
+  }, [needsArrears, school.id, year.id, yearData.students, data.payments, data.feeTypes]);
   const controlIndexes = useMemo(() => buildSchoolYearDataIndexes(yearData.students, yearData.feeTypes, yearData.payments), [yearData.students, yearData.feeTypes, yearData.payments]);
   const paymentHistory = usePaginatedControlHistory<Payment>({
     kind: "payments",
@@ -228,6 +251,7 @@ export function ControlModule({
       return { student, balance, progress, feeSummaries, hasApplicableFees: feeSummaries.length > 0 };
     })
     .filter((row) => {
+      if (!matchesArrearsFilter(filterArrears[row.student.id], arrearsFilter)) return false;
       if (controlClassKey && controlClassKey !== "all" && getControlClassKey(row.student) !== controlClassKey) return false;
       if (!amountComparator || amountComparator === "all" || !amountThreshold) return true;
       const threshold = Number(amountThreshold);
@@ -251,11 +275,11 @@ export function ControlModule({
         : row.balance.paid;
       const isGreaterOrEqual = feeFilter ? feeFilter[2] === "gte" : amountComparator === ">=";
       return isGreaterOrEqual ? paidAmount >= threshold : paidAmount < threshold;
-    }), [amountComparator, amountFeeGroups, amountThreshold, controlClassKey, controlIndexes, yearData.feeTypes, yearData.payments, yearData.students]);
+    }), [amountComparator, amountFeeGroups, amountThreshold, controlClassKey, controlIndexes, yearData.feeTypes, yearData.payments, yearData.students, filterArrears, arrearsFilter]);
   const visibleRows = useMemo(() => filterControlStudentRows(rows, controlStudentSearch), [controlStudentSearch, rows]);
   const controlPageCount = Math.max(1, Math.ceil(visibleRows.length / CONTROL_PAGE_SIZE));
   const paginatedControlRows = visibleRows.slice((controlPage - 1) * CONTROL_PAGE_SIZE, controlPage * CONTROL_PAGE_SIZE);
-  useEffect(() => { setControlPage(1); }, [amountComparator, amountThreshold, controlClassKey, controlStudentSearch, year.id]);
+  useEffect(() => { setControlPage(1); }, [amountComparator, amountThreshold, controlClassKey, controlStudentSearch, year.id, arrearsFilter]);
   useEffect(() => { if (controlPage > controlPageCount) setControlPage(controlPageCount); }, [controlPage, controlPageCount]);
   const historyPayments = [...new Map([...paymentHistory.items, ...yearData.payments.filter((payment) => payment.collectionSchoolYearId === year.id)].map((payment) => [payment.id, payment])).values()]
     .map((payment) => {
@@ -803,6 +827,7 @@ export function ControlModule({
   }
 
   function resetControlFilters() {
+    setArrearsFilter(emptyArrearsFilter);
     setAmountComparator("");
     setAmountThreshold("");
     setControlClassKey("");
@@ -1178,6 +1203,9 @@ export function ControlModule({
       <div className="min-w-0">
         <SectionTitle title="Contrôle" subtitle="Frais scolaires, paiements, historique et soldes restants." />
         <div className="mb-3 w-full min-w-0 max-w-full">
+          <ArrearsFilterFields value={arrearsFilter} onChange={setArrearsFilter}/>
+          {filterArrearsLoading && <p role="status">Calcul des arriérés du contrôle…</p>}
+          {filterArrearsError && <p role="alert" className="text-red-700">{filterArrearsError}</p>}
           <div className="grid w-full min-w-0 grid-cols-1 items-stretch gap-2 box-border sm:grid-cols-2 lg:flex lg:flex-nowrap lg:items-center lg:gap-1.5">
               <select value={controlClassKey} onChange={(event) => setControlClassKey(event.target.value)} className="h-10 min-w-0 w-full rounded border border-slate-200 bg-white px-2 text-sm lg:flex-1 lg:basis-0" aria-label="Classe">
                 <option value="" disabled hidden>Classe</option>
@@ -1195,7 +1223,7 @@ export function ControlModule({
                 ))}
               </select>
               <MoneyInput value={amountThreshold} onChange={setAmountThreshold} className="h-10 min-w-0 w-full rounded border border-slate-200 bg-white px-2 text-sm lg:flex-1 lg:basis-0" placeholder="Filtre" ariaLabel="Filtre" />
-              <button onClick={printFilteredStudents} className="pdf-export-button h-10 min-w-0 px-2 lg:flex-1 lg:basis-0" type="button">
+              <button onClick={printFilteredStudents} disabled={filterArrearsLoading || Boolean(filterArrearsError)} className="pdf-export-button h-10 min-w-0 px-2 lg:flex-1 lg:basis-0" type="button">
                 <Download className="h-4 w-4" /> Exporter PDF
               </button>
               <label className="flex h-10 min-w-0 w-full items-center gap-2 rounded border border-slate-200 bg-white px-2 text-sm lg:flex-1 lg:basis-0">

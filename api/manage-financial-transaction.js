@@ -1,6 +1,6 @@
 import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
-import { authorizeFinancialCaller, executeFinancialOperation, FinancialApiError, listStudentArrears } from "./_lib/financialTransactions.js";
+import { authorizeFinancialCaller, executeFinancialOperation, FinancialApiError, listStudentArrears, listStudentArrearsBatch } from "./_lib/financialTransactions.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 
 function parseJsonBody(raw) {
@@ -46,12 +46,12 @@ export default async function handler(req, res) {
     const caller = await verifyActorIdToken(auth, token);
     const body = await readBody(req);
     const requestedAction = typeof body.action === "string" ? body.action : "";
-    const action = ["create-payment", "create-expense", "update-payment", "update-expense", "delete-payment", "delete-expense", "list-arrears"].includes(requestedAction) ? requestedAction : "invalid";
+    const action = ["create-payment", "create-expense", "update-payment", "update-expense", "delete-payment", "delete-expense", "list-arrears", "list-arrears-batch"].includes(requestedAction) ? requestedAction : "invalid";
     const authorizedCaller = authorizeFinancialCaller(caller, action);
     await requireActiveApiUser(db, authorizedCaller);
     const rate = action === "create-payment" || action === "create-expense" ? API_RATE_LIMITS.FINANCE_CREATE : API_RATE_LIMITS.FINANCE_MUTATE;
     await enforceApiRateLimit({ db, actorId: authorizedCaller.uid, schoolId: authorizedCaller.schoolId, action: `finance.${action}`, idempotencyKey: typeof body.clientRequestId === "string" ? body.clientRequestId : undefined, ...rate });
-    const result = action === "list-arrears"
+    const result = action === "list-arrears-batch" ? await listStudentArrearsBatch({ db, caller: authorizedCaller, body }) : action === "list-arrears"
       ? await listStudentArrears({ db, caller: authorizedCaller, body })
       : await executeFinancialOperation({ db, caller: authorizedCaller, body });
     return sendJson(res, 200, result);
