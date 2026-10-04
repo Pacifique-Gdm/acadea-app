@@ -114,7 +114,7 @@ test("Dashboards, Contrôle et retrait Coordination — Staging final", async ({
       await expect(debtRows().filter({ hasText: "Finance" })).toHaveCount(0);
       await page.getByRole("button", { name: "Montant payé", exact: true }).click();
       await expect(page.getByRole("group", { name: "Critères de montant payé" })).toBeVisible();
-      await expect(page.getByLabel("Filtre", { exact: true })).toHaveValue("9000");
+      await expect(page.getByLabel("Filtre", { exact: true })).toHaveValue(role.includes("coordination") ? "9000" : "9 000");
       await responsive(page, `${role}-arrears-filter`);
       await page.getByRole("button", { name: "Réinitialiser", exact: true }).click();
       const batchToken = await fixture.token(role);
