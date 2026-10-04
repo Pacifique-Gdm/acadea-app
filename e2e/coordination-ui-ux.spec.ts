@@ -28,7 +28,7 @@ test("UI Coordination et drawers dédiés — Staging isolé", async ({ browser,
   try {
     await fixture.seed();
     for (const role of ["coordination_admin", "sub_coordination_admin"]) {
-      const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, hasTouch: true });
       contexts.push(context);
       const page = await context.newPage();
       await fixture.login(page, role);
@@ -64,6 +64,9 @@ test("UI Coordination et drawers dédiés — Staging isolé", async ({ browser,
           expect(Math.max(...boxes.map((box) => box!.y)) - Math.min(...boxes.map((box) => box!.y))).toBeLessThanOrEqual(2);
         }
       }
+      await page.getByRole("button", { name: "Historique", exact: true }).tap();
+      await expect(page.getByRole("dialog", { name: "Historique du contrôle" })).toBeVisible();
+      await page.getByRole("button", { name: "Fermer l’historique" }).tap();
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.locator("article button").filter({ hasText: "Finance Élève" }).first().click();
       await expect(page.getByRole("heading", { name: "Dettes des années antérieures" })).toBeVisible({ timeout: 60000 });
@@ -75,7 +78,7 @@ test("UI Coordination et drawers dédiés — Staging isolé", async ({ browser,
       await expect(page.getByRole("button", { name: "Retour au contrôle" })).toBeVisible();
       await expect(page.getByRole("button", { name: "Imprimer PDF" })).toBeVisible();
       for (const width of [1440, 768, 390]) await fitsViewport(page, width);
-      await page.getByRole("button", { name: "Retour au contrôle" }).click();
+      await page.getByRole("button", { name: "Retour au contrôle" }).tap();
       await page.getByRole("button", { name: "Élèves", exact: true }).last().click();
       const student = page.getByRole("row").filter({ hasText: "7ème CTEB" }).getByRole("button", { name: /Finance.*E2E.*Élève/ });
       await expect(student).toBeVisible({ timeout: 60000 });
@@ -86,7 +89,7 @@ test("UI Coordination et drawers dédiés — Staging isolé", async ({ browser,
       console.log(JSON.stringify({ role, controlAndStudents: "PASS", widths: [1440, 768, 390] }));
     }
 
-    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, hasTouch: true });
     contexts.push(context);
     const page = await context.newPage();
     await fixture.login(page, "super_admin");
@@ -94,19 +97,19 @@ test("UI Coordination et drawers dédiés — Staging isolé", async ({ browser,
     await page.getByRole("button", { name: /Coordination E2E Finance.*Active/ }).click();
     await expect(page.getByRole("dialog", { name: "Coordination E2E Finance" })).toBeVisible();
     for (const width of [1440, 768, 390]) await fitsViewport(page, width);
-    await page.getByRole("button", { name: "Modifier", exact: true }).click();
+    await page.getByRole("button", { name: "Modifier", exact: true }).tap();
     await expect(page.getByRole("dialog", { name: "Modifier la Coordination" })).toBeVisible();
     await expect(page.getByRole("dialog")).toHaveCount(1);
     for (const width of [1440, 768, 390]) await fitsViewport(page, width);
-    await page.getByRole("button", { name: "Retour aux informations de la Coordination" }).click();
+    await page.getByRole("button", { name: "Retour aux informations de la Coordination" }).tap();
     await expect(page.getByRole("dialog", { name: "Coordination E2E Finance" })).toBeVisible();
-    await page.getByRole("button", { name: "Modifier", exact: true }).click();
+    await page.getByRole("button", { name: "Modifier", exact: true }).tap();
     await expect(page.getByRole("dialog", { name: "Modifier la Coordination" })).toBeVisible();
     await page.getByRole("textbox", { name: "Nom", exact: true }).fill("Coordination E2E Finance UX");
     await page.getByRole("button", { name: "Enregistrer la Coordination" }).click();
     await expect(page.getByRole("dialog", { name: "Coordination E2E Finance UX" })).toBeVisible({ timeout: 60000 });
     for (const width of [1440, 768, 390]) await fitsViewport(page, width);
-    await page.getByRole("button", { name: "Coordinateurs", exact: true }).click();
+    await page.getByRole("button", { name: "Coordinateurs", exact: true }).tap();
     await expect(page.getByRole("dialog", { name: "Coordinateurs" })).toBeVisible();
     await expect(page.getByRole("dialog")).toHaveCount(1);
     await expect(page.getByRole("button", { name: "Ajouter coordinateur" })).toBeVisible();
@@ -134,7 +137,7 @@ test("UI Coordination et drawers dédiés — Staging isolé", async ({ browser,
     await confirmation.getByRole("button", { name: "Confirmer la suppression" }).click();
     await expect(updated).toHaveCount(0, { timeout: 60000 });
     for (const width of [1440, 768, 390]) await fitsViewport(page, width);
-    await page.getByRole("button", { name: "Retour aux informations de la Coordination" }).click();
+    await page.getByRole("button", { name: "Retour aux informations de la Coordination" }).tap();
     await expect(page.getByRole("dialog", { name: "Coordination E2E Finance UX" })).toBeVisible();
     await page.reload();
     await expect(page.getByRole("button", { name: "Coordinations", exact: true }).last()).toBeVisible({ timeout: 60000 });
