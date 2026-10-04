@@ -23,6 +23,7 @@ test("UI Coordination et drawers dédiés — Staging isolé", async ({ browser,
   expect(version.status()).toBe(200);
   expect(await version.text()).toContain(expectedSha!);
   const fixture = await coordinationMissionFixture();
+  console.log(JSON.stringify({ fixturePrefix: fixture.prefix }));
   const contexts: BrowserContext[] = [];
   try {
     await fixture.seed();
@@ -66,6 +67,8 @@ test("UI Coordination et drawers dédiés — Staging isolé", async ({ browser,
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.locator("article button").filter({ hasText: "Finance Élève" }).first().click();
       await expect(page.getByRole("heading", { name: "Dettes des années antérieures" })).toBeVisible({ timeout: 60000 });
+      await expect(page.getByRole("heading", { name: "Paiements", exact: true })).toBeVisible({ timeout: 60000 });
+      await expect(page.getByRole("heading", { name: "Historique des paiements", exact: true })).toBeVisible({ timeout: 60000 });
       const headings = await page.locator("h1, h2, h3").allTextContents();
       expect(headings.indexOf("Paiements")).toBeLessThan(headings.indexOf("Dettes des années antérieures"));
       expect(headings.indexOf("Dettes des années antérieures")).toBeLessThan(headings.indexOf("Historique des paiements"));
