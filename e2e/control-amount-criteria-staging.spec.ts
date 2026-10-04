@@ -81,6 +81,8 @@ test("Contrôle — critères financiers séparés et isolés par école sur Sta
       await expect(rows()).toHaveText("Finance Élève", { timeout: 120000 });
       if (role === "school_admin") await page.getByRole("button", { name: "Exporter PDF", exact: true }).click().then(() => savePdf(page, "admin-arrears-gte"));
       await selectCriterion(page, coordinated ? `Arriérés — ${schoolA} <` : "Arriérés <");
+      await page.getByLabel("Filtre", { exact: true }).fill("0");
+      await expect(rows()).toHaveCount(0, { timeout: 120000 });
       await page.getByLabel("Filtre", { exact: true }).fill("1");
       await expect(rows()).toHaveText("Zéro A Test", { timeout: 120000 });
       if (role === "school_admin") await page.getByRole("button", { name: "Exporter PDF", exact: true }).click().then(() => savePdf(page, "admin-arrears-lt"));
@@ -99,11 +101,23 @@ test("Contrôle — critères financiers séparés et isolés par école sur Sta
         await page.getByLabel("Filtre", { exact: true }).fill("1370");
         await expect(rows()).toHaveText("Critère Test", { timeout: 120000 });
         if (role === "coordination_admin") await page.getByRole("button", { name: "Exporter PDF", exact: true }).click().then(() => savePdf(page, "coord-all-fees-b"));
+        await selectCriterion(page, `Tous les frais — ${schoolA} <`);
+        await page.getByLabel("Filtre", { exact: true }).fill("1");
+        await expect(rows()).toHaveText("Zéro A Test", { timeout: 120000 });
+        await selectCriterion(page, `Tous les frais — ${schoolB} <`);
+        await expect(rows()).toHaveText("Zéro B Test", { timeout: 120000 });
         await selectCriterion(page, `Frais B — ${schoolB} ≥`);
+        await page.getByLabel("Filtre", { exact: true }).fill("1370");
         await expect(rows()).toHaveText("Critère Test", { timeout: 120000 });
+        await selectCriterion(page, `Frais B — ${schoolB} <`);
+        await page.getByLabel("Filtre", { exact: true }).fill("1");
+        await expect(rows()).toHaveText("Zéro B Test", { timeout: 120000 });
         await selectCriterion(page, `Minerval — ${schoolA} ≥`);
         await page.getByLabel("Filtre", { exact: true }).fill("25");
         await expect(rows()).toHaveText("Finance Élève", { timeout: 120000 });
+        await selectCriterion(page, `Minerval — ${schoolA} <`);
+        await page.getByLabel("Filtre", { exact: true }).fill("1");
+        await expect(rows()).toHaveText("Zéro A Test", { timeout: 120000 });
         const schoolScope = page.getByLabel("Filtrer par école", { exact: true });
         await schoolScope.selectOption(bSchool);
         await page.getByRole("button", { name: "Montant payé", exact: true }).click();
@@ -112,7 +126,7 @@ test("Contrôle — critères financiers séparés et isolés par école sur Sta
         await schoolScope.selectOption("");
       }
       await page.getByRole("button", { name: "Réinitialiser", exact: true }).click();
-      await page.getByLabel("Rechercher un élève dans le contrôle").fill("Finance");
+      await page.getByLabel("Rechercher un élève dans le contrôle").fill("Élève");
       await expect(rows()).toHaveText("Finance Élève", { timeout: 120000 });
       console.log(JSON.stringify({ criterionRole: role, result: "PASS" }));
       await context.close();
