@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { matchesArrearsFilter, validateArrearsTotals } from "./arrearsFilter";
+import { arrearsFilterForCriterion, matchesArrearsFilter, validateArrearsTotals } from "./arrearsFilter";
 describe("borne des arriérés par devise", () => {
+  it("convertit uniquement le critère sélectionné et le champ extérieur en borne canonique", () => {
+    expect(arrearsFilterForCriterion("arrears-gte", "65")).toEqual({ minimum: "65", maximum: "" });
+    expect(arrearsFilterForCriterion("arrears-lt", "65.5")).toEqual({ minimum: "", maximum: "65.5" });
+    expect(arrearsFilterForCriterion("school:school-a:arrears:gte", "0")).toEqual({ minimum: "0", maximum: "" });
+    expect(arrearsFilterForCriterion("school:school-b:arrears:lt", "9000")).toEqual({ minimum: "", maximum: "9000" });
+    for (const comparator of ["", "all-fees-gte", "school:school-a:fee:fee-a:gte"]) expect(arrearsFilterForCriterion(comparator, "65")).toEqual({ minimum: "", maximum: "" });
+    for (const threshold of ["", "nope", "-1"]) expect(arrearsFilterForCriterion("arrears-gte", threshold)).toEqual({ minimum: "", maximum: "" });
+  });
   it.each([0, 10, 30, 50, 100])("inclut >= et exclut < à %s", (amount) => {
     const total = { USD: amount, CDF: 9000 };
     expect(matchesArrearsFilter(total, { minimum: String(amount), maximum: "" }, { currency: "USD" })).toBe(true);

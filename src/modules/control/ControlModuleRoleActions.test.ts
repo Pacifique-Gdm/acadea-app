@@ -16,7 +16,7 @@ describe("actions Contrôle partagées selon le rôle", () => {
   });
 
   it("conserve le même ordre pour les actions communes", () => {
-    const labels = ["Classe", "Montant payé", "Filtre", "Exporter PDF", "Réinitialiser", "Historique"];
+    const labels = ['aria-label="Classe"', "<PaidAmountDropdown", '<MoneyInput value={amountThreshold}', "Exporter PDF", "Réinitialiser", "Historique"];
     let previous = -1;
     for (const label of labels) {
       const index = toolbar.indexOf(label, previous + 1);

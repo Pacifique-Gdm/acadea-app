@@ -35,12 +35,18 @@ export async function loadControlPagePayments(students: readonly Student[]): Pro
 }
 
 export function controlRowMatches(row: ControlRow, filter: ControlAmountFilter) {
-  if (!filter.comparator || !filter.threshold) return true;
+  let comparator = filter.comparator;
+  if (comparator.startsWith("school:")) {
+    const scoped = comparator.match(/^school:([^:]+):(all-fees|arrears|fee:([^:]+)):(gte|lt)$/);
+    if (!scoped || decodeURIComponent(scoped[1]) !== row.student.schoolId) return false;
+    comparator = scoped[2] === "all-fees" ? `all-fees-${scoped[4]}` : scoped[2] === "arrears" ? `arrears-${scoped[4]}` : `fee:${decodeURIComponent(scoped[3])}:${scoped[4]}`;
+  }
+  if (!comparator || !filter.threshold || comparator.startsWith("arrears-")) return true;
   const threshold = Number(filter.threshold);
-  if (!Number.isFinite(threshold)) return true;
-  if (filter.comparator === "all-fees-gte") return row.feeSummaries.length > 0 && row.feeSummaries.every((summary) => summary.paid >= threshold);
-  if (filter.comparator === "all-fees-lt") return row.feeSummaries.some((summary) => summary.paid < threshold);
-  const match = filter.comparator.match(/^fee:(.+):(gte|lt)$/);
+  if (!Number.isFinite(threshold) || threshold < 0) return true;
+  if (comparator === "all-fees-gte") return row.feeSummaries.length > 0 && row.feeSummaries.every((summary) => summary.paid >= threshold);
+  if (comparator === "all-fees-lt") return row.feeSummaries.some((summary) => summary.paid < threshold);
+  const match = comparator.match(/^fee:(.+):(gte|lt)$/);
   if (!match) return true;
   const summary = row.feeSummaries.find((item) => item.feeTypeId === match[1]);
   return Boolean(summary && (match[2] === "gte" ? summary.paid >= threshold : summary.paid < threshold));

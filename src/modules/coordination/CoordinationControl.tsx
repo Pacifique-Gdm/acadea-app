@@ -16,7 +16,7 @@ import { controlHistoryCurrency, defaultControlHistoryDate, matchesControlHistor
 import { formatCurrencyMoney } from "../../utils/currency";
 import { PaidAmountDropdown } from "../../components/PaidAmountDropdown";
 import { COORDINATION_ACTIVE_YEAR, coordinationYearChoices } from "../../services/coordinationStudentPagination";
-import { emptyArrearsFilter } from "../../utils/arrearsFilter";
+import { arrearsFilterForCriterion } from "../../utils/arrearsFilter";
 
 type HistoryKind = "payments" | "expenses";
 
@@ -24,7 +24,7 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
   const [classKey, setClassKey] = useState("");
   const [amountComparator, setAmountComparator] = useState("");
   const [amountThreshold, setAmountThreshold] = useState("");
-  const [arrearsFilter, setArrearsFilter] = useState(emptyArrearsFilter);
+  const arrearsFilter = useMemo(() => arrearsFilterForCriterion(amountComparator, amountThreshold), [amountComparator, amountThreshold]);
   const [historyKind, setHistoryKind] = useState<HistoryKind | null>(null);
   const [historySchoolId, setHistorySchoolId] = useState("");
   const [historyDate] = useState(defaultControlHistoryDate);
@@ -52,7 +52,22 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
   const schoolsById = useMemo(() => new Map(schools.map((school) => [school.id, school])), [schools]);
   const studentsById = useMemo(() => new Map(history.students.map((student) => [student.id, student])), [history.students]);
   const feeTypesById = useMemo(() => new Map(page.fees.map((fee) => [fee.id, fee])), [page.fees]);
-  const feeChoices = page.fees.filter((fee) => (!selectedSchoolId || fee.schoolId === selectedSchoolId) && (page.selectedYearId === COORDINATION_ACTIVE_YEAR ? schoolsById.get(fee.schoolId)?.activeSchoolYearId === fee.schoolYearId : !page.selectedYearId || fee.schoolYearId === page.selectedYearId)).map((fee) => ({ value: fee.id, label: `${fee.name}${selectedSchoolId ? "" : ` — ${schoolsById.get(fee.schoolId)?.name ?? fee.schoolId}`}` }));
+  const feeChoices = page.fees.filter((fee) => schoolsById.has(fee.schoolId) && (!selectedSchoolId || fee.schoolId === selectedSchoolId) && (page.selectedYearId === COORDINATION_ACTIVE_YEAR ? schoolsById.get(fee.schoolId)?.activeSchoolYearId === fee.schoolYearId : !page.selectedYearId || fee.schoolYearId === page.selectedYearId));
+  const amountOptions = schools.filter((school) => !selectedSchoolId || school.id === selectedSchoolId).flatMap((school) => {
+    const prefix = `school:${encodeURIComponent(school.id)}`;
+    const schoolFees = feeChoices.filter((fee) => fee.schoolId === school.id);
+    return [
+      { value: `${prefix}:all-fees:gte`, label: `Tous les frais — ${school.name} ≥` },
+      { value: `${prefix}:all-fees:lt`, label: `Tous les frais — ${school.name} <` },
+      ...schoolFees.flatMap((fee) => [
+        { value: `${prefix}:fee:${encodeURIComponent(fee.id)}:gte`, label: `${fee.name} — ${school.name} ≥` },
+        { value: `${prefix}:fee:${encodeURIComponent(fee.id)}:lt`, label: `${fee.name} — ${school.name} <` },
+      ]),
+      { value: `${prefix}:arrears:gte`, label: `Arriérés — ${school.name} ≥` },
+      { value: `${prefix}:arrears:lt`, label: `Arriérés — ${school.name} <` },
+    ];
+  });
+  useEffect(() => { setAmountComparator(""); }, [selectedSchoolId]);
   const selectedStudent = rows.find((row) => row.student.id === selectedStudentId)?.student;
   const schoolName = (schoolId: string) => schools.find((school) => school.id === schoolId)?.name ?? schoolId;
   const historyFilters = useMemo(() => ({ schoolId: historySchoolId, startDate: historyStart, endDate: historyEnd }), [historySchoolId, historyStart, historyEnd]);
@@ -85,7 +100,7 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
       const result = await loadCoordinationControlPage(page.filters, page.fees, page.amountFilter, cursor, arrearsFilter);
       exportRows.push(...result.rows); cursor = result.nextCursor;
     } while (cursor);
-    await renderAcadPdfPreview({ filename: `controle-coordination-${selectedSchoolId || "toutes"}.pdf`, title: "Contrôle", school: coordinationPdfInstitution(coordination, contextSchool), subtitle: `École : ${selectedSchoolId ? contextSchool.name : "Toutes les écoles"} | Classe : ${classChoices.find((item) => item.value === classKey)?.label ?? "Toutes"} | Montant : ${amountComparator || "Tous"} ${amountThreshold}`.trim(), sections: [pdfSection("Suivi des paiements", pdfTable([
+    await renderAcadPdfPreview({ filename: `controle-coordination-${selectedSchoolId || "toutes"}.pdf`, title: "Contrôle", school: coordinationPdfInstitution(coordination, contextSchool), subtitle: `École : ${selectedSchoolId ? contextSchool.name : "Toutes les écoles"} | Classe : ${classChoices.find((item) => item.value === classKey)?.label ?? "Toutes"} | Montant : ${amountOptions.find((item) => item.value === amountComparator)?.label ?? "Tous"} ${amountThreshold}`.trim(), sections: [pdfSection("Suivi des paiements", pdfTable([
       { header: "Élève", render: (row) => escapePdfHtml(`${row.student.nom} ${row.student.prenom}`) },
       { header: "École", render: (row) => escapePdfHtml(schoolName(row.student.schoolId)) },
       { header: "Classe", render: (row) => escapePdfHtml(formatStudentClassName(row.student)) },
@@ -132,14 +147,12 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
       <select className="input" aria-label="Statut des élèves" value={page.status} onChange={(event) => page.setStatus(event.target.value as CoordinationStudentStatus)}><option value="all">Tous</option><option value="active">Actifs</option><option value="archived">Archivés</option></select>
       <select className="input" aria-label="Option" value={page.option} onChange={(event) => page.setOption(event.target.value)}><option value="">Toutes les options</option>{page.options.map((option) => <option key={option}>{option}</option>)}</select>
     </div>
-    <div className="grid w-full min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-[repeat(2,minmax(0,1fr))_auto_auto_auto]">
+    <div className="grid w-full min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-[repeat(3,minmax(0,1fr))_auto_auto_auto]">
       <select aria-label="Classe" className="input min-w-0 w-full" value={classKey} onChange={(event) => setClassKey(event.target.value)}><option value="">Toutes</option>{classChoices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</select>
-      <PaidAmountDropdown arrearsFilter={arrearsFilter} onArrearsChange={setArrearsFilter}>
-        <select aria-label="Critère de montant payé" className="input min-w-0 w-full" value={amountComparator} onChange={(event) => setAmountComparator(event.target.value)}><option value="">Montant payé</option><option value="all-fees-gte">Tous les frais ≥</option><option value="all-fees-lt">Tous les frais &lt;</option>{feeChoices.flatMap((fee) => [<option key={`${fee.value}-gte`} value={`fee:${fee.value}:gte`}>{fee.label} ≥</option>, <option key={`${fee.value}-lt`} value={`fee:${fee.value}:lt`}>{fee.label} &lt;</option>])}</select>
-        <input aria-label="Filtre" className="input min-w-0 w-full" type="number" placeholder="Filtre" value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)}/>
-      </PaidAmountDropdown>
+      <PaidAmountDropdown value={amountComparator} onChange={setAmountComparator} options={amountOptions}/>
+      <input aria-label="Filtre" className="input min-w-0 w-full" type="number" min="0" step="any" placeholder="Filtre" value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)}/>
       <button type="button" className="pdf-export-button min-w-0 w-full xl:w-auto" onClick={() => void exportPdf()}><Download className="h-4 w-4"/> Exporter PDF</button>
-      <button type="button" className="secondary-button min-w-0 w-full justify-center xl:w-auto" onClick={() => { setArrearsFilter(emptyArrearsFilter); setClassKey(""); setAmountComparator(""); setAmountThreshold(""); page.setSearch(""); page.setSelectedYearId(COORDINATION_ACTIVE_YEAR); page.setStatus("all"); page.setOption(""); }}><RotateCcw className="h-4 w-4"/> Réinitialiser</button>
+      <button type="button" className="secondary-button min-w-0 w-full justify-center xl:w-auto" onClick={() => { setClassKey(""); setAmountComparator(""); setAmountThreshold(""); page.setSearch(""); page.setSelectedYearId(COORDINATION_ACTIVE_YEAR); page.setStatus("all"); page.setOption(""); }}><RotateCcw className="h-4 w-4"/> Réinitialiser</button>
       <button type="button" className="secondary-button min-w-0 w-full justify-center xl:w-auto" onClick={() => { const today = defaultControlHistoryDate(); setHistoryStart(today); setHistoryEnd(today); setHistoryKind("payments"); }}>Historique</button>
     </div>
     {loading && <p role="status" className="rounded bg-blue-50 p-3 text-sm text-blue-700">Chargement du contrôle…</p>}

@@ -6,12 +6,29 @@ vi.mock("../firebase", () => ({ db: {} }));
 vi.mock("@firebase/firestore", () => mocks);
 vi.mock("./coordinationStudentPagination", () => ({ COORDINATION_STUDENT_PAGE_SIZE: 50, loadCoordinationStudentPage: mocks.loadPage }));
 vi.mock("./coordinationService", () => ({ loadCoordinationStudentArrearsBatch: mocks.arrears }));
-import { loadControlPagePayments, loadCoordinationControlPage } from "./coordinationControlPagination";
+import { controlRowMatches, loadControlPagePayments, loadCoordinationControlPage, type ControlRow } from "./coordinationControlPagination";
+import { arrearsFilterForCriterion } from "../utils/arrearsFilter";
 const filters: CoordinationStudentFilters = { schools: [{ id: "school", currency: "USD" } as School], years: [], selectedSchoolId: "", selectedYearId: "", filterSchoolId: "", search: "", status: "all", className: "", option: "", allowedSections: [] };
 const student = (i: number): Student => ({ id: `s${i}`, schoolId: "school", schoolYearId: "year", className: "2ème Primaire" } as Student);
 const fees: FeeType[] = [{ id: "fee", schoolId: "school", schoolYearId: "year", name: "Minerval", amount: 100 }, { id: "foreign", schoolId: "other", schoolYearId: "year", name: "Hors périmètre", amount: 999 }];
 describe("Contrôle — pagination réelle et finances groupées", () => {
   beforeEach(() => { vi.clearAllMocks(); mocks.getDocs.mockResolvedValue({ docs: [] }); });
+  it("borne Tous les frais et les frais individuels à l'école du critère sans changer leur sémantique", () => {
+    const row = (schoolId: string, paid: number): ControlRow => ({ student: { ...student(1), schoolId }, feeSummaries: [{ feeTypeId: "fee-a", paid }, { feeTypeId: "fee-b", paid: 0 }], balance: { expected: 100, paid, remaining: 100 - paid }, progress: 0 } as ControlRow);
+    const a = row("school-a", 50), b = row("school-b", 50);
+    const match = (value: string, threshold: string, candidate = a) => controlRowMatches(candidate, { comparator: value, threshold });
+    expect(match("school:school-a:all-fees:gte", "0")).toBe(true);
+    expect(match("school:school-a:all-fees:gte", "50")).toBe(false);
+    expect(match("school:school-a:all-fees:lt", "50")).toBe(true);
+    expect(match("school:school-a:all-fees:gte", "0", b)).toBe(false);
+    expect(match("school:school-b:all-fees:lt", "50", b)).toBe(true);
+    expect(match("school:school-a:fee:fee-a:gte", "50")).toBe(true);
+    expect(match("school:school-a:fee:fee-a:lt", "50")).toBe(false);
+    expect(match("school:school-a:fee:fee-a:gte", "50", b)).toBe(false);
+    expect(match("school:school-b:fee:fee-b:lt", "1", b)).toBe(true);
+    expect(match("school:school-a:arrears:gte", "50")).toBe(true);
+    expect(match("school:school-a:arrears:gte", "50", b)).toBe(false);
+  });
   it("ne lit les paiements que par lots de 30 élèves et par école/année", async () => {
     await loadControlPagePayments(Array.from({ length: 50 }, (_, i) => student(i)));
     expect(mocks.getDocs).toHaveBeenCalledTimes(2);
@@ -58,5 +75,22 @@ describe("Contrôle — pagination réelle et finances groupées", () => {
     const next = await loadCoordinationControlPage(filters, fees, { comparator: "", threshold: "" }, first.nextCursor, filter);
     expect(next.rows).toHaveLength(50); expect(next.rows[0].student.id).toBe("s100"); expect(next.nextCursor).toBeUndefined();
     expect(mocks.arrears).toHaveBeenCalledTimes(3);
+  });
+  it("isole les arriérés USD et CDF par école avec les bornes exactes", async () => {
+    const twoSchools = { ...filters, schools: [{ id: "school-a", currency: "USD" }, { id: "school-b", currency: "CDF" }] as School[] };
+    mocks.loadPage.mockResolvedValue({ students: [{ ...student(1), schoolId: "school-a" }, { ...student(2), schoolId: "school-b" }], fetchedDocuments: 2, nextCursor: undefined });
+    mocks.arrears.mockResolvedValue({ s1: { USD: 65, CDF: 9000 }, s2: { USD: 65, CDF: 9000 } });
+    for (const [criterion, threshold, expected] of [
+      ["school:school-a:arrears:gte", "65", "s1"],
+      ["school:school-a:arrears:lt", "66", "s1"],
+      ["school:school-b:arrears:gte", "9000", "s2"],
+      ["school:school-b:arrears:lt", "9001", "s2"],
+    ]) {
+      const page = await loadCoordinationControlPage(twoSchools, [], { comparator: criterion, threshold }, undefined, arrearsFilterForCriterion(criterion, threshold));
+      expect(page.rows.map((row) => row.student.id)).toEqual([expected]);
+    }
+    const settled = await loadCoordinationControlPage(twoSchools, [], { comparator: "school:school-a:arrears:lt", threshold: "65" }, undefined, arrearsFilterForCriterion("school:school-a:arrears:lt", "65"));
+    expect(settled.rows).toEqual([]);
+    expect(mocks.arrears).toHaveBeenCalledTimes(5);
   });
 });

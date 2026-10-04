@@ -5,6 +5,12 @@ import type { School } from "../types";
 export type ArrearsFilter = { minimum: string; maximum: string };
 export const emptyArrearsFilter: ArrearsFilter = { minimum: "", maximum: "" };
 export const arrearsFilterActive = (filter: ArrearsFilter) => filter.minimum !== "" || filter.maximum !== "";
+export function arrearsFilterForCriterion(comparator: string, threshold: string): ArrearsFilter {
+  if (threshold === "" || !Number.isFinite(Number(threshold)) || Number(threshold) < 0) return emptyArrearsFilter;
+  if (comparator === "arrears-gte" || /^school:[^:]+:arrears:gte$/.test(comparator)) return { minimum: threshold, maximum: "" };
+  if (comparator === "arrears-lt" || /^school:[^:]+:arrears:lt$/.test(comparator)) return { minimum: "", maximum: threshold };
+  return emptyArrearsFilter;
+}
 export function matchesArrearsFilter(total: { USD: number; CDF: number } | undefined, filter: ArrearsFilter, school: Pick<School, "currency">) {
   if (!arrearsFilterActive(filter)) return true;
   if (!total) return false; // unknown is never silently treated as zero
