@@ -58,6 +58,8 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
   const feeChoices = page.fees.filter((fee) => schoolsById.has(fee.schoolId) && (!selectedSchoolId || fee.schoolId === selectedSchoolId) && (page.selectedYearId === COORDINATION_ACTIVE_YEAR ? schoolsById.get(fee.schoolId)?.activeSchoolYearId === fee.schoolYearId : !page.selectedYearId || fee.schoolYearId === page.selectedYearId));
   const amountOptions = buildCoordinationAmountOptions(schools.filter((school) => !selectedSchoolId || school.id === selectedSchoolId), feeChoices);
   useEffect(() => { setAmountComparator(""); }, [selectedSchoolId]);
+  useEffect(() => { if (page.metadataReady && classKey && !classChoices.some((choice) => choice.value === classKey)) setClassKey(""); }, [classChoices, classKey, page.metadataReady]);
+  useEffect(() => { if (page.metadataReady && amountComparator && !amountOptions.some((choice) => choice.value === amountComparator)) { setAmountComparator(""); setAmountThreshold(""); } }, [amountComparator, amountOptions, page.metadataReady]);
   const selectedStudent = rows.find((row) => row.student.id === selectedStudentId)?.student;
   const schoolName = (schoolId: string) => schools.find((school) => school.id === schoolId)?.name ?? schoolId;
   const historyFilters = useMemo(() => ({ schoolId: historySchoolId, startDate: historyStart, endDate: historyEnd }), [historySchoolId, historyStart, historyEnd]);
@@ -143,20 +145,19 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
   if (selectedStudent) return <CoordinationStudentRecord context="control" student={selectedStudent} user={user} coordination={coordination} schools={schools} years={page.years} onBack={() => setSelectedStudentId("")}/>;
 
   return <section className="grid min-w-0 gap-4">
-    <SectionTitle title="Contrôle" subtitle="Frais scolaires, paiements, historique et soldes restants en lecture seule."/>
     <div className="grid min-w-0 grid-cols-2 gap-2 rounded border border-blue-100 bg-blue-50 p-3 text-sm sm:p-4">
       <label className="grid min-w-0 gap-1"><span className="font-bold">École</span><select className="input min-w-0 w-full" aria-label="Filtrer par école" value={selectedSchoolId} onChange={(event) => onSchoolChange(event.target.value)}><option value="">{user.role === "sub_coordination_admin" ? "Toutes mes écoles" : "Toutes les écoles"} ({schools.length})</option>{schools.map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}</select></label>
       <label className="grid min-w-0 gap-1"><span className="font-bold">Année scolaire</span><select className="input min-w-0 w-full" aria-label="Année scolaire" value={page.selectedYearId} onChange={(event) => page.setSelectedYearId(event.target.value)}><option value={COORDINATION_ACTIVE_YEAR}>Année active</option>{coordinationYearChoices(page.years, schools.filter((school) => !selectedSchoolId || school.id === selectedSchoolId)).map((year) => <option key={year.id} value={year.id}>{year.name} — {schoolName(year.schoolId)}</option>)}<option value="">Toutes les années</option></select></label>
     </div>
-    <div className="grid w-full min-w-0 grid-cols-1 items-stretch gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(8rem,1.6fr)_repeat(3,minmax(5rem,1fr))_minmax(7rem,1.2fr)_minmax(4rem,.7fr)_repeat(3,max-content)]">
-      <input className="input min-w-0 w-full" aria-label="Rechercher un élève dans le contrôle" placeholder="Nom, prénom ou matricule" value={page.search} onChange={(event) => page.setSearch(event.target.value)} />
+    <SectionTitle title="Contrôle" subtitle="Frais scolaires, paiements, historique et soldes restants en lecture seule."/>
+    <div className="grid w-full min-w-0 grid-cols-1 items-stretch gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[repeat(3,minmax(5rem,1fr))_minmax(7rem,1.2fr)_minmax(4rem,.7fr)_repeat(3,max-content)]">
       <select className="input min-w-0 w-full" aria-label="Statut des élèves" value={page.status} onChange={(event) => page.setStatus(event.target.value as CoordinationStudentStatus)}><option value="all">Tous</option><option value="active">Actifs</option><option value="archived">Archivés</option></select>
-      <select className="input min-w-0 w-full" aria-label="Option" value={page.option} onChange={(event) => page.setOption(event.target.value)}><option value="">Toutes les options</option>{page.options.map((option) => <option key={option}>{option}</option>)}</select>
       <select aria-label="Classe" className="input min-w-0 w-full" value={classKey} onChange={(event) => setClassKey(event.target.value)}><option value="">Toutes</option>{classChoices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</select>
+      <select className="input min-w-0 w-full" aria-label="Option" value={page.option} onChange={(event) => page.setOption(event.target.value)}><option value="">Toutes les options</option>{page.options.map((option) => <option key={option}>{option}</option>)}</select>
       <PaidAmountDropdown value={amountComparator} onChange={setAmountComparator} options={amountOptions}/>
       <input aria-label="Filtre" className="input min-w-0 w-full" type="number" min="0" step="any" placeholder="Filtre" value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)}/>
       <button type="button" className="pdf-export-button min-w-0 w-full xl:w-auto" onClick={() => void exportPdf()}><Download className="h-4 w-4"/> Exporter PDF</button>
-      <button type="button" className="secondary-button min-w-0 w-full justify-center xl:w-auto" onClick={() => { setClassKey(""); setAmountComparator(""); setAmountThreshold(""); page.setSearch(""); page.setSelectedYearId(COORDINATION_ACTIVE_YEAR); page.setStatus("all"); page.setOption(""); }}><RotateCcw className="h-4 w-4"/> Réinitialiser</button>
+      <button type="button" className="secondary-button min-w-0 w-full justify-center xl:w-auto" onClick={() => { setClassKey(""); setAmountComparator(""); setAmountThreshold(""); page.setSelectedYearId(COORDINATION_ACTIVE_YEAR); page.setStatus("all"); page.setOption(""); }}><RotateCcw className="h-4 w-4"/> Réinitialiser</button>
       <button type="button" className="secondary-button min-w-0 w-full justify-center xl:w-auto" onClick={() => { const today = defaultControlHistoryDate(); setHistoryStart(today); setHistoryEnd(today); setHistoryKind("payments"); }}>Historique</button>
     </div>
     {loading && <p role="status" className="rounded bg-blue-50 p-3 text-sm text-blue-700">Chargement du contrôle…</p>}

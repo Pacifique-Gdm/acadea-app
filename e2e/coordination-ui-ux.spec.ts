@@ -43,13 +43,14 @@ test("UI Coordination et drawers dédiés — Staging isolé", async ({ browser,
         expect(Math.abs(school!.y - year!.y)).toBeLessThanOrEqual(1);
         expect(Math.abs(school!.width - year!.width)).toBeLessThanOrEqual(2);
         const header = await page.locator("main > header").boundingBox();
+        const headerContent = await page.locator("main > header > div").first().boundingBox();
         const content = await page.locator("main > section").boundingBox();
-        expect(header && content).toBeTruthy();
-        expect(Math.abs(header!.x - content!.x)).toBeLessThanOrEqual(1);
-        expect(Math.abs(header!.x + header!.width - content!.x - content!.width)).toBeLessThanOrEqual(1);
+        expect(header && headerContent && content).toBeTruthy();
+        expect(header!.x).toBeLessThanOrEqual(1);
+        expect(header!.width).toBeGreaterThanOrEqual(width - 1);
+        expect(Math.abs(headerContent!.x - content!.x - 16)).toBeLessThanOrEqual(1);
         if (width === 1440) {
           const controls = [
-            page.getByLabel("Rechercher un élève dans le contrôle"),
             page.getByLabel("Statut des élèves"),
             page.getByLabel("Option", { exact: true }),
             page.getByLabel("Classe", { exact: true }),
@@ -70,10 +71,10 @@ test("UI Coordination et drawers dédiés — Staging isolé", async ({ browser,
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.locator("article button").filter({ hasText: "Finance Élève" }).first().click();
       await expect(page.getByRole("heading", { name: "Dettes des années antérieures" })).toBeVisible({ timeout: 60000 });
-      await expect(page.getByRole("heading", { name: "Paiements", exact: true })).toBeVisible({ timeout: 60000 });
+      await expect(page.getByLabel("Résumé financier")).toBeVisible({ timeout: 60000 });
       await expect(page.getByRole("heading", { name: "Historique des paiements", exact: true })).toBeVisible({ timeout: 60000 });
       const headings = await page.locator("h1, h2, h3").allTextContents();
-      expect(headings.indexOf("Paiements")).toBeLessThan(headings.indexOf("Dettes des années antérieures"));
+      expect(headings.indexOf("Dettes des années antérieures")).toBeLessThan(headings.indexOf("Informations générales"));
       expect(headings.indexOf("Dettes des années antérieures")).toBeLessThan(headings.indexOf("Historique des paiements"));
       await expect(page.getByRole("button", { name: "Retour au contrôle" })).toBeVisible();
       await expect(page.getByRole("button", { name: "Imprimer PDF" })).toBeVisible();

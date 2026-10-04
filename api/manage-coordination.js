@@ -334,6 +334,20 @@ export default async function handler(req, res) {
       if (action === "read-student-arrears-batch") return sendJson(res, 200, await listScopedStudentArrearsBatch({ db, studentIds: input.studentIds, schoolIds, includeDetails: input.includeDetails === true }));
       return sendJson(res, 200, await listScopedStudentArrears({ db, studentId: text(input.studentId), schoolIds }));
     }
+    if (action === "read-class-filter-choices") {
+      const caller = await requireActiveCoordinationActor(auth, db, token);
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.coordinationId, action: "coordination.read-class-filter-choices", ...API_RATE_LIMITS.MESSAGE_RECIPIENTS });
+      const schoolIds = await resolveCoordinationSchoolScope(db, caller);
+      const groups = Array.from({ length: Math.ceil(schoolIds.length / 30) }, (_, index) => schoolIds.slice(index * 30, index * 30 + 30));
+      const snapshots = await Promise.all(groups.map((ids) => db.collection("classes").where("schoolId", "in", ids).get()));
+      const allowed = new Set(schoolIds);
+      const classes = snapshots.flatMap((snapshot) => snapshot.docs.flatMap((item) => {
+        const value = item.data();
+        if (!allowed.has(value.schoolId) || typeof value.schoolYearId !== "string" || typeof value.name !== "string" || value.active === false) return [];
+        return [{ id: item.id, schoolId: value.schoolId, schoolYearId: value.schoolYearId, name: value.name, ...(typeof value.parentClassId === "string" ? { parentClassId: value.parentClassId } : {}), ...(typeof value.option === "string" ? { option: value.option } : {}), ...(typeof value.classOptionKey === "string" ? { classOptionKey: value.classOptionKey } : {}) }];
+      }));
+      return sendJson(res, 200, { classes });
+    }
     if (action === "transfer-personnel") return await transferPersonnel({ res, auth, db, token, input });
     if (action === "read-student-parent") {
       const caller = await requireActiveCoordinationActor(auth, db, token);

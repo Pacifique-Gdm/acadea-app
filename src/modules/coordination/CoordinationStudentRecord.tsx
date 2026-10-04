@@ -4,7 +4,7 @@ import { StudentDetailPage } from "../../components/students/StudentDetailPage";
 import { loadCoordinationStudentArrears, loadCoordinationStudentParent } from "../../services/coordinationService";
 import type { HistoricalDebt } from "../../services/financialTransactions";
 import { historicalArrearsPdfSection } from "../control/historicalArrearsPdf";
-import { formatCurrencyMoney, resolveSchoolCurrency } from "../../utils/currency";
+import { formatCurrencyMoney, resolveSchoolCurrency, resolveSchoolYearCurrency } from "../../utils/currency";
 import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
 import { pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import { coordinationPdfInstitution } from "./coordinationPdfInstitution";
@@ -70,8 +70,15 @@ export function CoordinationStudentRecord({ student, user, coordination, schools
     } catch { setDetailError("Impossible de générer le PDF."); }
   }
   const arrearsCard = <section className="grid min-w-0 gap-3 rounded border border-amber-200 bg-amber-50 p-4"><h3 className="font-bold">Dettes des années antérieures</h3>{arrearsLoading ? <p role="status">Chargement des arriérés…</p> : arrearsError ? <p role="alert">{arrearsError}</p> : <>{arrears.length === 0 && <p>Aucun arriéré pour cet élève.</p>}{arrears.map((debt) => <article key={`${debt.schoolYearId}:${debt.feeTypeId}`} className="min-w-0 rounded border bg-white p-3"><h4 className="break-words font-semibold">{debt.feeName} — {debt.yearName}</h4><div className="grid min-w-0 gap-2 sm:grid-cols-3"><p>Attendu : {formatCurrencyMoney(debt.expected, debt.currency)}</p><p>Payé : {formatCurrencyMoney(debt.paid, debt.currency)}</p><p>Restant : {formatCurrencyMoney(debt.remaining, debt.currency)}</p></div><p>{debt.remaining === 0 ? "Soldée" : "À payer"}</p></article>)}</>}</section>;
+  const totals = getStudentFeeSummaries(student, financial.feeTypes, financial.payments).reduce((result, summary) => ({ expected: result.expected + summary.expected, paid: result.paid + summary.paid, remaining: result.remaining + summary.remaining }), { expected: 0, paid: 0, remaining: 0 });
+  const financialOverview = <>
+    {loading ? <p role="status">Chargement des paiements…</p> : detailError ? <p role="alert">{detailError}</p> : <div className="grid min-w-0 grid-cols-3 divide-x divide-slate-200 rounded border border-slate-200 bg-slate-50 shadow-sm" aria-label="Résumé financier">
+      {([ ["Total attendu", totals.expected], ["Total payé", totals.paid], ["Total restant", totals.remaining] ] as const).map(([label, amount]) => <div key={label} className="min-w-0 px-1 py-2 text-center sm:px-3 sm:py-3"><p className="break-words text-[10px] leading-tight text-slate-600 sm:text-xs">{label}</p><p className="mt-1 min-w-0 break-words text-[11px] font-bold leading-tight text-ink sm:text-base">{formatCurrencyMoney(amount, resolveSchoolYearCurrency(year, school))}</p></div>)}
+    </div>}
+    {arrearsCard}
+  </>;
   return <div className="grid min-w-0 gap-3">
-    <StudentDetailPage studentId={student.id} user={user} data={data} yearData={{ students: data.students, parents: data.parents, feeTypes: data.feeTypes, payments: data.payments, auditLogs: [] }} year={year} school={school} schoolsById={schoolsById} updateData={() => undefined} onBack={onBack} createId={() => "read-only"} formatArchiveDate={(value) => value || "Non renseignée"} canLinkParent={false} financialLoading={loading} financialError={detailError} parentLoading={parentLoading} parentError={parentError} afterPayments={context === "control" ? arrearsCard : undefined} header={context === "control" ? <header className="flex min-w-0 items-start gap-2 rounded border border-slate-200 bg-white p-3 sm:gap-3 sm:p-4">
+    <StudentDetailPage studentId={student.id} user={user} data={data} yearData={{ students: data.students, parents: data.parents, feeTypes: data.feeTypes, payments: data.payments, auditLogs: [] }} year={year} school={school} schoolsById={schoolsById} updateData={() => undefined} onBack={onBack} createId={() => "read-only"} formatArchiveDate={(value) => value || "Non renseignée"} canLinkParent={false} financialLoading={loading} financialError={detailError} parentLoading={parentLoading} parentError={parentError} beforeDetails={context === "control" ? financialOverview : undefined} showPaymentSummary={context !== "control"} header={context === "control" ? <header className="flex min-w-0 items-start gap-2 rounded border border-slate-200 bg-white p-3 sm:gap-3 sm:p-4">
       <button type="button" aria-label="Retour au contrôle" className="secondary-button shrink-0 p-2" onClick={onBack}><ArrowLeft className="h-5 w-5" /></button>
       <h1 className="min-w-0 flex-1 break-words text-lg font-bold text-ink sm:text-2xl">{student.nom} {student.postnom} {student.prenom}</h1>
       <button type="button" className="pdf-export-button shrink-0 px-2 text-xs sm:text-sm" disabled={loading || arrearsLoading || Boolean(detailError || arrearsError)} onClick={() => void printPdf()}><Download className="h-4 w-4" />Imprimer PDF</button>

@@ -28,7 +28,8 @@ export function StudentDetailPage({
   canLinkParent = true,
   schoolsById,
   header,
-  afterPayments,
+  beforeDetails,
+  showPaymentSummary = true,
   financialLoading = false,
   financialError = "",
   parentLoading = false,
@@ -47,7 +48,8 @@ export function StudentDetailPage({
   canLinkParent?: boolean;
   schoolsById?: ReadonlyMap<string, School>;
   header?: ReactNode;
-  afterPayments?: ReactNode;
+  beforeDetails?: ReactNode;
+  showPaymentSummary?: boolean;
   financialLoading?: boolean;
   financialError?: string;
   parentLoading?: boolean;
@@ -231,6 +233,8 @@ export function StudentDetailPage({
         </div>
       </article>}
 
+      {beforeDetails}
+
       <section className="grid min-w-0 gap-4">
         <FormPanel title="Informations générales">
           <Metric label="Sexe" value={student.sexe} />
@@ -267,16 +271,14 @@ export function StudentDetailPage({
           )}
         </FormPanel>
 
-        {financialLoading ? <p role="status">Chargement des paiements…</p> : financialError ? <p role="alert">{financialError}</p> : <FormPanel title="Paiements">
+        {showPaymentSummary && (financialLoading ? <p role="status">Chargement des paiements…</p> : financialError ? <p role="alert">{financialError}</p> : <FormPanel title="Paiements">
           <Metric label="Total frais" value={`$${balance.expected}`} />
           <Metric label="Total payé" value={`$${balance.paid}`} />
           <Metric label="Solde" value={`$${balance.remaining}`} />
           <div className="h-3 overflow-hidden rounded bg-slate-100">
             <div className="h-full rounded bg-mint" style={{ width: `${progress}%` }} />
           </div>
-        </FormPanel>}
-
-        {afterPayments}
+        </FormPanel>)}
 
         {!financialLoading && !financialError && <FormPanel title="Historique des paiements">
           {paymentDocumentError && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{paymentDocumentError}</p>}

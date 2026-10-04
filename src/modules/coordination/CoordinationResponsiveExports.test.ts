@@ -38,8 +38,9 @@ describe("responsive et exports Coordination", () => {
     expect(control).toContain('grid-cols-2 gap-2 rounded border border-blue-100');
     expect(control.indexOf('aria-label="Filtrer par école"')).toBeLessThan(control.indexOf('aria-label="Année scolaire"'));
     expect(control).toContain('coordinationYearChoices(page.years, schools.filter');
-    expect(control).toContain('xl:grid-cols-[minmax(8rem,1.6fr)_repeat(3,minmax(5rem,1fr))');
-    expect(control.indexOf('aria-label="Rechercher un élève dans le contrôle"')).toBeLessThan(control.indexOf('>Historique</button>'));
+    expect(control).toContain('xl:grid-cols-[repeat(3,minmax(5rem,1fr))');
+    expect(control).not.toContain('aria-label="Rechercher un élève dans le contrôle"');
+    expect(control.indexOf('aria-label="Année scolaire"')).toBeLessThan(control.indexOf('<SectionTitle title="Contrôle"'));
   });
 
   it("utilise la variante large pour les tableaux sans élargir les formulaires simples", () => {

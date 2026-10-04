@@ -1,6 +1,6 @@
 import { getCurrentFirebaseIdToken } from "./auth";
 import { resolveApiUrl } from "../config/apiUrl";
-import type { Coordination, AppUser, ParentProfile, PersonnelProfile } from "../types";
+import type { Coordination, AppUser, ParentProfile, PersonnelProfile, SchoolClassRecord } from "../types";
 import type { HistoricalDebt } from "./financialTransactions";
 import { validateArrearsTotals, type ArrearsTotals } from "../utils/arrearsFilter";
 
@@ -28,6 +28,10 @@ export async function removeCoordinationSchool(coordinationId: string, schoolId:
 export async function updateCoordinationSettings(settings: CoordinationSettingsInput) { return call({ action: "update-settings", ...settings }); }
 export async function loadCoordinationStudentArrears(studentId: string) {
   return call({ action: "read-student-arrears", studentId }) as Promise<{ debts: HistoricalDebt[]; settled: HistoricalDebt[] }>;
+}
+export async function loadCoordinationClassFilterChoices() {
+  const result = await call({ action: "read-class-filter-choices" }) as { classes: SchoolClassRecord[] };
+  return result.classes;
 }
 export async function loadCoordinationStudentArrearsBatch(studentIds: string[]) {
   const result = await call({ action: "read-student-arrears-batch", studentIds }) as { totals?: ArrearsTotals };

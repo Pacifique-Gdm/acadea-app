@@ -18,14 +18,14 @@ export async function coordinationMissionFixture(cleanupPrefix?: string) {
   const db = getFirestore(app);
   db.settings({ preferRest: true });
   const auth = getAuth(app);
-  const schoolId = `${prefix}-school`, otherSchoolId = `${prefix}-other-school`;
+  const schoolId = `${prefix}-school`, secondSchoolId = `${prefix}-second-school`, otherSchoolId = `${prefix}-other-school`;
   const coordinationId = `${prefix}-coord`, otherCoordinationId = `${prefix}-other-coord`, subCoordinationId = `${prefix}-sub`;
   const yearId = `${prefix}-year`, oldYearId = `${prefix}-old-year`, oldestYearId = `${prefix}-oldest-year`;
   const studentId = `${prefix}-student`, oldStudentId = `${prefix}-old-student`, oldestStudentId = `${prefix}-oldest-student`;
   const accounts = ["super_admin", "school_admin", "cashier", "coordination_admin", "sub_coordination_admin"].map((role) => ({
     uid: `${prefix}-${role}`, role, email: `${prefix}-${role}@example.test`, password: `E2e!${randomBytes(18).toString("hex")}`,
   }));
-  const schoolIds = [schoolId, otherSchoolId], coordinationIds = [coordinationId, otherCoordinationId];
+  const schoolIds = [schoolId, secondSchoolId, otherSchoolId], coordinationIds = [coordinationId, otherCoordinationId];
   const knownUserIds = new Set(accounts.map((row) => row.uid));
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Kinshasa", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const yesterday = new Date(`${today}T12:00:00Z`); yesterday.setUTCDate(yesterday.getUTCDate() - 1);
@@ -72,6 +72,38 @@ export async function coordinationMissionFixture(cleanupPrefix?: string) {
       { id: `${prefix}-settled`, schoolYearId: oldYearId, studentId: oldStudentId, feeTypeId: `${prefix}-fee-settled`, amount: 40, paidAt: "2025-10-01", currency: "USD" },
       { id: `${prefix}-cdf`, schoolYearId: oldestYearId, studentId: oldestStudentId, feeTypeId: `${prefix}-fee-oldest`, amount: 1000, paidAt: today, currency: "CDF", collectionSchoolYearId: yearId, currentStudentId: studentId, debtSchoolYearName: "2024-2025", feeName: "Minerval" },
     ]) await db.doc(`payments/${payment.id}`).set({ schoolId, cashierId: accounts[2].uid, cashierName: "Caissier E2E", createdAt: `${today}T12:00:00.000Z`, receiptNumber: `E2E-${payment.id}`, ...payment });
+  }
+  async function seedFilterDiscriminants() {
+    if (cleanupPrefix) throw new Error("Mode nettoyage uniquement.");
+    const secondYearId = `${prefix}-second-year`;
+    const secondOldYearId = `${prefix}-second-old-year`;
+    await db.doc(`schools/${schoolId}`).update({ educationLevels: ["Primaire", "CTEB", "Secondaire"], schoolOptions: ["Sciences", "Commerciale"] });
+    await db.doc(`schools/${secondSchoolId}`).set({ id: secondSchoolId, name: "École E2E Littéraire", schoolType: "Secondaire", educationLevels: ["Secondaire"], schoolOptions: ["Littéraire"], activeSchoolYearId: secondYearId, activeCoordinationId: coordinationId, currency: "USD", status: "active", subscriptionPlan: "Premium", subscriptionStatus: "active", subscriptionAmount: 0 });
+    await db.doc(`coordinationSchools/${coordinationId}__${secondSchoolId}`).set({ id: `${coordinationId}__${secondSchoolId}`, coordinationId, schoolId: secondSchoolId, active: true, addedAt: new Date().toISOString() });
+    await db.doc(`subCoordinationSchools/${subCoordinationId}__${secondSchoolId}`).set({ id: `${subCoordinationId}__${secondSchoolId}`, coordinationId, subCoordinationId, schoolId: secondSchoolId, active: true });
+    for (const [id, name, status, start] of [[secondYearId, "2026-2027", "active", "2026-09-01"], [secondOldYearId, "2025-2026", "archived", "2025-09-01"]]) {
+      await db.doc(`schoolYears/${id}`).set({ id, schoolId: secondSchoolId, name, status, startsAt: start, endsAt: `${Number(start.slice(0, 4)) + 1}-07-31`, currency: "USD" });
+    }
+    const batch = db.batch();
+    const classRows = [
+      { id: `${prefix}-class-cteb`, schoolId, schoolYearId: yearId, name: "7ème CTEB", section: "CTEB" },
+      { id: `${prefix}-class-humanites`, schoolId, schoolYearId: yearId, name: "1ère Humanité", section: "Secondaire" },
+      { id: `${prefix}-class-sciences`, schoolId, schoolYearId: yearId, name: "1ère Humanité", section: "Secondaire", parentClassId: `${prefix}-class-humanites`, option: "Sciences" },
+      { id: `${prefix}-class-commerciale`, schoolId, schoolYearId: yearId, name: "1ère Humanité", section: "Secondaire", parentClassId: `${prefix}-class-humanites`, option: "Commerciale" },
+      { id: `${prefix}-class-old`, schoolId, schoolYearId: oldYearId, name: "6ème Primaire", section: "Primaire" },
+      { id: `${prefix}-class-literature`, schoolId: secondSchoolId, schoolYearId: secondYearId, name: "2ème Humanité", section: "Secondaire" },
+      { id: `${prefix}-class-literature-option`, schoolId: secondSchoolId, schoolYearId: secondYearId, name: "2ème Humanité", section: "Secondaire", parentClassId: `${prefix}-class-literature`, option: "Littéraire" },
+      { id: `${prefix}-class-second-old`, schoolId: secondSchoolId, schoolYearId: secondOldYearId, name: "1ère Primaire", section: "Primaire" },
+    ];
+    for (const row of classRows) batch.set(db.doc(`classes/${row.id}`), { ...row, active: true });
+    batch.set(db.doc(`students/${prefix}-humanites-student`), studentForPersistence({ id: `${prefix}-humanites-student`, schoolId, schoolYearId: yearId, matricule: `${prefix}-humanites`, nom: "Sciences", prenom: "Élève", postnom: "", birthDate: "2012-06-01", sexe: "F", status: "ACTIVE", className: "1ère Humanité", option: "Sciences" }));
+    batch.set(db.doc(`students/${prefix}-literature-student`), studentForPersistence({ id: `${prefix}-literature-student`, schoolId: secondSchoolId, schoolYearId: secondYearId, matricule: `${prefix}-literature`, nom: "Littéraire", prenom: "Élève", postnom: "", birthDate: "2012-06-01", sexe: "F", status: "ACTIVE", className: "2ème Humanité", option: "Littéraire" }));
+    for (let index = 0; index < 51; index++) {
+      const id = `${prefix}-page-${String(index).padStart(2, "0")}`;
+      batch.set(db.doc(`students/${id}`), studentForPersistence({ id, schoolId, schoolYearId: yearId, matricule: id, nom: `Pagination${String(index).padStart(2, "0")}`, prenom: "Élève", postnom: "", birthDate: "2013-06-01", sexe: "F", status: "ACTIVE", className: "7ème CTEB" }));
+    }
+    await batch.commit();
+    return { secondYearId, secondOldYearId };
   }
   async function login(page: Page, role: string, credentials?: { email: string; password: string }) {
     page.setDefaultTimeout(30000);
@@ -133,5 +165,12 @@ export async function coordinationMissionFixture(cleanupPrefix?: string) {
     await deleteApp(app);
     expect(firestoreResidues).toBe(0); expect(authResidues).toBe(0); expect(remainingFiles.length).toBe(0);
   }
-  return { prefix, db, auth, seed, login, token, signIn, cleanup, accounts, schoolId, otherSchoolId, coordinationId, otherCoordinationId, subCoordinationId, yearId, oldYearId, oldestYearId, studentId, today, yesterdayKey };
+  async function scanResidues() {
+    const firestore = (await ownedRefs()).refs.size;
+    let authCount = 0, cursor: string | undefined;
+    do { const result = await auth.listUsers(1000, cursor); authCount += result.users.filter((user) => user.uid.startsWith(prefix) || user.email?.startsWith(prefix)).length; cursor = result.pageToken; } while (cursor);
+    const [files] = await getStorage(app).bucket().getFiles({ prefix });
+    return { firestore, auth: authCount, storage: files.length };
+  }
+  return { prefix, db, auth, seed, seedFilterDiscriminants, login, token, signIn, cleanup, scanResidues, close: () => deleteApp(app), accounts, schoolId, secondSchoolId, otherSchoolId, coordinationId, otherCoordinationId, subCoordinationId, yearId, oldYearId, oldestYearId, studentId, today, yesterdayKey };
 }

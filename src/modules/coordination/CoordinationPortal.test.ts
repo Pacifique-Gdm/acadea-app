@@ -43,7 +43,8 @@ describe("portail Coordination", () => {
   it("rend l’en-tête sticky avec le logo Coordination persistant et son fallback", () => {
     expect(source).toContain('className="h-screen min-w-0 max-w-full overflow-x-hidden overflow-y-auto');
     expect(source).not.toContain("overflow-x-clip");
-    expect(source).toContain('className="sticky top-0 z-20 mx-auto w-full max-w-6xl border-b');
+    expect(source).toContain('className="sticky top-0 z-20 w-full border-b');
+    expect(source).toContain('className="mx-auto flex max-w-6xl flex-wrap');
     expect(source).toContain("coordination?.logoUrl");
     expect(source).toContain('src={coordination.logoUrl}');
     expect(source).toContain("<Building2");
