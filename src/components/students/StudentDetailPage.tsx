@@ -28,6 +28,7 @@ export function StudentDetailPage({
   canLinkParent = true,
   schoolsById,
   header,
+  afterPayments,
   financialLoading = false,
   financialError = "",
   parentLoading = false,
@@ -46,6 +47,7 @@ export function StudentDetailPage({
   canLinkParent?: boolean;
   schoolsById?: ReadonlyMap<string, School>;
   header?: ReactNode;
+  afterPayments?: ReactNode;
   financialLoading?: boolean;
   financialError?: string;
   parentLoading?: boolean;
@@ -265,16 +267,18 @@ export function StudentDetailPage({
           )}
         </FormPanel>
 
-        {financialLoading ? <p role="status">Chargement des paiements…</p> : financialError ? <p role="alert">{financialError}</p> : <><FormPanel title="Paiements">
+        {financialLoading ? <p role="status">Chargement des paiements…</p> : financialError ? <p role="alert">{financialError}</p> : <FormPanel title="Paiements">
           <Metric label="Total frais" value={`$${balance.expected}`} />
           <Metric label="Total payé" value={`$${balance.paid}`} />
           <Metric label="Solde" value={`$${balance.remaining}`} />
           <div className="h-3 overflow-hidden rounded bg-slate-100">
             <div className="h-full rounded bg-mint" style={{ width: `${progress}%` }} />
           </div>
-        </FormPanel>
+        </FormPanel>}
 
-        <FormPanel title="Historique des paiements">
+        {afterPayments}
+
+        {!financialLoading && !financialError && <FormPanel title="Historique des paiements">
           {paymentDocumentError && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{paymentDocumentError}</p>}
           <div className="max-h-80 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
             {payments.length === 0 && <p className="text-sm text-slate-500">Aucun paiement enregistré.</p>}
@@ -293,7 +297,7 @@ export function StudentDetailPage({
               );
             })}
           </div>
-        </FormPanel></>}
+        </FormPanel>}
       </section>
       {canManageParentLink && parentLinkOpen && (
         <AdminDrawer title="Lier à un parent" onClose={closeParentLink} closeLabel="Fermer la liaison parent">

@@ -1,9 +1,9 @@
-import { useRef, useState } from "react";
-import { PasswordField } from "../../components/ui";
+import { useRef, useState, type ReactNode } from "react";
+import { AdminDrawer, PasswordField } from "../../components/ui";
 import type { AppUser, Coordination } from "../../types";
 import { createCoordinator, setCoordinatorStatus, updateCoordinationAsSuperAdmin, updateCoordinator } from "../../services/coordinationService";
 
-export function CoordinationAdminActions({ coordination, coordinators }: { coordination: Coordination; coordinators: AppUser[] }) {
+export function CoordinationAdminActions({ coordination, coordinators, children, onClose }: { coordination: Coordination; coordinators: AppUser[]; children: ReactNode; onClose: () => void }) {
   const [panel, setPanel] = useState<"edit" | "coordinators" | null>(null);
   const [values, setValues] = useState({ name: "", code: "", phone: "", email: "", address: "" });
   const [editor, setEditor] = useState<"new" | AppUser | null>(null);
@@ -14,24 +14,32 @@ export function CoordinationAdminActions({ coordination, coordinators }: { coord
   const inFlight = useRef(false);
   const users = coordinators.filter((user) => user.coordinationId === coordination.id && !user.removedAt);
   async function run(action: () => Promise<unknown>, success: string) {
-    if (inFlight.current) return;
+    if (inFlight.current) return false;
     inFlight.current = true; setBusy(true); setError(""); setMessage("");
-    try { await action(); setMessage(success); setEditor(null); setIdentity({ name: "", email: "", phone: "", password: "" }); setRemoveTarget(null); setConfirmation(""); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Opération impossible."); }
+    try { await action(); setMessage(success); setEditor(null); setIdentity({ name: "", email: "", phone: "", password: "" }); setRemoveTarget(null); setConfirmation(""); return true; }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Opération impossible."); return false; }
     finally { inFlight.current = false; setBusy(false); }
   }
   function editUser(user: "new" | AppUser) {
     setEditor(user); setError(""); setMessage(""); setRemoveTarget(null);
     setIdentity(user === "new" ? { name: "", email: "", phone: "", password: "" } : { name: user.name, email: user.email, phone: user.phone ?? "", password: "" });
   }
-  return <section className="grid min-w-0 gap-3" aria-label="Gestion de la Coordination">
+  function closePanel() {
+    if (busy) return;
+    setPanel(null); setEditor(null); setRemoveTarget(null); setConfirmation(""); setError("");
+  }
+  return <AdminDrawer key={panel ?? "details"} title={panel === "edit" ? "Modifier la Coordination" : panel === "coordinators" ? "Coordinateurs" : coordination.name} closeLabel={panel ? "Retour aux informations de la Coordination" : "Fermer la fiche Coordination"} onClose={panel ? closePanel : onClose}>
+    <section className="grid min-w-0 gap-3" aria-label="Gestion de la Coordination">
+    {!panel && <>
     <div className="grid min-w-0 grid-cols-2 gap-2">
       <button type="button" disabled={busy} className="secondary-button min-w-0 justify-center" onClick={() => { setPanel("edit"); setError(""); setMessage(""); setValues({ name: coordination.name, code: coordination.code ?? "", phone: coordination.phone ?? "", email: coordination.email ?? "", address: coordination.address ?? "" }); }}>Modifier</button>
       <button type="button" disabled={busy} className="secondary-button min-w-0 justify-center" onClick={() => { setPanel("coordinators"); setError(""); setMessage(""); }}>Coordinateurs</button>
     </div>
+    {children}
+    </>}
     {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
     {message && <p role="status" className="rounded bg-emerald-50 p-3 text-sm text-emerald-700">{message}</p>}
-    {panel === "edit" && <form className="grid min-w-0 gap-3" onSubmit={(event) => { event.preventDefault(); void run(() => updateCoordinationAsSuperAdmin(coordination.id, values), "Coordination modifiée."); }}>
+    {panel === "edit" && <form className="grid min-w-0 gap-3" onSubmit={(event) => { event.preventDefault(); void run(() => updateCoordinationAsSuperAdmin(coordination.id, values), "Coordination modifiée.").then((saved) => { if (saved) setPanel(null); }); }}>
       {([ ["name", "Nom"], ["code", "Code / sigle"], ["phone", "Téléphone"], ["email", "E-mail institutionnel"], ["address", "Adresse"] ] as const).map(([key, label]) => <label key={key} className="grid min-w-0 gap-1 text-sm">{label}<input className="input min-w-0" disabled={busy} required={key === "name"} type={key === "email" ? "email" : "text"} value={values[key]} onChange={(event) => setValues({ ...values, [key]: event.target.value })}/></label>)}
       <button type="submit" disabled={busy} className="primary-button justify-center">{busy ? "Enregistrement…" : "Enregistrer la Coordination"}</button>
     </form>}
@@ -50,5 +58,6 @@ export function CoordinationAdminActions({ coordination, coordinators }: { coord
       </form>}
       {removeTarget && <div role="alertdialog" aria-label="Supprimer le Coordinateur" className="grid min-w-0 gap-3 rounded border border-red-200 p-3"><p>Supprimer l'accès de {removeTarget.name} ? La Coordination, ses écoles et les historiques seront conservés.</p><label className="grid gap-1 text-sm">Tapez SUPPRIMER CE COORDINATEUR<input className="input min-w-0" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} disabled={busy}/></label><div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" disabled={busy} onClick={() => setRemoveTarget(null)}>Annuler</button><button type="button" className="primary-button justify-center" disabled={busy || confirmation !== "SUPPRIMER CE COORDINATEUR"} onClick={() => void run(() => setCoordinatorStatus(coordination.id, removeTarget.id, "remove-coordinator", confirmation), "Accès du Coordinateur supprimé.")}>Confirmer la suppression</button></div></div>}
     </div>}
-  </section>;
+    </section>
+  </AdminDrawer>;
 }

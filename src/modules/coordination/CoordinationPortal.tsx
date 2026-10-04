@@ -129,7 +129,7 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
   ];
 
   return <main className="h-screen min-w-0 max-w-full overflow-x-hidden overflow-y-auto bg-[#F5F7FB] pb-24 text-ink">
-    <header className="sticky top-0 z-20 w-full border-b border-slate-200 bg-white px-4 py-4 shadow-sm">
+    <header className="sticky top-0 z-20 mx-auto w-full max-w-6xl border-b border-slate-200 bg-white px-4 py-4 shadow-sm">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded bg-slate-100">{coordination?.logoUrl ? <img src={coordination.logoUrl} alt={`Logo ${coordination.name}`} className="h-full w-full object-contain"/> : <Building2 className="h-6 w-6 text-blue-700"/>}</div>
@@ -143,14 +143,14 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
       {(refreshError || inbox.error) && <p role="alert" className="mx-auto mt-2 max-w-6xl text-xs font-semibold text-red-600">{refreshError || inbox.error}</p>}
     </header>
     <section className="mx-auto grid max-w-6xl gap-4 px-4 py-5">
-      {tab !== "dashboard" && <div className="rounded border border-blue-100 bg-blue-50 p-4 text-sm"><b>École</b><select className="input mt-2 w-full" aria-label="Filtrer par école" value={selectedSchoolId} onChange={(event) => setSelectedSchoolId(event.target.value)}><option value="">{user.role === "sub_coordination_admin" ? "Toutes mes écoles" : "Toutes les écoles"} ({activeSchools.length})</option>{activeSchools.map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}</select></div>}
+      {tab !== "dashboard" && tab !== "control" && <div className="rounded border border-blue-100 bg-blue-50 p-4 text-sm"><b>École</b><select className="input mt-2 w-full" aria-label="Filtrer par école" value={selectedSchoolId} onChange={(event) => setSelectedSchoolId(event.target.value)}><option value="">{user.role === "sub_coordination_admin" ? "Toutes mes écoles" : "Toutes les écoles"} ({activeSchools.length})</option>{activeSchools.map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}</select></div>}
       {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
       {tab === "dashboard" && coordination && <CoordinationDashboard coordination={coordination} schools={activeSchools} selectedSchoolId={selectedSchoolId} onSchoolChange={setSelectedSchoolId} user={user} model={supervisionModel} loading={supervisionLoading} loadError={supervisionError} />}
       {tab === "students" && coordination && (
         <CoordinationStudents user={user} coordination={coordination} schools={activeSchools} selectedSchoolId={selectedSchoolId} refreshToken={refreshToken}/>
       )}
       {tab === "control" && coordination && (
-        <CoordinationControl user={user} coordination={coordination} schools={activeSchools} selectedSchoolId={selectedSchoolId} refreshToken={refreshToken}/>
+        <CoordinationControl user={user} coordination={coordination} schools={activeSchools} selectedSchoolId={selectedSchoolId} onSchoolChange={setSelectedSchoolId} refreshToken={refreshToken}/>
       )}
       {tab === "messages" && <CoordinationMessage schools={activeSchools} schoolId={selectedSchoolId} refreshToken={refreshToken}/>}
       {tab === "menu" && coordination && (

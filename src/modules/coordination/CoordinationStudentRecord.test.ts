@@ -38,4 +38,12 @@ describe("Fiche Coordination — en-tête Contrôle", () => {
     expect(record).toContain('arrearsLoading ? <p role="status">Chargement des arriérés…');
     expect(record).toContain('if (!cancelled)');
   });
+  it("réserve la carte d'arriérés au parcours Contrôle après les totaux de paiements", () => {
+    expect(record).toContain('afterPayments={context === "control" ? arrearsCard : undefined}');
+    expect(record).toContain('Dettes des années antérieures');
+    expect(detail.indexOf('{afterPayments}')).toBeGreaterThan(detail.indexOf('<FormPanel title="Paiements">'));
+    expect(detail.indexOf('{afterPayments}')).toBeLessThan(detail.indexOf('<FormPanel title="Historique des paiements">'));
+    expect(students).toContain('<CoordinationStudentRecord student=');
+    expect(students).not.toContain('context="control"');
+  });
 });

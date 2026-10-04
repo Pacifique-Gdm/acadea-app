@@ -21,7 +21,9 @@ describe("gestion Super Administrateur des Coordinations", () => {
     expect(source).toContain("principalCoordinatorUserId");
     expect(source).toContain("selected.status");
     expect(source).toContain("Écoles rattachées");
-    expect(source).toContain("<AdminDrawer");
+    expect(source).toContain("<CoordinationAdminActions");
+    const actions = readFileSync(new URL("./CoordinationAdminActions.tsx", import.meta.url), "utf8");
+    expect(actions).toContain("<AdminDrawer");
   });
   it("réutilise la source temps réel partagée avec le Dashboard", () => {
     expect(source).toContain("coordinations, coordinationError");

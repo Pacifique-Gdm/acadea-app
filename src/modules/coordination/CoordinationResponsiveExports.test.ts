@@ -30,8 +30,16 @@ describe("responsive et exports Coordination", () => {
 
   it("empile les commandes mobiles et réserve les colonnes denses au très grand écran", () => {
     expect(students).toContain("grid-cols-1 items-stretch gap-2 sm:grid-cols-2 xl:grid-cols-");
-    expect(control).toContain("grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-");
+    expect(control).toContain("grid-cols-1 items-stretch gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-");
     expect(control).not.toContain("lg:flex lg:flex-nowrap");
+  });
+
+  it("aligne École et Année à parts égales sans toucher à la résolution métier, puis une seule ligne desktop", () => {
+    expect(control).toContain('grid-cols-2 gap-2 rounded border border-blue-100');
+    expect(control.indexOf('aria-label="Filtrer par école"')).toBeLessThan(control.indexOf('aria-label="Année scolaire"'));
+    expect(control).toContain('coordinationYearChoices(page.years, schools.filter');
+    expect(control).toContain('xl:grid-cols-[minmax(8rem,1.6fr)_repeat(3,minmax(5rem,1fr))');
+    expect(control.indexOf('aria-label="Rechercher un élève dans le contrôle"')).toBeLessThan(control.indexOf('>Historique</button>'));
   });
 
   it("utilise la variante large pour les tableaux sans élargir les formulaires simples", () => {

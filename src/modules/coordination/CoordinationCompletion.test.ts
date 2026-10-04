@@ -132,7 +132,7 @@ describe("finalisation du module Coordination", () => {
   });
 
   it("maintient un en-tête Coordination fixe avec actualisation et boîte temps réel", () => {
-    expect(portal).toContain('className="sticky top-0 z-20 w-full');
+    expect(portal).toContain('className="sticky top-0 z-20 mx-auto w-full max-w-6xl');
     expect(portal).toContain('aria-label="Actualiser"');
     expect(portal).toContain('aria-label="Boîte à Messagerie"');
     expect(portal).toContain("useCoordinationInbox");
