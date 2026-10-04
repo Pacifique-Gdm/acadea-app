@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@firebase/firestore", () => mocks);
 vi.mock("../firebase", () => ({ db: {} }));
 
-import { COORDINATION_ACTIVE_YEAR, COORDINATION_STUDENT_PAGE_SIZE, coordinationStudentConstraints, coordinationStudentSources, coordinationYearChoices, loadCoordinationStudentPage } from "./coordinationStudentPagination";
+import { COORDINATION_ACTIVE_YEAR, COORDINATION_STUDENT_PAGE_SIZE, coordinationSourceFetchSize, coordinationStudentConstraints, coordinationStudentSources, coordinationYearChoices, loadCoordinationStudentPage } from "./coordinationStudentPagination";
 import type { CoordinationStudentFilters } from "./coordinationStudentPagination";
 
 const school = (id: string, status: "active" | "suspended") => ({ id, status, name: id, address: "", phone: "", email: "", activeSchoolYearId: `year-${id}`, subscriptionPlan: "Starter" as const, subscriptionAmount: 0 });
@@ -29,6 +29,13 @@ function snapshot(ids: string[]) {
 
 describe("pagination serveur Coordination / Sous-coordination", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("borne le lot par source sans amplifier un large périmètre multi-écoles", () => {
+    expect(coordinationSourceFetchSize(1)).toBe(16);
+    expect(coordinationSourceFetchSize(2)).toBe(16);
+    expect(coordinationSourceFetchSize(4)).toBe(13);
+    expect(coordinationSourceFetchSize(8)).toBe(8);
+  });
 
   it("conserve seulement les couples école/année actifs du périmètre délégué", () => {
     expect(coordinationStudentSources(filters)).toEqual([{ schoolId: "school-a", schoolYearId: "year-a" }, { schoolId: "school-b", schoolYearId: "year-b" }]);
@@ -65,7 +72,7 @@ describe("pagination serveur Coordination / Sous-coordination", () => {
     mocks.getDocs.mockImplementation(async (request) => {
       const cursor = request.parts.find((part: { kind?: string }) => part.kind === "cursor")?.values;
       const cursorId = cursor?.[0]?.id;
-      return snapshot(ids.filter((id) => !cursorId || id > cursorId).slice(0, 8));
+      return snapshot(ids.filter((id) => !cursorId || id > cursorId).slice(0, 16));
     });
     const result = await loadCoordinationStudentPage({ ...filters, schools: [schools[0]], years: [years[0]] });
     expect(result.students).toHaveLength(count);
@@ -84,28 +91,28 @@ describe("pagination serveur Coordination / Sous-coordination", () => {
       const currentCursor = request.parts.find((part: { kind?: string }) => part.kind === "cursor")?.values;
       const cursorId = currentCursor?.length === 2 ? currentCursor[1] : currentCursor?.[0]?.id;
       const ids = datasets[schoolId].filter((id) => !cursorId || id.slice(2) > String(cursorId).slice(2) || (id.slice(2) === String(cursorId).slice(2) && id > cursorId));
-      return snapshot(ids.slice(0, 8));
+      return snapshot(ids.slice(0, 16));
     });
     const first = await loadCoordinationStudentPage(filters);
     const firstCallCount = mocks.getDocs.mock.calls.length;
     expect(first.students).toHaveLength(COORDINATION_STUDENT_PAGE_SIZE);
-    expect(first.fetchedDocuments).toBe(59);
+    expect(first.fetchedDocuments).toBe(67);
     expect(first.queryCount).toBeGreaterThan(2);
     expect(first.nextCursor).toMatchObject({ sortName: "049", id: "a-049" });
-    expect(mocks.limit).toHaveBeenCalledWith(8);
+    expect(mocks.limit).toHaveBeenCalledWith(16);
     expect(mocks.orderBy).toHaveBeenCalledWith("sortName");
     expect(mocks.orderBy).toHaveBeenCalledWith("__name__");
     const second = await loadCoordinationStudentPage(filters, first.nextCursor);
-    expect(second.fetchedDocuments).toBe(12);
-    expect(second.queryCount).toBe(2);
+    expect(second.fetchedDocuments).toBe(4);
+    expect(second.queryCount).toBe(1);
     const readIds = (calls: typeof mocks.getDocs.mock.calls) => calls.flatMap(([request]) => {
       const schoolId = request.parts.find((part: { kind?: string; field?: string }) => part.kind === "where" && part.field === "schoolId")?.value as keyof typeof datasets;
       const currentCursor = request.parts.find((part: { kind?: string }) => part.kind === "cursor")?.values;
       const cursorId = currentCursor?.length === 2 ? currentCursor[1] : currentCursor?.[0]?.id;
-      return datasets[schoolId].filter((id) => !cursorId || id.slice(2) > String(cursorId).slice(2) || (id.slice(2) === String(cursorId).slice(2) && id > cursorId)).slice(0, 8);
+      return datasets[schoolId].filter((id) => !cursorId || id.slice(2) > String(cursorId).slice(2) || (id.slice(2) === String(cursorId).slice(2) && id > cursorId)).slice(0, 16);
     });
     expect(readIds(mocks.getDocs.mock.calls.slice(firstCallCount)).filter((id) => readIds(mocks.getDocs.mock.calls.slice(0, firstCallCount)).includes(id))).toEqual([]);
-    expect(mocks.startAfter).toHaveBeenCalledWith(expect.objectContaining({ id: "b-082" }));
+    expect(mocks.startAfter).toHaveBeenCalledWith(expect.objectContaining({ id: "b-090" }));
     expect(second.students.map((item) => item.id)).toEqual(["a-050", ...datasets["school-b"]]);
     expect(second.nextCursor).toBeUndefined();
   });

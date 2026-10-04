@@ -68,10 +68,10 @@ test("Coordination et sous-coordination : filtres, finance et responsive sur le 
         }
         await school.selectOption(fixture.schoolId);
         await expect.poll(async () => (await choices(page, "Classe")).join(" ")).toContain("1ère Humanité");
-        expect((await choices(page, "Classe")).join(" ")).not.toContain("2ème Humanité");
-        expect((await choices(page, "Année scolaire")).join(" ")).not.toContain("École E2E Littéraire");
+        await expect.poll(async () => (await choices(page, "Classe")).join(" ")).not.toContain("2ème Humanité");
+        await expect.poll(async () => (await choices(page, "Année scolaire")).join(" ")).not.toContain("École E2E Littéraire");
         await expect.poll(async () => (await choices(page, "Option")).join(" ")).toContain("Sciences");
-        expect((await choices(page, "Option")).join(" ")).not.toContain("Littéraire");
+        await expect.poll(async () => (await choices(page, "Option")).join(" ")).not.toContain("Littéraire");
 
         await classSelect.selectOption(`${fixture.schoolId}::7ème CTEB`);
         const pagination = page.getByRole("navigation", { name: tab === "Contrôle" ? "Pagination du contrôle" : "Pagination des élèves" });
@@ -86,16 +86,16 @@ test("Coordination et sous-coordination : filtres, finance et responsive sur le 
         await expect(classSelect).toHaveValue("");
         await expect(option).toHaveValue("");
         await expect.poll(async () => (await choices(page, "Classe")).join(" ")).toContain("2ème Humanité");
-        expect((await choices(page, "Classe")).join(" ")).not.toContain("1ère Humanité");
-        expect((await choices(page, "Option")).join(" ")).not.toContain("Sciences");
+        await expect.poll(async () => (await choices(page, "Classe")).join(" ")).not.toContain("1ère Humanité");
+        await expect.poll(async () => (await choices(page, "Option")).join(" ")).not.toContain("Sciences");
         await classSelect.selectOption(`${fixture.secondSchoolId}::2ème Humanité`);
         await expect.poll(async () => (await choices(page, "Option")).join(" ")).toContain("Littéraire");
         await option.selectOption("Littéraire");
         await year.selectOption(years.secondOldYearId);
         await expect(classSelect).toHaveValue("");
         await expect(option).toHaveValue("");
-        expect((await choices(page, "Classe")).join(" ")).not.toContain("2ème Humanité");
-        expect((await choices(page, "Option")).join(" ")).not.toContain("Littéraire");
+        await expect.poll(async () => (await choices(page, "Classe")).join(" ")).not.toContain("2ème Humanité");
+        await expect.poll(async () => (await choices(page, "Option")).join(" ")).not.toContain("Littéraire");
 
         await school.selectOption(fixture.schoolId);
         await year.selectOption(fixture.yearId);

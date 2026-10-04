@@ -7,7 +7,9 @@ import type { CoordinationStudentStatus } from "../utils/coordinationSupervision
 
 export const COORDINATION_STUDENT_PAGE_SIZE = 50;
 export const COORDINATION_ACTIVE_YEAR = "active";
-const SOURCE_FETCH_SIZE = 8;
+export function coordinationSourceFetchSize(sourceCount: number) {
+  return Math.min(16, Math.max(8, Math.ceil(COORDINATION_STUDENT_PAGE_SIZE / Math.max(1, sourceCount))));
+}
 
 export type CoordinationStudentFilters = {
   schools: readonly School[];
@@ -89,6 +91,7 @@ export async function loadCoordinationStudentPage(filters: CoordinationStudentFi
   if (!db) return { students: [], fetchedDocuments: 0, queryCount: 0 };
   const database = db as unknown as Firestore;
   const sources = coordinationStudentSources(filters);
+  const sourceFetchSize = coordinationSourceFetchSize(sources.length);
   const states: SourceState[] = sources.map((source) => {
     const previous = cursor?.sourceStates?.find((state) => state.source.schoolId === source.schoolId && state.source.schoolYearId === source.schoolYearId);
     return previous ? { ...previous, pending: [...previous.pending] } : { source, pending: [], last: undefined, exhausted: false };
@@ -102,11 +105,11 @@ export async function loadCoordinationStudentPage(filters: CoordinationStudentFi
       ...coordinationStudentConstraints(filters, state.source),
       orderBy("sortName"), orderBy(documentId()),
       ...(state.last ? [startAfter(state.last)] : cursor ? [startAfter(cursor.sortName, cursor.id)] : []),
-      limit(SOURCE_FETCH_SIZE),
+      limit(sourceFetchSize),
     ));
     state.pending = snapshot.docs;
     state.last = snapshot.docs.at(-1) ?? state.last;
-    state.exhausted = snapshot.size < SOURCE_FETCH_SIZE;
+    state.exhausted = snapshot.size < sourceFetchSize;
     fetchedDocuments += snapshot.size;
     queryCount++;
   }
