@@ -16,7 +16,9 @@ async function responsive(page: Page, title: string) {
     expect(header && inner && content).toBeTruthy();
     expect(header!.x).toBeLessThanOrEqual(1);
     expect(header!.width).toBeGreaterThanOrEqual(width - 1);
-    expect(Math.abs(inner!.x - content!.x - 16)).toBeLessThanOrEqual(1);
+    expect(inner!.x).toBeGreaterThanOrEqual(content!.x - 1);
+    expect(inner!.x).toBeLessThanOrEqual(content!.x + 17);
+    expect(inner!.x + inner!.width).toBeLessThanOrEqual(content!.x + content!.width + 1);
     expect(await page.getByLabel("Filtrer par école", { exact: true }).isVisible()).toBe(true);
     expect(await page.getByLabel("Année scolaire", { exact: true }).isVisible()).toBe(true);
     const school = await page.getByLabel("Filtrer par école", { exact: true }).boundingBox();

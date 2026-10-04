@@ -84,7 +84,7 @@ export async function coordinationMissionFixture(cleanupPrefix?: string) {
     for (const [id, name, status, start] of [[secondYearId, "2026-2027", "active", "2026-09-01"], [secondOldYearId, "2025-2026", "archived", "2025-09-01"]]) {
       await db.doc(`schoolYears/${id}`).set({ id, schoolId: secondSchoolId, name, status, startsAt: start, endsAt: `${Number(start.slice(0, 4)) + 1}-07-31`, currency: "USD" });
     }
-    const batch = db.batch();
+    let batch = db.batch();
     const classRows = [
       { id: `${prefix}-class-cteb`, schoolId, schoolYearId: yearId, name: "7ème CTEB", section: "CTEB" },
       { id: `${prefix}-class-humanites`, schoolId, schoolYearId: yearId, name: "1ère Humanité", section: "Secondaire" },
@@ -98,9 +98,12 @@ export async function coordinationMissionFixture(cleanupPrefix?: string) {
     for (const row of classRows) batch.set(db.doc(`classes/${row.id}`), { ...row, active: true });
     batch.set(db.doc(`students/${prefix}-humanites-student`), studentForPersistence({ id: `${prefix}-humanites-student`, schoolId, schoolYearId: yearId, matricule: `${prefix}-humanites`, nom: "Sciences", prenom: "Élève", postnom: "", birthDate: "2012-06-01", sexe: "F", status: "ACTIVE", className: "1ère Humanité", option: "Sciences" }));
     batch.set(db.doc(`students/${prefix}-literature-student`), studentForPersistence({ id: `${prefix}-literature-student`, schoolId: secondSchoolId, schoolYearId: secondYearId, matricule: `${prefix}-literature`, nom: "Littéraire", prenom: "Élève", postnom: "", birthDate: "2012-06-01", sexe: "F", status: "ACTIVE", className: "2ème Humanité", option: "Littéraire" }));
+    await batch.commit();
+    batch = db.batch();
     for (let index = 0; index < 51; index++) {
       const id = `${prefix}-page-${String(index).padStart(2, "0")}`;
       batch.set(db.doc(`students/${id}`), studentForPersistence({ id, schoolId, schoolYearId: yearId, matricule: id, nom: `Pagination${String(index).padStart(2, "0")}`, prenom: "Élève", postnom: "", birthDate: "2013-06-01", sexe: "F", status: "ACTIVE", className: "7ème CTEB" }));
+      if (index % 8 === 7) { await batch.commit(); batch = db.batch(); }
     }
     await batch.commit();
     return { secondYearId, secondOldYearId };

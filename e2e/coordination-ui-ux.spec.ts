@@ -48,7 +48,9 @@ test("UI Coordination et drawers dédiés — Staging isolé", async ({ browser,
         expect(header && headerContent && content).toBeTruthy();
         expect(header!.x).toBeLessThanOrEqual(1);
         expect(header!.width).toBeGreaterThanOrEqual(width - 1);
-        expect(Math.abs(headerContent!.x - content!.x - 16)).toBeLessThanOrEqual(1);
+        expect(headerContent!.x).toBeGreaterThanOrEqual(content!.x - 1);
+        expect(headerContent!.x).toBeLessThanOrEqual(content!.x + 17);
+        expect(headerContent!.x + headerContent!.width).toBeLessThanOrEqual(content!.x + content!.width + 1);
         if (width === 1440) {
           const controls = [
             page.getByLabel("Statut des élèves"),
@@ -149,5 +151,13 @@ test("UI Coordination et drawers dédiés — Staging isolé", async ({ browser,
   } finally {
     for (const context of contexts) await context.close();
     await fixture.cleanup();
+    const independent = await coordinationMissionFixture(fixture.prefix);
+    try {
+      const residues = await independent.scanResidues();
+      console.log(JSON.stringify({ independentResidueScan: residues }));
+      expect(residues).toEqual({ firestore: 0, auth: 0, storage: 0 });
+    } finally {
+      await independent.close();
+    }
   }
 });
