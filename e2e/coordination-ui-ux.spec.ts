@@ -93,9 +93,15 @@ test("UI Coordination et drawers dédiés — Staging isolé", async ({ browser,
     await page.getByRole("button", { name: "Coordinations", exact: true }).last().click();
     await page.getByRole("button", { name: /Coordination E2E Finance.*Active/ }).click();
     await expect(page.getByRole("dialog", { name: "Coordination E2E Finance" })).toBeVisible();
+    for (const width of [1440, 768, 390]) await fitsViewport(page, width);
     await page.getByRole("button", { name: "Modifier", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "Modifier la Coordination" })).toBeVisible();
     await expect(page.getByRole("dialog")).toHaveCount(1);
+    for (const width of [1440, 768, 390]) await fitsViewport(page, width);
+    await page.getByRole("button", { name: "Retour aux informations de la Coordination" }).click();
+    await expect(page.getByRole("dialog", { name: "Coordination E2E Finance" })).toBeVisible();
+    await page.getByRole("button", { name: "Modifier", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Modifier la Coordination" })).toBeVisible();
     await page.getByRole("textbox", { name: "Nom", exact: true }).fill("Coordination E2E Finance UX");
     await page.getByRole("button", { name: "Enregistrer la Coordination" }).click();
     await expect(page.getByRole("dialog", { name: "Coordination E2E Finance UX" })).toBeVisible({ timeout: 60000 });
