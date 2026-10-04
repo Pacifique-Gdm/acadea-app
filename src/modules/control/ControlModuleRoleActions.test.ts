@@ -12,6 +12,7 @@ describe("actions Contrôle partagées selon le rôle", () => {
     expect(toolbar).toContain("grid-cols-1 items-stretch gap-2 box-border sm:grid-cols-2 lg:flex lg:flex-nowrap lg:items-center lg:gap-1.5");
     expect(toolbar.match(/aria-label="Classe"/g)).toHaveLength(1);
     expect(toolbar.match(/Exporter PDF/g)).toHaveLength(1);
+    expect(toolbar).toContain('<MoneyInput value={amountThreshold} onChange={setAmountThreshold} className="input min-w-0 w-full lg:flex-1 lg:basis-0"');
     expect(toolbar.match(/Réinitialiser/g)?.length).toBeGreaterThanOrEqual(1);
   });
 

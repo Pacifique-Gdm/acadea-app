@@ -1221,7 +1221,7 @@ export function ControlModule({
                 {classChoices.map((choice) => <option key={choice.key} value={choice.key}>{choice.label}</option>)}
               </select>
               <PaidAmountDropdown value={amountComparator} onChange={setAmountComparator} options={amountOptions} className="lg:flex-1 lg:basis-0" />
-              <MoneyInput value={amountThreshold} onChange={setAmountThreshold} className="input min-w-0 w-full" placeholder="Filtre" ariaLabel="Filtre" />
+              <MoneyInput value={amountThreshold} onChange={setAmountThreshold} className="input min-w-0 w-full lg:flex-1 lg:basis-0" placeholder="Filtre" ariaLabel="Filtre" />
               <button onClick={printFilteredStudents} disabled={filterArrearsLoading || Boolean(filterArrearsError)} className="pdf-export-button h-10 min-w-0 px-2 lg:flex-1 lg:basis-0" type="button">
                 <Download className="h-4 w-4" /> Exporter PDF
               </button>
