@@ -34,6 +34,14 @@ describe("portail Coordination", () => {
     expect(source).toContain('where("subCoordinationId", "==", user.subCoordinationId!)');
     expect(source).toContain('where("coordinationId", "==", coordinationId)');
   });
+  it("attend les écoles avant de demander les choix de classes des onglets", () => {
+    const control = readFileSync(new URL("./useCoordinationControlPage.ts", import.meta.url), "utf8");
+    const students = readFileSync(new URL("./CoordinationStudents.tsx", import.meta.url), "utf8");
+    expect(control).toContain("ids.length ? loadCoordinationClassFilterChoices() : Promise.resolve<SchoolClassRecord[]>([])");
+    expect(students).toContain("schoolIdsKey ? loadCoordinationClassFilterChoices() : Promise.resolve<SchoolClassRecord[]>([])");
+    expect(control).toContain("return () => { cancelled = true; }");
+    expect(students).toContain("return () => { cancelled = true; }");
+  });
   it("réabonne les listeners racine lors d'une actualisation sans changer d'onglet", () => {
     expect(source).toContain("refreshToken, user.coordinationId");
     expect(source).toContain("runRefreshTask");

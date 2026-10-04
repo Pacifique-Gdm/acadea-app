@@ -39,7 +39,7 @@ export function CoordinationStudents({ user, coordination, schools, selectedScho
   useEffect(() => {
     let cancelled = false;
     setYears([]); setYearsLoading(true); setYearsError("");
-    Promise.all([loadCoordinationStudentYears(schoolIdsKey ? schoolIdsKey.split("|") : []), loadCoordinationClassFilterChoices()])
+    Promise.all([loadCoordinationStudentYears(schoolIdsKey ? schoolIdsKey.split("|") : []), schoolIdsKey ? loadCoordinationClassFilterChoices() : Promise.resolve<SchoolClassRecord[]>([])])
       .then(([nextYears, nextClasses]) => { if (!cancelled) { setYears(nextYears); setClassRecords(nextClasses); } })
       .catch(() => { if (!cancelled) setYearsError("Impossible de charger les années et classes scolaires."); })
       .finally(() => { if (!cancelled) setYearsLoading(false); });

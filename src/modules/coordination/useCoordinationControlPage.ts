@@ -31,7 +31,7 @@ export function useCoordinationControlPage(user: AppUser, schools: School[], sel
     let cancelled = false;
     setMetadataKey(""); setMetadataError("");
     const ids = schoolKey ? schoolKey.split("|") : [];
-    Promise.all([loadCoordinationStudentYears(ids), loadCoordinationControlFees(ids), loadCoordinationClassFilterChoices()])
+    Promise.all([loadCoordinationStudentYears(ids), loadCoordinationControlFees(ids), ids.length ? loadCoordinationClassFilterChoices() : Promise.resolve<SchoolClassRecord[]>([])])
       .then(([nextYears, nextFees, nextClasses]) => { if (!cancelled) { setYears(nextYears); setFees(nextFees); setClasses(nextClasses); setMetadataKey(contextKey); } })
       .catch(() => { if (!cancelled) setMetadataError("Impossible de charger les années, classes et frais du contrôle."); });
     return () => { cancelled = true; };
