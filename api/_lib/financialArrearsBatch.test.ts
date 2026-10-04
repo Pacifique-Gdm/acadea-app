@@ -45,6 +45,9 @@ describe("canonical grouped historical arrears", () => {
     const batch = await listScopedStudentArrearsBatch({ db: f.db, schoolIds: ["a"], studentIds: f.ids });
     expect(individual.debts.map((debt: { remaining: number }) => debt.remaining).sort((a: number, b: number) => a - b)).toEqual([65, 9000]);
     expect(batch.totals.current0).toEqual({ USD: 65, CDF: 9000 });
+    const detailed = await listScopedStudentArrearsBatch({ db: f.db, schoolIds: ["a"], studentIds: f.ids, includeDetails: true });
+    expect(detailed.details.current0.map((debt: { remaining: number }) => debt.remaining).sort((a: number, b: number) => a - b)).toEqual([0, 65, 9000]);
+    expect(detailed.details.current0.find((debt: { feeName: string }) => debt.feeName === "Frais" && debt.currency === "USD")).toMatchObject({ expected: 100, paid: 35, remaining: 65 });
   });
   it("groups 50 students without N+1 queries", async () => {
     const f = fixture(50);
@@ -58,7 +61,7 @@ describe("canonical grouped historical arrears", () => {
   });
   it("rejects out-of-scope students before historical reads", async () => {
     const f = fixture();
-    await expect(listScopedStudentArrearsBatch({ db: f.db, schoolIds: ["other"], studentIds: f.ids })).rejects.toMatchObject({ status: 404 });
+    await expect(listScopedStudentArrearsBatch({ db: f.db, schoolIds: ["other"], studentIds: f.ids, includeDetails: true })).rejects.toMatchObject({ status: 404 });
     expect(f.reads()).toBe(1);
   });
   it.each(["cycle", "foreign", "missing", "ambiguous", "suspended"])("preserves %s rejection", async (kind) => {
@@ -74,6 +77,8 @@ describe("canonical grouped historical arrears", () => {
     const f = fixture();
     const caller = { uid: "admin", schoolId: "a", role: "school_admin" };
     expect((await listStudentArrearsBatch({ db: f.db, caller, body: { schoolYearId: "now", studentIds: f.ids } })).totals.current0).toEqual({ USD: 65, CDF: 9000 });
+    expect((await listStudentArrearsBatch({ db: f.db, caller, body: { schoolYearId: "now", studentIds: f.ids, includeDetails: true } })).details?.current0).toHaveLength(3);
+    expect(() => listStudentArrearsBatch({ db: f.db, caller, body: { schoolYearId: "now", studentIds: f.ids, includeDetails: "yes" } })).toThrow();
     expect(() => listStudentArrearsBatch({ db: f.db, caller: { ...caller, role: "parent" }, body: {} })).toThrow();
     await expect(listStudentArrearsBatch({ db: f.db, caller, body: { schoolYearId: "other", studentIds: f.ids } })).rejects.toBeTruthy();
   });

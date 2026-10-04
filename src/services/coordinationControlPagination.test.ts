@@ -6,15 +6,33 @@ vi.mock("../firebase", () => ({ db: {} }));
 vi.mock("@firebase/firestore", () => mocks);
 vi.mock("./coordinationStudentPagination", () => ({ COORDINATION_STUDENT_PAGE_SIZE: 50, loadCoordinationStudentPage: mocks.loadPage }));
 vi.mock("./coordinationService", () => ({ loadCoordinationStudentArrearsBatch: mocks.arrears }));
-import { controlRowMatches, loadControlPagePayments, loadCoordinationControlPage, type ControlRow } from "./coordinationControlPagination";
+import { buildCoordinationAmountOptions, controlRowMatches, loadControlPagePayments, loadCoordinationControlPage, type ControlRow } from "./coordinationControlPagination";
 import { arrearsFilterForCriterion } from "../utils/arrearsFilter";
 const filters: CoordinationStudentFilters = { schools: [{ id: "school", currency: "USD" } as School], years: [], selectedSchoolId: "", selectedYearId: "", filterSchoolId: "", search: "", status: "all", className: "", option: "", allowedSections: [] };
 const student = (i: number): Student => ({ id: `s${i}`, schoolId: "school", schoolYearId: "year", className: "2ème Primaire" } as Student);
 const fees: FeeType[] = [{ id: "fee", schoolId: "school", schoolYearId: "year", name: "Minerval", amount: 100 }, { id: "foreign", schoolId: "other", schoolYearId: "year", name: "Hors périmètre", amount: 999 }];
 describe("Contrôle — pagination réelle et finances groupées", () => {
   beforeEach(() => { vi.clearAllMocks(); mocks.getDocs.mockResolvedValue({ docs: [] }); });
+  it("regroupe les frais d'une école comme Contrôle Admin, sans fusionner deux écoles homonymes", () => {
+    const options = buildCoordinationAmountOptions([{ id: "a", name: "École A" }, { id: "b", name: "École B" }], [
+      { id: "a-1", schoolId: "a", name: "Minerval", amount: 10 },
+      { id: "a-2", schoolId: "a", name: "Minerval", amount: 20 },
+      { id: "a-3", schoolId: "a", name: "Laboratoire", amount: 5 },
+      { id: "b-1", schoolId: "b", name: "Minerval", amount: 30 },
+      { id: "b-2", schoolId: "b", name: "Transport", amount: 8 },
+    ] as FeeType[]);
+    expect(options.filter((item) => item.label === "Minerval — École A ≥")).toHaveLength(1);
+    expect(options.filter((item) => item.label === "Minerval — École B ≥")).toHaveLength(1);
+    expect(options.find((item) => item.label === "Minerval — École A ≥")?.value).toBe("school:a:fee:minerval:gte");
+    expect(options.find((item) => item.label === "Minerval — École B ≥")?.value).toBe("school:b:fee:minerval:gte");
+    expect(options.some((item) => item.label.includes("Laboratoire — École B"))).toBe(false);
+    const row = { student: { ...student(1), schoolId: "a" }, feeSummaries: [{ feeTypeId: "a-1", feeName: "Minerval", paid: 10 }, { feeTypeId: "a-2", feeName: "Minerval", paid: 20 }] } as ControlRow;
+    expect(controlRowMatches(row, { comparator: "school:a:fee:minerval:gte", threshold: "30" })).toBe(true);
+    expect(controlRowMatches(row, { comparator: "school:a:fee:minerval:lt", threshold: "30" })).toBe(false);
+    expect(controlRowMatches(row, { comparator: "school:b:fee:minerval:gte", threshold: "0" })).toBe(false);
+  });
   it("borne Tous les frais et les frais individuels à l'école du critère sans changer leur sémantique", () => {
-    const row = (schoolId: string, paid: number): ControlRow => ({ student: { ...student(1), schoolId }, feeSummaries: [{ feeTypeId: "fee-a", paid }, { feeTypeId: "fee-b", paid: 0 }], balance: { expected: 100, paid, remaining: 100 - paid }, progress: 0 } as ControlRow);
+    const row = (schoolId: string, paid: number): ControlRow => ({ student: { ...student(1), schoolId }, feeSummaries: [{ feeTypeId: "fee-a", feeName: "Frais A", paid }, { feeTypeId: "fee-b", feeName: "Frais B", paid: 0 }], balance: { expected: 100, paid, remaining: 100 - paid }, progress: 0 } as ControlRow);
     const a = row("school-a", 50), b = row("school-b", 50);
     const match = (value: string, threshold: string, candidate = a) => controlRowMatches(candidate, { comparator: value, threshold });
     expect(match("school:school-a:all-fees:gte", "0")).toBe(true);

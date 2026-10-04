@@ -21,4 +21,9 @@ describe("recherche des élèves dans le Contrôle Administrateur et Caissier", 
     expect(source).not.toContain("[...visibleRows].sort(");
     expect(source).not.toContain("[...paginatedControlRows].sort(");
   });
+
+  it("affiche un état vide financier seulement après le calcul des arriérés", () => {
+    expect(source).toContain("!filterArrearsLoading && !filterArrearsError && visibleRows.length === 0");
+    expect(source).toContain("Aucun élève ne correspond aux filtres appliqués.");
+  });
 });

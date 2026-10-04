@@ -331,7 +331,7 @@ export default async function handler(req, res) {
       const caller = await requireActiveCoordinationActor(auth, db, token);
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.coordinationId, action: "coordination.read-student-arrears", ...API_RATE_LIMITS.MESSAGE_RECIPIENTS });
       const schoolIds = await resolveCoordinationSchoolScope(db, caller);
-      if (action === "read-student-arrears-batch") return sendJson(res, 200, await listScopedStudentArrearsBatch({ db, studentIds: input.studentIds, schoolIds }));
+      if (action === "read-student-arrears-batch") return sendJson(res, 200, await listScopedStudentArrearsBatch({ db, studentIds: input.studentIds, schoolIds, includeDetails: input.includeDetails === true }));
       return sendJson(res, 200, await listScopedStudentArrears({ db, studentId: text(input.studentId), schoolIds }));
     }
     if (action === "transfer-personnel") return await transferPersonnel({ res, auth, db, token, input });

@@ -196,7 +196,7 @@ async function historicalDebts(transaction, db, caller, currentStudent, currentY
 
 // Request-local grouped reads only: no persisted projection and no second debt formula.
 // Each source page is at most 50 students. Firestore `in` operands stay <= 30.
-async function arrearsBatch(transaction, db, studentIds, schoolIds, requestedYearId) {
+async function arrearsBatch(transaction, db, studentIds, schoolIds, requestedYearId, includeDetails = false) {
   if (!Array.isArray(studentIds) || !studentIds.length || studentIds.length > 50 || studentIds.some((id) => typeof id !== "string" || !id || id.length > 120 || id.includes("/")) || new Set(studentIds).size !== studentIds.length) {
     throw new FinancialApiError(400, "invalid-argument", "Une liste de 1 à 50 élèves distincts est requise.");
   }
@@ -239,23 +239,26 @@ async function arrearsBatch(transaction, db, studentIds, schoolIds, requestedYea
     queryMany("payments", "studentId", contexts.flatMap((context) => context.records.map(({ student }) => student.id))),
   ]);
   const totals = {};
+  const details = {};
   for (const { student, school, year, records } of contexts) {
     const debts = await historicalDebts(transaction, db, { schoolId: student.schoolId }, student, year, school, reads, records);
     totals[student.id] = debts.reduce((sum, debt) => ({ ...sum, [debt.currency]: sum[debt.currency] + debt.remaining }), { USD: 0, CDF: 0 });
+    if (includeDetails) details[student.id] = debts;
   }
-  return { totals };
+  return includeDetails ? { totals, details } : { totals };
 }
 
-export function listScopedStudentArrearsBatch({ db, studentIds, schoolIds }) {
-  return db.runTransaction((transaction) => arrearsBatch(transaction, db, studentIds, schoolIds));
+export function listScopedStudentArrearsBatch({ db, studentIds, schoolIds, includeDetails = false }) {
+  return db.runTransaction((transaction) => arrearsBatch(transaction, db, studentIds, schoolIds, undefined, includeDetails));
 }
 
 export function listStudentArrearsBatch({ db, caller: rawCaller, body }) {
-  assertAllowedKeys(body, ["action", "schoolYearId", "studentIds"]);
+  assertAllowedKeys(body, ["action", "schoolYearId", "studentIds", "includeDetails"]);
+  if (body.includeDetails !== undefined && typeof body.includeDetails !== "boolean") throw new FinancialApiError(400, "invalid-argument", "Option de détail invalide.");
   const caller = assertRole(rawCaller, ["school_admin", "cashier"]);
   return db.runTransaction(async (transaction) => {
     const { schoolYearId } = await assertContext(transaction, db, caller, body.schoolYearId, true);
-    return arrearsBatch(transaction, db, body.studentIds, [caller.schoolId], schoolYearId);
+    return arrearsBatch(transaction, db, body.studentIds, [caller.schoolId], schoolYearId, body.includeDetails === true);
   });
 }
 

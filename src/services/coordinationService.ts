@@ -33,6 +33,12 @@ export async function loadCoordinationStudentArrearsBatch(studentIds: string[]) 
   const result = await call({ action: "read-student-arrears-batch", studentIds }) as { totals?: ArrearsTotals };
   return validateArrearsTotals(result.totals, studentIds);
 }
+export async function loadCoordinationStudentArrearsDetailsBatch(studentIds: string[]) {
+  const result = await call({ action: "read-student-arrears-batch", studentIds, includeDetails: true }) as { totals?: ArrearsTotals; details?: Record<string, HistoricalDebt[]> };
+  validateArrearsTotals(result.totals, studentIds);
+  if (!result.details || studentIds.some((id) => !Array.isArray(result.details?.[id]))) throw new Error("Détail des arriérés incomplet.");
+  return result.details;
+}
 export async function loadCoordinationStudentParent(studentId: string) {
   const payload = await call({ action: "read-student-parent", studentId }) as { parent?: ParentProfile | null };
   return payload.parent ?? null;

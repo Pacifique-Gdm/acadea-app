@@ -56,6 +56,19 @@ export function listScopedStudentArrears(input: {
   schoolIds: string[];
 }): Promise<{ debts: HistoricalDebt[]; settled: HistoricalDebt[] }>;
 
+export function listScopedStudentArrearsBatch(input: {
+  db: unknown;
+  studentIds: string[];
+  schoolIds: string[];
+  includeDetails?: boolean;
+}): Promise<{ totals: Record<string, { USD: number; CDF: number }>; details?: Record<string, HistoricalDebt[]> }>;
+
+export function listStudentArrearsBatch(input: {
+  db: unknown;
+  caller: { uid: string; role?: unknown; schoolId?: unknown; email?: unknown };
+  body: Record<string, unknown>;
+}): Promise<{ totals: Record<string, { USD: number; CDF: number }>; details?: Record<string, HistoricalDebt[]> }>;
+
 export function executeFinancialOperation(input: {
   db: unknown;
   caller: { uid: string; role?: unknown; schoolId?: unknown; email?: unknown };

@@ -23,6 +23,7 @@ type FinancialResponse = {
   debts?: HistoricalDebt[];
   settled?: HistoricalDebt[];
   totals?: ArrearsTotals;
+  details?: Record<string, HistoricalDebt[]>;
 };
 
 export type HistoricalDebt = {
@@ -66,6 +67,13 @@ export function loadStudentArrears(input: { schoolYearId: string; studentId: str
 export async function loadStudentArrearsBatch(schoolYearId: string, studentIds: string[]) {
   const result = await financialRequest({ action: "list-arrears-batch", schoolYearId, studentIds });
   return validateArrearsTotals(result.totals, studentIds);
+}
+
+export async function loadStudentArrearsDetailsBatch(schoolYearId: string, studentIds: string[]) {
+  const result = await financialRequest({ action: "list-arrears-batch", schoolYearId, studentIds, includeDetails: true });
+  validateArrearsTotals(result.totals, studentIds);
+  if (!result.details || studentIds.some((id) => !Array.isArray(result.details?.[id]))) throw new Error("Détail des arriérés incomplet.");
+  return result.details;
 }
 
 export function createExpenseTransaction(input: { schoolYearId: string; amount: number; category: string; description: string; beneficiary: string; paymentMethod: string; reference?: string; clientRequestId: string }) {

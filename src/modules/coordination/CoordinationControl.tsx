@@ -11,9 +11,12 @@ import { formatStudentClassName } from "../../utils/studentClasses";
 import { coordinationPdfInstitution } from "./coordinationPdfInstitution";
 import { CoordinationStudentRecord } from "./CoordinationStudentRecord";
 import { useCoordinationControlPage } from "./useCoordinationControlPage";
-import { loadCoordinationControlHistory, loadCoordinationControlPage, type CoordinationControlCursor, type ControlRow } from "../../services/coordinationControlPagination";
+import { buildCoordinationAmountOptions, loadCoordinationControlHistory, loadCoordinationControlPage, type CoordinationControlCursor, type ControlRow } from "../../services/coordinationControlPagination";
 import { controlHistoryCurrency, defaultControlHistoryDate, matchesControlHistory } from "../../utils/coordinationControlHistory";
-import { formatCurrencyMoney } from "../../utils/currency";
+import { formatCurrencyMoney, resolveSchoolCurrency } from "../../utils/currency";
+import { controlArrearsPdfSections } from "../../utils/controlArrearsPdf";
+import { loadCoordinationStudentArrearsDetailsBatch } from "../../services/coordinationService";
+import type { HistoricalDebt } from "../../services/financialTransactions";
 import { PaidAmountDropdown } from "../../components/PaidAmountDropdown";
 import { COORDINATION_ACTIVE_YEAR, coordinationYearChoices } from "../../services/coordinationStudentPagination";
 import { arrearsFilterForCriterion } from "../../utils/arrearsFilter";
@@ -53,20 +56,7 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
   const studentsById = useMemo(() => new Map(history.students.map((student) => [student.id, student])), [history.students]);
   const feeTypesById = useMemo(() => new Map(page.fees.map((fee) => [fee.id, fee])), [page.fees]);
   const feeChoices = page.fees.filter((fee) => schoolsById.has(fee.schoolId) && (!selectedSchoolId || fee.schoolId === selectedSchoolId) && (page.selectedYearId === COORDINATION_ACTIVE_YEAR ? schoolsById.get(fee.schoolId)?.activeSchoolYearId === fee.schoolYearId : !page.selectedYearId || fee.schoolYearId === page.selectedYearId));
-  const amountOptions = schools.filter((school) => !selectedSchoolId || school.id === selectedSchoolId).flatMap((school) => {
-    const prefix = `school:${encodeURIComponent(school.id)}`;
-    const schoolFees = feeChoices.filter((fee) => fee.schoolId === school.id);
-    return [
-      { value: `${prefix}:all-fees:gte`, label: `Tous les frais — ${school.name} ≥` },
-      { value: `${prefix}:all-fees:lt`, label: `Tous les frais — ${school.name} <` },
-      ...schoolFees.flatMap((fee) => [
-        { value: `${prefix}:fee:${encodeURIComponent(fee.id)}:gte`, label: `${fee.name} — ${school.name} ≥` },
-        { value: `${prefix}:fee:${encodeURIComponent(fee.id)}:lt`, label: `${fee.name} — ${school.name} <` },
-      ]),
-      { value: `${prefix}:arrears:gte`, label: `Arriérés — ${school.name} ≥` },
-      { value: `${prefix}:arrears:lt`, label: `Arriérés — ${school.name} <` },
-    ];
-  });
+  const amountOptions = buildCoordinationAmountOptions(schools.filter((school) => !selectedSchoolId || school.id === selectedSchoolId), feeChoices);
   useEffect(() => { setAmountComparator(""); }, [selectedSchoolId]);
   const selectedStudent = rows.find((row) => row.student.id === selectedStudentId)?.student;
   const schoolName = (schoolId: string) => schools.find((school) => school.id === schoolId)?.name ?? schoolId;
@@ -92,7 +82,9 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
   }
 
   async function exportPdf() {
-    const contextSchool = schools.find((school) => school.id === selectedSchoolId) ?? schools[0];
+    const arrearsCriterion = amountComparator.match(/^school:([^:]+):arrears:(gte|lt)$/);
+    const criterionSchoolId = arrearsCriterion ? decodeURIComponent(arrearsCriterion[1]) : "";
+    const contextSchool = schools.find((school) => school.id === (criterionSchoolId || selectedSchoolId)) ?? schools[0];
     if (!contextSchool) return;
     const exportRows: ControlRow[] = [];
     let cursor: CoordinationControlCursor | undefined;
@@ -100,6 +92,17 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
       const result = await loadCoordinationControlPage(page.filters, page.fees, page.amountFilter, cursor, arrearsFilter);
       exportRows.push(...result.rows); cursor = result.nextCursor;
     } while (cursor);
+    if (arrearsCriterion) {
+      const details: Record<string, HistoricalDebt[]> = {};
+      for (let offset = 0; offset < exportRows.length; offset += 50) {
+        Object.assign(details, await loadCoordinationStudentArrearsDetailsBatch(exportRows.slice(offset, offset + 50).map((row) => row.student.id)));
+      }
+      await renderAcadPdfPreview({ filename: `controle-arrieres-${contextSchool.id}.pdf`, title: "Rapport d'arriérés", school: coordinationPdfInstitution(coordination, contextSchool),
+        subtitle: `École : ${contextSchool.name} | Critère : Arriérés ${arrearsCriterion[2] === "gte" ? "≥" : "<"} ${amountThreshold ? formatCurrencyMoney(Number(amountThreshold), resolveSchoolCurrency(contextSchool)) : "tous"}`,
+        sections: controlArrearsPdfSections(exportRows.map((row) => row.student), details, resolveSchoolCurrency(contextSchool)),
+      });
+      return;
+    }
     await renderAcadPdfPreview({ filename: `controle-coordination-${selectedSchoolId || "toutes"}.pdf`, title: "Contrôle", school: coordinationPdfInstitution(coordination, contextSchool), subtitle: `École : ${selectedSchoolId ? contextSchool.name : "Toutes les écoles"} | Classe : ${classChoices.find((item) => item.value === classKey)?.label ?? "Toutes"} | Montant : ${amountOptions.find((item) => item.value === amountComparator)?.label ?? "Tous"} ${amountThreshold}`.trim(), sections: [pdfSection("Suivi des paiements", pdfTable([
       { header: "Élève", render: (row) => escapePdfHtml(`${row.student.nom} ${row.student.prenom}`) },
       { header: "École", render: (row) => escapePdfHtml(schoolName(row.student.schoolId)) },

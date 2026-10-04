@@ -4,7 +4,7 @@ import { AdminDrawer, Field, FormPanel, Metric, MoneyInput, SectionTitle } from 
 import { usePaginatedControlHistory } from "../../hooks/usePaginatedControlHistory";
 import { createExpenseTransaction, createPaymentTransaction, deleteFinancialTransaction, loadStudentArrears, updateExpenseTransaction, updatePaymentTransaction } from "../../services/financialTransactions";
 import type { HistoricalDebt } from "../../services/financialTransactions";
-import { loadStudentArrearsBatch } from "../../services/financialTransactions";
+import { loadStudentArrearsBatch, loadStudentArrearsDetailsBatch } from "../../services/financialTransactions";
 import { PaidAmountDropdown } from "../../components/PaidAmountDropdown";
 import { arrearsFilterActive, arrearsFilterForCriterion, matchesArrearsFilter, type ArrearsTotals } from "../../utils/arrearsFilter";
 import { createAuditLog } from "../../utils/audit";
@@ -18,6 +18,8 @@ import { feeAppliesToStudent } from "../../utils/feeTargets";
 import { buildControlClassChoices, buildControlFeeGroups, feeNamesForWarningClass, getControlClassKey, selectPaymentWarningRecipients } from "../../utils/controlFilters";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import { formatCurrencyMoney, formatSchoolMoney } from "../../utils/currency";
+import { resolveSchoolCurrency } from "../../utils/currency";
+import { controlArrearsPdfSections } from "../../utils/controlArrearsPdf";
 import { compareStudentsForPdfByClass, formatStudentPdfClassName } from "../../utils/studentPdf";
 import { filterControlStudentRows } from "../../utils/controlStudentSearch";
 import { historicalArrearsPdfSection } from "./historicalArrearsPdf";
@@ -842,6 +844,19 @@ export function ControlModule({
   }
 
   async function printFilteredStudents() {
+    if (amountComparator.startsWith("arrears-")) {
+      const filteredStudents = [...rows].sort((first, second) => compareStudentsForPdfByClass(first.student, second.student)).map((row) => row.student);
+      const details: Record<string, HistoricalDebt[]> = {};
+      for (let offset = 0; offset < filteredStudents.length; offset += 50) {
+        Object.assign(details, await loadStudentArrearsDetailsBatch(year.id, filteredStudents.slice(offset, offset + 50).map((student) => student.id)));
+      }
+      await renderAcadPdfPreview({
+        filename: `controle-arrieres-${year.name}.pdf`, title: "Rapport d'arriérés", school, year,
+        subtitle: `Critère : Arriérés ${amountComparator === "arrears-gte" ? "≥" : "<"} ${amountThreshold ? formatMoney(Number(amountThreshold)) : "tous"}`,
+        sections: controlArrearsPdfSections(filteredStudents, details, resolveSchoolCurrency(school)),
+      });
+      return;
+    }
     const feeFilter = amountComparator.match(/^fee:(.+):(gte|lt)$/);
     const selectedPdfFeeGroup = feeFilter ? amountFeeGroups.find((fee) => fee.key === feeFilter[1]) : undefined;
     const filterLabel =
@@ -1279,9 +1294,9 @@ export function ControlModule({
               </div>
             </article>
           ))}
-          {visibleRows.length === 0 && (
+          {!filterArrearsLoading && !filterArrearsError && visibleRows.length === 0 && (
             <p className="rounded border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
-              Aucun élève ne correspond à la recherche.
+              Aucun élève ne correspond aux filtres appliqués.
             </p>
           )}
           {visibleRows.length > CONTROL_PAGE_SIZE && (

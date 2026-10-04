@@ -1,7 +1,8 @@
 import { collection, documentId, getDocs, query, where, type Firestore } from "@firebase/firestore";
 import { db } from "../firebase";
-import type { Expense, FeeType, Payment, Student } from "../types";
+import type { Expense, FeeType, Payment, School, Student } from "../types";
 import { getStudentFeeSummaries, type StudentFeeSummary } from "../utils/studentFeeSummary";
+import { buildControlFeeGroups } from "../utils/controlFilters";
 import { COORDINATION_STUDENT_PAGE_SIZE, loadCoordinationStudentPage, type CoordinationStudentCursor, type CoordinationStudentFilters } from "./coordinationStudentPagination";
 import { loadCoordinationStudentArrearsBatch } from "./coordinationService";
 import { arrearsFilterActive, emptyArrearsFilter, matchesArrearsFilter, type ArrearsFilter, type ArrearsTotals } from "../utils/arrearsFilter";
@@ -19,6 +20,23 @@ async function bySchools<T>(name: string, schoolIds: readonly string[]): Promise
 }
 
 export const loadCoordinationControlFees = (schoolIds: readonly string[]) => bySchools<FeeType>("feeTypes", schoolIds);
+
+export function buildCoordinationAmountOptions(schools: Pick<School, "id" | "name">[], fees: FeeType[]) {
+  return schools.flatMap((school) => {
+    const prefix = `school:${encodeURIComponent(school.id)}`;
+    const groups = buildControlFeeGroups(fees.filter((fee) => fee.schoolId === school.id), "");
+    return [
+      { value: `${prefix}:all-fees:gte`, label: `Tous les frais — ${school.name} ≥` },
+      { value: `${prefix}:all-fees:lt`, label: `Tous les frais — ${school.name} <` },
+      ...groups.flatMap((group) => [
+        { value: `${prefix}:fee:${encodeURIComponent(group.key)}:gte`, label: `${group.name} — ${school.name} ≥` },
+        { value: `${prefix}:fee:${encodeURIComponent(group.key)}:lt`, label: `${group.name} — ${school.name} <` },
+      ]),
+      { value: `${prefix}:arrears:gte`, label: `Arriérés — ${school.name} ≥` },
+      { value: `${prefix}:arrears:lt`, label: `Arriérés — ${school.name} <` },
+    ];
+  });
+}
 
 export async function loadControlPagePayments(students: readonly Student[]): Promise<Payment[]> {
   if (!db || !students.length) return [];
@@ -48,8 +66,10 @@ export function controlRowMatches(row: ControlRow, filter: ControlAmountFilter) 
   if (comparator === "all-fees-lt") return row.feeSummaries.some((summary) => summary.paid < threshold);
   const match = comparator.match(/^fee:(.+):(gte|lt)$/);
   if (!match) return true;
-  const summary = row.feeSummaries.find((item) => item.feeTypeId === match[1]);
-  return Boolean(summary && (match[2] === "gte" ? summary.paid >= threshold : summary.paid < threshold));
+  const summaries = row.feeSummaries.filter((item) => item.feeName.trim().toLowerCase() === match[1] || item.feeTypeId === match[1]);
+  if (!summaries.length) return false;
+  const paid = summaries.reduce((sum, summary) => sum + summary.paid, 0);
+  return match[2] === "gte" ? paid >= threshold : paid < threshold;
 }
 
 export async function loadCoordinationControlPage(filters: CoordinationStudentFilters, fees: FeeType[], amountFilter: ControlAmountFilter, cursor?: CoordinationControlCursor, arrearsFilter: ArrearsFilter = emptyArrearsFilter): Promise<CoordinationControlPage> {
