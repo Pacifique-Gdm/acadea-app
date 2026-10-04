@@ -64,6 +64,7 @@ test("Contrôle — critères financiers séparés et isolés par école sur Sta
       await fixture.db.doc(`students/${current}`).set(studentForPersistence({ ...identity, id: current, schoolYearId: fixture.yearId, className: "7ème CTEB", importedFromStudentId: previous }));
       await fixture.db.doc(`payments/${fixture.prefix}-a-${suffix}-old-payment`).set({ schoolId: fixture.schoolId, schoolYearId: fixture.oldYearId, studentId: previous, feeTypeId: `${fixture.prefix}-fee-old`, amount: paid, paidAt: "2025-10-01", currency: "USD" });
       await fixture.db.doc(`payments/${fixture.prefix}-a-${suffix}-extra-settled`).set({ schoolId: fixture.schoolId, schoolYearId: fixture.oldYearId, studentId: previous, feeTypeId: `${fixture.prefix}-fee-old-extra`, amount: 25, paidAt: "2025-10-01", currency: "USD" });
+      await fixture.db.doc(`payments/${fixture.prefix}-a-${suffix}-transport-settled`).set({ schoolId: fixture.schoolId, schoolYearId: fixture.oldYearId, studentId: previous, feeTypeId: `${fixture.prefix}-fee-settled`, amount: 40, paidAt: "2025-10-01", currency: "USD" });
     }
     await fixture.db.doc(`schools/${bSchool}`).set({ id: bSchool, name: schoolB, schoolType: "Mixte", educationLevels: ["Primaire", "CTEB"], currency: "CDF", status: "active", activeSchoolYearId: bYear, activeCoordinationId: fixture.coordinationId, subscriptionStatus: "active", subscriptionPlan: "Premium" });
     await fixture.db.doc(`schoolYears/${bYear}`).set({ id: bYear, schoolId: bSchool, name: "2026-2027", startsAt: "2026-09-01", endsAt: "2027-07-31", status: "active", currency: "CDF" });
@@ -139,7 +140,9 @@ test("Contrôle — critères financiers séparés et isolés par école sur Sta
         if (role === "coordination_admin") await page.getByRole("button", { name: "Exporter PDF", exact: true }).click().then(() => savePdf(page, "coord-all-fees-b"));
         await selectCriterion(page, `Tous les frais — ${schoolA} <`);
         await page.getByLabel("Filtre", { exact: true }).fill("1");
-        await expect(rows()).toHaveText("Zéro A Test", { timeout: 120000 });
+        await expect(rows()).toHaveCount(3, { timeout: 120000 });
+        for (const name of ["Exact Test", "Vingt Test", "Zéro A Test"]) await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
+        await expect(page.getByRole("button", { name: "Zéro B Test", exact: true })).toHaveCount(0);
         await selectCriterion(page, `Tous les frais — ${schoolB} <`);
         await expect(rows()).toHaveText("Zéro B Test", { timeout: 120000 });
         await selectCriterion(page, `Frais B — ${schoolB} ≥`);
@@ -153,7 +156,9 @@ test("Contrôle — critères financiers séparés et isolés par école sur Sta
         await expect(rows()).toHaveText("Finance Élève", { timeout: 120000 });
         await selectCriterion(page, `Minerval — ${schoolA} <`);
         await page.getByLabel("Filtre", { exact: true }).fill("1");
-        await expect(rows()).toHaveText("Zéro A Test", { timeout: 120000 });
+        await expect(rows()).toHaveCount(3, { timeout: 120000 });
+        for (const name of ["Exact Test", "Vingt Test", "Zéro A Test"]) await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
+        await expect(page.getByRole("button", { name: "Zéro B Test", exact: true })).toHaveCount(0);
         const schoolScope = page.getByLabel("Filtrer par école", { exact: true });
         await schoolScope.selectOption(bSchool);
         await page.getByRole("button", { name: "Montant payé", exact: true }).click();
