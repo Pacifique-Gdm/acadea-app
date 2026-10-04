@@ -23,6 +23,7 @@ export function useCoordinationControlPage(user: AppUser, schools: School[], sel
   const [pageKey, setPageKey] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [errorKey, setErrorKey] = useState("");
   const schoolKey = schools.map((school) => school.id).sort().join("|");
   const activeYearKey = schools.map((school) => `${school.id}:${school.activeSchoolYearId ?? ""}`).sort().join("|");
   const contextKey = `${schoolKey}:${activeYearKey}:${refreshToken}`;
@@ -49,17 +50,18 @@ export function useCoordinationControlPage(user: AppUser, schools: School[], sel
   useEffect(() => {
     if (metadataKey !== contextKey || pageIndex >= cursors.length) return;
     let cancelled = false;
-    setLoading(true); setError("");
+    setLoading(true); setError(""); setErrorKey("");
     loadCoordinationControlPage(filters, fees, amountFilter, cursors[pageIndex], arrearsFilter)
       .then((result) => { if (!cancelled) { setPage(result); setPageKey(currentPageKey); } })
-      .catch(() => { if (!cancelled) setError("Impossible de charger la page du contrôle."); })
+      .catch(() => { if (!cancelled) { setError("Impossible de charger la page du contrôle."); setErrorKey(currentPageKey); } })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [metadataKey, contextKey, pageIndex, cursors, currentPageKey, filters, fees, amountFilter, arrearsFilter]);
   useEffect(() => { if (metadataKey === contextKey && selectedYearId && selectedYearId !== COORDINATION_ACTIVE_YEAR && !years.some((year) => year.id === selectedYearId && (!selectedSchoolId || year.schoolId === selectedSchoolId))) setSelectedYearId(COORDINATION_ACTIVE_YEAR); }, [contextKey, metadataKey, selectedSchoolId, selectedYearId, years]);
   useEffect(() => { if (metadataKey === contextKey && option && !options.includes(option)) setOption(""); }, [contextKey, metadataKey, option, options]);
+  const pagePending = pageKey !== currentPageKey && errorKey !== currentPageKey;
   return { years, fees, classChoices, options, filters, amountFilter, filterKey, metadataReady: metadataKey === contextKey, selectedYearId, setSelectedYearId, status, setStatus, option, setOption,
-    rows: pageKey === currentPageKey ? page.rows : [], loading: loading || (!metadataError && metadataKey !== contextKey), error: metadataError || error, pageIndex,
+    rows: pageKey === currentPageKey ? page.rows : [], loading: loading || (!metadataError && (metadataKey !== contextKey || pagePending)), error: metadataError || (errorKey === currentPageKey ? error : ""), pageIndex,
     hasNext: pageKey === currentPageKey && Boolean(page.nextCursor),
     previous: () => setPageIndex((value) => Math.max(0, value - 1)),
     next: () => { if (!page.nextCursor || pageKey !== currentPageKey) return; setCursors((value) => [...value.slice(0, pageIndex + 1), page.nextCursor]); setPageIndex((value) => value + 1); },

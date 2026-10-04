@@ -105,7 +105,7 @@ describe("filtres du Contrôle", () => {
     expect(source).toContain('row.feeSummaries.every((summary) => summary.paid >= threshold)');
     expect(source).toContain('row.feeSummaries.some((summary) => summary.paid < threshold)');
     expect(adminBar).toContain('className="pdf-export-button h-10 min-w-0 px-2 lg:flex-1 lg:basis-0"');
-    expect(adminBar).toContain('<Download className="h-4 w-4" /> Exporter PDF');
+    expect(adminBar).toContain('<Download className="h-4 w-4" /> {pdfExporting ? "En cours..." : "Exporter PDF"}');
     expect(adminBar.indexOf('<PaidAmountDropdown')).toBeLessThan(adminBar.indexOf('<MoneyInput value={amountThreshold}'));
     expect(adminBar.indexOf('<MoneyInput value={amountThreshold}')).toBeLessThan(adminBar.indexOf('Exporter PDF'));
     expect(adminBar).toContain('title="Réinitialiser" aria-label="Réinitialiser"');
@@ -115,6 +115,17 @@ describe("filtres du Contrôle", () => {
     expect(adminBar).toContain("lg:flex-1 lg:basis-0");
     expect(adminBar).toContain('className="mb-3 w-full min-w-0 max-w-full"');
     expect(adminBar).toContain('className="grid w-full min-w-0 grid-cols-1 items-stretch gap-2 box-border sm:grid-cols-2 lg:flex lg:flex-nowrap lg:items-center lg:gap-1.5"');
+  });
+
+  it("suit le calcul du montant et verrouille l'export PDF pendant sa promesse", () => {
+    const source = readFileSync(new URL("../modules/control/ControlModule.tsx", import.meta.url), "utf8");
+    expect(source).toContain("useDeferredValue(amountThreshold)");
+    expect(source).toContain("deferredAmountThreshold !== amountThreshold || filterArrearsLoading");
+    expect(source).toContain('{amountSearching && <p role="status">Recherche...</p>}');
+    expect(source).toContain("if (pdfExportingRef.current) return;");
+    expect(source).toContain("try { await generateFilteredStudentsPdf(); }");
+    expect(source).toContain("finally { pdfExportingRef.current = false; setPdfExporting(false); }");
+    expect(source).toContain("disabled={pdfExporting || amountSearching || Boolean(filterArrearsError)}");
   });
 
   it("réinitialise le timer du message de confirmation et le nettoie", () => {

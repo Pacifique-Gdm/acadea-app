@@ -32,4 +32,13 @@ describe("disposition des filtres Coordination et Sous-coordination", () => {
     expect(portal).toContain('className="mx-auto flex max-w-6xl flex-wrap');
     expect(portal).toContain('className="mx-auto grid max-w-6xl gap-4 px-4 py-5"');
   });
+
+  it("masque les résultats périmés pendant la recherche et verrouille les PDF jusqu'à la fin", () => {
+    expect(page).toContain("pageKey !== currentPageKey && errorKey !== currentPageKey");
+    expect(page).toContain("rows: pageKey === currentPageKey ? page.rows : []");
+    expect(control).toContain('amountComparator && amountThreshold ? "Recherche..." : "Chargement du contrôle…"');
+    expect(control).toContain("if (pdfExportingRef.current) return;");
+    expect(control).toContain("finally { pdfExportingRef.current = false; setPdfExporting(false); }");
+    expect(control).toContain('pdfExporting ? "En cours..." : "Exporter PDF"');
+  });
 });
