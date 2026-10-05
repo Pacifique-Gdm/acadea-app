@@ -868,7 +868,7 @@ export function ControlModule({
       await renderAcadPdfPreview({
         filename: `controle-arrieres-${year.name}.pdf`, title: "Rapport d'arriérés", school, year,
         subtitle: `Critère : Arriérés ${amountComparator === "arrears-gte" ? "≥" : "<"} ${amountThreshold ? formatMoney(Number(amountThreshold)) : "tous"}`,
-        sections: controlArrearsPdfSections(filteredStudents, details, resolveSchoolCurrency(school)),
+        sections: [pdfInfoGrid([{ label: "Nombre d'élèves :", value: filteredStudents.length }]), ...controlArrearsPdfSections(filteredStudents, details, resolveSchoolCurrency(school))],
       });
       return;
     }
@@ -909,6 +909,7 @@ export function ControlModule({
       year,
       subtitle: `Critère : ${filterLabel}`,
       sections: [
+        pdfInfoGrid([{ label: "Nombre d'élèves :", value: rows.length }]),
         pdfSection(
           "Élèves filtrés",
           pdfTable(

@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
-import { formatStudentPdfClassName, formatStudentPdfOptionName, sortStudentsAlphabeticallyForPdf } from "./studentPdf";
-import type { SchoolClassRecord, Student } from "../types";
+import { describe, expect, it, vi } from "vitest";
+import { exportStudentsPdf, formatStudentPdfClassName, formatStudentPdfOptionName, sortStudentsAlphabeticallyForPdf } from "./studentPdf";
+import type { School, SchoolClassRecord, SchoolYear, Student } from "../types";
+import { renderAcadPdfPreview } from "./pdf";
+
+vi.mock("./pdf", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./pdf")>();
+  return { ...original, renderAcadPdfPreview: vi.fn() };
+});
 
 describe("ordre des élèves dans les PDF", () => {
   it("utilise le même ordre nom, postnom, prénom que la pagination UI", () => {
@@ -10,6 +16,18 @@ describe("ordre des élèves dans les PDF", () => {
       { id: "1", nom: "Alpha", postnom: "A", prenom: "B" },
     ];
     expect(sortStudentsAlphabeticallyForPdf(students).map((student) => student.id)).toEqual(["1", "2", "3"]);
+  });
+});
+
+describe("compteur de la liste PDF Élèves", () => {
+  it("affiche près de l'en-tête le nombre de lignes réellement exportées, y compris au-delà d'une page", async () => {
+    const students = Array.from({ length: 58 }, (_, index) => ({
+      id: `student-${index}`, nom: `Nom ${index}`, postnom: "", prenom: "", className: "1ère Primaire",
+    })) as Student[];
+    await exportStudentsPdf({ id: "school" } as School, { id: "year", name: "2027-2028" } as SchoolYear, students, ["Toutes les classes"]);
+    const options = vi.mocked(renderAcadPdfPreview).mock.calls.at(-1)?.[0];
+    expect(options?.sections[0]).toMatch(/Nombre d&#039;élèves\s*:\s*<\/span>\s*<strong>58<\/strong>/);
+    expect(options?.sections[1].match(/<tr>/g)).toHaveLength(60);
   });
 });
 

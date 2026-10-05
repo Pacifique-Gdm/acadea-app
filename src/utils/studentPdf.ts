@@ -76,6 +76,7 @@ export async function exportStudentsPdf(school: School, year: SchoolYear, studen
     year,
     subtitle: `Filtres appliqués : ${filters.join(" | ")}`,
     sections: [
+      pdfInfoGrid([{ label: "Nombre d'élèves :", value: orderedStudents.length }]),
       pdfSection(
         "Élèves",
         pdfTable(
