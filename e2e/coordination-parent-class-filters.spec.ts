@@ -6,7 +6,7 @@ async function seedParentClasses(fixture: Awaited<ReturnType<typeof coordination
   const { prefix, db, schoolId, coordinationId, subCoordinationId, yearId } = fixture;
   const schools = { a: schoolId, b: `${prefix}-school-b`, c: `${prefix}-school-c`, d: `${prefix}-school-d` };
   const years = { a: yearId, b: `${prefix}-year-b`, c: `${prefix}-year-c`, d: `${prefix}-year-d`, oldD: `${prefix}-year-d-old` };
-  const parents = { a: `${prefix}-parent-a`, b: `${prefix}-parent-b`, c: `${prefix}-parent-c`, d: `${prefix}-parent-d` };
+  const parents = { a: `${prefix}-parent-a`, b: `${prefix}-parent-b`, c: `${prefix}-parent-c`, d: `${schools.d}__${years.d}__1ere-humanite` };
   const batch = db.batch();
   batch.update(db.doc(`schools/${schools.a}`), { educationLevels: ["Primaire", "CTEB"] });
   for (const [letter, name, levels, options] of [
@@ -22,7 +22,7 @@ async function seedParentClasses(fixture: Awaited<ReturnType<typeof coordination
     batch.set(db.doc(`schoolYears/${years[letter]}`), { id: years[letter], schoolId, name: "2027-2028", status: "active", startsAt: "2027-09-01", endsAt: "2028-07-31", currency: "USD" });
   }
   batch.set(db.doc(`schoolYears/${years.oldD}`), { id: years.oldD, schoolId: schools.d, name: "2026-2027", status: "archived", startsAt: "2026-09-01", endsAt: "2027-07-31", currency: "USD" });
-  for (const [letter, name, section] of [["a", "1ère Primaire", "Primaire"], ["b", "7ème CTEB", "CTEB"], ["c", "2ème Humanité", "Secondaire"], ["d", "1ère Humanité", "Secondaire"]] as const) {
+  for (const [letter, name, section] of [["b", "7ème CTEB", "CTEB"], ["c", "2ème Humanité", "Secondaire"], ["d", "1ère", "Secondaire"]] as const) {
     batch.set(db.doc(`classes/${parents[letter]}`), { id: parents[letter], schoolId: schools[letter], schoolYearId: years[letter], name, section, active: true });
   }
   for (const [school, parent, base, options] of [
@@ -43,6 +43,7 @@ async function seedParentClasses(fixture: Awaited<ReturnType<typeof coordination
       className, ...(option ? { option } : {}), ...(classId ? { classId } : {}) }));
   }
   addStudent(`${prefix}-a-student`, schools.a, years.a, "1ère Primaire", "", parents.a);
+  addStudent(`${prefix}-a-third`, schools.a, years.a, "3ème Primaire");
   addStudent(`${prefix}-b-student`, schools.b, years.b, "7ème CTEB", "", parents.b);
   for (const option of ["Sciences", "Littéraire", "Commerciale"]) addStudent(`${prefix}-c-${option}`, schools.c, years.c, "2ème Humanité", option, parents.c);
   for (let index = 0; index < 58; index++) {
@@ -51,6 +52,7 @@ async function seedParentClasses(fixture: Awaited<ReturnType<typeof coordination
       index === 28 ? "1ère Scientifique" : "1ère Humanité", index === 28 ? "" : science ? "Sciences" : "Littéraire", parents.d);
   }
   addStudent(`${prefix}-d-old-student`, schools.d, years.oldD, "3ème Humanité");
+  addStudent(`${prefix}-d-third`, schools.d, years.d, "3ème Humanité");
   await batch.commit();
   return { schools, years };
 }
@@ -89,6 +91,8 @@ test("Coordination et Sous-coordination : parents distincts, options et paginati
         await expect.poll(async () => parent.locator("option").allTextContents(), { timeout: 60_000 }).toEqual(expect.arrayContaining([
           "1ère Primaire — École E2E Finance Coordination", "7ème CTEB — École E2E CTEB",
           "2ème Humanité — École E2E Humanité 2", "1ère Humanité — École E2E Humanité 1",
+          "3ème Primaire — École E2E Finance Coordination", "8ème CTEB — École E2E CTEB",
+          "3ème Humanité — École E2E Humanité 1",
         ]));
         const labels = await parent.locator("option").allTextContents();
         expect(labels.join(" ")).not.toMatch(/1ère Sciences|1ère Littéraire|1ère Scientifique|2ème Sciences|2ème Littéraire/);
@@ -130,7 +134,7 @@ test("Coordination et Sous-coordination : parents distincts, options et paginati
         await expect(parent).toHaveValue("");
         await expect(option).toHaveValue("");
         await expect.poll(async () => (await parent.locator("option").allTextContents()).join(" ")).toContain("3ème Humanité");
-        expect((await parent.locator("option").allTextContents()).join(" ")).not.toContain("1ère Humanité");
+        expect((await parent.locator("option").allTextContents()).join(" ")).toContain("1ère Humanité");
         for (const width of [1440, 768, 390]) {
           await page.setViewportSize({ width, height: 900 });
           expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
