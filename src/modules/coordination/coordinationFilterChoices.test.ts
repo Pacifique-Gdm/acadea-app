@@ -47,6 +47,8 @@ describe("filtres Coordination en cascade", () => {
     const choices = coordinationFilterChoices([schools[0]], [years[1]], [], "school-a", COORDINATION_ACTIVE_YEAR, ["Secondaire"], "");
     expect(choices.classes.length).toBeGreaterThan(0);
     expect(choices.options).toEqual(["Commerciale", "Sciences"]);
+    const parent = coordinationFilterChoices([schools[0]], [years[1]], [], "school-a", COORDINATION_ACTIVE_YEAR, ["Secondaire"], "school-a::1ère Humanité");
+    expect(parent.options).toEqual([]);
   });
 
   it("n'invente pas d'option dans une année opérationnelle qui n'en a aucune", () => {
@@ -117,7 +119,7 @@ describe("filtres Coordination en cascade", () => {
       { name: "1ère Sciences", option: "Sciences", operational: true },
     ]);
     const unmaterialized = coordinationFilterChoices([configured], [year("active-year", configured.id)], sparse, configured.id, COORDINATION_ACTIVE_YEAR, [], "configured::3ème Humanité");
-    expect(unmaterialized.options).toEqual(["Littéraire", "Sciences"]);
+    expect(unmaterialized.options).toEqual([]);
   });
 
   it("reflète immédiatement une modification des sections de l'école sans liste de classes parallèle", () => {

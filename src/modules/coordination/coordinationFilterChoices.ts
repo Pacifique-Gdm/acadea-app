@@ -60,7 +60,7 @@ export function coordinationFilterChoices(
     const available = operational.length ? operational.map((record) => {
       const raw = record.option?.trim() || operationalClassOptionKey(record)?.split("::").at(-1) || "";
       return configured.find((name) => optionKey(name) === optionKey(raw)) || raw;
-    }) : configured;
+    }) : !selectedClass && scoped.length === 0 ? configured : [];
     for (const raw of available) {
       const name = canonicalSchoolOption(raw);
       if (name) options.set(optionKey(name), name);
