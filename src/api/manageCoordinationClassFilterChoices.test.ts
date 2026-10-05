@@ -49,6 +49,21 @@ describe("métadonnées de classes bornées à la Coordination", () => {
     expect(mocks.where).not.toHaveBeenCalled();
   });
 
+  it("transmet l'identité legacy de l'option et le label des sous-classes sans champ privé", async () => {
+    mocks.records = [
+      { id: "humanity", data: { schoolId: "school-a", schoolYearId: "year-a", name: "1ère Humanité" } },
+      { id: "humanity::scientifique", data: { schoolId: "school-a", schoolYearId: "year-a", name: "1ère Scientifique" } },
+      { id: "humanity::a", data: { schoolId: "school-a", schoolYearId: "year-a", name: "1ère Humanité A", parentClassId: "humanity", subClassLabel: "A", privateNote: "excluded" } },
+    ];
+    const res = response(); await handler(request(), res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.classes).toEqual([
+      { id: "humanity", schoolId: "school-a", schoolYearId: "year-a", name: "1ère Humanité" },
+      { id: "humanity::scientifique", schoolId: "school-a", schoolYearId: "year-a", name: "1ère Scientifique" },
+      { id: "humanity::a", schoolId: "school-a", schoolYearId: "year-a", name: "1ère Humanité A", parentClassId: "humanity", subClassLabel: "A" },
+    ]);
+  });
+
   it("découpe un périmètre multi-écoles sans requête in supérieure à 30", async () => {
     mocks.scope = Array.from({ length: 31 }, (_, index) => `school-${index}`);
     const res = response(); await handler(request(), res);

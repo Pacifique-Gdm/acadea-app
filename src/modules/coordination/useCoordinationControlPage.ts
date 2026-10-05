@@ -57,7 +57,7 @@ export function useCoordinationControlPage(user: AppUser, schools: School[], sel
   const validOption = options.includes(option) ? option : "";
   const classChoicesReady = classMetadataKey === contextKey;
   const classFilterReady = classFilterReadyForPage(classKey, option, classChoicesReady, Boolean(choice), Boolean(validOption));
-  const filters = useMemo<CoordinationStudentFilters>(() => ({ schools, years, selectedSchoolId, selectedYearId, filterSchoolId: choice?.schoolId ?? "", search: "", status, className: choice?.name ?? "", option: validOption, allowedSections: sections }), [schools, years, selectedSchoolId, selectedYearId, choice?.schoolId, choice?.name, status, validOption, sections]);
+  const filters = useMemo<CoordinationStudentFilters>(() => ({ schools, years, selectedSchoolId, selectedYearId, filterSchoolId: choice?.schoolId ?? "", search: "", status, className: choice?.name ?? "", classBranchesBySource: choice?.branchesBySource, option: validOption, allowedSections: sections }), [schools, years, selectedSchoolId, selectedYearId, choice?.schoolId, choice?.name, choice?.branchesBySource, status, validOption, sections]);
   const amountFilter = useMemo(() => ({ comparator: amountComparator, threshold: amountThreshold }), [amountComparator, amountThreshold]);
   const filterKey = JSON.stringify({ contextKey, selectedSchoolId, selectedYearId, classKey, status, option, sections, amountFilter, arrearsFilter });
   const currentPageKey = `${filterKey}:${pageIndex}`;

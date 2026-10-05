@@ -20,12 +20,14 @@ export type CoordinationStudentFilters = {
   search: string;
   status: CoordinationStudentStatus;
   className: string;
+  classBranchesBySource?: Record<string, Array<{ name: string; option?: string; operational: boolean }>>;
   option: string;
   allowedSections: readonly SchoolSection[];
 };
 
+type CoordinationStudentSource = { schoolId: string; schoolYearId: string; className?: string; skipOptionConstraint?: boolean };
 type SourceState = {
-  source: { schoolId: string; schoolYearId: string };
+  source: CoordinationStudentSource;
   pending: QueryDocumentSnapshot<DocumentData>[];
   last?: QueryDocumentSnapshot<DocumentData>;
   exhausted: boolean;
@@ -40,7 +42,19 @@ export function coordinationStudentSources(filters: CoordinationStudentFilters) 
       && (!filters.selectedSchoolId || year.schoolId === filters.selectedSchoolId)
       && (!filters.filterSchoolId || year.schoolId === filters.filterSchoolId)
       && (filters.selectedYearId === COORDINATION_ACTIVE_YEAR ? year.id === allowedSchools.get(year.schoolId)?.activeSchoolYearId : !filters.selectedYearId || year.id === filters.selectedYearId))
-    .map((year) => ({ schoolId: year.schoolId, schoolYearId: year.id }));
+    .flatMap((year): CoordinationStudentSource[] => {
+      const source = { schoolId: year.schoolId, schoolYearId: year.id };
+      if (!filters.className) return [source];
+      const branches = filters.classBranchesBySource?.[`${year.schoolId}::${year.id}`] ?? [{ name: filters.className, operational: false }];
+      const selectedOption = canonicalSchoolOption(filters.option);
+      const names = new Set<string>();
+      return branches.filter((branch) => !selectedOption || !branch.operational || canonicalSchoolOption(branch.option ?? "") === selectedOption)
+        .flatMap((branch) => {
+          if (names.has(branch.name)) return [];
+          names.add(branch.name);
+          return [{ ...source, className: branch.name, skipOptionConstraint: Boolean(selectedOption && branch.operational) }];
+        });
+    });
 }
 
 export function coordinationYearChoices(years: readonly SchoolYear[], schools: readonly School[]) {
@@ -49,14 +63,14 @@ export function coordinationYearChoices(years: readonly SchoolYear[], schools: r
   return years.filter((year) => allowed.has(year.schoolId)).sort((a, b) => Number(active.has(b.id)) - Number(active.has(a.id)) || b.startsAt.localeCompare(a.startsAt) || b.name.localeCompare(a.name, "fr") || a.schoolId.localeCompare(b.schoolId) || a.id.localeCompare(b.id));
 }
 
-export function coordinationStudentConstraints(filters: CoordinationStudentFilters, source: { schoolId: string; schoolYearId: string }): QueryConstraint[] {
+export function coordinationStudentConstraints(filters: CoordinationStudentFilters, source: CoordinationStudentSource): QueryConstraint[] {
   const constraints: QueryConstraint[] = [where("schoolId", "==", source.schoolId), where("schoolYearId", "==", source.schoolYearId)];
   const sections = [...new Set(filters.allowedSections)];
   if (sections.length === 1) constraints.push(where("section", "==", sections[0]));
   else if (sections.length > 1) constraints.push(where("section", "in", sections.slice(0, 10)));
   if (filters.status !== "all") constraints.push(where("searchArchived", "==", filters.status === "archived"));
-  if (filters.className) constraints.push(where("className", "==", filters.className));
-  if (filters.option) constraints.push(where("option", "==", canonicalSchoolOption(filters.option)));
+  if (source.className || filters.className) constraints.push(where("className", "==", source.className || filters.className));
+  if (filters.option && !source.skipOptionConstraint) constraints.push(where("option", "==", canonicalSchoolOption(filters.option)));
   const search = normalizeStudentSearch(filters.search);
   if (search) constraints.push(where("searchPrefixes", "array-contains", search));
   return constraints;
@@ -93,7 +107,7 @@ export async function loadCoordinationStudentPage(filters: CoordinationStudentFi
   const sources = coordinationStudentSources(filters);
   const sourceFetchSize = coordinationSourceFetchSize(sources.length);
   const states: SourceState[] = sources.map((source) => {
-    const previous = cursor?.sourceStates?.find((state) => state.source.schoolId === source.schoolId && state.source.schoolYearId === source.schoolYearId);
+    const previous = cursor?.sourceStates?.find((state) => state.source.schoolId === source.schoolId && state.source.schoolYearId === source.schoolYearId && state.source.className === source.className);
     return previous ? { ...previous, pending: [...previous.pending] } : { source, pending: [], last: undefined, exhausted: false };
   });
   let fetchedDocuments = 0;

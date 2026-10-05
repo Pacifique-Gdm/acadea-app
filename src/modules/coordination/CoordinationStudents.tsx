@@ -68,7 +68,7 @@ export function CoordinationStudents({ user, coordination, schools, selectedScho
   const optionChoice = options.find((choice) => choice.value === optionKey);
   const classChoicesReady = classMetadataKey === classContextKey;
   const classFilterReady = classFilterReadyForPage(classKey, optionKey, classChoicesReady, Boolean(classChoice), Boolean(optionChoice));
-  const filters = useMemo<CoordinationStudentFilters>(() => ({ schools, years, selectedSchoolId, selectedYearId, filterSchoolId: classChoice?.schoolId || "", search, status, className: classChoice?.name ?? "", option: optionChoice?.name ?? "", allowedSections }), [allowedSections, classChoice?.name, classChoice?.schoolId, optionChoice?.name, schools, years, selectedSchoolId, selectedYearId, search, status]);
+  const filters = useMemo<CoordinationStudentFilters>(() => ({ schools, years, selectedSchoolId, selectedYearId, filterSchoolId: classChoice?.schoolId || "", search, status, className: classChoice?.name ?? "", classBranchesBySource: classChoice?.branchesBySource, option: optionChoice?.name ?? "", allowedSections }), [allowedSections, classChoice?.name, classChoice?.schoolId, classChoice?.branchesBySource, optionChoice?.name, schools, years, selectedSchoolId, selectedYearId, search, status]);
   const filterKey = JSON.stringify({ schools: schoolIdsKey, activeYearKey, years: years.map((year) => year.id).sort(), selectedSchoolId, selectedYearId, search, status, classKey, optionKey, allowedSections, refreshToken });
   const currentPageKey = `${filterKey}|${pageIndex}`;
   const students = pageKey === currentPageKey ? page.students : [];

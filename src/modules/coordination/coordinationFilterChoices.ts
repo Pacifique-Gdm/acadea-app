@@ -2,9 +2,10 @@ import type { School, SchoolClassRecord, SchoolSection, SchoolYear, Student } fr
 import { getSchoolClassChoices, getSchoolSections } from "../../utils/schoolConfig";
 import { getClassSection } from "../../utils/studentClasses";
 import { canonicalSchoolOption, normalizeSchoolOptions } from "../../utils/schoolOptions";
+import { operationalBaseClassId, operationalClassOptionKey } from "../../utils/studentYearTransition.js";
 import { COORDINATION_ACTIVE_YEAR } from "../../services/coordinationStudentPagination";
 
-export type CoordinationClassChoice = { value: string; label: string; schoolId: string; name: string };
+export type CoordinationClassChoice = { value: string; label: string; schoolId: string; name: string; branchesBySource: Record<string, Array<{ name: string; option?: string; operational: boolean }>> };
 
 function optionKey(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase("fr");
@@ -22,12 +23,17 @@ export function coordinationFilterChoices(
   for (const year of sources) {
     const school = visibleSchools.find((item) => item.id === year.schoolId)!;
     const scoped = records.filter((record) => record.schoolId === school.id && record.schoolYearId === year.id && record.active !== false);
-    const baseClasses = scoped.filter((record) => !record.parentClassId && !record.option && !record.classOptionKey);
+    const baseClasses = scoped.filter((record) => operationalBaseClassId(record) === record.id && !record.option && !record.classOptionKey);
     const classNames = baseClasses.length ? baseClasses.map((record) => record.name) : getSchoolClassChoices(school);
     for (const name of classNames) {
       if (allowedSections.length && !allowedSections.includes(getClassSection(name as Student["className"]))) continue;
       const value = `${school.id}::${name}`;
-      names.set(value, { value, name, schoolId: school.id, label: `${name}${selectedSchoolId ? "" : ` — ${school.name}`}` });
+      const parent = baseClasses.find((record) => record.name === name);
+      const branches = [{ name, operational: false }, ...scoped.filter((record) => parent && record.id !== parent.id && operationalBaseClassId(record) === parent.id)
+        .map((record) => ({ name: record.name, option: canonicalSchoolOption(record.option?.trim() || operationalClassOptionKey(record)?.split("::").at(-1) || ""), operational: true }))];
+      const previous = names.get(value);
+      names.set(value, { value, name, schoolId: school.id, label: `${name}${selectedSchoolId ? "" : ` — ${school.name}`}`,
+        branchesBySource: { ...previous?.branchesBySource, [`${school.id}::${year.id}`]: branches } });
     }
   }
   const classes = [...names.values()].sort((a, b) => a.label.localeCompare(b.label, "fr"));
@@ -38,13 +44,16 @@ export function coordinationFilterChoices(
     if (!getSchoolSections(school).includes("Secondaire") || selectedClass && selectedClass.schoolId !== school.id) continue;
     if (selectedClass && getClassSection(selectedClass.name as Student["className"]) !== "Secondaire") continue;
     const scoped = records.filter((record) => record.schoolId === school.id && record.schoolYearId === year.id && record.active !== false);
-    const parents = scoped.filter((record) => !record.parentClassId && !record.option && !record.classOptionKey);
+    const parents = scoped.filter((record) => operationalBaseClassId(record) === record.id && !record.option && !record.classOptionKey);
     const selectedParents = selectedClass ? parents.filter((record) => record.name === selectedClass.name) : parents;
     const parentIds = new Set(selectedParents.map((record) => record.id));
     const configured = normalizeSchoolOptions(school.schoolOptions);
-    const operational = scoped.filter((record) => (record.option || record.classOptionKey)
-      && (!selectedClass || parentIds.has(record.parentClassId ?? record.id)));
-    const available = operational.length ? operational.map((record) => record.option?.trim() || configured.find((name) => optionKey(name) === record.classOptionKey?.split("::").at(-1)) || "") : scoped.length === 0 ? configured : [];
+    const operational = scoped.filter((record) => operationalBaseClassId(record) !== record.id && (record.option || operationalClassOptionKey(record))
+      && (!selectedClass || parentIds.has(operationalBaseClassId(record))));
+    const available = operational.length ? operational.map((record) => {
+      const raw = record.option?.trim() || operationalClassOptionKey(record)?.split("::").at(-1) || "";
+      return configured.find((name) => optionKey(name) === optionKey(raw)) || raw;
+    }) : scoped.length === 0 ? configured : [];
     for (const raw of available) {
       const name = canonicalSchoolOption(raw);
       if (name) options.set(optionKey(name), name);

@@ -344,7 +344,7 @@ export default async function handler(req, res) {
       const classes = snapshots.flatMap((snapshot) => snapshot.docs.flatMap((item) => {
         const value = item.data();
         if (!allowed.has(value.schoolId) || typeof value.schoolYearId !== "string" || typeof value.name !== "string" || value.active === false) return [];
-        return [{ id: item.id, schoolId: value.schoolId, schoolYearId: value.schoolYearId, name: value.name, ...(typeof value.parentClassId === "string" ? { parentClassId: value.parentClassId } : {}), ...(typeof value.option === "string" ? { option: value.option } : {}), ...(typeof value.classOptionKey === "string" ? { classOptionKey: value.classOptionKey } : {}) }];
+        return [{ id: item.id, schoolId: value.schoolId, schoolYearId: value.schoolYearId, name: value.name, ...(typeof value.parentClassId === "string" ? { parentClassId: value.parentClassId } : {}), ...(typeof value.option === "string" ? { option: value.option } : {}), ...(typeof value.classOptionKey === "string" ? { classOptionKey: value.classOptionKey } : {}), ...(typeof value.subClassLabel === "string" ? { subClassLabel: value.subClassLabel } : {}) }];
       }));
       return sendJson(res, 200, { classes });
     }

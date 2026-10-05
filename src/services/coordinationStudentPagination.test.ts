@@ -116,4 +116,50 @@ describe("pagination serveur Coordination / Sous-coordination", () => {
     expect(second.students.map((item) => item.id)).toEqual(["a-050", ...datasets["school-b"]]);
     expect(second.nextCursor).toBeUndefined();
   });
+
+  it("pagine le parent et ses branches opérationnelles sans mélanger options, écoles ou années", async () => {
+    const records = [
+      ...Array.from({ length: 30 }, (_, i) => ({ id: `d-sci-${String(i).padStart(3, "0")}`, schoolId: "school-d", schoolYearId: "year-d", className: "1ère Humanité", option: "Sciences" })),
+      ...Array.from({ length: 26 }, (_, i) => ({ id: `d-lit-${String(i).padStart(3, "0")}`, schoolId: "school-d", schoolYearId: "year-d", className: "1ère Humanité", option: "Littéraire" })),
+      ...Array.from({ length: 2 }, (_, i) => ({ id: `d-legacy-${String(i).padStart(3, "0")}`, schoolId: "school-d", schoolYearId: "year-d", className: "1ère Sciences", option: "" })),
+      { id: "d-other", schoolId: "school-d", schoolYearId: "year-d", className: "2ème Humanité", option: "Sciences" },
+      { id: "c-other", schoolId: "school-c", schoolYearId: "year-c", className: "1ère Humanité", option: "Sciences" },
+      { id: "d-old", schoolId: "school-d", schoolYearId: "old-d", className: "1ère Humanité", option: "Sciences" },
+    ].map((item) => ({ ...item, sortName: item.id }));
+    mocks.getDocs.mockImplementation(async (request) => {
+      const clauses = request.parts.filter((part: { kind?: string }) => part.kind === "where");
+      const cursor = request.parts.find((part: { kind?: string }) => part.kind === "cursor")?.values;
+      const cursorId = cursor?.[0]?.id ?? cursor?.[1];
+      const take = request.parts.find((part: { kind?: string }) => part.kind === "limit")?.value ?? 50;
+      const selected = records.filter((item) => clauses.every((clause: { field: string; op: string; value: string }) => clause.op !== "==" || String(item[clause.field as keyof typeof item]) === clause.value))
+        .filter((item) => !cursorId || item.id > cursorId).sort((a, b) => a.id.localeCompare(b.id)).slice(0, take);
+      return { size: selected.length, docs: selected.map((item) => ({ id: item.id, get: (field: string) => item[field as keyof typeof item], data: () => item })) };
+    });
+    const scoped = {
+      ...filters,
+      schools: [school("school-c", "active"), school("school-d", "active")].map((item) => ({ ...item, activeSchoolYearId: item.id === "school-d" ? "year-d" : "year-c" })),
+      years: [year("year-c", "school-c"), year("year-d", "school-d"), year("old-d", "school-d")],
+      filterSchoolId: "school-d", selectedYearId: COORDINATION_ACTIVE_YEAR, search: "", status: "all" as const, allowedSections: [],
+      className: "1ère Humanité", classBranchesBySource: { "school-d::year-d": [
+        { name: "1ère Humanité", operational: false }, { name: "1ère Sciences", option: "Sciences", operational: true },
+        { name: "1ère Littéraire", option: "Littéraire", operational: true },
+      ] },
+    };
+    const first = await loadCoordinationStudentPage(scoped);
+    expect(first.students).toHaveLength(50);
+    expect(first.nextCursor).toBeDefined();
+    const second = await loadCoordinationStudentPage(scoped, first.nextCursor);
+    expect(second.students).toHaveLength(8);
+    const combined = [...first.students, ...second.students];
+    expect(new Set(combined.map((item) => item.id)).size).toBe(58);
+    expect(combined.every((item) => item.schoolId === "school-d" && item.schoolYearId === "year-d")).toBe(true);
+    expect(second.nextCursor).toBeUndefined();
+    const sciences = await loadCoordinationStudentPage({ ...scoped, option: "Sciences" });
+    expect(sciences.students).toHaveLength(32);
+    expect(sciences.students.every((item) => item.option === "Sciences" || String(item.className) === "1ère Sciences")).toBe(true);
+    const literary = await loadCoordinationStudentPage({ ...scoped, option: "Littéraire" });
+    expect(literary.students).toHaveLength(26);
+    expect(literary.students.every((item) => item.option === "Littéraire")).toBe(true);
+    expect(mocks.getDocs.mock.calls.every(([request]) => request.parts.some((part: { kind?: string; field?: string }) => part.kind === "where" && part.field === "className"))).toBe(true);
+  });
 });
