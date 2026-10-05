@@ -22,6 +22,7 @@ type AcadPdfOptions = {
   school: School;
   year?: SchoolYear;
   subtitle?: string;
+  studentCount?: number;
   generatedAt?: Date;
   showGeneratedAt?: boolean;
   showDocumentTitle?: boolean;
@@ -146,7 +147,7 @@ export function pdfSection(title: string, bodyHtml: string, options: { pageBreak
   `;
 }
 
-export async function renderAcadPdfPreview({ filename, title, school, year, subtitle, generatedAt = new Date(), showGeneratedAt = true, showDocumentTitle = true, centerDocumentTitle = false, pdfSettings, sections, copyLabels, singlePageFit = false }: AcadPdfOptions) {
+export async function renderAcadPdfPreview({ filename, title, school, year, subtitle, studentCount, generatedAt = new Date(), showGeneratedAt = true, showDocumentTitle = true, centerDocumentTitle = false, pdfSettings, sections, copyLabels, singlePageFit = false }: AcadPdfOptions) {
   const profileEnabled = import.meta.env.DEV || ["staging", "preview"].includes(import.meta.env.VITE_APP_ENV ?? "");
   const profileStart = performance.now();
   const layout = getPdfLayout(pdfSettings);
@@ -157,7 +158,7 @@ export async function renderAcadPdfPreview({ filename, title, school, year, subt
   const resourcesReadyAt = performance.now();
   const element = document.createElement("div");
   element.className = "acadea-pdf";
-  const htmlOptions = { title, school, year, subtitle, generatedAt, showGeneratedAt, logoDataUrl, showDocumentTitle, centerDocumentTitle, sections, pdfSettings: layout.settings, renderWidth: layout.windowWidth };
+  const htmlOptions = { title, school, year, subtitle, studentCount, generatedAt, showGeneratedAt, logoDataUrl, showDocumentTitle, centerDocumentTitle, sections, pdfSettings: layout.settings, renderWidth: layout.windowWidth };
   element.innerHTML = copyLabels
     ? buildTwoCopyPdfHtml({ ...htmlOptions, copyLabels, renderHeight: layout.contentHeight * (layout.windowWidth / layout.contentWidth) })
     : buildPdfHtml(htmlOptions);
@@ -380,6 +381,7 @@ type PdfHtmlOptions = {
   school: School;
   year?: SchoolYear;
   subtitle?: string;
+  studentCount?: number;
   generatedAt: Date;
   showGeneratedAt?: boolean;
   logoDataUrl: string;
@@ -473,6 +475,7 @@ function buildPdfContentHtml({
   school,
   year,
   subtitle,
+  studentCount,
   generatedAt,
   showGeneratedAt,
   logoDataUrl,
@@ -503,6 +506,7 @@ function buildPdfContentHtml({
       <h2>${escapePdfHtml(title)}</h2>
       ${subtitle ? `<span>${escapePdfHtml(subtitle)}</span>` : ""}
       ${showGeneratedAt !== false ? `<small>Date de génération : ${escapePdfHtml(generatedAt.toLocaleString("fr-FR"))}</small>` : ""}
+      ${studentCount !== undefined ? `<small>Nombre d'élèves : ${escapePdfHtml(studentCount)}</small>` : ""}
     </div>` : ""}
     ${sections.join("")}
   `;

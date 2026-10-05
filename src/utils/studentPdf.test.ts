@@ -26,8 +26,10 @@ describe("compteur de la liste PDF Élèves", () => {
     })) as Student[];
     await exportStudentsPdf({ id: "school" } as School, { id: "year", name: "2027-2028" } as SchoolYear, students, ["Toutes les classes"]);
     const options = vi.mocked(renderAcadPdfPreview).mock.calls.at(-1)?.[0];
-    expect(options?.sections[0]).toMatch(/Nombre d&#039;élèves\s*:\s*<\/span>\s*<strong>58<\/strong>/);
-    expect(options?.sections[1].match(/<tr>/g)).toHaveLength(60);
+    expect(options?.studentCount).toBe(58);
+    expect(options?.sections).toHaveLength(1);
+    expect(options?.sections[0].match(/<tr>/g)).toHaveLength(60);
+    expect(options?.sections.join("")).not.toContain("Nombre d'élèves");
   });
 });
 

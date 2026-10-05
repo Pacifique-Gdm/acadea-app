@@ -36,6 +36,30 @@ describe("typographie du moteur PDF HTML", () => {
     }
   });
 
+  it("place le compteur dans la carte Acadéa après la date, sans carte indépendante", () => {
+    const html = buildTwoCopyPdfHtml({
+      title: "Liste des élèves",
+      school: { id: "school-a", name: "École Acadéa" } as School,
+      generatedAt: new Date("2026-10-05T12:00:00.000Z"),
+      studentCount: 53,
+      logoDataUrl: "",
+      showDocumentTitle: true,
+      centerDocumentTitle: false,
+      sections: [pdfSection("Élèves", "<table></table>")],
+      pdfSettings: DEFAULT_PDF_SETTINGS,
+      renderWidth: 900,
+      renderHeight: 1348,
+      copyLabels: ["EXEMPLAIRE ÉCOLE", "EXEMPLAIRE PARENT"],
+    });
+    const cards = [...html.matchAll(/<div class="document-title[^>]*">([\s\S]*?)<\/div>/g)];
+    expect(cards).toHaveLength(2);
+    for (const [, card] of cards) {
+      expect(card).toMatch(/Date de génération :[^<]*<\/small>\s*<small>Nombre d'élèves : 53<\/small>/);
+    }
+    expect(html.match(/Nombre d'élèves : 53/g)).toHaveLength(2);
+    expect(html).not.toContain('<div class="info-box"><span>Nombre d');
+  });
+
   it("utilise les métriques natives du navigateur sans chemin graphème par graphème", () => {
     const source = readFileSync(new URL("./pdf.ts", import.meta.url), "utf8");
     expect(source).toContain("letter-spacing: normal !important");

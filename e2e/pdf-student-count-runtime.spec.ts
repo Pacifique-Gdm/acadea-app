@@ -10,9 +10,14 @@ async function exportAndCheck(page: Page, name: string, count: number, tab: "stu
     const state = window as typeof window & { __e2ePdfStudentCount?: string };
     state.__e2ePdfStudentCount = undefined;
     const observer = new MutationObserver(() => {
-      const box = [...document.querySelectorAll<HTMLElement>(".acadea-pdf .info-box")]
-        .find((element) => element.textContent?.includes("Nombre d'élèves :"));
-      if (box) state.__e2ePdfStudentCount = box.textContent?.replace(/\s+/g, " ").trim();
+      const card = document.querySelector<HTMLElement>(".acadea-pdf .document-title");
+      const date = [...(card?.querySelectorAll("small") ?? [])].find((element) => element.textContent?.startsWith("Date de génération :"));
+      const count = date?.nextElementSibling;
+      if (count?.tagName === "SMALL" && count.textContent?.startsWith("Nombre d'élèves :")
+        && document.querySelectorAll(".acadea-pdf .document-title").length === 1
+        && [...document.querySelectorAll(".acadea-pdf .info-box")].every((element) => !element.textContent?.includes("Nombre d'élèves :"))) {
+        state.__e2ePdfStudentCount = count.textContent.replace(/\s+/g, " ").trim();
+      }
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
     window.setTimeout(() => observer.disconnect(), 120_000);

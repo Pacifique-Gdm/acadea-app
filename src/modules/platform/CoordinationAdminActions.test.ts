@@ -25,11 +25,14 @@ describe("actions du Drawer Coordination", () => {
   it("affiche un seul Drawer à la fois et revient aux informations sans perdre les actions", () => {
     const source = readFileSync(new URL("./CoordinationAdminActions.tsx", import.meta.url), "utf8");
     expect(source).toContain('key={panel ?? "details"}');
-    expect(source).toContain('title={panel === "edit" ? "Modifier la Coordination" : panel === "coordinators" ? "Coordinateurs" : coordination.name}');
+    expect(source).toContain('panel === "add-coordinator" ? "Ajouter coordinateur"');
     expect(source).toContain('onClose={panel ? closePanel : onClose}');
     expect(source).toContain('{!panel && <>');
     expect(source).toContain('{panel === "edit" && <form');
     expect(source).toContain('{panel === "coordinators" && <div');
+    expect(source).toContain('setPanel("add-coordinator")');
+    expect(source).toContain('editor && (panel === "coordinators" || panel === "add-coordinator") && <form');
+    expect(source).toContain('if (saved && editor === "new") setPanel("coordinators")');
     expect(source).toContain('if (saved) setPanel(null)');
   });
 });

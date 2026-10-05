@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Download, RotateCcw } from "lucide-react";
 import { AdminDrawer, Metric, SectionTitle } from "../../components/ui";
 import type { AppUser, Coordination, Expense, Payment, School, Student } from "../../types";
-import { escapePdfHtml, generateExpensePdf, generateReceiptPdf, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
+import { escapePdfHtml, generateExpensePdf, generateReceiptPdf, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import { activityTimestamp } from "../../utils/activityHistory";
 import { resolveExpenseCashierName, resolvePaymentCashierName } from "../../utils/finance";
 import { MISSING_FINANCIAL_OPERATION_SCHOOL_ERROR, resolveFinancialOperationSchool } from "../../utils/financialOperationSchool";
@@ -112,11 +112,12 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
       }
       await renderAcadPdfPreview({ filename: `controle-arrieres-${contextSchool.id}.pdf`, title: "Rapport d'arriérés", school: coordinationPdfInstitution(coordination, contextSchool),
         subtitle: `École : ${contextSchool.name} | Critère : Arriérés ${arrearsCriterion[2] === "gte" ? "≥" : "<"} ${amountThreshold ? formatCurrencyMoney(Number(amountThreshold), resolveSchoolCurrency(contextSchool)) : "tous"}`,
-        sections: [pdfInfoGrid([{ label: "Nombre d'élèves :", value: exportRows.length }]), ...controlArrearsPdfSections(exportRows.map((row) => row.student), details, resolveSchoolCurrency(contextSchool))],
+        studentCount: exportRows.length,
+        sections: controlArrearsPdfSections(exportRows.map((row) => row.student), details, resolveSchoolCurrency(contextSchool)),
       });
       return;
     }
-    await renderAcadPdfPreview({ filename: `controle-coordination-${selectedSchoolId || "toutes"}.pdf`, title: "Contrôle", school: coordinationPdfInstitution(coordination, contextSchool), subtitle: `École : ${selectedSchoolId ? contextSchool.name : "Toutes les écoles"} | Classe : ${classChoices.find((item) => item.value === classKey)?.label ?? "Toutes"} | Montant : ${amountOptions.find((item) => item.value === amountComparator)?.label ?? "Tous"} ${amountThreshold}`.trim(), sections: [pdfInfoGrid([{ label: "Nombre d'élèves :", value: exportRows.length }]), pdfSection("Suivi des paiements", pdfTable([
+    await renderAcadPdfPreview({ filename: `controle-coordination-${selectedSchoolId || "toutes"}.pdf`, title: "Contrôle", school: coordinationPdfInstitution(coordination, contextSchool), subtitle: `École : ${selectedSchoolId ? contextSchool.name : "Toutes les écoles"} | Classe : ${classChoices.find((item) => item.value === classKey)?.label ?? "Toutes"} | Montant : ${amountOptions.find((item) => item.value === amountComparator)?.label ?? "Tous"} ${amountThreshold}`.trim(), studentCount: exportRows.length, sections: [pdfSection("Suivi des paiements", pdfTable([
       { header: "Élève", render: (row) => escapePdfHtml(`${row.student.nom} ${row.student.prenom}`) },
       { header: "École", render: (row) => escapePdfHtml(schoolName(row.student.schoolId)) },
       { header: "Classe", render: (row) => escapePdfHtml(formatStudentClassName(row.student)) },

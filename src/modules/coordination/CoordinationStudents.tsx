@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Download, Search } from "lucide-react";
 import type { AppUser, Coordination, School, SchoolClassRecord, SchoolSection, SchoolYear, Student } from "../../types";
 import { coordinationPdfInstitution } from "./coordinationPdfInstitution";
-import { escapePdfHtml, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
+import { escapePdfHtml, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import { isArchivedStudent } from "../../utils/studentUtils";
 import { loadCoordinationClassFilterChoices } from "../../services/coordinationService";
@@ -105,7 +105,8 @@ export function CoordinationStudents({ user, coordination, schools, selectedScho
       await renderAcadPdfPreview({
         filename: `coordination-eleves-${selectedSchoolId || "toutes"}.pdf`, title: "Élèves — Coordination", school: coordinationPdfInstitution(coordination, contextSchool),
         subtitle: `École : ${selectedSchoolId ? contextSchool.name : "Toutes les écoles"} | Année : ${selectedYearId === COORDINATION_ACTIVE_YEAR ? "Année active" : selectedYearId || "Toutes"} | Recherche : ${search || "Toutes"} | Statut : ${status === "all" ? "Tous" : status === "active" ? "Actifs" : "Archivés"} | Classe : ${classChoice?.label ?? "Toutes les classes"} | Option : ${optionChoice?.label ?? "Toutes les options"}`,
-        sections: [pdfInfoGrid([{ label: "Nombre d'élèves :", value: exportStudents.length }]), pdfSection("Élèves", pdfTable([
+        studentCount: exportStudents.length,
+        sections: [pdfSection("Élèves", pdfTable([
           { header: "Matricule", render: (student) => escapePdfHtml(student.matricule || "—") },
           { header: "Élève", render: (student) => escapePdfHtml(`${student.nom} ${student.postnom} ${student.prenom}`.trim()) },
           { header: "École", render: (student) => escapePdfHtml(schoolName(student.schoolId)) },
