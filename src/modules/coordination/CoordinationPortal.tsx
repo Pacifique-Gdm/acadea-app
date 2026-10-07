@@ -15,6 +15,7 @@ import { useCoordinationInbox } from "../../hooks/useCoordinationInbox";
 import { MessagingDrawerShell } from "../../components/messages/MessagingDrawerShell";
 import { MessageDrawerContent } from "../../components/messages/MessageDrawerContent";
 import { runRefreshTask } from "../../utils/refreshTask";
+import { coordinationSchoolBatches } from "../../services/coordinationSchoolBatches";
 
 type CoordinationTab = "dashboard" | "students" | "control" | "messages" | "menu";
 const emptySupervisionModel: CoordinationDashboardReadModel = { students: [], feeTypes: [], payments: [], expenses: [], personnel: [], schoolYears: [] };
@@ -58,15 +59,18 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
       const nextRelations = snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as CoordinationSchool | SubCoordinationSchool));
       setRelations(nextRelations);
       const schoolIds = [...new Set(nextRelations.map((relation) => relation.schoolId))];
-      const chunks = Array.from({ length: Math.ceil(schoolIds.length / 30) }, (_, index) => schoolIds.slice(index * 30, index * 30 + 30));
+      const chunks = coordinationSchoolBatches(schoolIds, user.role === "sub_coordination_admin");
       const loaded = new Map<number, School[]>();
-      if (chunks.length === 0) setSchools([]);
+      setSchools([]);
       chunks.forEach((ids, index) => {
         stopSchoolListeners.push(onSnapshot(query(collection(database, "schools"), where(documentId(), "in", ids)), (schoolsSnapshot) => {
           if (revision !== relationRevision) return;
           loaded.set(index, schoolsSnapshot.docs.map((item) => ({ id: item.id, ...item.data() } as School)));
-          if (loaded.size === chunks.length) setSchools([...loaded.values()].flat());
-        }, () => setError("Impossible de charger les écoles rattachées.")));
+          if (loaded.size === chunks.length) {
+            setSchools(chunks.flatMap((_, batchIndex) => loaded.get(batchIndex) ?? []));
+            setError((current) => current === "Impossible de charger les écoles rattachées." ? "" : current);
+          }
+        }, () => { if (revision === relationRevision) { loaded.delete(index); setSchools([]); setError("Impossible de charger les écoles rattachées."); } }));
       });
       setSelectedSchoolId((current) => current && !nextRelations.some((item) => item.schoolId === current) ? "" : current);
     }, () => setError("Impossible de charger les écoles rattachées."));
@@ -81,19 +85,33 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
 
   const activeSchools = useMemo(() => schools.filter((school) => school.status === "active" && relations.some((relation) => relation.schoolId === school.id)), [relations, schools]);
   const supervisionScope = useMemo(() => activeSchools.map((school) => school.id).sort().join("|"), [activeSchools]);
+  const supervisionRequestRef = useRef(0);
+  const supervisionScopeRef = useRef(supervisionScope);
+  supervisionScopeRef.current = supervisionScope;
   const inbox = useCoordinationInbox(user, activeSchools, refreshToken);
 
   const loadSupervision = useCallback(async () => {
     if (!supervisionScope) { setSupervisionModel(emptySupervisionModel); setLoadedSupervisionScope(""); return; }
+    const requestId = ++supervisionRequestRef.current;
     setSupervisionLoading(true); setSupervisionError("");
     try {
-      const model = await loadCoordinationDashboardReadModel(activeSchools.map((school) => school.id));
-      setSupervisionModel(model); setLoadedSupervisionScope(supervisionScope);
+      const model = await loadCoordinationDashboardReadModel(activeSchools.map((school) => school.id), user.role === "sub_coordination_admin");
+      if (requestId === supervisionRequestRef.current && supervisionScopeRef.current === supervisionScope) {
+        setSupervisionModel(model); setLoadedSupervisionScope(supervisionScope);
+      }
     } catch {
-      setSupervisionError("Impossible de charger les données de supervision.");
+      if (requestId === supervisionRequestRef.current && supervisionScopeRef.current === supervisionScope) setSupervisionError("Impossible de charger les données de supervision.");
       throw new Error("Chargement de la supervision impossible.");
-    } finally { setSupervisionLoading(false); }
-  }, [activeSchools, supervisionScope]);
+    } finally { if (requestId === supervisionRequestRef.current) setSupervisionLoading(false); }
+  }, [activeSchools, supervisionScope, user.role]);
+
+  useEffect(() => {
+    if (supervisionScope) return;
+    supervisionRequestRef.current++;
+    setSupervisionModel(emptySupervisionModel);
+    setLoadedSupervisionScope("");
+    setSupervisionLoading(false);
+  }, [supervisionScope]);
 
   useEffect(() => {
     if (tab !== "dashboard" || !supervisionScope || loadedSupervisionScope === supervisionScope) return;

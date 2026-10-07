@@ -89,10 +89,16 @@ describe("finalisation du module Coordination", () => {
   });
 
   it("borne les lectures multi-écoles par lots et pages", () => {
-    expect(readModel).toContain("index += 30");
+    expect(readModel).toContain("mapCoordinationSchoolBatches(schoolIds, isDelegate");
     expect(readModel).toContain("limit(500)");
     expect(readModel).toContain("startAfter(cursor)");
     expect(recipientApi).toContain("limit(500)");
+    expect(portal).toContain("coordinationSchoolBatches(schoolIds, user.role === \"sub_coordination_admin\")");
+    expect(portal).toContain("loaded.size === chunks.length");
+    expect(portal).toContain("chunks.flatMap((_, batchIndex) => loaded.get(batchIndex) ?? [])");
+    expect(portal).toContain("loaded.delete(index); setSchools([])");
+    expect(portal).toContain("revision === relationRevision");
+    expect(portal).toContain("stopSchoolListeners.forEach((stop) => stop())");
   });
 
   it("partage les cinq onglets avec le Sous-coordinateur", () => {

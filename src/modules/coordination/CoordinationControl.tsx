@@ -47,12 +47,12 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
     if (!historyOpen) return;
     let cancelled = false;
     setHistory({ students: [], payments: [], expenses: [] }); setHistoryLoading(true); setDocumentError("");
-    loadCoordinationControlHistory(historyScope ? historyScope.split("|") : [])
+    loadCoordinationControlHistory(historyScope ? historyScope.split("|") : [], user.role === "sub_coordination_admin")
       .then((value) => { if (!cancelled) setHistory(value); })
       .catch(() => { if (!cancelled) setDocumentError("Impossible de charger l'historique du contrôle."); })
       .finally(() => { if (!cancelled) setHistoryLoading(false); });
     return () => { cancelled = true; };
-  }, [historyOpen, historyScope, refreshToken]);
+  }, [historyOpen, historyScope, refreshToken, user.role]);
   useEffect(() => { setSelectedStudentId(""); }, [page.filterKey]);
   const schoolsById = useMemo(() => new Map(schools.map((school) => [school.id, school])), [schools]);
   const studentsById = useMemo(() => new Map(history.students.map((student) => [student.id, student])), [history.students]);

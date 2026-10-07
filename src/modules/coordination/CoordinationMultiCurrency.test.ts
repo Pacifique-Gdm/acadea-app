@@ -35,7 +35,7 @@ describe("représentation multi-devise de la Coordination", () => {
   });
 
   it("charge les données une fois par collection puis agrège localement", () => {
-    expect(readModel).toContain('loadBySchools<Student>("students", schoolIds)');
+    expect(readModel).toContain('loadBySchools<Student>("students", schoolIds, isDelegate)');
     expect(readModel).toContain("Promise.all");
     expect(readModel).not.toContain("loadByCurrency");
   });

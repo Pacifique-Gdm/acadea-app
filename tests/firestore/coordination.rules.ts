@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
 import { collection, deleteDoc, doc, documentId, getDoc, getDocs, limit, orderBy, query, setDoc, updateDoc, where } from "firebase/firestore";
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
+import { coordinationSchoolBatches } from "../../src/services/coordinationSchoolBatches";
 
 let environment: RulesTestEnvironment;
 const coordinationId = "coord-a";
@@ -85,6 +86,27 @@ describe("SEC — isolation Coordination", () => {
     await assertFails(getDoc(doc(db, "students", "student-b")));
     await assertSucceeds(getDocs(query(collection(db, "students"), where("schoolId", "in", [schoolA]))));
     await assertSucceeds(getDocs(query(collection(db, "schools"), where(documentId(), "in", [schoolA]))));
+  });
+
+  it("charge 14 écoles coordonnées par lots compatibles avec le budget des Rules", async () => {
+    const schoolIds = Array.from({ length: 14 }, (_, index) => `scale-school-${index}`);
+    for (const schoolId of schoolIds) {
+      await seed(`schools/${schoolId}`, { id: schoolId, name: schoolId, status: "active", activeCoordinationId: coordinationId });
+      await seed(`coordinationSchools/${coordinationId}__${schoolId}`, { coordinationId, schoolId, active: true });
+      await seed(`subCoordinationSchools/sub-a__${schoolId}`, { coordinationId, subCoordinationId: "sub-a", schoolId, active: true });
+    }
+    const principal = database("coord-user");
+    const delegate = subDatabase();
+    await assertFails(getDocs(query(collection(principal, "schools"), where(documentId(), "in", schoolIds))));
+    for (const ids of coordinationSchoolBatches(schoolIds, false)) {
+      await assertSucceeds(getDocs(query(collection(principal, "schools"), where(documentId(), "in", ids))));
+      await assertSucceeds(getDocs(query(collection(principal, "schoolYears"), where("schoolId", "in", ids))));
+    }
+    for (const ids of coordinationSchoolBatches(schoolIds, true)) {
+      await assertSucceeds(getDocs(query(collection(delegate, "schools"), where(documentId(), "in", ids))));
+      await assertSucceeds(getDocs(query(collection(delegate, "schoolYears"), where("schoolId", "in", ids))));
+    }
+    await assertFails(getDocs(query(collection(delegate, "schools"), where(documentId(), "in", [schoolIds[0], schoolB]))));
   });
 
   it("refuse les mutations métier et les écoles indépendantes", async () => {

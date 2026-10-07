@@ -34,11 +34,11 @@ export function useCoordinationControlPage(user: AppUser, schools: School[], sel
     let cancelled = false;
     setMetadataKey(""); setMetadataError("");
     const ids = schoolKey ? schoolKey.split("|") : [];
-    Promise.all([loadCoordinationStudentYears(ids), loadCoordinationControlFees(ids)])
+    Promise.all([loadCoordinationStudentYears(ids, user.role === "sub_coordination_admin"), loadCoordinationControlFees(ids, user.role === "sub_coordination_admin")])
       .then(([nextYears, nextFees]) => { if (!cancelled) { setYears(nextYears); setFees(nextFees); setMetadataKey(contextKey); } })
       .catch(() => { if (!cancelled) setMetadataError("Impossible de charger les années et frais du contrôle."); });
     return () => { cancelled = true; };
-  }, [contextKey, schoolKey]);
+  }, [contextKey, schoolKey, user.role]);
   useEffect(() => {
     let cancelled = false;
     setClassMetadataKey(""); setClassMetadataError(""); setClasses([]);

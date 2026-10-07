@@ -6,20 +6,20 @@ import { buildControlFeeGroups } from "../utils/controlFilters";
 import { COORDINATION_STUDENT_PAGE_SIZE, loadCoordinationStudentPage, type CoordinationStudentCursor, type CoordinationStudentFilters } from "./coordinationStudentPagination";
 import { loadCoordinationStudentArrearsBatch } from "./coordinationService";
 import { arrearsFilterActive, emptyArrearsFilter, matchesArrearsFilter, type ArrearsFilter, type ArrearsTotals } from "../utils/arrearsFilter";
+import { mapCoordinationSchoolBatches } from "./coordinationSchoolBatches";
 
 export type ControlRow = { student: Student; feeSummaries: StudentFeeSummary[]; balance: { expected: number; paid: number; remaining: number }; progress: number };
 export type ControlAmountFilter = { comparator: string; threshold: string };
 export type CoordinationControlCursor = { studentCursor?: CoordinationStudentCursor; pending: ControlRow[]; exhausted: boolean };
 export type CoordinationControlPage = { rows: ControlRow[]; nextCursor?: CoordinationControlCursor; fetchedStudents: number };
 
-async function bySchools<T>(name: string, schoolIds: readonly string[]): Promise<T[]> {
+async function bySchools<T>(name: string, schoolIds: readonly string[], isDelegate: boolean): Promise<T[]> {
   if (!db || !schoolIds.length) return [];
-  const chunks = Array.from({ length: Math.ceil(schoolIds.length / 30) }, (_, i) => schoolIds.slice(i * 30, i * 30 + 30));
-  const snapshots = await Promise.all(chunks.map((ids) => getDocs(query(collection(db as unknown as Firestore, name), where("schoolId", "in", ids)))));
+  const snapshots = await mapCoordinationSchoolBatches(schoolIds, isDelegate, (ids) => getDocs(query(collection(db as unknown as Firestore, name), where("schoolId", "in", ids))));
   return snapshots.flatMap((snapshot) => snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as T)));
 }
 
-export const loadCoordinationControlFees = (schoolIds: readonly string[]) => bySchools<FeeType>("feeTypes", schoolIds);
+export const loadCoordinationControlFees = (schoolIds: readonly string[], isDelegate: boolean) => bySchools<FeeType>("feeTypes", schoolIds, isDelegate);
 
 export function buildCoordinationAmountOptions(schools: Pick<School, "id" | "name">[], fees: FeeType[]) {
   return schools.flatMap((school) => {
@@ -99,8 +99,8 @@ export async function loadCoordinationControlPage(filters: CoordinationStudentFi
   return { rows, fetchedStudents, nextCursor: pending.length || !exhausted ? { pending, studentCursor, exhausted } : undefined };
 }
 
-export async function loadCoordinationControlHistory(schoolIds: readonly string[]) {
-  const [payments, expenses] = await Promise.all([bySchools<Payment>("payments", schoolIds), bySchools<Expense>("expenses", schoolIds)]);
+export async function loadCoordinationControlHistory(schoolIds: readonly string[], isDelegate: boolean) {
+  const [payments, expenses] = await Promise.all([bySchools<Payment>("payments", schoolIds, isDelegate), bySchools<Expense>("expenses", schoolIds, isDelegate)]);
   const students: Student[] = [];
   if (db) for (const schoolId of schoolIds) {
     const ids = [...new Set(payments.filter((payment) => payment.schoolId === schoolId).map((payment) => payment.studentId))];

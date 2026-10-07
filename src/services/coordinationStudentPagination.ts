@@ -4,6 +4,7 @@ import type { FeeType, Payment, School, SchoolSection, SchoolYear, Student } fro
 import { canonicalSchoolOption } from "../utils/schoolOptions";
 import { normalizeStudentSearch } from "../utils/studentSearch.js";
 import type { CoordinationStudentStatus } from "../utils/coordinationSupervision";
+import { mapCoordinationSchoolBatches } from "./coordinationSchoolBatches";
 
 export const COORDINATION_STUDENT_PAGE_SIZE = 50;
 export const COORDINATION_ACTIVE_YEAR = "active";
@@ -80,11 +81,10 @@ function studentFromSnapshot(snapshot: QueryDocumentSnapshot<DocumentData>): Stu
   return { id: snapshot.id, ...snapshot.data() } as Student;
 }
 
-export async function loadCoordinationStudentYears(schoolIds: readonly string[]): Promise<SchoolYear[]> {
+export async function loadCoordinationStudentYears(schoolIds: readonly string[], isDelegate: boolean): Promise<SchoolYear[]> {
   if (!db || schoolIds.length === 0) return [];
   const database = db as unknown as Firestore;
-  const chunks = Array.from({ length: Math.ceil(schoolIds.length / 30) }, (_, index) => schoolIds.slice(index * 30, index * 30 + 30));
-  const results = await Promise.all(chunks.map((ids) => getDocs(query(collection(database, "schoolYears"), where("schoolId", "in", ids)))));
+  const results = await mapCoordinationSchoolBatches(schoolIds, isDelegate, (ids) => getDocs(query(collection(database, "schoolYears"), where("schoolId", "in", ids))));
   return results.flatMap((snapshot) => snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as SchoolYear)));
 }
 
