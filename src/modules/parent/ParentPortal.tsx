@@ -25,6 +25,7 @@ import { formatMedicalRecordValue, medicalRecordSections } from "../secretary/me
 import type { StudentMedicalRecord } from "../secretary/secretaryTypes";
 import { AdministrativeRecipientSelector } from "../messages/AdministrativeRecipientSelector";
 import { filterRecipientsByDirectoryKind, resolveAdministrativeRecipientIds, type AdministrativeRecipientMode, type RecipientDirectoryKind } from "../messages/administrativeRecipientSelection";
+import { LibraryDrawer } from "../library/LibraryDrawer";
 
 type ParentTab = "children" | "messages" | "menu";
 
@@ -83,6 +84,7 @@ export function ParentPortal({
   const [parentAccountOpen, setParentAccountOpen] = useState(false);
   const [parentHistoryOpen, setParentHistoryOpen] = useState(false);
   const [parentValvesOpen, setParentValvesOpen] = useState(false);
+  const [parentLibraryOpen, setParentLibraryOpen] = useState(false);
   const [parentMessageDrawerOpen, setParentMessageDrawerOpen] = useState(false);
   const [messageRecipientIds, setMessageRecipientIds] = useState<string[]>([]);
   const [messageRecipientMode, setMessageRecipientMode] = useState<AdministrativeRecipientMode>("all");
@@ -601,6 +603,16 @@ export function ParentPortal({
                 </div>
               </button>
               <button
+                onClick={() => setParentLibraryOpen(true)}
+                className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint"
+                type="button"
+              >
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink"><BookOpen className="h-5 w-5" /></div>
+                  <div className="min-w-0"><h2 className="break-words font-bold text-ink">Bibliothèque</h2><p className="mt-1 break-words text-sm text-slate-500">Ressources pour aider votre enfant à apprendre et à réviser.</p></div>
+                </div>
+              </button>
+              <button
                 onClick={() => setParentAccountOpen(true)}
                 className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint"
                 type="button"
@@ -686,6 +698,7 @@ export function ParentPortal({
           />
         </AdminDrawer>
       )}
+      {parentLibraryOpen && <LibraryDrawer audience="parent" onClose={() => setParentLibraryOpen(false)} />}
 
       {renderBottomNavigation(activeParentTab, (tab: ParentTab) => {
           closeParentMessagesDrawer();
