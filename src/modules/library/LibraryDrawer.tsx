@@ -41,7 +41,7 @@ export function LibraryDrawer({ audience, onClose }: { audience: LibraryAudience
   const hasFilters = Boolean(query || language || origin || accessType);
   const reset = () => { setQuery(""); setLanguage(""); setOrigin(""); setAccessType(""); };
 
-  return <AdminDrawer title="Bibliothèque" closeLabel="Fermer la bibliothèque" onClose={onClose} width="wide">
+  return <AdminDrawer title="Bibliothèque" closeLabel="Fermer la bibliothèque" onClose={onClose}>
     <p className="break-words text-sm text-slate-600">Ressources éducatives externes sélectionnées par Acadéa. Ces contenus sont consultés sur leurs sites respectifs ; Acadéa ne les héberge pas.</p>
     <label className="grid min-w-0 gap-1 text-sm font-semibold text-ink">Rechercher une ressource
       <input className="input min-w-0 w-full" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Nom, description ou catégorie" />
@@ -71,11 +71,11 @@ export function LibraryDrawer({ audience, onClose }: { audience: LibraryAudience
     {resources.length === 0 && <p className="rounded border border-dashed border-slate-300 p-5 text-sm text-slate-600">Aucune ressource ne correspond à vos critères.</p>}
     {official.length > 0 && <section className="grid min-w-0 gap-3" aria-label="Ressources officielles de la RDC">
       <h3 className="break-words text-base font-bold text-ink">Ressources officielles de la RDC</h3>
-      <div className="grid min-w-0 gap-3 md:grid-cols-2">{official.map((resource) => <ResourceCard key={resource.id} resource={resource} audience={audience} />)}</div>
+      <div className="grid min-w-0 grid-cols-1 gap-3">{official.map((resource) => <ResourceCard key={resource.id} resource={resource} audience={audience} />)}</div>
     </section>}
     {complementary.length > 0 && <section className="grid min-w-0 gap-3" aria-label="Ressources éducatives complémentaires">
       <h3 className="break-words text-base font-bold text-ink">Ressources éducatives complémentaires</h3>
-      <div className="grid min-w-0 gap-3 md:grid-cols-2">{complementary.map((resource) => <ResourceCard key={resource.id} resource={resource} audience={audience} />)}</div>
+      <div className="grid min-w-0 grid-cols-1 gap-3">{complementary.map((resource) => <ResourceCard key={resource.id} resource={resource} audience={audience} />)}</div>
     </section>}
   </AdminDrawer>;
 }

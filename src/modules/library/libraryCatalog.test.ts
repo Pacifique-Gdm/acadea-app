@@ -47,6 +47,17 @@ describe("Bibliothèque — catalogue unique", () => {
 });
 
 describe("Bibliothèque — Drawer et menus", () => {
+  it("garde la largeur standard du Drawer et une seule colonne de ressources pour chaque rôle", () => {
+    for (const audience of ["study_director", "teacher", "parent"] as const) {
+      const markup = renderToStaticMarkup(createElement(LibraryDrawer, { audience, onClose: () => undefined }));
+      expect(markup).toContain("sm:max-w-xl");
+      expect(markup).not.toContain("sm:max-w-3xl");
+      expect(markup.match(/class="grid min-w-0 grid-cols-1 gap-3"/g)).toHaveLength(2);
+      expect(markup).not.toContain("md:grid-cols-2");
+      expect(markup.match(/<article /g)).toHaveLength(selectLibraryResources(audience).length);
+    }
+  });
+
   it("rend les liens externes sécurisés, la distinction RDC et les contrôles de recherche", () => {
     const markup = renderToStaticMarkup(createElement(LibraryDrawer, { audience: "parent", onClose: () => undefined }));
     expect(markup).toContain("Ressources officielles de la RDC");
