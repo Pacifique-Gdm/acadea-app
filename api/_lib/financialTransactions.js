@@ -448,6 +448,7 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
   if (!snapshot.exists) throw new FinancialApiError(404, "not-found", "Transaction financière introuvable.");
   const current = snapshot.data();
   if (current.schoolId !== caller.schoolId) throw new FinancialApiError(403, "permission-denied", "Transaction financière hors établissement.");
+  if (!isPayment && current.personnelPaymentId) throw new FinancialApiError(409, "conflict", "Cette dépense est liée à une paie et ne peut pas être corrigée ou supprimée séparément.");
   const { schoolYearId, actorName } = await assertContext(transaction, db, caller, current.schoolYearId);
   let result;
   if (operation === "delete") {

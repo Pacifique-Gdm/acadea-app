@@ -62,7 +62,7 @@ describe("actions Contrôle partagées selon le rôle", () => {
     expect(source).toContain('const canManageExpenses = user.role === "school_admin"');
     expect(source).toContain('{canCorrectPayments && !payment.collectionSchoolYearId && <button onClick={() => correctPayment(payment)}');
     expect(source).toContain('{canCorrectPayments && !payment.collectionSchoolYearId && <button onClick={() => deletePayment(payment)}');
-    expect(source).toContain('{user.role !== "cashier" && canManageExpenses && <button onClick={() => openEditExpense(expense)}');
-    expect(source).toContain('{user.role !== "cashier" && canManageExpenses && <button onClick={() => setExpenseDeleteTarget(expense)}');
+    expect(source).toContain('{user.role !== "cashier" && canManageExpenses && !expense.personnelPaymentId && <button onClick={() => openEditExpense(expense)}');
+    expect(source).toContain('{user.role !== "cashier" && canManageExpenses && !expense.personnelPaymentId && <button onClick={() => setExpenseDeleteTarget(expense)}');
   });
 });

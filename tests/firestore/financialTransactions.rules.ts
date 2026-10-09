@@ -19,6 +19,7 @@ beforeEach(async () => {
     await setDoc(doc(db, "payments", "payment-a"), { id: "payment-a", schoolId: "school-a", schoolYearId: "year-a", studentId: "student-a", feeTypeId: "fee-a", amount: 10, createdBy: "cashier-a", createdAt: "2026-08-07T12:00:00.000Z", receiptNumber: "REC-2026-0001" });
     await setDoc(doc(db, "payments", "payment-arrears"), { id: "payment-arrears", schoolId: "school-a", schoolYearId: "year-old", collectionSchoolYearId: "year-a", currentStudentId: "student-a", studentId: "student-old", feeTypeId: "fee-old", amount: 5 });
     await setDoc(doc(db, "expenses", "expense-a"), { id: "expense-a", schoolId: "school-a", schoolYearId: "year-a", amount: 10, category: "Fournitures", description: "Papier", createdBy: "cashier-a", createdAt: "2026-08-07T12:00:00.000Z" });
+    await setDoc(doc(db, "personnelPayments", "pay-a"), { id: "pay-a", schoolId: "school-a", beneficiaryId: "teacher-user", amount: 100, netPaid: 90 });
   });
 });
 afterAll(async () => environment.cleanup());
@@ -68,5 +69,13 @@ describe("écritures financières réservées au serveur", () => {
   it("interdit les compteurs et clés d'idempotence au client", async () => {
     await assertFails(setDoc(doc(db("school_admin"), "financialCounters", "counter-a"), { lastReceiptNumber: 999 }));
     await assertFails(setDoc(doc(db("cashier"), "financialIdempotency", "request-a"), { result: {} }));
+  });
+  it("réserve paie, récupérations et verrous de personnel à l'API serveur", async () => {
+    for (const role of ["school_admin", "cashier", "teacher"]) {
+      await assertFails(getDoc(doc(db(role), "personnelPayments", "pay-a")));
+      await assertFails(setDoc(doc(db(role), "personnelPayments", `pay-${role}`), { schoolId: "school-a", beneficiaryId: "teacher-user", amount: 1 }));
+      await assertFails(setDoc(doc(db(role), "personnelPaymentIdempotency", `key-${role}`), { result: {} }));
+      await assertFails(setDoc(doc(db(role), "servicePersonnelPhoneLocks", `lock-${role}`), { schoolId: "school-a" }));
+    }
   });
 });

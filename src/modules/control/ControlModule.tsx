@@ -1,6 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Bell, Download, Edit3, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { AdminDrawer, Field, FormPanel, Metric, MoneyInput, SectionTitle } from "../../components/ui";
+import { PersonnelPaymentForm } from "../../components/personnel/PersonnelPaymentForm";
 import { usePaginatedControlHistory } from "../../hooks/usePaginatedControlHistory";
 import { createExpenseTransaction, createPaymentTransaction, deleteFinancialTransaction, loadStudentArrears, updateExpenseTransaction, updatePaymentTransaction } from "../../services/financialTransactions";
 import type { HistoricalDebt } from "../../services/financialTransactions";
@@ -19,6 +20,7 @@ import { buildControlClassChoices, buildControlFeeGroups, feeNamesForWarningClas
 import { formatStudentClassName } from "../../utils/studentClasses";
 import { formatCurrencyMoney, formatSchoolMoney } from "../../utils/currency";
 import { resolveSchoolCurrency } from "../../utils/currency";
+import { formatCount } from "../../utils/numberFormat";
 import { controlArrearsPdfSections } from "../../utils/controlArrearsPdf";
 import { compareStudentsForPdfByClass, formatStudentPdfClassName } from "../../utils/studentPdf";
 import { filterControlStudentRows } from "../../utils/controlStudentSearch";
@@ -85,7 +87,7 @@ export function ControlModule({
   const [expenseEditError, setExpenseEditError] = useState("");
   const [expenseDeleteTarget, setExpenseDeleteTarget] = useState<Expense | null>(null);
   const [warningOpen, setWarningOpen] = useState(false);
-  const [cashierControlDrawer, setCashierControlDrawer] = useState<"payment" | "expense" | null>(null);
+  const [cashierControlDrawer, setCashierControlDrawer] = useState<"payment" | "expense" | "personnel" | null>(null);
   const [cashierControlFeedback, setCashierControlFeedback] = useState("");
   const [cashierControlFeedbackDrawer, setCashierControlFeedbackDrawer] = useState<"payment" | "expense" | null>(null);
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
@@ -1065,10 +1067,10 @@ export function ControlModule({
                   <button onClick={() => void generateExpensePdf(expense, school, year, resolveExpenseCashierName(expense, yearData.auditLogs))} className="rounded bg-slate-100 p-2" title="Télécharger le justificatif PDF" type="button">
                     <Download className="h-4 w-4" />
                   </button>
-                  {user.role !== "cashier" && canManageExpenses && <button onClick={() => openEditExpense(expense)} className="rounded bg-slate-100 p-2" title="Modifier" type="button">
+                  {user.role !== "cashier" && canManageExpenses && !expense.personnelPaymentId && <button onClick={() => openEditExpense(expense)} className="rounded bg-slate-100 p-2" title="Modifier" type="button">
                     <Edit3 className="h-4 w-4" />
                   </button>}
-                  {user.role !== "cashier" && canManageExpenses && <button onClick={() => setExpenseDeleteTarget(expense)} className="rounded bg-red-50 p-2 text-red-700" title="Supprimer" type="button">
+                  {user.role !== "cashier" && canManageExpenses && !expense.personnelPaymentId && <button onClick={() => setExpenseDeleteTarget(expense)} className="rounded bg-red-50 p-2 text-red-700" title="Supprimer" type="button">
                     <Trash2 className="h-4 w-4" />
                   </button>}
                 </div>
@@ -1319,7 +1321,7 @@ export function ControlModule({
           )}
           {!amountSearching && !filterArrearsError && visibleRows.length > CONTROL_PAGE_SIZE && (
             <nav aria-label="Pagination du contrôle" className="flex flex-wrap items-center justify-between gap-2 text-sm">
-              <span>{visibleRows.length} élèves · page {controlPage}/{controlPageCount}</span>
+              <span>{formatCount(visibleRows.length)} élèves · page {formatCount(controlPage)}/{formatCount(controlPageCount)}</span>
               <div className="flex gap-2">
                 <button type="button" className="secondary-button" disabled={controlPage === 1} onClick={() => setControlPage((current) => Math.max(1, current - 1))}>Précédent</button>
                 <button type="button" className="secondary-button" disabled={controlPage === controlPageCount} onClick={() => setControlPage((current) => Math.min(controlPageCount, current + 1))}>Suivant</button>
@@ -1380,9 +1382,10 @@ export function ControlModule({
         <AdminDrawer title={cashierDrawerTitle} onClose={() => setCashierControlDrawer(null)} closeLabel={`Fermer ${cashierDrawerTitle}`}>
           <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
             Type d'enregistrement
-            <select aria-label="Type d'enregistrement" className="input min-w-0 w-full" value={cashierControlDrawer} onChange={(event) => setCashierControlDrawer(event.target.value as "payment" | "expense")}>
+            <select aria-label="Type d'enregistrement" className="input min-w-0 w-full" value={cashierControlDrawer} onChange={(event) => setCashierControlDrawer(event.target.value as "payment" | "expense" | "personnel")}>
               <option value="payment">Enregistrer un paiement</option>
               <option value="expense">Enregistrer une dépense</option>
+              <option value="personnel">Paiement personnel</option>
             </select>
           </label>
           {cashierControlFeedback && cashierControlFeedbackDrawer === cashierControlDrawer && (
@@ -1457,6 +1460,7 @@ export function ControlModule({
               <button onClick={savePayment} disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button w-full justify-center" type="button"><Plus className="h-4 w-4" /> {paymentSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
             </>
           )}
+          {cashierControlDrawer === "personnel" && <PersonnelPaymentForm school={school} year={year} onRecorded={() => void expenseHistory.loadFirstPage()} />}
           {cashierControlDrawer === "expense" && (
             <>
               <select

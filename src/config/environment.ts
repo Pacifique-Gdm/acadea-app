@@ -7,6 +7,7 @@ export const FIREBASE_PROJECTS: Record<AcadeaEnvironment, string> = {
 
 export type FirebaseEnvironmentInput = {
   appEnv?: string;
+  localEmulator?: boolean;
   projectId?: string;
   apiKey?: string;
   authDomain?: string;
@@ -38,7 +39,7 @@ export function normalizeEnvironment(value?: string): AcadeaEnvironment {
 
 export function validateFirebaseEnvironment(input: FirebaseEnvironmentInput) {
   const environment = normalizeEnvironment(input.appEnv);
-  const expectedProjectId = FIREBASE_PROJECTS[environment];
+  const expectedProjectId = input.localEmulator && environment === "staging" ? "demo-acadea" : FIREBASE_PROJECTS[environment];
   const missing = [
     ["VITE_FIREBASE_API_KEY", input.apiKey],
     ["VITE_FIREBASE_AUTH_DOMAIN", input.authDomain],

@@ -14,6 +14,13 @@ describe("garde-fou E2E", () => {
     expect(() => assertSafeE2EEnvironment({ ACADEA_E2E_BASE_URL: "https://acadea-production.vercel.app", VITE_FIREBASE_PROJECT_ID: "acadea-production" })).toThrow(/Production/);
   });
 
+  it("n'autorise demo-acadea qu'en local avec consentement E2E explicite", () => {
+    const local = { ACADEA_E2E_BASE_URL: "http://127.0.0.1:5173", VITE_FIREBASE_PROJECT_ID: "demo-acadea" };
+    expect(() => assertSafeE2EEnvironment(local)).toThrow("cible non autorisée");
+    expect(assertSafeE2EEnvironment({ ...local, ACADEA_E2E_LOCAL_EMULATORS: "YES" }).firebaseProjectId).toBe("demo-acadea");
+    expect(() => assertSafeE2EEnvironment({ ...local, ACADEA_E2E_LOCAL_EMULATORS: "YES", ACADEA_E2E_BASE_URL: "https://acadea-staging.vercel.app" })).toThrow("cible non autorisée");
+  });
+
   it("préfixe toutes les données créées", () => {
     expect(uniqueTestId("school-a")).toMatch(/^e2e-\d+-[a-f0-9]{8}-school-a$/);
   });

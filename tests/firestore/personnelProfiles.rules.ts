@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
-import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, setDoc, updateDoc, where } from "firebase/firestore";
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
 
 let environment: RulesTestEnvironment;
@@ -39,6 +39,18 @@ describe("profils administratifs du personnel", () => {
     await assertFails(updateDoc(doc(database, "personnelProfiles", "teacher-a"), { observations: "x" }));
     await assertFails(updateDoc(doc(database, "personnelProfiles", "teacher-a"), { schoolId: "school-b" }));
     await assertFails(updateDoc(doc(database, "personnelProfiles", "teacher-a"), { personnelId: "other", id: "other" }));
+  });
+  it("isole les fiches sans compte tout en permettant leur liste à l'Administrateur", async () => {
+    await environment.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), "personnelProfiles", "service-a"), { ...profile, id: "service-a", personnelId: "service-a", kind: "service", schoolId: "school-a", name: "Vigile A" });
+      await setDoc(doc(admin.firestore(), "personnelProfiles", "service-b"), { ...profile, id: "service-b", personnelId: "service-b", kind: "service", schoolId: "school-b", name: "Vigile B" });
+    });
+    const adminDb = context("admin-a", "school_admin");
+    await assertSucceeds(getDoc(doc(adminDb, "personnelProfiles", "service-a")));
+    await assertFails(getDoc(doc(adminDb, "personnelProfiles", "service-b")));
+    await assertFails(getDoc(doc(context("secretary-a", "secretary"), "personnelProfiles", "service-a")));
+    const list = await assertSucceeds(getDocs(query(collection(adminDb, "personnelProfiles"), where("schoolId", "==", "school-a"))));
+    if (!list.docs.some((item) => item.id === "service-a")) throw new Error("Personnel de service absent de la liste autorisée.");
   });
   it("ne change pas les protections users existantes", async () => {
     await assertFails(updateDoc(doc(context("admin-a", "school_admin"), "users", "teacher-a"), { role: "school_admin" }));

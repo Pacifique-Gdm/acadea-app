@@ -662,6 +662,20 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Paie confidentielle : lecture et mutations uniquement via l'API Admin,
+    // qui vérifie l'identité du bénéficiaire à chaque requête.
+    match /personnelPayments/{paymentId} {
+      allow read, write: if false;
+    }
+
+    match /personnelPaymentIdempotency/{requestId} {
+      allow read, write: if false;
+    }
+
+    match /servicePersonnelPhoneLocks/{lockId} {
+      allow read, write: if false;
+    }
+
     match /auditLogs/{auditLogId} {
       allow read: if superAdmin()
         || (coordinator() && resource.data.coordinationId == request.auth.token.coordinationId)
@@ -714,7 +728,10 @@ service cloud.firestore {
     }
 
     match /personnelProfiles/{personnelId} {
-      allow read: if superAdmin()
+      allow list: if superAdmin()
+        || coordinatorSchool(resource.data.schoolId)
+        || (schoolAdmin() && resource.data.schoolId == tenantSchoolId());
+      allow get: if superAdmin()
         || coordinatorSchool(resource.data.schoolId)
         || (schoolAdmin() && (
           (exists(/databases/$(database)/documents/personnelProfiles/$(personnelId))

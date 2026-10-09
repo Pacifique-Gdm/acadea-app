@@ -26,6 +26,14 @@ describe("alignement du Dashboard Coordination", () => {
     expect(dashboard).toContain("formatCurrencyMoney");
   });
 
+  it("formate les compteurs des cartes et tableaux sans toucher aux montants stockés", () => {
+    expect(dashboard).toContain('typeof card.value === "number" ? formatCount(card.value) : card.value');
+    expect(dashboard).toContain("formatCount(row.total)");
+    expect(dashboard).toContain("formatCount(stats.totalStudents)");
+    expect(adminDashboard).toContain("formatCount(row.total)");
+    expect(adminDashboard).toContain("formatCount(totalStudents)");
+  });
+
   it("conserve dans les deux vues les mêmes blocs et la grille responsive des cartes", () => {
     for (const label of ["KPI financier", "Transactions du jour"]) {
       expect(adminDashboard).toContain(label);

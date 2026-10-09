@@ -1,5 +1,6 @@
-import type { AppUser, PersonnelProfile } from "../../types";
-import { isArchivedPersonnel, personnelIdentity, personnelRoleLabels } from "../../services/personnel";
+import type { PersonnelProfile } from "../../types";
+import { isArchivedPersonnel, isServicePersonnel, personnelIdentity, personnelRoleLabels } from "../../services/personnel";
+import type { PersonnelRecord } from "../../services/personnel";
 import { schoolSectionLabels } from "../../utils/schoolConfig";
 import { userSectionIds } from "../../utils/userSections";
 
@@ -11,12 +12,13 @@ const dateShown = (value: unknown) => {
   return Number.isNaN(date.getTime()) ? "Non renseigné" : date.toLocaleDateString("fr-FR");
 };
 
-export function PersonnelProfileReadOnly({ personnel, profile, schoolName }: { personnel: AppUser; profile?: PersonnelProfile; schoolName?: string }) {
+export function PersonnelProfileReadOnly({ personnel, profile, schoolName }: { personnel: PersonnelRecord; profile?: PersonnelProfile; schoolName?: string }) {
   const identity = personnelIdentity(personnel, profile);
+  const service = isServicePersonnel(personnel);
   const detailSections: Array<[string, Array<[string, unknown]>]> = [
     ["IDENTIFICATION", [["Matricule", profile?.matricule], ["Nom", identity.lastName], ["Postnom", identity.middleName], ["Prénom", identity.firstName], ["Sexe", profile?.gender], ["Date de naissance", dateShown(profile?.birthDate)], ["Lieu de naissance", profile?.birthPlace]]],
-    ["COORDONNÉES", [["Téléphone", personnel.phone], ["E-mail", personnel.email], ["Adresse", profile?.address ?? personnel.address]]],
-    ["SITUATION PROFESSIONNELLE", [["Fonction", profile?.jobTitle ?? personnelRoleLabels[personnel.role as keyof typeof personnelRoleLabels]], ...(schoolName ? [["École", schoolName] as [string, unknown]] : []), ["Date d’engagement", dateShown(profile?.engagementDate)], ["Type de contrat", profile?.contractType], ["Sections", userSectionIds(personnel).map((section) => schoolSectionLabels[section]).join(", ")], ["Statut", isArchivedPersonnel(personnel) ? "Archivé" : "Actif"]]],
+    ["COORDONNÉES", [["Téléphone", personnel.phone], ...(!service ? [["E-mail", personnel.email] as [string, unknown]] : []), ["Adresse", profile?.address ?? (service ? undefined : personnel.address)]]],
+    ["SITUATION PROFESSIONNELLE", [["Fonction", profile?.jobTitle ?? (service ? personnel.jobTitle : personnelRoleLabels[personnel.role as keyof typeof personnelRoleLabels])], ...(schoolName ? [["École", schoolName] as [string, unknown]] : []), ["Date d’engagement", dateShown(profile?.engagementDate)], ["Type de contrat", profile?.contractType], ["Sections", (service ? personnel.sectionIds ?? [] : userSectionIds(personnel)).map((section) => schoolSectionLabels[section]).join(", ")], ["Statut", isArchivedPersonnel(personnel) ? "Archivé" : "Actif"]]],
     ["FORMATION ET QUALIFICATIONS", [["Niveau d’études", profile?.educationLevel], ["Diplôme", profile?.diploma], ["Spécialité", profile?.specialty], ["Établissement de formation", profile?.trainingInstitution], ["Année d’obtention", profile?.graduationYear]]],
     ["INFORMATIONS COMPLÉMENTAIRES", [["Personne à contacter", profile?.emergencyContactName], ["Lien avec la personne", profile?.emergencyContactRelationship], ["Téléphone", profile?.emergencyContactPhone]]],
     ["OBSERVATIONS", [["Observations", profile?.observations]]],

@@ -23,6 +23,13 @@ describe("validateFirebaseEnvironment", () => {
     expect(validateFirebaseEnvironment(config("production")).expectedProjectId).toBe("acadea-production");
   });
 
+  it("autorise le projet fictif seulement pour l'émulateur Staging explicite", () => {
+    const local = { ...config("staging"), localEmulator: true, projectId: "demo-acadea", authDomain: "demo-acadea.firebaseapp.com", storageBucket: "demo-acadea.firebasestorage.app" };
+    expect(validateFirebaseEnvironment(local).expectedProjectId).toBe("demo-acadea");
+    expect(() => validateFirebaseEnvironment({ ...local, localEmulator: false })).toThrow("Configuration Firebase refusée");
+    expect(() => validateFirebaseEnvironment({ ...local, appEnv: "production" })).toThrow("Configuration Firebase refusée");
+  });
+
   it.each(["staging", "production"] as const)("transmet à initializeApp le projectId validé pour %s", (environment) => {
     const result = getValidatedFirebaseConfig(config(environment));
     expect(result.config.projectId).toBe(FIREBASE_PROJECTS[environment]);

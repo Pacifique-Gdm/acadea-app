@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { firebaseAdminPublicError, initAdmin } from "./_lib/firebaseAdmin.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./_lib/serverAudit.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
@@ -18,6 +18,35 @@ const parentStudentUnlinkConfirmation = "DÉLIER À CET ÉLÈVE";
 const adminRemovalConfirmation = "SUPPRIMER ADMINISTRATEUR";
 const internalPersonnelRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]);
 const schoolSections = new Set(["Maternelle", "Primaire", "CTEB", "Secondaire"]);
+const serviceJobTitles = new Set(["Vigile", "Gardien", "Agent de sécurité", "Agent d'entretien", "Personnel de ménage", "Intendant", "Jardinier", "Technicien", "Agent de maintenance"]);
+const privilegedJobTitle = /\b(admin(?:istrateur)?|enseignant|professeur|directeur|caissier|secretaire|parent|coordinateur|coordination)\b/i;
+
+export function normalizeServiceJobTitle(jobTitle, otherJobTitle) {
+  const selected = normalizeText(jobTitle);
+  if (serviceJobTitles.has(selected)) return selected;
+  if (selected !== "Autre fonction") throw Object.assign(new Error("Fonction de service non autorisée."), { statusCode: 400, code: "invalid-argument" });
+  const other = normalizeText(otherJobTitle);
+  const comparable = other.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  if (!other || other.length > 150 || privilegedJobTitle.test(comparable)) throw Object.assign(new Error("Autre fonction de service invalide ou réservée à un compte Acadéa."), { statusCode: 400, code: "invalid-argument" });
+  return other;
+}
+
+function servicePhoneKey(schoolId, phone) {
+  const digits = phone.replace(/\D/g, "");
+  return `${schoolId}__${createHash("sha256").update(digits).digest("hex")}`;
+}
+
+function servicePhoneDigits(value) {
+  return typeof value === "string" || typeof value === "number" ? String(value).replace(/\D/g, "") : "";
+}
+
+function requireServicePhone(phone) {
+  const normalized = normalizeText(phone);
+  if (!/^\+?[0-9][0-9 ()-]*$/.test(normalized) || normalized.replace(/\D/g, "").length < 6 || normalized.length > 50) {
+    throw Object.assign(new Error("Téléphone du personnel invalide."), { statusCode: 400, code: "invalid-argument" });
+  }
+  return normalized;
+}
 
 function normalizeSchoolSection(value) {
   const normalized = normalizeText(value).toLowerCase();
@@ -515,6 +544,105 @@ export async function removeSchoolAdmin({ auth, db, caller, body }) {
   return { adminId, status: "inactive", authStatus: "disabled", removedAt };
 }
 
+export async function createServicePersonnel({ db, caller, body }) {
+  if (Object.keys(body).some((key) => !["action", "schoolId", "name", "phone", "jobTitle", "otherJobTitle"].includes(key))) {
+    throw Object.assign(new Error("Champs non autorisés pour une fiche sans compte Acadéa."), { statusCode: 400, code: "invalid-argument" });
+  }
+  const schoolId = normalizeText(body.schoolId);
+  if (!schoolId || caller.schoolId !== schoolId || !["school_admin", "secretary"].includes(caller.role)) {
+    throw Object.assign(new Error("Création de personnel interdite pour cette école."), { statusCode: 403, code: "permission-denied" });
+  }
+  const name = normalizeText(body.name);
+  const phone = requireServicePhone(body.phone);
+  const jobTitle = normalizeServiceJobTitle(body.jobTitle, body.otherJobTitle);
+  if (!name || name.length > 250) throw Object.assign(new Error("Nom du personnel requis."), { statusCode: 400, code: "invalid-argument" });
+  const schoolSnapshot = await db.doc(`schools/${schoolId}`).get();
+  if (!schoolSnapshot.exists || ["inactive", "deleting", "suspended"].includes(schoolSnapshot.data()?.status)) {
+    throw Object.assign(new Error("École indisponible."), { statusCode: 409, code: "failed-precondition" });
+  }
+  const callerSnapshot = await db.doc(`users/${caller.uid}`).get();
+  if (!callerSnapshot.exists || callerSnapshot.data()?.role !== caller.role || callerSnapshot.data()?.schoolId !== schoolId || callerSnapshot.data()?.status === "inactive" || callerSnapshot.data()?.active === false) {
+    throw Object.assign(new Error("Compte de création du personnel non autorisé."), { statusCode: 403, code: "permission-denied" });
+  }
+  const accountSnapshot = await db.collection("users").where("schoolId", "==", schoolId).get();
+  if (accountSnapshot.docs.some((snapshot) => servicePhoneDigits(snapshot.data()?.phone) === servicePhoneDigits(phone))) {
+    throw Object.assign(new Error("Un compte de cette école utilise déjà ce téléphone ; vérifiez la fiche existante."), { statusCode: 409, code: "already-exists" });
+  }
+  const personnelRef = db.collection("personnelProfiles").doc(uid("service"));
+  const lockRef = db.doc(`servicePersonnelPhoneLocks/${servicePhoneKey(schoolId, phone)}`);
+  const counterRef = db.doc(`schools/${schoolId}/counters/personnelMatricules`);
+  const auditRef = db.collection("auditLogs").doc(uid("audit"));
+  const now = new Date().toISOString();
+  return db.runTransaction(async (transaction) => {
+    const [lockSnapshot, counterSnapshot] = await Promise.all([transaction.get(lockRef), transaction.get(counterRef)]);
+    if (lockSnapshot.exists) throw Object.assign(new Error("Une fiche de personnel utilise déjà ce téléphone."), { statusCode: 409, code: "already-exists" });
+    const next = Number(counterSnapshot.data()?.lastNumber ?? 0) + 1;
+    const personnel = {
+      id: personnelRef.id, personnelId: personnelRef.id, schoolId, kind: "service", name, phone, jobTitle,
+      matricule: `PER-${String(next).padStart(6, "0")}`, status: "active", active: true,
+      createdAt: now, createdBy: caller.uid, updatedAt: now, updatedBy: caller.uid,
+    };
+    transaction.create(personnelRef, personnel);
+    transaction.create(lockRef, { schoolId, personnelId: personnelRef.id, createdAt: now });
+    transaction.set(counterRef, { lastNumber: next, updatedAt: now, updatedBy: caller.uid }, { merge: true });
+    transaction.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.USER_CREATED, actor: caller, schoolId, resourceType: "personnelProfile", resourceId: personnelRef.id, metadata: { kind: "service", jobTitle } }));
+    return { personnel };
+  });
+}
+
+async function manageServicePersonnel({ db, caller, body, action, schoolId, personnelId }) {
+  const personnelRef = db.doc(`personnelProfiles/${personnelId}`);
+  const snapshot = await personnelRef.get();
+  const previous = snapshot.exists ? snapshot.data() : undefined;
+  if (!snapshot.exists || previous?.kind !== "service") return null;
+  if (caller.role !== "school_admin" || caller.schoolId !== schoolId || previous.schoolId !== schoolId) {
+    throw Object.assign(new Error("Gestion de ce personnel interdite."), { statusCode: 403, code: "permission-denied" });
+  }
+  const now = new Date().toISOString();
+  const auditRef = db.collection("auditLogs").doc(uid("audit"));
+  if (action !== "update-personnel") {
+    const archive = action === "archive-personnel";
+    const patch = { status: archive ? "inactive" : "active", active: !archive, updatedAt: now, updatedBy: caller.uid };
+    await db.runTransaction(async (transaction) => {
+      const current = await transaction.get(personnelRef);
+      if (!current.exists || current.data()?.kind !== "service" || current.data()?.schoolId !== schoolId) throw Object.assign(new Error("Fiche de personnel introuvable."), { statusCode: 404, code: "not-found" });
+      transaction.update(personnelRef, patch);
+      transaction.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: archive ? AUDIT_EVENT_TYPES.USER_DISABLED : AUDIT_EVENT_TYPES.USER_REACTIVATED, actor: caller, schoolId, resourceType: "personnelProfile", resourceId: personnelId, metadata: { kind: "service" } }));
+    });
+    return { personnel: { ...previous, ...patch }, authStatus: "not-applicable" };
+  }
+  const name = normalizeText(body.name);
+  const phone = requireServicePhone(body.phone);
+  const profile = normalizePersonnelProfile(body.profile);
+  const requestedTitle = profile.jobTitle ?? previous.jobTitle;
+  const jobTitle = normalizeServiceJobTitle(serviceJobTitles.has(requestedTitle) ? requestedTitle : "Autre fonction", requestedTitle);
+  if (!name || name.length > 250) throw Object.assign(new Error("Nom du personnel requis."), { statusCode: 400, code: "invalid-argument" });
+  const sectionIds = normalizeSectionIds(body.sectionIds ?? []);
+  const schoolSnapshot = await db.doc(`schools/${schoolId}`).get();
+  assertSectionsBelongToSchool(sectionIds, schoolSnapshot.data());
+  const accountSnapshot = await db.collection("users").where("schoolId", "==", schoolId).get();
+  if (accountSnapshot.docs.some((item) => servicePhoneDigits(item.data()?.phone) === servicePhoneDigits(phone))) {
+    throw Object.assign(new Error("Un compte de cette école utilise déjà ce téléphone."), { statusCode: 409, code: "already-exists" });
+  }
+  const oldLockRef = db.doc(`servicePersonnelPhoneLocks/${servicePhoneKey(schoolId, previous.phone)}`);
+  const newLockRef = db.doc(`servicePersonnelPhoneLocks/${servicePhoneKey(schoolId, phone)}`);
+  const patch = { ...profile, name, phone, jobTitle, section: sectionIds[0] ?? null, sectionIds, updatedAt: now, updatedBy: caller.uid };
+  await db.runTransaction(async (transaction) => {
+    const current = await transaction.get(personnelRef);
+    if (!current.exists || current.data()?.kind !== "service" || current.data()?.schoolId !== schoolId) throw Object.assign(new Error("Fiche de personnel introuvable."), { statusCode: 404, code: "not-found" });
+    if (current.data()?.phone !== previous.phone) throw Object.assign(new Error("La fiche a été modifiée entre-temps. Rechargez-la avant de réessayer."), { statusCode: 409, code: "conflict" });
+    if (newLockRef.path !== oldLockRef.path) {
+      const nextLock = await transaction.get(newLockRef);
+      if (nextLock.exists) throw Object.assign(new Error("Une fiche utilise déjà ce téléphone."), { statusCode: 409, code: "already-exists" });
+      transaction.create(newLockRef, { schoolId, personnelId, createdAt: now });
+      transaction.delete(oldLockRef);
+    }
+    transaction.update(personnelRef, patch);
+    transaction.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.USER_UPDATED, actor: caller, schoolId, resourceType: "personnelProfile", resourceId: personnelId, metadata: { kind: "service" } }));
+  });
+  return { personnel: { ...previous, ...patch } };
+}
+
 export async function managePersonnel({ auth, db, caller, body, action }) {
   const schoolId = normalizeText(body.schoolId);
   const personnelId = normalizeText(body.personnelId);
@@ -527,6 +655,8 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
   if (!callerSnapshot.exists || callerProfile?.role !== caller.role || !["school_admin", "study_director"].includes(callerProfile?.role) || callerProfile?.schoolId !== schoolId || callerProfile?.status === "inactive" || callerProfile?.active === false) {
     throw Object.assign(new Error("Compte de gestion du personnel non autorisé."), { statusCode: 403, code: "permission-denied" });
   }
+  const serviceResult = await manageServicePersonnel({ db, caller, body, action, schoolId, personnelId });
+  if (serviceResult) return serviceResult;
   const targetRef = db.doc(`users/${personnelId}`);
   const targetSnapshot = await targetRef.get();
   if (!targetSnapshot.exists) throw Object.assign(new Error("Personnel introuvable."), { statusCode: 404, code: "not-found" });
@@ -762,6 +892,11 @@ export default async function handler(req, res) {
     if (["update-personnel", "archive-personnel", "reactivate-personnel"].includes(action)) {
       const result = await managePersonnel({ auth, db, caller, body, action });
       sendJson(res, 200, result);
+      return;
+    }
+
+    if (action === "create-service-personnel") {
+      sendJson(res, 200, await createServicePersonnel({ db, caller, body }));
       return;
     }
 
