@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createServicePersonnel, normalizeServiceJobTitle } from "./provision-school-account.js";
+import { createServicePersonnel, normalizeServiceJobTitle } from "../../api/provision-school-account.js";
 
 type Data = Record<string, unknown>;
 class MemoryDb {
