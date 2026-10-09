@@ -1,8 +1,8 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { Download, Edit3, Eye, Plus, RefreshCw, RotateCcw, Search, Trash2 } from "lucide-react";
+import { Download, Edit3, Eye, GraduationCap, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { StudentForm } from "../../components/students/StudentForm";
 import { AdminDrawer, IconButton, SectionTitle } from "../../components/ui";
-import { createSchoolSubclasses, linkParentToStudent, provisionParent, requestSchoolSubclassDeletion, requestTerminalStudentReenrollment, saveManualStudent, unlinkParentFromStudent } from "../../services/provisioning";
+import { createSchoolSubclasses, linkParentToStudent, provisionParent, requestSchoolSubclassDeletion, requestTerminalStudentCompletion, requestTerminalStudentReenrollment, saveManualStudent, unlinkParentFromStudent } from "../../services/provisioning";
 import { createAuditLog } from "../../utils/audit";
 import { nextParentEmail, parentEmailExists } from "../../utils/parents";
 import { applyParentLinkResult, applyParentUnlinkResult, PARENT_LINK_CONFIRMATION, PARENT_UNLINK_CONFIRMATION, studentBeforeParentMutation } from "../../utils/parentStudentLink";
@@ -16,7 +16,7 @@ import type { AppData, AppUser, ParentProfile, School, SchoolSection, SchoolYear
 import { CLASSES } from "../../types";
 import type { SchoolClassRecord } from "../../types";
 import { formatOperationalStudentClassName, resolveStudentParentClass, schoolClassOptionKey, studentSchoolClassOptionKey, subscribeToSchoolClasses, validateStudentAcademicSelection } from "../../services/schoolSubclasses";
-import { canonicalAnnualClassName, isEligibleForAnnualTransition, studentImportKey } from "../../utils/studentYearTransition.js";
+import { canonicalAnnualClassName, isEligibleForAnnualTransition, isImmediatelyPreviousArchivedYear, studentImportKey } from "../../utils/studentYearTransition.js";
 import { useStudentPage } from "../../hooks/useStudentPage";
 import { loadAllStudentResults, STUDENT_SOURCE_PAGE_SIZE, type StudentQueryFilters } from "../../services/studentPagination";
 
@@ -95,13 +95,14 @@ export function StudentsModule({
   const [reactivationOtherReason, setReactivationOtherReason] = useState("");
   const [reactivationError, setReactivationError] = useState("");
   const [terminalStudent, setTerminalStudent] = useState<Student>();
+  const [terminalAction, setTerminalAction] = useState<"complete" | "reenroll">("reenroll");
   const [terminalConfirmation, setTerminalConfirmation] = useState("");
+  const [terminalExamConfirmed, setTerminalExamConfirmed] = useState(false);
   const [terminalError, setTerminalError] = useState("");
   const [terminalFeedback, setTerminalFeedback] = useState("");
   const [terminalBusy, setTerminalBusy] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [reenrolledSourceIds, setReenrolledSourceIds] = useState<string[]>([]);
-  const [activeYearClasses, setActiveYearClasses] = useState<SchoolClassRecord[]>([]);
+  const [terminalDecisions, setTerminalDecisions] = useState<Record<string, "completed" | "reenrolled">>({});
   const defaultCanManage = user.role === "school_admin" && year.status !== "archived";
   const studentCapabilities: StudentModuleCapabilities = {
     canCreate: year.status === "active" && (capabilities?.canCreate ?? defaultCanManage),
@@ -112,9 +113,8 @@ export function StudentsModule({
     canManageOptions: year.status === "active" && (capabilities?.canManageOptions ?? defaultCanManage),
   };
   const activeTargetYear = data.schoolYears.find((item) => item.id === school.activeSchoolYearId && item.schoolId === school.id && item.status === "active");
-  const canReenrollTerminal = year.status === "archived" && ["school_admin", "secretary"].includes(user.role) && user.status !== "inactive" && user.schoolId === school.id && Boolean(activeTargetYear);
-  const hasTerminalTargetClass = activeYearClasses.some((item) => item.active !== false && !item.parentClassId && canonicalAnnualClassName(item.name) === "4ème Humanité");
-  const showActionsColumn = studentCapabilities.canEdit || studentCapabilities.canArchive || studentCapabilities.canReactivate || canReenrollTerminal;
+  const canDecideTerminal = ["school_admin", "secretary"].includes(user.role) && user.status === "active" && user.active !== false && !user.archivedAt && user.schoolId === school.id && isImmediatelyPreviousArchivedYear(year, activeTargetYear);
+  const showActionsColumn = studentCapabilities.canEdit || studentCapabilities.canArchive || studentCapabilities.canReactivate || canDecideTerminal;
   const studentSectionChoices = getSchoolSections(school).filter((section) => !allowedSections?.length || allowedSections.includes(section));
   const studentClassChoices = getSchoolClassChoices(school).filter((className) => studentSectionChoices.includes(getClassSection(className)));
   const availableClasses = studentClassChoices.filter((className) => sectionFilter === "all" || getClassSection(className) === sectionFilter);
@@ -132,10 +132,6 @@ export function StudentsModule({
     setStructuredClassesLoaded(false);
     return subscribeToSchoolClasses(school.id, year.id, (items) => { setStructuredClasses(items); setStructuredClassesLoaded(true); }, (cause) => { setStructuredClassesLoaded(false); setSaveError(cause.message); });
   }, [school.id, year.id]);
-  useEffect(() => {
-    if (!canReenrollTerminal || !activeTargetYear) { setActiveYearClasses([]); return; }
-    return subscribeToSchoolClasses(school.id, activeTargetYear.id, setActiveYearClasses, (cause) => setTerminalError(cause.message));
-  }, [activeTargetYear, canReenrollTerminal, school.id]);
   useEffect(() => {
     if (sectionFilter !== "all" && !studentSectionChoices.includes(sectionFilter)) {
       setSectionFilter("all");
@@ -198,23 +194,27 @@ export function StudentsModule({
   const finalArchiveReason = archiveReason === "Autre" ? archiveOtherReason.trim() : archiveReason;
   const finalReactivationReason = reactivationReason === "Autre" ? reactivationOtherReason.trim() : reactivationReason;
 
-  function canReenroll(student: Student) {
-    if (!canReenrollTerminal || !activeTargetYear || !hasTerminalTargetClass || canonicalAnnualClassName(student.className) !== "4ème Humanité" || !isEligibleForAnnualTransition(student)) return false;
-    if (reenrolledSourceIds.includes(student.id)) return false;
+  function canDecide(student: Student) {
+    if (!canDecideTerminal || !activeTargetYear || student.schoolYearId !== year.id || canonicalAnnualClassName(student.className) !== "4ème Humanité" || !isEligibleForAnnualTransition(student) || student.terminalDecision || terminalDecisions[student.id]) return false;
     return !data.students.some((item) => item.schoolId === school.id && item.schoolYearId === activeTargetYear.id
       && (item.importedFromStudentId === student.id || studentImportKey(item) === studentImportKey(student)));
   }
 
-  async function reenrollTerminal() {
-    if (!terminalStudent || !canReenroll(terminalStudent) || terminalConfirmation !== "REINSCRIRE CET ELEVE" || terminalBusy) return;
+  async function decideTerminal() {
+    const expected = terminalAction === "complete" ? "CONFIRMER LA FIN DE SCOLARITE" : "REINSCRIRE CET ELEVE";
+    if (!terminalStudent || !canDecide(terminalStudent) || terminalConfirmation !== expected || !terminalExamConfirmed || terminalBusy) return;
     setTerminalBusy(true); setTerminalError(""); setTerminalFeedback("");
     try {
-      const result = await requestTerminalStudentReenrollment({ schoolId: school.id, sourceStudentId: terminalStudent.id, mode: "reenroll", confirmation: terminalConfirmation });
-      setReenrolledSourceIds((current) => current.includes(terminalStudent.id) ? current : [...current, terminalStudent.id]);
-      setTerminalFeedback(result.status === "already-reenrolled"
-        ? "Cet élève est déjà réinscrit pour l’année scolaire active."
-        : `Élève réinscrit avec succès en 4ème Humanité pour l’année scolaire ${activeTargetYear?.name ?? "active"}.`);
-      setTerminalStudent(undefined); setTerminalConfirmation("");
+      const result = terminalAction === "complete"
+        ? await requestTerminalStudentCompletion({ schoolId: school.id, sourceStudentId: terminalStudent.id, confirmation: terminalConfirmation, examResultConfirmed: true })
+        : await requestTerminalStudentReenrollment({ schoolId: school.id, sourceStudentId: terminalStudent.id, mode: "reenroll", confirmation: terminalConfirmation, examResultConfirmed: true });
+      if (result.status === "completed" || result.status === "already-completed" || result.status === "reenrolled") {
+        setTerminalDecisions((current) => ({ ...current, [terminalStudent.id]: terminalAction === "complete" ? "completed" : "reenrolled" }));
+      }
+      setTerminalFeedback(terminalAction === "complete" ? "Fin de scolarité confirmée." : result.status === "already-reenrolled"
+        ? "Cet élève est déjà inscrit pour l’année scolaire active."
+        : `Élève réinscrit en 4ème Humanité pour l’année scolaire ${activeTargetYear?.name ?? "active"}.`);
+      setTerminalStudent(undefined); setTerminalConfirmation(""); setTerminalExamConfirmed(false);
     } catch (cause) {
       setTerminalError(cause instanceof Error ? cause.message : "Réinscription impossible.");
     } finally { setTerminalBusy(false); }
@@ -656,7 +656,9 @@ export function StudentsModule({
                         {student.exitReasonDetails ?? student.exitReason ?? "Motif non renseigné"}
                       </span>
                     ) : (
-                      <span className="rounded bg-mint/10 px-2 py-1 text-xs font-semibold text-mint">Actif</span>
+                      canDecideTerminal && canonicalAnnualClassName(student.className) === "4ème Humanité"
+                        ? <span className="text-xs font-semibold text-slate-700">{terminalDecisions[student.id] === "completed" || student.terminalDecision?.type === "completed" ? "Fin de scolarité confirmée" : terminalDecisions[student.id] === "reenrolled" || student.terminalDecision?.type === "reenrolled" ? "Réinscrit en 4ème Humanité" : "En attente de décision"}</span>
+                        : <span className="rounded bg-mint/10 px-2 py-1 text-xs font-semibold text-mint">Actif</span>
                     )}
                   </td>
                   <td className="px-3 py-3">{student.sexe}</td>
@@ -673,8 +675,8 @@ export function StudentsModule({
                     )}
                   </td>
                   {showActionsColumn && <td className="px-3 py-3">
-                    {studentCapabilities.canEdit || studentCapabilities.canArchive || studentCapabilities.canReactivate || canReenroll(student) ? (
-                      <div className="flex gap-1">
+                    {studentCapabilities.canEdit || studentCapabilities.canArchive || studentCapabilities.canReactivate || canDecide(student) ? (
+                      <div className="flex flex-wrap gap-1">
                         {archived ? (
                           <>
                             <IconButton label="Consulter" onClick={() => onOpenStudent(student.id)} icon={Eye} />
@@ -686,10 +688,13 @@ export function StudentsModule({
                             {studentCapabilities.canArchive && <IconButton label="Archiver" onClick={() => removeStudent(student.id)} icon={Trash2} danger />}
                           </>
                         )}
-                        {canReenroll(student) && <IconButton label="Réinscrire en 4ème Humanité" onClick={() => { setTerminalStudent(student); setTerminalConfirmation(""); setTerminalError(""); setTerminalFeedback(""); }} icon={RotateCcw} />}
+                        {canDecide(student) && <>
+                          <button type="button" title="Confirmer la fin de scolarité" aria-label="Confirmer la fin de scolarité" className="grid h-10 w-10 place-items-center rounded bg-slate-100 text-slate-700" onClick={() => { setTerminalAction("complete"); setTerminalStudent(student); setTerminalConfirmation(""); setTerminalExamConfirmed(false); setTerminalError(""); }}><GraduationCap className="h-5 w-5" /></button>
+                          <button type="button" title="Réinscrire en 4ème Humanité" aria-label="Réinscrire en 4ème Humanité" className="grid h-10 w-10 place-items-center rounded bg-slate-100 text-slate-700" onClick={() => { setTerminalAction("reenroll"); setTerminalStudent(student); setTerminalConfirmation(""); setTerminalExamConfirmed(false); setTerminalError(""); }}><RefreshCw className="h-5 w-5" /></button>
+                        </>}
                       </div>
                     ) : (
-                      <span className="text-xs text-slate-400">Lecture seule</span>
+                      <span className="text-xs text-slate-500">{terminalDecisions[student.id] === "completed" || student.terminalDecision?.type === "completed" ? "Fin de scolarité confirmée" : terminalDecisions[student.id] === "reenrolled" || student.terminalDecision?.type === "reenrolled" ? "Réinscrit en 4ème Humanité" : canDecideTerminal && canonicalAnnualClassName(student.className) === "4ème Humanité" ? "En attente de décision" : "Lecture seule"}</span>
                     )}
                   </td>}
                 </tr>
@@ -840,18 +845,19 @@ export function StudentsModule({
       )}
       {terminalFeedback && <p role="status" className="fixed bottom-24 right-4 z-[80] max-w-sm rounded border border-green-200 bg-green-50 p-3 text-sm font-semibold text-green-800 shadow-lg">{terminalFeedback}</p>}
       {terminalStudent && activeTargetYear && (
-        <AdminDrawer title="Réinscrire l’élève" onClose={() => !terminalBusy && setTerminalStudent(undefined)} closeLabel="Fermer la réinscription">
+        <AdminDrawer title={terminalAction === "complete" ? "Confirmer la fin de scolarité" : "Réinscrire l’élève"} onClose={() => !terminalBusy && setTerminalStudent(undefined)} closeLabel="Fermer la décision">
           <div className="grid min-w-0 gap-4">
             <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-              Réinscrire <strong>{terminalStudent.nom} {terminalStudent.postnom} {terminalStudent.prenom}</strong> en 4ème Humanité pour l’année scolaire {activeTargetYear.name} ?
+              {terminalAction === "complete" ? "Confirmer la fin de scolarité de " : "Réinscrire "}<strong>{terminalStudent.nom} {terminalStudent.postnom} {terminalStudent.prenom}</strong> (année source {year.name}){terminalAction === "reenroll" ? ` en 4ème Humanité pour l’année scolaire ${activeTargetYear.name} ?` : " après réussite officielle à l’Examen d’État ?"}
             </p>
             {terminalError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{terminalError}</p>}
+            <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={terminalExamConfirmed} disabled={terminalBusy} onChange={(event) => setTerminalExamConfirmed(event.target.checked)} /><span>Je confirme avoir vérifié {terminalAction === "complete" ? "la réussite" : "l’échec"} de cet élève à l’Examen d’État.</span></label>
             <label className="grid gap-1 text-sm font-semibold">Phrase de confirmation
-              <input className="input" value={terminalConfirmation} disabled={terminalBusy} placeholder="REINSCRIRE CET ELEVE" onChange={(event) => setTerminalConfirmation(event.target.value)} />
+              <input className="input" value={terminalConfirmation} disabled={terminalBusy} placeholder={terminalAction === "complete" ? "CONFIRMER LA FIN DE SCOLARITE" : "REINSCRIRE CET ELEVE"} onChange={(event) => setTerminalConfirmation(event.target.value)} />
             </label>
             <div className="grid grid-cols-2 gap-2">
               <button type="button" className="secondary-button justify-center" disabled={terminalBusy} onClick={() => setTerminalStudent(undefined)}>Annuler</button>
-              <button type="button" className="primary-button justify-center" disabled={terminalBusy || terminalConfirmation !== "REINSCRIRE CET ELEVE"} onClick={() => void reenrollTerminal()}>{terminalBusy ? "Réinscription…" : "Réinscrire"}</button>
+              <button type="button" className="primary-button justify-center" disabled={terminalBusy || !terminalExamConfirmed || terminalConfirmation !== (terminalAction === "complete" ? "CONFIRMER LA FIN DE SCOLARITE" : "REINSCRIRE CET ELEVE")} onClick={() => void decideTerminal()}>{terminalBusy ? "Enregistrement…" : terminalAction === "complete" ? "Confirmer la fin de scolarité" : "Réinscrire"}</button>
             </div>
           </div>
         </AdminDrawer>

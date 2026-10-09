@@ -6,6 +6,7 @@ import {
   annualStudentTransition,
   canonicalAnnualClassName,
   getClassSection,
+  isImmediatelyPreviousArchivedYear,
   isEligibleForAnnualTransition,
   normalizeAnnualClassName,
   studentForPersistence,
@@ -14,6 +15,7 @@ import {
 
 export const ARCHIVED_IMPORT_CHUNK_SIZE = 80;
 export const TERMINAL_REENROLLMENT_CONFIRMATION = "REINSCRIRE CET ELEVE";
+export const TERMINAL_COMPLETION_CONFIRMATION = "CONFIRMER LA FIN DE SCOLARITE";
 
 const ANNUAL_COLLECTIONS = [
   "classes", "students", "studentMedicalRecords", "feeTypes", "teachers", "subjects", "rooms", "schedulePeriods",
@@ -442,14 +444,17 @@ function adminRole(role) {
 
 export async function reenrollTerminalStudent({ db, caller, body }) {
   const { schoolId, sourceStudentId } = body;
-  const perform = body.mode !== "inspect";
+  const mode = body.mode;
+  if (!["inspect", "reenroll", "complete"].includes(mode)) fail(400, "invalid-argument", "Décision terminale invalide.");
+  const perform = mode !== "inspect";
   if (![schoolId, sourceStudentId].every(identifier)) fail(400, "invalid-argument", "École et élève source requis.");
   if ((!adminRole(caller.role) && caller.role !== "secretary") || caller.schoolId !== schoolId) fail(403, "permission-denied", "Réinscription réservée à l’Administrateur ou au Secrétaire de cette école.");
-  if (perform && body.confirmation !== TERMINAL_REENROLLMENT_CONFIRMATION) fail(400, "invalid-argument", `Veuillez saisir exactement ${TERMINAL_REENROLLMENT_CONFIRMATION}.`);
+  const expectedConfirmation = mode === "complete" ? TERMINAL_COMPLETION_CONFIRMATION : TERMINAL_REENROLLMENT_CONFIRMATION;
+  if (perform && (body.confirmation !== expectedConfirmation || body.examResultConfirmed !== true)) fail(400, "invalid-argument", "La décision officielle doit être confirmée explicitement.");
   return db.runTransaction(async (transaction) => {
     const userRef = db.doc(`users/${caller.uid}`), schoolRef = db.doc(`schools/${schoolId}`), sourceRef = db.doc(`students/${sourceStudentId}`);
     const [userSnap, schoolSnap, sourceSnap] = await Promise.all([transaction.get(userRef), transaction.get(schoolRef), transaction.get(sourceRef)]);
-    const user = userSnap.data(), school = schoolSnap.data(), source = sourceSnap.data();
+    const user = userSnap.data(), school = schoolSnap.data(), source = sourceSnap.exists ? { ...sourceSnap.data(), id: sourceStudentId } : undefined;
     if (!userSnap.exists || ((!adminRole(user.role) && user.role !== "secretary")) || user.schoolId !== schoolId || user.status !== "active" || user.active === false || user.archivedAt) fail(403, "permission-denied", "Compte Administrateur ou Secrétaire actif requis.");
     if (!schoolSnap.exists || school.status !== "active" || !identifier(school.activeSchoolYearId)) fail(409, "failed-precondition", "Aucune année scolaire active n’est disponible.");
     if (!sourceSnap.exists || source.schoolId !== schoolId) fail(403, "permission-denied", "Élève historique inaccessible.");
@@ -463,17 +468,33 @@ export async function reenrollTerminalStudent({ db, caller, body }) {
       source.parentId ? transaction.get(db.doc(`parents/${source.parentId}`)) : Promise.resolve(undefined),
       transaction.get(scoped(db, "users", schoolId).where("role", "==", "parent")), transaction.get(db.doc(`studentMedicalRecords/${sourceStudentId}`)),
     ]);
-    if (!sourceYearSnap.exists || sourceYearSnap.data().schoolId !== schoolId || sourceYearSnap.data().status !== "archived") fail(409, "failed-precondition", "La fiche source doit appartenir à une année archivée de cette école.");
     if (!targetYearSnap.exists || targetYearSnap.data().schoolId !== schoolId || targetYearSnap.data().status !== "active") fail(409, "failed-precondition", "L’année cible active est incohérente.");
+    if (!sourceYearSnap.exists || !isImmediatelyPreviousArchivedYear({ ...sourceYearSnap.data(), id: source.schoolYearId }, { ...targetYearSnap.data(), id: targetYearId })) fail(409, "failed-precondition", "Seule l’année scolaire immédiatement précédente et archivée est autorisée.");
+    const id = annualId("students", schoolId, targetYearId, sourceStudentId), targets = docs(targetsSnap);
+    const decision = source.terminalDecision;
+    if (decision) {
+      if (decision.type === "completed" && mode === "complete") return { status: "already-completed", created: false, sourceStudentId, schoolYearId: targetYearId };
+      if (decision.type === "reenrolled" && mode !== "complete") return { status: "already-reenrolled", created: false, sourceStudentId, targetStudentId: decision.targetStudentId, schoolYearId: targetYearId };
+      fail(409, "failed-precondition", "Une décision terminale incompatible existe déjà pour cet élève.");
+    }
+    const existing = targets.find((item) => item.id === id || studentImportKey(item) === studentImportKey(source));
+    if (existing && mode === "complete") fail(409, "failed-precondition", "Cet élève est déjà inscrit dans l’année active.");
+    if (existing) return { status: "already-reenrolled", created: false, sourceStudentId, targetStudentId: existing.id, schoolYearId: targetYearId };
+    if (mode === "complete") {
+      if (!perform) return { status: "ready", created: false, sourceStudentId, schoolYearId: targetYearId };
+      const decidedAt = new Date().toISOString();
+      transaction.update(sourceRef, { terminalDecision: { type: "completed", decidedBy: caller.uid, decidedAt, sourceSchoolYearId: source.schoolYearId } });
+      const auditRef = db.doc(`auditLogs/terminal-completion-${digest(`${schoolId}/${targetYearId}/${sourceStudentId}`)}`);
+      transaction.create(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.STUDENT_TERMINAL_COMPLETED, actor: caller, schoolId, schoolYearId: source.schoolYearId, resourceType: "student", resourceId: sourceStudentId, metadata: { sourceSchoolYearId: source.schoolYearId, targetSchoolYearId: targetYearId } }));
+      return { status: "completed", created: false, sourceStudentId, schoolYearId: targetYearId };
+    }
     const classes = docs(classesSnap), targetClass = resolveTargetClass("4ème Humanité", source.option, classes, school, classes);
     if (!targetClass) fail(409, "failed-precondition", "La 4ème Humanité n’existe pas dans l’année active.");
-    const id = annualId("students", schoolId, targetYearId, sourceStudentId), targets = docs(targetsSnap);
-    const existing = targets.find((item) => item.id === id || studentImportKey(item) === studentImportKey(source));
-    if (existing) return { status: "already-reenrolled", created: false, sourceStudentId, targetStudentId: existing.id, schoolYearId: targetYearId };
     if (!perform) return { status: "ready", created: false, sourceStudentId, targetStudentId: id, schoolYearId: targetYearId };
     const transition = { className: "4ème Humanité", option: source.option };
     const target = studentIdentityDocument(source, schoolId, targetYearId, transition, targetClass);
     transaction.create(db.doc(`students/${id}`), target);
+    transaction.update(sourceRef, { terminalDecision: { type: "reenrolled", decidedBy: caller.uid, decidedAt: new Date().toISOString(), sourceSchoolYearId: source.schoolYearId, targetSchoolYearId: targetYearId, targetStudentId: id } });
     if (source.parentId) {
       if (!parentSnap?.exists || parentSnap.data().schoolId !== schoolId) fail(409, "failed-precondition", "Le parent source est absent ou incohérent.");
       transaction.update(db.doc(`parents/${source.parentId}`), { studentIds: FieldValue.arrayUnion(id) });

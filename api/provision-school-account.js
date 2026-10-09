@@ -704,6 +704,11 @@ export default async function handler(req, res) {
       sendJson(res, 200, await reenrollTerminalStudent({ db, caller, body }));
       return;
     }
+    if (action === "complete-terminal-student") {
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: "students.complete-terminal", ...API_RATE_LIMITS.PROVISION_DESTRUCTIVE });
+      sendJson(res, 200, await reenrollTerminalStudent({ db, caller, body: { ...body, mode: "complete" } }));
+      return;
+    }
     if (action === "save-manual-student") {
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: "students.save-manual", ...API_RATE_LIMITS.FINANCE_CREATE });
       sendJson(res, 200, await saveManualStudent({ db, caller, body }));

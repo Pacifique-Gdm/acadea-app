@@ -26,6 +26,21 @@ export function canonicalAnnualClassName(value) {
   return CLASSES.find((item) => normalizeAnnualClassName(item) === normalized);
 }
 
+function schoolYearRange(year) {
+  const named = String(year?.name ?? "").match(/^\s*(\d{4})\s*[-–/]\s*(\d{4})\s*$/);
+  if (named && Number(named[2]) === Number(named[1]) + 1) return [Number(named[1]), Number(named[2])];
+  const dated = String(year?.startsAt ?? "").match(/^(\d{4})-/);
+  const ended = String(year?.endsAt ?? "").match(/^(\d{4})-/);
+  return dated && ended && Number(ended[1]) === Number(dated[1]) + 1
+    ? [Number(dated[1]), Number(ended[1])] : undefined;
+}
+
+export function isImmediatelyPreviousArchivedYear(sourceYear, activeYear) {
+  if (sourceYear?.status !== "archived" || activeYear?.status !== "active" || sourceYear?.schoolId !== activeYear?.schoolId || sourceYear?.id === activeYear?.id) return false;
+  const source = schoolYearRange(sourceYear), active = schoolYearRange(activeYear);
+  return Boolean(source && active && source[1] === active[0]);
+}
+
 /** Recovers a canonical class name from deterministic class record ids.
  * Modern metadata remains authoritative; this only supports historical ids
  * generated from `schoolId__schoolYearId__class-name` and `base::option`. */

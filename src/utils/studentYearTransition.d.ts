@@ -1,4 +1,4 @@
-import type { SchoolClass, SchoolSection, Student } from "../types";
+import type { SchoolClass, SchoolSection, SchoolYear, Student } from "../types";
 export const CLASSES: SchoolClass[];
 export const ANNUAL_TRANSITION_RESULTS: Readonly<{
   PROMOTED: "PROMOTED";
@@ -8,6 +8,7 @@ export const ANNUAL_TRANSITION_RESULTS: Readonly<{
 }>;
 export function normalizeAnnualClassName(value: unknown): string;
 export function canonicalAnnualClassName(value: unknown): SchoolClass | undefined;
+export function isImmediatelyPreviousArchivedYear(sourceYear: SchoolYear | undefined, activeYear: SchoolYear | undefined): boolean;
 export function canonicalClassNameFromRecordId(value: unknown): SchoolClass | undefined;
 export function operationalClassOptionKey(item: { id?: string; classOptionKey?: string; subClassLabel?: string } | null | undefined): string | undefined;
 export function operationalBaseClassId(item: { id: string; parentClassId?: string; classOptionKey?: string; subClassLabel?: string }): string;

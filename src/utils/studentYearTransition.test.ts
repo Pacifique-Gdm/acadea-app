@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { Timestamp } from "firebase-admin/firestore";
 import { emptyStudent, studentForPersistence } from "./studentUtils";
 import { importedStudentDocument } from "../../api/_lib/archivedStudentsImport.js";
-import { ANNUAL_TRANSITION_RESULTS, annualStudentTransition, canonicalAnnualClassName, isEligibleForAnnualTransition, studentImportKey } from "./studentYearTransition.js";
+import type { SchoolYear } from "../types";
+import { ANNUAL_TRANSITION_RESULTS, annualStudentTransition, canonicalAnnualClassName, isEligibleForAnnualTransition, isImmediatelyPreviousArchivedYear, studentImportKey } from "./studentYearTransition.js";
 
 describe("normalisation commune des élèves et transition annuelle", () => {
   it("retire récursivement les optionnels absents sans altérer les valeurs intentionnelles", () => {
@@ -71,5 +72,17 @@ describe("matrice officielle de transition annuelle", () => {
   it("normalise CTEB/CETB sans accepter une classe inconnue", () => {
     expect(canonicalAnnualClassName(" 8ème CETB ")).toBe("8ème CTEB");
     expect(annualStudentTransition({ className: "Classe inventée" }).result).toBe("INVALID_CLASS");
+  });
+});
+
+describe("année précédente pour décision terminale", () => {
+  const active: SchoolYear = { id: "current", schoolId: "school", name: "2026-2027", startsAt: "2026-09-01", endsAt: "2027-06-30", status: "active" };
+  const previous: SchoolYear = { id: "previous", schoolId: "school", name: "2025-2026", startsAt: "2025-09-01", endsAt: "2026-06-30", status: "archived" };
+  it("accepte uniquement l'année civile scolaire immédiatement précédente archivée", () => {
+    expect(isImmediatelyPreviousArchivedYear(previous, active)).toBe(true);
+    expect(isImmediatelyPreviousArchivedYear({ ...previous, name: "2024-2025" }, active)).toBe(false);
+    expect(isImmediatelyPreviousArchivedYear({ ...previous, status: "draft" }, active)).toBe(false);
+    expect(isImmediatelyPreviousArchivedYear({ ...previous, schoolId: "other" }, active)).toBe(false);
+    expect(isImmediatelyPreviousArchivedYear(undefined, active)).toBe(false);
   });
 });

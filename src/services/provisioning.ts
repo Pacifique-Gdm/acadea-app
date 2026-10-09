@@ -212,10 +212,10 @@ export async function requestArchivedStudentsImport(input: {
 }
 
 export type TerminalStudentReenrollmentStatus = {
-  status: "ready" | "reenrolled" | "already-reenrolled";
+  status: "ready" | "reenrolled" | "already-reenrolled" | "completed" | "already-completed";
   created: boolean;
   sourceStudentId: string;
-  targetStudentId: string;
+  targetStudentId?: string;
   schoolYearId: string;
 };
 
@@ -224,8 +224,18 @@ export async function requestTerminalStudentReenrollment(input: {
   sourceStudentId: string;
   mode: "inspect" | "reenroll";
   confirmation?: string;
+  examResultConfirmed?: boolean;
 }) {
   return provisionSchoolAccount<TerminalStudentReenrollmentStatus>({ action: "reenroll-terminal-student", ...input });
+}
+
+export async function requestTerminalStudentCompletion(input: {
+  schoolId: string;
+  sourceStudentId: string;
+  confirmation: string;
+  examResultConfirmed: boolean;
+}) {
+  return provisionSchoolAccount<TerminalStudentReenrollmentStatus>({ action: "complete-terminal-student", ...input });
 }
 
 export type UnlinkParentFromStudentInput = {

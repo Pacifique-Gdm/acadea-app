@@ -139,6 +139,14 @@ export interface Student {
   biometric?: StudentBiometric;
   importedFromStudentId?: string;
   importedFromSchoolYearId?: string;
+  terminalDecision?: {
+    type: "completed" | "reenrolled";
+    decidedBy: string;
+    decidedAt: string;
+    sourceSchoolYearId: string;
+    targetSchoolYearId?: string;
+    targetStudentId?: string;
+  };
   /** Préfixes normalisés utilisés exclusivement par la recherche paginée Firestore. */
   searchPrefixes?: string[];
   /** État d'archivage dénormalisé pour les filtres serveur. */
