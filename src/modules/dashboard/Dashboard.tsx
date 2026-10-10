@@ -724,16 +724,16 @@ export function Dashboard({ data, school, year }: DashboardProps) {
               {classDisplayRows.map((row) => (
                 <tr key={row.className} className="border-t border-slate-100">
                   <td className="py-2 font-semibold text-ink">{row.className}</td>
-                  <td className="py-2">{row.girls}</td>
-                  <td className="py-2">{row.boys}</td>
-                  <td className="py-2">{row.total}</td>
+                  <td className="py-2">{formatCount(row.girls)}</td>
+                  <td className="py-2">{formatCount(row.boys)}</td>
+                  <td className="py-2">{formatCount(row.total)}</td>
                 </tr>
               ))}
               <tr className="border-t border-slate-200 bg-slate-50 font-bold text-ink">
                 <td className="py-2">Totaux</td>
-                <td className="py-2">{totalGirls}</td>
-                <td className="py-2">{totalBoys}</td>
-                <td className="py-2">{totalStudents}</td>
+                <td className="py-2">{formatCount(totalGirls)}</td>
+                <td className="py-2">{formatCount(totalBoys)}</td>
+                <td className="py-2">{formatCount(totalStudents)}</td>
               </tr>
             </tbody>
           </table>

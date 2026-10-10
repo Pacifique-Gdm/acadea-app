@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Download, RotateCcw } from "lucide-react";
-import { AdminDrawer, Metric, SectionTitle } from "../../components/ui";
+import { AdminDrawer, Metric, MoneyInput, SectionTitle } from "../../components/ui";
 import type { AppUser, Coordination, Expense, Payment, School, Student } from "../../types";
 import { escapePdfHtml, generateExpensePdf, generateReceiptPdf, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import { activityTimestamp } from "../../utils/activityHistory";
@@ -13,7 +13,8 @@ import { CoordinationStudentRecord } from "./CoordinationStudentRecord";
 import { useCoordinationControlPage } from "./useCoordinationControlPage";
 import { buildCoordinationAmountOptions, loadCoordinationControlHistory, loadCoordinationControlPage, type CoordinationControlCursor, type ControlRow } from "../../services/coordinationControlPagination";
 import { controlHistoryCurrency, defaultControlHistoryDate, matchesControlHistory } from "../../utils/coordinationControlHistory";
-import { formatCurrencyMoney, resolveSchoolCurrency } from "../../utils/currency";
+import { formatCurrencyMoney, resolveSchoolCurrency, resolveSchoolYearCurrency } from "../../utils/currency";
+import { formatCount } from "../../utils/numberFormat";
 import { controlArrearsPdfSections } from "../../utils/controlArrearsPdf";
 import { loadCoordinationStudentArrearsDetailsBatch } from "../../services/coordinationService";
 import type { HistoricalDebt } from "../../services/financialTransactions";
@@ -68,6 +69,10 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
   const historyPayments = useMemo(() => history.payments.filter((payment) => matchesControlHistory(payment, historyFilters)).sort((first, second) => activityTimestamp(second.createdAt ?? second.paidAt) - activityTimestamp(first.createdAt ?? first.paidAt)), [history.payments, historyFilters]);
   const historyExpenses = useMemo(() => history.expenses.filter((expense) => matchesControlHistory(expense, historyFilters)).sort((first, second) => activityTimestamp(second.createdAt ?? second.spentAt) - activityTimestamp(first.createdAt ?? first.spentAt)), [history.expenses, historyFilters]);
   const historyMoney = (operation: Payment | Expense) => formatCurrencyMoney(operation.amount, controlHistoryCurrency(operation, schools, page.years));
+  const rowMoney = (student: Student, amount: number) => formatCurrencyMoney(amount, resolveSchoolYearCurrency(
+    page.years.find((year) => year.id === student.schoolYearId && year.schoolId === student.schoolId),
+    schoolsById.get(student.schoolId) ?? { currency: "USD" },
+  ));
   useEffect(() => { setHistorySchoolId(selectedSchoolId); }, [selectedSchoolId]);
 
   async function runPdfExport(generate: () => Promise<void>) {
@@ -121,9 +126,9 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
       { header: "Élève", render: (row) => escapePdfHtml(`${row.student.nom} ${row.student.prenom}`) },
       { header: "École", render: (row) => escapePdfHtml(schoolName(row.student.schoolId)) },
       { header: "Classe", render: (row) => escapePdfHtml(formatStudentClassName(row.student)) },
-      { header: "Prévu", render: (row) => row.balance.expected.toFixed(2), align: "right" },
-      { header: "Payé", render: (row) => row.balance.paid.toFixed(2), align: "right" },
-      { header: "Solde", render: (row) => row.balance.remaining.toFixed(2), align: "right" },
+      { header: "Prévu", render: (row) => rowMoney(row.student, row.balance.expected), align: "right" },
+      { header: "Payé", render: (row) => rowMoney(row.student, row.balance.paid), align: "right" },
+      { header: "Solde", render: (row) => rowMoney(row.student, row.balance.remaining), align: "right" },
     ], exportRows, "Aucun élève ne correspond aux filtres."))] });
   }
 
@@ -167,7 +172,7 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
       <select aria-label="Classe" className="input min-w-0 w-full" value={classKey} disabled={!page.classChoicesReady} onChange={(event) => setClassKey(event.target.value)}><option value="">Toutes</option>{classChoices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</select>
       <select className="input min-w-0 w-full" aria-label="Option" value={page.option} disabled={!page.classChoicesReady} onChange={(event) => page.setOption(event.target.value)}><option value="">Toutes les options</option>{page.options.map((option) => <option key={option}>{option}</option>)}</select>
       <PaidAmountDropdown value={amountComparator} onChange={setAmountComparator} options={amountOptions}/>
-      <input aria-label="Filtre" className="input min-w-0 w-full" type="number" min="0" step="any" placeholder="Filtre" value={amountThreshold} onChange={(event) => setAmountThreshold(event.target.value)}/>
+      <MoneyInput value={amountThreshold} onChange={setAmountThreshold} className="input min-w-0 w-full" placeholder="Filtre" ariaLabel="Filtre" />
       <button type="button" className="pdf-export-button min-w-0 w-full xl:w-auto" disabled={pdfExporting || loading || Boolean(loadError)} onClick={() => void runPdfExport(exportPdf)}><Download className="h-4 w-4"/> {pdfExporting ? "En cours..." : "Exporter PDF"}</button>
       <button type="button" className="secondary-button min-w-0 w-full justify-center xl:w-auto" onClick={() => { setClassKey(""); setAmountComparator(""); setAmountThreshold(""); page.setSelectedYearId(COORDINATION_ACTIVE_YEAR); page.setStatus("all"); page.setOption(""); }}><RotateCcw className="h-4 w-4"/> Réinitialiser</button>
       <button type="button" className="secondary-button min-w-0 w-full justify-center xl:w-auto" onClick={() => { const today = defaultControlHistoryDate(); setHistoryStart(today); setHistoryEnd(today); setHistoryKind("payments"); }}>Historique</button>
@@ -175,8 +180,8 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
     {loading && <p role="status" className="rounded bg-blue-50 p-3 text-sm text-blue-700">{amountComparator && amountThreshold ? "Recherche..." : "Chargement du contrôle…"}</p>}
     {loadError && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{loadError}</p>}
     {!historyKind && documentError && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{documentError}</p>}
-    {!loading && <div className="grid min-w-0 gap-3">{rows.map(({ student, balance, progress, feeSummaries }) => <article key={student.id} className="min-w-0 rounded border border-slate-200 bg-white p-4"><div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:justify-between"><div className="min-w-0"><button type="button" className="break-words text-left font-bold text-ink hover:text-blue-700 hover:underline" onClick={() => setSelectedStudentId(student.id)}>{student.nom} {student.prenom}</button><p className="break-words text-sm text-slate-500">{student.matricule} | {formatStudentClassName(student)} | {schoolName(student.schoolId)}</p></div><span className={`w-fit shrink-0 rounded px-2 py-1 text-xs font-semibold ${balance.expected > 0 && balance.remaining === 0 ? "bg-mint/10 text-mint" : "bg-amber-100 text-amber-700"}`}>{balance.expected > 0 && balance.remaining === 0 ? "En ordre" : "Non en ordre"}</span></div><div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3"><Metric label="Prévu" value={balance.expected.toFixed(2)}/><Metric label="Payé" value={balance.paid.toFixed(2)}/><Metric label="Solde" value={balance.remaining.toFixed(2)}/></div><div className="mt-4 h-3 overflow-hidden rounded bg-slate-100"><div className="h-full rounded bg-blue-700" style={{ width: `${progress}%` }}/></div>{feeSummaries.length === 0 && <p className="mt-2 text-xs text-slate-500">Aucun frais défini pour cette classe.</p>}</article>)}{rows.length === 0 && <p className="rounded bg-white p-5 text-sm text-slate-500">Aucune donnée de contrôle dans le périmètre sélectionné.</p>}</div>}
-    <nav aria-label="Pagination du contrôle" className="flex flex-wrap items-center justify-between gap-2"><span>Page {page.pageIndex + 1} · {rows.length} élèves · 50 maximum par page</span><div className="flex gap-2"><button type="button" className="secondary-button" disabled={loading || page.pageIndex === 0} onClick={page.previous}>Précédente</button><button type="button" className="secondary-button" disabled={loading || !page.hasNext} onClick={page.next}>Suivante</button></div></nav>
+    {!loading && <div className="grid min-w-0 gap-3">{rows.map(({ student, balance, progress, feeSummaries }) => <article key={student.id} className="min-w-0 rounded border border-slate-200 bg-white p-4"><div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:justify-between"><div className="min-w-0"><button type="button" className="break-words text-left font-bold text-ink hover:text-blue-700 hover:underline" onClick={() => setSelectedStudentId(student.id)}>{student.nom} {student.prenom}</button><p className="break-words text-sm text-slate-500">{student.matricule} | {formatStudentClassName(student)} | {schoolName(student.schoolId)}</p></div><span className={`w-fit shrink-0 rounded px-2 py-1 text-xs font-semibold ${balance.expected > 0 && balance.remaining === 0 ? "bg-mint/10 text-mint" : "bg-amber-100 text-amber-700"}`}>{balance.expected > 0 && balance.remaining === 0 ? "En ordre" : "Non en ordre"}</span></div><div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3"><Metric label="Prévu" value={rowMoney(student, balance.expected)}/><Metric label="Payé" value={rowMoney(student, balance.paid)}/><Metric label="Solde" value={rowMoney(student, balance.remaining)}/></div><div className="mt-4 h-3 overflow-hidden rounded bg-slate-100"><div className="h-full rounded bg-blue-700" style={{ width: `${progress}%` }}/></div>{feeSummaries.length === 0 && <p className="mt-2 text-xs text-slate-500">Aucun frais défini pour cette classe.</p>}</article>)}{rows.length === 0 && <p className="rounded bg-white p-5 text-sm text-slate-500">Aucune donnée de contrôle dans le périmètre sélectionné.</p>}</div>}
+    <nav aria-label="Pagination du contrôle" className="flex flex-wrap items-center justify-between gap-2"><span>Page {formatCount(page.pageIndex + 1)} · {formatCount(rows.length)} élèves · 50 maximum par page</span><div className="flex gap-2"><button type="button" className="secondary-button" disabled={loading || page.pageIndex === 0} onClick={page.previous}>Précédente</button><button type="button" className="secondary-button" disabled={loading || !page.hasNext} onClick={page.next}>Suivante</button></div></nav>
     {historyKind && <AdminDrawer width="wide" title="Historique du contrôle" closeLabel="Fermer l’historique" toolbar={<div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><button type="button" className={historyKind === "payments" ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setHistoryKind("payments")}>Paiements</button><button type="button" className={historyKind === "expenses" ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setHistoryKind("expenses")}>Dépenses</button></div>} onClose={() => { setHistoryKind(null); setDocumentError(""); }}>
       <div className="mb-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <label className="grid min-w-0 gap-1 text-sm">École<select aria-label="École de l’historique" className="input" value={historySchoolId} onChange={(event) => setHistorySchoolId(event.target.value)}><option value="">Toutes les écoles du périmètre</option>{schools.filter((school) => !selectedSchoolId || school.id === selectedSchoolId).map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}</select></label>

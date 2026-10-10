@@ -3,11 +3,12 @@ import type { ReactNode } from "react";
 import { Archive, ArchiveRestore, ChevronDown, Pencil, Printer } from "lucide-react";
 import { AdminDrawer, Field, MultiSelectDropdown } from "../../components/ui";
 import {
-  archivePersonnel, isArchivedPersonnel, personnelDisplayName, personnelIdentity, personnelRoleLabels,
-  reactivatePersonnel, subscribeToPersonnelProfile, subscribeToSchoolPersonnel, updatePersonnel,
+  archivePersonnel, changeServicePersonnelStatus, isArchivedPersonnel, isServicePersonnel, personnelDisplayName, personnelIdentity, personnelRoleLabels,
+  reactivatePersonnel, subscribeToPersonnelProfile, subscribeToSchoolPersonnel, subscribeToServicePersonnel, updatePersonnel, updateServicePersonnel,
 } from "../../services/personnel";
+import type { PersonnelRecord } from "../../services/personnel";
 import { deletePersonnelPhoto, uploadPersonnelPhoto } from "../../services/personnelPhotoStorage";
-import type { AppUser, PersonnelProfile, Role, School, SchoolSection } from "../../types";
+import type { AppUser, PersonnelProfile, Role, School, SchoolSection, ServicePersonnel } from "../../types";
 import { useAutoDismissMessage, ERROR_MESSAGE_DURATION_MS, SUCCESS_MESSAGE_DURATION_MS } from "../../hooks/useAutoDismissMessage";
 import { useDismissibleDropdown } from "../../hooks/useDismissibleDropdown";
 import { isValidProvisioningPhone } from "../../utils/schoolAccountCredentials";
@@ -15,6 +16,7 @@ import { getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig
 import { userSectionIds } from "../../utils/userSections";
 import { printPersonnelListPdf, printPersonnelProfilePdf } from "../../utils/personnelPdf";
 import { PersonnelProfileReadOnly } from "../../components/personnel/PersonnelProfileReadOnly";
+import { PersonnelPaymentHistory } from "../../components/personnel/PersonnelPaymentHistory";
 
 type ProfileForm = Partial<Omit<PersonnelProfile, "id" | "schoolId" | "personnelId" | "matricule" | "createdAt" | "createdBy" | "updatedAt" | "updatedBy">>;
 
@@ -33,10 +35,12 @@ function NativeField({ label, type = "text", value, onChange, readOnly = false }
   return <label className="grid min-w-0 gap-1 text-sm font-semibold">{label}<input className="input min-w-0" type={type} value={value} readOnly={readOnly} onChange={(event) => onChange?.(event.target.value)} /></label>;
 }
 
-export function PersonnelDrawerContent({ user, school, readOnly = false, allowedRoles }: { user: AppUser; school: School; readOnly?: boolean; allowedRoles?: readonly Role[] }) {
+export function PersonnelDrawerContent({ user, school, readOnly = false, allowedRoles, onCreatePersonnel }: { user: AppUser; school: School; readOnly?: boolean; allowedRoles?: readonly Role[]; onCreatePersonnel?: () => void }) {
   const [personnel, setPersonnel] = useState<AppUser[]>([]);
+  const [servicePersonnel, setServicePersonnel] = useState<ServicePersonnel[]>([]);
   const [view, setView] = useState<"active" | "archived">("active");
-  const [selected, setSelected] = useState<AppUser>();
+  const [selected, setSelected] = useState<PersonnelRecord>();
+  const [payrollOpen, setPayrollOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState<"archive" | "reactivate">();
   const [statusConfirmation, setStatusConfirmation] = useState("");
@@ -49,7 +53,7 @@ export function PersonnelDrawerContent({ user, school, readOnly = false, allowed
   const [profileReady, setProfileReady] = useState(false);
   const [profileForm, setProfileForm] = useState<ProfileForm>({});
   const [photoFile, setPhotoFile] = useState<File>();
-  const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true), [serviceLoading, setServiceLoading] = useState(user.role === "school_admin"), [busy, setBusy] = useState(false);
   const [error, setError] = useState(""), [success, setSuccess] = useState("");
   const schoolSections = getSchoolSections(school);
   const sectionOptions = schoolSections.map((section) => ({ value: section, label: schoolSectionLabels[section] }));
@@ -59,8 +63,13 @@ export function PersonnelDrawerContent({ user, school, readOnly = false, allowed
 
   useEffect(() => subscribeToSchoolPersonnel({
     user, schoolId: school.id,
-    onData: (items) => { setPersonnel(items); setSelected((current) => current ? items.find((item) => item.id === current.id) : undefined); setLoading(false); setError(""); },
+    onData: (items) => { setPersonnel(items); setSelected((current) => current && !isServicePersonnel(current) ? items.find((item) => item.id === current.id) : current); setLoading(false); setError(""); },
     onError: () => { setLoading(false); setError("Impossible d’actualiser les personnels."); },
+  }), [school.id, user]);
+  useEffect(() => subscribeToServicePersonnel({
+    user, schoolId: school.id,
+    onData: (items) => { setServicePersonnel(items); setSelected((current) => current && isServicePersonnel(current) ? items.find((item) => item.id === current.id) : current); setServiceLoading(false); },
+    onError: () => { setServiceLoading(false); setError("Impossible d’actualiser les fiches de service."); },
   }), [school.id, user]);
   const selectedId = selected?.id;
   useEffect(() => {
@@ -79,22 +88,22 @@ export function PersonnelDrawerContent({ user, school, readOnly = false, allowed
     });
   }, [school.id, selectedId, user]);
 
-  const visible = useMemo(() => personnel
-    .filter((item) => !allowedRoles || allowedRoles.includes(item.role))
+  const visible = useMemo(() => ([...personnel, ...servicePersonnel] as PersonnelRecord[])
+    .filter((item) => !allowedRoles || !isServicePersonnel(item) && allowedRoles.includes(item.role))
     .filter((item) => view === "archived" ? isArchivedPersonnel(item) : !isArchivedPersonnel(item))
-    .sort((left, right) => left.name.localeCompare(right.name, "fr")), [allowedRoles, personnel, view]);
+    .sort((left, right) => left.name.localeCompare(right.name, "fr")), [allowedRoles, personnel, servicePersonnel, view]);
 
   function clearFeedback() { setError(""); setSuccess(""); }
-  function closeSelected() { if (busy) return; setSelected(undefined); setEditing(false); setConfirming(undefined); setStatusConfirmation(""); clearFeedback(); }
+  function closeSelected() { if (busy) return; setSelected(undefined); setEditing(false); setPayrollOpen(false); setConfirming(undefined); setStatusConfirmation(""); clearFeedback(); }
   function closeEdit() { if (busy) return; setEditing(false); setPhotoFile(undefined); setError(""); }
-  function openEdit(item: AppUser) {
+  function openEdit(item: PersonnelRecord) {
     if (readOnly) return;
     const identity = personnelIdentity(item, profile);
     setSelected(item);
     setPhone(item.phone ?? "");
-    setEmail(item.email);
-    setSections(userSectionIds(item));
-    setProfileForm({ ...profile, ...identity, jobTitle: profile?.jobTitle ?? personnelRoleLabels[item.role as keyof typeof personnelRoleLabels] ?? item.role });
+    setEmail(isServicePersonnel(item) ? "" : item.email);
+    setSections(isServicePersonnel(item) ? item.sectionIds ?? [] : userSectionIds(item));
+    setProfileForm({ ...profile, ...identity, jobTitle: profile?.jobTitle ?? (isServicePersonnel(item) ? item.jobTitle : personnelRoleLabels[item.role as keyof typeof personnelRoleLabels] ?? item.role) });
     setPhotoFile(undefined);
     clearFeedback();
     setEditing(true);
@@ -104,12 +113,13 @@ export function PersonnelDrawerContent({ user, school, readOnly = false, allowed
     if (readOnly) return;
     if (!selected || busy) return;
     const displayName = personnelDisplayName({ lastName: profileForm.lastName ?? "", middleName: profileForm.middleName ?? "", firstName: profileForm.firstName ?? "" });
-    if (!displayName || !email.trim() || !isValidProvisioningPhone(phone)) return setError("Nom, téléphone valide et e-mail sont requis.");
+    if (!displayName || !isValidProvisioningPhone(phone) || !isServicePersonnel(selected) && !email.trim()) return setError("Nom, téléphone valide et e-mail sont requis pour les comptes Acadéa.");
     setBusy(true); setError("");
     let uploaded: { photoPath?: string; photoUrl?: string } = {};
     try {
       uploaded = photoFile ? await uploadPersonnelPhoto({ schoolId: school.id, personnelId: selected.id, file: photoFile }) : {};
-      await updatePersonnel({ schoolId: school.id, personnelId: selected.id, name: displayName, phone: phone.trim(), email: email.trim(), section: sections[0] ?? null, sectionIds: sections, profile: { ...profileForm, ...uploaded } });
+      if (isServicePersonnel(selected)) await updateServicePersonnel({ schoolId: school.id, personnelId: selected.id, name: displayName, phone: phone.trim(), sectionIds: sections, profile: { ...profileForm, ...uploaded } });
+      else await updatePersonnel({ schoolId: school.id, personnelId: selected.id, name: displayName, phone: phone.trim(), email: email.trim(), section: sections[0] ?? null, sectionIds: sections, profile: { ...profileForm, ...uploaded } });
       if (uploaded.photoPath && profile?.photoPath !== uploaded.photoPath) await deletePersonnelPhoto(profile?.photoPath);
       setEditing(false); setSuccess("Personnel modifié avec succès.");
     } catch (cause) {
@@ -125,24 +135,27 @@ export function PersonnelDrawerContent({ user, school, readOnly = false, allowed
     if (statusConfirmation !== expectedConfirmation) return;
     setBusy(true); setError("");
     try {
-      if (confirming === "archive") await archivePersonnel({ schoolId: school.id, personnelId: selected.id }); else await reactivatePersonnel({ schoolId: school.id, personnelId: selected.id });
+      if (isServicePersonnel(selected)) await changeServicePersonnelStatus({ schoolId: school.id, personnelId: selected.id, archive: confirming === "archive" });
+      else if (confirming === "archive") await archivePersonnel({ schoolId: school.id, personnelId: selected.id }); else await reactivatePersonnel({ schoolId: school.id, personnelId: selected.id });
       setConfirming(undefined); setStatusConfirmation(""); setSelected(undefined); setSuccess(confirming === "archive" ? "Personnel archivé avec succès." : "Personnel réactivé avec succès.");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Changement de statut impossible."); }
     finally { setBusy(false); }
   }
 
   return <div className="grid gap-4">
-    <div className="grid min-w-0 grid-cols-2 gap-2"><div ref={statusDropdownRef} className="relative min-w-0"><button type="button" className="secondary-button w-full justify-center" aria-haspopup="listbox" aria-expanded={statusOpen} onClick={() => setStatusOpen((current) => !current)}>Statut : {view === "active" ? "Actifs" : "Archivés"} <ChevronDown className="h-4 w-4"/></button>{statusOpen && <div role="listbox" aria-label="Filtrer les personnels" className="absolute left-0 right-0 top-full z-50 mt-1 grid rounded border border-slate-200 bg-white p-1 shadow-lg"><button role="option" aria-selected={view === "active"} type="button" className="min-h-10 rounded px-3 text-left hover:bg-slate-50" onClick={() => { setView("active"); setStatusOpen(false); }}>Actifs</button><button role="option" aria-selected={view === "archived"} type="button" className="min-h-10 rounded px-3 text-left hover:bg-slate-50" onClick={() => { setView("archived"); setStatusOpen(false); }}>Archivés</button></div>}</div><button type="button" className="primary-button w-full justify-center" disabled={loading || visible.length === 0} onClick={() => void printPersonnelListPdf(school, visible, view)}><Printer className="h-4 w-4"/> Imprimer</button></div>
+    <div className={`grid min-w-0 ${onCreatePersonnel ? "grid-cols-3" : "grid-cols-2"} gap-2`}>{onCreatePersonnel && <button type="button" className="secondary-button min-w-0 w-full justify-center break-words px-1 text-center text-xs sm:px-3 sm:text-sm" onClick={onCreatePersonnel}>Créer un personnel</button>}<div ref={statusDropdownRef} className="relative min-w-0"><button type="button" className="secondary-button min-w-0 w-full justify-center break-words px-1 text-center text-xs sm:px-3 sm:text-sm" aria-haspopup="listbox" aria-expanded={statusOpen} onClick={() => setStatusOpen((current) => !current)}>Statut : {view === "active" ? "Actifs" : "Archivés"} <ChevronDown className="h-4 w-4 shrink-0"/></button>{statusOpen && <div role="listbox" aria-label="Filtrer les personnels" className="absolute left-0 right-0 top-full z-50 mt-1 grid rounded border border-slate-200 bg-white p-1 shadow-lg"><button role="option" aria-selected={view === "active"} type="button" className="min-h-10 rounded px-3 text-left hover:bg-slate-50" onClick={() => { setView("active"); setStatusOpen(false); }}>Actifs</button><button role="option" aria-selected={view === "archived"} type="button" className="min-h-10 rounded px-3 text-left hover:bg-slate-50" onClick={() => { setView("archived"); setStatusOpen(false); }}>Archivés</button></div>}</div><button type="button" className="primary-button min-w-0 w-full justify-center break-words px-1 text-center text-xs sm:px-3 sm:text-sm" disabled={loading || serviceLoading || visible.length === 0} onClick={() => void printPersonnelListPdf(school, visible, view)}><Printer className="h-4 w-4 shrink-0"/> Imprimer</button></div>
     {error && <p role="alert" aria-live="assertive" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}{success && <p role="status" aria-live="polite" className="rounded border border-green-200 bg-green-50 p-3 text-sm text-green-800">{success}</p>}
-    {loading ? <p className="py-8 text-center text-sm text-slate-500">Chargement des personnels…</p> : <div className="grid gap-2">{visible.map((item) => <article key={item.id} className="grid gap-2 rounded border border-slate-200 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"><div className="min-w-0"><button type="button" className="break-words text-left font-semibold text-blue-700 hover:underline focus-visible:ring-2 focus-visible:ring-blue-600" onClick={() => { setSelected(item); setProfile(undefined); clearFeedback(); }}>{item.name}</button><p className="text-sm text-slate-600">{personnelRoleLabels[item.role as keyof typeof personnelRoleLabels]}</p><p className="break-all text-xs text-slate-500">{item.phone || "Non renseigné"} · {item.email}</p></div><span className={`w-fit rounded-full px-2 py-1 text-xs font-semibold ${isArchivedPersonnel(item) ? "bg-slate-200 text-slate-700" : "bg-green-100 text-green-800"}`}>{isArchivedPersonnel(item) ? "Archivé" : "Actif"}</span></article>)}{visible.length === 0 && <p className="rounded bg-slate-50 p-6 text-center text-sm text-slate-500">Aucun personnel {view === "active" ? "actif" : "archivé"}.</p>}</div>}
+    {loading || serviceLoading ? <p className="py-8 text-center text-sm text-slate-500">Chargement des personnels…</p> : <div className="grid gap-2">{visible.map((item) => <article key={item.id} className="grid gap-2 rounded border border-slate-200 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"><div className="min-w-0"><button type="button" className="break-words text-left font-semibold text-blue-700 hover:underline focus-visible:ring-2 focus-visible:ring-blue-600" onClick={() => { setSelected(item); setProfile(undefined); clearFeedback(); }}>{item.name}</button><p className="text-sm text-slate-600">{isServicePersonnel(item) ? item.jobTitle : personnelRoleLabels[item.role as keyof typeof personnelRoleLabels]}</p><p className="break-all text-xs text-slate-500">{item.phone || "Non renseigné"}{!isServicePersonnel(item) && ` · ${item.email}`}</p></div><span className={`w-fit rounded-full px-2 py-1 text-xs font-semibold ${isArchivedPersonnel(item) ? "bg-slate-200 text-slate-700" : "bg-green-100 text-green-800"}`}>{isArchivedPersonnel(item) ? "Archivé" : "Actif"}</span></article>)}{visible.length === 0 && <p className="rounded bg-slate-50 p-6 text-sm text-slate-500">Aucun personnel {view === "active" ? "actif" : "archivé"}.</p>}</div>}
 
     {selected && <AdminDrawer title={`Personnel — ${selected.name}`} closeLabel="Fermer la fiche Personnel" onClose={closeSelected}>
-      <div className="grid grid-cols-2 gap-2"><div className="relative min-w-0"><button ref={actionsDropdownRef} type="button" className="secondary-button w-full justify-center" aria-haspopup="menu" aria-expanded={actionsOpen} disabled={readOnly || busy || !profileReady || selected.role === "school_admin"} onClick={() => setActionsOpen((current) => !current)}>Actions <ChevronDown className="h-4 w-4"/></button>{!readOnly && actionsOpen && selected.role !== "school_admin" && <div role="menu" className="absolute left-0 right-0 top-full z-50 mt-1 grid rounded border border-slate-200 bg-white p-1 shadow-lg"><button role="menuitem" type="button" className="flex min-h-10 items-center gap-2 rounded px-3 text-left text-sm hover:bg-slate-50" onClick={() => { setActionsOpen(false); openEdit(selected); }}><Pencil className="h-4 w-4"/> Modifier</button>{isArchivedPersonnel(selected) ? <button role="menuitem" type="button" className="flex min-h-10 items-center gap-2 rounded px-3 text-left text-sm hover:bg-slate-50" onClick={() => { setActionsOpen(false); setStatusConfirmation(""); setConfirming("reactivate"); }}><ArchiveRestore className="h-4 w-4"/> Réactiver</button> : <button role="menuitem" type="button" className="flex min-h-10 items-center gap-2 rounded px-3 text-left text-sm text-red-700 hover:bg-red-50" onClick={() => { setActionsOpen(false); setStatusConfirmation(""); setConfirming("archive"); }}><Archive className="h-4 w-4"/> Archiver</button>}</div>}</div><button type="button" className="primary-button w-full justify-center" disabled={busy || !profileReady} onClick={() => void printPersonnelProfilePdf(school, selected, profile)}><Printer className="h-4 w-4"/> Imprimer</button></div>
+      <div className="grid grid-cols-2 gap-2"><div className="relative min-w-0"><button ref={actionsDropdownRef} type="button" className="secondary-button w-full justify-center" aria-haspopup="menu" aria-expanded={actionsOpen} disabled={readOnly || busy || !profileReady || !isServicePersonnel(selected) && selected.role === "school_admin"} onClick={() => setActionsOpen((current) => !current)}>Actions <ChevronDown className="h-4 w-4"/></button>{!readOnly && actionsOpen && (isServicePersonnel(selected) || selected.role !== "school_admin") && <div role="menu" className="absolute left-0 right-0 top-full z-50 mt-1 grid rounded border border-slate-200 bg-white p-1 shadow-lg"><button role="menuitem" type="button" className="flex min-h-10 items-center gap-2 rounded px-3 text-left text-sm hover:bg-slate-50" onClick={() => { setActionsOpen(false); openEdit(selected); }}><Pencil className="h-4 w-4"/> Modifier</button>{isArchivedPersonnel(selected) ? <button role="menuitem" type="button" className="flex min-h-10 items-center gap-2 rounded px-3 text-left text-sm hover:bg-slate-50" onClick={() => { setActionsOpen(false); setStatusConfirmation(""); setConfirming("reactivate"); }}><ArchiveRestore className="h-4 w-4"/> Réactiver</button> : <button role="menuitem" type="button" className="flex min-h-10 items-center gap-2 rounded px-3 text-left text-sm text-red-700 hover:bg-red-50" onClick={() => { setActionsOpen(false); setStatusConfirmation(""); setConfirming("archive"); }}><Archive className="h-4 w-4"/> Archiver</button>}</div>}</div><button type="button" className="primary-button w-full justify-center" disabled={busy || !profileReady} onClick={() => void printPersonnelProfilePdf(school, selected, profile)}><Printer className="h-4 w-4"/> Imprimer</button></div>
+      {user.role === "school_admin" && <button type="button" className="secondary-button mt-2 w-full justify-center" onClick={() => setPayrollOpen(true)}>Paiements du personnel — justificatifs</button>}
       {!profileReady && <p role="status" className="py-4 text-center text-sm text-slate-500">Chargement de la fiche administrative…</p>}
       {profileReady && (
         <PersonnelProfileReadOnly personnel={selected} profile={profile}/>
       )}
     </AdminDrawer>}
+    {payrollOpen && selected && user.role === "school_admin" && <PersonnelPaymentHistory beneficiaryId={selected.id} school={school} onClose={() => setPayrollOpen(false)} />}
 
     {!readOnly && editing && selected && <AdminDrawer title="Modifier le personnel" closeLabel="Fermer la modification" onClose={closeEdit}>
       <div className="grid min-w-0 gap-4">
@@ -152,7 +165,7 @@ export function PersonnelDrawerContent({ user, school, readOnly = false, allowed
           <NativeField label="Matricule (automatique — lecture seule)" value={profile?.matricule || "Attribué automatiquement à l’enregistrement"} readOnly/>
           <div className="grid min-w-0 gap-3 sm:grid-cols-2"><Field label="Nom" value={profileForm.lastName ?? ""} onChange={(lastName) => setProfileForm((current) => ({ ...current, lastName }))}/><Field label="Postnom" value={profileForm.middleName ?? ""} onChange={(middleName) => setProfileForm((current) => ({ ...current, middleName }))}/><Field label="Prénom" value={profileForm.firstName ?? ""} onChange={(firstName) => setProfileForm((current) => ({ ...current, firstName }))}/><label className="grid gap-1 text-sm font-semibold">Sexe<select className="input" value={profileForm.gender ?? ""} onChange={(event) => setProfileForm((current) => ({ ...current, gender: event.target.value as PersonnelProfile["gender"] || undefined }))}><option value="">Non renseigné</option><option value="F">Féminin</option><option value="M">Masculin</option><option value="Autre">Autre</option></select></label><NativeField label="Date de naissance" type="date" value={profileForm.birthDate ?? ""} onChange={(birthDate) => setProfileForm((current) => ({ ...current, birthDate }))}/><Field label="Lieu de naissance" value={profileForm.birthPlace ?? ""} onChange={(birthPlace) => setProfileForm((current) => ({ ...current, birthPlace }))}/></div>
         </EditSection>
-        <EditSection title="2. COORDONNÉES"><div className="grid min-w-0 gap-3 sm:grid-cols-2"><Field label="Téléphone" value={phone} onChange={setPhone}/><Field label="E-mail" value={email} onChange={setEmail}/><div className="sm:col-span-2"><Field label="Adresse" value={profileForm.address ?? ""} onChange={(address) => setProfileForm((current) => ({ ...current, address }))}/></div></div></EditSection>
+        <EditSection title="2. COORDONNÉES"><div className="grid min-w-0 gap-3 sm:grid-cols-2"><Field label="Téléphone" value={phone} onChange={setPhone}/>{!isServicePersonnel(selected) && <Field label="E-mail" value={email} onChange={setEmail}/>}<div className="sm:col-span-2"><Field label="Adresse" value={profileForm.address ?? ""} onChange={(address) => setProfileForm((current) => ({ ...current, address }))}/></div></div></EditSection>
         <EditSection title="3. SITUATION PROFESSIONNELLE"><div className="grid min-w-0 gap-3 sm:grid-cols-2"><Field label="Fonction" value={profileForm.jobTitle ?? ""} onChange={(jobTitle) => setProfileForm((current) => ({ ...current, jobTitle }))}/><NativeField label="Date d’engagement" type="date" value={profileForm.engagementDate ?? ""} onChange={(engagementDate) => setProfileForm((current) => ({ ...current, engagementDate }))}/><Field label="Type de contrat" value={profileForm.contractType ?? ""} onChange={(contractType) => setProfileForm((current) => ({ ...current, contractType }))}/><NativeField label="Statut" value={isArchivedPersonnel(selected) ? "Archivé" : "Actif"} readOnly/></div><MultiSelectDropdown label="Sections" options={sectionOptions} values={sections} onChange={(values) => setSections(values as SchoolSection[])} placeholder={schoolSections.length ? "Non renseignée" : "Aucune section disponible"} /></EditSection>
         <EditSection title="4. FORMATION ET QUALIFICATIONS"><div className="grid min-w-0 gap-3 sm:grid-cols-2"><Field label="Niveau d’études" value={profileForm.educationLevel ?? ""} onChange={(educationLevel) => setProfileForm((current) => ({ ...current, educationLevel }))}/><Field label="Diplôme" value={profileForm.diploma ?? ""} onChange={(diploma) => setProfileForm((current) => ({ ...current, diploma }))}/><Field label="Spécialité" value={profileForm.specialty ?? ""} onChange={(specialty) => setProfileForm((current) => ({ ...current, specialty }))}/><Field label="Établissement de formation" value={profileForm.trainingInstitution ?? ""} onChange={(trainingInstitution) => setProfileForm((current) => ({ ...current, trainingInstitution }))}/><NativeField label="Année d’obtention" type="number" value={profileForm.graduationYear?.toString() ?? ""} onChange={(graduationYear) => setProfileForm((current) => ({ ...current, graduationYear: graduationYear ? Number(graduationYear) : undefined }))}/></div></EditSection>
         <EditSection title="5. INFORMATIONS COMPLÉMENTAIRES"><div className="grid min-w-0 gap-3 sm:grid-cols-2"><Field label="Personne à contacter" value={profileForm.emergencyContactName ?? ""} onChange={(emergencyContactName) => setProfileForm((current) => ({ ...current, emergencyContactName }))}/><Field label="Lien avec la personne" value={profileForm.emergencyContactRelationship ?? ""} onChange={(emergencyContactRelationship) => setProfileForm((current) => ({ ...current, emergencyContactRelationship }))}/><Field label="Téléphone de la personne à contacter" value={profileForm.emergencyContactPhone ?? ""} onChange={(emergencyContactPhone) => setProfileForm((current) => ({ ...current, emergencyContactPhone }))}/></div></EditSection>
@@ -163,6 +176,6 @@ export function PersonnelDrawerContent({ user, school, readOnly = false, allowed
       </div>
     </AdminDrawer>}
 
-    {!readOnly && confirming && selected && (() => { const expectedConfirmation = confirming === "archive" ? "ARCHIVER PERSONNEL" : "DÉSARCHIVER PERSONNEL"; return <AdminDrawer title={confirming === "archive" ? "Archiver ce personnel ?" : "Désarchiver ce personnel ?"} closeLabel="Fermer la confirmation" onClose={() => { if (!busy) { setConfirming(undefined); setStatusConfirmation(""); } }}><p>{confirming === "archive" ? "Ce compte ne pourra plus accéder à Acadéa, mais son historique sera conservé." : "Ce compte pourra de nouveau accéder à Acadéa avec ses identifiants existants."}</p><p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">Saisissez exactement : {expectedConfirmation}</p><label className="grid gap-1 text-sm font-semibold">Confirmation<input className="input" value={statusConfirmation} disabled={busy} autoComplete="off" placeholder={expectedConfirmation} onChange={(event) => setStatusConfirmation(event.target.value)}/></label><div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" disabled={busy} onClick={() => { setConfirming(undefined); setStatusConfirmation(""); }}>Annuler</button><button type="button" className={confirming === "archive" ? "rounded bg-red-700 px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50" : "primary-button justify-center"} disabled={busy || statusConfirmation !== expectedConfirmation} onClick={() => void changeStatus()}>{busy ? "Traitement…" : confirming === "archive" ? "Archiver" : "Désarchiver"}</button></div></AdminDrawer>; })()}
+    {!readOnly && confirming && selected && (() => { const expectedConfirmation = confirming === "archive" ? "ARCHIVER PERSONNEL" : "DÉSARCHIVER PERSONNEL"; return <AdminDrawer title={confirming === "archive" ? "Archiver ce personnel ?" : "Désarchiver ce personnel ?"} closeLabel="Fermer la confirmation" onClose={() => { if (!busy) { setConfirming(undefined); setStatusConfirmation(""); } }}><p>{isServicePersonnel(selected) ? "La fiche administrative restera consultable dans les archives ; aucun compte Acadéa n'est concerné." : confirming === "archive" ? "Ce compte ne pourra plus accéder à Acadéa, mais son historique sera conservé." : "Ce compte pourra de nouveau accéder à Acadéa avec ses identifiants existants."}</p><p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">Saisissez exactement : {expectedConfirmation}</p><label className="grid gap-1 text-sm font-semibold">Confirmation<input className="input" value={statusConfirmation} disabled={busy} autoComplete="off" placeholder={expectedConfirmation} onChange={(event) => setStatusConfirmation(event.target.value)}/></label><div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" disabled={busy} onClick={() => { setConfirming(undefined); setStatusConfirmation(""); }}>Annuler</button><button type="button" className={confirming === "archive" ? "rounded bg-red-700 px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50" : "primary-button justify-center"} disabled={busy || statusConfirmation !== expectedConfirmation} onClick={() => void changeStatus()}>{busy ? "Traitement…" : confirming === "archive" ? "Archiver" : "Désarchiver"}</button></div></AdminDrawer>; })()}
   </div>;
 }

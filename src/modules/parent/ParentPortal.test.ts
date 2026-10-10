@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const source = readFileSync("src/modules/parent/ParentPortal.tsx", "utf8");
+const source = readFileSync("src/modules/parent/ParentPortal.tsx", "utf8").replace(/\r\n/g, "\n");
 const selectorSource = readFileSync("src/modules/messages/AdministrativeRecipientSelector.tsx", "utf8");
 
 describe("portail Parent", () => {

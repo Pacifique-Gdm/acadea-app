@@ -212,7 +212,7 @@ export interface Payment {
   correctionReason?: string;
   createdBy?: string;
   updatedBy?: string;
-  provenance?: "financial-api";
+    provenance?: "financial-api" | "personnel-payroll";
   clientRequestIdHash?: string;
 }
 
@@ -337,6 +337,47 @@ export interface PersonnelProfile {
   updatedBy: string;
 }
 
+/** Fiche administrative autonome : aucun document users ni identité Firebase Auth. */
+export interface ServicePersonnel extends PersonnelProfile {
+  kind: "service";
+  name: string;
+  phone: string;
+  jobTitle: string;
+  status: "active" | "inactive";
+  active: boolean;
+  section?: SchoolSection | null;
+  sectionIds?: SchoolSection[];
+}
+
+export interface PersonnelPayment {
+  id: string;
+  schoolId: string;
+  schoolYearId: string;
+  beneficiaryId: string;
+  beneficiaryName: string;
+  beneficiaryJobTitle: string;
+  beneficiaryHasAccount: boolean;
+  kind: "salary" | "bonus" | "advance";
+  periodMonth?: number;
+  periodYear?: number;
+  paidAt: string;
+  currency: "CDF" | "USD";
+  reference: string;
+  amount: number;
+  recoveredAmount: number;
+  recoveries: Array<{ advanceId: string; reference: string; paidAt: string; amount: number }>;
+  recoveryHistory?: Array<{ paymentId: string; reference: string; paidAt: string; amount: number }>;
+  deduction: number;
+  deductionReason: string;
+  cnss: number;
+  tax: number;
+  netPaid: number;
+  description: string;
+  expenseId: string;
+  createdAt: string;
+  createdBy: string;
+}
+
 export interface Expense {
   id: string;
   schoolId: string;
@@ -356,6 +397,7 @@ export interface Expense {
   updatedBy?: string;
   provenance?: "financial-api";
   clientRequestIdHash?: string;
+    personnelPaymentId?: string;
 }
 
 export interface Message {

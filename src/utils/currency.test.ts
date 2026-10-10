@@ -18,6 +18,13 @@ describe("devise d'école", () => {
     expect(formatCurrencyMoney(2450000, "CDF").replace(/[\u00a0\u202f]/g, " ")).toBe("2 450 000,00 FC");
   });
 
+  it("préserve zéro, signe et décimales avec les séparateurs de milliers", () => {
+    const display = (value: number) => formatCurrencyMoney(value, "CDF").replace(/[\u00a0\u202f]/g, " ");
+    expect(display(0)).toBe("0,00 FC");
+    expect(display(-12500)).toBe("-12 500,00 FC");
+    expect(display(1250000.5)).toBe("1 250 000,50 FC");
+  });
+
   it("résout la devise annuelle avant le fallback école", () => {
     expect(resolveSchoolYearCurrency({ currency: "USD" }, { currency: "CDF" })).toBe("USD");
     expect(resolveSchoolYearCurrency({ currency: "CDF" }, { currency: "USD" })).toBe("CDF");

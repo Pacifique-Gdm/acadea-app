@@ -20,7 +20,8 @@ export function assertSafeE2EEnvironment(env: NodeJS.ProcessEnv): E2EEnvironment
   }
 
   const isStaging = parsedUrl.origin === STAGING_ORIGIN && firebaseProjectId === "acadea-staging";
-  const isLocalStaging = LOCAL_HOSTS.has(parsedUrl.hostname) && firebaseProjectId === "acadea-staging";
+  const isLocalStaging = LOCAL_HOSTS.has(parsedUrl.hostname) && (firebaseProjectId === "acadea-staging"
+    || firebaseProjectId === "demo-acadea" && env.ACADEA_E2E_LOCAL_EMULATORS === "YES");
   if (!isStaging && !isLocalStaging) {
     throw new Error(`E2E bloqué : cible non autorisée (${parsedUrl.origin} / ${firebaseProjectId}).`);
   }

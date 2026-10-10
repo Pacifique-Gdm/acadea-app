@@ -12,6 +12,17 @@ describe("Drawer Personnels", () => {
     expect(source).toContain("printPersonnelProfilePdf(school, selected, profile)");
   });
 
+  it("place la création avant les deux actions existantes sur trois colonnes égales", () => {
+    expect(source).toContain('onCreatePersonnel ? "grid-cols-3" : "grid-cols-2"');
+    const create = source.indexOf('>Créer un personnel</button>');
+    const status = source.indexOf('Statut : {view === "active"');
+    const print = source.indexOf('printPersonnelListPdf(school, visible, view)');
+    expect(create).toBeGreaterThan(-1);
+    expect(status).toBeGreaterThan(create);
+    expect(print).toBeGreaterThan(status);
+    expect(source).toContain('selected.role === "school_admin"');
+  });
+
   it("présente exactement les sept rubriques du formulaire de modification dans l'ordre", () => {
     const titles = ["1. IDENTIFICATION", "2. COORDONNÉES", "3. SITUATION PROFESSIONNELLE", "4. FORMATION ET QUALIFICATIONS", "5. INFORMATIONS COMPLÉMENTAIRES", "6. OBSERVATIONS", "7. INFORMATIONS SYSTÈME — LECTURE SEULE"];
     let previous = -1;
@@ -21,14 +32,14 @@ describe("Drawer Personnels", () => {
   it("préremplit l'identité, la photo et les sections sans inventer une seconde source", () => {
     expect(source).toContain("const identity = personnelIdentity(item, profile)");
     expect(source).toContain("setProfileForm({ ...profile, ...identity");
-    expect(source).toContain("setSections(userSectionIds(item))");
+    expect(source).toContain("setSections(isServicePersonnel(item) ? item.sectionIds ?? [] : userSectionIds(item))");
     expect(source).toContain("profile?.photoUrl && <img");
   });
 
   it("attend le profil temps réel avant d'autoriser modification et impression", () => {
     expect(source).toContain("const [profileReady, setProfileReady] = useState(false)");
     expect(source).toContain("setProfile(nextProfile); setProfileReady(true)");
-    expect(source).toContain('disabled={readOnly || busy || !profileReady || selected.role === "school_admin"}');
+    expect(source).toContain('disabled={readOnly || busy || !profileReady || !isServicePersonnel(selected) && selected.role === "school_admin"}');
     expect(source).toContain("disabled={busy || !profileReady}");
   });
 

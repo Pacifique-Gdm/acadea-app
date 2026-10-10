@@ -1,5 +1,6 @@
-import type { AppUser, PersonnelProfile, School } from "../types";
-import { isArchivedPersonnel, personnelIdentity, personnelRoleLabels } from "../services/personnel";
+import type { PersonnelProfile, School } from "../types";
+import { isArchivedPersonnel, isServicePersonnel, personnelIdentity, personnelRoleLabels } from "../services/personnel";
+import type { PersonnelRecord } from "../services/personnel";
 import { schoolSectionLabels } from "./schoolConfig";
 import { userSectionIds } from "./userSections";
 import { escapePdfHtml, pdfSection, pdfTable, renderAcadPdfPreview } from "./pdf";
@@ -35,27 +36,27 @@ function genderLabel(gender?: PersonnelProfile["gender"]) {
   return gender || "-";
 }
 
-export async function printPersonnelListPdf(school: School, personnel: AppUser[], status: "active" | "archived", printedAt = new Date()) {
+export async function printPersonnelListPdf(school: School, personnel: PersonnelRecord[], status: "active" | "archived", printedAt = new Date()) {
   const archived = status === "archived";
   return renderAcadPdfPreview({
     filename: `liste-personnel-${archived ? "archive" : "actif"}.pdf`, title: `Liste du personnel ${archived ? "archivé" : "actif"}`, school, generatedAt: printedAt,
     sections: [pdfTable([
       { header: "Nom", render: (item) => item.name },
-      { header: "Fonction", render: (item) => personnelRoleLabels[item.role as keyof typeof personnelRoleLabels] ?? item.role },
-      { header: "Sections", render: (item) => userSectionIds(item).map((section) => schoolSectionLabels[section]).join(", ") || "Non renseignées" },
+      { header: "Fonction", render: (item) => isServicePersonnel(item) ? item.jobTitle : personnelRoleLabels[item.role as keyof typeof personnelRoleLabels] ?? item.role },
+      { header: "Sections", render: (item) => (isServicePersonnel(item) ? item.sectionIds ?? [] : userSectionIds(item)).map((section) => schoolSectionLabels[section]).join(", ") || "Non renseignées" },
       { header: "Téléphone", render: (item) => item.phone || "Non renseigné" },
-      { header: "E-mail", render: (item) => item.email || "Non renseigné" },
+      { header: "E-mail", render: (item) => isServicePersonnel(item) ? "Sans compte Acadéa" : item.email || "Non renseigné" },
       { header: "Statut", render: () => archived ? "Archivé" : "Actif" },
     ], personnel, "Aucun personnel correspondant au filtre sélectionné.")],
   });
 }
 
-export async function printPersonnelProfilePdf(school: School, personnel: AppUser, profileOrPrintedAt?: PersonnelProfile | Date, requestedPrintedAt = new Date(), context?: { personnelSchoolName?: string }) {
+export async function printPersonnelProfilePdf(school: School, personnel: PersonnelRecord, profileOrPrintedAt?: PersonnelProfile | Date, requestedPrintedAt = new Date(), context?: { personnelSchoolName?: string }) {
   const profile = profileOrPrintedAt instanceof Date ? undefined : profileOrPrintedAt;
   const printedAt = profileOrPrintedAt instanceof Date ? profileOrPrintedAt : requestedPrintedAt;
   const identity = personnelIdentity(personnel, profile);
-  const role = personnelRoleLabels[personnel.role as keyof typeof personnelRoleLabels] ?? personnel.role;
-  const sections = userSectionIds(personnel).map((section) => schoolSectionLabels[section]).join(", ") || "-";
+  const role = isServicePersonnel(personnel) ? personnel.jobTitle : personnelRoleLabels[personnel.role as keyof typeof personnelRoleLabels] ?? personnel.role;
+  const sections = (isServicePersonnel(personnel) ? personnel.sectionIds ?? [] : userSectionIds(personnel)).map((section) => schoolSectionLabels[section]).join(", ") || "-";
   const birthDateAndPlace = [personnelDate(profile?.birthDate), value(profile?.birthPlace)].filter((item) => item !== "-").join(" à ") || "-";
   const photo = profile?.photoUrl
     ? `<img src="${escapePdfHtml(profile.photoUrl)}" alt="Photo du personnel" />`
@@ -79,8 +80,8 @@ export async function printPersonnelProfilePdf(school: School, personnel: AppUse
       ])}</div><div class="personnel-photo-box"><span class="personnel-photo-label">PHOTO</span>${photo}</div></div>`, { className: "personnel-identification" }),
       pdfSection("COORDONNÉES", lines([
         { label: "Téléphone", value: personnel.phone },
-        { label: "E-mail", value: personnel.email },
-        { label: "Adresse", value: profile?.address ?? personnel.address },
+        ...(!isServicePersonnel(personnel) ? [{ label: "E-mail", value: personnel.email }] : []),
+        { label: "Adresse", value: profile?.address ?? (isServicePersonnel(personnel) ? undefined : personnel.address) },
       ]), { className: "personnel-coordinates" }),
       pdfSection("SITUATION PROFESSIONNELLE", lines([
         { label: "Fonction", value: profile?.jobTitle || role },

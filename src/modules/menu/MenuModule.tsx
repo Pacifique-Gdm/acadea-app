@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Fragment, type ReactNode } from "react";
-import { Banknote, BarChart3, BookOpen, CheckCircle2, ChevronRight, Clock3, CreditCard, Fingerprint, HeartPulse, Plus, RefreshCw, Settings, ShieldCheck, Trash2, UserRound, UsersRound, X } from "lucide-react";
+import { Banknote, BarChart3, BookOpen, CheckCircle2, ChevronRight, Clock3, CreditCard, Fingerprint, HeartPulse, Plus, RefreshCw, Settings, Trash2, UserRound, UsersRound, X } from "lucide-react";
 import { AdminDrawer, Field, ImageUploadField, LogoutButton, MoneyInput, MultiSelectDropdown, PasswordField } from "../../components/ui";
 import { ParentsDirectoryDrawer } from "../../components/parents/ParentsDirectoryDrawer";
 import { ParentDrawerBackButton } from "../../components/parents/ParentFormEditor";
@@ -28,6 +28,8 @@ import { FEE_KINDS } from "../../types";
 import { groupFeeTypes } from "./feeTypeGroups";
 import { SecretaryMedicalRecordsDrawer } from "../secretary/SecretaryMedicalTools";
 import { PersonnelDrawerContent } from "./PersonnelDrawerContent";
+import { ServicePersonnelForm } from "../../components/personnel/ServicePersonnelForm";
+import { OwnPayrollEntry } from "../../components/personnel/OwnPayrollEntry";
 import type { StudentMedicalRecord } from "../secretary/secretaryTypes";
 
 type SchoolUserProvisionRole = "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher";
@@ -142,6 +144,8 @@ export function MenuModule({
   const [feeEditPending, setFeeEditPending] = useState(false);
   const [feeEditConfirmation, setFeeEditConfirmation] = useState("");
   const [activeMenuSection, setActiveMenuSection] = useState<MenuSection | null>(initialBiometricsOpen ? "biometrics" : null);
+  const [createPersonnelOpen, setCreatePersonnelOpen] = useState(false);
+  const [personnelCreationKind, setPersonnelCreationKind] = useState<"account" | "service">("account");
   const [newYearOpen, setNewYearOpen] = useState(false);
   const [newYearForm, setNewYearForm] = useState(() => nextSchoolYearDefaults(selectedYear));
   const [newYearConfirmation, setNewYearConfirmation] = useState("");
@@ -172,7 +176,6 @@ export function MenuModule({
     { id: "fees", title: "Types de frais", description: "Montants et catégories de frais scolaires.", icon: Banknote },
     { id: "financial", title: "Rapport financier", description: "Synthèse et exports des rapports financiers.", icon: BarChart3 },
     { id: "personnel", title: "Personnels", description: "Personnel actif, archivage et réactivation des comptes internes.", icon: UsersRound },
-    { id: "accounts", title: "Créer un utilisateur", description: "Comptes responsables liés à l'école.", icon: ShieldCheck },
     { id: "biometrics", title: "Empreintes et Cartes", description: "Préparation des identifiants biométriques des élèves.", icon: Fingerprint },
     { id: "years", title: "Années scolaires", description: "Année active, années archivées et contexte global.", icon: BookOpen },
     { id: "school", title: "Paramètres école", description: "Logo, coordonnées et informations de l'établissement.", icon: Settings },
@@ -268,6 +271,7 @@ export function MenuModule({
     setFeeEditConfirmation("");
     closeSchoolSectionConfirmation();
     setActiveMenuSection(null);
+    setCreatePersonnelOpen(false);
     clearMenuMessages();
   }
 
@@ -540,9 +544,7 @@ export function MenuModule({
     setSchoolUserRole("cashier");
     setSchoolUserSections([]);
     setCashierSuccess(`Compte ${schoolUserProvisionLabels[schoolUserRole].toLowerCase()} créé avec succès. Il peut maintenant se connecter avec son email et son mot de passe.`);
-    window.setTimeout(() => {
-      setActiveMenuSection((current) => (current === "accounts" ? null : current));
-    }, 2000);
+    window.setTimeout(() => setCreatePersonnelOpen(false), 2000);
   }
 
   async function saveFee(confirmation = "") {
@@ -1054,12 +1056,19 @@ export function MenuModule({
     }
 
     if (sectionId === "personnel" && canReadAdmin) {
-      return <PersonnelDrawerContent user={user} school={school} readOnly={isArchivedContext} />;
+      return <PersonnelDrawerContent user={user} school={school} readOnly={isArchivedContext} onCreatePersonnel={canAdmin ? () => { clearMenuMessages(); setCreatePersonnelOpen(true); } : undefined} />;
     }
 
     if (sectionId === "accounts" && canAdmin) {
       return (
         <div className="grid min-w-0 gap-4">
+          <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">Type de personnel
+            <select className="input" value={personnelCreationKind} onChange={(event) => setPersonnelCreationKind(event.target.value as "account" | "service")}>
+              <option value="account">Personnel avec compte Acadéa</option>
+              <option value="service">Autre personnel (sans compte)</option>
+            </select>
+          </label>
+          {personnelCreationKind === "service" ? <ServicePersonnelForm schoolId={school.id} /> : <>
           {cashierError && <p role="alert" aria-live="assertive" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{cashierError}</p>}
           {schoolUserRole === "teacher" && teacherAccountsError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{teacherAccountsError}</p>}
           {cashierSuccess && <p role="status" aria-live="polite" className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{cashierSuccess}</p>}
@@ -1088,8 +1097,9 @@ export function MenuModule({
             onToggle={() => setShowCashierPassword(!showCashierPassword)}
           />
           <button onClick={saveSchoolUser} disabled={schoolUserSubmitting || (schoolUserRole === "teacher" && !teacherAccountsLoaded) || !cashierName.trim() || !cashierEmail.trim() || !cashierPhone.trim() || !cashierPassword} className="primary-button disabled:opacity-50" type="button">
-            <UserRound className="h-4 w-4" /> {schoolUserSubmitting ? "Création..." : "Créer l'utilisateur"}
+            <UserRound className="h-4 w-4" /> {schoolUserSubmitting ? "Création..." : "Créer le personnel"}
           </button>
+          </>}
         </div>
       );
     }
@@ -1324,7 +1334,7 @@ export function MenuModule({
     return null;
   }
 
-  const visibleMenuSections = menuSections.filter((section) => (canReadAdmin ? section.id !== "accounts" || canAdmin : user.role === "cashier" && (section.id === "valves" || section.id === "history")));
+  const visibleMenuSections = menuSections.filter((section) => canReadAdmin || user.role === "cashier" && (section.id === "valves" || section.id === "history"));
   const activeMenuSectionConfig = visibleMenuSections.find((section) => section.id === activeMenuSection);
 
   return (
@@ -1334,6 +1344,7 @@ export function MenuModule({
           {schoolSaveMessage}
         </p>
       )}
+      <OwnPayrollEntry user={user} school={school} />
       {visibleMenuSections.map((section) => {
         const Icon = section.icon;
         const active = activeMenuSection === section.id;
@@ -1364,9 +1375,14 @@ export function MenuModule({
           </button>
         );
       })}
-      {activeMenuSection && activeMenuSectionConfig && (
+      {activeMenuSection && activeMenuSectionConfig && !createPersonnelOpen && (
         <AdminDrawer title={activeMenuSectionConfig.title} onClose={closeActiveMenuSection} closeLabel={`Fermer ${activeMenuSectionConfig.title}`}>
           {renderMenuSectionForm(activeMenuSection)}
+        </AdminDrawer>
+      )}
+      {createPersonnelOpen && activeMenuSection === "personnel" && canAdmin && (
+        <AdminDrawer title="Créer un personnel" onClose={() => { if (!schoolUserSubmitting) setCreatePersonnelOpen(false); }} closeLabel="Fermer la création de personnel">
+          {renderMenuSectionForm("accounts")}
         </AdminDrawer>
       )}
       {medicalRecordsError && medicalRecordsOpen && <p role="alert" aria-live="assertive" className="rounded border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800">{medicalRecordsError}</p>}
