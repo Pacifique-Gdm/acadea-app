@@ -65,6 +65,10 @@
     "@vercel/remix-builder": {
       "path-to-regexp": "6.3.0"
     },
+    "@vercel/static-config": {
+      "ajv": "8.18.0"
+    },
+    "@tootallnate/once": "2.0.1",
     "vercel": {
       "path-to-regexp@>=6.0.0 <6.3.0": "6.3.0",
       "path-to-regexp@>=8.0.0 <8.4.0": "8.4.0",
