@@ -251,9 +251,11 @@ describe("nouvelle matrice annuelle et continuité multi-modules", () => {
 
 describe("réinscription annuelle d'un terminaliste", () => {
   const admin = { uid: "admin-a", role: "school_admin", schoolId: "school-a" };
-  const request = (changes: Record<string, unknown> = {}, actor = admin) => reenrollTerminalStudent({ db, caller: actor, body: { schoolId: "school-a", sourceStudentId: "s0", mode: "reenroll", confirmation: "REINSCRIRE CET ELEVE", ...changes } });
+  const request = (changes: Record<string, unknown> = {}, actor = admin) => reenrollTerminalStudent({ db, caller: actor, body: { schoolId: "school-a", sourceStudentId: "s0", mode: "reenroll", confirmation: "REINSCRIRE CET ELEVE", examResultConfirmed: true, ...changes } });
   beforeEach(async () => {
     await db.doc("users/admin-a").set({ ...admin, status: "active" });
+    await db.doc("schoolYears/old").update({ name: "2026-2027" });
+    await db.doc("schoolYears/new").update({ name: "2027-2028" });
     await db.doc("students/s0").set({ ...source("s0"), className: "4ème Humanité", section: "Secondaire", option: "Sciences" });
     await db.doc("classes/terminal-target").set({ id: "terminal-target", schoolId: "school-a", schoolYearId: "new", name: "4ème Humanité", section: "Secondaire", active: true });
     await db.doc("studentMedicalRecords/s0").set({ id: "s0", studentId: "s0", schoolId: "school-a", schoolYearId: "old", allergies: "Pénicilline" });
@@ -266,13 +268,22 @@ describe("réinscription annuelle d'un terminaliste", () => {
     const targets = await targetStudents(); expect(targets).toHaveLength(1);
     expect(targets[0].data()).toMatchObject({ matricule: "s0", parentId: "parent-a", className: "4ème Humanité", classId: "terminal-target", option: "Sciences", status: "ACTIVE" });
     expect((await db.doc(`studentMedicalRecords/${targets[0].id}`).get()).data()).toMatchObject({ allergies: "Pénicilline", studentId: targets[0].id, schoolYearId: "new" });
-    expect((await db.doc("students/s0").get()).data()).toEqual(before);
+    const { terminalDecision, ...sourceAfter } = (await db.doc("students/s0").get()).data() ?? {};
+    expect(sourceAfter).toEqual(before);
+    expect(terminalDecision).toMatchObject({ type: "reenrolled", targetStudentId: targets[0].id, targetSchoolYearId: "new" });
     expect((await db.collection("auditLogs").where("eventType", "==", "student.terminal_reenrolled").get()).size).toBe(1);
     expect(new Set((await db.doc("parents/parent-a").get()).data()?.studentIds).size).toBe(2);
   }, 15_000);
 
   it.each(["cashier", "discipline_director", "study_director", "parent", "coordination_admin", "sub_coordination_admin"])("refuse le rôle %s", async (role) => {
     await expect(request({}, { ...admin, role })).rejects.toMatchObject({ code: "permission-denied" });
+    expect(await targetStudents()).toHaveLength(0);
+  });
+
+  it("refuse une décision officielle non confirmée ou une confirmation incorrecte", async () => {
+    await expect(request({ examResultConfirmed: false })).rejects.toMatchObject({ code: "invalid-argument" });
+    await expect(request({ examResultConfirmed: undefined })).rejects.toMatchObject({ code: "invalid-argument" });
+    await expect(request({ confirmation: "REINSCRIRE" })).rejects.toMatchObject({ code: "invalid-argument" });
     expect(await targetStudents()).toHaveLength(0);
   });
 
