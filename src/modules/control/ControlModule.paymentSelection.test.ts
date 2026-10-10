@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const source = readFileSync(new URL("./ControlModule.tsx", import.meta.url), "utf8");
+const source = readFileSync(new URL("./ControlModule.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const clear = source.slice(source.indexOf("function clearPaymentStudent()"), source.indexOf("async function savePayment()"));
 const reset = source.slice(source.indexOf("function resetStudentDependentPaymentState()"), source.indexOf("function selectPaymentStudent("));
 

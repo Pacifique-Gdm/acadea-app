@@ -1,13 +1,15 @@
 import { collection, doc, onSnapshot, query, where } from "@firebase/firestore";
 import type { Firestore } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
-import type { AppUser, PersonnelProfile, Role, SchoolSection } from "../types";
+import type { AppUser, PersonnelProfile, Role, SchoolSection, ServicePersonnel } from "../types";
 import { resolveApiUrl } from "../config/apiUrl";
 import { getCurrentFirebaseIdToken } from "./auth";
 import { apiErrorMessage } from "../utils/rateLimitErrors";
 
 export const INTERNAL_PERSONNEL_ROLES = ["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"] as const satisfies readonly Role[];
 export type InternalPersonnelRole = typeof INTERNAL_PERSONNEL_ROLES[number];
+export type PersonnelRecord = AppUser | ServicePersonnel;
+export const isServicePersonnel = (personnel: PersonnelRecord): personnel is ServicePersonnel => "kind" in personnel && personnel.kind === "service";
 
 export const personnelRoleLabels: Record<InternalPersonnelRole, string> = {
   school_admin: "Administrateur",
@@ -22,13 +24,13 @@ export function isInternalPersonnel(user: AppUser): user is AppUser & { role: In
   return Boolean(user.schoolId) && INTERNAL_PERSONNEL_ROLES.includes(user.role as InternalPersonnelRole);
 }
 
-export function isArchivedPersonnel(user: AppUser) {
+export function isArchivedPersonnel(user: PersonnelRecord) {
   return user.status === "inactive" || (user as AppUser & { active?: boolean }).active === false;
 }
 
 export type PersonnelIdentity = { lastName: string; middleName: string; firstName: string };
 
-export function personnelIdentity(user: AppUser, profile?: Partial<PersonnelProfile>): PersonnelIdentity {
+export function personnelIdentity(user: PersonnelRecord, profile?: Partial<PersonnelProfile>): PersonnelIdentity {
   if (profile?.lastName || profile?.middleName || profile?.firstName) {
     return {
       lastName: profile.lastName ?? "",
@@ -61,6 +63,40 @@ export function subscribeToSchoolPersonnel(input: { user: AppUser; schoolId: str
     (snapshot) => input.onData(normalizePersonnelSnapshot(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as AppUser))),
     input.onError,
   );
+}
+
+export function subscribeToServicePersonnel(input: { user: AppUser; schoolId: string; onData: (personnel: ServicePersonnel[]) => void; onError: (error: Error) => void }) {
+  if (!firebaseReady || !db || input.user.role !== "school_admin" || input.user.schoolId !== input.schoolId || input.user.status === "inactive" || input.user.active === false) return () => undefined;
+  return onSnapshot(
+    query(collection(db as unknown as Firestore, "personnelProfiles"), where("schoolId", "==", input.schoolId)),
+    (snapshot) => input.onData(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as ServicePersonnel).filter((item) => item.kind === "service")),
+    input.onError,
+  );
+}
+
+async function requestServicePersonnel(input: Record<string, unknown>) {
+  const token = await getCurrentFirebaseIdToken();
+  const response = await fetch(resolveApiUrl("/api/provision-school-account"), {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const payload = await response.json().catch(() => ({})) as { personnel?: ServicePersonnel; error?: string; code?: string };
+  if (!response.ok) throw new Error(apiErrorMessage(response.status, payload, "Gestion du personnel impossible."));
+  if (!payload.personnel) throw new Error("Réponse de gestion du personnel incomplète.");
+  return payload.personnel;
+}
+
+export function createServicePersonnel(input: { schoolId: string; name: string; phone: string; jobTitle: string; otherJobTitle?: string }) {
+  return requestServicePersonnel({ action: "create-service-personnel", ...input });
+}
+
+export function updateServicePersonnel(input: { schoolId: string; personnelId: string; name: string; phone: string; sectionIds: SchoolSection[]; profile: Partial<PersonnelProfile> }) {
+  return requestServicePersonnel({ action: "update-personnel", ...input });
+}
+
+export function changeServicePersonnelStatus(input: { schoolId: string; personnelId: string; archive: boolean }) {
+  return requestServicePersonnel({ action: input.archive ? "archive-personnel" : "reactivate-personnel", schoolId: input.schoolId, personnelId: input.personnelId });
 }
 
 export function subscribeToPersonnelProfile(input: { user: AppUser; schoolId: string; personnelId: string; onData: (profile?: PersonnelProfile) => void; onError: (error: Error) => void }) {

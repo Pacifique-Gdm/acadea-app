@@ -13,17 +13,19 @@ export default defineConfig(({ mode }) => {
   const canonical = existsSync(canonicalPath) ? parse(readFileSync(canonicalPath)) : {};
   const loaded = loadEnv(mode, process.cwd(), "");
   const environment = { ...loaded, ...canonical, ...process.env };
+  const localEmulator = mode === "test" && process.env.VITE_LOCAL_EMULATORS === "true";
   if (mode === "test") Object.assign(environment, {
     VITE_APP_ENV: "staging",
     VITE_FIREBASE_API_KEY: "test-public-api-key",
-    VITE_FIREBASE_AUTH_DOMAIN: "acadea-staging.firebaseapp.com",
-    VITE_FIREBASE_PROJECT_ID: "acadea-staging",
-    VITE_FIREBASE_STORAGE_BUCKET: "acadea-staging.firebasestorage.app",
+    VITE_FIREBASE_AUTH_DOMAIN: `${localEmulator ? "demo-acadea" : "acadea-staging"}.firebaseapp.com`,
+    VITE_FIREBASE_PROJECT_ID: localEmulator ? "demo-acadea" : "acadea-staging",
+    VITE_FIREBASE_STORAGE_BUCKET: `${localEmulator ? "demo-acadea" : "acadea-staging"}.firebasestorage.app`,
     VITE_FIREBASE_MESSAGING_SENDER_ID: "123",
     VITE_FIREBASE_APP_ID: "1:123:web:test",
   });
   const firebaseValues = {
     appEnv: environment.VITE_APP_ENV,
+    localEmulator,
     apiKey: environment.VITE_FIREBASE_API_KEY,
     authDomain: environment.VITE_FIREBASE_AUTH_DOMAIN,
     projectId: environment.VITE_FIREBASE_PROJECT_ID,

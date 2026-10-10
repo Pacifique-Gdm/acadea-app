@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const source = readFileSync(new URL("./TeacherStudentsDrawer.tsx", import.meta.url), "utf8");
+const source = readFileSync(new URL("./TeacherStudentsDrawer.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
 describe("Mes élèves Enseignant", () => {
   it("ancre la fiche de suivi dans la ligne de l’élève et la ferme au clic extérieur ou avec Échap", () => {

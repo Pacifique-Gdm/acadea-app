@@ -9,6 +9,7 @@ import { DisciplineStatus } from "../../components/discipline/DisciplineStatus";
 import { NewSanctionDrawer } from "../../components/discipline/NewSanctionDrawer";
 import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent";
 import { AdminDrawer } from "../../components/ui";
+import { OwnPayrollEntry } from "../../components/personnel/OwnPayrollEntry";
 import { completeDisciplineSanction, createDisciplineSanction, saveDisciplineAuditLog } from "../../services/discipline";
 import { markConversationUnreadCountRead, persistMessageWithConversation } from "../../services/conversations";
 import { canUseFirestoreData, persistFirestorePatch } from "../../services/firestoreData";
@@ -705,6 +706,7 @@ export function DisciplinePortal({
         )}
         {activeDisciplineTab === "menu" && (
           <section className="grid min-w-0 gap-3">
+            <OwnPayrollEntry user={user} school={school} />
             {renderPublishedTimetable?.()}
             {disciplineMenuSections.map((section) => {
               const Icon = section.icon;

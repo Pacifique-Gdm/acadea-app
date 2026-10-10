@@ -28,7 +28,11 @@ describe("formulaire de création des utilisateurs métier", () => {
   it("propose le rôle Enseignant dans le formulaire existant", () => {
     expect(source).toContain('<option value="teacher">Enseignant</option>');
     expect(source).toContain('teacher: "Enseignant"');
-    expect(source.match(/Créer un utilisateur/g)).toHaveLength(1);
+    expect(source).not.toContain('title: "Créer un utilisateur"');
+    expect(source).toContain('title="Créer un personnel"');
+    expect(source).toContain('renderMenuSectionForm("accounts")');
+    expect(source).toContain('"Créer le personnel"');
+    expect(source).toContain('activeMenuSectionConfig && !createPersonnelOpen');
   });
 
   it("utilise les sections configurées et persiste la sélection multiple", () => {

@@ -66,6 +66,7 @@ declare module "firebase/auth" {
   export const indexedDBLocalPersistence: unknown;
   export const inMemoryPersistence: unknown;
   export function initializeAuth(app: unknown, options: { persistence: unknown }): FirebaseAuth;
+  export function connectAuthEmulator(auth: FirebaseAuth, url: string, options?: { disableWarnings?: boolean }): void;
   export function getIdToken(user: unknown, forceRefresh?: boolean): Promise<string>;
   export function signInWithEmailAndPassword(auth: unknown, email: string, password: string): Promise<{ user: { uid: string; email: string | null } }>;
   export function createUserWithEmailAndPassword(auth: unknown, email: string, password: string): Promise<{ user: { uid: string; email: string | null } }>;
@@ -82,6 +83,7 @@ declare module "firebase/firestore" {
   interface DocumentReference { readonly __documentReference: true }
   interface DocumentSnapshot { id: string; exists(): boolean; data(): Record<string, unknown> }
   export function getFirestore(app?: unknown): unknown;
+  export function connectFirestoreEmulator(db: unknown, host: string, port: number): void;
   export function doc(db: unknown, collectionName: string, id: string): DocumentReference;
   export function doc(collectionRef: unknown): { id: string };
   export function collection(db: unknown, collectionName: string): unknown;
