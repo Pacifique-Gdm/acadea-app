@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({ records: new Map<string, Record<string, unknown>>() }));
-vi.mock("./_lib/firebaseAdmin.js", () => ({
+vi.mock("./firebaseAdmin.js", () => ({
   initAdmin: () => ({
     auth: {},
     db: {
-      doc: (path: string) => ({ path, id: path.split("/").at(-1) }),
+      doc: (path: string) => ({ path, id: path.split("/").pop() }),
       runTransaction: async (callback: (transaction: { get: (ref: { path: string }) => Promise<{ exists: boolean; data: () => Record<string, unknown> | undefined }> }) => Promise<unknown>) => callback({
         get: async (ref) => {
           const value = state.records.get(ref.path);
@@ -15,17 +15,17 @@ vi.mock("./_lib/firebaseAdmin.js", () => ({
     },
   }),
 }));
-vi.mock("./_lib/activeUser.js", () => ({
+vi.mock("./activeUser.js", () => ({
   verifyActorIdToken: async () => ({ uid: "cashier-a", role: "cashier", schoolId: "school-a" }),
   requireActiveApiUser: async () => undefined,
 }));
-vi.mock("./_lib/rateLimit.js", () => ({
+vi.mock("./rateLimit.js", () => ({
   API_RATE_LIMITS: { FINANCE_CREATE: {}, FINANCE_MUTATE: {} },
   enforceApiRateLimit: async () => undefined,
   sendRateLimitError: () => false,
 }));
 
-import handler from "./manage-financial-transaction.js";
+import handler from "../manage-financial-transaction.js";
 
 describe("API financière — bénéficiaire archivé", () => {
   beforeEach(() => {
