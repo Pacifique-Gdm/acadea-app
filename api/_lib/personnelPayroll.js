@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { FinancialApiError } from "./financialTransactions.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
+import { payrollWritesSuspended } from "./payrollRollbackMode.js";
 
 const STAFF_ROLES = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]);
 const WRITE_KEYS = new Set(["action", "schoolYearId", "beneficiaryId", "kind", "periodMonth", "periodYear", "paidAt", "amount", "recoveries", "deduction", "deductionReason", "cnss", "tax", "description", "clientRequestId"]);
@@ -109,6 +110,7 @@ export async function createPersonnelPayment({ db, caller, body, now = new Date(
     if (!schoolYear.exists || schoolYear.data()?.schoolId !== caller.schoolId || schoolYear.data()?.status === "archived") invalid("Année scolaire indisponible.", "failed-precondition", 409);
     if (!actor.exists || actor.data()?.role !== "cashier" || actor.data()?.schoolId !== caller.schoolId || actor.data()?.status === "inactive" || actor.data()?.active === false) invalid("Caissier non autorisé.", "permission-denied", 403);
     const beneficiary = await readBeneficiary(transaction, db, caller.schoolId, beneficiaryId, true);
+    if (payrollWritesSuspended()) invalid("Nouveaux paiements du personnel temporairement suspendus.", "failed-precondition", 409);
     const currency = schoolYear.data()?.currency === "CDF" || schoolYear.data()?.currency === "USD" ? schoolYear.data().currency : school.data()?.currency === "CDF" ? "CDF" : "USD";
     const recoveryRefs = ids.map((id) => db.doc(`personnelPayments/${id}`));
     const recoverySnapshots = await Promise.all(recoveryRefs.map((ref) => transaction.get(ref)));

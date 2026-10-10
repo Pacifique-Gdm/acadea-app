@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPersonnelPayment, listPayroll } from "./personnelPayroll.js";
 
 type Data = Record<string, unknown>;
@@ -27,6 +27,7 @@ class FakeDb {
 
 const caller = { uid: "cashier-a", role: "cashier", schoolId: "school-a" };
 const base = { action: "create-personnel-payment", schoolYearId: "year-a", beneficiaryId: "worker-a", paidAt: "2026-10-09", amount: 100, recoveries: [], deduction: 0, deductionReason: "", cnss: 0, tax: 0, description: "" };
+afterEach(() => vi.unstubAllEnvs());
 function seeded() {
   const db = new FakeDb();
   db.values.set("schools/school-a", { status: "active", currency: "CDF" });
@@ -40,6 +41,38 @@ async function write(db: FakeDb, changes: Data, id: string) {
 }
 
 describe("paie du personnel — transactions et confidentialité", () => {
+  it("suspend salaires, primes et avances sans altérer l'historique ni les réponses idempotentes", async () => {
+    const db = seeded();
+    const existing = await write(db, { kind: "advance" }, "rollback-prior-00001");
+    const before = [...db.values];
+    vi.stubEnv("ACADEA_PAYROLL_WRITES_SUSPENDED", "true");
+    for (const kind of ["advance", "bonus", "salary"]) {
+      await expect(write(db, { kind, periodMonth: 9, periodYear: 2026 }, `rollback-new-${kind}-0001`))
+        .rejects.toMatchObject({ status: 409, code: "failed-precondition" });
+    }
+    expect([...db.values]).toEqual(before);
+    await expect(write(db, { kind: "advance" }, "rollback-prior-00001"))
+      .resolves.toMatchObject({ idempotent: true, payment: { id: existing.payment.id } });
+    await expect(write(db, { kind: "advance", amount: 101 }, "rollback-prior-00001"))
+      .rejects.toMatchObject({ status: 409, code: "conflict" });
+    expect((await listPayroll({ db, caller, body: { action: "list-personnel-payments", beneficiaryId: "worker-a" } })).payments).toHaveLength(1);
+    expect([...db.values]).toEqual(before);
+  });
+  it("garde les refus de rôle, d'acteur et d'établissement même lorsque la paie est suspendue", async () => {
+    const db = seeded();
+    vi.stubEnv("ACADEA_PAYROLL_WRITES_SUSPENDED", "true");
+    await expect(createPersonnelPayment({ db, caller: { ...caller, role: "secretary" }, body: {
+      ...base, kind: "advance", clientRequestId: "rollback-secretary-0001",
+    } })).rejects.toMatchObject({ status: 403, code: "permission-denied" });
+    db.values.set("users/cashier-a", { role: "cashier", schoolId: "school-a", status: "inactive" });
+    await expect(write(db, { kind: "advance" }, "rollback-inactive-00001"))
+      .rejects.toMatchObject({ status: 403, code: "permission-denied" });
+    db.values.set("users/cashier-a", { role: "cashier", schoolId: "school-a", status: "active" });
+    db.values.set("personnelProfiles/worker-a", { kind: "service", schoolId: "school-b", name: "Autre école" });
+    await expect(write(db, { kind: "advance" }, "rollback-foreign-000001"))
+      .rejects.toMatchObject({ status: 404, code: "not-found" });
+    expect([...db.values.keys()].some((path) => path.startsWith("personnelPayments/"))).toBe(false);
+  });
   it.each(["advance", "bonus", "salary"])("refuse l'appel direct de paiement %s après archivage du personnel sans compte", async (kind) => {
     const db = seeded();
     db.values.set("personnelProfiles/worker-a", { ...db.values.get("personnelProfiles/worker-a"), status: "inactive", active: false, archivedAt: "2026-10-08T00:00:00.000Z" });
