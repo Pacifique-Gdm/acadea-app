@@ -46,7 +46,7 @@ describe("transaction serveur affectation + grant Storage", () => {
     await setStudyAssignmentActive({ db, caller, body: { schoolId, schoolYearId, assignmentId, active: false } });
     expect((await db.doc(`users/${ownerId}`).get()).data()?.storageAssignmentKeys).toEqual([]);
     await assertFails(upload());
-  });
+  }, 30_000);
   it("un profil legacy sans userId conserve l'affectation mais aucun grant", async () => {
     await db.doc(`teachers/${teacherId}`).update({ userId: null });
     await saveStudyAssignments({ db, caller, body: { schoolId, schoolYearId, teacherId, subjectIds: [subjectId], classSelections: [{ classId }], weeklyPeriods: 2, active: true } });

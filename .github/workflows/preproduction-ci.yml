@@ -1,0 +1,64 @@
+name: preproduction-ci
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  application-and-functions:
+    name: application-and-functions
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm ci --prefix functions
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm --prefix functions audit --omit=dev --audit-level=high
+      - name: Vérifier le SHA testé
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - run: git diff --check
+      - run: npm run test:pipeline
+      - run: npm run lint
+      - run: npx tsc -b --pretty false
+      - run: npm run test:unit -- --maxWorkers=2
+      - run: npm --prefix functions test
+      - run: npm --prefix functions run build
+      - name: Build Staging sans accès distant
+        run: npm run build:staging
+        env:
+          VITE_FIREBASE_API_KEY: ci-build-only
+          VITE_FIREBASE_AUTH_DOMAIN: acadea-staging.firebaseapp.com
+          VITE_FIREBASE_PROJECT_ID: acadea-staging
+          VITE_FIREBASE_STORAGE_BUCKET: acadea-staging.firebasestorage.app
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ci-build-only
+          VITE_FIREBASE_APP_ID: ci-build-only
+
+  firebase-rules:
+    name: firebase-rules
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - name: Firestore et Storage — émulateurs locaux uniquement
+        run: >-
+          npx --yes firebase-tools@15.25.0 emulators:exec
+          --project acadea-staging --only firestore,storage
+          "npm run test:firestore -- --maxWorkers=2 && npm run test:storage -- --maxWorkers=2"
