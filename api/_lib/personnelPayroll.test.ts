@@ -40,6 +40,50 @@ async function write(db: FakeDb, changes: Data, id: string) {
 }
 
 describe("paie du personnel — transactions et confidentialité", () => {
+  it.each(["advance", "bonus", "salary"])("refuse l'appel direct de paiement %s après archivage du personnel sans compte", async (kind) => {
+    const db = seeded();
+    db.values.set("personnelProfiles/worker-a", { ...db.values.get("personnelProfiles/worker-a"), status: "inactive", active: false, archivedAt: "2026-10-08T00:00:00.000Z" });
+    const before = db.values.size;
+    await expect(write(db, { kind, periodMonth: 9, periodYear: 2026 }, `archived-${kind}-request`)).rejects.toMatchObject({ status: 409, code: "failed-precondition" });
+    expect(db.values.size).toBe(before);
+  });
+  it.each([
+    { status: "inactive" }, { status: "archived" }, { status: "disabled" },
+    { active: false }, { disabled: true }, { archivedAt: "2026-10-08T00:00:00.000Z" },
+  ])("refuse un bénéficiaire avec statut ou indicateur bloquant %j", async (blocked) => {
+    const db = seeded();
+    db.values.set("personnelProfiles/worker-a", { ...db.values.get("personnelProfiles/worker-a"), ...blocked });
+    await expect(write(db, { kind: "advance" }, `blocked-request-${Object.keys(blocked)[0]}-${String(Object.values(blocked)[0]).slice(0, 12)}`)).rejects.toMatchObject({ status: 409 });
+  });
+  it("recontrôle le statut dans la transaction, tout en préservant l'historique et l'idempotence", async () => {
+    const db = seeded();
+    const paid = await write(db, { kind: "advance", amount: 50 }, "active-before-archive-0001");
+    db.values.set("personnelProfiles/worker-a", { ...db.values.get("personnelProfiles/worker-a"), status: "inactive", active: false });
+    const replay = await write(db, { kind: "advance", amount: 50 }, "active-before-archive-0001");
+    expect(replay).toMatchObject({ idempotent: true, payment: { id: paid.payment.id } });
+    await expect(write(db, { kind: "advance" }, "new-after-archive-00001")).rejects.toMatchObject({ status: 409 });
+    const history = await listPayroll({ db, caller, body: { action: "list-personnel-payments", beneficiaryId: "worker-a" } });
+    expect(history.payments).toHaveLength(1);
+    const available = await listPayroll({ db, caller, body: { action: "list-payroll-personnel" } });
+    expect(available.personnel).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: "worker-a" })]));
+  });
+  it("applique le refus aussi aux comptes, sans bloquer les comptes actifs", async () => {
+    const db = seeded();
+    db.values.delete("personnelProfiles/worker-a");
+    db.values.set("users/worker-a", { role: "teacher", schoolId: "school-a", name: "Enseignant A", status: "active", active: true });
+    await write(db, { kind: "salary", periodMonth: 9, periodYear: 2026 }, "active-account-salary-01");
+    db.values.set("users/worker-a", { role: "teacher", schoolId: "school-a", name: "Enseignant A", status: "inactive", active: false });
+    await expect(write(db, { kind: "bonus", periodMonth: 9, periodYear: 2026 }, "inactive-account-bonus1")).rejects.toMatchObject({ status: 409 });
+    const history = await listPayroll({ db, caller, body: { action: "list-personnel-payments", beneficiaryId: "worker-a" } });
+    expect(history.payments).toHaveLength(1);
+  });
+  it("refuse le bénéficiaire inexistant sans créer d'écriture", async () => {
+    const db = seeded();
+    db.values.delete("personnelProfiles/worker-a");
+    const before = db.values.size;
+    await expect(write(db, { kind: "advance" }, "missing-worker-request1")).rejects.toMatchObject({ status: 404 });
+    expect(db.values.size).toBe(before);
+  });
   it("sépare trois avances et ne comptabilise qu'un décaissement par versement", async () => {
     const db = seeded();
     const advances = await Promise.all([50, 80, 40].map((amount, index) => write(db, { kind: "advance", amount }, `advance-request-${index}`)));

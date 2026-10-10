@@ -24,12 +24,22 @@ function assertDate(value) {
 function assertReader(caller) {
   if (!caller?.uid || !caller.schoolId || !STAFF_ROLES.has(caller.role)) invalid("Accès aux paiements du personnel interdit.", "permission-denied", 403);
 }
-async function readBeneficiary(reader, db, schoolId, beneficiaryId) {
+function eligibleForOrdinaryPayment(personnel) {
+  return personnel.active !== false && personnel.disabled !== true && !personnel.archivedAt
+    && !["inactive", "archived", "disabled"].includes(personnel.status);
+}
+async function readBeneficiary(reader, db, schoolId, beneficiaryId, requireActive = false) {
   if (!/^[\w-]{1,180}$/.test(beneficiaryId)) invalid("Bénéficiaire invalide.");
   const refs = [db.doc(`users/${beneficiaryId}`), db.doc(`personnelProfiles/${beneficiaryId}`)];
   const [user, service] = await Promise.all(refs.map((ref) => reader ? reader.get(ref) : ref.get()));
-  if (user.exists && STAFF_ROLES.has(user.data()?.role) && user.data()?.schoolId === schoolId) return { id: beneficiaryId, name: field(user.data().name, 200), jobTitle: field(user.data().role, 100), hasAccount: true };
-  if (service.exists && service.data()?.kind === "service" && service.data()?.schoolId === schoolId) return { id: beneficiaryId, name: field(service.data().name, 200), jobTitle: field(service.data().jobTitle, 100), hasAccount: false };
+  if (user.exists && STAFF_ROLES.has(user.data()?.role) && user.data()?.schoolId === schoolId) {
+    if (requireActive && !eligibleForOrdinaryPayment(user.data())) invalid("Personnel inactif : nouveau paiement interdit.", "failed-precondition", 409);
+    return { id: beneficiaryId, name: field(user.data().name, 200), jobTitle: field(user.data().role, 100), hasAccount: true };
+  }
+  if (service.exists && service.data()?.kind === "service" && service.data()?.schoolId === schoolId) {
+    if (requireActive && !eligibleForOrdinaryPayment(service.data())) invalid("Personnel inactif : nouveau paiement interdit.", "failed-precondition", 409);
+    return { id: beneficiaryId, name: field(service.data().name, 200), jobTitle: field(service.data().jobTitle, 100), hasAccount: false };
+  }
   invalid("Personnel introuvable dans cet établissement.", "not-found", 404);
 }
 
@@ -43,8 +53,8 @@ export async function listPayroll({ db, caller, body }) {
       db.collection("personnelProfiles").where("schoolId", "==", caller.schoolId).get(),
     ]);
     return { personnel: [
-      ...users.docs.filter((item) => STAFF_ROLES.has(item.data().role) && item.data().status !== "inactive" && item.data().active !== false).map((item) => ({ id: item.id, name: field(item.data().name, 200), jobTitle: item.data().role, hasAccount: true })),
-      ...service.docs.filter((item) => item.data().kind === "service" && item.data().status !== "inactive").map((item) => ({ id: item.id, name: field(item.data().name, 200), jobTitle: field(item.data().jobTitle, 100), hasAccount: false })),
+      ...users.docs.filter((item) => STAFF_ROLES.has(item.data().role) && eligibleForOrdinaryPayment(item.data())).map((item) => ({ id: item.id, name: field(item.data().name, 200), jobTitle: item.data().role, hasAccount: true })),
+      ...service.docs.filter((item) => item.data().kind === "service" && eligibleForOrdinaryPayment(item.data())).map((item) => ({ id: item.id, name: field(item.data().name, 200), jobTitle: field(item.data().jobTitle, 100), hasAccount: false })),
     ].sort((a, b) => a.name.localeCompare(b.name, "fr")) };
   }
   const beneficiaryId = action === "list-own-payroll" ? caller.uid : field(body.beneficiaryId, 180);
@@ -98,7 +108,7 @@ export async function createPersonnelPayment({ db, caller, body, now = new Date(
     if (!school.exists || ["inactive", "deleting", "suspended"].includes(school.data()?.status)) invalid("Établissement inactif.", "failed-precondition", 409);
     if (!schoolYear.exists || schoolYear.data()?.schoolId !== caller.schoolId || schoolYear.data()?.status === "archived") invalid("Année scolaire indisponible.", "failed-precondition", 409);
     if (!actor.exists || actor.data()?.role !== "cashier" || actor.data()?.schoolId !== caller.schoolId || actor.data()?.status === "inactive" || actor.data()?.active === false) invalid("Caissier non autorisé.", "permission-denied", 403);
-    const beneficiary = await readBeneficiary(transaction, db, caller.schoolId, beneficiaryId);
+    const beneficiary = await readBeneficiary(transaction, db, caller.schoolId, beneficiaryId, true);
     const currency = schoolYear.data()?.currency === "CDF" || schoolYear.data()?.currency === "USD" ? schoolYear.data().currency : school.data()?.currency === "CDF" ? "CDF" : "USD";
     const recoveryRefs = ids.map((id) => db.doc(`personnelPayments/${id}`));
     const recoverySnapshots = await Promise.all(recoveryRefs.map((ref) => transaction.get(ref)));
