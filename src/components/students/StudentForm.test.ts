@@ -18,7 +18,7 @@ function render() {
     setQuickParent: () => undefined,
     classChoices: ["7ème CTEB"],
     optionChoices: [],
-    onAddOption: () => undefined,
+    onAddOption: async () => true,
     onCreateParent: () => undefined,
     onSave: () => undefined,
     onReset: () => undefined,

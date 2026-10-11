@@ -7,6 +7,7 @@ import { resolveStudentParentClass, schoolClassRecordId, secondarySubclassesForO
 import { nextSubclassLetters } from "../../utils/subclassLetters.js";
 import { deleteStudentBirthDateInput, formatStudentBirthDateInput, guideStudentBirthDateInput, parseStudentBirthDateInput } from "../../utils/studentBirthDate";
 import type { ParentProfile, SchoolClass, SchoolClassRecord, Student } from "../../types";
+import { isSchoolOptionAddConfirmation, SCHOOL_OPTION_ADD_CONFIRMATION } from "../../utils/schoolOptions";
 
 export function StudentForm({
   form,
@@ -39,7 +40,7 @@ export function StudentForm({
   setQuickParent: (parent: { fullName: string; phone: string; email: string; password: string }) => void;
   classChoices: SchoolClass[];
   optionChoices: string[];
-  onAddOption: (option: string) => void;
+  onAddOption: (option: string) => Promise<boolean>;
   onCreateParent: () => void;
   onSave: () => void | Promise<void>;
   onReset: () => void;
@@ -53,6 +54,9 @@ export function StudentForm({
 }) {
   const [showOptionForm, setShowOptionForm] = useState(false);
   const [newOption, setNewOption] = useState("");
+  const [optionAddPending, setOptionAddPending] = useState(false);
+  const [optionAddConfirmation, setOptionAddConfirmation] = useState("");
+  const [optionAddSaving, setOptionAddSaving] = useState(false);
   const [showQuickParentPassword, setShowQuickParentPassword] = useState(false);
   const [showFingerprintMessage, setShowFingerprintMessage] = useState(false);
   const [showCardMessage, setShowCardMessage] = useState(false);
@@ -173,12 +177,20 @@ export function StudentForm({
     return () => window.clearTimeout(timer);
   }, [cardMessageTrigger]);
 
-  function submitOption() {
+  async function submitOption() {
     const trimmed = newOption.trim();
-    if (!trimmed) return;
-    onAddOption(trimmed);
-    setNewOption("");
-    setShowOptionForm(false);
+    if (!trimmed || optionAddSaving || !optionAddPending || !isSchoolOptionAddConfirmation(optionAddConfirmation)) return;
+    setOptionAddSaving(true);
+    try {
+      if (await onAddOption(trimmed)) {
+        setNewOption("");
+        setShowOptionForm(false);
+        setOptionAddPending(false);
+        setOptionAddConfirmation("");
+      }
+    } finally {
+      setOptionAddSaving(false);
+    }
   }
 
   return (
@@ -288,11 +300,19 @@ export function StudentForm({
             <div className="rounded border border-slate-100 bg-slate-50 p-3">
               <p className="mb-2 text-sm font-semibold text-ink">Nouvelle option</p>
               <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                <input value={newOption} onChange={(event) => setNewOption(event.target.value)} className="input" placeholder="Nom de l'option" />
-                <button onClick={submitOption} type="button" className="secondary-button justify-center">
+                <input value={newOption} onChange={(event) => { setNewOption(event.target.value); setOptionAddPending(false); setOptionAddConfirmation(""); }} className="input" placeholder="Nom de l'option" />
+                <button onClick={() => { if (newOption.trim()) { setOptionAddPending(true); setOptionAddConfirmation(""); } }} type="button" className="secondary-button justify-center" disabled={optionAddSaving}>
                   <Plus className="h-4 w-4" /> Ajouter
                 </button>
               </div>
+              {optionAddPending && <div role="group" aria-label="Confirmer l'ajout de l'option scolaire" className="mt-3 grid gap-2 rounded border border-amber-200 bg-amber-50 p-3">
+                <p className="text-sm font-semibold text-amber-900">Pour ajouter « {newOption.trim()} », saisissez exactement : {SCHOOL_OPTION_ADD_CONFIRMATION}</p>
+                <input aria-label="Phrase de confirmation de l'ajout de l'option" value={optionAddConfirmation} onChange={(event) => setOptionAddConfirmation(event.target.value)} className="input" autoComplete="off" disabled={optionAddSaving} />
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" className="secondary-button justify-center" onClick={() => { setOptionAddPending(false); setOptionAddConfirmation(""); }} disabled={optionAddSaving}>Annuler</button>
+                  <button type="button" className="primary-button justify-center" onClick={() => void submitOption()} disabled={optionAddSaving || !isSchoolOptionAddConfirmation(optionAddConfirmation)}>Confirmer l'ajout</button>
+                </div>
+              </div>}
             </div>
           )}
         </div>

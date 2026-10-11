@@ -539,16 +539,18 @@ export function StudentsModule({
   }
 
   async function addSchoolOption(option: string) {
-    if (!studentCapabilities.canManageOptions) return;
+    if (!studentCapabilities.canManageOptions) return false;
     const trimmed = option.trim();
-    if (!trimmed) return;
+    if (!trimmed) return false;
     try {
       const persisted = await persistSchoolOption(school.id, trimmed);
       updateData({ schools: data.schools.map((item) => (item.id === school.id ? { ...item, schoolOptions: persisted.schoolOptions } : item)) }, { persist: false });
       const selectedClass = structuredClasses.find((item) => !item.parentClassId && (item.id === form.classId || item.name === form.className));
       setForm({ ...form, option: persisted.option, classOptionKey: selectedClass ? schoolClassOptionKey(selectedClass.id, persisted.option) : undefined, subClassId: undefined });
+      return true;
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : "Impossible d'enregistrer cette option scolaire.");
+      return false;
     }
   }
 

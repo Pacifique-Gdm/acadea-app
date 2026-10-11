@@ -20,7 +20,7 @@ import { ERROR_MESSAGE_DURATION_MS, SUCCESS_MESSAGE_DURATION_MS, useAutoDismissM
 import { subscribeToSchoolTeacherAccounts } from "../../services/teacherAccounts";
 import { persistSchoolEducationLevel, persistSchoolOption, persistSchoolSettings } from "../../services/schoolOptionsRepository";
 import { isSchoolSectionConfirmation, SCHOOL_SECTION_CONFIRMATIONS, type SchoolSectionAction } from "../../utils/schoolSectionConfirmation";
-import { canonicalSchoolOption, isSchoolOptionDeleteConfirmation, normalizeSchoolOptions, SCHOOL_OPTION_DELETE_CONFIRMATION } from "../../utils/schoolOptions";
+import { canonicalSchoolOption, isSchoolOptionAddConfirmation, isSchoolOptionDeleteConfirmation, normalizeSchoolOptions, SCHOOL_OPTION_ADD_CONFIRMATION, SCHOOL_OPTION_DELETE_CONFIRMATION } from "../../utils/schoolOptions";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import { formatCurrencyMoney, resolveSchoolYearCurrency, schoolCurrencySymbol } from "../../utils/currency";
 import type { AppData, AppUser, FeeKind, FeeType, ParentProfile, School, SchoolSection, SchoolYear, Student, ValvePublication } from "../../types";
@@ -131,6 +131,8 @@ export function MenuModule({
   const [customFeeKindChoices, setCustomFeeKindChoices] = useState<FeeKind[]>([]);
   const [newFeeError, setNewFeeError] = useState("");
   const [schoolOptionDraft, setSchoolOptionDraft] = useState("");
+  const [schoolOptionAddPending, setSchoolOptionAddPending] = useState(false);
+  const [schoolOptionAddConfirmation, setSchoolOptionAddConfirmation] = useState("");
   const [schoolOptionDeleteTarget, setSchoolOptionDeleteTarget] = useState<string | null>(null);
   const [schoolOptionDeleteConfirmation, setSchoolOptionDeleteConfirmation] = useState("");
   const [schoolOptionDeleteError, setSchoolOptionDeleteError] = useState("");
@@ -768,7 +770,7 @@ export function MenuModule({
   }
 
   async function addSchoolFormOption() {
-    if (schoolOptionAdding) return;
+    if (schoolOptionAdding || !schoolOptionAddPending || !isSchoolOptionAddConfirmation(schoolOptionAddConfirmation)) return;
     const trimmed = canonicalSchoolOption(schoolOptionDraft);
     if (!trimmed) return;
     setSchoolOptionAdding(true);
@@ -782,6 +784,8 @@ export function MenuModule({
       updateData({ schools: data.schools.map((item) => (item.id === school.id ? { ...item, schoolOptions: persisted.schoolOptions } : item)) }, { persist: false });
       setSchoolForm(savedSchool);
       setSchoolOptionDraft("");
+      setSchoolOptionAddPending(false);
+      setSchoolOptionAddConfirmation("");
       setSchoolSaveStatus("success");
       setSchoolSaveMessage(`Option « ${persisted.option} » enregistrée dans l'école.`);
     } catch (error) {
@@ -922,10 +926,18 @@ export function MenuModule({
             </div>
             {canAdmin && (
               <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                <input value={schoolOptionDraft} onChange={(event) => setSchoolOptionDraft(event.target.value)} className="input" placeholder="Nouvelle option" />
-                <button onClick={() => void addSchoolFormOption()} type="button" className="secondary-button justify-center" disabled={schoolOptionAdding}>
+                <input value={schoolOptionDraft} onChange={(event) => { setSchoolOptionDraft(event.target.value); setSchoolOptionAddPending(false); setSchoolOptionAddConfirmation(""); }} className="input" placeholder="Nouvelle option" />
+                <button onClick={() => { if (canonicalSchoolOption(schoolOptionDraft)) { setSchoolOptionAddPending(true); setSchoolOptionAddConfirmation(""); } }} type="button" className="secondary-button justify-center" disabled={schoolOptionAdding}>
                   <Plus className="h-4 w-4" /> Ajouter
                 </button>
+                {schoolOptionAddPending && <div role="group" aria-label="Confirmer l'ajout de l'option scolaire" className="grid min-w-0 gap-2 rounded border border-amber-200 bg-amber-50 p-3 sm:col-span-2">
+                  <p className="text-sm font-semibold text-amber-900">Pour ajouter « {canonicalSchoolOption(schoolOptionDraft)} », saisissez exactement : {SCHOOL_OPTION_ADD_CONFIRMATION}</p>
+                  <input aria-label="Phrase de confirmation de l'ajout de l'option" value={schoolOptionAddConfirmation} onChange={(event) => setSchoolOptionAddConfirmation(event.target.value)} className="input min-w-0 w-full" autoComplete="off" disabled={schoolOptionAdding} />
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" className="secondary-button justify-center" onClick={() => { setSchoolOptionAddPending(false); setSchoolOptionAddConfirmation(""); }} disabled={schoolOptionAdding}>Annuler</button>
+                    <button type="button" className="primary-button justify-center" onClick={() => void addSchoolFormOption()} disabled={schoolOptionAdding || !isSchoolOptionAddConfirmation(schoolOptionAddConfirmation)}>Confirmer l'ajout</button>
+                  </div>
+                </div>}
               </div>
             )}
             <p className="text-xs font-medium text-slate-500">Les options configurées ici alimentent les élèves, filtres et listes de l'école.</p>

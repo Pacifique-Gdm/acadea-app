@@ -5,6 +5,11 @@ function schoolOptionKey(value: string) {
 const sciencesAliases = new Set(["science", "sciences", "scientifique", "section scientifique"]);
 
 export const SCHOOL_OPTION_DELETE_CONFIRMATION = "SUPPRIMER CETTE OPTION";
+export const SCHOOL_OPTION_ADD_CONFIRMATION = "AJOUTER CETTE OPTION";
+
+export function isSchoolOptionAddConfirmation(value: string) {
+  return value === SCHOOL_OPTION_ADD_CONFIRMATION;
+}
 
 export function isSchoolOptionDeleteConfirmation(value: string) {
   return value === SCHOOL_OPTION_DELETE_CONFIRMATION;

@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { canonicalSchoolOption, isSchoolOptionDeleteConfirmation, mergeSchoolOptions, normalizeSchoolOptions, reconcileSchoolOptions, reconcileSchoolOptionsFromStudents, SCHOOL_OPTION_DELETE_CONFIRMATION } from "./schoolOptions";
+import { canonicalSchoolOption, isSchoolOptionAddConfirmation, isSchoolOptionDeleteConfirmation, mergeSchoolOptions, normalizeSchoolOptions, reconcileSchoolOptions, reconcileSchoolOptionsFromStudents, SCHOOL_OPTION_ADD_CONFIRMATION, SCHOOL_OPTION_DELETE_CONFIRMATION } from "./schoolOptions";
 
 describe("schoolOptions", () => {
+  it("exige la phrase d'ajout exacte sans tolérer de variante", () => {
+    expect(SCHOOL_OPTION_ADD_CONFIRMATION).toBe("AJOUTER CETTE OPTION");
+    expect(isSchoolOptionAddConfirmation("AJOUTER CETTE OPTION")).toBe(true);
+    expect(isSchoolOptionAddConfirmation("ajouter cette option")).toBe(false);
+    expect(isSchoolOptionAddConfirmation("AJOUTER CETTE OPTION ")).toBe(false);
+  });
   it("exige la confirmation de suppression exacte, sans trim", () => {
     expect(SCHOOL_OPTION_DELETE_CONFIRMATION).toBe("SUPPRIMER CETTE OPTION");
     expect(isSchoolOptionDeleteConfirmation("SUPPRIMER CETTE OPTION")).toBe(true);
