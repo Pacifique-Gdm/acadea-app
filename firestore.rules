@@ -516,6 +516,17 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /platformSettings/schoolOptionsCatalog {
+      allow read: if superAdmin();
+      allow create, update: if superAdmin()
+        && request.resource.data.keys().hasOnly(["options", "updatedAt"])
+        && request.resource.data.keys().hasAll(["options", "updatedAt"])
+        && request.resource.data.options is list
+        && request.resource.data.options.size() <= 100
+        && request.resource.data.updatedAt is string;
+      allow delete: if false;
+    }
+
     match /schools/{schoolId} {
       allow read: if superAdmin() || coordinatorSchool(schoolId) || (request.auth != null && activeActorProfile() && schoolId == tenantSchoolId()) || (schoolUser() && schoolId == tenantSchoolId()) || (disciplineDirector() && schoolId == tenantSchoolId()) || (studyDirector() && schoolId == tenantSchoolId()) || (activeTeacher() && schoolId == tenantSchoolId());
       allow create: if superAdmin();

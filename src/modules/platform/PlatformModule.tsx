@@ -28,6 +28,8 @@ import { schoolInformationPatch } from "./schoolInformation";
 import type { SchoolInformationDraft } from "./schoolInformation";
 import { isArchivedStudent } from "../../utils/studentUtils";
 import { canonicalSchoolOption, normalizeSchoolOptions } from "../../utils/schoolOptions";
+import { isSchoolOptionAddConfirmation, SCHOOL_OPTION_ADD_CONFIRMATION } from "../../utils/schoolOptions";
+import { addSchoolOptionToCatalog, loadSchoolOptionCatalog } from "../../services/schoolOptionCatalog";
 import { coordinationStatusDistribution } from "../../utils/platformStatusDistribution";
 import { resolveSchoolYearCurrency } from "../../utils/currency";
 import { CoordinationManagement } from "./CoordinationManagement";
@@ -85,7 +87,8 @@ export function PlatformModule({
   type SchoolSort = "az" | "recent" | "users";
   const removedSchoolOptions = new Set<string>();
   const isAllowedSchoolOption = (option: string) => !removedSchoolOptions.has(option.trim());
-  const schoolOptionChoices = defaultSchoolOptions.filter(isAllowedSchoolOption);
+  const [catalogOptions, setCatalogOptions] = useState<string[]>([]);
+  const schoolOptionChoices = normalizeSchoolOptions([...defaultSchoolOptions, ...catalogOptions]).filter(isAllowedSchoolOption);
 
   const [schoolName, setSchoolName] = useState("");
   const [mainAdminName, setMainAdminName] = useState("");
@@ -95,6 +98,9 @@ export function PlatformModule({
   const [schoolCurrency, setSchoolCurrency] = useState<"USD" | "CDF">("USD");
   const [selectedSchoolOptions, setSelectedSchoolOptions] = useState<string[]>([]);
   const [customSchoolOption, setCustomSchoolOption] = useState("");
+  const [customOptionConfirmation, setCustomOptionConfirmation] = useState("");
+  const [customOptionPending, setCustomOptionPending] = useState(false);
+  const [customOptionSaving, setCustomOptionSaving] = useState(false);
   const [platformView, setPlatformView] = useState<PlatformView>("dashboard");
   const [selectedSchoolId, setSelectedSchoolId] = useState(data.schools[0]?.id ?? "");
   const [schoolDrawerId, setSchoolDrawerId] = useState("");
@@ -151,6 +157,15 @@ export function PlatformModule({
   const [schoolDetailLoading, setSchoolDetailLoading] = useState(false);
   const [schoolDetailError, setSchoolDetailError] = useState("");
   const schoolDetailRequestRef = useRef(0);
+  useEffect(() => {
+    let active = true;
+    void loadSchoolOptionCatalog().then((options) => {
+      if (active) setCatalogOptions(options);
+    }).catch((error) => {
+      if (active) setProvisioningError(error instanceof Error ? error.message : "Catalogue des options indisponible.");
+    });
+    return () => { active = false; };
+  }, []);
   useEffect(() => {
     if (!schoolActionSuccess) return;
     const timeoutId = window.setTimeout(() => setSchoolActionSuccess(""), 4_000);
@@ -270,20 +285,12 @@ export function PlatformModule({
   async function createSchool() {
     if (provisioningLoading) return;
     if (!schoolName || !mainAdminName || !adminEmail || !adminPassword) return;
-    const trimmedCustomSchoolOption = customSchoolOption.trim();
-    if (hasSecondarySection && hasCustomSchoolOption && !trimmedCustomSchoolOption) {
-      setProvisioningError("Veuillez préciser la nouvelle option scolaire.");
-      return;
-    }
-    if (hasSecondarySection && hasCustomSchoolOption && !isAllowedSchoolOption(trimmedCustomSchoolOption)) {
-      setProvisioningError("Cette option scolaire n'est plus disponible.");
+    if (hasSecondarySection && hasCustomSchoolOption) {
+      setProvisioningError("Enregistrez ou annulez la nouvelle option avant de créer l'école.");
       return;
     }
     const nextSchoolOptions = hasSecondarySection
-      ? normalizeSchoolOptions([
-          ...selectedSchoolOptions.filter((option) => option !== "Autre" && isAllowedSchoolOption(option)),
-          ...(hasCustomSchoolOption ? [trimmedCustomSchoolOption] : []),
-        ])
+      ? normalizeSchoolOptions(selectedSchoolOptions.filter((option) => option !== "Autre" && isAllowedSchoolOption(option)))
       : [];
 
     setProvisioningError("");
@@ -350,15 +357,29 @@ export function PlatformModule({
     });
   }
 
-  function addCustomSchoolOption() {
+  async function addCustomSchoolOption() {
     const option = canonicalSchoolOption(customSchoolOption);
-    if (!option) {
+    if (!option || !isSchoolOptionAddConfirmation(customOptionConfirmation) || customOptionSaving || !customOptionPending) {
       setProvisioningError("Veuillez préciser la nouvelle option scolaire.");
       return;
     }
-    setSelectedSchoolOptions((current) => normalizeSchoolOptions([...current.filter((item) => item !== "Autre"), option]));
-    setCustomSchoolOption("");
-    setProvisioningError("");
+    if (normalizeSchoolOptions([...schoolOptionChoices, option]).length === normalizeSchoolOptions(schoolOptionChoices).length) {
+      setProvisioningError("Cette option scolaire existe déjà.");
+      return;
+    }
+    setCustomOptionSaving(true);
+    try {
+      setCatalogOptions(await addSchoolOptionToCatalog(option));
+      setSelectedSchoolOptions((current) => current.filter((item) => item !== "Autre"));
+      setCustomSchoolOption("");
+      setCustomOptionPending(false);
+      setCustomOptionConfirmation("");
+      setProvisioningError("");
+    } catch (error) {
+      setProvisioningError(error instanceof Error ? error.message : "Impossible d'enregistrer l'option.");
+    } finally {
+      setCustomOptionSaving(false);
+    }
   }
 
   async function changeSchoolStatus(school: School) {
@@ -1032,15 +1053,25 @@ export function PlatformModule({
                     value={customSchoolOption}
                     onChange={(event) => {
                       setCustomSchoolOption(event.target.value);
+                      setCustomOptionPending(false);
+                      setCustomOptionConfirmation("");
                       setProvisioningError("");
                     }}
                     className="input"
                     placeholder="Ex. Informatique"
                   />
-                  <button type="button" onClick={addCustomSchoolOption} className="secondary-button justify-center">
+                  <button type="button" onClick={() => { if (canonicalSchoolOption(customSchoolOption)) { setCustomOptionPending(true); setCustomOptionConfirmation(""); } }} className="secondary-button justify-center" disabled={customOptionSaving}>
                     <Plus className="h-4 w-4" /> Ajouter
                   </button>
                 </span>
+                {customOptionPending && <span className="grid gap-2 rounded border border-amber-200 bg-amber-50 p-3">
+                  <span>Pour enregistrer « {canonicalSchoolOption(customSchoolOption)} » dans le catalogue global, saisissez exactement : {SCHOOL_OPTION_ADD_CONFIRMATION}</span>
+                  <input aria-label="Confirmation d'ajout au catalogue global" value={customOptionConfirmation} onChange={(event) => setCustomOptionConfirmation(event.target.value)} className="input" autoComplete="off" disabled={customOptionSaving} />
+                  <span className="grid grid-cols-2 gap-2">
+                    <button type="button" className="secondary-button justify-center" onClick={() => { setCustomOptionPending(false); setCustomOptionConfirmation(""); }} disabled={customOptionSaving}>Annuler</button>
+                    <button type="button" className="primary-button justify-center" onClick={() => void addCustomSchoolOption()} disabled={customOptionSaving || !isSchoolOptionAddConfirmation(customOptionConfirmation)}>Confirmer l'ajout</button>
+                  </span>
+                </span>}
               </label>
             )}
           </fieldset>
@@ -1048,7 +1079,7 @@ export function PlatformModule({
         {provisioningError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{provisioningError}</p>}
         <button
           onClick={createSchool}
-          disabled={provisioningLoading || !mainAdminName.trim() || (hasSecondarySection && hasCustomSchoolOption && !customSchoolOption.trim())}
+          disabled={provisioningLoading || !mainAdminName.trim() || (hasSecondarySection && hasCustomSchoolOption)}
           className="primary-button w-full justify-center disabled:cursor-not-allowed disabled:opacity-60"
           type="button"
         >
