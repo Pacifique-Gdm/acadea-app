@@ -1385,7 +1385,7 @@ export function ControlModule({
             <select aria-label="Type d'enregistrement" className="input min-w-0 w-full" value={cashierControlDrawer} onChange={(event) => setCashierControlDrawer(event.target.value as "payment" | "expense" | "personnel")}>
               <option value="payment">Enregistrer un paiement</option>
               <option value="expense">Enregistrer une dépense</option>
-              <option value="personnel">Paiement personnel</option>
+              <option value="personnel">Paiement du personnel</option>
             </select>
           </label>
           {cashierControlFeedback && cashierControlFeedbackDrawer === cashierControlDrawer && (
