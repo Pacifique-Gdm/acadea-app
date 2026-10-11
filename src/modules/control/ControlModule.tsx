@@ -2,6 +2,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Bell, Download, Edit3, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { AdminDrawer, Field, FormPanel, Metric, MoneyInput, SectionTitle } from "../../components/ui";
 import { PersonnelPaymentForm } from "../../components/personnel/PersonnelPaymentForm";
+import { PersonnelPayrollHistory } from "../../components/personnel/PersonnelPayrollHistory";
 import { printPersonnelPaymentPdf } from "../../utils/personnelPayrollPdf";
 import { usePaginatedControlHistory } from "../../hooks/usePaginatedControlHistory";
 import { createExpenseTransaction, createPaymentTransaction, deleteFinancialTransaction, loadStudentArrears, updateExpenseTransaction, updatePaymentTransaction } from "../../services/financialTransactions";
@@ -80,7 +81,7 @@ export function ControlModule({
   const [controlClassKey, setControlClassKey] = useState("");
   const [paymentError, setPaymentError] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyKind, setHistoryKind] = useState<"expenses" | "payments">("payments");
+  const [historyKind, setHistoryKind] = useState<"expenses" | "payments" | "payroll">("payments");
   const [expenseEditTarget, setExpenseEditTarget] = useState<Expense | null>(null);
   const [expenseEditAmount, setExpenseEditAmount] = useState("");
   const [expenseEditCategory, setExpenseEditCategory] = useState("Fournitures");
@@ -1543,6 +1544,7 @@ export function ControlModule({
             <select aria-label="Type d'historique" className="input min-w-0 w-full" value={historyKind} onChange={(event) => setHistoryKind(event.target.value as typeof historyKind)}>
               <option value="payments">Historique des paiements</option>
               <option value="expenses">Historique des dépenses</option>
+              <option value="payroll">Historique Salaire/prime</option>
             </select>
           </label>
           {historyKind === "payments" && <>
@@ -1579,6 +1581,7 @@ export function ControlModule({
             {renderPaymentHistoryPagination()}
           </>}
           {historyKind === "expenses" && renderExpenseHistoryContent()}
+          {historyKind === "payroll" && <PersonnelPayrollHistory schoolId={school.id} schools={[school]} />}
         </AdminDrawer>
       )}
       {expenseEditTarget && (

@@ -778,6 +778,16 @@
         { "fieldPath": "schoolYearId", "order": "ASCENDING" },
         { "fieldPath": "teacherId", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "personnelPayments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "schoolId", "order": "ASCENDING" },
+        { "fieldPath": "kind", "order": "ASCENDING" },
+        { "fieldPath": "paidAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

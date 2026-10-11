@@ -2,6 +2,8 @@ import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
 import { authorizeFinancialCaller, executeFinancialOperation, FinancialApiError, listStudentArrears, listStudentArrearsBatch } from "./_lib/financialTransactions.js";
 import { createPersonnelPayment, listPayroll } from "./_lib/personnelPayroll.js";
+import { listPersonnelPayrollHistory } from "./_lib/personnelPayrollHistory.js";
+import { requireActiveCoordinationActor } from "./_lib/coordination.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 
 function parseJsonBody(raw) {
@@ -47,6 +49,13 @@ export default async function handler(req, res) {
     const caller = await verifyActorIdToken(auth, token);
     const body = await readBody(req);
     const requestedAction = typeof body.action === "string" ? body.action : "";
+    if (requestedAction === "list-payroll-history") {
+      const actor = ["coordination_admin", "sub_coordination_admin"].includes(caller.role)
+        ? await requireActiveCoordinationActor(auth, db, token)
+        : await requireActiveApiUser(db, caller);
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: "finance.list-payroll-history", ...API_RATE_LIMITS.FINANCE_MUTATE });
+      return sendJson(res, 200, await listPersonnelPayrollHistory({ db, actor, body }));
+    }
     if (["create-personnel-payment", "list-payroll-personnel", "list-payroll-advances", "list-personnel-payments", "list-own-payroll"].includes(requestedAction)) {
       await requireActiveApiUser(db, caller);
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: `finance.${requestedAction}`, idempotencyKey: typeof body.clientRequestId === "string" ? body.clientRequestId : undefined, ...(requestedAction === "create-personnel-payment" ? API_RATE_LIMITS.FINANCE_CREATE : API_RATE_LIMITS.FINANCE_MUTATE) });
