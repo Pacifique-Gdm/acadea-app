@@ -53,7 +53,7 @@ export default async function handler(req, res) {
       const actor = ["coordination_admin", "sub_coordination_admin"].includes(caller.role)
         ? await requireActiveCoordinationActor(auth, db, token)
         : await requireActiveApiUser(db, caller);
-      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: "finance.list-payroll-history", ...API_RATE_LIMITS.FINANCE_MUTATE });
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(actor.schoolId ?? actor.coordinationId ?? ""), action: "finance.list-payroll-history", ...API_RATE_LIMITS.FINANCE_MUTATE });
       return sendJson(res, 200, await listPersonnelPayrollHistory({ db, actor, body }));
     }
     if (["create-personnel-payment", "update-personnel-payment", "list-payroll-personnel", "list-payroll-advances", "list-personnel-payments", "list-own-payroll"].includes(requestedAction)) {
