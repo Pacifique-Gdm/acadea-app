@@ -158,6 +158,11 @@ export function PlatformModule({
   const [terminalMessage, setTerminalMessage] = useState("");
   const [platformLogoDraft, setPlatformLogoDraft] = useState(platformLogoUrl);
   const [platformLogoMessage, setPlatformLogoMessage] = useState("");
+  const [platformLogoError, setPlatformLogoError] = useState("");
+  const [platformLogoAction, setPlatformLogoAction] = useState<"delete" | "save" | null>(null);
+  const [platformLogoConfirmation, setPlatformLogoConfirmation] = useState("");
+  const [platformLogoSaving, setPlatformLogoSaving] = useState(false);
+  const platformLogoSavingRef = useRef(false);
   const [schoolDetailLoading, setSchoolDetailLoading] = useState(false);
   const [schoolDetailError, setSchoolDetailError] = useState("");
   const schoolDetailRequestRef = useRef(0);
@@ -675,18 +680,29 @@ export function PlatformModule({
     setPlatformLogoDraft(platformLogoUrl);
   }, [platformLogoUrl]);
 
-  async function savePlatformLogo() {
+  async function savePlatformLogo(logoUrl: string) {
+    const expected = platformLogoAction === "delete" ? "SUPPRIMER LE LOGO ACTUEL" : "ENREGISTRER LE NOUVEAU LOGO";
+    if (platformLogoSavingRef.current || platformLogoConfirmation !== expected || !platformLogoAction) return;
+    platformLogoSavingRef.current = true;
+    setPlatformLogoSaving(true);
+    setPlatformLogoError("");
     try {
       const saved = await savePlatformSettings({
-        loginLogoUrl: platformLogoDraft,
+        loginLogoUrl: logoUrl,
         updatedAt: new Date().toISOString(),
       });
       if (!saved) throw new Error("Enregistrement Firestore indisponible.");
-      onPlatformLogoSaved(platformLogoDraft);
+      onPlatformLogoSaved(logoUrl);
+      setPlatformLogoDraft(logoUrl);
       void applyPlatformLogoAssets();
-      setPlatformLogoMessage(platformLogoDraft ? "Logo de l'application enregistré avec succès." : "Logo de l'application supprimé.");
+      setPlatformLogoMessage(logoUrl ? "Logo de l'application enregistré avec succès." : "Logo de l'application supprimé.");
+      setPlatformLogoAction(null);
+      setPlatformLogoConfirmation("");
     } catch (error) {
-      setPlatformLogoMessage(error instanceof Error ? error.message : "Enregistrement du logo impossible.");
+      setPlatformLogoError(error instanceof Error ? error.message : "Enregistrement du logo impossible.");
+    } finally {
+      platformLogoSavingRef.current = false;
+      setPlatformLogoSaving(false);
     }
   }
 
@@ -1025,16 +1041,29 @@ export function PlatformModule({
           label="Logo affiché sur l'écran de connexion"
           value={platformLogoDraft}
           onChange={(value) => {
-            setPlatformLogoDraft(value);
+            if (!value) setPlatformLogoAction("delete");
+            else { setPlatformLogoDraft(value); setPlatformLogoAction(null); }
+            setPlatformLogoConfirmation("");
             setPlatformLogoMessage("");
+            setPlatformLogoError("");
           }}
+          disabled={platformLogoSaving}
           maxWidth={700}
           maxBytes={250 * 1024}
           acceptSvg
           previewFit="contain"
         />
         {platformLogoMessage && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{platformLogoMessage}</p>}
-        <button onClick={savePlatformLogo} className="primary-button w-full justify-center" type="button">
+        {platformLogoError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{platformLogoError}</p>}
+        {platformLogoAction && <div role="group" aria-label="Confirmer la modification du logo" className="grid gap-3 rounded border border-amber-200 bg-amber-50 p-3">
+          <p className="text-sm font-semibold text-amber-900">Pour confirmer, saisissez exactement : {platformLogoAction === "delete" ? "SUPPRIMER LE LOGO ACTUEL" : "ENREGISTRER LE NOUVEAU LOGO"}</p>
+          <input aria-label="Phrase de confirmation du logo" value={platformLogoConfirmation} onChange={(event) => setPlatformLogoConfirmation(event.target.value)} className="input" autoComplete="off" disabled={platformLogoSaving} />
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" className="secondary-button justify-center" disabled={platformLogoSaving} onClick={() => { setPlatformLogoAction(null); setPlatformLogoConfirmation(""); }}>Annuler</button>
+            <button type="button" className="primary-button justify-center disabled:opacity-50" disabled={platformLogoSaving || platformLogoConfirmation !== (platformLogoAction === "delete" ? "SUPPRIMER LE LOGO ACTUEL" : "ENREGISTRER LE NOUVEAU LOGO")} onClick={() => void savePlatformLogo(platformLogoAction === "delete" ? "" : platformLogoDraft)}>{platformLogoSaving ? "Enregistrement…" : "Confirmer"}</button>
+          </div>
+        </div>}
+        <button onClick={() => { if (platformLogoDraft) { setPlatformLogoAction("save"); setPlatformLogoConfirmation(""); setPlatformLogoError(""); } }} className="primary-button w-full justify-center" type="button" disabled={platformLogoSaving || !platformLogoDraft || platformLogoDraft === platformLogoUrl}>
           <CheckCircle2 className="h-4 w-4" /> Enregistrer le logo
         </button>
       </>
