@@ -83,6 +83,43 @@ const admin = { uid: "admin-a", role: "school_admin", schoolId: "school-a", emai
 const paymentBody = (clientRequestId: string) => ({ action: "create-payment", schoolYearId: "year-a", studentId: "student-a", feeTypeId: "fee-a", amount: 25, clientRequestId });
 
 describe("API financière transactionnelle", () => {
+  it("exige la phrase exacte, conserve une trace immuable et notifie seulement le parent lié", async () => {
+    const db = fakeDb({ ...baseSeed(), "users/parent-a": { role: "parent", schoolId: "school-a", parentId: "parent-a", studentIds: ["student-a"], status: "active" }, "users/parent-foreign": { role: "parent", schoolId: "school-b", parentId: "parent-a", status: "active" } });
+    const created = await executeFinancialOperation({ db, caller: cashier, body: paymentBody("payment-for-edit-001"), now: "2026-10-10T09:00:00.000Z" });
+    const paymentId = created.payment?.id;
+    const body = { action: "update-payment", transactionId: paymentId, amount: 30, reason: "Montant corrigé", confirmation: "MODIFIER CE PAIEMENT", expectedUpdatedAt: created.payment?.updatedAt, clientRequestId: "payment-edit-request-01" };
+    await expect(executeFinancialOperation({ db, caller: admin, body: { ...body, confirmation: "" } })).rejects.toMatchObject({ status: 400 });
+    await expect(executeFinancialOperation({ db, caller: admin, body: { ...body, reason: "" } })).rejects.toMatchObject({ status: 400 });
+    expect(db.documents.get(`payments/${paymentId}`)?.amount).toBe(25);
+    const changed = await executeFinancialOperation({ db, caller: admin, body, now: "2026-10-10T10:35:00.000Z" });
+    expect(changed.payment?.amount).toBe(30);
+    const notification = [...db.documents.entries()].find(([path]) => path.startsWith("notifications/notif_fin_edit_"))?.[1];
+    expect(notification).toMatchObject({ recipientUserId: "parent-a", schoolId: "school-a", type: "financial_correction" });
+    expect(notification).not.toHaveProperty("parentId");
+    expect(String(notification?.body)).toContain("Montant corrigé");
+    const audit = [...db.documents.entries()].find(([path]) => path.startsWith("financialCorrectionAudits/"))?.[1];
+    expect(audit).toMatchObject({ oldAmount: 25, newAmount: 30, actorId: "admin-a", notificationEventId: notification?.id });
+    expect((await executeFinancialOperation({ db, caller: admin, body })).idempotent).toBe(true);
+    expect([...db.documents.keys()].filter((path) => path.startsWith("notifications/notif_fin_edit_"))).toHaveLength(1);
+    await expect(executeFinancialOperation({ db, caller: admin, body: { ...body, clientRequestId: "payment-edit-stale-02" } })).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("ne notifie pas un homonyme ou parent non lié lors d'une correction", async () => {
+    const db = fakeDb({ ...baseSeed(), "users/parent-lookalike": { role: "parent", schoolId: "school-a", parentId: "parent-other", name: "Même nom" } });
+    const created = await executeFinancialOperation({ db, caller: cashier, body: paymentBody("payment-no-parent-01") });
+    await executeFinancialOperation({ db, caller: admin, body: { action: "update-payment", transactionId: created.payment?.id, amount: 30, reason: "Correction", confirmation: "MODIFIER CE PAIEMENT", expectedUpdatedAt: created.payment?.updatedAt, clientRequestId: "payment-no-parent-edit" } });
+    expect([...db.documents.keys()].filter((path) => path.startsWith("notifications/notif_fin_edit_"))).toHaveLength(0);
+  });
+  it("ne diffuse pas une correction à plusieurs comptes parent ambigus", async () => {
+    const db = fakeDb({ ...baseSeed(),
+      "users/parent-a": { role: "parent", schoolId: "school-a", parentId: "parent-a", studentIds: ["student-a"], status: "active" },
+      "users/parent-b": { role: "parent", schoolId: "school-a", parentId: "parent-a", studentIds: ["student-a"], status: "active" },
+    });
+    const created = await executeFinancialOperation({ db, caller: cashier, body: paymentBody("payment-ambiguous-parent-01") });
+    await executeFinancialOperation({ db, caller: admin, body: { action: "update-payment", transactionId: created.payment?.id, amount: 30, reason: "Correction", confirmation: "MODIFIER CE PAIEMENT", expectedUpdatedAt: created.payment?.updatedAt, clientRequestId: "payment-ambiguous-parent-edit" } });
+    expect([...db.documents.keys()].filter((path) => path.startsWith("notifications/notif_fin_edit_"))).toHaveLength(0);
+    expect([...db.documents.keys()].filter((path) => path.startsWith("financialCorrectionAudits/"))).toHaveLength(1);
+  });
   function historicalSeed() {
     return {
       ...baseSeed(),

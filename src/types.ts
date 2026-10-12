@@ -470,9 +470,9 @@ export interface AppNotification {
   audienceParentIds?: string[];
   audienceSchoolWide?: boolean;
   schoolRecipient?: "admin" | "cashier" | "discipline" | "both";
-  type: "payment" | "message" | "valve" | "attendance" | "availability" | "observation";
+  type: "payment" | "financial_correction" | "message" | "valve" | "attendance" | "availability" | "observation";
   module?: "payments" | "attendance" | "discipline" | "announcements";
-  event?: "payment_recorded" | "student_absent" | "student_late" | "discipline_incident_created" | "announcement_published";
+  event?: "payment_recorded" | "payment_corrected" | "personnel_payment_corrected" | "student_absent" | "student_late" | "discipline_incident_created" | "announcement_published";
   destination?: "/dashboard";
   title: string;
   body: string;

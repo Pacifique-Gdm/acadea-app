@@ -83,7 +83,7 @@ export function createExpenseTransaction(input: { schoolYearId: string; amount: 
   });
 }
 
-export function updatePaymentTransaction(input: { transactionId: string; amount: number; reason: string; clientRequestId: string }) {
+export function updatePaymentTransaction(input: { transactionId: string; amount: number; reason: string; confirmation: string; expectedUpdatedAt: string; clientRequestId: string }) {
   return financialRequest({ action: "update-payment", ...input }).then((result) => {
     if (!result.payment) throw new Error("Réponse de correction de paiement incomplète.");
     return result.payment;

@@ -96,7 +96,14 @@ export function ControlModule({
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const [expenseSubmitting, setExpenseSubmitting] = useState(false);
   const [financialMutationId, setFinancialMutationId] = useState("");
+  const [paymentEditTarget, setPaymentEditTarget] = useState<Payment | null>(null);
+  const [paymentEditAmount, setPaymentEditAmount] = useState("");
+  const [paymentEditReason, setPaymentEditReason] = useState("");
+  const [paymentEditConfirmation, setPaymentEditConfirmation] = useState("");
+  const [paymentEditError, setPaymentEditError] = useState("");
+  const [paymentEditFeedback, setPaymentEditFeedback] = useState("");
   const paymentAttemptRef = useRef<{ signature: string; requestId: string } | null>(null);
+  const paymentCorrectionAttemptRef = useRef<{ signature: string; requestId: string } | null>(null);
   const paymentStudentRequestRef = useRef(0);
   const paymentStudentSearchRef = useRef<HTMLInputElement>(null);
   const expenseAttemptRef = useRef<{ signature: string; requestId: string } | null>(null);
@@ -749,13 +756,23 @@ export function ControlModule({
     });
   }
 
-  async function correctPayment(payment: Payment) {
+  function correctPayment(payment: Payment) {
     if (!canCorrectPayments || financialMutationRef.current) return;
-    const nextAmount = prompt("Nouveau montant du paiement", String(payment.amount));
-    if (!nextAmount) return;
-    const correctedAmount = Number(nextAmount);
+    paymentCorrectionAttemptRef.current = null;
+    setPaymentEditTarget(payment);
+    setPaymentEditAmount(String(payment.amount));
+    setPaymentEditReason("");
+    setPaymentEditConfirmation("");
+    setPaymentEditError("");
+    setPaymentEditFeedback("");
+  }
+
+  async function savePaymentCorrection() {
+    const payment = paymentEditTarget;
+    if (!payment || !canCorrectPayments || financialMutationRef.current) return;
+    const correctedAmount = Number(paymentEditAmount);
     if (!Number.isFinite(correctedAmount) || correctedAmount <= 0) {
-      alert("Montant de paiement invalide.");
+      setPaymentEditError("Montant de paiement invalide.");
       return;
     }
     const paymentStudent = controlIndexes.studentsById.get(payment.studentId);
@@ -769,18 +786,27 @@ export function ControlModule({
       ? Math.max(0, sumPaymentsForStudentFee(controlIndexes, paymentStudent.id, paymentFee.id) - payment.amount)
       : 0;
     if (!paymentFee || paidForFee + correctedAmount > paymentFee.amount) {
-      alert("Paiement impossible : ce montant dépasse le montant prévu pour ce frais.");
+      setPaymentEditError("Paiement impossible : ce montant dépasse le montant prévu pour ce frais.");
       return;
     }
-    const reason = prompt("Motif obligatoire de correction");
-    if (!reason) return;
+    const reason = paymentEditReason.trim();
+    if (!reason || paymentEditConfirmation !== "MODIFIER CE PAIEMENT") return;
     financialMutationRef.current = payment.id;
     setFinancialMutationId(payment.id);
     try {
-      const correctedPayment = await updatePaymentTransaction({ transactionId: payment.id, amount: correctedAmount, reason, clientRequestId: crypto.randomUUID() });
+      const expectedUpdatedAt = payment.updatedAt ?? payment.createdAt ?? "";
+      const signature = JSON.stringify([payment.id, correctedAmount, reason, paymentEditConfirmation, expectedUpdatedAt]);
+      if (paymentCorrectionAttemptRef.current?.signature !== signature) paymentCorrectionAttemptRef.current = { signature, requestId: crypto.randomUUID() };
+      const correctedPayment = await updatePaymentTransaction({ transactionId: payment.id, amount: correctedAmount, reason, confirmation: paymentEditConfirmation, expectedUpdatedAt, clientRequestId: paymentCorrectionAttemptRef.current.requestId });
       paymentHistory.updateItem(correctedPayment);
+      paymentCorrectionAttemptRef.current = null;
+      if (studentId === correctedPayment.studentId) {
+        void loadStudentArrears({ schoolYearId: year.id, studentId }).then((result) => setPaymentArrears(result.debts)).catch(() => setArrearsError("Actualisez les arriérés pour consulter le solde corrigé."));
+      }
+      setPaymentEditFeedback("Paiement modifié. Les totaux se synchronisent depuis Firestore.");
+      setPaymentEditTarget(null);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Correction du paiement impossible.");
+      setPaymentEditError(error instanceof Error ? error.message : "Correction du paiement impossible.");
     } finally {
       financialMutationRef.current = "";
       setFinancialMutationId("");
@@ -1548,6 +1574,7 @@ export function ControlModule({
             </select>
           </label>
           {historyKind === "payments" && <>
+            {paymentEditFeedback && <p role="status" className="rounded bg-green-50 p-3 text-sm text-green-800">{paymentEditFeedback}</p>}
             <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
               <Search className="h-4 w-4 shrink-0 text-slate-400" />
               <input
@@ -1578,10 +1605,19 @@ export function ControlModule({
                 );
               })}
             </div>
+            {paymentEditTarget && <div className="grid min-w-0 gap-3 rounded border border-slate-300 bg-white p-3 text-sm">
+              <strong>Modifier le paiement — {paymentEditTarget.receiptNumber ?? paymentEditTarget.id}</strong>
+              <label className="grid gap-1">Ancien montant<input className="input" readOnly value={String(paymentEditTarget.amount)} /></label>
+              <label className="grid gap-1">Nouveau montant<input className="input" type="number" min="0.01" step="0.01" value={paymentEditAmount} onChange={(event) => setPaymentEditAmount(event.target.value)} /></label>
+              <label className="grid gap-1">Raison obligatoire<textarea className="input" maxLength={500} value={paymentEditReason} onChange={(event) => setPaymentEditReason(event.target.value)} /></label>
+              <label className="grid gap-1">Saisissez exactement MODIFIER CE PAIEMENT<input className="input" autoComplete="off" value={paymentEditConfirmation} onChange={(event) => setPaymentEditConfirmation(event.target.value)} /></label>
+              {paymentEditError && <p role="alert" className="text-red-700">{paymentEditError}</p>}
+              <div className="flex flex-wrap gap-2"><button type="button" className="primary-button justify-center" disabled={Boolean(financialMutationId) || !paymentEditReason.trim() || !(Number(paymentEditAmount) > 0) || paymentEditConfirmation !== "MODIFIER CE PAIEMENT"} onClick={() => void savePaymentCorrection()}>Enregistrer</button><button type="button" className="secondary-button justify-center" onClick={() => setPaymentEditTarget(null)}>Annuler</button></div>
+            </div>}
             {renderPaymentHistoryPagination()}
           </>}
           {historyKind === "expenses" && renderExpenseHistoryContent()}
-          {historyKind === "payroll" && <PersonnelPayrollHistory schoolId={school.id} schools={[school]} />}
+          {historyKind === "payroll" && <PersonnelPayrollHistory schoolId={school.id} schools={[school]} allowEdit={user.role === "school_admin"} />}
         </AdminDrawer>
       )}
       {expenseEditTarget && (

@@ -1,7 +1,7 @@
 import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
 import { authorizeFinancialCaller, executeFinancialOperation, FinancialApiError, listStudentArrears, listStudentArrearsBatch } from "./_lib/financialTransactions.js";
-import { createPersonnelPayment, listPayroll } from "./_lib/personnelPayroll.js";
+import { createPersonnelPayment, listPayroll, updatePersonnelPayment } from "./_lib/personnelPayroll.js";
 import { listPersonnelPayrollHistory } from "./_lib/personnelPayrollHistory.js";
 import { requireActiveCoordinationActor } from "./_lib/coordination.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
@@ -56,10 +56,11 @@ export default async function handler(req, res) {
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: "finance.list-payroll-history", ...API_RATE_LIMITS.FINANCE_MUTATE });
       return sendJson(res, 200, await listPersonnelPayrollHistory({ db, actor, body }));
     }
-    if (["create-personnel-payment", "list-payroll-personnel", "list-payroll-advances", "list-personnel-payments", "list-own-payroll"].includes(requestedAction)) {
+    if (["create-personnel-payment", "update-personnel-payment", "list-payroll-personnel", "list-payroll-advances", "list-personnel-payments", "list-own-payroll"].includes(requestedAction)) {
       await requireActiveApiUser(db, caller);
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: `finance.${requestedAction}`, idempotencyKey: typeof body.clientRequestId === "string" ? body.clientRequestId : undefined, ...(requestedAction === "create-personnel-payment" ? API_RATE_LIMITS.FINANCE_CREATE : API_RATE_LIMITS.FINANCE_MUTATE) });
-      return sendJson(res, 200, requestedAction === "create-personnel-payment" ? await createPersonnelPayment({ db, caller, body }) : await listPayroll({ db, caller, body }));
+      return sendJson(res, 200, requestedAction === "create-personnel-payment" ? await createPersonnelPayment({ db, caller, body })
+        : requestedAction === "update-personnel-payment" ? await updatePersonnelPayment({ db, caller, body }) : await listPayroll({ db, caller, body }));
     }
     const action = ["create-payment", "create-expense", "update-payment", "update-expense", "delete-payment", "delete-expense", "list-arrears", "list-arrears-batch"].includes(requestedAction) ? requestedAction : "invalid";
     const authorizedCaller = authorizeFinancialCaller(caller, action);

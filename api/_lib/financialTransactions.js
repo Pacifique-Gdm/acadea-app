@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
+import { FieldValue } from "firebase-admin/firestore";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 
 const PAYMENT_CREATE_KEYS = ["action", "schoolYearId", "studentId", "feeTypeId", "debtSchoolYearId", "amount", "note", "clientRequestId"];
 const ARREARS_READ_KEYS = ["action", "schoolYearId", "studentId"];
 const EXPENSE_CREATE_KEYS = ["action", "schoolYearId", "amount", "category", "description", "beneficiary", "paymentMethod", "reference", "clientRequestId"];
-const PAYMENT_UPDATE_KEYS = ["action", "transactionId", "amount", "reason", "clientRequestId"];
+const PAYMENT_UPDATE_KEYS = ["action", "transactionId", "amount", "reason", "confirmation", "expectedUpdatedAt", "clientRequestId"];
 const EXPENSE_UPDATE_KEYS = ["action", "transactionId", "amount", "category", "description", "reason", "clientRequestId"];
 const DELETE_KEYS = ["action", "transactionId", "reason", "clientRequestId"];
 const EXPENSE_CATEGORIES = new Set(["Fournitures", "Transport", "Salaire", "Maintenance", "Autre", "Autres"]);
@@ -57,8 +58,11 @@ function receiptPrefix(year) {
   return `REC-${firstYear}`;
 }
 
-function idempotentResult(snapshot) {
+function idempotentResult(snapshot, fingerprint) {
   if (!snapshot.exists) return null;
+  if (snapshot.data()?.fingerprint && snapshot.data().fingerprint !== fingerprint) {
+    throw new FinancialApiError(409, "conflict", "Clé d'idempotence réutilisée avec un contenu différent.");
+  }
   const result = snapshot.data()?.result;
   if (!result || typeof result !== "object") {
     throw new FinancialApiError(409, "conflict", "Cette requête financière a déjà été traitée.");
@@ -442,19 +446,29 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
   const transactionId = text(body.transactionId, 160);
   const reason = text(body.reason, 500);
   if (!transactionId || !reason) throw new FinancialApiError(400, "invalid-argument", "Transaction et motif sont requis.");
+  if (isPayment && operation === "update" && body.confirmation !== "MODIFIER CE PAIEMENT") {
+    throw new FinancialApiError(400, "invalid-argument", "Saisissez exactement MODIFIER CE PAIEMENT.");
+  }
   const collectionName = isPayment ? "payments" : "expenses";
   const documentRef = db.doc(`${collectionName}/${transactionId}`);
   const snapshot = await transaction.get(documentRef);
   if (!snapshot.exists) throw new FinancialApiError(404, "not-found", "Transaction financière introuvable.");
   const current = snapshot.data();
+  if (isPayment && operation === "update" && (!text(body.expectedUpdatedAt, 80) || body.expectedUpdatedAt !== (current.updatedAt ?? current.createdAt))) {
+    throw new FinancialApiError(409, "conflict", "Ce paiement a changé depuis son ouverture. Actualisez l'historique avant de recommencer.");
+  }
   if (current.schoolId !== caller.schoolId) throw new FinancialApiError(403, "permission-denied", "Transaction financière hors établissement.");
   if (!isPayment && current.personnelPaymentId) throw new FinancialApiError(409, "conflict", "Cette dépense est liée à une paie et ne peut pas être corrigée ou supprimée séparément.");
   const { schoolYearId, actorName } = await assertContext(transaction, db, caller, current.schoolYearId);
   let result;
+  let correction;
   if (operation === "delete") {
     transaction.delete(documentRef);
     result = { deletedId: transactionId, kind };
   } else if (isPayment) {
+    if (Math.abs(Math.round(Number(body.amount) * 100) - Number(body.amount) * 100) > 1e-7) {
+      throw new FinancialApiError(400, "invalid-argument", "Le montant corrigé ne peut pas dépasser deux décimales.");
+    }
     const amount = positiveAmount(body.amount);
     const [studentSnapshot, feeSnapshot] = await Promise.all([
       transaction.get(db.doc(`students/${current.studentId}`)),
@@ -470,8 +484,29 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
       .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
     if (paidWithoutCurrent + amount > Number(feeSnapshot.data()?.amount)) throw new FinancialApiError(409, "conflict", "Ce paiement dépasse le montant prévu pour ce frais.");
     const payment = { ...current, id: transactionId, amount, updatedAt: now, updatedBy: caller.uid, correctionReason: reason };
-    transaction.update(documentRef, { amount, updatedAt: now, updatedBy: caller.uid, correctionReason: reason });
     result = { payment };
+    const student = studentSnapshot.data();
+    const parentId = text(student.parentId, 120);
+    const notificationId = `notif_fin_edit_${hash.slice(0, 24)}`;
+    const currency = current.currency === "USD" || current.currency === "CDF" ? current.currency : "CDF";
+    let recipientUserId = "";
+    if (parentId && current.parentId === parentId) {
+      const linked = await transaction.get(db.collection("users").where("parentId", "==", parentId));
+      const eligible = linked.docs.filter((document) => document.data()?.schoolId === caller.schoolId && document.data()?.role === "parent" && document.data()?.status !== "inactive" && document.data()?.active !== false
+        && (!Array.isArray(document.data()?.studentIds) || document.data().studentIds.includes(current.studentId)));
+      if (eligible.length === 1) recipientUserId = eligible[0].id;
+    }
+    transaction.update(documentRef, { amount, updatedAt: now, updatedBy: caller.uid, correctionReason: reason });
+    if (recipientUserId) {
+      transaction.create(db.doc(`notifications/${notificationId}`), {
+        id: notificationId, schoolId: caller.schoolId, schoolYearId, recipientUserId, studentId: current.studentId,
+        recipientRole: "parent", type: "financial_correction", module: "payments", event: "payment_corrected", destination: "/dashboard",
+        title: "Modification de votre paiement", body: `Paiement modifié par : ${actorName}\nDate : ${now.slice(0, 10)}\nHeure : ${now.slice(11, 19)} UTC\nAncien montant : ${current.amount} ${currency}\nNouveau montant : ${amount} ${currency}\nRaison : ${reason}`,
+        createdAt: now, read: false,
+      });
+    }
+    correction = { oldValues: current, newValues: payment, oldAmount: current.amount, newAmount: amount, currency: current.currency ?? currency,
+      notificationEventId: recipientUserId ? notificationId : null };
   } else {
     const amount = positiveAmount(body.amount);
     const category = text(body.category, 100);
@@ -486,6 +521,10 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
     ? operation === "delete" ? AUDIT_EVENT_TYPES.FINANCE_PAYMENT_DELETED : AUDIT_EVENT_TYPES.FINANCE_PAYMENT_UPDATED
     : operation === "delete" ? AUDIT_EVENT_TYPES.FINANCE_EXPENSE_DELETED : AUDIT_EVENT_TYPES.FINANCE_EXPENSE_UPDATED;
   transaction.set(db.doc(`auditLogs/${auditId}`), buildServerAudit({ id: auditId, eventType, actor: { ...caller, name: actorName }, schoolId: caller.schoolId, schoolYearId, resourceType: kind, resourceId: transactionId, metadata: { reason, operation } }));
+  if (correction) transaction.create(db.doc(`financialCorrectionAudits/${auditId}`), {
+    id: auditId, operationId: transactionId, kind, schoolId: caller.schoolId, schoolYearId,
+    actorId: caller.uid, actorName, createdAt: now, serverTimestamp: FieldValue.serverTimestamp(), reason, ...correction,
+  });
   return result;
 }
 
@@ -494,9 +533,10 @@ export async function executeFinancialOperation({ db, caller: rawCaller, body, n
   const action = text(body.action, 60);
   const caller = authorizeFinancialCaller(rawCaller, action);
   const hash = requestKey(caller.uid, caller.schoolId, body.clientRequestId);
+  const fingerprint = createHash("sha256").update(JSON.stringify(body)).digest("hex");
   const idempotencyRef = db.doc(`financialIdempotency/${hash}`);
   return db.runTransaction(async (transaction) => {
-    const prior = idempotentResult(await transaction.get(idempotencyRef));
+    const prior = idempotentResult(await transaction.get(idempotencyRef), fingerprint);
     if (prior) return prior;
     let result;
     if (action === "create-payment") result = await createPayment(transaction, db, caller, body, hash, now);
@@ -506,7 +546,7 @@ export async function executeFinancialOperation({ db, caller: rawCaller, body, n
     else if (action === "delete-payment") result = await mutateExisting(transaction, db, caller, body, hash, now, "payment", "delete");
     else if (action === "delete-expense") result = await mutateExisting(transaction, db, caller, body, hash, now, "expense", "delete");
     else throw new FinancialApiError(400, "invalid-argument", "Action financière invalide.");
-    transaction.create(idempotencyRef, { schoolId: caller.schoolId, schoolYearId: body.schoolYearId ?? result.payment?.schoolYearId ?? result.expense?.schoolYearId ?? null, userId: caller.uid, action, result, createdAt: now });
+    transaction.create(idempotencyRef, { schoolId: caller.schoolId, schoolYearId: body.schoolYearId ?? result.payment?.schoolYearId ?? result.expense?.schoolYearId ?? null, userId: caller.uid, action, fingerprint, result, createdAt: now });
     return { ...result, idempotent: false };
   });
 }

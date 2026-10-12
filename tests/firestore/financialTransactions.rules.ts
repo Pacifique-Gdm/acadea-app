@@ -78,4 +78,10 @@ describe("écritures financières réservées au serveur", () => {
       await assertFails(setDoc(doc(db(role), "servicePersonnelPhoneLocks", `lock-${role}`), { schoolId: "school-a" }));
     }
   });
+  it("protège les audits détaillés des corrections contre toute lecture ou écriture client", async () => {
+    for (const role of ["school_admin", "cashier", "teacher"]) {
+      await assertFails(getDoc(doc(db(role), "financialCorrectionAudits", "audit-a")));
+      await assertFails(setDoc(doc(db(role), "financialCorrectionAudits", `forged-${role}`), { schoolId: "school-a", oldAmount: 100, newAmount: 200 }));
+    }
+  });
 });

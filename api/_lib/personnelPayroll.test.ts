@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createPersonnelPayment, listPayroll } from "./personnelPayroll.js";
+import { createPersonnelPayment, listPayroll, updatePersonnelPayment } from "./personnelPayroll.js";
 
 type Data = Record<string, unknown>;
 class FakeDb {
@@ -41,6 +41,65 @@ async function write(db: FakeDb, changes: Data, id: string) {
 }
 
 describe("paie du personnel — transactions et confidentialité", () => {
+  it("corrige une paie avec confirmation exacte, dépense liée, audit et notification idempotente", async () => {
+    const db = seeded();
+    db.values.delete("personnelProfiles/worker-a");
+    db.values.set("users/worker-a", { role: "teacher", schoolId: "school-a", name: "Enseignant A", status: "active" });
+    db.values.set("users/admin-a", { role: "school_admin", schoolId: "school-a", name: "Admin A", status: "active" });
+    const created = await write(db, { beneficiaryId: "worker-a", kind: "salary", periodMonth: 9, periodYear: 2026, amount: 100 }, "salary-for-edit-0001");
+    const body = { action: "update-personnel-payment", paymentId: created.payment.id, amount: 120, reason: "Correction justifiée", confirmation: "MODIFIER CE SALAIRE", expectedUpdatedAt: created.payment.createdAt, clientRequestId: "salary-edit-request-001" };
+    const actor = { uid: "admin-a", role: "school_admin", schoolId: "school-a" };
+    const changed = await updatePersonnelPayment({ db, caller: actor, body, now: "2026-10-10T11:30:00.000Z" });
+    expect(changed.payment).toMatchObject({ amount: 120, netPaid: 120, correctionReason: "Correction justifiée" });
+    expect(db.values.get(`expenses/${created.payment.expenseId}`)?.amount).toBe(120);
+    expect([...db.values.keys()].filter((path) => path.startsWith("expenses/"))).toHaveLength(1);
+    const notifications = [...db.values].filter(([path]) => path.startsWith("notifications/"));
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0][1]).toMatchObject({ recipientUserId: "worker-a", schoolId: "school-a", type: "financial_correction" });
+    const audit = [...db.values].find(([path]) => path.startsWith("financialCorrectionAudits/"))?.[1];
+    expect(audit).toMatchObject({ oldAmount: 100, newAmount: 120, actorId: "admin-a", reason: "Correction justifiée", notificationEventId: expect.any(String) });
+    const replay = await updatePersonnelPayment({ db, caller: actor, body });
+    expect(replay.idempotent).toBe(true);
+    expect([...db.values.keys()].filter((path) => path.startsWith("notifications/"))).toHaveLength(1);
+    await expect(updatePersonnelPayment({ db, caller: actor, body: { ...body, amount: 130 } })).rejects.toMatchObject({ status: 409 });
+    await expect(updatePersonnelPayment({ db, caller: actor, body: { ...body, clientRequestId: "salary-edit-stale-02" } })).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("refuse rôle, école, motif, confirmation, dépense incohérente et avance trop imputée", async () => {
+    const db = seeded();
+    db.values.set("users/admin-a", { role: "school_admin", schoolId: "school-a", status: "active" });
+    const created = await write(db, { kind: "advance", amount: 100 }, "advance-for-edit-01");
+    const body = { action: "update-personnel-payment", paymentId: created.payment.id, amount: 80, reason: "Ajustement", confirmation: "MODIFIER CETTE AVANCE", expectedUpdatedAt: created.payment.createdAt, clientRequestId: "advance-edit-req-01" };
+    const admin = { uid: "admin-a", role: "school_admin", schoolId: "school-a" };
+    await expect(updatePersonnelPayment({ db, caller, body })).rejects.toMatchObject({ status: 403 });
+    await expect(updatePersonnelPayment({ db, caller: { ...admin, schoolId: "school-b" }, body })).rejects.toMatchObject({ status: 403 });
+    await expect(updatePersonnelPayment({ db, caller: admin, body: { ...body, reason: "" } })).rejects.toMatchObject({ status: 400 });
+    await expect(updatePersonnelPayment({ db, caller: admin, body: { ...body, confirmation: "MODIFIER CE SALAIRE" } })).rejects.toMatchObject({ status: 400 });
+    db.values.set(`personnelPayments/${created.payment.id}`, { ...db.values.get(`personnelPayments/${created.payment.id}`), recoveredAmount: 90 });
+    await expect(updatePersonnelPayment({ db, caller: admin, body })).rejects.toMatchObject({ status: 409 });
+    db.values.set(`personnelPayments/${created.payment.id}`, { ...db.values.get(`personnelPayments/${created.payment.id}`), recoveredAmount: 0 });
+    db.values.set(`expenses/${created.payment.expenseId}`, { ...db.values.get(`expenses/${created.payment.expenseId}`), amount: 99 });
+    await expect(updatePersonnelPayment({ db, caller: admin, body })).rejects.toMatchObject({ status: 409 });
+    expect([...db.values.keys()].filter((path) => path.startsWith("financialCorrectionAudits/") || path.startsWith("notifications/"))).toHaveLength(0);
+  });
+  it.each([
+    { kind: "bonus", confirmation: "MODIFIER CETTE PRIME" },
+    { kind: "advance", confirmation: "MODIFIER CETTE AVANCE" },
+  ])("corrige une %s sans nouvelle dépense et notifie le compte exact", async ({ kind, confirmation }) => {
+    const db = seeded();
+    db.values.delete("personnelProfiles/worker-a");
+    db.values.set("users/worker-a", { role: "teacher", schoolId: "school-a", name: "Enseignant A", status: "active" });
+    db.values.set("users/admin-a", { role: "school_admin", schoolId: "school-a", name: "Admin A", status: "active" });
+    const created = await write(db, { beneficiaryId: "worker-a", kind, periodMonth: 9, periodYear: 2026, amount: 100 }, `create-${kind}-for-edit`);
+    const changed = await updatePersonnelPayment({ db, caller: { uid: "admin-a", role: "school_admin", schoolId: "school-a" }, body: {
+      action: "update-personnel-payment", paymentId: created.payment.id, amount: 110, reason: "Ajustement", confirmation,
+      expectedUpdatedAt: created.payment.createdAt, clientRequestId: `edit-${kind}-request-001`,
+    } });
+    expect(changed.payment).toMatchObject({ kind, amount: 110, netPaid: 110 });
+    expect([...db.values.keys()].filter((path) => path.startsWith("expenses/"))).toHaveLength(1);
+    expect(db.values.get(`expenses/${created.payment.expenseId}`)?.amount).toBe(110);
+    expect([...db.values.values()].filter((value) => value.type === "financial_correction")).toHaveLength(1);
+  });
   it("suspend salaires, primes et avances sans altérer l'historique ni les réponses idempotentes", async () => {
     const db = seeded();
     const existing = await write(db, { kind: "advance" }, "rollback-prior-00001");

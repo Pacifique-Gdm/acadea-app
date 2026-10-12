@@ -683,6 +683,10 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /financialCorrectionAudits/{auditId} {
+      allow read, write: if false;
+    }
+
     match /servicePersonnelPhoneLocks/{lockId} {
       allow read, write: if false;
     }
@@ -1573,9 +1577,11 @@ service cloud.firestore {
         || (coordinatorSchool(resource.data.schoolId)
           && resource.data.recipientUserId == request.auth.uid)
         || (role() in ["school_admin", "cashier"] && sameTenantResource()
-          && (resource.data.type != "message" || !("recipientUserId" in resource.data) || resource.data.recipientUserId == request.auth.uid))
+          && (("type" in resource.data && resource.data.type == "financial_correction") ?
+            ("recipientUserId" in resource.data && resource.data.recipientUserId == request.auth.uid)
+            : (resource.data.type != "message" || !("recipientUserId" in resource.data) || resource.data.recipientUserId == request.auth.uid)))
         || (secretary() && sameTenantResource()
-          && (resource.data.type != "message" || resource.data.recipientUserId == request.auth.uid))
+          && (resource.data.type != "message" && resource.data.type != "financial_correction" || resource.data.recipientUserId == request.auth.uid))
         || ((activeTeacher() || studyDirector()) && resource.data.schoolId == tenantSchoolId()
           && resource.data.recipientUserId == request.auth.uid)
         || (disciplineTenantResource() && resource.data.recipientUserId == request.auth.uid)
@@ -1584,15 +1590,20 @@ service cloud.firestore {
           && resource.data.recipientRole == "school"
           && resource.data.schoolRecipient == "discipline")
         || (parentUser() && resource.data.schoolId == tenantSchoolId()
-          && (resource.data.parentId == tenantParentId()
-            || resource.data.recipientUserId == request.auth.uid));
-      allow create: if !request.resource.data.keys().hasAny(["recipientUserId"])
+          && (!("type" in resource.data) || resource.data.type != "financial_correction" || ("recipientUserId" in resource.data && resource.data.recipientUserId == request.auth.uid))
+          && (("parentId" in resource.data && resource.data.parentId == tenantParentId())
+            || ("recipientUserId" in resource.data && resource.data.recipientUserId == request.auth.uid)));
+      allow create: if !("type" in request.resource.data && request.resource.data.type == "financial_correction")
+        && !request.resource.data.keys().hasAny(["recipientUserId"])
         && signedIn()
         && ((role() in ["school_admin", "cashier", "secretary"] && activeTenantYearCreate())
           || (activeDisciplineYearCreate()
             && ((request.resource.data.recipientRole == "school" && request.resource.data.schoolRecipient == "discipline")
               || (request.resource.data.recipientRole == "parent" && request.resource.data.parentId is string))));
-      allow update: if (role() in ["school_admin", "cashier"]
+      allow update: if (!("type" in resource.data && resource.data.type == "financial_correction")
+          || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(["read"])
+            && "recipientUserId" in resource.data && resource.data.recipientUserId == request.auth.uid))
+        && ((role() in ["school_admin", "cashier"]
           && activeTenantYearUpdate()
           && (resource.data.type != "message"
             || !("recipientUserId" in resource.data)
@@ -1622,7 +1633,7 @@ service cloud.firestore {
         && resource.data.parentId == tenantParentId()
         && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId())
         && request.resource.data.parentId == resource.data.parentId
-        && request.resource.data.schoolId == resource.data.schoolId);
+        && request.resource.data.schoolId == resource.data.schoolId));
       allow delete: if false;
     }
 

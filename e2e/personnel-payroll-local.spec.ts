@@ -408,4 +408,61 @@ test.describe("paie et personnel — navigateur local isolé", () => {
       expect(remoteRequests).toEqual([]);
     } finally { await Promise.race([context.close().catch(() => undefined), new Promise<void>((resolve) => setTimeout(resolve, 5_000))]); }
   });
+
+  test("L'historique paie permet le PDF et réserve la correction confirmée à l'Administrateur", async ({ browser }) => {
+    const paymentId = `e2e-correction-${suffix}`;
+    const expenseId = `e2e-correction-expense-${suffix}`;
+    const createdAt = "2026-10-11T10:00:00.000Z";
+    await db.doc(`personnelPayments/${paymentId}`).set({
+      id: paymentId, schoolId, schoolYearId: yearId, beneficiaryId: payrollProfileId,
+      beneficiaryName: "Agent paie local", beneficiaryJobTitle: "Agent de sécurité", beneficiaryHasAccount: false,
+      kind: "salary", periodMonth: 9, periodYear: 2026, paidAt: "2026-10-09", currency: "CDF", reference: `PAY-E2E-${suffix}`,
+      amount: 100000, recoveredAmount: 0, recoveries: [], deduction: 0, deductionReason: "", cnss: 0, tax: 0,
+      netPaid: 100000, description: "", expenseId, createdAt, createdBy: accounts.cashier.uid,
+    });
+    await db.doc(`expenses/${expenseId}`).set({
+      id: expenseId, schoolId, schoolYearId: yearId, amount: 100000, category: "Salaire", description: "Salaire E2E local",
+      beneficiary: "Agent paie local", paymentMethod: "Paiement personnel", reference: `PAY-E2E-${suffix}`,
+      spentAt: "2026-10-09", createdAt, updatedAt: createdAt, createdBy: accounts.cashier.uid, updatedBy: accounts.cashier.uid,
+      provenance: "personnel-payroll", personnelPaymentId: paymentId,
+    });
+    for (const account of [accounts.cashier, accounts.admin]) {
+      const { context, remoteRequests, authStatuses, authCodes, authProjects, firestoreProjects } = await isolatedContext(browser);
+      try {
+        const page = await context.newPage();
+        await login(page, account, authStatuses, authCodes, remoteRequests, authProjects, firestoreProjects);
+        await page.getByRole("button", { name: "Contrôle", exact: true }).click();
+        await page.getByRole("button", { name: "Historique", exact: true }).click();
+        const history = page.getByRole("dialog", { name: "Historique" });
+        await history.getByLabel("Type d'historique").selectOption("payroll");
+        const line = history.getByRole("article").filter({ hasText: `PAY-E2E-${suffix}` });
+        await expect(line).toBeVisible();
+        await expect(line.getByRole("button", { name: /Télécharger le bulletin PDF/ })).toBeEnabled();
+        await expect(line.getByRole("button", { name: /Modifier le salaire/ })).toHaveCount(account.role === "school_admin" ? 1 : 0);
+        for (const width of [1440, 768, 390]) {
+          await page.setViewportSize({ width, height: 900 });
+          const box = await line.boundingBox();
+          expect(box && box.x >= -1 && box.x + box.width <= width + 1).toBe(true);
+          expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width + 1);
+        }
+        await line.getByRole("button", { name: /Télécharger le bulletin PDF/ }).click();
+        await expect(page.locator("[data-pdf-download]")).toHaveAttribute("aria-disabled", "false", { timeout: 30_000 });
+        const [download] = await Promise.all([page.waitForEvent("download"), page.locator("[data-pdf-download]").click()]);
+        expect((await readFile(await download.path())).subarray(0, 5).toString()).toBe("%PDF-");
+        await page.locator("[data-pdf-close]").click();
+        if (account.role === "school_admin") {
+          await line.getByRole("button", { name: /Modifier le salaire/ }).click();
+          await history.getByLabel("Nouveau montant").fill("110000");
+          await history.getByLabel("Raison obligatoire").fill("Correction E2E locale");
+          await expect(history.getByRole("button", { name: "Enregistrer la modification" })).toBeDisabled();
+          await history.getByLabel(/Saisissez exactement MODIFIER CE SALAIRE/).fill("MODIFIER CE SALAIRE");
+          await history.getByRole("button", { name: "Enregistrer la modification" }).click();
+          await expect(history.getByRole("status")).toContainText("Modification enregistrée");
+          expect((await db.doc(`personnelPayments/${paymentId}`).get()).data()?.amount).toBe(110000);
+          expect((await db.doc(`expenses/${expenseId}`).get()).data()?.amount).toBe(110000);
+        }
+        expect(remoteRequests).toEqual([]);
+      } finally { await context.close(); }
+    }
+  });
 });

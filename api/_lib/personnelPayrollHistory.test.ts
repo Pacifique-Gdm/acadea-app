@@ -19,14 +19,15 @@ function database(items: Array<Record<string, unknown>> = [], role = "cashier") 
   };
 }
 
-const payment = (id: string, schoolId = "school-a", kind = "salary") => ({ id, schoolId, kind, paidAt: "2026-10-10", beneficiaryName: "Personnel fictif", netPaid: 50, currency: "CDF", reference: id, periodMonth: 9, periodYear: 2026 });
+const payment = (id: string, schoolId = "school-a", kind = "salary") => ({ id, schoolId, schoolYearId: "year-a", kind, paidAt: "2026-10-10", beneficiaryId: "staff-a", beneficiaryName: "Personnel fictif", beneficiaryJobTitle: "Enseignant", netPaid: 50, amount: 50, recoveredAmount: 0, recoveries: [], deduction: 0, cnss: 0, tax: 0, createdAt: "2026-10-10T10:00:00.000Z", currency: "CDF", reference: id, periodMonth: 9, periodYear: 2026, clientRequestIdHash: "private" });
 
 describe("historique sécurisé des salaires et primes", () => {
-  it("limite le Caissier à son école et exclut avances et champs internes", async () => {
+  it("limite le Caissier à son école, fournit les champs PDF et exclut les champs internes", async () => {
     const db = database([payment("salary-a"), payment("foreign", "school-b"), payment("advance-a", "school-a", "advance")]);
     const result = await listPersonnelPayrollHistory({ db, actor: { uid: "cashier-a", role: "cashier", schoolId: "school-a" }, body: { action: "list-payroll-history" } });
     expect(result.payments.map((item: { id: string }) => item.id)).toEqual(["salary-a"]);
-    expect(result.payments[0]).not.toHaveProperty("recoveries");
+    expect(result.payments[0]).toMatchObject({ amount: 50, netPaid: 50, recoveries: [], beneficiaryId: "staff-a" });
+    expect(result.payments[0]).not.toHaveProperty("clientRequestIdHash");
     expect(db.filters).toContainEqual(["schoolId", "in", ["school-a"]]);
     expect(db.filters).toContainEqual(["kind", "in", ["salary", "bonus"]]);
   });

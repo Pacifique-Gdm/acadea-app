@@ -5,7 +5,7 @@ import type { PersonnelPayment } from "../types";
 
 export type PayrollBeneficiary = { id: string; name: string; jobTitle: string; hasAccount: boolean };
 export type PayrollHistoryCursor = { paidAt: string; id: string };
-export type PayrollHistoryEntry = Pick<PersonnelPayment, "id" | "schoolId" | "beneficiaryName" | "kind" | "netPaid" | "currency" | "paidAt" | "periodMonth" | "periodYear" | "reference">;
+export type PayrollHistoryEntry = PersonnelPayment & { updatedAt?: string };
 
 async function request(body: Record<string, unknown>) {
   const token = await getCurrentFirebaseIdToken();
@@ -54,5 +54,11 @@ export async function createPersonnelPayment(input: {
 }) {
   const result = await request({ action: "create-personnel-payment", ...input });
   if (!result.payment) throw new Error("Paiement du personnel incomplet.");
+  return result.payment;
+}
+
+export async function updatePersonnelPayment(input: { paymentId: string; amount: number; reason: string; confirmation: string; expectedUpdatedAt: string; clientRequestId: string }) {
+  const result = await request({ action: "update-personnel-payment", ...input });
+  if (!result.payment) throw new Error("Correction du paiement du personnel incomplète.");
   return result.payment;
 }

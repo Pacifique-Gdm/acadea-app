@@ -46,9 +46,15 @@ export async function listPersonnelPayrollHistory({ db, actor, body }) {
     .sort((first, second) => second.paidAt.localeCompare(first.paidAt) || second.id.localeCompare(first.id));
   const page = merged.slice(0, PAGE_SIZE);
   const payments = page.map((item) => ({
-    id: item.id, schoolId: item.schoolId, beneficiaryName: item.beneficiaryName,
+    id: item.id, schoolId: item.schoolId, schoolYearId: item.schoolYearId,
+    beneficiaryId: item.beneficiaryId, beneficiaryName: item.beneficiaryName,
+    beneficiaryJobTitle: item.beneficiaryJobTitle, beneficiaryHasAccount: item.beneficiaryHasAccount,
     kind: item.kind, netPaid: item.netPaid, currency: item.currency, paidAt: item.paidAt,
     periodMonth: item.periodMonth, periodYear: item.periodYear, reference: item.reference,
+    amount: item.amount, recoveredAmount: item.recoveredAmount, recoveries: item.recoveries,
+    deduction: item.deduction, deductionReason: item.deductionReason, cnss: item.cnss, tax: item.tax,
+    description: item.description, expenseId: item.expenseId, createdAt: item.createdAt, createdBy: item.createdBy,
+    updatedAt: item.updatedAt,
   }));
   const last = page.at(-1);
   return { payments, nextCursor: merged.length > PAGE_SIZE && last ? { paidAt: last.paidAt, id: last.id } : null };
