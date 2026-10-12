@@ -102,8 +102,9 @@ test.describe("paie et personnel — navigateur local isolé", () => {
   test.beforeAll(async () => {
     test.setTimeout(120_000);
     assertLocalOnly();
-    await db.doc(`schools/${schoolId}`).set({ id: schoolId, name: "École locale E2E", acronym: "ELE", status: "active", currency: "CDF", activeSchoolYearId: yearId, address: "Adresse fictive" });
+    await db.doc(`schools/${schoolId}`).set({ id: schoolId, name: "École locale E2E", acronym: "ELE", status: "active", schoolType: "CTEB et Secondaire", educationLevels: ["CTEB", "Secondaire"], currency: "CDF", activeSchoolYearId: yearId, address: "Adresse fictive" });
     await db.doc(`schoolYears/${yearId}`).set({ id: yearId, schoolId, name: "2026-2027", status: "active", currency: "CDF", startsAt: "2026-09-01", endsAt: "2027-07-31" });
+    await db.doc(`classes/${schoolId}-humanites`).set({ id: `${schoolId}-humanites`, schoolId, schoolYearId: yearId, name: "1ère Humanité", section: "Secondaire", active: true });
     await db.doc(`personnelProfiles/${payrollProfileId}`).set({ id: payrollProfileId, schoolId, kind: "service", name: "Agent paie local", jobTitle: "Agent de sécurité", status: "active" });
     for (const account of Object.values(accounts)) {
       await auth.createUser({ uid: account.uid, email: account.email, password, displayName: account.name });
@@ -261,6 +262,29 @@ test.describe("paie et personnel — navigateur local isolé", () => {
             expect(box).not.toBeNull();
             expect(box!.x + box!.width).toBeLessThanOrEqual(width + 1);
           }
+          await history.getByRole("button", { name: "Fermer l'historique" }).click();
+        }
+        if (account.role === "school_admin" || account.role === "secretary") {
+          await page.getByRole("button", { name: "Élèves", exact: true }).last().click();
+          await page.getByRole("button", { name: "Ajouter un élève", exact: true }).click();
+          const student = page.getByRole("dialog", { name: "Ajouter un élève" });
+          await expect(student).toBeVisible();
+          await student.locator('select:has(option[value="1ère Humanité"])').selectOption("1ère Humanité");
+          await student.locator('select:has(option[value="__add_option__"])').selectOption("__add_option__");
+          await student.getByPlaceholder("Nom de l'option").fill(`Option locale ${suffix}`);
+          await student.getByRole("button", { name: "Ajouter", exact: true }).click();
+          const optionConfirm = student.getByRole("group", { name: "Confirmer l'ajout de l'option scolaire" });
+          await expect(optionConfirm.getByRole("button", { name: "Confirmer l'ajout" })).toBeDisabled();
+          await optionConfirm.getByLabel("Phrase de confirmation de l'ajout de l'option").fill("AJOUTER CETTE OPTION");
+          await expect(optionConfirm.getByRole("button", { name: "Confirmer l'ajout" })).toBeEnabled();
+          for (const width of [1440, 768, 390]) {
+            await page.setViewportSize({ width, height: 900 });
+            const box = await student.boundingBox();
+            expect(box).not.toBeNull();
+            expect(box!.x + box!.width).toBeLessThanOrEqual(width + 1);
+          }
+          await optionConfirm.getByRole("button", { name: "Annuler" }).click();
+          await student.getByRole("button", { name: /Fermer/ }).first().click();
         }
         expect(remoteRequests).toEqual([]);
       } finally { await context.close(); }
