@@ -66,7 +66,7 @@ describe("responsive et exports Coordination", () => {
     expect(drawer).toContain("shrink-0 border-t");
     expect(menu).toContain("toolbar={drawerToolbar()}");
     expect(menu).toContain("footer={drawerFooter()}");
-    expect(control).toContain('toolbar={<div className="grid grid-cols-1 gap-2 sm:grid-cols-2"');
+    expect(control).toContain('toolbar={<div className="grid grid-cols-1 gap-2 sm:grid-cols-3"');
     expect(subCoordinations).toContain("sticky top-0 z-10");
   });
 
