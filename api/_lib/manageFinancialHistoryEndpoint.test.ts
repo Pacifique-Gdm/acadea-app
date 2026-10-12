@@ -34,4 +34,12 @@ describe("API historique financier — portée du limiteur", () => {
     expect(response.statusCode).toBe(200);
     expect(state.rateScope).toBe(expectedScope);
   });
+  it("refuse la modification de paie à la Coordination sans erreur 500", async () => {
+    state.role = "coordination_admin";
+    state.rateScope = "";
+    const response = { statusCode: 0, body: "", setHeader: vi.fn(), end(value: string) { this.body = value; } };
+    await handler({ method: "POST", headers: { authorization: "Bearer test-token" }, body: { action: "update-personnel-payment" } }, response);
+    expect(response.statusCode).toBe(403);
+    expect(state.rateScope).toBe("coord-a");
+  });
 });
