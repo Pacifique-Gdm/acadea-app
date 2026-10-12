@@ -208,7 +208,7 @@ export function PlatformModule({
   const schoolSections = educationLevelsForSchoolLevel(schoolLevel);
   const hasSecondarySection = schoolSections.includes("Secondaire");
   const hasCustomSchoolOption = selectedSchoolOptions.includes("Autre");
-  const visibleSchoolOptionChoices = normalizeSchoolOptions([...schoolOptionChoices, ...selectedSchoolOptions.filter((option) => option !== "Autre" && isAllowedSchoolOption(option))]);
+  const visibleSchoolOptionChoices = normalizeSchoolOptions([...schoolOptionChoices, "Autre", ...selectedSchoolOptions.filter((option) => option !== "Autre" && isAllowedSchoolOption(option))]);
   const selectedSchool = visibleSchools.find((school) => school.id === selectedSchoolId) ?? visibleSchools[0];
   const drawerSchool = visibleSchools.find((school) => school.id === schoolDrawerId);
   const schoolEditTarget = visibleSchools.find((school) => school.id === schoolEditTargetId);

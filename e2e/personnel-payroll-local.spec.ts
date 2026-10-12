@@ -85,7 +85,7 @@ async function isolatedContext(browser: Browser) {
 }
 
 async function login(page: Page, account: typeof accounts[keyof typeof accounts], authStatuses: number[], authCodes: string[], remoteRequests: string[], authProjects: string[], firestoreProjects: string[]) {
-  await page.goto("/login", { waitUntil: "domcontentloaded" });
+  await page.goto("/login", { waitUntil: "domcontentloaded", timeout: 30_000 });
   await page.getByPlaceholder("email@ecole.com").fill(account.email);
   await page.getByPlaceholder("Votre mot de passe").fill(password);
   await page.getByRole("button", { name: "Se connecter" }).click({ noWaitAfter: true });
@@ -207,6 +207,66 @@ test.describe("paie et personnel — navigateur local isolé", () => {
     } finally { await context.close(); }
   });
 
+  test("Salaire/Prime, historique et options scolaires restent utilisables aux trois largeurs", async ({ browser }) => {
+    for (const account of [accounts.admin, accounts.secretary, accounts.cashier]) {
+      const { context, remoteRequests, authStatuses, authCodes, authProjects, firestoreProjects } = await isolatedContext(browser);
+      try {
+        const page = await context.newPage();
+        page.setDefaultTimeout(10_000);
+        await login(page, account, authStatuses, authCodes, remoteRequests, authProjects, firestoreProjects);
+        await page.getByRole("button", { name: "Menu", exact: true }).last().click();
+        const payroll = page.getByRole("button", { name: /Salaire\/Prime/ }).first();
+        await expect(payroll).toBeVisible();
+        await payroll.click();
+        const drawer = page.getByRole("dialog", { name: "Salaire/Prime" });
+        await expect(drawer).toBeVisible();
+        for (const width of [1440, 768, 390]) {
+          await page.setViewportSize({ width, height: 900 });
+          const box = await drawer.boundingBox();
+          expect(box).not.toBeNull();
+          expect(box!.x).toBeGreaterThanOrEqual(-1);
+          expect(box!.x + box!.width).toBeLessThanOrEqual(width + 1);
+          expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width + 1);
+        }
+        await drawer.getByRole("button", { name: "Fermer mes salaires et primes" }).click();
+        await expect(drawer).toBeHidden();
+        if (account.role === "school_admin") {
+          await page.getByRole("button", { name: /Paramètres école/ }).click();
+          const school = page.getByRole("dialog", { name: "Paramètres école" });
+          await expect(school).toBeVisible();
+          await school.getByPlaceholder("Nouvelle option").fill(`Option locale ${suffix}`);
+          await school.getByRole("button", { name: "Ajouter", exact: true }).click();
+          const optionConfirm = school.getByRole("group", { name: "Confirmer l'ajout de l'option scolaire" });
+          await expect(optionConfirm.getByRole("button", { name: "Confirmer l'ajout" })).toBeDisabled();
+          await optionConfirm.getByLabel("Phrase de confirmation de l'ajout de l'option").fill("AJOUTER CETTE OPTION");
+          await expect(optionConfirm.getByRole("button", { name: "Confirmer l'ajout" })).toBeEnabled();
+          for (const width of [1440, 768, 390]) {
+            await page.setViewportSize({ width, height: 900 });
+            const box = await school.boundingBox();
+            expect(box).not.toBeNull();
+            expect(box!.x + box!.width).toBeLessThanOrEqual(width + 1);
+          }
+          await optionConfirm.getByRole("button", { name: "Annuler" }).click();
+          await school.getByRole("button", { name: "Fermer Paramètres école" }).click();
+        }
+        if (account.role === "school_admin" || account.role === "cashier") {
+          await page.getByRole("button", { name: "Contrôle", exact: true }).click();
+          await page.getByRole("button", { name: "Historique", exact: true }).click();
+          const history = page.getByRole("dialog", { name: "Historique" });
+          await history.getByLabel("Type d'historique").selectOption("payroll");
+          await expect(history.getByLabel("Type d'historique")).toHaveValue("payroll");
+          for (const width of [1440, 768, 390]) {
+            await page.setViewportSize({ width, height: 900 });
+            const box = await history.boundingBox();
+            expect(box).not.toBeNull();
+            expect(box!.x + box!.width).toBeLessThanOrEqual(width + 1);
+          }
+        }
+        expect(remoteRequests).toEqual([]);
+      } finally { await context.close(); }
+    }
+  });
+
   test("Deux avances, récupérations sur salaire et prime, PDF et dépense nette unique", async ({ browser }) => {
     const { context, remoteRequests, authStatuses, authCodes, authProjects, firestoreProjects } = await isolatedContext(browser);
     try {
@@ -230,7 +290,13 @@ test.describe("paie et personnel — navigateur local isolé", () => {
         await expect(form.getByLabel("Avance versée")).toHaveValue(amount.toLocaleString("fr-FR").replace(/\u202f/g, " "));
         await form.getByLabel("Date réelle du paiement").fill("2026-10-09");
         await form.getByRole("button", { name: "Enregistrer le paiement personnel" }).click();
-        await expect(form.getByText("Paiement enregistré :", { exact: false })).toBeVisible();
+        await expect(drawer).toBeHidden();
+        await expect(page.getByRole("status").filter({ hasText: "Paiement du personnel enregistré :" })).toBeVisible();
+        await page.getByRole("button", { name: "Enregistrer", exact: true }).click();
+        await drawer.getByLabel("Type d'enregistrement").selectOption("personnel");
+        await expect(form.getByLabel("Bénéficiaire")).toHaveValue("");
+        await form.getByLabel("Bénéficiaire").selectOption(profile!.id);
+        await form.getByLabel("Nature").selectOption("advance");
       }
       let payments = (await db.collection("personnelPayments").where("beneficiaryId", "==", profile!.id).get()).docs.map((doc) => doc.data());
       console.info("E2E paie : deux avances soumises");
@@ -257,9 +323,10 @@ test.describe("paie et personnel — navigateur local isolé", () => {
       await form.getByLabel("Impôt (saisie manuelle)").fill("25000");
       await expect(form.getByText("Net à payer :", { exact: false })).toContainText(/360\s*000/);
       await form.getByRole("button", { name: "Enregistrer le paiement personnel" }).click();
-      await expect(form.getByRole("button", { name: "Télécharger le bulletin de paie" })).toBeVisible();
+      await expect(drawer).toBeHidden();
+      await expect(page.getByRole("status").filter({ hasText: "Paiement du personnel enregistré :" })).toBeVisible();
       console.info("E2E paie : salaire soumis");
-      const pdfButton = form.getByRole("button", { name: "Télécharger le bulletin de paie" });
+      const pdfButton = page.getByRole("status").filter({ hasText: "Paiement du personnel enregistré :" }).getByRole("button", { name: "Télécharger le bulletin de paie" });
       await pdfButton.click();
       await expect(page.locator("[data-pdf-download]")).toHaveAttribute("aria-disabled", "false", { timeout: 30_000 });
       await expect(page.locator("[data-pdf-download]")).toHaveAttribute("download", /bulletin-paie/);
@@ -271,13 +338,18 @@ test.describe("paie et personnel — navigateur local isolé", () => {
       payments = (await db.collection("personnelPayments").where("beneficiaryId", "==", profile!.id).get()).docs.map((doc) => doc.data());
       const salary = payments.find((item) => item.kind === "salary");
       expect(salary).toMatchObject({ periodMonth: 9, periodYear: 2026, paidAt: "2026-10-09", recoveredAmount: 80000, netPaid: 360000 });
+      await page.getByRole("button", { name: "Enregistrer", exact: true }).click();
+      await drawer.getByLabel("Type d'enregistrement").selectOption("personnel");
+      await expect(form.getByLabel("Bénéficiaire")).toHaveValue("");
+      await form.getByLabel("Bénéficiaire").selectOption(profile!.id);
       await form.getByLabel("Nature").selectOption("bonus");
       await form.getByLabel("Prime brute").fill("100000");
       await expect(advanceRows).toHaveCount(1);
       await advanceRows.first().getByRole("checkbox").check();
       await expect(form.getByText("Net à payer :", { exact: false })).toContainText(/50\s*000/);
       await form.getByRole("button", { name: "Enregistrer le paiement personnel" }).click();
-      await expect(form.getByText("Paiement enregistré :", { exact: false })).toBeVisible();
+      await expect(drawer).toBeHidden();
+      await expect(page.getByRole("status").filter({ hasText: "Paiement du personnel enregistré :" })).toBeVisible();
       console.info("E2E paie : prime soumise");
       payments = (await db.collection("personnelPayments").where("beneficiaryId", "==", profile!.id).get()).docs.map((doc) => doc.data());
       expect(payments).toHaveLength(4);
