@@ -58,4 +58,13 @@ describe("historique sécurisé des salaires et primes", () => {
     expect(result.payments).toHaveLength(50);
     expect(result.nextCursor).toEqual({ paidAt: "2026-10-10", id: "pay-001" });
   });
+  it("valide les dates puis filtre côté serveur avec l'index paginé existant", async () => {
+    const db = database([payment("salary-a")]);
+    const actor = { uid: "cashier-a", role: "cashier", schoolId: "school-a" };
+    await listPersonnelPayrollHistory({ db, actor, body: { action: "list-payroll-history", startDate: "2026-10-01", endDate: "2026-10-31" } });
+    expect(db.filters).toContainEqual(["paidAt", ">=", "2026-10-01"]);
+    expect(db.filters).toContainEqual(["paidAt", "<=", "2026-10-31"]);
+    await expect(listPersonnelPayrollHistory({ db, actor, body: { action: "list-payroll-history", startDate: "2026-10-31", endDate: "2026-10-01" } })).rejects.toMatchObject({ status: 400 });
+    await expect(listPersonnelPayrollHistory({ db, actor, body: { action: "list-payroll-history", startDate: "2026-02-30" } })).rejects.toMatchObject({ status: 400 });
+  });
 });

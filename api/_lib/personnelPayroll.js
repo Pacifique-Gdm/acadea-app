@@ -165,7 +165,7 @@ export async function createPersonnelPayment({ db, caller, body, now = new Date(
   });
 }
 
-const CORRECTION_KEYS = new Set(["action", "paymentId", "amount", "reason", "confirmation", "expectedUpdatedAt", "clientRequestId"]);
+const CORRECTION_KEYS = new Set(["action", "paymentId", "amount", "deduction", "deductionReason", "cnss", "tax", "description", "paidAt", "periodMonth", "periodYear", "reason", "confirmation", "expectedUpdatedAt", "clientRequestId"]);
 const CONFIRMATION = { salary: "MODIFIER CE SALAIRE", bonus: "MODIFIER CETTE PRIME", advance: "MODIFIER CETTE AVANCE" };
 
 export async function updatePersonnelPayment({ db, caller, body, now = new Date().toISOString() }) {
@@ -206,24 +206,42 @@ export async function updatePersonnelPayment({ db, caller, body, now = new Date(
     }
     if (payrollWritesSuspended()) invalid("Modifications de paie temporairement suspendues.", "failed-precondition", 409);
     const oldCents = cents(current.amount);
+    const deductionCents = cents(body.deduction ?? current.deduction ?? 0, true);
+    const cnssCents = cents(body.cnss ?? current.cnss ?? 0, true);
+    const taxCents = cents(body.tax ?? current.tax ?? 0, true);
+    const deductionReason = field(body.deductionReason ?? current.deductionReason, 500);
+    const description = field(body.description ?? current.description, 1000);
+    const paidAt = body.paidAt === undefined ? current.paidAt : assertDate(body.paidAt);
+    const periodMonth = body.periodMonth === undefined ? current.periodMonth : Number(body.periodMonth);
+    const periodYear = body.periodYear === undefined ? current.periodYear : Number(body.periodYear);
+    if (deductionCents > 0 && !deductionReason) invalid("Motif de retenue requis.");
+    if (current.kind === "advance" && (deductionCents || cnssCents || taxCents || body.periodMonth !== undefined || body.periodYear !== undefined)) invalid("Une avance ne peut pas comporter de retenues ni de période.");
+    if (current.kind !== "advance" && (!Number.isInteger(periodMonth) || periodMonth < 1 || periodMonth > 12 || !Number.isInteger(periodYear) || periodYear < 2000 || periodYear > 2200)) invalid("Période concernée invalide.");
+    if (paidAt !== current.paidAt && expense.spentAt !== current.paidAt) invalid("Date de la dépense liée incohérente : correction bloquée.", "conflict", 409);
+    const oldExpenseDescription = `${current.kind === "salary" ? "Salaire" : current.kind === "bonus" ? "Prime" : "Avance sur salaire"} — ${current.beneficiaryName}${current.description ? ` — ${current.description}` : ""}`;
+    if (description !== current.description && expense.description !== oldExpenseDescription) invalid("Description de la dépense liée incohérente : correction bloquée.", "conflict", 409);
     const recoveredCents = cents(current.recoveredAmount ?? 0, true);
     if (current.kind === "advance" && nextCents < recoveredCents) invalid("Cette avance est déjà imputée au-delà du nouveau montant.", "conflict", 409);
-    const netCents = current.kind === "advance" ? nextCents : nextCents - recoveredCents - cents(current.deduction ?? 0, true) - cents(current.cnss ?? 0, true) - cents(current.tax ?? 0, true);
+    const netCents = current.kind === "advance" ? nextCents : nextCents - recoveredCents - deductionCents - cnssCents - taxCents;
     if (netCents <= 0) invalid("Le nouveau montant ne couvre pas les retenues et avances récupérées.", "conflict", 409);
     const beneficiarySnapshot = current.beneficiaryHasAccount ? await transaction.get(db.doc(`users/${current.beneficiaryId}`)) : null;
     const beneficiary = beneficiarySnapshot?.data();
     const notify = beneficiarySnapshot?.exists && STAFF_ROLES.has(beneficiary?.role) && beneficiary.schoolId === caller.schoolId;
     const notificationId = `notif_payroll_edit_${hash.slice(0, 24)}`;
     const auditId = `audit_payroll_edit_${hash.slice(0, 24)}`;
-    const payment = { ...current, id: paymentId, amount: nextCents / 100, netPaid: netCents / 100, updatedAt: now, updatedBy: caller.uid, correctionReason: reason };
-    transaction.update(paymentRef, { amount: payment.amount, netPaid: payment.netPaid, updatedAt: now, updatedBy: caller.uid, correctionReason: reason });
-    transaction.update(expenseRef, { amount: payment.netPaid, updatedAt: now, updatedBy: caller.uid, correctionReason: reason });
+    const payment = { ...current, id: paymentId, amount: nextCents / 100, deduction: deductionCents / 100, deductionReason, cnss: cnssCents / 100, tax: taxCents / 100, description, paidAt,
+      ...(current.kind === "advance" ? {} : { periodMonth, periodYear }), netPaid: netCents / 100, updatedAt: now, updatedBy: caller.uid, correctionReason: reason };
+    transaction.update(paymentRef, { amount: payment.amount, deduction: payment.deduction, deductionReason, cnss: payment.cnss, tax: payment.tax, description, paidAt,
+      ...(current.kind === "advance" ? {} : { periodMonth, periodYear }), netPaid: payment.netPaid, updatedAt: now, updatedBy: caller.uid, correctionReason: reason });
+    transaction.update(expenseRef, { amount: payment.netPaid, spentAt: paidAt,
+      ...(description !== current.description ? { description: `${current.kind === "salary" ? "Salaire" : current.kind === "bonus" ? "Prime" : "Avance sur salaire"} — ${current.beneficiaryName}${description ? ` — ${description}` : ""}` } : {}),
+      updatedAt: now, updatedBy: caller.uid, correctionReason: reason });
     const kindLabel = current.kind === "salary" ? "salaire" : current.kind === "bonus" ? "prime" : "avance";
     if (notify) transaction.create(db.doc(`notifications/${notificationId}`), {
       id: notificationId, schoolId: caller.schoolId, schoolYearId: current.schoolYearId, recipientUserId: current.beneficiaryId,
       type: "financial_correction", module: "payments", event: "personnel_payment_corrected", destination: "/dashboard",
       title: `Modification de votre ${kindLabel}`,
-      body: `Votre ${kindLabel} a été modifié.\nEffectuée par : ${field(actor.name, 160) || caller.uid}\nDate : ${now.slice(0, 10)}\nHeure : ${now.slice(11, 19)} UTC\nAncien montant : ${oldCents / 100} ${current.currency}\nNouveau montant : ${payment.amount} ${current.currency}\nRaison : ${reason}`,
+      body: `Votre ${kindLabel} a été modifié.\nEffectuée par : ${field(actor.name, 160) || caller.uid}\nDate : ${now.slice(0, 10)}\nHeure : ${now.slice(11, 19)} UTC\nAncien montant : ${oldCents / 100} ${current.currency}\nNouveau montant : ${payment.amount} ${current.currency}\nAncien montant net : ${current.netPaid} ${current.currency}\nNouveau montant net : ${payment.netPaid} ${current.currency}\nRaison : ${reason}`,
       createdAt: now, read: false,
     });
     transaction.create(db.doc(`financialCorrectionAudits/${auditId}`), {
@@ -235,7 +253,9 @@ export async function updatePersonnelPayment({ db, caller, body, now = new Date(
     transaction.create(db.doc(`auditLogs/${auditId}`), buildServerAudit({
       id: auditId, eventType: AUDIT_EVENT_TYPES.FINANCE_PAYMENT_UPDATED, actor: { ...caller, name: field(actor.name, 160) },
       schoolId: caller.schoolId, schoolYearId: current.schoolYearId, resourceType: "personnelPayment", resourceId: paymentId,
-      metadata: { reason, kind: current.kind, oldAmount: oldCents / 100, newAmount: payment.amount, notificationEventId: notify ? notificationId : "" },
+      metadata: { reason, kind: current.kind, oldAmount: oldCents / 100, newAmount: payment.amount, oldNetPaid: current.netPaid, newNetPaid: payment.netPaid,
+        oldCnss: current.cnss, newCnss: payment.cnss, oldTax: current.tax, newTax: payment.tax, oldDeduction: current.deduction, newDeduction: payment.deduction,
+        notificationEventId: notify ? notificationId : "" },
     }));
     const result = { payment };
     transaction.create(idempotencyRef, { schoolId: caller.schoolId, userId: caller.uid, fingerprint, result, createdAt: now });
