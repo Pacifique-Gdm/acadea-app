@@ -257,6 +257,11 @@ export default async function handler(req, res) {
     }
 
     if (action === "suspend" || action === "reactivate") {
+      const expectedConfirmation = action === "suspend" ? "SUSPENDRE CETTE ÉCOLE" : "RÉACTIVER CETTE ÉCOLE";
+      if (body.confirmation !== expectedConfirmation) {
+        sendJson(res, 400, { error: "Confirmation exacte requise.", code: "invalid-argument" });
+        return;
+      }
       const status = action === "suspend" ? "suspended" : "active";
       const subscriptionStatus = action === "suspend" ? "suspended" : "active";
       const auditRef = db.collection("auditLogs").doc(`school-status-${randomUUID()}`);

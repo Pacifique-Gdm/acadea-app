@@ -127,6 +127,10 @@ export function PlatformModule({
   const [provisioningLoading, setProvisioningLoading] = useState(false);
   const [schoolActionError, setSchoolActionError] = useState("");
   const [schoolActionSuccess, setSchoolActionSuccess] = useState("");
+  const [schoolStatusTarget, setSchoolStatusTarget] = useState<School | null>(null);
+  const [schoolStatusConfirmation, setSchoolStatusConfirmation] = useState("");
+  const [schoolStatusSaving, setSchoolStatusSaving] = useState(false);
+  const schoolStatusSavingRef = useRef(false);
   const [aiAssistantSaving, setAiAssistantSaving] = useState(false);
   const [aiAssistantMessage, setAiAssistantMessage] = useState("");
   const [aiAssistantError, setAiAssistantError] = useState("");
@@ -382,15 +386,31 @@ export function PlatformModule({
     }
   }
 
-  async function changeSchoolStatus(school: School) {
-    const action = school.status === "active" ? "suspend" : "reactivate";
-    const label = action === "suspend" ? "suspendre" : "reactiver";
-    if (!confirm(`Confirmer: ${label} ${school.name} ?`)) return;
+  function requestSchoolStatusChange(school: School) {
+    setSchoolStatusTarget(school);
+    setSchoolStatusConfirmation("");
+    setSchoolActionError("");
+  }
 
+  function closeSchoolStatusChange() {
+    if (schoolStatusSavingRef.current) return;
+    setSchoolStatusTarget(null);
+    setSchoolStatusConfirmation("");
+  }
+
+  async function changeSchoolStatus() {
+    const school = schoolStatusTarget;
+    if (!school || schoolStatusSavingRef.current) return;
+    const action = school.status === "active" ? "suspend" : "reactivate";
+    const expectedConfirmation = action === "suspend" ? "SUSPENDRE CETTE ÉCOLE" : "RÉACTIVER CETTE ÉCOLE";
+    if (schoolStatusConfirmation !== expectedConfirmation) return;
+
+    schoolStatusSavingRef.current = true;
+    setSchoolStatusSaving(true);
     setSchoolActionError("");
     setSchoolActionSuccess("");
     try {
-      const payload = await manageSchool({ action, schoolId: school.id });
+      const payload = await manageSchool({ action, schoolId: school.id, confirmation: expectedConfirmation });
       if (!payload.school) throw new Error("Reponse ecole incomplete.");
       updateData(
         {
@@ -399,8 +419,14 @@ export function PlatformModule({
         },
         { persist: false },
       );
+      setSchoolStatusTarget(null);
+      setSchoolStatusConfirmation("");
+      setSchoolActionSuccess(`École « ${school.name} » ${action === "suspend" ? "suspendue" : "réactivée"}.`);
     } catch (error) {
       setSchoolActionError(error instanceof Error ? error.message : "Changement de statut impossible.");
+    } finally {
+      schoolStatusSavingRef.current = false;
+      setSchoolStatusSaving(false);
     }
   }
 
@@ -1302,7 +1328,7 @@ export function PlatformModule({
               </div>
               <div className="grid min-w-0 grid-cols-2 gap-2 border-t border-slate-100 pt-3 sm:grid-cols-4">
                 <button onClick={() => openSchoolEditDrawer(drawerSchool)} className="secondary-button justify-center px-2 text-xs sm:px-3 sm:text-sm" type="button">Modifier</button>
-                <button onClick={() => void changeSchoolStatus(drawerSchool)} className="secondary-button justify-center px-2 text-xs sm:px-3 sm:text-sm" type="button">
+                <button onClick={() => requestSchoolStatusChange(drawerSchool)} className="secondary-button justify-center px-2 text-xs sm:px-3 sm:text-sm" type="button">
                   {drawerSchool.status === "active" ? "Suspendre" : "Reactiver"}
                 </button>
                 <button onClick={() => openBiometricDrawer(drawerSchool)} className="secondary-button justify-center px-2 text-xs sm:px-3 sm:text-sm" type="button">
@@ -1688,6 +1714,24 @@ export function PlatformModule({
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <button type="button" className="secondary-button justify-center" disabled={aiAssistantSaving} onClick={() => setAiQuotaResetTarget(null)}>Annuler</button>
               <button type="button" className="primary-button justify-center disabled:cursor-wait disabled:opacity-50" disabled={aiAssistantSaving} onClick={() => void confirmSchoolAiQuotaReset()}>{aiAssistantSaving ? "Réinitialisation…" : "Confirmer la réinitialisation"}</button>
+            </div>
+          </div>
+        </AdminDrawer>
+      )}
+
+      {schoolStatusTarget && (
+        <AdminDrawer title={schoolStatusTarget.status === "active" ? "Suspendre l'école" : "Réactiver l'école"} onClose={closeSchoolStatusChange} closeLabel="Annuler le changement de statut">
+          <div className="grid gap-3">
+            <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              École concernée : <strong>{schoolStatusTarget.name}</strong>. Pour confirmer, saisissez exactement : <strong>{schoolStatusTarget.status === "active" ? "SUSPENDRE CETTE ÉCOLE" : "RÉACTIVER CETTE ÉCOLE"}</strong>
+            </p>
+            <label className="grid gap-1 text-sm font-semibold text-slate-700">Phrase de confirmation
+              <input aria-label="Phrase de confirmation du statut de l'école" value={schoolStatusConfirmation} onChange={(event) => setSchoolStatusConfirmation(event.target.value)} className="input" autoComplete="off" disabled={schoolStatusSaving} />
+            </label>
+            {schoolActionError && <p role="alert" className="text-sm font-semibold text-red-700">{schoolActionError}</p>}
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" className="secondary-button justify-center" onClick={closeSchoolStatusChange} disabled={schoolStatusSaving}>Annuler</button>
+              <button type="button" className="primary-button justify-center disabled:opacity-50" onClick={() => void changeSchoolStatus()} disabled={schoolStatusSaving || schoolStatusConfirmation !== (schoolStatusTarget.status === "active" ? "SUSPENDRE CETTE ÉCOLE" : "RÉACTIVER CETTE ÉCOLE")}>{schoolStatusSaving ? "Enregistrement…" : "Confirmer"}</button>
             </div>
           </div>
         </AdminDrawer>

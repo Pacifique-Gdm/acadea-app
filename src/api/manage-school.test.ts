@@ -184,6 +184,30 @@ describe("API SEC-004 manage-school", () => {
     expect(mocks.batchCommit).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["suspend", "SUSPENDRE CETTE ÉCOLE", "suspended"],
+    ["reactivate", "RÉACTIVER CETTE ÉCOLE", "active"],
+  ])("protège %s par confirmation exacte et audit", async (action, confirmation, status) => {
+    const denied = response();
+    await handler(request({ action, schoolId: "school-a", confirmation: `${confirmation} ` }), denied);
+    expect(denied.statusCode).toBe(400);
+    expect(mocks.batchCommit).not.toHaveBeenCalled();
+    const allowed = response();
+    await handler(request({ action, schoolId: "school-a", confirmation }), allowed);
+    expect(allowed.statusCode).toBe(200);
+    expect(mocks.batchUpdate).toHaveBeenCalledWith(expect.objectContaining({ path: "schools/school-a" }), expect.objectContaining({ status }));
+    expect(mocks.batchSet).toHaveBeenCalledTimes(1);
+    expect(mocks.batchCommit).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuse la suspension à un Administrateur d'école même avec la bonne phrase", async () => {
+    mocks.verifyIdToken.mockResolvedValue({ uid: "admin", role: "school_admin", schoolId: "school-a" });
+    const res = response();
+    await handler(request({ action: "suspend", schoolId: "school-a", confirmation: "SUSPENDRE CETTE ÉCOLE" }), res);
+    expect(res.statusCode).toBe(403);
+    expect(mocks.batchCommit).not.toHaveBeenCalled();
+  });
+
   it("accepte CTEB et Secondaire uniquement avec ces deux sections", async () => {
     const res = response();
     await handler(request({ action: "update", schoolId: "school-a", confirmation: "MODIFIER INFORMATIONS ÉCOLE", patch: { schoolType: "CTEB et Secondaire", educationLevels: ["CTEB", "Secondaire"] } }), res);
