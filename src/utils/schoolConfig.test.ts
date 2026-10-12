@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   getSchoolEducationLevels,
+  getSchoolClassChoices,
+  schoolLevelFromConfig,
   schoolSectionLabels,
   toggleSchoolEducationLevel,
 } from "./schoolConfig";
@@ -42,5 +44,13 @@ describe("configuration canonique CTEB", () => {
         sectionIds: ["CETB", "Primaire"],
       }),
     ).toMatchObject({ section: "CTEB", sectionIds: ["Primaire", "CTEB"] });
+  });
+  it("reconnaît CTEB et Secondaire sans réintroduire Maternelle ni Primaire", () => {
+    const school = { schoolType: "CTEB et Secondaire" as const, educationLevels: ["CTEB", "Secondaire"] };
+    expect(getSchoolEducationLevels(school)).toEqual(["CTEB", "Secondaire"]);
+    expect(schoolLevelFromConfig(school)).toBe("CTEB et Secondaire");
+    const classes = getSchoolClassChoices(school);
+    expect(classes.length).toBeGreaterThan(0);
+    expect(classes.every((name) => !name.includes("Maternelle") && !name.includes("Primaire"))).toBe(true);
   });
 });

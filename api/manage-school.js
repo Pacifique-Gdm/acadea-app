@@ -43,6 +43,7 @@ const SCHOOL_LEVELS = new Map([
   ["Primaire uniquement", ["Primaire"]],
   ["CTEB uniquement", ["CTEB"]],
   ["Secondaire uniquement", ["Secondaire"]],
+  ["CTEB et Secondaire", ["CTEB", "Secondaire"]],
 ]);
 const ALLOWED_LOGO_DATA_URL = /^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i;
 

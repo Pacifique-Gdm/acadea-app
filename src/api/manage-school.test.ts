@@ -184,6 +184,16 @@ describe("API SEC-004 manage-school", () => {
     expect(mocks.batchCommit).not.toHaveBeenCalled();
   });
 
+  it("accepte CTEB et Secondaire uniquement avec ces deux sections", async () => {
+    const res = response();
+    await handler(request({ action: "update", schoolId: "school-a", confirmation: "MODIFIER INFORMATIONS ÉCOLE", patch: { schoolType: "CTEB et Secondaire", educationLevels: ["CTEB", "Secondaire"] } }), res);
+    expect(res.statusCode).toBe(200);
+    expect(mocks.batchUpdate).toHaveBeenCalledWith(expect.objectContaining({ path: "schools/school-a" }), expect.objectContaining({ schoolType: "CTEB et Secondaire", educationLevels: ["CTEB", "Secondaire"] }));
+    const denied = response();
+    await handler(request({ action: "update", schoolId: "school-a", confirmation: "MODIFIER INFORMATIONS ÉCOLE", patch: { schoolType: "CTEB et Secondaire", educationLevels: ["Maternelle", "CTEB", "Secondaire"] } }), denied);
+    expect(denied.statusCode).toBe(400);
+  });
+
   it.each([
     "data:image/gif;base64,AAAA",
     "javascript:alert(1)",

@@ -14,6 +14,7 @@ const schoolLevels = new Map([
   ["Primaire uniquement", ["Primaire"]],
   ["CTEB uniquement", ["CTEB"]],
   ["Secondaire uniquement", ["Secondaire"]],
+  ["CTEB et Secondaire", ["CTEB", "Secondaire"]],
 ]);
 
 function parseJsonBody(raw) {

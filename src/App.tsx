@@ -1405,7 +1405,7 @@ function selectAttendanceSettingsForYear(settings: AttendanceSettings[], schoolI
   return scopedSettings.find((item) => item.id === deterministicId) ?? [...scopedSettings].sort((first, second) => (second.updatedAt ?? "").localeCompare(first.updatedAt ?? ""))[0];
 }
 
-const schoolLevelChoices: SchoolLevelChoice[] = ["Maternelle", "Primaire", "CTEB", "Secondaire", "Primaire uniquement", "CTEB uniquement", "Secondaire uniquement"];
+const schoolLevelChoices: SchoolLevelChoice[] = ["Maternelle", "Primaire", "CTEB", "Secondaire", "Primaire uniquement", "CTEB uniquement", "Secondaire uniquement", "CTEB et Secondaire"];
 const defaultSchoolOptions = [
   "Sciences",
   "Littéraire",

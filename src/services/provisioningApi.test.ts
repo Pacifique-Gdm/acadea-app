@@ -448,6 +448,7 @@ describe("API de provisionnement Acadéa", () => {
     ["Primaire uniquement", ["Primaire"], false],
     ["CTEB uniquement", ["CTEB"], false],
     ["Secondaire uniquement", ["Secondaire"], true],
+    ["CTEB et Secondaire", ["CTEB", "Secondaire"], true],
   ])("persiste le niveau métier %s et ses niveaux dérivés", async (schoolType, educationLevels, keepsOptions) => {
     mocks.auth.verifyIdToken.mockResolvedValue({ uid: "super-1", role: "super_admin", email: "super@example.invalid" });
     const res = response();
@@ -475,6 +476,7 @@ describe("API de provisionnement Acadéa", () => {
   it.each([
     { schoolType: "Secondaire", educationLevels: ["Secondaire"] },
     { schoolType: "Secondaire uniquement", educationLevels: ["Secondaire", "Inconnue"] },
+    { schoolType: "CTEB et Secondaire", educationLevels: ["Maternelle", "CTEB", "Secondaire"] },
     { schoolType: "Inconnu", educationLevels: ["Primaire"] },
   ])("refuse un niveau métier incohérent %#", async ({ schoolType, educationLevels }) => {
     mocks.auth.verifyIdToken.mockResolvedValue({ uid: "super-1", role: "super_admin", email: "super@example.invalid" });
