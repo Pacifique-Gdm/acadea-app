@@ -2,6 +2,8 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Bell, Download, Edit3, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { AdminDrawer, Field, FormPanel, Metric, MoneyInput, SectionTitle } from "../../components/ui";
 import { PersonnelPaymentForm } from "../../components/personnel/PersonnelPaymentForm";
+import { PersonnelPayrollHistory } from "../../components/personnel/PersonnelPayrollHistory";
+import { printPersonnelPaymentPdf } from "../../utils/personnelPayrollPdf";
 import { usePaginatedControlHistory } from "../../hooks/usePaginatedControlHistory";
 import { createExpenseTransaction, createPaymentTransaction, deleteFinancialTransaction, loadStudentArrears, updateExpenseTransaction, updatePaymentTransaction } from "../../services/financialTransactions";
 import type { HistoricalDebt } from "../../services/financialTransactions";
@@ -25,7 +27,7 @@ import { controlArrearsPdfSections } from "../../utils/controlArrearsPdf";
 import { compareStudentsForPdfByClass, formatStudentPdfClassName } from "../../utils/studentPdf";
 import { filterControlStudentRows } from "../../utils/controlStudentSearch";
 import { historicalArrearsPdfSection } from "./historicalArrearsPdf";
-import type { AppData, AppUser, AuditLog, Expense, FeeType, ParentProfile, Payment, School, SchoolYear, Student } from "../../types";
+import type { AppData, AppUser, AuditLog, Expense, FeeType, ParentProfile, Payment, PersonnelPayment, School, SchoolYear, Student } from "../../types";
 
 type ControlYearData = {
   students: Student[];
@@ -79,7 +81,7 @@ export function ControlModule({
   const [controlClassKey, setControlClassKey] = useState("");
   const [paymentError, setPaymentError] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyKind, setHistoryKind] = useState<"expenses" | "payments">("payments");
+  const [historyKind, setHistoryKind] = useState<"expenses" | "payments" | "payroll">("payments");
   const [expenseEditTarget, setExpenseEditTarget] = useState<Expense | null>(null);
   const [expenseEditAmount, setExpenseEditAmount] = useState("");
   const [expenseEditCategory, setExpenseEditCategory] = useState("Fournitures");
@@ -88,6 +90,7 @@ export function ControlModule({
   const [expenseDeleteTarget, setExpenseDeleteTarget] = useState<Expense | null>(null);
   const [warningOpen, setWarningOpen] = useState(false);
   const [cashierControlDrawer, setCashierControlDrawer] = useState<"payment" | "expense" | "personnel" | null>(null);
+  const [recordedPersonnelPayment, setRecordedPersonnelPayment] = useState<PersonnelPayment>();
   const [cashierControlFeedback, setCashierControlFeedback] = useState("");
   const [cashierControlFeedbackDrawer, setCashierControlFeedbackDrawer] = useState<"payment" | "expense" | null>(null);
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
@@ -1282,6 +1285,11 @@ export function ControlModule({
               </button>}
           </div>
         </div>
+        {recordedPersonnelPayment && <div role="status" className="flex min-w-0 flex-wrap items-center gap-2 rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">
+          <span className="min-w-0 flex-1 break-words">Paiement du personnel enregistré : {recordedPersonnelPayment.reference}</span>
+          <button type="button" className="secondary-button justify-center" onClick={() => void printPersonnelPaymentPdf(recordedPersonnelPayment, school)}>{recordedPersonnelPayment.kind === "advance" ? "Télécharger le justificatif" : "Télécharger le bulletin de paie"}</button>
+          <button type="button" aria-label="Fermer la confirmation du paiement" onClick={() => setRecordedPersonnelPayment(undefined)}><X className="h-4 w-4" /></button>
+        </div>}
         <div className="grid min-w-0 gap-3">
           {!amountSearching && !filterArrearsError && paginatedControlRows.map(({ student, balance, progress, hasApplicableFees }) => (
             <article key={student.id} className="min-w-0 rounded border border-slate-200 bg-white p-4">
@@ -1385,7 +1393,7 @@ export function ControlModule({
             <select aria-label="Type d'enregistrement" className="input min-w-0 w-full" value={cashierControlDrawer} onChange={(event) => setCashierControlDrawer(event.target.value as "payment" | "expense" | "personnel")}>
               <option value="payment">Enregistrer un paiement</option>
               <option value="expense">Enregistrer une dépense</option>
-              <option value="personnel">Paiement personnel</option>
+              <option value="personnel">Paiement du personnel</option>
             </select>
           </label>
           {cashierControlFeedback && cashierControlFeedbackDrawer === cashierControlDrawer && (
@@ -1460,7 +1468,7 @@ export function ControlModule({
               <button onClick={savePayment} disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button w-full justify-center" type="button"><Plus className="h-4 w-4" /> {paymentSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
             </>
           )}
-          {cashierControlDrawer === "personnel" && <PersonnelPaymentForm school={school} year={year} onRecorded={() => void expenseHistory.loadFirstPage()} />}
+          {cashierControlDrawer === "personnel" && <PersonnelPaymentForm school={school} year={year} onRecorded={(payment) => { setRecordedPersonnelPayment(payment); setCashierControlDrawer(null); void expenseHistory.loadFirstPage(); }} />}
           {cashierControlDrawer === "expense" && (
             <>
               <select
@@ -1536,6 +1544,7 @@ export function ControlModule({
             <select aria-label="Type d'historique" className="input min-w-0 w-full" value={historyKind} onChange={(event) => setHistoryKind(event.target.value as typeof historyKind)}>
               <option value="payments">Historique des paiements</option>
               <option value="expenses">Historique des dépenses</option>
+              <option value="payroll">Historique Salaire/prime</option>
             </select>
           </label>
           {historyKind === "payments" && <>
@@ -1572,6 +1581,7 @@ export function ControlModule({
             {renderPaymentHistoryPagination()}
           </>}
           {historyKind === "expenses" && renderExpenseHistoryContent()}
+          {historyKind === "payroll" && <PersonnelPayrollHistory schoolId={school.id} schools={[school]} />}
         </AdminDrawer>
       )}
       {expenseEditTarget && (

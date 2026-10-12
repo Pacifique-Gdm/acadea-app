@@ -3,7 +3,7 @@ import { CLASSES } from "../types";
 import { getClassSection } from "./studentClasses";
 import { SCHOOL_SECTIONS, normalizeSchoolSection } from "./schoolSections";
 
-export type SchoolLevelChoice = "Maternelle" | "Primaire" | "CTEB" | "Secondaire" | "Primaire uniquement" | "CTEB uniquement" | "Secondaire uniquement";
+export type SchoolLevelChoice = "Maternelle" | "Primaire" | "CTEB" | "Secondaire" | "Primaire uniquement" | "CTEB uniquement" | "Secondaire uniquement" | "CTEB et Secondaire";
 
 export const schoolEducationLevelChoices = ["Maternelle", "Primaire", "CTEB", "Secondaire"];
 
@@ -21,6 +21,7 @@ export function educationLevelsForSchoolLevel(level: SchoolLevelChoice) {
   if (level === "Primaire uniquement") return ["Primaire"];
   if (level === "CTEB uniquement") return ["CTEB"];
   if (level === "Secondaire uniquement") return ["Secondaire"];
+  if (level === "CTEB et Secondaire") return ["CTEB", "Secondaire"];
   if (level === "Primaire") return ["Maternelle", "Primaire"];
   if (level === "CTEB") return ["Maternelle", "Primaire", "CTEB"];
   return ["Maternelle", "Primaire", "CTEB", "Secondaire"];
@@ -35,6 +36,7 @@ export function normalizeEducationLevel(level: string): string {
   if (normalized === "primaire uniquement") return "Primaire uniquement";
   if (normalized === "cteb uniquement" || normalized === "cetb uniquement") return "CTEB uniquement";
   if (normalized === "secondaire uniquement") return "Secondaire uniquement";
+  if (normalized === "cteb et secondaire") return "CTEB et Secondaire";
   if (normalized === "mixte") return "Mixte";
   return level.trim();
 }
@@ -43,12 +45,14 @@ export function getSchoolEducationLevels(school: Pick<School, "educationLevels" 
   if (school.schoolType === "Primaire uniquement") return ["Primaire"];
   if (school.schoolType === "CTEB uniquement") return ["CTEB"];
   if (school.schoolType === "Secondaire uniquement") return ["Secondaire"];
+  if (school.schoolType === "CTEB et Secondaire") return ["CTEB", "Secondaire"];
   const levels = (school.educationLevels ?? [])
     .map(normalizeEducationLevel)
     .flatMap((level) => {
       if (level === "Primaire uniquement") return ["Primaire"];
       if (level === "CTEB uniquement") return ["CTEB"];
       if (level === "Secondaire uniquement") return ["Secondaire"];
+      if (level === "CTEB et Secondaire") return ["CTEB", "Secondaire"];
       if (level === "Mixte") return schoolEducationLevelChoices;
       return [level];
     })
@@ -98,6 +102,7 @@ export function schoolLevelFromConfig(school: Pick<School, "educationLevels" | "
   const hasCteb = levels.includes("CTEB");
   const hasSecondaire = levels.includes("Secondaire");
   if (hasSecondaire && !hasMaternelle && !hasPrimaire && !hasCteb) return "Secondaire uniquement";
+  if (hasSecondaire && hasCteb && !hasMaternelle && !hasPrimaire) return "CTEB et Secondaire";
   if (hasCteb && !hasMaternelle && !hasPrimaire && !hasSecondaire) return "CTEB uniquement";
   if (hasPrimaire && !hasMaternelle && !hasCteb && !hasSecondaire) return "Primaire uniquement";
   if (hasSecondaire) return "Secondaire";

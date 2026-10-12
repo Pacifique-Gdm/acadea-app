@@ -23,11 +23,16 @@ export function personnelPaymentPdfSections(payment: PersonnelPayment) {
   ])}`)];
   const recoveryRows = payment.recoveries.map((line) => `<tr><td>${escapePdfHtml(line.reference)}</td><td>${escapePdfHtml(dateFr(line.paidAt))}</td><td style="text-align:right">−${escapePdfHtml(amount(line.amount, payment.currency))}</td></tr>`).join("");
   return [
-    pdfSection("PAIEMENT", `${common}${pdfInfoGrid([
+    pdfSection("PAIEMENT", pdfInfoGrid([
+      { label: "Bénéficiaire", value: payment.beneficiaryName },
+      { label: "Fonction", value: payment.beneficiaryJobTitle },
+      { label: "Référence", value: payment.reference },
+      { label: "Date réelle du paiement", value: dateFr(payment.paidAt) },
+      { label: "Devise", value: payment.currency === "CDF" ? "FC" : "USD" },
       { label: "Nature", value: payment.kind === "salary" ? "Salaire" : "Prime" },
       { label: "Période concernée", value: `${String(payment.periodMonth).padStart(2, "0")}/${payment.periodYear}` },
       { label: "Montant brut", value: amount(payment.amount, payment.currency) },
-    ])}`),
+    ], { columns: 4 })),
     pdfSection("AVANCES RÉCUPÉRÉES", `<table class="pdf-table"><thead><tr><th>Référence</th><th>Date du versement</th><th>Montant récupéré</th></tr></thead><tbody>${recoveryRows || '<tr><td colspan="3">Aucune avance récupérée</td></tr>'}</tbody></table>${pdfInfoGrid([{ label: "Total des avances récupérées", value: `−${amount(payment.recoveredAmount, payment.currency)}` }])}`),
     pdfSection("RETENUES ET NET", pdfInfoGrid([
       { label: "Autres retenues", value: `−${amount(payment.deduction, payment.currency)}` },

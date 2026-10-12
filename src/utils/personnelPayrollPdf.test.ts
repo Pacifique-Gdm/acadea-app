@@ -23,4 +23,11 @@ describe("bulletin de paie", () => {
     const bonus = personnelPaymentPdfSections({ ...salary, kind: "bonus" }).join(" ");
     expect(bonus).toContain("Prime");
   });
+  it("dispose exactement huit cartes de paiement en deux rangées de quatre", () => {
+    const section = personnelPaymentPdfSections(salary)[0];
+    expect(section).toContain('grid-template-columns:repeat(4,minmax(0,1fr))');
+    expect(section.match(/class="info-box"/g)).toHaveLength(8);
+    expect(section.match(/class="info-grid"/g)).toHaveLength(1);
+    expect(personnelPaymentPdfSections(salary)).toHaveLength(3);
+  });
 });

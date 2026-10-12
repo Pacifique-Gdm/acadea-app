@@ -58,4 +58,18 @@ describe("portail Coordination", () => {
     expect(source).toContain("<Building2");
     expect(source).toContain('onSnapshot(doc(database, "coordinations", coordinationId)');
   });
+  it("sépare l'identité institutionnelle de la Sous-coordination et les coordonnées de la Coordination", () => {
+    const header = source.slice(source.indexOf("<header"), source.indexOf("</header>"));
+    expect(source).toContain('user.role === "sub_coordination_admin"');
+    expect(source).toContain('subCoordination?.circumscription');
+    expect(header).toContain("{institutionName}");
+    expect(header).toContain("{user.name}");
+    expect(header).toContain("Sous-coordinateur");
+    expect(header).toContain("Coordinateur principal");
+    for (const field of ["coordination?.code", "coordination?.address", "coordination?.phone", "coordination?.email"]) expect(header).toContain(field);
+    expect(header).not.toContain("school.phone");
+    expect(header).not.toContain("school.address");
+    expect(header).toContain("break-words text-base font-bold leading-tight sm:text-lg");
+    expect(header).toContain("flex-wrap gap-x-3");
+  });
 });

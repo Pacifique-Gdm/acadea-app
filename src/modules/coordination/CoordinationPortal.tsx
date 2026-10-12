@@ -145,13 +145,27 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
     { id: "messages" as const, label: "Message", icon: MessageSquare },
     { id: "menu" as const, label: "Menu", icon: Menu },
   ];
+  const isSubCoordinator = user.role === "sub_coordination_admin";
+  const institutionName = isSubCoordinator
+    ? subCoordination?.circumscription ? `Sous-coordination — ${subCoordination.circumscription}` : "Sous-coordination"
+    : coordination?.name ?? "Coordination";
 
   return <main className="h-screen min-w-0 max-w-full overflow-x-hidden overflow-y-auto bg-[#F5F7FB] pb-24 text-ink">
     <header className="sticky top-0 z-20 w-full border-b border-slate-200 bg-white px-4 py-4 shadow-sm">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded bg-slate-100">{coordination?.logoUrl ? <img src={coordination.logoUrl} alt={`Logo ${coordination.name}`} className="h-full w-full object-contain"/> : <Building2 className="h-6 w-6 text-blue-700"/>}</div>
-          <div className="min-w-0"><h1 className="truncate text-lg font-bold">{coordination?.name ?? "Coordination"}</h1><p className="text-xs text-slate-500">Supervision multi-écoles · lecture sécurisée</p></div>
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded bg-slate-100">{coordination?.logoUrl ? <img src={coordination.logoUrl} alt={`Logo ${coordination.name}`} className="h-full w-full object-contain"/> : <Building2 className="h-6 w-6 text-blue-700"/>}</div>
+          <div className="min-w-0 flex-1">
+            <h1 className="break-words text-base font-bold leading-tight sm:text-lg">{institutionName}</h1>
+            {isSubCoordinator && coordination?.name && <p className="break-words text-xs font-semibold text-slate-600">Coordination : {coordination.name}</p>}
+            {coordination?.code && <p className="break-words text-xs text-slate-600">Code Coordination : {coordination.code}</p>}
+            {(coordination?.address || coordination?.phone || coordination?.email) && <p className="flex flex-wrap gap-x-3 text-xs text-slate-600">
+              {coordination.address && <span className="min-w-0 break-words">Coordination : {coordination.address}</span>}
+              {coordination.phone && <span className="min-w-0 break-all">{coordination.phone}</span>}
+              {coordination.email && <span className="min-w-0 break-all">{coordination.email}</span>}
+            </p>}
+            <p className="break-words text-xs font-medium text-slate-700">{user.name} · {isSubCoordinator ? "Sous-coordinateur" : "Coordinateur principal"}</p>
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <button type="button" onClick={() => void refreshCoordination()} disabled={refreshing} className="inline-flex h-9 w-9 items-center justify-center rounded text-slate-500 transition hover:bg-slate-100 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50" aria-label="Actualiser" title="Actualiser"><RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}/></button>

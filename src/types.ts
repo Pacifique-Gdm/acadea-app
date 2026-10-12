@@ -65,7 +65,7 @@ export interface School {
   acronym?: string;
   educationLevels?: string[];
   schoolOptions?: string[];
-  schoolType?: "Maternelle" | "Primaire" | "CTEB" | "Secondaire" | "Primaire uniquement" | "CTEB uniquement" | "Secondaire uniquement" | "Mixte";
+  schoolType?: "Maternelle" | "Primaire" | "CTEB" | "Secondaire" | "Primaire uniquement" | "CTEB uniquement" | "Secondaire uniquement" | "CTEB et Secondaire" | "Mixte";
   createdAt?: string;
   createdBy?: string;
   mainAdminId?: string;

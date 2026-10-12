@@ -28,6 +28,8 @@ import { schoolInformationPatch } from "./schoolInformation";
 import type { SchoolInformationDraft } from "./schoolInformation";
 import { isArchivedStudent } from "../../utils/studentUtils";
 import { canonicalSchoolOption, normalizeSchoolOptions } from "../../utils/schoolOptions";
+import { isSchoolOptionAddConfirmation, SCHOOL_OPTION_ADD_CONFIRMATION } from "../../utils/schoolOptions";
+import { addSchoolOptionToCatalog, loadSchoolOptionCatalog } from "../../services/schoolOptionCatalog";
 import { coordinationStatusDistribution } from "../../utils/platformStatusDistribution";
 import { resolveSchoolYearCurrency } from "../../utils/currency";
 import { CoordinationManagement } from "./CoordinationManagement";
@@ -85,7 +87,8 @@ export function PlatformModule({
   type SchoolSort = "az" | "recent" | "users";
   const removedSchoolOptions = new Set<string>();
   const isAllowedSchoolOption = (option: string) => !removedSchoolOptions.has(option.trim());
-  const schoolOptionChoices = defaultSchoolOptions.filter(isAllowedSchoolOption);
+  const [catalogOptions, setCatalogOptions] = useState<string[]>([]);
+  const schoolOptionChoices = normalizeSchoolOptions([...defaultSchoolOptions, ...catalogOptions]).filter(isAllowedSchoolOption);
 
   const [schoolName, setSchoolName] = useState("");
   const [mainAdminName, setMainAdminName] = useState("");
@@ -95,6 +98,9 @@ export function PlatformModule({
   const [schoolCurrency, setSchoolCurrency] = useState<"USD" | "CDF">("USD");
   const [selectedSchoolOptions, setSelectedSchoolOptions] = useState<string[]>([]);
   const [customSchoolOption, setCustomSchoolOption] = useState("");
+  const [customOptionConfirmation, setCustomOptionConfirmation] = useState("");
+  const [customOptionPending, setCustomOptionPending] = useState(false);
+  const [customOptionSaving, setCustomOptionSaving] = useState(false);
   const [platformView, setPlatformView] = useState<PlatformView>("dashboard");
   const [selectedSchoolId, setSelectedSchoolId] = useState(data.schools[0]?.id ?? "");
   const [schoolDrawerId, setSchoolDrawerId] = useState("");
@@ -121,6 +127,10 @@ export function PlatformModule({
   const [provisioningLoading, setProvisioningLoading] = useState(false);
   const [schoolActionError, setSchoolActionError] = useState("");
   const [schoolActionSuccess, setSchoolActionSuccess] = useState("");
+  const [schoolStatusTarget, setSchoolStatusTarget] = useState<School | null>(null);
+  const [schoolStatusConfirmation, setSchoolStatusConfirmation] = useState("");
+  const [schoolStatusSaving, setSchoolStatusSaving] = useState(false);
+  const schoolStatusSavingRef = useRef(false);
   const [aiAssistantSaving, setAiAssistantSaving] = useState(false);
   const [aiAssistantMessage, setAiAssistantMessage] = useState("");
   const [aiAssistantError, setAiAssistantError] = useState("");
@@ -148,9 +158,23 @@ export function PlatformModule({
   const [terminalMessage, setTerminalMessage] = useState("");
   const [platformLogoDraft, setPlatformLogoDraft] = useState(platformLogoUrl);
   const [platformLogoMessage, setPlatformLogoMessage] = useState("");
+  const [platformLogoError, setPlatformLogoError] = useState("");
+  const [platformLogoAction, setPlatformLogoAction] = useState<"delete" | "save" | null>(null);
+  const [platformLogoConfirmation, setPlatformLogoConfirmation] = useState("");
+  const [platformLogoSaving, setPlatformLogoSaving] = useState(false);
+  const platformLogoSavingRef = useRef(false);
   const [schoolDetailLoading, setSchoolDetailLoading] = useState(false);
   const [schoolDetailError, setSchoolDetailError] = useState("");
   const schoolDetailRequestRef = useRef(0);
+  useEffect(() => {
+    let active = true;
+    void loadSchoolOptionCatalog().then((options) => {
+      if (active) setCatalogOptions(options);
+    }).catch((error) => {
+      if (active) setProvisioningError(error instanceof Error ? error.message : "Catalogue des options indisponible.");
+    });
+    return () => { active = false; };
+  }, []);
   useEffect(() => {
     if (!schoolActionSuccess) return;
     const timeoutId = window.setTimeout(() => setSchoolActionSuccess(""), 4_000);
@@ -184,7 +208,7 @@ export function PlatformModule({
   const schoolSections = educationLevelsForSchoolLevel(schoolLevel);
   const hasSecondarySection = schoolSections.includes("Secondaire");
   const hasCustomSchoolOption = selectedSchoolOptions.includes("Autre");
-  const visibleSchoolOptionChoices = normalizeSchoolOptions([...schoolOptionChoices, ...selectedSchoolOptions.filter((option) => option !== "Autre" && isAllowedSchoolOption(option))]);
+  const visibleSchoolOptionChoices = normalizeSchoolOptions([...schoolOptionChoices, "Autre", ...selectedSchoolOptions.filter((option) => option !== "Autre" && isAllowedSchoolOption(option))]);
   const selectedSchool = visibleSchools.find((school) => school.id === selectedSchoolId) ?? visibleSchools[0];
   const drawerSchool = visibleSchools.find((school) => school.id === schoolDrawerId);
   const schoolEditTarget = visibleSchools.find((school) => school.id === schoolEditTargetId);
@@ -270,20 +294,12 @@ export function PlatformModule({
   async function createSchool() {
     if (provisioningLoading) return;
     if (!schoolName || !mainAdminName || !adminEmail || !adminPassword) return;
-    const trimmedCustomSchoolOption = customSchoolOption.trim();
-    if (hasSecondarySection && hasCustomSchoolOption && !trimmedCustomSchoolOption) {
-      setProvisioningError("Veuillez préciser la nouvelle option scolaire.");
-      return;
-    }
-    if (hasSecondarySection && hasCustomSchoolOption && !isAllowedSchoolOption(trimmedCustomSchoolOption)) {
-      setProvisioningError("Cette option scolaire n'est plus disponible.");
+    if (hasSecondarySection && hasCustomSchoolOption) {
+      setProvisioningError("Enregistrez ou annulez la nouvelle option avant de créer l'école.");
       return;
     }
     const nextSchoolOptions = hasSecondarySection
-      ? normalizeSchoolOptions([
-          ...selectedSchoolOptions.filter((option) => option !== "Autre" && isAllowedSchoolOption(option)),
-          ...(hasCustomSchoolOption ? [trimmedCustomSchoolOption] : []),
-        ])
+      ? normalizeSchoolOptions(selectedSchoolOptions.filter((option) => option !== "Autre" && isAllowedSchoolOption(option)))
       : [];
 
     setProvisioningError("");
@@ -350,26 +366,56 @@ export function PlatformModule({
     });
   }
 
-  function addCustomSchoolOption() {
+  async function addCustomSchoolOption() {
     const option = canonicalSchoolOption(customSchoolOption);
-    if (!option) {
+    if (!option || !isSchoolOptionAddConfirmation(customOptionConfirmation) || customOptionSaving || !customOptionPending) {
       setProvisioningError("Veuillez préciser la nouvelle option scolaire.");
       return;
     }
-    setSelectedSchoolOptions((current) => normalizeSchoolOptions([...current.filter((item) => item !== "Autre"), option]));
-    setCustomSchoolOption("");
-    setProvisioningError("");
+    if (normalizeSchoolOptions([...schoolOptionChoices, option]).length === normalizeSchoolOptions(schoolOptionChoices).length) {
+      setProvisioningError("Cette option scolaire existe déjà.");
+      return;
+    }
+    setCustomOptionSaving(true);
+    try {
+      setCatalogOptions(await addSchoolOptionToCatalog(option));
+      setSelectedSchoolOptions((current) => current.filter((item) => item !== "Autre"));
+      setCustomSchoolOption("");
+      setCustomOptionPending(false);
+      setCustomOptionConfirmation("");
+      setProvisioningError("");
+    } catch (error) {
+      setProvisioningError(error instanceof Error ? error.message : "Impossible d'enregistrer l'option.");
+    } finally {
+      setCustomOptionSaving(false);
+    }
   }
 
-  async function changeSchoolStatus(school: School) {
-    const action = school.status === "active" ? "suspend" : "reactivate";
-    const label = action === "suspend" ? "suspendre" : "reactiver";
-    if (!confirm(`Confirmer: ${label} ${school.name} ?`)) return;
+  function requestSchoolStatusChange(school: School) {
+    setSchoolStatusTarget(school);
+    setSchoolStatusConfirmation("");
+    setSchoolActionError("");
+  }
 
+  function closeSchoolStatusChange() {
+    if (schoolStatusSavingRef.current) return;
+    setSchoolStatusTarget(null);
+    setSchoolStatusConfirmation("");
+  }
+
+  async function changeSchoolStatus() {
+    const school = schoolStatusTarget;
+    if (!school || schoolStatusSavingRef.current) return;
+    const action = school.status === "active" ? "suspend" : "reactivate";
+    const expectedConfirmation = action === "suspend" ? "SUSPENDRE CETTE ÉCOLE" : "RÉACTIVER CETTE ÉCOLE";
+    if (schoolStatusConfirmation !== expectedConfirmation) return;
+
+    schoolStatusSavingRef.current = true;
+    setSchoolStatusSaving(true);
     setSchoolActionError("");
     setSchoolActionSuccess("");
     try {
-      const payload = await manageSchool({ action, schoolId: school.id });
+      const payload = await manageSchool({ action, schoolId: school.id, confirmation: expectedConfirmation });
       if (!payload.school) throw new Error("Reponse ecole incomplete.");
       updateData(
         {
@@ -378,8 +424,14 @@ export function PlatformModule({
         },
         { persist: false },
       );
+      setSchoolStatusTarget(null);
+      setSchoolStatusConfirmation("");
+      setSchoolActionSuccess(`École « ${school.name} » ${action === "suspend" ? "suspendue" : "réactivée"}.`);
     } catch (error) {
       setSchoolActionError(error instanceof Error ? error.message : "Changement de statut impossible.");
+    } finally {
+      schoolStatusSavingRef.current = false;
+      setSchoolStatusSaving(false);
     }
   }
 
@@ -628,18 +680,29 @@ export function PlatformModule({
     setPlatformLogoDraft(platformLogoUrl);
   }, [platformLogoUrl]);
 
-  async function savePlatformLogo() {
+  async function savePlatformLogo(logoUrl: string) {
+    const expected = platformLogoAction === "delete" ? "SUPPRIMER LE LOGO ACTUEL" : "ENREGISTRER LE NOUVEAU LOGO";
+    if (platformLogoSavingRef.current || platformLogoConfirmation !== expected || !platformLogoAction) return;
+    platformLogoSavingRef.current = true;
+    setPlatformLogoSaving(true);
+    setPlatformLogoError("");
     try {
       const saved = await savePlatformSettings({
-        loginLogoUrl: platformLogoDraft,
+        loginLogoUrl: logoUrl,
         updatedAt: new Date().toISOString(),
       });
       if (!saved) throw new Error("Enregistrement Firestore indisponible.");
-      onPlatformLogoSaved(platformLogoDraft);
+      onPlatformLogoSaved(logoUrl);
+      setPlatformLogoDraft(logoUrl);
       void applyPlatformLogoAssets();
-      setPlatformLogoMessage(platformLogoDraft ? "Logo de l'application enregistré avec succès." : "Logo de l'application supprimé.");
+      setPlatformLogoMessage(logoUrl ? "Logo de l'application enregistré avec succès." : "Logo de l'application supprimé.");
+      setPlatformLogoAction(null);
+      setPlatformLogoConfirmation("");
     } catch (error) {
-      setPlatformLogoMessage(error instanceof Error ? error.message : "Enregistrement du logo impossible.");
+      setPlatformLogoError(error instanceof Error ? error.message : "Enregistrement du logo impossible.");
+    } finally {
+      platformLogoSavingRef.current = false;
+      setPlatformLogoSaving(false);
     }
   }
 
@@ -978,16 +1041,29 @@ export function PlatformModule({
           label="Logo affiché sur l'écran de connexion"
           value={platformLogoDraft}
           onChange={(value) => {
-            setPlatformLogoDraft(value);
+            if (!value) setPlatformLogoAction("delete");
+            else { setPlatformLogoDraft(value); setPlatformLogoAction(null); }
+            setPlatformLogoConfirmation("");
             setPlatformLogoMessage("");
+            setPlatformLogoError("");
           }}
+          disabled={platformLogoSaving}
           maxWidth={700}
           maxBytes={250 * 1024}
           acceptSvg
           previewFit="contain"
         />
         {platformLogoMessage && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{platformLogoMessage}</p>}
-        <button onClick={savePlatformLogo} className="primary-button w-full justify-center" type="button">
+        {platformLogoError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{platformLogoError}</p>}
+        {platformLogoAction && <div role="group" aria-label="Confirmer la modification du logo" className="grid gap-3 rounded border border-amber-200 bg-amber-50 p-3">
+          <p className="text-sm font-semibold text-amber-900">Pour confirmer, saisissez exactement : {platformLogoAction === "delete" ? "SUPPRIMER LE LOGO ACTUEL" : "ENREGISTRER LE NOUVEAU LOGO"}</p>
+          <input aria-label="Phrase de confirmation du logo" value={platformLogoConfirmation} onChange={(event) => setPlatformLogoConfirmation(event.target.value)} className="input" autoComplete="off" disabled={platformLogoSaving} />
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" className="secondary-button justify-center" disabled={platformLogoSaving} onClick={() => { setPlatformLogoAction(null); setPlatformLogoConfirmation(""); }}>Annuler</button>
+            <button type="button" className="primary-button justify-center disabled:opacity-50" disabled={platformLogoSaving || platformLogoConfirmation !== (platformLogoAction === "delete" ? "SUPPRIMER LE LOGO ACTUEL" : "ENREGISTRER LE NOUVEAU LOGO")} onClick={() => void savePlatformLogo(platformLogoAction === "delete" ? "" : platformLogoDraft)}>{platformLogoSaving ? "Enregistrement…" : "Confirmer"}</button>
+          </div>
+        </div>}
+        <button onClick={() => { if (platformLogoDraft) { setPlatformLogoAction("save"); setPlatformLogoConfirmation(""); setPlatformLogoError(""); } }} className="primary-button w-full justify-center" type="button" disabled={platformLogoSaving || !platformLogoDraft || platformLogoDraft === platformLogoUrl}>
           <CheckCircle2 className="h-4 w-4" /> Enregistrer le logo
         </button>
       </>
@@ -1032,15 +1108,25 @@ export function PlatformModule({
                     value={customSchoolOption}
                     onChange={(event) => {
                       setCustomSchoolOption(event.target.value);
+                      setCustomOptionPending(false);
+                      setCustomOptionConfirmation("");
                       setProvisioningError("");
                     }}
                     className="input"
                     placeholder="Ex. Informatique"
                   />
-                  <button type="button" onClick={addCustomSchoolOption} className="secondary-button justify-center">
+                  <button type="button" onClick={() => { if (canonicalSchoolOption(customSchoolOption)) { setCustomOptionPending(true); setCustomOptionConfirmation(""); } }} className="secondary-button justify-center" disabled={customOptionSaving}>
                     <Plus className="h-4 w-4" /> Ajouter
                   </button>
                 </span>
+                {customOptionPending && <span className="grid gap-2 rounded border border-amber-200 bg-amber-50 p-3">
+                  <span>Pour enregistrer « {canonicalSchoolOption(customSchoolOption)} » dans le catalogue global, saisissez exactement : {SCHOOL_OPTION_ADD_CONFIRMATION}</span>
+                  <input aria-label="Confirmation d'ajout au catalogue global" value={customOptionConfirmation} onChange={(event) => setCustomOptionConfirmation(event.target.value)} className="input" autoComplete="off" disabled={customOptionSaving} />
+                  <span className="grid grid-cols-2 gap-2">
+                    <button type="button" className="secondary-button justify-center" onClick={() => { setCustomOptionPending(false); setCustomOptionConfirmation(""); }} disabled={customOptionSaving}>Annuler</button>
+                    <button type="button" className="primary-button justify-center" onClick={() => void addCustomSchoolOption()} disabled={customOptionSaving || !isSchoolOptionAddConfirmation(customOptionConfirmation)}>Confirmer l'ajout</button>
+                  </span>
+                </span>}
               </label>
             )}
           </fieldset>
@@ -1048,7 +1134,7 @@ export function PlatformModule({
         {provisioningError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{provisioningError}</p>}
         <button
           onClick={createSchool}
-          disabled={provisioningLoading || !mainAdminName.trim() || (hasSecondarySection && hasCustomSchoolOption && !customSchoolOption.trim())}
+          disabled={provisioningLoading || !mainAdminName.trim() || (hasSecondarySection && hasCustomSchoolOption)}
           className="primary-button w-full justify-center disabled:cursor-not-allowed disabled:opacity-60"
           type="button"
         >
@@ -1271,7 +1357,7 @@ export function PlatformModule({
               </div>
               <div className="grid min-w-0 grid-cols-2 gap-2 border-t border-slate-100 pt-3 sm:grid-cols-4">
                 <button onClick={() => openSchoolEditDrawer(drawerSchool)} className="secondary-button justify-center px-2 text-xs sm:px-3 sm:text-sm" type="button">Modifier</button>
-                <button onClick={() => void changeSchoolStatus(drawerSchool)} className="secondary-button justify-center px-2 text-xs sm:px-3 sm:text-sm" type="button">
+                <button onClick={() => requestSchoolStatusChange(drawerSchool)} className="secondary-button justify-center px-2 text-xs sm:px-3 sm:text-sm" type="button">
                   {drawerSchool.status === "active" ? "Suspendre" : "Reactiver"}
                 </button>
                 <button onClick={() => openBiometricDrawer(drawerSchool)} className="secondary-button justify-center px-2 text-xs sm:px-3 sm:text-sm" type="button">
@@ -1657,6 +1743,24 @@ export function PlatformModule({
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <button type="button" className="secondary-button justify-center" disabled={aiAssistantSaving} onClick={() => setAiQuotaResetTarget(null)}>Annuler</button>
               <button type="button" className="primary-button justify-center disabled:cursor-wait disabled:opacity-50" disabled={aiAssistantSaving} onClick={() => void confirmSchoolAiQuotaReset()}>{aiAssistantSaving ? "Réinitialisation…" : "Confirmer la réinitialisation"}</button>
+            </div>
+          </div>
+        </AdminDrawer>
+      )}
+
+      {schoolStatusTarget && (
+        <AdminDrawer title={schoolStatusTarget.status === "active" ? "Suspendre l'école" : "Réactiver l'école"} onClose={closeSchoolStatusChange} closeLabel="Annuler le changement de statut">
+          <div className="grid gap-3">
+            <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              École concernée : <strong>{schoolStatusTarget.name}</strong>. Pour confirmer, saisissez exactement : <strong>{schoolStatusTarget.status === "active" ? "SUSPENDRE CETTE ÉCOLE" : "RÉACTIVER CETTE ÉCOLE"}</strong>
+            </p>
+            <label className="grid gap-1 text-sm font-semibold text-slate-700">Phrase de confirmation
+              <input aria-label="Phrase de confirmation du statut de l'école" value={schoolStatusConfirmation} onChange={(event) => setSchoolStatusConfirmation(event.target.value)} className="input" autoComplete="off" disabled={schoolStatusSaving} />
+            </label>
+            {schoolActionError && <p role="alert" className="text-sm font-semibold text-red-700">{schoolActionError}</p>}
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" className="secondary-button justify-center" onClick={closeSchoolStatusChange} disabled={schoolStatusSaving}>Annuler</button>
+              <button type="button" className="primary-button justify-center disabled:opacity-50" onClick={() => void changeSchoolStatus()} disabled={schoolStatusSaving || schoolStatusConfirmation !== (schoolStatusTarget.status === "active" ? "SUSPENDRE CETTE ÉCOLE" : "RÉACTIVER CETTE ÉCOLE")}>{schoolStatusSaving ? "Enregistrement…" : "Confirmer"}</button>
             </div>
           </div>
         </AdminDrawer>

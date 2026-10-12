@@ -126,6 +126,7 @@ function configuredSchoolSections(school = {}) {
     if (normalized === "primaire uniquement") return "Primaire uniquement";
     if (normalized === "cteb uniquement" || normalized === "cetb uniquement") return "CTEB uniquement";
     if (normalized === "secondaire uniquement") return "Secondaire uniquement";
+    if (normalized === "cteb et secondaire") return "CTEB et Secondaire";
     return normalizeSchoolSection(value) ?? normalized;
   };
   const levels = Array.isArray(school.educationLevels) ? school.educationLevels.map(canonical) : [];
@@ -135,6 +136,7 @@ function configuredSchoolSections(school = {}) {
   if (mapped.length) return mapped;
   if (type === "Secondaire") return ["Maternelle", "Primaire", "CTEB", "Secondaire"];
   if (type === "CTEB") return ["Maternelle", "Primaire", "CTEB"];
+  if (type === "CTEB et Secondaire") return ["CTEB", "Secondaire"];
   if (type === "Primaire") return ["Maternelle", "Primaire"];
   const only = type.replace(" uniquement", "");
   return schoolSections.has(only) ? [only] : [...schoolSections];

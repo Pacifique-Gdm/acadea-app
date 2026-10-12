@@ -12,7 +12,7 @@ const today = () => {
 };
 const months = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
 
-export function PersonnelPaymentForm({ school, year, onRecorded }: { school: School; year: SchoolYear; onRecorded?: () => void }) {
+export function PersonnelPaymentForm({ school, year, onRecorded }: { school: School; year: SchoolYear; onRecorded?: (payment: PersonnelPayment) => void }) {
   const [personnel, setPersonnel] = useState<PayrollBeneficiary[]>([]);
   const [beneficiaryId, setBeneficiaryId] = useState("");
   const [kind, setKind] = useState<PersonnelPayment["kind"]>("salary");
@@ -68,9 +68,10 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
     try {
       const payment = await createPersonnelPayment({ ...draft, clientRequestId });
       attempt.current = null;
-      setLastPayment(payment); setGross(""); setDeduction(""); setDeductionReason(""); setCnss(""); setTax(""); setDescription(""); setRecoveries({});
-      onRecorded?.();
-      void listPayrollAdvances(beneficiaryId).then(setAdvances).catch(() => setError("Paiement enregistré, mais actualisation des avances impossible. Rouvrez le formulaire avant tout autre paiement."));
+      setLastPayment(onRecorded ? undefined : payment);
+      setBeneficiaryId(""); setKind("salary"); setMonth(new Date().getMonth() + 1); setPeriodYear(new Date().getFullYear()); setPaidAt(today());
+      setGross(""); setDeduction(""); setDeductionReason(""); setCnss(""); setTax(""); setDescription(""); setAdvances([]); setRecoveries({});
+      onRecorded?.(payment);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Paiement impossible."); }
     finally { busyRef.current = false; setBusy(false); }
   }
