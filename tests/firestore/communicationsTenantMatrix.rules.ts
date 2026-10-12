@@ -54,6 +54,8 @@ beforeEach(async () => {
   await seed("notifications/notification-parent-personal", { id: "notification-parent-personal", ...shared, recipientUserId: "parent-user-a", type: "message", read: false, createdAt: "2026-08-08T12:00:00.000Z" });
   await seed("notifications/notification-teacher-personal", { id: "notification-teacher-personal", ...shared, recipientUserId: "teacher-a", type: "message", read: false, createdAt: "2026-08-08T13:00:00.000Z" });
   await seed("notifications/notification-study-personal", { id: "notification-study-personal", ...shared, recipientUserId: "study-a", type: "message", read: false, createdAt: "2026-08-08T13:00:00.000Z" });
+  await seed("notifications/financial-teacher", { id: "financial-teacher", ...shared, recipientUserId: "teacher-a", type: "financial_correction", body: "Montant privé", read: false, createdAt: "2026-08-08T14:00:00.000Z" });
+  await seed("notifications/financial-parent", { id: "financial-parent", ...shared, recipientUserId: "parent-user-a", type: "financial_correction", body: "Paiement privé", read: false, createdAt: "2026-08-08T14:00:00.000Z" });
   await seed("disciplineSanctions/sanction-a", { id: "sanction-a", ...shared, status: "active" });
   await seed("attendance/attendance-a", { id: "attendance-a", ...shared, studentId: "student-a", status: "present" });
   await seed("messages/messages-b", { id: "messages-b", schoolId: schoolB, schoolYearId: yearB, threadParentId: "parent-b", schoolRecipient: "admin" });
@@ -66,6 +68,22 @@ beforeEach(async () => {
 afterAll(async () => environment?.cleanup(), 30_000);
 
 describe("SEC-015 — communications, notifications et discipline", () => {
+  it("réserve les notifications financières au bénéficiaire exact et empêche leur falsification", async () => {
+    const teacher = auth("teacher-a", "teacher");
+    const admin = auth("admin-a", "school_admin");
+    const secretary = auth("secretary-a", "secretary");
+    const parent = auth("parent-user-a", "parent", schoolA, { parentId: "parent-a" });
+    await assertSucceeds(getDoc(doc(teacher, "notifications", "financial-teacher")));
+    await assertSucceeds(getDoc(doc(parent, "notifications", "financial-parent")));
+    await assertFails(getDoc(doc(admin, "notifications", "financial-teacher")));
+    await assertFails(getDoc(doc(secretary, "notifications", "financial-teacher")));
+    await assertFails(getDoc(doc(auth("parent-user-x", "parent", schoolA, { parentId: "parent-x" }), "notifications", "financial-parent")));
+    await assertFails(getDoc(doc(auth("parent-user-other", "parent", schoolA, { parentId: "parent-a" }), "notifications", "financial-parent")));
+    await assertFails(setDoc(doc(admin, "notifications", "forged-financial"), { id: "forged-financial", ...{ schoolId: schoolA, schoolYearId: yearA }, type: "financial_correction", parentId: "parent-a" }));
+    await assertFails(updateDoc(doc(teacher, "notifications", "financial-teacher"), { body: "Modifié" }));
+    await assertSucceeds(updateDoc(doc(teacher, "notifications", "financial-teacher"), { read: true }));
+    await assertSucceeds(updateDoc(doc(parent, "notifications", "financial-parent"), { read: true }));
+  });
   it("isole les lectures administrateur et les requêtes de liste par école", async () => {
     const admin = auth("admin-a", "school_admin");
     for (const [name, id] of [["messages", "message-a"], ["conversations", "conversation-a"], ["notifications", "notification-a"], ["disciplineSanctions", "sanction-a"], ["attendance", "attendance-a"]]) {

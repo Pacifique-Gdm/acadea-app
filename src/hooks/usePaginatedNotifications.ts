@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { collection, limit, onSnapshot, orderBy, query, where } from "@firebase/firestore";
-import type { DocumentSnapshot, Firestore, Query } from "@firebase/firestore";
+import type { Firestore, Query } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
-import { countUnreadNotifications, loadNotificationsPage } from "../services/notificationsPagination";
+import { countUnreadNotifications, loadNotificationsPage, type NotificationsCursor } from "../services/notificationsPagination";
 import type { AppNotification, AppUser, Message } from "../types";
 
 type UsePaginatedNotificationsOptions = {
@@ -122,7 +122,7 @@ export function usePaginatedNotifications({
   refreshToken = 0,
 }: UsePaginatedNotificationsOptions) {
   const [items, setItems] = useState<AppNotification[]>([]);
-  const [cursor, setCursor] = useState<DocumentSnapshot | null>(null);
+  const [cursor, setCursor] = useState<NotificationsCursor>(null);
   const [hasMore, setHasMore] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(false);

@@ -7,9 +7,11 @@ export const NOTIFICATIONS_PAGE_SIZE = 30;
 
 export type NotificationsPage = {
   items: AppNotification[];
-  lastVisible: DocumentSnapshot | null;
+  lastVisible: NotificationsCursor;
   hasMore: boolean;
 };
+
+export type NotificationsCursor = DocumentSnapshot | { school: DocumentSnapshot | null; personal: DocumentSnapshot | null } | null;
 
 export function parentUnreadCount(legacyCount: number, personalCount: number, overlappingCount: number) {
   return Math.max(0, legacyCount + personalCount - overlappingCount);
@@ -41,13 +43,36 @@ export async function loadNotificationsPage(
   user: AppUser,
   schoolId: string,
   schoolYearId: string,
-  cursor?: DocumentSnapshot | null,
+  cursor?: NotificationsCursor,
 ): Promise<NotificationsPage> {
   const database = requireFirestore();
+  if (user.role === "school_admin" || user.role === "cashier" || user.role === "parent") {
+    const cursors = cursor && !("id" in cursor) ? cursor : { school: null, personal: null };
+    const base = [where("schoolId", "==", schoolId), where("schoolYearId", "==", schoolYearId)];
+    const legacyRecipient = user.role === "parent" ? where("parentId", "==", user.parentId) : where("recipientRole", "==", "school");
+    const [schoolPage, personalPage] = await Promise.all([
+      getDocs(query(collection(database, "notifications"), ...base, legacyRecipient, orderBy("createdAt", "desc"), ...(cursors.school ? [startAfter(cursors.school)] : []), limit(NOTIFICATIONS_PAGE_SIZE))),
+      getDocs(query(collection(database, "notifications"), ...base, where("recipientUserId", "==", user.id), orderBy("createdAt", "desc"), ...(cursors.personal ? [startAfter(cursors.personal)] : []), limit(NOTIFICATIONS_PAGE_SIZE))),
+    ]);
+    const selected = [...new Map([...schoolPage.docs, ...personalPage.docs].map((item) => [item.id, item])).values()]
+      .sort((first, second) => String(second.data().createdAt ?? "").localeCompare(String(first.data().createdAt ?? "")) || second.id.localeCompare(first.id))
+      .slice(0, NOTIFICATIONS_PAGE_SIZE);
+    const selectedIds = new Set(selected.map((item) => item.id));
+    const schoolConsumed = schoolPage.docs.filter((item) => selectedIds.has(item.id));
+    const personalConsumed = personalPage.docs.filter((item) => selectedIds.has(item.id));
+    const schoolCursor = schoolConsumed.at(-1) ?? cursors.school;
+    const personalCursor = personalConsumed.at(-1) ?? cursors.personal;
+    return {
+      items: selected.map((item) => ({ id: item.id, ...item.data() })) as AppNotification[],
+      lastVisible: { school: schoolCursor, personal: personalCursor },
+      hasMore: schoolPage.docs.some((item) => !selectedIds.has(item.id)) || personalPage.docs.some((item) => !selectedIds.has(item.id))
+        || schoolPage.docs.length === NOTIFICATIONS_PAGE_SIZE || personalPage.docs.length === NOTIFICATIONS_PAGE_SIZE,
+    };
+  }
   const constraints = [
     ...notificationRecipientConstraints(user, schoolId, schoolYearId),
     orderBy("createdAt", "desc"),
-    ...(cursor ? [startAfter(cursor)] : []),
+    ...(cursor && "id" in cursor ? [startAfter(cursor)] : []),
     limit(NOTIFICATIONS_PAGE_SIZE),
   ];
   const snapshot = await getDocs(query(collection(database, "notifications"), ...constraints));

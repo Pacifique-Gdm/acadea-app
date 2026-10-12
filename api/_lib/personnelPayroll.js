@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { FinancialApiError } from "./financialTransactions.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { payrollWritesSuspended } from "./payrollRollbackMode.js";
+import { FieldValue } from "firebase-admin/firestore";
 
 const STAFF_ROLES = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]);
 const WRITE_KEYS = new Set(["action", "schoolYearId", "beneficiaryId", "kind", "periodMonth", "periodYear", "paidAt", "amount", "recoveries", "deduction", "deductionReason", "cnss", "tax", "description", "clientRequestId"]);
@@ -157,6 +158,84 @@ export async function createPersonnelPayment({ db, caller, body, now = new Date(
       recoveredAmount: (cents(recoverySnapshots[index].data().recoveredAmount ?? 0, true) + line.recoveredCents) / 100,
       recoveryHistory: [...(Array.isArray(recoverySnapshots[index].data().recoveryHistory) ? recoverySnapshots[index].data().recoveryHistory : []), { paymentId: paymentRef.id, reference, paidAt, amount: line.amount }],
       updatedAt: now,
+    }));
+    const result = { payment };
+    transaction.create(idempotencyRef, { schoolId: caller.schoolId, userId: caller.uid, fingerprint, result, createdAt: now });
+    return { ...result, idempotent: false };
+  });
+}
+
+const CORRECTION_KEYS = new Set(["action", "paymentId", "amount", "reason", "confirmation", "expectedUpdatedAt", "clientRequestId"]);
+const CONFIRMATION = { salary: "MODIFIER CE SALAIRE", bonus: "MODIFIER CETTE PRIME", advance: "MODIFIER CETTE AVANCE" };
+
+export async function updatePersonnelPayment({ db, caller, body, now = new Date().toISOString() }) {
+  if (!caller?.uid || caller.role !== "school_admin" || !caller.schoolId) invalid("Modification réservée à l'Administrateur de l'établissement.", "permission-denied", 403);
+  if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some((key) => !CORRECTION_KEYS.has(key))) invalid("Champs de correction non autorisés.");
+  const paymentId = field(body.paymentId, 180);
+  if (!/^[\w-]{1,180}$/.test(paymentId)) invalid("Paiement du personnel invalide.");
+  const reason = field(body.reason, 500);
+  if (!reason) invalid("Raison de modification obligatoire.");
+  const nextCents = cents(body.amount);
+  const hash = hashRequest(caller, body.clientRequestId);
+  const fingerprint = createHash("sha256").update(JSON.stringify(body)).digest("hex");
+  const paymentRef = db.doc(`personnelPayments/${paymentId}`);
+  const idempotencyRef = db.doc(`personnelPaymentIdempotency/${hash}`);
+  return db.runTransaction(async (transaction) => {
+    const [prior, currentSnapshot, schoolSnapshot, actorSnapshot] = await Promise.all([
+      transaction.get(idempotencyRef), transaction.get(paymentRef), transaction.get(db.doc(`schools/${caller.schoolId}`)), transaction.get(db.doc(`users/${caller.uid}`)),
+    ]);
+    if (prior.exists) {
+      if (prior.data()?.fingerprint !== fingerprint) invalid("Clé d'idempotence réutilisée avec un contenu différent.", "conflict", 409);
+      return { ...prior.data().result, idempotent: true };
+    }
+    const current = currentSnapshot.data();
+    if (!currentSnapshot.exists) invalid("Paiement du personnel introuvable.", "not-found", 404);
+    if (current.schoolId !== caller.schoolId) invalid("Paiement hors établissement.", "permission-denied", 403);
+    if (body.confirmation !== CONFIRMATION[current.kind]) invalid(`Saisissez exactement ${CONFIRMATION[current.kind] ?? "la confirmation demandée"}.`);
+    if (!field(body.expectedUpdatedAt, 80) || body.expectedUpdatedAt !== (current.updatedAt ?? current.createdAt)) invalid("Ce paiement a changé depuis son ouverture. Actualisez l'historique.", "conflict", 409);
+    if (!schoolSnapshot.exists || ["inactive", "deleting", "suspended"].includes(schoolSnapshot.data()?.status)) invalid("Établissement inactif.", "failed-precondition", 409);
+    const actor = actorSnapshot.data();
+    if (!actorSnapshot.exists || actor?.role !== "school_admin" || actor.schoolId !== caller.schoolId || actor.status === "inactive" || actor.active === false) invalid("Administrateur non autorisé.", "permission-denied", 403);
+    const yearSnapshot = await transaction.get(db.doc(`schoolYears/${current.schoolYearId}`));
+    if (!yearSnapshot.exists || yearSnapshot.data()?.schoolId !== caller.schoolId || yearSnapshot.data()?.status === "archived") invalid("Année scolaire indisponible pour correction.", "failed-precondition", 409);
+    const expenseRef = db.doc(`expenses/${current.expenseId}`);
+    const expenseSnapshot = await transaction.get(expenseRef);
+    const expense = expenseSnapshot.data();
+    if (!expenseSnapshot.exists || expense?.personnelPaymentId !== paymentId || expense.schoolId !== caller.schoolId || expense.schoolYearId !== current.schoolYearId || cents(expense.amount) !== cents(current.netPaid)) {
+      invalid("Dépense liée incohérente : correction bloquée.", "conflict", 409);
+    }
+    if (payrollWritesSuspended()) invalid("Modifications de paie temporairement suspendues.", "failed-precondition", 409);
+    const oldCents = cents(current.amount);
+    const recoveredCents = cents(current.recoveredAmount ?? 0, true);
+    if (current.kind === "advance" && nextCents < recoveredCents) invalid("Cette avance est déjà imputée au-delà du nouveau montant.", "conflict", 409);
+    const netCents = current.kind === "advance" ? nextCents : nextCents - recoveredCents - cents(current.deduction ?? 0, true) - cents(current.cnss ?? 0, true) - cents(current.tax ?? 0, true);
+    if (netCents <= 0) invalid("Le nouveau montant ne couvre pas les retenues et avances récupérées.", "conflict", 409);
+    const beneficiarySnapshot = current.beneficiaryHasAccount ? await transaction.get(db.doc(`users/${current.beneficiaryId}`)) : null;
+    const beneficiary = beneficiarySnapshot?.data();
+    const notify = beneficiarySnapshot?.exists && STAFF_ROLES.has(beneficiary?.role) && beneficiary.schoolId === caller.schoolId;
+    const notificationId = `notif_payroll_edit_${hash.slice(0, 24)}`;
+    const auditId = `audit_payroll_edit_${hash.slice(0, 24)}`;
+    const payment = { ...current, id: paymentId, amount: nextCents / 100, netPaid: netCents / 100, updatedAt: now, updatedBy: caller.uid, correctionReason: reason };
+    transaction.update(paymentRef, { amount: payment.amount, netPaid: payment.netPaid, updatedAt: now, updatedBy: caller.uid, correctionReason: reason });
+    transaction.update(expenseRef, { amount: payment.netPaid, updatedAt: now, updatedBy: caller.uid, correctionReason: reason });
+    const kindLabel = current.kind === "salary" ? "salaire" : current.kind === "bonus" ? "prime" : "avance";
+    if (notify) transaction.create(db.doc(`notifications/${notificationId}`), {
+      id: notificationId, schoolId: caller.schoolId, schoolYearId: current.schoolYearId, recipientUserId: current.beneficiaryId,
+      type: "financial_correction", module: "payments", event: "personnel_payment_corrected", destination: "/dashboard",
+      title: `Modification de votre ${kindLabel}`,
+      body: `Votre ${kindLabel} a été modifié.\nEffectuée par : ${field(actor.name, 160) || caller.uid}\nDate : ${now.slice(0, 10)}\nHeure : ${now.slice(11, 19)} UTC\nAncien montant : ${oldCents / 100} ${current.currency}\nNouveau montant : ${payment.amount} ${current.currency}\nRaison : ${reason}`,
+      createdAt: now, read: false,
+    });
+    transaction.create(db.doc(`financialCorrectionAudits/${auditId}`), {
+      id: auditId, operationId: paymentId, kind: current.kind, schoolId: caller.schoolId, schoolYearId: current.schoolYearId,
+      actorId: caller.uid, actorName: field(actor.name, 160) || caller.uid, createdAt: now, serverTimestamp: FieldValue.serverTimestamp(),
+      reason, oldValues: current, newValues: payment, oldAmount: oldCents / 100, newAmount: payment.amount,
+      currency: current.currency, notificationEventId: notify ? notificationId : null,
+    });
+    transaction.create(db.doc(`auditLogs/${auditId}`), buildServerAudit({
+      id: auditId, eventType: AUDIT_EVENT_TYPES.FINANCE_PAYMENT_UPDATED, actor: { ...caller, name: field(actor.name, 160) },
+      schoolId: caller.schoolId, schoolYearId: current.schoolYearId, resourceType: "personnelPayment", resourceId: paymentId,
+      metadata: { reason, kind: current.kind, oldAmount: oldCents / 100, newAmount: payment.amount, notificationEventId: notify ? notificationId : "" },
     }));
     const result = { payment };
     transaction.create(idempotencyRef, { schoolId: caller.schoolId, userId: caller.uid, fingerprint, result, createdAt: now });
