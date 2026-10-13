@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Download } from "lucide-react";
 import { Field, FormPanel, Metric } from "../../components/ui";
 import { exportReportPdf } from "../../utils/reportPdf";
-import { formatCurrencyMoney, formatSchoolMoney, resolveSchoolYearCurrency } from "../../utils/currency";
+import { formatCurrencyMoney, resolveSchoolYearCurrency } from "../../utils/currency";
+import { formatRecordedOperation, formatRecordedTotals, totalsByRecordedCurrency } from "../../utils/operationCurrency";
 import { getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
 import { buildStats } from "../../utils/stats";
 import { getClassSection } from "../../utils/studentClasses";
@@ -43,10 +44,14 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
   const arrearsPayments = yearData.payments.filter((payment) => payment.collectionSchoolYearId === year.id && payment.paidAt >= startDate && payment.paidAt <= endDate && filteredStudentIds.has(payment.currentStudentId ?? ""));
   const arrearsByCurrency = (["USD", "CDF"] as const).map((currency) => ({ currency, amount: arrearsPayments.filter((payment) => payment.currency === currency).reduce((total, payment) => total + payment.amount, 0) })).filter((group) => group.amount > 0);
   const expenses = yearData.expenses.filter((expense) => expense.spentAt >= startDate && expense.spentAt <= endDate);
-  const paid = payments.reduce((sum, payment) => sum + payment.amount, 0);
-  const spent = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+  const paidTotals = totalsByRecordedCurrency(payments);
+  const spentTotals = totalsByRecordedCurrency(expenses);
+  const hasUnknownCurrency = paidTotals.unknownCount + spentTotals.unknownCount
+    + arrearsPayments.filter((payment) => payment.currency !== "CDF" && payment.currency !== "USD").length > 0;
+  const yearCurrency = resolveSchoolYearCurrency(year, school);
   const expected = buildStats(filteredStudents, yearData.parents, yearData.feeTypes, payments).expected;
-  const recovery = expected > 0 ? Math.round((paid / expected) * 100) : 0;
+  const recovery = !hasUnknownCurrency && paidTotals[yearCurrency === "CDF" ? "USD" : "CDF"] === 0 && expected > 0
+    ? Math.round((paidTotals[yearCurrency] / expected) * 100) : null;
   const usesSectionFilter = sectionFilter !== "all";
 
   return (
@@ -64,10 +69,11 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
               ))}
             </select>
           </label>
-          <button onClick={() => exportReportPdf(school, year, startDate, endDate, sectionLabels[sectionFilter], usesSectionFilter, paid, spent, recovery, payments, expenses, filteredStudents, arrearsPayments)} className="primary-button self-end">
+          <button disabled={hasUnknownCurrency} onClick={() => exportReportPdf(school, year, startDate, endDate, sectionLabels[sectionFilter], usesSectionFilter, paidTotals, spentTotals, recovery, payments, expenses, filteredStudents, arrearsPayments)} className="primary-button self-end">
             <Download className="h-4 w-4" /> Export PDF
           </button>
         </div>
+        {hasUnknownCurrency && <p className="mt-3 rounded bg-red-50 p-3 text-sm font-semibold text-red-700">Rapport et export bloqués : des opérations historiques sans devise exigent une réconciliation.</p>}
         {usesSectionFilter && (
           <p className="mt-3 rounded bg-amber-50 p-3 text-sm font-semibold text-amber-700">
             Les dépenses présentées sont globales pour l'école, car elles ne sont pas rattachées à une section.
@@ -75,10 +81,10 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
         )}
       </div>
       <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Metric label="Paiements des frais de l'année" value={formatSchoolMoney(paid, { currency: resolveSchoolYearCurrency(year, school) })} />
-        <Metric label="Dépenses" value={formatSchoolMoney(spent, { currency: resolveSchoolYearCurrency(year, school) })} />
-        <Metric label="Solde net hors arriérés" value={formatSchoolMoney(paid - spent, { currency: resolveSchoolYearCurrency(year, school) })} />
-        <Metric label="Recouvrement période" value={`${recovery}%`} />
+        <Metric label="Paiements des frais de l'année" value={hasUnknownCurrency ? "Indéterminé" : formatRecordedTotals(paidTotals, yearCurrency)} />
+        <Metric label="Dépenses" value={hasUnknownCurrency ? "Indéterminé" : formatRecordedTotals(spentTotals, yearCurrency)} />
+        <Metric label="Solde net hors arriérés" value={hasUnknownCurrency ? "Indéterminé" : formatRecordedTotals({ CDF: paidTotals.CDF - spentTotals.CDF, USD: paidTotals.USD - spentTotals.USD, unknownCount: 0 }, yearCurrency)} />
+        <Metric label="Recouvrement période" value={recovery === null ? "Non calculable" : `${recovery}%`} />
       </div>
       {arrearsByCurrency.length > 0 && <div className="rounded border border-amber-200 bg-amber-50 p-4 text-sm">
         <h2 className="font-bold">Arriérés encaissés pendant la période</h2>
@@ -93,7 +99,7 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
               return (
                 <div key={payment.id} className="min-w-0 rounded bg-slate-50 p-3 text-sm">
                   <p className="break-words font-semibold text-ink">{student ? `${student.nom} ${student.prenom}` : "Élève"}</p>
-                  <p className="break-words text-slate-500">${payment.amount} | {payment.paidAt} | {payment.cashierName}</p>
+                  <p className="break-words text-slate-500">{formatRecordedOperation(payment)} | {payment.paidAt} | {payment.cashierName}</p>
                 </div>
               );
             })}
@@ -106,7 +112,7 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
               const student = filteredStudents.find((item) => item.id === payment.currentStudentId);
               return <div key={payment.id} className="min-w-0 rounded bg-amber-50 p-3 text-sm">
                 <p className="break-words font-semibold">{student ? `${student.nom} ${student.prenom}` : "Élève"} · {payment.feeName ?? "Frais"} · {payment.debtSchoolYearName ?? payment.schoolYearId}</p>
-                <p className="break-words text-slate-600">{payment.paidAt} · {formatCurrencyMoney(payment.amount, payment.currency ?? "USD")} · {payment.receiptNumber ?? payment.id}</p>
+                <p className="break-words text-slate-600">{payment.paidAt} · {formatRecordedOperation(payment)} · {payment.receiptNumber ?? payment.id}</p>
               </div>;
             })}
           </div>
@@ -116,7 +122,7 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
             {expenses.map((expense) => (
               <div key={expense.id} className="min-w-0 rounded bg-slate-50 p-3 text-sm">
                 <p className="break-words font-semibold text-ink">{expense.category}</p>
-                <p className="break-words text-slate-500">${expense.amount} | {expense.spentAt} | {expense.cashierName}</p>
+                <p className="break-words text-slate-500">{formatRecordedOperation(expense)} | {expense.spentAt} | {expense.cashierName}</p>
                 <p className="break-words text-slate-500">{expense.description}</p>
               </div>
             ))}

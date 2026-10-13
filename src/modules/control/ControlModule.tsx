@@ -1258,7 +1258,7 @@ export function ControlModule({
           {selectedHistoryArrearPayments.length > 0 && <div className="mt-3 grid gap-2">
             <h3 className="font-semibold">Règlements des arriérés encaissés cette année</h3>
             {selectedHistoryArrearPayments.map((payment) => <p key={payment.id} className="break-words rounded bg-white p-2 text-sm">
-              {payment.paidAt} · {payment.feeName ?? "Frais"} · {payment.debtSchoolYearName ?? payment.schoolYearId} · {formatCurrencyMoney(payment.amount, payment.currency ?? "USD")}
+              {payment.paidAt} · {payment.feeName ?? "Frais"} · {payment.debtSchoolYearName ?? payment.schoolYearId} · {payment.currency === "CDF" || payment.currency === "USD" ? formatCurrencyMoney(payment.amount, payment.currency) : "Devise historique inconnue"}
             </p>)}
           </div>}
         </div>

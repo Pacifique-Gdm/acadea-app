@@ -50,21 +50,24 @@ export async function exportCoordinationFinancialTransactions({
   const rows = kind === "payments"
     ? selectCoordinationPaymentsForStudents(payments, students)
     : selectCoordinationExpensesForStudentScope(expenses, students);
-  const currencies = [...new Set((rows.length ? rows.map((row) => resolveSchoolCurrency(schoolById.get(row.schoolId) ?? {})) : schools.map(resolveSchoolCurrency)))];
+  if (rows.some((row) => row.currency !== "CDF" && row.currency !== "USD")) {
+    throw new Error("Export bloqué : devise historique inconnue.");
+  }
+  const currencies = [...new Set((rows.length ? rows.map((row) => row.currency!) : schools.map(resolveSchoolCurrency)))];
   const sections = currencies.map((currency) => kind === "payments"
     ? pdfSection(`Paiements — ${currency}`, pdfTable([
       { header: "Élève", render: (payment) => { const student = studentByKey.get(`${payment.schoolId}:${payment.studentId}`); return escapePdfHtml(student ? `${student.nom} ${student.postnom} ${student.prenom}`.trim() : payment.studentId); } },
       { header: "École", render: (payment) => escapePdfHtml(schoolById.get(payment.schoolId)?.name ?? payment.schoolId) },
       { header: "Date", render: (payment) => escapePdfHtml(payment.paidAt) },
       { header: "Montant", render: (payment) => escapePdfHtml(formatCurrencyMoney(payment.amount, currency)) },
-    ], (rows as Payment[]).filter((payment) => resolveSchoolCurrency(schoolById.get(payment.schoolId) ?? {}) === currency), "Aucun paiement dans cette devise."))
+    ], (rows as Payment[]).filter((payment) => payment.currency === currency), "Aucun paiement dans cette devise."))
     : pdfSection(`Dépenses — ${currency}`, pdfTable([
       { header: "École", render: (expense) => escapePdfHtml(schoolById.get(expense.schoolId)?.name ?? expense.schoolId) },
       { header: "Catégorie", render: (expense) => escapePdfHtml(expense.category) },
       { header: "Description", render: (expense) => escapePdfHtml(expense.description) },
       { header: "Date", render: (expense) => escapePdfHtml(expense.spentAt) },
       { header: "Montant", render: (expense) => escapePdfHtml(formatCurrencyMoney(expense.amount, currency)) },
-    ], (rows as Expense[]).filter((expense) => resolveSchoolCurrency(schoolById.get(expense.schoolId) ?? {}) === currency), "Aucune dépense dans cette devise.")));
+    ], (rows as Expense[]).filter((expense) => expense.currency === currency), "Aucune dépense dans cette devise.")));
 
   await renderAcadPdfPreview({
     filename: `coordination-${source}-${kind}-${selectedSchoolId || "toutes"}.pdf`,

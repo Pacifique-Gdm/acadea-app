@@ -144,6 +144,7 @@ describe("SEC-015 — matrice centrale d'isolation tenant", () => {
     const admin = auth("admin-a", "school_admin");
     await assertSucceeds(setDoc(doc(admin, "schoolYears", "year-a-2"), { id: "year-a-2", schoolId: schoolA, status: "active" }));
     await assertSucceeds(updateDoc(doc(admin, "schoolYears", "year-a-2"), { label: "2027-2028" }));
+    await assertFails(updateDoc(doc(admin, "schoolYears", "year-a-2"), { currency: "USD" }));
     await assertFails(setDoc(doc(admin, "schoolYears", "year-b-2"), { id: "year-b-2", schoolId: schoolB, status: "active" }));
     await assertFails(deleteDoc(doc(admin, "schoolYears", "year-a-2")));
     await assertFails(deleteDoc(doc(admin, "users", "admin-a")));

@@ -4,7 +4,7 @@ import { formatCurrencyMoney } from "../../utils/currency";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import { coordinationPdfInstitution } from "./coordinationPdfInstitution";
 
-type DashboardPdfTransaction = { id: string; type: string; label: string; amount: number; currency: DashboardCurrency; date: string };
+type DashboardPdfTransaction = { id: string; type: string; label: string; amount: number; currency?: DashboardCurrency; date: string };
 
 function amount(value: number, currency: DashboardCurrency) {
   return formatCurrencyMoney(value, currency);
@@ -31,6 +31,9 @@ export async function exportCoordinationDashboardPdf({
 }) {
   const contextSchool = schools.find((school) => school.id === selectedSchoolId) ?? schools[0];
   if (!contextSchool) return;
+  if (transactions.some((transaction) => !transaction.currency) || stats.financialGroups.some((group) => (group.unknownCurrencyCount ?? 0) > 0)) {
+    throw new Error("Export bloqué : devise historique inconnue.");
+  }
   const context = selectedSchoolId ? contextSchool.name : "Toutes les écoles";
   await renderAcadPdfPreview({
     filename: `coordination-dashboard-${selectedSchoolId || "toutes"}.pdf`,
@@ -72,7 +75,7 @@ export async function exportCoordinationDashboardPdf({
         { header: "Date", render: (transaction) => transaction.date.slice(0, 10) },
         { header: "Type", render: (transaction) => transaction.type },
         { header: "École / libellé", render: (transaction) => transaction.label },
-        { header: "Montant", render: (transaction) => `${transaction.amount >= 0 ? "+" : "-"}${amount(Math.abs(transaction.amount), transaction.currency)}`, align: "right" },
+        { header: "Montant", render: (transaction) => `${transaction.amount >= 0 ? "+" : "-"}${amount(Math.abs(transaction.amount), transaction.currency!)}`, align: "right" },
       ], transactions, "Aucune transaction pour cette période.")),
       pdfSection("Élèves par classe", pdfTable([
         ...(schools.length > 1 ? [{ header: "École", render: (row: CoordinationDashboardStats["classRows"][number]) => row.schoolName }] : []),

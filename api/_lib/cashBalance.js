@@ -19,13 +19,22 @@ function moneyCents(value) {
   return Math.round(amount * 100);
 }
 
-function documentCurrency(data, fallback) {
+export async function resolveRecordedCurrency(data, { db, reader, documentId, collection }) {
   if (data.currency === "CDF" || data.currency === "USD") return data.currency;
   if (data.currency !== undefined && data.currency !== null && data.currency !== "") {
-    throw new CashBalanceError(409, "cash-balance-inconsistent", "Devise financière incohérente : paiement bloqué.");
+    throw new CashBalanceError(409, "cash-balance-inconsistent", "Devise financière invalide : décaissement bloqué.");
   }
-  if (!fallback) throw new CashBalanceError(409, "cash-balance-inconsistent", "Devise d'un encaissement historique inconnue : paiement bloqué.");
-  return fallback;
+  if (collection === "expenses" && typeof data.personnelPaymentId === "string" && data.personnelPaymentId) {
+    const ref = db.doc(`personnelPayments/${data.personnelPaymentId}`);
+    const linked = reader ? await reader.get(ref) : await ref.get();
+    const payment = linked.data?.();
+    if (linked.exists && payment?.expenseId === documentId && payment.schoolId === data.schoolId
+      && payment.schoolYearId === data.schoolYearId && payment.netPaid === data.amount
+      && (payment.currency === "CDF" || payment.currency === "USD")) return payment.currency;
+  }
+  // A mutable school/year setting is not evidence of an operation's original currency.
+  // An unknown receipt OR expense makes every currency balance unsafe to spend.
+  throw new CashBalanceError(409, "cash-balance-inconsistent", "Devise d'une opération historique inconnue : décaissement bloqué jusqu'à réconciliation.");
 }
 
 function cashQueries(db, { schoolId, schoolYearId }) {
@@ -51,13 +60,13 @@ export async function readCashBalance({ db, reader, schoolId, schoolYearId, curr
       const collectedHere = data.collectionSchoolYearId === schoolYearId;
       const annualHere = data.schoolYearId === schoolYearId && !data.collectionSchoolYearId;
       if (data.schoolId !== schoolId || !collectedHere && !annualHere) continue;
-      if (documentCurrency(data, collectedHere && data.schoolYearId !== schoolYearId ? null : yearCurrency) === currency) receivedCents += moneyCents(data.amount);
+      if (await resolveRecordedCurrency(data, { db, reader, documentId: document.id, collection: "payments" }) === currency) receivedCents += moneyCents(data.amount);
     }
     let spentCents = 0;
     for (const document of snapshots[2].docs) {
       const data = document.data();
       if (data.schoolId !== schoolId || data.schoolYearId !== schoolYearId) continue;
-      if (documentCurrency(data, yearCurrency) === currency) spentCents += moneyCents(data.amount);
+      if (await resolveRecordedCurrency(data, { db, reader, documentId: document.id, collection: "expenses" }) === currency) spentCents += moneyCents(data.amount);
     }
     if (!Number.isSafeInteger(receivedCents) || !Number.isSafeInteger(spentCents)) throw new CashBalanceError(409, "cash-balance-inconsistent", "Solde de caisse incohérent : paiement bloqué.");
     return { schoolId, schoolYearId, currency, availableCents: receivedCents - spentCents, receivedCents, spentCents };

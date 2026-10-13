@@ -249,8 +249,11 @@ export async function updatePersonnelPayment({ db, caller, body, now = new Date(
     const payment = { ...current, id: paymentId, amount: nextCents / 100, deduction: deductionCents / 100, deductionReason, cnss: cnssCents / 100, tax: taxCents / 100, description, paidAt,
       ...(current.kind === "advance" ? {} : { periodMonth, periodYear }), netPaid: netCents / 100, updatedAt: now, updatedBy: caller.uid, correctionReason: reason };
     const yearCurrency = yearSnapshot.data()?.currency === "CDF" || yearSnapshot.data()?.currency === "USD" ? yearSnapshot.data().currency : schoolSnapshot.data()?.currency === "CDF" ? "CDF" : "USD";
-    const currency = current.currency === "CDF" || current.currency === "USD" ? current.currency : yearCurrency;
-    if (expense.currency && expense.currency !== currency || !expense.currency && currency !== yearCurrency) invalid("Devise de la dépense liée incohérente : correction bloquée.", "conflict", 409);
+    if (current.currency !== "CDF" && current.currency !== "USD") invalid("Devise historique inconnue : correction bloquée jusqu'à réconciliation.", "currency-reconciliation-required", 409);
+    const currency = current.currency;
+    // A legacy linked expense inherits only its immutable payroll record's currency,
+    // never the mutable currency currently configured on the school year.
+    if (expense.currency && expense.currency !== currency) invalid("Devise de la dépense liée incohérente : correction bloquée.", "conflict", 409);
     await protectCashMutation({ db, transaction, schoolId: caller.schoolId, schoolYearId: current.schoolYearId, currency, yearCurrency, deltaCents: cents(current.netPaid) - netCents, now });
     transaction.update(paymentRef, { amount: payment.amount, deduction: payment.deduction, deductionReason, cnss: payment.cnss, tax: payment.tax, description, paidAt,
       ...(current.kind === "advance" ? {} : { periodMonth, periodYear }), netPaid: payment.netPaid, updatedAt: now, updatedBy: caller.uid, correctionReason: reason });

@@ -393,6 +393,8 @@ export function Dashboard({ data, school, year }: DashboardProps) {
   const activeFinancialAggregates = hasDashboardFinancialFilter ? dashboardFinancialAggregates : fullYearFinancialAggregates;
   const dashboardFinancialStats = activeFinancialAggregates.financialStats;
   const totalPayments = dashboardFinancialStats.paid;
+  const currentCurrency = school.currency === "CDF" ? "CDF" : "USD";
+  const hasUnreliableFinancialCurrency = [...data.payments, ...data.expenses].some((operation) => operation.currency !== currentCurrency);
   const transactionStartDate = dateFilterActive ? startDate : today;
   const transactionEndDate = dateFilterActive ? endDate : today;
   const arrearsCollections = useMemo(() => (["USD", "CDF"] as const).map((currency) => ({
@@ -461,8 +463,8 @@ export function Dashboard({ data, school, year }: DashboardProps) {
   const transactions = useMemo(
     () =>
       [
-        ...transactionPayments.map((payment) => ({ id: payment.id, type: "Paiement", label: payment.cashierName, amount: payment.amount, date: payment.paidAt, occurredAt: payment.createdAt ?? payment.paidAt })),
-        ...transactionExpenses.map((expense) => ({ id: expense.id, type: "D\u00e9pense", label: expense.category, amount: -expense.amount, date: expense.spentAt, occurredAt: expense.createdAt ?? expense.spentAt })),
+        ...transactionPayments.map((payment) => ({ id: payment.id, type: "Paiement", label: payment.cashierName, amount: payment.amount, currency: payment.currency, date: payment.paidAt, occurredAt: payment.createdAt ?? payment.paidAt })),
+        ...transactionExpenses.map((expense) => ({ id: expense.id, type: "D\u00e9pense", label: expense.category, amount: -expense.amount, currency: expense.currency, date: expense.spentAt, occurredAt: expense.createdAt ?? expense.spentAt })),
       ].sort((a, b) => (b.occurredAt ?? b.date).localeCompare(a.occurredAt ?? a.date)),
     [transactionExpenses, transactionPayments],
   );
@@ -528,8 +530,8 @@ export function Dashboard({ data, school, year }: DashboardProps) {
     { label: "Caissiers", value: personnelCounts.cashier, icon: UserRound, tone: "bg-pink-100 text-pink-700" },
     { label: "Directeurs de Discipline", value: personnelCounts.discipline_director, icon: ShieldCheck, tone: "bg-violet-100 text-violet-700" },
     { label: "Montant attendu", value: formatSchoolMoney(dashboardFinancialStats.expected, school), icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
-    { label: "Frais de l'année encaissés", value: formatSchoolMoney(totalPayments, school), icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
-    { label: "Montant restant \u00e0 payer", value: formatSchoolMoney(remaining, school), icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
+    { label: "Frais de l'année encaissés", value: hasUnreliableFinancialCurrency ? "Non calculable" : formatSchoolMoney(totalPayments, school), icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
+    { label: "Montant restant \u00e0 payer", value: hasUnreliableFinancialCurrency ? "Non calculable" : formatSchoolMoney(remaining, school), icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
   ];
 
   function progressBarTone(rate: number) {
@@ -540,6 +542,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
   }
 
   function exportDashboardPdf() {
+    if (hasUnreliableFinancialCurrency) return;
     exportDashboardReportPdf({
       school,
       year,
@@ -620,12 +623,13 @@ export function Dashboard({ data, school, year }: DashboardProps) {
           <button onClick={resetDashboardDateFilter} type="button" className="rounded border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:border-mint hover:text-mint">
             Réinitialiser
           </button>
-          <button onClick={exportDashboardPdf} type="button" className="pdf-export-button w-full sm:w-auto">
+          <button onClick={exportDashboardPdf} disabled={hasUnreliableFinancialCurrency} type="button" className="pdf-export-button w-full sm:w-auto">
             <Download className="h-4 w-4" /> Exporter PDF
           </button>
           {dateFilterError && <p className="text-xs font-semibold text-red-600 sm:col-span-2 lg:col-span-5">{dateFilterError}</p>}
         </div>
       </div>
+      {hasUnreliableFinancialCurrency && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Synthèse financière et PDF indisponibles : des opérations historiques ont une devise inconnue ou différente de la devise actuelle. Vérification ou réconciliation nécessaire.</p>}
 
       <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {cards.map((card) => {
@@ -642,7 +646,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
         })}
       </div>
 
-      <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
+      {!hasUnreliableFinancialCurrency && <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="font-bold text-ink">KPI financier</h2>
@@ -659,10 +663,6 @@ export function Dashboard({ data, school, year }: DashboardProps) {
           <Metric label={"D\u00e9penses"} value={formatSchoolMoney(totalExpenses, school)} />
           <Metric label="Reste" value={formatSchoolMoney(remaining, school)} />
         </div>
-        {arrearsCollections.length > 0 && <div className="mt-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm">
-          <p className="font-semibold">Arriérés encaissés pendant la période, hors recouvrement des frais de l'année</p>
-          {arrearsCollections.map((group) => <p key={group.currency}>{formatCurrencyMoney(group.amount, group.currency)}</p>)}
-        </div>}
         <div className="mt-5 grid gap-3">
           {feeProgressRows.map((row) => (
             <div key={row.name} className="rounded border border-slate-100 bg-slate-50 p-3">
@@ -686,7 +686,11 @@ export function Dashboard({ data, school, year }: DashboardProps) {
           {feeProgressRows.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun frais applicable pour les filtres sélectionnés.</p>}
         </div>
         <FinancialFeeShareChart rows={feeShares} formatAmount={(value) => formatSchoolMoney(value, school)} />
-      </div>
+      </div>}
+      {arrearsCollections.length > 0 && <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm">
+        <p className="font-semibold">Arriérés encaissés pendant la période, hors recouvrement des frais de l'année</p>
+        {arrearsCollections.map((group) => <p key={group.currency}>{formatCurrencyMoney(group.amount, group.currency)}</p>)}
+      </div>}
 
       <FormPanel title="Transactions du jour">
         <div className="max-h-80 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
@@ -697,15 +701,17 @@ export function Dashboard({ data, school, year }: DashboardProps) {
                 <p className="break-words text-xs text-slate-500">{transaction.label} | {transaction.date.slice(0, 10)}</p>
               </div>
               <span className={transaction.amount >= 0 ? "shrink-0 font-bold text-mint" : "shrink-0 font-bold text-red-600"}>
-                {(transaction.amount >= 0 ? "+" : "-") + formatSchoolMoney(Math.abs(transaction.amount), school)}
+                {transaction.currency === "CDF" || transaction.currency === "USD"
+                  ? (transaction.amount >= 0 ? "+" : "-") + formatCurrencyMoney(Math.abs(transaction.amount), transaction.currency)
+                  : "Devise historique inconnue"}
               </span>
             </div>
           ))}
           {transactions.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">{"Aucune transaction pour cette p\u00e9riode."}</p>}
         </div>
-        <div className="mt-4 border-t border-slate-100 pt-4">
+        {!hasUnreliableFinancialCurrency && <div className="mt-4 border-t border-slate-100 pt-4">
           <TransactionComboChart rows={transactionChartRows} period={transactionPeriod} onPeriodChange={setTransactionPeriod} formatAmount={(value) => formatSchoolMoney(value, school)} />
-        </div>
+        </div>}
       </FormPanel>
 
       <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">

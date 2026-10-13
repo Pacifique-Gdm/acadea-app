@@ -25,11 +25,11 @@ const feeTypes: FeeType[] = [
   { id: "fee-b", schoolId: "school-b", schoolYearId: "year-b", name: "Minerval", amount: 20000 },
   { id: "fee-outside", schoolId: "school-outside", schoolYearId: "year-outside", name: "Minerval", amount: 999 },
 ];
-const payment = (id: string, schoolId: string, schoolYearId: string, studentId: string, feeTypeId: string, amount: number): Payment => ({ id, schoolId, schoolYearId, studentId, feeTypeId, amount, paidAt: "2026-10-10", cashierName: "Caissier" });
+const payment = (id: string, schoolId: string, schoolYearId: string, studentId: string, feeTypeId: string, amount: number): Payment => ({ id, schoolId, schoolYearId, studentId, feeTypeId, amount, currency: schoolId === "school-b" ? "CDF" : "USD", paidAt: "2026-10-10", cashierName: "Caissier" });
 const payments: Payment[] = [payment("payment-a", "school-a", "year-a", "student-a", "fee-a", 50), payment("payment-b", "school-b", "year-b", "student-b", "fee-b", 5000), payment("payment-outside", "school-outside", "year-outside", "student-outside", "fee-outside", 999)];
 const expenses: Expense[] = [
-  { id: "expense-a", schoolId: "school-a", schoolYearId: "year-a", amount: 10, category: "Bureau", description: "", spentAt: "2026-10-10", createdAt: "2026-10-10", cashierName: "A" },
-  { id: "expense-b", schoolId: "school-b", schoolYearId: "year-b", amount: 1000, category: "Bureau", description: "", spentAt: "2026-10-10", createdAt: "2026-10-10", cashierName: "B" },
+  { id: "expense-a", schoolId: "school-a", schoolYearId: "year-a", amount: 10, currency: "USD", category: "Bureau", description: "", spentAt: "2026-10-10", createdAt: "2026-10-10", cashierName: "A" },
+  { id: "expense-b", schoolId: "school-b", schoolYearId: "year-b", amount: 1000, currency: "CDF", category: "Bureau", description: "", spentAt: "2026-10-10", createdAt: "2026-10-10", cashierName: "B" },
 ];
 const personnel: AppUser[] = [
   { id: "admin-a", name: "Admin A", email: "a@test", role: "school_admin", schoolId: "school-a" },

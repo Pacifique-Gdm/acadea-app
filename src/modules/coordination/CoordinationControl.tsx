@@ -70,7 +70,10 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
   const historyFilters = useMemo(() => ({ schoolId: historySchoolId, startDate: historyStart, endDate: historyEnd }), [historySchoolId, historyStart, historyEnd]);
   const historyPayments = useMemo(() => history.payments.filter((payment) => matchesControlHistory(payment, historyFilters)).sort((first, second) => activityTimestamp(second.createdAt ?? second.paidAt) - activityTimestamp(first.createdAt ?? first.paidAt)), [history.payments, historyFilters]);
   const historyExpenses = useMemo(() => history.expenses.filter((expense) => matchesControlHistory(expense, historyFilters)).sort((first, second) => activityTimestamp(second.createdAt ?? second.spentAt) - activityTimestamp(first.createdAt ?? first.spentAt)), [history.expenses, historyFilters]);
-  const historyMoney = (operation: Payment | Expense) => formatCurrencyMoney(operation.amount, controlHistoryCurrency(operation, schools, page.years));
+  const historyMoney = (operation: Payment | Expense) => {
+    const currency = controlHistoryCurrency(operation);
+    return currency ? formatCurrencyMoney(operation.amount, currency) : "Devise historique inconnue";
+  };
   const rowMoney = (student: Student, amount: number) => formatCurrencyMoney(amount, resolveSchoolYearCurrency(
     page.years.find((year) => year.id === student.schoolYearId && year.schoolId === student.schoolId),
     schoolsById.get(student.schoolId) ?? { currency: "USD" },

@@ -8,7 +8,7 @@ describe("documents financiers PDF partagés", () => {
   it("expose un générateur unique de justificatif utilisé par Contrôle et Coordination", () => {
     expect(pdfSource).toContain("export async function generateExpensePdf");
     expect(pdfSource).toContain("school,");
-    expect(pdfSource).toContain("formatSchoolMoney(expense.amount, school)");
+    expect(pdfSource).toContain("formatRecordedOperation(expense)");
     expect(pdfSource).toContain('copyLabels: ["EXEMPLAIRE ÉCOLE", "EXEMPLAIRE BÉNÉFICIAIRE"]');
     expect(controlSource).toContain("generateExpensePdf(expense, school, year, resolveExpenseCashierName");
     expect(controlSource).not.toContain("async function generateExpensePdf(expense: Expense)");

@@ -286,7 +286,7 @@ describe("API financière transactionnelle", () => {
   it("impose le tenant, la provenance et les horodatages depuis le serveur", async () => {
     const db = fakeDb(baseSeed());
     const result = await executeFinancialOperation({ db, caller: cashier, body: { ...paymentBody("request-payment-001"), note: " Premier acompte " }, now: "2026-08-07T12:00:00.000Z" });
-    expect(result.payment).toMatchObject({ schoolId: "school-a", schoolYearId: "year-a", studentId: "student-a", feeTypeId: "fee-a", amount: 25, note: "Premier acompte", createdBy: "cashier-a", updatedBy: "cashier-a", createdAt: "2026-08-07T12:00:00.000Z", provenance: "financial-api", receiptNumber: "REC-2026-0001" });
+    expect(result.payment).toMatchObject({ schoolId: "school-a", schoolYearId: "year-a", studentId: "student-a", feeTypeId: "fee-a", amount: 25, currency: "USD", note: "Premier acompte", createdBy: "cashier-a", updatedBy: "cashier-a", createdAt: "2026-08-07T12:00:00.000Z", provenance: "financial-api", receiptNumber: "REC-2026-0001" });
   });
 
   it("résout la devise depuis l'année plutôt que depuis le fallback global de l'école", async () => {
@@ -304,7 +304,7 @@ describe("API financière transactionnelle", () => {
   it("distingue un frais soldé d'un montant supérieur au solde restant", async () => {
     const partiallyPaidDb = fakeDb({
       ...baseSeed(),
-      "payments/payment-existing": { id: "payment-existing", schoolId: "school-a", schoolYearId: "year-a", studentId: "student-a", feeTypeId: "fee-a", amount: 980 },
+      "payments/payment-existing": { id: "payment-existing", schoolId: "school-a", schoolYearId: "year-a", studentId: "student-a", feeTypeId: "fee-a", amount: 980, currency: "USD" },
     });
     await expect(executeFinancialOperation({ db: partiallyPaidDb, caller: cashier, body: { ...paymentBody("request-payment-overdue"), amount: 20.01 } }))
       .rejects.toMatchObject({ code: "conflict", message: "Le montant saisi dépasse le solde restant pour ce type de frais." });
@@ -313,7 +313,7 @@ describe("API financière transactionnelle", () => {
 
     const soldDb = fakeDb({
       ...baseSeed(),
-      "payments/payment-existing": { id: "payment-existing", schoolId: "school-a", schoolYearId: "year-a", studentId: "student-a", feeTypeId: "fee-a", amount: 1_000 },
+      "payments/payment-existing": { id: "payment-existing", schoolId: "school-a", schoolYearId: "year-a", studentId: "student-a", feeTypeId: "fee-a", amount: 1_000, currency: "USD" },
     });
     await expect(executeFinancialOperation({ db: soldDb, caller: cashier, body: paymentBody("request-payment-sold") }))
       .rejects.toMatchObject({ code: "conflict", message: "Ce type de frais est déjà soldé." });
@@ -360,7 +360,7 @@ describe("API financière transactionnelle", () => {
   });
 
   it("génère des numéros de reçu uniques en concurrence et initialise après l'historique", async () => {
-    const db = fakeDb({ ...baseSeed(), "payments/legacy": { id: "legacy", schoolId: "school-a", schoolYearId: "year-a", studentId: "other", feeTypeId: "other", amount: 1, receiptNumber: "REC-2026-0042" } });
+    const db = fakeDb({ ...baseSeed(), "payments/legacy": { id: "legacy", schoolId: "school-a", schoolYearId: "year-a", studentId: "other", feeTypeId: "other", amount: 1, currency: "USD", receiptNumber: "REC-2026-0042" } });
     const results = await Promise.all(Array.from({ length: 5 }, (_, index) => executeFinancialOperation({ db, caller: cashier, body: paymentBody(`concurrent-payment-${index}`) })));
     const receipts = results.map((result) => result.payment?.receiptNumber);
     expect(new Set(receipts).size).toBe(5);
@@ -371,7 +371,7 @@ describe("API financière transactionnelle", () => {
   it("crée une dépense validée puis réserve les corrections à l'Administrateur", async () => {
     const db = fakeDb({ ...baseSeed(), "payments/seed-cash": { schoolId: "school-a", schoolYearId: "year-a", currency: "USD", amount: 100 } });
     const created = await executeFinancialOperation({ db, caller: cashier, body: { action: "create-expense", schoolYearId: "year-a", amount: 50, category: "Fournitures", description: "Papier", beneficiary: "Fournisseur", paymentMethod: "Espèces", reference: "REF-1", clientRequestId: "request-expense-001" } });
-    expect(created.expense).toMatchObject({ schoolId: "school-a", createdBy: "cashier-a", amount: 50, provenance: "financial-api" });
+    expect(created.expense).toMatchObject({ schoolId: "school-a", createdBy: "cashier-a", amount: 50, currency: "USD", provenance: "financial-api" });
     if (!created.expense) throw new Error("Dépense de test absente.");
     const updated = await executeFinancialOperation({ db, caller: admin, body: { action: "update-expense", transactionId: created.expense.id, amount: 45, category: "Fournitures", description: "Papier corrigé", reason: "Erreur de saisie", clientRequestId: "request-expense-002" } });
     expect(updated.expense).toMatchObject({ amount: 45, updatedBy: "admin-a", correctionReason: "Erreur de saisie" });

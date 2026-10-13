@@ -466,7 +466,10 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
   if (current.schoolId !== caller.schoolId) throw new FinancialApiError(403, "permission-denied", "Transaction financière hors établissement.");
   if (!isPayment && current.personnelPaymentId) throw new FinancialApiError(409, "conflict", "Cette dépense est liée à une paie et ne peut pas être corrigée ou supprimée séparément.");
   const { schoolYearId, actorName, currency: yearCurrency } = await assertContext(transaction, db, caller, current.schoolYearId);
-  const currency = current.currency === "CDF" || current.currency === "USD" ? current.currency : yearCurrency;
+  if (current.currency !== "CDF" && current.currency !== "USD") {
+    throw new FinancialApiError(409, "currency-reconciliation-required", "Devise historique inconnue : correction bloquée jusqu'à réconciliation.");
+  }
+  const currency = current.currency;
   const cashSchoolYearId = current.collectionSchoolYearId ?? schoolYearId;
   const cashImpact = async (deltaCents) => protectCashMutation({ db, transaction, schoolId: caller.schoolId,
     schoolYearId: cashSchoolYearId, currency, yearCurrency, deltaCents, now });
@@ -500,7 +503,7 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
     const student = studentSnapshot.data();
     const parentId = text(student.parentId, 120);
     const notificationId = `notif_fin_edit_${hash.slice(0, 24)}`;
-    const currency = current.currency === "USD" || current.currency === "CDF" ? current.currency : "CDF";
+    const currency = current.currency;
     let recipientUserId = "";
     if (parentId && current.parentId === parentId) {
       const linked = await transaction.get(db.collection("users").where("parentId", "==", parentId));

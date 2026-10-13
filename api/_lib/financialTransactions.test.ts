@@ -37,8 +37,8 @@ describe("dépenses ordinaires pendant le verrou de paie", () => {
       ["schoolYears/year-a", { schoolId: "school-a", status: "active" }],
       ["users/admin-a", { role: "school_admin", schoolId: "school-a", status: "active" }],
       ["payments/receipt-a", { schoolId: "school-a", schoolYearId: "year-a", amount: 100, currency: "USD" }],
-      ["expenses/ordinary-a", { id: "ordinary-a", schoolId: "school-a", schoolYearId: "year-a", amount: 10, category: "Fournitures", description: "Papier" }],
-      ["expenses/payroll-a", { id: "payroll-a", schoolId: "school-a", schoolYearId: "year-a", amount: 50, personnelPaymentId: "payment-a" }],
+      ["expenses/ordinary-a", { id: "ordinary-a", schoolId: "school-a", schoolYearId: "year-a", amount: 10, currency: "USD", category: "Fournitures", description: "Papier" }],
+      ["expenses/payroll-a", { id: "payroll-a", schoolId: "school-a", schoolYearId: "year-a", amount: 50, currency: "USD", personnelPaymentId: "payment-a" }],
     ]);
     const snapshot = (path: string) => ({ exists: values.has(path), data: () => values.get(path) });
     const db = {

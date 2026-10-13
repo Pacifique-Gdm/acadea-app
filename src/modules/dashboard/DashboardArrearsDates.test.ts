@@ -18,6 +18,18 @@ const model = { students: [student], payments, feeTypes: [], expenses: [], perso
 
 describe("Dashboard — encaissements historiques à l'ouverture", () => {
   afterEach(() => vi.useRealTimers());
+  it.each([undefined, "CDF"] as const)("ne reclasse pas une opération historique %s en USD dans la synthèse", (currency) => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-03T12:00:00"));
+    const historicalPayment = { ...payments[0], id: "historical", schoolYearId: "year", studentId: "student", collectionSchoolYearId: undefined, currentStudentId: undefined, amount: 500, currency };
+    const html = renderToStaticMarkup(createElement(Dashboard, {
+      school, year, data: { ...model, payments: [historicalPayment], parents: [], users: [] },
+    }));
+    expect(html).toContain("Synthèse financière et PDF indisponibles");
+    expect(html).toContain("Non calculable");
+    expect(html).toContain("disabled=\"\"");
+    expect(html).not.toContain("+$500,00");
+    expect(html).toContain(currency === "CDF" ? "500,00 FC" : "Devise historique inconnue");
+  });
   it.each(["school_admin", "cashier", "coordination_admin", "sub_coordination_admin"] as const)("%s respecte aujourd'hui même avant le premier changement de date", (role) => {
     vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-03T12:00:00"));
     const html = renderToStaticMarkup(role.includes("coordination")

@@ -1,6 +1,7 @@
 import type { Expense, Payment, School, SchoolYear, Student } from "../types";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./pdf";
-import { formatCurrencyMoney, formatSchoolMoney } from "./currency";
+import { formatCurrencyMoney, resolveSchoolYearCurrency } from "./currency";
+import { formatRecordedTotals, type totalsByRecordedCurrency } from "./operationCurrency";
 
 export async function exportReportPdf(
   school: School,
@@ -9,14 +10,18 @@ export async function exportReportPdf(
   endDate: string,
   sectionLabel: string,
   showGlobalExpenseNote: boolean,
-  paid: number,
-  spent: number,
-  recovery: number,
+  paid: ReturnType<typeof totalsByRecordedCurrency>,
+  spent: ReturnType<typeof totalsByRecordedCurrency>,
+  recovery: number | null,
   payments: Payment[],
   expenses: Expense[],
   students: Student[],
   arrearsPayments: Payment[] = [],
 ) {
+  if (paid.unknownCount || spent.unknownCount || arrearsPayments.some((payment) => payment.currency !== "CDF" && payment.currency !== "USD")) {
+    throw new Error("Export bloqué : devise historique inconnue.");
+  }
+  const defaultCurrency = resolveSchoolYearCurrency(year, school);
   const studentById = new Map(students.map((student) => [student.id, student]));
   const fallback = "—";
   const timestampForSort = (value?: string) => {
@@ -62,10 +67,10 @@ export async function exportReportPdf(
         "Synthèse",
         pdfInfoGrid([
           { label: "Section", value: sectionLabel },
-          { label: "Paiements", value: formatSchoolMoney(paid, school) },
-          { label: "Dépenses", value: formatSchoolMoney(spent, school) },
-          { label: "Solde", value: formatSchoolMoney(paid - spent, school) },
-          { label: "Recouvrement", value: `${recovery}%` },
+          { label: "Paiements", value: formatRecordedTotals(paid, defaultCurrency) },
+          { label: "Dépenses", value: formatRecordedTotals(spent, defaultCurrency) },
+          { label: "Solde", value: formatRecordedTotals({ CDF: paid.CDF - spent.CDF, USD: paid.USD - spent.USD, unknownCount: 0 }, defaultCurrency) },
+          { label: "Recouvrement", value: recovery === null ? "Non calculable" : `${recovery}%` },
           ...(showGlobalExpenseNote
             ? [{ label: "Note dépenses", value: "Les dépenses présentées sont globales pour l'école, car elles ne sont pas rattachées à une section." }]
             : []),
@@ -79,7 +84,7 @@ export async function exportReportPdf(
             { header: "Nom de l'élève", render: studentNameForPayment },
             { header: "Option", render: studentOptionForPayment },
             { header: "Caissier", render: (payment) => payment.cashierName },
-            { header: "Montant", render: (payment) => formatSchoolMoney(payment.amount, school), align: "right" },
+            { header: "Montant", render: (payment) => formatCurrencyMoney(payment.amount, payment.currency!), align: "right" },
             { header: "Reçu", render: (payment) => payment.receiptNumber ?? payment.id },
           ],
           sortedPayments.slice(0, 24),
@@ -94,7 +99,7 @@ export async function exportReportPdf(
             { header: "Élève", render: studentNameForPayment },
             { header: "Frais d'origine", render: (payment: Payment) => payment.feeName ?? fallback },
             { header: "Année d'origine", render: (payment: Payment) => payment.debtSchoolYearName ?? payment.schoolYearId },
-            { header: "Montant", render: (payment: Payment) => formatCurrencyMoney(payment.amount, payment.currency ?? "USD"), align: "right" },
+            { header: "Montant", render: (payment: Payment) => formatCurrencyMoney(payment.amount, payment.currency!), align: "right" },
             { header: "Reçu", render: (payment: Payment) => payment.receiptNumber ?? payment.id },
           ],
           arrearsPayments,
@@ -109,7 +114,7 @@ export async function exportReportPdf(
             { header: "Heure", render: (expense) => timeFromDate(expense.spentAt), align: "center" },
             { header: "Catégorie", render: (expense) => expense.category },
             { header: "Caissier", render: (expense) => expense.cashierName || fallback },
-            { header: "Montant", render: (expense) => formatSchoolMoney(expense.amount, school), align: "right" },
+            { header: "Montant", render: (expense) => formatCurrencyMoney(expense.amount, expense.currency!), align: "right" },
             { header: "Description", render: (expense) => expense.description },
           ],
           sortedExpenses.slice(0, 24),

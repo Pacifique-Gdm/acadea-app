@@ -8,7 +8,7 @@ class FakeDb {
   values = new Map<string, Data>();
   queue = Promise.resolve();
   failQueries = false;
-  doc(path: string) { return { path, id: path.split("/").at(-1) }; }
+  doc(path: string) { return { path, id: path.split("/").at(-1), get: async () => ({ exists: this.values.has(path), data: () => this.values.get(path) }) }; }
   collection(name: string) {
     const query = (filters: Array<[string, unknown]>): { where: (field: string, operator: string, value: unknown) => ReturnType<typeof query>; get: () => Promise<{ docs: Array<{ id: string; data: () => Data }> }> } => ({
       where: (field, _operator, value) => query([...filters, [field, value]]),
@@ -69,6 +69,64 @@ function correctExpense(db: FakeDb, expenseId: string, amount: number, id: strin
 const balance = (db: FakeDb) => readCashBalance({ db, schoolId: "school-a", schoolYearId: "year-a", currency: "CDF", yearCurrency: "CDF" });
 
 describe("caisse annuelle — contrôle serveur", () => {
+  it("conserve les devises explicites après un changement CDF vers USD ou USD vers CDF", async () => {
+    const db = seeded(0);
+    db.values.set("payments/cdf", { schoolId: "school-a", schoolYearId: "year-a", amount: 500000, currency: "CDF" });
+    db.values.set("expenses/cdf", { schoolId: "school-a", schoolYearId: "year-a", amount: 200000, currency: "CDF" });
+    db.values.set("payments/usd", { schoolId: "school-a", schoolYearId: "year-a", amount: 150, currency: "USD" });
+    db.values.set("expenses/usd", { schoolId: "school-a", schoolYearId: "year-a", amount: 100, currency: "USD" });
+    expect((await readCashBalance({ db, schoolId: "school-a", schoolYearId: "year-a", currency: "CDF", yearCurrency: "CDF" })).availableCents).toBe(30000000);
+    db.values.set("schoolYears/year-a", { schoolId: "school-a", status: "active", currency: "USD" });
+    expect((await readCashBalance({ db, schoolId: "school-a", schoolYearId: "year-a", currency: "CDF", yearCurrency: "USD" })).availableCents).toBe(30000000);
+    expect((await readCashBalance({ db, schoolId: "school-a", schoolYearId: "year-a", currency: "USD", yearCurrency: "USD" })).availableCents).toBe(5000);
+    db.values.set("schoolYears/year-a", { schoolId: "school-a", status: "active", currency: "CDF" });
+    expect((await readCashBalance({ db, schoolId: "school-a", schoolYearId: "year-a", currency: "USD", yearCurrency: "CDF" })).availableCents).toBe(5000);
+  });
+
+  it.each(["payments", "expenses"])("bloque toutes les caisses quand %s contient une devise historique inconnue", async (collection) => {
+    const db = seeded(0);
+    db.values.set(`${collection}/legacy`, { schoolId: "school-a", schoolYearId: "year-a", amount: 100 });
+    for (const yearCurrency of ["CDF", "USD"] as const) {
+      for (const currency of ["CDF", "USD"] as const) {
+        await expect(readCashBalance({ db, schoolId: "school-a", schoolYearId: "year-a", currency, yearCurrency }))
+          .rejects.toMatchObject({ code: "cash-balance-inconsistent" });
+      }
+    }
+    db.values.set("schoolYears/year-a", { schoolId: "school-a", status: "active", currency: "USD" });
+    await expect(payroll(db, 1, `legacy-${collection}-blocked`)).rejects.toMatchObject({ code: "cash-balance-inconsistent" });
+    expect([...db.values.keys()].filter((path) => path.startsWith("personnelPayments/"))).toHaveLength(0);
+  });
+
+  it("refuse la correction d'une dépense legacy sans lui attribuer la devise actuelle", async () => {
+    const db = seeded();
+    db.values.set("users/admin-a", { role: "school_admin", schoolId: "school-a", status: "active" });
+    db.values.set("expenses/legacy", { id: "legacy", schoolId: "school-a", schoolYearId: "year-a", amount: 100, category: "Fournitures" });
+    await expect(correctExpense(db, "legacy", 120, "legacy-correction-01"))
+      .rejects.toMatchObject({ code: "currency-reconciliation-required" });
+    expect(db.values.get("expenses/legacy")?.amount).toBe(100);
+  });
+
+  it("utilise la devise immuable d'une paie liée lorsque la dépense legacy est référencée exactement", async () => {
+    const db = seeded(0);
+    db.values.set("payments/receipt", { schoolId: "school-a", schoolYearId: "year-a", amount: 500, currency: "CDF" });
+    db.values.set("expenses/payroll-expense", { schoolId: "school-a", schoolYearId: "year-a", amount: 100, personnelPaymentId: "payroll-linked" });
+    db.values.set("personnelPayments/payroll-linked", { schoolId: "school-a", schoolYearId: "year-a", expenseId: "payroll-expense", netPaid: 100, currency: "CDF" });
+    expect((await balance(db)).availableCents).toBe(40000);
+    db.values.set("schoolYears/year-a", { schoolId: "school-a", status: "active", currency: "USD" });
+    expect((await readCashBalance({ db, schoolId: "school-a", schoolYearId: "year-a", currency: "CDF", yearCurrency: "USD" })).availableCents).toBe(40000);
+    db.values.set("personnelPayments/payroll-linked", { schoolId: "school-a", schoolYearId: "year-a", expenseId: "wrong", netPaid: 100, currency: "CDF" });
+    await expect(balance(db)).rejects.toMatchObject({ code: "cash-balance-inconsistent" });
+  });
+
+  it("isole une devise inconnue aux écoles et années réellement concernées", async () => {
+    const db = seeded();
+    db.values.set("payments/foreign-legacy", { schoolId: "school-b", schoolYearId: "year-a", amount: 100 });
+    db.values.set("expenses/other-year-legacy", { schoolId: "school-a", schoolYearId: "year-b", amount: 100 });
+    expect((await balance(db)).availableCents).toBe(50000000);
+    db.values.set("expenses/current-year-legacy", { schoolId: "school-a", schoolYearId: "year-a", amount: 100 });
+    await expect(balance(db)).rejects.toMatchObject({ code: "cash-balance-inconsistent" });
+  });
+
   it("autorise solde suffisant et exactement égal, avec une dépense liée unique", async () => {
     const db = seeded();
     const first = await payroll(db, 300000, "cash-success-0001");

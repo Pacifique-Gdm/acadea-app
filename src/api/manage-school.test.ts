@@ -4,6 +4,8 @@ const mocks = vi.hoisted(() => ({
   verifyIdToken: vi.fn(),
   documentGet: vi.fn(),
   yearsGet: vi.fn(),
+  paymentsGet: vi.fn(),
+  expensesGet: vi.fn(),
   deleteSchoolCompletely: vi.fn(),
   batchUpdate: vi.fn(),
   batchSet: vi.fn(),
@@ -17,6 +19,8 @@ vi.mock("../../api/_lib/firebaseAdmin.js", () => ({
       doc: (path: string) => ({ path, get: () => mocks.documentGet(path) }),
       collection: (name: string) => name === "schoolYears"
         ? { where: () => ({ get: mocks.yearsGet }) }
+        : name === "payments" ? { where: () => ({ get: mocks.paymentsGet }) }
+        : name === "expenses" ? { where: () => ({ get: mocks.expensesGet }) }
         : { doc: () => ({ id: "audit-school-update" }) },
       batch: () => ({ update: mocks.batchUpdate, set: mocks.batchSet, commit: mocks.batchCommit }),
     },
@@ -53,6 +57,8 @@ describe("API SEC-004 manage-school", () => {
       { id: "year-legacy", ref: { path: "schoolYears/year-legacy" }, data: () => ({ schoolId: "school-a", status: "archived" }) },
       { id: "year-active", ref: { path: "schoolYears/year-active" }, data: () => ({ schoolId: "school-a", status: "active", currency: "USD" }) },
     ] });
+    mocks.paymentsGet.mockResolvedValue({ docs: [] });
+    mocks.expensesGet.mockResolvedValue({ docs: [] });
     mocks.deleteSchoolCompletely.mockResolvedValue({ status: "complete", firestore: { deleted: 5, collections: [] }, auth: { found: 1, deleted: 1, alreadyMissing: 0, failed: [], skipped: 0 }, storageDeleted: 2 });
     mocks.batchCommit.mockResolvedValue(undefined);
   });
@@ -264,6 +270,36 @@ describe("API SEC-004 manage-school", () => {
     expect(mocks.batchUpdate).toHaveBeenCalledWith(expect.objectContaining({ path: "schools/school-a" }), expect.objectContaining({ currency: "USD" }));
     expect(mocks.batchUpdate).toHaveBeenCalledWith(expect.objectContaining({ path: "schoolYears/year-active" }), expect.objectContaining({ currency: "USD" }));
     expect(mocks.batchUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ path: "schoolYears/year-archived" }), expect.anything());
+  });
+
+  it.each(["paymentsGet", "expensesGet"] as const)("refuse la mutation si %s contient une écriture historique sans devise", async (source) => {
+    mocks[source].mockResolvedValue({ docs: [{ data: () => ({ schoolId: "school-a", schoolYearId: "year-active", amount: 100 }) }] });
+    const res = response();
+    await handler(request({ action: "change-currency", schoolId: "school-a", schoolYearId: "year-active", currency: "CDF", confirmation: "CHANGER LA DEVISE" }), res);
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toMatchObject({ code: "currency-reconciliation-required", affectedCount: 1 });
+    expect(mocks.batchCommit).not.toHaveBeenCalled();
+  });
+
+  it("laisse intactes les opérations à devise explicite pendant le changement de défaut", async () => {
+    mocks.paymentsGet.mockResolvedValue({ docs: [{ data: () => ({ currency: "CDF", amount: 500000 }) }] });
+    mocks.expensesGet.mockResolvedValue({ docs: [{ data: () => ({ currency: "USD", amount: 100 }) }] });
+    const res = response();
+    await handler(request({ action: "change-currency", schoolId: "school-a", schoolYearId: "year-active", currency: "CDF", confirmation: "CHANGER LA DEVISE" }), res);
+    expect(res.statusCode).toBe(200);
+    expect(mocks.batchUpdate.mock.calls.every(([reference]) => /^(schools|schoolYears)\//.test(reference.path))).toBe(true);
+  });
+
+  it("accepte une dépense legacy lorsque sa devise est prouvée par la paie liée", async () => {
+    const originalGet = mocks.documentGet.getMockImplementation();
+    mocks.documentGet.mockImplementation((path: string) => path === "personnelPayments/payroll-a"
+      ? { exists: true, data: () => ({ expenseId: "expense-a", schoolId: "school-a", schoolYearId: "year-active", netPaid: 100, currency: "USD" }) }
+      : originalGet?.(path));
+    mocks.expensesGet.mockResolvedValue({ docs: [{ id: "expense-a", data: () => ({ schoolId: "school-a", schoolYearId: "year-active", amount: 100, personnelPaymentId: "payroll-a" }) }] });
+    const res = response();
+    await handler(request({ action: "change-currency", schoolId: "school-a", schoolYearId: "year-active", currency: "CDF", confirmation: "CHANGER LA DEVISE" }), res);
+    expect(res.statusCode).toBe(200);
+    expect(mocks.batchCommit).toHaveBeenCalledOnce();
   });
 
   it("refuse une année d'une autre école ou non active", async () => {

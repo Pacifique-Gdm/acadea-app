@@ -1,6 +1,6 @@
 import jsPDF from "jspdf";
 import type { Expense, Payment, School, SchoolYear, Student } from "../types";
-import { formatCurrencyMoney, formatSchoolMoney } from "./currency";
+import { formatRecordedOperation } from "./operationCurrency";
 import { getPdfLayout, resolvePdfFont, type PdfGenerationSettings } from "./pdfSettings";
 
 type PdfDoc = InstanceType<typeof jsPDF>;
@@ -361,7 +361,7 @@ export async function generateReceiptPdf(payment: Payment, student: Student, fee
           { label: "Nature", value: "Règlement d'un arriéré" },
           { label: "Année de la créance", value: payment.debtSchoolYearName ?? payment.schoolYearId },
         ] : []),
-        { label: "Montant payé", value: payment.currency ? formatCurrencyMoney(payment.amount, payment.currency) : formatSchoolMoney(payment.amount, school) },
+        { label: "Montant payé", value: formatRecordedOperation(payment) },
         { label: "Caissier", value: cashierName || "-" },
       ]),
       `
@@ -432,7 +432,7 @@ export async function generateExpensePdf(expense: Expense, school: School, year?
           { label: "Date", value: formatExpensePdfDateTime(expense) },
           { label: "Libellé / motif", value: expense.description || expense.category },
           { label: "Catégorie", value: expense.category },
-          { label: "Montant", value: formatSchoolMoney(expense.amount, school) },
+          { label: "Montant", value: formatRecordedOperation(expense) },
           { label: "Bénéficiaire / fournisseur", value: beneficiary || "-" },
           { label: "Caissier", value: cashierName || "-" },
           { label: "Mode de paiement", value: paymentMethod || "-" },

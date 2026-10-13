@@ -4,6 +4,7 @@ import { deleteSchoolCompletely } from "./_lib/schoolDeletion.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./_lib/serverAudit.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
+import { CashBalanceError, resolveRecordedCurrency } from "./_lib/cashBalance.js";
 
 export const maxDuration = 300;
 
@@ -224,6 +225,26 @@ export default async function handler(req, res) {
       const previousCurrency = yearData.currency === "CDF" || yearData.currency === "USD"
         ? yearData.currency
         : schoolData.currency === "CDF" ? "CDF" : "USD";
+      // Changing the school fallback can reclassify legacy operations from any year.
+      // Never infer their original currency from today's configuration.
+      const [paymentSnapshot, expenseSnapshot] = await Promise.all([
+        db.collection("payments").where("schoolId", "==", schoolId).get(),
+        db.collection("expenses").where("schoolId", "==", schoolId).get(),
+      ]);
+      let ambiguousCount = paymentSnapshot.docs.filter((snapshot) => !["CDF", "USD"].includes(snapshot.data()?.currency)).length;
+      for (const snapshot of expenseSnapshot.docs) {
+        if (["CDF", "USD"].includes(snapshot.data()?.currency)) continue;
+        try {
+          await resolveRecordedCurrency(snapshot.data(), { db, documentId: snapshot.id, collection: "expenses" });
+        } catch (error) {
+          if (!(error instanceof CashBalanceError)) throw error;
+          ambiguousCount++;
+        }
+      }
+      if (ambiguousCount > 0) {
+        sendJson(res, 409, { error: "Changement de devise bloqué : des opérations historiques sans devise exigent une réconciliation préalable.", code: "currency-reconciliation-required", affectedCount: ambiguousCount });
+        return;
+      }
       const now = new Date().toISOString();
       const auditRef = db.collection("auditLogs").doc(`school-currency-${randomUUID()}`);
       const batch = db.batch();
