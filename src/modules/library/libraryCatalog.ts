@@ -1,9 +1,9 @@
 import type { Role } from "../../types";
 
-export type LibraryAudience = Extract<Role, "study_director" | "teacher" | "parent">;
-export type LibraryLanguage = "Français" | "Anglais";
+export type LibraryAudience = Extract<Role, "school_admin" | "study_director" | "teacher" | "parent" | "secretary" | "cashier" | "discipline_director">;
+export type LibraryLanguage = "Français" | "Anglais" | "Français / Anglais";
 export type LibraryOrigin = "RDC" | "Francophonie / Afrique" | "International";
-export type LibraryAccess = "Gratuit" | "Gratuit + payant";
+export type LibraryAccess = "Gratuit" | "Gratuit + payant" | "Gratuit avec compte";
 
 export interface LibraryResource {
   id: string;
@@ -16,6 +16,8 @@ export interface LibraryResource {
   origin: LibraryOrigin;
   audiences: readonly LibraryAudience[];
   category: string;
+  provider?: string;
+  resourceType?: string;
   featured: boolean;
   official: boolean;
   enabled: boolean;
@@ -27,7 +29,11 @@ export type LibraryFilters = {
   language?: LibraryLanguage | "";
   origin?: LibraryOrigin | "";
   accessType?: LibraryAccess | "";
+  category?: string;
+  resourceType?: string;
 };
+
+const allSchoolAudiences: readonly LibraryAudience[] = ["school_admin", "study_director", "teacher", "parent", "secretary", "cashier", "discipline_director"];
 
 export const libraryResources: readonly LibraryResource[] = [
   {
@@ -101,6 +107,72 @@ export const libraryResources: readonly LibraryResource[] = [
     url: "https://apprendre.tv5monde.com/fr", language: "Français", accessType: "Gratuit", origin: "Francophonie / Afrique",
     audiences: ["parent"], category: "Langues", featured: false, official: false, enabled: true, order: 11,
   },
+  {
+    id: "anglais-video", name: "Apprendre-Anglais.tv", provider: "Apprendre-Anglais.tv", resourceType: "Cours vidéo",
+    description: "Cours d’anglais en vidéo expliqués en français, avec des leçons pour débutants et des quiz.",
+    url: "https://www.apprendre-anglais.tv/", language: "Français / Anglais", accessType: "Gratuit", origin: "International",
+    audiences: allSchoolAudiences, category: "Apprendre l'anglais", featured: false, official: false, enabled: true, order: 12,
+  },
+  {
+    id: "anglais-a1-a2", name: "Anglais — Débutant A1-A2", provider: "Apprendre-Anglais.tv", resourceType: "Formation vidéo",
+    description: "Formation vidéo pour apprendre les bases de l’anglais : vocabulaire, grammaire, prononciation et conversation.",
+    url: "https://www.apprendre-anglais.tv/courses/anglais-debutant-a1-a2/", language: "Français / Anglais", accessType: "Gratuit", origin: "International",
+    audiences: allSchoolAudiences, category: "Apprendre l'anglais", featured: false, official: false, enabled: true, order: 13,
+  },
+  {
+    id: "anglaisfacile", name: "AnglaisFacile", provider: "AnglaisFacile.com", resourceType: "Cours et exercices",
+    description: "Leçons, vidéos et exercices interactifs pour améliorer la grammaire, le vocabulaire et la compréhension de l’anglais.",
+    url: "https://www.anglaisfacile.com/cours-videos-anglais.php", language: "Français / Anglais", accessType: "Gratuit", origin: "International",
+    audiences: allSchoolAudiences, category: "Apprendre l'anglais", featured: false, official: false, enabled: true, order: 14,
+  },
+  {
+    id: "wall-street-english", name: "Wall Street English", provider: "Wall Street English", resourceType: "Vidéos pédagogiques",
+    description: "Vidéos et conseils pour améliorer la prononciation, le vocabulaire et la conversation en anglais.",
+    url: "https://wallstreetenglish.fr/blog/conseils/videos-apprendre-anglais", language: "Français / Anglais", accessType: "Gratuit + payant", origin: "International",
+    audiences: allSchoolAudiences, category: "Apprendre l'anglais", featured: false, official: false, enabled: true, order: 15,
+  },
+  {
+    id: "british-council", name: "British Council — LearnEnglish", provider: "British Council", resourceType: "Cours et vidéos",
+    description: "Ressources et vidéos pour développer la compréhension orale, le vocabulaire et la communication en anglais.",
+    url: "https://learnenglish.britishcouncil.org/", language: "Anglais", accessType: "Gratuit + payant", origin: "International",
+    audiences: allSchoolAudiences, category: "Apprendre l'anglais", featured: false, official: false, enabled: true, order: 16,
+  },
+  {
+    id: "computer-basics", name: "Initiation à l’informatique", provider: "OpenClassrooms", resourceType: "Cours avec vidéos et exercices",
+    description: "Apprendre à utiliser un ordinateur, le clavier, la souris, les fichiers et les logiciels de base.",
+    url: "https://openclassrooms.com/fr/courses/5737801-faites-vos-premiers-pas-sur-ordinateur", language: "Français", accessType: "Gratuit avec compte", origin: "International",
+    audiences: allSchoolAudiences, category: "Apprendre l'informatique", featured: false, official: false, enabled: true, order: 17,
+  },
+  {
+    id: "internet-basics", name: "Apprendre à utiliser Internet", provider: "OpenClassrooms", resourceType: "Cours en ligne",
+    description: "Apprendre à naviguer sur Internet, utiliser un navigateur et effectuer des recherches en ligne.",
+    url: "https://openclassrooms.com/fr/courses/5870011-naviguez-sur-internet", language: "Français", accessType: "Gratuit avec compte", origin: "International",
+    audiences: allSchoolAudiences, category: "Apprendre l'informatique", featured: false, official: false, enabled: true, order: 18,
+  },
+  {
+    id: "khan-programming", name: "Programmation informatique", provider: "Khan Academy", resourceType: "Cours et exercices interactifs",
+    description: "Cours interactifs pour découvrir la programmation, JavaScript, HTML et CSS.",
+    url: "https://fr.khanacademy.org/computing/cs", language: "Français", accessType: "Gratuit", origin: "International",
+    audiences: allSchoolAudiences, category: "Apprendre l'informatique", featured: false, official: false, enabled: true, order: 19,
+  },
+  {
+    id: "understand-web", name: "Comprendre le Web", provider: "OpenClassrooms", resourceType: "Cours en ligne",
+    description: "Comprendre le fonctionnement d’Internet, des sites web et des technologies numériques.",
+    url: "https://openclassrooms.com/fr/courses/1946386-comprendre-le-web", language: "Français", accessType: "Gratuit avec compte", origin: "International",
+    audiences: allSchoolAudiences, category: "Apprendre l'informatique", featured: false, official: false, enabled: true, order: 20,
+  },
+  {
+    id: "programming-c", name: "Apprendre à programmer en C", provider: "OpenClassrooms", resourceType: "Cours de programmation",
+    description: "Initiation à la programmation en langage C, avec des exemples et des exercices pratiques.",
+    url: "https://openclassrooms.com/fr/courses/19980-apprenez-a-programmer-en-c", language: "Français", accessType: "Gratuit avec compte", origin: "International",
+    audiences: allSchoolAudiences, category: "Apprendre l'informatique", featured: false, official: false, enabled: true, order: 21,
+  },
+  {
+    id: "computer-technician", name: "Métier de technicien informatique", provider: "OpenClassrooms", resourceType: "Formation professionnelle",
+    description: "Découvrir les missions, les compétences et les responsabilités d’un technicien informatique.",
+    url: "https://openclassrooms.com/fr/courses/6825041-decouvrez-le-metier-de-technicien-informatique", language: "Français", accessType: "Gratuit avec compte", origin: "International",
+    audiences: allSchoolAudiences, category: "Apprendre l'informatique", featured: false, official: false, enabled: true, order: 22,
+  },
 ];
 
 export function libraryDescription(resource: LibraryResource, audience: LibraryAudience): string {
@@ -114,7 +186,9 @@ export function selectLibraryResources(audience: LibraryAudience, filters: Libra
     if (filters.language && resource.language !== filters.language) return false;
     if (filters.origin && resource.origin !== filters.origin) return false;
     if (filters.accessType && resource.accessType !== filters.accessType) return false;
-    const searchable = `${resource.name} ${libraryDescription(resource, audience)} ${resource.category}`.toLocaleLowerCase("fr");
+    if (filters.category && resource.category !== filters.category) return false;
+    if (filters.resourceType && resource.resourceType !== filters.resourceType) return false;
+    const searchable = `${resource.name} ${resource.provider ?? ""} ${libraryDescription(resource, audience)} ${resource.category} ${resource.language} ${resource.resourceType ?? ""}`.toLocaleLowerCase("fr");
     return !query || searchable.includes(query);
   }).sort((left, right) => left.order - right.order || left.name.localeCompare(right.name, "fr"));
 }

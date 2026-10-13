@@ -8,6 +8,7 @@ import { AgeHomogeneityDrawer, ArchivedStudentsImportDrawer } from "../../compon
 import { AdminDrawer, SectionTitle } from "../../components/ui";
 import { ServicePersonnelForm } from "../../components/personnel/ServicePersonnelForm";
 import { OwnPayrollEntry } from "../../components/personnel/OwnPayrollEntry";
+import { LibraryDrawer } from "../library/LibraryDrawer";
 import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent";
 import { subscribeToStudentMedicalRecords } from "../../services/studentMedicalRecords";
 import { deleteParentAccount } from "../../services/provisioning";
@@ -46,6 +47,7 @@ export function SecretaryMenuModule({ user, data, yearData, school, year, onYear
   const [statisticsDrawerOpen, setStatisticsDrawerOpen] = useState(false);
   const [medicalDrawerOpen, setMedicalDrawerOpen] = useState(false);
   const [valvesDrawerOpen, setValvesDrawerOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const [parentsDrawerOpen, setParentsDrawerOpen] = useState(false);
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
   const [servicePersonnelOpen, setServicePersonnelOpen] = useState(false);
@@ -103,6 +105,7 @@ export function SecretaryMenuModule({ user, data, yearData, school, year, onYear
       <OwnPayrollEntry user={user} school={school} />
       {renderPublishedTimetable?.()}
       <button type="button" onClick={() => setValvesDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><BookOpen className="h-5 w-5" /></span><span className="font-bold text-ink">Valves</span></button>
+      <button type="button" onClick={() => setLibraryOpen(true)} className={menuButtonClass}><span className={menuIconClass}><BookOpen className="h-5 w-5" /></span><span className="font-bold text-ink">Bibliothèque</span></button>
       <button type="button" onClick={() => setMedicalDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><HeartPulse className="h-5 w-5" /></span><span className="font-bold text-ink">Fiches médicales</span></button>
       <button type="button" onClick={() => openBiometricView("menu")} className={menuButtonClass}><span className={menuIconClass}><Fingerprint className="h-5 w-5" /></span><span className="font-bold text-ink">Empreintes et Cartes</span></button>
       <button type="button" onClick={() => setParentsDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><UsersRound className="h-5 w-5" /></span><span className="font-bold text-ink">Parents / Tuteurs</span></button>
@@ -119,6 +122,7 @@ export function SecretaryMenuModule({ user, data, yearData, school, year, onYear
     <SecretaryStatisticsDrawer open={statisticsDrawerOpen} onClose={() => setStatisticsDrawerOpen(false)} students={yearData.students} records={medicalRecords} school={school} year={year} />
     <SecretaryMedicalRecordsDrawer open={medicalDrawerOpen} onClose={() => setMedicalDrawerOpen(false)} user={user} students={yearData.students} records={medicalRecords} school={school} year={year} />
     {valvesDrawerOpen && <AdminDrawer title="Valves" onClose={() => setValvesDrawerOpen(false)} closeLabel="Fermer les Valves"><ValvesDrawerContent user={user} data={data} yearData={yearData} school={school} year={year} updateData={updateData} canManage={year.status === "active" && user.role === "secretary" && user.status !== "inactive" && user.schoolId === school.id} valvesUploadsEnabled={valvesUploadsEnabled} createId={createId} maxValveDocumentBytes={maxValveDocumentBytes} /></AdminDrawer>}
+    {libraryOpen && <LibraryDrawer audience="secretary" onClose={() => setLibraryOpen(false)} />}
     {parentsDrawerOpen && <AdminDrawer title="Parents / Tuteurs" onClose={() => setParentsDrawerOpen(false)} closeLabel="Fermer Parents / Tuteurs"><ParentsDirectoryDrawer parents={yearData.parents} students={yearData.students} school={school} year={year} schoolId={school.id} schoolYearId={year.id} onCreateParent={year.status === "active" ? () => openParentForm() : undefined} onEditParent={year.status === "active" ? (parent) => openParentForm(parent.id) : undefined} onDeleteParent={year.status === "active" ? openParentDelete : undefined} /></AdminDrawer>}
     {historyDrawerOpen && <AdminDrawer title="Historique" onClose={() => setHistoryDrawerOpen(false)} closeLabel="Fermer l'historique"><ActivityHistoryContent user={user} data={data} yearData={yearData} role="secretary" /></AdminDrawer>}
     {servicePersonnelOpen && year.status === "active" && <AdminDrawer title="Créer un personnel" onClose={() => setServicePersonnelOpen(false)} closeLabel="Fermer la création de personnel"><ServicePersonnelForm schoolId={school.id}/></AdminDrawer>}

@@ -10,6 +10,7 @@ export function AdminDrawer({
   onClose,
   closeLabel,
   width = "default",
+  adaptiveTheme = false,
 }: {
   title: string;
   children: ReactNode;
@@ -18,6 +19,7 @@ export function AdminDrawer({
   onClose: () => void;
   closeLabel: string;
   width?: "default" | "wide";
+  adaptiveTheme?: boolean;
 }) {
   const drawerRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -70,15 +72,15 @@ export function AdminDrawer({
     <div className="fixed inset-0 z-50 bg-ink/30 p-3 backdrop-blur-sm" onMouseDown={onClose} role="presentation">
       <div
         ref={drawerRef}
-        className={`box-border ml-auto flex h-full min-h-0 w-full min-w-0 max-w-[calc(100vw-1.5rem)] flex-col rounded border border-slate-200 bg-white p-4 shadow-2xl ${width === "wide" ? "sm:max-w-3xl xl:max-w-4xl" : "sm:max-w-xl"}`}
+        className={`box-border ml-auto flex h-full min-h-0 w-full min-w-0 max-w-[calc(100vw-1.5rem)] flex-col rounded border border-slate-200 bg-white p-4 shadow-2xl ${width === "wide" ? "sm:max-w-3xl xl:max-w-4xl" : "sm:max-w-xl"}${adaptiveTheme ? " dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" : ""}`}
         onMouseDown={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
       >
-        <div className="mb-4 flex min-w-0 items-center justify-between gap-3 border-b border-slate-100 pb-3">
-          <h2 id={titleId} className="min-w-0 break-words text-lg font-bold text-ink">{title}</h2>
-          <button ref={closeButtonRef} onClick={onClose} className="rounded bg-slate-100 p-2 text-slate-700" aria-label={closeLabel} type="button">
+        <div className={`mb-4 flex min-w-0 items-center justify-between gap-3 border-b border-slate-100 pb-3${adaptiveTheme ? " dark:border-slate-700" : ""}`}>
+          <h2 id={titleId} className={`min-w-0 break-words text-lg font-bold text-ink${adaptiveTheme ? " dark:text-slate-100" : ""}`}>{title}</h2>
+          <button ref={closeButtonRef} onClick={onClose} className={`rounded bg-slate-100 p-2 text-slate-700${adaptiveTheme ? " dark:bg-slate-800 dark:text-slate-100" : ""}`} aria-label={closeLabel} type="button">
             <X className="h-4 w-4" />
           </button>
         </div>

@@ -10,6 +10,7 @@ import { NewSanctionDrawer } from "../../components/discipline/NewSanctionDrawer
 import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent";
 import { AdminDrawer } from "../../components/ui";
 import { OwnPayrollEntry } from "../../components/personnel/OwnPayrollEntry";
+import { LibraryDrawer } from "../library/LibraryDrawer";
 import { completeDisciplineSanction, createDisciplineSanction, saveDisciplineAuditLog } from "../../services/discipline";
 import { markConversationUnreadCountRead, persistMessageWithConversation } from "../../services/conversations";
 import { canUseFirestoreData, persistFirestorePatch } from "../../services/firestoreData";
@@ -136,6 +137,7 @@ export function DisciplinePortal({
   const [statsOpen, setStatsOpen] = useState(false);
   const [attendanceSettingsOpen, setAttendanceSettingsOpen] = useState(false);
   const [disciplineValvesOpen, setDisciplineValvesOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const [selectedDisciplineStudentId, setSelectedDisciplineStudentId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
   useEffect(() => {
@@ -626,6 +628,13 @@ export function DisciplinePortal({
         : "border-mint/30 bg-mint/10 text-mint";
   const disciplineMenuSections = [
     {
+      id: "library",
+      title: "Bibliothèque",
+      description: "Cours et ressources éducatives externes.",
+      icon: BookOpen,
+      onClick: () => setLibraryOpen(true),
+    },
+    {
       id: "valves",
       title: "Valves",
       description: "Communiqués publiés par l'administration.",
@@ -826,6 +835,7 @@ export function DisciplinePortal({
           />
         </AdminDrawer>
       )}
+      {libraryOpen && <LibraryDrawer audience="discipline_director" onClose={() => setLibraryOpen(false)} />}
     </div>
   );
 }
