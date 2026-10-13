@@ -17,6 +17,7 @@ describe("paie — transactions Firestore réelles sur émulateur", () => {
       db.doc("schoolYears/year-a").set({ schoolId: "school-a", status: "active", currency: "CDF" }),
       db.doc("users/cashier-a").set({ role: "cashier", schoolId: "school-a", status: "active", name: "Caissier" }),
       db.doc("personnelProfiles/worker-a").set({ kind: "service", schoolId: "school-a", name: "Vigile", jobTitle: "Vigile" }),
+      db.doc("payments/opening-cash").set({ schoolId: "school-a", schoolYearId: "year-a", currency: "CDF", amount: 200 }),
     ]);
   }, 30_000);
   afterAll(async () => { await deleteApp(app); }, 30_000);

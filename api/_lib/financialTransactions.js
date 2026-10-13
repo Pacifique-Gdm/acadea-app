@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
+import { protectCashMutation } from "./cashBalance.js";
 
 const PAYMENT_CREATE_KEYS = ["action", "schoolYearId", "studentId", "feeTypeId", "debtSchoolYearId", "amount", "note", "clientRequestId"];
 const ARREARS_READ_KEYS = ["action", "schoolYearId", "studentId"];
@@ -385,6 +386,7 @@ async function createPayment(transaction, db, caller, body, hash, now) {
     feeTypeId,
     ...(debt ? { collectionSchoolYearId, currentStudentId, debtSchoolYearName: debt.yearName, feeName: debt.feeName, currency: debt.currency } : {}),
     amount,
+    currency: debt?.currency ?? currency,
     ...(note ? { note } : {}),
     paidAt: now.slice(0, 10),
     createdAt: now,
@@ -396,6 +398,8 @@ async function createPayment(transaction, db, caller, body, hash, now) {
     provenance: "financial-api",
     clientRequestIdHash: hash,
   };
+  await protectCashMutation({ db, transaction, schoolId: caller.schoolId, schoolYearId: collectionSchoolYearId,
+    currency: payment.currency, yearCurrency: currency, deltaCents: Math.round(amount * 100), now });
   transaction.set(db.doc(`payments/${paymentId}`), payment);
   transaction.set(counterRef, { schoolId: caller.schoolId, schoolYearId: collectionSchoolYearId, kind: "receipt", lastReceiptNumber: sequence, updatedAt: now }, { merge: true });
   const auditId = `audit_fin_${hash.slice(0, 24)}`;
@@ -419,7 +423,7 @@ async function createPayment(transaction, db, caller, body, hash, now) {
 async function createExpense(transaction, db, caller, body, hash, now) {
   assertAllowedKeys(body, EXPENSE_CREATE_KEYS);
   const amount = positiveAmount(body.amount);
-  const { schoolYearId, actorName } = await assertContext(transaction, db, caller, body.schoolYearId);
+  const { schoolYearId, actorName, currency } = await assertContext(transaction, db, caller, body.schoolYearId);
   const category = text(body.category, 100);
   const description = text(body.description, 1000);
   const beneficiary = text(body.beneficiary, 200);
@@ -430,10 +434,12 @@ async function createExpense(transaction, db, caller, body, hash, now) {
   }
   const expenseId = `expense_${hash.slice(0, 24)}`;
   const expense = {
-    id: expenseId, schoolId: caller.schoolId, schoolYearId, amount, category, description, beneficiary, paymentMethod,
+    id: expenseId, schoolId: caller.schoolId, schoolYearId, currency, amount, category, description, beneficiary, paymentMethod,
     ...(reference ? { reference } : {}), spentAt: now.slice(0, 10), createdAt: now, updatedAt: now,
     createdBy: caller.uid, updatedBy: caller.uid, cashierName: actorName, provenance: "financial-api", clientRequestIdHash: hash,
   };
+  await protectCashMutation({ db, transaction, schoolId: caller.schoolId, schoolYearId, currency, yearCurrency: currency,
+    deltaCents: -Math.round(amount * 100), now });
   transaction.set(db.doc(`expenses/${expenseId}`), expense);
   const auditId = `audit_fin_${hash.slice(0, 24)}`;
   transaction.set(db.doc(`auditLogs/${auditId}`), buildServerAudit({ id: auditId, eventType: AUDIT_EVENT_TYPES.FINANCE_EXPENSE_CREATED, actor: { ...caller, name: actorName }, schoolId: caller.schoolId, schoolYearId, resourceType: "expense", resourceId: expenseId, metadata: { category, amount } }));
@@ -459,10 +465,15 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
   }
   if (current.schoolId !== caller.schoolId) throw new FinancialApiError(403, "permission-denied", "Transaction financière hors établissement.");
   if (!isPayment && current.personnelPaymentId) throw new FinancialApiError(409, "conflict", "Cette dépense est liée à une paie et ne peut pas être corrigée ou supprimée séparément.");
-  const { schoolYearId, actorName } = await assertContext(transaction, db, caller, current.schoolYearId);
+  const { schoolYearId, actorName, currency: yearCurrency } = await assertContext(transaction, db, caller, current.schoolYearId);
+  const currency = current.currency === "CDF" || current.currency === "USD" ? current.currency : yearCurrency;
+  const cashSchoolYearId = current.collectionSchoolYearId ?? schoolYearId;
+  const cashImpact = async (deltaCents) => protectCashMutation({ db, transaction, schoolId: caller.schoolId,
+    schoolYearId: cashSchoolYearId, currency, yearCurrency, deltaCents, now });
   let result;
   let correction;
   if (operation === "delete") {
+    await cashImpact((isPayment ? -1 : 1) * Math.round(Number(current.amount) * 100));
     transaction.delete(documentRef);
     result = { deletedId: transactionId, kind };
   } else if (isPayment) {
@@ -496,6 +507,7 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
         && (!Array.isArray(document.data()?.studentIds) || document.data().studentIds.includes(current.studentId)));
       if (eligible.length === 1) recipientUserId = eligible[0].id;
     }
+    await cashImpact(Math.round((amount - Number(current.amount)) * 100));
     transaction.update(documentRef, { amount, updatedAt: now, updatedBy: caller.uid, correctionReason: reason });
     if (recipientUserId) {
       transaction.create(db.doc(`notifications/${notificationId}`), {
@@ -513,6 +525,7 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
     const description = text(body.description, 1000);
     if (!category || !description) throw new FinancialApiError(400, "invalid-argument", "Catégorie et description sont requises.");
     const expense = { ...current, id: transactionId, amount, category, description, updatedAt: now, updatedBy: caller.uid, correctionReason: reason };
+    await cashImpact(Math.round((Number(current.amount) - amount) * 100));
     transaction.update(documentRef, { amount, category, description, updatedAt: now, updatedBy: caller.uid, correctionReason: reason });
     result = { expense };
   }

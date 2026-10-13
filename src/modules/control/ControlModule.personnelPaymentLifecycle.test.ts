@@ -14,6 +14,6 @@ describe("parcours du paiement du personnel", () => {
     expect(form).toContain('setBeneficiaryId(""); setKind("salary")');
     expect(control).toContain("setRecordedPersonnelPayment(payment); setCashierControlDrawer(null)");
     expect(control).toContain("printPersonnelPaymentPdf(recordedPersonnelPayment, school)");
-    expect(form).toContain('catch (cause) { setError(');
+    expect(form).toContain('setError(cause instanceof Error ? cause.message : "Paiement impossible.")');
   });
 });

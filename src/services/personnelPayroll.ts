@@ -6,15 +6,37 @@ import type { PersonnelPayment } from "../types";
 export type PayrollBeneficiary = { id: string; name: string; jobTitle: string; hasAccount: boolean };
 export type PayrollHistoryCursor = { paidAt: string; id: string };
 export type PayrollHistoryEntry = PersonnelPayment & { updatedAt?: string };
+export type PayrollCashBalance = { schoolId: string; schoolYearId: string; currency: "CDF" | "USD"; availableCents: number; receivedCents: number; spentCents: number };
+
+export class PayrollCashError extends Error {
+  constructor(message: string, readonly code: string, readonly balance?: PayrollCashBalance, readonly requestedCents?: number, readonly shortfallCents?: number) {
+    super(message);
+  }
+}
 
 async function request(body: Record<string, unknown>) {
   const token = await getCurrentFirebaseIdToken();
   const response = await fetch(resolveApiUrl("/api/manage-financial-transaction"), {
     method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body),
   });
-  const payload = await response.json().catch(() => ({})) as { error?: string; code?: string; personnel?: PayrollBeneficiary[]; advances?: PersonnelPayment[]; payments?: PersonnelPayment[]; payment?: PersonnelPayment; nextCursor?: PayrollHistoryCursor | null };
-  if (!response.ok) throw new Error(apiErrorMessage(response.status, payload, "Paiement du personnel impossible."));
+  const payload = await response.json().catch(() => ({})) as { error?: string; code?: string; personnel?: PayrollBeneficiary[]; advances?: PersonnelPayment[]; payments?: PersonnelPayment[]; payment?: PersonnelPayment; nextCursor?: PayrollHistoryCursor | null;
+    schoolId?: string; schoolYearId?: string; currency?: "CDF" | "USD"; availableCents?: number; receivedCents?: number; spentCents?: number; requestedCents?: number; shortfallCents?: number };
+  if (!response.ok) {
+    const balance = typeof payload.availableCents === "number" && payload.schoolId && payload.schoolYearId && payload.currency
+      ? { schoolId: payload.schoolId, schoolYearId: payload.schoolYearId, currency: payload.currency, availableCents: payload.availableCents,
+        receivedCents: payload.receivedCents ?? 0, spentCents: payload.spentCents ?? 0 } : undefined;
+    throw new PayrollCashError(apiErrorMessage(response.status, payload, "Paiement du personnel impossible."), payload.code ?? "internal", balance, payload.requestedCents, payload.shortfallCents);
+  }
   return payload;
+}
+
+export async function loadPayrollCashBalance(schoolYearId: string): Promise<PayrollCashBalance> {
+  const result = await request({ action: "list-payroll-cash-balance", schoolYearId });
+  if (!result.schoolId || result.schoolYearId !== schoolYearId || !result.currency || typeof result.availableCents !== "number" || !Number.isSafeInteger(result.availableCents)
+    || typeof result.receivedCents !== "number" || !Number.isSafeInteger(result.receivedCents)
+    || typeof result.spentCents !== "number" || !Number.isSafeInteger(result.spentCents)) throw new Error("Solde de caisse incomplet.");
+  return { schoolId: result.schoolId, schoolYearId, currency: result.currency, availableCents: result.availableCents,
+    receivedCents: result.receivedCents, spentCents: result.spentCents };
 }
 
 export async function listPayrollPersonnel() {

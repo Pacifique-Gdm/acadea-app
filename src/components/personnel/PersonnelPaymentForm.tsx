@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { MoneyInput } from "../ui";
-import { createPersonnelPayment, listPayrollAdvances, listPayrollPersonnel } from "../../services/personnelPayroll";
-import type { PayrollBeneficiary } from "../../services/personnelPayroll";
+import { createPersonnelPayment, listPayrollAdvances, listPayrollPersonnel, loadPayrollCashBalance, PayrollCashError } from "../../services/personnelPayroll";
+import type { PayrollBeneficiary, PayrollCashBalance } from "../../services/personnelPayroll";
 import { printPersonnelPaymentPdf } from "../../utils/personnelPayrollPdf";
 import { formatCurrencyMoney, resolveSchoolYearCurrency } from "../../utils/currency";
 import type { PersonnelPayment, School, SchoolYear } from "../../types";
@@ -31,6 +31,9 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [lastPayment, setLastPayment] = useState<PersonnelPayment>();
+  const [cashBalance, setCashBalance] = useState<PayrollCashBalance>();
+  const [cashLoading, setCashLoading] = useState(true);
+  const [cashError, setCashError] = useState("");
   const attempt = useRef<{ signature: string; id: string } | null>(null);
   const busyRef = useRef(false);
   const currency = resolveSchoolYearCurrency(year, school);
@@ -41,6 +44,17 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
     return () => { active = false; };
   }, []);
   useEffect(() => {
+    let active = true;
+    setCashBalance(undefined); setCashLoading(true); setCashError("");
+    void loadPayrollCashBalance(year.id).then((balance) => {
+      if (!active) return;
+      if (balance.schoolId !== school.id || balance.currency !== currency) throw new Error("La caisse ne correspond pas à cet établissement ou à cette devise.");
+      setCashBalance(balance);
+    }).catch((cause) => { if (active) setCashError(cause instanceof Error ? cause.message : "Solde de caisse indisponible."); })
+      .finally(() => { if (active) setCashLoading(false); });
+    return () => { active = false; };
+  }, [currency, school.id, year.id]);
+  useEffect(() => {
     if (!beneficiaryId) { setAdvances([]); setRecoveries({}); return; }
     let active = true;
     setRecoveries({});
@@ -50,13 +64,20 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
 
   const recoveryTotal = kind === "advance" ? 0 : Object.values(recoveries).reduce((sum, value) => sum + Number(value || 0), 0);
   const net = Number(gross || 0) - recoveryTotal - (kind === "advance" ? 0 : Number(deduction || 0) + Number(cnss || 0) + Number(tax || 0));
+  const netCents = Math.round(net * 100);
+  const availableCents = cashBalance?.availableCents;
+  const shortfallCents = availableCents === undefined ? 0 : Math.max(netCents - availableCents, 0);
+  const cashInsufficient = availableCents !== undefined && (availableCents < 0 || shortfallCents > 0);
+  const validNet = Number.isFinite(net) && netCents > 0;
   const recoverable = advances.filter((item) => item.currency === currency).reduce((sum, item) => sum + item.amount - item.recoveredAmount, 0);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busyRef.current) return;
     setError(""); setLastPayment(undefined);
-    if (!beneficiaryId || !paidAt || !gross || net <= 0 || kind !== "advance" && Number(deduction || 0) > 0 && !deductionReason.trim()) { setError("Complétez le bénéficiaire, la date, le montant et le motif de toute retenue."); return; }
+    if (!beneficiaryId || !paidAt || !gross || !validNet || kind !== "advance" && Number(deduction || 0) > 0 && !deductionReason.trim()) { setError("Complétez le bénéficiaire, la date, le montant et le motif de toute retenue."); return; }
+    if (!cashBalance || cashBalance.schoolId !== school.id || cashBalance.currency !== currency) { setError("Solde de caisse indisponible : paiement bloqué."); return; }
+    if (cashInsufficient) { setError("Paiement impossible : solde de caisse insuffisant."); return; }
     const lines = kind === "advance" ? [] : Object.entries(recoveries).filter(([, amount]) => Number(amount) > 0).map(([advanceId, amount]) => ({ advanceId, amount: Number(amount) }));
     if (lines.some((line) => { const advance = advances.find((item) => item.id === line.advanceId); return !advance || advance.currency !== currency || line.amount > advance.amount - advance.recoveredAmount; })) { setError("Une récupération dépasse le solde de l'avance ou utilise une autre devise."); return; }
     const draft = { schoolYearId: year.id, beneficiaryId, kind, ...(kind === "advance" ? {} : { periodMonth: month, periodYear }), paidAt, amount: Number(gross), recoveries: lines,
@@ -66,13 +87,34 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
     attempt.current = { signature, id: clientRequestId };
     busyRef.current = true; setBusy(true);
     try {
+      const latestBalance = await loadPayrollCashBalance(year.id);
+      if (latestBalance.schoolId !== school.id || latestBalance.currency !== currency) throw new Error("La caisse ne correspond pas à cet établissement ou à cette devise.");
+      if (latestBalance.availableCents !== cashBalance.availableCents) {
+        setCashBalance(latestBalance);
+        setError("Le solde de caisse a changé. Vérifiez les nouveaux montants avant de confirmer à nouveau.");
+        return;
+      }
       const payment = await createPersonnelPayment({ ...draft, clientRequestId });
       attempt.current = null;
+      setCashLoading(true);
+      void loadPayrollCashBalance(year.id).then((updated) => { setCashBalance(updated); setCashError(""); })
+        .catch(() => { setCashBalance(undefined); setCashError("Solde de caisse indisponible après paiement. Actualisez avant toute nouvelle opération."); })
+        .finally(() => setCashLoading(false));
       setLastPayment(onRecorded ? undefined : payment);
       setBeneficiaryId(""); setKind("salary"); setMonth(new Date().getMonth() + 1); setPeriodYear(new Date().getFullYear()); setPaidAt(today());
       setGross(""); setDeduction(""); setDeductionReason(""); setCnss(""); setTax(""); setDescription(""); setAdvances([]); setRecoveries({});
       onRecorded?.(payment);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Paiement impossible."); }
+    } catch (cause) {
+      if (cause instanceof PayrollCashError && cause.balance && cause.balance.schoolId === school.id && cause.balance.currency === currency) setCashBalance(cause.balance);
+      if (cause instanceof PayrollCashError && ["cash-balance-unavailable", "cash-balance-inconsistent"].includes(cause.code)) setCashBalance(undefined);
+      if (cause instanceof PayrollCashError && cause.code === "cash-balance-conflict") {
+        setCashLoading(true);
+        void loadPayrollCashBalance(year.id).then((updated) => { setCashBalance(updated); setCashError(""); })
+          .catch(() => { setCashBalance(undefined); setCashError("Solde de caisse indisponible : paiement bloqué."); })
+          .finally(() => setCashLoading(false));
+      }
+      setError(cause instanceof Error ? cause.message : "Paiement impossible.");
+    }
     finally { busyRef.current = false; setBusy(false); }
   }
 
@@ -93,8 +135,17 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
     </>}
     <label className="grid gap-1 font-semibold">Description<textarea className="input min-h-20" value={description} onChange={(event) => setDescription(event.target.value)}/></label>
     <strong>Net à payer : {format(net)}</strong>
+    <section className="grid min-w-0 gap-2 rounded border border-slate-200 bg-slate-50 p-3" aria-label="Solde de caisse">
+      <p className="font-semibold">Caisse de l'établissement · {currency}</p>
+      {cashLoading ? <p role="status">Chargement du solde disponible…</p> : cashError ? <p role="alert" className="text-red-700">{cashError}</p> : cashBalance ? <>
+        <p>Solde disponible : <strong>{format(cashBalance.availableCents / 100)}</strong></p>
+        <p>Montant net à décaisser : <strong>{format(net)}</strong></p>
+        <p>Solde après paiement : <strong>{format((cashBalance.availableCents - netCents) / 100)}</strong></p>
+        {cashInsufficient && <p role="alert" className="rounded bg-red-50 p-2 text-red-700">Paiement impossible : solde de caisse insuffisant. Montant manquant : {format(shortfallCents / 100)}. Veuillez approvisionner la caisse ou corriger le paiement.</p>}
+      </> : <p role="alert" className="text-red-700">Solde de caisse indisponible : paiement bloqué.</p>}
+    </section>
     {error && <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{error}</p>}
     {lastPayment && <div role="status" className="grid gap-2 rounded bg-green-50 p-3 text-green-800"><span>Paiement enregistré : {lastPayment.reference}</span><button className="secondary-button justify-center" type="button" onClick={() => void printPersonnelPaymentPdf(lastPayment, school)}>{lastPayment.kind === "advance" ? "Télécharger le justificatif" : "Télécharger le bulletin de paie"}</button></div>}
-    <button type="submit" disabled={busy || loading || !beneficiaryId || net <= 0} className="primary-button justify-center">{busy ? "Enregistrement…" : "Enregistrer le paiement personnel"}</button>
+    <button type="submit" disabled={busy || loading || cashLoading || !cashBalance || cashInsufficient || !beneficiaryId || !validNet} className="primary-button justify-center">{busy ? "Enregistrement…" : "Enregistrer le paiement personnel"}</button>
   </form>;
 }

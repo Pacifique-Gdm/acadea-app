@@ -369,7 +369,7 @@ describe("API financière transactionnelle", () => {
   });
 
   it("crée une dépense validée puis réserve les corrections à l'Administrateur", async () => {
-    const db = fakeDb(baseSeed());
+    const db = fakeDb({ ...baseSeed(), "payments/seed-cash": { schoolId: "school-a", schoolYearId: "year-a", currency: "USD", amount: 100 } });
     const created = await executeFinancialOperation({ db, caller: cashier, body: { action: "create-expense", schoolYearId: "year-a", amount: 50, category: "Fournitures", description: "Papier", beneficiary: "Fournisseur", paymentMethod: "Espèces", reference: "REF-1", clientRequestId: "request-expense-001" } });
     expect(created.expense).toMatchObject({ schoolId: "school-a", createdBy: "cashier-a", amount: 50, provenance: "financial-api" });
     if (!created.expense) throw new Error("Dépense de test absente.");
