@@ -9,7 +9,9 @@ import { buildDashboardClassRows } from "../../utils/dashboardClassStats";
 import { formatChartDate, getTransactionPeriodDates, isInDashboardDateRange } from "../../utils/dashboardDates";
 import { exportDashboardReportPdf } from "../../utils/dashboardPdf";
 import { money } from "../../utils/pdf";
-import { formatCurrencyMoney, formatSchoolMoney } from "../../utils/currency";
+import { formatCurrencyMoney, resolveSchoolYearCurrency } from "../../utils/currency";
+import { hasCurrencyOutside } from "../../utils/operationCurrency";
+import { useResolvedExpenseCurrencies } from "../../hooks/useResolvedExpenseCurrencies";
 import { formatCount } from "../../utils/numberFormat";
 import { activeDashboardPersonnelCounts, uniqueActiveParentCount } from "../../utils/dashboardPopulationStats";
 import { canonicalOperationalClasses, subscribeToSchoolClasses } from "../../services/schoolSubclasses";
@@ -335,6 +337,7 @@ export function TransactionComboChart({
 }
 
 export function Dashboard({ data, school, year }: DashboardProps) {
+  const resolvedExpenses = useResolvedExpenseCurrencies(data.expenses);
   const today = toDateKey(new Date());
   const [sectionFilter, setSectionFilter] = useState<"all" | SchoolSection>("all");
   const [startDate, setStartDate] = useState(today);
@@ -374,11 +377,11 @@ export function Dashboard({ data, school, year }: DashboardProps) {
   );
   const filteredExpenses = useMemo(
     () =>
-      data.expenses.filter((expense) => {
+      resolvedExpenses.filter((expense) => {
         const normalized = expense.spentAt.slice(0, 10);
         return sectionFilter === "all" && (!dateFilterActive || ((!startDate || normalized >= startDate) && (!endDate || normalized <= endDate)));
       }),
-    [data.expenses, dateFilterActive, endDate, sectionFilter, startDate],
+    [resolvedExpenses, dateFilterActive, endDate, sectionFilter, startDate],
   );
   const filteredPaymentIndexes = useMemo(() => buildSchoolYearDataIndexes(filteredStudents, data.feeTypes, filteredPayments), [filteredStudents, data.feeTypes, filteredPayments]);
   const dashboardFinancialAggregates = useMemo(
@@ -393,8 +396,8 @@ export function Dashboard({ data, school, year }: DashboardProps) {
   const activeFinancialAggregates = hasDashboardFinancialFilter ? dashboardFinancialAggregates : fullYearFinancialAggregates;
   const dashboardFinancialStats = activeFinancialAggregates.financialStats;
   const totalPayments = dashboardFinancialStats.paid;
-  const currentCurrency = school.currency === "CDF" ? "CDF" : "USD";
-  const hasUnreliableFinancialCurrency = [...data.payments, ...data.expenses].some((operation) => operation.currency !== currentCurrency);
+  const currentCurrency = resolveSchoolYearCurrency(year, school);
+  const hasUnreliableFinancialCurrency = hasCurrencyOutside([...data.payments, ...resolvedExpenses], currentCurrency);
   const transactionStartDate = dateFilterActive ? startDate : today;
   const transactionEndDate = dateFilterActive ? endDate : today;
   const arrearsCollections = useMemo(() => (["USD", "CDF"] as const).map((currency) => ({
@@ -404,7 +407,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
       && isInDashboardDateRange(payment.paidAt, transactionStartDate, transactionEndDate))
       .reduce((sum, payment) => sum + payment.amount, 0),
   })).filter((group) => group.amount > 0), [data.payments, transactionEndDate, filteredStudentIds, transactionStartDate, year.id]);
-  const fullYearExpenses = useMemo(() => data.expenses.reduce((sum, expense) => sum + expense.amount, 0), [data.expenses]);
+  const fullYearExpenses = useMemo(() => resolvedExpenses.reduce((sum, expense) => sum + expense.amount, 0), [resolvedExpenses]);
   const filteredExpensesTotal = useMemo(() => filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0), [filteredExpenses]);
   const totalExpenses = hasDashboardFinancialFilter ? filteredExpensesTotal : fullYearExpenses;
   const remaining = dashboardFinancialStats.remaining;
@@ -454,11 +457,11 @@ export function Dashboard({ data, school, year }: DashboardProps) {
   );
   const transactionExpenses = useMemo(
     () =>
-      data.expenses.filter((expense) => {
+      resolvedExpenses.filter((expense) => {
         const normalized = expense.spentAt.slice(0, 10);
         return sectionFilter === "all" && (!transactionStartDate || normalized >= transactionStartDate) && (!transactionEndDate || normalized <= transactionEndDate);
       }),
-    [data.expenses, sectionFilter, transactionEndDate, transactionStartDate],
+    [resolvedExpenses, sectionFilter, transactionEndDate, transactionStartDate],
   );
   const transactions = useMemo(
     () =>
@@ -474,11 +477,11 @@ export function Dashboard({ data, school, year }: DashboardProps) {
       buildDashboardTransactionDayRows({
         dates: chartDates,
         payments: data.payments,
-        expenses: data.expenses,
+        expenses: resolvedExpenses,
         studentIds: filteredStudentIds,
         includeExpenses: sectionFilter === "all",
       }),
-    [chartDates, data.expenses, data.payments, filteredStudentIds, sectionFilter],
+    [chartDates, resolvedExpenses, data.payments, filteredStudentIds, sectionFilter],
   );
   const transactionChartRows = useMemo(
     () =>
@@ -529,9 +532,9 @@ export function Dashboard({ data, school, year }: DashboardProps) {
     { label: "Administrateurs", value: personnelCounts.school_admin, icon: ShieldCheck, tone: "bg-blue-100 text-blue-700" },
     { label: "Caissiers", value: personnelCounts.cashier, icon: UserRound, tone: "bg-pink-100 text-pink-700" },
     { label: "Directeurs de Discipline", value: personnelCounts.discipline_director, icon: ShieldCheck, tone: "bg-violet-100 text-violet-700" },
-    { label: "Montant attendu", value: formatSchoolMoney(dashboardFinancialStats.expected, school), icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
-    { label: "Frais de l'année encaissés", value: hasUnreliableFinancialCurrency ? "Non calculable" : formatSchoolMoney(totalPayments, school), icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
-    { label: "Montant restant \u00e0 payer", value: hasUnreliableFinancialCurrency ? "Non calculable" : formatSchoolMoney(remaining, school), icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
+    { label: "Montant attendu", value: formatCurrencyMoney(dashboardFinancialStats.expected, currentCurrency), icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
+    { label: "Frais de l'année encaissés", value: hasUnreliableFinancialCurrency ? "Non calculable" : formatCurrencyMoney(totalPayments, currentCurrency), icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
+    { label: "Montant restant \u00e0 payer", value: hasUnreliableFinancialCurrency ? "Non calculable" : formatCurrencyMoney(remaining, currentCurrency), icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
   ];
 
   function progressBarTone(rate: number) {
@@ -658,10 +661,10 @@ export function Dashboard({ data, school, year }: DashboardProps) {
           <div className={`h-full rounded ${progressBarTone(recoveryRate)}`} style={{ width: Math.min(100, recoveryRate) + "%" }} />
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-4">
-          <Metric label="Attendu" value={formatSchoolMoney(dashboardFinancialStats.expected, school)} />
-          <Metric label={"Frais de l'année encaissés"} value={formatSchoolMoney(totalPayments, school)} />
-          <Metric label={"D\u00e9penses"} value={formatSchoolMoney(totalExpenses, school)} />
-          <Metric label="Reste" value={formatSchoolMoney(remaining, school)} />
+          <Metric label="Attendu" value={formatCurrencyMoney(dashboardFinancialStats.expected, currentCurrency)} />
+          <Metric label={"Frais de l'année encaissés"} value={formatCurrencyMoney(totalPayments, currentCurrency)} />
+          <Metric label={"D\u00e9penses"} value={formatCurrencyMoney(totalExpenses, currentCurrency)} />
+          <Metric label="Reste" value={formatCurrencyMoney(remaining, currentCurrency)} />
         </div>
         <div className="mt-5 grid gap-3">
           {feeProgressRows.map((row) => (
@@ -677,15 +680,15 @@ export function Dashboard({ data, school, year }: DashboardProps) {
                 <div className={`h-full rounded ${progressBarTone(row.rate)}`} style={{ width: Math.min(100, row.rate) + "%" }} />
               </div>
               <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
-                <span className="rounded bg-white px-2 py-1 text-slate-600">Attendu : <strong className="text-ink">{formatSchoolMoney(row.expected, school)}</strong></span>
-                <span className="rounded bg-white px-2 py-1 text-slate-600">Payé : <strong className="text-ink">{formatSchoolMoney(row.paid, school)}</strong></span>
-                <span className="rounded bg-white px-2 py-1 text-slate-600">Solde : <strong className="text-ink">{formatSchoolMoney(row.remaining, school)}</strong></span>
+                <span className="rounded bg-white px-2 py-1 text-slate-600">Attendu : <strong className="text-ink">{formatCurrencyMoney(row.expected, currentCurrency)}</strong></span>
+                <span className="rounded bg-white px-2 py-1 text-slate-600">Payé : <strong className="text-ink">{formatCurrencyMoney(row.paid, currentCurrency)}</strong></span>
+                <span className="rounded bg-white px-2 py-1 text-slate-600">Solde : <strong className="text-ink">{formatCurrencyMoney(row.remaining, currentCurrency)}</strong></span>
               </div>
             </div>
           ))}
           {feeProgressRows.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun frais applicable pour les filtres sélectionnés.</p>}
         </div>
-        <FinancialFeeShareChart rows={feeShares} formatAmount={(value) => formatSchoolMoney(value, school)} />
+        <FinancialFeeShareChart rows={feeShares} formatAmount={(value) => formatCurrencyMoney(value, currentCurrency)} />
       </div>}
       {arrearsCollections.length > 0 && <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm">
         <p className="font-semibold">Arriérés encaissés pendant la période, hors recouvrement des frais de l'année</p>
@@ -710,7 +713,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
           {transactions.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">{"Aucune transaction pour cette p\u00e9riode."}</p>}
         </div>
         {!hasUnreliableFinancialCurrency && <div className="mt-4 border-t border-slate-100 pt-4">
-          <TransactionComboChart rows={transactionChartRows} period={transactionPeriod} onPeriodChange={setTransactionPeriod} formatAmount={(value) => formatSchoolMoney(value, school)} />
+          <TransactionComboChart rows={transactionChartRows} period={transactionPeriod} onPeriodChange={setTransactionPeriod} formatAmount={(value) => formatCurrencyMoney(value, currentCurrency)} />
         </div>}
       </FormPanel>
 

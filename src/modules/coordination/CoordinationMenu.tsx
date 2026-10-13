@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ArrowRightLeft, BookOpen, CalendarRange, FileClock, Landmark, Network, Printer, Settings, UsersRound } from "lucide-react";
 import { AdminDrawer, ImageUploadField, LogoutButton } from "../../components/ui";
+import { useResolvedExpenseCurrencies } from "../../hooks/useResolvedExpenseCurrencies";
 import type { AppUser, Coordination, CoordinationYearGovernance, PersonnelProfile, School, SubCoordination } from "../../types";
 import { loadCoordinationReadModel, type CoordinationReadModel } from "../../services/coordinationReadModel";
 import { closeCoordinationSchoolYears, loadCoordinationSchoolYearStatus, openCoordinationSchoolYears, reactivateCoordinationSchoolYears, YEAR_CONFIRMATIONS, type CoordinationSchoolYearRow } from "../../services/coordinationSchoolYears";
@@ -27,6 +28,7 @@ const emptyTransferForm = () => ({ destinationSchoolId: "", mutationDate: localD
 export function CoordinationMenu({ coordination, schools, selectedSchoolId, principalCoordinatorName, user, subCoordination, onLogout, refreshToken = 0 }: { coordination: Coordination; schools: School[]; selectedSchoolId: string; principalCoordinatorName: string; user: AppUser; subCoordination?: SubCoordination | null; onLogout: () => void; refreshToken?: number }) {
   const [drawer, setDrawer] = useState<Drawer | null>(null);
   const [model, setModel] = useState<CoordinationReadModel>(emptyModel);
+  const resolvedExpenses = useResolvedExpenseCurrencies(model.expenses);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -85,7 +87,7 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, prin
   const fees = model.feeTypes.filter(inActiveSchoolYear);
   const payments = model.payments.filter((item) => inActiveSchoolYear(item) && (!from || item.paidAt >= from) && (!to || item.paidAt <= to));
   const arrearsPayments = model.payments.filter((item) => item.collectionSchoolYearId && activeYearBySchool.get(item.schoolId) === item.collectionSchoolYearId && (!from || item.paidAt >= from) && (!to || item.paidAt <= to));
-  const expenses = model.expenses.filter((item) => inActiveSchoolYear(item) && (!from || item.spentAt >= from) && (!to || item.spentAt <= to));
+  const expenses = resolvedExpenses.filter((item) => inActiveSchoolYear(item) && (!from || item.spentAt >= from) && (!to || item.spentAt <= to));
   const personnel = model.personnel.filter((item) => { const inactive = item.active === false || item.status === "inactive"; return isInternalPersonnel(item) && typeof item.schoolId === "string" && schoolIds.includes(item.schoolId) && (!personnelRole || item.role === personnelRole) && (!personnelStatus || (personnelStatus === "inactive" ? inactive : !inactive)) && `${item.name} ${item.email ?? ""} ${item.role}`.toLowerCase().includes(search.toLowerCase()); });
   const logs = model.auditLogs.filter((item) => { const authorized = user.role === "coordination_admin" ? (item.coordinationId === coordination.id || Boolean(item.schoolId && allSchoolIds.includes(item.schoolId))) : (item.subCoordinationId === user.subCoordinationId || Boolean(item.schoolId && allSchoolIds.includes(item.schoolId))); return authorized && !isSuperAdministratorAuditLog(item) && (!drawerSchoolId || item.schoolId === drawerSchoolId) && `${item.action} ${item.actorName ?? ""} ${item.details ?? ""}`.toLowerCase().includes(search.toLowerCase()); }).sort((a, b) => activityTimestamp(b.createdAt) - activityTimestamp(a.createdAt));
   const visibleYearRows = yearRows.filter((row) => schoolIds.includes(row.schoolId));

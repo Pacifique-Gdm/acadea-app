@@ -24,6 +24,7 @@ type FinancialResponse = {
   settled?: HistoricalDebt[];
   totals?: ArrearsTotals;
   details?: Record<string, HistoricalDebt[]>;
+  resolvedCurrencies?: Record<string, "USD" | "CDF">;
 };
 
 export type HistoricalDebt = {
@@ -38,7 +39,7 @@ export type HistoricalDebt = {
   currency: "USD" | "CDF";
 };
 
-async function financialRequest(input: Record<string, unknown> & { action: FinancialAction | "list-arrears" | "list-arrears-batch"; clientRequestId?: string }) {
+async function financialRequest(input: Record<string, unknown> & { action: FinancialAction | "list-arrears" | "list-arrears-batch" | "list-resolved-expense-currencies"; clientRequestId?: string }) {
   const token = await getCurrentFirebaseIdToken();
   const response = await fetch(resolveApiUrl("/api/manage-financial-transaction"), {
     method: "POST",
@@ -48,6 +49,27 @@ async function financialRequest(input: Record<string, unknown> & { action: Finan
   const payload = await response.json().catch(() => ({})) as FinancialResponse;
   if (!response.ok) throw new Error(apiErrorMessage(response.status, payload, "Opération financière impossible."));
   return payload;
+}
+
+export async function resolveHistoricalExpenseCurrencies(expenses: Expense[]): Promise<Expense[]> {
+  const unresolvedIds = [...new Set(expenses.filter((expense) => !expense.currency && expense.personnelPaymentId)
+    .map((expense) => expense.id))];
+  if (!unresolvedIds.length) return expenses;
+  try {
+    const resolved = new Map<string, "USD" | "CDF">();
+    for (let index = 0; index < unresolvedIds.length; index += 50) {
+      const response = await financialRequest({ action: "list-resolved-expense-currencies",
+        expenseIds: unresolvedIds.slice(index, index + 50) });
+      for (const [id, currency] of Object.entries(response.resolvedCurrencies ?? {})) {
+        if (currency === "CDF" || currency === "USD") resolved.set(id, currency);
+      }
+    }
+    return expenses.map((expense) => expense.currency || !resolved.has(expense.id)
+      ? expense : { ...expense, currency: resolved.get(expense.id) });
+  } catch {
+    // Preserve the unknown currency and keep financial exports blocked on API failure.
+    return expenses;
+  }
 }
 
 export function createPaymentTransaction(input: { schoolYearId: string; studentId: string; feeTypeId: string; debtSchoolYearId?: string; amount: number; note?: string; clientRequestId: string }) {

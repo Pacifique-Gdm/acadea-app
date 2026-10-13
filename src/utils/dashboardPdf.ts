@@ -1,6 +1,6 @@
 import type { School, SchoolClass, SchoolYear } from "../types";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./pdf";
-import { formatCurrencyMoney, formatSchoolMoney, type SchoolCurrency } from "./currency";
+import { formatCurrencyMoney, resolveSchoolYearCurrency, type SchoolCurrency } from "./currency";
 
 type DashboardTransaction = { id: string; type: string; label: string; amount: number; date: string };
 
@@ -37,6 +37,7 @@ export async function exportDashboardReportPdf({
   totalBoys: number;
   totalStudents: number;
 }) {
+  const yearCurrency = resolveSchoolYearCurrency(year, school);
   await renderAcadPdfPreview({
     filename: `dashboard-${year.name}.pdf`,
     title: "Dashboard",
@@ -48,11 +49,11 @@ export async function exportDashboardReportPdf({
         "KPI financier",
         pdfInfoGrid([
           { label: "Recouvrement", value: `${recoveryRate}%` },
-          { label: "Frais de l'année encaissés", value: formatSchoolMoney(totalPayments, school) },
+          { label: "Frais de l'année encaissés", value: formatCurrencyMoney(totalPayments, yearCurrency) },
           ...arrearsCollections.map((group) => ({ label: `Arriérés encaissés (${group.currency})`, value: formatCurrencyMoney(group.amount, group.currency) })),
-          { label: "Dépenses", value: formatSchoolMoney(totalExpenses, school) },
-          { label: "Attendu", value: formatSchoolMoney(expected, school) },
-          { label: "Reste", value: formatSchoolMoney(remaining, school) },
+          { label: "Dépenses", value: formatCurrencyMoney(totalExpenses, yearCurrency) },
+          { label: "Attendu", value: formatCurrencyMoney(expected, yearCurrency) },
+          { label: "Reste", value: formatCurrencyMoney(remaining, yearCurrency) },
         ]),
       ),
       pdfSection(
@@ -62,7 +63,7 @@ export async function exportDashboardReportPdf({
             { header: "Date", render: (transaction) => transaction.date.slice(0, 10) },
             { header: "Type", render: (transaction) => transaction.type },
             { header: "Libellé", render: (transaction) => transaction.label },
-            { header: "Montant", render: (transaction) => formatSchoolMoney(transaction.amount, school), align: "right" },
+            { header: "Montant", render: (transaction) => formatCurrencyMoney(transaction.amount, yearCurrency), align: "right" },
           ],
           transactions,
           "Aucune transaction pour cette période.",

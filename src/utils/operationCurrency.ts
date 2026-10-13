@@ -22,3 +22,7 @@ export function formatRecordedOperation(operation: MonetaryOperation) {
     ? formatCurrencyMoney(operation.amount, operation.currency)
     : "Devise historique inconnue";
 }
+
+export function hasCurrencyOutside(operations: readonly MonetaryOperation[], expected: SchoolCurrency) {
+  return operations.some((operation) => operation.currency !== expected);
+}
