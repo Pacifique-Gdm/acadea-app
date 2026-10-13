@@ -72,6 +72,9 @@ export async function readCashBalance({ db, reader, schoolId, schoolYearId, curr
     return { schoolId, schoolYearId, currency, availableCents: receivedCents - spentCents, receivedCents, spentCents };
   } catch (error) {
     if (error instanceof CashBalanceError) throw error;
+    if (process.env.VERCEL_ENV === "preview") {
+      console.warn("[Acadéa cash balance] Firestore read failure code", [4, 9, 10, 14].includes(error?.code) ? error.code : "other");
+    }
     throw new CashBalanceError(503, "cash-balance-unavailable", "Solde de caisse indisponible : paiement bloqué.");
   }
 }
