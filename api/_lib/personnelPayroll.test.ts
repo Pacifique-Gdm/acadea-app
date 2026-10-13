@@ -64,6 +64,39 @@ describe("paie du personnel — transactions et confidentialité", () => {
     await expect(updatePersonnelPayment({ db, caller: actor, body: { ...body, amount: 130 } })).rejects.toMatchObject({ status: 409 });
     await expect(updatePersonnelPayment({ db, caller: actor, body: { ...body, clientRequestId: "salary-edit-stale-02" } })).rejects.toMatchObject({ status: 409 });
   });
+  it("corrige CNSS, impôt, retenue, période et date en gardant la dépense et le bulletin cohérents", async () => {
+    const db = seeded();
+    db.values.delete("personnelProfiles/worker-a");
+    db.values.set("users/worker-a", { role: "teacher", schoolId: "school-a", name: "Enseignant A", status: "active" });
+    db.values.set("users/admin-a", { role: "school_admin", schoolId: "school-a", name: "Admin A", status: "active" });
+    const created = await write(db, { beneficiaryId: "worker-a", kind: "salary", periodMonth: 9, periodYear: 2026, amount: 500, cnss: 15, tax: 25 }, "salary-components-001");
+    const body = { action: "update-personnel-payment", paymentId: created.payment.id, amount: 500, deduction: 20, deductionReason: "Retenue validée",
+      cnss: 30, tax: 40, description: "Salaire corrigé", paidAt: "2026-10-10", periodMonth: 10, periodYear: 2026,
+      reason: "Correction des composantes", confirmation: "MODIFIER CE SALAIRE", expectedUpdatedAt: created.payment.createdAt, clientRequestId: "salary-components-edit-01" };
+    const result = await updatePersonnelPayment({ db, caller: { uid: "admin-a", role: "school_admin", schoolId: "school-a" }, body });
+    expect(result.payment).toMatchObject({ amount: 500, deduction: 20, cnss: 30, tax: 40, netPaid: 410, paidAt: "2026-10-10", periodMonth: 10, periodYear: 2026 });
+    expect(db.values.get("expenses/" + created.payment.expenseId)).toMatchObject({ amount: 410, spentAt: "2026-10-10", description: "Salaire — Enseignant A — Salaire corrigé" });
+    const audit = [...db.values].find(([path]) => path.startsWith("financialCorrectionAudits/"))?.[1];
+    expect(audit).toMatchObject({ oldValues: { cnss: 15, tax: 25, netPaid: 460 }, newValues: { cnss: 30, tax: 40, netPaid: 410 } });
+    const notification = [...db.values].find(([path]) => path.startsWith("notifications/"))?.[1];
+    expect(notification?.body).toContain("Ancien montant net : 460");
+    expect(notification?.body).toContain("Nouveau montant net : 410");
+    expect([...db.values.keys()].filter((path) => path.startsWith("expenses/"))).toHaveLength(1);
+    expect((await updatePersonnelPayment({ db, caller: { uid: "admin-a", role: "school_admin", schoolId: "school-a" }, body })).idempotent).toBe(true);
+  });
+  it("refuse une retenue sans motif, un net non positif et une dépense liée incohérente", async () => {
+    const db = seeded();
+    db.values.set("users/admin-a", { role: "school_admin", schoolId: "school-a", status: "active" });
+    const created = await write(db, { kind: "bonus", periodMonth: 9, periodYear: 2026, amount: 100 }, "bonus-components-001");
+    const body = { action: "update-personnel-payment", paymentId: created.payment.id, amount: 100, reason: "Justification", confirmation: "MODIFIER CETTE PRIME", expectedUpdatedAt: created.payment.createdAt, clientRequestId: "bonus-components-edit-01" };
+    const actor = { uid: "admin-a", role: "school_admin", schoolId: "school-a" };
+    await expect(updatePersonnelPayment({ db, caller: actor, body: { ...body, deduction: 5 } })).rejects.toMatchObject({ status: 400 });
+    await expect(updatePersonnelPayment({ db, caller: actor, body: { ...body, tax: 100 } })).rejects.toMatchObject({ status: 409 });
+    db.values.set("expenses/" + created.payment.expenseId, { ...db.values.get("expenses/" + created.payment.expenseId), spentAt: "2026-10-08" });
+    await expect(updatePersonnelPayment({ db, caller: actor, body: { ...body, paidAt: "2026-10-10" } })).rejects.toMatchObject({ status: 409 });
+    expect(db.values.get("personnelPayments/" + created.payment.id)).toMatchObject({ amount: 100, cnss: 0, tax: 0 });
+    expect([...db.values.keys()].filter((path) => path.startsWith("financialCorrectionAudits/") || path.startsWith("notifications/"))).toHaveLength(0);
+  });
 
   it("refuse rôle, école, motif, confirmation, dépense incohérente et avance trop imputée", async () => {
     const db = seeded();

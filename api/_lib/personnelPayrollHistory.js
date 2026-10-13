@@ -8,9 +8,13 @@ const invalid = () => { throw new FinancialApiError(400, "invalid-argument", "Fi
 
 export async function listPersonnelPayrollHistory({ db, actor, body }) {
   if (!actor?.uid || !["school_admin", "cashier", "coordination_admin", "sub_coordination_admin"].includes(actor.role)) denied();
-  if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some((key) => !["action", "schoolId", "cursor"].includes(key))) invalid();
+  if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some((key) => !["action", "schoolId", "cursor", "startDate", "endDate"].includes(key))) invalid();
   const requestedSchoolId = body.schoolId === undefined ? "" : body.schoolId;
   if (typeof requestedSchoolId !== "string" || requestedSchoolId.length > 150) invalid();
+  const startDate = body.startDate === undefined ? "" : body.startDate;
+  const endDate = body.endDate === undefined ? "" : body.endDate;
+  const validDate = (value) => typeof value === "string" && (!value || /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00.000Z`)) && new Date(`${value}T00:00:00.000Z`).toISOString().slice(0, 10) === value);
+  if (!validDate(startDate) || !validDate(endDate) || startDate && endDate && startDate > endDate) invalid();
   const cursor = body.cursor;
   if (cursor !== undefined && (!cursor || typeof cursor !== "object" || Array.isArray(cursor)
     || Object.keys(cursor).some((key) => !["paidAt", "id"].includes(key))
@@ -34,9 +38,10 @@ export async function listPersonnelPayrollHistory({ db, actor, body }) {
   const snapshots = await Promise.all(batches.map((ids) => {
     let query = db.collection("personnelPayments")
       .where("schoolId", "in", ids)
-      .where("kind", "in", ["salary", "bonus"])
-      .orderBy("paidAt", "desc")
-      .orderBy("__name__", "desc");
+      .where("kind", "in", ["salary", "bonus"]);
+    if (startDate) query = query.where("paidAt", ">=", startDate);
+    if (endDate) query = query.where("paidAt", "<=", endDate);
+    query = query.orderBy("paidAt", "desc").orderBy("__name__", "desc");
     if (cursor) query = query.startAfter(cursor.paidAt, db.doc(`personnelPayments/${cursor.id}`));
     return query.limit(PAGE_SIZE + 1).get();
   }));

@@ -41,8 +41,9 @@ export async function listOwnPayroll() {
   return result.payments;
 }
 
-export async function listPayrollHistoryPage(schoolId = "", cursor?: PayrollHistoryCursor) {
-  const result = await request({ action: "list-payroll-history", ...(schoolId ? { schoolId } : {}), ...(cursor ? { cursor } : {}) });
+export async function listPayrollHistoryPage(schoolId = "", cursor?: PayrollHistoryCursor, dates: { startDate?: string; endDate?: string } = {}) {
+  const result = await request({ action: "list-payroll-history", ...(schoolId ? { schoolId } : {}), ...(cursor ? { cursor } : {}),
+    ...(dates.startDate ? { startDate: dates.startDate } : {}), ...(dates.endDate ? { endDate: dates.endDate } : {}) });
   if (!Array.isArray(result.payments)) throw new Error("Historique de paie incomplet.");
   return { payments: result.payments as PayrollHistoryEntry[], nextCursor: result.nextCursor ?? null };
 }
@@ -57,7 +58,8 @@ export async function createPersonnelPayment(input: {
   return result.payment;
 }
 
-export async function updatePersonnelPayment(input: { paymentId: string; amount: number; reason: string; confirmation: string; expectedUpdatedAt: string; clientRequestId: string }) {
+export async function updatePersonnelPayment(input: { paymentId: string; amount: number; deduction?: number; deductionReason?: string; cnss?: number; tax?: number;
+  description?: string; paidAt?: string; periodMonth?: number; periodYear?: number; reason: string; confirmation: string; expectedUpdatedAt: string; clientRequestId: string }) {
   const result = await request({ action: "update-personnel-payment", ...input });
   if (!result.payment) throw new Error("Correction du paiement du personnel incomplète.");
   return result.payment;
