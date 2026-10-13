@@ -61,6 +61,11 @@ function ordinaryExpense(db: FakeDb, amount: number, id: string) {
   return executeFinancialOperation({ db, caller, body: { action: "create-expense", schoolYearId: "year-a", amount,
     category: "Fournitures", description: "Dépense fictive", beneficiary: "Test", paymentMethod: "Espèces", clientRequestId: id }, now: "2026-10-13T10:00:00.000Z" });
 }
+function correctExpense(db: FakeDb, expenseId: string, amount: number, id: string) {
+  return executeFinancialOperation({ db, caller: { uid: "admin-a", role: "school_admin", schoolId: "school-a" }, body: {
+    action: "update-expense", transactionId: expenseId, amount, category: "Fournitures", description: "Correction fictive", reason: "Justification test", clientRequestId: id,
+  }, now: "2026-10-13T11:00:00.000Z" });
+}
 const balance = (db: FakeDb) => readCashBalance({ db, schoolId: "school-a", schoolYearId: "year-a", currency: "CDF", yearCurrency: "CDF" });
 
 describe("caisse annuelle — contrôle serveur", () => {
@@ -110,6 +115,47 @@ describe("caisse annuelle — contrôle serveur", () => {
     expect((await balance(mixed)).availableCents).toBeGreaterThanOrEqual(0);
   });
 
+  it("protège toutes les dépenses ordinaires, y compris égalité, solde nul et doublon", async () => {
+    const db = seeded(500000);
+    await expect(ordinaryExpense(db, 650000, "ordinary-overdraft-01")).rejects.toMatchObject({ code: "insufficient-funds" });
+    expect([...db.values.keys()].filter((path) => path.startsWith("expenses/"))).toHaveLength(0);
+    const first = await ordinaryExpense(db, 500000, "ordinary-exact-0001");
+    const retry = await ordinaryExpense(db, 500000, "ordinary-exact-0001");
+    expect(retry.idempotent).toBe(true);
+    expect(retry.expense.id).toBe(first.expense.id);
+    expect((await balance(db)).availableCents).toBe(0);
+    await expect(ordinaryExpense(db, 1, "ordinary-empty-0002")).rejects.toMatchObject({ code: "insufficient-funds" });
+    expect([...db.values.keys()].filter((path) => path.startsWith("expenses/"))).toHaveLength(1);
+  });
+
+  it("vérifie seulement le supplément d'une correction et conserve les valeurs avant/après", async () => {
+    const db = seeded(500000);
+    db.values.set("users/admin-a", { role: "school_admin", schoolId: "school-a", status: "active" });
+    const expense = (await ordinaryExpense(db, 100000, "correct-source-0001")).expense;
+    await expect(correctExpense(db, expense.id, 550000, "correct-too-high-01")).rejects.toMatchObject({ code: "insufficient-funds" });
+    expect(db.values.get(`expenses/${expense.id}`)?.amount).toBe(100000);
+    await correctExpense(db, expense.id, 500000, "correct-exact-0002");
+    expect((await balance(db)).availableCents).toBe(0);
+    const audit = [...db.values].find(([path, value]) => path.startsWith("financialCorrectionAudits/") && value.oldAmount === 100000)?.[1];
+    expect(audit).toMatchObject({ oldAmount: 100000, newAmount: 500000, currency: "CDF" });
+    await correctExpense(db, expense.id, 400000, "correct-reduce-0003");
+    expect((await balance(db)).availableCents).toBe(10000000);
+  });
+
+  it("sérialise deux dépenses ordinaires, une prime et une avance concurrentes", async () => {
+    const expenses = seeded();
+    const results = await Promise.allSettled([ordinaryExpense(expenses, 350000, "ordinary-parallel-01"), ordinaryExpense(expenses, 300000, "ordinary-parallel-02")]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect((await balance(expenses)).availableCents).toBeGreaterThanOrEqual(0);
+    const payrollDb = seeded();
+    const payrollResults = await Promise.allSettled([
+      payroll(payrollDb, 350000, "bonus-parallel-0001", { kind: "bonus" }),
+      payroll(payrollDb, 300000, "advance-parallel-01", { kind: "advance", periodMonth: undefined, periodYear: undefined }),
+    ]);
+    expect(payrollResults.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect((await balance(payrollDb)).availableCents).toBeGreaterThanOrEqual(0);
+  });
+
   it("préserve l'idempotence et isole école et devise", async () => {
     const db = seeded();
     db.values.set("payments/foreign-school", { schoolId: "school-b", schoolYearId: "year-a", currency: "CDF", amount: 900000 });
@@ -138,5 +184,10 @@ describe("caisse annuelle — contrôle serveur", () => {
     db.values.set("schoolYears/year-b", { schoolId: "school-b", status: "active", currency: "CDF" });
     await expect(listPayroll({ db, caller, body: { action: "list-payroll-cash-balance", schoolYearId: "year-b" } }))
       .rejects.toMatchObject({ code: "failed-precondition" });
+    db.values.set("users/admin-a", { role: "school_admin", schoolId: "school-a", status: "active" });
+    await expect(listPayroll({ db, caller: { uid: "admin-a", role: "school_admin", schoolId: "school-a" }, body: { action: "list-cash-balance", schoolYearId: "year-a" } }))
+      .resolves.toMatchObject({ availableCents: 50000000, schoolId: "school-a", currency: "CDF" });
+    await expect(listPayroll({ db, caller: { ...caller, role: "teacher" }, body: { action: "list-cash-balance", schoolYearId: "year-a" } }))
+      .rejects.toMatchObject({ code: "permission-denied" });
   });
 });

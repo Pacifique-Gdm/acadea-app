@@ -57,10 +57,10 @@ export default async function handler(req, res) {
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(actor.schoolId ?? actor.coordinationId ?? ""), action: "finance.list-payroll-history", ...API_RATE_LIMITS.FINANCE_MUTATE });
       return sendJson(res, 200, await listPersonnelPayrollHistory({ db, actor, body }));
     }
-    if (["create-personnel-payment", "update-personnel-payment", "list-payroll-personnel", "list-payroll-advances", "list-personnel-payments", "list-own-payroll", "list-payroll-cash-balance"].includes(requestedAction)) {
+    if (["create-personnel-payment", "update-personnel-payment", "list-payroll-personnel", "list-payroll-advances", "list-personnel-payments", "list-own-payroll", "list-payroll-cash-balance", "list-cash-balance"].includes(requestedAction)) {
       await requireActiveApiUser(db, caller);
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? caller.coordinationId ?? ""), action: `finance.${requestedAction}`, idempotencyKey: typeof body.clientRequestId === "string" ? body.clientRequestId : undefined,
-        ...(["create-personnel-payment", "list-payroll-cash-balance"].includes(requestedAction) ? API_RATE_LIMITS.FINANCE_CREATE : API_RATE_LIMITS.FINANCE_MUTATE) });
+        ...(["create-personnel-payment", "list-payroll-cash-balance", "list-cash-balance"].includes(requestedAction) ? API_RATE_LIMITS.FINANCE_CREATE : API_RATE_LIMITS.FINANCE_MUTATE) });
       return sendJson(res, 200, requestedAction === "create-personnel-payment" ? await createPersonnelPayment({ db, caller, body })
         : requestedAction === "update-personnel-payment" ? await updatePersonnelPayment({ db, caller, body }) : await listPayroll({ db, caller, body }));
     }

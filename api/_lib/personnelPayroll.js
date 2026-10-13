@@ -49,8 +49,8 @@ async function readBeneficiary(reader, db, schoolId, beneficiaryId, requireActiv
 export async function listPayroll({ db, caller, body }) {
   assertReader(caller);
   const action = field(body.action, 80);
-  if (action === "list-payroll-cash-balance") {
-    if (caller.role !== "cashier") invalid("Opération réservée au Caissier.", "permission-denied", 403);
+  if (action === "list-payroll-cash-balance" || action === "list-cash-balance") {
+    if (action === "list-payroll-cash-balance" ? caller.role !== "cashier" : !["cashier", "school_admin"].includes(caller.role)) invalid("Consultation de caisse interdite.", "permission-denied", 403);
     const schoolYearId = field(body.schoolYearId, 150);
     if (!/^[\w-]{1,150}$/.test(schoolYearId)) invalid("Année scolaire invalide.");
     return db.runTransaction(async (transaction) => {
@@ -59,7 +59,7 @@ export async function listPayroll({ db, caller, body }) {
       ]);
       if (!school.exists || ["inactive", "deleting", "suspended"].includes(school.data()?.status)
         || !year.exists || year.data()?.schoolId !== caller.schoolId || year.data()?.status === "archived") invalid("Caisse indisponible.", "failed-precondition", 409);
-      if (!actor.exists || actor.data()?.role !== "cashier" || actor.data()?.schoolId !== caller.schoolId || actor.data()?.status === "inactive" || actor.data()?.active === false) invalid("Caissier non autorisé.", "permission-denied", 403);
+      if (!actor.exists || actor.data()?.role !== caller.role || actor.data()?.schoolId !== caller.schoolId || actor.data()?.status === "inactive" || actor.data()?.active === false) invalid("Consultation de caisse interdite.", "permission-denied", 403);
       const currency = year.data()?.currency === "CDF" || year.data()?.currency === "USD" ? year.data().currency : school.data()?.currency === "CDF" ? "CDF" : "USD";
       return readCashBalance({ db, reader: transaction, schoolId: caller.schoolId, schoolYearId, currency, yearCurrency: currency });
     });

@@ -476,6 +476,7 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
     await cashImpact((isPayment ? -1 : 1) * Math.round(Number(current.amount) * 100));
     transaction.delete(documentRef);
     result = { deletedId: transactionId, kind };
+    if (!isPayment) correction = { oldValues: current, newValues: null, oldAmount: current.amount, newAmount: null, currency };
   } else if (isPayment) {
     if (Math.abs(Math.round(Number(body.amount) * 100) - Number(body.amount) * 100) > 1e-7) {
       throw new FinancialApiError(400, "invalid-argument", "Le montant corrigé ne peut pas dépasser deux décimales.");
@@ -528,6 +529,7 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
     await cashImpact(Math.round((Number(current.amount) - amount) * 100));
     transaction.update(documentRef, { amount, category, description, updatedAt: now, updatedBy: caller.uid, correctionReason: reason });
     result = { expense };
+    correction = { oldValues: current, newValues: expense, oldAmount: current.amount, newAmount: amount, currency };
   }
   const auditId = `audit_fin_${hash.slice(0, 24)}`;
   const eventType = isPayment

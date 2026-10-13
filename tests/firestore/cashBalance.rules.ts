@@ -27,12 +27,17 @@ async function seed(schoolId: string, received: number) {
   return { schoolId, schoolYearId, caller: { uid: `${schoolId}-cashier`, role: "cashier", schoolId } };
 }
 
-function payroll(context: Awaited<ReturnType<typeof seed>>, amount: number, clientRequestId: string) {
+function payroll(context: Awaited<ReturnType<typeof seed>>, amount: number, clientRequestId: string, kind: "salary" | "bonus" | "advance" = "salary") {
   return createPersonnelPayment({ db, caller: context.caller, body: {
-    action: "create-personnel-payment", schoolYearId: context.schoolYearId, beneficiaryId: `${context.schoolId}-worker`, kind: "salary",
-    periodMonth: 10, periodYear: 2026, paidAt: "2026-10-13", amount, recoveries: [], deduction: 0, deductionReason: "", cnss: 0, tax: 0,
+    action: "create-personnel-payment", schoolYearId: context.schoolYearId, beneficiaryId: `${context.schoolId}-worker`, kind,
+    ...(kind === "advance" ? {} : { periodMonth: 10, periodYear: 2026 }), paidAt: "2026-10-13", amount, recoveries: [], deduction: 0, deductionReason: "", cnss: 0, tax: 0,
     description: "Test local", clientRequestId,
   } });
+}
+
+function expense(context: Awaited<ReturnType<typeof seed>>, amount: number, clientRequestId: string) {
+  return executeFinancialOperation({ db, caller: context.caller, body: { action: "create-expense", schoolYearId: context.schoolYearId, amount,
+    category: "Fournitures", description: "Dépense fictive", beneficiary: "Test", paymentMethod: "Espèces", clientRequestId } });
 }
 
 describe("caisse — transactions Firestore réelles sur émulateur", () => {
@@ -54,12 +59,32 @@ describe("caisse — transactions Firestore réelles sur émulateur", () => {
     const context = await seed("cash-mixed", 500000);
     const results = await Promise.allSettled([
       payroll(context, 350000, "emulator-mixed-pay-01"),
-      executeFinancialOperation({ db, caller: context.caller, body: { action: "create-expense", schoolYearId: context.schoolYearId, amount: 300000,
-        category: "Fournitures", description: "Dépense fictive", beneficiary: "Test", paymentMethod: "Espèces", clientRequestId: "emulator-mixed-exp-01" } }),
+      expense(context, 300000, "emulator-mixed-exp-01"),
     ]);
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     const expenses = await db.collection("expenses").where("schoolId", "==", context.schoolId).get();
     expect(expenses.size).toBe(1);
     expect(expenses.docs[0].data().amount).toBeLessThanOrEqual(350000);
+  }, 30000);
+
+  it("deux dépenses ordinaires concurrentes ne peuvent pas vider deux fois la caisse", async () => {
+    const context = await seed("cash-ordinary-pair", 500000);
+    const results = await Promise.allSettled([expense(context, 350000, "emulator-ordinary-a"), expense(context, 300000, "emulator-ordinary-b")]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const recorded = await db.collection("expenses").where("schoolId", "==", context.schoolId).get();
+    expect(recorded.size).toBe(1);
+    expect(Number(recorded.docs[0].data().amount)).toBeLessThanOrEqual(350000);
+  }, 30000);
+
+  it("une prime et une avance concurrentes partagent le même verrou", async () => {
+    const context = await seed("cash-bonus-advance", 500000);
+    const results = await Promise.allSettled([payroll(context, 350000, "emulator-bonus-a", "bonus"), payroll(context, 300000, "emulator-advance-b", "advance")]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const [payments, expenses] = await Promise.all([
+      db.collection("personnelPayments").where("schoolId", "==", context.schoolId).get(),
+      db.collection("expenses").where("schoolId", "==", context.schoolId).get(),
+    ]);
+    expect(payments.size).toBe(1);
+    expect(expenses.size).toBe(1);
   }, 30000);
 });

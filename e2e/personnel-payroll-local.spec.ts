@@ -470,6 +470,70 @@ test.describe("paie et personnel — navigateur local isolé", () => {
     } finally { await context.close(); }
   });
 
+  test("la dépense ordinaire affiche la caisse, bloque le dépassement et revalide après concurrence", async ({ browser }) => {
+    const [receipts, priorExpenses] = await Promise.all([
+      db.collection("payments").where("schoolId", "==", schoolId).get(), db.collection("expenses").where("schoolId", "==", schoolId).get(),
+    ]);
+    const available = receipts.docs.reduce((sum, item) => sum + Number(item.data().amount || 0), 0)
+      - priorExpenses.docs.reduce((sum, item) => sum + Number(item.data().amount || 0), 0);
+    if (available < 60000) await db.doc(`payments/${schoolId}-ordinary-fixture`).set({ schoolId, schoolYearId: yearId, currency: "CDF", amount: 60000 - available });
+    if (available > 60000) await db.doc(`expenses/${schoolId}-ordinary-fixture`).set({ schoolId, schoolYearId: yearId, currency: "CDF", amount: available - 60000 });
+    const { context, remoteRequests, authStatuses, authCodes, authProjects, firestoreProjects } = await isolatedContext(browser);
+    try {
+      const page = await context.newPage();
+      await login(page, accounts.cashier, authStatuses, authCodes, remoteRequests, authProjects, firestoreProjects);
+      await page.getByRole("button", { name: "Contrôle", exact: true }).click();
+      await page.getByRole("button", { name: "Enregistrer", exact: true }).click();
+      const drawer = page.getByRole("dialog", { name: "Enregistrer" });
+      await drawer.getByLabel("Type d'enregistrement").selectOption("expense");
+      const cash = drawer.getByLabel("Solde de caisse");
+      await expect(cash).toContainText(/60\s*000/);
+      await drawer.getByPlaceholder("Montant").fill("70000");
+      await expect(cash.getByRole("alert")).toContainText("solde de caisse insuffisant");
+      await expect(drawer.getByRole("button", { name: "Enregistrer", exact: true })).toBeDisabled();
+      for (const width of [1440, 768, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        const box = await cash.boundingBox();
+        expect(box && box.x >= -1 && box.x + box.width <= width + 1).toBe(true);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width + 1);
+      }
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await drawer.getByPlaceholder("Montant").fill("20000");
+      await drawer.getByPlaceholder("Écrivez la description").fill("Fournitures fictives");
+      await drawer.getByPlaceholder("Bénéficiaire / fournisseur").fill("Fournisseur fictif");
+      await drawer.getByPlaceholder("Mode de paiement").fill("Espèces");
+      await db.doc(`expenses/${schoolId}-ordinary-concurrent`).set({ schoolId, schoolYearId: yearId, currency: "CDF", amount: 30000 });
+      await drawer.getByRole("button", { name: "Enregistrer", exact: true }).click();
+      await expect(drawer.getByRole("alert")).toContainText("solde de caisse a changé");
+      await expect(cash).toContainText(/30\s*000/);
+      await drawer.getByRole("button", { name: "Enregistrer", exact: true }).click();
+      await expect(drawer).toBeHidden();
+      const recorded = (await db.collection("expenses").where("schoolId", "==", schoolId).get()).docs.find((item) => item.data().description === "Fournitures fictives" && item.data().amount === 20000);
+      expect(recorded).toBeTruthy();
+      const administrator = await isolatedContext(browser);
+      try {
+        const adminPage = await administrator.context.newPage();
+        await login(adminPage, accounts.admin, administrator.authStatuses, administrator.authCodes, administrator.remoteRequests, administrator.authProjects, administrator.firestoreProjects);
+        const correction = await adminPage.evaluate(async ({ schoolYearId, expenseId, requestId }) => {
+          const modulePath = "/src/services/auth.ts";
+          const { getCurrentFirebaseIdToken } = await import(modulePath);
+          const token = await getCurrentFirebaseIdToken();
+          const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+          const balanceResponse = await fetch("/api/manage-financial-transaction", { method: "POST", headers, body: JSON.stringify({ action: "list-cash-balance", schoolYearId }) });
+          const balance = await balanceResponse.json() as { availableCents?: number };
+          const updateResponse = await fetch("/api/manage-financial-transaction", { method: "POST", headers, body: JSON.stringify({
+            action: "update-expense", transactionId: expenseId, amount: 50000, category: "Fournitures", description: "Correction fictive",
+            reason: "Contrôle du solde", clientRequestId: requestId,
+          }) });
+          return { balanceStatus: balanceResponse.status, availableCents: balance.availableCents, updateStatus: updateResponse.status };
+        }, { schoolYearId: yearId, expenseId: recorded!.id, requestId: `e2e-admin-overdraft-${suffix}` });
+        expect(correction).toEqual({ balanceStatus: 200, availableCents: 1000000, updateStatus: 409 });
+        expect(administrator.remoteRequests).toEqual([]);
+      } finally { await administrator.context.close(); }
+      expect(remoteRequests).toEqual([]);
+    } finally { await context.close(); }
+  });
+
   test("L'historique paie permet le PDF et réserve la correction confirmée à l'Administrateur", async ({ browser }) => {
     const paymentId = `e2e-correction-${suffix}`;
     const expenseId = `e2e-correction-expense-${suffix}`;

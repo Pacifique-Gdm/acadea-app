@@ -16,7 +16,7 @@ describe("cohérence visuelle des boutons", () => {
     expect(control).toContain("|| !expenseBeneficiary.trim()");
     expect(control).toContain("|| !expensePaymentMethod.trim()");
     expect(control).toContain("disabled={isPaymentEntryDisabled || paymentSubmitting}");
-    expect(control.match(/disabled=\{isExpenseEntryIncomplete \|\| expenseSubmitting\}/g)).toHaveLength(2);
+    expect(control.match(/disabled=\{isExpenseEntryIncomplete \|\| expenseSubmitting \|\| expenseCashLoading \|\| !expenseCashBalance \|\| expenseCashInsufficient\}/g)).toHaveLength(2);
   });
 
   it("utilise le style et l'icône partagés pour les sept boutons Exporter PDF", () => {

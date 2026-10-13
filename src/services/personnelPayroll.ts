@@ -30,14 +30,17 @@ async function request(body: Record<string, unknown>) {
   return payload;
 }
 
-export async function loadPayrollCashBalance(schoolYearId: string): Promise<PayrollCashBalance> {
-  const result = await request({ action: "list-payroll-cash-balance", schoolYearId });
+async function loadCashBalanceForAction(schoolYearId: string, action: string): Promise<PayrollCashBalance> {
+  const result = await request({ action, schoolYearId });
   if (!result.schoolId || result.schoolYearId !== schoolYearId || !result.currency || typeof result.availableCents !== "number" || !Number.isSafeInteger(result.availableCents)
     || typeof result.receivedCents !== "number" || !Number.isSafeInteger(result.receivedCents)
     || typeof result.spentCents !== "number" || !Number.isSafeInteger(result.spentCents)) throw new Error("Solde de caisse incomplet.");
   return { schoolId: result.schoolId, schoolYearId, currency: result.currency, availableCents: result.availableCents,
     receivedCents: result.receivedCents, spentCents: result.spentCents };
 }
+
+export const loadPayrollCashBalance = (schoolYearId: string) => loadCashBalanceForAction(schoolYearId, "list-payroll-cash-balance");
+export const loadExpenseCashBalance = (schoolYearId: string) => loadCashBalanceForAction(schoolYearId, "list-cash-balance");
 
 export async function listPayrollPersonnel() {
   const result = await request({ action: "list-payroll-personnel" });
