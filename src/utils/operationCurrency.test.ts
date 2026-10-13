@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatRecordedOperation, formatRecordedTotals, totalsByRecordedCurrency } from "./operationCurrency";
+import { formatRecordedOperation, formatRecordedTotals, hasCurrencyOutside, totalsByRecordedCurrency } from "./operationCurrency";
 
 describe("devises enregistrées des opérations", () => {
   it("garde les montants CDF et USD séparés après un changement de devise par défaut", () => {
@@ -12,5 +12,11 @@ describe("devises enregistrées des opérations", () => {
     const totals = totalsByRecordedCurrency([{ amount: 100 }]);
     expect(totals).toEqual({ CDF: 0, USD: 0, unknownCount: 1 });
     expect(formatRecordedOperation({ amount: 100 })).toBe("Devise historique inconnue");
+  });
+
+  it("débloque la synthèse seulement après résolution probante de la dépense liée", () => {
+    expect(hasCurrencyOutside([{ amount: 100, currency: "USD" }, { amount: 25 }], "USD")).toBe(true);
+    expect(hasCurrencyOutside([{ amount: 100, currency: "USD" }, { amount: 25, currency: "USD" }], "USD")).toBe(false);
+    expect(hasCurrencyOutside([{ amount: 100, currency: "USD" }, { amount: 25, currency: "CDF" }], "USD")).toBe(true);
   });
 });

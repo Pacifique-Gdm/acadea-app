@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Download } from "lucide-react";
+import { useResolvedExpenseCurrencies } from "../../hooks/useResolvedExpenseCurrencies";
 import { Field, FormPanel, Metric } from "../../components/ui";
 import { exportReportPdf } from "../../utils/reportPdf";
 import { formatCurrencyMoney, resolveSchoolYearCurrency } from "../../utils/currency";
@@ -24,6 +25,7 @@ type ReportsModuleProps = {
 };
 
 export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
+  const resolvedExpenses = useResolvedExpenseCurrencies(yearData.expenses);
   const today = new Date().toISOString().slice(0, 10);
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
@@ -43,7 +45,7 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
   const payments = yearData.payments.filter((payment) => payment.paidAt >= startDate && payment.paidAt <= endDate && filteredStudentIds.has(payment.studentId));
   const arrearsPayments = yearData.payments.filter((payment) => payment.collectionSchoolYearId === year.id && payment.paidAt >= startDate && payment.paidAt <= endDate && filteredStudentIds.has(payment.currentStudentId ?? ""));
   const arrearsByCurrency = (["USD", "CDF"] as const).map((currency) => ({ currency, amount: arrearsPayments.filter((payment) => payment.currency === currency).reduce((total, payment) => total + payment.amount, 0) })).filter((group) => group.amount > 0);
-  const expenses = yearData.expenses.filter((expense) => expense.spentAt >= startDate && expense.spentAt <= endDate);
+  const expenses = resolvedExpenses.filter((expense) => expense.spentAt >= startDate && expense.spentAt <= endDate);
   const paidTotals = totalsByRecordedCurrency(payments);
   const spentTotals = totalsByRecordedCurrency(expenses);
   const hasUnknownCurrency = paidTotals.unknownCount + spentTotals.unknownCount

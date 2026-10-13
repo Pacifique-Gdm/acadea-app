@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Banknote, BarChart3, BookOpen, Download, GraduationCap, ShieldCheck, UserRound, UsersRound } from "lucide-react";
 import { FormPanel, Metric } from "../../components/ui";
+import { useResolvedExpenseCurrencies } from "../../hooks/useResolvedExpenseCurrencies";
 import type { CoordinationDashboardReadModel } from "../../services/coordinationReadModel";
 import type { AppUser, Coordination, School, SchoolSection } from "../../types";
 import { buildDashboardTransactionDayRows } from "../../utils/dashboardStats";
@@ -59,6 +60,8 @@ export function CoordinationDashboard({
   const [dateFilterActive, setDateFilterActive] = useState(false);
   const [dateFilterError, setDateFilterError] = useState("");
   const [transactionPeriod, setTransactionPeriod] = useState<TransactionPeriod>("last5");
+  const resolvedExpenses = useResolvedExpenseCurrencies(model.expenses);
+  const financialModel = useMemo(() => ({ ...model, expenses: resolvedExpenses }), [model, resolvedExpenses]);
   const scopedSchools = useMemo(() => selectedSchoolId ? schools.filter((school) => school.id === selectedSchoolId) : schools, [schools, selectedSchoolId]);
 
   const sectionChoices = useMemo(() => [...new Set(scopedSchools.flatMap((school) => getSchoolSections(school)))], [scopedSchools]);
@@ -66,17 +69,17 @@ export function CoordinationDashboard({
     if (sectionFilter !== "all" && !sectionChoices.includes(sectionFilter)) setSectionFilter("all");
   }, [sectionChoices, sectionFilter]);
 
-  const stats = useMemo(() => buildCoordinationDashboardStats(scopedSchools, model, {
+  const stats = useMemo(() => buildCoordinationDashboardStats(scopedSchools, financialModel, {
     referenceSchoolYear: coordination.referenceSchoolYear,
     section: sectionFilter,
     dateFilterActive,
     startDate,
     endDate,
-  }), [coordination.referenceSchoolYear, dateFilterActive, endDate, model, scopedSchools, sectionFilter, startDate]);
-  const transactionScope = useMemo(() => buildCoordinationDashboardStats(scopedSchools, model, {
+  }), [coordination.referenceSchoolYear, dateFilterActive, endDate, financialModel, scopedSchools, sectionFilter, startDate]);
+  const transactionScope = useMemo(() => buildCoordinationDashboardStats(scopedSchools, financialModel, {
     referenceSchoolYear: coordination.referenceSchoolYear,
     section: sectionFilter,
-  }), [coordination.referenceSchoolYear, model, scopedSchools, sectionFilter]);
+  }), [coordination.referenceSchoolYear, financialModel, scopedSchools, sectionFilter]);
   const schoolById = useMemo(() => new Map(scopedSchools.map((school) => [school.id, school])), [scopedSchools]);
   const hasUnknownFinancialCurrency = stats.financialGroups.some((group) => (group.unknownCurrencyCount ?? 0) > 0)
     || model.payments.some((payment) => payment.collectionSchoolYearId && stats.alignedSchoolIds.includes(payment.schoolId)

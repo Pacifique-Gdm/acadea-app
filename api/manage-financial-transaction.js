@@ -6,6 +6,7 @@ import { listPersonnelPayrollHistory } from "./_lib/personnelPayrollHistory.js";
 import { requireActiveCoordinationActor } from "./_lib/coordination.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { CashBalanceError } from "./_lib/cashBalance.js";
+import { listResolvedExpenseCurrencies } from "./_lib/expenseCurrencyResolution.js";
 
 function parseJsonBody(raw) {
   try { const parsed = JSON.parse(raw || "{}"); if (parsed && typeof parsed === "object") return parsed; }
@@ -50,6 +51,15 @@ export default async function handler(req, res) {
     const caller = await verifyActorIdToken(auth, token);
     const body = await readBody(req);
     const requestedAction = typeof body.action === "string" ? body.action : "";
+    if (requestedAction === "list-resolved-expense-currencies") {
+      const actor = ["coordination_admin", "sub_coordination_admin"].includes(caller.role)
+        ? await requireActiveCoordinationActor(auth, db, token)
+        : await requireActiveApiUser(db, caller);
+      await enforceApiRateLimit({ db, actorId: caller.uid,
+        schoolId: String(actor.schoolId ?? actor.coordinationId ?? ""),
+        action: "finance.list-resolved-expense-currencies", ...API_RATE_LIMITS.FINANCE_MUTATE });
+      return sendJson(res, 200, await listResolvedExpenseCurrencies({ db, caller: actor, body }));
+    }
     if (requestedAction === "list-payroll-history") {
       const actor = ["coordination_admin", "sub_coordination_admin"].includes(caller.role)
         ? await requireActiveCoordinationActor(auth, db, token)
