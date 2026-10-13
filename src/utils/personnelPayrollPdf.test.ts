@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PersonnelPayment } from "../types";
+import { formatCurrencyMoney } from "./currency";
 import { personnelPaymentPdfSections } from "./personnelPayrollPdf";
 
 const salary: PersonnelPayment = {
@@ -29,5 +30,11 @@ describe("bulletin de paie", () => {
     expect(section.match(/class="info-box"/g)).toHaveLength(8);
     expect(section.match(/class="info-grid"/g)).toHaveLength(1);
     expect(personnelPaymentPdfSections(salary)).toHaveLength(3);
+  });
+  it("n'affiche pas une retenue négative lorsque sa valeur est nulle", () => {
+    const sections = personnelPaymentPdfSections({ ...salary, recoveredAmount: 0, recoveries: [], deduction: 0, cnss: 0, tax: 0 });
+    expect(sections.join(" ")).not.toContain("−0,00 FC");
+    expect(sections.join(" ")).toContain("0,00 FC");
+    expect(personnelPaymentPdfSections(salary).join(" ")).toContain(`−${formatCurrencyMoney(80000, "CDF")}`);
   });
 });
