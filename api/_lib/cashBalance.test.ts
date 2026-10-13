@@ -151,6 +151,14 @@ describe("caisse annuelle — contrôle serveur", () => {
     await expect(payroll(unavailable, 100000, "cash-unavailable01")).rejects.toMatchObject({ code: "cash-balance-unavailable" });
   });
 
+  it("laisse remonter un ABORTED Firestore pour que la transaction soit réessayée", async () => {
+    const aborted = Object.assign(new Error("transaction aborted"), { code: 10 });
+    const db = seeded();
+    const reader = { get: async () => { throw aborted; } };
+    await expect(readCashBalance({ db, reader, schoolId: "school-a", schoolYearId: "year-a", currency: "CDF", yearCurrency: "CDF" }))
+      .rejects.toBe(aborted);
+  });
+
   it("contrôle le net réel après CNSS, impôt, retenue et récupération d'avance", async () => {
     const db = seeded(500000);
     const advance = await payroll(db, 100000, "cash-advance-0001", { kind: "advance", periodMonth: undefined, periodYear: undefined });
