@@ -7,14 +7,22 @@ class FakeDb {
   queue = Promise.resolve();
   doc(path: string) { return { path, id: path.split("/").at(-1), get: async () => this.snapshot(path) }; }
   snapshot(path: string) { const value = this.values.get(path); return { id: path.split("/").at(-1), exists: Boolean(value), data: () => value }; }
-  collection(name: string) { return { where: (field: string, _operator: string, value: unknown) => ({ get: async () => ({ docs: [...this.values].filter(([path, data]) => path.startsWith(`${name}/`) && data[field] === value).map(([path, data]) => ({ id: path.split("/").at(-1), data: () => data })) }) }) }; }
-  runTransaction<T>(operation: (transaction: { get: (ref: { path: string }) => Promise<ReturnType<FakeDb["snapshot"]>>; create: (ref: { path: string }, value: Data) => void; update: (ref: { path: string }, value: Data) => void }) => Promise<T>) {
+  collection(name: string) {
+    const query = (filters: Array<[string, unknown]>): { where: (field: string, operator: string, value: unknown) => ReturnType<typeof query>; get: () => Promise<{ docs: Array<{ id: string | undefined; data: () => Data }> }> } => ({
+      where: (field, _operator, value) => query([...filters, [field, value]]),
+      get: async () => ({ docs: [...this.values].filter(([path, data]) => path.startsWith(`${name}/`) && filters.every(([field, value]) => data[field] === value))
+        .map(([path, data]) => ({ id: path.split("/").at(-1), data: () => data })) }),
+    });
+    return query([]);
+  }
+  runTransaction<T>(operation: (transaction: { get: (ref: { path: string } | { get: () => Promise<unknown> }) => Promise<unknown>; create: (ref: { path: string }, value: Data) => void; update: (ref: { path: string }, value: Data) => void; set: (ref: { path: string }, value: Data) => void }) => Promise<T>) {
     const run = async () => {
       const writes: Array<() => void> = [];
       const result = await operation({
-        get: async (ref) => this.snapshot(ref.path),
+        get: async (ref) => "path" in ref ? this.snapshot(ref.path) : ref.get(),
         create: (ref, value) => writes.push(() => { if (this.values.has(ref.path)) throw new Error("already exists"); this.values.set(ref.path, value); }),
         update: (ref, value) => writes.push(() => { const prior = this.values.get(ref.path); if (!prior) throw new Error("not found"); this.values.set(ref.path, { ...prior, ...value }); }),
+        set: (ref, value) => writes.push(() => this.values.set(ref.path, { ...this.values.get(ref.path), ...value })),
       });
       writes.forEach((write) => write());
       return result;
@@ -34,6 +42,7 @@ function seeded() {
   db.values.set("schoolYears/year-a", { schoolId: "school-a", status: "active", currency: "CDF" });
   db.values.set("users/cashier-a", { role: "cashier", schoolId: "school-a", name: "Caissier A" });
   db.values.set("personnelProfiles/worker-a", { kind: "service", schoolId: "school-a", name: "Vigile A", jobTitle: "Vigile" });
+  db.values.set("payments/receipt-a", { id: "receipt-a", schoolId: "school-a", schoolYearId: "year-a", currency: "CDF", amount: 10000 });
   return db;
 }
 async function write(db: FakeDb, changes: Data, id: string) {

@@ -3,6 +3,7 @@ import { FinancialApiError } from "./financialTransactions.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { payrollWritesSuspended } from "./payrollRollbackMode.js";
 import { FieldValue } from "firebase-admin/firestore";
+import { protectCashMutation, readCashBalance } from "./cashBalance.js";
 
 const STAFF_ROLES = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]);
 const WRITE_KEYS = new Set(["action", "schoolYearId", "beneficiaryId", "kind", "periodMonth", "periodYear", "paidAt", "amount", "recoveries", "deduction", "deductionReason", "cnss", "tax", "description", "clientRequestId"]);
@@ -48,6 +49,21 @@ async function readBeneficiary(reader, db, schoolId, beneficiaryId, requireActiv
 export async function listPayroll({ db, caller, body }) {
   assertReader(caller);
   const action = field(body.action, 80);
+  if (action === "list-payroll-cash-balance" || action === "list-cash-balance") {
+    if (action === "list-payroll-cash-balance" ? caller.role !== "cashier" : !["cashier", "school_admin"].includes(caller.role)) invalid("Consultation de caisse interdite.", "permission-denied", 403);
+    const schoolYearId = field(body.schoolYearId, 150);
+    if (!/^[\w-]{1,150}$/.test(schoolYearId)) invalid("Année scolaire invalide.");
+    return db.runTransaction(async (transaction) => {
+      const [school, year, actor] = await Promise.all([
+        transaction.get(db.doc(`schools/${caller.schoolId}`)), transaction.get(db.doc(`schoolYears/${schoolYearId}`)), transaction.get(db.doc(`users/${caller.uid}`)),
+      ]);
+      if (!school.exists || ["inactive", "deleting", "suspended"].includes(school.data()?.status)
+        || !year.exists || year.data()?.schoolId !== caller.schoolId || year.data()?.status === "archived") invalid("Caisse indisponible.", "failed-precondition", 409);
+      if (!actor.exists || actor.data()?.role !== caller.role || actor.data()?.schoolId !== caller.schoolId || actor.data()?.status === "inactive" || actor.data()?.active === false) invalid("Consultation de caisse interdite.", "permission-denied", 403);
+      const currency = year.data()?.currency === "CDF" || year.data()?.currency === "USD" ? year.data().currency : school.data()?.currency === "CDF" ? "CDF" : "USD";
+      return readCashBalance({ db, reader: transaction, schoolId: caller.schoolId, schoolYearId, currency, yearCurrency: currency });
+    });
+  }
   if (action === "list-payroll-personnel") {
     if (caller.role !== "cashier") invalid("Opération réservée au Caissier.", "permission-denied", 403);
     const [users, service] = await Promise.all([
@@ -126,6 +142,7 @@ export async function createPersonnelPayment({ db, caller, body, now = new Date(
     const recoveryCents = recoveryLines.reduce((total, line) => total + line.recoveredCents, 0);
     const netCents = grossCents - recoveryCents - deductionCents - cnssCents - taxCents;
     if (netCents <= 0) invalid("Déductions supérieures ou égales au montant payable.");
+    await protectCashMutation({ db, transaction, schoolId: caller.schoolId, schoolYearId, currency, yearCurrency: currency, deltaCents: -netCents, now });
     const reference = `PAY-${hash.slice(0, 12).toUpperCase()}`;
     const payment = {
       id: paymentRef.id, schoolId: caller.schoolId, schoolYearId, beneficiaryId, beneficiaryName: beneficiary.name,
@@ -138,7 +155,7 @@ export async function createPersonnelPayment({ db, caller, body, now = new Date(
       description, expenseId: expenseRef.id, createdAt: now, createdBy: caller.uid,
     };
     const expense = {
-      id: expenseRef.id, schoolId: caller.schoolId, schoolYearId, amount: netCents / 100,
+      id: expenseRef.id, schoolId: caller.schoolId, schoolYearId, currency, amount: netCents / 100,
       category: kind === "salary" ? "Salaire" : "Autre",
       description: `${kind === "salary" ? "Salaire" : kind === "bonus" ? "Prime" : "Avance sur salaire"} — ${beneficiary.name}${description ? ` — ${description}` : ""}`,
       beneficiary: beneficiary.name, paymentMethod: "Paiement personnel", reference, spentAt: paidAt,
@@ -231,6 +248,13 @@ export async function updatePersonnelPayment({ db, caller, body, now = new Date(
     const auditId = `audit_payroll_edit_${hash.slice(0, 24)}`;
     const payment = { ...current, id: paymentId, amount: nextCents / 100, deduction: deductionCents / 100, deductionReason, cnss: cnssCents / 100, tax: taxCents / 100, description, paidAt,
       ...(current.kind === "advance" ? {} : { periodMonth, periodYear }), netPaid: netCents / 100, updatedAt: now, updatedBy: caller.uid, correctionReason: reason };
+    const yearCurrency = yearSnapshot.data()?.currency === "CDF" || yearSnapshot.data()?.currency === "USD" ? yearSnapshot.data().currency : schoolSnapshot.data()?.currency === "CDF" ? "CDF" : "USD";
+    if (current.currency !== "CDF" && current.currency !== "USD") invalid("Devise historique inconnue : correction bloquée jusqu'à réconciliation.", "currency-reconciliation-required", 409);
+    const currency = current.currency;
+    // A legacy linked expense inherits only its immutable payroll record's currency,
+    // never the mutable currency currently configured on the school year.
+    if (expense.currency && expense.currency !== currency) invalid("Devise de la dépense liée incohérente : correction bloquée.", "conflict", 409);
+    await protectCashMutation({ db, transaction, schoolId: caller.schoolId, schoolYearId: current.schoolYearId, currency, yearCurrency, deltaCents: cents(current.netPaid) - netCents, now });
     transaction.update(paymentRef, { amount: payment.amount, deduction: payment.deduction, deductionReason, cnss: payment.cnss, tax: payment.tax, description, paidAt,
       ...(current.kind === "advance" ? {} : { periodMonth, periodYear }), netPaid: payment.netPaid, updatedAt: now, updatedBy: caller.uid, correctionReason: reason });
     transaction.update(expenseRef, { amount: payment.netPaid, spentAt: paidAt,

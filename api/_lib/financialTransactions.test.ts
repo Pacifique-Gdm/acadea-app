@@ -36,12 +36,21 @@ describe("dépenses ordinaires pendant le verrou de paie", () => {
       ["schools/school-a", { status: "active" }],
       ["schoolYears/year-a", { schoolId: "school-a", status: "active" }],
       ["users/admin-a", { role: "school_admin", schoolId: "school-a", status: "active" }],
-      ["expenses/ordinary-a", { id: "ordinary-a", schoolId: "school-a", schoolYearId: "year-a", amount: 10, category: "Fournitures", description: "Papier" }],
-      ["expenses/payroll-a", { id: "payroll-a", schoolId: "school-a", schoolYearId: "year-a", amount: 50, personnelPaymentId: "payment-a" }],
+      ["payments/receipt-a", { schoolId: "school-a", schoolYearId: "year-a", amount: 100, currency: "USD" }],
+      ["expenses/ordinary-a", { id: "ordinary-a", schoolId: "school-a", schoolYearId: "year-a", amount: 10, currency: "USD", category: "Fournitures", description: "Papier" }],
+      ["expenses/payroll-a", { id: "payroll-a", schoolId: "school-a", schoolYearId: "year-a", amount: 50, currency: "USD", personnelPaymentId: "payment-a" }],
     ]);
     const snapshot = (path: string) => ({ exists: values.has(path), data: () => values.get(path) });
     const db = {
       doc: (path: string) => ({ path }),
+      collection: (name: string) => {
+        const query = (filters: Array<[string, unknown]>): { where: (field: string, operator: string, value: unknown) => ReturnType<typeof query>; get: () => Promise<{ docs: Array<{ id: string | undefined; data: () => Record<string, unknown> }> }> } => ({
+          where: (field, _operator, value) => query([...filters, [field, value]]),
+          get: async () => ({ docs: [...values].filter(([path, data]) => path.startsWith(`${name}/`) && filters.every(([field, value]) => data[field] === value))
+            .map(([path, data]) => ({ id: path.split("/").at(-1), data: () => data })) }),
+        });
+        return query([]);
+      },
       runTransaction: async (operation: (transaction: {
         get: (ref: { path: string }) => Promise<ReturnType<typeof snapshot>>;
         set: (ref: { path: string }, value: Record<string, unknown>) => void;
@@ -51,7 +60,7 @@ describe("dépenses ordinaires pendant le verrou de paie", () => {
       }) => Promise<unknown>) => {
         const writes: Array<() => void> = [];
         const result = await operation({
-          get: async (ref) => snapshot(ref.path),
+          get: async (ref) => "path" in ref ? snapshot(ref.path) : ref.get(),
           set: (ref, value) => writes.push(() => values.set(ref.path, value)),
           update: (ref, value) => writes.push(() => values.set(ref.path, { ...values.get(ref.path), ...value })),
           delete: (ref) => writes.push(() => values.delete(ref.path)),

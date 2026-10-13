@@ -69,6 +69,8 @@ describe("écritures financières réservées au serveur", () => {
   it("interdit les compteurs et clés d'idempotence au client", async () => {
     await assertFails(setDoc(doc(db("school_admin"), "financialCounters", "counter-a"), { lastReceiptNumber: 999 }));
     await assertFails(setDoc(doc(db("cashier"), "financialIdempotency", "request-a"), { result: {} }));
+    await assertFails(setDoc(doc(db("cashier"), "financialCashLocks", "cash-a"), { schoolId: "school-a", currency: "CDF" }));
+    await assertFails(getDoc(doc(db("cashier"), "financialCashLocks", "cash-a")));
   });
   it("réserve paie, récupérations et verrous de personnel à l'API serveur", async () => {
     for (const role of ["school_admin", "cashier", "teacher"]) {

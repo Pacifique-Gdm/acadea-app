@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Expense, Payment, School, SchoolYear } from "../types";
+import type { Expense, Payment } from "../types";
 import { controlHistoryCurrency, defaultControlHistoryDate, matchesControlHistory } from "./coordinationControlHistory";
 describe("Historique Contrôle — filtres export et écran", () => {
   it("préremplit les deux bornes avec le jour local métier", () => {
@@ -18,10 +18,8 @@ describe("Historique Contrôle — filtres export et écran", () => {
     expect(matchesControlHistory(operation("b", "2026-10-04"), filters)).toBe(false);
     expect(matchesControlHistory(operation("b", "2026-09-30"), filters)).toBe(false);
   });
-  it("privilégie la devise enregistrée puis celle de l'année, sans conversion", () => {
-    const schools = [{ id: "b", currency: "USD" }] as School[];
-    const years = [{ id: "old", schoolId: "b", currency: "CDF" }] as SchoolYear[];
-    expect(controlHistoryCurrency({ schoolId: "b", schoolYearId: "old" } as Payment, schools, years)).toBe("CDF");
-    expect(controlHistoryCurrency({ schoolId: "b", schoolYearId: "old", currency: "USD" } as Payment, schools, years)).toBe("USD");
+  it("n'attribue pas la devise courante à une opération historique sans devise", () => {
+    expect(controlHistoryCurrency({ schoolId: "b", schoolYearId: "old" } as Payment)).toBeNull();
+    expect(controlHistoryCurrency({ schoolId: "b", schoolYearId: "old", currency: "USD" } as Payment)).toBe("USD");
   });
 });

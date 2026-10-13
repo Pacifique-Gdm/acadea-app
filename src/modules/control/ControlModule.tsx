@@ -2,6 +2,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Bell, Download, Edit3, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { AdminDrawer, Field, FormPanel, Metric, MoneyInput, SectionTitle } from "../../components/ui";
 import { PersonnelPaymentForm } from "../../components/personnel/PersonnelPaymentForm";
+import { loadExpenseCashBalance, type PayrollCashBalance } from "../../services/personnelPayroll";
 import { PersonnelPayrollHistory } from "../../components/personnel/PersonnelPayrollHistory";
 import { printPersonnelPaymentPdf } from "../../utils/personnelPayrollPdf";
 import { usePaginatedControlHistory } from "../../hooks/usePaginatedControlHistory";
@@ -20,7 +21,7 @@ import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
 import { feeAppliesToStudent } from "../../utils/feeTargets";
 import { buildControlClassChoices, buildControlFeeGroups, feeNamesForWarningClass, getControlClassKey, selectPaymentWarningRecipients } from "../../utils/controlFilters";
 import { formatStudentClassName } from "../../utils/studentClasses";
-import { formatCurrencyMoney, formatSchoolMoney } from "../../utils/currency";
+import { formatCurrencyMoney, formatSchoolMoney, resolveSchoolYearCurrency } from "../../utils/currency";
 import { resolveSchoolCurrency } from "../../utils/currency";
 import { formatCount } from "../../utils/numberFormat";
 import { controlArrearsPdfSections } from "../../utils/controlArrearsPdf";
@@ -71,6 +72,9 @@ export function ControlModule({
   const [expensePaymentMethod, setExpensePaymentMethod] = useState("");
   const [expenseReference, setExpenseReference] = useState("");
   const [expenseError, setExpenseError] = useState("");
+  const [expenseCashBalance, setExpenseCashBalance] = useState<PayrollCashBalance>();
+  const [expenseCashLoading, setExpenseCashLoading] = useState(true);
+  const [expenseCashError, setExpenseCashError] = useState("");
   const [amountComparator, setAmountComparator] = useState("");
   const [amountThreshold, setAmountThreshold] = useState("");
   const deferredAmountComparator = useDeferredValue(amountComparator);
@@ -210,6 +214,20 @@ export function ControlModule({
   const canPay = user.role === "cashier" && !isArchivedContext;
   const canCorrectPayments = user.role === "school_admin" && !isArchivedContext;
   const canManageExpenses = user.role === "school_admin" && !isArchivedContext;
+  const expenseCurrency = resolveSchoolYearCurrency(year, school);
+  useEffect(() => {
+    if (isArchivedContext || user.role === "cashier" && cashierControlDrawer !== "expense"
+      || user.role === "school_admin" && !expenseEditTarget || !["school_admin", "cashier"].includes(user.role)) return;
+    let active = true;
+    setExpenseCashBalance(undefined); setExpenseCashLoading(true); setExpenseCashError("");
+    void loadExpenseCashBalance(year.id).then((balance) => {
+      if (!active) return;
+      if (balance.schoolId !== school.id || balance.schoolYearId !== year.id || balance.currency !== expenseCurrency) throw new Error("La caisse ne correspond pas à cet établissement ou à cette devise.");
+      setExpenseCashBalance(balance);
+    }).catch((cause) => { if (active) setExpenseCashError(cause instanceof Error ? cause.message : "Solde de caisse indisponible."); })
+      .finally(() => { if (active) setExpenseCashLoading(false); });
+    return () => { active = false; };
+  }, [cashierControlDrawer, expenseCurrency, expenseEditTarget, isArchivedContext, school.id, user.role, year.id]);
   const selectedPaymentStudent = controlIndexes.studentsById.get(studentId);
   const payableFeeTypes = selectedPaymentStudent ? controlIndexes.applicableFeeTypesByStudentId.get(selectedPaymentStudent.id) ?? [] : [];
   const selectedFeeTypeValue = payableFeeTypes.some((fee) => fee.id === feeTypeId) || paymentArrears.some((debt) => debt.feeTypeId === feeTypeId)
@@ -250,6 +268,12 @@ export function ControlModule({
     return () => { cancelled = true; };
   }, [selectedHistoryStudentId, year.id, year.status]);
   const expenseAmountValue = Number(expenseAmount);
+  const expenseDebitCents = Math.round(expenseAmountValue * 100);
+  const expenseCashInsufficient = expenseCashBalance !== undefined && Number.isFinite(expenseDebitCents)
+    && expenseDebitCents > 0 && (expenseCashBalance.availableCents < 0 || expenseDebitCents > expenseCashBalance.availableCents);
+  const expenseEditDeltaCents = expenseEditTarget ? Math.round((Number(expenseEditAmount) - expenseEditTarget.amount) * 100) : 0;
+  const expenseEditCashInsufficient = expenseCashBalance !== undefined && expenseEditDeltaCents > 0
+    && (expenseCashBalance.availableCents < 0 || expenseEditDeltaCents > expenseCashBalance.availableCents);
   const isExpenseEntryIncomplete = !expenseCategory.trim()
     || !expenseAmount.trim()
     || !Number.isFinite(expenseAmountValue)
@@ -395,6 +419,34 @@ export function ControlModule({
     return formatSchoolMoney(value, school);
   }
 
+  function renderExpenseCashBalance(debitCents: number, label = "Montant à décaisser") {
+    const balance = expenseCashBalance;
+    const format = (cents: number) => formatCurrencyMoney(cents / 100, balance?.currency ?? "CDF");
+    return <section aria-label="Solde de caisse" className="grid min-w-0 gap-1 rounded border border-slate-200 bg-slate-50 p-3 text-sm">
+      {expenseCashLoading ? <p role="status">Chargement du solde disponible…</p> : expenseCashError ? <p role="alert" className="text-red-700">{expenseCashError}</p> : balance ? <>
+        <p>Solde disponible : <strong>{format(balance.availableCents)}</strong></p>
+        <p>{label} : <strong>{format(Math.max(0, debitCents))}</strong></p>
+        <p>Solde après opération : <strong>{format(balance.availableCents - Math.max(0, debitCents))}</strong></p>
+        {debitCents > 0 && (balance.availableCents < 0 || debitCents > balance.availableCents) && <p role="alert" className="rounded bg-red-50 p-2 text-red-700">Opération impossible : solde de caisse insuffisant. Solde disponible : {format(balance.availableCents)}. Montant demandé : {format(debitCents)}. Montant manquant : {format(Math.max(0, debitCents - balance.availableCents))}.</p>}
+      </> : <p role="alert" className="text-red-700">Solde de caisse indisponible : dépense bloquée.</p>}
+      <button type="button" className="secondary-button justify-center" disabled={expenseCashLoading} onClick={() => void refreshExpenseCashBalance().catch(() => {})}>Actualiser le solde</button>
+    </section>;
+  }
+
+  async function refreshExpenseCashBalance() {
+    setExpenseCashLoading(true);
+    try {
+      const balance = await loadExpenseCashBalance(year.id);
+      if (balance.schoolId !== school.id || balance.schoolYearId !== year.id || balance.currency !== expenseCurrency) throw new Error("La caisse ne correspond pas à cet établissement ou à cette devise.");
+      setExpenseCashBalance(balance); setExpenseCashError("");
+      return balance;
+    } catch (cause) {
+      setExpenseCashBalance(undefined);
+      setExpenseCashError(cause instanceof Error ? cause.message : "Solde de caisse indisponible.");
+      throw cause;
+    } finally { setExpenseCashLoading(false); }
+  }
+
   function formatPaymentDate(value: string) {
     return new Date(value).toLocaleDateString("fr-FR");
   }
@@ -504,6 +556,7 @@ export function ControlModule({
     try {
       const payment = await createPaymentTransaction({ schoolYearId: year.id, studentId, feeTypeId: selectedFeeTypeValue, ...(selectedPaymentDebt ? { debtSchoolYearId: selectedPaymentDebt.schoolYearId } : {}), amount: paymentAmount, note: trimmedNote || undefined, clientRequestId: requestId });
       paymentHistory.prependItem(payment);
+      void refreshExpenseCashBalance().catch(() => {});
       if (selectedPaymentDebt) {
         try {
           const refreshed = await loadStudentArrears({ schoolYearId: year.id, studentId });
@@ -561,12 +614,21 @@ export function ControlModule({
       setExpenseError("Le mode de paiement est obligatoire.");
       return;
     }
+    if (!expenseCashBalance || expenseCashLoading || expenseCashInsufficient) {
+      setExpenseError("Opération impossible : solde de caisse insuffisant ou indisponible.");
+      return;
+    }
     const signature = JSON.stringify([year.id, nextAmount, trimmedCategory, trimmedDescription, trimmedBeneficiary, trimmedPaymentMethod, trimmedReference]);
     const requestId = expenseAttemptRef.current?.signature === signature ? expenseAttemptRef.current.requestId : crypto.randomUUID();
     expenseAttemptRef.current = { signature, requestId };
     expenseSubmittingRef.current = true;
     setExpenseSubmitting(true);
     try {
+      const latest = await refreshExpenseCashBalance();
+      if (latest.availableCents !== expenseCashBalance.availableCents) {
+        setExpenseError("Le solde de caisse a changé. Vérifiez les nouveaux montants avant de confirmer à nouveau.");
+        return;
+      }
       const expense = await createExpenseTransaction({ schoolYearId: year.id, amount: nextAmount, category: trimmedCategory, description: trimmedDescription, beneficiary: trimmedBeneficiary, paymentMethod: trimmedPaymentMethod, reference: trimmedReference || undefined, clientRequestId: requestId });
       expenseHistory.prependItem(expense);
       expenseAttemptRef.current = null;
@@ -575,12 +637,14 @@ export function ControlModule({
       setExpenseBeneficiary("");
       setExpensePaymentMethod("");
       setExpenseReference("");
+      void refreshExpenseCashBalance().catch(() => {});
       if (user.role === "cashier") {
         setCashierControlFeedback("Dépense enregistrée avec succès.");
         setCashierControlFeedbackDrawer("expense");
       }
     } catch (error) {
       setExpenseError(error instanceof Error ? error.message : "Enregistrement de la dépense impossible.");
+      void refreshExpenseCashBalance().catch(() => {});
     } finally {
       expenseSubmittingRef.current = false;
       setExpenseSubmitting(false);
@@ -616,17 +680,30 @@ export function ControlModule({
       setExpenseEditError("Veuillez préciser la nature de cette dépense.");
       return;
     }
+    if (expenseEditDeltaCents > 0 && (!expenseCashBalance || expenseCashLoading || expenseEditCashInsufficient)) {
+      setExpenseEditError("Opération impossible : solde de caisse insuffisant ou indisponible.");
+      return;
+    }
     const nextDescription = expenseEditDescription.trim() || expenseEditCategory;
     const reason = prompt("Motif obligatoire de modification de la dépense");
     if (!reason?.trim()) return;
     financialMutationRef.current = expenseEditTarget.id;
     setFinancialMutationId(expenseEditTarget.id);
     try {
+      if (expenseEditDeltaCents > 0) {
+        const latest = await refreshExpenseCashBalance();
+        if (latest.availableCents !== expenseCashBalance?.availableCents) {
+          setExpenseEditError("Le solde de caisse a changé. Vérifiez les nouveaux montants avant de confirmer à nouveau.");
+          return;
+        }
+      }
       const updatedExpense = await updateExpenseTransaction({ transactionId: expenseEditTarget.id, amount: nextAmount, category: expenseEditCategory, description: nextDescription, reason: reason.trim(), clientRequestId: crypto.randomUUID() });
       expenseHistory.updateItem(updatedExpense);
+      void refreshExpenseCashBalance().catch(() => {});
       closeEditExpense();
     } catch (error) {
       setExpenseEditError(error instanceof Error ? error.message : "Modification de la dépense impossible.");
+      void refreshExpenseCashBalance().catch(() => {});
     } finally {
       financialMutationRef.current = "";
       setFinancialMutationId("");
@@ -642,6 +719,7 @@ export function ControlModule({
     try {
       await deleteFinancialTransaction({ kind: "expense", transactionId: expense.id, reason: reason.trim(), clientRequestId: crypto.randomUUID() });
       expenseHistory.removeItem(expense.id);
+      void refreshExpenseCashBalance().catch(() => {});
       setExpenseDeleteTarget(null);
     } catch (error) {
       alert(error instanceof Error ? error.message : "Suppression de la dépense impossible.");
@@ -1180,7 +1258,7 @@ export function ControlModule({
           {selectedHistoryArrearPayments.length > 0 && <div className="mt-3 grid gap-2">
             <h3 className="font-semibold">Règlements des arriérés encaissés cette année</h3>
             {selectedHistoryArrearPayments.map((payment) => <p key={payment.id} className="break-words rounded bg-white p-2 text-sm">
-              {payment.paidAt} · {payment.feeName ?? "Frais"} · {payment.debtSchoolYearName ?? payment.schoolYearId} · {formatCurrencyMoney(payment.amount, payment.currency ?? "USD")}
+              {payment.paidAt} · {payment.feeName ?? "Frais"} · {payment.debtSchoolYearName ?? payment.schoolYearId} · {payment.currency === "CDF" || payment.currency === "USD" ? formatCurrencyMoney(payment.amount, payment.currency) : "Devise historique inconnue"}
             </p>)}
           </div>}
         </div>
@@ -1406,8 +1484,9 @@ export function ControlModule({
               <option>Autres</option>
             </select>
             <MoneyInput value={expenseAmount} onChange={setExpenseAmount} />
+            {renderExpenseCashBalance(expenseDebitCents)}
             <textarea value={expenseDescription} onChange={(event) => setExpenseDescription(event.target.value)} className="input min-h-24" placeholder="Description" />
-            <button onClick={saveExpense} disabled={isExpenseEntryIncomplete || expenseSubmitting} className="primary-button justify-center"><Plus className="h-4 w-4" /> {expenseSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
+            <button onClick={saveExpense} disabled={isExpenseEntryIncomplete || expenseSubmitting || expenseCashLoading || !expenseCashBalance || expenseCashInsufficient} className="primary-button justify-center"><Plus className="h-4 w-4" /> {expenseSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
           </FormPanel>
         )}
       </div>
@@ -1494,7 +1573,7 @@ export function ControlModule({
               <button onClick={savePayment} disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button w-full justify-center" type="button"><Plus className="h-4 w-4" /> {paymentSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
             </>
           )}
-          {cashierControlDrawer === "personnel" && <PersonnelPaymentForm school={school} year={year} onRecorded={(payment) => { setRecordedPersonnelPayment(payment); setCashierControlDrawer(null); void expenseHistory.loadFirstPage(); }} />}
+          {cashierControlDrawer === "personnel" && <PersonnelPaymentForm school={school} year={year} onRecorded={(payment) => { setRecordedPersonnelPayment(payment); setCashierControlDrawer(null); void expenseHistory.loadFirstPage(); void refreshExpenseCashBalance().catch(() => {}); }} />}
           {cashierControlDrawer === "expense" && (
             <>
               <select
@@ -1513,6 +1592,7 @@ export function ControlModule({
                 <option>Autre</option>
               </select>
               <MoneyInput value={expenseAmount} onChange={setExpenseAmount} />
+              {renderExpenseCashBalance(expenseDebitCents)}
               <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
                 Description
                 <textarea
@@ -1552,8 +1632,8 @@ export function ControlModule({
                 className="input"
                 placeholder="Référence / pièce (facultatif)"
               />
-              {expenseError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{expenseError}</p>}
-              <button onClick={saveExpense} disabled={isExpenseEntryIncomplete || expenseSubmitting} className="primary-button w-full justify-center" type="button"><Plus className="h-4 w-4" /> {expenseSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
+              {expenseError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{expenseError}</p>}
+              <button onClick={saveExpense} disabled={isExpenseEntryIncomplete || expenseSubmitting || expenseCashLoading || !expenseCashBalance || expenseCashInsufficient} className="primary-button w-full justify-center" type="button"><Plus className="h-4 w-4" /> {expenseSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
             </>
           )}
         </AdminDrawer>
@@ -1640,6 +1720,7 @@ export function ControlModule({
             </select>
           </label>
           <label className="grid gap-1 text-sm font-semibold">Montant<MoneyInput value={expenseEditAmount} onChange={setExpenseEditAmount} /></label>
+          {expenseEditDeltaCents > 0 && renderExpenseCashBalance(expenseEditDeltaCents, "Supplément à décaisser")}
           <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
             Libellé ou motif
             <textarea
@@ -1652,10 +1733,10 @@ export function ControlModule({
               placeholder="Description de la dépense"
             />
           </label>
-          {expenseEditError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{expenseEditError}</p>}
+          {expenseEditError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{expenseEditError}</p>}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <button onClick={closeEditExpense} className="secondary-button justify-center" type="button">Annuler</button>
-            <button onClick={updateExpense} disabled={!canManageExpenses || financialMutationId === expenseEditTarget.id} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50" type="button">
+            <button onClick={updateExpense} disabled={!canManageExpenses || financialMutationId === expenseEditTarget.id || expenseEditDeltaCents > 0 && (expenseCashLoading || !expenseCashBalance || expenseEditCashInsufficient)} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50" type="button">
               {financialMutationId === expenseEditTarget.id ? "Enregistrement…" : "Enregistrer"}
             </button>
           </div>

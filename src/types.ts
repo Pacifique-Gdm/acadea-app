@@ -383,6 +383,7 @@ export interface Expense {
   schoolId: string;
   schoolYearId: string;
   amount: number;
+    currency?: "USD" | "CDF";
   category: string;
   description: string;
   beneficiary?: string;

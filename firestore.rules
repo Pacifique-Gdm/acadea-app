@@ -598,7 +598,9 @@ service cloud.firestore {
     match /schoolYears/{yearId} {
       allow read: if superAdmin() || coordinatorSchool(resource.data.schoolId) || sameTenantResource() || disciplineTenantResource() || (studyDirector() && resource.data.schoolId == tenantSchoolId()) || teacherTenantResource();
       allow create: if schoolAdmin() && sameTenantCreate() && !schoolUnderActiveCoordination(tenantSchoolId());
-      allow update: if schoolAdmin() && sameTenantUpdate() && sameYearUpdate() && !schoolUnderActiveCoordination(tenantSchoolId());
+      allow update: if schoolAdmin() && sameTenantUpdate() && sameYearUpdate()
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["currency"])
+        && !schoolUnderActiveCoordination(tenantSchoolId());
       allow delete: if false;
     }
 

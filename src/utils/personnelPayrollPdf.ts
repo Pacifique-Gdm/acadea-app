@@ -7,6 +7,7 @@ const dateFr = (iso: string) => {
   return `${day}/${month}/${year}`;
 };
 const amount = (value: number, currency: PersonnelPayment["currency"]) => formatCurrencyMoney(value, currency);
+const deductionAmount = (value: number, currency: PersonnelPayment["currency"]) => `${value > 0 ? "−" : ""}${amount(value, currency)}`;
 
 export function personnelPaymentPdfSections(payment: PersonnelPayment) {
   const common = pdfInfoGrid([
@@ -33,12 +34,12 @@ export function personnelPaymentPdfSections(payment: PersonnelPayment) {
       { label: "Période concernée", value: `${String(payment.periodMonth).padStart(2, "0")}/${payment.periodYear}` },
       { label: "Montant brut", value: amount(payment.amount, payment.currency) },
     ], { columns: 4 })),
-    pdfSection("AVANCES RÉCUPÉRÉES", `<table class="pdf-table"><thead><tr><th>Référence</th><th>Date du versement</th><th>Montant récupéré</th></tr></thead><tbody>${recoveryRows || '<tr><td colspan="3">Aucune avance récupérée</td></tr>'}</tbody></table>${pdfInfoGrid([{ label: "Total des avances récupérées", value: `−${amount(payment.recoveredAmount, payment.currency)}` }])}`),
+    pdfSection("AVANCES RÉCUPÉRÉES", `<table class="pdf-table"><thead><tr><th>Référence</th><th>Date du versement</th><th>Montant récupéré</th></tr></thead><tbody>${recoveryRows || '<tr><td colspan="3">Aucune avance récupérée</td></tr>'}</tbody></table>${pdfInfoGrid([{ label: "Total des avances récupérées", value: deductionAmount(payment.recoveredAmount, payment.currency) }])}`),
     pdfSection("RETENUES ET NET", pdfInfoGrid([
-      { label: "Autres retenues", value: `−${amount(payment.deduction, payment.currency)}` },
+      { label: "Autres retenues", value: deductionAmount(payment.deduction, payment.currency) },
       { label: "Motif de retenue", value: payment.deductionReason || "—" },
-      { label: "CNSS", value: `−${amount(payment.cnss, payment.currency)}` },
-      { label: "Impôt", value: `−${amount(payment.tax, payment.currency)}` },
+      { label: "CNSS", value: deductionAmount(payment.cnss, payment.currency) },
+      { label: "Impôt", value: deductionAmount(payment.tax, payment.currency) },
       { label: "Net effectivement payé", value: amount(payment.netPaid, payment.currency) },
       ...(payment.description ? [{ label: "Description", value: payment.description }] : []),
     ])),

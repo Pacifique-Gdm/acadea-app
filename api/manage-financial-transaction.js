@@ -5,6 +5,7 @@ import { createPersonnelPayment, listPayroll, updatePersonnelPayment } from "./_
 import { listPersonnelPayrollHistory } from "./_lib/personnelPayrollHistory.js";
 import { requireActiveCoordinationActor } from "./_lib/coordination.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
+import { CashBalanceError } from "./_lib/cashBalance.js";
 
 function parseJsonBody(raw) {
   try { const parsed = JSON.parse(raw || "{}"); if (parsed && typeof parsed === "object") return parsed; }
@@ -56,9 +57,10 @@ export default async function handler(req, res) {
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(actor.schoolId ?? actor.coordinationId ?? ""), action: "finance.list-payroll-history", ...API_RATE_LIMITS.FINANCE_MUTATE });
       return sendJson(res, 200, await listPersonnelPayrollHistory({ db, actor, body }));
     }
-    if (["create-personnel-payment", "update-personnel-payment", "list-payroll-personnel", "list-payroll-advances", "list-personnel-payments", "list-own-payroll"].includes(requestedAction)) {
+    if (["create-personnel-payment", "update-personnel-payment", "list-payroll-personnel", "list-payroll-advances", "list-personnel-payments", "list-own-payroll", "list-payroll-cash-balance", "list-cash-balance"].includes(requestedAction)) {
       await requireActiveApiUser(db, caller);
-      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? caller.coordinationId ?? ""), action: `finance.${requestedAction}`, idempotencyKey: typeof body.clientRequestId === "string" ? body.clientRequestId : undefined, ...(requestedAction === "create-personnel-payment" ? API_RATE_LIMITS.FINANCE_CREATE : API_RATE_LIMITS.FINANCE_MUTATE) });
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? caller.coordinationId ?? ""), action: `finance.${requestedAction}`, idempotencyKey: typeof body.clientRequestId === "string" ? body.clientRequestId : undefined,
+        ...(["create-personnel-payment", "list-payroll-cash-balance", "list-cash-balance"].includes(requestedAction) ? API_RATE_LIMITS.FINANCE_CREATE : API_RATE_LIMITS.FINANCE_MUTATE) });
       return sendJson(res, 200, requestedAction === "create-personnel-payment" ? await createPersonnelPayment({ db, caller, body })
         : requestedAction === "update-personnel-payment" ? await updatePersonnelPayment({ db, caller, body }) : await listPayroll({ db, caller, body }));
     }
@@ -73,7 +75,9 @@ export default async function handler(req, res) {
     return sendJson(res, 200, result);
   } catch (error) {
     if (sendRateLimitError(res, error)) return;
+    if (error instanceof CashBalanceError) return sendJson(res, error.status, { error: error.message, code: error.code, ...error.details });
     if (error instanceof FinancialApiError) return sendJson(res, error.status, { error: error.message, code: error.code });
+    if (error?.code === 10 || error?.code === "aborted") return sendJson(res, 409, { error: "La caisse a changé pendant l'opération. Actualisez le solde et confirmez à nouveau.", code: "cash-balance-conflict" });
     if (error?.statusCode === 400 && !error?.code) return sendJson(res, 400, { error: "Corps JSON invalide.", code: "invalid-argument" });
     if (error?.statusCode === 401) return sendJson(res, 401, { error: error.message, code: error.code });
     if (error?.statusCode === 403 && error?.code === "permission-denied") return sendJson(res, 403, { error: error.message, code: error.code });
