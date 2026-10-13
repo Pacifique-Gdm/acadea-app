@@ -30,6 +30,7 @@ import { SecretaryMedicalRecordsDrawer } from "../secretary/SecretaryMedicalTool
 import { PersonnelDrawerContent } from "./PersonnelDrawerContent";
 import { ServicePersonnelForm } from "../../components/personnel/ServicePersonnelForm";
 import { OwnPayrollEntry } from "../../components/personnel/OwnPayrollEntry";
+import { LibraryDrawer } from "../library/LibraryDrawer";
 import type { StudentMedicalRecord } from "../secretary/secretaryTypes";
 
 type SchoolUserProvisionRole = "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher";
@@ -98,7 +99,7 @@ export function MenuModule({
   onOpenBiometrics,
   initialBiometricsOpen = false,
 }: MenuModuleProps) {
-  type MenuSection = "school" | "years" | "accounts" | "personnel" | "fees" | "financial" | "valves" | "parentsDirectory" | "history" | "biometrics" | "medicalRecords";
+  type MenuSection = "school" | "years" | "accounts" | "personnel" | "fees" | "financial" | "valves" | "library" | "parentsDirectory" | "history" | "biometrics" | "medicalRecords";
   const [schoolForm, setSchoolForm] = useState(school);
   const [schoolSaveStatus, setSchoolSaveStatus] = useState<"success" | "error" | "">("");
   const [schoolSaveMessage, setSchoolSaveMessage] = useState("");
@@ -173,6 +174,7 @@ export function MenuModule({
   const canManageYears = canAdmin && !yearManagementLocked;
   const menuSections = [
     { id: "valves", title: "Valves", description: "Communiqués, palmarès, points, images et documents.", icon: BookOpen },
+    { id: "library", title: "Bibliothèque", description: "Cours et ressources éducatives externes.", icon: BookOpen },
     { id: "medicalRecords", title: "Fiches médicales", description: "Création, consultation et suivi des fiches médicales des élèves.", icon: HeartPulse },
     { id: "parentsDirectory", title: "Parents / Tuteurs", description: "Annuaire interne des parents liés aux élèves.", icon: UsersRound },
     { id: "fees", title: "Types de frais", description: "Montants et catégories de frais scolaires.", icon: Banknote },
@@ -1346,7 +1348,7 @@ export function MenuModule({
     return null;
   }
 
-  const visibleMenuSections = menuSections.filter((section) => canReadAdmin || user.role === "cashier" && (section.id === "valves" || section.id === "history"));
+  const visibleMenuSections = menuSections.filter((section) => canReadAdmin || user.role === "cashier" && (section.id === "valves" || section.id === "history" || section.id === "library"));
   const activeMenuSectionConfig = visibleMenuSections.find((section) => section.id === activeMenuSection);
 
   return (
@@ -1387,7 +1389,8 @@ export function MenuModule({
           </button>
         );
       })}
-      {activeMenuSection && activeMenuSectionConfig && !createPersonnelOpen && (
+      {activeMenuSection === "library" && <LibraryDrawer audience={user.role === "cashier" ? "cashier" : "school_admin"} onClose={closeActiveMenuSection} />}
+      {activeMenuSection && activeMenuSection !== "library" && activeMenuSectionConfig && !createPersonnelOpen && (
         <AdminDrawer title={activeMenuSectionConfig.title} onClose={closeActiveMenuSection} closeLabel={`Fermer ${activeMenuSectionConfig.title}`}>
           {renderMenuSectionForm(activeMenuSection)}
         </AdminDrawer>
