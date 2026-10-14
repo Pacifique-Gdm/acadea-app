@@ -1,16 +1,22 @@
-import { collection, onSnapshot, query, where } from "@firebase/firestore";
-import type { Firestore, Unsubscribe } from "@firebase/firestore";
-import { db } from "../../firebase";
+import { resolveApiUrl } from "../../config/apiUrl";
+import { getCurrentFirebaseIdToken } from "../../services/auth";
 import type { AppUser } from "../../types";
-import { currentTimetableEntries } from "./studyScope";
-import type { Timetable, TimetableEntry } from "./studyTypes";
+import type { StudyDay } from "./studyTypes";
 
-export type PublishedTimetableSnapshot = { timetable: Timetable; entries: TimetableEntry[] } | null;
+export type PublishedTimetableRow = {
+  dayOfWeek: StudyDay | "unknown";
+  periodLabel: string;
+  startTime: string | null;
+  classLabel: string;
+  subjectLabel: string;
+  teacherDisplayName: string;
+};
+export type PublishedTimetableSnapshot = { version: number; rows: PublishedTimetableRow[] } | null;
 
-const publishedReaderRoles = new Set<AppUser["role"]>(["school_admin", "secretary", "discipline_director"]);
+const publishedReaderRoles = new Set<AppUser["role"]>(["school_admin", "secretary", "discipline_director", "study_director", "teacher"]);
 
 export function canReadPublishedTimetable(user: AppUser) {
-  return publishedReaderRoles.has(user.role) && user.status !== "inactive" && Boolean(user.schoolId);
+  return publishedReaderRoles.has(user.role) && user.status !== "inactive" && user.active !== false && Boolean(user.schoolId);
 }
 
 export function subscribeToActivePublishedTimetable(input: {
@@ -19,53 +25,26 @@ export function subscribeToActivePublishedTimetable(input: {
   schoolYearId: string;
   onData: (value: PublishedTimetableSnapshot) => void;
   onError: (error: Error) => void;
-}): Unsubscribe {
-  if (!db || !canReadPublishedTimetable(input.user) || input.user.schoolId !== input.schoolId || !input.schoolId || !input.schoolYearId) {
+}): () => void {
+  if (!canReadPublishedTimetable(input.user) || input.user.schoolId !== input.schoolId || !input.schoolId || !input.schoolYearId) {
     throw new Error("Consultation de l’horaire publié non autorisée.");
   }
-
-  const database = db as unknown as Firestore;
-  let entriesUnsubscribe: Unsubscribe | undefined;
-  let currentTimetableId = "";
-  const timetablesQuery = query(
-    collection(database, "timetables"),
-    where("schoolId", "==", input.schoolId),
-    where("schoolYearId", "==", input.schoolYearId),
-    where("status", "==", "PUBLISHED"),
-    where("activePublished", "==", true),
-  );
-
-  const timetableUnsubscribe = onSnapshot(timetablesQuery, (snapshot) => {
-    const timetableDocument = snapshot.docs[0];
-    if (!timetableDocument) {
-      currentTimetableId = "";
-      entriesUnsubscribe?.();
-      entriesUnsubscribe = undefined;
-      input.onData(null);
-      return;
+  let active = true;
+  const refresh = async () => {
+    try {
+      const token = await getCurrentFirebaseIdToken();
+      const query = new URLSearchParams({ view: "published-timetable", schoolYearId: input.schoolYearId });
+      const response = await fetch(resolveApiUrl(`/api/manage-teacher-availability-request?${query}`), {
+        method: "GET", headers: { Authorization: `Bearer ${token}` }, cache: "no-store",
+      });
+      const payload = await response.json() as { timetable?: PublishedTimetableSnapshot; error?: string };
+      if (!response.ok) throw new Error(payload.error || "Horaire publié indisponible.");
+      if (active) input.onData(payload.timetable ?? null);
+    } catch (cause) {
+      if (active) input.onError(cause instanceof Error ? cause : new Error("Horaire publié indisponible."));
     }
-
-    const timetable = { id: timetableDocument.id, ...timetableDocument.data() } as Timetable;
-    if (currentTimetableId === timetable.id) return;
-    currentTimetableId = timetable.id;
-    entriesUnsubscribe?.();
-    entriesUnsubscribe = onSnapshot(
-      query(
-        collection(database, "timetableEntries"),
-        where("schoolId", "==", input.schoolId),
-        where("schoolYearId", "==", input.schoolYearId),
-        where("scheduleId", "==", timetable.id),
-      ),
-      (entriesSnapshot) => input.onData({
-        timetable,
-        entries: currentTimetableEntries(entriesSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as TimetableEntry)),
-      }),
-      input.onError,
-    );
-  }, input.onError);
-
-  return () => {
-    entriesUnsubscribe?.();
-    timetableUnsubscribe();
   };
+  void refresh();
+  const interval = setInterval(() => { void refresh(); }, 60_000);
+  return () => { active = false; clearInterval(interval); };
 }

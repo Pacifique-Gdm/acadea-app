@@ -35,6 +35,48 @@ export function scopeTeacherPortalData(user: Pick<AppUser, "section" | "sectionI
 export const studyDayLabels: Record<StudyDay, string> = { monday: "Lundi", tuesday: "Mardi", wednesday: "Mercredi", thursday: "Jeudi", friday: "Vendredi", saturday: "Samedi" };
 export const orderedStudyDays = Object.keys(studyDayLabels) as StudyDay[];
 
+export function schoolStudyDay(date: Date, timeZone: string | undefined): StudyDay | undefined {
+  if (!timeZone) return undefined;
+  try {
+    const weekday = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long" }).format(date).toLowerCase();
+    return orderedStudyDays.find((day) => day === weekday);
+  } catch {
+    return undefined;
+  }
+}
+
+export type TeacherCourseState =
+  | { status: "unpublished" | "timezone-missing" | "no-courses" | "incomplete" | "overlap" | "finished" }
+  | { status: "before" | "during" | "between"; entry: TimetableEntry };
+
+export function teacherCourseState(entries: TimetableEntry[], periods: SchedulePeriod[], date: Date, timeZone: string | undefined, hasPublished: boolean): TeacherCourseState {
+  if (!hasPublished) return { status: "unpublished" };
+  if (!timeZone) return { status: "timezone-missing" };
+  let day: StudyDay | undefined;
+  let now = "";
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(date);
+    const weekday = parts.find((part) => part.type === "weekday")?.value.toLowerCase();
+    day = orderedStudyDays.find((item) => item === weekday);
+    now = `${parts.find((part) => part.type === "hour")?.value}:${parts.find((part) => part.type === "minute")?.value}`;
+  } catch {
+    return { status: "timezone-missing" };
+  }
+  if (!day) return { status: "no-courses" };
+  const todaysEntries = entries.filter((entry) => entry.active !== false && entry.dayOfWeek === day);
+  if (!todaysEntries.length) return { status: "no-courses" };
+  const periodById = new Map(periods.map((period) => [period.id, period]));
+  const courses = todaysEntries.map((entry) => ({ entry, period: periodById.get(entry.periodId) }));
+  if (courses.some(({ period }) => !period || !/^\d{2}:\d{2}$/.test(period.startTime) || !/^\d{2}:\d{2}$/.test(period.endTime) || period.startTime >= period.endTime)) return { status: "incomplete" };
+  const ordered = courses.sort((left, right) => left.period!.startTime.localeCompare(right.period!.startTime) || left.entry.id.localeCompare(right.entry.id));
+  if (ordered.some((course, index) => index > 0 && ordered[index - 1].period!.endTime > course.period!.startTime)) return { status: "overlap" };
+  const current = ordered.find(({ period }) => period!.startTime <= now && now < period!.endTime);
+  if (current) return { status: "during", entry: current.entry };
+  const next = ordered.find(({ period }) => now < period!.startTime);
+  if (next) return { status: next === ordered[0] ? "before" : "between", entry: next.entry };
+  return { status: "finished" };
+}
+
 export function currentStudyDay(date = new Date()): StudyDay | undefined {
   return ([undefined, "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const)[date.getDay()];
 }

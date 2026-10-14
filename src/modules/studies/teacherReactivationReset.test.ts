@@ -25,9 +25,9 @@ describe("réinitialisation pédagogique après réactivation", () => {
   it("retire les anciennes entrées d’horaire de l’état courant sans effacer l’historique", () => {
     expect(currentTimetableEntries([entry("legacy"), entry("reset", false), entry("new", true)]).map((item) => item.id)).toEqual(["legacy", "new"]);
     const teacherPortal = readFileSync(new URL("../teacher/teacherPortalService.ts", import.meta.url), "utf8");
-    const publishedReader = readFileSync(new URL("./publishedTimetableService.ts", import.meta.url), "utf8");
+    const publishedReader = readFileSync(new URL("../../../api/_lib/publishedTimetableRead.js", import.meta.url), "utf8");
     expect(teacherPortal).toContain("currentTimetableEntries(docs(entries))");
-    expect(publishedReader).toContain("currentTimetableEntries(entriesSnapshot.docs.map");
+    expect(publishedReader).toContain("entry?.active !== false");
   });
 
   it("déclenche le reset uniquement dans le workflow reactivate-personnel et le limite à l’année active", () => {

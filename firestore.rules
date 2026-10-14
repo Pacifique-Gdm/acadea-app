@@ -604,6 +604,97 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /schoolCalendars/{yearId} {
+      function validCalendarMetadata() {
+        return request.resource.data.keys().hasOnly(["schoolId", "schoolYearId", "status", "updatedAt", "updatedBy"])
+          && request.resource.data.keys().hasAll(["schoolId", "schoolYearId", "status", "updatedAt", "updatedBy"])
+          && request.resource.data.schoolId == tenantSchoolId()
+          && request.resource.data.schoolYearId == yearId
+          && request.resource.data.status in ["draft", "validated"]
+          && request.resource.data.updatedAt is string
+          && request.resource.data.updatedAt.size() > 0
+          && request.resource.data.updatedBy == request.auth.uid;
+      }
+      allow get: if (studyDirector() || activeTeacher())
+        && schoolYearBelongsToSchool(yearId, tenantSchoolId())
+        && (!exists(/databases/$(database)/documents/schoolCalendars/$(yearId))
+          || (resource.data.schoolId == tenantSchoolId()
+            && resource.data.schoolYearId == yearId));
+      allow list: if false;
+      allow create: if studyDirector()
+        && tenantSchoolNotDeleting()
+        && schoolYearBelongsToSchool(yearId, tenantSchoolId())
+        && validCalendarMetadata();
+      allow update: if studyDirector()
+        && tenantSchoolNotDeleting()
+        && schoolYearBelongsToSchool(yearId, tenantSchoolId())
+        && resource.data.schoolId == tenantSchoolId()
+        && resource.data.schoolYearId == yearId
+        && validCalendarMetadata()
+        && request.resource.data.updatedAt != resource.data.updatedAt;
+      allow delete: if false;
+
+      match /events/{eventId} {
+        function calendarParentPath() {
+          return /databases/$(database)/documents/schoolCalendars/$(yearId);
+        }
+        function calendarParentWritten() {
+          return getAfter(calendarParentPath()).data.schoolId == tenantSchoolId()
+            && getAfter(calendarParentPath()).data.schoolYearId == yearId
+            && getAfter(calendarParentPath()).data.updatedBy == request.auth.uid
+            && (!exists(calendarParentPath())
+              || getAfter(calendarParentPath()).data.updatedAt != get(calendarParentPath()).data.updatedAt);
+        }
+        function validCalendarEvent() {
+          return request.resource.data.keys().hasOnly(["id", "schoolId", "schoolYearId", "title", "kind", "startsAt", "endsAt", "origin", "sourceUrl", "publishedAt", "educationLevel"])
+            && request.resource.data.keys().hasAll(["id", "schoolId", "schoolYearId", "title", "kind", "startsAt", "endsAt", "origin"])
+            && request.resource.data.id == eventId
+            && eventId.size() <= 120
+            && request.resource.data.schoolId == tenantSchoolId()
+            && request.resource.data.schoolYearId == yearId
+            && request.resource.data.title is string
+            && request.resource.data.title.size() > 0
+            && request.resource.data.title.size() <= 120
+            && request.resource.data.kind in ["vacation", "holiday", "pedagogical", "suspension", "resumption"]
+            && request.resource.data.startsAt is timestamp
+            && request.resource.data.endsAt is timestamp
+            && request.resource.data.startsAt <= request.resource.data.endsAt
+            && request.resource.data.origin in ["local", "official-proposal"]
+            && (request.resource.data.origin == "local"
+              ? !request.resource.data.keys().hasAny(["sourceUrl", "publishedAt", "educationLevel"])
+              : (request.resource.data.keys().hasAll(["sourceUrl", "educationLevel"])
+                && request.resource.data.sourceUrl is string
+                && request.resource.data.sourceUrl.size() <= 1024
+                && request.resource.data.sourceUrl.matches('^https://edu-nc\\.gouv\\.cd(/.*)?$')
+                && request.resource.data.educationLevel is string
+                && request.resource.data.educationLevel.size() > 0
+                && request.resource.data.educationLevel.size() <= 80
+                && (!request.resource.data.keys().hasAny(["publishedAt"])
+                  || request.resource.data.publishedAt is timestamp)));
+        }
+        allow get: if (studyDirector() || activeTeacher())
+          && resource.data.schoolId == tenantSchoolId()
+          && resource.data.schoolYearId == yearId
+          && schoolYearBelongsToSchool(yearId, tenantSchoolId());
+        allow list: if (studyDirector() || activeTeacher())
+          && schoolYearBelongsToSchool(yearId, tenantSchoolId());
+        allow create, update: if studyDirector()
+          && tenantSchoolNotDeleting()
+          && schoolYearBelongsToSchool(yearId, tenantSchoolId())
+          && validCalendarEvent()
+          && calendarParentWritten()
+          && (!exists(/databases/$(database)/documents/schoolCalendars/$(yearId)/events/$(eventId))
+            || (resource.data.schoolId == tenantSchoolId()
+              && resource.data.schoolYearId == yearId));
+        allow delete: if studyDirector()
+          && tenantSchoolNotDeleting()
+          && schoolYearBelongsToSchool(yearId, tenantSchoolId())
+          && resource.data.schoolId == tenantSchoolId()
+          && resource.data.schoolYearId == yearId
+          && calendarParentWritten();
+      }
+    }
+
     function validStudentClassReferences() {
       return (!("classId" in request.resource.data) || request.resource.data.classId == null
           || (request.resource.data.classId is string

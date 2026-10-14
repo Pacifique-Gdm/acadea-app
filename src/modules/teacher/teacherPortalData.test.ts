@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { PedagogicalAssignment, SchedulePeriod, StudyClass, StudySubject, TimetableEntry } from "../studies/studyTypes";
-import { currentStudyDay, nextTeacherEntry, scopeTeacherPortalData, teacherEntriesForDay, weeklyWorkload } from "./teacherPortalData";
+import { currentStudyDay, nextTeacherEntry, schoolStudyDay, scopeTeacherPortalData, teacherCourseState, teacherEntriesForDay, weeklyWorkload } from "./teacherPortalData";
 
 const periods = [
   { id: "p2", order: 2, startTime: "09:00", endTime: "10:00", active: true },
@@ -14,8 +14,44 @@ const entries = [
 ] as TimetableEntry[];
 
 describe("données du portail Enseignant", () => {
+  it("distingue les états de la journée avec début inclus et fin exclue", () => {
+    const at = (hour: string) => new Date(`2026-08-10T${hour}:00Z`);
+    const status = (hour: string) => teacherCourseState(entries, periods, at(hour), "UTC", true);
+    expect(status("07:59")).toMatchObject({ status: "before", entry: { id: "e1" } });
+    expect(status("08:00")).toMatchObject({ status: "during", entry: { id: "e1" } });
+    expect(status("08:59")).toMatchObject({ status: "during", entry: { id: "e1" } });
+    expect(status("09:00")).toMatchObject({ status: "during", entry: { id: "e2" } });
+    expect(status("10:00")).toEqual({ status: "finished" });
+    expect(status("10:30")).toEqual({ status: "finished" });
+  });
+
+  it("gère l'absence de publication, de fuseau et de cours et utilise le fuseau de l'école", () => {
+    const date = new Date("2026-08-10T07:30:00Z");
+    expect(teacherCourseState(entries, periods, date, "Africa/Kinshasa", false)).toEqual({ status: "unpublished" });
+    expect(teacherCourseState(entries, periods, date, undefined, true)).toEqual({ status: "timezone-missing" });
+    expect(teacherCourseState(entries, periods, date, "Invalid/Zone", true)).toEqual({ status: "timezone-missing" });
+    expect(teacherCourseState(entries, periods, date, "UTC", true)).toMatchObject({ status: "before", entry: { id: "e1" } });
+    expect(teacherCourseState(entries, periods, date, "Africa/Kinshasa", true)).toMatchObject({ status: "during", entry: { id: "e1" } });
+    expect(teacherCourseState(entries, periods, new Date("2026-08-09T07:30:00Z"), "UTC", true)).toEqual({ status: "no-courses" });
+  });
+
+  it("signale les périodes manquantes et les chevauchements au lieu de choisir arbitrairement", () => {
+    const date = new Date("2026-08-10T08:30:00Z");
+    expect(teacherCourseState(entries, periods.slice(0, 1), date, "UTC", true)).toEqual({ status: "incomplete" });
+    const overlapping = [{ ...periods[0], startTime: "08:30" }, periods[1]] as SchedulePeriod[];
+    expect(teacherCourseState(entries, overlapping, date, "UTC", true)).toEqual({ status: "overlap" });
+  });
+
+  it("passe au prochain cours après une pause et au jour local de l'établissement", () => {
+    const separated = [{ ...periods[0], startTime: "09:15" }, periods[1]] as SchedulePeriod[];
+    expect(teacherCourseState(entries, separated, new Date("2026-08-10T09:00:00Z"), "UTC", true)).toMatchObject({ status: "between", entry: { id: "e2" } });
+    expect(teacherCourseState(entries, periods, new Date("2026-08-09T23:30:00Z"), "Africa/Kinshasa", true)).toMatchObject({ status: "before", entry: { id: "e1" } });
+  });
+
   it("identifie le jour pédagogique et trie les cours par période", () => {
     expect(currentStudyDay(new Date(2026, 7, 10, 8, 30))).toBe("monday");
+    expect(schoolStudyDay(new Date("2026-08-09T23:30:00Z"), "Africa/Kinshasa")).toBe("monday");
+    expect(schoolStudyDay(new Date("2026-08-09T23:30:00Z"), undefined)).toBeUndefined();
     expect(teacherEntriesForDay(entries, periods, "monday").map((entry) => entry.id)).toEqual(["e1", "e2"]);
   });
 

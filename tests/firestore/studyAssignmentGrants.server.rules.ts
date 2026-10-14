@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
-import { deleteApp, initializeApp, type App } from "firebase-admin/app";
+import { generateKeyPairSync } from "node:crypto";
+import { cert, deleteApp, initializeApp, type App } from "firebase-admin/app";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -9,17 +10,18 @@ const projectId = "acadea-staging";
 const schoolId = "school-a", schoolYearId = "year-a", teacherId = "teacher-a", ownerId = "owner-a";
 const subjectId = "subject-a", classId = "class-a";
 const assignmentId = `${schoolId}__${schoolYearId}__${teacherId}__${subjectId}__${classId}`;
-const path = `teacher-documents/${schoolId}/${schoolYearId}/${ownerId}/${teacherId}/${assignmentId}/document-a/123e4567-e89b-12d3-a456-426614174000.pdf`;
+const path = `teacher-documents/${schoolId}/${schoolYearId}/${ownerId}/${teacherId}/${assignmentId}/document-a`;
 const caller = { uid: "director-a", role: "study_director", schoolId };
 let app: App, db: Firestore, environment: RulesTestEnvironment;
-const upload = () => environment.authenticatedContext(ownerId, { role: "teacher", schoolId }).storage().ref(path).put(new Uint8Array(128), {
+const upload = (fileName: string) => environment.authenticatedContext(ownerId, { role: "teacher", schoolId }).storage().ref(`${path}/${fileName}`).put(new Uint8Array(128), {
   contentType: "application/pdf", customMetadata: { schoolId, schoolYearId, ownerId, teacherId, assignmentId, documentId: "document-a", originalName: "fiche.pdf" },
 });
 
 beforeAll(async () => {
   if (!process.env.FIRESTORE_EMULATOR_HOST?.match(/^(127\.0\.0\.1|localhost):\d+$/) || !process.env.FIREBASE_STORAGE_EMULATOR_HOST?.match(/^(127\.0\.0\.1|localhost):\d+$/)) throw new Error("Émulateurs Firestore et Storage locaux requis.");
   environment = await initializeTestEnvironment({ projectId, firestore: { rules: readFileSync("firestore.rules", "utf8") }, storage: { rules: readFileSync("storage.rules", "utf8") } });
-  app = initializeApp({ projectId }, "study-storage-grant-tests"); db = getFirestore(app);
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs8", format: "pem" }, publicKeyEncoding: { type: "spki", format: "pem" } });
+  app = initializeApp({ projectId, credential: cert({ projectId, clientEmail: "emulator@acadea-staging.iam.gserviceaccount.com", privateKey }) }, "study-storage-grant-tests"); db = getFirestore(app);
 }, 30_000);
 beforeEach(async () => {
   await environment.clearFirestore(); await environment.clearStorage();
@@ -39,20 +41,20 @@ afterAll(async () => { await environment.cleanup(); await deleteApp(app); }, 30_
 
 describe("transaction serveur affectation + grant Storage", () => {
   it("autorise l'upload après création puis le refuse dès désactivation", async () => {
-    await assertFails(upload());
+    await assertFails(upload("before-grant.pdf"));
     await saveStudyAssignments({ db, caller, body: { schoolId, schoolYearId, teacherId, subjectIds: [subjectId], classSelections: [{ classId }], weeklyPeriods: 2, active: true } });
     expect((await db.doc(`users/${ownerId}`).get()).data()?.storageAssignmentKeys).toEqual([`${schoolId}/${schoolYearId}/${teacherId}/${assignmentId}`]);
-    await assertSucceeds(upload());
+    await assertSucceeds(upload("with-grant.pdf"));
     await setStudyAssignmentActive({ db, caller, body: { schoolId, schoolYearId, assignmentId, active: false } });
     expect((await db.doc(`users/${ownerId}`).get()).data()?.storageAssignmentKeys).toEqual([]);
-    await assertFails(upload());
+    await assertFails(upload("after-revocation.pdf"));
   });
   it("un profil legacy sans userId conserve l'affectation mais aucun grant", async () => {
     await db.doc(`teachers/${teacherId}`).update({ userId: null });
     await saveStudyAssignments({ db, caller, body: { schoolId, schoolYearId, teacherId, subjectIds: [subjectId], classSelections: [{ classId }], weeklyPeriods: 2, active: true } });
     expect((await db.doc(`pedagogicalAssignments/${assignmentId}`).get()).data()?.active).toBe(true);
     expect((await db.doc(`users/${ownerId}`).get()).data()?.storageAssignmentKeys).toBeUndefined();
-    await assertFails(upload());
+    await assertFails(upload("legacy-profile.pdf"));
   });
   it("accepte une option portée par une sous-classe dont l'ID diffère de la clé métier", async () => {
     const optionId = `${classId}::litteraire`;

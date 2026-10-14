@@ -11,6 +11,7 @@ export type SchoolInformationDraft = {
   email: string;
   motto: string;
   logoUrl: string;
+  timeZone: string;
   level: SchoolLevelChoice;
 };
 
@@ -22,6 +23,7 @@ export function schoolInformationDraft(school: School): SchoolInformationDraft {
     email: school.email ?? "",
     motto: school.motto ?? "",
     logoUrl: school.logoUrl ?? "",
+    timeZone: school.timeZone ?? "",
     level: schoolLevelFromConfig(school),
   };
 }
@@ -39,7 +41,14 @@ export function schoolInformationPatch(draft: SchoolInformationDraft, school?: S
     patch.schoolType = draft.level;
     patch.educationLevels = educationLevelsForSchoolLevel(draft.level);
   }
+  if (draft.timeZone.trim() !== (school?.timeZone ?? "")) patch.timeZone = draft.timeZone.trim();
   return patch;
+}
+
+export function validSchoolTimeZone(value: string): boolean {
+  if (!value.trim()) return true;
+  try { new Intl.DateTimeFormat("en-US", { timeZone: value.trim() }); return true; }
+  catch { return false; }
 }
 
 export function canSaveSchoolInformation(input: {
@@ -51,6 +60,7 @@ export function canSaveSchoolInformation(input: {
 }) {
   return Boolean(
     input.draft.name.trim()
+      && validSchoolTimeZone(input.draft.timeZone)
       && input.confirmation === SCHOOL_INFORMATION_CONFIRMATION
       && !input.saving
       && !input.logoProcessing

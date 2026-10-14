@@ -19,8 +19,8 @@ export function sortTimetableEntriesForDisplay(entries: TimetableEntry[], period
     const leftPeriod = periodById.get(left.periodId);
     const rightPeriod = periodById.get(right.periodId);
     return (STUDY_DAY_ORDER[left.dayOfWeek] ?? Number.MAX_SAFE_INTEGER) - (STUDY_DAY_ORDER[right.dayOfWeek] ?? Number.MAX_SAFE_INTEGER)
+      || (leftPeriod?.startTime ?? "99:99").localeCompare(rightPeriod?.startTime ?? "99:99")
       || (leftPeriod?.order ?? Number.MAX_SAFE_INTEGER) - (rightPeriod?.order ?? Number.MAX_SAFE_INTEGER)
-      || (leftPeriod?.startTime ?? "").localeCompare(rightPeriod?.startTime ?? "")
       || left.classId.localeCompare(right.classId)
       || left.teacherId.localeCompare(right.teacherId)
       || left.subjectId.localeCompare(right.subjectId)
