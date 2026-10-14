@@ -8,6 +8,7 @@ const schoolA = "school-a";
 const schoolB = "school-b";
 const yearA = "year-a";
 const yearB = "year-b";
+const stagingRulesProfile = ["active", "candidate"].includes(process.env.ACADEA_RULES_PROFILE ?? "");
 let environment: RulesTestEnvironment;
 
 function auth(uid: string, role: string, schoolId = schoolA) {
@@ -144,10 +145,19 @@ describe("SEC-015 — matrice centrale d'isolation tenant", () => {
     const admin = auth("admin-a", "school_admin");
     await assertSucceeds(setDoc(doc(admin, "schoolYears", "year-a-2"), { id: "year-a-2", schoolId: schoolA, status: "active" }));
     await assertSucceeds(updateDoc(doc(admin, "schoolYears", "year-a-2"), { label: "2027-2028" }));
-    await assertFails(updateDoc(doc(admin, "schoolYears", "year-a-2"), { currency: "USD" }));
     await assertFails(setDoc(doc(admin, "schoolYears", "year-b-2"), { id: "year-b-2", schoolId: schoolB, status: "active" }));
     await assertFails(deleteDoc(doc(admin, "schoolYears", "year-a-2")));
     await assertFails(deleteDoc(doc(admin, "users", "admin-a")));
+  });
+
+  it.skipIf(!stagingRulesProfile)("documente la politique devise actuellement active sur Staging", async () => {
+    const admin = auth("admin-a", "school_admin");
+    await assertSucceeds(updateDoc(doc(admin, "schoolYears", yearA), { currency: "USD" }));
+  });
+
+  it.skipIf(stagingRulesProfile)("exige le refus de modification directe de devise dans la politique future", async () => {
+    const admin = auth("admin-a", "school_admin");
+    await assertFails(updateDoc(doc(admin, "schoolYears", yearA), { currency: "USD" }));
   });
 
   it("reproduit le refus de liaison Secrétaire avec un parent historique", async () => {

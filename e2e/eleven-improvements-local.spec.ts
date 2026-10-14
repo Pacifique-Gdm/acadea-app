@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { deleteApp, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
-import { expect, test, type Browser, type Page } from "@playwright/test";
+import { expect, test, type Browser, type Page, type Route } from "@playwright/test";
+import financeHandler from "../api/manage-financial-transaction.js";
 
 const origin = "http://127.0.0.1:5173";
 const projectId = "demo-acadea";
@@ -38,6 +39,19 @@ async function localPage(browser: Browser, actor: { email: string; route: string
   await context.route(/https:\/\/[^/]*(?:googleapis\.com|firebaseio\.com|firebasestorage\.app)/, (route) => {
     remoteRequests.push(new URL(route.request().url()).hostname);
     return route.abort();
+  });
+  await context.route("**/api/manage-financial-transaction", async (route: Route) => {
+    const request = route.request();
+    let statusCode = 200;
+    let body = "";
+    const response = {
+      get statusCode() { return statusCode; },
+      set statusCode(value: number) { statusCode = value; },
+      setHeader() { /* JSON response supplied below. */ },
+      end(value: string) { body = value; },
+    };
+    await financeHandler({ method: request.method(), headers: request.headers(), body: request.postDataJSON() }, response);
+    await route.fulfill({ status: statusCode, contentType: "application/json", body });
   });
   const page = await context.newPage();
   await page.goto("/login", { waitUntil: "domcontentloaded", timeout: 30_000 });
@@ -186,7 +200,8 @@ test.describe("améliorations Super Administrateur — navigateur local isolé",
           await page.getByRole("button", { name: "Contrôle", exact: true }).last().click();
           await page.getByRole("button", { name: "Historique", exact: true }).click();
           const history = page.getByRole("dialog", { name: "Historique du contrôle" });
-          await history.getByRole("button", { name: "Historique Salaire/prime" }).click();
+          await history.getByRole("button", { name: "Salaire/Prime", exact: true }).click();
+          await expect(history.getByText("Aucun salaire ou prime versé dans ce périmètre.")).toBeVisible({ timeout: 30_000 });
           await fits(page);
         } else {
           await page.getByRole("button", { name: "Menu", exact: true }).last().click();

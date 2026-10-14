@@ -63,6 +63,7 @@ export interface School {
   currency?: "USD" | "CDF";
   logoUrl?: string;
   acronym?: string;
+  timeZone?: string;
   educationLevels?: string[];
   schoolOptions?: string[];
   schoolType?: "Maternelle" | "Primaire" | "CTEB" | "Secondaire" | "Primaire uniquement" | "CTEB uniquement" | "Secondaire uniquement" | "CTEB et Secondaire" | "Mixte";

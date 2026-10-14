@@ -57,19 +57,27 @@ function sameValues(left, right) {
 
 function pickSchoolPatch(body) {
   const patch = {};
-  for (const key of ["name", "address", "phone", "email", "motto", "logoUrl", "schoolType", "educationLevels", "subscriptionPlan", "subscriptionStatus", "subscriptionAmount"]) {
+  for (const key of ["name", "address", "phone", "email", "motto", "logoUrl", "timeZone", "schoolType", "educationLevels", "subscriptionPlan", "subscriptionStatus", "subscriptionAmount"]) {
     if (body[key] !== undefined) patch[key] = body[key];
   }
   return patch;
 }
 
-function validateSchoolInformationPatch(rawPatch) {
+export function validateSchoolInformationPatch(rawPatch) {
   const patch = pickSchoolPatch(rawPatch);
   for (const key of ["name", "address", "phone", "email", "motto"]) {
     if (patch[key] !== undefined) patch[key] = normalizeText(patch[key]);
   }
   if (patch.name !== undefined && !patch.name) return { error: "Le nom de l'école est requis." };
   if (typeof patch.motto === "string" && patch.motto.length > 500) return { error: "La devise de l'école est trop longue." };
+  if (patch.timeZone !== undefined) {
+    if (typeof patch.timeZone !== "string") return { error: "Le fuseau horaire de l'école est invalide." };
+    patch.timeZone = patch.timeZone.trim();
+    if (patch.timeZone) {
+      try { new Intl.DateTimeFormat("en-US", { timeZone: patch.timeZone }); }
+      catch { return { error: "Le fuseau horaire de l'école est invalide." }; }
+    }
+  }
 
   if (patch.logoUrl !== undefined) {
     if (typeof patch.logoUrl !== "string" || patch.logoUrl.length > 300_000) return { error: "Le logo de l'école est invalide." };

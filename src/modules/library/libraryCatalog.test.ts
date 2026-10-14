@@ -10,9 +10,12 @@ describe("Bibliothèque — catalogue unique", () => {
     expect(libraryResources).toHaveLength(22);
     expect(new Set(libraryResources.map((resource) => resource.id)).size).toBe(22);
     expect(selectLibraryResources("study_director")).toHaveLength(20);
+    expect(selectLibraryResources("school_admin")).toHaveLength(20);
+    expect(selectLibraryResources("school_admin").map((resource) => [resource.id, resource.name, libraryDescription(resource, "school_admin"), resource.url, resource.category]))
+      .toEqual(selectLibraryResources("study_director").map((resource) => [resource.id, resource.name, libraryDescription(resource, "study_director"), resource.url, resource.category]));
     expect(selectLibraryResources("teacher")).toHaveLength(20);
     expect(selectLibraryResources("parent")).toHaveLength(18);
-    for (const audience of ["school_admin", "secretary", "cashier", "discipline_director"] as const) {
+    for (const audience of ["secretary", "cashier", "discipline_director"] as const) {
       expect(selectLibraryResources(audience)).toHaveLength(11);
       expect(selectLibraryResources(audience).every((resource) => resource.order >= 12)).toBe(true);
     }

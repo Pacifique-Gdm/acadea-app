@@ -6,6 +6,7 @@ import {
   canSaveSchoolInformation,
   schoolInformationDraft,
   schoolInformationPatch,
+  validSchoolTimeZone,
 } from "./schoolInformation";
 
 const school: School = {
@@ -44,6 +45,8 @@ describe("SchoolInformationEditDrawer", () => {
     expect(patch).not.toHaveProperty("schoolType");
     expect(patch).not.toHaveProperty("educationLevels");
     expect(patch).not.toHaveProperty("currency");
+    expect(patch).not.toHaveProperty("timeZone");
+    expect(schoolInformationPatch({ ...draft, timeZone: " Africa/Kinshasa " }, school).timeZone).toBe("Africa/Kinshasa");
 
     expect(schoolInformationPatch({ ...draft, level: "Primaire" }, school)).toMatchObject({
       schoolType: "Primaire",
@@ -69,13 +72,16 @@ describe("SchoolInformationEditDrawer", () => {
     expect(canSaveSchoolInformation({ draft, confirmation: SCHOOL_INFORMATION_CONFIRMATION, saving: true, logoProcessing: false })).toBe(false);
     expect(canSaveSchoolInformation({ draft, confirmation: SCHOOL_INFORMATION_CONFIRMATION, saving: false, logoProcessing: true })).toBe(false);
     expect(canSaveSchoolInformation({ draft, confirmation: SCHOOL_INFORMATION_CONFIRMATION, saving: false, logoProcessing: false, logoValid: false })).toBe(false);
+    expect(validSchoolTimeZone("Africa/Kinshasa")).toBe(true);
+    expect(validSchoolTimeZone("Invalid/Zone")).toBe(false);
+    expect(canSaveSchoolInformation({ draft: { ...draft, timeZone: "Invalid/Zone" }, confirmation: SCHOOL_INFORMATION_CONFIRMATION, saving: false, logoProcessing: false })).toBe(false);
   });
 
   it("conserve un Drawer responsive, le logo, tous les champs et un footer 50/50", () => {
     const source = readFileSync(new URL("./SchoolInformationEditDrawer.tsx", import.meta.url), "utf8");
     expect(source).toContain("<AdminDrawer");
     expect(source).toContain("<ImageUploadField");
-    for (const label of ["Nom de l'école", "Devise", "Adresse", "Téléphone", "Email", "Niveau de l'école"]) {
+    for (const label of ["Nom de l'école", "Devise", "Adresse", "Téléphone", "Email", "Niveau de l'école", "Fuseau horaire IANA"]) {
       expect(source).toContain(label);
     }
     expect(source).toContain("grid-cols-2");

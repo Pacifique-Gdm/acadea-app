@@ -29,6 +29,12 @@ describe("libellés et état visible de l’horaire",()=>{
     expect(sortTimetableEntriesForDisplay(entries,periods).map((item)=>item.id)).toEqual(["m1-a","m1-b","m2","m3","t1","t2","w2","f1"]);
     expect(entries.map((item)=>item.id)).toEqual(["w2","m3","t1","m1-b","f1","m2","t2","m1-a"]);
   });
+  it("privilégie l'heure de début réelle plutôt que l'ordre technique de la période",()=>{
+    const early=p("early","08:00","09:00","course",9);
+    const late=p("late","10:00","11:00","course",1);
+    const entry=(id:string,dayOfWeek:TimetableEntry["dayOfWeek"],periodId:string):TimetableEntry=>({id,scheduleId:"schedule",schoolId:"s",schoolYearId:"y",classId:"class",teacherId:"teacher",subjectId:"subject",assignmentId:"assignment",dayOfWeek,periodId,roomId:null,createdAt:"n",updatedAt:"n"});
+    expect(sortTimetableEntriesForDisplay([entry("late","monday","late"),entry("tuesday","tuesday","early"),entry("early","monday","early")],[late,early]).map((item)=>item.id)).toEqual(["early","late","tuesday"]);
+  });
   it("ne sélectionne jamais un brouillon partiellement persisté",()=>{
     const base:Timetable={id:"complete",schoolId:"s",schoolYearId:"y",version:1,status:"DRAFT",activeDraft:true,createdBy:"u",createdAt:"n",updatedAt:"n",generationMetadata:{algorithm:"deterministic-backtracking",exploredBranches:1,durationMs:1,maxSameAssignmentPeriodsPerDay:2}};
     expect(currentStudyTimetable([{...base,id:"pending",version:2,activeDraft:false,persistenceState:"PENDING"},base])?.id).toBe("complete");

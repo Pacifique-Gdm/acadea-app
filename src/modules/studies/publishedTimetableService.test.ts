@@ -1,70 +1,42 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppUser } from "../../types";
 
-const firestore = vi.hoisted(() => {
-  const subscriptions: Array<{ source: unknown; next: (snapshot: { docs: Array<{ id: string; data: () => Record<string, unknown> }> }) => void; error: (error: Error) => void; unsubscribe: ReturnType<typeof vi.fn> }> = [];
-  return {
-    subscriptions,
-    collection: vi.fn((_db: unknown, name: string) => ({ name })),
-    where: vi.fn((field: string, operator: string, value: unknown) => ({ field, operator, value })),
-    query: vi.fn((source: unknown, ...filters: unknown[]) => ({ source, filters })),
-    onSnapshot: vi.fn((source: unknown, next: (snapshot: { docs: Array<{ id: string; data: () => Record<string, unknown> }> }) => void, error: (error: Error) => void) => {
-      const unsubscribe = vi.fn();
-      subscriptions.push({ source, next, error, unsubscribe });
-      return unsubscribe;
-    }),
-  };
-});
-
-vi.mock("../../firebase", () => ({ db: {} }));
-vi.mock("@firebase/firestore", () => firestore);
-
+vi.mock("../../services/auth", () => ({ getCurrentFirebaseIdToken: vi.fn(async () => "test-token") }));
 import { canReadPublishedTimetable, subscribeToActivePublishedTimetable } from "./publishedTimetableService";
 
 const user: AppUser = { id: "secretary", name: "Secrétaire", email: "secretary@example.test", role: "secretary", schoolId: "school-a" };
+const unsubscribes: Array<() => void> = [];
+const fetchMock = vi.fn();
 
-describe("horaire publié en temps réel", () => {
-  beforeEach(() => { firestore.subscriptions.length = 0; vi.clearAllMocks(); });
+describe("lecture sécurisée de l'horaire publié", () => {
+  beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal("fetch", fetchMock); });
+  afterEach(() => { unsubscribes.splice(0).forEach((unsubscribe) => unsubscribe()); vi.unstubAllGlobals(); });
 
-  it("filtre strictement l'horaire actif publié puis ses créneaux", () => {
+  it("interroge l'API authentifiée sans transmettre d'école choisie par le client", async () => {
+    const timetable = { version: 1, rows: [{ dayOfWeek: "monday", periodLabel: "P1 · 08:00–09:00", startTime: "08:00", classLabel: "4e Humanité", subjectLabel: "Mathématiques", teacherDisplayName: "Ada Lovelace" }] };
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ timetable }) });
     const onData = vi.fn();
-    subscribeToActivePublishedTimetable({ user, schoolId: "school-a", schoolYearId: "year-a", onData, onError: vi.fn() });
-    expect(firestore.subscriptions[0].source).toMatchObject({ filters: [
-      { field: "schoolId", operator: "==", value: "school-a" }, { field: "schoolYearId", operator: "==", value: "year-a" },
-      { field: "status", operator: "==", value: "PUBLISHED" }, { field: "activePublished", operator: "==", value: true },
-    ] });
-    firestore.subscriptions[0].next({ docs: [{ id: "schedule-1", data: () => ({ version: 1, status: "PUBLISHED", activePublished: true }) }] });
-    expect(firestore.subscriptions[1].source).toMatchObject({ filters: expect.arrayContaining([{ field: "scheduleId", operator: "==", value: "schedule-1" }]) });
-    firestore.subscriptions[1].next({ docs: [{ id: "entry-1", data: () => ({ scheduleId: "schedule-1" }) }] });
-    expect(onData).toHaveBeenLastCalledWith(expect.objectContaining({ timetable: expect.objectContaining({ id: "schedule-1" }), entries: [expect.objectContaining({ id: "entry-1" })] }));
+    unsubscribes.push(subscribeToActivePublishedTimetable({ user, schoolId: "school-a", schoolYearId: "year-a", onData, onError: vi.fn() }));
+    await vi.waitFor(() => expect(onData).toHaveBeenCalledWith(timetable));
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toContain("view=published-timetable");
+    expect(url).toContain("schoolYearId=year-a");
+    expect(url).not.toContain("schoolId=");
+    expect(options).toMatchObject({ method: "GET", headers: { Authorization: "Bearer test-token" }, cache: "no-store" });
   });
 
-  it("retourne un état vide sans le traiter comme une erreur", () => {
-    const onData = vi.fn();
-    const onError = vi.fn();
-    subscribeToActivePublishedTimetable({ user, schoolId: "school-a", schoolYearId: "year-a", onData, onError });
-    firestore.subscriptions[0].next({ docs: [] });
-    expect(onData).toHaveBeenCalledWith(null);
+  it("retourne un état vide et signale une erreur sans conserver une nouvelle écoute", async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ timetable: null }) });
+    const onData = vi.fn(), onError = vi.fn();
+    unsubscribes.push(subscribeToActivePublishedTimetable({ user, schoolId: "school-a", schoolYearId: "year-a", onData, onError }));
+    await vi.waitFor(() => expect(onData).toHaveBeenCalledWith(null));
     expect(onError).not.toHaveBeenCalled();
   });
 
-  it("remplace le listener des créneaux et conserve l'isolation de rôle et d'école", () => {
-    const unsubscribe = subscribeToActivePublishedTimetable({ user, schoolId: "school-a", schoolYearId: "year-a", onData: vi.fn(), onError: vi.fn() });
-    firestore.subscriptions[0].next({ docs: [{ id: "schedule-1", data: () => ({}) }] });
-    firestore.subscriptions[0].next({ docs: [{ id: "schedule-2", data: () => ({}) }] });
-    expect(firestore.subscriptions[1].unsubscribe).toHaveBeenCalledOnce();
-    unsubscribe();
-    expect(firestore.subscriptions[2].unsubscribe).toHaveBeenCalledOnce();
+  it("refuse localement un rôle ou une école divergente", () => {
     expect(() => subscribeToActivePublishedTimetable({ user: { ...user, schoolId: "school-b" }, schoolId: "school-a", schoolYearId: "year-a", onData: vi.fn(), onError: vi.fn() })).toThrow();
     expect(() => subscribeToActivePublishedTimetable({ user: { ...user, role: "cashier" }, schoolId: "school-a", schoolYearId: "year-a", onData: vi.fn(), onError: vi.fn() })).toThrow();
-  });
-
-  it("expose l'entrée uniquement aux trois rôles lecteurs autorisés", () => {
-    for (const role of ["school_admin", "secretary", "discipline_director"] as const) {
-      expect(canReadPublishedTimetable({ ...user, role })).toBe(true);
-    }
-    expect(canReadPublishedTimetable({ ...user, role: "cashier" })).toBe(false);
-    expect(canReadPublishedTimetable({ ...user, role: "study_director" })).toBe(false);
+    for (const role of ["school_admin", "secretary", "discipline_director", "study_director", "teacher"] as const) expect(canReadPublishedTimetable({ ...user, role })).toBe(true);
     expect(canReadPublishedTimetable({ ...user, status: "inactive" })).toBe(false);
   });
 });
