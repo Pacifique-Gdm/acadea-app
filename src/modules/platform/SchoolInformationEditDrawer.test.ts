@@ -47,6 +47,9 @@ describe("SchoolInformationEditDrawer", () => {
     expect(patch).not.toHaveProperty("currency");
     expect(patch).not.toHaveProperty("timeZone");
     expect(schoolInformationPatch({ ...draft, timeZone: " Africa/Kinshasa " }, school).timeZone).toBe("Africa/Kinshasa");
+    expect(schoolInformationDraft({ ...school, timeZone: "Africa/Lubumbashi" }).timeZone).toBe("Africa/Lubumbashi");
+    expect(schoolInformationPatch({ ...draft, timeZone: "America/New_York" }, school).timeZone).toBe("America/New_York");
+    expect(schoolInformationPatch({ ...draft, timeZone: "" }, { ...school, timeZone: "Africa/Kinshasa" }).timeZone).toBe("");
 
     expect(schoolInformationPatch({ ...draft, level: "Primaire" }, school)).toMatchObject({
       schoolType: "Primaire",
@@ -81,9 +84,10 @@ describe("SchoolInformationEditDrawer", () => {
     const source = readFileSync(new URL("./SchoolInformationEditDrawer.tsx", import.meta.url), "utf8");
     expect(source).toContain("<AdminDrawer");
     expect(source).toContain("<ImageUploadField");
-    for (const label of ["Nom de l'école", "Devise", "Adresse", "Téléphone", "Email", "Niveau de l'école", "Fuseau horaire IANA"]) {
+    for (const label of ["Nom de l'école", "Devise", "Adresse", "Téléphone", "Email", "Niveau de l'école"]) {
       expect(source).toContain(label);
     }
+    expect(source).toContain("<SchoolTimeZonePicker");
     expect(source).toContain("grid-cols-2");
     expect(source).toContain("min-w-0");
     expect(source).toContain("w-full");
