@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SchoolYear } from "../../types";
 import { schoolStudyDay } from "../teacher/teacherPortalData";
-import { applicableSchoolYear, parseOfficialCalendarProposal, schoolCivilDate, teachingDayStatus, validateCalendarEvent, type SchoolCalendar, type SchoolCalendarEvent } from "./schoolCalendar";
+import { applicableSchoolYear, defaultEventSuspendsCourses, parseOfficialCalendarProposal, schoolCivilDate, schoolCourseSuspended, teachingDayStatus, validateCalendarEvent, type SchoolCalendar, type SchoolCalendarEvent } from "./schoolCalendar";
 
 const year = (id: string, startsAt: string, endsAt: string, schoolId = "school-a") => ({ id, schoolId, name: id, startsAt, endsAt, status: "active" }) as SchoolYear;
 const current = year("2026-2027", "2026-09-01", "2027-07-01");
@@ -38,10 +38,33 @@ describe("calendrier scolaire et date de l'établissement", () => {
     expect(teachingDayStatus(undefined, "2026-10-14")).toBe("unconfigured");
     expect(teachingDayStatus(calendar([], "draft"), "2026-10-14")).toBe("draft");
     expect(teachingDayStatus(calendar([{ ...event("holiday", "2026-10-14"), endsAt: "2026-02-30" }]), "2026-10-14")).toBe("incomplete");
-    for (const kind of ["vacation", "holiday", "pedagogical", "suspension"] as const) expect(teachingDayStatus(calendar([event(kind, "2026-10-14")]), "2026-10-14")).toBe(kind);
-    expect(teachingDayStatus(calendar([event("vacation", "2026-12-20", "2027-01-05")]), "2027-01-02")).toBe("vacation");
-    expect(teachingDayStatus(calendar([event("vacation", "2026-12-20", "2027-01-05")]), "2027-01-06")).toBe("teaching");
+    for (const kind of ["vacation", "holiday", "pedagogical", "suspension"] as const) expect(teachingDayStatus(calendar([{ ...event(kind, "2026-10-14"), suspendsCourses: true }]), "2026-10-14")).toBe(kind);
+    expect(teachingDayStatus(calendar([{ ...event("vacation", "2026-12-20", "2027-01-05"), suspendsCourses: true }]), "2027-01-02")).toBe("vacation");
+    expect(teachingDayStatus(calendar([{ ...event("vacation", "2026-12-20", "2027-01-05"), suspendsCourses: true }]), "2027-01-06")).toBe("teaching");
     expect(teachingDayStatus(calendar([event("resumption", "2026-10-14")]), "2026-10-14")).toBe("teaching");
+  });
+  it("ne suspend jamais les événements legacy ou informatifs, ni les brouillons", () => {
+    expect(defaultEventSuspendsCourses("vacation")).toBe(true);
+    expect(defaultEventSuspendsCourses("pedagogical")).toBe(false);
+    for (const kind of ["meeting", "ceremony", "classCouncil", "exam", "activity"] as const) {
+      expect(defaultEventSuspendsCourses(kind)).toBe(false);
+      expect(schoolCourseSuspended(calendar([{ ...event(kind, "2026-10-14"), suspendsCourses: false }]), "2026-10-14", "08:00", "09:00")).toBe(false);
+    }
+    expect(validateCalendarEvent({ ...event("resumption", "2026-10-14"), suspendsCourses: true }, current, [])).toContain("reprise");
+    expect(teachingDayStatus(calendar([event("vacation", "2026-10-14")]), "2026-10-14")).toBe("teaching");
+    expect(schoolCourseSuspended(calendar([event("holiday", "2026-10-14")]), "2026-10-14", "08:00", "09:00")).toBe(false);
+    expect(schoolCourseSuspended(calendar([{ ...event("pedagogical", "2026-10-14"), suspendsCourses: false }]), "2026-10-14", "08:00", "09:00")).toBe(false);
+    expect(schoolCourseSuspended(calendar([{ ...event("suspension", "2026-10-14"), suspendsCourses: true }], "draft"), "2026-10-14", "08:00", "09:00")).toBe(false);
+  });
+  it("distingue suspensions complètes, partielles et autres jours", () => {
+    const full = calendar([{ ...event("vacation", "2026-10-14", "2026-10-16"), suspendsCourses: true }]);
+    expect(schoolCourseSuspended(full, "2026-10-15", "08:00", "09:00")).toBe(true);
+    expect(schoolCourseSuspended(full, "2026-10-17", "08:00", "09:00")).toBe(false);
+    const partial = calendar([{ ...event("suspension", "2026-10-14"), suspendsCourses: true, startTime: "09:00", endTime: "10:00" }]);
+    expect(schoolCourseSuspended(partial, "2026-10-14", "08:00", "09:00")).toBe(false);
+    expect(schoolCourseSuspended(partial, "2026-10-14", "09:00", "10:00")).toBe(true);
+    expect(validateCalendarEvent(partial.events[0], current, [])).toBeUndefined();
+    expect(validateCalendarEvent({ ...partial.events[0], endsAt: "2026-10-15" }, current, [])).toContain("Créneau");
   });
   it("refuse dates impossibles, hors année, reprises contradictoires et source officielle incomplète", () => {
     expect(validateCalendarEvent(event("holiday", "2026-02-30"), current, [])).toBe("Dates incohérentes.");

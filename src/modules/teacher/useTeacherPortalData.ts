@@ -13,6 +13,7 @@ export function useTeacherPortalData(user: AppUser, schoolId: string, schoolYear
   const [data, setData] = useState<TeacherPortalData>(emptyData);
   useEffect(() => {
     setData(emptyData);
+    if (!schoolYearId) { setData({ ...emptyData, loading: false }); return; }
     try {
       return subscribeToTeacherPortalData({ user, schoolId, schoolYearId,
         onTeacher: (teacher) => setData((current) => applyTeacherSnapshot(current, teacher)),

@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { PedagogicalAssignment, SchedulePeriod, StudyClass, StudySubject, TimetableEntry } from "../studies/studyTypes";
-import { currentStudyDay, nextTeacherEntry, schoolStudyDay, scopeTeacherPortalData, teacherCourseState, teacherEntriesForDay, weeklyWorkload } from "./teacherPortalData";
+import { currentStudyDay, nextTeacherEntry, schoolStudyDay, scopeTeacherPortalData, teacherCourseState, teacherEntriesForDay, teacherNextAvailableCourse, weeklyWorkload } from "./teacherPortalData";
+import type { SchoolCalendar } from "../studies/schoolCalendar";
 
 const periods = [
   { id: "p2", order: 2, startTime: "09:00", endTime: "10:00", active: true },
@@ -60,6 +61,14 @@ describe("données du portail Enseignant", () => {
     expect(nextTeacherEntry(entries, periods, new Date(2026, 7, 10, 10, 30))?.id).toBe("e3");
     expect(nextTeacherEntry([{ id: "monday", dayOfWeek: "monday", periodId: "p1" }] as TimetableEntry[], periods, new Date(2026, 7, 14, 18, 0))?.id).toBe("monday");
     expect(nextTeacherEntry([], periods, new Date(2026, 7, 10, 10, 30))).toBeUndefined();
+  });
+  it("ignore une séance terminée ou suspendue et trouve le prochain jour", () => {
+    const monday = new Date("2026-08-10T10:30:00Z");
+    expect(teacherNextAvailableCourse(entries, periods, monday, "UTC", true)).toMatchObject({ status: "future", entry: { id: "e3" }, date: "2026-08-11" });
+    const calendar: SchoolCalendar = { schoolId: "a", schoolYearId: "y", status: "validated", updatedAt: "now", updatedBy: "u", events: [{ id: "s", title: "Suspension", kind: "suspension", startsAt: "2026-08-11", endsAt: "2026-08-11", origin: "local", suspendsCourses: true }] };
+    expect(teacherNextAvailableCourse(entries, periods, monday, "UTC", true, calendar)).toMatchObject({ status: "future", entry: { id: "e1" }, date: "2026-08-17" });
+    expect(teacherNextAvailableCourse(entries, periods, monday, "UTC", true, { ...calendar, status: "draft" })).toMatchObject({ status: "future", entry: { id: "e3" } });
+    expect(teacherNextAvailableCourse(entries, periods, monday, "Invalid/Zone", true)).toEqual({ status: "timezone-missing" });
   });
 
   it("calcule uniquement la charge des affectations actives", () => {

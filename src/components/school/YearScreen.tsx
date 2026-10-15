@@ -52,6 +52,7 @@ export function YearScreen({
             </button>
           ))}
         </div>
+        {user.role === "teacher" && !years.some((year) => year.status === "active") && <p role="status" className="mt-5 rounded border border-amber-200 bg-amber-50 p-4 text-amber-900">Aucune année scolaire active n'est définie pour cet établissement.</p>}
         {governance?.loading && <p role="status" className="mt-5 rounded border border-slate-200 bg-white p-4">Vérification de la gouvernance des années scolaires…</p>}
         {governance?.error && <p role="alert" className="mt-5 rounded border border-red-200 bg-red-50 p-4 text-red-800">{governance.error}</p>}
         {governance?.closed && <p role="status" className="mt-5 rounded border border-blue-200 bg-blue-50 p-4 text-blue-800">Les années scolaires ont été clôturées par la Coordination. Veuillez demander au Coordinateur de créer une nouvelle année scolaire.</p>}

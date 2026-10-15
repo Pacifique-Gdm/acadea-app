@@ -24,6 +24,8 @@ function eventDocument(event: SchoolCalendarEvent, schoolId: string, schoolYearI
   return {
     id: event.id, schoolId, schoolYearId, title: event.title, kind: event.kind,
     startsAt: dateTimestamp(event.startsAt), endsAt: dateTimestamp(event.endsAt), origin: event.origin,
+    ...(event.suspendsCourses !== undefined ? { suspendsCourses: event.suspendsCourses } : {}),
+    ...(event.startTime !== undefined ? { startTime: event.startTime, endTime: event.endTime } : {}),
     ...(event.origin === "official-proposal" ? {
       sourceUrl: event.sourceUrl, educationLevel: event.educationLevel,
       ...(event.publishedAt ? { publishedAt: dateTimestamp(event.publishedAt) } : {}),
@@ -44,6 +46,8 @@ function readEvent(data: Record<string, unknown>, id: string): SchoolCalendarEve
     id, title: data.title, kind: data.kind as SchoolCalendarEvent["kind"],
     startsAt: eventDay(data.startsAt), endsAt: eventDay(data.endsAt),
     origin: data.origin as SchoolCalendarEvent["origin"],
+    ...(typeof data.suspendsCourses === "boolean" ? { suspendsCourses: data.suspendsCourses } : {}),
+    ...(typeof data.startTime === "string" && typeof data.endTime === "string" ? { startTime: data.startTime, endTime: data.endTime } : {}),
     ...(typeof data.sourceUrl === "string" ? { sourceUrl: data.sourceUrl } : {}),
     ...(data.publishedAt instanceof Timestamp ? { publishedAt: eventDay(data.publishedAt) } : {}),
     ...(typeof data.educationLevel === "string" ? { educationLevel: data.educationLevel } : {}),
