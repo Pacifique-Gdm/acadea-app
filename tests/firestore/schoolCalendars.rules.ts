@@ -134,4 +134,39 @@ describe("calendrier scolaire cloisonné et événements validés document par d
     await assertSucceeds(getDoc(doc(database("teacher", "teacher"), "schoolCalendars/year-a")));
     await assertFails(setDoc(doc(database("director", "study_director"), "schoolCalendars/year-a"), { ...metadata("school-a", "year-a", "director", "v2"), events: [{ bogus: true }] }));
   });
+  it("lie les événements PDF à un document de l'école et de l'année active, sans substitution", async () => {
+    await environment.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), "schools/school-a"), { status: "active", activeSchoolYearId: "year-a" });
+    });
+    const path = "school-calendars/school-a/year-a/123e4567-e89b-12d3-a456-426614174000.pdf";
+    const sourcePdf = { path, name: "calendrier.pdf", size: 2048, pageCount: 7, sha256: "a".repeat(64), uploadedAt: "2026-10-15T12:00:00Z", uploadedBy: "director" };
+    const db = database("director", "study_director");
+    const pdfEvent = event({ origin: "pdf-import", sourcePdfPath: path, sourcePage: 2, educationLevel: "Secondaire", suspendsCourses: false });
+    const batch = writeBatch(db);
+    batch.set(doc(db, "schoolCalendars/year-a"), { ...metadata(), sourcePdf });
+    batch.set(doc(db, "schoolCalendars/year-a/events/event-a"), pdfEvent);
+    await assertSucceeds(batch.commit());
+    const changed = writeBatch(db);
+    changed.set(doc(db, "schoolCalendars/year-a"), { ...metadata("school-a", "year-a", "director", "v2"), sourcePdf });
+    changed.set(doc(db, "schoolCalendars/year-a/events/event-a"), { ...pdfEvent, title: "Examen corrigé" });
+    await assertSucceeds(changed.commit());
+    await assertFails(writeEvent("director", "study_director", { ...pdfEvent, sourcePdfPath: "school-calendars/school-b/year-a/123e4567-e89b-12d3-a456-426614174000.pdf" }, "school-a", "year-a", "v3"));
+    await assertFails(writeEvent("director", "study_director", { ...pdfEvent, sourcePage: 8 }, "school-a", "year-a", "v3"));
+    await assertFails(setDoc(doc(db, "schoolCalendars/year-a"), { ...metadata("school-a", "year-a", "director", "v3"), sourcePdf: { ...sourcePdf, path: path.replace("123e4567", "223e4567") } }));
+    await assertFails(writeEvent("teacher", "teacher", pdfEvent, "school-a", "year-a", "v3"));
+    await assertFails(getDoc(doc(database("other", "study_director", "school-b"), "schoolCalendars/year-a/events/event-a")));
+  });
+  it("permet d'attacher le premier PDF à un calendrier brouillon existant", async () => {
+    await environment.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), "schools/school-a"), { status: "active", activeSchoolYearId: "year-a" });
+      await setDoc(doc(context.firestore(), "schoolCalendars/year-a"), metadata());
+    });
+    const db = database("director", "study_director");
+    const path = "school-calendars/school-a/year-a/123e4567-e89b-12d3-a456-426614174000.pdf";
+    const sourcePdf = { path, name: "calendrier.pdf", size: 2048, pageCount: 7, sha256: "a".repeat(64), uploadedAt: "2026-10-15T12:00:00Z", uploadedBy: "director" };
+    const batch = writeBatch(db);
+    batch.set(doc(db, "schoolCalendars/year-a"), { ...metadata("school-a", "year-a", "director", "v2"), sourcePdf });
+    batch.set(doc(db, "schoolCalendars/year-a/events/event-a"), event({ origin: "pdf-import", sourcePdfPath: path, sourcePage: 3, educationLevel: "Primaire" }));
+    await assertSucceeds(batch.commit());
+  });
 });

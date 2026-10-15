@@ -6,6 +6,24 @@ import react from "@vitejs/plugin-react";
 import { validateFirebaseEnvironment } from "./src/config/environment";
 
 const buildId = process.env.VERCEL_GIT_COMMIT_SHA?.trim() || process.env.VERCEL_DEPLOYMENT_ID?.trim() || String(Date.now());
+const ocrAssets = [
+  ["tesseract.js/dist/worker.min.js", "worker.min.js"],
+  ["tesseract.js-core/tesseract-core-lstm.wasm.js", "tesseract-core-lstm.wasm.js"],
+  ["tesseract.js-core/tesseract-core-lstm.wasm", "tesseract-core-lstm.wasm"],
+  ["tesseract.js-core/tesseract-core-simd-lstm.wasm.js", "tesseract-core-simd-lstm.wasm.js"],
+  ["tesseract.js-core/tesseract-core-simd-lstm.wasm", "tesseract-core-simd-lstm.wasm"],
+  ["tesseract.js-core/tesseract-core-relaxedsimd-lstm.wasm.js", "tesseract-core-relaxedsimd-lstm.wasm.js"],
+  ["tesseract.js-core/tesseract-core-relaxedsimd-lstm.wasm", "tesseract-core-relaxedsimd-lstm.wasm"],
+  ["@tesseract.js-data/fra/4.0.0_best_int/fra.traineddata.gz", "fra.traineddata.gz"],
+] as const;
+
+function ocrMiddleware(request: { url?: string }, response: { setHeader: (key: string, value: string) => void; end: (data: Buffer) => void }, next: () => void) {
+  const asset = ocrAssets.find(([, name]) => request.url?.split("?")[0] === `/ocr/${name}`);
+  if (!asset) return next();
+  const extension = asset[1].endsWith(".wasm") ? "application/wasm" : asset[1].endsWith(".gz") ? "application/gzip" : "text/javascript";
+  response.setHeader("Content-Type", extension);
+  response.end(readFileSync(resolve(process.cwd(), "node_modules", asset[0])));
+}
 
 export default defineConfig(({ mode }) => {
   const canonicalMode = mode === "production" ? "production" : mode === "staging" ? "staging" : "development";
@@ -43,6 +61,14 @@ export default defineConfig(({ mode }) => {
   return {
   plugins: [
     react(),
+    {
+      name: "acadea-local-calendar-ocr-assets",
+      configureServer(server) { server.middlewares.use(ocrMiddleware); },
+      configurePreviewServer(server) { server.middlewares.use(ocrMiddleware); },
+      generateBundle() {
+        for (const [source, name] of ocrAssets) this.emitFile({ type: "asset", fileName: `ocr/${name}`, source: readFileSync(resolve(process.cwd(), "node_modules", source)) });
+      },
+    },
     {
       name: "acadea-build-version",
       generateBundle() {

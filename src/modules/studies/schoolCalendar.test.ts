@@ -74,6 +74,20 @@ describe("calendrier scolaire et date de l'établissement", () => {
     expect(validateCalendarEvent({ ...event("holiday", "2026-10-14"), origin: "official-proposal", sourceUrl: "https://edu-nc.gouv.cd/calendrier-scolaire", educationLevel: "Secondaire" }, current, [])).toBeUndefined();
     expect(validateCalendarEvent({ ...event("holiday", "2026-10-14"), origin: "official-proposal", sourceUrl: "https://edu.example.org/calendar", educationLevel: "Secondaire" }, current, [])).toContain("Source officielle");
   });
+  it("lie un événement PDF à la bonne année, page et école sans changer la suspension implicite", () => {
+    const sourcePdfPath = "school-calendars/school-a/2026-2027/123e4567-e89b-12d3-a456-426614174000.pdf";
+    const imported = { ...event("exam", "2026-10-14"), origin: "pdf-import" as const, sourcePdfPath, sourcePage: 2, educationLevel: "Secondaire", suspendsCourses: false };
+    expect(validateCalendarEvent(imported, current, [])).toBeUndefined();
+    expect(schoolCourseSuspended(calendar([imported]), "2026-10-14", "08:00", "09:00")).toBe(false);
+    expect(validateCalendarEvent({ ...imported, sourcePage: 0 }, current, [])).toContain("Document PDF");
+    expect(validateCalendarEvent({ ...imported, sourcePdfPath: sourcePdfPath.replace("school-a", "school-b") }, current, [])).toContain("Document PDF");
+    const suspension = { ...imported, kind: "suspension" as const, suspendsCourses: true, educationLevel: "Primaire et Maternelle" };
+    expect(schoolCourseSuspended(calendar([suspension]), "2026-10-14", "08:00", "09:00", "Primaire")).toBe(true);
+    expect(schoolCourseSuspended(calendar([suspension]), "2026-10-14", "08:00", "09:00", "Maternelle")).toBe(true);
+    expect(schoolCourseSuspended(calendar([suspension]), "2026-10-14", "08:00", "09:00", "Secondaire")).toBe(false);
+    expect(schoolCourseSuspended(calendar([suspension]), "2026-10-14", "08:00", "09:00")).toBe(false);
+    expect(schoolCourseSuspended(calendar([{ ...suspension, educationLevel: "Non déterminé" }]), "2026-10-14", "08:00", "09:00", "Primaire")).toBe(false);
+  });
   it("n'importe qu'une proposition sourcée, prévisualisable, sans date officielle codée en dur", () => {
     const source = { url: "https://edu-nc.gouv.cd/calendrier-scolaire", publishedAt: "2026-09-01", educationLevel: "Secondaire" };
     const raw = JSON.stringify([{ title: "Congé annoncé", kind: "holiday", startsAt: "2026-10-14", endsAt: "2026-10-14" }]);

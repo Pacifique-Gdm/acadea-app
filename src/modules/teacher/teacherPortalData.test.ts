@@ -71,6 +71,20 @@ describe("données du portail Enseignant", () => {
     expect(teacherNextAvailableCourse(entries, periods, monday, "Invalid/Zone", true)).toEqual({ status: "timezone-missing" });
   });
 
+  it("écarte seulement les cours du niveau suspendu par un PDF vérifié", () => {
+    const monday = new Date("2026-08-10T10:30:00Z");
+    const scopedEntries = [
+      { ...entries[2], classId: "primary", id: "primary-course" },
+      { ...entries[2], classId: "secondary", id: "secondary-course" },
+    ];
+    const classes = [
+      { id: "primary", name: "1ère Primaire", section: "Primaire" },
+      { id: "secondary", name: "1ère Humanité", section: "Secondaire" },
+    ] as StudyClass[];
+    const calendar: SchoolCalendar = { schoolId: "a", schoolYearId: "y", status: "validated", updatedAt: "now", updatedBy: "u", events: [{ id: "s", title: "Suspension primaire", kind: "suspension", startsAt: "2026-08-11", endsAt: "2026-08-11", origin: "pdf-import", sourcePdfPath: "school-calendars/a/y/123e4567-e89b-12d3-a456-426614174000.pdf", sourcePage: 1, educationLevel: "Primaire", suspendsCourses: true }] };
+    expect(teacherNextAvailableCourse(scopedEntries, periods, monday, "UTC", true, calendar, classes)).toMatchObject({ status: "future", entry: { id: "secondary-course" }, date: "2026-08-11" });
+  });
+
   it("calcule uniquement la charge des affectations actives", () => {
     expect(weeklyWorkload([{ active: true, weeklyPeriods: 4 }, { active: false, weeklyPeriods: 9 }, { active: true, weeklyPeriods: 3 }] as PedagogicalAssignment[])).toBe(7);
   });

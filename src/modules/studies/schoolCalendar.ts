@@ -1,4 +1,4 @@
-import type { SchoolYear } from "../../types";
+import type { SchoolSection, SchoolYear } from "../../types";
 
 export type CalendarEventKind = "vacation" | "holiday" | "pedagogical" | "suspension" | "resumption" | "meeting" | "ceremony" | "classCouncil" | "exam" | "activity";
 const calendarEventKinds: CalendarEventKind[] = ["vacation", "holiday", "pedagogical", "suspension", "resumption", "meeting", "ceremony", "classCouncil", "exam", "activity"];
@@ -8,14 +8,17 @@ export type SchoolCalendarEvent = {
   kind: CalendarEventKind;
   startsAt: string;
   endsAt: string;
-  origin: "local" | "official-proposal";
+  origin: "local" | "official-proposal" | "pdf-import";
   sourceUrl?: string;
   publishedAt?: string;
   educationLevel?: string;
   suspendsCourses?: boolean;
   startTime?: string;
   endTime?: string;
+  sourcePdfPath?: string;
+  sourcePage?: number;
 };
+export type CalendarPdfSource = { path: string; name: string; size: number; pageCount: number; sha256: string; uploadedAt: string; uploadedBy: string };
 export type SchoolCalendar = {
   schoolId: string;
   schoolYearId: string;
@@ -23,6 +26,7 @@ export type SchoolCalendar = {
   events: SchoolCalendarEvent[];
   updatedAt: string;
   updatedBy: string;
+  sourcePdf?: CalendarPdfSource;
 };
 
 const isoDay = /^\d{4}-\d{2}-\d{2}$/;
@@ -81,7 +85,11 @@ export function validateCalendarEvent(event: SchoolCalendarEvent, year: SchoolYe
   if (!start || !end) return "Dates de l'année scolaire incomplètes.";
   if (event.startsAt < start || event.endsAt > end) return "Événement hors de l'année scolaire.";
   if (event.origin === "official-proposal" && (!officialCalendarSource(event.sourceUrl ?? "") || (event.publishedAt && !validCalendarDate(event.publishedAt)) || !event.educationLevel?.trim())) return "Source officielle du ministère et niveau requis ; date de publication valide si renseignée.";
-  if (event.origin !== "local" && event.origin !== "official-proposal") return "Origine de l’événement invalide.";
+  if (event.origin === "pdf-import") {
+    const prefix = `school-calendars/${year.schoolId}/${year.id}/`;
+    if (!event.sourcePdfPath?.startsWith(prefix) || !/^[0-9a-f-]{36}\.pdf$/i.test(event.sourcePdfPath.slice(prefix.length)) || !Number.isInteger(event.sourcePage) || (event.sourcePage ?? 0) < 1 || (event.sourcePage ?? 0) > 30 || !event.educationLevel?.trim()) return "Document PDF, page source et niveau requis.";
+  }
+  if (event.origin !== "local" && event.origin !== "official-proposal" && event.origin !== "pdf-import") return "Origine de l’événement invalide.";
   if (existing.some((item) => item.id !== event.id && event.startsAt <= item.endsAt && item.startsAt <= event.endsAt && (item.kind === "resumption") !== (event.kind === "resumption"))) return "Chevauchement contradictoire avec une reprise des cours.";
   return undefined;
 }
@@ -119,9 +127,24 @@ export function teachingDayStatus(calendar: SchoolCalendar | undefined, date: st
   return kind && kind !== "resumption" ? kind : "teaching";
 }
 
-export function schoolCourseSuspended(calendar: SchoolCalendar | undefined, date: string, startTime: string, endTime: string): boolean {
+function pdfEventAppliesToSection(event: SchoolCalendarEvent, section: SchoolSection | undefined): boolean {
+  if (event.origin !== "pdf-import") return true;
+  if (!section) return false;
+  const level = (event.educationLevel ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  if (/tous les niveaux|toutes les sections/.test(level)) return true;
+  const pattern: Record<SchoolSection, RegExp> = {
+    Maternelle: /maternell|prescolair/,
+    Primaire: /primair/,
+    CTEB: /cteb|techniqu/,
+    Secondaire: /secondair|humanit/,
+  };
+  return pattern[section].test(level);
+}
+
+export function schoolCourseSuspended(calendar: SchoolCalendar | undefined, date: string, startTime: string, endTime: string, section?: SchoolSection): boolean {
   if (calendar?.status !== "validated") return false;
   return calendar.events.some((event) => event.suspendsCourses === true && event.kind !== "resumption"
+    && pdfEventAppliesToSection(event, section)
     && event.startsAt <= date && date <= event.endsAt
     && (event.startTime === undefined || event.endTime === undefined || (startTime < event.endTime && endTime > event.startTime)));
 }

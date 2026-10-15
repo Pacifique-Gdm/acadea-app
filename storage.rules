@@ -59,6 +59,42 @@ service firebase.storage {
         && firestore.get(/databases/(default)/documents/users/$(personnelId)).data.role == "teacher";
     }
 
+    match /school-calendars/{schoolId}/{schoolYearId}/{fileName} {
+      function calendarSourcePath() {
+        return "school-calendars/" + schoolId + "/" + schoolYearId + "/" + fileName;
+      }
+      function ownsCalendar() {
+        return signedIn()
+          && role() == "study_director"
+          && tenantSchoolId() == schoolId
+          && firestore.exists(/databases/(default)/documents/schoolYears/$(schoolYearId))
+          && firestore.get(/databases/(default)/documents/schoolYears/$(schoolYearId)).data.schoolId == schoolId;
+      }
+      allow get: if ownsCalendar();
+      allow list: if false;
+      allow create: if resource == null
+        && ownsCalendar()
+        && schoolAcceptsWrites(schoolId)
+        && firestore.get(/databases/(default)/documents/schools/$(schoolId)).data.activeSchoolYearId == schoolYearId
+        && fileName.matches('^[0-9a-fA-F-]{36}\\.pdf$')
+        && request.resource.size > 0
+        && request.resource.size <= 10 * 1024 * 1024
+        && request.resource.contentType == "application/pdf"
+        && request.resource.metadata.keys().hasAll(["schoolId", "schoolYearId", "uploadedBy", "originalName"])
+        && request.resource.metadata.schoolId == schoolId
+        && request.resource.metadata.schoolYearId == schoolYearId
+        && request.resource.metadata.uploadedBy == request.auth.uid
+        && request.resource.metadata.originalName is string
+        && request.resource.metadata.originalName.size() > 0
+        && request.resource.metadata.originalName.size() <= 120;
+      allow update: if false;
+      allow delete: if ownsCalendar()
+        && resource.metadata.uploadedBy == request.auth.uid
+        && (!firestore.exists(/databases/(default)/documents/schoolCalendars/$(schoolYearId))
+          || !firestore.get(/databases/(default)/documents/schoolCalendars/$(schoolYearId)).data.keys().hasAny(["sourcePdf"])
+          || firestore.get(/databases/(default)/documents/schoolCalendars/$(schoolYearId)).data.sourcePdf.path != calendarSourcePath());
+    }
+
     match /personnel-photos/{schoolId}/{personnelId}/{fileName} {
       allow read: if (signedIn() && role() == "super_admin") || (schoolAcceptsWrites(schoolId) && ((signedIn() && role() == "school_admin" && tenantSchoolId() == schoolId) || studyDirectorManagesTeacher(schoolId, personnelId)));
       allow create: if ((signedIn() && role() == "school_admin" && tenantSchoolId() == schoolId) || studyDirectorManagesTeacher(schoolId, personnelId)) && schoolAcceptsWrites(schoolId) && validPersonnelPhoto(fileName, schoolId, personnelId);

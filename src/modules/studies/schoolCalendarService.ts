@@ -1,7 +1,7 @@
 import { collection, doc, onSnapshot, runTransaction, Timestamp, type Firestore, type Unsubscribe } from "@firebase/firestore";
 import { db } from "../../firebase";
 import type { AppUser, SchoolYear } from "../../types";
-import { validateCalendarEvent, type SchoolCalendar, type SchoolCalendarEvent } from "./schoolCalendar";
+import { validateCalendarEvent, type CalendarPdfSource, type SchoolCalendar, type SchoolCalendarEvent } from "./schoolCalendar";
 
 function calendarRef(yearId: string) {
   if (!db) throw new Error("Firestore indisponible.");
@@ -30,6 +30,7 @@ function eventDocument(event: SchoolCalendarEvent, schoolId: string, schoolYearI
       sourceUrl: event.sourceUrl, educationLevel: event.educationLevel,
       ...(event.publishedAt ? { publishedAt: dateTimestamp(event.publishedAt) } : {}),
     } : {}),
+    ...(event.origin === "pdf-import" ? { sourcePdfPath: event.sourcePdfPath, sourcePage: event.sourcePage, educationLevel: event.educationLevel } : {}),
   };
 }
 
@@ -51,6 +52,8 @@ function readEvent(data: Record<string, unknown>, id: string): SchoolCalendarEve
     ...(typeof data.sourceUrl === "string" ? { sourceUrl: data.sourceUrl } : {}),
     ...(data.publishedAt instanceof Timestamp ? { publishedAt: eventDay(data.publishedAt) } : {}),
     ...(typeof data.educationLevel === "string" ? { educationLevel: data.educationLevel } : {}),
+    ...(typeof data.sourcePdfPath === "string" ? { sourcePdfPath: data.sourcePdfPath } : {}),
+    ...(typeof data.sourcePage === "number" ? { sourcePage: data.sourcePage } : {}),
   };
 }
 
@@ -82,12 +85,13 @@ export function subscribeSchoolCalendar(input: { user: AppUser; schoolId: string
   return () => { unsubscribeMetadata(); unsubscribeEvents(); };
 }
 
-export async function saveSchoolCalendar(input: { user: AppUser; schoolId: string; year: SchoolYear; expectedUpdatedAt?: string; previousEventIds: string[]; events: SchoolCalendarEvent[]; status: "draft" | "validated" }) {
+export async function saveSchoolCalendar(input: { user: AppUser; schoolId: string; year: SchoolYear; expectedUpdatedAt?: string; previousEventIds: string[]; events: SchoolCalendarEvent[]; status: "draft" | "validated"; sourcePdf?: CalendarPdfSource }) {
   if (input.user.role !== "study_director" || input.user.schoolId !== input.schoolId || input.year.schoolId !== input.schoolId || input.user.active === false || input.user.status === "inactive") throw new Error("Modification du calendrier non autorisée.");
   if (input.events.length > 100 || new Set(input.events.map((event) => event.id)).size !== input.events.length) throw new Error("Événements du calendrier invalides.");
   for (const event of input.events) {
     const error = validateCalendarEvent(event, input.year, input.events);
     if (error) throw new Error(error);
+    if (event.origin === "pdf-import" && event.sourcePdfPath !== input.sourcePdf?.path) throw new Error("Source PDF de l'événement non liée au calendrier.");
   }
   if (!db) throw new Error("Firestore indisponible.");
   const reference = calendarRef(input.year.id);
@@ -95,6 +99,7 @@ export async function saveSchoolCalendar(input: { user: AppUser; schoolId: strin
     const current = await transaction.get(reference);
     if ((current.exists() ? current.data().updatedAt : undefined) !== input.expectedUpdatedAt) throw new Error("Le calendrier a changé dans une autre session. Rechargez-le avant de réessayer.");
     if (current.exists() && (current.data().schoolId !== input.schoolId || current.data().schoolYearId !== input.year.id)) throw new Error("Calendrier hors périmètre.");
+    if (current.exists() && current.data().sourcePdf && current.data().sourcePdf.path !== input.sourcePdf?.path) throw new Error("Le document PDF du calendrier ne peut pas être remplacé.");
     const nextIds = new Set(input.events.map((event) => event.id));
     const removed = await Promise.all(input.previousEventIds.filter((id) => !nextIds.has(id)).map(async (id) => {
       const reference = doc(calendarEventsRef(input.year.id), id);
@@ -102,7 +107,7 @@ export async function saveSchoolCalendar(input: { user: AppUser; schoolId: strin
     }));
     const now = new Date().toISOString();
     const updatedAt = now === input.expectedUpdatedAt ? new Date(Date.now() + 1).toISOString() : now;
-    transaction.set(reference, { schoolId: input.schoolId, schoolYearId: input.year.id, status: input.status, updatedAt, updatedBy: input.user.id });
+    transaction.set(reference, { schoolId: input.schoolId, schoolYearId: input.year.id, status: input.status, updatedAt, updatedBy: input.user.id, ...(input.sourcePdf ? { sourcePdf: input.sourcePdf } : {}) });
     for (const { reference: eventReference, snapshot } of removed) {
       if (snapshot.exists()) transaction.delete(eventReference);
     }
