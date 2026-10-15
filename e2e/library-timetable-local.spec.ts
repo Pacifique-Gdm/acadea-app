@@ -252,6 +252,20 @@ test.describe("Bibliothèque et horaires — navigateur local isolé", () => {
       await expect(teacher.page.getByText("Aucun cours prévu aujourd’hui.", { exact: true })).toBeVisible();
       await teacher.page.clock.fastForward(70_000);
       await expect(teacher.page.getByText("Géographie").first()).toBeVisible();
+      const existingCalendar = await db.doc(`schoolCalendars/${yearId}`).get();
+      await db.doc(`schoolCalendars/${yearId}`).delete();
+      await expect(teacher.page.getByText("Géographie").first()).toBeVisible();
+      await db.doc(`schoolCalendars/${yearId}`).set(existingCalendar.data()!);
+
+      await db.doc(`schoolYears/${otherYearId}`).update({ status: "active", startsAt: "2026-09-01", endsAt: "2027-07-31" });
+      await expect(teacher.page.getByText("Plusieurs années scolaires couvrent cette date.")).toHaveCount(0);
+      await expect(teacher.page.getByText("Géographie").first()).toBeVisible();
+      await db.doc(`schools/${schoolId}`).update({ activeSchoolYearId: otherYearId });
+      await expect(teacher.page.getByText("Année scolaire 2027-2028")).toBeVisible();
+      await expect(teacher.page.getByText("Géographie")).toHaveCount(0);
+      await db.doc(`schools/${schoolId}`).update({ activeSchoolYearId: yearId });
+      await expect(teacher.page.getByText("Géographie").first()).toBeVisible();
+      await db.doc(`schoolYears/${otherYearId}`).update({ status: "future", startsAt: "2027-09-01", endsAt: "2028-07-31" });
 
       await login(studies.page, accounts.studies);
       await studies.page.getByRole("button", { name: "Menu", exact: true }).last().click();
@@ -259,21 +273,41 @@ test.describe("Bibliothèque et horaires — navigateur local isolé", () => {
       const calendar = studies.page.getByRole("dialog", { name: "Calendrier scolaire" });
       await expect(calendar).toBeVisible();
       await expect(calendar.getByText("Congé historique")).toBeVisible();
+      for (const width of [375, 390, 768, 1440]) {
+        await studies.page.setViewportSize({ width, height: 900 });
+        const [draft, validate] = await Promise.all([calendar.getByRole("button", { name: "Enregistrer le brouillon" }).boundingBox(), calendar.getByRole("button", { name: "Valider pour l’établissement" }).boundingBox()]);
+        expect(draft && validate && Math.abs(draft.width - validate.width)).toBeLessThanOrEqual(1);
+        expect(await studies.page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width + 1);
+      }
       await calendar.getByRole("button", { name: "Ajouter un événement" }).click();
       await calendar.getByRole("textbox", { name: "Titre de l’événement" }).fill("Suspension locale contrôlée");
+      await calendar.getByRole("combobox", { name: "Type d’événement" }).selectOption("meeting");
+      await expect(calendar.getByRole("checkbox", { name: "Suspendre les cours pendant cet événement" })).not.toBeChecked();
       await calendar.getByRole("combobox", { name: "Type d’événement" }).selectOption("suspension");
       await calendar.locator('input[type="date"]').nth(0).fill("2026-10-14");
       await calendar.locator('input[type="date"]').nth(1).fill("2026-10-14");
+      await expect(calendar.getByRole("checkbox", { name: "Suspendre les cours pendant cet événement" })).toBeChecked();
+      for (const width of [375, 390, 768, 1440]) {
+        await studies.page.setViewportSize({ width, height: 900 });
+        const [add, cancel] = await Promise.all([calendar.getByRole("button", { name: "Ajouter à la liste" }).boundingBox(), calendar.getByRole("button", { name: "Annuler" }).boundingBox()]);
+        expect(add && cancel && Math.abs(add.width - cancel.width)).toBeLessThanOrEqual(1);
+        expect(await studies.page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width + 1);
+      }
       await calendar.getByRole("button", { name: "Ajouter à la liste" }).click();
+      await calendar.getByRole("button", { name: "Enregistrer le brouillon" }).click();
+      await expect(teacher.page.getByText("Suspendu", { exact: true })).toHaveCount(0);
+      await expect(teacher.page.getByText("Géographie").first()).toBeVisible();
       studies.page.once("dialog", (dialog) => void dialog.accept());
       await calendar.getByRole("button", { name: "Valider pour l’établissement" }).click();
-      await expect(teacher.page.getByText("Cours suspendus aujourd’hui.").first()).toBeVisible({ timeout: 15_000 });
+      await expect(teacher.page.getByText("Suspendu", { exact: true }).first()).toBeVisible({ timeout: 15_000 });
+      await expect(teacher.page.getByText("Prochain cours le", { exact: false })).toBeVisible();
 
       studies.page.once("dialog", (dialog) => void dialog.accept());
       await calendar.getByText("Suspension locale contrôlée").locator("..").getByRole("button", { name: "Supprimer" }).click();
       studies.page.once("dialog", (dialog) => void dialog.accept());
       await calendar.getByRole("button", { name: "Valider pour l’établissement" }).click();
       await expect(teacher.page.getByText("Géographie").first()).toBeVisible({ timeout: 15_000 });
+      await expect(teacher.page.getByText("Suspendu", { exact: true })).toHaveCount(0);
       const migrated = await db.collection(`schoolCalendars/${yearId}/events`).get();
       expect(migrated.docs.map((item) => item.id)).toEqual(["legacy-holiday"]);
       expect((await db.doc(`schoolCalendars/${yearId}`).get()).data()).not.toHaveProperty("events");

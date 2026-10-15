@@ -1,6 +1,7 @@
 import type { SchoolYear } from "../../types";
 
-export type CalendarEventKind = "vacation" | "holiday" | "pedagogical" | "suspension" | "resumption";
+export type CalendarEventKind = "vacation" | "holiday" | "pedagogical" | "suspension" | "resumption" | "meeting" | "ceremony" | "classCouncil" | "exam" | "activity";
+const calendarEventKinds: CalendarEventKind[] = ["vacation", "holiday", "pedagogical", "suspension", "resumption", "meeting", "ceremony", "classCouncil", "exam", "activity"];
 export type SchoolCalendarEvent = {
   id: string;
   title: string;
@@ -11,6 +12,9 @@ export type SchoolCalendarEvent = {
   sourceUrl?: string;
   publishedAt?: string;
   educationLevel?: string;
+  suspendsCourses?: boolean;
+  startTime?: string;
+  endTime?: string;
 };
 export type SchoolCalendar = {
   schoolId: string;
@@ -33,6 +37,10 @@ export function officialCalendarSource(url: string): boolean {
     const parsed = new URL(url);
     return parsed.protocol === "https:" && parsed.hostname === "edu-nc.gouv.cd";
   } catch { return false; }
+}
+
+export function defaultEventSuspendsCourses(kind: CalendarEventKind): boolean {
+  return kind === "vacation" || kind === "holiday" || kind === "suspension";
 }
 
 export function schoolCivilDate(now: Date, timeZone: string | undefined): string | undefined {
@@ -62,8 +70,13 @@ export function applicableSchoolYear(years: SchoolYear[], schoolId: string, date
 }
 
 export function validateCalendarEvent(event: SchoolCalendarEvent, year: SchoolYear, existing: SchoolCalendarEvent[]): string | undefined {
-  if (!event.id || !event.title.trim() || event.title.length > 120 || !["vacation", "holiday", "pedagogical", "suspension", "resumption"].includes(event.kind)) return "Événement incomplet.";
+  if (!event.id || !event.title.trim() || event.title.length > 120 || !calendarEventKinds.includes(event.kind)) return "Événement incomplet.";
   if (!validCalendarDate(event.startsAt) || !validCalendarDate(event.endsAt) || event.startsAt > event.endsAt) return "Dates incohérentes.";
+  if (event.suspendsCourses !== undefined && typeof event.suspendsCourses !== "boolean") return "Suspension des cours invalide.";
+  if (event.kind === "resumption" && event.suspendsCourses === true) return "Une reprise des cours ne peut pas suspendre les cours.";
+  if (event.startTime !== undefined || event.endTime !== undefined) {
+    if (!event.suspendsCourses || event.startsAt !== event.endsAt || !/^([01]\d|2[0-3]):[0-5]\d$/.test(event.startTime ?? "") || !/^([01]\d|2[0-3]):[0-5]\d$/.test(event.endTime ?? "") || event.startTime! >= event.endTime!) return "Créneau de suspension invalide : choisissez un seul jour et deux heures cohérentes.";
+  }
   const start = yearDay(year.startsAt), end = yearDay(year.endsAt);
   if (!start || !end) return "Dates de l'année scolaire incomplètes.";
   if (event.startsAt < start || event.endsAt > end) return "Événement hors de l'année scolaire.";
@@ -82,11 +95,12 @@ export function parseOfficialCalendarProposal(raw: string, source: { url: string
   for (const value of values) {
     if (!value || typeof value !== "object") throw new Error("Événement proposé invalide.");
     const item = value as Record<string, unknown>;
-    if (!["vacation", "holiday", "pedagogical", "suspension", "resumption"].includes(String(item.kind))) throw new Error("Type d’événement proposé invalide.");
+    if (!calendarEventKinds.includes(item.kind as CalendarEventKind)) throw new Error("Type d’événement proposé invalide.");
     const candidate: SchoolCalendarEvent = {
       id: crypto.randomUUID(), title: String(item.title ?? ""), kind: item.kind as CalendarEventKind,
       startsAt: String(item.startsAt ?? ""), endsAt: String(item.endsAt ?? ""),
       origin: "official-proposal", sourceUrl: source.url, ...(source.publishedAt ? { publishedAt: source.publishedAt } : {}), educationLevel: source.educationLevel.trim(),
+      suspendsCourses: defaultEventSuspendsCourses(item.kind as CalendarEventKind),
     };
     const issue = validateCalendarEvent(candidate, year, [...existing, ...proposals]);
     if (issue) throw new Error(issue);
@@ -95,14 +109,21 @@ export function parseOfficialCalendarProposal(raw: string, source: { url: string
   return proposals;
 }
 
-export type TeachingDayStatus = "teaching" | "unconfigured" | "draft" | "incomplete" | "vacation" | "holiday" | "pedagogical" | "suspension";
+export type TeachingDayStatus = "teaching" | "unconfigured" | "draft" | "incomplete" | Exclude<CalendarEventKind, "resumption">;
 export function teachingDayStatus(calendar: SchoolCalendar | undefined, date: string): TeachingDayStatus {
   if (!calendar) return "unconfigured";
   if (calendar.status !== "validated") return "draft";
-  if (!Array.isArray(calendar.events) || calendar.events.some((event) => !event || !validCalendarDate(event.startsAt) || !validCalendarDate(event.endsAt) || event.startsAt > event.endsAt || !["vacation", "holiday", "pedagogical", "suspension", "resumption"].includes(event.kind))) return "incomplete";
-  const blockers = calendar.events.filter((event) => event.startsAt <= date && date <= event.endsAt && event.kind !== "resumption");
+  if (!Array.isArray(calendar.events) || calendar.events.some((event) => !event || !validCalendarDate(event.startsAt) || !validCalendarDate(event.endsAt) || event.startsAt > event.endsAt || !calendarEventKinds.includes(event.kind))) return "incomplete";
+  const blockers = calendar.events.filter((event) => event.suspendsCourses === true && event.startsAt <= date && date <= event.endsAt && event.kind !== "resumption");
   const kind = blockers[0]?.kind;
   return kind && kind !== "resumption" ? kind : "teaching";
+}
+
+export function schoolCourseSuspended(calendar: SchoolCalendar | undefined, date: string, startTime: string, endTime: string): boolean {
+  if (calendar?.status !== "validated") return false;
+  return calendar.events.some((event) => event.suspendsCourses === true && event.kind !== "resumption"
+    && event.startsAt <= date && date <= event.endsAt
+    && (event.startTime === undefined || event.endTime === undefined || (startTime < event.endTime && endTime > event.startTime)));
 }
 
 export const teachingDayMessages: Record<Exclude<TeachingDayStatus, "teaching">, string> = {
@@ -113,4 +134,9 @@ export const teachingDayMessages: Record<Exclude<TeachingDayStatus, "teaching">,
   holiday: "Jour férié — aucun cours.",
   pedagogical: "Journée pédagogique — aucun cours.",
   suspension: "Cours suspendus aujourd’hui.",
+  meeting: "Réunion — cours suspendus.",
+  ceremony: "Cérémonie — cours suspendus.",
+  classCouncil: "Conseil de classe — cours suspendus.",
+  exam: "Examen — cours suspendus.",
+  activity: "Activité — cours suspendus.",
 };

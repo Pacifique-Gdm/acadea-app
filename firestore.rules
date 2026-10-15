@@ -646,7 +646,7 @@ service cloud.firestore {
               || getAfter(calendarParentPath()).data.updatedAt != get(calendarParentPath()).data.updatedAt);
         }
         function validCalendarEvent() {
-          return request.resource.data.keys().hasOnly(["id", "schoolId", "schoolYearId", "title", "kind", "startsAt", "endsAt", "origin", "sourceUrl", "publishedAt", "educationLevel"])
+          return request.resource.data.keys().hasOnly(["id", "schoolId", "schoolYearId", "title", "kind", "startsAt", "endsAt", "origin", "sourceUrl", "publishedAt", "educationLevel", "suspendsCourses", "startTime", "endTime"])
             && request.resource.data.keys().hasAll(["id", "schoolId", "schoolYearId", "title", "kind", "startsAt", "endsAt", "origin"])
             && request.resource.data.id == eventId
             && eventId.size() <= 120
@@ -655,11 +655,25 @@ service cloud.firestore {
             && request.resource.data.title is string
             && request.resource.data.title.size() > 0
             && request.resource.data.title.size() <= 120
-            && request.resource.data.kind in ["vacation", "holiday", "pedagogical", "suspension", "resumption"]
+            && request.resource.data.kind in ["vacation", "holiday", "pedagogical", "suspension", "resumption", "meeting", "ceremony", "classCouncil", "exam", "activity"]
             && request.resource.data.startsAt is timestamp
             && request.resource.data.endsAt is timestamp
             && request.resource.data.startsAt <= request.resource.data.endsAt
             && request.resource.data.origin in ["local", "official-proposal"]
+            && (!request.resource.data.keys().hasAny(["suspendsCourses"])
+              || request.resource.data.suspendsCourses is bool)
+            && (request.resource.data.kind != "resumption"
+              || request.resource.data.get("suspendsCourses", false) == false)
+            && (request.resource.data.keys().hasAny(["startTime", "endTime"])
+              ? (request.resource.data.keys().hasAll(["startTime", "endTime", "suspendsCourses"])
+                && request.resource.data.suspendsCourses == true
+                && request.resource.data.startsAt == request.resource.data.endsAt
+                && request.resource.data.startTime is string
+                && request.resource.data.endTime is string
+                && request.resource.data.startTime.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+                && request.resource.data.endTime.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+                && request.resource.data.startTime < request.resource.data.endTime)
+              : true)
             && (request.resource.data.origin == "local"
               ? !request.resource.data.keys().hasAny(["sourceUrl", "publishedAt", "educationLevel"])
               : (request.resource.data.keys().hasAll(["sourceUrl", "educationLevel"])

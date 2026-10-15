@@ -8,8 +8,9 @@ describe("dashboard cards consistency", () => {
     expect(source).toContain('<DashboardCard title="Prochain cours"');
     expect(source).not.toContain("Cours du jour");
     expect(source).toContain("Aucun cours prévu aujourd’hui.");
-    expect(source).toContain("{calendarMessage}");
-    expect(source).toContain("Aucun cours prévu aujourd'hui.");
+    expect(source).toContain("{dashboardMessage}");
+    expect(source).toContain("Aucun prochain cours disponible.");
+    expect(source).toContain("Suspendu");
     expect(source).toContain("Vos cours de la journée sont terminés.");
     expect(source).toContain("Cours en cours");
     expect(source).toContain("grid-cols-1 gap-4 sm:grid-cols-2");

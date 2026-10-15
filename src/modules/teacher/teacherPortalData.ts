@@ -3,6 +3,7 @@ import type { AppUser } from "../../types";
 import { isSectionAllowed } from "../../utils/userSections";
 import { studyClassSection } from "../studies/teacherAssignmentScope";
 import { assignmentsForClasses, subjectsReferencedByAssignments } from "../studies/studyAssignments";
+import { schoolCivilDate, schoolCourseSuspended, type SchoolCalendar } from "../studies/schoolCalendar";
 
 export type TeacherPortalData = {
   teacher?: StudyTeacher;
@@ -84,7 +85,39 @@ export function currentStudyDay(date = new Date()): StudyDay | undefined {
 export function teacherEntriesForDay(entries: TimetableEntry[], periods: SchedulePeriod[], day: StudyDay | undefined) {
   if (!day) return [];
   const order = new Map(periods.map((period) => [period.id, period.order]));
-  return entries.filter((entry) => entry.dayOfWeek === day).sort((left, right) => (order.get(left.periodId) ?? Number.MAX_SAFE_INTEGER) - (order.get(right.periodId) ?? Number.MAX_SAFE_INTEGER));
+  return entries.filter((entry) => entry.active !== false && entry.dayOfWeek === day).sort((left, right) => (order.get(left.periodId) ?? Number.MAX_SAFE_INTEGER) - (order.get(right.periodId) ?? Number.MAX_SAFE_INTEGER));
+}
+
+export type TeacherNextCourse = TeacherCourseState | { status: "future"; entry: TimetableEntry; date: string };
+
+export function teacherNextAvailableCourse(entries: TimetableEntry[], periods: SchedulePeriod[], now: Date, timeZone: string | undefined, hasPublished: boolean, calendar?: SchoolCalendar): TeacherNextCourse {
+  if (!hasPublished) return { status: "unpublished" };
+  const today = schoolCivilDate(now, timeZone);
+  if (!today) return { status: "timezone-missing" };
+  const byId = new Map(periods.map((period) => [period.id, period]));
+  let hadCoursesToday = false;
+  for (let offset = 0; offset <= 7; offset++) {
+    const date = new Date(`${today}T12:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + offset);
+    const civil = date.toISOString().slice(0, 10);
+    const day = orderedStudyDays.find((item) => studyDayLabels[item] && ({ monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 } as Record<StudyDay, number>)[item] === date.getUTCDay());
+    if (!day) continue;
+    const raw = teacherEntriesForDay(entries, periods, day);
+    if (offset === 0) hadCoursesToday = raw.length > 0;
+    if (raw.some((entry) => { const period = byId.get(entry.periodId); return !period || !/^\d{2}:\d{2}$/.test(period.startTime) || !/^\d{2}:\d{2}$/.test(period.endTime) || period.startTime >= period.endTime; })) return { status: "incomplete" };
+    const available = raw.filter((entry) => {
+      const period = byId.get(entry.periodId);
+      return period && !schoolCourseSuspended(calendar, civil, period.startTime, period.endTime);
+    });
+    if (!available.length) continue;
+    if (offset === 0) {
+      const state = teacherCourseState(available, periods, now, timeZone, true);
+      if (state.status === "before" || state.status === "during" || state.status === "between" || state.status === "overlap" || state.status === "incomplete") return state;
+      continue;
+    }
+    return { status: "future", entry: available[0], date: civil };
+  }
+  return { status: hadCoursesToday ? "finished" : "no-courses" };
 }
 
 export function nextTeacherEntry(entries: TimetableEntry[], periods: SchedulePeriod[], date = new Date()) {

@@ -75,6 +75,19 @@ describe("calendrier scolaire cloisonné et événements validés document par d
       event({ unexpected: true }),
     ]) await assertFails(writeEvent("director", "study_director", bad));
   });
+  it("autorise la suspension explicite complète ou horaire et refuse les créneaux incohérents", async () => {
+    await assertSucceeds(writeEvent("director", "study_director", event({ suspendsCourses: true })));
+    await assertSucceeds(writeEvent("director", "study_director", event({ startsAt: day("2026-10-14"), endsAt: day("2026-10-14"), suspendsCourses: true, startTime: "09:00", endTime: "10:00" }), "school-a", "year-a", "v2"));
+    await assertSucceeds(writeEvent("director", "study_director", event({ kind: "meeting", suspendsCourses: false }), "school-a", "year-a", "v3"));
+    for (const bad of [
+      { suspendsCourses: "true" }, { startTime: "09:00", endTime: "10:00" },
+      { suspendsCourses: false, startTime: "09:00", endTime: "10:00" },
+      { suspendsCourses: true, startTime: "10:00", endTime: "09:00" },
+      { suspendsCourses: true, startTime: "09:00" },
+      { suspendsCourses: true, startTime: "9:00", endTime: "10:00" },
+      { kind: "resumption", suspendsCourses: true },
+    ]) await assertFails(writeEvent("director", "study_director", event(bad), "school-a", "year-a", "v3"));
+  });
   it("refuse la provenance officielle falsifiée et les données excessives", async () => {
     const official = { origin: "official-proposal", sourceUrl: "https://edu-nc.gouv.cd/calendrier-scolaire", educationLevel: "Secondaire" };
     await assertFails(writeEvent("director", "study_director", event({ ...official, sourceUrl: "https://edu-nc.gouv.cd.evil.example/" })));
