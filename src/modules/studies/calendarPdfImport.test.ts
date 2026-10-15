@@ -50,7 +50,7 @@ describe("préparation prudente d'un calendrier PDF", () => {
     const result = parsePdfCalendarLines([{ page: 1, text: "MATERNELLE Vacances du 20 décembre 2026", ocr: true }], year, 1);
     expect(result.candidates).toMatchObject([{ sourcePage: 1, uncertain: true, reviewed: false, selected: false, suspendsCourses: false, kind: "vacation" }]);
   });
-  it("écarte les plages OCR incomplètes et les mentions narratives de vacances", () => {
+  it("lit une plage OCR explicitement datée tout en bloquant les plages incomplètes et les mentions narratives", () => {
     const result = parsePdfCalendarLines([
       { page: 1, text: "Enseignement maternel", ocr: true },
       { page: 1, text: "Congé de détente Du jeudi 05 au samedi 07 novembre 2026", ocr: true },
@@ -59,11 +59,26 @@ describe("préparation prudente d'un calendrier PDF", () => {
       { page: 2, text: "Examens mardi 15 et mercredi 16 juin 2027", ocr: true },
     ], year, 2);
     expect(result.candidates).toMatchObject([
-      { educationLevel: "Maternelle", kind: "vacation", startsAt: "", endsAt: "", selected: false, suspendsCourses: false, status: "to-review" },
+      { educationLevel: "Maternelle", kind: "vacation", startsAt: "2026-11-05", endsAt: "2026-11-07", selected: false, suspendsCourses: false, status: "to-review", uncertain: true },
       { educationLevel: "Maternelle", startsAt: "2026-12-23", endsAt: "2027-01-09", selected: false, suspendsCourses: false },
       { educationLevel: "Non déterminé", kind: "exam", startsAt: "", endsAt: "", selected: false, suspendsCourses: false },
     ]);
-    expect(result.warnings).toContain("Page 1 : plage OCR incomplète, dates à renseigner à partir du PDF original.");
+    expect(result.warnings).toContain("Page 2 : plage OCR incomplète, dates à renseigner à partir du PDF original.");
+  });
+  it("lit une plage OCR à deux mois seulement si les deux jours de semaine et l'année commune concordent", () => {
+    const result = parsePdfCalendarLines([
+      { page: 1, text: "Enseignement secondaire et technique", ocr: true },
+      { page: 1, text: "Vacances du 2ème semestre Du lundi 22 mars au samedi 03 avril 2027", ocr: true },
+      { page: 1, text: "Examens du 2ème semestre Du lundi 24 mai au mardi 01 juin 2027", ocr: true },
+      { page: 1, text: "Congé Du mardi 05 au samedi 07 novembre 2026", ocr: true },
+      { page: 1, text: "Vacances du samedi 23 décembre au mardi 09 janvier 2027", ocr: true },
+    ], year, 1);
+    expect(result.candidates).toMatchObject([
+      { startsAt: "2027-03-22", endsAt: "2027-04-03", suspendsCourses: false, status: "to-review", uncertain: true },
+      { startsAt: "2027-05-24", endsAt: "2027-06-01", suspendsCourses: false, status: "to-review", uncertain: true },
+      { startsAt: "", endsAt: "", suspendsCourses: false, status: "to-review" },
+      { startsAt: "", endsAt: "", suspendsCourses: false, status: "to-review" },
+    ]);
   });
   it("ne propage pas un niveau OCR d'une page à la suivante", () => {
     const result = parsePdfCalendarLines([

@@ -52,6 +52,18 @@ function kindOf(title: string): CalendarEventKind | undefined {
 }
 
 const weekdayIndexes: Record<string, number> = { dimanche: 0, lundi: 1, mardi: 2, mercredi: 3, jeudi: 4, vendredi: 5, samedi: 6 };
+const sharedYearOcrRange = /\bdu\s+(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\s+(0?[1-9]|[12]\d|3[01])(?:\s+(janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre))?\s+au\s+(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\s+(0?[1-9]|[12]\d|3[01])\s+(janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)\s+(20\d{2})\b/i;
+function explicitOcrRange(line: string): { start: number; first: string; last: string } | undefined {
+  const match = sharedYearOcrRange.exec(line);
+  if (!match) return undefined;
+  const firstMonth = months[normalize(match[3] || match[6])], lastMonth = months[normalize(match[6])], year = Number(match[7]);
+  if (!firstMonth || !lastMonth || firstMonth > lastMonth) return undefined;
+  const first = iso(Number(match[2]), firstMonth, year), last = iso(Number(match[5]), lastMonth, year);
+  if (!validCalendarDate(first) || !validCalendarDate(last) || first > last) return undefined;
+  if (new Date(`${first}T12:00:00Z`).getUTCDay() !== weekdayIndexes[normalize(match[1])]
+    || new Date(`${last}T12:00:00Z`).getUTCDay() !== weekdayIndexes[normalize(match[4])]) return undefined;
+  return { start: match.index, first, last };
+}
 function weekdayMismatch(line: string, dates: { start: number; value: string }[]): boolean {
   return dates.some((date) => {
     const prefix = normalize(line.slice(Math.max(0, date.start - 25), date.start));
@@ -86,6 +98,12 @@ export function parsePdfCalendarLines(lines: PdfLine[], year: SchoolYear, pageCo
       found.push({ start: match.index, end: match.index + match[0].length, value: iso(Number.parseInt(match[1], 10), months[normalize(match[2])], Number(match[3])), ambiguous: false });
     }
     found.sort((a, b) => a.start - b.start);
+    const sharedRange = ocr && found.length < 2 ? explicitOcrRange(line) : undefined;
+    if (sharedRange) {
+      found.length = 0;
+      found.push({ start: sharedRange.start, end: sharedRange.start, value: sharedRange.first, ambiguous: false });
+      found.push({ start: sharedRange.start, end: sharedRange.start, value: sharedRange.last, ambiguous: false });
+    }
     if (ocr && (/\bdu\b.*\bau\b/i.test(normalize(line)) || /\b\d{1,2}\s+et\s+\w+\s+\d{1,2}\b/i.test(normalize(line))) && found.length < 2) {
       const boundary = /\s+du\s+(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\b|\s+(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\s+\d{1,2}\s+et\s+(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\b/i.exec(line);
       const title = boundary ? line.slice(0, boundary.index).replace(/^[\s*+»«•–—-]+/, "").trim() : "";
@@ -104,7 +122,7 @@ export function parsePdfCalendarLines(lines: PdfLine[], year: SchoolYear, pageCo
       warnings.push(`Page ${page} : dates ambiguës ou incohérentes, ligne non importée.`);
       continue;
     }
-    if (ocr && weekdayMismatch(line, found)) { warnings.push(`Page ${page} : jour de semaine contradictoire avec la date OCR, ligne non importée.`); continue; }
+    if (ocr && !sharedRange && weekdayMismatch(line, found)) { warnings.push(`Page ${page} : jour de semaine contradictoire avec la date OCR, ligne non importée.`); continue; }
     const title = (inLegalHolidays && found.length === 1 ? line.slice(found[0].end) : line.slice(0, found[0].start))
       .replace(/^[\s*+»«•–—-]+/, "")
       .replace(/\b(?:du|au|de|à|le)?\s*(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\s*$/i, "")

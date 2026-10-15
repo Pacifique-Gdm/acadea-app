@@ -48,6 +48,10 @@ test("qualification OCR du calendrier public RDC 2026-2027 sur sept pages", asyn
     { page: 6, level: "Secondaire cycle long", kind: "exam", start: "2027-05-05", end: "2027-05-08" },
   ];
   const missing = additionalReference.filter((expected) => !analysis.candidates.some((candidate: { sourcePage: number; educationLevel: string; kind: string; startsAt: string; endsAt: string }) => candidate.sourcePage === expected.page && candidate.educationLevel === expected.level && candidate.kind === expected.kind && candidate.startsAt === expected.start && candidate.endsAt === expected.end));
+  for (const expected of missing) {
+    const nearby = analysis.candidates.filter((candidate: { sourcePage: number; kind: string }) => candidate.sourcePage === expected.page && candidate.kind === expected.kind).map((candidate: { title: string; educationLevel: string; startsAt: string; endsAt: string; sourceExcerpt: string }) => ({ title: candidate.title, level: candidate.educationLevel, start: candidate.startsAt, end: candidate.endsAt, excerpt: candidate.sourceExcerpt.slice(0, 100) }));
+    console.info(`Référence non exacte ${JSON.stringify(expected)} ; propositions proches ${JSON.stringify(nearby)}`);
+  }
   const needsManualCorrection = analysis.candidates.filter((candidate: { title: string; educationLevel: string }) => candidate.educationLevel === "Non déterminé" || /1°["’]/.test(candidate.title));
   const incomplete = analysis.candidates.filter((candidate: { startsAt: string; endsAt: string }) => !candidate.startsAt || !candidate.endsAt);
   console.info(`Référence contrôlée : ${reference.length + additionalReference.length - missing.length}/${reference.length + additionalReference.length} dates/niveaux détectés exactement ; ${missing.length} dates non extraites ; ${incomplete.length} propositions incomplètes à compléter ; ${needsManualCorrection.length} titres/niveaux à corriger manuellement.`);
