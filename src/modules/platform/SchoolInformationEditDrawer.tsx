@@ -4,6 +4,7 @@ import type { SchoolLevelChoice } from "../../utils/schoolConfig";
 import { AdminDrawer, Field, ImageUploadField } from "../../components/ui";
 import { SCHOOL_INFORMATION_CONFIRMATION, canSaveSchoolInformation, schoolInformationDraft } from "./schoolInformation";
 import type { SchoolInformationDraft } from "./schoolInformation";
+import { SchoolTimeZonePicker } from "./SchoolTimeZonePicker";
 
 export function SchoolInformationEditDrawer({
   school,
@@ -57,8 +58,7 @@ export function SchoolInformationEditDrawer({
         <Field label="Nom de l'école" value={draft.name} onChange={(name) => setDraft((current) => ({ ...current, name }))} disabled={saving} />
         <Field label="Devise" value={draft.motto} onChange={(motto) => setDraft((current) => ({ ...current, motto }))} disabled={saving} />
         <Field label="Adresse" value={draft.address} onChange={(address) => setDraft((current) => ({ ...current, address }))} disabled={saving} />
-        <Field label="Fuseau horaire IANA (facultatif)" value={draft.timeZone} onChange={(timeZone) => setDraft((current) => ({ ...current, timeZone }))} disabled={saving} />
-        <p className="text-xs text-slate-500">À renseigner explicitement pour l’horaire Enseignant, par exemple Africa/Kinshasa. Aucun fuseau n’est déduit de l’adresse.</p>
+        <SchoolTimeZonePicker value={draft.timeZone} onChange={(timeZone) => setDraft((current) => ({ ...current, timeZone }))} disabled={saving} />
         <Field label="Téléphone" value={draft.phone} onChange={(phone) => setDraft((current) => ({ ...current, phone }))} disabled={saving} />
         <Field label="Email" value={draft.email} onChange={(email) => setDraft((current) => ({ ...current, email }))} type="email" disabled={saving} />
         <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
