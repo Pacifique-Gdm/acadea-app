@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { deleteApp, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
-import { getFirestore } from "firebase-admin/firestore";
+import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { expect, test, type Browser, type Page, type Route } from "@playwright/test";
 import publishedHandler from "../api/manage-teacher-availability-request.js";
 
@@ -147,6 +147,84 @@ test.describe("Bibliothèque et horaires — navigateur local isolé", () => {
     for (const path of fixturePaths.reverse()) await db.doc(path).delete();
     for (const account of Object.values(accounts)) await auth.deleteUser(account.uid);
     await deleteApp(app);
+  });
+
+  test("Études : les options d'affectation suivent uniquement la classe choisie, y compris en modification", async ({ browser }) => {
+    const firstClass = `${schoolId}-option-base-a`;
+    const secondClass = `${schoolId}-option-base-b`;
+    const firstOption = `${firstClass}::sciences`;
+    const secondOption = `${firstClass}::pedagogie`;
+    const otherOption = `${secondClass}::commerciale`;
+    const optionAssignmentId = `${schoolId}-option-assignment`;
+    const created = [
+      `classes/${firstClass}`, `classes/${secondClass}`, `classes/${firstOption}`, `classes/${secondOption}`, `classes/${otherOption}`,
+      `students/${schoolId}-option-student-a`, `students/${schoolId}-option-student-b`, `students/${schoolId}-option-student-c`,
+      `pedagogicalAssignments/${optionAssignmentId}`,
+    ];
+    const teacherUser = db.doc(`users/${accounts.teacher.uid}`);
+    const testBrowser = await contextFor(browser);
+    try {
+      await teacherUser.update({ section: "Secondaire", sectionIds: ["Secondaire"] });
+      const records = [
+        [created[0], { id: firstClass, schoolId, schoolYearId: yearId, name: "3ème Humanité", section: "Secondaire", active: true }],
+        [created[1], { id: secondClass, schoolId, schoolYearId: yearId, name: "2ème Humanité", section: "Secondaire", active: true }],
+        [created[2], { id: firstOption, schoolId, schoolYearId: yearId, name: "3ème Sciences", parentClassId: firstClass, classOptionKey: firstOption, option: "Sciences", section: "Secondaire", active: true }],
+        [created[3], { id: secondOption, schoolId, schoolYearId: yearId, name: "3ème Pédagogie", parentClassId: firstClass, classOptionKey: secondOption, option: "Pédagogie", section: "Secondaire", active: true }],
+        [created[4], { id: otherOption, schoolId, schoolYearId: yearId, name: "2ème Commerciale", parentClassId: secondClass, classOptionKey: otherOption, option: "Commerciale", section: "Secondaire", active: true }],
+        [created[5], { id: `${schoolId}-option-student-a`, schoolId, schoolYearId: yearId, classId: firstClass, className: "3ème Humanité", classOptionKey: firstOption, option: "Sciences", section: "Secondaire", status: "ACTIVE" }],
+        [created[6], { id: `${schoolId}-option-student-b`, schoolId, schoolYearId: yearId, classId: firstClass, className: "3ème Humanité", classOptionKey: secondOption, option: "Pédagogie", section: "Secondaire", status: "ACTIVE" }],
+        [created[7], { id: `${schoolId}-option-student-c`, schoolId, schoolYearId: yearId, classId: secondClass, className: "2ème Humanité", classOptionKey: otherOption, option: "Commerciale", section: "Secondaire", status: "ACTIVE" }],
+        [created[8], { id: optionAssignmentId, schoolId, schoolYearId: yearId, teacherId, subjectId: `${schoolId}-subject`, classId: firstClass, courseScope: "option", targetOptionIds: [firstOption], weeklyPeriods: 2, active: true }],
+      ] as const;
+      const batch = db.batch();
+      records.forEach(([path, value]) => batch.set(db.doc(path), value));
+      await batch.commit();
+
+      await login(testBrowser.page, accounts.studies);
+      await testBrowser.page.getByRole("button", { name: "Enseignants", exact: true }).last().click();
+      await testBrowser.page.getByRole("button", { name: "Aline Test", exact: true }).click();
+      const teacherDrawer = testBrowser.page.getByRole("dialog", { name: "Fiche pédagogique — Aline Test" });
+      await teacherDrawer.getByRole("button", { name: "Ajouter affectation" }).click();
+      let assignmentDrawer = testBrowser.page.getByRole("dialog", { name: "Ajouter une affectation" });
+      const selectClass = async (name: string) => {
+        await assignmentDrawer.locator('button[aria-haspopup="listbox"]').nth(1).click();
+        await testBrowser.page.getByRole("listbox").getByRole("option", { name, exact: true }).click();
+        await testBrowser.page.keyboard.press("Escape");
+      };
+      await selectClass("3ème Humanité");
+      const firstGroup = assignmentDrawer.getByRole("group", { name: "Organisation du cours — 3ème Humanité" });
+      await firstGroup.getByLabel("Type de cours").selectOption("option");
+      await expect(firstGroup.getByLabel("Option concernée").locator("option")).toHaveText(["Choisir", "Pédagogie", "Sciences"]);
+      await firstGroup.getByLabel("Option concernée").selectOption(firstOption);
+      await selectClass("3ème Humanité");
+      await selectClass("2ème Humanité");
+      const secondGroup = assignmentDrawer.getByRole("group", { name: "Organisation du cours — 2ème Humanité" });
+      await secondGroup.getByLabel("Type de cours").selectOption("option");
+      await expect(secondGroup.getByLabel("Option concernée").locator("option")).toHaveText(["Choisir", "Commerciale"]);
+      await expect(secondGroup.getByLabel("Option concernée")).toHaveValue("");
+      await assignmentDrawer.getByRole("button", { name: "Annuler", exact: true }).click();
+
+      await teacherDrawer.locator("article", { hasText: "Sciences" }).getByRole("button", { name: "Modifier l’affectation" }).click();
+      assignmentDrawer = testBrowser.page.getByRole("dialog", { name: "Modifier l’affectation" });
+      const editingGroup = assignmentDrawer.getByRole("group", { name: "Organisation du cours — 3ème Humanité" });
+      await expect(editingGroup.getByLabel("Option concernée")).toHaveValue(firstOption);
+      await selectClass("3ème Humanité");
+      await selectClass("2ème Humanité");
+      const changedGroup = assignmentDrawer.getByRole("group", { name: "Organisation du cours — 2ème Humanité" });
+      await changedGroup.getByLabel("Type de cours").selectOption("option");
+      await expect(changedGroup.getByLabel("Option concernée").locator("option")).toHaveText(["Choisir", "Commerciale"]);
+      await expect(changedGroup.getByLabel("Option concernée")).toHaveValue("");
+      await testBrowser.page.reload();
+      await testBrowser.page.getByRole("button", { name: "Enseignants", exact: true }).last().click();
+      await testBrowser.page.getByRole("button", { name: "Aline Test", exact: true }).click();
+      await testBrowser.page.getByRole("dialog", { name: "Fiche pédagogique — Aline Test" }).locator("article", { hasText: "Sciences" }).getByRole("button", { name: "Modifier l’affectation" }).click();
+      await expect(testBrowser.page.getByRole("dialog", { name: "Modifier l’affectation" }).getByLabel("Option concernée")).toHaveValue(firstOption);
+      expect(testBrowser.remote).toEqual([]);
+    } finally {
+      await testBrowser.context.close();
+      for (const path of created.reverse()) await db.doc(path).delete();
+      await teacherUser.update({ section: FieldValue.delete(), sectionIds: FieldValue.delete() });
+    }
   });
 
   test("Administrateur : Bibliothèque identique aux Études, thème sombre et états HTTP", async ({ browser }) => {

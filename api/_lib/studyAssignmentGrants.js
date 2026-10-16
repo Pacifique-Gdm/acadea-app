@@ -6,7 +6,7 @@ const groupKey = (selection) => selection.courseScope ? `${selection.courseScope
 const assignmentId = (scope) => [scope.schoolId, scope.schoolYearId, scope.teacherId, scope.subjectId, scope.classId, scope.studentGroupKey].filter(Boolean).join("__");
 const lockId = (scope) => [scope.schoolId, scope.schoolYearId, scope.subjectId, scope.classId, scope.studentGroupKey].filter(Boolean).join("__");
 const active = (value) => value?.status !== "inactive" && value?.active !== false;
-const optionKey = (value) => value?.classOptionKey || (value?.option?.trim() || !value?.subClassLabel && value?.id?.includes("::") ? value.id : undefined);
+const optionKey = (value) => value?.classOptionKey?.trim() || (!value?.subClassLabel && value?.id?.includes("::") ? value.id : undefined);
 
 async function checkScope(transaction, db, caller, schoolId, schoolYearId) {
   if (caller.role !== "study_director" || caller.schoolId !== schoolId) fail("Accès Directeur des études refusé.", 403);
@@ -93,7 +93,7 @@ export async function saveStudyAssignments({ db, caller, body }) {
     const optionClassValues = [...classRefs.map((ref) => classById.get(ref.id) || legacyById.get(ref.id)), ...optionChildren.flatMap((result) => result.docs.map((snapshot) => snapshot.data()))].filter(Boolean);
     for (const selection of selections) {
       const targets = selection.targetOptionIds;
-      const availableOptionIds = new Set(optionClassValues.filter((item) => item.schoolId === schoolId && item.schoolYearId === schoolYearId && item.active !== false && (item.parentClassId === selection.classId || (!item.parentClassId && item.id?.startsWith(`${selection.classId}::`)))).map(optionKey).filter(Boolean));
+      const availableOptionIds = new Set(optionClassValues.filter((item) => item.schoolId === schoolId && item.schoolYearId === schoolYearId && item.active !== false && item.parentClassId === selection.classId && typeof item.classOptionKey === "string" && item.classOptionKey.startsWith(`${selection.classId}::`) && item.classOptionKey.length > selection.classId.length + 2).map((item) => item.classOptionKey.trim()));
       if (!selection.courseScope && targets.length) fail("Portée de cours invalide.", 400);
       if (!selection.courseScope && availableOptionIds.size) fail("Choisissez le type de cours pour cette classe.", 400);
       if (selection.courseScope && !["common", "option"].includes(selection.courseScope)) fail("Portée de cours invalide.", 400);

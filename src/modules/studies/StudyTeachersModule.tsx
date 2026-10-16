@@ -17,7 +17,7 @@ import { sectionsAvailableToUser, userSectionIds } from "../../utils/userSection
 import { replaceStudySubjectFeedbackTimer } from "./studySubjectFeedback";
 import { resolveAttendanceSchoolDays } from "../../utils/attendance";
 import { teacherCardAssignments } from "./studyPersonnel";
-import { assignmentOptionChoices, assignmentScopeLabel, baseStudyClassId, logicalStudyClasses, normalizedAssignmentScope, operationalTitularClasses, optionClassesForBaseClass, validateAssignmentClassSelection, type AssignmentClassSelection, type CourseScope } from "./studyCourseScope";
+import { assignmentOptionChoices, assignmentScopeLabel, baseStudyClassId, logicalStudyClasses, normalizedAssignmentScope, operationalTitularClasses, optionClassesForBaseClass, retainAssignmentClassScopes, validateAssignmentClassSelection, type AssignmentClassScope, type AssignmentClassSelection, type CourseScope } from "./studyCourseScope";
 import { canonicalAssignmentBlockSizes, validateAssignmentSessionPattern, weeklyPeriodsFromBlocks } from "./assignmentSessionPattern";
 import { maxConsecutiveCoursePeriods } from "./studySchedule";
 
@@ -32,7 +32,7 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
   const [teacherId, setTeacherId] = useState("");
   const [subjectIds, setSubjectIds] = useState<string[]>([]);
   const [classIds, setClassIds] = useState<string[]>([]);
-  const [classScopes, setClassScopes] = useState<Record<string, { courseScope: CourseScope | ""; targetOptionIds: string[] }>>({});
+  const [classScopes, setClassScopes] = useState<Record<string, AssignmentClassScope>>({});
   const [weeklyPeriods, setWeeklyPeriods] = useState("1");
   const [sessionMode, setSessionMode] = useState<"normal" | "blocks">("normal");
   const [sessionBlocks, setSessionBlocks] = useState<number[]>([1]);
@@ -106,6 +106,11 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
     setSubjectFeedback(undefined);
     if (subjectFeedbackTimer.current) clearTimeout(subjectFeedbackTimer.current);
     setAssignmentOpen(true);
+  }
+
+  function updateAssignmentClasses(nextClassIds: string[]) {
+    setClassScopes((current) => retainAssignmentClassScopes(current, nextClassIds, assignmentScopeClasses, school.schoolOptions));
+    setClassIds(nextClassIds);
   }
 
   useEffect(() => () => {
@@ -244,13 +249,13 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
       {primaryMode ? <p className="rounded border border-blue-200 bg-blue-50 p-3 text-sm">Le titulaire enseigne automatiquement tous les cours applicables à la classe sélectionnée.</p> : <MultiSelectDropdown label="Cours" options={applicableSubjects.map((item) => ({ value: item.id, label: item.name }))} values={subjectIds} onChange={setSubjectIds} />}
       {!primaryMode && subjectIds.length === 1 && <button type="button" className="secondary-button w-full justify-center" onClick={openSubjectRename}>Modifier le nom du cours sélectionné</button>}
       <div className="grid gap-2 rounded border border-dashed border-slate-300 p-3"><label className="grid gap-1 text-sm font-semibold">Nouveau cours<input className="input" value={newSubject} onChange={(event) => setNewSubject(event.target.value)} /></label><button type="button" className="secondary-button w-full justify-center active:translate-y-px active:scale-[0.99] motion-reduce:transform-none" disabled={busy || !newSubject.trim()} onClick={() => void submitSubject()}>{busy ? "Ajout en cours…" : "Ajouter un cours"}</button>{subjectFeedback && <p role={subjectFeedback.type === "error" ? "alert" : "status"} aria-live="polite" className={`rounded border p-2 text-sm ${subjectFeedback.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}`}>{subjectFeedback.message}</p>}</div>
-      <MultiSelectDropdown label="Classes" options={assignmentClasses.map((item) => ({ value: item.id, label: item.name }))} values={classIds} onChange={setClassIds} placeholder="Aucune classe sélectionnée" />
+      <MultiSelectDropdown label="Classes" options={assignmentClasses.map((item) => ({ value: item.id, label: item.name }))} values={classIds} onChange={updateAssignmentClasses} placeholder="Aucune classe sélectionnée" />
       {classIds.map((classId) => {
         const schoolClass = assignmentClasses.find((item) => item.id === classId);
         const options = assignmentOptionChoices(schoolClass ? [schoolClass, ...data.sourceClasses] : data.sourceClasses, classId, school.schoolOptions);
         const scope = classScopes[classId];
         if (!schoolClass) return null;
-        if (!options.length) return <p key={classId} className="rounded border border-amber-200 bg-amber-50 p-3 text-sm">Aucune option active disponible pour {schoolClass.name}.{scope?.targetOptionIds.length ? ` Affectation historique conservée : ${scope.targetOptionIds.join(", ")}.` : ""}</p>;
+        if (!options.length) return <p key={classId} className="rounded border border-amber-200 bg-amber-50 p-3 text-sm">Aucune option scolaire liée à {schoolClass.name}.{scope?.targetOptionIds.length ? " L’ancienne option reste enregistrée ; elle ne sera pas remplacée automatiquement." : ""}</p>;
         if (!scope) return null;
         return <fieldset key={classId} className="grid min-w-0 gap-3 rounded border border-blue-100 bg-blue-50/40 p-3"><legend className="px-1 text-sm font-bold">Organisation du cours — {schoolClass.name}</legend><label className="grid gap-1 text-sm font-semibold">Type de cours<select className="input min-w-0 w-full" value={scope.courseScope} onChange={(event) => setClassScopes((current) => ({ ...current, [classId]: { courseScope: event.target.value as CourseScope, targetOptionIds: [] } }))}><option value="">Choisir</option><option value="common">Tronc commun</option><option value="option">Cours d’option</option></select></label>{scope.courseScope === "common" && <MultiSelectDropdown label="Options concernées" options={options.map((item) => ({ value: item.id, label: item.label }))} values={scope.targetOptionIds} onChange={(targetOptionIds) => setClassScopes((current) => ({ ...current, [classId]: { courseScope: "common", targetOptionIds } }))} placeholder="Sélectionner au moins deux options" />}{scope.courseScope === "option" && <label className="grid gap-1 text-sm font-semibold">Option concernée<select className="input min-w-0 w-full" value={scope.targetOptionIds[0] ?? ""} onChange={(event) => setClassScopes((current) => ({ ...current, [classId]: { courseScope: "option", targetOptionIds: event.target.value ? [event.target.value] : [] } }))}><option value="">Choisir</option>{scope.targetOptionIds[0] && !options.some((item) => item.id === scope.targetOptionIds[0]) && <option value={scope.targetOptionIds[0]} disabled>Option historique indisponible</option>}{options.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}</fieldset>;
       })}

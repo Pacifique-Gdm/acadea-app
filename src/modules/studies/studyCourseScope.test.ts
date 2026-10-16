@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PedagogicalAssignment, StudyClass } from "./studyTypes";
-import { assignmentAppliesToClass, assignmentOptionChoices, assignmentStudentGroupKey, assignmentsShareStudents, logicalStudyClasses, studentBelongsToAssignment, validateAssignmentClassSelection } from "./studyCourseScope";
+import { assignmentAppliesToClass, assignmentOptionChoices, assignmentStudentGroupKey, assignmentsShareStudents, logicalStudyClasses, retainAssignmentClassScopes, studentBelongsToAssignment, validateAssignmentClassSelection } from "./studyCourseScope";
 import type { Student } from "../../types";
 
 const base: StudyClass = { id: "3h", schoolId: "s", schoolYearId: "y", name: "3ème Humanité", section: "Secondaire" };
@@ -24,8 +24,42 @@ describe("portée pédagogique par classe et options", () => {
     const choices = assignmentOptionChoices(duplicates, base.id, ["Scientifique", "Commerciale"]);
     expect(choices.filter((item) => item.id === scientific.classOptionKey)).toEqual([{ id: scientific.classOptionKey, label: "Scientifique" }]);
     expect(choices.map((item) => item.id)).not.toEqual(expect.arrayContaining(["3h::informatique", "3h::autre", "3h::économie"]));
-    expect(choices).toContainEqual({ id: "3h::section", label: "Scientifique" });
+    expect(choices).toContainEqual({ id: "3h::section", label: "section" });
     expect(validateAssignmentClassSelection({ classId: base.id, courseScope: "option", targetOptionIds: ["3h::informatique"] }, duplicates)).toContain("n’appartient pas");
+  });
+
+  it("ne confond pas une classe opérationnelle avec une option et filtre par classe, école et année", () => {
+    const otherBase = { ...base, id: "4h", name: "4ème Humanité" };
+    const optionForOther = { ...option("Commerciale"), id: "4h::commerciale", parentClassId: "4h", classOptionKey: "4h::commerciale" };
+    const operational = { ...base, id: "operational-a", parentClassId: base.id, option: "Classe A" };
+    const ambiguousLegacy = { ...base, id: "3h::a", parentClassId: base.id, name: "3ème A" };
+    const choices = [base, otherBase, option("Scientifique"), option("Pédagogie"), optionForOther, operational, ambiguousLegacy];
+    expect(assignmentOptionChoices(choices, base.id).map(({ id }) => id)).toEqual(["3h::pédagogie", "3h::scientifique"]);
+    expect(assignmentOptionChoices(choices, otherBase.id).map(({ id }) => id)).toEqual(["4h::commerciale"]);
+    expect(validateAssignmentClassSelection({ classId: base.id, courseScope: "option", targetOptionIds: ["operational-a"] }, choices)).toContain("n’appartient pas");
+    expect(validateAssignmentClassSelection({ classId: base.id, courseScope: "option", targetOptionIds: [ambiguousLegacy.id] }, choices)).toContain("n’appartient pas");
+    expect(validateAssignmentClassSelection({ classId: base.id, courseScope: "option", targetOptionIds: ["4h::commerciale"] }, choices)).toContain("n’appartient pas");
+    expect(validateAssignmentClassSelection({ classId: base.id, courseScope: "option", targetOptionIds: ["3h::scientifique"] }, choices)).toBe("");
+    expect(validateAssignmentClassSelection({ classId: otherBase.id, courseScope: "option", targetOptionIds: ["4h::commerciale"] }, choices)).toBe("");
+    expect(validateAssignmentClassSelection({ classId: "empty", courseScope: "option", targetOptionIds: ["3h::scientifique"] }, [{ ...base, id: "empty" }, ...choices])).toContain("aucune option");
+  });
+
+  it("réinitialise une sélection incompatible lors du changement de classe et conserve une sélection encore valide", () => {
+    const otherBase = { ...base, id: "4h" };
+    const otherOption = { ...option("Commerciale"), id: "4h::commerciale", parentClassId: "4h", classOptionKey: "4h::commerciale" };
+    const all = [base, otherBase, option("Scientifique"), otherOption];
+    const scopes = {
+      "3h": { courseScope: "option" as const, targetOptionIds: ["3h::scientifique"] },
+      "4h": { courseScope: "option" as const, targetOptionIds: ["3h::scientifique", "4h::commerciale"] },
+    };
+    expect(retainAssignmentClassScopes(scopes, ["3h", "4h"], all)).toEqual({
+      "3h": scopes["3h"],
+      "4h": { courseScope: "option", targetOptionIds: ["4h::commerciale"] },
+    });
+    expect(retainAssignmentClassScopes(scopes, ["4h"], all)).toEqual({
+      "4h": { courseScope: "option", targetOptionIds: ["4h::commerciale"] },
+    });
+    expect(retainAssignmentClassScopes({ "3h": scopes["3h"] }, ["4h"], all)).toEqual({});
   });
 
   it("accepte les cardinalités métier et refuse une option étrangère", () => {
