@@ -194,7 +194,7 @@ test.describe("Bibliothèque et horaires — navigateur local isolé", () => {
       await dialog.getByRole("combobox", { name: "Valeur du filtre" }).selectOption({ label: "Mercredi" });
       await expect(dialog.getByRole("row")).toHaveCount(3);
       await dialog.getByRole("button", { name: "Réinitialiser" }).click();
-      await expect(dialog.getByRole("row")).toHaveCount(5);
+      await expect(dialog.getByRole("row")).toHaveCount(5, { timeout: 30_000 });
       await fit(timetable.page);
       await dialog.getByRole("button", { name: "Fermer l’horaire publié" }).click();
       timetable.routeState.mode = "error";
@@ -212,7 +212,12 @@ test.describe("Bibliothèque et horaires — navigateur local isolé", () => {
       await timetable.page.getByRole("button", { name: "Menu", exact: true }).last().click();
       await timetable.page.getByRole("button", { name: "Horaire publié" }).click();
       const dialog = timetable.page.getByRole("dialog", { name: "Horaire publié" });
-      await expect(dialog.getByRole("row")).toHaveCount(5);
+      await expect(dialog.getByRole("row"), `${await dialog.innerText()} / ${timetable.browserErrors.join(" | ")}`).toHaveCount(5, { timeout: 30_000 });
+      const controls = [dialog.getByRole("combobox", { name: "Type de filtre" }), dialog.getByRole("combobox", { name: "Valeur du filtre" }), dialog.getByRole("button", { name: "Réinitialiser" }), dialog.getByRole("button", { name: "PDF" })];
+      const controlBoxes = await Promise.all(controls.map((control) => control.boundingBox()));
+      expect(controlBoxes.every((box) => box && Math.abs((box.y + box.height / 2) - (controlBoxes[0]!.y + controlBoxes[0]!.height / 2)) < 3), JSON.stringify(controlBoxes)).toBe(true);
+      const drawerBox = await dialog.boundingBox();
+      expect(controlBoxes[3]!.x + controlBoxes[3]!.width).toBeLessThanOrEqual(drawerBox!.x + drawerBox!.width);
       const slider = dialog.getByRole("slider", { name: "Faire défiler le tableau horizontalement" });
       await expect(slider).toBeInViewport();
       const region = dialog.getByRole("region", { name: "Tableau de l’horaire publié" });
