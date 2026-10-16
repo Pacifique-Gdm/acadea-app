@@ -14,7 +14,8 @@ describe("Drawer Personnels", () => {
 
   it("place la création avant les deux actions existantes sur trois colonnes égales", () => {
     expect(source).toContain('onCreatePersonnel ? "grid-cols-3" : "grid-cols-2"');
-    const create = source.indexOf('>Créer un personnel</button>');
+    expect(source).toContain('createButtonLabel = "Créer un personnel"');
+    const create = source.indexOf('>{createButtonLabel}</button>');
     const status = source.indexOf('Statut : {view === "active"');
     const print = source.indexOf('printPersonnelListPdf(school, visible, view)');
     expect(create).toBeGreaterThan(-1);

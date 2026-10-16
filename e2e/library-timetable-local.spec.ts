@@ -204,10 +204,10 @@ test.describe("Bibliothèque et horaires — navigateur local isolé", () => {
     } finally { await timetable.context.close(); }
   });
 
-  test("Horaire publié : commande horizontale visible et stable sur mobile", async ({ browser }) => {
+  test("Horaire publié : barre horizontale fixe en bas du drawer", async ({ browser }) => {
     const timetable = await contextFor(browser);
     try {
-      await timetable.page.setViewportSize({ width: 390, height: 550 });
+      await timetable.page.setViewportSize({ width: 390, height: 340 });
       await login(timetable.page, accounts.admin);
       await timetable.page.getByRole("button", { name: "Menu", exact: true }).last().click();
       await timetable.page.getByRole("button", { name: "Horaire publié" }).click();
@@ -218,19 +218,37 @@ test.describe("Bibliothèque et horaires — navigateur local isolé", () => {
       expect(controlBoxes.every((box) => box && Math.abs((box.y + box.height / 2) - (controlBoxes[0]!.y + controlBoxes[0]!.height / 2)) < 3), JSON.stringify(controlBoxes)).toBe(true);
       const drawerBox = await dialog.boundingBox();
       expect(controlBoxes[3]!.x + controlBoxes[3]!.width).toBeLessThanOrEqual(drawerBox!.x + drawerBox!.width);
-      const slider = dialog.getByRole("slider", { name: "Faire défiler le tableau horizontalement" });
-      await expect(slider).toBeInViewport();
+      const scrollbar = dialog.getByRole("region", { name: "Faire défiler le tableau horizontalement" });
+      await expect(scrollbar).toBeInViewport();
       const region = dialog.getByRole("region", { name: "Tableau de l’horaire publié" });
-      expect(await region.evaluate((element) => getComputedStyle(element).overflowX)).not.toBe("auto");
-      await slider.fill(await slider.getAttribute("max") ?? "0");
+      expect(await region.evaluate((element) => getComputedStyle(element).overflowX)).toBe("auto");
+      const [scrollbarBox, dialogBox] = await Promise.all([scrollbar.boundingBox(), dialog.boundingBox()]);
+      expect(scrollbarBox!.y + scrollbarBox!.height).toBeGreaterThan(dialogBox!.y + dialogBox!.height - 45);
+      const content = dialog.locator(".overflow-y-auto").first();
+      expect(await content.evaluate((element) => element.scrollHeight - element.clientHeight)).toBeGreaterThan(0);
+      const initialY = scrollbarBox!.y;
+      await content.evaluate((element) => { element.scrollTop = element.scrollHeight / 2; });
+      expect((await scrollbar.boundingBox())!.y).toBeCloseTo(initialY, 0);
+      await content.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+      expect((await scrollbar.boundingBox())!.y).toBeCloseTo(initialY, 0);
+      const maxScroll = await scrollbar.evaluate((element) => element.scrollWidth - element.clientWidth);
+      expect(maxScroll).toBeGreaterThan(0);
+      await scrollbar.evaluate((element) => { element.scrollLeft = element.scrollWidth; });
+      await expect.poll(() => region.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
       await expect(region.getByRole("columnheader", { name: "Enseignant" })).toBeInViewport();
-      await slider.fill("0");
+      await scrollbar.evaluate((element) => { element.scrollLeft = 0; });
+      await expect.poll(() => region.evaluate((element) => element.scrollLeft)).toBe(0);
       await expect(region.getByRole("columnheader", { name: "Jour" })).toBeInViewport();
-      await slider.fill(await slider.getAttribute("max") ?? "0");
+      await dialog.getByRole("combobox", { name: "Type de filtre" }).selectOption("day");
+      await dialog.getByRole("combobox", { name: "Valeur du filtre" }).selectOption({ label: "Mercredi" });
+      await expect(dialog.getByRole("row")).toHaveCount(3);
+      await expect(scrollbar).toBeInViewport();
+      await dialog.getByRole("button", { name: "Réinitialiser" }).click();
+      await scrollbar.evaluate((element) => { element.scrollLeft = element.scrollWidth; });
       await timetable.page.setViewportSize({ width: 768, height: 650 });
-      await expect(dialog).toBeVisible();
+      await expect(scrollbar).toBeInViewport();
       await timetable.page.setViewportSize({ width: 1440, height: 900 });
-      await expect(dialog).toBeVisible();
+      await expect(scrollbar).toBeInViewport();
       await dialog.getByRole("button", { name: "Fermer l’horaire publié" }).click();
       await timetable.page.setViewportSize({ width: 390, height: 550 });
       await timetable.page.getByRole("button", { name: "Horaire publié" }).click();
@@ -269,9 +287,14 @@ test.describe("Bibliothèque et horaires — navigateur local isolé", () => {
     let publicationChanged = false;
     try {
       await login(teacher.page, accounts.teacher);
+      await teacher.page.getByRole("button", { name: "Menu", exact: true }).click();
+      await expect(teacher.page.getByRole("button", { name: /Fiche de cotation/ })).toBeVisible();
+      await expect(teacher.page.getByText("Documents pédagogiques")).toHaveCount(0);
+      await expect(teacher.page.getByText("Ma progression pédagogique")).toHaveCount(0);
+      await teacher.page.getByRole("button", { name: "Dashboard" }).click();
       await teacher.page.clock.install({ time: new Date("2026-10-14T06:59:30Z") });
       await teacher.page.reload();
-      await expect(teacher.page.getByText("Votre prochain cours n'a pas encore commencé.")).toBeVisible();
+      await expect(teacher.page.getByText("Prochain cours le : MERCREDI – 14 octobre 2026")).toBeVisible();
       await teacher.page.clock.fastForward(70_000);
       await expect(teacher.page.getByText("Cours en cours")).toBeVisible();
       await teacher.page.getByRole("button", { name: "Mon horaire" }).click();
@@ -296,7 +319,7 @@ test.describe("Bibliothèque et horaires — navigateur local isolé", () => {
     const studies = await contextFor(browser);
     try {
       await login(teacher.page, accounts.teacher);
-      await expect(teacher.page.getByText("Aucun cours prévu aujourd’hui.", { exact: true })).toBeVisible();
+      await expect(teacher.page.getByText("Aucun cours n'est programmé pour aujourd'hui.", { exact: true })).toBeVisible();
       await teacher.page.clock.fastForward(70_000);
       await expect(teacher.page.getByText("Géographie").first()).toBeVisible();
       const existingCalendar = await db.doc(`schoolCalendars/${yearId}`).get();

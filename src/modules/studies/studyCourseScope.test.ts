@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PedagogicalAssignment, StudyClass } from "./studyTypes";
-import { assignmentAppliesToClass, assignmentStudentGroupKey, assignmentsShareStudents, logicalStudyClasses, studentBelongsToAssignment, validateAssignmentClassSelection } from "./studyCourseScope";
+import { assignmentAppliesToClass, assignmentOptionChoices, assignmentStudentGroupKey, assignmentsShareStudents, logicalStudyClasses, studentBelongsToAssignment, validateAssignmentClassSelection } from "./studyCourseScope";
 import type { Student } from "../../types";
 
 const base: StudyClass = { id: "3h", schoolId: "s", schoolYearId: "y", name: "3ème Humanité", section: "Secondaire" };
@@ -9,6 +9,25 @@ const classes = [base, option("Scientifique"), option("Commerciale"), option("Li
 const assignment = (id: string, courseScope?: "common" | "option", targetOptionIds?: string[]): PedagogicalAssignment => ({ id, schoolId: "s", schoolYearId: "y", teacherId: id, subjectId: id, classId: "3h", courseScope, targetOptionIds, studentGroupKey: courseScope ? assignmentStudentGroupKey({ courseScope, targetOptionIds }) : undefined, weeklyPeriods: 1, active: true, createdAt: "n", updatedAt: "n", createdBy: "u", updatedBy: "u" });
 
 describe("portée pédagogique par classe et options", () => {
+  it("présente les options opérationnelles une fois, jamais les sous-classes ni les options inactives ou étrangères", () => {
+    const scientific = classes[1];
+    const duplicates: StudyClass[] = [
+      ...classes,
+      { ...scientific, id: "science-a", name: "3ème Sciences A", subClassLabel: "A" },
+      { ...scientific, id: "science-b", name: "3ème Sciences B", subClassLabel: "B" },
+      { ...option("Informatique"), active: false },
+      { ...option("Informatique"), id: "informatique-a", active: true, subClassLabel: "A" },
+      { ...option("Autre"), schoolId: "other" },
+      { ...option("Économie"), schoolYearId: "other" },
+      { ...option("Section"), id: "3h::section", classOptionKey: "3h::section", option: "Scientifique" },
+    ];
+    const choices = assignmentOptionChoices(duplicates, base.id, ["Scientifique", "Commerciale"]);
+    expect(choices.filter((item) => item.id === scientific.classOptionKey)).toEqual([{ id: scientific.classOptionKey, label: "Scientifique" }]);
+    expect(choices.map((item) => item.id)).not.toEqual(expect.arrayContaining(["3h::informatique", "3h::autre", "3h::économie"]));
+    expect(choices).toContainEqual({ id: "3h::section", label: "Scientifique" });
+    expect(validateAssignmentClassSelection({ classId: base.id, courseScope: "option", targetOptionIds: ["3h::informatique"] }, duplicates)).toContain("n’appartient pas");
+  });
+
   it("accepte les cardinalités métier et refuse une option étrangère", () => {
     expect(validateAssignmentClassSelection({ classId: "3h", courseScope: "common", targetOptionIds: ["3h::scientifique", "3h::commerciale"] }, classes)).toBe("");
     expect(validateAssignmentClassSelection({ classId: "3h", courseScope: "common", targetOptionIds: ["3h::scientifique"] }, classes)).toContain("au moins deux");

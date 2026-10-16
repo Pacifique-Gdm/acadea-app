@@ -13,8 +13,8 @@ export interface AssignmentClassSelection {
 
 const normalizedIds = (values?: readonly string[]) => [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))].sort();
 
-export function classOptionId(item: Pick<StudyClass, "id" | "classOptionKey" | "option">) {
-  return operationalClassOptionKey(item) || (item.option?.trim() ? item.id : undefined);
+export function classOptionId(item: Pick<StudyClass, "id" | "classOptionKey" | "option"> & { subClassLabel?: string }) {
+  return operationalClassOptionKey(item) || (item.option?.trim() && !item.subClassLabel ? item.id : undefined);
 }
 
 export function baseStudyClassId(item: Pick<StudyClass, "id" | "parentClassId" | "classOptionKey">) {
@@ -22,7 +22,25 @@ export function baseStudyClassId(item: Pick<StudyClass, "id" | "parentClassId" |
 }
 
 export function optionClassesForBaseClass(classes: readonly StudyClass[], classId: string) {
-  return classes.filter((item) => baseStudyClassId(item) === classId && Boolean(classOptionId(item)));
+  const base = classes.find((item) => item.id === classId);
+  const inactiveOptions = new Set(classes.filter((item) => item.active === false && item.id === classOptionId(item)).map((item) => classOptionId(item)!));
+  const options = new Map<string, StudyClass>();
+  classes.filter((item) => item.id !== classId && item.active !== false && baseStudyClassId(item) === classId
+    && (!base || item.schoolId === base.schoolId && item.schoolYearId === base.schoolYearId)).forEach((item) => {
+    const id = classOptionId(item);
+    if (!id || inactiveOptions.has(id)) return;
+    const current = options.get(id);
+    if (!current || current.subClassLabel && !item.subClassLabel || item.id === id && current.id !== id) options.set(id, item);
+  });
+  return [...options.values()];
+}
+
+export function assignmentOptionChoices(classes: readonly StudyClass[], classId: string, schoolOptions: readonly string[] = []) {
+  return optionClassesForBaseClass(classes, classId).map((item) => {
+    const id = classOptionId(item)!;
+    const configured = schoolOptions.find((option) => schoolClassOptionKey(classId, option) === id);
+    return { id, label: configured ?? item.option?.trim() ?? id.split("::").at(-1) ?? id };
+  }).sort((left, right) => left.label.localeCompare(right.label, "fr", { sensitivity: "base" }) || left.id.localeCompare(right.id));
 }
 
 /**

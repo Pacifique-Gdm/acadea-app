@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { CalendarDays, Download } from "lucide-react";
 import { AdminDrawer } from "../../components/ui";
 import type { AppUser, School, SchoolYear } from "../../types";
@@ -8,7 +9,7 @@ import { studyDayLabel } from "./studySchedule";
 import { emptyPublishedTimetableFilters, exportPublishedTimetablePdf, filterPublishedTimetable, type PublishedTimetableFilters, type PublishedTimetableFilterType } from "./publishedTimetableView";
 
 
-export function PublishedTimetableReadOnly({ user, school, year }: { user: AppUser; school: School; year: SchoolYear }) {
+export function PublishedTimetableReadOnly({ user, school, year, footerNode }: { user: AppUser; school: School; year: SchoolYear; footerNode?: HTMLDivElement | null }) {
   const storageKey = `published-timetable-filters:${school.id}:${year.id}`;
   const [filters, setFilters] = useState<PublishedTimetableFilters>(() => {
     try { return { ...emptyPublishedTimetableFilters, ...JSON.parse(sessionStorage.getItem(storageKey) ?? "{}") }; }
@@ -17,8 +18,9 @@ export function PublishedTimetableReadOnly({ user, school, year }: { user: AppUs
   const [value, setValue] = useState<PublishedTimetableSnapshot>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [scrollRange, setScrollRange] = useState({ left: 0, max: 0 });
+  const [tableWidth, setTableWidth] = useState(0);
   const tableScrollRef = useRef<HTMLDivElement>(null);
+  const footerScrollRef = useRef<HTMLDivElement>(null);
   const userRef = useRef(user);
   userRef.current = user;
   const view = value ? filterPublishedTimetable(value.rows, filters) : null;
@@ -51,11 +53,8 @@ export function PublishedTimetableReadOnly({ user, school, year }: { user: AppUs
     if (!container || !value) return;
     const measure = () => {
       const table = container.querySelector("table");
-      const max = Math.max(0, (table?.scrollWidth ?? 0) - container.clientWidth);
-      setScrollRange((current) => {
-        const left = Math.min(current.left, max);
-        return current.left === left && current.max === max ? current : { left, max };
-      });
+      setTableWidth(table?.scrollWidth ?? 0);
+      if (footerScrollRef.current) footerScrollRef.current.scrollLeft = container.scrollLeft;
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -78,16 +77,17 @@ export function PublishedTimetableReadOnly({ user, school, year }: { user: AppUs
           <button type="button" className="pdf-export-button min-w-0 justify-center px-1 text-xs sm:px-3 sm:text-sm" onClick={() => view && void exportPublishedTimetablePdf({ school, year, rows: view.rows, filters: view.filters })}><Download className="h-4 w-4" /> PDF</button>
         </div>
       </div>
-      {scrollRange.max > 1 && <div className="border-b border-slate-100 px-4 py-2 text-xs text-slate-600"><label className="grid gap-1">Défilement horizontal du tableau<input type="range" className="w-full cursor-ew-resize accent-blue-700" aria-label="Faire défiler le tableau horizontalement" min={0} max={scrollRange.max} value={scrollRange.left} onChange={(event) => setScrollRange((current) => ({ ...current, left: Number(event.target.value) }))} /></label></div>}
-      <div ref={tableScrollRef} className="w-full max-w-full overflow-hidden" role="region" aria-label="Tableau de l’horaire publié">
-        <table className="w-full min-w-[1024px] text-left text-sm" style={{ transform: `translateX(-${scrollRange.left}px)` }}><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{["Jour", "Période", "Classe", "Matière", "Enseignant"].map((label) => <th key={label} className="px-3 py-3">{label}</th>)}</tr></thead><tbody>{view?.rows.map((row, index) => <tr key={index} className="border-t border-slate-100"><td className="px-3 py-3">{row.dayOfWeek === "unknown" ? "Jour indisponible" : studyDayLabel(row.dayOfWeek)}</td><td className="px-3 py-3">{row.periodLabel}</td><td className="px-3 py-3">{row.classLabel}</td><td className="px-3 py-3">{row.subjectLabel}</td><td className="px-3 py-3">{row.teacherDisplayName}</td></tr>)}{view?.rows.length === 0 && <tr><td colSpan={5} className="px-3 py-5 text-center text-slate-500">Aucun cours pour ces filtres.</td></tr>}</tbody></table>
+      <div ref={tableScrollRef} className="scrollbar-hidden w-full max-w-full overflow-x-auto" role="region" aria-label="Tableau de l’horaire publié" onScroll={(event) => { const footer = footerScrollRef.current; if (footer && footer.scrollLeft !== event.currentTarget.scrollLeft) footer.scrollLeft = event.currentTarget.scrollLeft; }}>
+        <table className="w-full min-w-[1024px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{["Jour", "Période", "Classe", "Matière", "Enseignant"].map((label) => <th key={label} className="px-3 py-3">{label}</th>)}</tr></thead><tbody>{view?.rows.map((row, index) => <tr key={index} className="border-t border-slate-100"><td className="px-3 py-3">{row.dayOfWeek === "unknown" ? "Jour indisponible" : studyDayLabel(row.dayOfWeek)}</td><td className="px-3 py-3">{row.periodLabel}</td><td className="px-3 py-3">{row.classLabel}</td><td className="px-3 py-3">{row.subjectLabel}</td><td className="px-3 py-3">{row.teacherDisplayName}</td></tr>)}{view?.rows.length === 0 && <tr><td colSpan={5} className="px-3 py-5 text-center text-slate-500">Aucun cours pour ces filtres.</td></tr>}</tbody></table>
       </div>
     </div>}
+    {footerNode && value && createPortal(<div ref={footerScrollRef} className="scrollbar-thin w-full overflow-x-scroll overflow-y-hidden" role="region" aria-label="Faire défiler le tableau horizontalement" tabIndex={0} onScroll={(event) => { const table = tableScrollRef.current; if (table && table.scrollLeft !== event.currentTarget.scrollLeft) table.scrollLeft = event.currentTarget.scrollLeft; }}><div aria-hidden="true" style={{ width: Math.max(tableWidth, 1), height: 1 }} /></div>, footerNode)}
   </section>;
 }
 
 export function PublishedTimetableDrawerEntry({ user, school, year }: { user: AppUser; school: School; year: SchoolYear }) {
   const [open, setOpen] = useState(false);
+  const [footerNode, setFooterNode] = useState<HTMLDivElement | null>(null);
 
   return <>
     <button
@@ -101,8 +101,8 @@ export function PublishedTimetableDrawerEntry({ user, school, year }: { user: Ap
         <span className="mt-1 block break-words text-sm text-slate-500">Consulter l’horaire actif en lecture seule.</span>
       </span>
     </button>
-    {open && <AdminDrawer title="Horaire publié" onClose={() => setOpen(false)} closeLabel="Fermer l’horaire publié">
-      <PublishedTimetableReadOnly key={`${school.id}:${year.id}`} user={user} school={school} year={year} />
+    {open && <AdminDrawer title="Horaire publié" onClose={() => setOpen(false)} closeLabel="Fermer l’horaire publié" footer={<div ref={setFooterNode} className="min-w-0" />}>
+      <PublishedTimetableReadOnly key={`${school.id}:${year.id}`} user={user} school={school} year={year} footerNode={footerNode} />
     </AdminDrawer>}
   </>;
 }

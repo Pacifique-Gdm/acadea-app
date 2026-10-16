@@ -9,7 +9,9 @@ describe("Menu et messagerie Enseignant / Direction des études", () => {
   it("retire uniquement Assistant IA et Notifications du Menu Enseignant", () => {
     expect(teacher).not.toContain('"Assistant IA"');
     expect(teacher).not.toContain('"Notifications"');
-    for (const label of ["Ma progression pédagogique", "Mes élèves", "Documents pédagogiques", "Mes demandes", "Historique"]) expect(teacher).toContain(label);
+    for (const label of ["Mes élèves", "Mes demandes", "Historique"]) expect(teacher).toContain(label);
+    expect(teacher).not.toContain("Ma progression pédagogique");
+    expect(teacher).not.toContain("Documents pédagogiques");
     expect(teacher).toContain("ActivityHistoryContent");
   });
 

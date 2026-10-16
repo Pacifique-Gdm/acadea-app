@@ -22,7 +22,7 @@ describe("Périodes & tranches horaires — présentation", () => {
   it("rend l'éditeur avant le bouton d'ajout et conserve une fermeture explicite", () => {
     expect(source).toContain('data-testid="period-editor"');
     expect(source.indexOf('data-testid="period-editor"')).toBeLessThan(source.indexOf('>Ajouter une période</button>'));
-    expect(source).toContain('onClick={() => setEditorOpen(false)}>Annuler</button>');
+    expect(source).toContain('setEditorOpen(false); setEditing(undefined); }}>Annuler</button>');
   });
 
   it("présente chaque période verticalement avec deux actions équilibrées", () => {
