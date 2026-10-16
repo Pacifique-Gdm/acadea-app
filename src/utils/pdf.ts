@@ -961,6 +961,11 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       line-height: 1.42;
       page-break-inside: auto;
     }
+    .grading-pdf-section table { table-layout: fixed; margin-top: 12px; font-size: 8px; }
+    .grading-pdf-section th, .grading-pdf-section td { padding: 5px 4px; }
+    .grading-pdf-section th:first-child, .grading-pdf-section td:first-child { text-align: left; }
+    .grading-pdf-section th:nth-child(5), .grading-pdf-section th:nth-child(9), .grading-pdf-section th:nth-child(10) { background: #1e5a72; }
+    .grading-pdf-section td:nth-child(5), .grading-pdf-section td:nth-child(9), .grading-pdf-section td:nth-child(10) { background: #edf7fa; font-weight: 700; }
     thead {
       display: table-header-group;
     }

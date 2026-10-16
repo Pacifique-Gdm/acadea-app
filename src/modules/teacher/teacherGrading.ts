@@ -37,13 +37,14 @@ export function scopeTeacherGradingData(user: Pick<AppUser, "section" | "section
   const classIds = new Set(classes.map((item) => item.id));
   const assignments = data.assignments.filter((item) => classIds.has(item.classId));
   const subjectIds = new Set(assignments.map((item) => item.subjectId));
+  const titulars = data.titulars.filter((item) => item.active === true && item.teacherId === data.teacher.id && item.schoolId === data.teacher.schoolId && item.schoolYearId === data.teacher.schoolYearId && classIds.has(item.classId));
   return {
     ...data,
     classes,
     assignments,
-    titulars: data.titulars.filter((item) => classIds.has(item.classId)),
+    titulars,
     subjects: data.subjects.filter((item) => subjectIds.has(item.id)),
-    students: data.students.filter((item) => assignments.some((assignment) => studentBelongsToAssignment(item, assignment, data.classes)) || data.titulars.some((titular) => studentBelongsToAssignment(item, { classId: titular.classId, schoolId: titular.schoolId, schoolYearId: titular.schoolYearId }, data.classes))),
+    students: data.students.filter((item) => item.schoolId === data.teacher.schoolId && item.schoolYearId === data.teacher.schoolYearId && (assignments.some((assignment) => studentBelongsToAssignment(item, assignment, data.classes)) || titulars.some((titular) => studentBelongsToAssignment(item, { classId: titular.classId, schoolId: titular.schoolId, schoolYearId: titular.schoolYearId }, data.classes)))),
     configs: data.configs.filter((item) => classIds.has(item.classId) && subjectIds.has(item.subjectId)),
     entries: data.entries.filter((item) => classIds.has(item.classId) && subjectIds.has(item.subjectId)),
   };
@@ -53,6 +54,7 @@ export function validateMaxScore(next:number,entries:GradeEntry[]){if(!Number.is
 export function gradingProgress(entries:GradeEntry[],studentIds:string[]){const graded=new Set(entries.filter(item=>studentIds.includes(item.studentId)&&item.status!=="not_graded").map(item=>item.studentId)).size;return{graded,total:studentIds.length,status:graded===studentIds.length&&studentIds.length>0?"Complet":"En cours" as "Complet"|"En cours"}}
 export const gradeCalculationService={calculateSemester1Total:()=>null,calculateSemester2Total:()=>null,calculateGeneralTotal:()=>null};
 export function maxScoreActionLabel(hasPersistedConfig:boolean){return hasPersistedConfig?"Modifier la côte":"Enregistrer maximum"}
+export function maxScoreConfirmation(hasPersistedConfig:boolean){return hasPersistedConfig?"MODIFIER LA CÔTE MAXIMALE":"ENREGISTRER LA CÔTE MAXIMALE"}
 export function reconcileGradeDrafts(students:Student[],entries:GradeEntry[],previous:Record<string,{score:string;status:GradeEntry["status"]}>,reset:boolean){
   return Object.fromEntries(students.map(student=>{
     const entry=entries.find(item=>item.studentId===student.id);
