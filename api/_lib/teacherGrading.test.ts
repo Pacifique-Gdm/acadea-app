@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { executeTeacherGrading, GradingApiError, studentMatchesAssignment } from "./teacherGrading.js";
 
 describe("API de cotation Enseignant", () => {
-  const rosterDb = () => {
+  const rosterDb = (hasConfig = true) => {
     const records: Record<string, Array<{ id: string; [key: string]: unknown }>> = {
       schools: [{ id: "s", status: "active" }],
       users: [
@@ -33,7 +33,7 @@ describe("API de cotation Enseignant", () => {
       ],
       teacherStudentObservations: [],
       notifications: [],
-      courseGradingConfigs: [{ id: "s__y__c::sciences__m", schoolId: "s", schoolYearId: "y", classId: "c::sciences", subjectId: "m", maxScore: 20 }],
+      courseGradingConfigs: hasConfig ? [{ id: "s__y__c::sciences__m", schoolId: "s", schoolYearId: "y", classId: "c::sciences", subjectId: "m", maxScore: 20 }] : [],
       gradeEntries: [],
     };
     const reads: Array<{ collection: string; conditions: Array<[string, string, unknown]> }> = [];
@@ -99,6 +99,33 @@ describe("API de cotation Enseignant", () => {
     expect(result.assignments.map((item: { id: string }) => item.id)).toEqual(["a"]);
     expect(result.classes.map((item: { id: string }) => item.id)).toEqual(["c", "c::sciences"]);
     expect(result.students).toEqual([]);
+  });
+
+  it.each([
+    [false, "ENREGISTRER LA CÔTE MAXIMALE"],
+    [true, "MODIFIER LA CÔTE MAXIMALE"],
+  ])("protège côté serveur la cote maximale (%s)", async (hasConfig, phrase) => {
+    const { db, writes } = rosterDb(hasConfig);
+    const body = { action: "save-config", schoolId: "s", schoolYearId: "y", assignmentId: "a", classId: "c::sciences", subjectId: "m", maxScore: 25 };
+    for (const confirmation of [undefined, "ENREGISTRER LA CÔTE", phrase === "MODIFIER LA CÔTE MAXIMALE" ? "ENREGISTRER LA CÔTE MAXIMALE" : "MODIFIER LA CÔTE MAXIMALE"]) {
+      await expect(executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body: { ...body, confirmation } })).rejects.toMatchObject({ status: 400, code: "invalid-argument" });
+    }
+    expect(writes).toHaveLength(0);
+    await expect(executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body: { ...body, confirmation: phrase } })).resolves.toMatchObject({ ok: true });
+    expect(writes).toHaveLength(1);
+  });
+
+  it("ignore les titularités historiques inactives ou sans indicateur actif", async () => {
+    const { db } = rosterDb();
+    const originalCollection = db.collection;
+    db.collection = ((collection: string) => collection === "classTitulars"
+      ? { where: () => ({ where: () => ({ where: () => ({ get: async () => ({ docs: [
+        { id: "inactive", data: () => ({ id: "inactive", classId: "c", active: false, schoolId: "s", schoolYearId: "y", teacherId: "t" }) },
+        { id: "legacy", data: () => ({ id: "legacy", classId: "c", schoolId: "s", schoolYearId: "y", teacherId: "t" }) },
+      ] }) }) }) }) }
+      : originalCollection(collection)) as typeof db.collection;
+    const result = await executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body: { action: "load", schoolId: "s", schoolYearId: "y" } });
+    expect(result.titulars).toEqual([]);
   });
 
   it("refuse l'actualisation d'une classe ou d'un cours non affecté avant toute lecture élève", async () => {

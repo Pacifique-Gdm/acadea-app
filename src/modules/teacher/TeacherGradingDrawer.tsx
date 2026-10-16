@@ -10,6 +10,7 @@ import {
   gradingProgress,
   gradingSlotLabels,
   maxScoreActionLabel,
+  maxScoreConfirmation,
   reconcileGradeDrafts,
   scopeTeacherGradingData,
   validateMaxScore,
@@ -49,11 +50,13 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
   }) : undefined, [portalData.assignments, portalData.classes, portalData.subjects, portalData.teacher]);
   const [rawData, setRawData] = useState<TeacherGradingData | undefined>(initialData);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [assignmentId, setAssignmentId] = useState("");
   const [slot, setSlot] = useState<EditableGradingSlot>("period_1");
   const [maxScore, setMaxScore] = useState("");
+  const [editingMaxScore, setEditingMaxScore] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
@@ -74,8 +77,10 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
         subjects: loaded.subjects.length ? loaded.subjects : portalData.subjects,
         classes: loaded.classes.length ? loaded.classes : portalData.classes,
       });
+      setLoadFailed(false);
       setError("");
     } catch (cause) {
+      setLoadFailed(true);
       setError(cause instanceof Error ? cause.message : "Chargement impossible.");
     } finally {
       setLoading(false);
@@ -107,6 +112,12 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
   }, [assignment, assignmentId]);
 
   useEffect(() => { setMaxScore(config ? String(config.maxScore) : ""); }, [config]);
+  useEffect(() => { setEditingMaxScore(false); }, [assignment?.id, config]);
+  useEffect(() => {
+    if (!success) return;
+    const timeout = window.setTimeout(() => setSuccess(""), 4000);
+    return () => window.clearTimeout(timeout);
+  }, [success]);
 
   useEffect(() => { setConfirmation(null); setConfirmationText(""); }, [assignment?.id, slot]);
 
@@ -116,6 +127,7 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
     setDrafts((previous) => reconcileGradeDrafts(students, entries, previous, reset));
   }, [assignment?.id, entries, slot, students]);
 
+  const hasTitular = !loading && !loadFailed && Boolean(data?.titulars.length);
   const titular = data?.titulars.find((item) => item.classId === titularClassId) ?? data?.titulars[0];
   const titularStudents = useMemo(
     () => titular && data ? activeStudentsForClass(data.students, school.id, year.id, titular.classId, data.classes) : [],
@@ -127,15 +139,16 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
   const quotedSubjectIds = new Set((data?.entries ?? []).filter((item) => item.classId === titular?.classId && item.status !== "not_graded").map((item) => item.subjectId));
 
   async function saveMax() {
-    if (!assignment || !data || savingRef.current || confirmation !== "maximum" || confirmationText !== "ENREGISTRER LA CÔTE MAXIMALE") return;
+    if (!assignment || !data || savingRef.current || loading || confirmation !== "maximum" || confirmationText !== maxScoreConfirmation(Boolean(config))) return;
     const value = Number(maxScore);
     const message = validateMaxScore(value, data.entries.filter((item) => item.classId === assignment.classId && item.subjectId === assignment.subjectId));
     if (message) return setError(message);
     savingRef.current = true; setSaving(true); setError(""); setSuccess("");
     try {
-      await saveTeacherGradingConfig({ schoolId: school.id, schoolYearId: year.id, assignmentId: assignment.id, classId: assignment.classId, subjectId: assignment.subjectId, maxScore: value });
+      await saveTeacherGradingConfig({ schoolId: school.id, schoolYearId: year.id, assignmentId: assignment.id, classId: assignment.classId, subjectId: assignment.subjectId, maxScore: value, confirmation: confirmationText });
       setSuccess("Cote maximale enregistrée.");
       setConfirmation(null); setConfirmationText("");
+      setEditingMaxScore(false);
       await reload();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Enregistrement impossible.");
@@ -169,11 +182,19 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
     setError("");
     try {
       const latest = scopeTeacherGradingData(user, await loadTeacherGrading(school.id, year.id));
+      if (latest.teacher.userId !== user.id) throw new Error("Le profil pédagogique ne correspond pas au compte Enseignant connecté.");
       if (!latest.assignments.some((item) => item.id === assignment.id && item.classId === assignment.classId && item.subjectId === assignment.subjectId)) throw new Error("Cours hors du périmètre pédagogique.");
       const latestRoster = await loadTeacherGradingRoster({ schoolId: school.id, schoolYearId: year.id, assignmentId: assignment.id, classId: assignment.classId, subjectId: assignment.subjectId });
-      await exportTeacherGradesPdf({ school, year, teacher: latest.teacher, assignment, schoolClass: latest.classes.find((item) => item.id === assignment.classId), subject: latest.subjects.find((item) => item.id === assignment.subjectId), students: activeStudentsForAssignment(latestRoster.students, school.id, year.id, assignment, latest.classes), entries: latest.entries.filter((item) => item.classId === assignment.classId && item.subjectId === assignment.subjectId), config: latest.configs.find((item) => item.classId === assignment.classId && item.subjectId === assignment.subjectId) });
+      await exportTeacherGradesPdf({ school, year, teacher: latest.teacher, teacherName: user.name, assignment, schoolClass: latest.classes.find((item) => item.id === assignment.classId), subject: latest.subjects.find((item) => item.id === assignment.subjectId), students: activeStudentsForAssignment(latestRoster.students, school.id, year.id, assignment, latest.classes), entries: latest.entries.filter((item) => item.classId === assignment.classId && item.subjectId === assignment.subjectId), config: latest.configs.find((item) => item.classId === assignment.classId && item.subjectId === assignment.subjectId) });
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Export PDF impossible."); }
   }
+
+  const confirmationPanel = (kind: "maximum" | "grade") => confirmation === kind && <section className="mt-2 grid gap-3 rounded border border-amber-300 bg-amber-50 p-3" aria-label="Confirmation de cotation">
+    <h3 className="font-bold">{kind === "maximum" ? "Confirmer la cote maximale" : "Confirmer la modification des cotes"}</h3>
+    <p className="text-sm">Saisissez exactement <strong>{kind === "maximum" ? maxScoreConfirmation(Boolean(config)) : "MODIFIER LA CÔTE"}</strong> pour confirmer.</p>
+    <input className="input" aria-label="Phrase de confirmation" value={confirmationText} onChange={(event) => setConfirmationText(event.target.value)} autoComplete="off" autoFocus />
+    <div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" disabled={saving} onClick={() => { setConfirmation(null); setConfirmationText(""); if (kind === "maximum") { setEditingMaxScore(false); setMaxScore(config ? String(config.maxScore) : ""); } }}>Annuler</button><button type="button" className="primary-button justify-center" disabled={saving || confirmationText !== (kind === "maximum" ? maxScoreConfirmation(Boolean(config)) : "MODIFIER LA CÔTE")} onClick={() => void (kind === "maximum" ? saveMax() : saveEntries(true))}>Confirmer</button></div>
+  </section>;
 
   const renderTitularView = () => {
     if (!data?.titulars.length) return <p className="rounded bg-slate-50 p-4">Aucune classe titulaire ne vous est attribuée.</p>;
@@ -212,24 +233,18 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
     {error && <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{error}</p>}
     {rosterError && <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{rosterError}</p>}
     {success && <p role="status" className="rounded bg-green-50 p-3 text-green-800">{success}</p>}
-    {data && !data.assignments.length && !data.titulars.length && !loading ? <p className="rounded border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">Aucune affectation n’est disponible pour cet enseignant pour l’année scolaire active.</p> : data && <div className="grid gap-4">
-      <div className="grid grid-cols-2 gap-2"><button type="button" className={!titularView ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setTitularView(false)}>Mes cotations</button><button type="button" className={titularView ? "primary-button justify-center" : "secondary-button justify-center"} disabled={!data.titulars.length} onClick={() => setTitularView(true)}>Ma classe titulaire</button></div>
-      {titularView ? renderTitularView() : assignments.length === 0 ? <p className="rounded bg-slate-50 p-4">Aucun cours ne vous a encore été affecté par la Direction des études.</p> : <>
+    {data && !data.assignments.length && !data.titulars.length && !loading && !loadFailed ? <p className="rounded border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">Aucune affectation n’est disponible pour cet enseignant pour l’année scolaire active.</p> : data && !loadFailed && <div className="grid gap-4">
+      <div className={hasTitular ? "grid grid-cols-2 gap-2" : "grid grid-cols-1"}><button type="button" className={!titularView || !hasTitular ? "primary-button w-full justify-center" : "secondary-button w-full justify-center"} onClick={() => setTitularView(false)}>Mes cotations</button>{hasTitular && <button type="button" className={titularView ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setTitularView(true)}>Ma classe titulaire</button>}</div>
+      {titularView && hasTitular ? renderTitularView() : assignments.length === 0 ? <p className="rounded bg-slate-50 p-4">Aucun cours ne vous a encore été affecté par la Direction des études.</p> : <>
         <label className="grid gap-1 text-sm font-semibold">Cours<select className="input" value={assignment?.id} onChange={(event) => setAssignmentId(event.target.value)}>{assignments.map((item) => <option key={item.id} value={item.id}>{data.subjects.find((candidate) => candidate.id === item.subjectId)?.name} — {data.classes.find((candidate) => candidate.id === item.classId)?.name}</option>)}</select></label>
-        <div className="rounded border bg-white p-3"><p className="font-bold">{subject?.name} — {schoolClass?.name}</p><div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]"><input className="input" type="number" min="0.01" step="0.01" aria-label="Cote maximale" value={maxScore} onChange={(event) => setMaxScore(event.target.value)} /><button type="button" className="secondary-button justify-center" disabled={saving} onClick={() => { setConfirmation("maximum"); setConfirmationText(""); }}>{maxScoreActionLabel(Boolean(config))}</button></div></div>
+        <div className="rounded border bg-white p-3"><p className="font-bold">{subject?.name} — {schoolClass?.name}</p><div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]"><input className={`input ${config && !editingMaxScore ? "blur-sm" : ""}`} type="number" min="0.01" step="0.01" aria-label="Cote maximale" value={maxScore} readOnly={Boolean(config) && !editingMaxScore} onChange={(event) => setMaxScore(event.target.value)} /><button type="button" className="secondary-button justify-center" disabled={saving} onClick={() => { setEditingMaxScore(true); setConfirmation("maximum"); setConfirmationText(""); setSuccess(""); }}>{maxScoreActionLabel(Boolean(config))}</button></div>{confirmationPanel("maximum")}</div>
         <label className="grid gap-1 text-sm font-semibold">Période<select className="input" value={slot} onChange={(event) => setSlot(event.target.value as EditableGradingSlot)}>{editableGradingSlots.map((value) => <option key={value} value={value}>{gradingSlotLabels[value]}</option>)}</select></label>
         <p className="text-sm font-semibold">{progress.graded} / {progress.total} élèves cotés · {progress.status}</p>
         {!config ? <p className="rounded bg-amber-50 p-3 text-sm">Définissez la cote maximale de ce cours avant de commencer la cotation.</p> : students.length === 0 ? <p className="rounded bg-slate-50 p-3">Aucun élève actif n’est inscrit dans cette classe.</p> : <div className="grid gap-2">{students.map((student) => {
           const value = drafts[student.id] ?? { score: "", status: "not_graded" as const };
           return <article key={student.id} className="grid gap-2 rounded border bg-white p-3 sm:grid-cols-[minmax(0,1fr)_120px_130px] sm:items-center"><span className="font-semibold">{student.nom} {student.postnom} {student.prenom}</span><input aria-label={`Cote de ${student.nom}`} className="input" type="number" min="0" max={config.maxScore} step="0.01" value={value.score} disabled={value.status === "absent"} onChange={(event) => setDrafts((current) => ({ ...current, [student.id]: { ...value, score: event.target.value, status: event.target.value === "" ? "not_graded" : "graded" } }))} /><select aria-label={`Statut de ${student.nom}`} className="input" value={value.status} onChange={(event) => setDrafts((current) => ({ ...current, [student.id]: { score: event.target.value === "graded" ? value.score : "", status: event.target.value === "graded" && value.score === "" ? "not_graded" : event.target.value as GradeEntry["status"] } }))}>{value.status === "absent" && <option value="absent" disabled>Absent (historique)</option>}<option value="not_graded">Non coté</option><option value="graded" disabled={value.score === ""}>Coté</option></select></article>;
-        })}<div className="grid grid-cols-2 gap-2"><button type="button" className="primary-button justify-center" disabled={saving} onClick={() => void saveEntries()}>{saving ? "Enregistrement…" : "Enregistrer"}</button><button type="button" className="pdf-export-button justify-center" disabled={saving} onClick={() => void exportPdf()}>Exporter PDF</button></div></div>}
+        })}<div><div className="grid grid-cols-2 gap-2"><button type="button" className="primary-button justify-center" disabled={saving} onClick={() => void saveEntries()}>{saving ? "Enregistrement…" : "Enregistrer"}</button><button type="button" className="pdf-export-button justify-center" disabled={saving} onClick={() => void exportPdf()}>Exporter PDF</button></div>{confirmationPanel("grade")}</div></div>}
       </>}
     </div>}
-    {confirmation && <section className="grid gap-3 rounded border border-amber-300 bg-amber-50 p-3" aria-label="Confirmation de cotation">
-      <h3 className="font-bold">{confirmation === "maximum" ? "Confirmer la cote maximale" : "Confirmer la modification des cotes"}</h3>
-      <p className="text-sm">Saisissez exactement <strong>{confirmation === "maximum" ? "ENREGISTRER LA CÔTE MAXIMALE" : "MODIFIER LA CÔTE"}</strong> pour confirmer.</p>
-      <input className="input" aria-label="Phrase de confirmation" value={confirmationText} onChange={(event) => setConfirmationText(event.target.value)} autoComplete="off" />
-      <div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" disabled={saving} onClick={() => { setConfirmation(null); setConfirmationText(""); }}>Annuler</button><button type="button" className="primary-button justify-center" disabled={saving || confirmationText !== (confirmation === "maximum" ? "ENREGISTRER LA CÔTE MAXIMALE" : "MODIFIER LA CÔTE")} onClick={() => void (confirmation === "maximum" ? saveMax() : saveEntries(true))}>Confirmer</button></div>
-    </section>}
   </AdminDrawer>;
 }

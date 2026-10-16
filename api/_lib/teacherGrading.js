@@ -79,7 +79,7 @@ async function scope(db, teacher, schoolId, schoolYearId) {
   ]);
   return {
     assignments: serialize(assignmentSnapshot),
-    titulars: serialize(titularSnapshot).filter((item) => item.active !== false),
+    titulars: serialize(titularSnapshot).filter((item) => item.active === true),
   };
 }
 
@@ -260,6 +260,8 @@ export async function executeTeacherGrading({ db, caller, body }) {
     }
     const ref = db.doc(`courseGradingConfigs/${configId}`);
     const previous = await ref.get();
+    const confirmation = previous.exists ? "MODIFIER LA CÔTE MAXIMALE" : "ENREGISTRER LA CÔTE MAXIMALE";
+    if (body.confirmation !== confirmation) throw new GradingApiError(400, "invalid-argument", "La confirmation de la cote maximale est incorrecte.");
     const now = FieldValue.serverTimestamp();
     await ref.set({ id: configId, schoolId, schoolYearId, assignmentId, teacherId: teacher.id, classId, subjectId, maxScore, status: "draft", createdAt: previous.exists ? previous.data().createdAt : now, createdBy: previous.exists ? previous.data().createdBy : caller.uid, updatedAt: now, updatedBy: caller.uid });
     return { ok: true, id: configId };
