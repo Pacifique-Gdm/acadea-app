@@ -189,6 +189,16 @@ describe("secondary class plus option resolution", () => {
     expect(canonicalOperationalClasses(classes, [], "school-a", "year-a", ["Secondaire"]).map((item) => item.name)).toEqual(["1ère Commerciale", "1ère Littéraire"]);
   });
 
+  it("conserve les identités opérationnelles distinctes malgré un libellé identique et déduplique la même option", () => {
+    const parent = base("secondary-identity", { name: "2ème Humanité", section: "Secondaire" });
+    const optionKey = schoolClassOptionKey(parent.id, "Littéraire");
+    const first = base("first-option", { name: "2ème Humanité", section: "Secondaire", parentClassId: parent.id, classOptionKey: optionKey, option: "Littéraire" });
+    const duplicate = base("duplicate-option", { ...first, id: "duplicate-option" });
+    const distinct = base("other-option", { name: "2ème Humanité", section: "Secondaire", parentClassId: parent.id, classOptionKey: schoolClassOptionKey(parent.id, "Autre"), option: "Littéraire" });
+    const result = operationalSchoolClasses([parent, first, duplicate, distinct], "school-a", "year-a", ["Secondaire"]);
+    expect(result.map((item) => item.id)).toEqual(["first-option", "other-option"]);
+  });
+
   it("resolves a legacy option and never invents a missing option", () => {
     expect(canonicalOperationalClasses([], [student({ className: "2ème Humanité", option: "Littéraire", classId: undefined })], "school-a", "year-a", ["Secondaire"]).map((item) => item.name)).toEqual(["2ème Littéraire"]);
     expect(canonicalOperationalClasses([], [student({ className: "2ème Humanité", option: undefined, classId: undefined })], "school-a", "year-a", ["Secondaire"]).map((item) => item.name)).toEqual(["2ème Humanité"]);
@@ -201,6 +211,11 @@ describe("secondary class plus option resolution", () => {
     expect(classes.map((item) => item.name)).toEqual(["2ème Scientifique"]);
     const scientific = classes.find((item) => item.name === "2ème Scientifique")!;
     expect(studentBelongsToOperationalClass(legacy, scientific)).toBe(true);
+  });
+
+  it("n'affiche pas une classe désactivée à partir d'une ancienne inscription", () => {
+    const inactive = base("inactive-class", { name: "2ème Humanité", section: "Secondaire", active: false });
+    expect(canonicalOperationalClasses([inactive], [student({ classId: inactive.id, className: inactive.name })], "school-a", "year-a", ["Secondaire"])).toEqual([]);
   });
 
   it("keeps the canonical option when enrolled classes are filtered for assignments", () => {

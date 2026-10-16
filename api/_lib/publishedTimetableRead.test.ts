@@ -70,7 +70,30 @@ describe("projection serveur de l'horaire publié", () => {
     const { db, data, caller } = fixture();
     data.set("classes/class-a", { schoolId: "school-a", schoolYearId: "year-a", name: "4e Humanité", option: "Littéraire", subClassLabel: "A" });
     const result = await readPublishedTimetable({ db, caller: caller("school_admin", "admin-a"), schoolYearId: "year-a" });
-    expect(result.rows[0].classLabel).toBe("4e Humanité Littéraire A");
+    expect(result.rows[0].classLabel).toBe("4e Littéraire A");
+    data.set("classes/class-a", { ...data.get("classes/class-a"), active: false });
+    const inactive = await readPublishedTimetable({ db, caller: caller("school_admin", "admin-a"), schoolYearId: "year-a" });
+    expect(inactive.rows[0].classLabel).toBe("Classe opérationnelle indisponible");
+  });
+
+  it("résout le nom du compte Enseignant lié lorsque le profil métier ne porte pas de nom", async () => {
+    const { db, data, caller } = fixture();
+    data.set("teachers/teacher-a", { schoolId: "school-a", schoolYearId: "year-a", userId: "teacher-user-a", status: "active" });
+    data.set("users/teacher-user-a", { role: "teacher", schoolId: "school-a", status: "active", name: "Ada Lovelace" });
+    const result = await readPublishedTimetable({ db, caller: caller("school_admin", "admin-a"), schoolYearId: "year-a" });
+    expect(result.rows[0].teacherDisplayName).toBe("Ada Lovelace");
+  });
+
+  it("affiche les seules classes d'option opérationnelles de l'affectation publiée", async () => {
+    const { db, data, caller } = fixture();
+    data.set("timetableEntries/monday-early", { ...data.get("timetableEntries/monday-early"), targetOptionIds: ["option-literary", "option-science"] });
+    data.set("classes/option-literary", { schoolId: "school-a", schoolYearId: "year-a", name: "4e Humanité", option: "Littéraire", classOptionKey: "option-literary", active: true });
+    data.set("classes/option-science", { schoolId: "school-a", schoolYearId: "year-a", name: "4e Humanité", option: "Scientifique", classOptionKey: "option-science", active: true });
+    const result = await readPublishedTimetable({ db, caller: caller("school_admin", "admin-a"), schoolYearId: "year-a" });
+    expect(result.rows[0].classLabel).toBe("4e Littéraire + 4e Scientifique");
+    data.set("classes/option-science", { schoolId: "school-b", schoolYearId: "year-b", name: "Classe étrangère", classOptionKey: "option-science" });
+    const after = await readPublishedTimetable({ db, caller: caller("school_admin", "admin-a"), schoolYearId: "year-a" });
+    expect(after.rows[0].classLabel).toBe("Classe opérationnelle indisponible");
   });
 
   it("refuse un rôle, une école, une année et un profil falsifiés", async () => {
@@ -90,7 +113,7 @@ describe("projection serveur de l'horaire publié", () => {
     data.set("teachers/teacher-a", { schoolId: "school-a", schoolYearId: "year-b", firstName: "Nom", lastName: "Autre année" });
     data.delete("schedulePeriods/p1");
     const result = await readPublishedTimetable({ db, caller: caller("school_admin", "admin-a"), schoolYearId: "year-a" });
-    expect(result.rows.find((row: { periodLabel: string }) => row.periodLabel === "Période indisponible")).toMatchObject({ classLabel: "Classe indisponible", subjectLabel: "Matière indisponible", teacherDisplayName: "Enseignant indisponible" });
+    expect(result.rows.find((row: { periodLabel: string }) => row.periodLabel === "Période indisponible")).toMatchObject({ classLabel: "Classe opérationnelle indisponible", subjectLabel: "Matière indisponible", teacherDisplayName: "Enseignant indisponible" });
     expect(JSON.stringify(result)).not.toContain("Classe étrangère");
     expect(JSON.stringify(result)).not.toContain("Nom Autre année");
     data.delete("timetables/published-a");

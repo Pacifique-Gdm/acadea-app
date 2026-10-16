@@ -158,7 +158,7 @@ export function operationalSchoolClasses<T extends OperationalClass>(classes: re
     const vacation = isCertainLegacyOptionRecord(item, parent) ? (parent?.vacation ?? item.vacation) : (item.vacation ?? parent?.vacation);
     const saturdayEnabled = item.saturdayEnabled ?? parent?.saturdayEnabled;
     const saturdayVacation = item.saturdayVacation ?? parent?.saturdayVacation;
-    const key = normalizedClassName(label);
+    const key = operationalClassIdentity({ ...item, ...(classOptionKey ? { classOptionKey } : {}), ...(option ? { option } : {}) });
     if (!unique.has(key)) unique.set(key, {
       ...item,
       name: label,
@@ -203,6 +203,7 @@ export function canonicalOperationalClasses(
       const parent = (student.classId && structuredById.get(student.classId)) || structuredByName.get(normalizedClassName(student.className));
       const option = student.option?.trim();
       const optionKey = option ? (student.classOptionKey?.trim() || schoolClassOptionKey(parent?.id ?? schoolClassRecordId(schoolId, schoolYearId, student.className), option)) : undefined;
+      if (parent?.active === false && !scopedClasses.some((item) => item.active !== false && (item.id === optionKey || item.classOptionKey === optionKey))) return;
       const id = optionKey || parent?.id || schoolClassRecordId(schoolId, schoolYearId, label);
       const key = optionKey ? `option:${optionKey}` : parent ? `class:${parent.id}` : `legacy:${normalizedClassName(label)}`;
       // In Secondary, an option-bearing enrolment makes the generic Humanité

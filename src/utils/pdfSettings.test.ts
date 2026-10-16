@@ -40,4 +40,9 @@ describe("réglages PDF canoniques", () => {
     expect(layout.contentWidth).toBe(width - 28);
     expect(layout.contentHeight).toBe(height - 32);
   });
+
+  it("élargit seulement la fiche de cotation demandée en paysage", () => {
+    expect(getPdfLayout(undefined, "landscape").page).toEqual({ width: 297, height: 210 });
+    expect(getPdfLayout().page).toEqual({ width: 210, height: 297 });
+  });
 });

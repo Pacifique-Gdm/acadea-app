@@ -11,6 +11,8 @@ export function PublishedTimetableReadOnly({ user, school, year }: { user: AppUs
   const [value, setValue] = useState<PublishedTimetableSnapshot>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [hasHorizontalOverflow, setHasHorizontalOverflow] = useState(false);
+  const tableScrollRef = useRef<HTMLDivElement>(null);
   const userRef = useRef(user);
   userRef.current = user;
 
@@ -23,8 +25,8 @@ export function PublishedTimetableReadOnly({ user, school, year }: { user: AppUs
         user: userRef.current,
         schoolId: school.id,
         schoolYearId: year.id,
-        onData: (next) => { setValue(next); setLoading(false); },
-        onError: () => { setError("Impossible d’actualiser l’horaire publié."); setLoading(false); },
+        onData: (next) => { setValue(next); setError(""); setLoading(false); },
+        onError: (cause) => { setError(`Impossible d’actualiser l’horaire publié : ${cause.message}`); setLoading(false); },
       });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Consultation impossible.");
@@ -33,14 +35,27 @@ export function PublishedTimetableReadOnly({ user, school, year }: { user: AppUs
     return unsubscribe;
   }, [school.id, user.id, user.role, user.schoolId, year.id]);
 
+  useEffect(() => {
+    const container = tableScrollRef.current;
+    if (!container || !value) return;
+    const measure = () => setHasHorizontalOverflow(container.scrollWidth > container.clientWidth + 1);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(container);
+    const table = container.querySelector("table");
+    if (table) observer.observe(table);
+    return () => observer.disconnect();
+  }, [value]);
+
   return <section className="grid gap-4" aria-label="Horaire publié">
     <div><h2 className="text-xl font-bold text-ink">Horaire publié</h2><p className="text-sm text-slate-600">Consultation en lecture seule pour l’année scolaire {year.name}.</p></div>
     {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
     {loading ? <p className="rounded border border-slate-200 bg-white p-4 text-sm text-slate-500">Chargement de l’horaire publié…</p> : !value ? <p className="rounded border border-slate-200 bg-white p-4 text-sm text-slate-500">Aucun horaire publié pour cette année scolaire.</p> : <div className="min-w-0 rounded border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm"><strong>Version {value.version}</strong> · publiée</div>
-      <div className="w-full max-w-full overflow-x-auto overscroll-x-contain" role="region" aria-label="Tableau de l’horaire publié" tabIndex={0}>
+      <div ref={tableScrollRef} className="w-full max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:auto]" role="region" aria-label="Tableau de l’horaire publié" tabIndex={0}>
         <table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{["Jour", "Période", "Classe", "Matière", "Enseignant"].map((label) => <th key={label} className="px-3 py-3">{label}</th>)}</tr></thead><tbody>{value.rows.map((row, index) => <tr key={index} className="border-t border-slate-100"><td className="px-3 py-3">{row.dayOfWeek === "unknown" ? "Jour indisponible" : studyDayLabel(row.dayOfWeek)}</td><td className="px-3 py-3">{row.periodLabel}</td><td className="px-3 py-3">{row.classLabel}</td><td className="px-3 py-3">{row.subjectLabel}</td><td className="px-3 py-3">{row.teacherDisplayName}</td></tr>)}</tbody></table>
       </div>
+      {hasHorizontalOverflow && <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-4 py-2 text-xs text-slate-600"><button type="button" className="secondary-button" onClick={() => tableScrollRef.current?.scrollBy({ left: -240, behavior: "smooth" })}>← Colonnes précédentes</button><span className="hidden text-center sm:block">Défilement horizontal</span><button type="button" className="secondary-button" onClick={() => tableScrollRef.current?.scrollBy({ left: 240, behavior: "smooth" })}>Colonnes suivantes →</button></div>}
     </div>}
   </section>;
 }

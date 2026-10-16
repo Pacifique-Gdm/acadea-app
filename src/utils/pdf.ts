@@ -31,6 +31,7 @@ type AcadPdfOptions = {
   sections: string[];
   copyLabels?: readonly [string, string];
   singlePageFit?: boolean;
+  orientation?: "portrait" | "landscape";
 };
 
 function formatStudentClassName(student: Pick<Student, "className" | "option">) {
@@ -147,11 +148,11 @@ export function pdfSection(title: string, bodyHtml: string, options: { pageBreak
   `;
 }
 
-export async function renderAcadPdfPreview({ filename, title, school, year, subtitle, studentCount, generatedAt = new Date(), showGeneratedAt = true, showDocumentTitle = true, centerDocumentTitle = false, pdfSettings, sections, copyLabels, singlePageFit = false }: AcadPdfOptions) {
+export async function renderAcadPdfPreview({ filename, title, school, year, subtitle, studentCount, generatedAt = new Date(), showGeneratedAt = true, showDocumentTitle = true, centerDocumentTitle = false, pdfSettings, sections, copyLabels, singlePageFit = false, orientation = "portrait" }: AcadPdfOptions) {
   const profileEnabled = import.meta.env.DEV || ["staging", "preview"].includes(import.meta.env.VITE_APP_ENV ?? "");
   const profileStart = performance.now();
-  const layout = getPdfLayout(pdfSettings);
-  const doc = new jsPDF({ unit: "mm", format: layout.jsPdfFormat, orientation: "portrait", compress: true });
+  const layout = getPdfLayout(pdfSettings, orientation);
+  const doc = new jsPDF({ unit: "mm", format: layout.jsPdfFormat, orientation, compress: true });
   const engineReadyAt = performance.now();
   const viewer = openPdfViewerShell({ filename, title });
   const logoDataUrl = await loadLogoDataUrl(school.logoUrl);

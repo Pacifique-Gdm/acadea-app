@@ -59,3 +59,19 @@ export function reconcileGradeDrafts(students:Student[],entries:GradeEntry[],pre
     return [student.id,!reset&&previous[student.id]?previous[student.id]:{score:entry?.score==null?"":String(entry.score),status:entry?.status??"not_graded"}];
   }));
 }
+
+export function changedGradeEntries(students:Student[], entries:GradeEntry[], drafts:Record<string,{score:string;status:GradeEntry["status"]}>, slot:EditableGradingSlot){
+  const saved = new Map(entries.map((entry) => [entry.studentId, entry]));
+  let modifiesPersisted = false;
+  const changes = students.flatMap((student) => {
+    const draft = drafts[student.id] ?? { score:"", status:"not_graded" as const };
+    const status:GradeEntry["status"] = draft.status === "absent" ? "absent" : draft.score === "" ? "not_graded" : "graded";
+    const score = status === "graded" ? Number(draft.score) : null;
+    const previous = saved.get(student.id);
+    if (!previous && status === "not_graded") return [];
+    if (previous && previous.status === status && previous.score === score) return [];
+    if (previous) modifiesPersisted = true;
+    return [{ studentId:student.id, gradingSlot:slot, score, status }];
+  });
+  return { changes, modifiesPersisted };
+}
