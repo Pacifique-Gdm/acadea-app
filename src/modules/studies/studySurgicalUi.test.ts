@@ -21,7 +21,10 @@ describe("positionnement des contrôles Direction des études", () => {
   });
   it("efface une erreur transitoire seulement après réception des données et offre le défilement visible", () => {
     expect(published).toContain("setValue(next); setError(\"\"); setLoading(false)");
-    expect(published).toContain("hasHorizontalOverflow &&");
-    expect(published).toContain("scrollBy({ left: 240");
+    expect(published).toContain("scrollRange.max > 1 &&");
+    expect(published).toContain('aria-label="Faire défiler le tableau horizontalement"');
+    expect(published.indexOf("scrollRange.max > 1 &&")).toBeLessThan(published.indexOf("<div ref={tableScrollRef}"));
+    expect(published).toContain('className="w-full max-w-full overflow-hidden"');
+    expect(published).not.toContain("onScroll=");
   });
 });

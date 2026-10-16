@@ -181,18 +181,62 @@ test.describe("Bibliothèque et horaires — navigateur local isolé", () => {
       expect(rows[1]).toContain("Lundi");
       expect(rows[2]).toContain("Mercredi");
       expect(rows[2]).toContain("Première période · 08:00–09:00");
-      expect(rows[2]).toContain("4ème Humanité Littéraire");
+      expect(rows[2]).toContain("4ème Littéraire");
       expect(rows[2]).toContain("Géographie");
       expect(rows[2]).toContain("Aline Test");
       expect(rows[3]).toContain("Deuxième période · 10:00–11:00");
       expect(rows[4]).toContain("Samedi");
       expect(rows.join(" ")).not.toContain(teacherId);
+      await dialog.getByRole("combobox", { name: "Type de filtre" }).selectOption("teacher");
+      await dialog.getByRole("combobox", { name: "Valeur du filtre" }).selectOption({ label: "Aline Test" });
+      await expect(dialog.getByRole("row")).toHaveCount(4);
+      await dialog.getByRole("combobox", { name: "Type de filtre" }).selectOption("day");
+      await dialog.getByRole("combobox", { name: "Valeur du filtre" }).selectOption({ label: "Mercredi" });
+      await expect(dialog.getByRole("row")).toHaveCount(3);
+      await dialog.getByRole("button", { name: "Réinitialiser" }).click();
+      await expect(dialog.getByRole("row")).toHaveCount(5, { timeout: 30_000 });
       await fit(timetable.page);
       await dialog.getByRole("button", { name: "Fermer l’horaire publié" }).click();
       timetable.routeState.mode = "error";
       await timetable.page.getByRole("button", { name: "Horaire publié" }).click();
-      await expect(timetable.page.getByRole("dialog", { name: "Horaire publié" }).getByRole("alert")).toContainText("Impossible d’actualiser l’horaire publié.");
+      await expect(timetable.page.getByRole("dialog", { name: "Horaire publié" }).getByRole("alert")).toContainText("Impossible d’actualiser l’horaire publié : Indisponibilité de test");
       expect(timetable.remote).toEqual([]);
+    } finally { await timetable.context.close(); }
+  });
+
+  test("Horaire publié : commande horizontale visible et stable sur mobile", async ({ browser }) => {
+    const timetable = await contextFor(browser);
+    try {
+      await timetable.page.setViewportSize({ width: 390, height: 550 });
+      await login(timetable.page, accounts.admin);
+      await timetable.page.getByRole("button", { name: "Menu", exact: true }).last().click();
+      await timetable.page.getByRole("button", { name: "Horaire publié" }).click();
+      const dialog = timetable.page.getByRole("dialog", { name: "Horaire publié" });
+      await expect(dialog.getByRole("row"), `${await dialog.innerText()} / ${timetable.browserErrors.join(" | ")}`).toHaveCount(5, { timeout: 30_000 });
+      const controls = [dialog.getByRole("combobox", { name: "Type de filtre" }), dialog.getByRole("combobox", { name: "Valeur du filtre" }), dialog.getByRole("button", { name: "Réinitialiser" }), dialog.getByRole("button", { name: "PDF" })];
+      const controlBoxes = await Promise.all(controls.map((control) => control.boundingBox()));
+      expect(controlBoxes.every((box) => box && Math.abs((box.y + box.height / 2) - (controlBoxes[0]!.y + controlBoxes[0]!.height / 2)) < 3), JSON.stringify(controlBoxes)).toBe(true);
+      const drawerBox = await dialog.boundingBox();
+      expect(controlBoxes[3]!.x + controlBoxes[3]!.width).toBeLessThanOrEqual(drawerBox!.x + drawerBox!.width);
+      const slider = dialog.getByRole("slider", { name: "Faire défiler le tableau horizontalement" });
+      await expect(slider).toBeInViewport();
+      const region = dialog.getByRole("region", { name: "Tableau de l’horaire publié" });
+      expect(await region.evaluate((element) => getComputedStyle(element).overflowX)).not.toBe("auto");
+      await slider.fill(await slider.getAttribute("max") ?? "0");
+      await expect(region.getByRole("columnheader", { name: "Enseignant" })).toBeInViewport();
+      await slider.fill("0");
+      await expect(region.getByRole("columnheader", { name: "Jour" })).toBeInViewport();
+      await slider.fill(await slider.getAttribute("max") ?? "0");
+      await timetable.page.setViewportSize({ width: 768, height: 650 });
+      await expect(dialog).toBeVisible();
+      await timetable.page.setViewportSize({ width: 1440, height: 900 });
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole("button", { name: "Fermer l’horaire publié" }).click();
+      await timetable.page.setViewportSize({ width: 390, height: 550 });
+      await timetable.page.getByRole("button", { name: "Horaire publié" }).click();
+      await expect(timetable.page.getByRole("dialog", { name: "Horaire publié" }).getByRole("row")).toHaveCount(5);
+      await expect(dialog).toBeVisible();
+      expect(timetable.browserErrors).toEqual([]);
     } finally { await timetable.context.close(); }
   });
 
@@ -212,6 +256,9 @@ test.describe("Bibliothèque et horaires — navigateur local isolé", () => {
       expect(studiesRows.join(" ")).toContain("Géographie");
       expect(studiesRows.join(" ")).toContain("Aline Test");
       expect(studiesRows.join(" ")).not.toContain(teacherId);
+      expect(studiesRows.join(" ")).not.toMatch(/Littéraire\s*Littéraire/);
+      const classChoices = await studies.page.getByRole("combobox", { name: "Filtrer l’horaire" }).locator("option").allTextContents();
+      expect(classChoices.filter((label) => label.includes("Littéraire"))).toEqual(["4ème Littéraire"]);
       await fit(studies.page);
       expect(studies.remote).toEqual([]);
     } finally { /* Playwright ferme le navigateur à la fin du test. */ }
