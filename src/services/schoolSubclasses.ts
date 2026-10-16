@@ -201,14 +201,15 @@ export function canonicalOperationalClasses(
         ? `${base || student.className} ${student.option.trim()}`
         : student.className.trim();
       const parent = (student.classId && structuredById.get(student.classId)) || structuredByName.get(normalizedClassName(student.className));
+      const parentClassId = parent ? operationalBaseClassId(parent) : undefined;
       const option = student.option?.trim();
-      const optionKey = option ? (student.classOptionKey?.trim() || schoolClassOptionKey(parent?.id ?? schoolClassRecordId(schoolId, schoolYearId, student.className), option)) : undefined;
+      const optionKey = option ? (student.classOptionKey?.trim() || schoolClassOptionKey(parentClassId ?? schoolClassRecordId(schoolId, schoolYearId, student.className), option)) : undefined;
       if (parent?.active === false && !scopedClasses.some((item) => item.active !== false && (item.id === optionKey || item.classOptionKey === optionKey))) return;
       const id = optionKey || parent?.id || schoolClassRecordId(schoolId, schoolYearId, label);
-      const key = optionKey ? `option:${optionKey}` : parent ? `class:${parent.id}` : `legacy:${normalizedClassName(label)}`;
+      const key = optionKey ? `option:${optionKey}` : parent ? operationalClassIdentity(parent) : `legacy:${normalizedClassName(label)}`;
       // In Secondary, an option-bearing enrolment makes the generic Humanité
       // record a parent identity, not an assignable operational class.
-      if (optionKey && parent) result.delete(`class:${parent.id}`);
+      if (optionKey && parentClassId) result.delete(`class:${parentClassId}`);
       const existing = result.get(key);
       if (existing) {
         if (existing.section !== section) result.set(key, { ...existing, section });
@@ -221,7 +222,7 @@ export function canonicalOperationalClasses(
         name: label,
         section,
         option,
-        ...(optionKey ? { classOptionKey: optionKey, parentClassId: parent?.id } : {}),
+        ...(optionKey ? { classOptionKey: optionKey, parentClassId } : {}),
         ...(parent?.vacation ? { vacation: parent.vacation } : {}),
         ...(parent?.saturdayEnabled !== undefined ? { saturdayEnabled: parent.saturdayEnabled } : {}),
         ...(parent?.saturdayVacation !== undefined ? { saturdayVacation: parent.saturdayVacation } : {}),

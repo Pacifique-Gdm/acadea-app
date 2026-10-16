@@ -11,7 +11,7 @@ import { exportDashboardReportPdf } from "../../utils/dashboardPdf";
 import { money } from "../../utils/pdf";
 import { formatCurrencyMoney, resolveSchoolYearCurrency } from "../../utils/currency";
 import { hasCurrencyOutside } from "../../utils/operationCurrency";
-import { useResolvedExpenseCurrencies } from "../../hooks/useResolvedExpenseCurrencies";
+import { useExpenseCurrencyResolution } from "../../hooks/useResolvedExpenseCurrencies";
 import { formatCount } from "../../utils/numberFormat";
 import { activeDashboardPersonnelCounts, uniqueActiveParentCount } from "../../utils/dashboardPopulationStats";
 import { canonicalOperationalClasses, subscribeToSchoolClasses } from "../../services/schoolSubclasses";
@@ -337,7 +337,8 @@ export function TransactionComboChart({
 }
 
 export function Dashboard({ data, school, year }: DashboardProps) {
-  const resolvedExpenses = useResolvedExpenseCurrencies(data.expenses);
+  const expenseResolution = useExpenseCurrencyResolution(data.expenses);
+  const resolvedExpenses = expenseResolution.rows;
   const today = toDateKey(new Date());
   const [sectionFilter, setSectionFilter] = useState<"all" | SchoolSection>("all");
   const [startDate, setStartDate] = useState(today);
@@ -398,6 +399,8 @@ export function Dashboard({ data, school, year }: DashboardProps) {
   const totalPayments = dashboardFinancialStats.paid;
   const currentCurrency = resolveSchoolYearCurrency(year, school);
   const hasUnreliableFinancialCurrency = hasCurrencyOutside([...data.payments, ...resolvedExpenses], currentCurrency);
+  const financialVerificationReady = expenseResolution.status === "ready";
+  const financialExportBlocked = !financialVerificationReady || hasUnreliableFinancialCurrency;
   const transactionStartDate = dateFilterActive ? startDate : today;
   const transactionEndDate = dateFilterActive ? endDate : today;
   const arrearsCollections = useMemo(() => (["USD", "CDF"] as const).map((currency) => ({
@@ -533,8 +536,8 @@ export function Dashboard({ data, school, year }: DashboardProps) {
     { label: "Caissiers", value: personnelCounts.cashier, icon: UserRound, tone: "bg-pink-100 text-pink-700" },
     { label: "Directeurs de Discipline", value: personnelCounts.discipline_director, icon: ShieldCheck, tone: "bg-violet-100 text-violet-700" },
     { label: "Montant attendu", value: formatCurrencyMoney(dashboardFinancialStats.expected, currentCurrency), icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
-    { label: "Frais de l'année encaissés", value: hasUnreliableFinancialCurrency ? "Non calculable" : formatCurrencyMoney(totalPayments, currentCurrency), icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
-    { label: "Montant restant \u00e0 payer", value: hasUnreliableFinancialCurrency ? "Non calculable" : formatCurrencyMoney(remaining, currentCurrency), icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
+    { label: "Frais de l'année encaissés", value: financialExportBlocked ? "Non calculable" : formatCurrencyMoney(totalPayments, currentCurrency), icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
+    { label: "Montant restant \u00e0 payer", value: financialExportBlocked ? "Non calculable" : formatCurrencyMoney(remaining, currentCurrency), icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
   ];
 
   function progressBarTone(rate: number) {
@@ -545,7 +548,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
   }
 
   function exportDashboardPdf() {
-    if (hasUnreliableFinancialCurrency) return;
+    if (financialExportBlocked) return;
     exportDashboardReportPdf({
       school,
       year,
@@ -626,13 +629,15 @@ export function Dashboard({ data, school, year }: DashboardProps) {
           <button onClick={resetDashboardDateFilter} type="button" className="rounded border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:border-mint hover:text-mint">
             Réinitialiser
           </button>
-          <button onClick={exportDashboardPdf} disabled={hasUnreliableFinancialCurrency} type="button" className="pdf-export-button w-full sm:w-auto">
+          <button onClick={exportDashboardPdf} disabled={financialExportBlocked} type="button" className="pdf-export-button w-full sm:w-auto">
             <Download className="h-4 w-4" /> Exporter PDF
           </button>
           {dateFilterError && <p className="text-xs font-semibold text-red-600 sm:col-span-2 lg:col-span-5">{dateFilterError}</p>}
         </div>
       </div>
-      {hasUnreliableFinancialCurrency && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Synthèse financière et PDF indisponibles : des opérations historiques ont une devise inconnue ou différente de la devise actuelle. Vérification ou réconciliation nécessaire.</p>}
+      {expenseResolution.status === "loading" && <p role="status" className="rounded border border-slate-200 bg-white p-3 text-sm">Vérification des devises historiques en cours…</p>}
+      {expenseResolution.status === "error" && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Vérification des devises indisponible. Réessayez après avoir rétabli la connexion.</p>}
+      {financialVerificationReady && hasUnreliableFinancialCurrency && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Synthèse financière et PDF indisponibles : des opérations historiques ont une devise inconnue ou différente de la devise actuelle. Vérification ou réconciliation nécessaire.</p>}
 
       <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {cards.map((card) => {
@@ -649,7 +654,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
         })}
       </div>
 
-      {!hasUnreliableFinancialCurrency && <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
+      {!financialExportBlocked && <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="font-bold text-ink">KPI financier</h2>
@@ -712,7 +717,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
           ))}
           {transactions.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">{"Aucune transaction pour cette p\u00e9riode."}</p>}
         </div>
-        {!hasUnreliableFinancialCurrency && <div className="mt-4 border-t border-slate-100 pt-4">
+        {!financialExportBlocked && <div className="mt-4 border-t border-slate-100 pt-4">
           <TransactionComboChart rows={transactionChartRows} period={transactionPeriod} onPeriodChange={setTransactionPeriod} formatAmount={(value) => formatCurrencyMoney(value, currentCurrency)} />
         </div>}
       </FormPanel>
