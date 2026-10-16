@@ -39,3 +39,24 @@ describe("Actualisation des élèves de la fiche", () => {
     expect(reconcileGradeDrafts(students, [], previous, true).existing).toEqual({ score: "", status: "not_graded" });
   });
 });
+
+describe("ergonomie des confirmations de cotation", () => {
+  const drawer = readFileSync(new URL("./TeacherGradingDrawer.tsx", import.meta.url), "utf8");
+  it("verrouille et floute uniquement le champ du maximum persisté", () => {
+    expect(drawer).toContain('config && !editingMaxScore ? "blur-sm" : ""');
+    expect(drawer).toContain('readOnly={Boolean(config) && !editingMaxScore}');
+  });
+  it("ancre chaque confirmation auprès de son action et efface les succès temporaires", () => {
+    expect(drawer).toContain('{confirmationPanel("maximum")}');
+    expect(drawer).toContain('{confirmationPanel("grade")}');
+    expect(drawer).toContain('window.setTimeout(() => setSuccess(""), 4000)');
+    expect(drawer).toContain('window.clearTimeout(timeout)');
+    expect(drawer).toContain('confirmationText !== maxScoreConfirmation(Boolean(config))');
+  });
+  it("n'affiche pas le titulariat pendant le chargement et élargit Mes cotations lorsqu'il est seul", () => {
+    expect(drawer).toContain('const hasTitular = !loading && !loadFailed && Boolean(data?.titulars.length)');
+    expect(drawer).toContain('hasTitular ? "grid grid-cols-2 gap-2" : "grid grid-cols-1"');
+    expect(drawer).toContain('"primary-button w-full justify-center"');
+    expect(drawer).toContain('{hasTitular && <button');
+  });
+});
