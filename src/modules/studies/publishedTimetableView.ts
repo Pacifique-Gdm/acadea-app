@@ -3,37 +3,41 @@ import { pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import { studyDayLabel } from "./studySchedule";
 import type { PublishedTimetableRow } from "./publishedTimetableService";
 
-export type PublishedTimetableFilters = { day: string; teacher: string; subject: string };
-export const emptyPublishedTimetableFilters: PublishedTimetableFilters = { day: "", teacher: "", subject: "" };
+export type PublishedTimetableFilterType = "class" | "teacher" | "day";
+export type PublishedTimetableFilters = { type: PublishedTimetableFilterType; value: string };
+export const emptyPublishedTimetableFilters: PublishedTimetableFilters = { type: "class", value: "" };
 
-export function publishedTimetableChoices(rows: PublishedTimetableRow[]) {
+type Choice = { value: string; label: string };
+const classKey = (row: PublishedTimetableRow) => row.classLabel;
+const teacherKey = (row: PublishedTimetableRow) => row.teacherDisplayName;
+const uniqueChoices = (choices: Choice[]) => [...new Map(choices.map((choice) => [choice.value, choice])).values()]
+  .sort((a, b) => a.label.localeCompare(b.label, "fr"));
+
+export function publishedTimetableChoices(rows: PublishedTimetableRow[]): Record<PublishedTimetableFilterType, Choice[]> {
   return {
-    days: [...new Set(rows.map((row) => row.dayOfWeek).filter((day) => day !== "unknown"))],
-    teachers: [...new Set(rows.map((row) => row.teacherDisplayName))].sort((a, b) => a.localeCompare(b, "fr")),
-    subjects: [...new Set(rows.map((row) => row.subjectLabel))].sort((a, b) => a.localeCompare(b, "fr")),
+    class: uniqueChoices(rows.map((row) => ({ value: classKey(row), label: row.classLabel }))),
+    teacher: uniqueChoices(rows.map((row) => ({ value: teacherKey(row), label: row.teacherDisplayName }))),
+    day: [...new Set(rows.map((row) => row.dayOfWeek).filter((day) => day !== "unknown"))]
+      .map((day) => ({ value: day, label: studyDayLabel(day as Exclude<PublishedTimetableRow["dayOfWeek"], "unknown">) })),
   };
 }
 
 export function filterPublishedTimetable(rows: PublishedTimetableRow[], filters: PublishedTimetableFilters) {
   const choices = publishedTimetableChoices(rows);
-  const valid = {
-    day: choices.days.includes(filters.day as typeof choices.days[number]) ? filters.day : "",
-    teacher: choices.teachers.includes(filters.teacher) ? filters.teacher : "",
-    subject: choices.subjects.includes(filters.subject) ? filters.subject : "",
-  };
+  const type: PublishedTimetableFilterType = ["class", "teacher", "day"].includes(filters.type) ? filters.type : "class";
+  const value = choices[type].some((choice) => choice.value === filters.value) ? filters.value : "";
   return {
-    filters: valid,
-    rows: rows.filter((row) => (!valid.day || row.dayOfWeek === valid.day)
-      && (!valid.teacher || row.teacherDisplayName === valid.teacher)
-      && (!valid.subject || row.subjectLabel === valid.subject)),
+    filters: { type, value },
+    rows: rows.filter((row) => !value || (type === "class" ? classKey(row) : type === "teacher" ? teacherKey(row) : row.dayOfWeek) === value),
     choices,
   };
 }
 
-export function publishedTimetableFilterLabel(filters: PublishedTimetableFilters) {
-  return [filters.day && `Jour : ${studyDayLabel(filters.day as Exclude<PublishedTimetableRow["dayOfWeek"], "unknown">)}`,
-    filters.teacher && `Enseignant : ${filters.teacher}`,
-    filters.subject && `Cours : ${filters.subject}`].filter(Boolean).join(" · ") || "Tous les cours";
+export function publishedTimetableFilterLabel(filters: PublishedTimetableFilters, rows: PublishedTimetableRow[]) {
+  if (!filters.value) return "Tous les cours";
+  const selected = publishedTimetableChoices(rows)[filters.type]?.find((choice) => choice.value === filters.value);
+  const prefix = { class: "Classe", teacher: "Enseignant", day: "Jour" }[filters.type];
+  return selected ? `${prefix} : ${selected.label}` : "Tous les cours";
 }
 
 export async function exportPublishedTimetablePdf(input: { school: School; year: SchoolYear; rows: PublishedTimetableRow[]; filters: PublishedTimetableFilters }) {
@@ -45,5 +49,5 @@ export async function exportPublishedTimetablePdf(input: { school: School; year:
     { header: "Enseignant", render: (row) => row.teacherDisplayName },
   ], input.rows, "Aucun cours pour ces filtres.");
   await renderAcadPdfPreview({ filename: `horaire-publie-${input.year.name}.pdf`, title: "Horaire publié", school: input.school,
-    year: input.year, subtitle: publishedTimetableFilterLabel(input.filters), sections: [pdfSection("Cours filtrés", table)], orientation: "landscape" });
+    year: input.year, subtitle: publishedTimetableFilterLabel(input.filters, input.rows), sections: [pdfSection("Cours filtrés", table)], orientation: "landscape" });
 }

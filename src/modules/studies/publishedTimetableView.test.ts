@@ -16,16 +16,18 @@ const rows: PublishedTimetableRow[] = [
 ];
 
 describe("horaire publié filtré", () => {
-  it("combine jour, enseignant et cours sans toucher aux autres lignes", () => {
-    const result = filterPublishedTimetable(rows, { day: "monday", teacher: "Alice", subject: "Mathématiques" });
-    expect(result.rows).toEqual([rows[0]]);
+  it("filtre séparément par classe, enseignant ou jour sans toucher aux autres lignes", () => {
+    expect(filterPublishedTimetable(rows, { type: "class", value: "1ère Sciences" }).rows).toEqual([rows[0], rows[2]]);
+    expect(filterPublishedTimetable(rows, { type: "teacher", value: "Bob" }).rows).toEqual([rows[1]]);
+    const result = filterPublishedTimetable(rows, { type: "day", value: "monday" });
+    expect(result.rows).toEqual([rows[0], rows[1]]);
     expect(rows).toHaveLength(3);
-    expect(publishedTimetableFilterLabel(result.filters)).toContain("Alice");
+    expect(publishedTimetableFilterLabel(result.filters, result.rows)).toContain("Lundi");
   });
 
   it("ignore les filtres persistés qui ne figurent plus parmi les données autorisées", () => {
-    const result = filterPublishedTimetable(rows, { day: "friday", teacher: "Inconnu", subject: "Inconnu" });
-    expect(result.filters).toEqual(emptyPublishedTimetableFilters);
+    const result = filterPublishedTimetable(rows, { type: "teacher", value: "Inconnu" });
+    expect(result.filters).toEqual({ type: "teacher", value: "" });
     expect(result.rows).toEqual(rows);
   });
 
@@ -34,10 +36,10 @@ describe("horaire publié filtré", () => {
   });
 
   it("exporte uniquement les lignes filtrées avec l'école, l'année et une page paysage", async () => {
-    const selected = filterPublishedTimetable(rows, { day: "monday", teacher: "Alice", subject: "Mathématiques" });
+    const selected = filterPublishedTimetable(rows, { type: "teacher", value: "Alice" });
     await exportPublishedTimetablePdf({ school: { id: "school-a", name: "École A" } as never,
       year: { id: "year-a", name: "2026-2027" } as never, rows: selected.rows, filters: selected.filters });
     expect(mocks.render).toHaveBeenCalledWith(expect.objectContaining({ title: "Horaire publié", orientation: "landscape",
-      subtitle: expect.stringContaining("Alice"), sections: [expect.stringContaining(JSON.stringify([rows[0]]))] }));
+      subtitle: expect.stringContaining("Alice"), sections: [expect.stringContaining(JSON.stringify([rows[0], rows[2]]))] }));
   });
 });
