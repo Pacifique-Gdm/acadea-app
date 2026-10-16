@@ -90,7 +90,7 @@ export function teacherEntriesForDay(entries: TimetableEntry[], periods: Schedul
 
 export type TeacherNextCourse = TeacherCourseState | { status: "future"; entry: TimetableEntry; date: string };
 
-export function teacherNextAvailableCourse(entries: TimetableEntry[], periods: SchedulePeriod[], now: Date, timeZone: string | undefined, hasPublished: boolean, calendar?: SchoolCalendar): TeacherNextCourse {
+export function teacherNextAvailableCourse(entries: TimetableEntry[], periods: SchedulePeriod[], now: Date, timeZone: string | undefined, hasPublished: boolean, calendar?: SchoolCalendar, classes: StudyClass[] = []): TeacherNextCourse {
   if (!hasPublished) return { status: "unpublished" };
   const today = schoolCivilDate(now, timeZone);
   if (!today) return { status: "timezone-missing" };
@@ -107,7 +107,8 @@ export function teacherNextAvailableCourse(entries: TimetableEntry[], periods: S
     if (raw.some((entry) => { const period = byId.get(entry.periodId); return !period || !/^\d{2}:\d{2}$/.test(period.startTime) || !/^\d{2}:\d{2}$/.test(period.endTime) || period.startTime >= period.endTime; })) return { status: "incomplete" };
     const available = raw.filter((entry) => {
       const period = byId.get(entry.periodId);
-      return period && !schoolCourseSuspended(calendar, civil, period.startTime, period.endTime);
+      const studyClass = classes.find((item) => item.id === entry.classId);
+      return period && !schoolCourseSuspended(calendar, civil, period.startTime, period.endTime, studyClass ? studyClassSection(studyClass, classes) : undefined);
     });
     if (!available.length) continue;
     if (offset === 0) {

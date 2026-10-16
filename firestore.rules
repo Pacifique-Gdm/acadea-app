@@ -606,14 +606,39 @@ service cloud.firestore {
 
     match /schoolCalendars/{yearId} {
       function validCalendarMetadata() {
-        return request.resource.data.keys().hasOnly(["schoolId", "schoolYearId", "status", "updatedAt", "updatedBy"])
+        return request.resource.data.keys().hasOnly(["schoolId", "schoolYearId", "status", "updatedAt", "updatedBy", "sourcePdf"])
           && request.resource.data.keys().hasAll(["schoolId", "schoolYearId", "status", "updatedAt", "updatedBy"])
           && request.resource.data.schoolId == tenantSchoolId()
           && request.resource.data.schoolYearId == yearId
           && request.resource.data.status in ["draft", "validated"]
           && request.resource.data.updatedAt is string
           && request.resource.data.updatedAt.size() > 0
-          && request.resource.data.updatedBy == request.auth.uid;
+          && request.resource.data.updatedBy == request.auth.uid
+          && (!request.resource.data.keys().hasAny(["sourcePdf"])
+            || (request.resource.data.sourcePdf is map
+              && request.resource.data.sourcePdf.keys().hasOnly(["path", "name", "size", "pageCount", "sha256", "uploadedAt", "uploadedBy"])
+              && request.resource.data.sourcePdf.keys().hasAll(["path", "name", "size", "pageCount", "sha256", "uploadedAt", "uploadedBy"])
+              && request.resource.data.sourcePdf.path is string
+              && request.resource.data.sourcePdf.path.matches("^school-calendars/" + tenantSchoolId() + "/" + yearId + "/[0-9a-fA-F-]{36}\\.pdf$")
+              && request.resource.data.sourcePdf.name is string
+              && request.resource.data.sourcePdf.name.size() > 0
+              && request.resource.data.sourcePdf.name.size() <= 120
+              && request.resource.data.sourcePdf.size is int
+              && request.resource.data.sourcePdf.size > 0
+              && request.resource.data.sourcePdf.size <= 10 * 1024 * 1024
+              && request.resource.data.sourcePdf.pageCount is int
+              && request.resource.data.sourcePdf.pageCount > 0
+              && request.resource.data.sourcePdf.pageCount <= 30
+              && request.resource.data.sourcePdf.sha256 is string
+              && request.resource.data.sourcePdf.sha256.matches("^[0-9a-f]{64}$")
+              && request.resource.data.sourcePdf.uploadedAt is string
+              && request.resource.data.sourcePdf.uploadedBy is string
+              && (resource == null
+                ? request.resource.data.sourcePdf.uploadedBy == request.auth.uid
+                : (resource.data.keys().hasAny(["sourcePdf"])
+                  ? request.resource.data.sourcePdf == resource.data.sourcePdf
+                  : (request.resource.data.sourcePdf.uploadedBy == request.auth.uid
+                    && get(/databases/$(database)/documents/schools/$(tenantSchoolId())).data.activeSchoolYearId == yearId)))));
       }
       allow get: if (studyDirector() || activeTeacher())
         && schoolYearBelongsToSchool(yearId, tenantSchoolId())
@@ -624,7 +649,9 @@ service cloud.firestore {
       allow create: if studyDirector()
         && tenantSchoolNotDeleting()
         && schoolYearBelongsToSchool(yearId, tenantSchoolId())
-        && validCalendarMetadata();
+          && validCalendarMetadata()
+          && (!request.resource.data.keys().hasAny(["sourcePdf"])
+            || get(/databases/$(database)/documents/schools/$(tenantSchoolId())).data.activeSchoolYearId == yearId);
       allow update: if studyDirector()
         && tenantSchoolNotDeleting()
         && schoolYearBelongsToSchool(yearId, tenantSchoolId())
@@ -646,7 +673,7 @@ service cloud.firestore {
               || getAfter(calendarParentPath()).data.updatedAt != get(calendarParentPath()).data.updatedAt);
         }
         function validCalendarEvent() {
-          return request.resource.data.keys().hasOnly(["id", "schoolId", "schoolYearId", "title", "kind", "startsAt", "endsAt", "origin", "sourceUrl", "publishedAt", "educationLevel", "suspendsCourses", "startTime", "endTime"])
+          return request.resource.data.keys().hasOnly(["id", "schoolId", "schoolYearId", "title", "kind", "startsAt", "endsAt", "origin", "sourceUrl", "publishedAt", "educationLevel", "suspendsCourses", "startTime", "endTime", "sourcePdfPath", "sourcePage"])
             && request.resource.data.keys().hasAll(["id", "schoolId", "schoolYearId", "title", "kind", "startsAt", "endsAt", "origin"])
             && request.resource.data.id == eventId
             && eventId.size() <= 120
@@ -659,7 +686,7 @@ service cloud.firestore {
             && request.resource.data.startsAt is timestamp
             && request.resource.data.endsAt is timestamp
             && request.resource.data.startsAt <= request.resource.data.endsAt
-            && request.resource.data.origin in ["local", "official-proposal"]
+            && request.resource.data.origin in ["local", "official-proposal", "pdf-import"]
             && (!request.resource.data.keys().hasAny(["suspendsCourses"])
               || request.resource.data.suspendsCourses is bool)
             && (request.resource.data.kind != "resumption"
@@ -675,8 +702,21 @@ service cloud.firestore {
                 && request.resource.data.startTime < request.resource.data.endTime)
               : true)
             && (request.resource.data.origin == "local"
-              ? !request.resource.data.keys().hasAny(["sourceUrl", "publishedAt", "educationLevel"])
-              : (request.resource.data.keys().hasAll(["sourceUrl", "educationLevel"])
+              ? !request.resource.data.keys().hasAny(["sourceUrl", "publishedAt", "educationLevel", "sourcePdfPath", "sourcePage"])
+              : (request.resource.data.origin == "pdf-import"
+                ? (request.resource.data.keys().hasAll(["sourcePdfPath", "sourcePage", "educationLevel"])
+                  && !request.resource.data.keys().hasAny(["sourceUrl", "publishedAt"])
+                  && request.resource.data.sourcePdfPath is string
+                  && getAfter(calendarParentPath()).data.keys().hasAny(["sourcePdf"])
+                  && request.resource.data.sourcePdfPath == getAfter(calendarParentPath()).data.sourcePdf.path
+                  && request.resource.data.sourcePage is int
+                  && request.resource.data.sourcePage >= 1
+                  && request.resource.data.sourcePage <= getAfter(calendarParentPath()).data.sourcePdf.pageCount
+                  && request.resource.data.educationLevel is string
+                  && request.resource.data.educationLevel.size() > 0
+                  && request.resource.data.educationLevel.size() <= 80)
+                : (request.resource.data.keys().hasAll(["sourceUrl", "educationLevel"])
+                && !request.resource.data.keys().hasAny(["sourcePdfPath", "sourcePage"])
                 && request.resource.data.sourceUrl is string
                 && request.resource.data.sourceUrl.size() <= 1024
                 && request.resource.data.sourceUrl.matches('^https://edu-nc\\.gouv\\.cd(/.*)?$')
@@ -684,7 +724,7 @@ service cloud.firestore {
                 && request.resource.data.educationLevel.size() > 0
                 && request.resource.data.educationLevel.size() <= 80
                 && (!request.resource.data.keys().hasAny(["publishedAt"])
-                  || request.resource.data.publishedAt is timestamp)));
+                  || request.resource.data.publishedAt is timestamp))));
         }
         allow get: if (studyDirector() || activeTeacher())
           && resource.data.schoolId == tenantSchoolId()

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="fr">
+  <head><meta charset="utf-8"><title>OCR locale du calendrier — fixture</title></head>
+  <body>
+    <button id="analyze" type="button">Analyser le PDF numérisé fictif</button>
+    <input id="source" type="file" accept="application/pdf,.pdf" aria-label="PDF officiel local" />
+    <button id="analyze-upload" type="button">Analyser le PDF local fourni</button>
+    <output id="result" aria-live="polite"></output>
+    <script type="module">
+      import { jsPDF } from "jspdf";
+      import { analyzeCalendarPdf } from "/src/modules/studies/calendarPdfImport.ts";
+
+      const rasterPage = (heading, event) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 1200;
+        canvas.height = 1700;
+        const context = canvas.getContext("2d");
+        context.fillStyle = "#fff";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.fillStyle = "#000";
+        context.font = "bold 54px Arial";
+        context.fillText(heading, 70, 180);
+        context.font = "46px Arial";
+        context.fillText(event, 70, 310);
+        return canvas.toDataURL("image/jpeg", 0.85);
+      };
+
+      const analyze = async (file) => {
+        const output = document.querySelector("#result");
+        output.textContent = "Analyse en cours";
+        try {
+          const year = { id: "fictitious-year", schoolId: "fictitious-school", name: "2026-2027", startsAt: "2026-09-01", endsAt: "2027-07-31", status: "active" };
+          const analysis = await analyzeCalendarPdf(file, year, () => undefined);
+          output.textContent = JSON.stringify(analysis);
+        } catch (error) { output.textContent = `ERREUR : ${error instanceof Error ? error.message : "inconnue"}`; }
+      };
+      document.querySelector("#analyze").addEventListener("click", async () => {
+        try {
+          const pdf = new jsPDF({ unit: "pt", format: "a4" });
+          pdf.addImage(rasterPage("CALENDRIER MATERNELLE", "Vacances 20 décembre 2026"), "JPEG", 0, 0, 595, 842);
+          pdf.addPage();
+          pdf.addImage(rasterPage("CALENDRIER SECONDAIRE", "Examens 13 janvier 2027"), "JPEG", 0, 0, 595, 842);
+          const file = new File([pdf.output("arraybuffer")], "calendrier-fictif-numerise.pdf", { type: "application/pdf" });
+          await analyze(file);
+        } catch (error) { document.querySelector("#result").textContent = `ERREUR : ${error instanceof Error ? error.message : "inconnue"}`; }
+      });
+      document.querySelector("#analyze-upload").addEventListener("click", () => {
+        const file = document.querySelector("#source").files?.[0];
+        if (file) void analyze(file);
+      });
+      document.body.dataset.ready = "true";
+    </script>
+  </body>
+</html>

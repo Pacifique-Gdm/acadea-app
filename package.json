@@ -32,14 +32,17 @@
     "reset:staging": "echo Staging reset from demo data has been removed."
   },
   "dependencies": {
+    "@tesseract.js-data/fra": "1.0.0",
     "@vitejs/plugin-react": "^5.0.4",
     "@vvo/tzdb": "6.201.1",
     "firebase": "12.19.0",
     "firebase-admin": "14.2.0",
     "jspdf": "4.2.1",
     "lucide-react": "^0.546.0",
+    "pdfjs-dist": "6.3.289",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "tesseract.js": "7.0.0"
   },
   "overrides": {
     "@fastify/busboy@>=3.0.0 <3.2.2": "3.2.2",
