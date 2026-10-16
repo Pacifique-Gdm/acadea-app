@@ -17,6 +17,7 @@ describe("positionnement des contrôles Direction des études", () => {
     expect(trigger).toBeGreaterThan(block);
     expect(form).toBeGreaterThan(trigger);
     expect(calendar.indexOf('>Annuler</button><button', form)).toBeGreaterThan(form);
+    expect(calendar.slice(trigger - 110, trigger)).toContain("w-full min-w-0 justify-center");
   });
   it("efface une erreur transitoire seulement après réception des données et offre le défilement visible", () => {
     expect(published).toContain("setValue(next); setError(\"\"); setLoading(false)");

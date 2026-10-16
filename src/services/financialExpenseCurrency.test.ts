@@ -32,4 +32,13 @@ describe("devises des dépenses historiques côté navigateur", () => {
       json: async () => ({ resolvedCurrencies: {} }) })));
     expect((await resolveHistoricalExpenseCurrencies([linkedExpense]))[0].currency).toBeUndefined();
   });
+
+  it("permet à l'interface de distinguer une erreur API d'une devise réellement non résolue", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 503,
+      json: async () => ({ code: "unavailable" }) })));
+    await expect(resolveHistoricalExpenseCurrencies([linkedExpense], true)).rejects.toThrow();
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true,
+      json: async () => ({ resolvedCurrencies: {} }) })));
+    expect((await resolveHistoricalExpenseCurrencies([linkedExpense], true))[0].currency).toBeUndefined();
+  });
 });

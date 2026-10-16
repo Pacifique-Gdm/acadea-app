@@ -81,6 +81,15 @@ describe("alignement du Dashboard Coordination", () => {
     expect(dashboard).not.toContain("onSnapshot");
   });
 
+  it("ne confond pas chargement, erreur et exclusion d'une école réellement non alignée", () => {
+    expect(portal).toContain("loadedSupervisionScope !== supervisionScope");
+    expect(dashboard).toContain("!loading && !loadError && stats.excludedSchoolIds.length > 0");
+    expect(dashboard).toContain("financialVerificationReady && hasUnknownFinancialCurrency");
+    expect(dashboard).toContain("disabled={!scopedSchools.length || financialExportBlocked}");
+    expect(adminDashboard).toContain("expenseResolution.status === \"loading\"");
+    expect(adminDashboard).toContain("financialVerificationReady && hasUnreliableFinancialCurrency");
+  });
+
   it("exporte la vue avec identité Coordination et contexte école", () => {
     expect(pdf).toContain("coordinationPdfInstitution(coordination, contextSchool)");
     expect(pdf).toContain('selectedSchoolId ? contextSchool.name : "Toutes les écoles"');

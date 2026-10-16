@@ -199,6 +199,28 @@ describe("secondary class plus option resolution", () => {
     expect(result.map((item) => item.id)).toEqual(["first-option", "other-option"]);
   });
 
+  it("ne recrée pas Sciences sous une classe déjà matérialisée quand l'inscription pointe son identifiant", () => {
+    const parent = base("secondary-2", { name: "2ème Humanité", section: "Secondaire" });
+    const optionId = schoolClassOptionKey(parent.id, "Sciences");
+    const materialized = base(optionId, { name: "2ème Sciences", section: "Secondaire", parentClassId: parent.id, classOptionKey: optionId, option: "Sciences" });
+    const enrolled = student({ classId: optionId, className: parent.name, option: "Sciences", classOptionKey: undefined, section: "Secondaire" });
+    const withoutOption = student({ id: "legacy", classId: optionId, className: parent.name, option: undefined, section: "Secondaire" });
+    const result = canonicalOperationalClasses([parent, materialized], [enrolled, withoutOption], "school-a", "year-a", ["Secondaire"]);
+    expect(result.map((item) => ({ id: item.id, name: item.name }))).toEqual([{ id: optionId, name: "2ème Sciences" }]);
+  });
+
+  it("garde deux classes Sciences de parents distincts dans la même année", () => {
+    const firstParent = base("first-parent", { name: "2ème Humanité", section: "Secondaire" });
+    const secondParent = base("second-parent", { name: "2ème Humanité", section: "Secondaire" });
+    const firstId = schoolClassOptionKey(firstParent.id, "Sciences");
+    const secondId = schoolClassOptionKey(secondParent.id, "Sciences");
+    const result = canonicalOperationalClasses([firstParent, secondParent], [
+      student({ id: "one", classId: firstParent.id, className: firstParent.name, option: "Sciences" }),
+      student({ id: "two", classId: secondParent.id, className: secondParent.name, option: "Sciences" }),
+    ], "school-a", "year-a", ["Secondaire"]);
+    expect(result.map((item) => item.id).sort()).toEqual([firstId, secondId].sort());
+  });
+
   it("resolves a legacy option and never invents a missing option", () => {
     expect(canonicalOperationalClasses([], [student({ className: "2ème Humanité", option: "Littéraire", classId: undefined })], "school-a", "year-a", ["Secondaire"]).map((item) => item.name)).toEqual(["2ème Littéraire"]);
     expect(canonicalOperationalClasses([], [student({ className: "2ème Humanité", option: undefined, classId: undefined })], "school-a", "year-a", ["Secondaire"]).map((item) => item.name)).toEqual(["2ème Humanité"]);

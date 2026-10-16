@@ -51,7 +51,7 @@ async function financialRequest(input: Record<string, unknown> & { action: Finan
   return payload;
 }
 
-export async function resolveHistoricalExpenseCurrencies(expenses: Expense[]): Promise<Expense[]> {
+export async function resolveHistoricalExpenseCurrencies(expenses: Expense[], failOnError = false): Promise<Expense[]> {
   const unresolvedIds = [...new Set(expenses.filter((expense) => !expense.currency && expense.personnelPaymentId)
     .map((expense) => expense.id))];
   if (!unresolvedIds.length) return expenses;
@@ -66,7 +66,8 @@ export async function resolveHistoricalExpenseCurrencies(expenses: Expense[]): P
     }
     return expenses.map((expense) => expense.currency || !resolved.has(expense.id)
       ? expense : { ...expense, currency: resolved.get(expense.id) });
-  } catch {
+  } catch (error) {
+    if (failOnError) throw error;
     // Preserve the unknown currency and keep financial exports blocked on API failure.
     return expenses;
   }

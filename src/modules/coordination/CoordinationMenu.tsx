@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ArrowRightLeft, BookOpen, CalendarRange, FileClock, Landmark, Network, Printer, Settings, UsersRound } from "lucide-react";
 import { AdminDrawer, ImageUploadField, LogoutButton } from "../../components/ui";
-import { useResolvedExpenseCurrencies } from "../../hooks/useResolvedExpenseCurrencies";
+import { useExpenseCurrencyResolution } from "../../hooks/useResolvedExpenseCurrencies";
 import type { AppUser, Coordination, CoordinationYearGovernance, PersonnelProfile, School, SubCoordination } from "../../types";
 import { loadCoordinationReadModel, type CoordinationReadModel } from "../../services/coordinationReadModel";
 import { closeCoordinationSchoolYears, loadCoordinationSchoolYearStatus, openCoordinationSchoolYears, reactivateCoordinationSchoolYears, YEAR_CONFIRMATIONS, type CoordinationSchoolYearRow } from "../../services/coordinationSchoolYears";
@@ -28,7 +28,9 @@ const emptyTransferForm = () => ({ destinationSchoolId: "", mutationDate: localD
 export function CoordinationMenu({ coordination, schools, selectedSchoolId, principalCoordinatorName, user, subCoordination, onLogout, refreshToken = 0 }: { coordination: Coordination; schools: School[]; selectedSchoolId: string; principalCoordinatorName: string; user: AppUser; subCoordination?: SubCoordination | null; onLogout: () => void; refreshToken?: number }) {
   const [drawer, setDrawer] = useState<Drawer | null>(null);
   const [model, setModel] = useState<CoordinationReadModel>(emptyModel);
-  const resolvedExpenses = useResolvedExpenseCurrencies(model.expenses);
+  const expenseResolution = useExpenseCurrencyResolution(model.expenses);
+  const resolvedExpenses = expenseResolution.rows;
+  const [loadedModelScope, setLoadedModelScope] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -59,18 +61,20 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, prin
   const [transferMessage, setTransferMessage] = useState("");
   const allSchoolIds = useMemo(() => schools.map((item) => item.id), [schools]);
   const schoolIds = useMemo(() => drawerSchoolId ? [drawerSchoolId] : allSchoolIds, [allSchoolIds, drawerSchoolId]);
+  const modelScope = `${coordination.id}:${allSchoolIds.join("|")}:${user.subCoordinationId ?? ""}:${refreshToken}:${drawer ?? ""}`;
+  const financialVerificationReady = loadedModelScope === modelScope && !loading && !error && expenseResolution.status === "ready";
 
   useEffect(() => { setSettingsForm({ name: coordination.name, code: coordination.code ?? "", phone: coordination.phone ?? "", email: coordination.email ?? "", address: coordination.address ?? "", logoUrl: coordination.logoUrl ?? "" }); }, [coordination]);
   useEffect(() => {
     if (!drawer) return undefined;
     let cancelled = false; setLoading(true); setError("");
-    loadCoordinationReadModel(coordination.id, allSchoolIds, user.subCoordinationId).then((result) => { if (!cancelled) setModel(result); }).catch((cause) => { if (!cancelled) setError(cause instanceof Error ? cause.message : "Chargement impossible."); }).finally(() => { if (!cancelled) setLoading(false); });
+    loadCoordinationReadModel(coordination.id, allSchoolIds, user.subCoordinationId).then((result) => { if (!cancelled) { setModel(result); setLoadedModelScope(modelScope); } }).catch((cause) => { if (!cancelled) setError(cause instanceof Error ? cause.message : "Chargement impossible."); }).finally(() => { if (!cancelled) setLoading(false); });
     if (drawer === "years") {
       setYearStatusReady(false);
       loadCoordinationSchoolYearStatus().then((result) => { if (!cancelled) { setYearRows(result.rows.filter((row) => allSchoolIds.includes(row.schoolId))); setReferenceYear(result.referenceYear); setYearGovernance(result.governance); setYearStatusReady(true); } }).catch(() => { if (!cancelled) setError("Années indisponibles."); });
     }
     return () => { cancelled = true; };
-  }, [allSchoolIds, coordination.id, drawer, refreshToken, user.subCoordinationId]);
+  }, [allSchoolIds, coordination.id, drawer, modelScope, refreshToken, user.subCoordinationId]);
   useEffect(() => {
     if (!selectedPersonnel?.schoolId) { setSelectedPersonnelProfile(undefined); setPersonnelProfileReady(false); return undefined; }
     let cancelled = false;
@@ -94,6 +98,7 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, prin
   const financialGroups = groupCoordinationFinancialsByCurrency({ schools: scopedSchools, students, feeTypes: fees, payments, expenses });
   const hasUnknownFinancialCurrency = financialGroups.some((group) => (group.unknownCurrencyCount ?? 0) > 0)
     || arrearsPayments.some((payment) => payment.currency !== "CDF" && payment.currency !== "USD");
+  const financialExportBlocked = !financialVerificationReady || hasUnknownFinancialCurrency;
 
   function updateFinancialDate(boundary: "from" | "to", value: string) {
     const nextFrom = boundary === "from" ? value : from;
@@ -104,7 +109,7 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, prin
   }
 
   async function exportPdf(kind: Exclude<Drawer, "settings" | "subCoordinations">) {
-    if ((kind === "finance" || kind === "fees") && hasUnknownFinancialCurrency) return;
+    if ((kind === "finance" || kind === "fees") && financialExportBlocked) return;
     if (kind === "finance") {
       const dateError = financialDateRangeError(from, to);
       setFinancialDateError(dateError);
@@ -166,6 +171,9 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, prin
   const items = [["fees", "Types de frais", BookOpen], ["finance", "Rapport financier", Landmark], ["personnel", "Personnels", UsersRound], ["years", "Année scolaire", CalendarRange], ["settings", "Paramètres coordination", Settings], ["history", "Historique", FileClock], ...(user.role === "coordination_admin" ? [["subCoordinations", "Sous-coordinations", Network] as const] : [])] as const;
   function settingsContent(): ReactNode { if (subCoordination || user.role !== "coordination_admin") return <><p className="break-words"><b>{subCoordination ? "Circonscription" : "Coordination"} :</b> {subCoordination?.circumscription ?? coordination.name}</p>{subCoordination && <><p className="break-words"><b>Sous-coordinateur :</b> {user.name}</p><p><b>Statut :</b> {subCoordination.active ? "Actif" : "Archivé"}</p></>}<p><b>Écoles attribuées :</b> {schools.length}</p><p className="rounded bg-slate-50 p-3">Ces paramètres sont disponibles en lecture seule.</p></>; return <><label className="grid min-w-0 gap-1 font-semibold">Nom<input className="input min-w-0 w-full" value={settingsForm.name} onChange={(event) => setSettingsForm({ ...settingsForm, name: event.target.value })} disabled={settingsBusy} /></label><label className="grid min-w-0 gap-1 font-semibold">Sigle / code<input className="input min-w-0 w-full" value={settingsForm.code} onChange={(event) => setSettingsForm({ ...settingsForm, code: event.target.value })} disabled={settingsBusy} /></label><label className="grid min-w-0 gap-1 font-semibold">Téléphone<input className="input min-w-0 w-full" value={settingsForm.phone} onChange={(event) => setSettingsForm({ ...settingsForm, phone: event.target.value })} disabled={settingsBusy} /></label><label className="grid min-w-0 gap-1 font-semibold">E-mail<input className="input min-w-0 w-full" type="email" value={settingsForm.email} onChange={(event) => setSettingsForm({ ...settingsForm, email: event.target.value })} disabled={settingsBusy} /></label><label className="grid min-w-0 gap-1 font-semibold">Adresse<input className="input min-w-0 w-full" value={settingsForm.address} onChange={(event) => setSettingsForm({ ...settingsForm, address: event.target.value })} disabled={settingsBusy} /></label><ImageUploadField label="Photo / Logo de la Coordination" value={settingsForm.logoUrl} onChange={(logoUrl) => setSettingsForm({ ...settingsForm, logoUrl })} maxWidth={700} maxBytes={250 * 1024} disabled={settingsBusy} previewFit="contain" /><p className="break-words"><b>Coordinateur principal :</b> {principalCoordinatorName || "Non renseigné"}</p><p><b>Écoles :</b> {schools.length} (lecture seule)</p></>; }
   function drawerContent(): ReactNode {
+    if ((drawer === "fees" || drawer === "finance") && !financialVerificationReady) return expenseResolution.status === "error"
+      ? <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Vérification des devises indisponible. Réessayez après avoir rétabli la connexion.</p>
+      : <p role="status" className="rounded border bg-white p-3 text-sm text-slate-500">Vérification des données et devises historiques en cours…</p>;
     if ((drawer === "fees" || drawer === "finance") && hasUnknownFinancialCurrency) return <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Synthèse et export indisponibles : des opérations historiques sans devise exigent une réconciliation.</p>;
     if (drawer === "fees") return <>{financialGroups.map((group) => <section key={group.currency} className="grid gap-2 rounded border border-slate-200 p-3"><h3 className="font-bold text-ink">Types de frais — {group.currency}</h3><ReadTable headers={["Type", "Attendu", "Payé", "Solde", "%"]} rows={group.feeProgressRows.map((item) => [item.name, formatCurrencyMoney(item.expected, group.currency), formatCurrencyMoney(item.paid, group.currency), formatCurrencyMoney(item.remaining, group.currency), `${item.rate}%`])} /></section>)}</>;
     if (drawer === "finance") return <>
