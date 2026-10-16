@@ -14,7 +14,8 @@ const normalized = (value) => value.normalize("NFD").replace(/[\u0300-\u036f]/g,
 function className(data) {
   const name = text(data?.name), option = text(data?.option), subclass = text(data?.subClassLabel);
   if (!name) return "";
-  return [name, option && !normalized(name).includes(normalized(option)) ? option : "", subclass && !normalized(name).endsWith(normalized(subclass)) ? subclass : ""].filter(Boolean).join(" ");
+  const base = option ? name.replace(/\s+Humanit[ée]s?$/i, "").trim() || name : name;
+  return [base, option && !normalized(base).includes(normalized(option)) ? option : "", subclass && !normalized(name).endsWith(normalized(subclass)) ? subclass : ""].filter(Boolean).join(" ");
 }
 
 async function officialReference(db, collection, id, schoolId, schoolYearId) {
@@ -59,21 +60,46 @@ export async function readPublishedTimetable({ db, caller, schoolYearId }) {
     if (!references.has(key)) references.set(key, officialReference(db, collection, id, schoolId, schoolYearId));
     return references.get(key);
   };
+  let operationalClasses;
+  const operationalLabels = async (entry, schoolClass) => {
+    if (schoolClass?.active === false) return "";
+    if (schoolClass?.subClassLabel || schoolClass?.option || schoolClass?.classOptionKey) return className(schoolClass);
+    if (!Array.isArray(entry.targetOptionIds) || !entry.targetOptionIds.length) return className(schoolClass);
+    operationalClasses ??= db.collection("classes").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).get();
+    const scopedClasses = (await operationalClasses).docs.map((snapshot) => ({ id: snapshot.id, ...snapshot.data() }));
+    const labels = entry.targetOptionIds.map((id) => {
+      const optionClass = scopedClasses.find((item) => item.id === id || item.classOptionKey === id);
+      return optionClass && scoped(optionClass, schoolId, schoolYearId) && optionClass.active !== false ? className(optionClass) : "";
+    });
+    return labels.every(Boolean) ? [...new Set(labels)].join(" + ") : "";
+  };
+  const resolvedTeacherName = async (teacher) => {
+    if (!teacher) return "";
+    if (identifier(teacher.userId)) {
+      const linkedUser = await db.collection("users").doc(teacher.userId).get();
+      const user = linkedUser.data();
+      if (linkedUser.exists && user?.schoolId === schoolId && user?.role === "teacher" && text(user.name)) return text(user.name);
+    }
+    return teacherName(teacher);
+  };
   const rows = await Promise.all(entries.map(async (entry) => {
-    const [period, schoolClass, subject, teacher] = await Promise.all([
+    const [period, schoolClass, subject, assignment] = await Promise.all([
       reference("schedulePeriods", entry.periodId), reference("classes", entry.classId),
-      reference("subjects", entry.subjectId), reference("teachers", entry.teacherId),
+      reference("subjects", entry.subjectId), reference("pedagogicalAssignments", entry.assignmentId),
     ]);
+    const teacher = await reference("teachers", entry.teacherId || assignment?.teacherId);
     const startTime = time(period?.startTime);
     const endTime = time(period?.endTime);
     const periodText = text(period?.label);
+    const displayTeacherName = await resolvedTeacherName(teacher);
+    const displayClassName = await operationalLabels(entry, schoolClass);
     return {
       dayOfWeek: DAY_ORDER.has(entry.dayOfWeek) ? entry.dayOfWeek : "unknown",
       periodLabel: periodText ? [periodText, startTime && endTime ? `${startTime}–${endTime}` : ""].filter(Boolean).join(" · ") : "Période indisponible",
       startTime: startTime || null,
-      classLabel: className(schoolClass) || "Classe indisponible",
+      classLabel: displayClassName || "Classe opérationnelle indisponible",
       subjectLabel: text(subject?.name) || "Matière indisponible",
-      teacherDisplayName: teacherName(teacher) || "Enseignant indisponible",
+      teacherDisplayName: displayTeacherName || (teacher ? "Nom enseignant non renseigné" : "Enseignant indisponible"),
     };
   }));
   rows.sort((a, b) => (DAY_ORDER.get(a.dayOfWeek) ?? 99) - (DAY_ORDER.get(b.dayOfWeek) ?? 99)

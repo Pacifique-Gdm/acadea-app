@@ -137,7 +137,8 @@ describe("formulaire Nouveau rapport", () => {
     for (const label of ["PdfSettingsFields", "pdfSettings", "readStoredPdfSettings", "normalizePdfSettings"]) expect(source).toContain(label);
     expect(source).toContain("pdfSettings: report.pdfSettings");
     expect(source).toContain("signatories, pdfSettings");
-    expect(pdfSource).toContain("getPdfLayout(pdfSettings)");
+    expect(pdfSource).toContain("getPdfLayout(pdfSettings, orientation)");
+    expect(pdfSource).toContain('orientation = "portrait"');
     expect(pdfSource).toContain("format: layout.jsPdfFormat");
     expect(pdfSource).toContain("line-height: ${pdfSettings.lineSpacing}");
     expect(pdfSource).toContain('const institutionalFontFamily = resolvePdfFont("Aptos")');

@@ -62,9 +62,10 @@ export function getPdfPageDimensions(pageSize: PdfPageSize) {
   return dimensions[pageSize];
 }
 
-export function getPdfLayout(settings?: Partial<PdfGenerationSettings> | null) {
+export function getPdfLayout(settings?: Partial<PdfGenerationSettings> | null, orientation: "portrait" | "landscape" = "portrait") {
   const normalized = normalizePdfSettings(settings);
-  const page = getPdfPageDimensions(normalized.pageSize);
+  const dimensions = getPdfPageDimensions(normalized.pageSize);
+  const page = orientation === "landscape" ? { width: dimensions.height, height: dimensions.width } : dimensions;
   const margins = { top: 14, right: 14, bottom: PDF_BOTTOM_SAFE_AREA_MM, left: 14 };
   const contentWidth = page.width - margins.left - margins.right;
   const contentHeight = page.height - margins.top - margins.bottom;

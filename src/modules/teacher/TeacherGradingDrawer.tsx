@@ -5,6 +5,7 @@ import {
   GRADING_SLOTS,
   activeStudentsForAssignment,
   activeStudentsForClass,
+  changedGradeEntries,
   editableGradingSlots,
   gradingProgress,
   gradingSlotLabels,
@@ -18,12 +19,14 @@ import {
 } from "./teacherGrading";
 import {
   loadTeacherGrading,
+  loadTeacherGradingRoster,
   saveTeacherGradeEntries,
   saveTeacherGradingConfig,
   type TeacherGradingData,
 } from "./teacherGradingService";
 import { useTeacherGradingRoster } from "./useTeacherGradingRoster";
 import type { TeacherPortalData } from "./teacherPortalData";
+import { exportTeacherGradesPdf } from "./teacherGradingPdf";
 
 type Draft = { score: string; status: GradeEntry["status"] };
 
@@ -53,6 +56,9 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
   const [maxScore, setMaxScore] = useState("");
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const [confirmation, setConfirmation] = useState<"maximum" | "grade" | null>(null);
+  const [confirmationText, setConfirmationText] = useState("");
   const [titularView, setTitularView] = useState(false);
   const [titularClassId, setTitularClassId] = useState("");
   const [titularStudentId, setTitularStudentId] = useState("");
@@ -102,6 +108,8 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
 
   useEffect(() => { setMaxScore(config ? String(config.maxScore) : ""); }, [config]);
 
+  useEffect(() => { setConfirmation(null); setConfirmationText(""); }, [assignment?.id, slot]);
+
   useEffect(() => {
     const reset = draftContext.current?.assignmentId !== assignment?.id || draftContext.current?.slot !== slot || draftContext.current?.entries !== entries;
     draftContext.current = { assignmentId: assignment?.id ?? "", slot, entries };
@@ -119,36 +127,52 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
   const quotedSubjectIds = new Set((data?.entries ?? []).filter((item) => item.classId === titular?.classId && item.status !== "not_graded").map((item) => item.subjectId));
 
   async function saveMax() {
-    if (!assignment || !data) return;
+    if (!assignment || !data || savingRef.current || confirmation !== "maximum" || confirmationText !== "ENREGISTRER LA CÔTE MAXIMALE") return;
     const value = Number(maxScore);
     const message = validateMaxScore(value, data.entries.filter((item) => item.classId === assignment.classId && item.subjectId === assignment.subjectId));
     if (message) return setError(message);
-    setSaving(true); setError(""); setSuccess("");
+    savingRef.current = true; setSaving(true); setError(""); setSuccess("");
     try {
       await saveTeacherGradingConfig({ schoolId: school.id, schoolYearId: year.id, assignmentId: assignment.id, classId: assignment.classId, subjectId: assignment.subjectId, maxScore: value });
       setSuccess("Cote maximale enregistrée.");
+      setConfirmation(null); setConfirmationText("");
       await reload();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Enregistrement impossible.");
-    } finally { setSaving(false); }
+    } finally { savingRef.current = false; setSaving(false); }
   }
 
-  async function saveEntries() {
+  async function saveEntries(confirmed = false) {
     if (!assignment || !config) return setError("Définissez la cote maximale de ce cours avant de commencer la cotation.");
-    const payload = students.map((student) => {
-      const value = drafts[student.id] ?? { score: "", status: "not_graded" as const };
-      return { studentId: student.id, gradingSlot: slot, score: value.score === "" ? null : Number(value.score), status: value.status };
-    });
+    if (savingRef.current) return;
+    if (loading || students.some((student) => !drafts[student.id])) return setError("Chargement des cotations en cours. Réessayez dans un instant.");
+    const { changes: payload, modifiesPersisted } = changedGradeEntries(students, entries, drafts, slot);
+    if (!payload.length) return setSuccess("Aucune modification à enregistrer.");
     const invalid = payload.map((item) => validateScore(item.score, item.status, config.maxScore)).find(Boolean);
     if (invalid) return setError(invalid);
-    setSaving(true); setError(""); setSuccess("");
+    if (modifiesPersisted && (!confirmed || confirmation !== "grade" || confirmationText !== "MODIFIER LA CÔTE")) {
+      setConfirmation("grade"); setConfirmationText(""); return;
+    }
+    savingRef.current = true; setSaving(true); setError(""); setSuccess("");
     try {
       await saveTeacherGradeEntries({ schoolId: school.id, schoolYearId: year.id, assignmentId: assignment.id, classId: assignment.classId, subjectId: assignment.subjectId, entries: payload });
       setSuccess("Cotations enregistrées.");
+      setConfirmation(null); setConfirmationText("");
       await reload();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Enregistrement impossible.");
-    } finally { setSaving(false); }
+    } finally { savingRef.current = false; setSaving(false); }
+  }
+
+  async function exportPdf() {
+    if (!assignment || savingRef.current) return;
+    setError("");
+    try {
+      const latest = scopeTeacherGradingData(user, await loadTeacherGrading(school.id, year.id));
+      if (!latest.assignments.some((item) => item.id === assignment.id && item.classId === assignment.classId && item.subjectId === assignment.subjectId)) throw new Error("Cours hors du périmètre pédagogique.");
+      const latestRoster = await loadTeacherGradingRoster({ schoolId: school.id, schoolYearId: year.id, assignmentId: assignment.id, classId: assignment.classId, subjectId: assignment.subjectId });
+      await exportTeacherGradesPdf({ school, year, teacher: latest.teacher, assignment, schoolClass: latest.classes.find((item) => item.id === assignment.classId), subject: latest.subjects.find((item) => item.id === assignment.subjectId), students: activeStudentsForAssignment(latestRoster.students, school.id, year.id, assignment, latest.classes), entries: latest.entries.filter((item) => item.classId === assignment.classId && item.subjectId === assignment.subjectId), config: latest.configs.find((item) => item.classId === assignment.classId && item.subjectId === assignment.subjectId) });
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Export PDF impossible."); }
   }
 
   const renderTitularView = () => {
@@ -192,14 +216,20 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
       <div className="grid grid-cols-2 gap-2"><button type="button" className={!titularView ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setTitularView(false)}>Mes cotations</button><button type="button" className={titularView ? "primary-button justify-center" : "secondary-button justify-center"} disabled={!data.titulars.length} onClick={() => setTitularView(true)}>Ma classe titulaire</button></div>
       {titularView ? renderTitularView() : assignments.length === 0 ? <p className="rounded bg-slate-50 p-4">Aucun cours ne vous a encore été affecté par la Direction des études.</p> : <>
         <label className="grid gap-1 text-sm font-semibold">Cours<select className="input" value={assignment?.id} onChange={(event) => setAssignmentId(event.target.value)}>{assignments.map((item) => <option key={item.id} value={item.id}>{data.subjects.find((candidate) => candidate.id === item.subjectId)?.name} — {data.classes.find((candidate) => candidate.id === item.classId)?.name}</option>)}</select></label>
-        <div className="rounded border bg-white p-3"><p className="font-bold">{subject?.name} — {schoolClass?.name}</p><div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]"><input className="input" type="number" min="0.01" step="0.01" aria-label="Cote maximale" value={maxScore} onChange={(event) => setMaxScore(event.target.value)} /><button type="button" className="secondary-button justify-center" disabled={saving} onClick={() => void saveMax()}>{maxScoreActionLabel(Boolean(config))}</button></div></div>
+        <div className="rounded border bg-white p-3"><p className="font-bold">{subject?.name} — {schoolClass?.name}</p><div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]"><input className="input" type="number" min="0.01" step="0.01" aria-label="Cote maximale" value={maxScore} onChange={(event) => setMaxScore(event.target.value)} /><button type="button" className="secondary-button justify-center" disabled={saving} onClick={() => { setConfirmation("maximum"); setConfirmationText(""); }}>{maxScoreActionLabel(Boolean(config))}</button></div></div>
         <label className="grid gap-1 text-sm font-semibold">Période<select className="input" value={slot} onChange={(event) => setSlot(event.target.value as EditableGradingSlot)}>{editableGradingSlots.map((value) => <option key={value} value={value}>{gradingSlotLabels[value]}</option>)}</select></label>
         <p className="text-sm font-semibold">{progress.graded} / {progress.total} élèves cotés · {progress.status}</p>
         {!config ? <p className="rounded bg-amber-50 p-3 text-sm">Définissez la cote maximale de ce cours avant de commencer la cotation.</p> : students.length === 0 ? <p className="rounded bg-slate-50 p-3">Aucun élève actif n’est inscrit dans cette classe.</p> : <div className="grid gap-2">{students.map((student) => {
           const value = drafts[student.id] ?? { score: "", status: "not_graded" as const };
-          return <article key={student.id} className="grid gap-2 rounded border bg-white p-3 sm:grid-cols-[minmax(0,1fr)_120px_130px] sm:items-center"><span className="font-semibold">{student.nom} {student.postnom} {student.prenom}</span><input aria-label={`Cote de ${student.nom}`} className="input" type="number" min="0" max={config.maxScore} step="0.01" value={value.score} disabled={value.status === "absent"} onChange={(event) => setDrafts((current) => ({ ...current, [student.id]: { ...value, score: event.target.value, status: "graded" } }))} /><select aria-label={`Statut de ${student.nom}`} className="input" value={value.status} onChange={(event) => setDrafts((current) => ({ ...current, [student.id]: { score: event.target.value === "graded" ? value.score : "", status: event.target.value as GradeEntry["status"] } }))}><option value="not_graded">Non coté</option><option value="graded">Coté</option><option value="absent">Absent</option></select></article>;
-        })}<button type="button" className="primary-button justify-center" disabled={saving} onClick={() => void saveEntries()}>{saving ? "Enregistrement…" : "Enregistrer"}</button></div>}
+          return <article key={student.id} className="grid gap-2 rounded border bg-white p-3 sm:grid-cols-[minmax(0,1fr)_120px_130px] sm:items-center"><span className="font-semibold">{student.nom} {student.postnom} {student.prenom}</span><input aria-label={`Cote de ${student.nom}`} className="input" type="number" min="0" max={config.maxScore} step="0.01" value={value.score} disabled={value.status === "absent"} onChange={(event) => setDrafts((current) => ({ ...current, [student.id]: { ...value, score: event.target.value, status: event.target.value === "" ? "not_graded" : "graded" } }))} /><select aria-label={`Statut de ${student.nom}`} className="input" value={value.status} onChange={(event) => setDrafts((current) => ({ ...current, [student.id]: { score: event.target.value === "graded" ? value.score : "", status: event.target.value === "graded" && value.score === "" ? "not_graded" : event.target.value as GradeEntry["status"] } }))}>{value.status === "absent" && <option value="absent" disabled>Absent (historique)</option>}<option value="not_graded">Non coté</option><option value="graded" disabled={value.score === ""}>Coté</option></select></article>;
+        })}<div className="grid grid-cols-2 gap-2"><button type="button" className="primary-button justify-center" disabled={saving} onClick={() => void saveEntries()}>{saving ? "Enregistrement…" : "Enregistrer"}</button><button type="button" className="pdf-export-button justify-center" disabled={saving} onClick={() => void exportPdf()}>Exporter PDF</button></div></div>}
       </>}
     </div>}
+    {confirmation && <section className="grid gap-3 rounded border border-amber-300 bg-amber-50 p-3" aria-label="Confirmation de cotation">
+      <h3 className="font-bold">{confirmation === "maximum" ? "Confirmer la cote maximale" : "Confirmer la modification des cotes"}</h3>
+      <p className="text-sm">Saisissez exactement <strong>{confirmation === "maximum" ? "ENREGISTRER LA CÔTE MAXIMALE" : "MODIFIER LA CÔTE"}</strong> pour confirmer.</p>
+      <input className="input" aria-label="Phrase de confirmation" value={confirmationText} onChange={(event) => setConfirmationText(event.target.value)} autoComplete="off" />
+      <div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" disabled={saving} onClick={() => { setConfirmation(null); setConfirmationText(""); }}>Annuler</button><button type="button" className="primary-button justify-center" disabled={saving || confirmationText !== (confirmation === "maximum" ? "ENREGISTRER LA CÔTE MAXIMALE" : "MODIFIER LA CÔTE")} onClick={() => void (confirmation === "maximum" ? saveMax() : saveEntries(true))}>Confirmer</button></div>
+    </section>}
   </AdminDrawer>;
 }

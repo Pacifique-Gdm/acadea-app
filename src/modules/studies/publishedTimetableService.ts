@@ -30,7 +30,10 @@ export function subscribeToActivePublishedTimetable(input: {
     throw new Error("Consultation de l’horaire publié non autorisée.");
   }
   let active = true;
+  let inFlight = false;
   const refresh = async () => {
+    if (!active || inFlight) return;
+    inFlight = true;
     try {
       const token = await getCurrentFirebaseIdToken();
       const query = new URLSearchParams({ view: "published-timetable", schoolYearId: input.schoolYearId });
@@ -42,6 +45,8 @@ export function subscribeToActivePublishedTimetable(input: {
       if (active) input.onData(payload.timetable ?? null);
     } catch (cause) {
       if (active) input.onError(cause instanceof Error ? cause : new Error("Horaire publié indisponible."));
+    } finally {
+      inFlight = false;
     }
   };
   void refresh();

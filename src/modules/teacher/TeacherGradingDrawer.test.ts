@@ -21,7 +21,7 @@ describe("Actualisation des élèves de la fiche", () => {
   it("laisse la saisie d’une cote non cotée active et verrouille seulement le statut absent", () => {
     expect(drawer).toContain('disabled={value.status === "absent"}');
     expect(drawer).not.toContain('disabled={value.status !== "graded"}');
-    expect(drawer).toContain('status: "graded"');
+    expect(drawer).toContain('status: event.target.value === "" ? "not_graded" : "graded"');
   });
 
   it("affiche immédiatement le shell depuis les données déjà chargées du portail", () => {

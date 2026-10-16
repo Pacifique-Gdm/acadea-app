@@ -10,7 +10,7 @@ const fetchMock = vi.fn();
 
 describe("lecture sécurisée de l'horaire publié", () => {
   beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal("fetch", fetchMock); });
-  afterEach(() => { unsubscribes.splice(0).forEach((unsubscribe) => unsubscribe()); vi.unstubAllGlobals(); });
+  afterEach(() => { unsubscribes.splice(0).forEach((unsubscribe) => unsubscribe()); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
   it("interroge l'API authentifiée sans transmettre d'école choisie par le client", async () => {
     const timetable = { version: 1, rows: [{ dayOfWeek: "monday", periodLabel: "P1 · 08:00–09:00", startTime: "08:00", classLabel: "4e Humanité", subjectLabel: "Mathématiques", teacherDisplayName: "Ada Lovelace" }] };
@@ -31,6 +31,22 @@ describe("lecture sécurisée de l'horaire publié", () => {
     unsubscribes.push(subscribeToActivePublishedTimetable({ user, schoolId: "school-a", schoolYearId: "year-a", onData, onError }));
     await vi.waitFor(() => expect(onData).toHaveBeenCalledWith(null));
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("retente après une erreur sans lancer deux actualisations concurrentes", async () => {
+    vi.useFakeTimers();
+    const onData = vi.fn(), onError = vi.fn();
+    fetchMock.mockRejectedValueOnce(new Error("Réseau indisponible"));
+    let finish: ((value: unknown) => void) | undefined;
+    fetchMock.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    unsubscribes.push(subscribeToActivePublishedTimetable({ user, schoolId: "school-a", schoolYearId: "year-a", onData, onError }));
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    finish?.({ ok: true, json: async () => ({ timetable: null }) });
+    await vi.waitFor(() => expect(onData).toHaveBeenCalledWith(null));
   });
 
   it("refuse localement un rôle ou une école divergente", () => {
