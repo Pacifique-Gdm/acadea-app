@@ -7,13 +7,14 @@ const assignmentId = (scope) => [scope.schoolId, scope.schoolYearId, scope.teach
 const lockId = (scope) => [scope.schoolId, scope.schoolYearId, scope.subjectId, scope.classId, scope.studentGroupKey].filter(Boolean).join("__");
 const active = (value) => value?.status !== "inactive" && value?.active !== false;
 const optionKey = (value) => value?.classOptionKey?.trim() || (!value?.subClassLabel && value?.id?.includes("::") ? value.id : undefined);
+const configuredOptionKey = (classId, option) => `${classId}::${option.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase()}`;
 
 async function checkScope(transaction, db, caller, schoolId, schoolYearId) {
   if (caller.role !== "study_director" || caller.schoolId !== schoolId) fail("Accès Directeur des études refusé.", 403);
   const [actor, school, year] = await Promise.all([transaction.get(db.doc(`users/${caller.uid}`)), transaction.get(db.doc(`schools/${schoolId}`)), transaction.get(db.doc(`schoolYears/${schoolYearId}`))]);
   if (!actor.exists || actor.data().role !== "study_director" || actor.data().schoolId !== schoolId || !active(actor.data())) fail("Directeur des études inactif ou hors périmètre.", 403);
   if (!school.exists || school.data().status !== "active" || school.data().activeSchoolYearId !== schoolYearId || !year.exists || year.data().schoolId !== schoolId || year.data().status !== "active") fail("Année scolaire ou école inactive.", 403);
-  return actor.data();
+  return { actorProfile: actor.data(), schoolOptions: Array.isArray(school.data().schoolOptions) ? school.data().schoolOptions.filter((option) => typeof option === "string") : [] };
 }
 
 function grants(value) {
@@ -60,7 +61,7 @@ export async function saveStudyAssignments({ db, caller, body }) {
   if (body.active !== true && body.active !== false) fail("Statut d'affectation invalide.", 400);
   const now = new Date().toISOString();
   return db.runTransaction(async (transaction) => {
-    const actorProfile = await checkScope(transaction, db, caller, schoolId, schoolYearId);
+    const { actorProfile, schoolOptions } = await checkScope(transaction, db, caller, schoolId, schoolYearId);
     const teacherRef = db.doc(`teachers/${teacherId}`);
     const teacher = await transaction.get(teacherRef);
     if (!teacher.exists || teacher.data().schoolId !== schoolId || teacher.data().schoolYearId !== schoolYearId || !active(teacher.data())) fail("Enseignant inactif ou hors périmètre.");
@@ -74,7 +75,8 @@ export async function saveStudyAssignments({ db, caller, body }) {
     const previousUser = previousTeacher ? await linkedUser(transaction, db, previousTeacher.data(), schoolId, false) : undefined;
     const subjectRefs = subjectIds.map((subjectId) => db.doc(`subjects/${subjectId}`));
     const requiredClassIds = unique([...selections.map((selection) => selection.classId), ...titularClassIds, ...legacyClasses.map((item) => id(item.id))]);
-    const classRefs = unique([...requiredClassIds, ...selections.flatMap((selection) => selection.targetOptionIds.map(id))]).map((classId) => db.doc(`classes/${classId}`));
+    const configuredOptionIds = new Set(selections.flatMap((selection) => schoolOptions.map((option) => configuredOptionKey(selection.classId, option))));
+    const classRefs = unique([...requiredClassIds, ...selections.flatMap((selection) => selection.targetOptionIds.map(id)), ...configuredOptionIds]).map((classId) => db.doc(`classes/${classId}`));
     const optionQueries = unique(selections.map((selection) => selection.classId)).map((classId) => db.collection("classes").where("parentClassId", "==", classId));
     const [subjects, classes, optionChildren] = await Promise.all([Promise.all(subjectRefs.map((ref) => transaction.get(ref))), Promise.all(classRefs.map((ref) => transaction.get(ref))), Promise.all(optionQueries.map((query) => transaction.get(query)))]);
     if (subjects.some((snapshot) => !snapshot.exists || snapshot.data().schoolId !== schoolId || snapshot.data().schoolYearId !== schoolYearId || snapshot.data().active === false)) fail("Cours inconnu ou hors périmètre.");
@@ -90,10 +92,16 @@ export async function saveStudyAssignments({ db, caller, body }) {
       const item = classById.get(classId) || legacyById.get(classId);
       return item?.section && !allowedSections.includes(item.section);
     })) fail("Classe hors périmètre du Directeur des études.", 403);
-    const optionClassValues = [...classRefs.map((ref) => classById.get(ref.id) || legacyById.get(ref.id)), ...optionChildren.flatMap((result) => result.docs.map((snapshot) => snapshot.data()))].filter(Boolean);
+    const persistedOptionIds = new Set(classRefs.filter((_, index) => classes[index].exists).map((ref) => ref.id));
+    const optionClassValues = [...classRefs.map((ref, index) => classes[index].exists ? { ...classes[index].data(), id: ref.id } : legacyById.get(ref.id)), ...optionChildren.flatMap((result) => result.docs.map((snapshot) => ({ ...snapshot.data(), id: snapshot.id })))].filter(Boolean);
     for (const selection of selections) {
       const targets = selection.targetOptionIds;
-      const availableOptionIds = new Set(optionClassValues.filter((item) => item.schoolId === schoolId && item.schoolYearId === schoolYearId && item.active !== false && item.parentClassId === selection.classId && typeof item.classOptionKey === "string" && item.classOptionKey.startsWith(`${selection.classId}::`) && item.classOptionKey.length > selection.classId.length + 2).map((item) => item.classOptionKey.trim()));
+      const configuredLegacyIds = new Set(schoolOptions.map((option) => configuredOptionKey(selection.classId, option)));
+      const availableOptionIds = new Set(optionClassValues.filter((item) => item.schoolId === schoolId && item.schoolYearId === schoolYearId && item.active !== false).flatMap((item) => {
+        const key = item.classOptionKey?.trim();
+        if (item.parentClassId === selection.classId && key?.startsWith(`${selection.classId}::`) && key.length > selection.classId.length + 2) return [key];
+        return !item.parentClassId && !key && !item.subClassLabel && persistedOptionIds.has(item.id) && configuredLegacyIds.has(item.id) ? [item.id] : [];
+      }));
       if (!selection.courseScope && targets.length) fail("Portée de cours invalide.", 400);
       if (!selection.courseScope && availableOptionIds.size) fail("Choisissez le type de cours pour cette classe.", 400);
       if (selection.courseScope && !["common", "option"].includes(selection.courseScope)) fail("Portée de cours invalide.", 400);

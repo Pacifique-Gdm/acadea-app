@@ -92,6 +92,37 @@ describe("affectation et grant Storage dans une transaction serveur", () => {
     expect(records.get(`classTitulars/${school}__${year}__${childId}`)?.assignmentId).toBe(assignmentId);
     expect(records.get(`users/${uid}`)?.storageAssignmentKeys).toEqual([`${school}/${year}/${teacher}/${assignmentId}`]);
   });
+  it("accepte une option historique existante et configurée sans inventer de liaison ni élargir les permissions", async () => {
+    const firstOption = `${schoolClass}::litteraire`;
+    const otherClass = "class-b";
+    const otherOption = `${otherClass}::litteraire`;
+    const schoolWithOptions = { ...fixtures()[`schools/${school}`], schoolOptions: ["Littéraire"] };
+    const { db, records } = database({
+      ...fixtures(),
+      [`schools/${school}`]: schoolWithOptions,
+      [`classes/${firstOption}`]: { schoolId: school, schoolYearId: year, name: "Classe A Littéraire", active: true },
+      [`classes/${otherClass}`]: { id: otherClass, schoolId: school, schoolYearId: year, name: "Classe B", active: true },
+      [`classes/${otherOption}`]: { schoolId: school, schoolYearId: year, name: "Classe B Littéraire", active: true },
+    });
+    const selected = (classId: string, targetOptionIds: string[]) => ({ ...input, classSelections: [{ classId, courseScope: "option", targetOptionIds }] });
+    await expect(saveStudyAssignments({ db, caller: actor, body: selected(schoolClass, [otherOption]) })).rejects.toThrow("Option hors périmètre");
+    await saveStudyAssignments({ db, caller: actor, body: selected(schoolClass, [firstOption]) });
+    expect(records.get(`classes/${firstOption}`)).not.toHaveProperty("parentClassId");
+    expect(records.get(`pedagogicalAssignments/${school}__${year}__${teacher}__${subject}__${schoolClass}__option--${encodeURIComponent(firstOption)}`)?.targetOptionIds).toEqual([firstOption]);
+  });
+  it("refuse une option legacy non configurée, inactive ou d'une autre année", async () => {
+    const optionId = `${schoolClass}::litteraire`;
+    const selected = { ...input, classSelections: [{ classId: schoolClass, courseScope: "option", targetOptionIds: [optionId] }] };
+    for (const schoolOptions of [[], ["Sciences"]]) {
+      const { db, records } = database({ ...fixtures(), [`schools/${school}`]: { ...fixtures()[`schools/${school}`], schoolOptions }, [`classes/${optionId}`]: { id: optionId, schoolId: school, schoolYearId: year, name: "Classe A Littéraire", active: true } });
+      await expect(saveStudyAssignments({ db, caller: actor, body: selected })).rejects.toThrow("aucune option configurable");
+      expect([...records.keys()].filter((path) => path.startsWith("pedagogicalAssignments/"))).toEqual([]);
+    }
+    for (const override of [{ active: false }, { schoolYearId: "other" }, { schoolId: "other" }, { subClassLabel: "A" }]) {
+      const { db } = database({ ...fixtures(), [`schools/${school}`]: { ...fixtures()[`schools/${school}`], schoolOptions: ["Littéraire"] }, [`classes/${optionId}`]: { id: optionId, schoolId: school, schoolYearId: year, name: "Classe A Littéraire", active: true, ...override } });
+      await expect(saveStudyAssignments({ db, caller: actor, body: selected })).rejects.toThrow("aucune option configurable");
+    }
+  });
   it("refuse une classe opérationnelle sans clé d'option et une option d'une autre classe", async () => {
     const operationalId = "operational-a";
     const ambiguousLegacyId = `${schoolClass}::a`;

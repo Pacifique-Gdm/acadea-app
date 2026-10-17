@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PedagogicalAssignment, StudyClass } from "./studyTypes";
-import { assignmentAppliesToClass, assignmentOptionChoices, assignmentStudentGroupKey, assignmentsShareStudents, logicalStudyClasses, retainAssignmentClassScopes, studentBelongsToAssignment, validateAssignmentClassSelection } from "./studyCourseScope";
+import { assignmentAppliesToClass, assignmentClassDisplayName, assignmentOptionChoices, assignmentStudentGroupKey, assignmentsShareStudents, logicalStudyClasses, retainAssignmentClassScopes, studentBelongsToAssignment, validateAssignmentClassSelection } from "./studyCourseScope";
 import type { Student } from "../../types";
 
 const base: StudyClass = { id: "3h", schoolId: "s", schoolYearId: "y", name: "3ème Humanité", section: "Secondaire" };
@@ -9,6 +9,29 @@ const classes = [base, option("Scientifique"), option("Commerciale"), option("Li
 const assignment = (id: string, courseScope?: "common" | "option", targetOptionIds?: string[]): PedagogicalAssignment => ({ id, schoolId: "s", schoolYearId: "y", teacherId: id, subjectId: id, classId: "3h", courseScope, targetOptionIds, studentGroupKey: courseScope ? assignmentStudentGroupKey({ courseScope, targetOptionIds }) : undefined, weeklyPeriods: 1, active: true, createdAt: "n", updatedAt: "n", createdBy: "u", updatedBy: "u" });
 
 describe("portée pédagogique par classe et options", () => {
+  it("reconnaît seulement les options historiques persistées et configurées pour leur classe", () => {
+    const first = { id: "s__y__1ere-humanite", schoolId: "s", schoolYearId: "y", name: "1ère" } as StudyClass;
+    const second = { ...first, id: "s__y__2eme-humanite", name: "2ème" };
+    const literary = { ...first, id: `${first.id}::litteraire`, name: "1ère Littéraire" };
+    const commercial = { ...second, id: `${second.id}::commerciale et gestion`, name: "2ème Commerciale et Gestion" };
+    const fake = { ...first, id: `${first.id}::sciences`, name: "1ère Sciences", schoolYearId: "other" };
+    const subclass = { ...first, id: `${first.id}::a`, parentClassId: first.id, subClassLabel: "A" };
+    const scoped = [first, second, literary, commercial, fake, subclass];
+    const configured = ["Littéraire", "Commerciale et Gestion", "Sciences", "A"];
+    expect(assignmentOptionChoices(scoped, first.id, configured)).toEqual([{ id: literary.id, label: "Littéraire" }]);
+    expect(assignmentOptionChoices(scoped, second.id, configured)).toEqual([{ id: commercial.id, label: "Commerciale et Gestion" }]);
+    expect(assignmentOptionChoices(scoped, first.id)).toEqual([]);
+    expect(validateAssignmentClassSelection({ classId: first.id, courseScope: "option", targetOptionIds: [literary.id] }, scoped, configured)).toBe("");
+    expect(retainAssignmentClassScopes({ [first.id]: { courseScope: "option", targetOptionIds: [literary.id, commercial.id] } }, [first.id], scoped, configured)[first.id].targetOptionIds).toEqual([literary.id]);
+  });
+
+  it("restaure le libellé complet uniquement quand l'identifiant canonique le prouve", () => {
+    const abbreviated = { id: "s__y__2eme-humanite", schoolId: "s", schoolYearId: "y", name: "2ème" } as StudyClass;
+    expect(assignmentClassDisplayName(abbreviated)).toBe("2ème Humanité");
+    expect(assignmentClassDisplayName({ ...abbreviated, id: "custom", name: "2ème" })).toBe("2ème");
+    expect(assignmentClassDisplayName({ ...abbreviated, name: "2ème Humanité" })).toBe("2ème Humanité");
+  });
+
   it("présente les options opérationnelles une fois, jamais les sous-classes ni les options inactives ou étrangères", () => {
     const scientific = classes[1];
     const duplicates: StudyClass[] = [

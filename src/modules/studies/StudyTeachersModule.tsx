@@ -17,7 +17,7 @@ import { sectionsAvailableToUser, userSectionIds } from "../../utils/userSection
 import { replaceStudySubjectFeedbackTimer } from "./studySubjectFeedback";
 import { resolveAttendanceSchoolDays } from "../../utils/attendance";
 import { teacherCardAssignments } from "./studyPersonnel";
-import { assignmentOptionChoices, assignmentScopeLabel, baseStudyClassId, logicalStudyClasses, normalizedAssignmentScope, operationalTitularClasses, optionClassesForBaseClass, retainAssignmentClassScopes, validateAssignmentClassSelection, type AssignmentClassScope, type AssignmentClassSelection, type CourseScope } from "./studyCourseScope";
+import { assignmentClassDisplayName, assignmentOptionChoices, assignmentScopeLabel, baseStudyClassId, logicalStudyClasses, normalizedAssignmentScope, operationalTitularClasses, optionClassesForBaseClass, retainAssignmentClassScopes, validateAssignmentClassSelection, type AssignmentClassScope, type AssignmentClassSelection, type CourseScope } from "./studyCourseScope";
 import { canonicalAssignmentBlockSizes, validateAssignmentSessionPattern, weeklyPeriodsFromBlocks } from "./assignmentSessionPattern";
 import { maxConsecutiveCoursePeriods } from "./studySchedule";
 
@@ -53,8 +53,8 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
   const selectedAssignmentTeacher = useMemo(() => activeTeachers.find((teacher) => teacher.id === teacherId), [activeTeachers, teacherId]);
   const teacherSections = useMemo(() => userSectionIds(selectedAssignmentTeacher ?? {}).filter((section) => availableSections.includes(section)), [availableSections, selectedAssignmentTeacher]);
   const assignmentOperationalClasses = useMemo(() => classesWithEnrolledStudents(classes, students, school.id, year.id).filter(item => teacherSections.includes(studyClassSection(item))), [classes, school.id, students, teacherSections, year.id]);
-  const assignmentClasses = useMemo(() => logicalStudyClasses(assignmentOperationalClasses, sourceClasses), [assignmentOperationalClasses, sourceClasses]);
-  const assignmentScopeClasses = useMemo(() => [...sourceClasses, ...assignmentOperationalClasses, ...assignmentClasses], [assignmentClasses, assignmentOperationalClasses, sourceClasses]);
+  const assignmentClasses = useMemo(() => logicalStudyClasses(assignmentOperationalClasses, sourceClasses).map((item) => ({ ...item, name: assignmentClassDisplayName(item) })), [assignmentOperationalClasses, sourceClasses]);
+  const assignmentScopeClasses = useMemo(() => [...assignmentClasses, ...sourceClasses, ...assignmentOperationalClasses], [assignmentClasses, assignmentOperationalClasses, sourceClasses]);
   const assignmentClassSelections = useMemo<AssignmentClassSelection[]>(() => classIds.map((classId) => {
     const scope = classScopes[classId];
     return scope?.courseScope ? { classId, courseScope: scope.courseScope, targetOptionIds: scope.targetOptionIds } : { classId };
@@ -138,11 +138,11 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
     if (!assignmentOpen) return;
     setClassScopes((current) => Object.fromEntries(classIds.flatMap((classId) => {
       const baseClass = assignmentClasses.find((item) => item.id === classId);
-      const options = optionClassesForBaseClass(baseClass ? [baseClass, ...data.sourceClasses] : data.sourceClasses, classId);
+      const options = optionClassesForBaseClass(baseClass ? [baseClass, ...data.sourceClasses] : data.sourceClasses, classId, school.schoolOptions);
       if (!options.length && !current[classId]?.targetOptionIds.length) return [];
       return [[classId, current[classId] ?? { courseScope: "", targetOptionIds: [] }]];
     })));
-  }, [assignmentOpen, assignmentClasses, data.sourceClasses, classIds]);
+  }, [assignmentOpen, assignmentClasses, data.sourceClasses, classIds, school.schoolOptions]);
 
   useEffect(() => {
     if (!assignmentOpen) return;
@@ -169,7 +169,7 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
     if (!teacherId) return setFeedback("L’enseignant est obligatoire.");
     if (teacherSections.length === 0) return setFeedback("Aucune section n’est attribuée à cet enseignant. Configurez d’abord son périmètre.");
     if (savedSubjectIds.length === 0 || savedClassIds.length === 0) return setFeedback("Un cours et une classe sont obligatoires.");
-    const scopeError = classSelections.map((selection) => validateAssignmentClassSelection(selection, assignmentScopeClasses)).find(Boolean);
+    const scopeError = classSelections.map((selection) => validateAssignmentClassSelection(selection, assignmentScopeClasses, school.schoolOptions)).find(Boolean);
     if (scopeError) return setFeedback(scopeError);
     if (primaryMode && assignments.some(item => item.active && item.teacherId === teacherId && item.classId !== savedClassIds[0])) return setFeedback("En Maternelle/Primaire, un enseignant ne peut gérer qu’une seule classe.");
     const candidates = savedSubjectIds.flatMap((subjectId) => classSelections.map((selection) => ({ schoolId: school.id, schoolYearId: year.id, teacherId, subjectId, ...selection })));
