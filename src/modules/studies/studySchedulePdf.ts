@@ -1,13 +1,18 @@
 import type { School, SchoolYear } from "../../types";
 import { escapePdfHtml, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import { schedulePeriodLabel, studyDayLabel } from "./studySchedule";
-import type { SchedulePeriod, StudyClass, StudyRoom, StudySubject, StudyTeacher, TimetableEntry } from "./studyTypes";
+import { scheduleClassPresentation } from "./scheduleClassPresentation";
+import type { PedagogicalAssignment, SchedulePeriod, StudyClass, StudyRoom, StudySubject, StudyTeacher, TimetableEntry } from "./studyTypes";
 
-export async function exportFilteredStudySchedulePdf(input: { school: School; year: SchoolYear; entries: TimetableEntry[]; teachers: StudyTeacher[]; classes: StudyClass[]; subjects: StudySubject[]; periods: SchedulePeriod[]; rooms: StudyRoom[]; filterLabel: string }) {
+export async function exportFilteredStudySchedulePdf(input: { school: School; year: SchoolYear; entries: TimetableEntry[]; teachers: StudyTeacher[]; classes: StudyClass[]; assignments: PedagogicalAssignment[]; subjects: StudySubject[]; periods: SchedulePeriod[]; rooms: StudyRoom[]; filterLabel: string }) {
   const label = <T extends { id: string }>(items: T[], id: string, field: keyof T) => String(items.find((item) => item.id === id)?.[field] ?? "—");
   const table = pdfTable<TimetableEntry>([
     { header: "Jour", render: (item) => studyDayLabel(item.dayOfWeek) },
-    { header: "Classe", render: (item) => label(input.classes, item.classId, "name") },
+    { header: "Classe", render: (item) => {
+      const assignment = input.assignments.find((candidate) => candidate.id === item.assignmentId);
+      const { name, scope } = scheduleClassPresentation(item, assignment, input.classes, input.school.schoolOptions);
+      return scope ? `${name} — ${scope}` : name;
+    } },
     { header: "Enseignant", render: (item) => label(input.teachers, item.teacherId, "fullName") },
     { header: "Cours", render: (item) => label(input.subjects, item.subjectId, "name") },
     { header: "Période", render: (item) => schedulePeriodLabel(item.periodId, input.periods) },
