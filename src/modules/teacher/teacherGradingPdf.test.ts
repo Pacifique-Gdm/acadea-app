@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
-import { teacherGradesPdfSection } from "./teacherGradingPdf";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { exportTeacherGradesPdf, teacherGradesPdfSection } from "./teacherGradingPdf";
 import { editableGradingSlots } from "./teacherGrading";
+import { renderAcadPdfPreview } from "../../utils/pdf";
+
+vi.mock("../../utils/pdf", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../utils/pdf")>(),
+  renderAcadPdfPreview: vi.fn(),
+}));
 
 function fixture() {
   const scope = { schoolId: "school-a", schoolYearId: "year-a" };
@@ -18,16 +24,23 @@ function fixture() {
 }
 
 describe("export PDF des cotations", () => {
-  it("inclut toutes les périodes, les trois totaux et une vraie cote zéro", () => {
+  beforeEach(() => vi.mocked(renderAcadPdfPreview).mockReset());
+
+  it("respecte exactement les dix en-têtes abrégés dans l'ordre et conserve une vraie cote zéro", () => {
     const html = teacherGradesPdfSection(fixture());
-    for (const slot of editableGradingSlots) expect(html).toContain({ period_1: "1ère Période", period_2: "2ème Période", semester_1_exam: "Examen du 1er Semestre", period_3: "3ème Période", period_4: "4ème Période", semester_2_exam: "Examen du 2ème Semestre" }[slot]);
-    expect(html).toContain("Total 1er semestre");
-    expect(html).toContain("Total 2e semestre");
-    expect(html).toContain("Total général");
+    const headers = [...html.matchAll(/<th\b[^>]*><span class="cell-inner">([^<]*)<\/span><\/th>/g)].map((match) => match[1]);
+    expect(headers).toEqual(["ÉLÈVE", "1-P", "2-P", "EX-1S", "TOT-1S", "3-P", "4-P", "EX-2S", "TOT-2S", "TOT GEN"]);
+    expect(editableGradingSlots).toHaveLength(6);
     expect(html).toMatch(/<span class="cell-inner">0<\/span>/);
     expect(html).not.toContain("Non coté");
     expect(html).not.toContain("Les cases non cotées");
     expect(html).toContain("Émile Noël");
+  });
+  it("demande le portrait et remonte un échec de génération au formulaire", async () => {
+    await exportTeacherGradesPdf(fixture());
+    expect(renderAcadPdfPreview).toHaveBeenCalledWith(expect.objectContaining({ orientation: "portrait", throwOnError: true }));
+    vi.mocked(renderAcadPdfPreview).mockRejectedValueOnce(new Error("Échec PDF de test"));
+    await expect(exportTeacherGradesPdf(fixture())).rejects.toThrow("Échec PDF de test");
   });
   it("calcule uniquement les cotes existantes, sans transformer les vides en zéros", () => {
     const input = fixture();

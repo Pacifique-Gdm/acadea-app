@@ -31,7 +31,9 @@ describe("MultiSelectDropdown partagé", () => {
     expect(source).toContain("event.stopImmediatePropagation()");
     expect(source).toContain('window.addEventListener("keydown", closeOnEscape, true)');
     expect(source).toContain("window.addEventListener(OPEN_EVENT, closeForSibling)");
-    expect(source).toContain('className="fixed z-[60] overflow-x-hidden overflow-y-auto');
+    expect(source).toContain('"fixed z-[60]"');
+    expect(source).toContain('inline ? menu : menu && createPortal(menu, document.body)');
+    expect(source).toContain('onBlurCapture={inline ?');
     expect(source).not.toContain("onChange([])");
   });
 });

@@ -32,6 +32,7 @@ type AcadPdfOptions = {
   copyLabels?: readonly [string, string];
   singlePageFit?: boolean;
   orientation?: "portrait" | "landscape";
+  throwOnError?: boolean;
 };
 
 function formatStudentClassName(student: Pick<Student, "className" | "option">) {
@@ -148,7 +149,7 @@ export function pdfSection(title: string, bodyHtml: string, options: { pageBreak
   `;
 }
 
-export async function renderAcadPdfPreview({ filename, title, school, year, subtitle, studentCount, generatedAt = new Date(), showGeneratedAt = true, showDocumentTitle = true, centerDocumentTitle = false, pdfSettings, sections, copyLabels, singlePageFit = false, orientation = "portrait" }: AcadPdfOptions) {
+export async function renderAcadPdfPreview({ filename, title, school, year, subtitle, studentCount, generatedAt = new Date(), showGeneratedAt = true, showDocumentTitle = true, centerDocumentTitle = false, pdfSettings, sections, copyLabels, singlePageFit = false, orientation = "portrait", throwOnError = false }: AcadPdfOptions) {
   const profileEnabled = import.meta.env.DEV || ["staging", "preview"].includes(import.meta.env.VITE_APP_ENV ?? "");
   const profileStart = performance.now();
   const layout = getPdfLayout(pdfSettings, orientation);
@@ -165,6 +166,7 @@ export async function renderAcadPdfPreview({ filename, title, school, year, subt
     : buildPdfHtml(htmlOptions);
   if (!element.textContent?.trim()) {
     showPdfError(viewer, "Le document PDF ne contient aucune donnée à afficher.");
+    if (throwOnError) throw new Error("Le document PDF ne contient aucune donnée à afficher.");
     return;
   }
   element.style.position = "absolute";
@@ -196,6 +198,7 @@ export async function renderAcadPdfPreview({ filename, title, school, year, subt
   } catch (error) {
     console.error("Erreur de génération PDF Acadéa", error);
     showPdfError(viewer, "La génération du PDF a échoué.");
+    if (throwOnError) throw error;
   } finally {
     element.remove();
   }
@@ -961,8 +964,11 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       line-height: 1.42;
       page-break-inside: auto;
     }
-    .grading-pdf-section table { table-layout: fixed; margin-top: 12px; font-size: 8px; }
-    .grading-pdf-section th, .grading-pdf-section td { padding: 5px 4px; }
+    .grading-pdf-section table { table-layout: fixed; margin-top: 12px; font-size: 11px; }
+    .grading-pdf-section col:first-child { width: 28% !important; }
+    .grading-pdf-section col:not(:first-child) { width: 8% !important; }
+    .grading-pdf-section th, .grading-pdf-section td { padding: 5px 2px; }
+    .grading-pdf-section th { font-size: 10px; white-space: nowrap; overflow-wrap: normal; }
     .grading-pdf-section th:first-child, .grading-pdf-section td:first-child { text-align: left; }
     .grading-pdf-section th:nth-child(5), .grading-pdf-section th:nth-child(9), .grading-pdf-section th:nth-child(10) { background: #1e5a72; }
     .grading-pdf-section td:nth-child(5), .grading-pdf-section td:nth-child(9), .grading-pdf-section td:nth-child(10) { background: #edf7fa; font-weight: 700; }

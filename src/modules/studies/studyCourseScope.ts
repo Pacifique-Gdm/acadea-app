@@ -1,6 +1,6 @@
 import type { Student } from "../../types";
 import { schoolClassOptionKey, schoolClassRecordId } from "../../services/schoolSubclasses";
-import { operationalBaseClassId, operationalClassOptionKey } from "../../utils/studentYearTransition.js";
+import { canonicalClassNameFromRecordId, normalizeAnnualClassName, operationalBaseClassId, operationalClassOptionKey } from "../../utils/studentYearTransition.js";
 import type { PedagogicalAssignment, StudyClass } from "./studyTypes";
 
 export type CourseScope = NonNullable<PedagogicalAssignment["courseScope"]>;
@@ -21,11 +21,15 @@ export function baseStudyClassId(item: Pick<StudyClass, "id" | "parentClassId" |
   return operationalBaseClassId(item);
 }
 
-export function optionClassesForBaseClass(classes: readonly StudyClass[], classId: string) {
+export function optionClassesForBaseClass(classes: readonly StudyClass[], classId: string, schoolOptions: readonly string[] = []) {
   const base = classes.find((item) => item.id === classId);
   const assignmentOptionId = (item: StudyClass) => {
     const key = item.classOptionKey?.trim();
-    return key?.startsWith(`${classId}::`) && key.length > classId.length + 2 ? key : undefined;
+    if (key?.startsWith(`${classId}::`) && key.length > classId.length + 2) return key;
+    // Historical option documents have only a deterministic id. The school's
+    // configured option must corroborate that id; a subclass is never inferred.
+    return !item.parentClassId && !item.classOptionKey && !item.subClassLabel
+      && schoolOptions.some((option) => schoolClassOptionKey(classId, option) === item.id) ? item.id : undefined;
   };
   const inactiveOptions = new Set(classes.filter((item) => item.active === false && item.id === assignmentOptionId(item)).map((item) => assignmentOptionId(item)!));
   const options = new Map<string, StudyClass>();
@@ -40,12 +44,19 @@ export function optionClassesForBaseClass(classes: readonly StudyClass[], classI
 }
 
 export function assignmentOptionChoices(classes: readonly StudyClass[], classId: string, schoolOptions: readonly string[] = []) {
-  return optionClassesForBaseClass(classes, classId).map((item) => {
-    const id = item.classOptionKey!.trim();
+  return optionClassesForBaseClass(classes, classId, schoolOptions).map((item) => {
+    const id = classOptionId(item)!;
     const configured = schoolOptions.find((option) => schoolClassOptionKey(classId, option) === id);
     const documented = item.option?.trim();
     return { id, label: configured ?? (documented && schoolClassOptionKey(classId, documented) === id ? documented : undefined) ?? id.split("::").at(-1) ?? id };
   }).sort((left, right) => left.label.localeCompare(right.label, "fr", { sensitivity: "base" }) || left.id.localeCompare(right.id));
+}
+
+export function assignmentClassDisplayName(item: StudyClass) {
+  const canonical = canonicalClassNameFromRecordId(item.id);
+  const abbreviated = normalizeAnnualClassName(item.name);
+  return canonical && schoolClassRecordId(item.schoolId, item.schoolYearId, canonical) === item.id
+    && normalizeAnnualClassName(canonical).startsWith(`${abbreviated} `) ? canonical : item.name;
 }
 
 export type AssignmentClassScope = { courseScope: CourseScope | ""; targetOptionIds: string[] };
@@ -158,8 +169,8 @@ export function assignmentsShareStudents(first: PedagogicalAssignment, second: P
   return left.optionIds.some((id) => rightIds.has(id));
 }
 
-export function validateAssignmentClassSelection(selection: AssignmentClassSelection, classes: readonly StudyClass[]) {
-  const availableOptionIds = new Set(assignmentOptionChoices(classes, selection.classId).map((item) => item.id));
+export function validateAssignmentClassSelection(selection: AssignmentClassSelection, classes: readonly StudyClass[], schoolOptions: readonly string[] = []) {
+  const availableOptionIds = new Set(assignmentOptionChoices(classes, selection.classId, schoolOptions).map((item) => item.id));
   const targetOptionIds = normalizedIds(selection.targetOptionIds);
   if (availableOptionIds.size === 0) {
     return selection.courseScope || targetOptionIds.length ? "Cette classe ne possède aucune option configurable." : "";
