@@ -392,6 +392,52 @@ test.describe("Bibliothèque et horaires — navigateur local isolé", () => {
     }
   });
 
+  test("Enseignant : export de cotation verrouillé puis rétabli après succès et échec", async ({ browser }) => {
+    const teacher = await contextFor(browser);
+    const classId = `${schoolId}-class`;
+    const subjectId = `${schoolId}-subject`;
+    const assignmentId = `${schoolId}-assignment`;
+    const student = { id: `e2e-grading-student-${suffix}`, schoolId, schoolYearId: yearId, classId, className: "4ème Humanité", nom: "Élève", postnom: "Fictif", prenom: "Test", status: "ACTIVE" };
+    const gradingData = {
+      teacher: { id: teacherId, schoolId, schoolYearId: yearId, userId: accounts.teacher.uid, fullName: "Aline Test", status: "active", active: true },
+      assignments: [{ id: assignmentId, schoolId, schoolYearId: yearId, teacherId, classId, subjectId, active: true, weeklyPeriods: 2 }],
+      titulars: [], subjects: [{ id: subjectId, schoolId, schoolYearId: yearId, name: "Géographie", active: true }],
+      classes: [{ id: classId, schoolId, schoolYearId: yearId, name: "4ème Humanité", section: "Secondaire", active: true }],
+      students: [student], configs: [{ id: `e2e-grading-config-${suffix}`, schoolId, schoolYearId: yearId, classId, subjectId, maxScore: 20 }],
+      entries: [{ id: `e2e-grading-entry-${suffix}`, schoolId, schoolYearId: yearId, classId, subjectId, studentId: student.id, gradingSlot: "period_1", score: 0, status: "graded" }],
+    };
+    let loadCalls = 0;
+    let failExport = false;
+    await teacher.page.route("**/api/manage-teacher-grading", async (route) => {
+      const action = route.request().postDataJSON()?.action;
+      if (action === "load-roster") return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ assignmentId, students: [student] }) });
+      if (action !== "load") return route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "Action de test inconnue" }) });
+      loadCalls += 1;
+      if (loadCalls > 1) await new Promise((resolve) => setTimeout(resolve, 800));
+      if (failExport) return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Échec PDF de test" }) });
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(gradingData) });
+    });
+    await login(teacher.page, accounts.teacher);
+    await teacher.page.getByRole("button", { name: "Menu", exact: true }).click();
+    await teacher.page.getByRole("button", { name: /Fiche de cotation/ }).click();
+    const exportButton = teacher.page.getByRole("button", { name: "Exporter PDF" });
+    await expect(exportButton).toBeEnabled();
+    const baselineLoads = loadCalls;
+    await exportButton.evaluate((button: HTMLButtonElement) => { button.click(); button.click(); });
+    const loadingButton = teacher.page.getByRole("button", { name: "Chargement…" });
+    await expect(loadingButton).toBeDisabled();
+    await expect(teacher.page.locator("[data-pdf-download]")).toHaveAttribute("aria-disabled", "false", { timeout: 30_000 });
+    expect(loadCalls).toBe(baselineLoads + 1);
+    await teacher.page.locator("[data-pdf-close]").click();
+    await expect(exportButton).toBeEnabled();
+    failExport = true;
+    await exportButton.click();
+    await expect(teacher.page.getByRole("alert").filter({ hasText: "Échec PDF de test" })).toBeVisible();
+    await expect(exportButton).toBeEnabled();
+    expect(loadCalls).toBe(baselineLoads + 2);
+    expect(teacher.remote).toEqual([]);
+  });
+
   test("Calendrier : minuit local, suspension validée et reprise sans rechargement", async ({ browser }) => {
     const teacher = await contextFor(browser, { time: "2026-10-13T22:59:30Z" });
     const studies = await contextFor(browser);

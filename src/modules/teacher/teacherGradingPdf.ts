@@ -1,7 +1,7 @@
 import type { School, SchoolYear, Student } from "../../types";
 import { escapePdfHtml, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import type { PedagogicalAssignment, StudyClass, StudySubject, StudyTeacher } from "../studies/studyTypes";
-import { editableGradingSlots, gradingSlotLabels, type CourseGradingConfig, type GradeEntry } from "./teacherGrading";
+import { editableGradingSlots, type CourseGradingConfig, type GradeEntry } from "./teacherGrading";
 
 type ExportInput = {
   school: School;
@@ -43,12 +43,12 @@ export function teacherGradesPdfSection(input: ExportInput) {
     return values.length ? Number(values.reduce((sum, value) => sum + value, 0).toFixed(10)) : "";
   };
   const columns = [
-    { header: "Élève", render: (student: Student) => [student.nom, student.postnom, student.prenom].filter(Boolean).join(" ") },
-    ...editableGradingSlots.slice(0, 3).map((slot) => ({ header: gradingSlotLabels[slot], align: "center" as const, render: (student: Student) => score(student, slot) ?? "" })),
-    { header: "Total 1er semestre", align: "center" as const, render: (student: Student) => total(student, editableGradingSlots.slice(0, 3)) },
-    ...editableGradingSlots.slice(3).map((slot) => ({ header: gradingSlotLabels[slot], align: "center" as const, render: (student: Student) => score(student, slot) ?? "" })),
-    { header: "Total 2e semestre", align: "center" as const, render: (student: Student) => total(student, editableGradingSlots.slice(3)) },
-    { header: "Total général", align: "center" as const, render: (student: Student) => total(student, editableGradingSlots) },
+    { header: "ÉLÈVE", render: (student: Student) => [student.nom, student.postnom, student.prenom].filter(Boolean).join(" ") },
+    ...editableGradingSlots.slice(0, 3).map((slot, index) => ({ header: ["1-P", "2-P", "EX-1S"][index], align: "center" as const, render: (student: Student) => score(student, slot) ?? "" })),
+    { header: "TOT-1S", align: "center" as const, render: (student: Student) => total(student, editableGradingSlots.slice(0, 3)) },
+    ...editableGradingSlots.slice(3).map((slot, index) => ({ header: ["3-P", "4-P", "EX-2S"][index], align: "center" as const, render: (student: Student) => score(student, slot) ?? "" })),
+    { header: "TOT-2S", align: "center" as const, render: (student: Student) => total(student, editableGradingSlots.slice(3)) },
+    { header: "TOT GEN", align: "center" as const, render: (student: Student) => total(student, editableGradingSlots) },
   ];
   const chunks: Student[][] = [];
   if (!sortedStudents.length) chunks.push([]);
@@ -66,7 +66,8 @@ export async function exportTeacherGradesPdf(input: ExportInput) {
     title: "Fiche de cotation",
     school: input.school,
     year: input.year,
-    orientation: "landscape",
+    orientation: "portrait",
+    throwOnError: true,
     sections: [teacherGradesPdfSection(input)],
   });
 }

@@ -60,6 +60,8 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const exportingPdfRef = useRef(false);
   const [confirmation, setConfirmation] = useState<"maximum" | "grade" | null>(null);
   const [confirmationText, setConfirmationText] = useState("");
   const [titularView, setTitularView] = useState(false);
@@ -178,7 +180,9 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
   }
 
   async function exportPdf() {
-    if (!assignment || savingRef.current) return;
+    if (!assignment || savingRef.current || exportingPdfRef.current) return;
+    exportingPdfRef.current = true;
+    setExportingPdf(true);
     setError("");
     try {
       const latest = scopeTeacherGradingData(user, await loadTeacherGrading(school.id, year.id));
@@ -187,6 +191,7 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
       const latestRoster = await loadTeacherGradingRoster({ schoolId: school.id, schoolYearId: year.id, assignmentId: assignment.id, classId: assignment.classId, subjectId: assignment.subjectId });
       await exportTeacherGradesPdf({ school, year, teacher: latest.teacher, teacherName: user.name, assignment, schoolClass: latest.classes.find((item) => item.id === assignment.classId), subject: latest.subjects.find((item) => item.id === assignment.subjectId), students: activeStudentsForAssignment(latestRoster.students, school.id, year.id, assignment, latest.classes), entries: latest.entries.filter((item) => item.classId === assignment.classId && item.subjectId === assignment.subjectId), config: latest.configs.find((item) => item.classId === assignment.classId && item.subjectId === assignment.subjectId) });
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Export PDF impossible."); }
+    finally { exportingPdfRef.current = false; setExportingPdf(false); }
   }
 
   const confirmationPanel = (kind: "maximum" | "grade") => confirmation === kind && <section className="mt-2 grid gap-3 rounded border border-amber-300 bg-amber-50 p-3" aria-label="Confirmation de cotation">
@@ -243,7 +248,7 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
         {!config ? <p className="rounded bg-amber-50 p-3 text-sm">Définissez la cote maximale de ce cours avant de commencer la cotation.</p> : students.length === 0 ? <p className="rounded bg-slate-50 p-3">Aucun élève actif n’est inscrit dans cette classe.</p> : <div className="grid gap-2">{students.map((student) => {
           const value = drafts[student.id] ?? { score: "", status: "not_graded" as const };
           return <article key={student.id} className="grid gap-2 rounded border bg-white p-3 sm:grid-cols-[minmax(0,1fr)_120px_130px] sm:items-center"><span className="font-semibold">{student.nom} {student.postnom} {student.prenom}</span><input aria-label={`Cote de ${student.nom}`} className="input" type="number" min="0" max={config.maxScore} step="0.01" value={value.score} disabled={value.status === "absent"} onChange={(event) => setDrafts((current) => ({ ...current, [student.id]: { ...value, score: event.target.value, status: event.target.value === "" ? "not_graded" : "graded" } }))} /><select aria-label={`Statut de ${student.nom}`} className="input" value={value.status} onChange={(event) => setDrafts((current) => ({ ...current, [student.id]: { score: event.target.value === "graded" ? value.score : "", status: event.target.value === "graded" && value.score === "" ? "not_graded" : event.target.value as GradeEntry["status"] } }))}>{value.status === "absent" && <option value="absent" disabled>Absent (historique)</option>}<option value="not_graded">Non coté</option><option value="graded" disabled={value.score === ""}>Coté</option></select></article>;
-        })}<div><div className="grid grid-cols-2 gap-2"><button type="button" className="primary-button justify-center" disabled={saving} onClick={() => void saveEntries()}>{saving ? "Enregistrement…" : "Enregistrer"}</button><button type="button" className="pdf-export-button justify-center" disabled={saving} onClick={() => void exportPdf()}>Exporter PDF</button></div>{confirmationPanel("grade")}</div></div>}
+        })}<div><div className="grid grid-cols-2 gap-2"><button type="button" className="primary-button justify-center" disabled={saving} onClick={() => void saveEntries()}>{saving ? "Enregistrement…" : "Enregistrer"}</button><button type="button" className="pdf-export-button justify-center" disabled={saving || exportingPdf} aria-busy={exportingPdf} onClick={() => void exportPdf()}>{exportingPdf ? "Chargement…" : "Exporter PDF"}</button></div>{confirmationPanel("grade")}</div></div>}
       </>}
     </div>}
   </AdminDrawer>;
