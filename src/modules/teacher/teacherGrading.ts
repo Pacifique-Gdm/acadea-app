@@ -62,6 +62,16 @@ export function reconcileGradeDrafts(students:Student[],entries:GradeEntry[],pre
   }));
 }
 
+export function hasUnsavedGradeDrafts(students:Student[],entries:GradeEntry[],drafts:Record<string,{score:string;status:GradeEntry["status"]}>){
+  const saved=new Map(entries.map(entry=>[entry.studentId,entry]));
+  return students.some(student=>{
+    const draft=drafts[student.id];
+    if(!draft)return false;
+    const entry=saved.get(student.id);
+    return draft.score!==(entry?.score==null?"":String(entry.score))||draft.status!==(entry?.status??"not_graded");
+  });
+}
+
 export function changedGradeEntries(students:Student[], entries:GradeEntry[], drafts:Record<string,{score:string;status:GradeEntry["status"]}>, slot:EditableGradingSlot){
   const saved = new Map(entries.map((entry) => [entry.studentId, entry]));
   let modifiesPersisted = false;
