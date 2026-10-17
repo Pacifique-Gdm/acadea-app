@@ -19,7 +19,7 @@ describe("Actualisation des élèves de la fiche", () => {
   });
 
   it("laisse la saisie d’une cote non cotée active et verrouille seulement le statut absent", () => {
-    expect(drawer).toContain('disabled={value.status === "absent"}');
+    expect(drawer).toContain('disabled={saving || confirmation === "grade" || value.status === "absent"}');
     expect(drawer).not.toContain('disabled={value.status !== "graded"}');
     expect(drawer).toContain('status: event.target.value === "" ? "not_graded" : "graded"');
   });

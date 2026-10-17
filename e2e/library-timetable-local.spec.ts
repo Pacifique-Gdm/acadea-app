@@ -438,6 +438,93 @@ test.describe("Bibliothèque et horaires — navigateur local isolé", () => {
     expect(teacher.remote).toEqual([]);
   });
 
+  test("Enseignant : les cotes restent provisoires, puis le drawer ferme seulement après sauvegarde confirmée", async ({ browser }) => {
+    const teacher = await contextFor(browser);
+    const classId = `${schoolId}-class`;
+    const subjectId = `${schoolId}-subject`;
+    const assignmentId = `${schoolId}-assignment`;
+    const students = ["Un", "Deux", "Trois"].map((nom, index) => ({ id: `e2e-grade-${index}-${suffix}`, schoolId, schoolYearId: yearId, classId, className: "4ème Humanité", nom, postnom: "Fictif", prenom: "Test", status: "ACTIVE" }));
+    const entries: Array<Record<string, unknown>> = [{ id: `e2e-grade-existing-${suffix}`, schoolId, schoolYearId: yearId, classId, subjectId, studentId: students[0].id, gradingSlot: "period_1", score: 4, status: "graded" }];
+    const gradingData = {
+      teacher: { id: teacherId, schoolId, schoolYearId: yearId, userId: accounts.teacher.uid, fullName: "Aline Test", status: "active", active: true },
+      assignments: [{ id: assignmentId, schoolId, schoolYearId: yearId, teacherId, classId, subjectId, active: true, weeklyPeriods: 2 }],
+      titulars: [], subjects: [{ id: subjectId, schoolId, schoolYearId: yearId, name: "Géographie", active: true }],
+      classes: [{ id: classId, schoolId, schoolYearId: yearId, name: "4ème Humanité", section: "Secondaire", active: true }],
+      students, configs: [{ id: `e2e-grade-config-${suffix}`, schoolId, schoolYearId: yearId, classId, subjectId, maxScore: 20 }], entries,
+    };
+    let saveCalls = 0;
+    let failNextSave = false;
+    let releaseSave: (() => void) | undefined;
+    await teacher.page.route("**/api/manage-teacher-grading", async (route) => {
+      const body = route.request().postDataJSON();
+      if (body?.action === "load-roster") return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ assignmentId, students }) });
+      if (body?.action === "load") return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(gradingData) });
+      if (body?.action !== "save-entries") return route.fulfill({ status: 400, body: "Action inconnue" });
+      saveCalls += 1;
+      if (failNextSave) { failNextSave = false; return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Échec de sauvegarde simulé" }) }); }
+      await new Promise<void>((resolve) => { releaseSave = resolve; });
+      for (const item of body.entries as Array<Record<string, unknown>>) {
+        const index = entries.findIndex((entry) => entry.studentId === item.studentId && entry.gradingSlot === item.gradingSlot);
+        if (index < 0) entries.push({ ...item, id: `e2e-grade-new-${item.studentId}`, schoolId, schoolYearId: yearId, classId, subjectId });
+        else entries[index] = { ...entries[index], ...item };
+      }
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
+    });
+    try {
+      await login(teacher.page, accounts.teacher);
+      await teacher.page.getByRole("button", { name: "Menu", exact: true }).click();
+      await teacher.page.getByRole("button", { name: /Fiche de cotation/ }).click();
+      let drawer = teacher.page.getByRole("dialog", { name: "Fiche de cotation" });
+      await expect(drawer.getByLabel("Cote de Un")).toHaveValue("4");
+      await drawer.getByLabel("Cote de Deux").fill("5");
+      await drawer.getByLabel("Cote de Trois").fill("0");
+      expect(saveCalls).toBe(0);
+      await drawer.getByRole("button", { name: "Fermer la fiche de cotation" }).click();
+      await expect(drawer.getByRole("alertdialog", { name: "Modifications non enregistrées" })).toBeVisible();
+      await drawer.getByRole("button", { name: "Revenir au formulaire" }).click();
+      await expect(drawer.getByLabel("Cote de Deux")).toHaveValue("5");
+      await drawer.getByRole("button", { name: "Enregistrer", exact: true }).evaluate((button: HTMLButtonElement) => { button.click(); button.click(); });
+      await expect(drawer.getByRole("button", { name: "Enregistrement…" })).toBeDisabled();
+      await expect(drawer).toBeVisible();
+      await expect.poll(() => saveCalls).toBe(1);
+      releaseSave?.();
+      await expect(drawer).not.toBeVisible();
+      await teacher.page.getByRole("button", { name: /Fiche de cotation/ }).click();
+      drawer = teacher.page.getByRole("dialog", { name: "Fiche de cotation" });
+      await expect(drawer.getByLabel("Cote de Deux")).toHaveValue("5");
+      await expect(drawer.getByLabel("Cote de Trois")).toHaveValue("0");
+      await drawer.getByLabel("Cote de Un").fill("9");
+      await drawer.getByRole("button", { name: "Enregistrer", exact: true }).click();
+      expect(saveCalls).toBe(1);
+      await drawer.getByLabel("Phrase de confirmation").fill("MODIFIER LA CÔTE");
+      failNextSave = true;
+      await drawer.getByRole("button", { name: "Confirmer" }).click();
+      await expect(drawer.getByRole("alert").filter({ hasText: "Échec de sauvegarde simulé" })).toBeVisible();
+      await expect(drawer.getByLabel("Cote de Un")).toHaveValue("9");
+      await expect(drawer.getByRole("button", { name: "Enregistrer", exact: true })).toBeEnabled();
+      await drawer.getByRole("button", { name: "Enregistrer", exact: true }).click();
+      await drawer.getByLabel("Phrase de confirmation").fill("MODIFIER LA CÔTE");
+      await drawer.getByRole("button", { name: "Confirmer" }).click();
+      await expect(drawer.getByRole("button", { name: "Enregistrement…" })).toBeDisabled();
+      await expect.poll(() => saveCalls).toBe(3);
+      releaseSave?.();
+      await expect(drawer).not.toBeVisible();
+      expect(saveCalls).toBe(3);
+      await teacher.page.getByRole("button", { name: /Fiche de cotation/ }).click();
+      drawer = teacher.page.getByRole("dialog", { name: "Fiche de cotation" });
+      await expect(drawer.getByLabel("Cote de Un")).toHaveValue("9");
+      await drawer.getByLabel("Cote de Un").fill("10");
+      await drawer.getByLabel("Période").selectOption("period_2");
+      await expect(drawer.getByRole("alertdialog", { name: "Modifications non enregistrées" })).toBeVisible();
+      await drawer.getByRole("button", { name: "Abandonner les modifications" }).click();
+      await expect(drawer.getByLabel("Période")).toHaveValue("period_2");
+      expect(saveCalls).toBe(3);
+      expect(teacher.remote).toEqual([]);
+    } finally {
+      await teacher.context.close();
+    }
+  });
+
   test("Calendrier : minuit local, suspension validée et reprise sans rechargement", async ({ browser }) => {
     const teacher = await contextFor(browser, { time: "2026-10-13T22:59:30Z" });
     const studies = await contextFor(browser);

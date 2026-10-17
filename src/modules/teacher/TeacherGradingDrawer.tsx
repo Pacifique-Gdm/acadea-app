@@ -9,6 +9,7 @@ import {
   editableGradingSlots,
   gradingProgress,
   gradingSlotLabels,
+  hasUnsavedGradeDrafts,
   maxScoreActionLabel,
   maxScoreConfirmation,
   reconcileGradeDrafts,
@@ -30,6 +31,7 @@ import type { TeacherPortalData } from "./teacherPortalData";
 import { exportTeacherGradesPdf } from "./teacherGradingPdf";
 
 type Draft = { score: string; status: GradeEntry["status"] };
+type PendingTransition = { type: "close" | "assignment" | "slot" | "titular"; value?: string };
 
 const entryValue = (entry: GradeEntry | undefined) => {
   if (!entry || entry.status === "not_graded") return "Non coté";
@@ -58,6 +60,7 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
   const [maxScore, setMaxScore] = useState("");
   const [editingMaxScore, setEditingMaxScore] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [pendingTransition, setPendingTransition] = useState<PendingTransition | null>(null);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -108,6 +111,28 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
     [assignment?.classId, assignment?.subjectId, data?.entries, slot],
   );
   const progress = gradingProgress(entries, students.map((item) => item.id));
+  const hasUnsavedChanges = hasUnsavedGradeDrafts(students, entries, drafts);
+
+  function applyTransition(transition: PendingTransition) {
+    setConfirmation(null); setConfirmationText(""); setError("");
+    if (transition.type === "close") onClose();
+    else if (transition.type === "assignment") setAssignmentId(transition.value ?? "");
+    else if (transition.type === "slot") setSlot(transition.value as EditableGradingSlot);
+    else setTitularView(transition.value === "true");
+  }
+
+  function requestTransition(transition: PendingTransition) {
+    if (savingRef.current) return;
+    if (hasUnsavedChanges) setPendingTransition(transition);
+    else applyTransition(transition);
+  }
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [hasUnsavedChanges]);
 
   useEffect(() => {
     if (assignment && assignment.id !== assignmentId) setAssignmentId(assignment.id);
@@ -124,9 +149,10 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
   useEffect(() => { setConfirmation(null); setConfirmationText(""); }, [assignment?.id, slot]);
 
   useEffect(() => {
-    const reset = draftContext.current?.assignmentId !== assignment?.id || draftContext.current?.slot !== slot || draftContext.current?.entries !== entries;
+    const prior = draftContext.current;
     draftContext.current = { assignmentId: assignment?.id ?? "", slot, entries };
-    setDrafts((previous) => reconcileGradeDrafts(students, entries, previous, reset));
+    setDrafts((previous) => reconcileGradeDrafts(students, entries, previous,
+      !prior || prior.assignmentId !== assignment?.id || prior.slot !== slot || (prior.entries !== entries && !hasUnsavedGradeDrafts(students, prior.entries, previous))));
   }, [assignment?.id, entries, slot, students]);
 
   const hasTitular = !loading && !loadFailed && Boolean(data?.titulars.length);
@@ -171,9 +197,7 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
     savingRef.current = true; setSaving(true); setError(""); setSuccess("");
     try {
       await saveTeacherGradeEntries({ schoolId: school.id, schoolYearId: year.id, assignmentId: assignment.id, classId: assignment.classId, subjectId: assignment.subjectId, entries: payload });
-      setSuccess("Cotations enregistrées.");
-      setConfirmation(null); setConfirmationText("");
-      await reload();
+      onClose();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Enregistrement impossible.");
     } finally { savingRef.current = false; setSaving(false); }
@@ -233,21 +257,25 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
     </section>;
   };
 
-  return <AdminDrawer title="Fiche de cotation" closeLabel="Fermer la fiche de cotation" onClose={onClose}>
+  return <AdminDrawer title="Fiche de cotation" closeLabel="Fermer la fiche de cotation" onClose={() => requestTransition({ type: "close" })}>
+    {pendingTransition && <section className="grid gap-3 rounded border border-amber-300 bg-amber-50 p-3" role="alertdialog" aria-label="Modifications non enregistrées">
+      <p>Des cotes modifiées ne sont pas enregistrées. Voulez-vous abandonner ces modifications ?</p>
+      <div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" onClick={() => setPendingTransition(null)}>Revenir au formulaire</button><button type="button" className="primary-button justify-center" onClick={() => { const next = pendingTransition; setPendingTransition(null); applyTransition(next); }}>Abandonner les modifications</button></div>
+    </section>}
     {loading && <p role="status" className="rounded bg-slate-50 p-4">Chargement…</p>}
     {error && <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{error}</p>}
     {rosterError && <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{rosterError}</p>}
     {success && <p role="status" className="rounded bg-green-50 p-3 text-green-800">{success}</p>}
     {data && !data.assignments.length && !data.titulars.length && !loading && !loadFailed ? <p className="rounded border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">Aucune affectation n’est disponible pour cet enseignant pour l’année scolaire active.</p> : data && !loadFailed && <div className="grid gap-4">
-      <div className={hasTitular ? "grid grid-cols-2 gap-2" : "grid grid-cols-1"}><button type="button" className={!titularView || !hasTitular ? "primary-button w-full justify-center" : "secondary-button w-full justify-center"} onClick={() => setTitularView(false)}>Mes cotations</button>{hasTitular && <button type="button" className={titularView ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setTitularView(true)}>Ma classe titulaire</button>}</div>
+      <div className={hasTitular ? "grid grid-cols-2 gap-2" : "grid grid-cols-1"}><button type="button" className={!titularView || !hasTitular ? "primary-button w-full justify-center" : "secondary-button w-full justify-center"} onClick={() => requestTransition({ type: "titular", value: "false" })}>Mes cotations</button>{hasTitular && <button type="button" className={titularView ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => requestTransition({ type: "titular", value: "true" })}>Ma classe titulaire</button>}</div>
       {titularView && hasTitular ? renderTitularView() : assignments.length === 0 ? <p className="rounded bg-slate-50 p-4">Aucun cours ne vous a encore été affecté par la Direction des études.</p> : <>
-        <label className="grid gap-1 text-sm font-semibold">Cours<select className="input" value={assignment?.id} onChange={(event) => setAssignmentId(event.target.value)}>{assignments.map((item) => <option key={item.id} value={item.id}>{data.subjects.find((candidate) => candidate.id === item.subjectId)?.name} — {data.classes.find((candidate) => candidate.id === item.classId)?.name}</option>)}</select></label>
+        <label className="grid gap-1 text-sm font-semibold">Cours<select className="input" value={assignment?.id} disabled={saving} onChange={(event) => requestTransition({ type: "assignment", value: event.target.value })}>{assignments.map((item) => <option key={item.id} value={item.id}>{data.subjects.find((candidate) => candidate.id === item.subjectId)?.name} — {data.classes.find((candidate) => candidate.id === item.classId)?.name}</option>)}</select></label>
         <div className="rounded border bg-white p-3"><p className="font-bold">{subject?.name} — {schoolClass?.name}</p><div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]"><input className="input" type="number" min="0.01" step="0.01" aria-label="Cote maximale" value={maxScore} readOnly={Boolean(config) && !editingMaxScore} onChange={(event) => setMaxScore(event.target.value)} /><button type="button" className="secondary-button justify-center" disabled={saving} onClick={() => { setEditingMaxScore(true); setConfirmation("maximum"); setConfirmationText(""); setSuccess(""); }}>{maxScoreActionLabel(Boolean(config))}</button></div>{confirmationPanel("maximum")}</div>
-        <label className="grid gap-1 text-sm font-semibold">Période<select className="input" value={slot} onChange={(event) => setSlot(event.target.value as EditableGradingSlot)}>{editableGradingSlots.map((value) => <option key={value} value={value}>{gradingSlotLabels[value]}</option>)}</select></label>
+        <label className="grid gap-1 text-sm font-semibold">Période<select className="input" value={slot} disabled={saving} onChange={(event) => requestTransition({ type: "slot", value: event.target.value })}>{editableGradingSlots.map((value) => <option key={value} value={value}>{gradingSlotLabels[value]}</option>)}</select></label>
         <p className="text-sm font-semibold">{progress.graded} / {progress.total} élèves cotés · {progress.status}</p>
         {!config ? <p className="rounded bg-amber-50 p-3 text-sm">Définissez la cote maximale de ce cours avant de commencer la cotation.</p> : students.length === 0 ? <p className="rounded bg-slate-50 p-3">Aucun élève actif n’est inscrit dans cette classe.</p> : <div className="grid gap-2">{students.map((student) => {
           const value = drafts[student.id] ?? { score: "", status: "not_graded" as const };
-          return <article key={student.id} className="grid gap-2 rounded border bg-white p-3 sm:grid-cols-[minmax(0,1fr)_120px_130px] sm:items-center"><span className="font-semibold">{student.nom} {student.postnom} {student.prenom}</span><input aria-label={`Cote de ${student.nom}`} className="input" type="number" min="0" max={config.maxScore} step="0.01" value={value.score} disabled={value.status === "absent"} onChange={(event) => setDrafts((current) => ({ ...current, [student.id]: { ...value, score: event.target.value, status: event.target.value === "" ? "not_graded" : "graded" } }))} /><select aria-label={`Statut de ${student.nom}`} className="input" value={value.status} onChange={(event) => setDrafts((current) => ({ ...current, [student.id]: { score: event.target.value === "graded" ? value.score : "", status: event.target.value === "graded" && value.score === "" ? "not_graded" : event.target.value as GradeEntry["status"] } }))}>{value.status === "absent" && <option value="absent" disabled>Absent (historique)</option>}<option value="not_graded">Non coté</option><option value="graded" disabled={value.score === ""}>Coté</option></select></article>;
+          return <article key={student.id} className="grid gap-2 rounded border bg-white p-3 sm:grid-cols-[minmax(0,1fr)_120px_130px] sm:items-center"><span className="font-semibold">{student.nom} {student.postnom} {student.prenom}</span><input aria-label={`Cote de ${student.nom}`} className="input" type="number" min="0" max={config.maxScore} step="0.01" value={value.score} disabled={saving || confirmation === "grade" || value.status === "absent"} onChange={(event) => setDrafts((current) => ({ ...current, [student.id]: { ...value, score: event.target.value, status: event.target.value === "" ? "not_graded" : "graded" } }))} /><select aria-label={`Statut de ${student.nom}`} className="input" value={value.status} disabled={saving || confirmation === "grade"} onChange={(event) => setDrafts((current) => ({ ...current, [student.id]: { score: event.target.value === "graded" ? value.score : "", status: event.target.value === "graded" && value.score === "" ? "not_graded" : event.target.value as GradeEntry["status"] } }))}>{value.status === "absent" && <option value="absent" disabled>Absent (historique)</option>}<option value="not_graded">Non coté</option><option value="graded" disabled={value.score === ""}>Coté</option></select></article>;
         })}<div><div className="grid grid-cols-2 gap-2"><button type="button" className="primary-button justify-center" disabled={saving} onClick={() => void saveEntries()}>{saving ? "Enregistrement…" : "Enregistrer"}</button><button type="button" className="pdf-export-button justify-center" disabled={saving || exportingPdf} aria-busy={exportingPdf} onClick={() => void exportPdf()}>{exportingPdf ? "Chargement…" : "Exporter PDF"}</button></div>{confirmationPanel("grade")}</div></div>}
       </>}
     </div>}
