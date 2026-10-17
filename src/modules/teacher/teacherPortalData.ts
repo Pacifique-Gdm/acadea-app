@@ -36,6 +36,15 @@ export function scopeTeacherPortalData(user: Pick<AppUser, "section" | "sectionI
 export const studyDayLabels: Record<StudyDay, string> = { monday: "Lundi", tuesday: "Mardi", wednesday: "Mercredi", thursday: "Jeudi", friday: "Vendredi", saturday: "Samedi" };
 export const orderedStudyDays = Object.keys(studyDayLabels) as StudyDay[];
 
+export function schoolCivilDateLabel(civilDate: string | undefined) {
+  if (!civilDate || !/^\d{4}-\d{2}-\d{2}$/.test(civilDate)) return undefined;
+  const date = new Date(`${civilDate}T12:00:00Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== civilDate) return undefined;
+  const parts = new Intl.DateTimeFormat("fr-FR", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long", year: "numeric" }).formatToParts(date);
+  const part = (type: string) => parts.find((item) => item.type === type)?.value;
+  return { weekday: part("weekday")?.toLocaleUpperCase("fr-FR"), date: `${part("day")} ${part("month")} ${part("year")}` };
+}
+
 export function schoolStudyDay(date: Date, timeZone: string | undefined): StudyDay | undefined {
   if (!timeZone) return undefined;
   try {

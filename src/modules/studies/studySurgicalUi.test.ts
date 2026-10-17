@@ -19,12 +19,13 @@ describe("positionnement des contrôles Direction des études", () => {
     expect(calendar.indexOf('>Annuler</button><button', form)).toBeGreaterThan(form);
     expect(calendar.slice(trigger - 110, trigger)).toContain("w-full min-w-0 justify-center");
   });
-  it("efface une erreur transitoire seulement après réception des données et offre le défilement visible", () => {
+  it("place une unique barre native dans le pied fixe du drawer", () => {
     expect(published).toContain("setValue(next); setError(\"\"); setLoading(false)");
-    expect(published).toContain("scrollRange.max > 1 &&");
+    expect(published).toContain('footer={<div ref={setFooterNode}');
+    expect(published).toContain('createPortal(<div ref={footerScrollRef}');
+    expect(published).toContain('className="scrollbar-thin w-full overflow-x-scroll overflow-y-hidden"');
     expect(published).toContain('aria-label="Faire défiler le tableau horizontalement"');
-    expect(published.indexOf("scrollRange.max > 1 &&")).toBeLessThan(published.indexOf("<div ref={tableScrollRef}"));
-    expect(published).toContain('className="w-full max-w-full overflow-hidden"');
-    expect(published).not.toContain("onScroll=");
+    expect(published).toContain('className="scrollbar-hidden w-full max-w-full overflow-x-auto"');
+    expect(published).not.toContain('type="range"');
   });
 });

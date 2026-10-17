@@ -4,10 +4,10 @@ import { describe, expect, it } from "vitest";
 describe("dashboard cards consistency", () => {
   it("renders the teacher dashboard without the duplicated daily-course band", () => {
     const source = readFileSync(new URL("./TeacherPortal.tsx", import.meta.url), "utf8");
-    expect(source).toContain('<DashboardCard title="Cours aujourd’hui"');
+    expect(source).toContain('currentSchoolDay?.weekday ? `Cours aujourd\'hui – ${currentSchoolDay.weekday}`');
     expect(source).toContain('<DashboardCard title="Prochain cours"');
     expect(source).not.toContain("Cours du jour");
-    expect(source).toContain("Aucun cours prévu aujourd’hui.");
+    expect(source).toContain("Aucun cours n'est programmé pour aujourd'hui.");
     expect(source).toContain("{dashboardMessage}");
     expect(source).toContain("Aucun prochain cours disponible.");
     expect(source).toContain("Suspendu");

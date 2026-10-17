@@ -36,6 +36,13 @@ textarea {
   scrollbar-width: thin;
 }
 
+.scrollbar-hidden {
+  scrollbar-width: none;
+}
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
 @media print {
   body {
     background: white;

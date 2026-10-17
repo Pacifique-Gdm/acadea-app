@@ -92,4 +92,44 @@ describe("affectation et grant Storage dans une transaction serveur", () => {
     expect(records.get(`classTitulars/${school}__${year}__${childId}`)?.assignmentId).toBe(assignmentId);
     expect(records.get(`users/${uid}`)?.storageAssignmentKeys).toEqual([`${school}/${year}/${teacher}/${assignmentId}`]);
   });
+  it("refuse une classe opérationnelle sans clé d'option et une option d'une autre classe", async () => {
+    const operationalId = "operational-a";
+    const ambiguousLegacyId = `${schoolClass}::a`;
+    const otherBase = "class-b";
+    const otherOption = `${otherBase}::commerciale`;
+    const { db, records } = database({
+      ...fixtures(),
+      [`classes/${operationalId}`]: { id: operationalId, schoolId: school, schoolYearId: year, name: "Classe A", parentClassId: schoolClass, option: "Classe A", active: true },
+      [`classes/${ambiguousLegacyId}`]: { id: ambiguousLegacyId, schoolId: school, schoolYearId: year, name: "Classe A", parentClassId: schoolClass, active: true },
+      [`classes/${otherBase}`]: { id: otherBase, schoolId: school, schoolYearId: year, name: "Classe B", active: true },
+      [`classes/${otherOption}`]: { id: otherOption, schoolId: school, schoolYearId: year, name: "Commerciale", parentClassId: otherBase, classOptionKey: otherOption, active: true },
+    });
+    const scoped = (targetOptionIds: string[]) => ({ ...input, classSelections: [{ classId: schoolClass, courseScope: "option", targetOptionIds }] });
+    await expect(saveStudyAssignments({ db, caller: actor, body: scoped([operationalId]) })).rejects.toThrow("aucune option configurable");
+    await expect(saveStudyAssignments({ db, caller: actor, body: scoped([ambiguousLegacyId]) })).rejects.toThrow("aucune option configurable");
+    await expect(saveStudyAssignments({ db, caller: actor, body: scoped([otherOption]) })).rejects.toThrow("aucune option configurable");
+    expect([...records.keys()].filter((path) => path.startsWith("pedagogicalAssignments/"))).toEqual([]);
+  });
+  it("enregistre puis modifie l'affectation avec l'option de la nouvelle classe sans altérer l'historique", async () => {
+    const firstOption = `${schoolClass}::sciences`;
+    const secondClass = "class-b";
+    const secondOption = `${secondClass}::commerciale`;
+    const { db, records } = database({
+      ...fixtures(),
+      [`classes/${firstOption}`]: { id: firstOption, schoolId: school, schoolYearId: year, name: "Sciences", parentClassId: schoolClass, classOptionKey: firstOption, active: true },
+      [`classes/${secondClass}`]: { id: secondClass, schoolId: school, schoolYearId: year, name: "Classe B", active: true },
+      [`classes/${secondOption}`]: { id: secondOption, schoolId: school, schoolYearId: year, name: "Commerciale", parentClassId: secondClass, classOptionKey: secondOption, active: true },
+    });
+    const body = { ...input, classSelections: [{ classId: schoolClass, courseScope: "option", targetOptionIds: [firstOption] }] };
+    await saveStudyAssignments({ db, caller: actor, body });
+    const historicalId = `${school}__${year}__${teacher}__${subject}__${schoolClass}__option--${encodeURIComponent(firstOption)}`;
+    expect(records.get(`pedagogicalAssignments/${historicalId}`)?.targetOptionIds).toEqual([firstOption]);
+    await expect(saveStudyAssignments({ db, caller: actor, body: { ...body, currentId: historicalId, classSelections: [{ classId: secondClass, courseScope: "option", targetOptionIds: [firstOption] }] } })).rejects.toThrow("Option hors périmètre");
+    await saveStudyAssignments({ db, caller: actor, body: { ...body, currentId: historicalId, classSelections: [{ classId: secondClass, courseScope: "option", targetOptionIds: [secondOption] }] } });
+    const newId = `${school}__${year}__${teacher}__${subject}__${secondClass}__option--${encodeURIComponent(secondOption)}`;
+    expect(records.get(`pedagogicalAssignments/${historicalId}`)?.active).toBe(false);
+    expect(records.get(`pedagogicalAssignments/${historicalId}`)?.targetOptionIds).toEqual([firstOption]);
+    expect(records.get(`pedagogicalAssignments/${newId}`)?.targetOptionIds).toEqual([secondOption]);
+    expect(records.get(`users/${uid}`)?.storageAssignmentKeys).toEqual([`${school}/${year}/${teacher}/${newId}`]);
+  });
 });

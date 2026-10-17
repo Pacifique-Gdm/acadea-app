@@ -13,8 +13,8 @@ export interface AssignmentClassSelection {
 
 const normalizedIds = (values?: readonly string[]) => [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))].sort();
 
-export function classOptionId(item: Pick<StudyClass, "id" | "classOptionKey" | "option">) {
-  return operationalClassOptionKey(item) || (item.option?.trim() ? item.id : undefined);
+export function classOptionId(item: Pick<StudyClass, "id" | "classOptionKey" | "option"> & { subClassLabel?: string }) {
+  return operationalClassOptionKey(item) || (item.option?.trim() && !item.subClassLabel ? item.id : undefined);
 }
 
 export function baseStudyClassId(item: Pick<StudyClass, "id" | "parentClassId" | "classOptionKey">) {
@@ -22,7 +22,41 @@ export function baseStudyClassId(item: Pick<StudyClass, "id" | "parentClassId" |
 }
 
 export function optionClassesForBaseClass(classes: readonly StudyClass[], classId: string) {
-  return classes.filter((item) => baseStudyClassId(item) === classId && Boolean(classOptionId(item)));
+  const base = classes.find((item) => item.id === classId);
+  const assignmentOptionId = (item: StudyClass) => {
+    const key = item.classOptionKey?.trim();
+    return key?.startsWith(`${classId}::`) && key.length > classId.length + 2 ? key : undefined;
+  };
+  const inactiveOptions = new Set(classes.filter((item) => item.active === false && item.id === assignmentOptionId(item)).map((item) => assignmentOptionId(item)!));
+  const options = new Map<string, StudyClass>();
+  classes.filter((item) => item.id !== classId && item.active !== false && baseStudyClassId(item) === classId
+    && (!base || item.schoolId === base.schoolId && item.schoolYearId === base.schoolYearId)).forEach((item) => {
+    const id = assignmentOptionId(item);
+    if (!id || inactiveOptions.has(id)) return;
+    const current = options.get(id);
+    if (!current || current.subClassLabel && !item.subClassLabel || item.id === id && current.id !== id) options.set(id, item);
+  });
+  return [...options.values()];
+}
+
+export function assignmentOptionChoices(classes: readonly StudyClass[], classId: string, schoolOptions: readonly string[] = []) {
+  return optionClassesForBaseClass(classes, classId).map((item) => {
+    const id = item.classOptionKey!.trim();
+    const configured = schoolOptions.find((option) => schoolClassOptionKey(classId, option) === id);
+    const documented = item.option?.trim();
+    return { id, label: configured ?? (documented && schoolClassOptionKey(classId, documented) === id ? documented : undefined) ?? id.split("::").at(-1) ?? id };
+  }).sort((left, right) => left.label.localeCompare(right.label, "fr", { sensitivity: "base" }) || left.id.localeCompare(right.id));
+}
+
+export type AssignmentClassScope = { courseScope: CourseScope | ""; targetOptionIds: string[] };
+
+export function retainAssignmentClassScopes(scopes: Record<string, AssignmentClassScope>, classIds: readonly string[], classes: readonly StudyClass[], schoolOptions: readonly string[] = []) {
+  return Object.fromEntries(classIds.flatMap((classId) => {
+    const scope = scopes[classId];
+    if (!scope) return [];
+    const allowed = new Set(assignmentOptionChoices(classes, classId, schoolOptions).map((item) => item.id));
+    return [[classId, { ...scope, targetOptionIds: scope.targetOptionIds.filter((id) => allowed.has(id)) }]];
+  })) as Record<string, AssignmentClassScope>;
 }
 
 /**
@@ -125,7 +159,7 @@ export function assignmentsShareStudents(first: PedagogicalAssignment, second: P
 }
 
 export function validateAssignmentClassSelection(selection: AssignmentClassSelection, classes: readonly StudyClass[]) {
-  const availableOptionIds = new Set(optionClassesForBaseClass(classes, selection.classId).map((item) => classOptionId(item)!));
+  const availableOptionIds = new Set(assignmentOptionChoices(classes, selection.classId).map((item) => item.id));
   const targetOptionIds = normalizedIds(selection.targetOptionIds);
   if (availableOptionIds.size === 0) {
     return selection.courseScope || targetOptionIds.length ? "Cette classe ne possède aucune option configurable." : "";

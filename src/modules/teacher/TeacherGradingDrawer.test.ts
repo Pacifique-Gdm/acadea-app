@@ -42,8 +42,8 @@ describe("Actualisation des élèves de la fiche", () => {
 
 describe("ergonomie des confirmations de cotation", () => {
   const drawer = readFileSync(new URL("./TeacherGradingDrawer.tsx", import.meta.url), "utf8");
-  it("verrouille et floute uniquement le champ du maximum persisté", () => {
-    expect(drawer).toContain('config && !editingMaxScore ? "blur-sm" : ""');
+  it("verrouille le maximum persisté en gardant sa valeur lisible", () => {
+    expect(drawer).not.toContain('blur-sm');
     expect(drawer).toContain('readOnly={Boolean(config) && !editingMaxScore}');
   });
   it("ancre chaque confirmation auprès de son action et efface les succès temporaires", () => {

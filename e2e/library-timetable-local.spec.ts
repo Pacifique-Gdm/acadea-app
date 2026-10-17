@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { deleteApp, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
-import { getFirestore } from "firebase-admin/firestore";
+import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { expect, test, type Browser, type Page, type Route } from "@playwright/test";
 import publishedHandler from "../api/manage-teacher-availability-request.js";
 
@@ -149,6 +149,84 @@ test.describe("Bibliothèque et horaires — navigateur local isolé", () => {
     await deleteApp(app);
   });
 
+  test("Études : les options d'affectation suivent uniquement la classe choisie, y compris en modification", async ({ browser }) => {
+    const firstClass = `${schoolId}-option-base-a`;
+    const secondClass = `${schoolId}-option-base-b`;
+    const firstOption = `${firstClass}::sciences`;
+    const secondOption = `${firstClass}::pedagogie`;
+    const otherOption = `${secondClass}::commerciale`;
+    const optionAssignmentId = `${schoolId}-option-assignment`;
+    const created = [
+      `classes/${firstClass}`, `classes/${secondClass}`, `classes/${firstOption}`, `classes/${secondOption}`, `classes/${otherOption}`,
+      `students/${schoolId}-option-student-a`, `students/${schoolId}-option-student-b`, `students/${schoolId}-option-student-c`,
+      `pedagogicalAssignments/${optionAssignmentId}`,
+    ];
+    const teacherUser = db.doc(`users/${accounts.teacher.uid}`);
+    const testBrowser = await contextFor(browser);
+    try {
+      await teacherUser.update({ section: "Secondaire", sectionIds: ["Secondaire"] });
+      const records = [
+        [created[0], { id: firstClass, schoolId, schoolYearId: yearId, name: "3ème Humanité", section: "Secondaire", active: true }],
+        [created[1], { id: secondClass, schoolId, schoolYearId: yearId, name: "2ème Humanité", section: "Secondaire", active: true }],
+        [created[2], { id: firstOption, schoolId, schoolYearId: yearId, name: "3ème Sciences", parentClassId: firstClass, classOptionKey: firstOption, option: "Sciences", section: "Secondaire", active: true }],
+        [created[3], { id: secondOption, schoolId, schoolYearId: yearId, name: "3ème Pédagogie", parentClassId: firstClass, classOptionKey: secondOption, option: "Pédagogie", section: "Secondaire", active: true }],
+        [created[4], { id: otherOption, schoolId, schoolYearId: yearId, name: "2ème Commerciale", parentClassId: secondClass, classOptionKey: otherOption, option: "Commerciale", section: "Secondaire", active: true }],
+        [created[5], { id: `${schoolId}-option-student-a`, schoolId, schoolYearId: yearId, classId: firstClass, className: "3ème Humanité", classOptionKey: firstOption, option: "Sciences", section: "Secondaire", status: "ACTIVE" }],
+        [created[6], { id: `${schoolId}-option-student-b`, schoolId, schoolYearId: yearId, classId: firstClass, className: "3ème Humanité", classOptionKey: secondOption, option: "Pédagogie", section: "Secondaire", status: "ACTIVE" }],
+        [created[7], { id: `${schoolId}-option-student-c`, schoolId, schoolYearId: yearId, classId: secondClass, className: "2ème Humanité", classOptionKey: otherOption, option: "Commerciale", section: "Secondaire", status: "ACTIVE" }],
+        [created[8], { id: optionAssignmentId, schoolId, schoolYearId: yearId, teacherId, subjectId: `${schoolId}-subject`, classId: firstClass, courseScope: "option", targetOptionIds: [firstOption], weeklyPeriods: 2, active: true }],
+      ] as const;
+      const batch = db.batch();
+      records.forEach(([path, value]) => batch.set(db.doc(path), value));
+      await batch.commit();
+
+      await login(testBrowser.page, accounts.studies);
+      await testBrowser.page.getByRole("button", { name: "Enseignants", exact: true }).last().click();
+      await testBrowser.page.getByRole("button", { name: "Aline Test", exact: true }).click();
+      const teacherDrawer = testBrowser.page.getByRole("dialog", { name: "Fiche pédagogique — Aline Test" });
+      await teacherDrawer.getByRole("button", { name: "Ajouter affectation" }).click();
+      let assignmentDrawer = testBrowser.page.getByRole("dialog", { name: "Ajouter une affectation" });
+      const selectClass = async (name: string) => {
+        await assignmentDrawer.locator('button[aria-haspopup="listbox"]').nth(1).click();
+        await testBrowser.page.getByRole("listbox").getByRole("option", { name, exact: true }).click();
+        await testBrowser.page.keyboard.press("Escape");
+      };
+      await selectClass("3ème Humanité");
+      const firstGroup = assignmentDrawer.getByRole("group", { name: "Organisation du cours — 3ème Humanité" });
+      await firstGroup.getByLabel("Type de cours").selectOption("option");
+      await expect(firstGroup.getByLabel("Option concernée").locator("option")).toHaveText(["Choisir", "Pédagogie", "Sciences"]);
+      await firstGroup.getByLabel("Option concernée").selectOption(firstOption);
+      await selectClass("3ème Humanité");
+      await selectClass("2ème Humanité");
+      const secondGroup = assignmentDrawer.getByRole("group", { name: "Organisation du cours — 2ème Humanité" });
+      await secondGroup.getByLabel("Type de cours").selectOption("option");
+      await expect(secondGroup.getByLabel("Option concernée").locator("option")).toHaveText(["Choisir", "Commerciale"]);
+      await expect(secondGroup.getByLabel("Option concernée")).toHaveValue("");
+      await assignmentDrawer.getByRole("button", { name: "Annuler", exact: true }).click();
+
+      await teacherDrawer.locator("article", { hasText: "Sciences" }).getByRole("button", { name: "Modifier l’affectation" }).click();
+      assignmentDrawer = testBrowser.page.getByRole("dialog", { name: "Modifier l’affectation" });
+      const editingGroup = assignmentDrawer.getByRole("group", { name: "Organisation du cours — 3ème Humanité" });
+      await expect(editingGroup.getByLabel("Option concernée")).toHaveValue(firstOption);
+      await selectClass("3ème Humanité");
+      await selectClass("2ème Humanité");
+      const changedGroup = assignmentDrawer.getByRole("group", { name: "Organisation du cours — 2ème Humanité" });
+      await changedGroup.getByLabel("Type de cours").selectOption("option");
+      await expect(changedGroup.getByLabel("Option concernée").locator("option")).toHaveText(["Choisir", "Commerciale"]);
+      await expect(changedGroup.getByLabel("Option concernée")).toHaveValue("");
+      await testBrowser.page.reload();
+      await testBrowser.page.getByRole("button", { name: "Enseignants", exact: true }).last().click();
+      await testBrowser.page.getByRole("button", { name: "Aline Test", exact: true }).click();
+      await testBrowser.page.getByRole("dialog", { name: "Fiche pédagogique — Aline Test" }).locator("article", { hasText: "Sciences" }).getByRole("button", { name: "Modifier l’affectation" }).click();
+      await expect(testBrowser.page.getByRole("dialog", { name: "Modifier l’affectation" }).getByLabel("Option concernée")).toHaveValue(firstOption);
+      expect(testBrowser.remote).toEqual([]);
+    } finally {
+      await testBrowser.context.close();
+      for (const path of created.reverse()) await db.doc(path).delete();
+      await teacherUser.update({ section: FieldValue.delete(), sectionIds: FieldValue.delete() });
+    }
+  });
+
   test("Administrateur : Bibliothèque identique aux Études, thème sombre et états HTTP", async ({ browser }) => {
     const admin = await contextFor(browser, { colorScheme: "dark" });
     const studies = await contextFor(browser);
@@ -204,10 +282,10 @@ test.describe("Bibliothèque et horaires — navigateur local isolé", () => {
     } finally { await timetable.context.close(); }
   });
 
-  test("Horaire publié : commande horizontale visible et stable sur mobile", async ({ browser }) => {
+  test("Horaire publié : barre horizontale fixe en bas du drawer", async ({ browser }) => {
     const timetable = await contextFor(browser);
     try {
-      await timetable.page.setViewportSize({ width: 390, height: 550 });
+      await timetable.page.setViewportSize({ width: 390, height: 340 });
       await login(timetable.page, accounts.admin);
       await timetable.page.getByRole("button", { name: "Menu", exact: true }).last().click();
       await timetable.page.getByRole("button", { name: "Horaire publié" }).click();
@@ -218,19 +296,37 @@ test.describe("Bibliothèque et horaires — navigateur local isolé", () => {
       expect(controlBoxes.every((box) => box && Math.abs((box.y + box.height / 2) - (controlBoxes[0]!.y + controlBoxes[0]!.height / 2)) < 3), JSON.stringify(controlBoxes)).toBe(true);
       const drawerBox = await dialog.boundingBox();
       expect(controlBoxes[3]!.x + controlBoxes[3]!.width).toBeLessThanOrEqual(drawerBox!.x + drawerBox!.width);
-      const slider = dialog.getByRole("slider", { name: "Faire défiler le tableau horizontalement" });
-      await expect(slider).toBeInViewport();
+      const scrollbar = dialog.getByRole("region", { name: "Faire défiler le tableau horizontalement" });
+      await expect(scrollbar).toBeInViewport();
       const region = dialog.getByRole("region", { name: "Tableau de l’horaire publié" });
-      expect(await region.evaluate((element) => getComputedStyle(element).overflowX)).not.toBe("auto");
-      await slider.fill(await slider.getAttribute("max") ?? "0");
+      expect(await region.evaluate((element) => getComputedStyle(element).overflowX)).toBe("auto");
+      const [scrollbarBox, dialogBox] = await Promise.all([scrollbar.boundingBox(), dialog.boundingBox()]);
+      expect(scrollbarBox!.y + scrollbarBox!.height).toBeGreaterThan(dialogBox!.y + dialogBox!.height - 45);
+      const content = dialog.locator(".overflow-y-auto").first();
+      expect(await content.evaluate((element) => element.scrollHeight - element.clientHeight)).toBeGreaterThan(0);
+      const initialY = scrollbarBox!.y;
+      await content.evaluate((element) => { element.scrollTop = element.scrollHeight / 2; });
+      expect((await scrollbar.boundingBox())!.y).toBeCloseTo(initialY, 0);
+      await content.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+      expect((await scrollbar.boundingBox())!.y).toBeCloseTo(initialY, 0);
+      const maxScroll = await scrollbar.evaluate((element) => element.scrollWidth - element.clientWidth);
+      expect(maxScroll).toBeGreaterThan(0);
+      await scrollbar.evaluate((element) => { element.scrollLeft = element.scrollWidth; });
+      await expect.poll(() => region.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
       await expect(region.getByRole("columnheader", { name: "Enseignant" })).toBeInViewport();
-      await slider.fill("0");
+      await scrollbar.evaluate((element) => { element.scrollLeft = 0; });
+      await expect.poll(() => region.evaluate((element) => element.scrollLeft)).toBe(0);
       await expect(region.getByRole("columnheader", { name: "Jour" })).toBeInViewport();
-      await slider.fill(await slider.getAttribute("max") ?? "0");
+      await dialog.getByRole("combobox", { name: "Type de filtre" }).selectOption("day");
+      await dialog.getByRole("combobox", { name: "Valeur du filtre" }).selectOption({ label: "Mercredi" });
+      await expect(dialog.getByRole("row")).toHaveCount(3);
+      await expect(scrollbar).toBeInViewport();
+      await dialog.getByRole("button", { name: "Réinitialiser" }).click();
+      await scrollbar.evaluate((element) => { element.scrollLeft = element.scrollWidth; });
       await timetable.page.setViewportSize({ width: 768, height: 650 });
-      await expect(dialog).toBeVisible();
+      await expect(scrollbar).toBeInViewport();
       await timetable.page.setViewportSize({ width: 1440, height: 900 });
-      await expect(dialog).toBeVisible();
+      await expect(scrollbar).toBeInViewport();
       await dialog.getByRole("button", { name: "Fermer l’horaire publié" }).click();
       await timetable.page.setViewportSize({ width: 390, height: 550 });
       await timetable.page.getByRole("button", { name: "Horaire publié" }).click();
@@ -269,9 +365,14 @@ test.describe("Bibliothèque et horaires — navigateur local isolé", () => {
     let publicationChanged = false;
     try {
       await login(teacher.page, accounts.teacher);
+      await teacher.page.getByRole("button", { name: "Menu", exact: true }).click();
+      await expect(teacher.page.getByRole("button", { name: /Fiche de cotation/ })).toBeVisible();
+      await expect(teacher.page.getByText("Documents pédagogiques")).toHaveCount(0);
+      await expect(teacher.page.getByText("Ma progression pédagogique")).toHaveCount(0);
+      await teacher.page.getByRole("button", { name: "Dashboard" }).click();
       await teacher.page.clock.install({ time: new Date("2026-10-14T06:59:30Z") });
       await teacher.page.reload();
-      await expect(teacher.page.getByText("Votre prochain cours n'a pas encore commencé.")).toBeVisible();
+      await expect(teacher.page.getByText("Prochain cours le : MERCREDI – 14 octobre 2026")).toBeVisible();
       await teacher.page.clock.fastForward(70_000);
       await expect(teacher.page.getByText("Cours en cours")).toBeVisible();
       await teacher.page.getByRole("button", { name: "Mon horaire" }).click();
@@ -296,7 +397,7 @@ test.describe("Bibliothèque et horaires — navigateur local isolé", () => {
     const studies = await contextFor(browser);
     try {
       await login(teacher.page, accounts.teacher);
-      await expect(teacher.page.getByText("Aucun cours prévu aujourd’hui.", { exact: true })).toBeVisible();
+      await expect(teacher.page.getByText("Aucun cours n'est programmé pour aujourd'hui.", { exact: true })).toBeVisible();
       await teacher.page.clock.fastForward(70_000);
       await expect(teacher.page.getByText("Géographie").first()).toBeVisible();
       const existingCalendar = await db.doc(`schoolCalendars/${yearId}`).get();

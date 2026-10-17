@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { PedagogicalAssignment, SchedulePeriod, StudyClass, StudySubject, TimetableEntry } from "../studies/studyTypes";
-import { currentStudyDay, nextTeacherEntry, schoolStudyDay, scopeTeacherPortalData, teacherCourseState, teacherEntriesForDay, teacherNextAvailableCourse, weeklyWorkload } from "./teacherPortalData";
+import { currentStudyDay, nextTeacherEntry, schoolCivilDateLabel, schoolStudyDay, scopeTeacherPortalData, teacherCourseState, teacherEntriesForDay, teacherNextAvailableCourse, weeklyWorkload } from "./teacherPortalData";
 import type { SchoolCalendar } from "../studies/schoolCalendar";
 
 const periods = [
@@ -104,5 +104,12 @@ describe("données du portail Enseignant", () => {
     expect(source).toContain('where("status", "==", "PUBLISHED")');
     expect(source).toContain('where("activePublished", "==", true)');
     expect(source).not.toContain('where("persistenceState", "==", "COMPLETE")');
+  });
+
+  it("affiche un jour et une date cohérents aux changements de mois et d'année", () => {
+    expect(schoolCivilDateLabel("2026-10-19")).toEqual({ weekday: "LUNDI", date: "19 octobre 2026" });
+    expect(schoolCivilDateLabel("2026-12-31")).toEqual({ weekday: "JEUDI", date: "31 décembre 2026" });
+    expect(schoolCivilDateLabel("2027-01-01")).toEqual({ weekday: "VENDREDI", date: "1 janvier 2027" });
+    expect(schoolCivilDateLabel("2026-02-30")).toBeUndefined();
   });
 });
