@@ -19,6 +19,9 @@ describe("StudyTeachers assignment editor contract", () => {
     expect(moduleSource).toContain('MultiSelectDropdown label="Cours"');
     expect(moduleSource).toContain('MultiSelectDropdown label="Classes"');
     expect(moduleSource).not.toContain("disabled={Boolean(editingAssignment)}");
+    for (const label of ["Cours", "Classes", "Options concernées", "Titulaire de la classe (facultatif)"]) {
+      expect(moduleSource).toContain(`MultiSelectDropdown label="${label}" inline`);
+    }
   });
 
   it("pre-fills current teacher, course, class and functional values", () => {
