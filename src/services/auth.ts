@@ -17,6 +17,8 @@ interface FirebaseAuthModule {
   signOut: (authInstance: unknown) => Promise<void>;
 }
 
+export const ARCHIVED_TEACHER_LOGIN_MARKER = "archived-teacher-account";
+
 type FirebaseUser = {
   uid: string;
   email: string | null;
@@ -93,7 +95,7 @@ function resolveFirebaseUserProfile(firebaseUser: FirebaseUser, firestoreDocumen
   }
 
   if (firestoreDocument.status === "inactive" || firestoreDocument.active === false) {
-    throw new Error("Votre compte n’est plus actif dans cet établissement.");
+    throw new Error(claims.role === "teacher" ? ARCHIVED_TEACHER_LOGIN_MARKER : "Votre compte n’est plus actif dans cet établissement.");
   }
   markAuthStep("auth:role-resolved");
   const rawProfile = {
@@ -223,7 +225,7 @@ export async function subscribeToFirebaseUser(
           return;
         }
         if (profile?.status === "inactive" || profile?.active === false) {
-          failBootstrap(new Error("Votre compte n’est plus actif dans cet établissement."), currentGeneration);
+          failBootstrap(new Error(profile?.role === "teacher" ? ARCHIVED_TEACHER_LOGIN_MARKER : "Votre compte n’est plus actif dans cet établissement."), currentGeneration);
           void authModule.signOut(auth);
           return;
         }

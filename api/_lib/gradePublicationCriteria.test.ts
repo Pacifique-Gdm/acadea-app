@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { feeAppliesToPublishedStudent, qualifiesForPublication, validatedFeePaidMinor, validatePublicationCriteria } from "./gradePublicationCriteria.js";
+import { feeAppliesToPublishedStudent, publicationFeeGroups, qualifiesForPublication, validatedFeePaidMinor, validatePublicationCriteria } from "./gradePublicationCriteria.js";
 
 describe("critères de publication", () => {
   const evaluation = { complete: true, percentage: 60 };
@@ -33,5 +33,27 @@ describe("critères de publication", () => {
     expect(feeAppliesToPublishedStudent(fee, { className: "4ème Humanité", option: "Scientifique", classOptionKey: "operational-class-id" })).toBe(true);
     expect(feeAppliesToPublishedStudent(fee, { className: "4ème Humanité", option: "Littéraire" })).toBe(false);
     expect(feeAppliesToPublishedStudent({ className: "4ème Humanité" }, { className: "4ème Humanité", option: "Littéraire" })).toBe(true);
+  });
+  it("isole les frais par classe et option, sans masquer deux configurations distinctes", () => {
+    const base = { schoolId: "school", schoolYearId: "year", name: "Minerval", amount: 100 };
+    const fees = [
+      { ...base, id: "a", classOptionKey: "4ème Humanité::option::Scientifique" },
+      { ...base, id: "b", classOptionKey: "4ème Humanité::option::Scientifique" },
+      { ...base, id: "c", classOptionKey: "4ème Humanité::option::Littéraire" },
+      { ...base, id: "d", classOptionKey: "4ème Humanité::option::Scientifique", amount: 150 },
+      { ...base, id: "e", className: "3ème Humanité" },
+      { ...base, id: "f", className: "4ème Humanité" },
+      { ...base, id: "g" },
+    ];
+    const scientific = { className: "4ème Humanité", option: "Scientifique" };
+    expect(publicationFeeGroups(fees, [scientific]).map((group) => [group.id, group.feeTypeIds])).toEqual([
+      ["a", ["a", "b"]], ["d", ["d"]], ["f", ["f"]], ["g", ["g"]],
+    ]);
+    expect(publicationFeeGroups(fees, [scientific, { className: "4ème Humanité", option: "Littéraire" }]).map((group) => group.id)).toEqual(["f", "g"]);
+    expect(publicationFeeGroups(fees, [])).toEqual([]);
+    expect(validatedFeePaidMinor([
+      { schoolId: "school", schoolYearId: "year", studentId: "student", feeTypeId: "a", amount: 25, currency: "CDF" },
+      { schoolId: "school", schoolYearId: "year", studentId: "student", feeTypeId: "b", amount: 30, currency: "CDF" },
+    ], { schoolId: "school", schoolYearId: "year", studentId: "student", feeTypeId: "a", feeTypeIds: ["a", "b"], currency: "CDF" })).toBe(5500);
   });
 });

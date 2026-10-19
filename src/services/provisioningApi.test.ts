@@ -597,7 +597,7 @@ describe("API de provisionnement Acadéa", () => {
     await provisionSchoolAccount(request({ action: "archive-personnel", schoolId: "school-1", personnelId: "teacher-1" }), res);
 
     expect(res.statusCode).toBe(200);
-    expect(mocks.auth.updateUser).toHaveBeenCalledWith("teacher-1", { disabled: true });
+    expect(mocks.auth.updateUser).not.toHaveBeenCalled();
     expect(mocks.auth.revokeRefreshTokens).toHaveBeenCalledWith("teacher-1");
     expect(mocks.auth.deleteUser).not.toHaveBeenCalled();
     const batch = mocks.db.batch.mock.results[0]?.value;
@@ -623,6 +623,41 @@ describe("API de provisionnement Acadéa", () => {
     expect(batch.commit).toHaveBeenCalledTimes(1);
   });
 
+  it("libère dès l'archivage les responsabilités de A sans toucher au remplaçant B ni à l'historique", async () => {
+    const teacherRef = { path: "teachers/profile-a" };
+    const assignmentA = { path: "pedagogicalAssignments/assignment-a" };
+    const assignmentB = { path: "pedagogicalAssignments/assignment-b" };
+    const oldAssignment = { path: "pedagogicalAssignments/assignment-old" };
+    const lockPath = "pedagogicalAssignmentLocks/school-1__year-1__math__class-1";
+    mocks.db.doc.mockImplementation((path: string) => ({ path, get: vi.fn().mockResolvedValue({ exists: true, data: () => path === "schools/school-1" ? { status: "active", activeSchoolYearId: "year-1" } : path === lockPath ? { assignmentId: "assignment-a" } : path === "users/admin-1" ? { role: "school_admin", schoolId: "school-1", status: "active" } : { role: "teacher", schoolId: "school-1", status: "active", active: true } }) }));
+    mocks.db.collection.mockImplementation((name: string) => ({ doc: vi.fn(() => ({ id: "audit-test" })), where: vi.fn(() => ({ get: vi.fn().mockResolvedValue({ docs: name === "teachers" ? [{ id: "profile-a", ref: teacherRef, data: () => ({ schoolId: "school-1", schoolYearId: "year-1", status: "active" }) }] : name === "pedagogicalAssignments" ? [
+      { id: "assignment-a", ref: assignmentA, data: () => ({ teacherId: "profile-a", schoolId: "school-1", schoolYearId: "year-1", subjectId: "math", classId: "class-1", active: true }) },
+      { id: "assignment-b", ref: assignmentB, data: () => ({ teacherId: "profile-b", schoolId: "school-1", schoolYearId: "year-1", active: true }) },
+      { id: "assignment-old", ref: oldAssignment, data: () => ({ teacherId: "profile-a", schoolId: "school-1", schoolYearId: "year-0", active: true }) },
+    ] : [] }) })) }));
+    const res = response();
+    await provisionSchoolAccount(request({ action: "archive-personnel", schoolId: "school-1", personnelId: "teacher-1" }), res);
+    expect(res.statusCode).toBe(200);
+    const batch = mocks.db.batch.mock.results[0]?.value;
+    expect(batch.update).toHaveBeenCalledWith(assignmentA, expect.objectContaining({ active: false }));
+    expect(batch.update).not.toHaveBeenCalledWith(assignmentB, expect.anything());
+    expect(batch.update).not.toHaveBeenCalledWith(oldAssignment, expect.anything());
+    expect(batch.delete).toHaveBeenCalledWith(expect.objectContaining({ path: lockPath }));
+    expect(mocks.auth.revokeRefreshTokens).toHaveBeenCalledWith("teacher-1");
+  });
+
+  it("recrée seulement un profil vide pour l'année active lors d'une réactivation sans profil courant", async () => {
+    mocks.auth.getUser.mockResolvedValue({ uid: "teacher-1", disabled: false, customClaims: { role: "teacher", schoolId: "school-1" } });
+    mocks.db.doc.mockImplementation((path: string) => ({ path, get: vi.fn().mockResolvedValue({ exists: true, data: () => path === "schools/school-1" ? { activeSchoolYearId: "year-1", status: "active" } : path === "users/admin-1" ? { role: "school_admin", schoolId: "school-1", status: "active" } : { role: "teacher", schoolId: "school-1", status: "inactive", active: false } }) }));
+    const res = response();
+    await provisionSchoolAccount(request({ action: "reactivate-personnel", schoolId: "school-1", personnelId: "teacher-1" }), res);
+    expect(res.statusCode).toBe(200);
+    const batch = mocks.db.batch.mock.results[0]?.value;
+    expect(batch.set).toHaveBeenCalledWith(expect.objectContaining({ path: "teachers/school-1__year-1__teacher-1" }), expect.objectContaining({ status: "active", storageAssignmentIds: [] }));
+    expect(batch.delete).not.toHaveBeenCalled();
+    expect(mocks.auth.createUser).not.toHaveBeenCalled();
+  });
+
   it("archive tous les profils annuels du même Enseignant sans toucher une autre école", async () => {
     const profiles = [
       { id: "year-1", ref: { path: "teachers/year-1" }, data: () => ({ userId: "teacher-1", schoolId: "school-1", schoolYearId: "year-1", status: "active" }) },
@@ -644,7 +679,9 @@ describe("API de provisionnement Acadéa", () => {
   it("répare un profil Enseignant encore actif quand users est déjà archivé, puis reste idempotent", async () => {
     const teacherState: { status: string; active?: boolean } = { status: "active" };
     const teacherRef = { path: "teachers/profile-1" };
-    mocks.auth.getUser.mockResolvedValue({ uid: "teacher-1", disabled: true, customClaims: { role: "teacher", schoolId: "school-1" } });
+    let authDisabled = true;
+    mocks.auth.getUser.mockImplementation(async () => ({ uid: "teacher-1", disabled: authDisabled, customClaims: { role: "teacher", schoolId: "school-1" } }));
+    mocks.auth.updateUser.mockImplementation(async (_uid: string, patch: { disabled: boolean }) => { authDisabled = patch.disabled; });
     mocks.db.collection.mockImplementation((name: string) => ({
       doc: vi.fn(() => ({ id: "audit-test" })),
       where: vi.fn(() => ({ get: vi.fn().mockImplementation(async () => ({ docs: name === "teachers" ? [{ id: "profile-1", ref: teacherRef, data: () => ({ userId: "teacher-1", schoolId: "school-1", schoolYearId: "year-1", ...teacherState }) }] : [] })) })),
@@ -657,6 +694,7 @@ describe("API de provisionnement Acadéa", () => {
     const batch = mocks.db.batch.mock.results[0]?.value;
     expect(batch.update).toHaveBeenCalledWith(teacherRef, expect.objectContaining({ status: "inactive", active: false }));
     expect(batch.update).not.toHaveBeenCalledWith(expect.objectContaining({ path: "users/teacher-1" }), expect.anything());
+    expect(mocks.auth.updateUser).toHaveBeenCalledWith("teacher-1", { disabled: false });
     teacherState.status = "inactive";
     teacherState.active = false;
 
@@ -688,7 +726,8 @@ describe("API de provisionnement Acadéa", () => {
     const res = response();
     await provisionSchoolAccount(request({ action: "archive-personnel", schoolId: "school-1", personnelId: "teacher-1" }), res);
     expect(res.statusCode).toBe(500);
-    expect(mocks.auth.updateUser).not.toHaveBeenCalled();
+    expect(mocks.auth.updateUser).toHaveBeenNthCalledWith(1, "teacher-1", { disabled: false });
+    expect(mocks.auth.updateUser).toHaveBeenNthCalledWith(2, "teacher-1", { disabled: true });
   });
 
   it("restaure l'état Auth initial si le batch d'un nouvel archivage échoue", async () => {
@@ -697,8 +736,7 @@ describe("API de provisionnement Acadéa", () => {
     const res = response();
     await provisionSchoolAccount(request({ action: "archive-personnel", schoolId: "school-1", personnelId: "teacher-1" }), res);
     expect(res.statusCode).toBe(500);
-    expect(mocks.auth.updateUser).toHaveBeenNthCalledWith(1, "teacher-1", { disabled: true });
-    expect(mocks.auth.updateUser).toHaveBeenNthCalledWith(2, "teacher-1", { disabled: false });
+    expect(mocks.auth.updateUser).not.toHaveBeenCalled();
   });
 
   it("refuse l'archivage par un gestionnaire devenu inactif", async () => {
@@ -789,6 +827,6 @@ describe("API de provisionnement Acadéa", () => {
     const res = response();
     await provisionSchoolAccount(request({ action: "archive-personnel", schoolId: "school-1", personnelId: "teacher-1" }), res);
     expect(res.statusCode).toBe(200);
-    expect(mocks.auth.updateUser).toHaveBeenCalledWith("teacher-1", { disabled: true });
+    expect(mocks.auth.revokeRefreshTokens).toHaveBeenCalledWith("teacher-1");
   });
 });

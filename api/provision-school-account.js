@@ -724,8 +724,9 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
   const previousClaims = { ...targetClaims };
   const claimsNeedRestore = targetClaims.role !== target.role || targetClaims.schoolId !== schoolId;
   const teacherReset = !archive && target.role === "teacher";
-  const schoolSnapshot = teacherReset ? await db.doc(`schools/${schoolId}`).get() : null;
-  const currentSchoolYearId = teacherReset
+  const teacherContextCleanup = target.role === "teacher";
+  const schoolSnapshot = teacherContextCleanup ? await db.doc(`schools/${schoolId}`).get() : null;
+  const currentSchoolYearId = teacherContextCleanup
     ? normalizeText(schoolSnapshot?.data?.()?.activeSchoolYearId ?? target.activeSchoolYearId)
     : "";
   if (teacherReset && !currentSchoolYearId) {
@@ -740,21 +741,15 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
     data.status !== "inactive" || data.active !== false || ("storageAssignmentIds" in data && (!Array.isArray(data.storageAssignmentIds) || data.storageAssignmentIds.length > 0))) : [];
   const teacherGrantNeedsClear = target.role === "teacher" && "storageAssignmentKeys" in target
     && (!Array.isArray(target.storageAssignmentKeys) || target.storageAssignmentKeys.length > 0);
-  if (archive && userAlreadyInactive && authTarget.disabled === true && teacherProfilesNeedingArchive.length === 0 && !teacherGrantNeedsClear) {
-    return { user: { ...target, id: personnelId }, authStatus: "disabled" };
-  }
-  if (archive && (userAlreadyInactive ? 0 : 1) + teacherProfilesNeedingArchive.length + 1 > 500) {
-    throw Object.assign(new Error("Trop de profils Enseignant à archiver atomiquement."), { statusCode: 409, code: "failed-precondition" });
-  }
   const oldTeacherIds = teacherProfiles.map(({ snapshot }) => snapshot.id);
   const activeTeacherProfile = teacherProfiles.find(({ data }) => data.active !== false && data.status !== "inactive") ?? teacherProfiles[0];
   const teacherContextRefs = [];
   const assignmentLockRefs = [];
-  if (teacherReset && oldTeacherIds.length) {
+  if (teacherContextCleanup && currentSchoolYearId && oldTeacherIds.length) {
     for (const collectionName of ["pedagogicalAssignments", "teacherAvailabilities", "classTitulars", "timetableEntries"]) {
       for (const oldTeacherId of oldTeacherIds) {
         const snapshots = (await db.collection(collectionName).where("teacherId", "==", oldTeacherId).get()).docs;
-        const currentSnapshots = snapshots.filter((snapshot) => snapshot.data()?.schoolId === schoolId && snapshot.data()?.schoolYearId === currentSchoolYearId);
+        const currentSnapshots = snapshots.filter((snapshot) => snapshot.data()?.teacherId === oldTeacherId && snapshot.data()?.schoolId === schoolId && snapshot.data()?.schoolYearId === currentSchoolYearId && snapshot.data()?.active !== false);
         currentSnapshots.forEach((snapshot) => teacherContextRefs.push({ ref: snapshot.ref, type: collectionName }));
         if (collectionName === "pedagogicalAssignments") {
           for (const snapshot of currentSnapshots) {
@@ -768,12 +763,16 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
       }
     }
   }
-  const resetWriteCount = 2 + teacherProfiles.length + teacherContextRefs.length + assignmentLockRefs.length;
+  const resetWriteCount = 2 + teacherProfiles.length + (teacherReset && !teacherProfiles.length ? 1 : 0) + teacherContextRefs.length + assignmentLockRefs.length;
   if (resetWriteCount > 500) {
     throw Object.assign(new Error("Le contexte pédagogique est trop volumineux pour une réactivation atomique."), { statusCode: 409, code: "failed-precondition" });
   }
-  const authChanged = authTarget.disabled !== archive;
-  if (authChanged) await auth.updateUser(personnelId, { disabled: archive });
+  const desiredAuthDisabled = archive && target.role !== "teacher";
+  if (archive && userAlreadyInactive && authTarget.disabled === desiredAuthDisabled && teacherProfilesNeedingArchive.length === 0 && !teacherGrantNeedsClear && teacherContextRefs.length === 0 && assignmentLockRefs.length === 0) {
+    return { user: { ...target, id: personnelId }, authStatus: target.role === "teacher" ? "suspended" : "disabled" };
+  }
+  const authChanged = authTarget.disabled !== desiredAuthDisabled;
+  if (authChanged) await auth.updateUser(personnelId, { disabled: desiredAuthDisabled });
   if (archive && (!userAlreadyInactive || authChanged)) await auth.revokeRefreshTokens(personnelId);
   const patch = archive
     ? { status: "inactive", active: false, archivedAt: now, archivedBy: caller.uid, updatedAt: now, updatedBy: caller.uid }
@@ -784,10 +783,16 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
   if (!archive && claimsNeedRestore) await auth.setCustomUserClaims(personnelId, { role: target.role, schoolId });
   if (teacherReset) {
     teacherProfiles.forEach(({ snapshot }) => batch.update(snapshot.ref, { status: snapshot.id === activeTeacherProfile?.snapshot.id ? "active" : "inactive", active: snapshot.id === activeTeacherProfile?.snapshot.id, storageAssignmentIds: [], updatedAt: now, updatedBy: caller.uid }));
-    teacherContextRefs.forEach(({ ref, type }) => batch.update(ref, { active: false, resetOnReactivation: true, resetAt: now, resetBy: caller.uid, updatedAt: now, ...(type === "timetableEntries" ? {} : { updatedBy: caller.uid }) }));
-    assignmentLockRefs.forEach((ref) => batch.delete(ref));
+    if (!teacherProfiles.length) {
+      const teacherId = `${schoolId}__${currentSchoolYearId}__${personnelId}`;
+      batch.set(db.doc(`teachers/${teacherId}`), { id: teacherId, userId: personnelId, schoolId, schoolYearId: currentSchoolYearId, status: "active", active: true, storageAssignmentIds: [], createdAt: now, updatedAt: now, createdBy: caller.uid });
+    }
   } else if (archive && target.role === "teacher") {
     teacherProfilesNeedingArchive.forEach(({ snapshot, data }) => batch.update(snapshot.ref, { status: "inactive", active: false, ...("storageAssignmentIds" in data ? { storageAssignmentIds: [] } : {}), updatedAt: now, updatedBy: caller.uid }));
+  }
+  if (teacherContextCleanup) {
+    teacherContextRefs.forEach(({ ref, type }) => batch.update(ref, { active: false, resetOnReactivation: true, resetAt: now, resetBy: caller.uid, updatedAt: now, ...(type === "timetableEntries" ? {} : { updatedBy: caller.uid }) }));
+    assignmentLockRefs.forEach((ref) => batch.delete(ref));
   }
   batch.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: archive ? AUDIT_EVENT_TYPES.USER_DISABLED : AUDIT_EVENT_TYPES.USER_REACTIVATED, actor: caller, schoolId, resourceType: "user", resourceId: personnelId, metadata: { role: target.role } }));
   try { await batch.commit(); } catch (error) {
@@ -795,7 +800,7 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
     if (!archive && claimsNeedRestore) await auth.setCustomUserClaims(personnelId, previousClaims).catch(() => undefined);
     throw error;
   }
-  return { user: { ...target, id: personnelId, ...patch }, authStatus: archive ? "disabled" : "enabled" };
+  return { user: { ...target, id: personnelId, ...patch }, authStatus: archive ? (target.role === "teacher" ? "suspended" : "disabled") : "enabled" };
 }
 
 export default async function handler(req, res) {

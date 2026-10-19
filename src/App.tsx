@@ -1,5 +1,5 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateCoordinator, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff, validateSecretary, validateStudyDirector, validateTeacher } from "./services/auth";
+import { ARCHIVED_TEACHER_LOGIN_MARKER, getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateCoordinator, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff, validateSecretary, validateStudyDirector, validateTeacher } from "./services/auth";
 import { AccessDenied } from "./components/auth/AccessDenied";
 import { SuspendedSchool } from "./components/auth/SuspendedSchool";
 import { ActivityHistoryContent } from "./components/history/ActivityHistoryContent";
@@ -403,7 +403,7 @@ export default function App() {
   const authenticatedUserIdRef = useRef("");
 
   const applyAuthenticatedUser = useCallback((nextUser: AppUser | null) => {
-    setAuthError("");
+    setAuthError((current) => !nextUser && current.includes(ARCHIVED_TEACHER_LOGIN_MARKER) ? current : "");
     setBootstrapError("");
 
     if (!nextUser) {
@@ -626,6 +626,7 @@ export default function App() {
   }
 
   async function loginWithCredentials(email: string, password: string) {
+    setAuthError("");
     await signIn(email, password);
     markAuthStep("auth:firebase-complete");
     measureAuthStep("auth:firebase-response", "auth:login-start", "auth:firebase-complete");
@@ -788,7 +789,7 @@ export default function App() {
   }
 
   if (!user || route === "/login") {
-    return <LoginScreen onLogin={loginWithCredentials} initialError={authError} platformLogoUrl={platformLogoUrl} />;
+    return <LoginScreen onLogin={loginWithCredentials} onDismissError={() => setAuthError("")} initialError={authError} platformLogoUrl={platformLogoUrl} />;
   }
 
   if (schoolSuspended || school?.status === "suspended") {

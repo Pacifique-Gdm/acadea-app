@@ -15,4 +15,12 @@ describe("blocage Auth des personnels archivés", () => {
     expect(source).toContain("void authModule.signOut(auth)");
     expect(source).toContain("profileUnsubscribe?.()");
   });
+
+  it("présente le message Enseignant archivé sans erreur Firebase brute", () => {
+    const login = readFileSync("src/components/auth/LoginScreen.tsx", "utf8");
+    expect(source).toContain("ARCHIVED_TEACHER_LOGIN_MARKER");
+    expect(login).toContain("Accès à votre compte suspendu");
+    expect(login).toContain("Retour à la connexion");
+    expect(login).toContain("L'équipe Acadéa.");
+  });
 });

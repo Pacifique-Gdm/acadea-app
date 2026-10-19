@@ -6,6 +6,7 @@ import { expect, test, type Browser, type Page } from "@playwright/test";
 import handler from "../api/manage-teacher-grading.js";
 import publishedHandler from "../api/manage-teacher-availability-request.js";
 import { executeTeacherGrading } from "../api/_lib/teacherGrading.js";
+import { managePersonnel } from "../api/provision-school-account.js";
 
 // No remote credentials or session injection: all logins use the real login
 // form and the Auth emulator. The actual API handler validates the ID token.
@@ -25,7 +26,7 @@ const app = initializeApp({ projectId: "demo-acadea" });
 const db = getFirestore(app), auth = getAuth(app);
 const createdAuth: string[] = [];
 const paths = new Set<string>();
-const collections = ["schoolYears", "users", "teachers", "classes", "subjects", "students", "parents", "pedagogicalAssignments", "classTitulars", "courseGradingConfigs", "gradeEntries", "feeTypes", "payments", "expenses", "disciplineSanctions", "gradePublicationRuns", "publishedGradeResults", "notifications"];
+const collections = ["schoolYears", "users", "teachers", "classes", "subjects", "students", "parents", "pedagogicalAssignments", "classTitulars", "courseGradingConfigs", "gradeEntries", "feeTypes", "payments", "expenses", "disciplineSanctions", "gradePublicationRuns", "publishedGradeResults", "notifications", "auditLogs"];
 function guard() {
   if (process.env.ACADEA_E2E_LOCAL_EMULATORS !== "YES" || process.env.VITE_FIREBASE_PROJECT_ID !== "demo-acadea"
     || process.env.FIRESTORE_EMULATOR_HOST !== "127.0.0.1:8080" || process.env.FIREBASE_AUTH_EMULATOR_HOST !== "127.0.0.1:9099"
@@ -253,7 +254,26 @@ test.describe("Publication et archives : chaîne authentifiée isolée", () => {
   for (const role of roles) test(`Archives authentifiées, lecture seule et isolation : ${role}`, async ({ browser }) => {
     const { context, page, state } = await browserFor(browser, role);
     try {
-      await page.getByRole("button", { name: /^Année Scolaire/ }).click();
+      const yearButton = page.getByRole("button", { name: /^Année scolaire/i });
+      const logoutButton = yearButton.locator("xpath=preceding::button[contains(normalize-space(.), 'Déconnexion')][1]");
+      await expect(logoutButton).toBeVisible();
+      await expect(yearButton).toBeVisible();
+      expect(await yearButton.evaluate((button) => {
+        const buttons = Array.from(document.querySelectorAll("button"));
+        return buttons[buttons.indexOf(button as HTMLButtonElement) - 1]?.textContent?.trim();
+      })).toBe("Déconnexion");
+      for (const width of [375, 768, 1440]) {
+        await page.setViewportSize({ width, height: 1000 });
+        await expect.poll(async () => {
+          const yearBox = await yearButton.boundingBox();
+          const logoutBox = await logoutButton.boundingBox();
+          return Boolean(yearBox && logoutBox
+            && Math.abs(yearBox.x - logoutBox.x) <= 1
+            && Math.abs(yearBox.width - logoutBox.width) <= 1
+            && yearBox.y > logoutBox.y);
+        }).toBe(true);
+      }
+      await yearButton.click();
       const dialog = page.getByRole("dialog", { name: "Année Scolaire", exact: true });
       await dialog.getByRole("button", { name: /2026-2027/ }).click();
       await expect(dialog.getByRole("heading", { level: 3 })).toContainText("2026-2027");
@@ -266,5 +286,50 @@ test.describe("Publication et archives : chaîne authentifiée isolée", () => {
       expect((await api(page, state.authorization, { action: "grades-publish", schoolId, schoolYearId: archived, classId, slot: "period_1", requestId: "archived-request-forbidden" })).status).toBe(403);
       expect(state.errors).toEqual([]);
     } finally { await context.close(); }
+  });
+
+  test("archivage d'un Enseignant connecté, message de suspension et réactivation sans ancien poste", async ({ browser }) => {
+    const current = await browserFor(browser, "teacher");
+    const admin = { uid: uid("study_director"), role: "study_director", schoolId };
+    const originalAuth = await auth.getUser(uid("teacher"));
+    const gradesBefore = (await db.collection("gradeEntries").where("schoolId", "==", schoolId).get()).size;
+    try {
+      await managePersonnel({ auth, db, caller: admin, body: { schoolId, personnelId: uid("teacher") }, action: "archive-personnel" });
+      await expect(current.page.getByRole("heading", { name: "Accès à votre compte suspendu" })).toBeVisible({ timeout: 20000 });
+      await expect(current.page.getByRole("button", { name: "Retour à la connexion" })).toBeVisible();
+      expect((await db.doc(`pedagogicalAssignments/${assignment(1)}`).get()).data()?.active).toBe(false);
+      expect((await db.doc(`pedagogicalAssignments/${assignment(2)}`).get()).data()?.active).toBe(true);
+      expect((await db.collection("gradeEntries").where("schoolId", "==", schoolId).get()).size).toBe(gradesBefore);
+
+      const archivedContext = await browser.newContext({ baseURL: origin });
+      try {
+        const archivedPage = await archivedContext.newPage();
+        await archivedPage.goto("/login");
+        await archivedPage.getByPlaceholder("email@ecole.com").fill(`${uid("teacher")}@local-e2e.invalid`);
+        await archivedPage.getByPlaceholder("Votre mot de passe").fill(password);
+        await archivedPage.getByRole("button", { name: "Se connecter" }).click();
+        await expect(archivedPage.getByRole("heading", { name: "Accès à votre compte suspendu" })).toBeVisible();
+        await archivedPage.getByRole("button", { name: "Retour à la connexion" }).click();
+        await expect(archivedPage.getByRole("heading", { name: "Connexion" })).toBeVisible();
+      } finally { await archivedContext.close(); }
+
+      await managePersonnel({ auth, db, caller: admin, body: { schoolId, personnelId: uid("teacher") }, action: "reactivate-personnel" });
+      const restoredAuth = await auth.getUser(uid("teacher"));
+      expect(restoredAuth.uid).toBe(originalAuth.uid);
+      expect(restoredAuth.email).toBe(originalAuth.email);
+      expect(restoredAuth.disabled).toBe(false);
+      expect((await db.doc(`pedagogicalAssignments/${assignment(1)}`).get()).data()?.active).toBe(false);
+      expect((await db.doc(`pedagogicalAssignments/${assignment(2)}`).get()).data()?.active).toBe(true);
+
+      const restored = await browserFor(browser, "teacher");
+      try {
+        await expect(restored.page.getByRole("heading", { name: "Aucune affectation pour l'année scolaire en cours" })).toBeVisible();
+        await put(`subjects/${subject(3)}`, { id: subject(3), schoolId, schoolYearId: year, name: "Nouveau cours fictif", active: true });
+        await put(`pedagogicalAssignments/${assignment(3)}`, { id: assignment(3), schoolId, schoolYearId: year, teacherId: teacher(1), classId, subjectId: subject(3), active: true, weeklyPeriods: 1 });
+        await restored.page.getByRole("button", { name: "Mes cours", exact: true }).last().click();
+        await expect(restored.page.getByText("Nouveau cours fictif")).toBeVisible();
+        await expect(restored.page.getByText("Mathématiques")).toHaveCount(0);
+      } finally { await restored.context.close(); }
+    } finally { await current.context.close(); }
   });
 });

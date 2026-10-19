@@ -66,6 +66,20 @@ const base = { schoolId: "s", schoolYearId: "y" };
 const publish = { ...base, action: "grades-publish", classId: "class", slot: "period_1", requestId: "request_1234567890", percentage: { operator: "gte", value: 60 }, fee: { feeTypeId: "minerval", operator: "gte", amountMinor: 15000000 } };
 
 describe("publication serveur des cotes", () => {
+  it("ne propose que les frais applicables et refuse un identifiant d'une autre option", async () => {
+    const { db, records, writes } = fixture();
+    records.students[0].option = "Scientifique";
+    records.feeTypes.push(
+      { id: "duplicate", schoolId: "s", schoolYearId: "y", name: "Minerval" },
+      { id: "other-option", schoolId: "s", schoolYearId: "y", name: "Examen", classOptionKey: "4ème Humanité::option::Littéraire" },
+      { id: "other-class", schoolId: "s", schoolYearId: "y", name: "Transport", className: "3ème Humanité" },
+    );
+    const options = await executeGradePublication({ db, caller: director, body: { ...base, action: "grades-options", classId: "class" } });
+    expect(options.feeTypes).toEqual([{ id: "duplicate", name: "Minerval" }]);
+    await expect(executeGradePublication({ db, caller: director, body: { ...publish, fee: { ...publish.fee, feeTypeId: "other-option" } } })).rejects.toMatchObject({ status: 400 });
+    await expect(executeGradePublication({ db, caller: director, body: { ...publish, fee: { ...publish.fee, feeTypeId: "other-class" } } })).rejects.toMatchObject({ status: 400 });
+    expect(writes).toHaveLength(0);
+  });
   it("écrit droits et notifications atomiquement, sans autres périodes ni informations financières", async () => {
     const { db, records, writes } = fixture();
     records.users.push({ id: "foreign-parent", role: "parent", schoolId: "other", parentId: "parent", active: true });

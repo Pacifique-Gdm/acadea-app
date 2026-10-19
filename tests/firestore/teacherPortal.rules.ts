@@ -52,6 +52,14 @@ describe("portail Enseignant Phase 3", () => {
     await assertFails(getDoc(doc(database, "pedagogicalAssignments", "assignment-other")));
   });
 
+  it("laisse lire uniquement son statut d'archivage, jamais les données pédagogiques", async () => {
+    const archived = teacherDb("teacher-user-inactive");
+    await assertSucceeds(getDoc(doc(archived, "users", "teacher-user-inactive")));
+    await assertFails(getDoc(doc(archived, "users", userId)));
+    await assertFails(getDoc(doc(archived, "teachers", teacherId)));
+    await assertFails(getDoc(doc(archived, "pedagogicalAssignments", "assignment-a")));
+  });
+
   it("autorise uniquement l'horaire PUBLISHED actif et les entrées propres", async () => {
     const database = teacherDb();
     await assertSucceeds(getDoc(doc(database, "timetables", "published")));

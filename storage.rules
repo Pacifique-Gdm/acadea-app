@@ -3,7 +3,12 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     function signedIn() {
-      return request.auth != null;
+      return request.auth != null
+        && (request.auth.token.role != "teacher"
+          || (firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.schoolId == request.auth.token.schoolId
+            && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == "teacher"
+            && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.status != "inactive"
+            && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.active != false));
     }
 
     function role() {

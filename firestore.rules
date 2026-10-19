@@ -545,6 +545,10 @@ service cloud.firestore {
           && resource.data.role == "sub_coordination_admin"
           && resource.data.coordinationId == request.auth.token.coordinationId)
         || (request.auth != null && activeActorProfile() && request.auth.uid == userId)
+        || (request.auth != null && request.auth.uid == userId
+          && resource.data.role == "teacher"
+          && resource.data.schoolId == tenantSchoolId()
+          && (resource.data.status == "inactive" || resource.data.active == false))
         || (schoolAdmin()
           && resource.data.schoolId == tenantSchoolId()
           && resource.data.role in ["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"])
