@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { GradingApiError, loadConsolidatedSchoolClass } from "./teacherGrading.js";
 import { calculateConsolidatedReport } from "./consolidatedGrading.js";
-import { PUBLICATION_SLOTS, feeAppliesToPublishedStudent, qualifiesForPublication, validatedFeePaidMinor, validatePublicationCriteria } from "./gradePublicationCriteria.js";
+import { PUBLICATION_SLOTS, publicationFeeGroups, qualifiesForPublication, validatedFeePaidMinor, validatePublicationCriteria } from "./gradePublicationCriteria.js";
 import { publicationReader, runPublicationTransaction, validatePublicationWrites } from "./publicationTransaction.js";
 
 const digest = (value) => createHash("sha256").update(value).digest("hex");
@@ -146,9 +146,12 @@ export async function executeGradePublication({ db, caller, body }) {
   const write = action === "grades-withdraw";
   const { user, school, year } = await actorContext(db, caller, schoolId, schoolYearId, "study_director", write);
   if (action === "grades-options") {
+    const classId = required(body.classId, "Classe");
+    await authorizedDirectorClass(db, schoolId, schoolYearId, classId, user);
+    const report = await classReport(db, schoolId, schoolYearId, classId);
     const fees = await db.collection("feeTypes").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).get();
     const currency = year.currency === "USD" || year.currency === "CDF" ? year.currency : school.currency === "CDF" ? "CDF" : "USD";
-    return { currency, feeTypes: serialize(fees).map((item) => ({ id: item.id, name: item.name, className: item.className ?? null, classOptionKey: item.classOptionKey ?? null })) };
+    return { currency, feeTypes: publicationFeeGroups(serialize(fees), report.students.map((row) => row.student)).map(({ id, name }) => ({ id, name })) };
   }
   if (action === "grades-report") {
     const classId = required(body.classId, "Classe");
@@ -200,22 +203,21 @@ async function publishGrades(writer, transaction, caller, body, schoolId, school
   }
   const report = await classReport(db, schoolId, schoolYearId, classId);
   if (report.students.length > 150) throw new GradingApiError(409, "failed-precondition", "Classe trop volumineuse pour une publication atomique.");
-  let feeType, currency;
+  let feeTypeIds, currency;
   if (criteria.fee) {
-    const fee = await db.doc(`feeTypes/${criteria.fee.feeTypeId}`).get();
-    if (!fee.exists || fee.data()?.schoolId !== schoolId || fee.data()?.schoolYearId !== schoolYearId) throw new GradingApiError(400, "invalid-argument", "Type de frais indisponible.");
-    feeType = fee.data();
-    if (!report.students.some((row) => feeAppliesToPublishedStudent(feeType, row.student))) throw new GradingApiError(400, "invalid-argument", "Frais non applicable à la classe ou à l’option.");
+    const fees = await db.collection("feeTypes").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).get();
+    const group = publicationFeeGroups(serialize(fees), report.students.map((row) => row.student)).find((item) => item.id === criteria.fee.feeTypeId);
+    if (!group) throw new GradingApiError(400, "invalid-argument", "Frais non applicable à la classe ou à l’option.");
+    feeTypeIds = group.feeTypeIds;
     currency = year.currency === "USD" || year.currency === "CDF" ? year.currency : school.currency === "CDF" ? "CDF" : "USD";
   }
   const selected = [];
   for (const row of report.students) {
-    if (feeType && !feeAppliesToPublishedStudent(feeType, row.student)) continue;
     let paidMinor = null;
     if (criteria.fee && row.evaluations[criteria.slot].complete) {
-      const payments = await db.collection("payments").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId)
-        .where("studentId", "==", row.student.id).where("feeTypeId", "==", criteria.fee.feeTypeId).get();
-      try { paidMinor = validatedFeePaidMinor(serialize(payments), { schoolId, schoolYearId, studentId: row.student.id, feeTypeId: criteria.fee.feeTypeId, currency }); }
+      const payments = (await Promise.all(feeTypeIds.map((id) => db.collection("payments").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId)
+        .where("studentId", "==", row.student.id).where("feeTypeId", "==", id).get()))).flatMap(serialize);
+      try { paidMinor = validatedFeePaidMinor(payments, { schoolId, schoolYearId, studentId: row.student.id, feeTypeId: criteria.fee.feeTypeId, feeTypeIds, currency }); }
       catch (error) { throw new GradingApiError(409, "failed-precondition", error.message); }
     }
     if (!qualifiesForPublication(row.evaluations[criteria.slot], criteria, paidMinor)) continue;

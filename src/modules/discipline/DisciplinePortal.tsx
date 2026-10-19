@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ComponentType, ReactNode } from "react";
-import { BarChart3, BookOpen, CheckCircle2, Clock3, LogOut, Settings } from "lucide-react";
+import { BarChart3, BookOpen, CalendarRange, CheckCircle2, Clock3, LogOut, Settings } from "lucide-react";
 import { DisciplineAttendanceDrawer } from "../../components/discipline/DisciplineAttendanceDrawer";
 import { AttendanceSettingsDrawer } from "../../components/discipline/AttendanceSettingsDrawer";
 import { DisciplineHistoryDrawer } from "../../components/discipline/DisciplineHistoryDrawer";
@@ -651,13 +651,6 @@ export function DisciplinePortal({
       onClick: () => setHistoryOpen(true),
     },
     {
-      id: "school-years",
-      title: "Année Scolaire",
-      description: "Consulter les archives disciplinaires en lecture seule.",
-      icon: Clock3,
-      onClick: () => setArchiveOpen(true),
-    },
-    {
       id: "stats",
       title: "Statistiques",
       description: "Synthèse locale des sanctions chargées.",
@@ -747,6 +740,9 @@ export function DisciplinePortal({
                 <LogOut className="h-4 w-4" /> Déconnexion
               </button>
             </div>
+            <button type="button" onClick={() => setArchiveOpen(true)} className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint">
+              <div className="flex min-w-0 items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink"><CalendarRange className="h-5 w-5" /></div><div className="min-w-0"><h2 className="break-words font-bold text-ink">Année scolaire</h2><p className="mt-1 break-words text-sm text-slate-500">Consulter les archives disciplinaires en lecture seule.</p></div></div>
+            </button>
           </section>
         )}
       </main>

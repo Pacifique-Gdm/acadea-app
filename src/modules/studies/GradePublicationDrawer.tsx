@@ -34,11 +34,13 @@ export function GradePublicationDrawer({ school, year, classes, onClose }: { sch
   const selectedClass = classes.find((item) => item.id === classId);
 
   useEffect(() => {
+    if (screen !== "options" || !classId) return;
     let active = true;
-    loadGradePublicationOptions(school.id, year.id).then((value) => { if (active) setOptions(value); })
+    setOptions(undefined);
+    loadGradePublicationOptions(school.id, year.id, classId).then((value) => { if (active) setOptions(value); })
       .catch((cause: unknown) => { if (active) setError(userFacingError(cause, "Types de frais indisponibles.")); });
     return () => { active = false; };
-  }, [school.id, year.id, optionsAttempt]);
+  }, [school.id, year.id, classId, screen, optionsAttempt]);
 
   function changeCriteria() { setPublished(undefined); setRequestId(crypto.randomUUID()); setError(""); }
   async function showReport(nextClassId: string) {
@@ -48,7 +50,7 @@ export function GradePublicationDrawer({ school, year, classes, onClose }: { sch
     finally { setLoading(false); }
   }
   function openOptions(nextClassId: string) {
-    setClassId(nextClassId); setScreen("options"); setError(""); setPublished(undefined); setRequestId(crypto.randomUUID());
+    setClassId(nextClassId); setScreen("options"); setOptions(undefined); setError(""); setPublished(undefined); setRequestId(crypto.randomUUID());
     setSlot("period_1"); setPercentageOperator(""); setPercentageValue(""); setFeeChoice(""); setAmount("");
   }
   async function submit() {
@@ -63,6 +65,7 @@ export function GradePublicationDrawer({ school, year, classes, onClose }: { sch
     }
     if (feeChoice) {
       const [feeTypeId, operator] = JSON.parse(feeChoice) as [string, PublicationComparison];
+      if (!options.feeTypes.some((item) => item.id === feeTypeId)) { setError("Ce type de frais n'est plus applicable à la classe sélectionnée."); return; }
       const normalized = parseMoneyInput(amount);
       if (!normalized || !/^\d+(?:\.\d{1,2})?$/.test(normalized)) { setError("Saisissez un montant valide, avec deux décimales au maximum."); return; }
       const amountMinor = Math.round(Number(normalized) * 100);
@@ -104,6 +107,7 @@ export function GradePublicationDrawer({ school, year, classes, onClose }: { sch
       <label className="grid gap-1 text-sm font-semibold">Période<select className="input" value={slot} onChange={(event) => { setSlot(event.target.value as EditableGradingSlot); changeCriteria(); }}>{editableGradingSlots.map((item) => <option key={item} value={item}>{gradingSlotLabels[item]}</option>)}</select></label>
       <fieldset className="grid gap-1"><legend className="text-sm font-semibold">Pourcentage</legend><div className="grid grid-cols-2 gap-2"><select className="input min-w-0" aria-label="Comparaison du pourcentage" value={percentageOperator} onChange={(event) => { setPercentageOperator(event.target.value as "" | PublicationComparison); changeCriteria(); }}><option value="">Aucun critère</option><option value="gte">Pourcentage ≥</option><option value="lt">Pourcentage &lt;</option></select><input className="input min-w-0" type="number" min="0" max="100" step="any" aria-label="Valeur du pourcentage" value={percentageValue} disabled={!percentageOperator} onChange={(event) => { setPercentageValue(event.target.value); changeCriteria(); }} /></div></fieldset>
       <fieldset className="grid gap-1"><legend className="text-sm font-semibold">Type de frais</legend><div className="grid grid-cols-2 gap-2"><select className="input min-w-0" aria-label="Type de frais et comparaison" value={feeChoice} onChange={(event) => { setFeeChoice(event.target.value); changeCriteria(); }}><option value="">Aucun critère</option>{options?.feeTypes.flatMap((item) => ([<option key={`${item.id}-gte`} value={choiceValue(item.id, "gte")}>{item.name} ≥</option>, <option key={`${item.id}-lt`} value={choiceValue(item.id, "lt")}>{item.name} &lt;</option>]))}</select><div className="relative min-w-0"><input className="input w-full pr-14" inputMode="decimal" aria-label="Montant payé" value={amount} disabled={!feeChoice} onChange={(event) => { setAmount(formatMoneyInput(event.target.value)); changeCriteria(); }} /><span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">{options?.currency === "CDF" ? "CDF" : "USD"}</span></div></div></fieldset>
+      {options && options.feeTypes.length === 0 && <p role="status" className="text-sm text-slate-600">Aucun type de frais applicable à cette classe n'est configuré.</p>}
       {published && <section role="status" className="rounded border border-green-200 bg-green-50 p-3 text-sm text-green-800"><p>Publication confirmée : {published.publishedCount} élève(s), {published.notificationCount} notification(s).</p><label className="mt-3 grid gap-1">Pour retirer cette publication, saisissez RETIRER CETTE PUBLICATION<input className="input" value={withdrawText} onChange={(event) => setWithdrawText(event.target.value)} /></label><button className="secondary-button mt-2 w-full justify-center" type="button" disabled={publishing || withdrawText !== "RETIRER CETTE PUBLICATION"} onClick={() => void withdraw()}>Retirer cette publication</button></section>}
       <button type="button" className="primary-button w-full justify-center" disabled={publishing || !options || year.status !== "active"} onClick={() => void submit()}>{publishing ? "Chargement…" : "Publier"}</button>
       {year.status !== "active" && <p className="text-sm text-amber-800">Année archivée : consultation uniquement.</p>}

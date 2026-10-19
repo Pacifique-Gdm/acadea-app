@@ -30,7 +30,7 @@ export function subscribeToTeacherPortalData(input: { user: AppUser; schoolId: s
   const docs = <T,>(snapshot: { docs: Array<{ id: string; data: () => unknown }> }) => snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Record<string, unknown>) }) as T);
 
   const teacherUnsubscribe = onSnapshot(query(collection(database, "teachers"), where("schoolId", "==", input.schoolId), where("schoolYearId", "==", input.schoolYearId), where("userId", "==", input.user.id)), (snapshot) => {
-    const matches = docs<StudyTeacher>(snapshot);
+    const matches = docs<StudyTeacher>(snapshot).filter((item) => item.status !== "inactive" && (item as StudyTeacher & { active?: boolean }).active !== false);
     if (matches.length !== 1) {
       input.onTeacher(undefined); input.onError(new Error(matches.length === 0 ? "Aucun profil pédagogique n’est lié à ce compte Enseignant." : "Plusieurs profils pédagogiques sont liés à ce compte.")); input.onReady(); return;
     }

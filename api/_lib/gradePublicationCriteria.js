@@ -17,10 +17,10 @@ export function validatePublicationCriteria(input) {
 }
 
 /** No implicit conversion: any known payment in another or unknown currency blocks publication. */
-export function validatedFeePaidMinor(payments, { schoolId, schoolYearId, studentId, feeTypeId, currency }) {
+export function validatedFeePaidMinor(payments, { schoolId, schoolYearId, studentId, feeTypeId, feeTypeIds = [feeTypeId], currency }) {
   let total = 0;
   for (const payment of payments) {
-    if (payment.schoolId !== schoolId || payment.schoolYearId !== schoolYearId || payment.studentId !== studentId || payment.feeTypeId !== feeTypeId) continue;
+    if (payment.schoolId !== schoolId || payment.schoolYearId !== schoolYearId || payment.studentId !== studentId || !feeTypeIds.includes(payment.feeTypeId)) continue;
     if (payment.collectionSchoolYearId && payment.collectionSchoolYearId !== schoolYearId) continue;
     if (["cancelled", "canceled", "refunded", "void"].includes(payment.status)) continue;
     if (payment.status && !["validated", "completed", "paid"].includes(payment.status)) throw new Error("Statut de paiement non reconnu : publication suspendue.");
@@ -58,4 +58,22 @@ export function feeAppliesToPublishedStudent(fee, student) {
     return fee.classOptionKey === target;
   }
   return !fee.className || fee.className === student.className;
+}
+
+const feeIdentityPart = (value) => String(value ?? "").normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("fr");
+
+/** Group only exact duplicate configurations, never distinct amounts or option targets. */
+export function publicationFeeGroups(fees, students) {
+  if (!students.length) return [];
+  const groups = new Map();
+  for (const fee of fees) {
+    if (!students.every((student) => feeAppliesToPublishedStudent(fee, student))) continue;
+    const key = JSON.stringify([fee.schoolId, fee.schoolYearId, feeIdentityPart(fee.name), feeIdentityPart(fee.classOptionKey ?? fee.className), fee.amount]);
+    const group = groups.get(key) ?? { id: fee.id, name: fee.name, feeTypeIds: [] };
+    group.feeTypeIds.push(fee.id);
+    if (fee.id.localeCompare(group.id) < 0) group.id = fee.id;
+    groups.set(key, group);
+  }
+  return [...groups.values()].map((group) => ({ ...group, feeTypeIds: group.feeTypeIds.sort() }))
+    .sort((left, right) => left.name.localeCompare(right.name, "fr") || left.id.localeCompare(right.id));
 }

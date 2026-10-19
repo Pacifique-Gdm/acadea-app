@@ -71,4 +71,21 @@ describe("pièces jointes de messagerie", () => {
     await assertFails(context("secretary-b").storage().ref(finalPath).getDownloadURL());
     await assertFails(context(senderId, "secretary", "school-b").storage().ref(finalPath).getDownloadURL());
   });
+  it("révoque la lecture d'un message pour une session Enseignant déjà ouverte après archivage", async () => {
+    const teacherId = "teacher-a";
+    const conversationId = "conversation-teacher";
+    const messageId = "message-teacher";
+    const finalPath = `messages/${schoolId}/${conversationId}/${messageId}/${fileId}.pdf`;
+    await environment.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), "users", teacherId), { schoolId, role: "teacher", status: "active", active: true });
+      await setDoc(doc(admin.firestore(), "messages", messageId), { schoolId, conversationId, participantIds: [teacherId] });
+      await admin.storage().ref(finalPath).put(new Uint8Array(10), { contentType: "application/pdf" });
+    });
+    const session = context(teacherId, "teacher");
+    await assertSucceeds(session.storage().ref(finalPath).getDownloadURL());
+    await environment.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), "users", teacherId), { schoolId, role: "teacher", status: "inactive", active: false });
+    });
+    await assertFails(session.storage().ref(finalPath).getDownloadURL());
+  });
 });

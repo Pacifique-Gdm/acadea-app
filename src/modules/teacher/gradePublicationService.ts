@@ -36,8 +36,8 @@ async function request<T>(body: Record<string, unknown>): Promise<T> {
   return payload;
 }
 
-export const loadGradePublicationOptions = (schoolId: string, schoolYearId: string) =>
-  request<{ currency: "USD" | "CDF"; feeTypes: Array<{ id: string; name: string; className: string | null; classOptionKey: string | null }> }>({ action: "grades-options", schoolId, schoolYearId });
+export const loadGradePublicationOptions = (schoolId: string, schoolYearId: string, classId: string) =>
+  request<{ currency: "USD" | "CDF"; feeTypes: Array<{ id: string; name: string }> }>({ action: "grades-options", schoolId, schoolYearId, classId });
 export const loadDirectorConsolidatedReport = (schoolId: string, schoolYearId: string, classId: string) =>
   request<{ report: ConsolidatedClassReport }>({ action: "grades-report", schoolId, schoolYearId, classId });
 export const publishGrades = (input: { schoolId: string; schoolYearId: string; classId: string; requestId: string } & PublicationCriteria) =>

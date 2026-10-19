@@ -18,9 +18,10 @@ describe("consultation du menu d'une année archivée", () => {
       feeTargetHasOption: () => false, formatFeeTargetLabel: () => "Classe test", renderFinancialReport: () => null,
       renderActivityHistory: () => null, maxValveDocumentBytes: 1000, onOpenBiometrics: vi.fn(),
     }));
-    for (const title of ["Valves", "Fiches médicales", "Parents / Tuteurs", "Types de frais", "Rapport financier", "Personnels", "Années scolaires", "Historique"]) {
+    for (const title of ["Valves", "Fiches médicales", "Parents / Tuteurs", "Types de frais", "Rapport financier", "Personnels", "Année scolaire", "Historique"]) {
       expect(markup, title).toContain(title);
     }
+    expect(markup.indexOf("Année scolaire")).toBeGreaterThan(markup.indexOf("Déconnexion"));
     expect(markup).not.toContain("Créer un utilisateur");
   });
 });

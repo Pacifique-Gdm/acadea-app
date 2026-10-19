@@ -5,13 +5,16 @@ import { EnvironmentBanner } from "../layout/EnvironmentBanner";
 import { PlatformLogoSlot } from "../layout/PlatformLogoSlot";
 import { markAuthStep } from "../../utils/authPerformance";
 import { userFacingError } from "../../utils/userFacingError";
+import { ARCHIVED_TEACHER_LOGIN_MARKER } from "../../services/auth";
 
 export function LoginScreen({
   onLogin,
+  onDismissError,
   initialError,
   platformLogoUrl,
 }: {
   onLogin: (email: string, password: string) => Promise<void>;
+  onDismissError?: () => void;
   initialError?: string;
   platformLogoUrl: string;
 }) {
@@ -37,6 +40,7 @@ export function LoginScreen({
 
   function formatLoginError(loginError: unknown) {
     const message = loginError instanceof Error ? loginError.message : String(loginError);
+    if (message.includes(ARCHIVED_TEACHER_LOGIN_MARKER)) return ARCHIVED_TEACHER_LOGIN_MARKER;
     if (message.includes("auth/user-disabled") || message.includes("n’est plus actif") || message.includes("n'est plus actif")) {
       return "Votre compte n’est plus actif dans cet établissement.";
     }
@@ -77,7 +81,11 @@ export function LoginScreen({
       <section className="w-full max-w-[460px] overflow-hidden rounded-[22px] border border-white/80 bg-white p-3 shadow-[0_24px_80px_rgba(15,23,42,0.10)] [animation:loginCardIn_520ms_ease-out] sm:rounded-[24px] sm:p-6">
         <PlatformLogoSlot logoUrl={platformLogoUrl} />
 
-        <div className="mt-5 text-center sm:mt-7">
+        {error === ARCHIVED_TEACHER_LOGIN_MARKER ? <div className="mt-5 grid gap-4 text-center sm:mt-7">
+          <h2 className="text-xl font-bold text-ink sm:text-2xl">Accès à votre compte suspendu</h2>
+          <p className="whitespace-pre-line text-sm leading-relaxed text-slate-700">{"Votre compte Enseignant Acadéa est actuellement désactivé à la suite de son archivage par votre établissement scolaire.\n\nPour obtenir davantage d'informations ou demander la réactivation de votre compte, veuillez contacter l'administrateur de votre école.\n\nNous vous remercions de votre compréhension.\n\nL'équipe Acadéa."}</p>
+          <button type="button" className="secondary-button w-full justify-center" onClick={() => { onDismissError?.(); setError(""); setEmail(""); setPassword(""); }}>Retour à la connexion</button>
+        </div> : <><div className="mt-5 text-center sm:mt-7">
           <h2 className="text-xl font-bold text-ink sm:text-2xl">Connexion</h2>
           <p className="mt-1 text-xs text-slate-500 sm:mt-2 sm:text-sm">Accédez à votre espace sécurisé</p>
         </div>
@@ -135,6 +143,7 @@ export function LoginScreen({
           <ShieldCheck className="h-4 w-4 text-mint" />
           Espace sécurisé
         </div>
+        </>}
       </section>
     </main>
   );
