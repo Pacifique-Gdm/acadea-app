@@ -11,6 +11,7 @@ import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent
 import { AdminDrawer } from "../../components/ui";
 import { OwnPayrollEntry } from "../../components/personnel/OwnPayrollEntry";
 import { LibraryDrawer } from "../library/LibraryDrawer";
+import { SchoolYearArchiveDrawer } from "../../components/archive/SchoolYearArchiveDrawer";
 import { completeDisciplineSanction, createDisciplineSanction, saveDisciplineAuditLog } from "../../services/discipline";
 import { markConversationUnreadCountRead, persistMessageWithConversation } from "../../services/conversations";
 import { canUseFirestoreData, persistFirestorePatch } from "../../services/firestoreData";
@@ -138,6 +139,7 @@ export function DisciplinePortal({
   const [attendanceSettingsOpen, setAttendanceSettingsOpen] = useState(false);
   const [disciplineValvesOpen, setDisciplineValvesOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
   const [selectedDisciplineStudentId, setSelectedDisciplineStudentId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
   useEffect(() => {
@@ -649,6 +651,13 @@ export function DisciplinePortal({
       onClick: () => setHistoryOpen(true),
     },
     {
+      id: "school-years",
+      title: "Année Scolaire",
+      description: "Consulter les archives disciplinaires en lecture seule.",
+      icon: Clock3,
+      onClick: () => setArchiveOpen(true),
+    },
+    {
       id: "stats",
       title: "Statistiques",
       description: "Synthèse locale des sanctions chargées.",
@@ -796,6 +805,9 @@ export function DisciplinePortal({
             ))}
           </div>
         </AdminDrawer>
+      )}
+      {archiveOpen && (
+        <SchoolYearArchiveDrawer schoolId={school.id} onClose={() => setArchiveOpen(false)} />
       )}
       {historyOpen && (
         <AdminDrawer title="Historique disciplinaire" onClose={() => setHistoryOpen(false)} closeLabel="Fermer l'historique disciplinaire">

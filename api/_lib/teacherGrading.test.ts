@@ -5,13 +5,13 @@ import { executeTeacherGrading, GradingApiError, studentMatchesAssignment } from
 describe("API de cotation Enseignant", () => {
   const rosterDb = (hasConfig = true) => {
     const records: Record<string, Array<{ id: string; [key: string]: unknown }>> = {
-      schools: [{ id: "s", status: "active" }],
+      schools: [{ id: "s", status: "active", activeSchoolYearId: "y" }],
       users: [
         { id: "u", role: "teacher", schoolId: "s", active: true },
         { id: "parent-user", role: "parent", schoolId: "s", parentId: "parent-1", active: true },
         { id: "foreign-parent", role: "parent", schoolId: "other", parentId: "parent-2", active: true },
       ],
-      schoolYears: [{ id: "y", schoolId: "s" }],
+      schoolYears: [{ id: "y", schoolId: "s", status: "active" }],
       teachers: [{ id: "t", schoolId: "s", schoolYearId: "y", userId: "u", status: "active" }],
       pedagogicalAssignments: [{ id: "a", schoolId: "s", schoolYearId: "y", teacherId: "t", active: true, classId: "c::sciences", subjectId: "m" }],
       classTitulars: [],
@@ -66,7 +66,7 @@ describe("API de cotation Enseignant", () => {
         return query([]);
       },
     };
-    return { db, reads, writes };
+    return { db, reads, writes, records };
   };
 
   it("actualise seulement les élèves actifs de l'affectation, de l'option, de l'école et de l'année autorisées", async () => {
@@ -101,6 +101,33 @@ describe("API de cotation Enseignant", () => {
     expect(result.students).toEqual([]);
   });
 
+  it("réserve la fiche consolidée au titulaire et ne transmet pas les cotes d'autres options", async () => {
+    const { db, records } = rosterDb();
+    const body = { action: "load-consolidated", schoolId: "s", schoolYearId: "y", classId: "c::sciences" };
+    await expect(executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body })).rejects.toMatchObject({ status: 403 });
+    records.classTitulars.push({ id: "titular", schoolId: "s", schoolYearId: "y", teacherId: "t", classId: "c::sciences", active: true });
+    records.pedagogicalAssignments.push({ id: "common", schoolId: "s", schoolYearId: "y", teacherId: "another-teacher", active: true, classId: "c", subjectId: "f" });
+    records.subjects = [{ id: "m", schoolId: "s", schoolYearId: "y", name: "Mathématiques" }, { id: "f", schoolId: "s", schoolYearId: "y", name: "Français" }];
+    records.gradeEntries.push(
+      { id: "science-grade", schoolId: "s", schoolYearId: "y", classId: "c", subjectId: "f", studentId: "allowed", gradingSlot: "period_1", status: "graded", score: 14 },
+      { id: "other-grade", schoolId: "s", schoolYearId: "y", classId: "c", subjectId: "f", studentId: "other-option", gradingSlot: "period_1", status: "graded", score: 19 },
+    );
+    const result = await executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body });
+    expect(result.students.map((item: { id: string }) => item.id)).toEqual(["allowed"]);
+    expect(result.assignments.map((item: { id: string }) => item.id).sort()).toEqual(["a", "common"]);
+    expect(result.entries.map((item: { id: string }) => item.id)).toEqual(["science-grade"]);
+    await expect(executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "other" }, body })).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("interdit les nouvelles cotes dans une année archivée tout en conservant la lecture", async () => {
+    const { db, records, writes } = rosterDb();
+    records.schoolYears[0].status = "archived";
+    const body = { action: "save-config", schoolId: "s", schoolYearId: "y", assignmentId: "a", classId: "c::sciences", subjectId: "m", maxScore: 25, confirmation: "MODIFIER LA CÔTE MAXIMALE" };
+    await expect(executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body })).rejects.toMatchObject({ status: 403 });
+    expect(writes).toHaveLength(0);
+    await expect(executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body: { action: "load", schoolId: "s", schoolYearId: "y" } })).resolves.toHaveProperty("teacher.id", "t");
+  });
+
   it.each([
     [false, "ENREGISTRER LA CÔTE MAXIMALE"],
     [true, "MODIFIER LA CÔTE MAXIMALE"],
@@ -113,6 +140,28 @@ describe("API de cotation Enseignant", () => {
     expect(writes).toHaveLength(0);
     await expect(executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body: { ...body, confirmation: phrase } })).resolves.toMatchObject({ ok: true });
     expect(writes).toHaveLength(1);
+  });
+
+  it("enregistre deux maxima indépendants et préserve le maximum global historique", async () => {
+    const { db, writes, records } = rosterDb();
+    const base = { action: "save-config", schoolId: "s", schoolYearId: "y", assignmentId: "a", classId: "c::sciences", subjectId: "m" };
+    await executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body: { ...base, gradingSlot: "period_1", maxScore: 25, confirmation: "MODIFIER LA CÔTE MAXIMALE" } });
+    await executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body: { ...base, gradingSlot: "period_2", maxScore: 30, confirmation: "MODIFIER LA CÔTE MAXIMALE" } });
+    expect(writes).toHaveLength(2);
+    expect(writes[0].path).not.toBe(writes[1].path);
+    expect(writes.map(({ value }) => [value.gradingSlot, value.maxScore])).toEqual([["period_1", 25], ["period_2", 30]]);
+    expect(records.courseGradingConfigs).toEqual([{ id: "s__y__c::sciences__m", schoolId: "s", schoolYearId: "y", classId: "c::sciences", subjectId: "m", maxScore: 20 }]);
+  });
+
+  it("valide chaque cote contre le maximum de sa période avec repli historique", async () => {
+    const { db, writes, records } = rosterDb();
+    records.courseGradingConfigs.push({ id: "maxv2__1:s1:y11:c::sciences1:m8:period_1", schoolId: "s", schoolYearId: "y", classId: "c::sciences", subjectId: "m", gradingSlot: "period_1", maxScore: 10 });
+    const base = { action: "save-entries", schoolId: "s", schoolYearId: "y", assignmentId: "a", classId: "c::sciences", subjectId: "m" };
+    await expect(executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body: { ...base, gradingSlot: "period_1", entries: [{ studentId: "allowed", gradingSlot: "period_1", score: 11, status: "graded" }] } })).rejects.toMatchObject({ status: 400 });
+    expect(writes).toHaveLength(0);
+    await executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body: { ...base, gradingSlot: "period_1", entries: [{ studentId: "allowed", gradingSlot: "period_1", score: 0, status: "graded" }] } });
+    await executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body: { ...base, gradingSlot: "period_2", entries: [{ studentId: "allowed", gradingSlot: "period_2", score: 15, status: "graded" }] } });
+    expect(writes.map(({ value }) => value.maxScoreSnapshot)).toEqual([10, 20]);
   });
 
   it("ignore les titularités historiques inactives ou sans indicateur actif", async () => {

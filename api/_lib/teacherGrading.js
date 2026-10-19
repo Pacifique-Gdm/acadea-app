@@ -5,6 +5,7 @@ const EDITABLE_SLOTS = new Set([
   "period_1", "period_2", "semester_1_exam",
   "period_3", "period_4", "semester_2_exam",
 ]);
+const slotConfigId = (schoolId, schoolYearId, classId, subjectId, slot) => `maxv2__${[schoolId, schoolYearId, classId, subjectId, slot].map((part) => `${part.length}:${part}`).join("")}`;
 
 export class GradingApiError extends Error {
   constructor(status, code, message) {
@@ -236,12 +237,58 @@ async function loadCourseRoster(db, assignment, schoolId, schoolYearId) {
   return { assignmentId: assignment.id, students };
 }
 
+async function loadConsolidatedClass(db, teacher, schoolId, schoolYearId, classId) {
+  const { titulars } = await scope(db, teacher, schoolId, schoolYearId);
+  if (!titulars.some((item) => item.classId === classId)) {
+    throw new GradingApiError(403, "permission-denied", "Classe hors du titulariat autorisé.");
+  }
+  return loadConsolidatedSchoolClass(db, schoolId, schoolYearId, classId);
+}
+
+export async function loadConsolidatedSchoolClass(db, schoolId, schoolYearId, classId) {
+  const roster = await loadCourseRoster(db, { classId, schoolId, schoolYearId }, schoolId, schoolYearId);
+  const [classSnapshot, assignmentSnapshot, subjectSnapshot] = await Promise.all([
+    db.collection("classes").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).get(),
+    db.collection("pedagogicalAssignments").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).where("active", "==", true).get(),
+    db.collection("subjects").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).get(),
+  ]);
+  const classes = serialize(classSnapshot);
+  const byClassId = new Map(classes.map((item) => [item.id, item]));
+  const assignments = serialize(assignmentSnapshot).filter((assignment) => roster.students.some((student) => {
+    const assignedClass = byClassId.get(assignment.classId);
+    return studentMatchesAssignment(student, assignment, assignedClass, byClassId.get(classBaseId(assignedClass)));
+  }));
+  const [allConfigs, allEntries] = await Promise.all([
+    scopedDocuments(db, "courseGradingConfigs", schoolId, schoolYearId, assignments, []),
+    scopedDocuments(db, "gradeEntries", schoolId, schoolYearId, assignments, []),
+  ]);
+  const studentIds = new Set(roster.students.map((student) => student.id));
+  const subjectIds = new Set(assignments.map((assignment) => assignment.subjectId));
+  return {
+    classId,
+    students: roster.students,
+    classes: classes.filter((item) => item.id === classId || assignments.some((assignment) => assignment.classId === item.id) || classes.some((child) => assignments.some((assignment) => assignment.classId === child.id) && classBaseId(child) === item.id)),
+    subjects: serialize(subjectSnapshot).filter((item) => subjectIds.has(item.id)),
+    assignments,
+    configs: allConfigs,
+    entries: allEntries.filter((item) => studentIds.has(item.studentId)),
+  };
+}
+
 export async function executeTeacherGrading({ db, caller, body }) {
   const action = requiredString(body.action, "Action");
   const schoolId = requiredString(body.schoolId, "École");
   const schoolYearId = requiredString(body.schoolYearId, "Année scolaire");
   const teacher = await identity(db, caller, schoolId, schoolYearId);
   if (action === "load") return loadGrading(db, teacher, schoolId, schoolYearId);
+  if (action === "load-consolidated") return loadConsolidatedClass(db, teacher, schoolId, schoolYearId, requiredString(body.classId, "Classe"));
+
+  if (["save-observation", "save-config", "save-entries"].includes(action)) {
+    const [year, school] = await Promise.all([db.doc(`schoolYears/${schoolYearId}`).get(), db.doc(`schools/${schoolId}`).get()]);
+    if (year.data()?.status !== "active" || school.data()?.activeSchoolYearId !== schoolYearId) {
+      throw new GradingApiError(403, "permission-denied", "Cette année scolaire est en consultation uniquement.");
+    }
+  }
 
   const classId = requiredString(body.classId, "Classe");
   const subjectId = requiredString(body.subjectId, "Matière");
@@ -249,30 +296,44 @@ export async function executeTeacherGrading({ db, caller, body }) {
   const assignment = await assertCourse(db, teacher, schoolId, schoolYearId, classId, subjectId, assignmentId);
   if (action === "load-roster") return loadCourseRoster(db, assignment, schoolId, schoolYearId);
   if (action === "save-observation") return saveObservation(db, caller, teacher, assignment, schoolId, schoolYearId, body);
-  const configId = [schoolId, schoolYearId, classId, subjectId].join("__");
+  const legacyConfigId = [schoolId, schoolYearId, classId, subjectId].join("__");
+  const requestedSlot = body.gradingSlot === undefined ? null : requiredString(body.gradingSlot, "Période");
+  if (requestedSlot !== null && !EDITABLE_SLOTS.has(requestedSlot)) throw new GradingApiError(400, "invalid-argument", "Période invalide.");
+  const configId = requestedSlot ? slotConfigId(schoolId, schoolYearId, classId, subjectId, requestedSlot) : legacyConfigId;
 
   if (action === "save-config") {
     const maxScore = Number(body.maxScore);
     if (!Number.isFinite(maxScore) || maxScore <= 0) throw new GradingApiError(400, "invalid-argument", "La cote maximale doit être supérieure à zéro.");
     const existing = await db.collection("gradeEntries").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).where("classId", "==", classId).where("subjectId", "==", subjectId).get();
-    if (existing.docs.some((item) => item.data().status === "graded" && Number(item.data().score) > maxScore)) {
+    if (existing.docs.some((item) => (!requestedSlot || item.data().gradingSlot === requestedSlot) && item.data().status === "graded" && Number(item.data().score) > maxScore)) {
       throw new GradingApiError(409, "failed-precondition", `La cote maximale ne peut pas être abaissée à ${maxScore} car certaines cotes existantes dépassent cette valeur.`);
     }
     const ref = db.doc(`courseGradingConfigs/${configId}`);
     const previous = await ref.get();
-    const confirmation = previous.exists ? "MODIFIER LA CÔTE MAXIMALE" : "ENREGISTRER LA CÔTE MAXIMALE";
+    const legacy = requestedSlot && !previous.exists ? await db.doc(`courseGradingConfigs/${legacyConfigId}`).get() : null;
+    const confirmation = previous.exists || legacy?.exists ? "MODIFIER LA CÔTE MAXIMALE" : "ENREGISTRER LA CÔTE MAXIMALE";
     if (body.confirmation !== confirmation) throw new GradingApiError(400, "invalid-argument", "La confirmation de la cote maximale est incorrecte.");
     const now = FieldValue.serverTimestamp();
-    await ref.set({ id: configId, schoolId, schoolYearId, assignmentId, teacherId: teacher.id, classId, subjectId, maxScore, status: "draft", createdAt: previous.exists ? previous.data().createdAt : now, createdBy: previous.exists ? previous.data().createdBy : caller.uid, updatedAt: now, updatedBy: caller.uid });
+    await ref.set({ id: configId, schoolId, schoolYearId, assignmentId, teacherId: teacher.id, classId, subjectId, ...(requestedSlot ? { gradingSlot: requestedSlot } : {}), maxScore, status: "draft", createdAt: previous.exists ? previous.data().createdAt : now, createdBy: previous.exists ? previous.data().createdBy : caller.uid, updatedAt: now, updatedBy: caller.uid });
     return { ok: true, id: configId };
   }
 
   if (action === "save-entries") {
-    const config = await db.doc(`courseGradingConfigs/${configId}`).get();
-    if (!config.exists) throw new GradingApiError(409, "failed-precondition", "Définissez la cote maximale de ce cours avant de commencer la cotation.");
-    const maxScore = Number(config.data().maxScore);
     const items = Array.isArray(body.entries) ? body.entries : [];
     if (items.length > 500) throw new GradingApiError(400, "invalid-argument", "Trop de cotes.");
+    const slots = [...new Set(items.map((item) => requiredString(item.gradingSlot, "Période")))];
+    if (slots.some((slot) => !EDITABLE_SLOTS.has(slot) || (requestedSlot && slot !== requestedSlot))) throw new GradingApiError(400, "invalid-argument", "Période invalide.");
+    const [legacyConfig, ...specificConfigs] = await Promise.all([
+      db.doc(`courseGradingConfigs/${legacyConfigId}`).get(),
+      ...slots.map((slot) => db.doc(`courseGradingConfigs/${slotConfigId(schoolId, schoolYearId, classId, subjectId, slot)}`).get()),
+    ]);
+    const maximumBySlot = new Map(slots.map((slot, index) => {
+      const config = specificConfigs[index].exists ? specificConfigs[index] : legacyConfig;
+      if (!config.exists || !Number.isFinite(Number(config.data().maxScore)) || Number(config.data().maxScore) <= 0) {
+        throw new GradingApiError(409, "failed-precondition", "Définissez la cote maximale de ce cours avant de commencer la cotation.");
+      }
+      return [slot, Number(config.data().maxScore)];
+    }));
     const schoolClass = await db.doc(`classes/${classId}`).get();
     const schoolClassData = schoolClass.exists ? { id: schoolClass.id ?? classId, ...schoolClass.data() } : undefined;
     const baseId = classBaseId(schoolClassData);
@@ -284,6 +345,7 @@ export async function executeTeacherGrading({ db, caller, body }) {
       const slot = requiredString(item.gradingSlot, "Période");
       const status = item.status;
       if (!EDITABLE_SLOTS.has(slot) || !["graded", "not_graded", "absent"].includes(status)) throw new GradingApiError(400, "invalid-argument", "Cotation invalide.");
+      const maxScore = maximumBySlot.get(slot);
       const student = await db.doc(`students/${studentId}`).get();
       if (!student.exists || student.data()?.schoolId !== schoolId || student.data()?.schoolYearId !== schoolYearId || !studentMatchesAssignment(student.data(), assignment, schoolClassData, parentClass?.data())) {
         throw new GradingApiError(403, "permission-denied", "Élève hors du périmètre autorisé.");

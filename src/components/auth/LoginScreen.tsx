@@ -4,6 +4,7 @@ import { Eye, EyeOff, Lock, Mail, ShieldCheck } from "lucide-react";
 import { EnvironmentBanner } from "../layout/EnvironmentBanner";
 import { PlatformLogoSlot } from "../layout/PlatformLogoSlot";
 import { markAuthStep } from "../../utils/authPerformance";
+import { userFacingError } from "../../utils/userFacingError";
 
 export function LoginScreen({
   onLogin,
@@ -45,9 +46,7 @@ export function LoginScreen({
     if (message.includes("auth/too-many-requests")) {
       return "Trop de tentatives de connexion. Réessayez plus tard.";
     }
-    if (message.includes("auth/network-request-failed")) {
-      return "Connexion impossible. Vérifiez votre connexion internet.";
-    }
+    if (message.includes("auth/network-request-failed")) return userFacingError(loginError, "Connexion impossible.");
     return "Email ou mot de passe incorrect.";
   }
 

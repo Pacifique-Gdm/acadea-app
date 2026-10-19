@@ -59,4 +59,10 @@ describe("ergonomie des confirmations de cotation", () => {
     expect(drawer).toContain('"primary-button w-full justify-center"');
     expect(drawer).toContain('{hasTitular && <button');
   });
+  it("place l'ouverture de la fiche consolidée au bas de la carte titulaire", () => {
+    const card = drawer.slice(drawer.indexOf('<article className="rounded border bg-white p-3">'));
+    expect(card.indexOf('Voir la fiche consolidée')).toBeGreaterThan(card.indexOf('élève(s)'));
+    expect(card.indexOf('Voir la fiche consolidée')).toBeLessThan(card.indexOf('</article>'));
+    expect(card).toContain('className="secondary-button mt-3 w-full justify-center"');
+  });
 });

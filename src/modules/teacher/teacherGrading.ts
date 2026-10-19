@@ -12,10 +12,15 @@ export const gradingSlotLabels: Record<GradingSlot, string> = { period_1:"1ère 
 export const editableGradingSlots = GRADING_SLOTS.filter((slot): slot is EditableGradingSlot => !slot.endsWith("_total") && slot !== "general_total");
 
 export interface ClassTitular { id:string;schoolId:string;schoolYearId:string;classId:string;teacherId:string;assignmentId:string;active:boolean;updatedAt:string;updatedBy:string }
-export interface CourseGradingConfig { id:string;schoolId:string;schoolYearId:string;assignmentId:string|null;teacherId:string;classId:string;subjectId:string;maxScore:number;status:"draft";createdAt:string;createdBy:string;updatedAt:string;updatedBy:string }
+export interface CourseGradingConfig { id:string;schoolId:string;schoolYearId:string;assignmentId:string|null;teacherId:string;classId:string;subjectId:string;gradingSlot?:EditableGradingSlot;maxScore:number;status:"draft";createdAt:string;createdBy:string;updatedAt:string;updatedBy:string }
 export interface GradeEntry { id:string;schoolId:string;schoolYearId:string;assignmentId:string|null;teacherId:string;classId:string;subjectId:string;studentId:string;gradingSlot:EditableGradingSlot;score:number|null;status:"graded"|"not_graded"|"absent";maxScoreSnapshot:number;createdAt:string;createdBy:string;updatedAt:string;updatedBy:string }
 
 export function gradingContextId(input:Pick<CourseGradingConfig,"schoolId"|"schoolYearId"|"classId"|"subjectId">){return [input.schoolId,input.schoolYearId,input.classId,input.subjectId].join("__")}
+export function gradingSlotConfigId(input:Pick<CourseGradingConfig,"schoolId"|"schoolYearId"|"classId"|"subjectId">,slot:EditableGradingSlot){return `maxv2__${[input.schoolId,input.schoolYearId,input.classId,input.subjectId,slot].map(part=>`${part.length}:${part}`).join("")}`}
+export function applicableGradingConfig(configs:readonly CourseGradingConfig[],classId:string,subjectId:string,slot:EditableGradingSlot,schoolId?:string,schoolYearId?:string){
+  const matching=configs.filter(item=>item.classId===classId&&item.subjectId===subjectId&&(!schoolId||item.schoolId===schoolId)&&(!schoolYearId||item.schoolYearId===schoolYearId));
+  return matching.find(item=>item.gradingSlot===slot)??matching.find(item=>!item.gradingSlot);
+}
 export function gradeEntryId(input:Pick<GradeEntry,"schoolId"|"schoolYearId"|"classId"|"subjectId"|"studentId"|"gradingSlot">){return [input.schoolId,input.schoolYearId,input.classId,input.subjectId,input.studentId,input.gradingSlot].join("__")}
 export function isPrimaryOrPreschoolSection(value:string|undefined){return primaryTeacherSections.includes(value as "Maternelle"|"Primaire")}
 export function isSecondarySection(value:string|undefined){return value==="Secondaire"||value==="CTEB"}

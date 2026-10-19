@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AdminDrawer } from "../../components/ui/AdminDrawer";
+import { userFacingError } from "../../utils/userFacingError";
 import type { AppUser, School, SchoolYear } from "../../types";
 import {
-  GRADING_SLOTS,
+  applicableGradingConfig,
   activeStudentsForAssignment,
-  activeStudentsForClass,
   changedGradeEntries,
   editableGradingSlots,
   gradingProgress,
@@ -21,23 +21,21 @@ import {
 } from "./teacherGrading";
 import {
   loadTeacherGrading,
+  loadTeacherConsolidatedGrades,
   loadTeacherGradingRoster,
   saveTeacherGradeEntries,
   saveTeacherGradingConfig,
   type TeacherGradingData,
+  type ConsolidatedGradingData,
 } from "./teacherGradingService";
+import { buildConsolidatedClassReport } from "./consolidatedGrades";
+import { ConsolidatedGradesView } from "./ConsolidatedGradesView";
 import { useTeacherGradingRoster } from "./useTeacherGradingRoster";
 import type { TeacherPortalData } from "./teacherPortalData";
 import { exportTeacherGradesPdf } from "./teacherGradingPdf";
 
 type Draft = { score: string; status: GradeEntry["status"] };
 type PendingTransition = { type: "close" | "assignment" | "slot" | "titular"; value?: string };
-
-const entryValue = (entry: GradeEntry | undefined) => {
-  if (!entry || entry.status === "not_graded") return "Non coté";
-  if (entry.status === "absent") return "Absent";
-  return String(entry.score ?? "Non coté");
-};
 
 export function TeacherGradingDrawer({ user, school, year, portalData, onClose }: { user: AppUser; school: School; year: SchoolYear; portalData: TeacherPortalData; onClose: () => void }) {
   const initialData = useMemo<TeacherGradingData | undefined>(() => portalData.teacher ? ({
@@ -69,8 +67,10 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
   const [confirmationText, setConfirmationText] = useState("");
   const [titularView, setTitularView] = useState(false);
   const [titularClassId, setTitularClassId] = useState("");
-  const [titularStudentId, setTitularStudentId] = useState("");
   const [showConsolidated, setShowConsolidated] = useState(false);
+  const [consolidatedData, setConsolidatedData] = useState<ConsolidatedGradingData>();
+  const [consolidatedLoading, setConsolidatedLoading] = useState(false);
+  const [consolidatedError, setConsolidatedError] = useState("");
   const draftContext = useRef<{ assignmentId: string; slot: EditableGradingSlot; entries: GradeEntry[] } | undefined>(undefined);
 
   const reload = useCallback(async () => {
@@ -86,7 +86,7 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
       setError("");
     } catch (cause) {
       setLoadFailed(true);
-      setError(cause instanceof Error ? cause.message : "Chargement impossible.");
+      setError(userFacingError(cause, "Chargement impossible."));
     } finally {
       setLoading(false);
     }
@@ -100,7 +100,7 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
   const assignment = assignments.find((item) => item.id === assignmentId) ?? assignments[0];
   const schoolClass = data?.classes.find((item) => item.id === assignment?.classId);
   const subject = data?.subjects.find((item) => item.id === assignment?.subjectId);
-  const config = data?.configs.find((item) => item.classId === assignment?.classId && item.subjectId === assignment?.subjectId);
+  const config = applicableGradingConfig(data?.configs ?? [], assignment?.classId ?? "", assignment?.subjectId ?? "", slot, school.id, year.id);
   const { roster, error: rosterError } = useTeacherGradingRoster(assignment, school.id, year.id);
   const students = useMemo(
     () => assignment && data ? activeStudentsForAssignment(roster?.assignmentId === assignment.id ? roster.students : data.students, school.id, year.id, assignment, data.classes) : [],
@@ -157,29 +157,39 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
 
   const hasTitular = !loading && !loadFailed && Boolean(data?.titulars.length);
   const titular = data?.titulars.find((item) => item.classId === titularClassId) ?? data?.titulars[0];
-  const titularStudents = useMemo(
-    () => titular && data ? activeStudentsForClass(data.students, school.id, year.id, titular.classId, data.classes) : [],
-    [data, school.id, titular, year.id],
-  );
-  const selectedTitularStudent = titularStudents.find((item) => item.id === titularStudentId) ?? titularStudents[0];
-  const titularConfigs = (data?.configs ?? []).filter((item) => item.classId === titular?.classId);
-  const titularSubjectIds = [...new Set(titularConfigs.map((item) => item.subjectId))];
-  const quotedSubjectIds = new Set((data?.entries ?? []).filter((item) => item.classId === titular?.classId && item.status !== "not_graded").map((item) => item.subjectId));
+  useEffect(() => {
+    if (!showConsolidated || !titular?.classId) return;
+    let cancelled = false;
+    setConsolidatedData(undefined);
+    setConsolidatedLoading(true);
+    setConsolidatedError("");
+    loadTeacherConsolidatedGrades(school.id, year.id, titular.classId).then((loaded) => {
+      if (!cancelled) setConsolidatedData(loaded);
+    }).catch((cause: unknown) => {
+      if (!cancelled) setConsolidatedError(cause instanceof Error ? cause.message : "Fiche consolidée indisponible.");
+    }).finally(() => { if (!cancelled) setConsolidatedLoading(false); });
+    return () => { cancelled = true; };
+  }, [showConsolidated, titular?.classId, school.id, year.id]);
+  const consolidatedReport = useMemo(() => consolidatedData ? buildConsolidatedClassReport({
+    schoolId: school.id, schoolYearId: year.id, classId: consolidatedData.classId,
+    students: consolidatedData.students, classes: consolidatedData.classes, subjects: consolidatedData.subjects,
+    assignments: consolidatedData.assignments, configs: consolidatedData.configs, entries: consolidatedData.entries,
+  }) : undefined, [consolidatedData, school.id, year.id]);
 
   async function saveMax() {
     if (!assignment || !data || savingRef.current || loading || confirmation !== "maximum" || confirmationText !== maxScoreConfirmation(Boolean(config))) return;
     const value = Number(maxScore);
-    const message = validateMaxScore(value, data.entries.filter((item) => item.classId === assignment.classId && item.subjectId === assignment.subjectId));
+    const message = validateMaxScore(value, data.entries.filter((item) => item.classId === assignment.classId && item.subjectId === assignment.subjectId && item.gradingSlot === slot));
     if (message) return setError(message);
     savingRef.current = true; setSaving(true); setError(""); setSuccess("");
     try {
-      await saveTeacherGradingConfig({ schoolId: school.id, schoolYearId: year.id, assignmentId: assignment.id, classId: assignment.classId, subjectId: assignment.subjectId, maxScore: value, confirmation: confirmationText });
+      await saveTeacherGradingConfig({ schoolId: school.id, schoolYearId: year.id, assignmentId: assignment.id, classId: assignment.classId, subjectId: assignment.subjectId, gradingSlot: slot, maxScore: value, confirmation: confirmationText });
       setSuccess("Cote maximale enregistrée.");
       setConfirmation(null); setConfirmationText("");
       setEditingMaxScore(false);
       await reload();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Enregistrement impossible.");
+      setError(userFacingError(cause, "Enregistrement impossible."));
     } finally { savingRef.current = false; setSaving(false); }
   }
 
@@ -196,10 +206,10 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
     }
     savingRef.current = true; setSaving(true); setError(""); setSuccess("");
     try {
-      await saveTeacherGradeEntries({ schoolId: school.id, schoolYearId: year.id, assignmentId: assignment.id, classId: assignment.classId, subjectId: assignment.subjectId, entries: payload });
+      await saveTeacherGradeEntries({ schoolId: school.id, schoolYearId: year.id, assignmentId: assignment.id, classId: assignment.classId, subjectId: assignment.subjectId, gradingSlot: slot, entries: payload });
       onClose();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Enregistrement impossible.");
+      setError(userFacingError(cause, "Enregistrement impossible."));
     } finally { savingRef.current = false; setSaving(false); }
   }
 
@@ -214,7 +224,7 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
       if (!latest.assignments.some((item) => item.id === assignment.id && item.classId === assignment.classId && item.subjectId === assignment.subjectId)) throw new Error("Cours hors du périmètre pédagogique.");
       const latestRoster = await loadTeacherGradingRoster({ schoolId: school.id, schoolYearId: year.id, assignmentId: assignment.id, classId: assignment.classId, subjectId: assignment.subjectId });
       await exportTeacherGradesPdf({ school, year, teacher: latest.teacher, teacherName: user.name, assignment, schoolClass: latest.classes.find((item) => item.id === assignment.classId), subject: latest.subjects.find((item) => item.id === assignment.subjectId), students: activeStudentsForAssignment(latestRoster.students, school.id, year.id, assignment, latest.classes), entries: latest.entries.filter((item) => item.classId === assignment.classId && item.subjectId === assignment.subjectId), config: latest.configs.find((item) => item.classId === assignment.classId && item.subjectId === assignment.subjectId) });
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Export PDF impossible."); }
+    } catch (cause) { setError(userFacingError(cause, "Export PDF impossible.")); }
     finally { exportingPdfRef.current = false; setExportingPdf(false); }
   }
 
@@ -230,30 +240,15 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
     const className = data.classes.find((item) => item.id === titular?.classId)?.name ?? titular?.classId;
     return <section className="grid gap-3">
       <p className="rounded bg-blue-50 p-3 text-sm">Fiche consolidée automatique en lecture seule. Les cotations restent modifiables uniquement par leur enseignant propriétaire.</p>
-      {data.titulars.length > 1 && <label className="grid gap-1 text-sm font-semibold">Classe titulaire<select className="input" value={titular?.classId} onChange={(event) => { setTitularClassId(event.target.value); setTitularStudentId(""); setShowConsolidated(false); }}>{data.titulars.map((item) => <option key={item.id} value={item.classId}>{data.classes.find((candidate) => candidate.id === item.classId)?.name ?? item.classId}</option>)}</select></label>}
+      {data.titulars.length > 1 && <label className="grid gap-1 text-sm font-semibold">Classe titulaire<select className="input" value={titular?.classId} onChange={(event) => { setTitularClassId(event.target.value); setShowConsolidated(false); }}>{data.titulars.map((item) => <option key={item.id} value={item.classId}>{data.classes.find((candidate) => candidate.id === item.classId)?.name ?? item.classId}</option>)}</select></label>}
       <article className="rounded border bg-white p-3">
         <b>{className}</b>
-        <div className="mt-2 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
-          <span>{titularStudents.length} élève(s)</span><span>{titularSubjectIds.length} matière(s)</span>
-          <span>{quotedSubjectIds.size} cotée(s)</span><span>{Math.max(0, titularSubjectIds.length - quotedSubjectIds.size)} en attente</span>
-        </div>
+        {consolidatedReport && <p className="mt-2 text-sm">{consolidatedReport.students.length} élève(s) · {consolidatedReport.courses.length} cours</p>}
+        <button type="button" className="secondary-button mt-3 w-full justify-center" onClick={() => setShowConsolidated((current) => !current)}>Voir la fiche consolidée</button>
       </article>
-      <button type="button" className="secondary-button justify-center" onClick={() => setShowConsolidated((current) => !current)}>Voir la fiche consolidée</button>
-      {showConsolidated && (!titularConfigs.length ? <p className="rounded bg-slate-50 p-3">Aucune cote n’a encore été saisie pour cette classe.</p> : <>
-        <label className="grid gap-1 text-sm font-semibold">Vue par élève<select className="input" value={selectedTitularStudent?.id ?? ""} onChange={(event) => setTitularStudentId(event.target.value)}>{titularStudents.map((student) => <option key={student.id} value={student.id}>{student.nom} {student.postnom} {student.prenom}</option>)}</select></label>
-        {!selectedTitularStudent ? <p className="rounded bg-slate-50 p-3">Aucun élève actif n’est inscrit dans cette classe.</p> : <div className="grid gap-3">
-          {titularConfigs.map((item) => <article key={item.id} className="rounded border bg-white p-3">
-            <div className="flex flex-wrap justify-between gap-2"><b>{data.subjects.find((candidate) => candidate.id === item.subjectId)?.name ?? item.subjectId}</b><span className="text-sm">Maximum : {item.maxScore}</span></div>
-            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {GRADING_SLOTS.map((gradingSlot) => {
-                const readOnlyTotal = !editableGradingSlots.includes(gradingSlot as EditableGradingSlot);
-                const entry = data.entries.find((candidate) => candidate.classId === item.classId && candidate.subjectId === item.subjectId && candidate.studentId === selectedTitularStudent.id && candidate.gradingSlot === gradingSlot);
-                return <div key={gradingSlot} className="rounded bg-slate-50 p-2 text-xs"><b className="block">{gradingSlotLabels[gradingSlot]}</b><span>{readOnlyTotal ? "Non configuré" : entryValue(entry)}</span></div>;
-              })}
-            </div>
-          </article>)}
-        </div>}
-      </>)}
+      {showConsolidated && (consolidatedLoading ? <p role="status">Chargement de la fiche consolidée…</p>
+        : consolidatedError ? <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{consolidatedError}</p>
+          : consolidatedReport ? <ConsolidatedGradesView report={consolidatedReport} /> : null)}
     </section>;
   };
 
@@ -270,8 +265,8 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
       <div className={hasTitular ? "grid grid-cols-2 gap-2" : "grid grid-cols-1"}><button type="button" className={!titularView || !hasTitular ? "primary-button w-full justify-center" : "secondary-button w-full justify-center"} onClick={() => requestTransition({ type: "titular", value: "false" })}>Mes cotations</button>{hasTitular && <button type="button" className={titularView ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => requestTransition({ type: "titular", value: "true" })}>Ma classe titulaire</button>}</div>
       {titularView && hasTitular ? renderTitularView() : assignments.length === 0 ? <p className="rounded bg-slate-50 p-4">Aucun cours ne vous a encore été affecté par la Direction des études.</p> : <>
         <label className="grid gap-1 text-sm font-semibold">Cours<select className="input" value={assignment?.id} disabled={saving} onChange={(event) => requestTransition({ type: "assignment", value: event.target.value })}>{assignments.map((item) => <option key={item.id} value={item.id}>{data.subjects.find((candidate) => candidate.id === item.subjectId)?.name} — {data.classes.find((candidate) => candidate.id === item.classId)?.name}</option>)}</select></label>
-        <div className="rounded border bg-white p-3"><p className="font-bold">{subject?.name} — {schoolClass?.name}</p><div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]"><input className="input" type="number" min="0.01" step="0.01" aria-label="Cote maximale" value={maxScore} readOnly={Boolean(config) && !editingMaxScore} onChange={(event) => setMaxScore(event.target.value)} /><button type="button" className="secondary-button justify-center" disabled={saving} onClick={() => { setEditingMaxScore(true); setConfirmation("maximum"); setConfirmationText(""); setSuccess(""); }}>{maxScoreActionLabel(Boolean(config))}</button></div>{confirmationPanel("maximum")}</div>
         <label className="grid gap-1 text-sm font-semibold">Période<select className="input" value={slot} disabled={saving} onChange={(event) => requestTransition({ type: "slot", value: event.target.value })}>{editableGradingSlots.map((value) => <option key={value} value={value}>{gradingSlotLabels[value]}</option>)}</select></label>
+        <div className="rounded border bg-white p-3"><p className="font-bold">{subject?.name} — {schoolClass?.name} · {gradingSlotLabels[slot]}</p><div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]"><input className="input" type="number" min="0.01" step="0.01" aria-label="Cote maximale" value={maxScore} readOnly={Boolean(config) && !editingMaxScore} onChange={(event) => setMaxScore(event.target.value)} /><button type="button" className="secondary-button justify-center" disabled={saving} onClick={() => { setEditingMaxScore(true); setConfirmation("maximum"); setConfirmationText(""); setSuccess(""); }}>{maxScoreActionLabel(Boolean(config))}</button></div>{confirmationPanel("maximum")}</div>
         <p className="text-sm font-semibold">{progress.graded} / {progress.total} élèves cotés · {progress.status}</p>
         {!config ? <p className="rounded bg-amber-50 p-3 text-sm">Définissez la cote maximale de ce cours avant de commencer la cotation.</p> : students.length === 0 ? <p className="rounded bg-slate-50 p-3">Aucun élève actif n’est inscrit dans cette classe.</p> : <div className="grid gap-2">{students.map((student) => {
           const value = drafts[student.id] ?? { score: "", status: "not_graded" as const };

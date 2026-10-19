@@ -61,6 +61,7 @@ import { schoolEducationLevelChoices } from "./utils/schoolConfig";
 import { markAuthStep, measureAuthStep } from "./utils/authPerformance";
 import { getPlatformSchoolStats } from "./utils/platformSchoolStats";
 import { firebaseErrorCode, logRefreshError, refreshErrorMessage } from "./utils/refreshErrors";
+import { userFacingError } from "./utils/userFacingError";
 import { runRefreshTask } from "./utils/refreshTask";
 import { resolveSchoolCurrency, schoolWithYearCurrency } from "./utils/currency";
 import { filterByAllowedSections } from "./utils/userSections";
@@ -453,7 +454,7 @@ export default function App() {
         if (cancelled) return;
         console.error("[Acadéa auth] Session Firebase invalide.", { code: firebaseErrorCode(error) });
         if (!logoutInProgressRef.current) {
-          setAuthError(error instanceof Error ? error.message : "Session Firebase invalide.");
+          setAuthError(userFacingError(error, "Session Firebase invalide."));
         }
         setUser(null);
         setSelectedYearId("");
@@ -470,7 +471,7 @@ export default function App() {
       .catch((error) => {
         if (cancelled) return;
         console.error("[Acadéa auth] Firebase indisponible.", { code: firebaseErrorCode(error) });
-        setAuthError(error instanceof Error ? error.message : "Configuration Firebase indisponible.");
+        setAuthError(userFacingError(error, "Configuration Firebase indisponible."));
         setAuthReady(true);
       });
 
@@ -509,7 +510,7 @@ export default function App() {
           setPlatformCounts(null);
           setData({ ...loadInitialData(), users: [bootstrapUser] });
           setPlatformLoadError("Impossible de charger les écoles. Réessayez après actualisation.");
-          setAuthError(error instanceof Error ? error.message : "Chargement Firestore impossible après connexion.");
+          setAuthError(userFacingError(error, "Chargement des données impossible après connexion."));
         }
         return;
       }
@@ -646,7 +647,7 @@ export default function App() {
     try {
       await signOutUser();
     } catch (error) {
-      setAuthError(error instanceof Error ? error.message : "Déconnexion Firebase impossible.");
+      setAuthError(userFacingError(error, "Déconnexion impossible."));
     } finally {
       logoutInProgressRef.current = false;
     }
@@ -977,7 +978,7 @@ export default function App() {
         updateData={updateData}
         onLogout={logout}
         renderEnvironmentBanner={() => <EnvironmentBanner />}
-        renderHeader={({ unreadNotifications, notificationsOpen, onToggleNotifications, onCloseNotifications, onRealtimeNotifications, onRealtimeMessages }) => (
+        renderHeader={({ unreadNotifications, notificationsOpen, onToggleNotifications, onCloseNotifications, onRealtimeNotifications, onRealtimeMessages, onOpenPublishedGrades }) => (
           <Header
             user={user}
             data={data}
@@ -997,6 +998,7 @@ export default function App() {
             }}
             onRealtimeNotifications={onRealtimeNotifications}
             onRealtimeMessages={onRealtimeMessages}
+            onOpenPublishedGrades={onOpenPublishedGrades}
             roleLabels={roleLabels}
             focusedMessageId={focusedPushMessage?.id}
           />
