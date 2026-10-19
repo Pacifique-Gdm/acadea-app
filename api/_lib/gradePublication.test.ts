@@ -38,6 +38,7 @@ function fixture() {
     collection: (collection: string) => {
       const query = (conditions: Array<[string, string, unknown]>): unknown => ({
         where: (field: string, op: string, value: unknown) => query([...conditions, [field, op, value]]),
+        limit: () => query(conditions),
         get: async () => ({ docs: (records[collection] ?? []).filter((row) => conditions.every(([field, op, value]) =>
           op === "in" ? (value as unknown[]).includes(row[field]) : op === "array-contains" ? Array.isArray(row[field]) && row[field].includes(value) : row[field] === value)).map(snapshot) }),
       });
@@ -46,7 +47,7 @@ function fixture() {
     runTransaction: async (callback: (transaction: unknown) => Promise<unknown>) => {
       const queued: Array<() => void> = [];
       const transaction = {
-        get: async (ref: { path: string }) => snapshot(getRow(ref.path)),
+        get: async (ref: { get: () => Promise<unknown> }) => ref.get(),
         create: (ref: { path: string }, row: Row) => queued.push(() => write(ref.path, row)),
         set: (ref: { path: string }, row: Row) => queued.push(() => write(ref.path, row)),
         update: (ref: { path: string }, row: Row) => queued.push(() => write(ref.path, row, true)),
@@ -105,5 +106,15 @@ describe("publication serveur des cotes", () => {
     const result = await executeGradePublication({ db, caller: director, body: publish });
     await expect(executeGradePublication({ db, caller: director, body: { ...base, action: "grades-withdraw", publicationId: result.publicationId } })).resolves.toMatchObject({ withdrawn: true });
     await expect(executeGradePublication({ db, caller: parent, body: { ...base, action: "grades-parent-read", studentId: "student", slot: "period_1" } })).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("n'empêche pas la lecture courante lorsqu'un parent conserve aussi un lien historique", async () => {
+    const { db, records } = fixture();
+    await executeGradePublication({ db, caller: director, body: publish });
+    records.students.push({ id: "historical-child", schoolId: "s", schoolYearId: "previous-year", nom: "Archive" });
+    records.parents[0].studentIds = ["student", "historical-child"];
+    const result = await executeGradePublication({ db, caller: parent, body: { ...base, action: "grades-parent-list" } });
+    expect(result.children.map((child: { studentId: string }) => child.studentId)).toEqual(["student"]);
+    await expect(executeGradePublication({ db, caller: parent, body: { ...base, action: "grades-parent-read", studentId: "historical-child", slot: "period_1" } })).rejects.toMatchObject({ status: 403 });
   });
 });

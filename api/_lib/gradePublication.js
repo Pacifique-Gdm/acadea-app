@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { GradingApiError, loadConsolidatedSchoolClass } from "./teacherGrading.js";
 import { calculateConsolidatedReport } from "./consolidatedGrading.js";
 import { PUBLICATION_SLOTS, feeAppliesToPublishedStudent, qualifiesForPublication, validatedFeePaidMinor, validatePublicationCriteria } from "./gradePublicationCriteria.js";
+import { publicationReader, runPublicationTransaction, validatePublicationWrites } from "./publicationTransaction.js";
 
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 const required = (value, label) => {
@@ -64,7 +65,7 @@ async function linkedParentUsers(db, schoolId, schoolYearId, studentId) {
   // Query on the indexed child identifier, then enforce tenant/year on the server.
   // This avoids requiring a new composite index for a protected publication path.
   const parentSnapshot = await db.collection("parents").where("studentIds", "array-contains", studentId).get();
-  const parents = serialize(parentSnapshot).filter((item) => item.schoolYearId === schoolYearId && item.status === "active" && Array.isArray(item.studentIds) && item.studentIds.includes(studentId));
+  const parents = serialize(parentSnapshot).filter((item) => item.schoolId === schoolId && item.schoolYearId === schoolYearId && item.status === "active" && Array.isArray(item.studentIds) && item.studentIds.includes(studentId));
   if (!parents.length) return [];
   const parentIds = parents.map((item) => item.id);
   const chunks = Array.from({ length: Math.ceil(parentIds.length / 30) }, (_, index) => parentIds.slice(index * 30, index * 30 + 30));
@@ -83,9 +84,12 @@ async function parentProfile(db, caller, schoolId, schoolYearId) {
   return { parentId, studentIds: profile.data().studentIds };
 }
 
-async function authorizedChild(db, schoolId, schoolYearId, parentId, studentIds, studentId) {
+async function authorizedChild(db, schoolId, schoolYearId, parentId, studentIds, studentId, listing = false) {
   if (!studentIds.includes(studentId)) throw new GradingApiError(403, "permission-denied", "Élève non lié au Parent.");
   const student = await db.doc(`students/${studentId}`).get();
+  // A current parent profile can retain archived child links. They are not
+  // current-year results, but must not make the whole current list fail.
+  if (listing && student.exists && student.data()?.schoolId === schoolId && student.data()?.schoolYearId !== schoolYearId) return null;
   if (!student.exists || student.data()?.schoolId !== schoolId || student.data()?.schoolYearId !== schoolYearId) {
     throw new GradingApiError(403, "permission-denied", "Élève hors du périmètre autorisé.");
   }
@@ -127,7 +131,8 @@ export async function executeGradePublication({ db, caller, body }) {
     if (studentIds.length > 30) throw new GradingApiError(400, "failed-precondition", "Trop de liens enfants : contactez l’établissement.");
     const children = [];
     for (const studentId of [...new Set(studentIds)]) {
-      const student = await authorizedChild(db, schoolId, schoolYearId, parentId, studentIds, studentId);
+      const student = await authorizedChild(db, schoolId, schoolYearId, parentId, studentIds, studentId, true);
+      if (!student) continue;
       const publications = (await Promise.all(PUBLICATION_SLOTS.map((slot) => readPublishedGrade(db, schoolId, schoolYearId, studentId, slot))))
         .filter(Boolean).map(({ slot, publicationId, publishedAt }) => ({ slot, publicationId, publishedAt }));
       if (publications.length) children.push({ studentId, studentName: [student.nom, student.postnom, student.prenom].filter(Boolean).join(" "), className: student.className, publications });
@@ -135,7 +140,10 @@ export async function executeGradePublication({ db, caller, body }) {
     return { children };
   }
 
-  const write = action === "grades-publish" || action === "grades-withdraw";
+  if (action === "grades-publish") {
+    return runPublicationTransaction(db, (transaction) => publishGrades(db, transaction, caller, body, schoolId, schoolYearId));
+  }
+  const write = action === "grades-withdraw";
   const { user, school, year } = await actorContext(db, caller, schoolId, schoolYearId, "study_director", write);
   if (action === "grades-options") {
     const fees = await db.collection("feeTypes").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).get();
@@ -169,23 +177,27 @@ export async function executeGradePublication({ db, caller, body }) {
       return { ok: true, withdrawn: true };
     });
   }
-  if (action !== "grades-publish") throw new GradingApiError(400, "invalid-argument", "Action inconnue.");
+  throw new GradingApiError(400, "invalid-argument", "Action inconnue.");
+}
 
+async function publishGrades(writer, transaction, caller, body, schoolId, schoolYearId) {
+  const db = publicationReader(writer, transaction);
+  const { user, school, year } = await actorContext(db, caller, schoolId, schoolYearId, "study_director", true);
   let criteria;
   try { criteria = validatePublicationCriteria(body); } catch (error) { throw new GradingApiError(400, "invalid-argument", error.message); }
   const classId = required(body.classId, "Classe");
   const requestId = required(body.requestId, "Identifiant de demande");
   if (!/^[a-zA-Z0-9_-]{16,128}$/.test(requestId)) throw new GradingApiError(400, "invalid-argument", "Identifiant de demande invalide.");
   const runId = publicationId(schoolId, schoolYearId, classId, criteria.slot, requestId);
-  const runRef = db.doc(`gradePublicationRuns/${runId}`);
-  const prior = await runRef.get();
+  const runRef = writer.doc(`gradePublicationRuns/${runId}`);
+  const classSnapshot = await authorizedDirectorClass(db, schoolId, schoolYearId, classId, user);
+  const prior = await db.doc(`gradePublicationRuns/${runId}`).get();
   const criteriaHash = digest(JSON.stringify([criteria, caller.uid]));
   if (prior.exists) {
     if (prior.data()?.criteriaHash !== criteriaHash) throw new GradingApiError(409, "conflict", "Cette demande a déjà été utilisée avec d’autres critères.");
     if (prior.data()?.status !== "published") throw new GradingApiError(409, "failed-precondition", "Cette publication a été retirée.");
     return { ok: true, publicationId: runId, publishedCount: prior.data()?.publishedCount ?? 0, notificationCount: prior.data()?.notificationCount ?? 0, repeated: true };
   }
-  const classSnapshot = await authorizedDirectorClass(db, schoolId, schoolYearId, classId, user);
   const report = await classReport(db, schoolId, schoolYearId, classId);
   if (report.students.length > 150) throw new GradingApiError(409, "failed-precondition", "Classe trop volumineuse pour une publication atomique.");
   let feeType, currency;
@@ -228,37 +240,14 @@ export async function executeGradePublication({ db, caller, body }) {
     body: `Madame, Monsieur,\n\nNous vous informons que les cotes de votre enfant ${[row.student.nom, row.student.postnom, row.student.prenom].filter(Boolean).join(" ")}, inscrit(e) en ${classSnapshot.data()?.name ?? row.student.className}, pour la ${slotLabels[criteria.slot]}, sont désormais disponibles.\n\nNous vous invitons à les consulter dans votre espace « Côtes de mes enfants » sur Acadéa.\n\nLa Direction des études.`,
     createdAt: now, read: false,
   })));
-  return db.runTransaction(async (transaction) => {
-    const current = await transaction.get(runRef);
-    if (current.exists) {
-      if (current.data()?.criteriaHash !== criteriaHash) throw new GradingApiError(409, "conflict", "Cette demande a déjà été utilisée avec d’autres critères.");
-      if (current.data()?.status !== "published") throw new GradingApiError(409, "failed-precondition", "Cette publication a été retirée.");
-      return { ok: true, publicationId: runId, publishedCount: current.data()?.publishedCount ?? 0, notificationCount: current.data()?.notificationCount ?? 0, repeated: true };
-    }
-    // Recheck the active year and every family link at commit time. A parent
-    // detached while the report was calculated must not receive a new notice.
-    const [currentYear, currentSchool] = await Promise.all([
-      transaction.get(db.doc(`schoolYears/${schoolYearId}`)),
-      transaction.get(db.doc(`schools/${schoolId}`)),
-    ]);
-    if (currentYear.data()?.status !== "active" || currentYear.data()?.schoolId !== schoolId || currentSchool.data()?.activeSchoolYearId !== schoolYearId) {
-      throw new GradingApiError(409, "failed-precondition", "L’année scolaire n’est plus active.");
-    }
-    const parentIds = [...new Set(selected.flatMap(({ recipients }) => recipients.map((recipient) => recipient.parentId)))];
-    const profileSnapshots = await Promise.all(parentIds.map((id) => transaction.get(db.doc(`parents/${id}`))));
-    const profiles = new Map(parentIds.map((id, index) => [id, profileSnapshots[index].data()]));
-    if (selected.some(({ row, recipients }) => recipients.some((recipient) => {
-      const profile = profiles.get(recipient.parentId);
-      return profile?.schoolId !== schoolId || profile?.schoolYearId !== schoolYearId || profile?.status !== "active"
-        || !Array.isArray(profile?.studentIds) || !profile.studentIds.includes(row.student.id);
-    }))) throw new GradingApiError(409, "failed-precondition", "Un lien Parent–enfant a changé. Réessayez la publication.");
-    transaction.create(runRef, {
+  const run = {
       id: runId, schoolId, schoolYearId, classId, slot: criteria.slot, status: "published", criteriaHash,
       criteria, publishedAt: now, publishedBy: caller.uid, publishedCount: accessRecords.length,
       notificationCount: notifications.length, accessIds: accessRecords.map((item) => item.id),
-    });
-    accessRecords.forEach((record) => transaction.set(db.doc(`publishedGradeResults/${record.id}`), record));
-    notifications.forEach((record) => transaction.set(db.doc(`notifications/${record.id}`), record));
-    return { ok: true, publicationId: runId, publishedCount: accessRecords.length, notificationCount: notifications.length, repeated: false };
-  });
+  };
+  validatePublicationWrites([run, ...accessRecords, ...notifications]);
+  transaction.create(runRef, run);
+  accessRecords.forEach((record) => transaction.set(writer.doc(`publishedGradeResults/${record.id}`), record));
+  notifications.forEach((record) => transaction.set(writer.doc(`notifications/${record.id}`), record));
+  return { ok: true, publicationId: runId, publishedCount: accessRecords.length, notificationCount: notifications.length, repeated: false };
 }
