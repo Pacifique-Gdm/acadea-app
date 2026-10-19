@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { ArrowLeft, BookOpen, Clock3, Download, HeartPulse, LogOut, MessageSquare, UserRound } from "lucide-react";
+import { ArrowLeft, BookOpen, Clock3, Download, GraduationCap, HeartPulse, LogOut, MessageSquare, UserRound } from "lucide-react";
 import { AdminDrawer, FormPanel, Metric } from "../../components/ui";
 import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent";
 import { db } from "../../firebase";
@@ -26,6 +26,8 @@ import type { StudentMedicalRecord } from "../secretary/secretaryTypes";
 import { AdministrativeRecipientSelector } from "../messages/AdministrativeRecipientSelector";
 import { filterRecipientsByDirectoryKind, resolveAdministrativeRecipientIds, type AdministrativeRecipientMode, type RecipientDirectoryKind } from "../messages/administrativeRecipientSelection";
 import { LibraryDrawer } from "../library/LibraryDrawer";
+import { ParentPublishedGradesDrawer } from "./ParentPublishedGradesDrawer";
+import { SchoolYearArchiveDrawer } from "../../components/archive/SchoolYearArchiveDrawer";
 
 type ParentTab = "children" | "messages" | "menu";
 
@@ -47,6 +49,7 @@ type ParentHeaderRenderProps = {
   onCloseNotifications: () => void;
   onRealtimeNotifications: (notifications: AppNotification[]) => void;
   onRealtimeMessages: (messages: Message[]) => void;
+  onOpenPublishedGrades: (studentId: string, slot: NonNullable<AppNotification["slot"]>) => void;
 };
 
 type ParentPortalProps = {
@@ -85,6 +88,9 @@ export function ParentPortal({
   const [parentHistoryOpen, setParentHistoryOpen] = useState(false);
   const [parentValvesOpen, setParentValvesOpen] = useState(false);
   const [parentLibraryOpen, setParentLibraryOpen] = useState(false);
+  const [parentGradesOpen, setParentGradesOpen] = useState(false);
+  const [parentArchiveOpen, setParentArchiveOpen] = useState(false);
+  const [gradeNotificationTarget, setGradeNotificationTarget] = useState<{ studentId: string; slot: NonNullable<AppNotification["slot"]> }>();
   const [parentMessageDrawerOpen, setParentMessageDrawerOpen] = useState(false);
   const [messageRecipientIds, setMessageRecipientIds] = useState<string[]>([]);
   const [messageRecipientMode, setMessageRecipientMode] = useState<AdministrativeRecipientMode>("all");
@@ -381,6 +387,12 @@ export function ParentPortal({
           if (messages.length === 0) return;
           updateData({ messages: mergeMessagesById(data.messages, messages) }, { persist: false });
         },
+        onOpenPublishedGrades: (studentId, slot) => {
+          closeParentMessagesDrawer();
+          setGradeNotificationTarget({ studentId, slot });
+          setActiveParentTab("menu");
+          setParentGradesOpen(true);
+        },
       })}
       <main className="mx-auto grid w-full max-w-7xl min-w-0 flex-1 gap-4 overflow-y-auto px-3 py-5 pb-28 sm:px-6 sm:pb-32 lg:px-8">
         {activeParentTab === "children" && !selectedParentChild && (
@@ -612,6 +624,10 @@ export function ParentPortal({
                   <div className="min-w-0"><h2 className="break-words font-bold text-ink">Bibliothèque</h2><p className="mt-1 break-words text-sm text-slate-500">Ressources pour aider votre enfant à apprendre et à réviser.</p></div>
                 </div>
               </button>
+              <button type="button" onClick={() => setParentGradesOpen(true)} className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint">
+                <div className="flex min-w-0 items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink"><GraduationCap className="h-5 w-5" /></div><div className="min-w-0"><h2 className="break-words font-bold text-ink">Côtes de mes enfants</h2><p className="mt-1 break-words text-sm text-slate-500">Consulter uniquement les résultats publiés par la Direction des études.</p></div></div>
+              </button>
+              <button type="button" onClick={() => setParentArchiveOpen(true)} className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left font-bold shadow-sm transition hover:border-mint">Année Scolaire · Archives de mes enfants</button>
               <button
                 onClick={() => setParentAccountOpen(true)}
                 className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint"
@@ -699,6 +715,8 @@ export function ParentPortal({
         </AdminDrawer>
       )}
       {parentLibraryOpen && <LibraryDrawer audience="parent" onClose={() => setParentLibraryOpen(false)} />}
+      {parentGradesOpen && <ParentPublishedGradesDrawer school={school} year={year} initialStudentId={gradeNotificationTarget?.studentId} initialSlot={gradeNotificationTarget?.slot} onClose={() => { setParentGradesOpen(false); setGradeNotificationTarget(undefined); }} />}
+      {parentArchiveOpen && <SchoolYearArchiveDrawer schoolId={school.id} onClose={() => setParentArchiveOpen(false)} />}
 
       {renderBottomNavigation(activeParentTab, (tab: ParentTab) => {
           closeParentMessagesDrawer();

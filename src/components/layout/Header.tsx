@@ -27,6 +27,7 @@ type HeaderProps = {
   focusedMessageId?: string;
   messagingEnabled?: boolean;
   onOpenAvailabilityRequests?: () => void;
+  onOpenPublishedGrades?: (studentId: string, slot: NonNullable<AppNotification["slot"]>) => void;
 };
 
 export function Header({
@@ -48,6 +49,7 @@ export function Header({
   focusedMessageId,
   messagingEnabled = true,
   onOpenAvailabilityRequests,
+  onOpenPublishedGrades,
 }: HeaderProps) {
   const [manualRefreshToken, setManualRefreshToken] = useState(0);
   const [manualRefreshing, setManualRefreshing] = useState(false);
@@ -200,6 +202,10 @@ export function Header({
             onOpenAvailabilityRequests={onOpenAvailabilityRequests ? () => {
               (onCloseNotifications ?? onToggleNotifications)();
               onOpenAvailabilityRequests();
+            } : undefined}
+            onOpenPublishedGrades={onOpenPublishedGrades ? (studentId, slot) => {
+              (onCloseNotifications ?? onToggleNotifications)();
+              onOpenPublishedGrades(studentId, slot);
             } : undefined}
           />
         </MessagingDrawerShell>

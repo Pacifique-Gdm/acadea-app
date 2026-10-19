@@ -43,6 +43,7 @@ export function MessageDrawerContent({
   notificationPagination,
   focusedMessageId,
   onOpenAvailabilityRequests,
+  onOpenPublishedGrades,
 }: {
   user: AppUser;
   data: Pick<AppData, "users">;
@@ -54,6 +55,7 @@ export function MessageDrawerContent({
   roleLabels: Record<AppUser["role"], string>;
   focusedMessageId?: string;
   onOpenAvailabilityRequests?: () => void;
+  onOpenPublishedGrades?: (studentId: string, slot: NonNullable<AppNotification["slot"]>) => void;
 }) {
   const focusedMessageRef = useRef<HTMLDivElement | null>(null);
   const isParent = user.role === "parent";
@@ -278,6 +280,9 @@ export function MessageDrawerContent({
           <button type="button" className="secondary-button mt-3" onClick={onOpenAvailabilityRequests}>
             Ouvrir les demandes d’indisponibilité
           </button>
+        )}
+        {item.notification.type === "grade_publication" && user.role === "parent" && item.notification.studentId && item.notification.slot && onOpenPublishedGrades && (
+          <button type="button" className="secondary-button mt-3" onClick={() => onOpenPublishedGrades(item.notification.studentId!, item.notification.slot!)}>Ouvrir les cotes de mon enfant</button>
         )}
         <p className="mt-2 text-xs text-slate-500">{formatFeedDate(item.createdAt)}</p>
       </article>

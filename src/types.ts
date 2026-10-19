@@ -468,13 +468,15 @@ export interface AppNotification {
   disciplineSanctionId?: string;
   attendanceId?: string;
   announcementId?: string;
+  publicationId?: string;
+  slot?: "period_1" | "period_2" | "semester_1_exam" | "period_3" | "period_4" | "semester_2_exam";
   audienceRoles?: Array<"parent" | "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary">;
   audienceParentIds?: string[];
   audienceSchoolWide?: boolean;
   schoolRecipient?: "admin" | "cashier" | "discipline" | "both";
-  type: "payment" | "financial_correction" | "message" | "valve" | "attendance" | "availability" | "observation";
-  module?: "payments" | "attendance" | "discipline" | "announcements";
-  event?: "payment_recorded" | "payment_corrected" | "personnel_payment_corrected" | "student_absent" | "student_late" | "discipline_incident_created" | "announcement_published";
+  type: "payment" | "financial_correction" | "message" | "valve" | "attendance" | "availability" | "observation" | "grade_publication";
+  module?: "payments" | "attendance" | "discipline" | "announcements" | "grades";
+  event?: "payment_recorded" | "payment_corrected" | "personnel_payment_corrected" | "student_absent" | "student_late" | "discipline_incident_created" | "announcement_published" | "grades_published";
   destination?: "/dashboard";
   title: string;
   body: string;

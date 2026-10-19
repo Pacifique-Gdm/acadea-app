@@ -1,0 +1,46 @@
+# Cotations consolidées, publication et archives
+
+Cette évolution réutilise `api/manage-teacher-grading.js` : aucune nouvelle fonction Vercel n'est ajoutée. Les écritures pédagogiques et la publication passent par ce serveur après vérification du jeton Firebase, du rôle, de l'école et de l'année. Les collections `gradeEntries`, `courseGradingConfigs`, `gradePublicationRuns` et `publishedGradeResults` restent inaccessibles directement aux clients selon les règles Firestore existantes.
+
+## Maxima et palmarès
+
+Un nouveau maximum est identifié par école, année, classe opérationnelle, matière et évaluation. Le maximum de cette évaluation a priorité sur l'ancien maximum global ; ce dernier reste lisible et n'est pas réécrit. Une absence de cote reste `null`, jamais zéro. Pour une évaluation complète, le pourcentage est la somme des cotes divisée par la somme des maxima applicables, multipliée par 100. Une évaluation incomplète n'a ni pourcentage ni rang. Les ex æquo partagent leur rang et le rang suivant est sauté (1, 1, 3). Le classement est limité à la classe opérationnelle, sans fusion d'options distinctes.
+
+## Publication
+
+Le Directeur des études sélectionne une évaluation et, facultativement, un seuil de pourcentage et/ou de montant payé pour un type de frais. Les deux filtres sont combinés par `ET`. Le montant est comparé en unités monétaires entières avec la devise de l'année ; une devise absente ou discordante empêche la publication. Les paiements annulés ou remboursés ne comptent pas. Les lignes retenues reçoivent un instantané ne contenant que l'évaluation publiée. Le parent lit cet instantané exclusivement par l'API, qui revérifie son profil et le lien avec l'enfant à chaque demande. Les notifications internes sont créées dans la même transaction que la publication ; elles ne contiennent ni note, ni pourcentage, ni montant. Un identifiant de demande stable rend les répétitions techniques idempotentes. Une nouvelle publication est une nouvelle demande ; le retrait invalide les accès du lot concerné.
+
+### Cohérence en cas de concurrence
+
+`grades-publish` exécute désormais **toute** la sélection et l'écriture dans une transaction Firestore serveur de lecture/écriture. `publicationReader` expose uniquement `doc().get()` et `collection().where().get()` aux chargeurs existants : chacun appelle `transaction.get(referenceOuRequête)`, jamais une lecture indépendante. Sont ainsi couverts : utilisateur Directeur et périmètre, école/année/devise, classes et relations, inscriptions/élèves, affectations actives, matières, configurations des maxima, cotes, type de frais, requêtes de paiements et liens/profils/comptes Parents. Toutes les lectures précèdent les écritures des résultats, du lot et des notifications.
+
+Les requêtes elles-mêmes participent à la transaction, **y compris les requêtes vides**, pour couvrir l'ajout d'une cote, d'un maximum ou d'un paiement et non seulement la modification des documents déjà retournés. La garantie repose sur l'[isolation sérialisable au moment de l'engagement de Firestore](https://firebase.google.com/docs/firestore/transaction-data-contention), pas sur une comparaison non atomique d'`updateTime`. Une écriture concurrente est ordonnée avant la publication (et prise en compte), après celle-ci, ou provoque un conflit. Une modification postérieure à l'engagement ne modifie pas rétroactivement l'instantané publié : le retrait/republication reste une action explicite.
+
+Le maximum historique `maxScoreSnapshot` reste prioritaire pour une cote existante, conformément au calcul consolidé ; un changement du maximum courant ne réécrit pas les anciennes cotes. Pour une cote historique sans instantané, le maximum applicable est lu dans la même transaction. Les paiements annulés/remboursés sont exclus après lecture transactionnelle de l'ensemble du périmètre élève/frais, sans filtre de statut qui masquerait une transition.
+
+Les limites applicatives échouent sans écriture : 150 élèves, 400 écritures, 500 lectures document/requête, 2 000 documents par requête (lecture de 2 001 pour détecter le dépassement), 5 000 documents lus cumulés, 6 Mio de sources JSON, 512 Kio par document de sortie et 4 Mio de sorties JSON. Ces marges ne remplacent pas les limites Firestore de document/requête/index/temps ; un dépassement n'est jamais traité en publication partielle. Il n'y a ni découpage en transactions indépendantes ni troncature silencieuse.
+
+Les erreurs Firestore `ABORTED`/`DEADLINE_EXCEEDED` donnent HTTP 409 `publication-conflict` avec invitation à réessayer. `maxAttempts: 1` empêche une nouvelle tentative serveur silencieuse avec des critères recalculés. Deux appels simultanés peuvent tous deux être refusés en cas de contention ; une nouvelle demande du client conserve le même `requestId`. Si la première publication a réussi mais que la réponse réseau a été perdue, cette reprise retrouve le lot sans recréer les notifications. Un lot retiré ne peut pas être réactivé par cette reprise.
+
+Tests reproductibles : `api/_lib/publicationTransaction.test.ts`, `api/_lib/gradePublication.test.ts` et `tests/firestore/gradePublication.server.rules.ts` (émulateur local). La recette Chromium `e2e/grade-publication-local.spec.ts` utilise la vraie page de connexion, Auth/Firestore locaux et le handler HTTP réel, sans résultat d'API prédéfini. Le transport `/api` est raccordé par Playwright au handler Node ; ce n'est pas une preuve de recette du réseau Vercel. Elle crée des identifiants uniques, vérifie le nettoyage des documents et comptes et bloque les requêtes vers les hôtes distants. Aucun PDF ni objet Storage n'est créé par ce parcours.
+
+La liste Parent ignore les liens historiques de la même école appartenant à une autre année, au lieu de refuser toute la liste courante. La lecture directe de ces résultats avec l'année courante reste refusée, ainsi que tout lien interétablissements. Cette anomalie a été reproduite par la recette puis couverte par un test unitaire.
+
+### Recette locale exécutée le 19 octobre 2026
+
+- Chromium : **8/8 PASS**, avec connexion Auth réelle sur émulateur, saisie et relecture de maxima/cotes, consolidation, palmarès, filtres combinés, publication, réponse réseau perdue puis reprise idempotente, notification et lecture Parent, refus d'accès, retrait, archives des six rôles.
+- Interfaces contrôlées aux largeurs **375, 768 et 1440 px** : débordement global, limites des drawers et contenu des parcours ci-dessus. Cela ne constitue pas une revue visuelle exhaustive de toute l'application.
+- Concurrence Firestore : **12/12 PASS** avant la suite complète ; les cinq mutations (cote, maximum, paiement ajouté/annulé/remboursé) sont testées avant la transaction et pendant une lecture transactionnelle, avec vérification de l'ordre d'engagement ou du refus 409. Double appel et reprise ne dupliquent ni le lot ni les notifications.
+- Le nettoyage vérifie l'absence des documents et comptes créés. Les résidus d'une tentative interrompue ont également été identifiés puis supprimés uniquement dans `demo-acadea` local ; aucune donnée distante n'a été utilisée.
+- Suite unitaire locale à deux workers : **2 225 PASS, 1 expiration** du premier test d'extraction PDF à 5 s. Le fichier PDF isolé repasse **3/3**, sans modification ni augmentation du délai (2,47 s pour le fichier, 657 ms pour les tests). Cette exécution complète n'est pas déclarée PASS ; la CI du nouveau commit doit fournir sa propre preuve.
+- TypeScript, lint et `git diff --check` : PASS. Les résultats finaux du build, des règles et de la CI sont reportés dans la PR avec le SHA exact.
+
+Pour reproduire les E2E : démarrer `firebase emulators:start --project demo-acadea --config firebase.local-e2e.json --only auth,firestore,storage`, puis Vite en mode `test` avec `VITE_LOCAL_EMULATORS=true` sur `127.0.0.1:5173`. Exécuter le fichier Playwright ci-dessus avec un seul worker et zéro reprise, `ACADEA_E2E_LOCAL_EMULATORS=YES`, `ACADEA_E2E_BASE_URL=http://127.0.0.1:5173`, `VITE_FIREBASE_PROJECT_ID=demo-acadea` et les hôtes émulateurs Auth `127.0.0.1:9099`, Firestore `127.0.0.1:8080`, Storage `127.0.0.1:9199`. Le garde-fou refuse tout autre environnement. Les comptes aléatoires sont générés en mémoire, jamais inscrits dans un fichier de configuration.
+
+## Archives
+
+Le drawer « Année Scolaire » appelle une API de lecture seule. Il liste uniquement les années de l'école marquées `archived`, puis renvoie un résumé borné selon le rôle : classes pédagogiques, paiements/dépenses, enfants encore liés, affectations de l'enseignant, discipline de son périmètre ou dossiers administratifs. Les endpoints de cotation et de publication refusent les nouvelles écritures sur une année archivée. Les historiques originaux ne sont ni déplacés ni recalculés.
+
+## Déploiement et retour arrière
+
+Déployer d'abord un Preview configuré exclusivement pour `acadea-staging`, vérifier `/version.json`, la connexion, les six rôles, la publication et les refus d'accès avec des données fictives, puis nettoyer ces fixtures. Les nouvelles collections n'exigent pas de règle de lecture client : elles sont servies uniquement par l'API authentifiée. En cas d'anomalie avant promotion, laisser l'alias officiel inchangé. Aucun retour arrière ne doit effacer les documents de publication ou les historiques financiers.

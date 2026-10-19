@@ -30,6 +30,7 @@ import { SecretaryMedicalRecordsDrawer } from "../secretary/SecretaryMedicalTool
 import { PersonnelDrawerContent } from "./PersonnelDrawerContent";
 import { ServicePersonnelForm } from "../../components/personnel/ServicePersonnelForm";
 import { OwnPayrollEntry } from "../../components/personnel/OwnPayrollEntry";
+import { SchoolYearArchiveDrawer } from "../../components/archive/SchoolYearArchiveDrawer";
 import { LibraryDrawer } from "../library/LibraryDrawer";
 import type { StudentMedicalRecord } from "../secretary/secretaryTypes";
 
@@ -101,6 +102,7 @@ export function MenuModule({
 }: MenuModuleProps) {
   type MenuSection = "school" | "years" | "accounts" | "personnel" | "fees" | "financial" | "valves" | "library" | "parentsDirectory" | "history" | "biometrics" | "medicalRecords";
   const [schoolForm, setSchoolForm] = useState(school);
+  const [cashierArchiveOpen, setCashierArchiveOpen] = useState(false);
   const [schoolSaveStatus, setSchoolSaveStatus] = useState<"success" | "error" | "">("");
   const [schoolSaveMessage, setSchoolSaveMessage] = useState("");
   const [schoolSaving, setSchoolSaving] = useState(false);
@@ -1389,6 +1391,8 @@ export function MenuModule({
           </button>
         );
       })}
+      {user.role === "cashier" && <button type="button" className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left font-bold shadow-sm" onClick={() => setCashierArchiveOpen(true)}>Année Scolaire · Archives financières</button>}
+      {cashierArchiveOpen && <SchoolYearArchiveDrawer schoolId={school.id} onClose={() => setCashierArchiveOpen(false)} />}
       {activeMenuSection === "library" && <LibraryDrawer audience={user.role === "cashier" ? "cashier" : "school_admin"} onClose={closeActiveMenuSection} />}
       {activeMenuSection && activeMenuSection !== "library" && activeMenuSectionConfig && !createPersonnelOpen && (
         <AdminDrawer title={activeMenuSectionConfig.title} onClose={closeActiveMenuSection} closeLabel={`Fermer ${activeMenuSectionConfig.title}`}>
