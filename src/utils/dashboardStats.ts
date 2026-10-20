@@ -2,6 +2,7 @@ import type { Expense, FeeType, Payment, Student } from "../types";
 import { buildSchoolYearDataIndexes, getPaymentsForStudentFee, sumPayments } from "./dataIndexes";
 import type { SchoolYearDataIndexes } from "./dataIndexes";
 import { feeAppliesToStudent } from "./stats";
+import { remainingMoney, sumMoney } from "./money";
 
 export type DashboardFinancialStats = {
   expected: number;
@@ -51,22 +52,22 @@ export function buildDashboardFinancialAggregates(students: Student[], feeTypes:
       if (feePayments.length === 0) return;
 
       const paid = sumPayments(feePayments);
-      totals.expected += fee.amount;
-      totals.paid += paid;
+      totals.expected = sumMoney([totals.expected, fee.amount]);
+      totals.paid = sumMoney([totals.paid, paid]);
 
       const key = fee.name.trim().toLowerCase();
       const current = rowsByFeeName.get(key) ?? { name: fee.name, expected: 0, paid: 0 };
       rowsByFeeName.set(key, {
         ...current,
-        expected: current.expected + fee.amount,
-        paid: current.paid + paid,
+        expected: sumMoney([current.expected, fee.amount]),
+        paid: sumMoney([current.paid, paid]),
       });
     });
   });
 
   const feeProgressRows = Array.from(rowsByFeeName.values())
     .map((row, index) => {
-      const remaining = Math.max(row.expected - row.paid, 0);
+      const remaining = remainingMoney(row.expected, row.paid);
       const rate = row.expected > 0 ? Math.round((row.paid / row.expected) * 100) : 0;
       return { ...row, remaining, rate, originalIndex: index };
     })
@@ -88,7 +89,7 @@ export function buildDashboardFinancialAggregates(students: Student[], feeTypes:
   return {
     financialStats: {
       ...totals,
-      remaining: Math.max(totals.expected - totals.paid, 0),
+      remaining: remainingMoney(totals.expected, totals.paid),
     },
     feeProgressRows,
   };
@@ -103,7 +104,7 @@ export function buildDashboardFeeProgressRows(students: Student[], feeTypes: Fee
 }
 
 export function buildDashboardFeeShares(rows: DashboardFeeProgressRow[]): DashboardFeeShare[] {
-  const expected = rows.reduce((sum, row) => sum + Math.max(row.expected, 0), 0);
+  const expected = sumMoney(rows.map((row) => Math.max(row.expected, 0)));
   if (expected <= 0) return [];
   // Le diagramme représente exclusivement le montant attendu : les surpaiements
   // sont plafonnés à l'attendu et les impayés valent max(0, attendu - encaissé).
@@ -111,8 +112,8 @@ export function buildDashboardFeeShares(rows: DashboardFeeProgressRow[]): Dashbo
     const amount = Math.min(Math.max(row.paid, 0), Math.max(row.expected, 0));
     return amount > 0 ? [{ name: row.name, amount, percentage: (amount / expected) * 100 }] : [];
   });
-  const paid = paidShares.reduce((sum, row) => sum + row.amount, 0);
-  const unpaid = Math.max(0, expected - paid);
+  const paid = sumMoney(paidShares.map((row) => row.amount));
+  const unpaid = remainingMoney(expected, paid);
   return unpaid > 0 ? [...paidShares, { name: "Impayés", amount: unpaid, percentage: (unpaid / expected) * 100, color: "#dc2626" }] : paidShares;
 }
 
@@ -139,7 +140,7 @@ export function buildDashboardTransactionDayRows({
     if (!studentIds.has(payment.studentId)) return;
     const row = rowsByDate.get(payment.paidAt.slice(0, 10));
     if (!row) return;
-    row.payments += payment.amount;
+    row.payments = sumMoney([row.payments, payment.amount]);
     row.paymentsForDate.push(payment);
   });
 
@@ -147,7 +148,7 @@ export function buildDashboardTransactionDayRows({
     expenses.forEach((expense) => {
       const row = rowsByDate.get(expense.spentAt.slice(0, 10));
       if (!row) return;
-      row.expenses += expense.amount;
+      row.expenses = sumMoney([row.expenses, expense.amount]);
       row.expensesForDate.push(expense);
     });
   }

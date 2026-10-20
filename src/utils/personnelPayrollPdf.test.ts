@@ -37,4 +37,8 @@ describe("bulletin de paie", () => {
     expect(sections.join(" ")).toContain("0,00 FC");
     expect(personnelPaymentPdfSections(salary).join(" ")).toContain(`−${formatCurrencyMoney(80000, "CDF")}`);
   });
+  it("affiche sans résidu le solde décimal d'une avance sur son PDF", () => {
+    const sections = personnelPaymentPdfSections({ ...salary, kind: "advance", currency: "USD", amount: 150.75, recoveredAmount: 100.5, recoveries: [], netPaid: 150.75 });
+    expect(sections.join(" ")).toContain("$50,25");
+  });
 });

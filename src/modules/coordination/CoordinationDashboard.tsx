@@ -8,6 +8,7 @@ import { buildDashboardTransactionDayRows } from "../../utils/dashboardStats";
 import { formatChartDate, getTransactionPeriodDates, isInDashboardDateRange } from "../../utils/dashboardDates";
 import { buildCoordinationDashboardStats, type DashboardCurrency } from "../../utils/coordinationDashboardStats";
 import { formatCurrencyMoney, resolveSchoolCurrency } from "../../utils/currency";
+import { sumMoney } from "../../utils/money";
 import { formatCount } from "../../utils/numberFormat";
 import { getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
 import {
@@ -105,7 +106,7 @@ export function CoordinationDashboard({
       && visibleStudentKeys.has(`${payment.schoolId}:${payment.currentStudentId ?? ""}`)
       && payment.currency === currency
       && isInDashboardDateRange(payment.paidAt, transactionStartDate, transactionEndDate))
-      .reduce((total, payment) => total + payment.amount, 0),
+      .reduce((total, payment) => sumMoney([total, payment.amount]), 0),
   })).filter((group) => group.amount > 0);
   const visibleExpenses = stats.expenses.filter((expense) => (!transactionStartDate || expense.spentAt.slice(0, 10) >= transactionStartDate) && (!transactionEndDate || expense.spentAt.slice(0, 10) <= transactionEndDate));
   const transactions = [

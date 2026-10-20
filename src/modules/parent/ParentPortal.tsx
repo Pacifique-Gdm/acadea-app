@@ -14,6 +14,7 @@ import { loadSchoolMessageRecipients, type SchoolMessageRecipient } from "../../
 import { medicalRecordReadErrorMessage, subscribeToParentMedicalRecords } from "../../services/studentMedicalRecords";
 import { buildSchoolYearDataIndexes } from "../../utils/dataIndexes";
 import { resolvePaymentCashierName } from "../../utils/finance";
+import { sumMoney } from "../../utils/money";
 import { nextMessageThreadId } from "../../utils/messageThreads";
 import { generateReceiptPdf } from "../../utils/pdf";
 import { formatCurrencyMoney, formatSchoolMoney } from "../../utils/currency";
@@ -413,9 +414,9 @@ export function ParentPortal({
               const feeSummaries = getStudentFeeSummaries(student, yearData.feeTypes, yearData.payments, parentIndexes);
               const feeTotals = feeSummaries.reduce(
                 (totals, summary) => ({
-                  expected: totals.expected + summary.expected,
-                  paid: totals.paid + summary.paid,
-                  remaining: totals.remaining + summary.remaining,
+                  expected: sumMoney([totals.expected, summary.expected]),
+                  paid: sumMoney([totals.paid, summary.paid]),
+                  remaining: sumMoney([totals.remaining, summary.remaining]),
                 }),
                 { expected: 0, paid: 0, remaining: 0 },
               );

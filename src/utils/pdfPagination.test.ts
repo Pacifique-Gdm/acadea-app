@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { avoidProtectedPdfRangeCut, findPdfContentEnd } from "./pdf";
+import { avoidProtectedPdfRangeCut, findPdfContentEnd, pdfPageBreakSpacerHeight } from "./pdf";
 import { PDF_BOTTOM_SAFE_AREA_MM } from "./pdfSettings";
 
 describe("pagination PDF sans clipping", () => {
@@ -29,5 +29,17 @@ describe("pagination PDF sans clipping", () => {
   it("garde une surface minimale sûre pour un canvas entièrement blanc", () => {
     const context = { getImageData: (_x: number, _y: number, width: number) => ({ data: new Uint8ClampedArray(width * 4).fill(255) }) } as unknown as CanvasRenderingContext2D;
     expect(findPdfContentEnd(context, 10, 100, 8)).toBe(8);
+  });
+});
+
+describe("pagination PDF des classes", () => {
+  it("ne crée pas de page blanche lorsqu'une classe finit exactement au bas d'une page", () => {
+    expect(pdfPageBreakSpacerHeight(0, 100)).toBe(0);
+    expect(pdfPageBreakSpacerHeight(100, 100)).toBe(0);
+    expect(pdfPageBreakSpacerHeight(200, 100)).toBe(0);
+  });
+  it("alimente une page distincte lorsque le tableau précédent laisse de l'espace", () => {
+    expect(pdfPageBreakSpacerHeight(25, 100)).toBe(75);
+    expect(pdfPageBreakSpacerHeight(175, 100)).toBe(25);
   });
 });

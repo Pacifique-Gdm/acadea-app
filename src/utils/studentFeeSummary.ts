@@ -2,6 +2,7 @@ import type { FeeType, Payment, Student } from "../types";
 import { getPaymentsForStudentFee, sumPayments } from "./dataIndexes";
 import type { SchoolYearDataIndexes } from "./dataIndexes";
 import { getApplicableFeeTypes } from "./stats";
+import { remainingMoney } from "./money";
 
 export type StudentFeeSummary = {
   feeTypeId: string;
@@ -22,7 +23,7 @@ export function getStudentFeeSummaries(student: Student, feeTypes: FeeType[], pa
       feeName: String(fee.name),
       expected: fee.amount,
       paid,
-      remaining: Math.max(fee.amount - paid, 0),
+      remaining: remainingMoney(fee.amount, paid),
     };
   });
 }

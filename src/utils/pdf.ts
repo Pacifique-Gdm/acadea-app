@@ -33,6 +33,7 @@ type AcadPdfOptions = {
   singlePageFit?: boolean;
   orientation?: "portrait" | "landscape";
   throwOnError?: boolean;
+  paginateConsolidatedGrades?: boolean;
 };
 
 function formatStudentClassName(student: Pick<Student, "className" | "option">) {
@@ -149,7 +150,7 @@ export function pdfSection(title: string, bodyHtml: string, options: { pageBreak
   `;
 }
 
-export async function renderAcadPdfPreview({ filename, title, school, year, subtitle, studentCount, generatedAt = new Date(), showGeneratedAt = true, showDocumentTitle = true, centerDocumentTitle = false, pdfSettings, sections, copyLabels, singlePageFit = false, orientation = "portrait", throwOnError = false }: AcadPdfOptions) {
+export async function renderAcadPdfPreview({ filename, title, school, year, subtitle, studentCount, generatedAt = new Date(), showGeneratedAt = true, showDocumentTitle = true, centerDocumentTitle = false, pdfSettings, sections, copyLabels, singlePageFit = false, orientation = "portrait", throwOnError = false, paginateConsolidatedGrades = false }: AcadPdfOptions) {
   const profileEnabled = import.meta.env.DEV || ["staging", "preview"].includes(import.meta.env.VITE_APP_ENV ?? "");
   const profileStart = performance.now();
   const layout = getPdfLayout(pdfSettings, orientation);
@@ -177,11 +178,12 @@ export async function renderAcadPdfPreview({ filename, title, school, year, subt
   document.body.appendChild(element);
   await waitForPdfFonts(element);
   applyPdfPageBreakSpacers(element, layout.contentHeight, layout.windowWidth / layout.contentWidth);
+  if (paginateConsolidatedGrades) paginateConsolidatedGradeTables(element, layout.contentHeight * layout.windowWidth / layout.contentWidth);
   const contentReadyAt = performance.now();
 
   try {
     if (singlePageFit) await renderPdfCanvasSinglePage(doc, element, layout);
-    else await renderPdfCanvasPages(doc, element, layout);
+    else await renderPdfCanvasPages(doc, element, layout, paginateConsolidatedGrades);
     if (!copyLabels) addPdfFooters(doc, generatedAt, showGeneratedAt);
     const blob = doc.output("blob") as Blob;
     const blobReadyAt = performance.now();
@@ -222,7 +224,7 @@ async function waitForPdfFonts(element: HTMLElement) {
   await document.fonts.load(`${computedStyle.fontSize} ${computedStyle.fontFamily}`);
 }
 
-async function renderPdfCanvasPages(doc: PdfDoc, element: HTMLElement, layout: ReturnType<typeof getPdfLayout>) {
+async function renderPdfCanvasPages(doc: PdfDoc, element: HTMLElement, layout: ReturnType<typeof getPdfLayout>, fixedPageBoundaries = false) {
   const { default: html2canvas } = await import("html2canvas");
   const renderScale = 2;
   const source = await html2canvas(element, {
@@ -239,15 +241,15 @@ async function renderPdfCanvasPages(doc: PdfDoc, element: HTMLElement, layout: R
   const sourcePixelsPerMillimeter = source.width / layout.contentWidth;
   const pageHeightPx = Math.round(layout.contentHeight * sourcePixelsPerMillimeter);
   const protectedRanges = collectPdfProtectedRanges(element, sourcePixelsPerCssPixel, pageHeightPx);
-  const sourceContentEnd = findPdfContentEnd(sourceContext, source.width, source.height, Math.ceil(12 * sourcePixelsPerCssPixel));
+  const sourceContentEnd = findPdfContentEnd(sourceContext, source.width, source.height, fixedPageBoundaries ? 0 : Math.ceil(12 * sourcePixelsPerCssPixel));
   let sourceY = 0;
   let pageIndex = 0;
 
   while (sourceY < sourceContentEnd) {
     if (pageIndex > 0) doc.addPage();
     const proposedEnd = Math.min(sourceY + pageHeightPx, sourceContentEnd);
-    const protectedEnd = avoidProtectedPdfRangeCut(sourceY, proposedEnd, pageHeightPx, protectedRanges);
-    const sliceEnd = protectedEnd < sourceContentEnd
+    const protectedEnd = fixedPageBoundaries ? proposedEnd : avoidProtectedPdfRangeCut(sourceY, proposedEnd, pageHeightPx, protectedRanges);
+    const sliceEnd = !fixedPageBoundaries && protectedEnd < sourceContentEnd
       ? findPdfWhitespaceCut(sourceContext, source.width, sourceY, protectedEnd, pageHeightPx)
       : protectedEnd;
     const sliceHeight = Math.max(1, sliceEnd - sourceY);
@@ -341,8 +343,78 @@ function applyPdfPageBreakSpacers(element: HTMLElement, contentHeightMm: number,
   const pageHeightPx = pixelsPerMillimeter * contentHeightMm;
   for (const pageBreak of pageBreaks) {
     const offsetInPage = pageBreak.offsetTop % pageHeightPx;
-    const spacerHeight = offsetInPage < 1 ? 0 : pageHeightPx - offsetInPage;
+    const spacerHeight = pdfPageBreakSpacerHeight(offsetInPage, pageHeightPx);
     pageBreak.style.height = `${spacerHeight}px`;
+  }
+}
+
+export function pdfPageBreakSpacerHeight(offset: number, pageHeight: number) {
+  const withinPage = ((offset % pageHeight) + pageHeight) % pageHeight;
+  return withinPage < 0.5 || pageHeight - withinPage < 0.5 ? 0 : pageHeight - withinPage;
+}
+
+/** The HTML-to-canvas PDF path does not honor CSS table-header-group on later
+ * canvas slices. Split long grade tables at actual rendered row boundaries and
+ * clone their header and class label before rasterization. Other PDFs are untouched.
+ */
+export function paginateConsolidatedGradeTables(element: HTMLElement, pageHeightPx: number) {
+  const top = () => element.getBoundingClientRect().top;
+  const y = (node: Element) => node.getBoundingClientRect().top - top();
+  const bottom = (node: Element) => node.getBoundingClientRect().bottom - top();
+  const insertPageBreak = (node: Element) => {
+    const spacer = document.createElement("div");
+    spacer.className = "pdf-page-break";
+    spacer.setAttribute("aria-hidden", "true");
+    node.before(spacer);
+    spacer.style.height = `${pdfPageBreakSpacerHeight(y(spacer), pageHeightPx)}px`;
+  };
+  for (const gradeClass of Array.from(element.querySelectorAll<HTMLElement>(".consolidated-grade-class"))) {
+    const classBreak = gradeClass.previousElementSibling;
+    if (classBreak?.classList.contains("pdf-page-break")) {
+      (classBreak as HTMLElement).style.height = "0px";
+      (classBreak as HTMLElement).style.height = `${pdfPageBreakSpacerHeight(y(classBreak), pageHeightPx)}px`;
+    }
+  for (const table of Array.from(gradeClass.querySelectorAll<HTMLTableElement>("table"))) {
+    const rows = Array.from(table.tBodies[0]?.rows ?? []);
+    const classLabel = gradeClass.dataset.className ?? "";
+    const courseLabel = table.closest("section")?.querySelector("h2")?.textContent ?? "Tableau de cotes";
+    const continuationText = [gradeClass.dataset.schoolName, gradeClass.dataset.yearName, classLabel, `${courseLabel} (suite)`].filter(Boolean).join(" · ");
+    let currentTable = table;
+    for (let index = 0; index < rows.length; index++) {
+      const row = rows[index];
+      const rowTop = y(row);
+      const pageEnd = (Math.floor((rowTop + 0.5) / pageHeightPx) + 1) * pageHeightPx;
+      if (bottom(row) <= pageEnd + 0.5) continue;
+      if (bottom(row) - rowTop >= pageHeightPx) throw new Error("Une ligne du tableau de cotes est trop haute pour une page PDF.");
+      if (row === currentTable.tBodies[0].rows[0] && currentTable === table) {
+        const section = table.closest("section");
+        if (!section) throw new Error("Section de cotes introuvable.");
+        const continuation = document.createElement("p");
+        continuation.className = "pdf-grade-continuation";
+        continuation.textContent = continuationText;
+        section.before(continuation);
+        insertPageBreak(continuation);
+        if (bottom(row) <= (Math.floor((y(row) + 0.5) / pageHeightPx) + 1) * pageHeightPx + 0.5) continue;
+        throw new Error("Le titre et la première ligne de cotation ne tiennent pas sur une page PDF.");
+      }
+      const nextTable = document.createElement("table");
+      const colgroup = currentTable.querySelector("colgroup");
+      const thead = currentTable.tHead;
+      if (colgroup) nextTable.appendChild(colgroup.cloneNode(true));
+      if (thead) nextTable.appendChild(thead.cloneNode(true));
+      const body = nextTable.createTBody();
+      const continuation = document.createElement("p");
+      continuation.className = "pdf-grade-continuation";
+      continuation.textContent = continuationText;
+      currentTable.after(continuation, nextTable);
+      for (let rest = index; rest < rows.length; rest++) body.appendChild(rows[rest]);
+      insertPageBreak(continuation);
+      currentTable = nextTable;
+      if (bottom(row) > (Math.floor((y(row) + 0.5) / pageHeightPx) + 1) * pageHeightPx + 0.5) {
+        throw new Error("Une ligne de cotation ne tient pas après répétition de l'en-tête PDF.");
+      }
+    }
+  }
   }
 }
 
@@ -751,6 +823,25 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       page-break-before: always;
       break-before: page;
     }
+    .consolidated-grade-class > h2 {
+      margin: 10px 18px 7px;
+      color: #14213d;
+      font-size: 13pt;
+      font-weight: 800;
+    }
+    .pdf-grade-institution {
+      margin: 10px 18px 0;
+      color: #475569;
+      font-size: 9pt;
+      font-weight: 700;
+    }
+    .pdf-grade-continuation {
+      margin: 10px 0 6px;
+      padding: 5px 7px;
+      border-left: 3px solid #2a9d8f;
+      font-size: 10pt;
+      font-weight: 700;
+    }
     .pdf-section h2 {
       margin: 0 0 7px;
       padding-bottom: 5px;
@@ -972,6 +1063,14 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
     .grading-pdf-section th:first-child, .grading-pdf-section td:first-child { text-align: left; }
     .grading-pdf-section th:nth-child(5), .grading-pdf-section th:nth-child(9), .grading-pdf-section th:nth-child(10) { background: #1e5a72; }
     .grading-pdf-section td:nth-child(5), .grading-pdf-section td:nth-child(9), .grading-pdf-section td:nth-child(10) { background: #edf7fa; font-weight: 700; }
+    .consolidated-grade-totals-section table { table-layout: fixed; font-size: 8px; }
+    .consolidated-grade-totals-section col:first-child { width: 20% !important; }
+    .consolidated-grade-totals-section col:not(:first-child) { width: 8.888% !important; }
+    .consolidated-grade-totals-section th, .consolidated-grade-totals-section td { padding: 4px 2px; }
+    .consolidated-grade-totals-section .cell-inner { line-height: 1.2; }
+    .consolidated-grade-totals-section th:nth-child(5), .consolidated-grade-totals-section th:nth-child(9), .consolidated-grade-totals-section th:nth-child(10) { background: #1e5a72; }
+    .consolidated-grade-totals-section td:nth-child(5), .consolidated-grade-totals-section td:nth-child(9), .consolidated-grade-totals-section td:nth-child(10) { background: #edf7fa; font-weight: 700; }
+    .pdf-grade-total-note { margin: 5px 0 0; color: #475569; font-size: 7.5px; }
     thead {
       display: table-header-group;
     }

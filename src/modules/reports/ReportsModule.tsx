@@ -7,6 +7,7 @@ import { formatCurrencyMoney, resolveSchoolYearCurrency } from "../../utils/curr
 import { formatRecordedOperation, formatRecordedTotals, totalsByRecordedCurrency } from "../../utils/operationCurrency";
 import { getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
 import { buildStats } from "../../utils/stats";
+import { sumMoney } from "../../utils/money";
 import { getClassSection } from "../../utils/studentClasses";
 import type { Expense, FeeType, ParentProfile, Payment, School, SchoolSection, SchoolYear, Student } from "../../types";
 
@@ -44,7 +45,7 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
   const filteredStudentIds = new Set(filteredStudents.map((student) => student.id));
   const payments = yearData.payments.filter((payment) => payment.paidAt >= startDate && payment.paidAt <= endDate && filteredStudentIds.has(payment.studentId));
   const arrearsPayments = yearData.payments.filter((payment) => payment.collectionSchoolYearId === year.id && payment.paidAt >= startDate && payment.paidAt <= endDate && filteredStudentIds.has(payment.currentStudentId ?? ""));
-  const arrearsByCurrency = (["USD", "CDF"] as const).map((currency) => ({ currency, amount: arrearsPayments.filter((payment) => payment.currency === currency).reduce((total, payment) => total + payment.amount, 0) })).filter((group) => group.amount > 0);
+  const arrearsByCurrency = (["USD", "CDF"] as const).map((currency) => ({ currency, amount: sumMoney(arrearsPayments.filter((payment) => payment.currency === currency).map((payment) => payment.amount)) })).filter((group) => group.amount > 0);
   const expenses = resolvedExpenses.filter((expense) => expense.spentAt >= startDate && expense.spentAt <= endDate);
   const paidTotals = totalsByRecordedCurrency(payments);
   const spentTotals = totalsByRecordedCurrency(expenses);

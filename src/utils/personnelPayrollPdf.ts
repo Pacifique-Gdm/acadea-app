@@ -1,5 +1,6 @@
 import type { PersonnelPayment, School } from "../types";
 import { formatCurrencyMoney } from "./currency";
+import { remainingMoney } from "./money";
 import { escapePdfHtml, pdfInfoGrid, pdfSection, renderAcadPdfPreview } from "./pdf";
 
 const dateFr = (iso: string) => {
@@ -19,7 +20,7 @@ export function personnelPaymentPdfSections(payment: PersonnelPayment) {
   ]);
   if (payment.kind === "advance") return [pdfSection("VERSEMENT D'UNE AVANCE", `${common}${pdfInfoGrid([
     { label: "Montant versé", value: amount(payment.amount, payment.currency) },
-    { label: "Solde récupérable actuel", value: amount(Math.max(0, payment.amount - payment.recoveredAmount), payment.currency) },
+    { label: "Solde récupérable actuel", value: amount(remainingMoney(payment.amount, payment.recoveredAmount), payment.currency) },
     ...(payment.description ? [{ label: "Description", value: payment.description }] : []),
   ])}`)];
   const recoveryRows = payment.recoveries.map((line) => `<tr><td>${escapePdfHtml(line.reference)}</td><td>${escapePdfHtml(dateFr(line.paidAt))}</td><td style="text-align:right">−${escapePdfHtml(amount(line.amount, payment.currency))}</td></tr>`).join("");

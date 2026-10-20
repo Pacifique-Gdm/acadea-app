@@ -5,6 +5,10 @@ import { consolidatedPeriodLabels, consolidatedSelection, type ConsolidatedFilte
 import { percentageRankLabel } from "./percentageRankLabel";
 import type { EditableGradingSlot } from "./teacherGrading";
 
+const semesterOneSlots: readonly EditableGradingSlot[] = ["period_1", "period_2", "semester_1_exam"];
+const semesterTwoSlots: readonly EditableGradingSlot[] = ["period_3", "period_4", "semester_2_exam"];
+const allYearSlots: readonly EditableGradingSlot[] = [...semesterOneSlots, ...semesterTwoSlots];
+
 export function consolidatedStudentName(row: ConsolidatedStudent) {
   return [row.student.nom, row.student.postnom, row.student.prenom].filter(Boolean).join(" ");
 }
@@ -17,6 +21,19 @@ export function consolidatedScoreLabel(row: ConsolidatedStudent, courseKey: stri
   return maximum === null || maximum === undefined ? String(score) : `${score} / ${maximum}`;
 }
 
+/** Match the existing cotation PDF: add only recorded grades, never substitute zero for a missing grade. */
+export function consolidatedCourseTotalLabel(row: ConsolidatedStudent, courseKey: string, slots: readonly EditableGradingSlot[]) {
+  const recorded = slots.filter((slot) => row.statuses[courseKey]?.[slot] !== "absent"
+    && typeof row.scores[courseKey]?.[slot] === "number" && Number.isFinite(row.scores[courseKey]?.[slot]));
+  if (!recorded.length) return "—";
+  const sum = (values: number[]) => Number(values.reduce((total, value) => total + value, 0).toFixed(10));
+  const score = sum(recorded.map((slot) => row.scores[courseKey]![slot]!));
+  const maxima = recorded.map((slot) => row.maxima[courseKey]?.[slot]);
+  const maximumKnown = maxima.every((value) => typeof value === "number" && Number.isFinite(value) && value > 0);
+  const maximum = maximumKnown ? String(sum(maxima as number[])) : "—";
+  return `${score} / ${maximum}${recorded.length < slots.length || !maximumKnown ? "*" : ""}`;
+}
+
 export function consolidatedGradesPdfSections(report: ConsolidatedClassReport, tab: ConsolidatedTab, filter: ConsolidatedFilter, className: string) {
   const { slots, courses, students } = consolidatedSelection(report, tab, filter);
   const scope = `<p><strong>Classe :</strong> ${escapePdfHtml(className)} · <strong>Filtre :</strong> ${escapePdfHtml(filter.mode === "period" ? filter.choice ? consolidatedPeriodLabels[filter.choice as EditableGradingSlot] : "Toutes les périodes" : filter.mode === "course" ? filter.choice ? courses[0]?.name ?? "Cours indisponible" : "Tous les cours" : filter.mode === "student" ? students[0] ? consolidatedStudentName(students[0]) : "Élève non sélectionné" : `${consolidatedPeriodLabels[filter.placeSlot]} · place ${filter.choice}`)}</p>`;
@@ -24,13 +41,35 @@ export function consolidatedGradesPdfSections(report: ConsolidatedClassReport, t
     { header: "Élève", render: consolidatedStudentName },
     ...slots.map((slot) => ({ header: consolidatedPeriodLabels[slot], render: (row: ConsolidatedStudent) => percentageRankLabel(row.evaluations[slot].percentage, row.evaluations[slot].rank) })),
   ], students, "Aucun résultat pour ce filtre."))];
+  const showTotals = slots.length === allYearSlots.length && allYearSlots.every((slot) => slots.includes(slot));
   return (courses.length ? courses : [undefined]).map((course) => pdfSection(course?.name ?? "Tableau de cotes", scope + pdfTable([
     { header: "Élève", render: consolidatedStudentName },
-    ...slots.map((slot) => ({ header: consolidatedPeriodLabels[slot], render: (row: ConsolidatedStudent) => course ? consolidatedScoreLabel(row, course.key, slot) : "—" })),
-  ], students, "Aucune cote pour ce filtre.")));
+    ...slots.flatMap((slot) => [
+      { header: consolidatedPeriodLabels[slot], render: (row: ConsolidatedStudent) => course ? consolidatedScoreLabel(row, course.key, slot) : "—" },
+      ...(showTotals && slot === "semester_1_exam" ? [{ header: "Total 1er semestre", render: (row: ConsolidatedStudent) => course ? consolidatedCourseTotalLabel(row, course.key, semesterOneSlots) : "—" }] : []),
+      ...(showTotals && slot === "semester_2_exam" ? [
+        { header: "Total 2e semestre", render: (row: ConsolidatedStudent) => course ? consolidatedCourseTotalLabel(row, course.key, semesterTwoSlots) : "—" },
+        { header: "Total général", render: (row: ConsolidatedStudent) => course ? consolidatedCourseTotalLabel(row, course.key, allYearSlots) : "—" },
+      ] : []),
+    ]),
+  ], students, "Aucune cote pour ce filtre.") + (showTotals ? '<p class="pdf-grade-total-note">* Total partiel : seules les cotes enregistrées sont additionnées. Un maximum inconnu reste non calculé ; une cote manquante n’est pas zéro.</p>' : ""), { className: showTotals ? "consolidated-grade-totals-section" : undefined }));
 }
 
-export async function exportConsolidatedGradesPdf(input: { report: ConsolidatedClassReport; tab: ConsolidatedTab; filter: ConsolidatedFilter; school: School; year: SchoolYear; className: string }) {
+export type ConsolidatedPdfClass = { report: ConsolidatedClassReport; className: string };
+
+/** A class is the page-break unit; courses remain grouped within that class. */
+export function consolidatedGradeClassSections(classes: readonly ConsolidatedPdfClass[], filter: ConsolidatedFilter, institution?: { schoolName: string; yearName: string }) {
+  return classes.map(({ report, className }, index) => `
+    ${index ? '<div class="pdf-page-break" aria-hidden="true"></div>' : ""}
+    <article class="consolidated-grade-class" data-class-name="${escapePdfHtml(className)}" data-school-name="${escapePdfHtml(institution?.schoolName ?? "")}" data-year-name="${escapePdfHtml(institution?.yearName ?? "")}">
+      ${index && institution ? `<p class="pdf-grade-institution">${escapePdfHtml(institution.schoolName)} · ${escapePdfHtml(institution.yearName)}</p>` : ""}
+      <h2>Tableau de cotes — ${escapePdfHtml(className)}</h2>
+      ${consolidatedGradesPdfSections(report, "grades", filter, className).join("")}
+    </article>
+  `);
+}
+
+export async function exportConsolidatedGradesPdf(input: { report: ConsolidatedClassReport; tab: ConsolidatedTab; filter: ConsolidatedFilter; school: School; year: SchoolYear; className: string; classes?: readonly ConsolidatedPdfClass[] }) {
   await renderAcadPdfPreview({
     filename: `fiche-consolidee-${input.year.id}-${input.tab}.pdf`,
     title: input.tab === "grades" ? "Tableau de cotes" : "PALMARÈS",
@@ -38,6 +77,9 @@ export async function exportConsolidatedGradesPdf(input: { report: ConsolidatedC
     year: input.year,
     orientation: "landscape",
     throwOnError: true,
-    sections: consolidatedGradesPdfSections(input.report, input.tab, input.filter, input.className),
+    paginateConsolidatedGrades: input.tab === "grades",
+    sections: input.tab === "grades"
+      ? consolidatedGradeClassSections(input.classes ?? [{ report: input.report, className: input.className }], input.filter, { schoolName: input.school.name, yearName: input.year.name })
+      : consolidatedGradesPdfSections(input.report, input.tab, input.filter, input.className),
   });
 }

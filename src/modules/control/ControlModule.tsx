@@ -23,6 +23,7 @@ import { buildControlClassChoices, buildControlFeeGroups, feeNamesForWarningClas
 import { formatStudentClassName } from "../../utils/studentClasses";
 import { formatCurrencyMoney, formatSchoolMoney, resolveSchoolYearCurrency } from "../../utils/currency";
 import { resolveSchoolCurrency } from "../../utils/currency";
+import { remainingMoney, sumMoney, toMoneyMinor } from "../../utils/money";
 import { formatCount } from "../../utils/numberFormat";
 import { controlArrearsPdfSections } from "../../utils/controlArrearsPdf";
 import { compareStudentsForPdfByClass, formatStudentPdfClassName } from "../../utils/studentPdf";
@@ -237,7 +238,7 @@ export function ControlModule({
   const selectedPaymentFeePaid = selectedPaymentStudent && selectedPaymentFee
     ? sumPaymentsForStudentFee(controlIndexes, selectedPaymentStudent.id, selectedPaymentFee.id)
     : selectedPaymentDebt?.paid ?? 0;
-  const selectedPaymentFeeRemaining = selectedPaymentFee ? Math.max(selectedPaymentFee.amount - selectedPaymentFeePaid, 0) : selectedPaymentDebt?.remaining ?? 0;
+  const selectedPaymentFeeRemaining = selectedPaymentFee ? remainingMoney(selectedPaymentFee.amount, selectedPaymentFeePaid) : selectedPaymentDebt?.remaining ?? 0;
   const selectedPaymentFeeBalance = {
     expected: selectedPaymentFee?.amount ?? selectedPaymentDebt?.expected ?? 0,
     paid: selectedPaymentFeePaid,
@@ -268,16 +269,16 @@ export function ControlModule({
     return () => { cancelled = true; };
   }, [selectedHistoryStudentId, year.id, year.status]);
   const expenseAmountValue = Number(expenseAmount);
-  const expenseDebitCents = Math.round(expenseAmountValue * 100);
+  const expenseDebitCents = (() => { try { return toMoneyMinor(expenseAmountValue); } catch { return 0; } })();
   const expenseCashInsufficient = expenseCashBalance !== undefined && Number.isFinite(expenseDebitCents)
     && expenseDebitCents > 0 && (expenseCashBalance.availableCents < 0 || expenseDebitCents > expenseCashBalance.availableCents);
-  const expenseEditDeltaCents = expenseEditTarget ? Math.round((Number(expenseEditAmount) - expenseEditTarget.amount) * 100) : 0;
+  const expenseEditDeltaCents = (() => { try { return expenseEditTarget ? toMoneyMinor(Number(expenseEditAmount)) - toMoneyMinor(expenseEditTarget.amount) : 0; } catch { return 0; } })();
   const expenseEditCashInsufficient = expenseCashBalance !== undefined && expenseEditDeltaCents > 0
     && (expenseCashBalance.availableCents < 0 || expenseEditDeltaCents > expenseCashBalance.availableCents);
   const isExpenseEntryIncomplete = !expenseCategory.trim()
     || !expenseAmount.trim()
     || !Number.isFinite(expenseAmountValue)
-    || expenseAmountValue <= 0
+    || expenseDebitCents <= 0
     || !expenseDescription.trim()
     || !expenseBeneficiary.trim()
     || !expensePaymentMethod.trim();
@@ -292,9 +293,9 @@ export function ControlModule({
       const feeSummaries = getStudentFeeSummaries(student, yearData.feeTypes, yearData.payments, controlIndexes);
       const balance = feeSummaries.reduce(
         (totals, summary) => ({
-          expected: totals.expected + summary.expected,
-          paid: totals.paid + summary.paid,
-          remaining: totals.remaining + summary.remaining,
+          expected: sumMoney([totals.expected, summary.expected]),
+          paid: sumMoney([totals.paid, summary.paid]),
+          remaining: sumMoney([totals.remaining, summary.remaining]),
         }),
         { expected: 0, paid: 0, remaining: 0 },
       );
@@ -306,12 +307,14 @@ export function ControlModule({
       if (controlClassKey && controlClassKey !== "all" && getControlClassKey(row.student) !== controlClassKey) return false;
       if (!deferredAmountComparator || deferredAmountComparator === "all" || !deferredAmountThreshold || deferredAmountComparator.startsWith("arrears-")) return true;
       const threshold = Number(deferredAmountThreshold);
-      if (!Number.isFinite(threshold) || threshold < 0) return true;
+      let thresholdMinor: number;
+      try { thresholdMinor = toMoneyMinor(threshold); } catch { return false; }
+      if (thresholdMinor < 0) return false;
       if (deferredAmountComparator === "all-fees-gte") {
-        return row.feeSummaries.length > 0 && row.feeSummaries.every((summary) => summary.paid >= threshold);
+        return row.feeSummaries.length > 0 && row.feeSummaries.every((summary) => toMoneyMinor(summary.paid) >= thresholdMinor);
       }
       if (deferredAmountComparator === "all-fees-lt") {
-        return row.feeSummaries.some((summary) => summary.paid < threshold);
+        return row.feeSummaries.some((summary) => toMoneyMinor(summary.paid) < thresholdMinor);
       }
       const feeFilter = deferredAmountComparator.match(/^fee:(.+):(gte|lt)$/);
       const feeGroup = feeFilter ? amountFeeGroups.find((fee) => fee.key === feeFilter[1]) : undefined;
@@ -323,10 +326,10 @@ export function ControlModule({
         : [];
       if (feeFilter && applicableFeeIds.length === 0) return false;
       const paidAmount = feeFilter
-        ? applicableFeeIds.reduce((sum, feeId) => sum + sumPaymentsForStudentFee(controlIndexes, row.student.id, feeId), 0)
+        ? sumMoney(applicableFeeIds.map((feeId) => sumPaymentsForStudentFee(controlIndexes, row.student.id, feeId)))
         : row.balance.paid;
       const isGreaterOrEqual = feeFilter ? feeFilter[2] === "gte" : deferredAmountComparator === ">=";
-      return isGreaterOrEqual ? paidAmount >= threshold : paidAmount < threshold;
+      return isGreaterOrEqual ? toMoneyMinor(paidAmount) >= thresholdMinor : toMoneyMinor(paidAmount) < thresholdMinor;
     }), [deferredAmountComparator, amountFeeGroups, deferredAmountThreshold, controlClassKey, controlIndexes, yearData.feeTypes, yearData.payments, yearData.students, filterArrears, arrearsFilter, school]);
   const visibleRows = useMemo(() => filterControlStudentRows(rows, controlStudentSearch), [controlStudentSearch, rows]);
   const controlPageCount = Math.max(1, Math.ceil(visibleRows.length / CONTROL_PAGE_SIZE));
@@ -376,9 +379,9 @@ export function ControlModule({
     : [];
   const selectedHistoryFeeTotals = selectedHistoryFeeSummaries.reduce(
     (totals, summary) => ({
-      expected: totals.expected + summary.expected,
-      paid: totals.paid + summary.paid,
-      remaining: totals.remaining + summary.remaining,
+      expected: sumMoney([totals.expected, summary.expected]),
+      paid: sumMoney([totals.paid, summary.paid]),
+      remaining: sumMoney([totals.remaining, summary.remaining]),
     }),
     { expected: 0, paid: 0, remaining: 0 },
   );
@@ -392,11 +395,11 @@ export function ControlModule({
     : [];
   let selectedHistoryRunningPaid = 0;
   const selectedHistoryRows = selectedHistoryPayments.map(({ payment, fee }) => {
-    selectedHistoryRunningPaid += payment.amount;
+    selectedHistoryRunningPaid = sumMoney([selectedHistoryRunningPaid, payment.amount]);
     return {
       payment,
       feeName: fee?.name ?? "Frais",
-      remaining: Math.max(selectedHistoryBalance.expected - selectedHistoryRunningPaid, 0),
+      remaining: remainingMoney(selectedHistoryBalance.expected, selectedHistoryRunningPaid),
     };
   });
   const selectedHistoryArrearPayments = selectedHistoryStudent
@@ -521,7 +524,9 @@ export function ControlModule({
     if (!studentId || !selectedFeeTypeValue) return;
     setPaymentError("");
     const paymentAmount = Number(amount);
-    if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
+    let paymentMinor: number;
+    try { paymentMinor = toMoneyMinor(paymentAmount); } catch { paymentMinor = 0; }
+    if (paymentMinor <= 0) {
       setPaymentError("Montant de paiement invalide.");
       return;
     }
@@ -529,7 +534,7 @@ export function ControlModule({
       setPaymentError("Type de frais indisponible pour cet élève.");
       return;
     }
-    const alreadyPaidForFee = selectedPaymentDebt?.paid ?? yearData.payments
+    const alreadyPaidForFee = selectedPaymentDebt?.paid ?? sumMoney(yearData.payments
       .filter(
         (payment) =>
           payment.schoolId === school.id &&
@@ -537,13 +542,13 @@ export function ControlModule({
           payment.studentId === selectedPaymentStudent.id &&
           payment.feeTypeId === selectedPaymentFee?.id,
       )
-      .reduce((sum, payment) => sum + payment.amount, 0);
-    const remaining = Math.max((selectedPaymentFee?.amount ?? selectedPaymentDebt?.expected ?? 0) - alreadyPaidForFee, 0);
+      .map((payment) => payment.amount));
+    const remaining = remainingMoney(selectedPaymentFee?.amount ?? selectedPaymentDebt?.expected ?? 0, alreadyPaidForFee);
     if (remaining === 0) {
       setPaymentError("Ce type de frais est déjà soldé.");
       return;
     }
-    if (paymentAmount > remaining) {
+    if (paymentMinor > toMoneyMinor(remaining)) {
       setPaymentError("Le montant saisi dépasse le solde restant pour ce type de frais.");
       return;
     }
@@ -598,7 +603,7 @@ export function ControlModule({
       setExpenseError("Le type de dépense est obligatoire.");
       return;
     }
-    if (!expenseAmount.trim() || !Number.isFinite(nextAmount) || nextAmount <= 0) {
+    if (!expenseAmount.trim() || expenseDebitCents <= 0) {
       setExpenseError("Le montant de la dépense est obligatoire.");
       return;
     }
@@ -672,7 +677,7 @@ export function ControlModule({
     if (!expenseEditTarget || !canManageExpenses || financialMutationRef.current) return;
     setExpenseEditError("");
     const nextAmount = Number(expenseEditAmount);
-    if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
+    if (!Number.isFinite(nextAmount) || nextAmount <= 0 || (() => { try { return toMoneyMinor(nextAmount) <= 0; } catch { return true; } })()) {
       setExpenseEditError("Montant de dépense invalide.");
       return;
     }
@@ -849,7 +854,9 @@ export function ControlModule({
     const payment = paymentEditTarget;
     if (!payment || !canCorrectPayments || financialMutationRef.current) return;
     const correctedAmount = Number(paymentEditAmount);
-    if (!Number.isFinite(correctedAmount) || correctedAmount <= 0) {
+    let correctedMinor: number;
+    try { correctedMinor = toMoneyMinor(correctedAmount); } catch { correctedMinor = 0; }
+    if (correctedMinor <= 0) {
       setPaymentEditError("Montant de paiement invalide.");
       return;
     }
@@ -861,9 +868,9 @@ export function ControlModule({
         })()
       : undefined;
     const paidForFee = paymentStudent && paymentFee
-      ? Math.max(0, sumPaymentsForStudentFee(controlIndexes, paymentStudent.id, paymentFee.id) - payment.amount)
+      ? remainingMoney(sumPaymentsForStudentFee(controlIndexes, paymentStudent.id, paymentFee.id), payment.amount)
       : 0;
-    if (!paymentFee || paidForFee + correctedAmount > paymentFee.amount) {
+    if (!paymentFee || toMoneyMinor(paidForFee) + correctedMinor > toMoneyMinor(paymentFee.amount)) {
       setPaymentEditError("Paiement impossible : ce montant dépasse le montant prévu pour ce frais.");
       return;
     }
@@ -996,9 +1003,9 @@ export function ControlModule({
       if (!selectedPdfFeeGroup) return row.balance;
       const expected = yearData.feeTypes
         .filter((fee) => selectedPdfFeeGroup.ids.includes(fee.id) && feeAppliesToStudent(fee, row.student))
-        .reduce((sum, fee) => sum + fee.amount, 0);
-      const paid = selectedPdfFeeGroup.ids.reduce((sum, feeId) => sum + sumPaymentsForStudentFee(controlIndexes, row.student.id, feeId), 0);
-      return { expected, paid, remaining: Math.max(expected - paid, 0) };
+        .reduce((sum, fee) => sumMoney([sum, fee.amount]), 0);
+      const paid = sumMoney(selectedPdfFeeGroup.ids.map((feeId) => sumPaymentsForStudentFee(controlIndexes, row.student.id, feeId)));
+      return { expected, paid, remaining: remainingMoney(expected, paid) };
     };
     const showOptionColumn = rows.some(({ student }) => Boolean(student.option));
     const studentPaymentColumns: PdfTableColumn<(typeof rows)[number]>[] = [
@@ -1688,7 +1695,7 @@ export function ControlModule({
             {paymentEditTarget && <div className="grid min-w-0 gap-3 rounded border border-slate-300 bg-white p-3 text-sm">
               <strong>Modifier le paiement — {paymentEditTarget.receiptNumber ?? paymentEditTarget.id}</strong>
               <label className="grid gap-1">Ancien montant<input className="input" readOnly value={String(paymentEditTarget.amount)} /></label>
-              <label className="grid gap-1">Nouveau montant<input className="input" type="number" min="0.01" step="0.01" value={paymentEditAmount} onChange={(event) => setPaymentEditAmount(event.target.value)} /></label>
+              <label className="grid gap-1">Nouveau montant<MoneyInput value={paymentEditAmount} onChange={setPaymentEditAmount} /></label>
               <label className="grid gap-1">Raison obligatoire<textarea className="input" maxLength={500} value={paymentEditReason} onChange={(event) => setPaymentEditReason(event.target.value)} /></label>
               <label className="grid gap-1">Saisissez exactement MODIFIER CE PAIEMENT<input className="input" autoComplete="off" value={paymentEditConfirmation} onChange={(event) => setPaymentEditConfirmation(event.target.value)} /></label>
               {paymentEditError && <p role="alert" className="text-red-700">{paymentEditError}</p>}

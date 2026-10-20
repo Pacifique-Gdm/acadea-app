@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AdminDrawer } from "../../components/ui/AdminDrawer";
 import type { School, SchoolYear } from "../../types";
 import { formatMoneyInput, parseMoneyInput } from "../../utils/currency";
+import { toMoneyMinor } from "../../utils/money";
 import { userFacingError } from "../../utils/userFacingError";
 import { ConsolidatedGradesView } from "../teacher/ConsolidatedGradesView";
 import { editableGradingSlots, gradingSlotLabels, type EditableGradingSlot } from "../teacher/teacherGrading";
@@ -68,8 +69,9 @@ export function GradePublicationDrawer({ school, year, classes, onClose }: { sch
       if (!options.feeTypes.some((item) => item.id === feeTypeId)) { setError("Ce type de frais n'est plus applicable à la classe sélectionnée."); return; }
       const normalized = parseMoneyInput(amount);
       if (!normalized || !/^\d+(?:\.\d{1,2})?$/.test(normalized)) { setError("Saisissez un montant valide, avec deux décimales au maximum."); return; }
-      const amountMinor = Math.round(Number(normalized) * 100);
-      if (!Number.isSafeInteger(amountMinor)) { setError("Montant trop élevé."); return; }
+      let amountMinor: number;
+      try { amountMinor = toMoneyMinor(Number(normalized)); }
+      catch { setError("Montant trop élevé ou précision invalide."); return; }
       fee = { feeTypeId, operator, amountMinor };
     }
     setPublishing(true); setError("");

@@ -47,6 +47,15 @@ describe("Contrôle — pagination réelle et finances groupées", () => {
     expect(match("school:school-a:arrears:gte", "50")).toBe(true);
     expect(match("school:school-a:arrears:gte", "50", b)).toBe(false);
   });
+  it("compare les seuils décimaux en centimes dans les frais regroupés", () => {
+    const row = { student: student(1), feeSummaries: [
+      { feeTypeId: "a", feeName: "Frais", paid: 0.1 },
+      { feeTypeId: "b", feeName: "Frais", paid: 0.2 },
+    ] } as ControlRow;
+    expect(controlRowMatches(row, { comparator: "fee:frais:gte", threshold: "0.30" })).toBe(true);
+    expect(controlRowMatches(row, { comparator: "fee:frais:lt", threshold: "0.31" })).toBe(true);
+    expect(controlRowMatches(row, { comparator: "fee:frais:gte", threshold: "0.31" })).toBe(false);
+  });
   it("ne lit les paiements que par lots de 30 élèves et par école/année", async () => {
     await loadControlPagePayments(Array.from({ length: 50 }, (_, i) => student(i)));
     expect(mocks.getDocs).toHaveBeenCalledTimes(2);

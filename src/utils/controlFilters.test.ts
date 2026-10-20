@@ -102,8 +102,8 @@ describe("filtres du Contrôle", () => {
     expect(source).toContain('{ value: "all-fees-lt", label: "Tous les frais <" }');
     expect(source).toContain('{ value: "arrears-gte", label: "Arriérés ≥" }');
     expect(source).toContain('{ value: "arrears-lt", label: "Arriérés <" }');
-    expect(source).toContain('row.feeSummaries.every((summary) => summary.paid >= threshold)');
-    expect(source).toContain('row.feeSummaries.some((summary) => summary.paid < threshold)');
+    expect(source).toContain('row.feeSummaries.every((summary) => toMoneyMinor(summary.paid) >= thresholdMinor)');
+    expect(source).toContain('row.feeSummaries.some((summary) => toMoneyMinor(summary.paid) < thresholdMinor)');
     expect(adminBar).toContain('className="pdf-export-button h-10 min-w-0 px-2 lg:flex-1 lg:basis-0"');
     expect(adminBar).toContain('<Download className="h-4 w-4" /> {pdfExporting ? "En cours..." : "Exporter PDF"}');
     expect(adminBar.indexOf('<PaidAmountDropdown')).toBeLessThan(adminBar.indexOf('<MoneyInput value={amountThreshold}'));

@@ -23,6 +23,7 @@ import { isSchoolSectionConfirmation, SCHOOL_SECTION_CONFIRMATIONS, type SchoolS
 import { canonicalSchoolOption, isSchoolOptionAddConfirmation, isSchoolOptionDeleteConfirmation, normalizeSchoolOptions, SCHOOL_OPTION_ADD_CONFIRMATION, SCHOOL_OPTION_DELETE_CONFIRMATION } from "../../utils/schoolOptions";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import { formatCurrencyMoney, resolveSchoolYearCurrency, schoolCurrencySymbol } from "../../utils/currency";
+import { toMoneyMinor } from "../../utils/money";
 import type { AppData, AppUser, FeeKind, FeeType, ParentProfile, School, SchoolSection, SchoolYear, Student, ValvePublication } from "../../types";
 import { FEE_KINDS } from "../../types";
 import { groupFeeTypes } from "./feeTypeGroups";
@@ -557,8 +558,10 @@ export function MenuModule({
     if (feeSubmittingRef.current || !feeName || feeClassNames.length === 0 || !feeAmount) return;
     setFeeSaveError("");
     const amount = Number(feeAmount);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      setFeeSaveError("Le montant du type de frais doit être supérieur à zéro.");
+    let amountMinor: number;
+    try { amountMinor = toMoneyMinor(amount); } catch { amountMinor = 0; }
+    if (amountMinor <= 0) {
+      setFeeSaveError("Le montant du type de frais doit être positif avec deux décimales au maximum.");
       return;
     }
     const selectedClasses = Array.from(new Set(feeClassNames));

@@ -7,6 +7,7 @@ import { COORDINATION_STUDENT_PAGE_SIZE, loadCoordinationStudentPage, type Coord
 import { loadCoordinationStudentArrearsBatch } from "./coordinationService";
 import { arrearsFilterActive, emptyArrearsFilter, matchesArrearsFilter, type ArrearsFilter, type ArrearsTotals } from "../utils/arrearsFilter";
 import { mapCoordinationSchoolBatches } from "./coordinationSchoolBatches";
+import { sumMoney, toMoneyMinor } from "../utils/money";
 
 export type ControlRow = { student: Student; feeSummaries: StudentFeeSummary[]; balance: { expected: number; paid: number; remaining: number }; progress: number };
 export type ControlAmountFilter = { comparator: string; threshold: string };
@@ -61,15 +62,17 @@ export function controlRowMatches(row: ControlRow, filter: ControlAmountFilter) 
   }
   if (!comparator || !filter.threshold || comparator.startsWith("arrears-")) return true;
   const threshold = Number(filter.threshold);
-  if (!Number.isFinite(threshold) || threshold < 0) return true;
-  if (comparator === "all-fees-gte") return row.feeSummaries.length > 0 && row.feeSummaries.every((summary) => summary.paid >= threshold);
-  if (comparator === "all-fees-lt") return row.feeSummaries.some((summary) => summary.paid < threshold);
+  let thresholdMinor: number;
+  try { thresholdMinor = toMoneyMinor(threshold); } catch { return false; }
+  if (thresholdMinor < 0) return false;
+  if (comparator === "all-fees-gte") return row.feeSummaries.length > 0 && row.feeSummaries.every((summary) => toMoneyMinor(summary.paid) >= thresholdMinor);
+  if (comparator === "all-fees-lt") return row.feeSummaries.some((summary) => toMoneyMinor(summary.paid) < thresholdMinor);
   const match = comparator.match(/^fee:(.+):(gte|lt)$/);
   if (!match) return true;
   const summaries = row.feeSummaries.filter((item) => item.feeName.trim().toLowerCase() === match[1] || item.feeTypeId === match[1]);
   if (!summaries.length) return false;
-  const paid = summaries.reduce((sum, summary) => sum + summary.paid, 0);
-  return match[2] === "gte" ? paid >= threshold : paid < threshold;
+  const paidMinor = toMoneyMinor(sumMoney(summaries.map((summary) => summary.paid)));
+  return match[2] === "gte" ? paidMinor >= thresholdMinor : paidMinor < thresholdMinor;
 }
 
 export async function loadCoordinationControlPage(filters: CoordinationStudentFilters, fees: FeeType[], amountFilter: ControlAmountFilter, cursor?: CoordinationControlCursor, arrearsFilter: ArrearsFilter = emptyArrearsFilter): Promise<CoordinationControlPage> {
@@ -90,7 +93,7 @@ export async function loadCoordinationControlPage(filters: CoordinationStudentFi
       // The shared fee helper expects a single school/year scope.
       const scopedFees = fees.filter((fee) => fee.schoolId === student.schoolId && fee.schoolYearId === student.schoolYearId);
       const feeSummaries = getStudentFeeSummaries(student, scopedFees, payments);
-      const balance = feeSummaries.reduce((total, item) => ({ expected: total.expected + item.expected, paid: total.paid + item.paid, remaining: total.remaining + item.remaining }), { expected: 0, paid: 0, remaining: 0 });
+      const balance = feeSummaries.reduce((total, item) => ({ expected: sumMoney([total.expected, item.expected]), paid: sumMoney([total.paid, item.paid]), remaining: sumMoney([total.remaining, item.remaining]) }), { expected: 0, paid: 0, remaining: 0 });
       const row = { student, feeSummaries, balance, progress: balance.expected ? Math.min(100, Math.round(balance.paid / balance.expected * 100)) : 0 };
       const school = filters.schools.find((item) => item.id === student.schoolId);
       if (school && controlRowMatches(row, amountFilter) && matchesArrearsFilter(arrears[student.id], arrearsFilter, school)) pending.push(row);
