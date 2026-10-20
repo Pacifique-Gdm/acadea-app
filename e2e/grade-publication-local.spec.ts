@@ -210,6 +210,11 @@ test.describe("Publication et archives : chaîne authentifiée isolée", () => {
       await expect(filterChoice.locator("option").first()).toHaveText("Tous les cours");
       await filterChoice.selectOption({ label: "Mathématiques" });
       await expect(consolidated.locator("thead")).not.toContainText("Français");
+      await consolidated.getByRole("button", { name: "Exporter PDF" }).click();
+      await expect(page.locator(".acadea-pdf-viewer [data-pdf-download]")).toHaveAttribute("href", /^blob:/, { timeout: 60000 });
+      expect(await page.locator(".acadea-pdf-viewer [data-pdf-download]").evaluate(async (link: HTMLAnchorElement) =>
+        (await (await fetch(link.href)).blob()).type)).toBe("application/pdf");
+      await page.locator(".acadea-pdf-viewer [data-pdf-close]").click();
       await filterChoice.selectOption("");
       await expect(consolidated.locator("thead")).toContainText("Français");
       await filterType.selectOption("student");
@@ -224,6 +229,9 @@ test.describe("Publication et archives : chaîne authentifiée isolée", () => {
       await expect(consolidated.getByText("Période de référence")).toBeVisible();
       await filterChoice.selectOption({ index: 1 });
       await expect(consolidated.locator("tbody tr")).toHaveCount(1);
+      await consolidated.getByRole("button", { name: "Exporter PDF" }).click();
+      await expect(page.locator(".acadea-pdf-viewer [data-pdf-download]")).toHaveAttribute("href", /^blob:/, { timeout: 60000 });
+      await page.locator(".acadea-pdf-viewer [data-pdf-close]").click();
       await consolidated.getByRole("button", { name: "Revenir à Ma classe titulaire" }).click();
       await expect(dialog.getByRole("button", { name: "Voir la fiche consolidée" })).toBeVisible();
       await fit(page);
