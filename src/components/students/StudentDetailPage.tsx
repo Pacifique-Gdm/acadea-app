@@ -4,6 +4,7 @@ import { ActionSnackbar, AdminDrawer, FormPanel, Metric } from "../ui";
 import { linkParentToStudent, unlinkParentFromStudent } from "../../services/provisioning";
 import { buildSchoolYearDataIndexes } from "../../utils/dataIndexes";
 import { resolvePaymentCashierName } from "../../utils/finance";
+import { sumMoney } from "../../utils/money";
 import { activityTimestamp } from "../../utils/activityHistory";
 import { generateReceiptPdf } from "../../utils/pdf";
 import { MISSING_FINANCIAL_OPERATION_SCHOOL_ERROR, resolveFinancialOperationSchool } from "../../utils/financialOperationSchool";
@@ -120,9 +121,9 @@ export function StudentDetailPage({
   const feeSummaries = getStudentFeeSummaries(student, yearData.feeTypes, yearData.payments, detailIndexes);
   const balance = feeSummaries.reduce(
     (totals, summary) => ({
-      expected: totals.expected + summary.expected,
-      paid: totals.paid + summary.paid,
-      remaining: totals.remaining + summary.remaining,
+      expected: sumMoney([totals.expected, summary.expected]),
+      paid: sumMoney([totals.paid, summary.paid]),
+      remaining: sumMoney([totals.remaining, summary.remaining]),
     }),
     { expected: 0, paid: 0, remaining: 0 },
   );

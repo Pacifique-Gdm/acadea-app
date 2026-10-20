@@ -8,6 +8,15 @@ describe("devises enregistrées des opérations", () => {
     expect(formatRecordedTotals(totals, "CDF")).toBe(formatRecordedTotals(totals, "USD"));
   });
 
+  it("conserve les centimes dans les totaux de caisse et le libellé des reçus", () => {
+    const totals = totalsByRecordedCurrency([
+      { amount: 0.1, currency: "USD" }, { amount: 0.2, currency: "USD" },
+      { amount: 100.5, currency: "CDF" }, { amount: 50.25, currency: "CDF" },
+    ]);
+    expect(totals).toEqual({ USD: 0.3, CDF: 150.75, unknownCount: 0 });
+    expect(formatRecordedOperation({ amount: 50.25, currency: "USD" })).toBe("$50,25");
+  });
+
   it("signale une opération sans devise sans la classer arbitrairement", () => {
     const totals = totalsByRecordedCurrency([{ amount: 100 }]);
     expect(totals).toEqual({ CDF: 0, USD: 0, unknownCount: 1 });

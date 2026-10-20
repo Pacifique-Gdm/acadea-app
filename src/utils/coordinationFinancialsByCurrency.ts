@@ -2,6 +2,7 @@ import type { Expense, FeeType, Payment, School, Student } from "../types";
 import { buildDashboardFeeShares, buildDashboardFinancialAggregates } from "./dashboardStats";
 import type { DashboardFeeProgressRow, DashboardFeeShare } from "./dashboardStats";
 import { resolveSchoolCurrency, type SchoolCurrency } from "./currency";
+import { remainingMoney, sumMoney } from "./money";
 
 export type CoordinationCurrencyFinancialGroup = {
   currency: SchoolCurrency;
@@ -24,13 +25,13 @@ function mergeFeeRows(groups: DashboardFeeProgressRow[][]) {
     const current = rows.get(key) ?? { name: row.name, expected: 0, paid: 0 };
     rows.set(key, {
       name: current.name,
-      expected: current.expected + row.expected,
-      paid: current.paid + row.paid,
+      expected: sumMoney([current.expected, row.expected]),
+      paid: sumMoney([current.paid, row.paid]),
     });
   });
   return [...rows.values()].map((row) => ({
     ...row,
-    remaining: Math.max(row.expected - row.paid, 0),
+    remaining: remainingMoney(row.expected, row.paid),
     rate: row.expected > 0 ? Math.round((row.paid / row.expected) * 100) : 0,
   }));
 }
@@ -66,8 +67,8 @@ export function groupCoordinationFinancialsByCurrency({
       payments.filter((payment) => payment.schoolId === school.id && payment.currency === currency),
     ));
     const feeProgressRows = mergeFeeRows(schoolAggregates.map((aggregate) => aggregate.feeProgressRows));
-    const expected = schoolAggregates.reduce((sum, aggregate) => sum + aggregate.financialStats.expected, 0);
-    const paid = schoolAggregates.reduce((sum, aggregate) => sum + aggregate.financialStats.paid, 0);
+    const expected = sumMoney(schoolAggregates.map((aggregate) => aggregate.financialStats.expected));
+    const paid = sumMoney(schoolAggregates.map((aggregate) => aggregate.financialStats.paid));
     const currencyPayments = payments.filter((payment) => scopedSchoolIds.has(payment.schoolId) && payment.currency === currency);
     const currencyExpenses = expenses.filter((expense) => scopedSchoolIds.has(expense.schoolId) && expense.currency === currency);
 
@@ -75,9 +76,9 @@ export function groupCoordinationFinancialsByCurrency({
       currency,
       unknownCurrencyCount,
       expected,
-      paid: paid + currencyPayments.filter((payment) => schoolCurrency.get(payment.schoolId) !== currency).reduce((sum, payment) => sum + payment.amount, 0),
-      expenses: currencyExpenses.reduce((sum, expense) => sum + expense.amount, 0),
-      remaining: Math.max(expected - paid, 0),
+      paid: sumMoney([paid, ...currencyPayments.filter((payment) => schoolCurrency.get(payment.schoolId) !== currency).map((payment) => payment.amount)]),
+      expenses: sumMoney(currencyExpenses.map((expense) => expense.amount)),
+      remaining: remainingMoney(expected, paid),
       recoveryRate: expected > 0 ? Math.round((paid / expected) * 100) : 0,
       feeProgressRows,
       feeShares: buildDashboardFeeShares(feeProgressRows),

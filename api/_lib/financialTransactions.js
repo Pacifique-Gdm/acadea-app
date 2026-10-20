@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { protectCashMutation } from "./cashBalance.js";
+import { fromMoneyMinor, sumMoneyMinor, toMoneyMinor } from "./money.js";
 
 const PAYMENT_CREATE_KEYS = ["action", "schoolYearId", "studentId", "feeTypeId", "debtSchoolYearId", "amount", "note", "clientRequestId"];
 const ARREARS_READ_KEYS = ["action", "schoolYearId", "studentId"];
@@ -26,11 +27,20 @@ function text(value, maxLength = 250) {
 }
 
 function positiveAmount(value) {
-  const amount = Number(value);
-  if (!Number.isFinite(amount) || amount <= 0 || amount > 1_000_000_000) {
+  let minor;
+  try { minor = toMoneyMinor(value); } catch { minor = -1; }
+  if (minor <= 0 || minor > 100_000_000_000) {
     throw new FinancialApiError(400, "invalid-argument", "Montant financier invalide.");
   }
-  return Math.round(amount * 100) / 100;
+  return fromMoneyMinor(minor);
+}
+
+function recordedMinor(value) {
+  // Historical numeric strings were accepted by the original reader; preserve
+  // only unambiguous dot-decimal values and reject malformed financial records.
+  const amount = typeof value === "number" ? value : typeof value === "string" && /^\d+(?:\.\d{1,2})?$/.test(value) ? Number(value) : NaN;
+  try { return toMoneyMinor(amount); }
+  catch { throw new FinancialApiError(409, "failed-precondition", "Montant financier historique incohérent."); }
 }
 
 function assertAllowedKeys(body, allowedKeys) {
@@ -186,13 +196,15 @@ async function historicalDebts(transaction, db, caller, currentStudent, currentY
     for (const document of feeSnapshot.docs) {
       const fee = document.data();
       if (fee.schoolId !== caller.schoolId || !feeAppliesToHistoricalStudent(fee, student)) continue;
-      const expected = Number(fee.amount);
-      if (!Number.isFinite(expected) || expected <= 0) continue;
-      const paid = payments.filter((payment) => payment.feeTypeId === document.id)
-        .reduce((total, payment) => total + Number(payment.amount || 0), 0);
+      const expectedMinor = recordedMinor(fee.amount);
+      if (expectedMinor <= 0) continue;
+      const paidMinor = payments.filter((payment) => payment.feeTypeId === document.id)
+        .reduce((total, payment) => total + recordedMinor(payment.amount), 0);
+      if (!Number.isSafeInteger(paidMinor)) throw new FinancialApiError(409, "failed-precondition", "Total historique trop élevé.");
+      const expected = fromMoneyMinor(expectedMinor), paid = fromMoneyMinor(paidMinor);
       const currency = year.currency === "USD" || year.currency === "CDF" ? year.currency : school.currency === "CDF" ? "CDF" : "USD";
       debts.push({ schoolYearId: year.id, yearName: year.name, studentId: student.id, feeTypeId: document.id,
-        feeName: text(fee.name, 160) || "Frais", expected, paid, remaining: Math.max(expected - paid, 0), currency });
+        feeName: text(fee.name, 160) || "Frais", expected, paid, remaining: fromMoneyMinor(Math.max(expectedMinor - paidMinor, 0)), currency });
     }
     return debts;
   }));
@@ -247,7 +259,7 @@ async function arrearsBatch(transaction, db, studentIds, schoolIds, requestedYea
   const details = {};
   for (const { student, school, year, records } of contexts) {
     const debts = await historicalDebts(transaction, db, { schoolId: student.schoolId }, student, year, school, reads, records);
-    totals[student.id] = debts.reduce((sum, debt) => ({ ...sum, [debt.currency]: sum[debt.currency] + debt.remaining }), { USD: 0, CDF: 0 });
+    totals[student.id] = debts.reduce((sum, debt) => ({ ...sum, [debt.currency]: fromMoneyMinor(recordedMinor(sum[debt.currency]) + recordedMinor(debt.remaining)) }), { USD: 0, CDF: 0 });
     if (includeDetails) details[student.id] = debts;
   }
   return includeDetails ? { totals, details } : { totals };
@@ -326,7 +338,7 @@ async function createPayment(transaction, db, caller, body, hash, now) {
   if (!currentStudentSnapshot.exists || currentStudent.schoolId !== caller.schoolId || currentStudent.schoolYearId !== collectionSchoolYearId || currentStudent.status !== "ACTIVE") {
     throw new FinancialApiError(400, "invalid-argument", "Élève invalide pour cet établissement et cette année.");
   }
-  if (!feeSnapshot.exists || fee.schoolId !== caller.schoolId || !Number.isFinite(Number(fee.amount)) || Number(fee.amount) <= 0) {
+  if (!feeSnapshot.exists || fee.schoolId !== caller.schoolId || !(Number(fee.amount) > 0)) {
     throw new FinancialApiError(400, "invalid-argument", "Type de frais invalide pour cet établissement et cette année.");
   }
   let schoolYearId = collectionSchoolYearId;
@@ -353,14 +365,14 @@ async function createPayment(transaction, db, caller, body, hash, now) {
   if (counterSnapshot.exists) paymentsQuery = paymentsQuery.where("studentId", "==", studentId).where("feeTypeId", "==", feeTypeId);
   const paymentsSnapshot = await transaction.get(paymentsQuery);
   const matchingPayments = paymentsSnapshot.docs.map((document) => document.data());
-  const alreadyPaid = matchingPayments
+  const alreadyPaidMinor = sumMoneyMinor(matchingPayments
     .filter((payment) => payment.studentId === studentId && payment.feeTypeId === feeTypeId)
-    .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-  const remaining = Math.max(Number(fee.amount) - alreadyPaid, 0);
-  if (remaining === 0) {
+    .map((payment) => fromMoneyMinor(recordedMinor(payment.amount))));
+  const remainingMinor = Math.max(recordedMinor(fee.amount) - alreadyPaidMinor, 0);
+  if (remainingMinor === 0) {
     throw new FinancialApiError(409, "conflict", "Ce type de frais est déjà soldé.");
   }
-  if (amount > remaining) {
+  if (toMoneyMinor(amount) > remainingMinor) {
     throw new FinancialApiError(409, "conflict", "Le montant saisi dépasse le solde restant pour ce type de frais.");
   }
   let historicalMaximum = counterSnapshot.exists || debt ? 0 : matchingPayments.reduce((maximum, payment) => Math.max(maximum, receiptSequence(payment.receiptNumber)), 0);
@@ -399,7 +411,7 @@ async function createPayment(transaction, db, caller, body, hash, now) {
     clientRequestIdHash: hash,
   };
   await protectCashMutation({ db, transaction, schoolId: caller.schoolId, schoolYearId: collectionSchoolYearId,
-    currency: payment.currency, yearCurrency: currency, deltaCents: Math.round(amount * 100), now });
+    currency: payment.currency, yearCurrency: currency, deltaCents: toMoneyMinor(amount), now });
   transaction.set(db.doc(`payments/${paymentId}`), payment);
   transaction.set(counterRef, { schoolId: caller.schoolId, schoolYearId: collectionSchoolYearId, kind: "receipt", lastReceiptNumber: sequence, updatedAt: now }, { merge: true });
   const auditId = `audit_fin_${hash.slice(0, 24)}`;
@@ -409,7 +421,7 @@ async function createPayment(transaction, db, caller, body, hash, now) {
     const studentName = [currentStudent.nom, currentStudent.postnom, currentStudent.prenom].map((value) => text(value, 120)).filter(Boolean).join(" ") || "Élève";
     const symbol = (debt?.currency ?? currency) === "CDF" ? "FC" : "$";
     const formatAmount = (value) => symbol === "$" ? `$${value.toFixed(2)}` : `${value.toFixed(2)} FC`;
-    const remaining = Math.max(Number(fee.amount) - alreadyPaid - amount, 0);
+    const remaining = fromMoneyMinor(Math.max(remainingMinor - toMoneyMinor(amount), 0));
     transaction.set(db.doc(`notifications/${notificationId}`), {
       id: notificationId, schoolId: caller.schoolId, schoolYearId: collectionSchoolYearId, parentId: currentStudent.parentId, studentId: currentStudentId,
       recipientRole: "parent", type: "payment", module: "payments", event: "payment_recorded", destination: "/dashboard",
@@ -439,7 +451,7 @@ async function createExpense(transaction, db, caller, body, hash, now) {
     createdBy: caller.uid, updatedBy: caller.uid, cashierName: actorName, provenance: "financial-api", clientRequestIdHash: hash,
   };
   await protectCashMutation({ db, transaction, schoolId: caller.schoolId, schoolYearId, currency, yearCurrency: currency,
-    deltaCents: -Math.round(amount * 100), now });
+    deltaCents: -toMoneyMinor(amount), now });
   transaction.set(db.doc(`expenses/${expenseId}`), expense);
   const auditId = `audit_fin_${hash.slice(0, 24)}`;
   transaction.set(db.doc(`auditLogs/${auditId}`), buildServerAudit({ id: auditId, eventType: AUDIT_EVENT_TYPES.FINANCE_EXPENSE_CREATED, actor: { ...caller, name: actorName }, schoolId: caller.schoolId, schoolYearId, resourceType: "expense", resourceId: expenseId, metadata: { category, amount } }));
@@ -476,14 +488,11 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
   let result;
   let correction;
   if (operation === "delete") {
-    await cashImpact((isPayment ? -1 : 1) * Math.round(Number(current.amount) * 100));
+    await cashImpact((isPayment ? -1 : 1) * recordedMinor(current.amount));
     transaction.delete(documentRef);
     result = { deletedId: transactionId, kind };
     if (!isPayment) correction = { oldValues: current, newValues: null, oldAmount: current.amount, newAmount: null, currency };
   } else if (isPayment) {
-    if (Math.abs(Math.round(Number(body.amount) * 100) - Number(body.amount) * 100) > 1e-7) {
-      throw new FinancialApiError(400, "invalid-argument", "Le montant corrigé ne peut pas dépasser deux décimales.");
-    }
     const amount = positiveAmount(body.amount);
     const [studentSnapshot, feeSnapshot] = await Promise.all([
       transaction.get(db.doc(`students/${current.studentId}`)),
@@ -494,10 +503,10 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
       throw new FinancialApiError(409, "conflict", "Les références du paiement ne sont plus valides.");
     }
     const annualSnapshot = await transaction.get(db.collection("payments").where("schoolId", "==", caller.schoolId).where("schoolYearId", "==", schoolYearId).where("studentId", "==", current.studentId).where("feeTypeId", "==", current.feeTypeId));
-    const paidWithoutCurrent = annualSnapshot.docs.map((document) => document.data())
+    const paidWithoutCurrentMinor = annualSnapshot.docs.map((document) => document.data())
       .filter((payment) => payment.id !== transactionId && payment.studentId === current.studentId && payment.feeTypeId === current.feeTypeId)
-      .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-    if (paidWithoutCurrent + amount > Number(feeSnapshot.data()?.amount)) throw new FinancialApiError(409, "conflict", "Ce paiement dépasse le montant prévu pour ce frais.");
+      .reduce((sum, payment) => sum + recordedMinor(payment.amount), 0);
+    if (!Number.isSafeInteger(paidWithoutCurrentMinor) || paidWithoutCurrentMinor + toMoneyMinor(amount) > recordedMinor(feeSnapshot.data()?.amount)) throw new FinancialApiError(409, "conflict", "Ce paiement dépasse le montant prévu pour ce frais.");
     const payment = { ...current, id: transactionId, amount, updatedAt: now, updatedBy: caller.uid, correctionReason: reason };
     result = { payment };
     const student = studentSnapshot.data();
@@ -511,7 +520,7 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
         && (!Array.isArray(document.data()?.studentIds) || document.data().studentIds.includes(current.studentId)));
       if (eligible.length === 1) recipientUserId = eligible[0].id;
     }
-    await cashImpact(Math.round((amount - Number(current.amount)) * 100));
+    await cashImpact(toMoneyMinor(amount) - recordedMinor(current.amount));
     transaction.update(documentRef, { amount, updatedAt: now, updatedBy: caller.uid, correctionReason: reason });
     if (recipientUserId) {
       transaction.create(db.doc(`notifications/${notificationId}`), {
@@ -529,7 +538,7 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
     const description = text(body.description, 1000);
     if (!category || !description) throw new FinancialApiError(400, "invalid-argument", "Catégorie et description sont requises.");
     const expense = { ...current, id: transactionId, amount, category, description, updatedAt: now, updatedBy: caller.uid, correctionReason: reason };
-    await cashImpact(Math.round((Number(current.amount) - amount) * 100));
+    await cashImpact(recordedMinor(current.amount) - toMoneyMinor(amount));
     transaction.update(documentRef, { amount, category, description, updatedAt: now, updatedBy: caller.uid, correctionReason: reason });
     result = { expense };
     correction = { oldValues: current, newValues: expense, oldAmount: current.amount, newAmount: amount, currency };

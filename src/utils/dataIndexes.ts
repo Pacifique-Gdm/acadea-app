@@ -1,5 +1,6 @@
 import type { FeeType, Payment, Student } from "../types";
 import { feeAppliesToStudent } from "./stats";
+import { sumMoney } from "./money";
 
 export type SchoolYearDataIndexes = {
   paymentsByStudentId: Map<string, Payment[]>;
@@ -58,7 +59,7 @@ export function getPaymentsForStudentFee(indexes: Pick<SchoolYearDataIndexes, "p
 }
 
 export function sumPayments(payments: Payment[]) {
-  return payments.reduce((sum, payment) => sum + payment.amount, 0);
+  return sumMoney(payments.map((payment) => payment.amount));
 }
 
 export function sumPaymentsForStudentFee(indexes: Pick<SchoolYearDataIndexes, "paymentsByStudentAndFeeType">, studentId: string, feeTypeId: string) {

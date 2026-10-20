@@ -30,16 +30,22 @@ export function formatSchoolMoney(value: number, school: Pick<School, "currency"
 }
 
 export function parseMoneyInput(value: string) {
-  const compact = value.replace(/[\s\u00a0\u202f]/g, "").replace(",", ".").replace(/[^\d.]/g, "");
-  if (!compact) return "";
-  const [integer = "", ...decimalParts] = compact.split(".");
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const withoutCurrency = trimmed.replace(/\s*(?:FC|CDF|USD|\$)$/i, "").trim();
+  // Spaces alone group thousands. A dot or comma is always a decimal separator.
+  // Return invalid text unchanged so the form can display an error instead of 0.
+  if (!/^(?:\d+|\d{1,3}(?:[ \u00a0\u202f]\d{3})+)(?:[.,]\d{0,2})?$/.test(withoutCurrency)) return trimmed;
+  const compact = withoutCurrency.replace(/[ \u00a0\u202f]/g, "").replace(",", ".");
+  const [integer, decimals] = compact.split(".");
   const normalizedInteger = integer.replace(/^0+(?=\d)/, "") || "0";
-  return decimalParts.length ? `${normalizedInteger}.${decimalParts.join("")}` : normalizedInteger;
+  return decimals === undefined ? normalizedInteger : `${normalizedInteger}.${decimals}`;
 }
 
 export function formatMoneyInput(value: string) {
   const canonical = parseMoneyInput(value);
   if (!canonical) return "";
+  if (!/^\d+(?:\.\d{0,2})?$/.test(canonical)) return value;
   const [integer, decimals] = canonical.split(".");
   const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
   return decimals === undefined ? grouped : `${grouped},${decimals}`;

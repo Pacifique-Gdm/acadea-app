@@ -28,4 +28,11 @@ describe("finance", () => {
     const payments = [{ studentId: "student-a", feeTypeId: "fee-a", amount: 120 }] as Payment[];
     expect(getStudentFeeSummaries(student, fees, payments)[0].remaining).toBe(0);
   });
+
+  it("solde exactement plusieurs paiements décimaux et conserve une vraie dette de 0,01", () => {
+    const fees = [{ id: "fee-a", name: "Minerval", amount: 150.75 }] as FeeType[];
+    const payments = [100.5, 50.25].map((amount) => ({ studentId: "student-a", feeTypeId: "fee-a", amount })) as Payment[];
+    expect(getStudentFeeSummaries(student, fees, payments)[0]).toMatchObject({ paid: 150.75, remaining: 0 });
+    expect(getStudentFeeSummaries(student, [{ ...fees[0], amount: 100 }], [{ ...payments[0], amount: 99.99 }])[0].remaining).toBe(0.01);
+  });
 });

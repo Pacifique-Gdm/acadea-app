@@ -11,6 +11,7 @@ import { exportDashboardReportPdf } from "../../utils/dashboardPdf";
 import { money } from "../../utils/pdf";
 import { formatCurrencyMoney, resolveSchoolYearCurrency } from "../../utils/currency";
 import { hasCurrencyOutside } from "../../utils/operationCurrency";
+import { sumMoney } from "../../utils/money";
 import { useExpenseCurrencyResolution } from "../../hooks/useResolvedExpenseCurrencies";
 import { formatCount } from "../../utils/numberFormat";
 import { activeDashboardPersonnelCounts, uniqueActiveParentCount } from "../../utils/dashboardPopulationStats";
@@ -55,7 +56,7 @@ const transactionAxisStep = 1500;
 const feeShareColors = ["#2563eb", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", "#06b6d4", "#84cc16", "#f97316"];
 
 export function FinancialFeeShareChart({ rows, formatAmount = money, totalAriaLabel }: { rows: DashboardFeeShare[]; formatAmount?: (value: number) => string; totalAriaLabel?: string }) {
-  const total = rows.reduce((sum, row) => sum + row.amount, 0);
+  const total = sumMoney(rows.map((row) => row.amount));
   let cursor = 0;
   const gradient = rows.map((row, index) => {
     const start = cursor;
@@ -405,13 +406,13 @@ export function Dashboard({ data, school, year }: DashboardProps) {
   const transactionEndDate = dateFilterActive ? endDate : today;
   const arrearsCollections = useMemo(() => (["USD", "CDF"] as const).map((currency) => ({
     currency,
-    amount: data.payments.filter((payment) => payment.collectionSchoolYearId === year.id
+    amount: sumMoney(data.payments.filter((payment) => payment.collectionSchoolYearId === year.id
       && payment.currency === currency && filteredStudentIds.has(payment.currentStudentId ?? "")
       && isInDashboardDateRange(payment.paidAt, transactionStartDate, transactionEndDate))
-      .reduce((sum, payment) => sum + payment.amount, 0),
+      .map((payment) => payment.amount)),
   })).filter((group) => group.amount > 0), [data.payments, transactionEndDate, filteredStudentIds, transactionStartDate, year.id]);
-  const fullYearExpenses = useMemo(() => resolvedExpenses.reduce((sum, expense) => sum + expense.amount, 0), [resolvedExpenses]);
-  const filteredExpensesTotal = useMemo(() => filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0), [filteredExpenses]);
+  const fullYearExpenses = useMemo(() => sumMoney(resolvedExpenses.map((expense) => expense.amount)), [resolvedExpenses]);
+  const filteredExpensesTotal = useMemo(() => sumMoney(filteredExpenses.map((expense) => expense.amount)), [filteredExpenses]);
   const totalExpenses = hasDashboardFinancialFilter ? filteredExpensesTotal : fullYearExpenses;
   const remaining = dashboardFinancialStats.remaining;
   const recoveryRate = dashboardFinancialStats.expected > 0 ? Math.round((totalPayments / dashboardFinancialStats.expected) * 100) : 0;

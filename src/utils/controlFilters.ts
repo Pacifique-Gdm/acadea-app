@@ -1,6 +1,7 @@
 import type { FeeType, ParentProfile, Payment, Student } from "../types";
 import { feeAppliesToStudent, feeTargetKey } from "./feeTargets";
 import { formatStudentClassName, getClassSection } from "./studentClasses";
+import { sumMoney, toMoneyMinor } from "./money";
 
 export function getControlClassKey(student: Pick<Student, "className" | "option">) {
   return getClassSection(student.className) === "Secondaire" ? feeTargetKey(student.className, student.option) : student.className;
@@ -79,7 +80,7 @@ export function selectPaymentWarningRecipients({
       if (!parent) return;
       const applicableFeeIds = new Set(matchingFees.filter((fee) => feeAppliesToStudent(fee, student)).map((fee) => fee.id));
       if (applicableFeeIds.size === 0) return;
-      const paid = payments
+      const paid = sumMoney(payments
         .filter(
           (payment) =>
             payment.schoolId === schoolId &&
@@ -87,8 +88,8 @@ export function selectPaymentWarningRecipients({
             payment.studentId === student.id &&
             applicableFeeIds.has(payment.feeTypeId),
         )
-        .reduce((sum, payment) => sum + payment.amount, 0);
-      if (paid >= requiredAmount) return;
+        .map((payment) => payment.amount));
+      if (toMoneyMinor(paid) >= toMoneyMinor(requiredAmount)) return;
       const current = recipients.get(parent.id);
       recipients.set(parent.id, { parent, students: current ? [...current.students, student] : [student] });
     });

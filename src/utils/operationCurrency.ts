@@ -1,11 +1,12 @@
 import { formatCurrencyMoney, type SchoolCurrency } from "./currency";
+import { sumMoney } from "./money";
 
 type MonetaryOperation = { amount: number; currency?: SchoolCurrency };
 
 export function totalsByRecordedCurrency(operations: readonly MonetaryOperation[]) {
   const totals = { CDF: 0, USD: 0, unknownCount: 0 };
   for (const operation of operations) {
-    if (operation.currency === "CDF" || operation.currency === "USD") totals[operation.currency] += operation.amount;
+    if (operation.currency === "CDF" || operation.currency === "USD") totals[operation.currency] = sumMoney([totals[operation.currency], operation.amount]);
     else totals.unknownCount++;
   }
   return totals;

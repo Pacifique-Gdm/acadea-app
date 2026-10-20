@@ -319,6 +319,17 @@ describe("API financière transactionnelle", () => {
       .rejects.toMatchObject({ code: "conflict", message: "Ce type de frais est déjà soldé." });
   });
 
+  it("enregistre des versements décimaux exacts et refuse un vrai dépassement de 0,01", async () => {
+    const db = fakeDb({ ...baseSeed(), "feeTypes/fee-a": { ...baseSeed()["feeTypes/fee-a"], amount: 150.75 } });
+    const first = await executeFinancialOperation({ db, caller: cashier, body: { ...paymentBody("decimal-payment-first"), amount: 100.5 } });
+    expect(first.payment?.amount).toBe(100.5);
+    await expect(executeFinancialOperation({ db, caller: cashier, body: { ...paymentBody("decimal-payment-too-much"), amount: 50.26 } })).rejects.toMatchObject({ code: "conflict" });
+    const final = await executeFinancialOperation({ db, caller: cashier, body: { ...paymentBody("decimal-payment-final"), amount: 50.25 } });
+    expect(final.payment?.amount).toBe(50.25);
+    await expect(executeFinancialOperation({ db, caller: cashier, body: { ...paymentBody("decimal-payment-extra"), amount: 0.01 } })).rejects.toMatchObject({ code: "conflict" });
+    await expect(executeFinancialOperation({ db, caller: cashier, body: { ...paymentBody("decimal-payment-invalid"), amount: 0.001 } })).rejects.toMatchObject({ code: "invalid-argument" });
+  });
+
   it("refuse les identifiants d'une autre école et les montants non positifs", async () => {
     const db = fakeDb(baseSeed());
     await expect(executeFinancialOperation({ db, caller: cashier, body: { ...paymentBody("request-payment-002"), studentId: "student-b" } })).rejects.toMatchObject({ code: "invalid-argument" });

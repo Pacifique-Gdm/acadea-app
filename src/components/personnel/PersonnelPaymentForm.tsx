@@ -4,6 +4,7 @@ import { createPersonnelPayment, listPayrollAdvances, listPayrollPersonnel, load
 import type { PayrollBeneficiary, PayrollCashBalance } from "../../services/personnelPayroll";
 import { printPersonnelPaymentPdf } from "../../utils/personnelPayrollPdf";
 import { formatCurrencyMoney, resolveSchoolYearCurrency } from "../../utils/currency";
+import { fromMoneyMinor, remainingMoney, sumMoney, toMoneyMinor } from "../../utils/money";
 import type { PersonnelPayment, School, SchoolYear } from "../../types";
 
 const today = () => {
@@ -11,6 +12,10 @@ const today = () => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 };
 const months = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
+function inputMinor(value: string) {
+  if (value && !/^\d+(?:\.\d{1,2})?$/.test(value)) return null;
+  try { return toMoneyMinor(Number(value || 0)); } catch { return null; }
+}
 
 export function PersonnelPaymentForm({ school, year, onRecorded }: { school: School; year: SchoolYear; onRecorded?: (payment: PersonnelPayment) => void }) {
   const [personnel, setPersonnel] = useState<PayrollBeneficiary[]>([]);
@@ -62,14 +67,20 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
     return () => { active = false; };
   }, [beneficiaryId]);
 
-  const recoveryTotal = kind === "advance" ? 0 : Object.values(recoveries).reduce((sum, value) => sum + Number(value || 0), 0);
-  const net = Number(gross || 0) - recoveryTotal - (kind === "advance" ? 0 : Number(deduction || 0) + Number(cnss || 0) + Number(tax || 0));
-  const netCents = Math.round(net * 100);
+  const grossCents = inputMinor(gross);
+  const deductionCents = inputMinor(deduction), cnssCents = inputMinor(cnss), taxCents = inputMinor(tax);
+  const recoveryAmounts = Object.values(recoveries).map((value) => value.trim() ? inputMinor(value) : null);
+  const validAmounts = grossCents !== null && (kind === "advance" || deductionCents !== null && cnssCents !== null && taxCents !== null
+    && recoveryAmounts.every((value) => value !== null));
+  const recoveryCents = kind === "advance" ? 0 : recoveryAmounts.reduce<number>((sum, value) => sum + (value ?? 0), 0);
+  const recoveryTotal = Number.isSafeInteger(recoveryCents) ? fromMoneyMinor(recoveryCents) : 0;
+  const netCents = validAmounts && Number.isSafeInteger(recoveryCents) ? grossCents! - recoveryCents - (kind === "advance" ? 0 : deductionCents! + cnssCents! + taxCents!) : 0;
+  const net = fromMoneyMinor(netCents);
   const availableCents = cashBalance?.availableCents;
   const shortfallCents = availableCents === undefined ? 0 : Math.max(netCents - availableCents, 0);
   const cashInsufficient = availableCents !== undefined && (availableCents < 0 || shortfallCents > 0);
-  const validNet = Number.isFinite(net) && netCents > 0;
-  const recoverable = advances.filter((item) => item.currency === currency).reduce((sum, item) => sum + item.amount - item.recoveredAmount, 0);
+  const validNet = validAmounts && Number.isSafeInteger(netCents) && netCents > 0;
+  const recoverable = sumMoney(advances.filter((item) => item.currency === currency).map((item) => remainingMoney(item.amount, item.recoveredAmount)));
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -79,7 +90,7 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
     if (!cashBalance || cashBalance.schoolId !== school.id || cashBalance.currency !== currency) { setError("Solde de caisse indisponible : paiement bloqué."); return; }
     if (cashInsufficient) { setError("Paiement impossible : solde de caisse insuffisant."); return; }
     const lines = kind === "advance" ? [] : Object.entries(recoveries).filter(([, amount]) => Number(amount) > 0).map(([advanceId, amount]) => ({ advanceId, amount: Number(amount) }));
-    if (lines.some((line) => { const advance = advances.find((item) => item.id === line.advanceId); return !advance || advance.currency !== currency || line.amount > advance.amount - advance.recoveredAmount; })) { setError("Une récupération dépasse le solde de l'avance ou utilise une autre devise."); return; }
+    if (lines.some((line) => { const advance = advances.find((item) => item.id === line.advanceId); return !advance || advance.currency !== currency || toMoneyMinor(line.amount) > toMoneyMinor(remainingMoney(advance.amount, advance.recoveredAmount)); })) { setError("Une récupération dépasse le solde de l'avance ou utilise une autre devise."); return; }
     const draft = { schoolYearId: year.id, beneficiaryId, kind, ...(kind === "advance" ? {} : { periodMonth: month, periodYear }), paidAt, amount: Number(gross), recoveries: lines,
       deduction: kind === "advance" ? 0 : Number(deduction || 0), deductionReason: kind === "advance" ? "" : deductionReason.trim(), cnss: kind === "advance" ? 0 : Number(cnss || 0), tax: kind === "advance" ? 0 : Number(tax || 0), description: description.trim() };
     const signature = JSON.stringify(draft);
@@ -126,7 +137,7 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
     <label className="grid gap-1 font-semibold">Date réelle du paiement<input className="input" type="date" value={paidAt} onChange={(event) => setPaidAt(event.target.value)}/></label>
     <label className="grid gap-1 font-semibold">{kind === "advance" ? "Avance versée" : kind === "salary" ? "Salaire brut" : "Prime brute"}<MoneyInput value={gross} onChange={setGross}/></label>
     {kind !== "advance" && <>
-      <section className="grid gap-2 rounded border border-slate-200 p-3"><h3 className="font-semibold">Avances récupérables : {format(recoverable)}</h3>{advances.map((advance) => <div key={advance.id} className="grid min-w-0 gap-2 border-t pt-2"><label className="flex items-start gap-2"><input type="checkbox" checked={recoveries[advance.id] !== undefined} disabled={advance.currency !== currency} onChange={(event) => setRecoveries((current) => { const next = { ...current }; if (event.target.checked) next[advance.id] = String(advance.amount - advance.recoveredAmount); else delete next[advance.id]; return next; })}/><span>{advance.reference} — {advance.paidAt} — solde {formatCurrencyMoney(advance.amount - advance.recoveredAmount, advance.currency)}{advance.currency !== currency ? " (devise incompatible)" : ""}</span></label>{recoveries[advance.id] !== undefined && <label className="grid gap-1">Montant à récupérer<MoneyInput value={recoveries[advance.id]} onChange={(value) => setRecoveries((current) => ({ ...current, [advance.id]: value }))}/></label>}</div>)}{advances.length === 0 && <p>Aucune avance récupérable.</p>}</section>
+      <section className="grid gap-2 rounded border border-slate-200 p-3"><h3 className="font-semibold">Avances récupérables : {format(recoverable)}</h3>{advances.map((advance) => <div key={advance.id} className="grid min-w-0 gap-2 border-t pt-2"><label className="flex items-start gap-2"><input type="checkbox" checked={recoveries[advance.id] !== undefined} disabled={advance.currency !== currency} onChange={(event) => setRecoveries((current) => { const next = { ...current }; if (event.target.checked) next[advance.id] = String(remainingMoney(advance.amount, advance.recoveredAmount)); else delete next[advance.id]; return next; })}/><span>{advance.reference} — {advance.paidAt} — solde {formatCurrencyMoney(remainingMoney(advance.amount, advance.recoveredAmount), advance.currency)}{advance.currency !== currency ? " (devise incompatible)" : ""}</span></label>{recoveries[advance.id] !== undefined && <label className="grid gap-1">Montant à récupérer<MoneyInput value={recoveries[advance.id]} onChange={(value) => setRecoveries((current) => ({ ...current, [advance.id]: value }))}/></label>}</div>)}{advances.length === 0 && <p>Aucune avance récupérable.</p>}</section>
       <label className="grid gap-1 font-semibold">Autre retenue<MoneyInput value={deduction} onChange={setDeduction}/></label>
       {Number(deduction || 0) > 0 && <label className="grid gap-1 font-semibold">Motif de retenue<input className="input" value={deductionReason} onChange={(event) => setDeductionReason(event.target.value)}/></label>}
       <label className="grid gap-1 font-semibold">CNSS (saisie manuelle)<MoneyInput value={cnss} onChange={setCnss}/></label>

@@ -30,7 +30,21 @@ export function consolidatedGradesPdfSections(report: ConsolidatedClassReport, t
   ], students, "Aucune cote pour ce filtre.")));
 }
 
-export async function exportConsolidatedGradesPdf(input: { report: ConsolidatedClassReport; tab: ConsolidatedTab; filter: ConsolidatedFilter; school: School; year: SchoolYear; className: string }) {
+export type ConsolidatedPdfClass = { report: ConsolidatedClassReport; className: string };
+
+/** A class is the page-break unit; courses remain grouped within that class. */
+export function consolidatedGradeClassSections(classes: readonly ConsolidatedPdfClass[], filter: ConsolidatedFilter, institution?: { schoolName: string; yearName: string }) {
+  return classes.map(({ report, className }, index) => `
+    ${index ? '<div class="pdf-page-break" aria-hidden="true"></div>' : ""}
+    <article class="consolidated-grade-class" data-class-name="${escapePdfHtml(className)}" data-school-name="${escapePdfHtml(institution?.schoolName ?? "")}" data-year-name="${escapePdfHtml(institution?.yearName ?? "")}">
+      ${index && institution ? `<p class="pdf-grade-institution">${escapePdfHtml(institution.schoolName)} · ${escapePdfHtml(institution.yearName)}</p>` : ""}
+      <h2>Tableau de cotes — ${escapePdfHtml(className)}</h2>
+      ${consolidatedGradesPdfSections(report, "grades", filter, className).join("")}
+    </article>
+  `);
+}
+
+export async function exportConsolidatedGradesPdf(input: { report: ConsolidatedClassReport; tab: ConsolidatedTab; filter: ConsolidatedFilter; school: School; year: SchoolYear; className: string; classes?: readonly ConsolidatedPdfClass[] }) {
   await renderAcadPdfPreview({
     filename: `fiche-consolidee-${input.year.id}-${input.tab}.pdf`,
     title: input.tab === "grades" ? "Tableau de cotes" : "PALMARÈS",
@@ -38,6 +52,9 @@ export async function exportConsolidatedGradesPdf(input: { report: ConsolidatedC
     year: input.year,
     orientation: "landscape",
     throwOnError: true,
-    sections: consolidatedGradesPdfSections(input.report, input.tab, input.filter, input.className),
+    paginateConsolidatedGrades: input.tab === "grades",
+    sections: input.tab === "grades"
+      ? consolidatedGradeClassSections(input.classes ?? [{ report: input.report, className: input.className }], input.filter, { schoolName: input.school.name, yearName: input.year.name })
+      : consolidatedGradesPdfSections(input.report, input.tab, input.filter, input.className),
   });
 }

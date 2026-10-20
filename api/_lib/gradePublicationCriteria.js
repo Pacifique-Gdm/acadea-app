@@ -1,3 +1,5 @@
+import { toMoneyMinor } from "./money.js";
+
 export const PUBLICATION_SLOTS = ["period_1", "period_2", "semester_1_exam", "period_3", "period_4", "semester_2_exam"];
 const COMPARISONS = new Set(["gte", "lt"]);
 
@@ -25,10 +27,9 @@ export function validatedFeePaidMinor(payments, { schoolId, schoolYearId, studen
     if (["cancelled", "canceled", "refunded", "void"].includes(payment.status)) continue;
     if (payment.status && !["validated", "completed", "paid"].includes(payment.status)) throw new Error("Statut de paiement non reconnu : publication suspendue.");
     if (payment.currency !== currency) throw new Error("Devise de paiement inconnue ou différente : publication suspendue.");
-    const minor = Math.round(payment.amount * 100);
-    if (typeof payment.amount !== "number" || !Number.isFinite(payment.amount) || !Number.isSafeInteger(minor) || minor < 0 || Math.abs(payment.amount * 100 - minor) > 1e-7) {
-      throw new Error("Montant de paiement invalide : publication suspendue.");
-    }
+    let minor;
+    try { minor = toMoneyMinor(payment.amount); } catch { throw new Error("Montant de paiement invalide : publication suspendue."); }
+    if (minor < 0) throw new Error("Montant de paiement invalide : publication suspendue.");
     total += minor;
     if (!Number.isSafeInteger(total)) throw new Error("Montant cumulé trop élevé : publication suspendue.");
   }

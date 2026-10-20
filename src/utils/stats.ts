@@ -1,4 +1,5 @@
 import type { FeeType, ParentProfile, Payment, Student } from "../types";
+import { remainingMoney, sumMoney } from "./money";
 
 const feeTargetSeparator = "::option::";
 
@@ -21,16 +22,16 @@ function getExpectedFromPaidFees(student: Student | undefined, feeTypes: FeeType
   const paidFeeIds = new Set(payments.map((payment) => payment.feeTypeId));
   return getApplicableFeeTypes(student, feeTypes)
     .filter((fee) => paidFeeIds.has(fee.id))
-    .reduce((sum, fee) => sum + fee.amount, 0);
+    .reduce((sum, fee) => sumMoney([sum, fee.amount]), 0);
 }
 
 export function getStudentBalance(studentId: string, feeTypes: FeeType[], payments: Payment[], students: Student[] = []) {
   const student = students.find((item) => item.id === studentId);
   const studentPayments = payments.filter((payment) => payment.studentId === studentId);
   const expected = getExpectedFromPaidFees(student, feeTypes, studentPayments);
-  const paid = studentPayments.reduce((sum, payment) => sum + payment.amount, 0);
+  const paid = sumMoney(studentPayments.map((payment) => payment.amount));
 
-  return { expected, paid, remaining: Math.max(expected - paid, 0) };
+  return { expected, paid, remaining: remainingMoney(expected, paid) };
 }
 
 export function buildStats(students: Student[], parents: ParentProfile[], feeTypes: FeeType[], payments: Payment[]) {
@@ -42,8 +43,8 @@ export function buildStats(students: Student[], parents: ParentProfile[], feeTyp
     items.set(payment.studentId, studentPayments);
     return items;
   }, new Map());
-  const paid = scopedPayments.reduce((sum, payment) => sum + payment.amount, 0);
-  const expected = students.reduce((sum, student) => sum + getExpectedFromPaidFees(student, feeTypes, paymentsByStudent.get(student.id) ?? []), 0);
+  const paid = sumMoney(scopedPayments.map((payment) => payment.amount));
+  const expected = sumMoney(students.map((student) => getExpectedFromPaidFees(student, feeTypes, paymentsByStudent.get(student.id) ?? [])));
 
   return {
     students: students.length,
@@ -52,7 +53,7 @@ export function buildStats(students: Student[], parents: ParentProfile[], feeTyp
     girls: students.filter((student) => student.sexe === "F").length,
     paid,
     expected,
-    remaining: Math.max(expected - paid, 0),
+    remaining: remainingMoney(expected, paid),
     classes: new Set(students.map((student) => student.className)).size,
   };
 }

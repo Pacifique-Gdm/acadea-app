@@ -43,4 +43,16 @@ describe("devise d'école", () => {
     expect(parseMoneyInput(" 2\u202f500\u00a0000,75 FC ")).toBe("2500000.75");
     expect(formatMoneyInput("")).toBe("");
   });
+
+  it("accepte virgule ou point mais ne corrige jamais silencieusement une saisie ambiguë", () => {
+    expect(parseMoneyInput("100,50")).toBe("100.50");
+    expect(parseMoneyInput("100.50")).toBe("100.50");
+    expect(parseMoneyInput("0,25")).toBe("0.25");
+    expect(parseMoneyInput("1 250,75")).toBe("1250.75");
+    for (const invalid of ["1,000", "1.000", "1,2,3", "12abc", "1 25,50", "-1,50"]) {
+      expect(parseMoneyInput(invalid)).toBe(invalid);
+      expect(formatMoneyInput(invalid)).toBe(invalid);
+    }
+    expect(formatMoneyInput("1250,")).toBe("1 250,");
+  });
 });

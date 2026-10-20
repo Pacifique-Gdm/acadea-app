@@ -5,7 +5,7 @@ import type { School, SchoolYear, Student } from "../../types";
 import type { ConsolidatedClassReport, ConsolidatedEvaluation } from "./consolidatedGrades";
 import { ConsolidatedGradesView } from "./ConsolidatedGradesView";
 import { consolidatedSelection, rankingPlaces, type ConsolidatedFilter } from "./consolidatedGradesDisplay";
-import { consolidatedGradesPdfSections } from "./consolidatedGradesPdf";
+import { consolidatedGradeClassSections, consolidatedGradesPdfSections } from "./consolidatedGradesPdf";
 import { editableGradingSlots } from "./teacherGrading";
 
 const empty: ConsolidatedEvaluation = { score: null, maximum: null, percentage: null, rank: null, complete: false };
@@ -59,5 +59,20 @@ describe("fiche consolidée commune", () => {
     const ranking = consolidatedGradesPdfSections(report, "ranking", filter("place", "1"), "Classe A").join("");
     expect(ranking).toContain("PALMARÈS"); expect(ranking).toContain("Mbuyi"); expect(ranking).toContain("Kabeya");
     expect(ranking).not.toContain("Mathématiques");
+  });
+
+  it("sépare seulement les classes opérationnelles, pas les cours d'une même classe", () => {
+    const single = consolidatedGradeClassSections([{ report, className: "Classe A" }], filter("period"));
+    expect(single.join("")).not.toContain('class="pdf-page-break"');
+    expect(single.join("")).toContain("Toutes les périodes");
+    expect(single.join("").match(/<table>/g)).toHaveLength(2);
+    const multiple = consolidatedGradeClassSections([
+      { report, className: "Classe A" }, { report, className: "Classe B" }, { report, className: "Classe C" },
+    ], filter("course", "math"));
+    expect(multiple.join("").match(/class="pdf-page-break"/g)).toHaveLength(2);
+    expect(multiple[1]).toContain("Classe B");
+    expect(multiple[2]).toContain("Classe C");
+    expect(multiple.join("")).not.toContain("Français");
+    expect(consolidatedGradeClassSections([{ report, className: "Classe A" }], filter("student", "a")).join("")).not.toContain("Kabeya");
   });
 });
