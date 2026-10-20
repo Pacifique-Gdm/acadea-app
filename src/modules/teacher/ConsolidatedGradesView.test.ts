@@ -5,7 +5,7 @@ import type { School, SchoolYear, Student } from "../../types";
 import type { ConsolidatedClassReport, ConsolidatedEvaluation } from "./consolidatedGrades";
 import { ConsolidatedGradesView } from "./ConsolidatedGradesView";
 import { consolidatedSelection, rankingPlaces, type ConsolidatedFilter } from "./consolidatedGradesDisplay";
-import { consolidatedGradeClassSections, consolidatedGradesPdfSections } from "./consolidatedGradesPdf";
+import { consolidatedCourseTotalLabel, consolidatedGradeClassSections, consolidatedGradesPdfSections } from "./consolidatedGradesPdf";
 import { editableGradingSlots } from "./teacherGrading";
 
 const empty: ConsolidatedEvaluation = { score: null, maximum: null, percentage: null, rank: null, complete: false };
@@ -59,6 +59,45 @@ describe("fiche consolidée commune", () => {
     const ranking = consolidatedGradesPdfSections(report, "ranking", filter("place", "1"), "Classe A").join("");
     expect(ranking).toContain("PALMARÈS"); expect(ranking).toContain("Mbuyi"); expect(ranking).toContain("Kabeya");
     expect(ranking).not.toContain("Mathématiques");
+  });
+
+  it("inclut les trois totaux et maxima des six évaluations, pour la classe et un élève filtré", () => {
+    const slots = [...editableGradingSlots];
+    const scores = [12, 15, 30, 10, 11, 35];
+    const maxima = [20, 25, 40, 15, 20, 50];
+    const full = { ...report, students: [{ ...report.students[0],
+      scores: { math: Object.fromEntries(slots.map((slot, index) => [slot, scores[index]])) },
+      maxima: { math: Object.fromEntries(slots.map((slot, index) => [slot, maxima[index]])) },
+      statuses: { math: {} },
+    }, report.students[1]] } as ConsolidatedClassReport;
+    const all = consolidatedGradesPdfSections(full, "grades", filter("period"), "Classe A").join("");
+    const headers = [...all.matchAll(/<th\b[^>]*><span class="cell-inner">([^<]*)<\/span><\/th>/g)].slice(0, 10).map((match) => match[1]);
+    expect(headers).toEqual(["Élève", "1ère Période", "2ème Période", "Examen 1er Semestre", "Total 1er semestre", "3ème Période", "4ème Période", "Examen 2ème Semestre", "Total 2e semestre", "Total général"]);
+    expect(consolidatedCourseTotalLabel(full.students[0], "math", slots.slice(0, 3))).toBe("57 / 85");
+    expect(consolidatedCourseTotalLabel(full.students[0], "math", slots.slice(3))).toBe("56 / 85");
+    expect(consolidatedCourseTotalLabel(full.students[0], "math", slots)).toBe("113 / 170");
+    expect(all).toContain("113 / 170");
+    const selected = consolidatedGradesPdfSections(full, "grades", filter("student", "a"), "Classe A").join("");
+    expect(selected).toContain("Total général");
+    expect(selected).toContain("113 / 170");
+    expect(selected).not.toContain("Kabeya");
+    expect(consolidatedGradesPdfSections(full, "grades", filter("period", "period_1"), "Classe A").join("")).not.toContain("Total général");
+  });
+
+  it("garde les cotes absentes hors des totaux, conserve zéro et signale un résultat partiel", () => {
+    const row = { ...report.students[0],
+      scores: { math: { period_1: 0, period_2: null, semester_1_exam: 5, period_3: 4 } },
+      maxima: { math: { period_1: 20, period_2: 20, semester_1_exam: 10 } },
+      statuses: { math: { period_2: "absent" as const } },
+    };
+    expect(consolidatedCourseTotalLabel(row, "math", editableGradingSlots.slice(0, 3))).toBe("5 / 30*");
+    expect(consolidatedCourseTotalLabel(row, "math", editableGradingSlots.slice(3))).toBe("4 / —*");
+    expect(consolidatedCourseTotalLabel(row, "math", editableGradingSlots)).toBe("9 / —*");
+    expect(consolidatedCourseTotalLabel({ ...row, scores: { math: {} } }, "math", editableGradingSlots)).toBe("—");
+    const html = consolidatedGradesPdfSections({ ...report, students: [row] }, "grades", filter("student", "a"), "Classe A").join("");
+    expect(html).toContain("0 / 20");
+    expect(html).toContain("5 / 30*");
+    expect(html).toContain("Total partiel");
   });
 
   it("sépare seulement les classes opérationnelles, pas les cours d'une même classe", () => {

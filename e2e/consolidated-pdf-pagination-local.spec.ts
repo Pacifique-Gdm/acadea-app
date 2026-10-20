@@ -17,8 +17,8 @@ test("PDF Tableau de cotes : classes séparées et long tableau avec en-têtes r
   });
   await page.goto(`${origin}/login`);
 
-  async function generate(label: string, classCount: number, studentCount: number) {
-    await page.evaluate(async ({ classCount, studentCount }) => {
+  async function generate(label: string, classCount: number, studentCount: number, selectedStudentId = "") {
+    await page.evaluate(async ({ classCount, studentCount, selectedStudentId }) => {
       const { exportConsolidatedGradesPdf } = await import("/src/modules/teacher/consolidatedGradesPdf.ts");
       const slots = ["period_1", "period_2", "semester_1_exam", "period_3", "period_4", "semester_2_exam"];
       const report = (classIndex: number) => ({
@@ -34,8 +34,8 @@ test("PDF Tableau de cotes : classes séparées et long tableau avec en-têtes r
       const classes = Array.from({ length: classCount }, (_, index) => ({ report: report(index), className: `Classe ${String.fromCharCode(65 + index)}` }));
       await exportConsolidatedGradesPdf({ report: classes[0].report, className: classes[0].className, classes,
         school: { id: "pdf-test", name: "École fictive PDF", currency: "USD" },
-        year: { id: "pdf-year", name: "2027-2028" }, tab: "grades", filter: { mode: "period", choice: "", placeSlot: "period_1" } });
-    }, { classCount, studentCount });
+        year: { id: "pdf-year", name: "2027-2028" }, tab: "grades", filter: { mode: selectedStudentId ? "student" : "period", choice: selectedStudentId, placeSlot: "period_1" } });
+    }, { classCount, studentCount, selectedStudentId });
     await expect(page.locator("[data-pdf-download]")).toHaveAttribute("href", /^blob:/);
     const dataUrl = await page.evaluate(async () => {
       const blob = await (await fetch(document.querySelector<HTMLAnchorElement>("[data-pdf-download]")!.href)).blob();
@@ -59,4 +59,5 @@ test("PDF Tableau de cotes : classes séparées et long tableau avec en-têtes r
   expect(await generate("two-classes", 2, 2)).toBe(2);
   expect(await generate("three-classes", 3, 2)).toBe(3);
   expect(await generate("long-class", 1, 65)).toBeGreaterThan(1);
+  expect(await generate("one-student-all-periods", 1, 2, "student-0-0")).toBe(1);
 });

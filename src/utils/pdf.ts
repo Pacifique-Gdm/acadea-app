@@ -1063,6 +1063,14 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
     .grading-pdf-section th:first-child, .grading-pdf-section td:first-child { text-align: left; }
     .grading-pdf-section th:nth-child(5), .grading-pdf-section th:nth-child(9), .grading-pdf-section th:nth-child(10) { background: #1e5a72; }
     .grading-pdf-section td:nth-child(5), .grading-pdf-section td:nth-child(9), .grading-pdf-section td:nth-child(10) { background: #edf7fa; font-weight: 700; }
+    .consolidated-grade-totals-section table { table-layout: fixed; font-size: 8px; }
+    .consolidated-grade-totals-section col:first-child { width: 20% !important; }
+    .consolidated-grade-totals-section col:not(:first-child) { width: 8.888% !important; }
+    .consolidated-grade-totals-section th, .consolidated-grade-totals-section td { padding: 4px 2px; }
+    .consolidated-grade-totals-section .cell-inner { line-height: 1.2; }
+    .consolidated-grade-totals-section th:nth-child(5), .consolidated-grade-totals-section th:nth-child(9), .consolidated-grade-totals-section th:nth-child(10) { background: #1e5a72; }
+    .consolidated-grade-totals-section td:nth-child(5), .consolidated-grade-totals-section td:nth-child(9), .consolidated-grade-totals-section td:nth-child(10) { background: #edf7fa; font-weight: 700; }
+    .pdf-grade-total-note { margin: 5px 0 0; color: #475569; font-size: 7.5px; }
     thead {
       display: table-header-group;
     }
