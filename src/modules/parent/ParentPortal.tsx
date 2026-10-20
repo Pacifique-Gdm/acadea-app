@@ -660,11 +660,11 @@ export function ParentPortal({
                   </div>
                 </div>
               </button>
-              <button onClick={onLogout} className="inline-flex w-full items-center justify-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 transition hover:bg-red-100" type="button">
-                <LogOut className="h-4 w-4" /> Déconnexion
-              </button>
               <button type="button" onClick={() => setParentArchiveOpen(true)} className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint">
                 <div className="flex min-w-0 items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink"><CalendarRange className="h-5 w-5" /></div><div className="min-w-0"><h2 className="break-words font-bold text-ink">Année scolaire</h2><p className="mt-1 break-words text-sm text-slate-500">Archives de mes enfants en lecture seule.</p></div></div>
+              </button>
+              <button onClick={onLogout} className="inline-flex w-full items-center justify-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 transition hover:bg-red-100" type="button">
+                <LogOut className="h-4 w-4" /> Déconnexion
               </button>
             </div>
           </section>
