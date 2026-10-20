@@ -100,15 +100,20 @@ describe("fiche consolidée commune", () => {
     expect(html).toContain("Total partiel");
   });
 
-  it("sépare seulement les classes opérationnelles, pas les cours d'une même classe", () => {
+  it("sépare chaque cours, y compris au sein d'une même classe opérationnelle", () => {
     const single = consolidatedGradeClassSections([{ report, className: "Classe A" }], filter("period"));
-    expect(single.join("")).not.toContain('class="pdf-page-break"');
+    expect(single.join("").match(/class="pdf-page-break"/g)).toHaveLength(1);
     expect(single.join("")).toContain("Toutes les périodes");
     expect(single.join("").match(/<table>/g)).toHaveLength(2);
+    expect(single[0].indexOf("Mathématiques")).toBeLessThan(single[0].indexOf('class="pdf-page-break"'));
+    expect(single[0].indexOf('class="pdf-page-break"')).toBeLessThan(single[0].indexOf("Français"));
     const multiple = consolidatedGradeClassSections([
       { report, className: "Classe A" }, { report, className: "Classe B" }, { report, className: "Classe C" },
     ], filter("course", "math"));
     expect(multiple.join("").match(/class="pdf-page-break"/g)).toHaveLength(2);
+    expect(consolidatedGradeClassSections([
+      { report, className: "Classe A" }, { report, className: "Classe B" }, { report, className: "Classe C" },
+    ], filter("period")).join("").match(/class="pdf-page-break"/g)).toHaveLength(5);
     expect(multiple[1]).toContain("Classe B");
     expect(multiple[2]).toContain("Classe C");
     expect(multiple.join("")).not.toContain("Français");

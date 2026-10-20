@@ -42,7 +42,7 @@ export function consolidatedGradesPdfSections(report: ConsolidatedClassReport, t
     ...slots.map((slot) => ({ header: consolidatedPeriodLabels[slot], render: (row: ConsolidatedStudent) => percentageRankLabel(row.evaluations[slot].percentage, row.evaluations[slot].rank) })),
   ], students, "Aucun résultat pour ce filtre."))];
   const showTotals = slots.length === allYearSlots.length && allYearSlots.every((slot) => slots.includes(slot));
-  return (courses.length ? courses : [undefined]).map((course) => pdfSection(course?.name ?? "Tableau de cotes", scope + pdfTable([
+  return (courses.length ? courses : [undefined]).map((course, index) => pdfSection(course?.name ?? "Tableau de cotes", scope + pdfTable([
     { header: "Élève", render: consolidatedStudentName },
     ...slots.flatMap((slot) => [
       { header: consolidatedPeriodLabels[slot], render: (row: ConsolidatedStudent) => course ? consolidatedScoreLabel(row, course.key, slot) : "—" },
@@ -52,12 +52,15 @@ export function consolidatedGradesPdfSections(report: ConsolidatedClassReport, t
         { header: "Total général", render: (row: ConsolidatedStudent) => course ? consolidatedCourseTotalLabel(row, course.key, allYearSlots) : "—" },
       ] : []),
     ]),
-  ], students, "Aucune cote pour ce filtre.") + (showTotals ? '<p class="pdf-grade-total-note">* Total partiel : seules les cotes enregistrées sont additionnées. Un maximum inconnu reste non calculé ; une cote manquante n’est pas zéro.</p>' : ""), { className: showTotals ? "consolidated-grade-totals-section" : undefined }));
+  ], students, "Aucune cote pour ce filtre.") + (showTotals ? '<p class="pdf-grade-total-note">* Total partiel : seules les cotes enregistrées sont additionnées. Un maximum inconnu reste non calculé ; une cote manquante n’est pas zéro.</p>' : ""), {
+    className: showTotals ? "consolidated-grade-totals-section" : undefined,
+    pageBreakBefore: index > 0,
+  }));
 }
 
 export type ConsolidatedPdfClass = { report: ConsolidatedClassReport; className: string };
 
-/** A class is the page-break unit; courses remain grouped within that class. */
+/** Separate classes and courses; each course title and table start together on a new page. */
 export function consolidatedGradeClassSections(classes: readonly ConsolidatedPdfClass[], filter: ConsolidatedFilter, institution?: { schoolName: string; yearName: string }) {
   return classes.map(({ report, className }, index) => `
     ${index ? '<div class="pdf-page-break" aria-hidden="true"></div>' : ""}
