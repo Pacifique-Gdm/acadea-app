@@ -89,10 +89,9 @@ export function GradePublicationDrawer({ school, year, classes, onClose }: { sch
     finally { setPublishing(false); }
   }
 
-  return <AdminDrawer title={screen === "classes" ? "Publication des cotes" : screen === "report" ? "Fiche consolidée" : "Option de publication"} closeLabel="Fermer la publication des cotes" onClose={onClose}>
-    {screen !== "classes" && <button type="button" className="secondary-button mb-4 w-full justify-center" onClick={() => { setScreen("classes"); setError(""); }}>Retour aux classes</button>}
+  return <AdminDrawer width={screen === "report" ? "wide" : "default"} title={screen === "classes" ? "Publication des cotes" : screen === "report" ? "Fiche consolidée" : "Option de publication"} closeLabel={screen === "classes" ? "Revenir au Menu" : "Revenir aux classes"} onClose={() => { if (screen === "classes") onClose(); else { setScreen("classes"); setError(""); } }}>
     {error && <p role="alert" className="mb-3 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-    {error && !options && <button type="button" className="secondary-button mb-3 w-full justify-center" onClick={() => { setError(""); setOptionsAttempt((attempt) => attempt + 1); }}>Réessayer le chargement</button>}
+    {error && screen === "options" && !options && <button type="button" className="secondary-button mb-3 w-full justify-center" onClick={() => { setError(""); setOptionsAttempt((attempt) => attempt + 1); }}>Réessayer le chargement</button>}
     {error && screen === "report" && !loading && !report && <button type="button" className="secondary-button mb-3 w-full justify-center" onClick={() => void showReport(classId)}>Réessayer la fiche</button>}
     {screen === "classes" && <div className="grid gap-3">
       {classes.filter((item) => item.active !== false).map((item) => <article key={item.id} className="grid gap-3 rounded border bg-white p-4">
@@ -101,7 +100,7 @@ export function GradePublicationDrawer({ school, year, classes, onClose }: { sch
       </article>)}
       {classes.length === 0 && <p>Aucune classe opérationnelle disponible.</p>}
     </div>}
-    {screen === "report" && (loading ? <p role="status">Chargement…</p> : report ? <ConsolidatedGradesView report={report} /> : !error ? <p>Aucune fiche disponible.</p> : null)}
+    {screen === "report" && (loading ? <p role="status">Chargement…</p> : report ? <ConsolidatedGradesView report={report} school={school} year={year} className={selectedClass?.name ?? "Classe"} /> : !error ? <p>Aucune fiche disponible.</p> : null)}
     {screen === "options" && <div className="grid gap-4">
       <p className="font-bold">{selectedClass?.name ?? "Classe"} · {year.name}</p>
       <label className="grid gap-1 text-sm font-semibold">Période<select className="input" value={slot} onChange={(event) => { setSlot(event.target.value as EditableGradingSlot); changeCriteria(); }}>{editableGradingSlots.map((item) => <option key={item} value={item}>{gradingSlotLabels[item]}</option>)}</select></label>

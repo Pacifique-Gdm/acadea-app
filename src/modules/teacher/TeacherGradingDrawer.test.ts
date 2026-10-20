@@ -1,6 +1,6 @@
 import{readFileSync}from"node:fs";import{describe,expect,it}from"vitest";
 import { reconcileGradeDrafts } from "./teacherGrading";
-describe("Fiche de cotation Enseignant",()=>{const portal=readFileSync(new URL("./TeacherPortal.tsx",import.meta.url),"utf8"),drawer=readFileSync(new URL("./TeacherGradingDrawer.tsx",import.meta.url),"utf8"),api=readFileSync(new URL("../../../api/_lib/teacherGrading.js",import.meta.url),"utf8");it("reste dans Menu sans cinquième onglet",()=>{expect(portal).toContain("Fiche de cotation");expect(portal).toContain("TeacherGradingDrawer");expect(portal).not.toContain('id: "grading"')});it("utilise une liste mobile verticale et les états attendus",()=>{expect(drawer).toContain("grid gap-2 rounded border");expect(drawer).toContain("Aucun cours ne vous a encore été affecté");expect(drawer).toContain("Définissez la cote maximale");expect(drawer).toContain("Ma classe titulaire")});it("n'expose que les six slots éditables fournis par le domaine",()=>expect(drawer).toContain("editableGradingSlots.map"));it("traite l'absence d'affectation comme un état vide sans lectures secondaires",()=>{expect(drawer).toContain("Aucune affectation n’est disponible pour cet enseignant");expect(api).toContain("if (assignments.length === 0 && titulars.length === 0)");expect(api).toContain("subjects: [], classes: [], students: [], configs: [], entries: []")})});
+describe("Fiche de cotation Enseignant",()=>{const portal=readFileSync(new URL("./TeacherPortal.tsx",import.meta.url),"utf8"),drawer=readFileSync(new URL("./TeacherGradingDrawer.tsx",import.meta.url),"utf8"),api=readFileSync(new URL("../../../api/_lib/teacherGrading.js",import.meta.url),"utf8");it("reste dans Menu sans cinquième onglet",()=>{expect(portal).toContain("Fiche de cotation");expect(portal).toContain("TeacherGradingDrawer");expect(portal).not.toContain('id: "grading"')});it("utilise une liste mobile verticale et les états attendus",()=>{expect(drawer).toContain("grid gap-2 rounded border");expect(drawer).toContain("Aucun cours ne vous a encore été affecté");expect(drawer).toContain("Définissez la cote maximale");expect(drawer).toContain("Ma classe titulaire")});it("n'expose que les six slots éditables fournis par le domaine",()=>expect(drawer).toContain("editableGradingSlots.map"));it("traite l'absence d'affectation comme un état vide sans lectures secondaires",()=>{expect(drawer).toContain("Aucun cours ne vous a encore été affecté");expect(drawer).toContain("Aucune classe titulaire");expect(api).toContain("if (assignments.length === 0 && titulars.length === 0)");expect(api).toContain("subjects: [], classes: [], students: [], configs: [], entries: []")})});
 
 describe("Actualisation des élèves de la fiche", () => {
   const drawer = readFileSync(new URL("./TeacherGradingDrawer.tsx", import.meta.url), "utf8");
@@ -53,11 +53,10 @@ describe("ergonomie des confirmations de cotation", () => {
     expect(drawer).toContain('window.clearTimeout(timeout)');
     expect(drawer).toContain('confirmationText !== maxScoreConfirmation(Boolean(config))');
   });
-  it("n'affiche pas le titulariat pendant le chargement et élargit Mes cotations lorsqu'il est seul", () => {
-    expect(drawer).toContain('const hasTitular = !loading && !loadFailed && Boolean(data?.titulars.length)');
-    expect(drawer).toContain('hasTitular ? "grid grid-cols-2 gap-2" : "grid grid-cols-1"');
+  it("présente les deux choix même sans titulariat", () => {
+    expect(drawer).toContain('className="grid grid-cols-2 gap-2"');
     expect(drawer).toContain('"primary-button w-full justify-center"');
-    expect(drawer).toContain('{hasTitular && <button');
+    expect(drawer).toContain('Aucune classe titulaire');
   });
   it("place l'ouverture de la fiche consolidée au bas de la carte titulaire", () => {
     const card = drawer.slice(drawer.indexOf('<article className="rounded border bg-white p-3">'));

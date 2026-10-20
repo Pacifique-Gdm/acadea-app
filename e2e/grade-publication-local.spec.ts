@@ -193,9 +193,47 @@ test.describe("Publication et archives : chaîne authentifiée isolée", () => {
       const button = dialog.getByRole("button", { name: "Voir la fiche consolidée", exact: true });
       await expect(button.locator("..")).toContainText("1ère Humanité");
       await button.click();
-      await expect(dialog.getByRole("region", { name: "Tableau de cotes", exact: true })).toBeVisible();
-      await expect(dialog.getByRole("region", { name: "Palmarès", exact: true })).toContainText("80");
-      await expect(dialog.locator("table")).toHaveCount(2);
+      const consolidated = page.getByRole("dialog", { name: "Fiche consolidée" });
+      await expect(dialog).toHaveCount(0);
+      await expect(consolidated.getByRole("region", { name: "Tableau de cotes", exact: true })).toBeVisible();
+      await expect(consolidated.locator("table")).toHaveCount(1);
+      const filterType = consolidated.getByRole("combobox", { name: "Type de filtre" });
+      const filterChoice = consolidated.getByRole("combobox", { name: "Choix correspondant" });
+      await expect(filterChoice.locator("option").first()).toHaveText("Toutes les périodes");
+      await expect(consolidated.locator("thead")).toContainText("Mathématiques");
+      await expect(consolidated.locator("thead")).toContainText("Français");
+      await filterChoice.selectOption("period_1");
+      await expect(consolidated.locator("thead")).not.toContainText("2ème Période");
+      await filterChoice.selectOption("");
+      await expect(consolidated.locator("thead")).toContainText("2ème Période");
+      await filterType.selectOption("course");
+      await expect(filterChoice.locator("option").first()).toHaveText("Tous les cours");
+      await filterChoice.selectOption({ label: "Mathématiques" });
+      await expect(consolidated.locator("thead")).not.toContainText("Français");
+      await consolidated.getByRole("button", { name: "Exporter PDF" }).click();
+      await expect(page.locator(".acadea-pdf-viewer [data-pdf-download]")).toHaveAttribute("href", /^blob:/, { timeout: 60000 });
+      expect(await page.locator(".acadea-pdf-viewer [data-pdf-download]").evaluate(async (link: HTMLAnchorElement) =>
+        (await (await fetch(link.href)).blob()).type)).toBe("application/pdf");
+      await page.locator(".acadea-pdf-viewer [data-pdf-close]").click();
+      await filterChoice.selectOption("");
+      await expect(consolidated.locator("thead")).toContainText("Français");
+      await filterType.selectOption("student");
+      await expect(filterChoice).toHaveValue("");
+      await filterChoice.selectOption({ index: 1 });
+      await expect(consolidated.locator("tbody tr")).toHaveCount(1);
+      await consolidated.getByRole("tab", { name: "PALMARÈS" }).click();
+      await expect(consolidated.getByRole("region", { name: "Palmarès", exact: true })).toContainText("80");
+      await expect(consolidated.locator("table")).toHaveCount(1);
+      await expect(filterChoice.locator("option").first()).toHaveText("Toutes les périodes");
+      await filterType.selectOption("place");
+      await expect(consolidated.getByText("Période de référence")).toBeVisible();
+      await filterChoice.selectOption({ index: 1 });
+      await expect(consolidated.locator("tbody tr")).toHaveCount(1);
+      await consolidated.getByRole("button", { name: "Exporter PDF" }).click();
+      await expect(page.locator(".acadea-pdf-viewer [data-pdf-download]")).toHaveAttribute("href", /^blob:/, { timeout: 60000 });
+      await page.locator(".acadea-pdf-viewer [data-pdf-close]").click();
+      await consolidated.getByRole("button", { name: "Revenir à Ma classe titulaire" }).click();
+      await expect(dialog.getByRole("button", { name: "Voir la fiche consolidée" })).toBeVisible();
       await fit(page);
       expect(state.errors).toEqual([]);
     } finally { await context.close(); }
@@ -208,8 +246,9 @@ test.describe("Publication et archives : chaîne authentifiée isolée", () => {
       const { page, state } = director;
       await page.getByRole("button", { name: "Publication des cotes", exact: true }).click();
       await page.getByRole("button", { name: "Voir la fiche consolidée", exact: true }).click();
+      await page.getByRole("tab", { name: "PALMARÈS" }).click();
       await expect(page.getByRole("region", { name: "Palmarès", exact: true })).toContainText("80");
-      await page.getByRole("button", { name: "Retour aux classes", exact: true }).click();
+      await page.getByRole("button", { name: "Revenir aux classes", exact: true }).click();
       await page.getByRole("button", { name: "Option de publication", exact: true }).click();
       await page.getByRole("combobox", { name: /^Période/ }).selectOption("period_2");
       await page.getByLabel("Comparaison du pourcentage").selectOption("gte");
@@ -255,12 +294,12 @@ test.describe("Publication et archives : chaîne authentifiée isolée", () => {
     const { context, page, state } = await browserFor(browser, role);
     try {
       const yearButton = page.getByRole("button", { name: /^Année scolaire/i });
-      const logoutButton = yearButton.locator("xpath=preceding::button[contains(normalize-space(.), 'Déconnexion')][1]");
+      const logoutButton = yearButton.locator("xpath=following::button[contains(normalize-space(.), 'Déconnexion')][1]");
       await expect(logoutButton).toBeVisible();
       await expect(yearButton).toBeVisible();
       expect(await yearButton.evaluate((button) => {
         const buttons = Array.from(document.querySelectorAll("button"));
-        return buttons[buttons.indexOf(button as HTMLButtonElement) - 1]?.textContent?.trim();
+        return buttons[buttons.indexOf(button as HTMLButtonElement) + 1]?.textContent?.trim();
       })).toBe("Déconnexion");
       for (const width of [375, 768, 1440]) {
         await page.setViewportSize({ width, height: 1000 });
@@ -270,7 +309,7 @@ test.describe("Publication et archives : chaîne authentifiée isolée", () => {
           return Boolean(yearBox && logoutBox
             && Math.abs(yearBox.x - logoutBox.x) <= 1
             && Math.abs(yearBox.width - logoutBox.width) <= 1
-            && yearBox.y > logoutBox.y);
+            && yearBox.y < logoutBox.y);
         }).toBe(true);
       }
       await yearButton.click();

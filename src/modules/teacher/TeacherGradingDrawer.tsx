@@ -155,7 +155,6 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
       !prior || prior.assignmentId !== assignment?.id || prior.slot !== slot || (prior.entries !== entries && !hasUnsavedGradeDrafts(students, prior.entries, previous))));
   }, [assignment?.id, entries, slot, students]);
 
-  const hasTitular = !loading && !loadFailed && Boolean(data?.titulars.length);
   const titular = data?.titulars.find((item) => item.classId === titularClassId) ?? data?.titulars[0];
   useEffect(() => {
     if (!showConsolidated || !titular?.classId) return;
@@ -236,7 +235,7 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
   </section>;
 
   const renderTitularView = () => {
-    if (!data?.titulars.length) return <p className="rounded bg-slate-50 p-4">Aucune classe titulaire ne vous est attribuée.</p>;
+    if (!data?.titulars.length) return <section className="rounded bg-slate-50 p-4"><h3 className="font-bold">Aucune classe titulaire</h3><p className="mt-2">Vous n'êtes actuellement titulaire d'aucune classe pour l'année scolaire en cours.</p><p className="mt-2">Pour toute information concernant l'attribution d'une classe titulaire, veuillez contacter l'administration de votre établissement.</p></section>;
     const className = data.classes.find((item) => item.id === titular?.classId)?.name ?? titular?.classId;
     return <section className="grid gap-3">
       <p className="rounded bg-blue-50 p-3 text-sm">Fiche consolidée automatique en lecture seule. Les cotations restent modifiables uniquement par leur enseignant propriétaire.</p>
@@ -244,15 +243,12 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
       <article className="rounded border bg-white p-3">
         <b>{className}</b>
         {consolidatedReport && <p className="mt-2 text-sm">{consolidatedReport.students.length} élève(s) · {consolidatedReport.courses.length} cours</p>}
-        <button type="button" className="secondary-button mt-3 w-full justify-center" onClick={() => setShowConsolidated((current) => !current)}>Voir la fiche consolidée</button>
+        <button type="button" className="secondary-button mt-3 w-full justify-center" onClick={() => setShowConsolidated(true)}>Voir la fiche consolidée</button>
       </article>
-      {showConsolidated && (consolidatedLoading ? <p role="status">Chargement de la fiche consolidée…</p>
-        : consolidatedError ? <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{consolidatedError}</p>
-          : consolidatedReport ? <ConsolidatedGradesView report={consolidatedReport} /> : null)}
     </section>;
   };
 
-  return <AdminDrawer title="Fiche de cotation" closeLabel="Fermer la fiche de cotation" onClose={() => requestTransition({ type: "close" })}>
+  return <>{!showConsolidated && <AdminDrawer title="Fiche de cotation" closeLabel="Fermer la fiche de cotation" onClose={() => requestTransition({ type: "close" })}>
     {pendingTransition && <section className="grid gap-3 rounded border border-amber-300 bg-amber-50 p-3" role="alertdialog" aria-label="Modifications non enregistrées">
       <p>Des cotes modifiées ne sont pas enregistrées. Voulez-vous abandonner ces modifications ?</p>
       <div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" onClick={() => setPendingTransition(null)}>Revenir au formulaire</button><button type="button" className="primary-button justify-center" onClick={() => { const next = pendingTransition; setPendingTransition(null); applyTransition(next); }}>Abandonner les modifications</button></div>
@@ -261,9 +257,9 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
     {error && <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{error}</p>}
     {rosterError && <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{rosterError}</p>}
     {success && <p role="status" className="rounded bg-green-50 p-3 text-green-800">{success}</p>}
-    {data && !data.assignments.length && !data.titulars.length && !loading && !loadFailed ? <p className="rounded border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">Aucune affectation n’est disponible pour cet enseignant pour l’année scolaire active.</p> : data && !loadFailed && <div className="grid gap-4">
-      <div className={hasTitular ? "grid grid-cols-2 gap-2" : "grid grid-cols-1"}><button type="button" className={!titularView || !hasTitular ? "primary-button w-full justify-center" : "secondary-button w-full justify-center"} onClick={() => requestTransition({ type: "titular", value: "false" })}>Mes cotations</button>{hasTitular && <button type="button" className={titularView ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => requestTransition({ type: "titular", value: "true" })}>Ma classe titulaire</button>}</div>
-      {titularView && hasTitular ? renderTitularView() : assignments.length === 0 ? <p className="rounded bg-slate-50 p-4">Aucun cours ne vous a encore été affecté par la Direction des études.</p> : <>
+    {data && !loadFailed && <div className="grid gap-4">
+      <div className="grid grid-cols-2 gap-2"><button type="button" className={titularView ? "secondary-button w-full justify-center" : "primary-button w-full justify-center"} onClick={() => requestTransition({ type: "titular", value: "false" })}>Mes cotations</button><button type="button" className={titularView ? "primary-button w-full justify-center" : "secondary-button w-full justify-center"} onClick={() => requestTransition({ type: "titular", value: "true" })}>Ma classe titulaire</button></div>
+      {titularView ? renderTitularView() : assignments.length === 0 ? <p className="rounded bg-slate-50 p-4">Aucun cours ne vous a encore été affecté par la Direction des études.</p> : <>
         <label className="grid gap-1 text-sm font-semibold">Cours<select className="input" value={assignment?.id} disabled={saving} onChange={(event) => requestTransition({ type: "assignment", value: event.target.value })}>{assignments.map((item) => <option key={item.id} value={item.id}>{data.subjects.find((candidate) => candidate.id === item.subjectId)?.name} — {data.classes.find((candidate) => candidate.id === item.classId)?.name}</option>)}</select></label>
         <label className="grid gap-1 text-sm font-semibold">Période<select className="input" value={slot} disabled={saving} onChange={(event) => requestTransition({ type: "slot", value: event.target.value })}>{editableGradingSlots.map((value) => <option key={value} value={value}>{gradingSlotLabels[value]}</option>)}</select></label>
         <div className="rounded border bg-white p-3"><p className="font-bold">{subject?.name} — {schoolClass?.name} · {gradingSlotLabels[slot]}</p><div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]"><input className="input" type="number" min="0.01" step="0.01" aria-label="Cote maximale" value={maxScore} readOnly={Boolean(config) && !editingMaxScore} onChange={(event) => setMaxScore(event.target.value)} /><button type="button" className="secondary-button justify-center" disabled={saving} onClick={() => { setEditingMaxScore(true); setConfirmation("maximum"); setConfirmationText(""); setSuccess(""); }}>{maxScoreActionLabel(Boolean(config))}</button></div>{confirmationPanel("maximum")}</div>
@@ -274,5 +270,11 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
         })}<div><div className="grid grid-cols-2 gap-2"><button type="button" className="primary-button justify-center" disabled={saving} onClick={() => void saveEntries()}>{saving ? "Enregistrement…" : "Enregistrer"}</button><button type="button" className="pdf-export-button justify-center" disabled={saving || exportingPdf} aria-busy={exportingPdf} onClick={() => void exportPdf()}>{exportingPdf ? "Chargement…" : "Exporter PDF"}</button></div>{confirmationPanel("grade")}</div></div>}
       </>}
     </div>}
-  </AdminDrawer>;
+  </AdminDrawer>}
+    {showConsolidated && <AdminDrawer width="wide" title="Fiche consolidée" closeLabel="Revenir à Ma classe titulaire" onClose={() => setShowConsolidated(false)}>
+      {consolidatedLoading ? <p role="status">Chargement de la fiche consolidée…</p>
+        : consolidatedError ? <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{consolidatedError}</p>
+          : consolidatedReport ? <ConsolidatedGradesView report={consolidatedReport} school={school} year={year} className={data?.classes.find((item) => item.id === titular?.classId)?.name ?? "Classe titulaire"} /> : <p>Aucune fiche disponible.</p>}
+    </AdminDrawer>}
+  </>;
 }
