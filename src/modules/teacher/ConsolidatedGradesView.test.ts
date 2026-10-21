@@ -105,7 +105,7 @@ describe("fiche consolidée commune", () => {
     const single = consolidatedGradeClassSections([{ report, className: "Classe A" }], filter("period"));
     expect(single.join("").match(/class="pdf-page-break"/g)).toHaveLength(1);
     expect(single.join("")).toContain("Toutes les périodes");
-    expect(single.join("").match(/<table>/g)).toHaveLength(2);
+    expect(single.join("").match(/<table\b/g)).toHaveLength(2);
     expect(single[0].indexOf("Mathématiques")).toBeLessThan(single[0].indexOf('class="pdf-page-break"'));
     expect(single[0].indexOf('class="pdf-page-break"')).toBeLessThan(single[0].indexOf("Français"));
     const multiple = consolidatedGradeClassSections([
