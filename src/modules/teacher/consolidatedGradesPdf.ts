@@ -8,6 +8,14 @@ import type { EditableGradingSlot } from "./teacherGrading";
 const semesterOneSlots: readonly EditableGradingSlot[] = ["period_1", "period_2", "semester_1_exam"];
 const semesterTwoSlots: readonly EditableGradingSlot[] = ["period_3", "period_4", "semester_2_exam"];
 const allYearSlots: readonly EditableGradingSlot[] = [...semesterOneSlots, ...semesterTwoSlots];
+const gradePdfPeriodHeaders: Record<EditableGradingSlot, string> = {
+  period_1: "1-P",
+  period_2: "2-P",
+  semester_1_exam: "EX-1S",
+  period_3: "3-P",
+  period_4: "4-P",
+  semester_2_exam: "EX-2S",
+};
 
 export function consolidatedStudentName(row: ConsolidatedStudent) {
   return [row.student.nom, row.student.postnom, row.student.prenom].filter(Boolean).join(" ");
@@ -43,13 +51,13 @@ export function consolidatedGradesPdfSections(report: ConsolidatedClassReport, t
   ], students, "Aucun résultat pour ce filtre."))];
   const showTotals = slots.length === allYearSlots.length && allYearSlots.every((slot) => slots.includes(slot));
   return (courses.length ? courses : [undefined]).map((course, index) => pdfSection(course?.name ?? "Tableau de cotes", scope + pdfTable([
-    { header: "Élève", render: consolidatedStudentName },
+    { header: "ÉLÈVE", render: consolidatedStudentName },
     ...slots.flatMap((slot) => [
-      { header: consolidatedPeriodLabels[slot], render: (row: ConsolidatedStudent) => course ? consolidatedScoreLabel(row, course.key, slot) : "—" },
-      ...(showTotals && slot === "semester_1_exam" ? [{ header: "Total 1er semestre", render: (row: ConsolidatedStudent) => course ? consolidatedCourseTotalLabel(row, course.key, semesterOneSlots) : "—" }] : []),
+      { header: gradePdfPeriodHeaders[slot], render: (row: ConsolidatedStudent) => course ? consolidatedScoreLabel(row, course.key, slot) : "—" },
+      ...(showTotals && slot === "semester_1_exam" ? [{ header: "TOT-1S", render: (row: ConsolidatedStudent) => course ? consolidatedCourseTotalLabel(row, course.key, semesterOneSlots) : "—" }] : []),
       ...(showTotals && slot === "semester_2_exam" ? [
-        { header: "Total 2e semestre", render: (row: ConsolidatedStudent) => course ? consolidatedCourseTotalLabel(row, course.key, semesterTwoSlots) : "—" },
-        { header: "Total général", render: (row: ConsolidatedStudent) => course ? consolidatedCourseTotalLabel(row, course.key, allYearSlots) : "—" },
+        { header: "TOT-2S", render: (row: ConsolidatedStudent) => course ? consolidatedCourseTotalLabel(row, course.key, semesterTwoSlots) : "—" },
+        { header: "TOT GEN", render: (row: ConsolidatedStudent) => course ? consolidatedCourseTotalLabel(row, course.key, allYearSlots) : "—" },
       ] : []),
     ]),
   ], students, "Aucune cote pour ce filtre.") + (showTotals ? '<p class="pdf-grade-total-note">* Total partiel : seules les cotes enregistrées sont additionnées. Un maximum inconnu reste non calculé ; une cote manquante n’est pas zéro.</p>' : ""), {
@@ -78,7 +86,7 @@ export async function exportConsolidatedGradesPdf(input: { report: ConsolidatedC
     title: input.tab === "grades" ? "Tableau de cotes" : "PALMARÈS",
     school: input.school,
     year: input.year,
-    orientation: "landscape",
+    orientation: input.tab === "grades" ? "portrait" : "landscape",
     throwOnError: true,
     paginateConsolidatedGrades: input.tab === "grades",
     sections: input.tab === "grades"
