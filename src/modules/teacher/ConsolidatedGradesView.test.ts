@@ -53,7 +53,8 @@ describe("fiche consolidée commune", () => {
     expect(allGrades).toContain("Mathématiques"); expect(allGrades).toContain("Français");
     expect(allGrades).toContain("0 / 20"); expect(allGrades).toContain("Toutes les périodes");
     const onePeriod = consolidatedGradesPdfSections(report, "grades", filter("period", "period_1"), "Classe A").join("");
-    expect(onePeriod).not.toContain("2ème Période");
+    expect(onePeriod).toContain(">1-P</span></th>");
+    expect(onePeriod).not.toContain(">2-P</span></th>");
     const oneCourse = consolidatedGradesPdfSections(report, "grades", filter("course", "math"), "Classe A").join("");
     expect(oneCourse).not.toContain("Français");
     const ranking = consolidatedGradesPdfSections(report, "ranking", filter("place", "1"), "Classe A").join("");
@@ -72,16 +73,16 @@ describe("fiche consolidée commune", () => {
     }, report.students[1]] } as ConsolidatedClassReport;
     const all = consolidatedGradesPdfSections(full, "grades", filter("period"), "Classe A").join("");
     const headers = [...all.matchAll(/<th\b[^>]*><span class="cell-inner">([^<]*)<\/span><\/th>/g)].slice(0, 10).map((match) => match[1]);
-    expect(headers).toEqual(["Élève", "1ère Période", "2ème Période", "Examen 1er Semestre", "Total 1er semestre", "3ème Période", "4ème Période", "Examen 2ème Semestre", "Total 2e semestre", "Total général"]);
+    expect(headers).toEqual(["ÉLÈVE", "1-P", "2-P", "EX-1S", "TOT-1S", "3-P", "4-P", "EX-2S", "TOT-2S", "TOT GEN"]);
     expect(consolidatedCourseTotalLabel(full.students[0], "math", slots.slice(0, 3))).toBe("57 / 85");
     expect(consolidatedCourseTotalLabel(full.students[0], "math", slots.slice(3))).toBe("56 / 85");
     expect(consolidatedCourseTotalLabel(full.students[0], "math", slots)).toBe("113 / 170");
     expect(all).toContain("113 / 170");
     const selected = consolidatedGradesPdfSections(full, "grades", filter("student", "a"), "Classe A").join("");
-    expect(selected).toContain("Total général");
+    expect(selected).toContain("TOT GEN");
     expect(selected).toContain("113 / 170");
     expect(selected).not.toContain("Kabeya");
-    expect(consolidatedGradesPdfSections(full, "grades", filter("period", "period_1"), "Classe A").join("")).not.toContain("Total général");
+    expect(consolidatedGradesPdfSections(full, "grades", filter("period", "period_1"), "Classe A").join("")).not.toContain("TOT GEN");
   });
 
   it("garde les cotes absentes hors des totaux, conserve zéro et signale un résultat partiel", () => {

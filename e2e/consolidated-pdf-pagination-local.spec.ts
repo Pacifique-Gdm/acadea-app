@@ -6,7 +6,7 @@ import { build } from "esbuild";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { createWorker } from "tesseract.js";
 
-type Scenario = { label: string; classCount: number; studentCount: number; selectedStudentId?: string };
+type Scenario = { label: string; classCount: number; studentCount: number; selectedStudentId?: string; period?: string; course?: string; longValues?: boolean; tab?: "grades" | "ranking" };
 
 test("chaque cours et sa première ligne commencent sur une nouvelle page physique du PDF", async () => {
   test.setTimeout(240_000);
@@ -42,8 +42,8 @@ test("chaque cours et sa première ligne commencent sur une nouvelle page physiq
     await page.setContent("<!doctype html><html><body></body></html>");
     await page.addScriptTag({ path: bundlePath });
 
-    async function generate({ label, classCount, studentCount, selectedStudentId = "" }: Scenario) {
-      const dataUrl = await page.evaluate(async ({ classCount, studentCount, selectedStudentId }) => {
+    async function generate({ label, classCount, studentCount, selectedStudentId = "", period = "", course = "", longValues = false, tab = "grades" }: Scenario) {
+      const dataUrl = await page.evaluate(async ({ classCount, studentCount, selectedStudentId, period, course, longValues, tab }) => {
         const slots = ["period_1", "period_2", "semester_1_exam", "period_3", "period_4", "semester_2_exam"];
         const makeClass = (classIndex: number) => {
           const courses = ["Mathématiques", "Français", "Sciences"].map((name, courseIndex) => ({
@@ -52,8 +52,8 @@ test("chaque cours et sa première ligne commencent sur une nouvelle page physiq
           }));
           const students = Array.from({ length: studentCount }, (_, index) => ({
             student: { id: `student-${classIndex}-${index}`, nom: `Élève ${index + 1}`, postnom: "", prenom: "Test" },
-            scores: Object.fromEntries(courses.map((course) => [course.key, Object.fromEntries(slots.map((slot) => [slot, index + 1]))])),
-            maxima: Object.fromEntries(courses.map((course) => [course.key, Object.fromEntries(slots.map((slot) => [slot, 20]))])),
+            scores: Object.fromEntries(courses.map((course) => [course.key, Object.fromEntries(slots.map((slot) => [slot, longValues ? 850 : index + 1]))])),
+            maxima: Object.fromEntries(courses.map((course) => [course.key, Object.fromEntries(slots.map((slot) => [slot, longValues ? 1200 : 20]))])),
             statuses: Object.fromEntries(courses.map((course) => [course.key, {}])),
             evaluations: Object.fromEntries(slots.map((slot) => [slot, { score: null, maximum: null, percentage: null, rank: null, complete: false }])),
           }));
@@ -65,7 +65,7 @@ test("chaque cours et sa première ligne commencent sur une nouvelle page physiq
           report: classes[0].report as never, className: classes[0].className, classes: classes as never,
           school: { id: "pdf-test", name: "École fictive PDF", currency: "USD" } as never,
           year: { id: "pdf-year", name: "2027-2028" } as never,
-          tab: "grades", filter: { mode: selectedStudentId ? "student" : "period", choice: selectedStudentId, placeSlot: "period_1" },
+          tab, filter: { mode: selectedStudentId ? "student" : course ? "course" : "period", choice: selectedStudentId || course || period, placeSlot: "period_1" },
         });
         const anchor = document.querySelector<HTMLAnchorElement>("[data-pdf-download]");
         if (!anchor?.href.startsWith("blob:")) throw new Error("Aucun PDF généré.");
@@ -76,7 +76,7 @@ test("chaque cours et sa première ligne commencent sur une nouvelle page physiq
           reader.onerror = () => reject(reader.error);
           reader.readAsDataURL(blob);
         });
-      }, { classCount, studentCount, selectedStudentId });
+      }, { classCount, studentCount, selectedStudentId, period, course, longValues, tab });
 
       const bytes = Buffer.from(dataUrl.split(",")[1], "base64");
       await writeFile(test.info().outputPath(`${label}.pdf`), bytes);
@@ -86,6 +86,10 @@ test("chaque cours et sa première ligne commencent sur une nouvelle page physiq
       try {
         for (let index = 1; index <= document.numPages; index++) {
           const pdfPage = await document.getPage(index);
+          const size = pdfPage.getViewport({ scale: 1 });
+          expect(size.width).toBeCloseTo(tab === "grades" ? 595.28 : 841.89, 0);
+          expect(size.height).toBeCloseTo(tab === "grades" ? 841.89 : 595.28, 0);
+          expect(tab === "grades" ? size.height > size.width : size.width > size.height).toBe(true);
           const viewport = pdfPage.getViewport({ scale: 2 });
           const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
           await pdfPage.render({ canvasContext: canvas.getContext("2d") as never, viewport, canvas: canvas as never }).promise;
@@ -114,13 +118,11 @@ test("chaque cours et sa première ligne commencent sur une nouvelle page physiq
     assertCourseStarts(short, [0, 1, 2], "Classe A");
 
     const long = await generate({ label: "three-long-courses", classCount: 1, studentCount: 28 });
-    expect(long).toHaveLength(6);
-    assertCourseStarts(long, [0, 2, 4], "Classe A");
-    [1, 3, 5].forEach((pageIndex, courseIndex) => {
-      expect(long[pageIndex]).toContain(titles[courseIndex]);
-      expect(long[pageIndex]).toMatch(/suite/i);
-      expect(long[pageIndex]).toMatch(/Élève/i);
-    });
+    expect(long).toHaveLength(4);
+    assertCourseStarts(long, [0, 2, 3], "Classe A");
+    expect(long[1]).toContain(titles[0]);
+    expect(long[1]).toMatch(/suite/i);
+    expect(long[1]).toMatch(/Élève/i);
 
     const multiple = await generate({ label: "two-classes-six-courses", classCount: 2, studentCount: 2 });
     expect(multiple).toHaveLength(6);
@@ -131,6 +133,22 @@ test("chaque cours et sa première ligne commencent sur une nouvelle page physiq
     expect(filtered).toHaveLength(3);
     assertCourseStarts(filtered, [0, 1, 2], "Classe A");
     filtered.forEach((text) => expect(text).not.toContain("Élève 2 Test"));
+
+    const onePeriod = await generate({ label: "one-period", classCount: 1, studentCount: 2, period: "period_1" });
+    expect(onePeriod).toHaveLength(3);
+    assertCourseStarts(onePeriod, [0, 1, 2], "Classe A");
+
+    const oneCourse = await generate({ label: "one-course", classCount: 1, studentCount: 2, course: "class-0-course-0" });
+    expect(oneCourse).toHaveLength(1);
+    assertCourseStarts(oneCourse, [0], "Classe A");
+
+    const longValues = await generate({ label: "long-values", classCount: 1, studentCount: 2, longValues: true });
+    expect(longValues).toHaveLength(3);
+    assertCourseStarts(longValues, [0, 1, 2], "Classe A");
+
+    const ranking = await generate({ label: "palmares-landscape-unchanged", classCount: 1, studentCount: 2, tab: "ranking" });
+    expect(ranking).toHaveLength(1);
+    expect(ranking[0]).toContain("PALMARÈS");
   } finally {
     await worker.terminate();
     await browser.close();
