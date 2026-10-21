@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { buildTwoCopyPdfHtml, pdfInfoGrid, pdfSection } from "./pdf";
+import { buildTwoCopyPdfHtml, pdfInfoGrid, pdfRasterScale, pdfSection, pdfTable } from "./pdf";
 import { DEFAULT_PDF_SETTINGS } from "./pdfSettings";
 import type { School } from "../types";
 
@@ -67,12 +67,30 @@ describe("typographie du moteur PDF HTML", () => {
     expect(source).toContain("await document.fonts.ready");
     expect(source).toContain("await document.fonts.load");
     expect(source).toContain("await html2canvas(element");
-    expect(source).toContain("const renderScale = 2");
+    expect(source).toContain("const renderScale = pdfRasterScale");
     expect(source).not.toContain("doc.html(element");
     expect(source).not.toMatch(/letter-spacing:\s*-|scaleX\s*\(/);
     expect(source).not.toContain("setCharSpace");
     expect(source).not.toContain("getTextWidth");
     expect(source).not.toContain("splitTextToSize");
+  });
+
+  it("améliore la netteté sans agrandir démesurément les longs documents", () => {
+    expect(pdfRasterScale(688, 3000)).toBe(3);
+    expect(pdfRasterScale(688, 12000)).toBeGreaterThanOrEqual(2);
+    expect(pdfRasterScale(688, 12000)).toBeLessThan(3);
+  });
+
+  it("adapte la densité typographique au nombre de colonnes sans perdre les valeurs", () => {
+    const rows = [{ label: "Nom très long", amount: "123456789,90 USD" }];
+    const column = { header: "Montant", render: (row: typeof rows[number]) => row.amount };
+    const short = pdfTable([{ header: "Nom", render: (row: typeof rows[number]) => row.label }, column], rows, "Vide");
+    const wide = pdfTable(Array.from({ length: 6 }, () => column), rows, "Vide");
+    const dense = pdfTable(Array.from({ length: 10 }, () => column), rows, "Vide");
+    expect(short).toContain('class="pdf-table--standard"');
+    expect(wide).toContain('class="pdf-table--wide"');
+    expect(dense).toContain('class="pdf-table--dense"');
+    expect(dense.match(/123456789,90 USD/g)).toHaveLength(10);
   });
 
   it("conserve un ratio uniforme entre le canvas source et la largeur PDF", () => {

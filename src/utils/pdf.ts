@@ -84,9 +84,10 @@ export function pdfInfoGrid(rows: PdfMetric[], options: { className?: string; co
 export function pdfTable<T>(columns: PdfTableColumn<T>[], rows: T[], emptyLabel: string, options: { footerHtml?: string } = {}) {
   const renderedRows = rows.map((row, rowIndex) => columns.map((column) => column.render(row, rowIndex)));
   const columnWidths = buildPdfColumnWidths(columns, renderedRows);
+  const density = columns.length >= 8 ? "pdf-table--dense" : columns.length >= 6 ? "pdf-table--wide" : "pdf-table--standard";
 
   return `
-    <table>
+    <table class="${density}">
       <colgroup>
         ${columnWidths.map((width) => `<col style="width:${width}%" />`).join("")}
       </colgroup>
@@ -179,11 +180,14 @@ export async function renderAcadPdfPreview({ filename, title, school, year, subt
   await waitForPdfFonts(element);
   applyPdfPageBreakSpacers(element, layout.contentHeight, layout.windowWidth / layout.contentWidth);
   if (paginateConsolidatedGrades) paginateConsolidatedGradeTables(element, layout.contentHeight * layout.windowWidth / layout.contentWidth);
+  const repeatedTableHeaders = !singlePageFit && !paginateConsolidatedGrades
+    ? paginateStandardPdfTables(element, layout.contentHeight * layout.windowWidth / layout.contentWidth)
+    : false;
   const contentReadyAt = performance.now();
 
   try {
     if (singlePageFit) await renderPdfCanvasSinglePage(doc, element, layout);
-    else await renderPdfCanvasPages(doc, element, layout, paginateConsolidatedGrades);
+    else await renderPdfCanvasPages(doc, element, layout, paginateConsolidatedGrades || repeatedTableHeaders);
     if (!copyLabels) addPdfFooters(doc, generatedAt, showGeneratedAt);
     const blob = doc.output("blob") as Blob;
     const blobReadyAt = performance.now();
@@ -208,7 +212,7 @@ export async function renderAcadPdfPreview({ filename, title, school, year, subt
 
 async function renderPdfCanvasSinglePage(doc: PdfDoc, element: HTMLElement, layout: ReturnType<typeof getPdfLayout>) {
   const { default: html2canvas } = await import("html2canvas");
-  const source = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: "#ffffff", logging: false, windowWidth: layout.windowWidth });
+  const source = await html2canvas(element, { scale: pdfRasterScale(layout.windowWidth, element.scrollHeight), useCORS: true, backgroundColor: "#ffffff", logging: false, windowWidth: layout.windowWidth });
   const maximumHeight = layout.contentHeight;
   const naturalHeight = source.height / source.width * layout.contentWidth;
   const renderedHeight = Math.min(maximumHeight, naturalHeight);
@@ -226,7 +230,7 @@ async function waitForPdfFonts(element: HTMLElement) {
 
 async function renderPdfCanvasPages(doc: PdfDoc, element: HTMLElement, layout: ReturnType<typeof getPdfLayout>, fixedPageBoundaries = false) {
   const { default: html2canvas } = await import("html2canvas");
-  const renderScale = 2;
+  const renderScale = pdfRasterScale(layout.windowWidth, element.scrollHeight);
   const source = await html2canvas(element, {
     scale: renderScale,
     useCORS: true,
@@ -266,6 +270,13 @@ async function renderPdfCanvasPages(doc: PdfDoc, element: HTMLElement, layout: R
     sourceY = sliceEnd;
     pageIndex += 1;
   }
+}
+
+/** Aim for print-sharp raster text without multiplying the memory cost of long exports. */
+export function pdfRasterScale(widthCssPx: number, heightCssPx: number) {
+  const maximumPixels = 36_000_000;
+  const estimatedArea = Math.max(1, widthCssPx * heightCssPx);
+  return Math.max(2, Math.min(3, Math.floor(Math.sqrt(maximumPixels / estimatedArea) * 10) / 10));
 }
 
 export function findPdfContentEnd(context: CanvasRenderingContext2D, width: number, height: number, bottomBleedPx: number) {
@@ -425,6 +436,60 @@ export function paginateConsolidatedGradeTables(element: HTMLElement, pageHeight
     }
   }
   }
+}
+
+/** Canvas slicing cannot repeat CSS table-header-group. Repeat the real header
+ * before each continuation page without changing any table data. */
+export function paginateStandardPdfTables(element: HTMLElement, pageHeightPx: number) {
+  const top = () => element.getBoundingClientRect().top;
+  const y = (node: Element) => node.getBoundingClientRect().top - top();
+  const bottom = (node: Element) => node.getBoundingClientRect().bottom - top();
+  const insertPageBreak = (node: Element) => {
+    const spacer = document.createElement("div");
+    spacer.className = "pdf-page-break";
+    spacer.setAttribute("aria-hidden", "true");
+    node.before(spacer);
+    spacer.style.height = `${pdfPageBreakSpacerHeight(y(spacer), pageHeightPx)}px`;
+  };
+  let repeated = false;
+  for (const table of Array.from(element.querySelectorAll<HTMLTableElement>("table"))) {
+    if (table.closest(".consolidated-grade-class") || !table.tHead) continue;
+    const rows = Array.from(table.tBodies[0]?.rows ?? []);
+    let currentTable = table;
+    for (let index = 0; index < rows.length; index++) {
+      const row = rows[index];
+      const pageEnd = (Math.floor((y(row) + 0.5) / pageHeightPx) + 1) * pageHeightPx;
+      if (bottom(row) <= pageEnd + 0.5) continue;
+      if (bottom(row) - y(row) >= pageHeightPx) throw new Error("Une ligne de tableau est trop haute pour une page PDF.");
+      if (index === 0 && currentTable === table) {
+        const section = table.closest(".pdf-section");
+        const start = section?.querySelector("table") === table ? section : table;
+        insertPageBreak(start);
+        if (bottom(row) <= (Math.floor((y(row) + 0.5) / pageHeightPx) + 1) * pageHeightPx + 0.5) continue;
+        throw new Error("L'en-tête et la première ligne du tableau ne tiennent pas sur une page PDF.");
+      }
+      const nextTable = currentTable.cloneNode(false) as HTMLTableElement;
+      const colgroup = currentTable.querySelector("colgroup");
+      if (colgroup) nextTable.appendChild(colgroup.cloneNode(true));
+      if (currentTable.tHead) nextTable.appendChild(currentTable.tHead.cloneNode(true));
+      const body = nextTable.createTBody();
+      // A financial/administrative total belongs after the last data row, not
+      // at the bottom of the first physical page when the table continues.
+      if (currentTable.tFoot) nextTable.appendChild(currentTable.tFoot);
+      const continuation = document.createElement("p");
+      continuation.className = "pdf-table-continuation";
+      continuation.textContent = `${table.closest(".pdf-section")?.querySelector("h2")?.textContent ?? "Tableau"} (suite)`;
+      currentTable.after(continuation, nextTable);
+      for (let rest = index; rest < rows.length; rest++) body.appendChild(rows[rest]);
+      insertPageBreak(continuation);
+      currentTable = nextTable;
+      repeated = true;
+      if (bottom(row) > (Math.floor((y(row) + 0.5) / pageHeightPx) + 1) * pageHeightPx + 0.5) {
+        throw new Error("Une ligne de tableau ne tient pas après répétition de l'en-tête PDF.");
+      }
+    }
+  }
+  return repeated;
 }
 
 export async function generateReceiptPdf(payment: Payment, student: Student, feeType: { name: string }, school: School, cashierName = payment.cashierName) {
@@ -1060,26 +1125,31 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       border-collapse: collapse;
       table-layout: auto;
       margin-top: 6px;
-      font-size: 9.5px;
+      font-size: 12px;
       line-height: 1.42;
       page-break-inside: auto;
     }
-    .grading-pdf-section table { table-layout: fixed; margin-top: 12px; font-size: 11px; }
+    .pdf-table--wide { font-size: 11px; }
+    .pdf-table--dense { font-size: 10.5px; }
+    .pdf-table--dense th { font-size: 10.5px; }
+    .grading-pdf-section table { table-layout: fixed; margin-top: 12px; font-size: 12px; }
     .grading-pdf-section col:first-child { width: 28% !important; }
     .grading-pdf-section col:not(:first-child) { width: 8% !important; }
     .grading-pdf-section th, .grading-pdf-section td { padding: 5px 2px; }
-    .grading-pdf-section th { font-size: 10px; white-space: nowrap; overflow-wrap: normal; }
+    .grading-pdf-section th { font-size: 11px; white-space: nowrap; overflow-wrap: normal; }
     .grading-pdf-section th:first-child, .grading-pdf-section td:first-child { text-align: left; }
     .grading-pdf-section th:nth-child(5), .grading-pdf-section th:nth-child(9), .grading-pdf-section th:nth-child(10) { background: #1e5a72; }
     .grading-pdf-section td:nth-child(5), .grading-pdf-section td:nth-child(9), .grading-pdf-section td:nth-child(10) { background: #edf7fa; font-weight: 700; }
-    .consolidated-grade-totals-section table { table-layout: fixed; font-size: 8px; }
+    .consolidated-grade-totals-section table { table-layout: fixed; font-size: 10.5px; }
     .consolidated-grade-totals-section col:first-child { width: 20% !important; }
     .consolidated-grade-totals-section col:not(:first-child) { width: 8.888% !important; }
     .consolidated-grade-totals-section th, .consolidated-grade-totals-section td { padding: 4px 2px; }
     .consolidated-grade-totals-section .cell-inner { line-height: 1.2; }
+    .consolidated-grade-totals-section th { font-size: 10.5px; }
     .consolidated-grade-totals-section th:nth-child(5), .consolidated-grade-totals-section th:nth-child(9), .consolidated-grade-totals-section th:nth-child(10) { background: #1e5a72; }
     .consolidated-grade-totals-section td:nth-child(5), .consolidated-grade-totals-section td:nth-child(9), .consolidated-grade-totals-section td:nth-child(10) { background: #edf7fa; font-weight: 700; }
     .pdf-grade-total-note { margin: 5px 0 0; color: #475569; font-size: 7.5px; }
+    .pdf-table-continuation { margin: 6px 0 2px; color: #334155; font-size: 10px; font-weight: 700; }
     thead {
       display: table-header-group;
     }
@@ -1091,7 +1161,7 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       border: 1px solid #b8c4d4;
       background: #14213d;
       color: #ffffff;
-      font-size: 8px;
+      font-size: 11px;
       line-height: 1.34;
       text-transform: uppercase;
       overflow-wrap: anywhere;
