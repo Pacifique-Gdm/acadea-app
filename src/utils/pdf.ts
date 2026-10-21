@@ -376,8 +376,21 @@ export function paginateConsolidatedGradeTables(element: HTMLElement, pageHeight
     }
   for (const table of Array.from(gradeClass.querySelectorAll<HTMLTableElement>("table"))) {
     const rows = Array.from(table.tBodies[0]?.rows ?? []);
+    const section = table.closest("section");
+    const sectionBreak = section?.previousElementSibling;
+    if (sectionBreak?.classList.contains("pdf-page-break")) {
+      (sectionBreak as HTMLElement).style.height = "0px";
+      (sectionBreak as HTMLElement).style.height = `${pdfPageBreakSpacerHeight(y(sectionBreak), pageHeightPx)}px`;
+    }
+    if (section && rows[0] && Math.floor((y(section) + 0.5) / pageHeightPx) !== Math.floor((bottom(rows[0]) - 0.5) / pageHeightPx)) {
+      if (sectionBreak?.classList.contains("pdf-page-break")) throw new Error("Le titre et la première ligne de cotation ne tiennent pas sur une page PDF.");
+      insertPageBreak(section);
+      if (Math.floor((y(section) + 0.5) / pageHeightPx) !== Math.floor((bottom(rows[0]) - 0.5) / pageHeightPx)) {
+        throw new Error("Le titre et la première ligne de cotation ne tiennent pas sur une page PDF.");
+      }
+    }
     const classLabel = gradeClass.dataset.className ?? "";
-    const courseLabel = table.closest("section")?.querySelector("h2")?.textContent ?? "Tableau de cotes";
+    const courseLabel = section?.querySelector("h2")?.textContent ?? "Tableau de cotes";
     const continuationText = [gradeClass.dataset.schoolName, gradeClass.dataset.yearName, classLabel, `${courseLabel} (suite)`].filter(Boolean).join(" · ");
     let currentTable = table;
     for (let index = 0; index < rows.length; index++) {
@@ -387,13 +400,9 @@ export function paginateConsolidatedGradeTables(element: HTMLElement, pageHeight
       if (bottom(row) <= pageEnd + 0.5) continue;
       if (bottom(row) - rowTop >= pageHeightPx) throw new Error("Une ligne du tableau de cotes est trop haute pour une page PDF.");
       if (row === currentTable.tBodies[0].rows[0] && currentTable === table) {
-        const section = table.closest("section");
         if (!section) throw new Error("Section de cotes introuvable.");
-        const continuation = document.createElement("p");
-        continuation.className = "pdf-grade-continuation";
-        continuation.textContent = continuationText;
-        section.before(continuation);
-        insertPageBreak(continuation);
+        if (section.previousElementSibling?.classList.contains("pdf-page-break")) throw new Error("Le titre et la première ligne de cotation ne tiennent pas sur une page PDF.");
+        insertPageBreak(section);
         if (bottom(row) <= (Math.floor((y(row) + 0.5) / pageHeightPx) + 1) * pageHeightPx + 0.5) continue;
         throw new Error("Le titre et la première ligne de cotation ne tiennent pas sur une page PDF.");
       }
