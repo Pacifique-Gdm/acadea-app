@@ -1437,6 +1437,8 @@ service cloud.firestore {
       allow create: if activeStudyYearCreate()
         && validTimetableShape()
         && request.resource.data.status == "DRAFT"
+        && request.resource.data.get("activePublished", false) == false
+        && !request.resource.data.keys().hasAny(["validationDigest", "workflowVersion", "validatedAt", "validatedBy", "publishedAt", "publishedBy", "validationRequestId", "publicationRequestId"])
         && ((request.resource.data.activeDraft == true
             && request.resource.data.get("persistenceState", "COMPLETE") == "COMPLETE")
           || (request.resource.data.activeDraft == false
@@ -1457,20 +1459,7 @@ service cloud.firestore {
           || (resource.data.status == "DRAFT" && resource.data.get("persistenceState", "COMPLETE") == "COMPLETE"
              && request.resource.data.status == "DRAFT"
              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["activeDraft", "updatedAt"]))
-          || (resource.data.status == "DRAFT" && resource.data.get("persistenceState", "COMPLETE") == "COMPLETE"
-             && request.resource.data.status == "VALID"
-             && request.resource.data.activeDraft == false
-             && request.resource.data.validatedBy == request.auth.uid
-             && request.resource.data.validatedAt is string
-             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "activeDraft", "validatedBy", "validatedAt", "updatedAt"]))
-          || (resource.data.status == "VALID" && request.resource.data.status == "PUBLISHED"
-             && request.resource.data.activePublished == true
-             && request.resource.data.publishedBy == request.auth.uid
-             && request.resource.data.publishedAt is string
-             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "activePublished", "activeDraft", "publishedBy", "publishedAt", "updatedAt"]))
-          || (resource.data.status == "PUBLISHED" && request.resource.data.status == "PUBLISHED"
-             && resource.data.activePublished == true && request.resource.data.activePublished == false
-             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["activePublished", "updatedAt"])));
+          ); // VALID/PUBLISHED transitions are exclusively server-transactional.
       allow delete: if studyDirector()
         && resource.data.schoolId == tenantSchoolId()
         && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId())
@@ -1478,6 +1467,10 @@ service cloud.firestore {
         && resource.data.activeDraft == false
         && resource.data.get("persistenceState", "COMPLETE") == "PENDING"
         && resource.data.createdBy == request.auth.uid;
+    }
+
+    match /timetablePublicationStates/{stateId} {
+      allow read, write: if false; // Admin SDK transaction only.
     }
 
     match /timetableEntries/{entryId} {

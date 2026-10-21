@@ -46,7 +46,14 @@ export function subscribeToTeacherPortalData(input: { user: AppUser; schoolId: s
       onSnapshot(scopedQuery("rooms"), (value) => input.onRooms(docs(value)), input.onError),
       onSnapshot(scopedQuery("schedulePeriods"), (value) => input.onPeriods(docs(value)), input.onError),
       onSnapshot(query(scopedQuery("timetables"), where("status", "==", "PUBLISHED"), where("activePublished", "==", true)), (value) => {
-        const timetable = docs<Timetable>(value)[0];
+        const published = docs<Timetable>(value);
+        if (published.length > 1) {
+          scheduleId = ""; entriesUnsubscribe?.(); entriesUnsubscribe = undefined;
+          input.onTimetable(undefined); input.onEntries([]); input.onReady();
+          input.onError(new Error("Plusieurs horaires actifs ont été détectés. Contactez la Direction des études."));
+          return;
+        }
+        const timetable = published[0];
         input.onTimetable(timetable);
         if (!timetable) { scheduleId = ""; entriesUnsubscribe?.(); entriesUnsubscribe = undefined; input.onEntries([]); input.onReady(); return; }
         if (scheduleId === timetable.id) return;

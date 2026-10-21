@@ -10,6 +10,7 @@ import { normalizeSectionIds, userSectionIds } from "../../utils/userSections";
 import { normalizeSectionField } from "../../utils/schoolSections";
 import { assignmentStudentGroupKey, baseStudyClassId, classOptionId, operationalTitularClasses, validateAssignmentClassSelection, type AssignmentClassSelection } from "./studyCourseScope";
 import { normalizedSessionPattern, validateAssignmentSessionPattern } from "./assignmentSessionPattern";
+import { requestTimetableTransition } from "./timetableWorkflowClient";
 
 function requireScope(user: AppUser, schoolId: string, schoolYearId: string) {
   if (!db || user.role !== "study_director" || user.schoolId !== schoolId || !schoolId || !schoolYearId) throw new Error("Périmètre pédagogique non autorisé.");
@@ -158,9 +159,17 @@ export async function setStudyClassVacation(input:{user:AppUser;item:StudyClass;
 
 export async function saveGeneratedTimetable(input:{user:AppUser;schoolId:string;schoolYearId:string;version:number;entries:TimetableEntry[];existing:Timetable[];metadata:Timetable["generationMetadata"]}){const database=requireScope(input.user,input.schoolId,input.schoolYearId);return persistGeneratedTimetable(database,input);}
 
-export async function validateSavedTimetable(input:{user:AppUser;schedule:Timetable}){const database=requireScope(input.user,input.schedule.schoolId,input.schedule.schoolYearId);if(input.schedule.status!=="DRAFT")throw new Error("Seul un brouillon peut être validé.");const now=new Date().toISOString();await runTransaction(database,async transaction=>{const ref=doc(database,"timetables",input.schedule.id);const snapshot=await transaction.get(ref);if(!snapshot.exists()||snapshot.data()?.status!=="DRAFT")throw new Error("Le brouillon n’existe plus ou a déjà été validé.");transaction.update(ref,{status:"VALID",activeDraft:false,validatedAt:now,validatedBy:input.user.id,updatedAt:now});});}
+export async function validateSavedTimetable(input:{user:AppUser;schedule:Timetable}) {
+  requireScope(input.user,input.schedule.schoolId,input.schedule.schoolYearId);
+  if(input.schedule.status!=="DRAFT")throw new Error("Seul un brouillon peut être validé.");
+  return requestTimetableTransition("timetable-validate",input.schedule);
+}
 
-export async function publishTimetable(input:{user:AppUser;schedule:Timetable;existing:Timetable[]}){const database=requireScope(input.user,input.schedule.schoolId,input.schedule.schoolYearId);if(input.schedule.status!=="VALID")throw new Error("Seul un horaire valide peut être publié.");const previous=input.existing.filter(item=>item.id!==input.schedule.id&&item.status==="PUBLISHED"&&item.activePublished);const now=new Date().toISOString();await runTransaction(database,async transaction=>{const currentRef=doc(database,"timetables",input.schedule.id);const previousRefs=previous.map(item=>doc(database,"timetables",item.id));const snapshots=await Promise.all([transaction.get(currentRef),...previousRefs.map(ref=>transaction.get(ref))]);if(!snapshots[0].exists()||snapshots[0].data()?.status!=="VALID")throw new Error("L’horaire n’est plus dans un état publiable.");previousRefs.forEach((ref,index)=>{if(snapshots[index+1].exists()&&snapshots[index+1].data()?.activePublished===true)transaction.update(ref,{activePublished:false,updatedAt:now})});transaction.update(currentRef,{status:"PUBLISHED",activePublished:true,activeDraft:false,publishedAt:now,publishedBy:input.user.id,updatedAt:now});});}
+export async function publishTimetable(input:{user:AppUser;schedule:Timetable;existing:Timetable[]}) {
+  requireScope(input.user,input.schedule.schoolId,input.schedule.schoolYearId);
+  if(input.schedule.status!=="VALID")throw new Error("Seul un horaire valide peut être publié.");
+  return requestTimetableTransition("timetable-publish",input.schedule,input.existing);
+}
 
 export async function saveStudyRoom(input:{user:AppUser;schoolId:string;schoolYearId:string;room?:StudyRoom;name:string}){const database=requireScope(input.user,input.schoolId,input.schoolYearId);const name=input.name.trim();if(!name)throw new Error("Le nom de la salle est obligatoire.");const now=new Date().toISOString();const id=input.room?.id??`${input.schoolId}__${input.schoolYearId}__${crypto.randomUUID()}`;const payload:StudyRoom={id,schoolId:input.schoolId,schoolYearId:input.schoolYearId,name,active:input.room?.active??true,createdBy:input.room?.createdBy??input.user.id,createdAt:input.room?.createdAt??now,updatedAt:now};await setDoc(doc(database,"rooms",id),payload);return payload;}
 export async function setStudyRoomActive(user:AppUser,room:StudyRoom,active:boolean){const database=requireScope(user,room.schoolId,room.schoolYearId);await setDoc(doc(database,"rooms",room.id),{active,updatedAt:new Date().toISOString()},{merge:true});}
