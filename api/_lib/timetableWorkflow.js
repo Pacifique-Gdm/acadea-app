@@ -1,11 +1,7 @@
 import { createHash } from "node:crypto";
 import { GradingApiError } from "./teacherGrading.js";
 import { publicationReader, runPublicationTransaction } from "./publicationTransaction.js";
-import { validateTimetable } from "../../src/modules/studies/scheduleValidation.ts";
-import { logicalStudyClasses } from "../../src/modules/studies/studyCourseGroups.ts";
-import { studyClassSection } from "../../src/modules/studies/studyScope.ts";
-import { userSectionIds } from "../../src/utils/userSections.ts";
-import { resolveAttendanceSchoolDays } from "../../src/utils/attendance.ts";
+import { validateTimetable, logicalStudyClasses, studyClassSection, userSectionIds, resolveAttendanceSchoolDays } from "./timetableValidationBundle.js";
 
 const fail = (status, code, message) => { throw new GradingApiError(status, code, message); };
 const id = (value) => typeof value === "string" && value.length > 0 && value.length <= 300 && !value.includes("/");
