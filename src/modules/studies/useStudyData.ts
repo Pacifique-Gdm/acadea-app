@@ -56,5 +56,6 @@ export function useStudyData(user: AppUser, schoolId: string, schoolYearId: stri
   const activeTimetableEntries = useMemo(() => currentTimetableEntries(timetableEntries), [timetableEntries]);
   const generationReady = ["teachers", "subjects", "classes", "assignments", "availabilities", "periods", "attendanceSettings"].every((source) => loadedSources.has(source));
   const schedulesReady = ["timetables", "timetableEntries"].every((source) => loadedSources.has(source));
-  return {teachers:scopedTeachers,subjects:scopedSubjects,classes:scopedClasses,sourceClasses:classes,students:scopedStudents,assignments:scopedAssignments,titulars:scopedTitulars,availabilities,periods,timetables,timetableEntries:activeTimetableEntries,rooms,attendanceSettings,error,generationReady,schedulesReady};
+  const workflowReady = generationReady && schedulesReady && loadedSources.has("rooms") && !error;
+  return {teachers:scopedTeachers,subjects:scopedSubjects,classes:scopedClasses,sourceClasses:classes,students:scopedStudents,assignments:scopedAssignments,titulars:scopedTitulars,availabilities,periods,timetables,timetableEntries:activeTimetableEntries,rooms,attendanceSettings,error,generationReady,schedulesReady,workflowReady};
 }

@@ -2,7 +2,7 @@ import type { SchoolClass, SchoolSection } from "../../types";
 import { getClassSection } from "../../utils/studentClasses";
 import { normalizeSchoolSection } from "../../utils/schoolSections";
 import type { PedagogicalAssignment, SchedulePeriod, StudyClass, StudyDay, StudySubject, StudyVacation, TimetableEntry } from "./studyTypes";
-import { classOptionId, normalizedAssignmentScope } from "./studyCourseScope";
+import { classOptionId, normalizedAssignmentScope } from "./studyCourseGroups";
 
 export const studySectionLabels: Record<SchoolSection, string> = { Maternelle: "Maternelle", Primaire: "Primaire", CTEB: "CTEB", Secondaire: "Secondaire" };
 export const studyVacationLabels: Record<StudyVacation, string> = { morning: "Avant-midi", afternoon: "Après-midi" };

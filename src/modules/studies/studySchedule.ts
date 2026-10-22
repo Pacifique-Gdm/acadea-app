@@ -32,10 +32,13 @@ export function completedStudyTimetables(items: Timetable[]) {
 }
 export function currentStudyTimetable(items: Timetable[]) {
   const visible = completedStudyTimetables(items);
-  return visible.find((item) => item.activeDraft) ?? visible.find((item) => item.activePublished) ?? visible[0];
+  const published = visible.find((item) => item.activePublished);
+  return visible.find((item) => item.activeDraft)
+    ?? visible.find((item) => item.status === "VALID" && (!published || item.version > published.version))
+    ?? published ?? visible[0];
 }
 export const minutes=(value:string)=>{const [h,m]=value.split(":").map(Number);return h*60+m;};
-export function validTimeRange(start?:string,end?:string){return Boolean(start&&end&&/^\d{2}:\d{2}$/.test(start)&&/^\d{2}:\d{2}$/.test(end)&&minutes(start)<minutes(end));}
+export function validTimeRange(start?:string,end?:string){return Boolean(start&&end&&/^([01]\d|2[0-3]):[0-5]\d$/.test(start)&&/^([01]\d|2[0-3]):[0-5]\d$/.test(end)&&minutes(start)<minutes(end));}
 export function overlaps(a:{startTime?:string;endTime?:string},b:{startTime?:string;endTime?:string}){return Boolean(a.startTime&&a.endTime&&b.startTime&&b.endTime&&minutes(a.startTime)<minutes(b.endTime)&&minutes(b.startTime)<minutes(a.endTime));}
 export function detectAvailabilityConflicts(items:TeacherAvailability[]){return items.some((a,i)=>items.some((b,j)=>j>i&&a.teacherId===b.teacherId&&a.dayOfWeek===b.dayOfWeek&&a.active&&b.active&&(a.status==="rest"||b.status==="rest"||overlaps(a,b))));}
 export function validateAvailabilityRanges(status:TeacherAvailability["status"],ranges:Array<{startTime:string;endTime:string}>){if(status==="rest"&&ranges.length)return "Un jour de repos ne peut pas contenir de plage horaire.";for(const range of ranges){if(!range.startTime||!range.endTime)return "Chaque plage doit comporter une heure de début et de fin.";if(!validTimeRange(range.startTime,range.endTime))return "L’heure de fin doit être postérieure à l’heure de début.";}for(let i=0;i<ranges.length;i+=1)for(let j=i+1;j<ranges.length;j+=1)if(ranges[i].startTime===ranges[j].startTime&&ranges[i].endTime===ranges[j].endTime)return "Une même plage ne peut pas être ajoutée deux fois.";else if(overlaps(ranges[i],ranges[j]))return "Deux plages de la même journée ne peuvent pas se chevaucher.";return "";}
