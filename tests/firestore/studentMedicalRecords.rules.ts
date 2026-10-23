@@ -44,6 +44,12 @@ async function seedMedicalRecord(tenant = schoolId) {
   });
 }
 
+async function seedActorRole(role: string) {
+  await testEnvironment().withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "users", userId), { id: userId, role, schoolId, status: "active" });
+  });
+}
+
 function medicalRecordsQuery(role?: string, tenant = schoolId) {
   const firestore = role ? authenticated(role, tenant) : testEnvironment().unauthenticatedContext().firestore();
   return getDocs(query(collection(firestore, "studentMedicalRecords"), where("schoolId", "==", schoolId), where("schoolYearId", "==", schoolYearId)));
@@ -90,6 +96,7 @@ describe("studentMedicalRecords", () => {
   });
 
   it("autorise le Secrétaire de la même école avec le payload frontend réel", async () => {
+    await seedActorRole("secretary");
     await assertSucceeds(createLikeFrontend("secretary"));
   });
 
@@ -128,6 +135,7 @@ describe("studentMedicalRecords", () => {
   });
 
   it("autorise l'actualisation des fiches pour le Secrétaire de la même école", async () => {
+    await seedActorRole("secretary");
     await seedMedicalRecord();
     await assertSucceeds(medicalRecordsQuery("secretary"));
   });

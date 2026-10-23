@@ -35,7 +35,7 @@ beforeEach(async () => {
     ["study-a", "study_director", schoolA], ["parent-user-a", "parent", schoolA],
     ["parent-a", "parent", schoolA], ["parent-user-x", "parent", schoolA],
     ["secretary-other-school", "secretary", schoolB], ["unknown-a", "unknown", schoolA],
-  ]) await seed(`users/${uid}`, { id: uid, role, schoolId: tenant, status: "active", active: true });
+  ]) await seed(`users/${uid}`, { id: uid, role, schoolId: tenant, status: "active", active: true, ...(role === "parent" ? { parentId: uid === "parent-user-x" ? "parent-x" : "parent-a" } : {}) });
   await seed("messages/message-a", { id: "message-a", ...shared, threadParentId: "parent-a", schoolRecipient: "admin" });
   await seed("messages/message-secretary", { id: "message-secretary", ...shared, senderId: "admin-a", recipientParentId: "school", participantIds: ["admin-a", "secretary-a"], recipientIds: ["secretary-a"], subject: "Objet", body: "Corps", createdAt: "2026-08-08T10:00:00.000Z" });
   await seed("messages/message-secretary-parent", { id: "message-secretary-parent", ...shared, senderId: "secretary-a", recipientParentId: "school", participantIds: ["secretary-a", "parent-user-a"], recipientIds: ["parent-user-a"], subject: "Objet parent", body: "Corps", createdAt: "2026-08-08T11:00:00.000Z" });
@@ -151,6 +151,15 @@ describe("SEC-015 — communications, notifications et discipline", () => {
     await assertFails(getDoc(doc(otherParent, "messages", "message-secretary-parent")));
     await assertFails(getDoc(doc(otherParent, "conversations", "conversation-secretary-parent")));
     await assertFails(getDoc(doc(otherParent, "notifications", "notification-parent-personal")));
+  });
+
+  it("ne permet au parent destinataire que de marquer une notification comme lue", async () => {
+    const parent = auth("parent-user-a", "parent", schoolA, { parentId: "parent-a" });
+    const notification = doc(parent, "notifications", "notification-a");
+    await assertSucceeds(updateDoc(notification, { read: true }));
+    for (const field of ["title", "body", "schoolId", "parentId", "schoolYearId", "recipientRole"]) {
+      await assertFails(updateDoc(notification, { [field]: `forged-${field}` }));
+    }
   });
 
   it("autorise au Parent la query temps réel exacte d'un message personnel et refuse les autres UID", async () => {

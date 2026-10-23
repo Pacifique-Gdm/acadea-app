@@ -6,7 +6,7 @@ import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestE
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { saveStudyAssignments, setStudyAssignmentActive } from "../../api/_lib/studyAssignmentGrants.js";
 
-const projectId = "acadea-staging";
+const projectId = "demo-acadea-security-s1-s4";
 const schoolId = "school-a", schoolYearId = "year-a", teacherId = "teacher-a", ownerId = "owner-a";
 const subjectId = "subject-a", classId = "class-a";
 const assignmentId = `${schoolId}__${schoolYearId}__${teacherId}__${subjectId}__${classId}`;
@@ -21,7 +21,7 @@ beforeAll(async () => {
   if (!process.env.FIRESTORE_EMULATOR_HOST?.match(/^(127\.0\.0\.1|localhost):\d+$/) || !process.env.FIREBASE_STORAGE_EMULATOR_HOST?.match(/^(127\.0\.0\.1|localhost):\d+$/)) throw new Error("Émulateurs Firestore et Storage locaux requis.");
   environment = await initializeTestEnvironment({ projectId, firestore: { rules: readFileSync("firestore.rules", "utf8") }, storage: { rules: readFileSync("storage.rules", "utf8") } });
   const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs8", format: "pem" }, publicKeyEncoding: { type: "spki", format: "pem" } });
-  app = initializeApp({ projectId, credential: cert({ projectId, clientEmail: "emulator@acadea-staging.iam.gserviceaccount.com", privateKey }) }, "study-storage-grant-tests"); db = getFirestore(app);
+  app = initializeApp({ projectId, credential: cert({ projectId, clientEmail: "emulator@demo-acadea-security-s1-s4.iam.gserviceaccount.com", privateKey }) }, "study-storage-grant-tests"); db = getFirestore(app);
 }, 30_000);
 beforeEach(async () => {
   await environment.clearFirestore(); await environment.clearStorage();

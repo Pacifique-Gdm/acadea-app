@@ -26,9 +26,28 @@ describe("profil actif pour les API Vercel", () => {
   });
 
   it("refuse les API métier d'une école suspendue sans bloquer la supervision", async () => {
-    const db = { doc: vi.fn((path: string) => ({ get: vi.fn(async () => ({ exists: true, data: () => path.startsWith("schools/") ? { status: "suspended" } : { role: "school_admin", schoolId: "school-a", status: "active" } })) })) };
+    const db = { doc: vi.fn((path: string) => ({ get: vi.fn(async () => ({ exists: true, data: () => path.startsWith("schools/") ? { status: "suspended" } : path === "users/super-a" ? { role: "super_admin", status: "active" } : { role: "school_admin", schoolId: "school-a", status: "active" } })) })) };
     await expect(requireActiveApiUser(db, { uid: "admin-a", role: "school_admin", schoolId: "school-a" })).rejects.toMatchObject({ statusCode: 403, code: "permission-denied" });
-    await expect(requireActiveApiUser(db, { uid: "admin-a", role: "super_admin" })).resolves.toMatchObject({ role: "super_admin" });
+    await expect(requireActiveApiUser(db, { uid: "super-a", role: "super_admin" })).resolves.toMatchObject({ role: "super_admin" });
+  });
+
+  it("refuse un ancien jeton après transfert ou changement de rôle", async () => {
+    const db = { doc: vi.fn((path: string) => ({ get: vi.fn(async () => ({
+      exists: true,
+      data: () => path.startsWith("schools/") ? { status: "active" } : { role: "secretary", schoolId: "school-b", status: "active", active: true },
+    })) })) };
+    await expect(requireActiveApiUser(db, { uid: "user-a", role: "secretary", schoolId: "school-a" })).rejects.toMatchObject({ statusCode: 403 });
+    await expect(requireActiveApiUser(db, { uid: "user-a", role: "cashier", schoolId: "school-b" })).rejects.toMatchObject({ statusCode: 403 });
+    await expect(requireActiveApiUser(db, { uid: "user-a", role: "secretary", schoolId: "school-b" })).resolves.toMatchObject({ schoolId: "school-b" });
+  });
+
+  it("refuse les anciens identifiants de parent ou de coordination", async () => {
+    await expect(requireActiveApiUser(database({ role: "parent", schoolId: "school-a", parentId: "parent-new" }), {
+      uid: "user-a", role: "parent", schoolId: "school-a", parentId: "parent-old",
+    })).rejects.toMatchObject({ statusCode: 403 });
+    await expect(requireActiveApiUser(database({ role: "coordination_admin", coordinationId: "coord-new" }), {
+      uid: "user-a", role: "coordination_admin", coordinationId: "coord-old",
+    })).rejects.toMatchObject({ statusCode: 403 });
   });
 });
 

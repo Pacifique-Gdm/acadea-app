@@ -18,8 +18,14 @@ function upload(name: string, type: string, size = 1024, overrides: Record<strin
   return context(uid, role, tenant).storage().ref(`message-uploads/${schoolId}/${senderId}/${draftId}/${name}`).put(new Uint8Array(size), { contentType: type, customMetadata: { schoolId, schoolYearId: yearId, senderId, draftId, originalName: "document.pdf", ...overrides } });
 }
 
-beforeAll(async () => { environment = await initializeTestEnvironment({ projectId: "acadea-staging", firestore: { rules: readFileSync("firestore.rules", "utf8") }, storage: { rules: readFileSync("storage.rules", "utf8") } }); }, 30_000);
-beforeEach(async () => { await environment.clearFirestore(); await environment.clearStorage(); await environment.withSecurityRulesDisabled(async (admin) => setDoc(doc(admin.firestore(), "schools", schoolId), { status: "active" })); });
+beforeAll(async () => { environment = await initializeTestEnvironment({ projectId: "demo-acadea-security-s1-s4", firestore: { rules: readFileSync("firestore.rules", "utf8") }, storage: { rules: readFileSync("storage.rules", "utf8") } }); }, 30_000);
+beforeEach(async () => { await environment.clearFirestore(); await environment.clearStorage(); await environment.withSecurityRulesDisabled(async (admin) => {
+  const db = admin.firestore();
+  await setDoc(doc(db, "schools", schoolId), { status: "active" });
+  for (const [uid, role] of [[senderId, "secretary"], ["secretary-b", "secretary"], ["admin-a", "school_admin"]]) {
+    await setDoc(doc(db, "users", uid), { role, schoolId, status: "active", active: true });
+  }
+}); });
 afterAll(async () => environment.cleanup(), 30_000);
 
 describe("pièces jointes de messagerie", () => {

@@ -17,7 +17,16 @@ service cloud.firestore {
     function activeActorProfile() {
       let profile = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
       return profile.get("status", "active") != "inactive"
-        && profile.get("active", true) != false;
+        && profile.get("active", true) != false
+        && (request.auth.token.role in ["admin", "school_admin", "super_admin", "coordination_admin", "sub_coordination_admin"]
+          ? ((profile.get("role", "") == request.auth.token.role
+              || (request.auth.token.role == "admin" && profile.get("role", "") == "school_admin")
+              || (request.auth.token.role == "school_admin" && profile.get("role", "") == "admin")
+              || (request.auth.token.role == "super_admin" && !("role" in profile)))
+            && (request.auth.token.role in ["super_admin", "coordination_admin", "sub_coordination_admin"]
+              || profile.get("schoolId", "") == request.auth.token.schoolId))
+          : (profile.role == request.auth.token.role
+            && profile.schoolId == request.auth.token.schoolId));
     }
 
     function role() {
@@ -45,13 +54,16 @@ service cloud.firestore {
 
     function coordinator() {
       return request.auth != null && role() == "coordination_admin"
-        && request.auth.token.coordinationId is string && signedIn();
+        && request.auth.token.coordinationId is string && signedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.coordinationId == request.auth.token.coordinationId;
     }
 
     function subCoordinator() {
       return request.auth != null && role() == "sub_coordination_admin"
         && request.auth.token.coordinationId is string
-        && request.auth.token.subCoordinationId is string && signedIn();
+        && request.auth.token.subCoordinationId is string && signedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.coordinationId == request.auth.token.coordinationId
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.subCoordinationId == request.auth.token.subCoordinationId;
     }
 
     function coordinationActor() {
@@ -132,7 +144,8 @@ service cloud.firestore {
     function parentUser() {
       return request.auth != null && role() == "parent"
         && tenantSchoolId() is string
-        && tenantParentId() is string && signedIn();
+        && tenantParentId() is string && signedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.parentId == tenantParentId();
     }
 
     function secretary() {
@@ -1002,10 +1015,10 @@ service cloud.firestore {
           && request.resource.data.keys().hasOnly(["id", "schoolId", "schoolYearId", "name", "active", "createdBy", "createdAt", "updatedAt"]);
       }
       function validStudyLegacyClassCreate() {
-        return studyDirector()
+        return !("parentClassId" in request.resource.data)
+          && studyDirector()
           && activeStudyYearCreate()
           && classId.matches("^" + tenantSchoolId() + "__" + request.resource.data.schoolYearId + "__.+$")
-          && !("parentClassId" in request.resource.data)
           && request.resource.data.name is string
           && request.resource.data.name.size() > 0
           && request.resource.data.createdBy == request.auth.uid
@@ -1744,7 +1757,10 @@ service cloud.firestore {
           || (activeDisciplineYearCreate()
             && ((request.resource.data.recipientRole == "school" && request.resource.data.schoolRecipient == "discipline")
               || (request.resource.data.recipientRole == "parent" && request.resource.data.parentId is string))));
-      allow update: if (!("type" in resource.data && resource.data.type == "financial_correction")
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(["read"])
+        && request.resource.data.read is bool
+        && (!("recipientUserId" in resource.data) || resource.data.recipientUserId == request.auth.uid)
+        && (!("type" in resource.data && resource.data.type == "financial_correction")
           || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(["read"])
             && "recipientUserId" in resource.data && resource.data.recipientUserId == request.auth.uid))
         && ((role() in ["school_admin", "cashier"]
