@@ -4,15 +4,27 @@ service firebase.storage {
   match /b/{bucket}/o {
     function signedIn() {
       return request.auth != null
-        && (request.auth.token.role != "teacher"
-          || (firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.schoolId == request.auth.token.schoolId
-            && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == "teacher"
-            && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.status != "inactive"
-            && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.active != false));
+        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
+        && (!firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.keys().hasAny(["status"])
+          || firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.status != "inactive")
+        && (!firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.keys().hasAny(["active"])
+          || firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.active != false)
+        && ((role() == "super_admin"
+            && !firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.keys().hasAny(["role"]))
+          || firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == role()
+          || (firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == "admin" && role() == "school_admin"))
+        && (role() in ["super_admin", "coordination_admin", "sub_coordination_admin"]
+          || firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.schoolId == tenantSchoolId())
+        && (role() != "parent"
+          || firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.parentId == request.auth.token.parentId)
+        && (!(role() in ["coordination_admin", "sub_coordination_admin"])
+          || firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.coordinationId == request.auth.token.coordinationId)
+        && (role() != "sub_coordination_admin"
+          || firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.subCoordinationId == request.auth.token.subCoordinationId);
     }
 
     function role() {
-      return request.auth.token.role;
+      return request.auth.token.role == "admin" ? "school_admin" : request.auth.token.role;
     }
 
     function tenantSchoolId() {
@@ -143,14 +155,17 @@ service firebase.storage {
       }
 
       allow read: if signedIn()
+        && role() == "secretary"
         && tenantSchoolId() == schoolId
         && schoolAcceptsWrites(schoolId)
         && correspondence().schoolId == schoolId;
-      allow create, update: if signedIn()
+      allow create: if resource == null
+        && signedIn()
         && role() == "secretary"
         && tenantSchoolId() == schoolId
         && schoolAcceptsWrites(schoolId)
         && correspondence().schoolId == schoolId
+        && correspondence().status != "archived"
         && request.resource.size <= 10 * 1024 * 1024
         && request.resource.contentType in [
           "application/pdf",
@@ -160,11 +175,13 @@ service firebase.storage {
           "image/png"
         ]
         && fileName.matches('.*\\.(pdf|doc|docx|jpg|jpeg|png)$');
+      allow update: if false;
       allow delete: if signedIn()
         && role() == "secretary"
         && tenantSchoolId() == schoolId
         && schoolAcceptsWrites(schoolId)
-        && correspondence().schoolId == schoolId;
+        && correspondence().schoolId == schoolId
+        && correspondence().status != "archived";
     }
 
     match /message-uploads/{schoolId}/{senderId}/{draftId}/{fileName} {

@@ -93,6 +93,13 @@ describe("API de cotation Enseignant", () => {
     await expect(executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body: { action: "load", schoolId: "s", schoolYearId: "y" } })).rejects.toMatchObject({ status: 403, code: "permission-denied" });
   });
 
+  it("refuse un ancien jeton Enseignant après changement de rôle du profil", async () => {
+    const { db, records } = rosterDb();
+    records.users[0].role = "cashier";
+    await expect(executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body: { action: "load", schoolId: "s", schoolYearId: "y" } }))
+      .rejects.toMatchObject({ status: 403, code: "permission-denied" });
+  });
+
   it("charge le parent et l’option opérationnelle sans dupliquer le roster demandé séparément", async () => {
     const { db } = rosterDb();
     const result = await executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body: { action: "load", schoolId: "s", schoolYearId: "y" } });

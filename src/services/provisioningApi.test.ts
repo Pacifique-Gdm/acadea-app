@@ -76,7 +76,7 @@ describe("API de provisionnement Acadéa", () => {
       get: vi.fn().mockResolvedValue(path === "schools/school-1"
         ? { exists: true, data: () => ({ id: "school-1" }) }
         : ["users/admin-1", "users/secretary-1", "users/super-1"].includes(path)
-          ? { exists: true, data: () => ({ id: path.slice(6), schoolId: "school-1", status: "active", active: true }) }
+          ? { exists: true, data: () => ({ id: path.slice(6), role: path === "users/admin-1" ? "school_admin" : path === "users/secretary-1" ? "secretary" : "super_admin", schoolId: "school-1", status: "active", active: true }) }
         : path === "schoolYears/year-1"
           ? { exists: true, data: () => ({ id: "year-1", schoolId: "school-1", status: "active" }) }
         : path === "students/student-1"
@@ -397,7 +397,7 @@ describe("API de provisionnement Acadéa", () => {
       get: vi.fn().mockResolvedValue(path === "schools/school-1"
         ? { exists: true, data: () => ({ id: "school-1" }) }
         : path === "users/admin-1"
-          ? { exists: true, data: () => ({ id: "admin-1", schoolId: "school-1", status: "active" }) }
+          ? { exists: true, data: () => ({ id: "admin-1", role: "school_admin", schoolId: "school-1", status: "active" }) }
         : { exists: true, data: () => ({ id: "student-foreign", schoolId: "school-2", schoolYearId: "year-1", status: "ACTIVE" }), ref: { path } }),
     }));
     const res = response();

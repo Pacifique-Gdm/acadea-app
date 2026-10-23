@@ -60,5 +60,5 @@ jobs:
       - name: Firestore et Storage — émulateurs locaux uniquement
         run: >-
           npx --yes firebase-tools@15.25.0 emulators:exec
-          --project acadea-staging --only firestore,storage
+          --project demo-acadea-security-s1-s4 --only firestore,storage
           "npm run test:firestore -- --maxWorkers=2 && npm run test:storage -- --maxWorkers=2"

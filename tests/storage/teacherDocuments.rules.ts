@@ -28,7 +28,7 @@ async function schoolStatus(status: string) {
 }
 
 describe("documents pédagogiques Storage", () => {
-  beforeAll(async () => { environment = await initializeTestEnvironment({ projectId: "acadea-staging", firestore: { rules: readFileSync("firestore.rules", "utf8") }, storage: { rules: readFileSync("storage.rules", "utf8") } }); }, 30_000);
+  beforeAll(async () => { environment = await initializeTestEnvironment({ projectId: "demo-acadea-security-s1-s4", firestore: { rules: readFileSync("firestore.rules", "utf8") }, storage: { rules: readFileSync("storage.rules", "utf8") } }); }, 30_000);
   beforeEach(async () => {
     await environment.clearFirestore(); await environment.clearStorage();
     await schoolStatus("active"); await seedUser(); await seedTeacher();

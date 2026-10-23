@@ -138,6 +138,7 @@ export async function deleteCorrespondencePermanently(user: AppUser, current: Co
 
 export async function replaceCorrespondenceAttachment(user: AppUser, current: Correspondence, file: File): Promise<CorrespondenceAttachment> {
   assertSecretary(user, current.schoolId);
+  if (current.status === "archived") throw new Error("Cette correspondance est en lecture seule.");
   const validation = validateCorrespondenceAttachment(file);
   if (validation) throw new Error(validation);
   if (!db || !storage) throw new Error("Service de fichiers indisponible.");

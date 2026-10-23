@@ -34,6 +34,10 @@ describe("correspondances du Secrétaire", () => {
     const oldDeleteIndex = source.indexOf("if (current.attachment?.path) await deleteObject");
     expect(persistIndex).toBeGreaterThan(-1);
     expect(oldDeleteIndex).toBeGreaterThan(persistIndex);
+    const archivedGuard = source.indexOf('if (current.status === "archived") throw new Error("Cette correspondance est en lecture seule.");', source.indexOf("export async function replaceCorrespondenceAttachment"));
+    const uploadIndex = source.indexOf("await uploadBytes(target", archivedGuard);
+    expect(archivedGuard).toBeGreaterThan(-1);
+    expect(uploadIndex).toBeGreaterThan(archivedGuard);
   });
 
   it("supprime atomiquement la référence de pièce jointe lors du passage en courrier sortant", () => {
