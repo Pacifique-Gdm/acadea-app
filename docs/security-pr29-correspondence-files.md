@@ -21,17 +21,36 @@ Les règles Firestore conservent l'accès d'un Parent historique sans claim
 actif. Si le claim existe, il doit toujours correspondre au profil ; un Parent
 ne peut pas modifier lui-même ce champ protégé.
 
+## Pièces jointes des messages
+
+La lecture finale des messages exige également trois sources : profil, école et
+document `messages/{id}`. La callable `messageAttachmentFile` vérifie ces trois
+sources côté serveur, l'appartenance de l'utilisateur à `participantIds` et le
+chemin exact de la pièce dans `attachments`. Elle relit les autorisations après
+le chargement des octets. Les règles Storage refusent donc la lecture directe
+du chemin final ; le téléversement temporaire du Secrétaire reste inchangé.
+La taille reste limitée à 10 Mo et les types de fichiers restent inchangés.
+Les nouvelles pièces de messages ne reçoivent plus de jeton URL.
+
+Le Parent historique sans claim `parentId` utilise son profil actif pour les
+autres accès Storage autorisés ; un claim présent mais discordant est refusé.
+La callable applique la même condition avant chaque téléchargement.
+
 ## Compatibilité des anciens documents et URL
 
-Les anciennes pièces jointes conservent leur `attachment.path`. Le nouveau bouton
+Les anciennes pièces jointes de correspondance conservent leur `attachment.path`. Le nouveau bouton
 de consultation demande leur contenu à la fonction, même lorsqu'un ancien
 `attachment.url` est encore présent. Aucune migration de documents n'est requise
 pour cette lecture. Les nouvelles pièces n'enregistrent plus d'URL à jeton.
+Les anciennes pièces de messages conservent également leur chemin et restent
+consultables par la nouvelle fonction ; leur éventuel champ `url` est ignoré
+par l'interface. Aucune migration Firestore n'est requise.
 
 **Limite distincte :** une ancienne URL Firebase contenant déjà un jeton de
 téléchargement peut rester utilisable hors de l'application malgré les nouvelles
 règles Storage. Avant de déclarer la confidentialité des anciens liens entièrement
-assurée en Production, inventorier les objets de correspondance et leurs jetons,
+assurée en Production, inventorier les objets de correspondance et de messages
+et leurs jetons,
 préparer un dry-run ciblé, puis retirer ou renouveler ces jetons avec une autorisation
 Production distincte. Ne pas modifier les objets ni leurs métadonnées Production
 dans la PR #29. Les liens externes déjà partagés cesseront alors de fonctionner ;

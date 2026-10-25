@@ -5,6 +5,7 @@ import { initializeApp } from "firebase/app";
 import { connectAuthEmulator, getAuth, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { connectStorageEmulator, getDownloadURL, getStorage, ref, uploadBytes } from "firebase/storage";
 import { handleSecretaryCorrespondenceFile } from "../functions/lib/audit/secretaryCorrespondenceFile.js";
+import { handleMessageAttachmentFile } from "../functions/lib/audit/messageAttachmentFile.js";
 
 const requireFunctions = createRequire(new URL("../functions/package.json", import.meta.url));
 const { initializeApp: initializeAdminApp, getApps: getAdminApps } = requireFunctions("firebase-admin/app");
@@ -33,6 +34,12 @@ async function invoke(data) {
   const decoded = await adminAuth.verifyIdToken(idToken);
   return { data: await handleSecretaryCorrespondenceFile({ auth: { uid: decoded.uid, token: decoded }, data }) };
 }
+async function invokeMessage(data) {
+  if (!auth.currentUser) throw new Error("Local test user not authenticated");
+  const idToken = await auth.currentUser.getIdToken();
+  const decoded = await adminAuth.verifyIdToken(idToken);
+  return { data: await handleMessageAttachmentFile({ auth: { uid: decoded.uid, token: decoded }, data }) };
+}
 const fixture = `e2e-pr29-${Date.now()}`;
 const schoolA = `${fixture}-school-a`;
 const schoolB = `${fixture}-school-b`;
@@ -40,6 +47,9 @@ const secretary = `${fixture}-secretary`;
 const parent = `${fixture}-parent`;
 const corrA = `${fixture}-corr-a`;
 const corrB = `${fixture}-corr-b`;
+const messageId = `${fixture}-message`;
+const conversationId = `${fixture}-conversation`;
+const messagePath = `messages/${schoolA}/${conversationId}/${messageId}/123e4567-e89b-42d3-a456-426614174000.pdf`;
 const password = randomBytes(24).toString("base64url");
 const created = [];
 let checks = 0;
@@ -66,7 +76,10 @@ try {
   await adminAuth.createUser({ uid: secretary, email: `${secretary}@example.test`, password });
   await adminAuth.setCustomUserClaims(secretary, { role: "secretary", schoolId: schoolA });
   await adminAuth.createUser({ uid: parent, email: `${parent}@example.test`, password });
-  await adminAuth.setCustomUserClaims(parent, { role: "parent", schoolId: schoolA, parentId: parent });
+  await adminAuth.setCustomUserClaims(parent, { role: "parent", schoolId: schoolA });
+  const messageBytes = Buffer.from("local-message-attachment");
+  await put("messages", messageId, { id: messageId, schoolId: schoolA, conversationId, participantIds: [secretary, parent], attachments: [{ name: "message.pdf", type: "application/pdf", size: messageBytes.length, path: messagePath }] });
+  await bucket.file(messagePath).save(messageBytes, { contentType: "application/pdf", preconditionOpts: { ifGenerationMatch: 0 } });
 
   await signInWithEmailAndPassword(auth, `${secretary}@example.test`, password);
   const first = await invoke({ action: "upload", correspondenceId: corrA, name: "preuve.pdf", contentType: "application/pdf", dataBase64: Buffer.from("fixture-pr29").toString("base64") });
@@ -88,6 +101,15 @@ try {
   await signOut(auth);
   await signInWithEmailAndPassword(auth, `${parent}@example.test`, password);
   await rejects(() => invoke({ action: "download", correspondenceId: corrA }));
+  const legacyRead = await invokeMessage({ messageId, path: messagePath });
+  assert.equal(Buffer.from(legacyRead.data.dataBase64, "base64").toString(), messageBytes.toString());
+  checks++;
+  await rejects(() => getDownloadURL(ref(storage, messagePath)));
+  await rejects(() => invokeMessage({ messageId, path: messagePath.replace(schoolA, schoolB) }));
+  await adminAuth.setCustomUserClaims(parent, { role: "parent", schoolId: schoolA, parentId: "wrong-parent" });
+  await signOut(auth);
+  await signInWithEmailAndPassword(auth, `${parent}@example.test`, password);
+  await rejects(() => invokeMessage({ messageId, path: messagePath }));
   await signOut(auth);
   await signInWithEmailAndPassword(auth, `${secretary}@example.test`, password);
   await db.doc(`users/${secretary}`).update({ schoolId: schoolB });
@@ -120,4 +142,5 @@ try {
   for (const uid of [secretary, parent]) await adminAuth.deleteUser(uid).catch(() => undefined);
   await bucket.deleteFiles({ prefix: `schools/${schoolA}/correspondences/` }).catch(() => undefined);
   await bucket.deleteFiles({ prefix: `schools/${schoolB}/correspondences/` }).catch(() => undefined);
+  await bucket.deleteFiles({ prefix: `messages/${schoolA}/${conversationId}/${messageId}/` }).catch(() => undefined);
 }

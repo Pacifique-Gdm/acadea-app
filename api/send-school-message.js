@@ -118,10 +118,9 @@ export async function verifyAndMoveAttachments(bucket, caller, schoolYearId, dra
   const moved = [];
   try {
     for (const item of verified) {
-      const token = randomUUID();
       const destination = `messages/${caller.schoolId}/${conversationId}/${messageId}/${randomUUID()}${item.extension}`;
-      await bucket.file(item.sourcePath).copy(bucket.file(destination), { metadata: { contentType: item.type, metadata: { firebaseStorageDownloadTokens: token, schoolId: caller.schoolId, schoolYearId, conversationId, messageId, originalName: item.name } } });
-      moved.push({ name: item.name, type: item.type, size: item.size, path: destination, url: `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(destination)}?alt=media&token=${token}` });
+      await bucket.file(item.sourcePath).copy(bucket.file(destination), { metadata: { contentType: item.type, metadata: { schoolId: caller.schoolId, schoolYearId, conversationId, messageId, originalName: item.name } } });
+      moved.push({ name: item.name, type: item.type, size: item.size, path: destination });
     }
     return moved;
   } catch (error) {

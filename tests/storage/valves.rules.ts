@@ -113,4 +113,18 @@ describe("pieces jointes Valves", () => {
     await assertSucceeds(context("secretary").storage().ref(legacyPath).getDownloadURL());
     await assertFails(context("secretary", "school-b").storage().ref(legacyPath).getDownloadURL());
   });
+
+  it("permet au Parent historique sans claim parentId de lire une pièce de son école, sans accepter un claim discordant", async () => {
+    const path = `valves/${schoolId}/${yearId}/${publicationId}/${fileId}.pdf`;
+    await testEnvironment().withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), "users/parent-user"), { role: "parent", schoolId, parentId: "parent-a", status: "active", active: true });
+      await admin.storage().ref(path).put(new Uint8Array(10), { contentType: "application/pdf" });
+    });
+    const legacy = testEnvironment().authenticatedContext("parent-user", { role: "parent", schoolId });
+    const matching = testEnvironment().authenticatedContext("parent-user", { role: "parent", schoolId, parentId: "parent-a" });
+    const mismatched = testEnvironment().authenticatedContext("parent-user", { role: "parent", schoolId, parentId: "parent-b" });
+    await assertSucceeds(legacy.storage().ref(path).getDownloadURL());
+    await assertSucceeds(matching.storage().ref(path).getDownloadURL());
+    await assertFails(mismatched.storage().ref(path).getDownloadURL());
+  });
 });

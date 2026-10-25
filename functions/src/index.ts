@@ -11,3 +11,4 @@ export { platformAiResetMonthlyUsage, platformAiUpdateSettings } from "./ai/scho
 export { onDisciplineSanctionAudited } from "./audit/disciplineAudit.js";
 export { secretaryDeleteDocument } from "./audit/secretaryDocumentDeletion.js";
 export { secretaryCorrespondenceFile } from "./audit/secretaryCorrespondenceFile.js";
+export { messageAttachmentFile } from "./audit/messageAttachmentFile.js";

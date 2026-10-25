@@ -16,7 +16,10 @@ service firebase.storage {
         && (role() in ["super_admin", "coordination_admin", "sub_coordination_admin"]
           || firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.schoolId == tenantSchoolId())
         && (role() != "parent"
-          || firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.parentId == request.auth.token.parentId)
+          || (firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.get("parentId", null) is string
+            && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.get("parentId", "").size() > 0
+            && (request.auth.token.get("parentId", null) == null
+              || firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.parentId == request.auth.token.parentId)))
         && (!(role() in ["coordination_admin", "sub_coordination_admin"])
           || firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.coordinationId == request.auth.token.coordinationId)
         && (role() != "sub_coordination_admin"
@@ -171,16 +174,10 @@ service firebase.storage {
     }
 
     match /messages/{schoolId}/{conversationId}/{messageId}/{fileName} {
-      function message() {
-        return firestore.get(/databases/(default)/documents/messages/$(messageId)).data;
-      }
-      allow read: if signedIn()
-        && tenantSchoolId() == schoolId
-        && schoolAcceptsWrites(schoolId)
-        && message().schoolId == schoolId
-        && message().conversationId == conversationId
-        && message().participantIds is list
-        && request.auth.uid in message().participantIds;
+      // Profil, école et message sont trois sources indépendantes : la limite
+      // de deux consultations Firestore par évaluation Storage impose un
+      // téléchargement via la fonction authentifiée messageAttachmentFile.
+      allow read: if false;
       allow write: if false;
     }
 

@@ -66,9 +66,27 @@ describe("API de messagerie scolaire", () => {
     const first = `message-uploads/school-a/secretary-a/${draftId}/123e4567-e89b-42d3-a456-426614174000.pdf`;
     const second = `message-uploads/school-a/secretary-a/${draftId}/223e4567-e89b-42d3-a456-426614174000.pdf`;
     const metadata = { schoolId: "school-a", schoolYearId: "year-a", senderId: "secretary-a", draftId, originalName: "document.pdf" };
-    await expect(verifyAndMoveAttachments(bucketWith({ [first]: { size: MAX_TOTAL_BYTES / 2, type: "application/pdf", metadata }, [second]: { size: MAX_TOTAL_BYTES / 2, type: "application/pdf", metadata } }), caller, "year-a", draftId, [{ path: first }, { path: second }], "conversation-a", "message-a")).resolves.toHaveLength(2);
+    const moved = await verifyAndMoveAttachments(bucketWith({ [first]: { size: MAX_TOTAL_BYTES / 2, type: "application/pdf", metadata }, [second]: { size: MAX_TOTAL_BYTES / 2, type: "application/pdf", metadata } }), caller, "year-a", draftId, [{ path: first }, { path: second }], "conversation-a", "message-a");
+    expect(moved).toHaveLength(2);
+    expect(moved.every((item: { path: string; url?: string }) => item.path.startsWith("messages/school-a/") && !("url" in item))).toBe(true);
     await expect(verifyAndMoveAttachments(bucketWith({ [first]: { size: MAX_TOTAL_BYTES, type: "application/pdf", metadata }, [second]: { size: 1, type: "application/pdf", metadata } }), caller, "year-a", draftId, [{ path: first }, { path: second }], "conversation-a", "message-a")).rejects.toMatchObject({ code: "attachments-too-large" });
     await expect(verifyAndMoveAttachments(bucketWith({ [first]: { size: 10, type: "application/pdf", metadata: { ...metadata, schoolId: "school-b" } } }), caller, "year-a", draftId, [{ path: first }], "conversation-a", "message-a")).rejects.toMatchObject({ code: "invalid-attachments" });
+  });
+
+  it("ne crée ni URL publique ni jeton de téléchargement sur les nouveaux messages", async () => {
+    const source = "message-uploads/school-a/secretary-a/draft-a/123e4567-e89b-42d3-a456-426614174000.pdf";
+    const copy = vi.fn(async (destination: unknown, options: { metadata: { metadata: Record<string, string> } }) => {
+      expect(destination).toBeDefined();
+      expect(options.metadata).toBeDefined();
+    });
+    const bucket = { name: "bucket.test", file: () => ({
+      getMetadata: vi.fn(async () => [{ size: "12", contentType: "application/pdf", metadata: { schoolId: "school-a", schoolYearId: "year-a", senderId: "secretary-a", draftId: "draft-a", originalName: "document.pdf" } }]),
+      copy,
+      delete: vi.fn(async () => undefined),
+    }) };
+    const result = await verifyAndMoveAttachments(bucket, { uid: "secretary-a", schoolId: "school-a" }, "year-a", "draft-a", [{ path: source }], "conversation-a", "message-a");
+    expect(result[0]).not.toHaveProperty("url");
+    expect(copy.mock.calls[0][1].metadata.metadata).not.toHaveProperty("firebaseStorageDownloadTokens");
   });
   it("impose l'identite authentifiee dans le document persiste", () => {
     const attachments = [{ name: "document.pdf", type: "application/pdf", size: 10, path: "messages/school-a/conversation-a/message-a/file.pdf", url: "https://storage.test/file" }];
