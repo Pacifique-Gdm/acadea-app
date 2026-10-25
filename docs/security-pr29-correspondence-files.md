@@ -16,6 +16,11 @@ téléversement utilise un nom aléatoire et la précondition Storage
 qui relit les trois sources. Si la transaction échoue, le nouvel objet est retiré.
 La taille maximale reste 10 Mo et les types autorisés sont inchangés.
 
+Les règles Firestore conservent l'accès d'un Parent historique sans claim
+`parentId` en utilisant l'identifiant présent dans son profil `users/{uid}`
+actif. Si le claim existe, il doit toujours correspondre au profil ; un Parent
+ne peut pas modifier lui-même ce champ protégé.
+
 ## Compatibilité des anciens documents et URL
 
 Les anciennes pièces jointes conservent leur `attachment.path`. Le nouveau bouton
@@ -43,7 +48,14 @@ la consultation dans Acadéa continuera par `attachment.path`.
 5. Tester S1–S4, les accès légitimes, les refus, le transfert, l'archivage et les
    parcours Horaires. Ne pas promouvoir Production avant la recette.
 
-En cas de régression critique, restaurer d'abord les règles sauvegardées pour que
-l'ancienne interface reste compatible, puis revenir à l'ancien alias. La fonction
-nouvelle peut rester inactive jusqu'à correction ; ne supprimer aucune donnée.
-Pour Production, cette séquence requiert l'autorisation finale du propriétaire.
+Sur Staging, les règles historiques peuvent être restaurées si l'alias applicatif
+sert encore l'ancienne interface. La recette S1–S4 de cette PR a été menée sur
+des comptes et documents fictifs, puis les règles Staging sauvegardées ont été
+remises à l'identique pour préserver cet alias ancien ; la fonction candidate
+reste déployée mais n'est pas utilisée par lui.
+
+En Production, après publication des règles restrictives, ne pas restaurer
+automatiquement les anciennes règles car cela rouvrirait S1–S4. Suspendre au
+besoin le parcours affecté et corriger vers l'avant avec une version compatible.
+La fusion et toute modification Production requièrent l'autorisation finale du
+propriétaire.

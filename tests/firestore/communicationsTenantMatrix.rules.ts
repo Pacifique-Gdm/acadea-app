@@ -162,6 +162,16 @@ describe("SEC-015 — communications, notifications et discipline", () => {
     }
   });
 
+  it("préserve l'accès du Parent historique sans claim parentId sans accepter un claim discordant", async () => {
+    const legacyParent = auth("parent-user-a", "parent", schoolA);
+    const otherLegacyParent = auth("parent-user-x", "parent", schoolA);
+    await assertSucceeds(getDoc(doc(legacyParent, "notifications", "notification-a")));
+    await assertSucceeds(getDoc(doc(legacyParent, "messages", "message-a")));
+    await assertFails(getDoc(doc(otherLegacyParent, "notifications", "notification-a")));
+    await assertFails(getDoc(doc(auth("parent-user-a", "parent", schoolA, { parentId: "parent-x" }), "notifications", "notification-a")));
+    await assertFails(updateDoc(doc(legacyParent, "users", "parent-user-a"), { parentId: "parent-x" }));
+  });
+
   it("autorise au Parent la query temps réel exacte d'un message personnel et refuse les autres UID", async () => {
     const parent = auth("parent-user-a", "parent", schoolA, { parentId: "parent-a" });
     const result = await assertSucceeds(getDocs(query(
