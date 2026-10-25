@@ -9,6 +9,7 @@ import { buildDashboardClassRows } from "../../utils/dashboardClassStats";
 import { formatChartDate, getTransactionPeriodDates, isInDashboardDateRange } from "../../utils/dashboardDates";
 import { exportDashboardReportPdf } from "../../utils/dashboardPdf";
 import { money } from "../../utils/pdf";
+import { expenseCategoryLabel } from "../../utils/expenseCategory";
 import { formatCurrencyMoney, resolveSchoolYearCurrency } from "../../utils/currency";
 import { hasCurrencyOutside } from "../../utils/operationCurrency";
 import { sumMoney } from "../../utils/money";
@@ -471,7 +472,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
     () =>
       [
         ...transactionPayments.map((payment) => ({ id: payment.id, type: "Paiement", label: payment.cashierName, amount: payment.amount, currency: payment.currency, date: payment.paidAt, occurredAt: payment.createdAt ?? payment.paidAt })),
-        ...transactionExpenses.map((expense) => ({ id: expense.id, type: "D\u00e9pense", label: expense.category, amount: -expense.amount, currency: expense.currency, date: expense.spentAt, occurredAt: expense.createdAt ?? expense.spentAt })),
+        ...transactionExpenses.map((expense) => ({ id: expense.id, type: "D\u00e9pense", label: expenseCategoryLabel(expense.category), amount: -expense.amount, currency: expense.currency, date: expense.spentAt, occurredAt: expense.createdAt ?? expense.spentAt })),
       ].sort((a, b) => (b.occurredAt ?? b.date).localeCompare(a.occurredAt ?? a.date)),
     [transactionExpenses, transactionPayments],
   );
@@ -517,7 +518,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
             id: expense.id,
             kind: "expense",
             type: "Dépense",
-            label: expense.description || expense.category,
+            label: expense.description || expenseCategoryLabel(expense.category),
             amount: expense.amount,
             date: expense.spentAt,
             occurredAt: expense.createdAt ?? expense.spentAt,

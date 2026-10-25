@@ -6,6 +6,7 @@ import { printPersonnelPaymentPdf } from "../../utils/personnelPayrollPdf";
 import { formatCurrencyMoney, resolveSchoolYearCurrency } from "../../utils/currency";
 import { fromMoneyMinor, remainingMoney, sumMoney, toMoneyMinor } from "../../utils/money";
 import type { PersonnelPayment, School, SchoolYear } from "../../types";
+import { personnelJobTitleLabel } from "../../services/personnel";
 
 const today = () => {
   const date = new Date();
@@ -131,7 +132,7 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
 
   return <form className="grid min-w-0 gap-3 text-sm" onSubmit={(event) => void submit(event)}>
     {loading && <p role="status">Chargement du personnel…</p>}
-    <label className="grid gap-1 font-semibold">Bénéficiaire<select className="input min-w-0" value={beneficiaryId} onChange={(event) => setBeneficiaryId(event.target.value)}><option value="">Choisir un personnel</option>{personnel.map((item) => <option key={item.id} value={item.id}>{item.name} — {item.jobTitle}</option>)}</select></label>
+    <label className="grid gap-1 font-semibold">Bénéficiaire<select className="input min-w-0" value={beneficiaryId} onChange={(event) => setBeneficiaryId(event.target.value)}><option value="">Choisir un personnel</option>{personnel.map((item) => <option key={item.id} value={item.id}>{item.name} — {personnelJobTitleLabel(item.jobTitle, item.hasAccount)}</option>)}</select></label>
     <label className="grid gap-1 font-semibold">Nature<select className="input" value={kind} onChange={(event) => { setKind(event.target.value as PersonnelPayment["kind"]); setRecoveries({}); }}><option value="salary">Salaire</option><option value="bonus">Prime</option><option value="advance">Versement d'une avance</option></select></label>
     {kind !== "advance" && <div className="grid grid-cols-2 gap-2"><label className="grid gap-1 font-semibold">Mois concerné<select className="input min-w-0" value={month} onChange={(event) => setMonth(Number(event.target.value))}>{months.map((label, index) => <option key={label} value={index + 1}>{label}</option>)}</select></label><label className="grid gap-1 font-semibold">Année concernée<input className="input min-w-0" type="number" min="2000" max="2200" value={periodYear} onChange={(event) => setPeriodYear(Number(event.target.value))}/></label></div>}
     <label className="grid gap-1 font-semibold">Date réelle du paiement<input className="input" type="date" value={paidAt} onChange={(event) => setPaidAt(event.target.value)}/></label>

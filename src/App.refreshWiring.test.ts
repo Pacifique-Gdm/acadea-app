@@ -19,6 +19,6 @@ describe("actualisation des portails spécialisés", () => {
     expect(source).toContain("isRefreshing={isRefreshing || teacherRefreshing}");
     expect(source).toContain("refreshError={refreshError || teacherRefreshError}");
     const portal = readFileSync(new URL("./modules/teacher/TeacherPortal.tsx", import.meta.url), "utf8");
-    expect(portal).toContain("renderHeader({ isRefreshing: data.loading, refreshError: data.error })");
+    expect(portal).toContain("renderHeader({ isRefreshing: data.loading, refreshError: data.error, onOpenAvailabilityRequests:");
   });
 });

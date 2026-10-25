@@ -54,7 +54,7 @@ export function MessageDrawerContent({
   notificationPagination?: ReactNode;
   roleLabels: Record<AppUser["role"], string>;
   focusedMessageId?: string;
-  onOpenAvailabilityRequests?: () => void;
+  onOpenAvailabilityRequests?: (requestId?: string) => void;
   onOpenPublishedGrades?: (studentId: string, slot: NonNullable<AppNotification["slot"]>) => void;
 }) {
   const focusedMessageRef = useRef<HTMLDivElement | null>(null);
@@ -276,9 +276,9 @@ export function MessageDrawerContent({
         </div>
         {item.notificationSenderLabel && <p className="mt-1 break-words text-sm font-semibold text-slate-700">{item.notificationSenderLabel}</p>}
         <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-slate-600">{item.preview}</p>
-        {item.notification.type === "availability" && user.role === "study_director" && onOpenAvailabilityRequests && (
-          <button type="button" className="secondary-button mt-3" onClick={onOpenAvailabilityRequests}>
-            Ouvrir les demandes d’indisponibilité
+        {item.notification.type === "availability" && (user.role === "study_director" || user.role === "teacher") && onOpenAvailabilityRequests && (
+          <button type="button" className="secondary-button mt-3" onClick={() => onOpenAvailabilityRequests(item.notification.requestId)}>
+            Ouvrir la demande d’indisponibilité
           </button>
         )}
         {item.notification.type === "grade_publication" && user.role === "parent" && item.notification.studentId && item.notification.slot && onOpenPublishedGrades && (

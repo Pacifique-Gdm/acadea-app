@@ -20,6 +20,13 @@ export const personnelRoleLabels: Record<InternalPersonnelRole, string> = {
   teacher: "Enseignant",
 };
 
+export function personnelJobTitleLabel(jobTitle: string, hasAccount: boolean): string {
+  if (!hasAccount) return jobTitle;
+  if (jobTitle === "director_of_studies") return personnelRoleLabels.study_director;
+  if (jobTitle === "school_admin") return "Administrateur scolaire";
+  return personnelRoleLabels[jobTitle as InternalPersonnelRole] ?? jobTitle;
+}
+
 export function isInternalPersonnel(user: AppUser): user is AppUser & { role: InternalPersonnelRole } {
   return Boolean(user.schoolId) && INTERNAL_PERSONNEL_ROLES.includes(user.role as InternalPersonnelRole);
 }

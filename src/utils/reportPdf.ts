@@ -2,6 +2,7 @@ import type { Expense, Payment, School, SchoolYear, Student } from "../types";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./pdf";
 import { formatCurrencyMoney, resolveSchoolYearCurrency } from "./currency";
 import { formatRecordedTotals, type totalsByRecordedCurrency } from "./operationCurrency";
+import { expenseCategoryLabel } from "./expenseCategory";
 
 export async function exportReportPdf(
   school: School,
@@ -112,7 +113,7 @@ export async function exportReportPdf(
           [
             { header: "Date", render: (expense) => expense.spentAt },
             { header: "Heure", render: (expense) => timeFromDate(expense.spentAt), align: "center" },
-            { header: "Catégorie", render: (expense) => expense.category },
+            { header: "Catégorie", render: (expense) => expenseCategoryLabel(expense.category) },
             { header: "Caissier", render: (expense) => expense.cashierName || fallback },
             { header: "Montant", render: (expense) => formatCurrencyMoney(expense.amount, expense.currency!), align: "right" },
             { header: "Description", render: (expense) => expense.description },

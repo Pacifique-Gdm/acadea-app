@@ -468,6 +468,7 @@ export interface AppNotification {
   disciplineSanctionId?: string;
   attendanceId?: string;
   announcementId?: string;
+  requestId?: string;
   publicationId?: string;
   slot?: "period_1" | "period_2" | "semester_1_exam" | "period_3" | "period_4" | "semester_2_exam";
   audienceRoles?: Array<"parent" | "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary">;
@@ -492,6 +493,7 @@ export interface AuditLog {
   schoolId?: string;
   schoolYearId?: string;
   actorId: string;
+  subjectUserId?: string;
   actorRole?: AppUser["role"];
   actorName: string;
   resourceType?: string;

@@ -1332,32 +1332,9 @@ service cloud.firestore {
 
     match /teacherStudentObservations/{observationId} {
       allow read: if ownTeacherLearningData(resource.data) || studyTenantResource();
-      allow create: if request.resource.data.id == observationId
-        && request.resource.data.studentId is string
-        && request.resource.data.observation is string
-        && request.resource.data.observation.size() > 0
-        && request.resource.data.observation.size() <= 2000
-        && request.resource.data.updatedBy == request.auth.uid
-        && ownTeacherLearningResource(request.resource.data)
-        && exists(/databases/$(database)/documents/students/$(request.resource.data.studentId))
-        && get(/databases/$(database)/documents/students/$(request.resource.data.studentId)).data.schoolId == request.resource.data.schoolId
-        && get(/databases/$(database)/documents/students/$(request.resource.data.studentId)).data.schoolYearId == request.resource.data.schoolYearId
-        && (get(/databases/$(database)/documents/students/$(request.resource.data.studentId)).data.subClassId == request.resource.data.classId
-          || get(/databases/$(database)/documents/students/$(request.resource.data.studentId)).data.classId == request.resource.data.classId);
-      allow update: if request.resource.data.id == resource.data.id
-        && request.resource.data.schoolId == resource.data.schoolId
-        && request.resource.data.schoolYearId == resource.data.schoolYearId
-        && request.resource.data.teacherId == resource.data.teacherId
-        && request.resource.data.assignmentId == resource.data.assignmentId
-        && request.resource.data.studentId == resource.data.studentId
-        && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.createdBy == resource.data.createdBy
-        && request.resource.data.observation is string
-        && request.resource.data.observation.size() > 0
-        && request.resource.data.observation.size() <= 2000
-        && request.resource.data.updatedBy == request.auth.uid
-        && ownTeacherLearningResource(request.resource.data);
-      allow delete: if false;
+      // The authenticated grading API writes the observation and its immutable
+      // activity record in one atomic batch. Direct writes would bypass the audit.
+      allow create, update, delete: if false;
     }
 
     match /pedagogicalDocuments/{documentId} {
@@ -1425,7 +1402,9 @@ service cloud.firestore {
               && request.resource.data.startTime < request.resource.data.endTime));
       }
       allow read: if superAdmin() || studyTenantResource() || ownTeacherRequest();
-      allow create: if validTeacherRequestCreate();
+      // Submission is server-mediated so request, notification and activity
+      // record are committed together.
+      allow create: if false;
       allow update, delete: if false;
     }
 

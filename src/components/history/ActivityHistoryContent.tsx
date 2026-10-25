@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowUpDown, Banknote, Bell, Clock3, MessageSquare, Search, ShieldCheck } from "lucide-react";
-import type { AppData, AppUser } from "../../types";
+import type { AppData, AppUser, AuditLog } from "../../types";
+import { listPedagogicalHistory, type PedagogicalHistoryCursor } from "../../services/pedagogicalHistory";
 import { buildActivityHistoryItems, formatActivityDateTime } from "../../utils/activityHistory";
 import type { ActivityHistoryItem, ActivityHistoryYearData } from "../../utils/activityHistory";
 
@@ -11,6 +12,7 @@ export function ActivityHistoryContent({
   role,
   loading = false,
   error = "",
+  schoolYearId,
 }: {
   user: AppUser;
   data: AppData;
@@ -18,10 +20,41 @@ export function ActivityHistoryContent({
   role: "admin" | "cashier" | "parent" | "secretary" | "teacher" | "study_director";
   loading?: boolean;
   error?: string;
+  schoolYearId?: string;
 }) {
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | ActivityHistoryItem["type"]>("all");
-  const items = useMemo(() => buildActivityHistoryItems(user, data, yearData, role), [data, role, user, yearData]);
+  const [pedagogicalLogs, setPedagogicalLogs] = useState<AuditLog[]>([]);
+  const [pedagogicalCursor, setPedagogicalCursor] = useState<PedagogicalHistoryCursor | null>(null);
+  const [pedagogicalLoading, setPedagogicalLoading] = useState(false);
+  const [pedagogicalError, setPedagogicalError] = useState("");
+  const scopedYearId = schoolYearId || user.activeSchoolYearId || data.schools.find((school) => school.id === user.schoolId)?.activeSchoolYearId || data.schoolYears.find((year) => year.schoolId === user.schoolId && year.status === "active")?.id || "";
+  useEffect(() => {
+    if (!["teacher", "study_director", "admin"].includes(role) || !user.schoolId || !scopedYearId) return;
+    let active = true;
+    setPedagogicalLogs([]);
+    setPedagogicalCursor(null);
+    setPedagogicalLoading(true);
+    setPedagogicalError("");
+    void listPedagogicalHistory(user.schoolId, scopedYearId).then((page) => {
+      if (active) { setPedagogicalLogs(page.items); setPedagogicalCursor(page.nextCursor); }
+    }).catch(() => { if (active) setPedagogicalError("Impossible de charger les activités pédagogiques. Veuillez réessayer."); })
+      .finally(() => { if (active) setPedagogicalLoading(false); });
+    return () => { active = false; };
+  }, [role, scopedYearId, user.schoolId]);
+  const combinedYearData = useMemo(() => ({ ...yearData, auditLogs: [...yearData.auditLogs, ...pedagogicalLogs] }), [yearData, pedagogicalLogs]);
+  const items = useMemo(() => buildActivityHistoryItems(user, data, combinedYearData, role), [data, role, user, combinedYearData]);
+  async function loadMorePedagogical() {
+    if (!pedagogicalCursor || !user.schoolId || !scopedYearId || pedagogicalLoading) return;
+    setPedagogicalLoading(true);
+    setPedagogicalError("");
+    try {
+      const page = await listPedagogicalHistory(user.schoolId, scopedYearId, pedagogicalCursor);
+      setPedagogicalLogs((current) => [...current, ...page.items]);
+      setPedagogicalCursor(page.nextCursor);
+    } catch { setPedagogicalError("Impossible de charger les activités pédagogiques. Veuillez réessayer."); }
+    finally { setPedagogicalLoading(false); }
+  }
   const normalizedQuery = query.trim().toLowerCase();
   const filteredItems = items.filter((item) => {
     const matchesType = typeFilter === "all" || item.type === typeFilter;
@@ -60,6 +93,8 @@ export function ActivityHistoryContent({
       {loading && <p role="status" className="rounded bg-slate-50 p-5 text-center text-sm text-slate-600">Chargement de l’historique…</p>}
       {!loading && error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-700">Impossible de charger l’historique. Veuillez réessayer.</p>}
       {!loading && !error && <>
+      {pedagogicalError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{pedagogicalError}</p>}
+      {pedagogicalLoading && <p role="status" className="text-sm text-slate-500">Chargement des activités pédagogiques…</p>}
       <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_160px]">
         <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
           <Search className="h-4 w-4 shrink-0 text-slate-400" />
@@ -107,6 +142,7 @@ export function ActivityHistoryContent({
           </article>
         ))}
       </div>
+      {pedagogicalCursor && <button type="button" className="secondary-button justify-center" disabled={pedagogicalLoading} onClick={() => void loadMorePedagogical()}>Afficher plus d’activités pédagogiques</button>}
       </>}
     </div>
   );
