@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArchiveRestore, Download, Eye, FileText, Plus, Search, Trash2 } from "lucide-react";
 import { AdminDrawer, SectionTitle } from "../../components/ui";
-import { createCorrespondence, deleteCorrespondencePermanently, replaceCorrespondenceAttachment, subscribeToCorrespondences, unarchiveCorrespondence, updateCorrespondence } from "../../services/secretaryCorrespondence";
+import { createCorrespondence, deleteCorrespondencePermanently, downloadCorrespondenceAttachment, replaceCorrespondenceAttachment, subscribeToCorrespondences, unarchiveCorrespondence, updateCorrespondence } from "../../services/secretaryCorrespondence";
 import { escapePdfHtml, pdfInfoGrid, pdfSection, renderAcadPdfPreview } from "../../utils/pdf";
 import { refreshErrorMessage } from "../../utils/refreshErrors";
 import type { AppUser, School, SchoolYear } from "../../types";
@@ -115,6 +115,21 @@ export function SecretaryCorrespondenceModule({ user, users = [], school, year }
     finally { saveLock.current = false; setBusy(false); }
   }
 
+  async function viewAttachment(item: Correspondence) {
+    const tab = window.open("", "_blank");
+    if (!tab) { setMessage("Autorisez l'ouverture d'un nouvel onglet pour consulter la pièce jointe."); return; }
+    tab.opener = null;
+    try {
+      const { blob } = await downloadCorrespondenceAttachment(user, item);
+      const url = URL.createObjectURL(blob);
+      tab.location.replace(url);
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (error) {
+      tab.close();
+      setMessage(correspondenceErrorMessage(error));
+    }
+  }
+
   async function saveOutgoing(request: OutgoingSaveRequest) {
     if (saveLock.current || readOnly) return;
     saveLock.current = true; setBusy(true); setMessage("");
@@ -206,7 +221,7 @@ export function SecretaryCorrespondenceModule({ user, users = [], school, year }
       <input className="input" placeholder="Destinataire" value={input.recipient} disabled={readOnly} onChange={(event) => setInput({ ...input, recipient: event.target.value })} />
       {input.direction === "incoming" && <>
         <input aria-label="Pièce jointe" type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" disabled={readOnly} onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
-        {editing?.attachment && <a className="text-blue-700 underline" href={editing.attachment.url} target="_blank" rel="noreferrer">Voir la pièce jointe</a>}
+        {editing?.attachment && <button type="button" className="text-left text-blue-700 underline" onClick={() => void viewAttachment(editing)}>Voir la pièce jointe</button>}
       </>}
       {!readOnly && <button className="primary-button justify-center" disabled={busy} type="submit">{busy ? "Enregistrement…" : "Enregistrer"}</button>}
     </form>)}</AdminDrawer>}

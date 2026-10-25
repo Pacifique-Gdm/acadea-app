@@ -28,16 +28,18 @@ describe("correspondances du Secrétaire", () => {
     expect(source).toContain('"toDate" in value');
   });
 
-  it("remplace une seule pièce jointe sans supprimer l'ancienne avant la mise à jour", () => {
+  it("délègue les pièces jointes à la fonction authentifiée sans URL de téléchargement persistante", () => {
     const source = readFileSync(new URL("./secretaryCorrespondence.ts", import.meta.url), "utf8");
-    const persistIndex = source.indexOf('await setDoc(doc(db, "correspondences", current.id)');
-    const oldDeleteIndex = source.indexOf("if (current.attachment?.path) await deleteObject");
-    expect(persistIndex).toBeGreaterThan(-1);
-    expect(oldDeleteIndex).toBeGreaterThan(persistIndex);
+    const serverSource = readFileSync(new URL("../../functions/src/audit/secretaryCorrespondenceFile.ts", import.meta.url), "utf8");
     const archivedGuard = source.indexOf('if (current.status === "archived") throw new Error("Cette correspondance est en lecture seule.");', source.indexOf("export async function replaceCorrespondenceAttachment"));
-    const uploadIndex = source.indexOf("await uploadBytes(target", archivedGuard);
     expect(archivedGuard).toBeGreaterThan(-1);
-    expect(uploadIndex).toBeGreaterThan(archivedGuard);
+    expect(source).toContain('FILE_FUNCTION = "secretaryCorrespondenceFile"');
+    expect(source).toContain('action: "upload", correspondenceId: current.id');
+    expect(source).toContain('action: "download", correspondenceId: current.id');
+    expect(source).not.toContain("getDownloadURL");
+    expect(source).not.toContain("uploadBytes");
+    expect(serverSource.indexOf("await db.runTransaction")).toBeGreaterThan(serverSource.indexOf("await storageFile.save"));
+    expect(serverSource.indexOf("if (oldPath && oldPath !== path)")).toBeGreaterThan(serverSource.indexOf("await db.runTransaction"));
   });
 
   it("supprime atomiquement la référence de pièce jointe lors du passage en courrier sortant", () => {

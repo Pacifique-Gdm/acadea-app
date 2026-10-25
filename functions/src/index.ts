@@ -10,3 +10,4 @@ export { studyAiAssistant } from "./ai/studyAssistant.js";
 export { platformAiResetMonthlyUsage, platformAiUpdateSettings } from "./ai/schoolAiAdmin.js";
 export { onDisciplineSanctionAudited } from "./audit/disciplineAudit.js";
 export { secretaryDeleteDocument } from "./audit/secretaryDocumentDeletion.js";
+export { secretaryCorrespondenceFile } from "./audit/secretaryCorrespondenceFile.js";

@@ -150,38 +150,10 @@ service firebase.storage {
     }
 
     match /schools/{schoolId}/correspondences/{correspondenceId}/{fileName} {
-      function correspondence() {
-        return firestore.get(/databases/(default)/documents/correspondences/$(correspondenceId)).data;
-      }
-
-      allow read: if signedIn()
-        && role() == "secretary"
-        && tenantSchoolId() == schoolId
-        && schoolAcceptsWrites(schoolId)
-        && correspondence().schoolId == schoolId;
-      allow create: if resource == null
-        && signedIn()
-        && role() == "secretary"
-        && tenantSchoolId() == schoolId
-        && schoolAcceptsWrites(schoolId)
-        && correspondence().schoolId == schoolId
-        && correspondence().status != "archived"
-        && request.resource.size <= 10 * 1024 * 1024
-        && request.resource.contentType in [
-          "application/pdf",
-          "application/msword",
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-          "image/jpeg",
-          "image/png"
-        ]
-        && fileName.matches('.*\\.(pdf|doc|docx|jpg|jpeg|png)$');
-      allow update: if false;
-      allow delete: if signedIn()
-        && role() == "secretary"
-        && tenantSchoolId() == schoolId
-        && schoolAcceptsWrites(schoolId)
-        && correspondence().schoolId == schoolId
-        && correspondence().status != "archived";
+      // Le profil, l'école et le courrier sont trois sources indépendantes.
+      // Storage Rules ne peut en consulter que deux par requête : les accès
+      // passent donc par la fonction authentifiée secretaryCorrespondenceFile.
+      allow read, write: if false;
     }
 
     match /message-uploads/{schoolId}/{senderId}/{draftId}/{fileName} {

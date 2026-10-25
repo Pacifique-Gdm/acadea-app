@@ -1,8 +1,7 @@
 import * as firestore from "firebase/firestore";
 import { collection, doc, onSnapshot, query, runTransaction, setDoc, where } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
-import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
-import { app, auth, db, storage } from "../firebase";
+import { app, auth, db } from "../firebase";
 import type { AppUser } from "../types";
 import type { Correspondence, CorrespondenceAttachment } from "../modules/secretary/secretaryTypes";
 import { correspondenceServiceCode, generateOutgoingCorrespondenceReference } from "../utils/outgoingCorrespondenceReference";
@@ -10,6 +9,7 @@ import { correspondenceServiceCode, generateOutgoingCorrespondenceReference } fr
 const serverTimestamp = (firestore as unknown as { serverTimestamp: () => unknown }).serverTimestamp;
 
 export const MAX_CORRESPONDENCE_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const FILE_FUNCTION = "secretaryCorrespondenceFile";
 const mimeByExtension: Record<string, readonly string[]> = {
   pdf: ["application/pdf"],
   doc: ["application/msword"],
@@ -37,6 +37,26 @@ function timestampToIso(value: unknown) {
   if (typeof value === "string") return value;
   if (value && typeof value === "object" && "toDate" in value && typeof value.toDate === "function") return value.toDate().toISOString();
   return "";
+}
+
+function fileToBase64(bytes: Uint8Array) {
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary);
+}
+
+function base64ToBytes(encoded: string) {
+  const binary = atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+function correspondenceFileCall<TRequest extends Record<string, unknown>, TResponse>() {
+  if (!app) throw new Error("Service de fichiers indisponible.");
+  return httpsCallable<TRequest, TResponse>(getFunctions(app, "europe-west1"), FILE_FUNCTION);
 }
 
 export function validateCorrespondenceAttachment(file: Pick<File, "name" | "type" | "size">) {
@@ -111,8 +131,10 @@ export async function updateCorrespondence(user: AppUser, current: Correspondenc
     ...(removeAttachment ? { attachment: null } : {}),
     updatedAt: serverTimestamp(),
   }, { merge: true });
-  if (removeAttachment && current.attachment?.path && storage) {
-    await deleteObject(ref(storage, current.attachment.path)).catch((error) => console.warn("Ancienne pièce jointe non supprimée.", error));
+  if (removeAttachment && current.attachment?.path) {
+    await correspondenceFileCall<{ action: string; correspondenceId: string; path: string }, { deleted: boolean }>()({
+      action: "purge", correspondenceId: current.id, path: current.attachment.path,
+    }).catch((error) => console.warn("Ancienne pièce jointe non supprimée.", error));
   }
 }
 
@@ -141,18 +163,22 @@ export async function replaceCorrespondenceAttachment(user: AppUser, current: Co
   if (current.status === "archived") throw new Error("Cette correspondance est en lecture seule.");
   const validation = validateCorrespondenceAttachment(file);
   if (validation) throw new Error(validation);
-  if (!db || !storage) throw new Error("Service de fichiers indisponible.");
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(0, 120);
-  const path = `schools/${current.schoolId}/correspondences/${current.id}/${Date.now()}-${safeName}`;
-  const target = ref(storage, path);
-  await uploadBytes(target, file, { contentType: file.type });
-  const attachment: CorrespondenceAttachment = { name: file.name, type: file.type, size: file.size, path, url: await getDownloadURL(target) };
-  try {
-    await setDoc(doc(db, "correspondences", current.id), { attachment, updatedAt: serverTimestamp() }, { merge: true });
-  } catch (error) {
-    await deleteObject(target).catch(() => undefined);
-    throw error;
-  }
-  if (current.attachment?.path) await deleteObject(ref(storage, current.attachment.path)).catch((error) => console.warn("Ancienne pièce jointe non supprimée.", error));
-  return attachment;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const result = await correspondenceFileCall<{
+    action: string; correspondenceId: string; name: string; contentType: string; dataBase64: string;
+  }, { attachment: CorrespondenceAttachment }>()({
+    action: "upload", correspondenceId: current.id, name: file.name,
+    contentType: file.type, dataBase64: fileToBase64(bytes),
+  });
+  return result.data.attachment;
+}
+
+export async function downloadCorrespondenceAttachment(user: AppUser, current: Correspondence) {
+  assertSecretary(user, current.schoolId);
+  if (!current.attachment?.path) throw new Error("Chemin de pièce jointe indisponible.");
+  const result = await correspondenceFileCall<{ action: string; correspondenceId: string }, {
+    name: string; contentType: string; dataBase64: string;
+  }>()({ action: "download", correspondenceId: current.id });
+  const bytes = base64ToBytes(result.data.dataBase64);
+  return { name: result.data.name, blob: new Blob([bytes], { type: result.data.contentType }) };
 }

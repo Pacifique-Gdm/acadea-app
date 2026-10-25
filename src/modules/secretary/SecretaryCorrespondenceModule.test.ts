@@ -78,6 +78,12 @@ const deleteDialogSource = readFileSync(new URL("./SecretaryDocumentDeleteDialog
     expect(serviceSource).not.toContain('deleteDoc(doc(db, "correspondences", current.id))');
   });
 
+  it("ouvre les anciennes et nouvelles pièces jointes par le serveur, jamais par URL à jeton", () => {
+    expect(moduleSource).toContain("downloadCorrespondenceAttachment(user, item)");
+    expect(moduleSource).not.toContain("href={editing.attachment.url}");
+    expect(moduleSource).toContain("URL.createObjectURL(blob)");
+  });
+
   it("rend le dialogue accessible et bloque les doubles clics", () => {
     expect(deleteDialogSource).toContain('role="dialog"');
     expect(deleteDialogSource).toContain('aria-modal="true"');
