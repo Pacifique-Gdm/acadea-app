@@ -86,14 +86,15 @@ export async function reviewAvailabilityRequest({ db, caller, requestId, action,
     const nextStatus = action === "REJECT" ? "REJECTED" : "APPROVED";
     const nextComment = action === "REJECT" ? reviewComment.trim() : undefined;
     const activityId = `availability_decision_${requestId}`;
-    transaction.create(db.collection("pedagogicalActivityLogs").doc(activityId), activity({
+    const decisionActivity = activity({
       id: activityId, schoolId: caller.schoolId, schoolYearId: request.schoolYearId, subjectUserId: request.userId,
       actorId: caller.uid, actorName: director.name || "Direction des études",
       action: action === "REJECT" ? "Demande d’indisponibilité rejetée" : "Demande d’indisponibilité approuvée",
       details: `Enseignant : ${teacherUser.name || "Enseignant"} · Date : ${request.requestedDate}`,
       resourceId: requestId, createdAt: now,
-    }));
+    });
     if (action === "REJECT") {
+      transaction.create(db.collection("pedagogicalActivityLogs").doc(activityId), decisionActivity);
       transaction.update(requestRef, { status: nextStatus, reviewedAt: now, reviewedBy: caller.uid, reviewComment: nextComment });
       const notificationId = `availability_review_${requestId}_${request.userId}_${nextStatus}`;
       transaction.set(db.collection("notifications").doc(notificationId), availabilityNotification({ id: notificationId, schoolId: caller.schoolId, schoolYearId: request.schoolYearId, recipientUserId: request.userId, requestId, title: "Demande d'indisponibilité rejetée", body: "Votre demande d'indisponibilité n'a pas été approuvée par la Direction des études. Veuillez consulter votre espace pour prendre connaissance de la décision et des éventuelles observations.", createdAt: now }));
@@ -107,6 +108,7 @@ export async function reviewAvailabilityRequest({ db, caller, requestId, action,
     const fullDay = request.requestType === "FULL_DAY";
     const satisfied = active.find(item => item.status === "rest" || (item.status === "unavailable" && (!item.startTime || fullDay || (item.startTime <= request.startTime && item.endTime >= request.endTime))));
     if (!satisfied && !fullDay && active.some(item => item.startTime && overlaps(item.startTime, item.endTime, request.startTime, request.endTime))) fail(409, "failed-precondition", "La plage demandée entre en conflit avec une disponibilité officielle existante.");
+    transaction.create(db.collection("pedagogicalActivityLogs").doc(activityId), decisionActivity);
     const availabilityId = satisfied?.id ?? `${request.schoolId}__${request.schoolYearId}__${request.teacherId}__request__${requestId}`;
     if (!satisfied) transaction.set(db.collection("teacherAvailabilities").doc(availabilityId), { id: availabilityId, schoolId: request.schoolId, schoolYearId: request.schoolYearId, teacherId: request.teacherId, dayOfWeek, status: "unavailable", ...(fullDay ? {} : { startTime: request.startTime, endTime: request.endTime }), active: true, sourceRequestId: requestId, createdBy: caller.uid, createdAt: now, updatedAt: now });
     const decisionComment = satisfied ? (reviewComment.trim() || "Contrainte déjà existante.") : reviewComment.trim();

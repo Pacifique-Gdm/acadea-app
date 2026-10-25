@@ -5,13 +5,14 @@ type Value = Record<string, unknown>;
 function fakeDb(seed: Record<string, Value>) {
   const values = new Map(Object.entries(seed));
   const writes: Array<{ path: string; data: Value }> = [];
+  let hasWritten = false;
   const snapshot = (path: string) => ({ exists: values.has(path), data: () => values.get(path) });
   const collection = (name: string) => ({ doc: (id: string) => ({ path: `${name}/${id}` }), where() { return this; } });
   return { writes, collection, runTransaction: async (fn: (tx: unknown) => Promise<unknown>) => fn({
-    get: async (target: { path?: string }) => target.path ? snapshot(target.path) : { docs: [] },
-    create: (target: { path: string }, data: Value) => { writes.push({ path: target.path, data }); values.set(target.path, data); },
-    update: (target: { path: string }, data: Value) => { writes.push({ path: target.path, data }); values.set(target.path, { ...values.get(target.path), ...data }); },
-    set: (target: { path: string }, data: Value) => { writes.push({ path: target.path, data }); values.set(target.path, data); },
+    get: async (target: { path?: string }) => { if (hasWritten) throw new Error("Firestore transaction read after write"); return target.path ? snapshot(target.path) : { docs: [] }; },
+    create: (target: { path: string }, data: Value) => { hasWritten = true; writes.push({ path: target.path, data }); values.set(target.path, data); },
+    update: (target: { path: string }, data: Value) => { hasWritten = true; writes.push({ path: target.path, data }); values.set(target.path, { ...values.get(target.path), ...data }); },
+    set: (target: { path: string }, data: Value) => { hasWritten = true; writes.push({ path: target.path, data }); values.set(target.path, data); },
   }) };
 }
 const base = {
