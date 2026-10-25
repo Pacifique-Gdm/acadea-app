@@ -12,6 +12,7 @@ import { loadStudentArrearsBatch, loadStudentArrearsDetailsBatch } from "../../s
 import { PaidAmountDropdown } from "../../components/PaidAmountDropdown";
 import { arrearsFilterActive, arrearsFilterForCriterion, matchesArrearsFilter, type ArrearsTotals } from "../../utils/arrearsFilter";
 import { createAuditLog } from "../../utils/audit";
+import { expenseCategoryLabel } from "../../utils/expenseCategory";
 import { buildSchoolYearDataIndexes, sumPaymentsForStudentFee } from "../../utils/dataIndexes";
 import { resolveExpenseCashierName, resolvePaymentCashierName } from "../../utils/finance";
 import { escapePdfHtml, generateExpensePdf, generateReceiptPdf, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
@@ -1174,8 +1175,8 @@ export function ControlModule({
             <div key={expense.id} className="rounded border border-slate-100 p-3 text-sm">
               <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
-                  <p className="break-words font-semibold text-ink">{expense.description || expense.category}</p>
-                  <p className="break-words text-slate-500">{formatExpenseDateTime(expense)} | {expense.category} | {formatMoney(expense.amount)}</p>
+                  <p className="break-words font-semibold text-ink">{expense.description || expenseCategoryLabel(expense.category)}</p>
+                  <p className="break-words text-slate-500">{formatExpenseDateTime(expense)} | {expenseCategoryLabel(expense.category)} | {formatMoney(expense.amount)}</p>
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-1">
                   <button onClick={() => void generateExpensePdf(expense, school, year, resolveExpenseCashierName(expense, yearData.auditLogs))} className="rounded bg-slate-100 p-2" title="Télécharger le justificatif PDF" type="button">
@@ -1486,7 +1487,7 @@ export function ControlModule({
             <select value={expenseCategory} onChange={(event) => setExpenseCategory(event.target.value)} className="input">
               <option>Fournitures</option>
               <option>Transport</option>
-              <option>Salaire</option>
+              <option value="Salaire">Main d'œuvre</option>
               <option>Maintenance</option>
               <option>Autres</option>
             </select>
@@ -1594,7 +1595,7 @@ export function ControlModule({
               >
                 <option>Fournitures</option>
                 <option>Transport</option>
-                <option>Salaire</option>
+                <option value="Salaire">Main d'œuvre</option>
                 <option>Maintenance</option>
                 <option>Autre</option>
               </select>
@@ -1721,7 +1722,7 @@ export function ControlModule({
             >
               <option>Fournitures</option>
               <option>Transport</option>
-              <option>Salaire</option>
+              <option value="Salaire">Main d'œuvre</option>
               <option>Maintenance</option>
               <option>Autre</option>
             </select>

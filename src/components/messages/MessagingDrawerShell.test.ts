@@ -49,8 +49,8 @@ describe("layout partagé de la Boîte à Messagerie", () => {
   });
 
   it("relie une notification d’indisponibilité à la liste de traitement du Directeur des études", () => {
-    expect(contentSource).toContain('item.notification.type === "availability" && user.role === "study_director"');
-    expect(contentSource).toContain("onClick={onOpenAvailabilityRequests}");
+    expect(contentSource).toContain('item.notification.type === "availability" && (user.role === "study_director" || user.role === "teacher")');
+    expect(contentSource).toContain("onOpenAvailabilityRequests(item.notification.requestId)");
     expect(headerSource).toContain("onOpenAvailabilityRequests={onOpenAvailabilityRequests ?");
     expect(studyPortalSource).toContain('setDrawer("requests")');
   });

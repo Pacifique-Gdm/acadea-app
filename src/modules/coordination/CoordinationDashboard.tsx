@@ -9,6 +9,7 @@ import { formatChartDate, getTransactionPeriodDates, isInDashboardDateRange } fr
 import { buildCoordinationDashboardStats, type DashboardCurrency } from "../../utils/coordinationDashboardStats";
 import { formatCurrencyMoney, resolveSchoolCurrency } from "../../utils/currency";
 import { sumMoney } from "../../utils/money";
+import { expenseCategoryLabel } from "../../utils/expenseCategory";
 import { formatCount } from "../../utils/numberFormat";
 import { getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
 import {
@@ -111,7 +112,7 @@ export function CoordinationDashboard({
   const visibleExpenses = stats.expenses.filter((expense) => (!transactionStartDate || expense.spentAt.slice(0, 10) >= transactionStartDate) && (!transactionEndDate || expense.spentAt.slice(0, 10) <= transactionEndDate));
   const transactions = [
     ...visiblePayments.map((payment) => ({ id: `${payment.schoolId}:${payment.id}`, type: "Paiement", label: `${schoolById.get(payment.schoolId)?.name ?? payment.schoolId} · ${payment.cashierName}`, amount: payment.amount, currency: payment.currency, date: payment.paidAt, occurredAt: payment.createdAt ?? payment.paidAt })),
-    ...visibleExpenses.map((expense) => ({ id: `${expense.schoolId}:${expense.id}`, type: "Dépense", label: `${schoolById.get(expense.schoolId)?.name ?? expense.schoolId} · ${expense.category}`, amount: -expense.amount, currency: expense.currency, date: expense.spentAt, occurredAt: expense.createdAt ?? expense.spentAt })),
+    ...visibleExpenses.map((expense) => ({ id: `${expense.schoolId}:${expense.id}`, type: "Dépense", label: `${schoolById.get(expense.schoolId)?.name ?? expense.schoolId} · ${expenseCategoryLabel(expense.category)}`, amount: -expense.amount, currency: expense.currency, date: expense.spentAt, occurredAt: expense.createdAt ?? expense.spentAt })),
   ].sort((first, second) => second.occurredAt.localeCompare(first.occurredAt));
 
   const chartGroups = stats.financialGroups.map((financial) => {
@@ -134,7 +135,7 @@ export function CoordinationDashboard({
           const fee = feesByKey.get(`${payment.schoolId}:${payment.feeTypeId}`);
           return { id: `${payment.schoolId}:${payment.id}`, kind: "payment", type: "Paiement", label: schoolById.get(payment.schoolId)?.name ?? payment.schoolId, amount: payment.amount, date: payment.paidAt, occurredAt: payment.createdAt ?? payment.paidAt, studentName: student ? `${student.nom} ${student.postnom} ${student.prenom}`.trim() : undefined, className: student?.className, feeName: fee?.name, agentName: payment.cashierName };
         }),
-        ...row.expensesForDate.map((expense): TransactionChartItem => ({ id: `${expense.schoolId}:${expense.id}`, kind: "expense", type: "Dépense", label: `${schoolById.get(expense.schoolId)?.name ?? expense.schoolId} · ${expense.description || expense.category}`, amount: expense.amount, date: expense.spentAt, occurredAt: expense.createdAt ?? expense.spentAt, agentName: expense.cashierName })),
+        ...row.expensesForDate.map((expense): TransactionChartItem => ({ id: `${expense.schoolId}:${expense.id}`, kind: "expense", type: "Dépense", label: `${schoolById.get(expense.schoolId)?.name ?? expense.schoolId} · ${expense.description || expenseCategoryLabel(expense.category)}`, amount: expense.amount, date: expense.spentAt, occurredAt: expense.createdAt ?? expense.spentAt, agentName: expense.cashierName })),
       ],
     }));
     return { currency: financial.currency, rows };

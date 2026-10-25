@@ -38,6 +38,32 @@ describe("historique personnel Secrétaire", () => {
   });
 });
 
+describe("historique pédagogique personnel et centralisé", () => {
+  const teacherA: AppUser = { ...admin, id: "teacher-a", name: "Enseignant A", role: "teacher" };
+  const teacherB: AppUser = { ...admin, id: "teacher-b", name: "Enseignant B", role: "teacher" };
+  const director: AppUser = { ...admin, id: "director-a", name: "Directeur des études", role: "study_director" };
+  const scopedData = { ...data, users: [admin, teacherA, teacherB, director] };
+  const logs: AppData["auditLogs"] = [
+    { id: "submit-a", schoolId: "school-a", schoolYearId: "year-a", subjectUserId: teacherA.id, actorId: teacherA.id, actorName: teacherA.name, action: "Demande d’indisponibilité soumise", createdAt: "2026-10-20T10:00:00Z" },
+    { id: "decision-a", schoolId: "school-a", schoolYearId: "year-a", subjectUserId: teacherA.id, actorId: director.id, actorName: director.name, action: "Demande d’indisponibilité approuvée", createdAt: "2026-10-21T10:00:00Z" },
+    { id: "grade-b", schoolId: "school-a", schoolYearId: "year-a", subjectUserId: teacherB.id, actorId: teacherB.id, actorName: teacherB.name, action: "Cotes enregistrées", createdAt: "2026-10-22T10:00:00Z" },
+    { id: "foreign", schoolId: "school-b", schoolYearId: "year-a", subjectUserId: teacherA.id, actorId: teacherA.id, actorName: teacherA.name, action: "Activité étrangère", createdAt: "2026-10-23T10:00:00Z" },
+  ];
+  const yearData = { students: [], parents: [], users: scopedData.users, feeTypes: [], payments: [], expenses: [], messages: [], disciplineSanctions: [], auditLogs: logs };
+
+  it("montre à l'enseignant ses demandes et décisions sans celles de ses collègues", () => {
+    const items = buildActivityHistoryItems(teacherA, scopedData, yearData, "teacher");
+    expect(items.map((item) => item.id)).toEqual(["audit-decision-a", "audit-submit-a"]);
+    expect(items[0].details).toContain("Enseignant A");
+    expect(items[0].actorName).toBe(director.name);
+  });
+
+  it("montre à la direction et à l'administrateur les activités de leur établissement", () => {
+    expect(buildActivityHistoryItems(director, scopedData, yearData, "study_director").map((item) => item.id)).toEqual(["audit-grade-b", "audit-decision-a", "audit-submit-a"]);
+    expect(buildActivityHistoryItems(admin, scopedData, yearData, "admin").map((item) => item.id)).toEqual(["audit-grade-b", "audit-decision-a", "audit-submit-a"]);
+  });
+});
+
 describe("historique temps réel du Caissier", () => {
   const cashier: AppUser = { id: "cashier-a", name: "Caissier A", email: "cashier@example.invalid", role: "cashier", schoolId: "school-a", activeSchoolYearId: "year-a", status: "active" };
   const otherCashier: AppUser = { ...cashier, id: "cashier-b", name: "Caissier B", email: "cashier-b@example.invalid" };

@@ -1,6 +1,7 @@
 import type { Coordination, Expense, Payment, School, Student } from "../../types";
 import { escapePdfHtml, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import { formatCurrencyMoney, resolveSchoolCurrency } from "../../utils/currency";
+import { expenseCategoryLabel } from "../../utils/expenseCategory";
 import { coordinationPdfInstitution } from "./coordinationPdfInstitution";
 
 type FinancialExportKind = "payments" | "expenses";
@@ -63,7 +64,7 @@ export async function exportCoordinationFinancialTransactions({
     ], (rows as Payment[]).filter((payment) => payment.currency === currency), "Aucun paiement dans cette devise."))
     : pdfSection(`Dépenses — ${currency}`, pdfTable([
       { header: "École", render: (expense) => escapePdfHtml(schoolById.get(expense.schoolId)?.name ?? expense.schoolId) },
-      { header: "Catégorie", render: (expense) => escapePdfHtml(expense.category) },
+      { header: "Catégorie", render: (expense) => escapePdfHtml(expenseCategoryLabel(expense.category)) },
       { header: "Description", render: (expense) => escapePdfHtml(expense.description) },
       { header: "Date", render: (expense) => escapePdfHtml(expense.spentAt) },
       { header: "Montant", render: (expense) => escapePdfHtml(formatCurrencyMoney(expense.amount, currency)) },

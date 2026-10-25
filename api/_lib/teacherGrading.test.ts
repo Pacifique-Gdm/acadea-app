@@ -41,6 +41,7 @@ describe("API de cotation Enseignant", () => {
     const snapshot = (item?: { id: string; [key: string]: unknown }) => ({ id: item?.id, exists: Boolean(item), data: () => item });
     const db = {
       doc: (path: string) => ({
+        path,
         get: async () => {
           const [collection, id] = path.split("/");
           return snapshot(records[collection]?.find((item) => item.id === id));
@@ -48,9 +49,8 @@ describe("API de cotation Enseignant", () => {
         set: async (value: Record<string, unknown>) => { writes.push({ path, value }); },
       }),
       batch: () => ({
-        set: (reference: { get: () => Promise<unknown>; set: (value: Record<string, unknown>) => Promise<void> }, value: Record<string, unknown>) => {
-          const path = String(value.id).includes("__parent-user") ? `notifications/${value.id}` : "unknown";
-          writes.push({ path, value });
+        set: (reference: { path: string }, value: Record<string, unknown>) => {
+          writes.push({ path: reference.path, value });
         },
         commit: async () => undefined,
       }),
@@ -146,7 +146,8 @@ describe("API de cotation Enseignant", () => {
     }
     expect(writes).toHaveLength(0);
     await expect(executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body: { ...body, confirmation: phrase } })).resolves.toMatchObject({ ok: true });
-    expect(writes).toHaveLength(1);
+    expect(writes.filter(({ path }) => path.startsWith("courseGradingConfigs/"))).toHaveLength(1);
+    expect(writes.filter(({ path }) => path.startsWith("pedagogicalActivityLogs/"))).toHaveLength(1);
   });
 
   it("enregistre deux maxima indépendants et préserve le maximum global historique", async () => {
@@ -154,9 +155,11 @@ describe("API de cotation Enseignant", () => {
     const base = { action: "save-config", schoolId: "s", schoolYearId: "y", assignmentId: "a", classId: "c::sciences", subjectId: "m" };
     await executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body: { ...base, gradingSlot: "period_1", maxScore: 25, confirmation: "MODIFIER LA CÔTE MAXIMALE" } });
     await executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body: { ...base, gradingSlot: "period_2", maxScore: 30, confirmation: "MODIFIER LA CÔTE MAXIMALE" } });
-    expect(writes).toHaveLength(2);
-    expect(writes[0].path).not.toBe(writes[1].path);
-    expect(writes.map(({ value }) => [value.gradingSlot, value.maxScore])).toEqual([["period_1", 25], ["period_2", 30]]);
+    const configs = writes.filter(({ path }) => path.startsWith("courseGradingConfigs/"));
+    expect(configs).toHaveLength(2);
+    expect(configs[0].path).not.toBe(configs[1].path);
+    expect(configs.map(({ value }) => [value.gradingSlot, value.maxScore])).toEqual([["period_1", 25], ["period_2", 30]]);
+    expect(writes.filter(({ path }) => path.startsWith("pedagogicalActivityLogs/"))).toHaveLength(2);
     expect(records.courseGradingConfigs).toEqual([{ id: "s__y__c::sciences__m", schoolId: "s", schoolYearId: "y", classId: "c::sciences", subjectId: "m", maxScore: 20 }]);
   });
 
@@ -168,7 +171,8 @@ describe("API de cotation Enseignant", () => {
     expect(writes).toHaveLength(0);
     await executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body: { ...base, gradingSlot: "period_1", entries: [{ studentId: "allowed", gradingSlot: "period_1", score: 0, status: "graded" }] } });
     await executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body: { ...base, gradingSlot: "period_2", entries: [{ studentId: "allowed", gradingSlot: "period_2", score: 15, status: "graded" }] } });
-    expect(writes.map(({ value }) => value.maxScoreSnapshot)).toEqual([10, 20]);
+    expect(writes.filter(({ path }) => path.startsWith("gradeEntries/")).map(({ value }) => value.maxScoreSnapshot)).toEqual([10, 20]);
+    expect(writes.filter(({ path }) => path.startsWith("pedagogicalActivityLogs/"))).toHaveLength(2);
   });
 
   it("ignore les titularités historiques inactives ou sans indicateur actif", async () => {
@@ -197,6 +201,7 @@ describe("API de cotation Enseignant", () => {
     const result = await executeTeacherGrading({ db, caller: { uid: "u", role: "teacher", schoolId: "s" }, body: { action: "save-observation", schoolId: "s", schoolYearId: "y", assignmentId: "a", classId: "c::sciences", subjectId: "m", studentId: "allowed", observation: "Participation régulière." } });
     expect(result).toMatchObject({ ok: true, notificationCount: 1, notificationWarning: "" });
     expect(writes).toContainEqual(expect.objectContaining({ path: expect.stringContaining("teacherStudentObservations/"), value: expect.objectContaining({ studentId: "allowed", teacherId: "t", observation: "Participation régulière." }) }));
+    expect(writes).toContainEqual(expect.objectContaining({ path: expect.stringContaining("pedagogicalActivityLogs/"), value: expect.objectContaining({ subjectUserId: "u", action: "Observation pédagogique créée" }) }));
     expect(writes).toContainEqual(expect.objectContaining({ path: expect.stringContaining("notifications/"), value: expect.objectContaining({ recipientUserId: "parent-user", parentId: "parent-1", studentId: "allowed", title: "Nouvelle observation pédagogique", read: false }) }));
     expect(writes.some(({ value }) => value.recipientUserId === "foreign-parent")).toBe(false);
   });

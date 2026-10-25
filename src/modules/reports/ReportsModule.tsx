@@ -3,6 +3,7 @@ import { Download } from "lucide-react";
 import { useResolvedExpenseCurrencies } from "../../hooks/useResolvedExpenseCurrencies";
 import { Field, FormPanel, Metric } from "../../components/ui";
 import { exportReportPdf } from "../../utils/reportPdf";
+import { expenseCategoryLabel } from "../../utils/expenseCategory";
 import { formatCurrencyMoney, resolveSchoolYearCurrency } from "../../utils/currency";
 import { formatRecordedOperation, formatRecordedTotals, totalsByRecordedCurrency } from "../../utils/operationCurrency";
 import { getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
@@ -124,7 +125,7 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
           <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
             {expenses.map((expense) => (
               <div key={expense.id} className="min-w-0 rounded bg-slate-50 p-3 text-sm">
-                <p className="break-words font-semibold text-ink">{expense.category}</p>
+                <p className="break-words font-semibold text-ink">{expenseCategoryLabel(expense.category)}</p>
                 <p className="break-words text-slate-500">{formatRecordedOperation(expense)} | {expense.spentAt} | {expense.cashierName}</p>
                 <p className="break-words text-slate-500">{expense.description}</p>
               </div>

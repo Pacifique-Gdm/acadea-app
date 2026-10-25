@@ -4,8 +4,12 @@ export class AvailabilityRequestApiError extends Error { constructor(status, cod
 const fail = (status, code, message) => { throw new AvailabilityRequestApiError(status, code, message); };
 const overlaps = (aStart, aEnd, bStart, bEnd) => aStart < bEnd && bStart < aEnd;
 const activeUser = (value) => value && value.status !== "inactive" && value.active !== false;
-const availabilityNotification = ({ id, schoolId, schoolYearId, recipientUserId, title, body, createdAt }) => ({
-  id, schoolId, schoolYearId, recipientUserId, type: "availability", title, body, createdAt, read: false,
+const availabilityNotification = ({ id, schoolId, schoolYearId, recipientUserId, requestId, title, body, createdAt }) => ({
+  id, schoolId, schoolYearId, recipientUserId, requestId, type: "availability", title, body, createdAt, read: false,
+});
+const activity = ({ id, schoolId, schoolYearId, subjectUserId, actorId, actorName, action, details, resourceId, createdAt }) => ({
+  id, schoolId, schoolYearId, subjectUserId, actorId, actorName, actorRole: actorId === subjectUserId ? "teacher" : "study_director",
+  action, details, resourceType: "teacherAvailabilityRequest", resourceId, createdAt, source: "server",
 });
 
 export async function createAvailabilityRequest({ db, caller, request }) {
@@ -34,6 +38,13 @@ export async function createAvailabilityRequest({ db, caller, request }) {
     if (!teacherSnapshot.exists || teacher?.schoolId !== caller.schoolId || teacher?.schoolYearId !== request.schoolYearId || teacher?.userId !== caller.uid || teacher?.status === "inactive") fail(403, "permission-denied", "Profil Enseignant invalide.");
     if (!userSnapshot.exists || !activeUser(user) || user?.schoolId !== caller.schoolId || user?.role !== "teacher") fail(403, "permission-denied", "Compte Enseignant inactif ou incohérent.");
     transaction.create(requestRef, request);
+    const activityId = `availability_submitted_${request.id}`;
+    transaction.create(db.collection("pedagogicalActivityLogs").doc(activityId), activity({
+      id: activityId, schoolId: caller.schoolId, schoolYearId: request.schoolYearId, subjectUserId: caller.uid,
+      actorId: caller.uid, actorName: user.name || "Enseignant", action: "Demande d’indisponibilité soumise",
+      details: `Date : ${request.requestedDate}${request.requestType === "TIME_RANGE" ? ` · ${request.startTime}–${request.endTime}` : " · journée entière"}`,
+      resourceId: request.id, createdAt: request.createdAt,
+    }));
     const directors = (directorsSnapshot.docs ?? []).filter(item => {
       const director = item.data();
       return activeUser(director) && director.schoolId === caller.schoolId;
@@ -41,8 +52,8 @@ export async function createAvailabilityRequest({ db, caller, request }) {
     for (const directorSnapshot of directors) {
       const notificationId = `availability_request_${request.id}_${directorSnapshot.id}`;
       transaction.set(db.collection("notifications").doc(notificationId), availabilityNotification({
-        id: notificationId, schoolId: caller.schoolId, schoolYearId: request.schoolYearId, recipientUserId: directorSnapshot.id,
-        title: "Nouvelle demande d’indisponibilité", body: `${user.name || "Un enseignant"} a envoyé une demande pour le ${request.requestedDate}.`, createdAt: request.createdAt,
+        id: notificationId, schoolId: caller.schoolId, schoolYearId: request.schoolYearId, recipientUserId: directorSnapshot.id, requestId: request.id,
+        title: "Nouvelle demande d'indisponibilité", body: `L'enseignant(e) ${user.name || "Enseignant"} a soumis une demande d'indisponibilité pour la période du ${request.requestedDate} au ${request.requestedDate}. Veuillez consulter cette demande afin de l'examiner et de prendre une décision.`, createdAt: request.createdAt,
       }));
     }
     return request;
@@ -74,10 +85,18 @@ export async function reviewAvailabilityRequest({ db, caller, requestId, action,
     const now = new Date().toISOString();
     const nextStatus = action === "REJECT" ? "REJECTED" : "APPROVED";
     const nextComment = action === "REJECT" ? reviewComment.trim() : undefined;
+    const activityId = `availability_decision_${requestId}`;
+    transaction.create(db.collection("pedagogicalActivityLogs").doc(activityId), activity({
+      id: activityId, schoolId: caller.schoolId, schoolYearId: request.schoolYearId, subjectUserId: request.userId,
+      actorId: caller.uid, actorName: director.name || "Direction des études",
+      action: action === "REJECT" ? "Demande d’indisponibilité rejetée" : "Demande d’indisponibilité approuvée",
+      details: `Enseignant : ${teacherUser.name || "Enseignant"} · Date : ${request.requestedDate}`,
+      resourceId: requestId, createdAt: now,
+    }));
     if (action === "REJECT") {
       transaction.update(requestRef, { status: nextStatus, reviewedAt: now, reviewedBy: caller.uid, reviewComment: nextComment });
       const notificationId = `availability_review_${requestId}_${request.userId}_${nextStatus}`;
-      transaction.set(db.collection("notifications").doc(notificationId), availabilityNotification({ id: notificationId, schoolId: caller.schoolId, schoolYearId: request.schoolYearId, recipientUserId: request.userId, title: "Demande d’indisponibilité rejetée", body: nextComment ? `Motif : ${nextComment}` : "Votre demande d’indisponibilité a été rejetée.", createdAt: now }));
+      transaction.set(db.collection("notifications").doc(notificationId), availabilityNotification({ id: notificationId, schoolId: caller.schoolId, schoolYearId: request.schoolYearId, recipientUserId: request.userId, requestId, title: "Demande d'indisponibilité rejetée", body: "Votre demande d'indisponibilité n'a pas été approuvée par la Direction des études. Veuillez consulter votre espace pour prendre connaissance de la décision et des éventuelles observations.", createdAt: now }));
       return { ...request, status: nextStatus, reviewedAt: now, reviewedBy: caller.uid, reviewComment: nextComment };
     }
     const dayOfWeek = DAYS[new Date(`${request.requestedDate}T12:00:00Z`).getUTCDay()];
@@ -93,7 +112,7 @@ export async function reviewAvailabilityRequest({ db, caller, requestId, action,
     const decisionComment = satisfied ? (reviewComment.trim() || "Contrainte déjà existante.") : reviewComment.trim();
     transaction.update(requestRef, { status: nextStatus, reviewedAt: now, reviewedBy: caller.uid, reviewComment: decisionComment, appliedAvailabilityIds: [availabilityId] });
     const notificationId = `availability_review_${requestId}_${request.userId}_${nextStatus}`;
-    transaction.set(db.collection("notifications").doc(notificationId), availabilityNotification({ id: notificationId, schoolId: caller.schoolId, schoolYearId: request.schoolYearId, recipientUserId: request.userId, title: "Demande d’indisponibilité approuvée", body: decisionComment ? `Réponse : ${decisionComment}` : "Votre demande d’indisponibilité a été approuvée.", createdAt: now }));
+    transaction.set(db.collection("notifications").doc(notificationId), availabilityNotification({ id: notificationId, schoolId: caller.schoolId, schoolYearId: request.schoolYearId, recipientUserId: request.userId, requestId, title: "Demande d'indisponibilité approuvée", body: "Votre demande d'indisponibilité a été approuvée par la Direction des études. Veuillez consulter votre espace pour prendre connaissance de la décision.", createdAt: now }));
     return { ...request, status: "APPROVED", reviewedAt: now, reviewedBy: caller.uid, reviewComment: decisionComment, appliedAvailabilityIds: [availabilityId] };
   });
 }

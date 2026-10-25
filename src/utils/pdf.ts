@@ -1,6 +1,7 @@
 import jsPDF from "jspdf";
 import type { Expense, Payment, School, SchoolYear, Student } from "../types";
 import { formatRecordedOperation } from "./operationCurrency";
+import { expenseCategoryLabel } from "./expenseCategory";
 import { getPdfLayout, resolvePdfFont, type PdfGenerationSettings } from "./pdfSettings";
 
 type PdfDoc = InstanceType<typeof jsPDF>;
@@ -580,8 +581,8 @@ export async function generateExpensePdf(expense: Expense, school: School, year?
       `<section class="pdf-section expense-details">
         ${pdfInfoGrid([
           { label: "Date", value: formatExpensePdfDateTime(expense) },
-          { label: "Libellé / motif", value: expense.description || expense.category },
-          { label: "Catégorie", value: expense.category },
+          { label: "Libellé / motif", value: expense.description || expenseCategoryLabel(expense.category) },
+          { label: "Catégorie", value: expenseCategoryLabel(expense.category) },
           { label: "Montant", value: formatRecordedOperation(expense) },
           { label: "Bénéficiaire / fournisseur", value: beneficiary || "-" },
           { label: "Caissier", value: cashierName || "-" },

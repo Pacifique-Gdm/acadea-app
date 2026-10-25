@@ -6,6 +6,16 @@ const EDITABLE_SLOTS = new Set([
   "period_3", "period_4", "semester_2_exam",
 ]);
 const slotConfigId = (schoolId, schoolYearId, classId, subjectId, slot) => `maxv2__${[schoolId, schoolYearId, classId, subjectId, slot].map((part) => `${part.length}:${part}`).join("")}`;
+const activityLog = ({ id, schoolId, schoolYearId, actorId, actorName, action, details, resourceType, resourceId, createdAt }) => ({
+  id, schoolId, schoolYearId, subjectUserId: actorId, actorId, actorName: actorName || "Enseignant", actorRole: "teacher",
+  action, details, resourceType, resourceId, createdAt, source: "server",
+});
+async function courseActivityLabel(db, schoolId, schoolYearId, classId, subjectId) {
+  const [schoolClass, subject] = await Promise.all([db.doc(`classes/${classId}`).get(), db.doc(`subjects/${subjectId}`).get()]);
+  const className = schoolClass.exists && schoolClass.data()?.schoolId === schoolId && schoolClass.data()?.schoolYearId === schoolYearId ? schoolClass.data()?.name : "Classe concernée";
+  const subjectName = subject.exists && subject.data()?.schoolId === schoolId && subject.data()?.schoolYearId === schoolYearId ? subject.data()?.name : "Matière concernée";
+  return `Classe : ${className || "Classe concernée"} · Matière : ${subjectName || "Matière concernée"}`;
+}
 
 export class GradingApiError extends Error {
   constructor(status, code, message) {
@@ -172,6 +182,8 @@ async function saveObservation(db, caller, teacher, assignment, schoolId, school
   const observationId = [schoolId, schoolYearId, teacher.id, assignment.id, studentId].join("__");
   const observationRef = db.doc(`teacherStudentObservations/${observationId}`);
   const previous = await observationRef.get();
+  if (previous.exists && previous.data()?.observation === observation) return { ok: true, observation: previous.data(), notificationCount: 0, notificationWarning: "" };
+  const courseLabel = await courseActivityLabel(db, schoolId, schoolYearId, assignment.classId, assignment.subjectId);
   const now = new Date().toISOString();
   const payload = {
     id: observationId, schoolId, schoolYearId, teacherId: teacher.id, assignmentId: assignment.id,
@@ -180,7 +192,16 @@ async function saveObservation(db, caller, teacher, assignment, schoolId, school
     createdBy: previous.exists ? previous.data().createdBy : caller.uid,
     updatedAt: now, updatedBy: caller.uid,
   };
-  await observationRef.set(payload);
+  const observationBatch = db.batch();
+  observationBatch.set(observationRef, payload);
+  const activityId = `observation_${observationId}_${crypto.randomUUID()}`;
+  observationBatch.set(db.doc(`pedagogicalActivityLogs/${activityId}`), activityLog({
+    id: activityId, schoolId, schoolYearId, actorId: caller.uid, actorName: teacher.data()?.fullName,
+    action: previous.exists ? "Observation pédagogique modifiée" : "Observation pédagogique créée",
+    details: `${courseLabel} · Élève : ${[studentSnapshot.data()?.nom, studentSnapshot.data()?.postnom, studentSnapshot.data()?.prenom].filter(Boolean).join(" ") || "Élève concerné"}`,
+    resourceType: "teacherStudentObservation", resourceId: observationId, createdAt: now,
+  }));
+  await observationBatch.commit();
 
   const directParentId = typeof studentSnapshot.data()?.parentId === "string" ? studentSnapshot.data().parentId.trim() : "";
   const linkedParents = await db.collection("parents").where("schoolId", "==", schoolId).where("studentIds", "array-contains", studentId).get();
@@ -313,14 +334,26 @@ export async function executeTeacherGrading({ db, caller, body }) {
     const legacy = requestedSlot && !previous.exists ? await db.doc(`courseGradingConfigs/${legacyConfigId}`).get() : null;
     const confirmation = previous.exists || legacy?.exists ? "MODIFIER LA CÔTE MAXIMALE" : "ENREGISTRER LA CÔTE MAXIMALE";
     if (body.confirmation !== confirmation) throw new GradingApiError(400, "invalid-argument", "La confirmation de la cote maximale est incorrecte.");
+    if (previous.exists && Number(previous.data().maxScore) === maxScore) return { ok: true, id: configId };
+    const courseLabel = await courseActivityLabel(db, schoolId, schoolYearId, classId, subjectId);
     const now = FieldValue.serverTimestamp();
-    await ref.set({ id: configId, schoolId, schoolYearId, assignmentId, teacherId: teacher.id, classId, subjectId, ...(requestedSlot ? { gradingSlot: requestedSlot } : {}), maxScore, status: "draft", createdAt: previous.exists ? previous.data().createdAt : now, createdBy: previous.exists ? previous.data().createdBy : caller.uid, updatedAt: now, updatedBy: caller.uid });
+    const batch = db.batch();
+    batch.set(ref, { id: configId, schoolId, schoolYearId, assignmentId, teacherId: teacher.id, classId, subjectId, ...(requestedSlot ? { gradingSlot: requestedSlot } : {}), maxScore, status: "draft", createdAt: previous.exists ? previous.data().createdAt : now, createdBy: previous.exists ? previous.data().createdBy : caller.uid, updatedAt: now, updatedBy: caller.uid });
+    const activityId = `maximum_${configId}_${crypto.randomUUID()}`;
+    batch.set(db.doc(`pedagogicalActivityLogs/${activityId}`), activityLog({
+      id: activityId, schoolId, schoolYearId, actorId: caller.uid, actorName: teacher.data()?.fullName,
+      action: previous.exists ? "Cote maximale modifiée" : "Cote maximale enregistrée",
+      details: `${courseLabel} · Période : ${requestedSlot ?? "Toutes"} · Maximum : ${maxScore}`,
+      resourceType: "courseGradingConfig", resourceId: configId, createdAt: new Date().toISOString(),
+    }));
+    await batch.commit();
     return { ok: true, id: configId };
   }
 
   if (action === "save-entries") {
     const items = Array.isArray(body.entries) ? body.entries : [];
-    if (items.length > 500) throw new GradingApiError(400, "invalid-argument", "Trop de cotes.");
+    // One write is reserved for the activity record in the same atomic batch.
+    if (items.length > 499) throw new GradingApiError(400, "invalid-argument", "Trop de cotes.");
     const slots = [...new Set(items.map((item) => requiredString(item.gradingSlot, "Période")))];
     if (slots.some((slot) => !EDITABLE_SLOTS.has(slot) || (requestedSlot && slot !== requestedSlot))) throw new GradingApiError(400, "invalid-argument", "Période invalide.");
     const [legacyConfig, ...specificConfigs] = await Promise.all([
@@ -340,6 +373,7 @@ export async function executeTeacherGrading({ db, caller, body }) {
     const parentClass = baseId && baseId !== classId ? await db.doc(`classes/${baseId}`).get() : undefined;
     const batch = db.batch();
     const now = FieldValue.serverTimestamp();
+    let changedCount = 0;
     for (const item of items) {
       const studentId = requiredString(item.studentId, "Élève");
       const slot = requiredString(item.gradingSlot, "Période");
@@ -355,9 +389,21 @@ export async function executeTeacherGrading({ db, caller, body }) {
       const id = [schoolId, schoolYearId, classId, subjectId, studentId, slot].join("__");
       const ref = db.doc(`gradeEntries/${id}`);
       const previous = await ref.get();
+      if (previous.exists && previous.data()?.status === status && previous.data()?.score === score && previous.data()?.maxScoreSnapshot === maxScore) continue;
       batch.set(ref, { id, schoolId, schoolYearId, assignmentId, teacherId: previous.exists ? previous.data().teacherId : teacher.id, classId, subjectId, studentId, gradingSlot: slot, score, status, maxScoreSnapshot: maxScore, createdAt: previous.exists ? previous.data().createdAt : now, createdBy: previous.exists ? previous.data().createdBy : caller.uid, updatedAt: now, updatedBy: caller.uid });
+      changedCount += 1;
     }
-    await batch.commit();
+    if (changedCount) {
+      const courseLabel = await courseActivityLabel(db, schoolId, schoolYearId, classId, subjectId);
+      const activityId = `grades_${crypto.randomUUID()}`;
+      batch.set(db.doc(`pedagogicalActivityLogs/${activityId}`), activityLog({
+        id: activityId, schoolId, schoolYearId, actorId: caller.uid, actorName: teacher.data()?.fullName,
+        action: "Cotes enregistrées ou corrigées",
+        details: `${courseLabel} · Périodes : ${slots.join(", ")} · Cotes modifiées : ${changedCount}`,
+        resourceType: "gradeEntries", resourceId: assignmentId, createdAt: new Date().toISOString(),
+      }));
+    }
+    if (changedCount) await batch.commit();
     return { ok: true, count: items.length };
   }
   throw new GradingApiError(400, "invalid-argument", "Action non prise en charge.");

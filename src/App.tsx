@@ -964,7 +964,7 @@ export default function App() {
       refreshToken={dataRefreshToken}
       onLogout={logout}
       renderEnvironmentBanner={() => <EnvironmentBanner />}
-      renderHeader={({ isRefreshing: teacherRefreshing, refreshError: teacherRefreshError }) => <Header user={user} data={data} yearData={yearData} school={currentSchool} year={currentYear} unreadNotifications={yearData.notifications.filter((item) => !item.read && item.recipientUserId === user.id).length} notificationsOpen={notificationsOpen} isRefreshing={isRefreshing || teacherRefreshing} refreshError={refreshError || teacherRefreshError} onRefresh={refreshCurrentYearData} onToggleNotifications={openNotifications} onCloseNotifications={closeNotifications} onRealtimeNotifications={(items) => setData((current) => ({ ...current, notifications: items }))} onRealtimeMessages={(items) => setData((current) => ({ ...current, messages: items }))} roleLabels={roleLabels} messagingEnabled />}
+      renderHeader={({ isRefreshing: teacherRefreshing, refreshError: teacherRefreshError, onOpenAvailabilityRequests }) => <Header user={user} data={data} yearData={yearData} school={currentSchool} year={currentYear} unreadNotifications={yearData.notifications.filter((item) => !item.read && item.recipientUserId === user.id).length} notificationsOpen={notificationsOpen} isRefreshing={isRefreshing || teacherRefreshing} refreshError={refreshError || teacherRefreshError} onRefresh={refreshCurrentYearData} onToggleNotifications={openNotifications} onCloseNotifications={closeNotifications} onOpenAvailabilityRequests={onOpenAvailabilityRequests} onRealtimeNotifications={(items) => setData((current) => ({ ...current, notifications: items }))} onRealtimeMessages={(items) => setData((current) => ({ ...current, messages: items }))} roleLabels={roleLabels} messagingEnabled />}
     />;
   }
 
@@ -1261,7 +1261,7 @@ export default function App() {
             feeTargetHasOption={feeTargetHasOption}
             formatFeeTargetLabel={formatFeeTargetLabel}
             renderFinancialReport={() => <ReportsModule yearData={yearData} school={currentSchool} year={selectedYear} />}
-            renderActivityHistory={(role) => <ActivityHistoryContent user={user} data={data} yearData={yearData} role={role} loading={isRefreshing} error={refreshError} />}
+            renderActivityHistory={(role) => <ActivityHistoryContent user={user} data={data} yearData={yearData} role={role} schoolYearId={selectedYear.id} loading={isRefreshing} error={refreshError} />}
             maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES}
             onOpenBiometrics={(mode) => navigate(mode === "fingerprints" ? "/admin/empreintes" : "/admin/cartes")}
             initialBiometricsOpen={biometricParentRoute}

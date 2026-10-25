@@ -26,7 +26,7 @@ type HeaderProps = {
   roleLabels: Record<AppUser["role"], string>;
   focusedMessageId?: string;
   messagingEnabled?: boolean;
-  onOpenAvailabilityRequests?: () => void;
+  onOpenAvailabilityRequests?: (requestId?: string) => void;
   onOpenPublishedGrades?: (studentId: string, slot: NonNullable<AppNotification["slot"]>) => void;
 };
 
@@ -199,9 +199,9 @@ export function Header({
             notificationPagination={notificationPagination}
             roleLabels={roleLabels}
             focusedMessageId={focusedMessageId}
-            onOpenAvailabilityRequests={onOpenAvailabilityRequests ? () => {
+            onOpenAvailabilityRequests={onOpenAvailabilityRequests ? (requestId) => {
               (onCloseNotifications ?? onToggleNotifications)();
-              onOpenAvailabilityRequests();
+              onOpenAvailabilityRequests(requestId);
             } : undefined}
             onOpenPublishedGrades={onOpenPublishedGrades ? (studentId, slot) => {
               (onCloseNotifications ?? onToggleNotifications)();

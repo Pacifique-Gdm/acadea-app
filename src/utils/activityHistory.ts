@@ -4,6 +4,7 @@ import { formatSchoolRecipientLabel } from "./messages";
 import { money } from "./pdf";
 import { buildSchoolYearDataIndexes } from "./dataIndexes";
 import { formatStudentClassName } from "./studentClasses";
+import { expenseCategoryLabel } from "./expenseCategory";
 
 export type ActivityHistoryItem = {
   id: string;
@@ -127,8 +128,10 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
       const actor = usersById.get(log.actorId);
       const warningDetails = parseWarningDetails(log.details);
       if (warningDetails && role === "parent") return false;
-      if (role === "admin") return log.actorId === user.id || actor?.role === "cashier" || actor?.role === "discipline_director";
-      if (role === "cashier" || role === "secretary" || role === "teacher" || role === "study_director") return log.actorId === user.id;
+      if (role === "admin") return log.subjectUserId ? log.schoolId === user.schoolId : log.actorId === user.id || actor?.role === "cashier" || actor?.role === "discipline_director";
+      if (role === "study_director") return log.subjectUserId ? log.schoolId === user.schoolId : log.actorId === user.id;
+      if (role === "teacher") return log.subjectUserId ? log.subjectUserId === user.id && log.schoolId === user.schoolId : log.actorId === user.id;
+      if (role === "cashier" || role === "secretary") return log.actorId === user.id;
       return log.actorId === user.id;
     })
     .map<ActivityHistoryItem>((log) => {
@@ -150,7 +153,7 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
         type: action.toLocaleLowerCase("fr").includes("sanction") ? "discipline" : "activity",
         title: action,
         actorName: log.actorName || "Utilisateur",
-        details: log.details ?? "",
+        details: `${log.subjectUserId && log.subjectUserId !== log.actorId ? `Enseignant : ${usersById.get(log.subjectUserId)?.name ?? "Enseignant concerné"} · ` : ""}${log.details ?? ""}`,
         createdAt: normalizeActivityTimestamp(log.createdAt),
       };
     });
@@ -181,7 +184,7 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
           title: "Dépense",
           actorName: expense.cashierName || "Caissier",
           details:
-            `Motif : ${expense.category} · Description : ${expense.description || "-"} · Montant : ${money(expense.amount)} · Date : ${expense.spentAt} · Heure : ${formatActivityTime(expense.createdAt)} · Enregistrée par : ${expense.cashierName || "-"} · Référence : ${expense.reference ?? expense.id}`,
+            `Motif : ${expenseCategoryLabel(expense.category)} · Description : ${expense.description || "-"} · Montant : ${money(expense.amount)} · Date : ${expense.spentAt} · Heure : ${formatActivityTime(expense.createdAt)} · Enregistrée par : ${expense.cashierName || "-"} · Référence : ${expense.reference ?? expense.id}`,
           createdAt: normalizeActivityTimestamp(expense.createdAt ?? expense.spentAt),
         }))
       : [];
