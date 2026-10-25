@@ -115,7 +115,8 @@ export interface CorrespondenceAttachment {
   name: string;
   type: string;
   size: number;
-  url: string;
+  /** Anciennes pièces uniquement ; l'interface n'ouvre jamais cette URL à jeton. */
+  url?: string;
   path: string;
 }
 

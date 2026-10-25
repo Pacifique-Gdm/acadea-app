@@ -428,7 +428,7 @@ export interface MessageAttachment {
   type: string;
   size: number;
   path: string;
-  url: string;
+  url?: string; // Liens historiques uniquement ; les nouvelles lectures passent par l'API authentifiée.
 }
 
 export interface Conversation {

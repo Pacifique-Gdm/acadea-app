@@ -67,7 +67,7 @@ async function identity(db, caller, schoolId, schoolYearId) {
     db.doc(`schools/${schoolId}`).get(),
   ]);
   const profile = profiles.docs[0];
-  if (!user.exists || user.data()?.status === "inactive" || user.data()?.active === false || profiles.size !== 1 || profile.data().status === "inactive" || !year.exists || year.data()?.schoolId !== schoolId || !school.exists || ["suspended", "inactive", "deleting"].includes(school.data()?.status)) {
+  if (!user.exists || user.data()?.role !== "teacher" || user.data()?.schoolId !== schoolId || user.data()?.status === "inactive" || user.data()?.active === false || profiles.size !== 1 || profile.data().status === "inactive" || !year.exists || year.data()?.schoolId !== schoolId || !school.exists || ["suspended", "inactive", "deleting"].includes(school.data()?.status)) {
     throw new GradingApiError(403, "permission-denied", "Profil pédagogique actif introuvable.");
   }
   return profile;

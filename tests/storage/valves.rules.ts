@@ -3,7 +3,7 @@ import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestE
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
 import { doc, setDoc } from "firebase/firestore";
 
-const projectId = "acadea-staging";
+const projectId = "demo-acadea-security-s1-s4";
 const schoolId = "school-a";
 const yearId = "year-a";
 const publicationId = "valve-a";
@@ -17,7 +17,7 @@ function testEnvironment() {
 
 function context(role?: string, tenant = schoolId) {
   return role
-    ? testEnvironment().authenticatedContext("user-a", { role, schoolId: tenant })
+    ? testEnvironment().authenticatedContext(role === "admin" || role === "school_admin" ? "admin-a" : role === "secretary" ? "secretary-a" : "other-a", { role, schoolId: tenant })
     : testEnvironment().unauthenticatedContext();
 }
 
@@ -46,6 +46,8 @@ beforeEach(async () => {
   await testEnvironment().clearFirestore();
   await testEnvironment().withSecurityRulesDisabled(async (admin) => {
     await setDoc(doc(admin.firestore(), "schools", schoolId), { id: schoolId, status: "active" });
+    await setDoc(doc(admin.firestore(), "users/admin-a"), { role: "school_admin", schoolId, status: "active", active: true });
+    await setDoc(doc(admin.firestore(), "users/secretary-a"), { role: "secretary", schoolId, status: "active", active: true });
   });
 });
 afterAll(async () => environment?.cleanup(), 30_000);
@@ -110,5 +112,19 @@ describe("pieces jointes Valves", () => {
     });
     await assertSucceeds(context("secretary").storage().ref(legacyPath).getDownloadURL());
     await assertFails(context("secretary", "school-b").storage().ref(legacyPath).getDownloadURL());
+  });
+
+  it("permet au Parent historique sans claim parentId de lire une pièce de son école, sans accepter un claim discordant", async () => {
+    const path = `valves/${schoolId}/${yearId}/${publicationId}/${fileId}.pdf`;
+    await testEnvironment().withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), "users/parent-user"), { role: "parent", schoolId, parentId: "parent-a", status: "active", active: true });
+      await admin.storage().ref(path).put(new Uint8Array(10), { contentType: "application/pdf" });
+    });
+    const legacy = testEnvironment().authenticatedContext("parent-user", { role: "parent", schoolId });
+    const matching = testEnvironment().authenticatedContext("parent-user", { role: "parent", schoolId, parentId: "parent-a" });
+    const mismatched = testEnvironment().authenticatedContext("parent-user", { role: "parent", schoolId, parentId: "parent-b" });
+    await assertSucceeds(legacy.storage().ref(path).getDownloadURL());
+    await assertSucceeds(matching.storage().ref(path).getDownloadURL());
+    await assertFails(mismatched.storage().ref(path).getDownloadURL());
   });
 });

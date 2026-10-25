@@ -18,8 +18,14 @@ function upload(name: string, type: string, size = 1024, overrides: Record<strin
   return context(uid, role, tenant).storage().ref(`message-uploads/${schoolId}/${senderId}/${draftId}/${name}`).put(new Uint8Array(size), { contentType: type, customMetadata: { schoolId, schoolYearId: yearId, senderId, draftId, originalName: "document.pdf", ...overrides } });
 }
 
-beforeAll(async () => { environment = await initializeTestEnvironment({ projectId: "acadea-staging", firestore: { rules: readFileSync("firestore.rules", "utf8") }, storage: { rules: readFileSync("storage.rules", "utf8") } }); }, 30_000);
-beforeEach(async () => { await environment.clearFirestore(); await environment.clearStorage(); await environment.withSecurityRulesDisabled(async (admin) => setDoc(doc(admin.firestore(), "schools", schoolId), { status: "active" })); });
+beforeAll(async () => { environment = await initializeTestEnvironment({ projectId: "demo-acadea-security-s1-s4", firestore: { rules: readFileSync("firestore.rules", "utf8") }, storage: { rules: readFileSync("storage.rules", "utf8") } }); }, 30_000);
+beforeEach(async () => { await environment.clearFirestore(); await environment.clearStorage(); await environment.withSecurityRulesDisabled(async (admin) => {
+  const db = admin.firestore();
+  await setDoc(doc(db, "schools", schoolId), { status: "active" });
+  for (const [uid, role] of [[senderId, "secretary"], ["secretary-b", "secretary"], ["admin-a", "school_admin"]]) {
+    await setDoc(doc(db, "users", uid), { role, schoolId, status: "active", active: true });
+  }
+}); });
 afterAll(async () => environment.cleanup(), 30_000);
 
 describe("pièces jointes de messagerie", () => {
@@ -58,7 +64,7 @@ describe("pièces jointes de messagerie", () => {
     await assertSucceeds(reference.delete());
   });
 
-  it("autorise la lecture finale aux participants du message uniquement", async () => {
+  it("refuse la lecture finale directe même aux participants : téléchargement par callable", async () => {
     const conversationId = "conversation-a";
     const messageId = "message-a";
     const finalPath = `messages/${schoolId}/${conversationId}/${messageId}/${fileId}.pdf`;
@@ -66,12 +72,12 @@ describe("pièces jointes de messagerie", () => {
       await setDoc(doc(admin.firestore(), "messages", messageId), { schoolId, conversationId, participantIds: [senderId, "admin-a"] });
       await admin.storage().ref(finalPath).put(new Uint8Array(10), { contentType: "application/pdf" });
     });
-    await assertSucceeds(context(senderId).storage().ref(finalPath).getDownloadURL());
-    await assertSucceeds(context("admin-a", "school_admin").storage().ref(finalPath).getDownloadURL());
+    await assertFails(context(senderId).storage().ref(finalPath).getDownloadURL());
+    await assertFails(context("admin-a", "school_admin").storage().ref(finalPath).getDownloadURL());
     await assertFails(context("secretary-b").storage().ref(finalPath).getDownloadURL());
     await assertFails(context(senderId, "secretary", "school-b").storage().ref(finalPath).getDownloadURL());
   });
-  it("révoque la lecture d'un message pour une session Enseignant déjà ouverte après archivage", async () => {
+  it("refuse toujours la lecture directe après archivage d'un participant Enseignant", async () => {
     const teacherId = "teacher-a";
     const conversationId = "conversation-teacher";
     const messageId = "message-teacher";
@@ -82,10 +88,21 @@ describe("pièces jointes de messagerie", () => {
       await admin.storage().ref(finalPath).put(new Uint8Array(10), { contentType: "application/pdf" });
     });
     const session = context(teacherId, "teacher");
-    await assertSucceeds(session.storage().ref(finalPath).getDownloadURL());
+    await assertFails(session.storage().ref(finalPath).getDownloadURL());
     await environment.withSecurityRulesDisabled(async (admin) => {
       await setDoc(doc(admin.firestore(), "users", teacherId), { schoolId, role: "teacher", status: "inactive", active: false });
     });
     await assertFails(session.storage().ref(finalPath).getDownloadURL());
+  });
+
+  it("refuse l'accès Storage direct au Parent historique sans claim et au Parent avec claim discordant", async () => {
+    const finalPath = `messages/${schoolId}/conversation-parent/message-parent/${fileId}.pdf`;
+    await environment.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), "users", "parent-user"), { role: "parent", schoolId, parentId: "parent-a", status: "active", active: true });
+      await setDoc(doc(admin.firestore(), "messages", "message-parent"), { schoolId, conversationId: "conversation-parent", participantIds: ["parent-user"] });
+      await admin.storage().ref(finalPath).put(new Uint8Array(10), { contentType: "application/pdf" });
+    });
+    await assertFails(context("parent-user", "parent").storage().ref(finalPath).getDownloadURL());
+    await assertFails(environment.authenticatedContext("parent-user", { role: "parent", schoolId, parentId: "parent-b" }).storage().ref(finalPath).getDownloadURL());
   });
 });

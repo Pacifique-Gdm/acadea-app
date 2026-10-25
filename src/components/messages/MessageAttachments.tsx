@@ -1,7 +1,7 @@
 import { Download, LoaderCircle, Paperclip } from "lucide-react";
-import { getDownloadURL, ref } from "firebase/storage";
+import { getFunctions, httpsCallable } from "firebase/functions";
 import { useState } from "react";
-import { storage } from "../../firebase";
+import { app } from "../../firebase";
 import type { Message } from "../../types";
 import { formatMessageAttachmentSize } from "../../utils/messageAttachments";
 import { getDisplayableMessageAttachments } from "../../utils/messageAttachmentDisplay";
@@ -14,17 +14,21 @@ export function MessageAttachments({ message, inverse = false }: { message: Mess
   if (attachments.length === 0) return null;
 
   async function download(path: string, name: string) {
-    if (!storage || loadingPath) return;
+    if (!app || loadingPath) return;
     setLoadingPath(path);
     setError("");
     try {
-      const url = await getDownloadURL(ref(storage, path));
+      const call = httpsCallable<{ messageId: string; path: string }, { name: string; contentType: string; dataBase64: string }>(getFunctions(app, "europe-west1"), "messageAttachmentFile");
+      const response = await call({ messageId: message.id, path });
+      const binary = atob(response.data.dataBase64);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+      const url = URL.createObjectURL(new Blob([bytes], { type: response.data.contentType }));
       const anchor = document.createElement("a");
       anchor.href = url;
       anchor.download = name;
-      anchor.target = "_blank";
-      anchor.rel = "noopener noreferrer";
       anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (downloadError) {
       console.error("Téléchargement de la pièce jointe impossible.", downloadError);
       setError("Cette pièce jointe ne peut pas être téléchargée pour le moment.");

@@ -6,14 +6,16 @@ import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
 let environment: RulesTestEnvironment;
 const uuid = "123e4567-e89b-42d3-a456-426614174000";
 const context = (uid = "admin-a", role = "school_admin", schoolId = "school-a") => environment.authenticatedContext(uid, { role, schoolId });
-const upload = (type: string, extension: string, size = 1024, tenant = "school-a", role = "school_admin") => context("admin-a", role, tenant).storage().ref(`personnel-photos/school-a/teacher-a/${uuid}.${extension}`).put(new Uint8Array(size), { contentType: type, customMetadata: { schoolId: "school-a", personnelId: "teacher-a" } });
+const upload = (type: string, extension: string, size = 1024, tenant = "school-a", role = "school_admin") => context(role === "study_director" ? "director-a" : "admin-a", role, tenant).storage().ref(`personnel-photos/school-a/teacher-a/${uuid}.${extension}`).put(new Uint8Array(size), { contentType: type, customMetadata: { schoolId: "school-a", personnelId: "teacher-a" } });
 
 describe("photos du personnel", () => {
-  beforeAll(async () => { environment = await initializeTestEnvironment({ projectId: "acadea-staging", firestore: { rules: readFileSync("firestore.rules", "utf8") }, storage: { rules: readFileSync("storage.rules", "utf8") } }); }, 30_000);
+  beforeAll(async () => { environment = await initializeTestEnvironment({ projectId: "demo-acadea-security-s1-s4", firestore: { rules: readFileSync("firestore.rules", "utf8") }, storage: { rules: readFileSync("storage.rules", "utf8") } }); }, 30_000);
   beforeEach(async () => { await environment.clearFirestore(); await environment.clearStorage(); await environment.withSecurityRulesDisabled(async (admin) => {
     await setDoc(doc(admin.firestore(), "schools", "school-a"), { status: "active" });
     await setDoc(doc(admin.firestore(), "users", "teacher-a"), { role: "teacher", schoolId: "school-a", status: "active" });
     await setDoc(doc(admin.firestore(), "users", "cashier-a"), { role: "cashier", schoolId: "school-a", status: "active" });
+    await setDoc(doc(admin.firestore(), "users", "admin-a"), { role: "school_admin", schoolId: "school-a", status: "active", active: true });
+    await setDoc(doc(admin.firestore(), "users", "director-a"), { role: "study_director", schoolId: "school-a", status: "active", active: true });
   }); });
   afterAll(async () => environment.cleanup(), 30_000);
 

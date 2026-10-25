@@ -11,7 +11,7 @@ const metadata = (extra: Record<string, string> = {}) => ({ contentType: "applic
 const upload = (role?: string, tenant = schoolId, size = 1024, target = path) => context(role, tenant).storage().ref(target).put(new Uint8Array(size), metadata());
 
 beforeAll(async () => {
-  environment = await initializeTestEnvironment({ projectId: "acadea-staging", firestore: { rules: readFileSync("firestore.rules", "utf8") }, storage: { rules: readFileSync("storage.rules", "utf8") } });
+  environment = await initializeTestEnvironment({ projectId: "demo-acadea-security-s1-s4", firestore: { rules: readFileSync("firestore.rules", "utf8") }, storage: { rules: readFileSync("storage.rules", "utf8") } });
 }, 60_000);
 beforeEach(async () => {
   await environment.clearStorage();
@@ -19,6 +19,7 @@ beforeEach(async () => {
   await environment.withSecurityRulesDisabled(async (admin) => {
     await setDoc(doc(admin.firestore(), `schools/${schoolId}`), { status: "active", activeSchoolYearId: yearId });
     await setDoc(doc(admin.firestore(), `schoolYears/${yearId}`), { schoolId, status: "active" });
+    await setDoc(doc(admin.firestore(), "users/director"), { role: "study_director", schoolId, status: "active", active: true });
   });
 }, 60_000);
 afterAll(async () => environment?.cleanup(), 30_000);

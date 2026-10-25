@@ -4,6 +4,16 @@ export async function requireActiveApiUser(db, caller) {
   if (!profile || profile.status === "inactive" || profile.active === false) {
     throw Object.assign(new Error("Compte utilisateur inactif ou introuvable."), { statusCode: 403, code: "permission-denied" });
   }
+  const role = caller.role === "admin" ? "school_admin" : caller.role;
+  const profileRole = profile.role === "admin" ? "school_admin" : profile.role;
+  if (profileRole !== role && !(role === "super_admin" && !profile.role)) {
+    throw Object.assign(new Error("Rôle du compte invalide."), { statusCode: 403, code: "permission-denied" });
+  }
+  if ((role === "parent" && (!caller.parentId || profile.parentId !== caller.parentId))
+    || (["coordination_admin", "sub_coordination_admin"].includes(role) && (!caller.coordinationId || profile.coordinationId !== caller.coordinationId))
+    || (role === "sub_coordination_admin" && (!caller.subCoordinationId || profile.subCoordinationId !== caller.subCoordinationId))) {
+    throw Object.assign(new Error("Périmètre du compte invalide."), { statusCode: 403, code: "permission-denied" });
+  }
   if (["admin", "school_admin", "secretary", "cashier", "study_director", "discipline_director", "teacher", "parent"].includes(caller.role)) {
     if (!caller.schoolId || profile.schoolId !== caller.schoolId) {
       throw Object.assign(new Error("École du compte invalide."), { statusCode: 403, code: "permission-denied" });
