@@ -329,7 +329,7 @@ export async function removeSchoolAdmin(input: RemoveSchoolAdminInput) {
   return payload;
 }
 
-type ManageSchoolAction = "update" | "change-acronym" | "change-currency" | "suspend" | "reactivate" | "delete";
+type ManageSchoolAction = "update" | "change-acronym" | "change-currency" | "rename-option" | "suspend" | "reactivate" | "delete";
 
 type ManageSchoolInput = {
   action: ManageSchoolAction;
@@ -339,6 +339,8 @@ type ManageSchoolInput = {
   schoolYearId?: string;
   currency?: "USD" | "CDF";
   acronym?: string;
+  option?: string;
+  newName?: string;
 };
 
 type ManageSchoolResponse = {

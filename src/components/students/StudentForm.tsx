@@ -19,6 +19,7 @@ export function StudentForm({
   setQuickParent,
   classChoices,
   optionChoices,
+  optionLabels,
   onAddOption,
   onCreateParent,
   onSave,
@@ -40,6 +41,7 @@ export function StudentForm({
   setQuickParent: (parent: { fullName: string; phone: string; email: string; password: string }) => void;
   classChoices: SchoolClass[];
   optionChoices: string[];
+  optionLabels?: Record<string, string>;
   onAddOption: (option: string) => Promise<boolean>;
   onCreateParent: () => void;
   onSave: () => void | Promise<void>;
@@ -291,7 +293,7 @@ export function StudentForm({
             >
               <option value="">Aucune option</option>
               {optionChoices.map((option) => (
-                <option key={option} value={option}>{option}</option>
+                <option key={option} value={option}>{optionLabels?.[option] || option}</option>
               ))}
               {canAddOption && <option value="__add_option__">Ajouter une option</option>}
             </select>
@@ -327,7 +329,7 @@ export function StudentForm({
           <button type="button" className="secondary-button w-full min-w-0 whitespace-normal px-2 text-center leading-tight" disabled={!selectedClass || !onDeleteSubclass || subclassAddSaving || subclassDeletePending} onClick={toggleDeleteSubclass}>Supp. sous-classe</button>
         </div>
         {subclassMode === "add" && selectedClass && onAddSubclasses && canAddSubclass && <section className="grid min-w-0 gap-2 rounded border border-slate-200 bg-slate-50 p-3">
-          <p className="font-semibold">Sous-classes de {selectedClass.name}{form.option ? ` — ${form.option}` : ""}</p>
+          <p className="font-semibold">Sous-classes de {selectedClass.name}{form.option ? ` — ${optionLabels?.[form.option] || form.option}` : ""}</p>
           {subclassLabels.map((label, index) => <input key={index} className="input min-w-0" aria-label={`Sous-classe ${index + 1}`} value={label} readOnly />)}
           {!subclassAddPending && <><button type="button" className="secondary-button justify-center" disabled={subclassLabels.length >= 20} onClick={() => setSubclassLabels((items) => [...items, ...nextSubclassLetters([...existingSubclassLabels, ...items])])}>Ajouter une autre sous-classe</button>
             {subclassError && <p role="alert" className="text-sm text-red-700">{subclassError}</p>}

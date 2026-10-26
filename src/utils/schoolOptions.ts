@@ -6,6 +6,14 @@ const sciencesAliases = new Set(["science", "sciences", "scientifique", "section
 
 export const SCHOOL_OPTION_DELETE_CONFIRMATION = "SUPPRIMER CETTE OPTION";
 export const SCHOOL_OPTION_ADD_CONFIRMATION = "AJOUTER CETTE OPTION";
+export const SCHOOL_OPTION_RENAME_CONFIRMATION = "CHANGER LE NOM DE CETTE OPTION";
+
+export function schoolOptionDisplayName(school: { schoolOptionDisplayNames?: Record<string, string> }, option: string) {
+  const labels = school.schoolOptionDisplayNames;
+  const key = canonicalSchoolOption(option);
+  const label = labels && (Object.hasOwn(labels, option) ? labels[option] : Object.hasOwn(labels, key) ? labels[key] : undefined);
+  return typeof label === "string" && label.trim() ? label : option;
+}
 
 export function isSchoolOptionAddConfirmation(value: string) {
   return value === SCHOOL_OPTION_ADD_CONFIRMATION;

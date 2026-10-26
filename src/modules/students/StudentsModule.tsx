@@ -7,12 +7,13 @@ import { createAuditLog } from "../../utils/audit";
 import { nextParentEmail, parentEmailExists } from "../../utils/parents";
 import { applyParentLinkResult, applyParentUnlinkResult, PARENT_LINK_CONFIRMATION, PARENT_UNLINK_CONFIRMATION, studentBeforeParentMutation } from "../../utils/parentStudentLink";
 import { getSchoolClassChoices, getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
-import { canonicalSchoolOption, normalizeSchoolOptions } from "../../utils/schoolOptions";
+import { canonicalSchoolOption, normalizeSchoolOptions, schoolOptionDisplayName } from "../../utils/schoolOptions";
 import { persistSchoolOption } from "../../services/schoolOptionsRepository";
 import { getClassSection } from "../../utils/studentClasses";
 import { emptyStudent, isArchivedStudent, studentForPersistence, validateStudentForSave } from "../../utils/studentUtils";
 import { exportStudentsPdf } from "../../utils/studentPdf";
-import type { AppData, AppUser, ParentProfile, School, SchoolSection, SchoolYear, Student } from "../../types";
+import { displayStudentBirthDate } from "../../utils/studentBirthDate";
+import type { AppData, AppUser, School, SchoolSection, SchoolYear, Student } from "../../types";
 import { CLASSES } from "../../types";
 import type { SchoolClassRecord } from "../../types";
 import { formatOperationalStudentClassName, resolveStudentParentClass, schoolClassOptionKey, studentSchoolClassOptionKey, subscribeToSchoolClasses, validateStudentAcademicSelection } from "../../services/schoolSubclasses";
@@ -173,20 +174,6 @@ export function StudentsModule({
     students.forEach((student) => records.set(student.id, student));
     return [...records.values()];
   }, [data.students, students]);
-  const parentsById = useMemo(
-    () => new Map(yearData.parents.filter((parent) => parent.schoolId === school.id).map((parent) => [parent.id, parent])),
-    [school.id, yearData.parents],
-  );
-  const parentByStudentId = useMemo(() => {
-    const index = new Map<string, ParentProfile>();
-    yearData.parents.forEach((parent) => {
-      if (parent.schoolId !== school.id) return;
-      parent.studentIds.forEach((studentId) => {
-        if (!index.has(studentId)) index.set(studentId, parent);
-      });
-    });
-    return index;
-  }, [school.id, yearData.parents]);
   const archiveStudent = archiveStudentId ? studentRecords.find((student) => student.id === archiveStudentId) : undefined;
   const reactivationStudent = reactivationStudentId ? studentRecords.find((student) => student.id === reactivationStudentId) : undefined;
   const archiveReasonChoices = ["Abandon", "Mutation", "Exclusion", "Décès", "Fin de scolarité", "Erreur administrative", "Autre"] as const;
@@ -218,12 +205,6 @@ export function StudentsModule({
     } catch (cause) {
       setTerminalError(cause instanceof Error ? cause.message : "Réinscription impossible.");
     } finally { setTerminalBusy(false); }
-  }
-
-  function studentParentPhone(student: Student) {
-    const directParent = student.parentId ? parentsById.get(student.parentId) : undefined;
-    const parent = directParent ?? parentByStudentId.get(student.id);
-    return parent?.phone?.trim() || "—";
   }
 
   async function saveStudent() {
@@ -617,7 +598,7 @@ export function StudentsModule({
           <select value={optionFilter} onChange={(event) => setOptionFilter(event.target.value)} className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2 lg:flex-1 lg:basis-0">
             <option value="">Toutes les options</option>
             {optionChoices.map((option) => (
-              <option key={option} value={option}>{option}</option>
+              <option key={option} value={option}>{schoolOptionDisplayName(school, option)}</option>
             ))}
           </select>
           <button onClick={() => void printStudentsPdf()} disabled={isExporting} type="button" className="pdf-export-button min-w-0 px-3 lg:flex-1 lg:basis-0">
@@ -636,7 +617,7 @@ export function StudentsModule({
                 <th className="px-3 py-3">Statut</th>
                 <th className="px-3 py-3">Sexe</th>
                 <th className="px-3 py-3">Classe</th>
-                <th className="px-3 py-3">Téléphone</th>
+                <th className="px-3 py-3">Date de naissance</th>
                 <th className="px-3 py-3">Archivage</th>
                 {showActionsColumn && <th className="px-3 py-3">Actions</th>}
               </tr>
@@ -664,8 +645,8 @@ export function StudentsModule({
                     )}
                   </td>
                   <td className="px-3 py-3">{student.sexe}</td>
-                  <td className="px-3 py-3">{formatOperationalStudentClassName(student, structuredClasses)}</td>
-                  <td className="px-3 py-3">{studentParentPhone(student)}</td>
+                  <td className="px-3 py-3">{formatOperationalStudentClassName({ ...student, option: student.option ? schoolOptionDisplayName(school, student.option) : student.option }, structuredClasses)}</td>
+                  <td className="px-3 py-3">{displayStudentBirthDate(student.birthDate)}</td>
                   <td className="px-3 py-3">
                     {archived ? (
                       <div className="max-w-[260px] text-xs text-slate-600">
@@ -727,6 +708,7 @@ export function StudentsModule({
             setQuickParent={setQuickParent}
             classChoices={studentClassChoices}
             optionChoices={optionChoices}
+            optionLabels={school.schoolOptionDisplayNames}
             onAddOption={addSchoolOption}
             onCreateParent={createParentForStudent}
             onSave={saveStudent}

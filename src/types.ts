@@ -66,6 +66,8 @@ export interface School {
   timeZone?: string;
   educationLevels?: string[];
   schoolOptions?: string[];
+  /** Libellés visibles indexés par la valeur historique stable de l'option. */
+  schoolOptionDisplayNames?: Record<string, string>;
   schoolType?: "Maternelle" | "Primaire" | "CTEB" | "Secondaire" | "Primaire uniquement" | "CTEB uniquement" | "Secondaire uniquement" | "CTEB et Secondaire" | "Mixte";
   createdAt?: string;
   createdBy?: string;

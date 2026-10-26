@@ -20,7 +20,7 @@ import { ERROR_MESSAGE_DURATION_MS, SUCCESS_MESSAGE_DURATION_MS, useAutoDismissM
 import { subscribeToSchoolTeacherAccounts } from "../../services/teacherAccounts";
 import { persistSchoolEducationLevel, persistSchoolOption, persistSchoolSettings } from "../../services/schoolOptionsRepository";
 import { isSchoolSectionConfirmation, SCHOOL_SECTION_CONFIRMATIONS, type SchoolSectionAction } from "../../utils/schoolSectionConfirmation";
-import { canonicalSchoolOption, isSchoolOptionAddConfirmation, isSchoolOptionDeleteConfirmation, normalizeSchoolOptions, SCHOOL_OPTION_ADD_CONFIRMATION, SCHOOL_OPTION_DELETE_CONFIRMATION } from "../../utils/schoolOptions";
+import { canonicalSchoolOption, isSchoolOptionAddConfirmation, isSchoolOptionDeleteConfirmation, normalizeSchoolOptions, schoolOptionDisplayName, SCHOOL_OPTION_ADD_CONFIRMATION, SCHOOL_OPTION_DELETE_CONFIRMATION } from "../../utils/schoolOptions";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import { formatCurrencyMoney, resolveSchoolYearCurrency, schoolCurrencySymbol } from "../../utils/currency";
 import { toMoneyMinor } from "../../utils/money";
@@ -907,7 +907,7 @@ export function MenuModule({
               {schoolFormOptions.map((option) => (
                 <Fragment key={option}>
                   <span className="inline-flex min-w-0 items-center gap-2 rounded bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
-                    <span className="min-w-0 break-words">{option}</span>
+                    <span className="min-w-0 break-words">{schoolOptionDisplayName(school, option)}</span>
                     {canAdmin && (
                       <button onClick={() => requestSchoolOptionRemoval(option)} type="button" className="shrink-0 text-red-600 hover:text-red-700" aria-label={`Retirer l'option ${option}`}>
                         <X className="h-3.5 w-3.5" />

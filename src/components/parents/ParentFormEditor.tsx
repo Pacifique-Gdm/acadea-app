@@ -5,6 +5,7 @@ import { provisionParent, unlinkParentFromStudent } from "../../services/provisi
 import { temporaryPasswordAfterPhoneChange } from "../../utils/temporaryPassword";
 import { emptyParent, nextParentEmail } from "../../utils/parents";
 import { applyParentUnlinkResult, isExactParentStudentUnlinkConfirmation, PARENT_STUDENT_UNLINK_CONFIRMATION } from "../../utils/parentStudentLink";
+import { schoolOptionDisplayName } from "../../utils/schoolOptions";
 import type { AppData, AppUser, ParentProfile, School, SchoolYear, Student } from "../../types";
 
 type ParentFormYearData = {
@@ -77,7 +78,7 @@ export function ParentFormEditor({
   const normalizedStudentLinkSearch = studentLinkSearch.trim().toLocaleLowerCase("fr");
   const studentLinkSearchResults = useMemo(() => {
     return sortedLinkStudents.filter((student) => {
-      const classLabel = student.option?.trim() ? `${student.className} ${student.option}` : student.className;
+      const classLabel = student.option?.trim() ? `${student.className} ${schoolOptionDisplayName(school, student.option)}` : student.className;
       const haystack = [
         student.nom,
         student.postnom,
@@ -92,7 +93,7 @@ export function ParentFormEditor({
         (!studentSectionFilter || student.section === studentSectionFilter) &&
         (!studentClassFilter || student.className === studentClassFilter);
     });
-  }, [normalizedStudentLinkSearch, sortedLinkStudents, studentClassFilter, studentSectionFilter]);
+  }, [normalizedStudentLinkSearch, sortedLinkStudents, studentClassFilter, studentSectionFilter, school]);
 
   useEffect(() => {
     if (initializedRequestIdRef.current === requestId) return;
@@ -327,7 +328,7 @@ export function ParentFormEditor({
             {studentLinkSearchResults.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun élève trouvé.</p>}
             {studentLinkSearchResults.map((student) => {
               const isSelected = form.studentIds.includes(student.id);
-              const classLabel = student.option?.trim() ? `${student.className} ${student.option}` : student.className;
+              const classLabel = student.option?.trim() ? `${student.className} ${schoolOptionDisplayName(school, student.option)}` : student.className;
               return (
                 <button
                   key={student.id}
@@ -353,7 +354,7 @@ export function ParentFormEditor({
             <p className="font-semibold text-ink">{selectedLinkedStudents.length} élève(s) lié(s)</p>
             <div className="grid gap-2">
               {selectedLinkedStudents.map((student) => {
-                const classLabel = student.option?.trim() ? `${student.className} ${student.option}` : student.className;
+                const classLabel = student.option?.trim() ? `${student.className} ${schoolOptionDisplayName(school, student.option)}` : student.className;
                 const studentLabel = `${student.nom} ${student.postnom} ${student.prenom}`.replace(/\s+/g, " ").trim();
                 return (
                   <div key={student.id} className="flex min-w-0 items-center justify-between gap-3 rounded bg-white px-3 py-2">

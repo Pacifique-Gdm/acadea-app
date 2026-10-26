@@ -49,3 +49,10 @@ export function formatStudentBirthDateInput(value: string) {
   const day = Number(dayText);
   return isCalendarDate(year, month, day) ? `${dayText}/${monthText}/${yearText}` : value;
 }
+
+/** Date civile sans conversion de fuseau ; les anciennes valeurs ISO gardent leur jour d'origine. */
+export function displayStudentBirthDate(value?: string) {
+  if (!value) return "Non renseignée";
+  const formatted = formatStudentBirthDateInput(value);
+  return DISPLAY_DATE_PATTERN.test(formatted) && parseStudentBirthDateInput(formatted) !== null ? formatted : "Non renseignée";
+}

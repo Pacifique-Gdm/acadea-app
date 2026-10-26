@@ -1,7 +1,7 @@
 import { doc, runTransaction } from "firebase/firestore";
 import { db } from "../firebase";
 import type { School } from "../types";
-import { canonicalSchoolOption, mergeSchoolOptions, normalizeSchoolOptions, reconcileSchoolOptions } from "../utils/schoolOptions";
+import { canonicalSchoolOption, mergeSchoolOptions, normalizeSchoolOptions, reconcileSchoolOptions, schoolOptionDisplayName } from "../utils/schoolOptions";
 import { getSchoolEducationLevels, toggleSchoolEducationLevel } from "../utils/schoolConfig";
 
 export async function persistSchoolOption(schoolId: string, option: string) {
@@ -12,7 +12,10 @@ export async function persistSchoolOption(schoolId: string, option: string) {
   return runTransaction(db, async (transaction) => {
     const snapshot = await transaction.get(schoolRef);
     if (!snapshot.exists()) throw new Error("École introuvable.");
-    const current = snapshot.data() as Pick<School, "schoolOptions">;
+    const current = snapshot.data() as Pick<School, "schoolOptions" | "schoolOptionDisplayNames">;
+    if (normalizeSchoolOptions(current.schoolOptions).some((item) => item !== canonical && schoolOptionDisplayName(current, item).localeCompare(canonical, "fr", { sensitivity: "base" }) === 0)) {
+      throw new Error("Une option de cette école porte déjà ce nom.");
+    }
     const schoolOptions = mergeSchoolOptions(current.schoolOptions, [canonical]);
     transaction.update(schoolRef, { schoolOptions });
     return { schoolOptions, option: canonical };

@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { deleteStudentBirthDateInput, formatStudentBirthDateInput, guideStudentBirthDateInput, parseStudentBirthDateInput } from "./studentBirthDate";
+import { deleteStudentBirthDateInput, displayStudentBirthDate, formatStudentBirthDateInput, guideStudentBirthDateInput, parseStudentBirthDateInput } from "./studentBirthDate";
 
 describe("date de naissance élève", () => {
+  it("affiche le jour civil français sans décalage de fuseau ni confusion avec l'inscription", () => {
+    expect(displayStudentBirthDate("2012-09-25")).toBe("25/09/2012");
+    expect(displayStudentBirthDate("2012-09-25T00:00:00.000Z")).toBe("25/09/2012");
+    expect(displayStudentBirthDate("")).toBe("Non renseignée");
+    expect(displayStudentBirthDate("2012-02-30")).toBe("Non renseignée");
+  });
   it.each([
     ["25/09/2012", "2012-09-25"],
     ["01/01/2010", "2010-01-01"],

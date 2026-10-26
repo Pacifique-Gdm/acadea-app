@@ -10,6 +10,7 @@ import { generateReceiptPdf } from "../../utils/pdf";
 import { MISSING_FINANCIAL_OPERATION_SCHOOL_ERROR, resolveFinancialOperationSchool } from "../../utils/financialOperationSchool";
 import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
 import { formatStudentClassName } from "../../utils/studentClasses";
+import { schoolOptionDisplayName } from "../../utils/schoolOptions";
 import { isArchivedStudent } from "../../utils/studentUtils";
 import { applyParentLinkResult, applyParentUnlinkResult, isExactParentLinkConfirmation, isExactParentUnlinkConfirmation, PARENT_LINK_CONFIRMATION, PARENT_UNLINK_CONFIRMATION } from "../../utils/parentStudentLink";
 import type { AppData, AppUser, ParentProfile, School, SchoolYear } from "../../types";
@@ -223,9 +224,9 @@ export function StudentDetailPage({
           </div>
           <div className="min-w-0">
             <h1 className="break-words text-2xl font-bold text-ink">{student.nom} {student.postnom} {student.prenom}</h1>
-            <p className="break-words text-sm text-slate-500">{student.matricule} | {formatStudentClassName(student)} | {year.name}</p>
+            <p className="break-words text-sm text-slate-500">{student.matricule} | {formatStudentClassName({ ...student, option: student.option ? schoolOptionDisplayName(school, student.option) : student.option })} | {year.name}</p>
             <div className="mt-2 flex flex-wrap gap-2">
-              <span className="rounded bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">{formatStudentClassName(student)}</span>
+              <span className="rounded bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">{formatStudentClassName({ ...student, option: student.option ? schoolOptionDisplayName(school, student.option) : student.option })}</span>
               <span className={`rounded px-2 py-1 text-xs font-semibold ${archived ? "bg-slate-200 text-slate-700" : "bg-mint/10 text-mint"}`}>
                 {archived ? "Archivé" : "Actif"}
               </span>
