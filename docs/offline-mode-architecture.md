@@ -17,6 +17,7 @@ Statut : socle de conception. Aucun flux métier hors connexion n'est activé pa
 | Cotes | Dernière liste explicitement téléchargée et minimisée (élèves, affectation, maxima, période) | Cotes non publiées dans une période encore ouverte lors du dernier contrôle | Oui : statut actuel, affectation, maxima, version de chaque cote et période |
 | Présences | Dernière liste de classe autorisée et minimisée | Date, élève, séance, statut | Oui : rôle, classe, année, présence existante et identité de l'élève |
 | Paiements | Dernières informations affichées, marquées « potentiellement anciennes » | Proposition provisoire sans quittance | Oui : toutes les règles financières et confirmation atomique |
+| Inscriptions | Classes et options préchargées avec leurs identifiants stables | Fiche minimale d'élève par Administrateur ou Secrétaire | Oui : doublons, école, année, classe, option et matricule définitif |
 
 Les données non préchargées ne sont pas promises hors ligne. Les résultats publiés, les soldes et les reçus affichés hors ligne ne sont jamais présentés comme actuels.
 
@@ -40,6 +41,22 @@ La file ne lance aucun envoi en arrière-plan garanti. La synchronisation se fai
 
 Le navigateur ne constitue pas un coffre-fort. IndexedDB peut être effacé par l'utilisateur, le navigateur ou le système ; un appareil partagé ou compromis peut exposer les données. Les opérations sensibles devront être chiffrées avec Web Crypto et une clé non exportable par partition, mais cela ne protège pas contre un script malveillant exécuté sur la même origine. Une politique de rétention bornée et un avertissement avant nettoyage sont nécessaires. Au changement de compte/école, aucune opération de l'ancien périmètre ne doit être affichée ni synchronisée ; au retour, l'utilisateur voit ses opérations encore en attente. Une session expirée bloque l'envoi, pas la conservation de la file.
 
+## Accès à Acadéa après fermeture du navigateur
+
+La session Firebase conservée dans IndexedDB ne suffit pas à démontrer la réouverture hors connexion. Le Service Worker actuel sert le shell en cache, mais le bootstrap de `src/services/auth.ts` dépend du profil Firestore et d'un délai réseau ; aucune autorisation hors ligne limitée dans le temps n'est encore implémentée. Avant l'étape 2, il faut tester sur Staging une première connexion en ligne, la fermeture complète du navigateur, la réouverture sans réseau avec données préchargées, la déconnexion et le refus d'une session expirée. L'accès hors ligne ne peut pas être déclaré disponible aujourd'hui.
+
+## Plan séquentiel actualisé
+
+1. Architecture, sécurité et accès hors connexion.
+2. Notes scolaires.
+3. Présences et absences.
+4. Inscriptions d'élèves.
+5. Interface, supervision et résilience.
+6. Paiements scolaires provisoires.
+7. Validation globale.
+
+L'inscription doit réutiliser le formulaire existant, conserver l'ID stable de l'option même si son nom change et obtenir un ID/matricule définitif seulement après validation serveur idempotente. La PR #31 suspendue n'est ni modifiée ni fusionnée dans ce chantier.
+
 ## Validation de l'étape 1
 
-Le test Chromium local `e2e/offline-queue-local.spec.ts` a vérifié le rechargement, la lecture après persistance, l'absence de payload en clair dans l'enregistrement, l'isolation de deux périmètres, les transitions interdites, le réessai et la suppression après confirmation. Le lint ciblé et le contrôle TypeScript du module sont réussis. Aucune opération métier n'est activée et aucune donnée distante n'a été touchée. La validation du socle autorise le travail sur l'étape 2, **pas** l'utilisation en Production. Les étapes 2 à 5 ne peuvent être déclarées PASS qu'avec leurs API transactionnelles, tests de concurrence et recette authentifiée Staging. La PR #31 suspendue n'est ni base ni dépendance de cette architecture.
+Le test Chromium local `e2e/offline-queue-local.spec.ts` a vérifié le rechargement, la lecture après persistance, l'absence de payload en clair dans l'enregistrement, l'isolation de deux périmètres, les transitions interdites, le réessai et la suppression après confirmation. Le lint ciblé et le contrôle TypeScript du module sont réussis. Aucune opération métier n'est activée et aucune donnée distante n'a été touchée. **Verdict de l'étape 1 : NON VALIDÉE** tant que la réouverture de l'application hors connexion, le contrôle de session limitée et la recette authentifiée Staging ne sont pas démontrés. L'étape 2 ne doit pas commencer. La PR #31 suspendue n'est ni base ni dépendance de cette architecture.
