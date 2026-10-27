@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Expense, Payment, School, SchoolYear } from "../types";
+import type { CashInflow, Expense, Payment, School, SchoolYear } from "../types";
 import { totalsByRecordedCurrency } from "./operationCurrency";
 
 const render = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
@@ -17,6 +17,8 @@ const school = { id: "school-a", name: "École fictive", currency: "USD" } as Sc
 const year = { id: "year-a", schoolId: "school-a", currency: "USD" } as SchoolYear;
 const payment = { id: "payment-a", schoolId: "school-a", schoolYearId: "year-a", studentId: "student-a", feeTypeId: "fee-a", paidAt: "2026-10-13", amount: 500000, currency: "CDF" } as Payment;
 const expense = { id: "expense-a", schoolId: "school-a", schoolYearId: "year-a", spentAt: "2026-10-13", amount: 200000, currency: "CDF" } as Expense;
+const cashInflow = { id: "inflow-a", schoolId: "school-a", schoolYearId: "year-a", entryDate: "2026-10-13", amount: 100.25,
+  currency: "CDF", category: "Don", source: "Association fictive", description: "Don de test détaillé", cashierName: "Caissier" } as CashInflow;
 
 describe("rapport financier PDF — devise historique", () => {
   beforeEach(() => render.mockClear());
@@ -37,5 +39,16 @@ describe("rapport financier PDF — devise historique", () => {
       totalsByRecordedCurrency([payment]), totalsByRecordedCurrency([unknownExpense]), null, [payment], [unknownExpense], []))
       .rejects.toThrow("devise historique inconnue");
     expect(render).not.toHaveBeenCalled();
+  });
+
+  it("affiche les autres recettes séparément sans les compter comme frais scolaires", async () => {
+    await exportReportPdf(school, year, "2026-10-01", "2026-10-31", "Toutes", false,
+      totalsByRecordedCurrency([payment]), totalsByRecordedCurrency([expense]), null, [payment], [expense], [], [], [cashInflow]);
+    const sections = render.mock.calls[0]?.[0]?.sections.join(" ") ?? "";
+    expect(sections).toContain("Autres entrées de caisse");
+    expect(sections).toContain("Don");
+    expect(sections).toContain("Association fictive");
+    expect(sections).toContain("300 100,25 FC");
+    expect(sections).toContain("Paiements:500 000,00 FC");
   });
 });

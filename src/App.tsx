@@ -107,6 +107,7 @@ const emptyAppData: AppData = {
   feeTypes: [],
   payments: [],
   expenses: [],
+  cashInflows: [],
   messages: [],
   notifications: [],
   auditLogs: [],
@@ -253,6 +254,14 @@ export default function App() {
       expenses: reconcileFinancialSnapshot(current.expenses, expenses, { schoolId, schoolYearId: selectedYearId }),
     }));
   }, [selectedYearId, user?.schoolId]);
+  const applyRealtimeCashInflows = useCallback((cashInflows: NonNullable<AppData["cashInflows"]>) => {
+    if (!user?.schoolId || !selectedYearId) return;
+    const schoolId = user.schoolId;
+    setData((current) => ({
+      ...current,
+      cashInflows: reconcileFinancialSnapshot(current.cashInflows ?? [], cashInflows, { schoolId, schoolYearId: selectedYearId }),
+    }));
+  }, [selectedYearId, user?.schoolId]);
   const handleFinancialRealtimeError = useCallback((error: Error) => {
     console.warn("Actualisation temps réel des transactions indisponible.", error);
   }, []);
@@ -262,6 +271,7 @@ export default function App() {
     schoolYearId: selectedYearId,
     onPayments: applyRealtimePayments,
     onExpenses: applyRealtimeExpenses,
+    onCashInflows: applyRealtimeCashInflows,
     onError: handleFinancialRealtimeError,
   });
   const applyRealtimeSchoolRecords = useCallback((next: Partial<Pick<AppData, "students" | "parents" | "disciplineSanctions">>) => {
@@ -1361,6 +1371,7 @@ function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: 
       || (payment.collectionSchoolYearId === schoolYearId && Boolean(payment.currentStudentId && studentIds.includes(payment.currentStudentId)))
     )),
     expenses: data.expenses.filter((expense) => expense.schoolId === schoolId && expense.schoolYearId === schoolYearId),
+    cashInflows: (data.cashInflows ?? []).filter((inflow) => inflow.schoolId === schoolId && inflow.schoolYearId === schoolYearId),
     auditLogs: data.auditLogs.filter((log) => log.schoolId === schoolId && (!log.schoolYearId || log.schoolYearId === schoolYearId) && !isSessionAuditAction(log.action)),
     valves: data.valves.filter((publication) => publication.schoolId === schoolId && publication.schoolYearId === schoolYearId),
     disciplineSanctions: data.disciplineSanctions.filter((sanction) => sanction.schoolId === schoolId && sanction.schoolYearId === schoolYearId),

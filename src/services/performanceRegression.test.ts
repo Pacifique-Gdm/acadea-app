@@ -4,7 +4,7 @@ import { realtimeManagedCollections } from "./firestoreData";
 
 describe("garde-fous de volumétrie", () => {
   it("identifie les collections déjà alimentées par les listeners afin d’éviter leur double lecture au bootstrap", () => {
-    expect(realtimeManagedCollections("school_admin")).toEqual(["students", "parents", "feeTypes", "payments", "expenses", "valves"]);
+    expect(realtimeManagedCollections("school_admin")).toEqual(["students", "parents", "feeTypes", "payments", "expenses", "cashInflows", "valves"]);
     expect(realtimeManagedCollections("secretary")).toEqual(["students", "parents", "valves"]);
     expect(realtimeManagedCollections("study_director")).toEqual([]);
   });

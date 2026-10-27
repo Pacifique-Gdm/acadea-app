@@ -235,6 +235,65 @@ describe("caisse annuelle — contrôle serveur", () => {
     await expect(payroll(db, 300000, "cash-idempotent-01", { description: "different" })).rejects.toMatchObject({ code: "conflict" });
   });
 
+  it.each(["Subvention", "Don", "Frais de fonctionnement", "Autres"])("comptabilise une recette %s sans toucher aux paiements des élèves", async (category) => {
+    const db = seeded(0);
+    db.values.set("schools/school-a", { status: "active", currency: "CDF", activeSchoolYearId: "year-a" });
+    db.values.set("schoolYears/year-a", { schoolId: "school-a", status: "active", currency: "CDF", startsAt: "2026-09-01", endsAt: "2027-07-31" });
+    const payload = { action: "create-cash-inflow", schoolYearId: "year-a", amount: 250.25, category,
+      source: "Organisme fictif", paymentMethod: "Espèces", entryDate: "2026-10-13",
+      description: "Recette de test détaillée", clientRequestId: `cash-inflow-${category.replaceAll(" ", "-")}-0001` };
+    const first = await executeFinancialOperation({ db, caller, body: payload, now: "2026-10-13T10:00:00.000Z" });
+    expect(first.cashInflow).toMatchObject({ schoolId: "school-a", schoolYearId: "year-a", amount: 250.25, currency: "CDF", category });
+    expect((await readCashBalance({ db, schoolId: "school-a", schoolYearId: "year-a", currency: "CDF", yearCurrency: "CDF" })).availableCents).toBe(25025);
+    expect([...db.values.keys()].filter((key) => key.startsWith("payments/"))).toHaveLength(0);
+    expect([...db.values.keys()].filter((key) => key.startsWith("cashInflows/"))).toHaveLength(1);
+    const second = await executeFinancialOperation({ db, caller, body: payload, now: "2026-10-13T10:01:00.000Z" });
+    expect(second).toMatchObject({ idempotent: true, cashInflow: { id: first.cashInflow.id } });
+    expect([...db.values.keys()].filter((key) => key.startsWith("cashInflows/"))).toHaveLength(1);
+    await expect(executeFinancialOperation({ db, caller, body: { ...payload, amount: 300 }, now: "2026-10-13T10:02:00.000Z" })).rejects.toMatchObject({ code: "conflict" });
+  });
+
+  it("refuse les données invalides, le rôle interdit et l'année d'une autre école", async () => {
+    const db = seeded(0);
+    db.values.set("schools/school-a", { status: "active", currency: "CDF", activeSchoolYearId: "year-a" });
+    db.values.set("schoolYears/year-a", { schoolId: "school-a", status: "active", currency: "CDF", startsAt: "2026-09-01", endsAt: "2027-07-31" });
+    const payload = { action: "create-cash-inflow", schoolYearId: "year-a", amount: 20, category: "Don", source: "Test",
+      paymentMethod: "Espèces", entryDate: "2026-10-13", description: "Don fictif de test",
+      clientRequestId: "cash-invalid-base-0001" };
+    for (const invalid of [{ amount: 0 }, { amount: -1 }, { category: "Fournitures" }, { description: "   " }, { source: "" }, { entryDate: "2026-10-14" }]) {
+      await expect(executeFinancialOperation({ db, caller, body: { ...payload, ...invalid }, now: "2026-10-13T10:00:00.000Z" })).rejects.toMatchObject({ status: 400 });
+    }
+    await expect(executeFinancialOperation({ db, caller: { ...caller, role: "teacher" }, body: payload })).rejects.toMatchObject({ status: 403 });
+    db.values.set("schoolYears/year-b", { schoolId: "school-b", status: "active", currency: "CDF" });
+    await expect(executeFinancialOperation({ db, caller, body: { ...payload, schoolYearId: "year-b" } })).rejects.toMatchObject({ status: 400 });
+    expect([...db.values.keys()].filter((key) => key.startsWith("cashInflows/"))).toHaveLength(0);
+  });
+
+  it("isole les recettes par établissement, année et devise et bloque une devise inconnue", async () => {
+    const db = seeded(0);
+    db.values.set("cashInflows/current-cdf", { schoolId: "school-a", schoolYearId: "year-a", currency: "CDF", amount: 12.35 });
+    db.values.set("cashInflows/current-usd", { schoolId: "school-a", schoolYearId: "year-a", currency: "USD", amount: 7.5 });
+    db.values.set("cashInflows/foreign-school", { schoolId: "school-b", schoolYearId: "year-a", currency: "CDF", amount: 999 });
+    db.values.set("cashInflows/foreign-year", { schoolId: "school-a", schoolYearId: "year-b", currency: "CDF", amount: 999 });
+    expect((await balance(db)).availableCents).toBe(1235);
+    expect((await readCashBalance({ db, schoolId: "school-a", schoolYearId: "year-a", currency: "USD", yearCurrency: "CDF" })).availableCents).toBe(750);
+    db.values.set("cashInflows/unknown", { schoolId: "school-a", schoolYearId: "year-a", amount: 1 });
+    await expect(balance(db)).rejects.toMatchObject({ code: "cash-balance-inconsistent" });
+  });
+
+  it("rend la recette disponible pour une dépense unique sans toucher aux cotes ni aux salaires", async () => {
+    const db = seeded(0);
+    db.values.set("schools/school-a", { status: "active", currency: "CDF", activeSchoolYearId: "year-a" });
+    db.values.set("schoolYears/year-a", { schoolId: "school-a", status: "active", currency: "CDF", startsAt: "2026-09-01", endsAt: "2027-07-31" });
+    await executeFinancialOperation({ db, caller, body: { action: "create-cash-inflow", schoolYearId: "year-a", amount: 100,
+      category: "Don", source: "Association fictive", paymentMethod: "Espèces", entryDate: "2026-10-13",
+      description: "Don de recette fictive", clientRequestId: "cash-funded-expense-0001" }, now: "2026-10-13T10:00:00.000Z" });
+    await ordinaryExpense(db, 100, "cash-funded-expense-0002");
+    expect((await balance(db)).availableCents).toBe(0);
+    await expect(ordinaryExpense(db, 1, "cash-funded-expense-0003")).rejects.toMatchObject({ code: "insufficient-funds" });
+    expect([...db.values.keys()].filter((key) => key.startsWith("payments/") || key.startsWith("grades/") || key.startsWith("personnelPayments/"))).toHaveLength(0);
+  });
+
   it("compte les arriérés encaissés dans l'année une seule fois et dans leur devise", async () => {
     const db = seeded(0);
     db.values.set("payments/current", { schoolId: "school-a", schoolYearId: "year-a", collectionSchoolYearId: "year-a", currency: "CDF", amount: 100 });

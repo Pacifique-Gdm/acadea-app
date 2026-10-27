@@ -12,7 +12,7 @@ type PersistableItem = { id: string };
 type PersistFirestorePatchOptions = {
   throwOnError?: boolean;
 };
-export type FirestoreYearData = Partial<Pick<AppData, "students" | "parents" | "feeTypes" | "payments" | "expenses" | "messages" | "valves" | "attendance" | "attendanceSettings" | "auditLogs">>;
+export type FirestoreYearData = Partial<Pick<AppData, "students" | "parents" | "feeTypes" | "payments" | "expenses" | "cashInflows" | "messages" | "valves" | "attendance" | "attendanceSettings" | "auditLogs">>;
 export type DisciplineYearData = Pick<AppData, "students" | "parents" | "messages" | "notifications" | "disciplineSanctions" | "attendance" | "attendanceSettings" | "valves">;
 export type ParentPortalData = Pick<AppData, "feeTypes" | "students" | "parents" | "payments" | "messages" | "valves">;
 export type PlatformSettings = {
@@ -22,10 +22,10 @@ export type PlatformSettings = {
 
 export type FirestoreBootstrapData = Pick<AppData, "users" | "schools" | "schoolYears">;
 
-export type RealtimeManagedCollection = "students" | "parents" | "feeTypes" | "payments" | "expenses" | "valves" | "disciplineSanctions";
+export type RealtimeManagedCollection = "students" | "parents" | "feeTypes" | "payments" | "expenses" | "cashInflows" | "valves" | "disciplineSanctions";
 
 export function realtimeManagedCollections(role: AppUser["role"]): RealtimeManagedCollection[] {
-  if (role === "school_admin" || role === "cashier") return ["students", "parents", "feeTypes", "payments", "expenses", "valves"];
+  if (role === "school_admin" || role === "cashier") return ["students", "parents", "feeTypes", "payments", "expenses", "cashInflows", "valves"];
   if (role === "discipline_director") return ["students", "parents", "disciplineSanctions", "valves"];
   if (role === "secretary") return ["students", "parents", "valves"];
   if (role === "parent") return ["valves"];
@@ -41,6 +41,7 @@ const collectionMap: Partial<Record<CollectionKey, string>> = {
   feeTypes: "feeTypes",
   payments: "payments",
   expenses: "expenses",
+  cashInflows: "cashInflows",
   messages: "messages",
   notifications: "notifications",
   valves: "valves",
@@ -64,6 +65,7 @@ function emptyFirestoreData(): AppData {
     feeTypes: [],
     payments: [],
     expenses: [],
+    cashInflows: [],
     messages: [],
     notifications: [],
     auditLogs: [],
@@ -347,10 +349,11 @@ export async function loadFirestoreData(
       maybeLoad("parents", () => loadCollection<AppData["parents"][number]>("parents", schoolFilter)),
       maybeLoad("payments", () => targetSchoolYearId ? loadPaymentsForYear(user.schoolId!, targetSchoolYearId) : loadCollection<AppData["payments"][number]>("payments", annualFilter)),
       maybeLoad("expenses", () => loadCollection<AppData["expenses"][number]>("expenses", annualFilter)),
+      maybeLoad("cashInflows", () => loadCollection<NonNullable<AppData["cashInflows"]>[number]>("cashInflows", annualFilter)),
       loadSchoolMessages(user, user.schoolId, schoolYearId as string),
       maybeLoad("valves", () => loadCollection<AppData["valves"][number]>("valves", annualFilter)),
     ]);
-    [scopedData.feeTypes, scopedData.students, scopedData.parents, scopedData.payments, scopedData.expenses, scopedData.messages, scopedData.valves] = commonLoads;
+    [scopedData.feeTypes, scopedData.students, scopedData.parents, scopedData.payments, scopedData.expenses, scopedData.cashInflows, scopedData.messages, scopedData.valves] = commonLoads;
     if (user.role === "school_admin") {
       [scopedData.auditLogs, scopedData.attendance, scopedData.attendanceSettings] = await Promise.all([
         loadCollection<AppData["auditLogs"][number]>("auditLogs", schoolFilter),
@@ -474,6 +477,7 @@ export async function loadFirestoreYearData(user: AppUser, schoolYearId: string)
     feeTypes: await loadCollection<AppData["feeTypes"][number]>("feeTypes", annualFilter),
     payments: await loadPaymentsForYear(user.schoolId, schoolYearId),
     expenses: await loadCollection<AppData["expenses"][number]>("expenses", annualFilter),
+    cashInflows: await loadCollection<NonNullable<AppData["cashInflows"]>[number]>("cashInflows", annualFilter),
     messages: await loadSchoolMessages(user, user.schoolId, schoolYearId),
     valves: await loadCollection<AppData["valves"][number]>("valves", annualFilter),
     attendance: await loadAttendanceCollection(annualFilter),

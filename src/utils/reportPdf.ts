@@ -1,7 +1,8 @@
-import type { Expense, Payment, School, SchoolYear, Student } from "../types";
+import type { CashInflow, Expense, Payment, School, SchoolYear, Student } from "../types";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./pdf";
 import { formatCurrencyMoney, resolveSchoolYearCurrency } from "./currency";
-import { formatRecordedTotals, type totalsByRecordedCurrency } from "./operationCurrency";
+import { formatRecordedTotals, totalsByRecordedCurrency } from "./operationCurrency";
+import { sumMoney } from "./money";
 import { expenseCategoryLabel } from "./expenseCategory";
 
 export async function exportReportPdf(
@@ -18,8 +19,9 @@ export async function exportReportPdf(
   expenses: Expense[],
   students: Student[],
   arrearsPayments: Payment[] = [],
+  cashInflows: CashInflow[] = [],
 ) {
-  if (paid.unknownCount || spent.unknownCount || arrearsPayments.some((payment) => payment.currency !== "CDF" && payment.currency !== "USD")) {
+  if (paid.unknownCount || spent.unknownCount || cashInflows.some((inflow) => inflow.currency !== "CDF" && inflow.currency !== "USD") || arrearsPayments.some((payment) => payment.currency !== "CDF" && payment.currency !== "USD")) {
     throw new Error("Export bloqué : devise historique inconnue.");
   }
   const defaultCurrency = resolveSchoolYearCurrency(year, school);
@@ -44,6 +46,8 @@ export async function exportReportPdf(
   };
   const sortedPayments = [...payments].sort((first, second) => compareByPrimaryThenCreatedAt(first, second, first.paidAt, second.paidAt));
   const sortedExpenses = [...expenses].sort((first, second) => compareByPrimaryThenCreatedAt(first, second, first.spentAt, second.spentAt));
+  const sortedCashInflows = [...cashInflows].sort((first, second) => compareByPrimaryThenCreatedAt(first, second, first.entryDate, second.entryDate));
+  const inflowTotals = totalsByRecordedCurrency(cashInflows);
   const studentNameForPayment = (payment: Payment) => {
     const student = studentById.get(payment.currentStudentId ?? payment.studentId);
     if (!student) return fallback;
@@ -69,14 +73,23 @@ export async function exportReportPdf(
         pdfInfoGrid([
           { label: "Section", value: sectionLabel },
           { label: "Paiements", value: formatRecordedTotals(paid, defaultCurrency) },
+          { label: "Autres entrées de caisse", value: formatRecordedTotals(inflowTotals, defaultCurrency) },
           { label: "Dépenses", value: formatRecordedTotals(spent, defaultCurrency) },
-          { label: "Solde", value: formatRecordedTotals({ CDF: paid.CDF - spent.CDF, USD: paid.USD - spent.USD, unknownCount: 0 }, defaultCurrency) },
+          { label: "Solde", value: formatRecordedTotals({ CDF: sumMoney([paid.CDF, inflowTotals.CDF, -spent.CDF]), USD: sumMoney([paid.USD, inflowTotals.USD, -spent.USD]), unknownCount: 0 }, defaultCurrency) },
           { label: "Recouvrement", value: recovery === null ? "Non calculable" : `${recovery}%` },
           ...(showGlobalExpenseNote
-            ? [{ label: "Note dépenses", value: "Les dépenses présentées sont globales pour l'école, car elles ne sont pas rattachées à une section." }]
+            ? [{ label: "Note caisse", value: "Les dépenses et autres entrées de caisse sont globales pour l'école, car elles ne sont pas rattachées à une section." }]
             : []),
         ]),
       ),
+      pdfSection("Autres entrées de caisse", pdfTable([
+        { header: "Date", render: (inflow: CashInflow) => inflow.entryDate },
+        { header: "Nature", render: (inflow: CashInflow) => inflow.category },
+        { header: "Provenance", render: (inflow: CashInflow) => inflow.source },
+        { header: "Description", render: (inflow: CashInflow) => inflow.description },
+        { header: "Caissier", render: (inflow: CashInflow) => inflow.cashierName },
+        { header: "Montant", render: (inflow: CashInflow) => formatCurrencyMoney(inflow.amount, inflow.currency), align: "right" },
+      ], sortedCashInflows, "Aucune autre entrée de caisse pour cette période.")),
       pdfSection(
         "Paiements",
         pdfTable(

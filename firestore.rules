@@ -832,6 +832,13 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    match /cashInflows/{inflowId} {
+      allow read: if superAdmin() || coordinatorSchool(resource.data.schoolId)
+        || (role() in ["school_admin", "cashier"] && sameTenantResource());
+      // Encaissements créés uniquement par la transaction Admin vérifiée.
+      allow create, update, delete: if false;
+    }
+
     match /financialCounters/{counterId} {
       allow read, write: if false;
     }

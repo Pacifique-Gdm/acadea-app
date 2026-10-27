@@ -2,6 +2,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Bell, Download, Edit3, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { AdminDrawer, Field, FormPanel, Metric, MoneyInput, SectionTitle } from "../../components/ui";
 import { PersonnelPaymentForm } from "../../components/personnel/PersonnelPaymentForm";
+import { OtherCashInflowForm } from "../../components/finance/OtherCashInflowForm";
 import { loadExpenseCashBalance, type PayrollCashBalance } from "../../services/personnelPayroll";
 import { PersonnelPayrollHistory } from "../../components/personnel/PersonnelPayrollHistory";
 import { printPersonnelPaymentPdf } from "../../utils/personnelPayrollPdf";
@@ -30,7 +31,7 @@ import { controlArrearsPdfSections } from "../../utils/controlArrearsPdf";
 import { compareStudentsForPdfByClass, formatStudentPdfClassName } from "../../utils/studentPdf";
 import { filterControlStudentRows } from "../../utils/controlStudentSearch";
 import { historicalArrearsPdfSection } from "./historicalArrearsPdf";
-import type { AppData, AppUser, AuditLog, Expense, FeeType, ParentProfile, Payment, PersonnelPayment, School, SchoolYear, Student } from "../../types";
+import type { AppData, AppUser, AuditLog, CashInflow, Expense, FeeType, ParentProfile, Payment, PersonnelPayment, School, SchoolYear, Student } from "../../types";
 
 type ControlYearData = {
   students: Student[];
@@ -87,7 +88,7 @@ export function ControlModule({
   const [controlClassKey, setControlClassKey] = useState("");
   const [paymentError, setPaymentError] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyKind, setHistoryKind] = useState<"expenses" | "payments" | "payroll">("payments");
+  const [historyKind, setHistoryKind] = useState<"expenses" | "payments" | "cashInflows" | "payroll">("payments");
   const [expenseEditTarget, setExpenseEditTarget] = useState<Expense | null>(null);
   const [expenseEditAmount, setExpenseEditAmount] = useState("");
   const [expenseEditCategory, setExpenseEditCategory] = useState("Fournitures");
@@ -95,10 +96,10 @@ export function ControlModule({
   const [expenseEditError, setExpenseEditError] = useState("");
   const [expenseDeleteTarget, setExpenseDeleteTarget] = useState<Expense | null>(null);
   const [warningOpen, setWarningOpen] = useState(false);
-  const [cashierControlDrawer, setCashierControlDrawer] = useState<"payment" | "expense" | "personnel" | null>(null);
+  const [cashierControlDrawer, setCashierControlDrawer] = useState<"payment" | "expense" | "personnel" | "inflow" | null>(null);
   const [recordedPersonnelPayment, setRecordedPersonnelPayment] = useState<PersonnelPayment>();
   const [cashierControlFeedback, setCashierControlFeedback] = useState("");
-  const [cashierControlFeedbackDrawer, setCashierControlFeedbackDrawer] = useState<"payment" | "expense" | null>(null);
+  const [cashierControlFeedbackDrawer, setCashierControlFeedbackDrawer] = useState<"payment" | "expense" | "inflow" | null>(null);
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const [expenseSubmitting, setExpenseSubmitting] = useState(false);
   const [financialMutationId, setFinancialMutationId] = useState("");
@@ -160,6 +161,10 @@ export function ControlModule({
     schoolId: school.id,
     schoolYearId: year.id,
     enabled: historyOpen && historyKind === "expenses",
+  });
+  const cashInflowHistory = usePaginatedControlHistory<CashInflow>({
+    kind: "cashInflows", schoolId: school.id, schoolYearId: year.id,
+    enabled: historyOpen && historyKind === "cashInflows",
   });
   const classChoices = useMemo(() => buildControlClassChoices(yearData.students), [yearData.students]);
   const selectedControlClassStudent = classChoices.find((choice) => choice.key === controlClassKey)?.student;
@@ -1503,10 +1508,11 @@ export function ControlModule({
         <AdminDrawer title={cashierDrawerTitle} onClose={() => setCashierControlDrawer(null)} closeLabel={`Fermer ${cashierDrawerTitle}`}>
           <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
             Type d'enregistrement
-            <select aria-label="Type d'enregistrement" className="input min-w-0 w-full" value={cashierControlDrawer} onChange={(event) => setCashierControlDrawer(event.target.value as "payment" | "expense" | "personnel")}>
+            <select aria-label="Type d'enregistrement" className="input min-w-0 w-full" value={cashierControlDrawer} onChange={(event) => setCashierControlDrawer(event.target.value as "payment" | "expense" | "personnel" | "inflow")}>
               <option value="payment">Enregistrer un paiement</option>
               <option value="expense">Enregistrer une dépense</option>
               <option value="personnel">Paiement du personnel</option>
+              <option value="inflow">Autres entrées de caisse</option>
             </select>
           </label>
           {cashierControlFeedback && cashierControlFeedbackDrawer === cashierControlDrawer && (
@@ -1582,6 +1588,12 @@ export function ControlModule({
             </>
           )}
           {cashierControlDrawer === "personnel" && <PersonnelPaymentForm school={school} year={year} onRecorded={(payment) => { setRecordedPersonnelPayment(payment); setCashierControlDrawer(null); void expenseHistory.loadFirstPage(); void refreshExpenseCashBalance().catch(() => {}); }} />}
+          {cashierControlDrawer === "inflow" && <OtherCashInflowForm year={year} onRecorded={(inflow) => {
+            cashInflowHistory.prependItem(inflow);
+            void refreshExpenseCashBalance().catch(() => {});
+            setCashierControlFeedback("Autre entrée de caisse enregistrée avec succès.");
+            setCashierControlFeedbackDrawer("inflow");
+          }} />}
           {cashierControlDrawer === "expense" && (
             <>
               <select
@@ -1658,6 +1670,7 @@ export function ControlModule({
             <select aria-label="Type d'historique" className="input min-w-0 w-full" value={historyKind} onChange={(event) => setHistoryKind(event.target.value as typeof historyKind)}>
               <option value="payments">Historique des paiements</option>
               <option value="expenses">Historique des dépenses</option>
+              <option value="cashInflows">Historique des autres entrées de caisse</option>
               <option value="payroll">Historique Salaire/prime</option>
             </select>
           </label>
@@ -1705,6 +1718,19 @@ export function ControlModule({
             {renderPaymentHistoryPagination()}
           </>}
           {historyKind === "expenses" && renderExpenseHistoryContent()}
+          {historyKind === "cashInflows" && <div className="grid gap-2">
+            {cashInflowHistory.isInitialLoading && <p>Chargement des entrées de caisse…</p>}
+            {cashInflowHistory.loadError && <p role="alert" className="text-red-700">{cashInflowHistory.loadError}</p>}
+            {cashInflowHistory.items.map((inflow) => <article key={inflow.id} className="rounded border border-slate-200 p-3 text-sm">
+              <p className="font-semibold text-ink">Autres entrées de caisse · {inflow.category}</p>
+              <p>{formatCurrencyMoney(inflow.amount, inflow.currency)} · {inflow.entryDate} · {inflow.source}</p>
+              <p className="break-words">Description : {inflow.description}</p>
+              <p>Mode de paiement : {inflow.paymentMethod}{inflow.reference ? ` · Référence : ${inflow.reference}` : ""}</p>
+              <p>Enregistré par : {inflow.cashierName}</p>
+            </article>)}
+            {!cashInflowHistory.isInitialLoading && cashInflowHistory.items.length === 0 && <p>Aucune autre entrée de caisse enregistrée.</p>}
+            {cashInflowHistory.hasMore && <button type="button" className="secondary-button w-full justify-center" disabled={cashInflowHistory.isLoadingMore} onClick={() => void cashInflowHistory.loadMore()}>Charger plus</button>}
+          </div>}
           {historyKind === "payroll" && <PersonnelPayrollHistory schoolId={school.id} schools={[school]} allowEdit={user.role === "school_admin"} />}
         </AdminDrawer>
       )}

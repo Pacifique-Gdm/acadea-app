@@ -10,7 +10,7 @@ import { getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig
 import { buildStats } from "../../utils/stats";
 import { sumMoney } from "../../utils/money";
 import { getClassSection } from "../../utils/studentClasses";
-import type { Expense, FeeType, ParentProfile, Payment, School, SchoolSection, SchoolYear, Student } from "../../types";
+import type { CashInflow, Expense, FeeType, ParentProfile, Payment, School, SchoolSection, SchoolYear, Student } from "../../types";
 
 type ReportsYearData = {
   students: Student[];
@@ -18,6 +18,7 @@ type ReportsYearData = {
   feeTypes: FeeType[];
   payments: Payment[];
   expenses: Expense[];
+  cashInflows?: CashInflow[];
 };
 
 type ReportsModuleProps = {
@@ -48,15 +49,19 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
   const arrearsPayments = yearData.payments.filter((payment) => payment.collectionSchoolYearId === year.id && payment.paidAt >= startDate && payment.paidAt <= endDate && filteredStudentIds.has(payment.currentStudentId ?? ""));
   const arrearsByCurrency = (["USD", "CDF"] as const).map((currency) => ({ currency, amount: sumMoney(arrearsPayments.filter((payment) => payment.currency === currency).map((payment) => payment.amount)) })).filter((group) => group.amount > 0);
   const expenses = resolvedExpenses.filter((expense) => expense.spentAt >= startDate && expense.spentAt <= endDate);
+  const cashInflows = (yearData.cashInflows ?? []).filter((inflow) => inflow.entryDate >= startDate && inflow.entryDate <= endDate);
   const paidTotals = totalsByRecordedCurrency(payments);
+  const inflowTotals = totalsByRecordedCurrency(cashInflows);
   const spentTotals = totalsByRecordedCurrency(expenses);
-  const hasUnknownCurrency = paidTotals.unknownCount + spentTotals.unknownCount
+  const hasUnknownCurrency = paidTotals.unknownCount + inflowTotals.unknownCount + spentTotals.unknownCount
     + arrearsPayments.filter((payment) => payment.currency !== "CDF" && payment.currency !== "USD").length > 0;
   const yearCurrency = resolveSchoolYearCurrency(year, school);
   const expected = buildStats(filteredStudents, yearData.parents, yearData.feeTypes, payments).expected;
   const recovery = !hasUnknownCurrency && paidTotals[yearCurrency === "CDF" ? "USD" : "CDF"] === 0 && expected > 0
     ? Math.round((paidTotals[yearCurrency] / expected) * 100) : null;
   const usesSectionFilter = sectionFilter !== "all";
+  const netTotals = { CDF: sumMoney([paidTotals.CDF, inflowTotals.CDF, -spentTotals.CDF]),
+    USD: sumMoney([paidTotals.USD, inflowTotals.USD, -spentTotals.USD]), unknownCount: 0 };
 
   return (
     <section className="grid min-w-0 gap-4">
@@ -73,21 +78,22 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
               ))}
             </select>
           </label>
-          <button disabled={hasUnknownCurrency} onClick={() => exportReportPdf(school, year, startDate, endDate, sectionLabels[sectionFilter], usesSectionFilter, paidTotals, spentTotals, recovery, payments, expenses, filteredStudents, arrearsPayments)} className="primary-button self-end">
+          <button disabled={hasUnknownCurrency} onClick={() => exportReportPdf(school, year, startDate, endDate, sectionLabels[sectionFilter], usesSectionFilter, paidTotals, spentTotals, recovery, payments, expenses, filteredStudents, arrearsPayments, cashInflows)} className="primary-button self-end">
             <Download className="h-4 w-4" /> Export PDF
           </button>
         </div>
         {hasUnknownCurrency && <p className="mt-3 rounded bg-red-50 p-3 text-sm font-semibold text-red-700">Rapport et export bloqués : des opérations historiques sans devise exigent une réconciliation.</p>}
         {usesSectionFilter && (
           <p className="mt-3 rounded bg-amber-50 p-3 text-sm font-semibold text-amber-700">
-            Les dépenses présentées sont globales pour l'école, car elles ne sont pas rattachées à une section.
+            Les dépenses et autres entrées de caisse présentées sont globales pour l'école, car elles ne sont pas rattachées à une section.
           </p>
         )}
       </div>
-      <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Metric label="Paiements des frais de l'année" value={hasUnknownCurrency ? "Indéterminé" : formatRecordedTotals(paidTotals, yearCurrency)} />
+        <Metric label="Autres entrées de caisse" value={hasUnknownCurrency ? "Indéterminé" : formatRecordedTotals(inflowTotals, yearCurrency)} />
         <Metric label="Dépenses" value={hasUnknownCurrency ? "Indéterminé" : formatRecordedTotals(spentTotals, yearCurrency)} />
-        <Metric label="Solde net hors arriérés" value={hasUnknownCurrency ? "Indéterminé" : formatRecordedTotals({ CDF: paidTotals.CDF - spentTotals.CDF, USD: paidTotals.USD - spentTotals.USD, unknownCount: 0 }, yearCurrency)} />
+        <Metric label="Solde net hors arriérés" value={hasUnknownCurrency ? "Indéterminé" : formatRecordedTotals(netTotals, yearCurrency)} />
         <Metric label="Recouvrement période" value={recovery === null ? "Non calculable" : `${recovery}%`} />
       </div>
       {arrearsByCurrency.length > 0 && <div className="rounded border border-amber-200 bg-amber-50 p-4 text-sm">
@@ -108,6 +114,16 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
               );
             })}
             {payments.length === 0 && <p className="text-sm text-slate-500">Aucun paiement sur cette période.</p>}
+          </div>
+        </FormPanel>
+        <FormPanel title="Autres entrées de caisse">
+          <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+            {cashInflows.map((inflow) => <div key={inflow.id} className="min-w-0 rounded bg-slate-50 p-3 text-sm">
+              <p className="break-words font-semibold text-ink">{inflow.category} · {formatRecordedOperation(inflow)}</p>
+              <p className="break-words text-slate-500">{inflow.entryDate} · {inflow.source} · {inflow.cashierName}</p>
+              <p className="break-words text-slate-500">{inflow.description}</p>
+            </div>)}
+            {cashInflows.length === 0 && <p className="text-sm text-slate-500">Aucune autre entrée de caisse sur cette période.</p>}
           </div>
         </FormPanel>
         {arrearsPayments.length > 0 && <FormPanel title="Règlements de dettes antérieures">

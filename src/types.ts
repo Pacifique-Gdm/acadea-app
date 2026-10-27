@@ -402,6 +402,26 @@ export interface Expense {
     personnelPaymentId?: string;
 }
 
+export interface CashInflow {
+  id: string;
+  schoolId: string;
+  schoolYearId: string;
+  category: "Subvention" | "Don" | "Frais de fonctionnement" | "Autres";
+  amount: number;
+  currency: "USD" | "CDF";
+  entryDate: string;
+  source: string;
+  paymentMethod: string;
+  description: string;
+  reference?: string;
+  createdAt: string;
+  validatedAt: string;
+  createdBy: string;
+  cashierName: string;
+  provenance: "financial-api";
+  clientRequestIdHash: string;
+}
+
 export interface Message {
   id: string;
   schoolId: string;
@@ -632,6 +652,7 @@ export interface AppData {
   feeTypes: FeeType[];
   payments: Payment[];
   expenses: Expense[];
+  cashInflows?: CashInflow[];
   messages: Message[];
   notifications: AppNotification[];
   auditLogs: AuditLog[];

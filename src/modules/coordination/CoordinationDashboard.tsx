@@ -90,7 +90,7 @@ export function CoordinationDashboard({
       && schoolById.get(payment.schoolId)?.activeSchoolYearId === payment.collectionSchoolYearId
       && payment.currency !== "CDF" && payment.currency !== "USD");
   const financialExportBlocked = !financialVerificationReady || hasUnknownFinancialCurrency;
-  const hasCrossCurrencyHistory = [...stats.payments, ...stats.expenses].some((operation) => operation.currency
+  const hasCrossCurrencyHistory = [...stats.payments, ...stats.expenses, ...stats.cashInflows].some((operation) => operation.currency
     && operation.currency !== resolveSchoolCurrency(schoolById.get(operation.schoolId) ?? {}));
   const studentsByKey = useMemo(() => new Map(transactionScope.students.map((student) => [`${student.schoolId}:${student.id}`, student])), [transactionScope.students]);
   const feesByKey = useMemo(() => new Map(transactionScope.feeTypes.map((fee) => [`${fee.schoolId}:${fee.id}`, fee])), [transactionScope.feeTypes]);
@@ -110,9 +110,11 @@ export function CoordinationDashboard({
       .reduce((total, payment) => sumMoney([total, payment.amount]), 0),
   })).filter((group) => group.amount > 0);
   const visibleExpenses = stats.expenses.filter((expense) => (!transactionStartDate || expense.spentAt.slice(0, 10) >= transactionStartDate) && (!transactionEndDate || expense.spentAt.slice(0, 10) <= transactionEndDate));
+  const visibleCashInflows = stats.cashInflows.filter((inflow) => (!transactionStartDate || inflow.entryDate >= transactionStartDate) && (!transactionEndDate || inflow.entryDate <= transactionEndDate));
   const transactions = [
     ...visiblePayments.map((payment) => ({ id: `${payment.schoolId}:${payment.id}`, type: "Paiement", label: `${schoolById.get(payment.schoolId)?.name ?? payment.schoolId} · ${payment.cashierName}`, amount: payment.amount, currency: payment.currency, date: payment.paidAt, occurredAt: payment.createdAt ?? payment.paidAt })),
     ...visibleExpenses.map((expense) => ({ id: `${expense.schoolId}:${expense.id}`, type: "Dépense", label: `${schoolById.get(expense.schoolId)?.name ?? expense.schoolId} · ${expenseCategoryLabel(expense.category)}`, amount: -expense.amount, currency: expense.currency, date: expense.spentAt, occurredAt: expense.createdAt ?? expense.spentAt })),
+    ...visibleCashInflows.map((inflow) => ({ id: `${inflow.schoolId}:${inflow.id}`, type: "Autre entrée de caisse", label: `${schoolById.get(inflow.schoolId)?.name ?? inflow.schoolId} · ${inflow.category}`, amount: inflow.amount, currency: inflow.currency, date: inflow.entryDate, occurredAt: inflow.createdAt })),
   ].sort((first, second) => second.occurredAt.localeCompare(first.occurredAt));
 
   const chartGroups = stats.financialGroups.map((financial) => {
@@ -214,6 +216,7 @@ export function CoordinationDashboard({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-ink">KPI financier{stats.financialGroups.length > 1 ? ` · ${financial.currency}` : ""}</h2><p className="text-sm text-slate-500">Recouvrement selon les filtres sélectionnés.</p></div><span className={`rounded px-3 py-2 text-sm font-bold ${recoveryTone}`}>{financial.recoveryRate}% recouvré</span></div>
         <div className="mt-4 h-3 overflow-hidden rounded bg-slate-100"><div className={`h-full rounded ${progressTone(financial.recoveryRate)}`} style={{ width: `${Math.min(100, financial.recoveryRate)}%` }} /></div>
         <div className="mt-4 grid gap-2 sm:grid-cols-4"><Metric label="Attendu" value={amount(financial.expected)} /><Metric label="Frais de l'année encaissés" value={amount(financial.paid)} /><Metric label="Dépenses" value={amount(financial.expenses)} /><Metric label="Reste" value={amount(financial.remaining)} /></div>
+        <p className="mt-3 text-sm font-semibold">Autres entrées de caisse : {amount(financial.cashInflows)}</p>
         <div className="mt-5 grid gap-3">{financial.feeProgressRows.map((row) => <div key={row.name} className="rounded border border-slate-100 bg-slate-50 p-3"><div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><p className="break-words text-sm font-bold text-ink">{row.name}</p><p className="break-words text-xs text-slate-500">Toutes les classes confondues</p></div><span className="shrink-0 rounded bg-white px-2.5 py-1 text-xs font-bold text-mint">{row.rate}%</span></div><div className="mt-3 h-2.5 overflow-hidden rounded bg-white"><div className={`h-full rounded ${progressTone(row.rate)}`} style={{ width: `${Math.min(100, row.rate)}%` }} /></div><div className="mt-3 grid gap-2 text-xs sm:grid-cols-3"><span className="rounded bg-white px-2 py-1 text-slate-600">Attendu : <strong className="text-ink">{amount(row.expected)}</strong></span><span className="rounded bg-white px-2 py-1 text-slate-600">Payé : <strong className="text-ink">{amount(row.paid)}</strong></span><span className="rounded bg-white px-2 py-1 text-slate-600">Solde : <strong className="text-ink">{amount(row.remaining)}</strong></span></div></div>)}{financial.feeProgressRows.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun frais applicable pour les filtres sélectionnés.</p>}</div>
         <FinancialFeeShareChart rows={financial.feeShares} formatAmount={amount} totalAriaLabel={`Répartition des montants attendus en ${financial.currency}`} />
       </div>;
