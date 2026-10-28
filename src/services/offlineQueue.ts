@@ -7,7 +7,7 @@ export type OfflineOperationStatus =
   | "REJECTED"
   | "RETRYABLE_ERROR";
 
-export type OfflineOperationKind = "grade" | "attendance" | "payment_proposal";
+export type OfflineOperationKind = "grade" | "attendance" | "student_enrollment" | "payment_proposal";
 export type OfflineScope = { userId: string; schoolId: string; schoolYearId: string };
 
 export type OfflineOperation<T = unknown> = {
@@ -87,7 +87,7 @@ const nextStatus: Record<OfflineOperationStatus, OfflineOperationStatus[]> = {
 
 export async function queueOfflineOperation<T>(scope: OfflineScope, kind: OfflineOperationKind, payload: T): Promise<OfflineOperation<T>> {
   const scopeKey = partition(scope);
-  if (!["grade", "attendance", "payment_proposal"].includes(kind)) throw new Error("Type d'opération locale invalide.");
+  if (!["grade", "attendance", "student_enrollment", "payment_proposal"].includes(kind)) throw new Error("Type d'opération locale invalide.");
   const database = await openDatabase();
   try {
     const key = await partitionKey(database, scopeKey);

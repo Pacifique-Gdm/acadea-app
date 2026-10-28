@@ -75,3 +75,20 @@ test("persiste après rechargement, chiffre le contenu, isole les périmètres e
   expect(result.stored).not.toHaveProperty("payload");
   expect(result.stored).toHaveProperty("ciphertext");
 });
+
+test("inscription locale chiffrée et isolée d'une autre année", async ({ page }) => {
+  await page.goto(origin);
+  await page.addScriptTag({ content: bundle });
+  const result = await page.evaluate(async () => {
+    const queue = (window as unknown as { OfflineQueue: typeof import("../src/services/offlineQueue") }).OfflineQueue;
+    const scope = { userId: "secretary-a", schoolId: "school-a", schoolYearId: "year-a" };
+    const payload = { nom: "Fictif", postnom: "Test", prenom: "Alice", classId: "class-a", classOptionKey: "option-a" };
+    const created = await queue.queueOfflineOperation(scope, "student_enrollment", payload);
+    const own = await queue.listOfflineOperations(scope);
+    const nextYear = await queue.listOfflineOperations({ ...scope, schoolYearId: "year-b" });
+    return { created, own, nextYear };
+  });
+  expect(result.created.status).toBe("LOCAL_PENDING");
+  expect(result.own[0].payload).toMatchObject({ classOptionKey: "option-a" });
+  expect(result.nextYear).toEqual([]);
+});

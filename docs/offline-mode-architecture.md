@@ -1,6 +1,6 @@
 # Mode hors connexion — contrat de sécurité (étape 1)
 
-Statut : socle de conception. Aucun flux métier hors connexion n'est activé par ce document.
+Statut : socle local en cours. Aucun flux métier hors connexion n'est activé par ce document.
 
 ## Périmètre actuel constaté
 
@@ -59,4 +59,4 @@ L'inscription doit réutiliser le formulaire existant, conserver l'ID stable de 
 
 ## Validation de l'étape 1
 
-Le test Chromium local `e2e/offline-queue-local.spec.ts` a vérifié le rechargement, la lecture après persistance, l'absence de payload en clair dans l'enregistrement, l'isolation de deux périmètres, les transitions interdites, le réessai et la suppression après confirmation. Le lint ciblé et le contrôle TypeScript du module sont réussis. Aucune opération métier n'est activée et aucune donnée distante n'a été touchée. **Verdict de l'étape 1 : NON VALIDÉE** tant que la réouverture de l'application hors connexion, le contrôle de session limitée et la recette authentifiée Staging ne sont pas démontrés. L'étape 2 ne doit pas commencer. La PR #31 suspendue n'est ni base ni dépendance de cette architecture.
+Les tests Chromium locaux `e2e/offline-queue-local.spec.ts` et `e2e/offline-access-local.spec.ts` vérifient le chiffrement, la persistance, l'isolation des périmètres, les transitions interdites, l'expiration de la session locale et son effacement à la déconnexion. L'application possède désormais une session locale limitée à huit heures, affichée seulement si une session Firebase déjà conservée sur cet appareil correspond au dernier profil vérifié. Cette session ne donne aucun droit d'écriture distant. Le test de réouverture de l'application entière avec Auth/Firestore émulés reste nécessaire : le lancement de l'émulateur Firestore local a expiré avant l'ouverture du port 8080 dans cet environnement. **Verdict de l'étape 1 : PARTIELLEMENT VALIDÉE** ; aucune recette authentifiée Staging ni aucun flux métier hors connexion n'est annoncé comme réussi. La nouvelle instruction du propriétaire autorise à poursuivre les développements indépendants des étapes suivantes malgré cette limite, sans déclarer l'étape 1 entièrement validée. La PR #31 suspendue n'est ni base ni dépendance de cette architecture.
