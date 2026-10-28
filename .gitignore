@@ -29,6 +29,7 @@ credentials*.json
 
 playwright-report/
 test-results/
+gha-creds-*.json
 
 .vercel
 .env*

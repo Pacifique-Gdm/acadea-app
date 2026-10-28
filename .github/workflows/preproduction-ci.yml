@@ -2,8 +2,14 @@ name: preproduction-ci
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, codex/offline-secure-20261027]
   workflow_dispatch:
+    inputs:
+      run_offline_staging_e2e:
+        description: 'Exécuter la recette hors connexion authentifiée sur acadea-staging'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -62,3 +68,10 @@ jobs:
           npx --yes firebase-tools@15.25.0 emulators:exec
           --project demo-acadea-security-s1-s4 --only firestore,storage
           "npm run test:firestore -- --maxWorkers=2 && npm run test:storage -- --maxWorkers=2"
+
+  offline-staging-e2e:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_offline_staging_e2e == true
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/offline-staging-e2e.yml
