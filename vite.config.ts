@@ -71,7 +71,14 @@ export default defineConfig(({ mode }) => {
     },
     {
       name: "acadea-build-version",
-      generateBundle() {
+      generateBundle(_options, bundle) {
+        this.emitFile({
+          type: "asset",
+          fileName: "offline-assets.json",
+          source: JSON.stringify({ version: buildId, assets: Object.keys(bundle)
+            .filter((path) => path.startsWith("assets/") && (path.endsWith(".js") || path.endsWith(".css")))
+            .map((path) => `/${path}`) }),
+        });
         this.emitFile({
           type: "asset",
           fileName: "version.json",

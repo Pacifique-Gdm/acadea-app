@@ -92,3 +92,45 @@ test("inscription locale chiffrée et isolée d'une autre année", async ({ page
   expect(result.own[0].payload).toMatchObject({ classOptionKey: "option-a" });
   expect(result.nextYear).toEqual([]);
 });
+
+test("conserve les références chiffrées et n'abandonne qu'un conflit confirmé", async ({ page }) => {
+  await page.goto(origin);
+  await page.addScriptTag({ content: bundle });
+  const result = await page.evaluate(async () => {
+    const queue = (window as unknown as { OfflineQueue: typeof import("../src/services/offlineQueue") }).OfflineQueue;
+    const scope = { userId: "cashier-a", schoolId: "school-a", schoolYearId: "year-a" };
+    await queue.saveOfflineContext(scope, { fees: [{ id: "fee-a", amount: 100 }], secretMarker: "reference-privee" });
+    const operation = await queue.queueOfflineOperation(scope, "payment_proposal", { amount: 10 });
+    let premature = false;
+    try { await queue.abandonFailedOfflineOperation(scope, operation.id, "ABANDONNER LE BROUILLON"); } catch { premature = true; }
+    await queue.transitionOfflineOperation(scope, operation.id, "SYNCING");
+    await queue.transitionOfflineOperation(scope, operation.id, "CONFLICT", "Le frais a changé.");
+    let wrongPhrase = false;
+    try { await queue.abandonFailedOfflineOperation(scope, operation.id, "ABANDONNER"); } catch { wrongPhrase = true; }
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("acadea-offline-operations-v1");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const stored = await new Promise<Record<string, unknown>>((resolve, reject) => {
+      const request = db.transaction("snapshots", "readonly").objectStore("snapshots").get(JSON.stringify([scope.userId, scope.schoolId, scope.schoolYearId]));
+      request.onsuccess = () => resolve(request.result as Record<string, unknown>);
+      request.onerror = () => reject(request.error);
+    });
+    db.close();
+    await queue.abandonFailedOfflineOperation(scope, operation.id, "ABANDONNER LE BROUILLON");
+    return { premature, wrongPhrase, stored, remaining: await queue.listOfflineOperations(scope) };
+  });
+  expect(result.premature).toBe(true);
+  expect(result.wrongPhrase).toBe(true);
+  expect(result.stored).not.toHaveProperty("secretMarker");
+  expect(result.stored).toHaveProperty("ciphertext");
+  expect(result.remaining).toEqual([]);
+  await page.reload();
+  await page.addScriptTag({ content: bundle });
+  const restored = await page.evaluate(async () => {
+    const queue = (window as unknown as { OfflineQueue: typeof import("../src/services/offlineQueue") }).OfflineQueue;
+    return queue.readOfflineContext({ userId: "cashier-a", schoolId: "school-a", schoolYearId: "year-a" });
+  });
+  expect(restored).toMatchObject({ secretMarker: "reference-privee" });
+});

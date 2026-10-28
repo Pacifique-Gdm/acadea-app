@@ -4,7 +4,7 @@ import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { protectCashMutation } from "./cashBalance.js";
 import { fromMoneyMinor, sumMoneyMinor, toMoneyMinor } from "./money.js";
 
-const PAYMENT_CREATE_KEYS = ["action", "schoolYearId", "studentId", "feeTypeId", "debtSchoolYearId", "amount", "note", "clientRequestId"];
+const PAYMENT_CREATE_KEYS = ["action", "schoolYearId", "studentId", "feeTypeId", "debtSchoolYearId", "amount", "note", "clientRequestId", "expectedCurrency", "expectedFeeAmount"];
 const ARREARS_READ_KEYS = ["action", "schoolYearId", "studentId"];
 const EXPENSE_CREATE_KEYS = ["action", "schoolYearId", "amount", "category", "description", "beneficiary", "paymentMethod", "reference", "clientRequestId"];
 const PAYMENT_UPDATE_KEYS = ["action", "transactionId", "amount", "reason", "confirmation", "expectedUpdatedAt", "clientRequestId"];
@@ -341,6 +341,10 @@ async function createPayment(transaction, db, caller, body, hash, now) {
   if (!feeSnapshot.exists || fee.schoolId !== caller.schoolId || !(Number(fee.amount) > 0)) {
     throw new FinancialApiError(400, "invalid-argument", "Type de frais invalide pour cet établissement et cette année.");
   }
+  if (body.expectedFeeAmount !== undefined && (typeof body.expectedFeeAmount !== "number"
+    || !Number.isFinite(body.expectedFeeAmount) || toMoneyMinor(body.expectedFeeAmount) !== toMoneyMinor(Number(fee.amount)))) {
+    throw new FinancialApiError(409, "offline-conflict", "Le montant du frais a changé depuis la proposition locale.");
+  }
   let schoolYearId = collectionSchoolYearId;
   let studentId = currentStudentId;
   let debt;
@@ -355,6 +359,9 @@ async function createPayment(transaction, db, caller, body, hash, now) {
     studentId = debt.studentId;
   } else if (fee.schoolYearId !== collectionSchoolYearId) {
     throw new FinancialApiError(400, "invalid-argument", "Type de frais invalide pour cet établissement et cette année.");
+  }
+  if (body.expectedCurrency !== undefined && body.expectedCurrency !== (debt?.currency ?? currency)) {
+    throw new FinancialApiError(409, "offline-conflict", "La devise a changé depuis la proposition locale.");
   }
   const counterId = `${caller.schoolId}_${collectionSchoolYearId}_receipt`;
   const counterRef = db.doc(`financialCounters/${counterId}`);

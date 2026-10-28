@@ -24,7 +24,7 @@ export type OfflineOperation<T = unknown> = {
 
 type StoredOperation = Omit<OfflineOperation, "payload"> & { partition: string; iv: number[]; ciphertext: ArrayBuffer };
 const DATABASE_NAME = "acadea-offline-operations-v1";
-const DATABASE_VERSION = 1;
+const DATABASE_VERSION = 2;
 const RETENTION_DAYS = 30;
 
 function partition(scope: OfflineScope): string {
@@ -58,8 +58,40 @@ async function openDatabase(): Promise<IDBDatabase> {
       database.createObjectStore("operations", { keyPath: "id" }).createIndex("partition", "partition");
     }
     if (!database.objectStoreNames.contains("keys")) database.createObjectStore("keys", { keyPath: "partition" });
+    if (!database.objectStoreNames.contains("snapshots")) database.createObjectStore("snapshots", { keyPath: "partition" });
   };
   return requestResult(request);
+}
+
+/** A minimized, encrypted reference snapshot; never an HTTP response cache. */
+export async function saveOfflineContext<T>(scope: OfflineScope, context: T): Promise<void> {
+  const scopeKey = partition(scope);
+  const database = await openDatabase();
+  try {
+    const key = await partitionKey(database, scopeKey);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key,
+      new TextEncoder().encode(JSON.stringify(context)));
+    const write = database.transaction("snapshots", "readwrite");
+    write.objectStore("snapshots").put({ partition: scopeKey, iv: [...iv], ciphertext,
+      expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString() });
+    await finished(write);
+  } finally { database.close(); }
+}
+
+export async function readOfflineContext<T>(scope: OfflineScope): Promise<T | null> {
+  const scopeKey = partition(scope);
+  const database = await openDatabase();
+  try {
+    const read = database.transaction("snapshots", "readonly");
+    const stored = await requestResult(read.objectStore("snapshots").get(scopeKey)) as
+      { partition: string; iv: number[]; ciphertext: ArrayBuffer; expiresAt: string } | undefined;
+    if (!stored || stored.partition !== scopeKey || Date.parse(stored.expiresAt) <= Date.now()) return null;
+    const key = await partitionKey(database, scopeKey);
+    const decoded = await crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(stored.iv) }, key, stored.ciphertext);
+    return JSON.parse(new TextDecoder().decode(decoded)) as T;
+  } catch { return null; }
+  finally { database.close(); }
 }
 
 async function partitionKey(database: IDBDatabase, scopeKey: string): Promise<CryptoKey> {
@@ -143,6 +175,23 @@ export async function removeConfirmedOfflineOperation(scope: OfflineScope, id: s
     const store = write.objectStore("operations");
     const row = await requestResult(store.get(id)) as StoredOperation | undefined;
     if (!row || row.partition !== scopeKey || row.status !== "SERVER_CONFIRMED") throw new Error("Seule une opération confirmée de ce compte peut être nettoyée.");
+    store.delete(id);
+    await finished(write);
+  } finally { database.close(); }
+}
+
+/** Explicit human abandonment only after a definitive server refusal; never for an uncertain network outcome. */
+export async function abandonFailedOfflineOperation(scope: OfflineScope, id: string, confirmation: string): Promise<void> {
+  if (confirmation !== "ABANDONNER LE BROUILLON") throw new Error("Confirmation d'abandon incorrecte.");
+  const scopeKey = partition(scope);
+  const database = await openDatabase();
+  try {
+    const write = database.transaction("operations", "readwrite");
+    const store = write.objectStore("operations");
+    const row = await requestResult(store.get(id)) as StoredOperation | undefined;
+    if (!row || row.partition !== scopeKey || !["CONFLICT", "REJECTED"].includes(row.status)) {
+      throw new Error("Seul un brouillon définitivement refusé de ce compte peut être abandonné.");
+    }
     store.delete(id);
     await finished(write);
   } finally { database.close(); }

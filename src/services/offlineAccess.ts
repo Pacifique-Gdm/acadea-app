@@ -70,6 +70,15 @@ export async function rememberOfflineAccess(input: Omit<OfflineAccess, "verified
 
 export async function readOfflineAccess(userId: string, now = Date.now()): Promise<OfflineAccess | null> {
   if (!userId) return null;
+  return readStoredOfflineAccess(userId, now);
+}
+
+/** A verified local ticket can reopen the same device when Firebase Auth reports no user offline. */
+export async function readOfflineAccessForCurrentDevice(now = Date.now()): Promise<OfflineAccess | null> {
+  return readStoredOfflineAccess(null, now);
+}
+
+async function readStoredOfflineAccess(userId: string | null, now: number): Promise<OfflineAccess | null> {
   const database = await open();
   try {
     const read = database.transaction(["access", "keys"], "readonly");
@@ -80,7 +89,7 @@ export async function readOfflineAccess(userId: string, now = Date.now()): Promi
     if (!stored || !key) return null;
     const decoded = await crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(stored.iv) }, key, stored.ciphertext);
     const ticket = JSON.parse(new TextDecoder().decode(decoded)) as OfflineAccess;
-    if (ticket.userId !== userId || !permittedRoles.has(ticket.role) || !ticket.schoolId || !ticket.schoolYearId
+    if ((userId !== null && ticket.userId !== userId) || !ticket.userId || !permittedRoles.has(ticket.role) || !ticket.schoolId || !ticket.schoolYearId
       || !Number.isFinite(Date.parse(ticket.verifiedAt)) || !Number.isFinite(Date.parse(ticket.expiresAt))
       || Date.parse(ticket.expiresAt) <= now || Date.parse(ticket.expiresAt) - Date.parse(ticket.verifiedAt) > ACCESS_DURATION_MS) return null;
     return ticket;
