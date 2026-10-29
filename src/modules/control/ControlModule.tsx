@@ -214,7 +214,9 @@ export function ControlModule({
     const timer = window.setTimeout(() => {
       setCashierControlFeedback("");
       setCashierControlFeedbackDrawer(null);
-      setCashierControlDrawer((current) => (current === feedbackDrawer ? null : current));
+      // Une nouvelle entrée peut déjà être en cours : ne pas perdre son contenu
+      // ni sa clé d'idempotence à l'expiration du succès de l'entrée précédente.
+      if (feedbackDrawer !== "inflow") setCashierControlDrawer((current) => (current === feedbackDrawer ? null : current));
     }, 3000);
     return () => window.clearTimeout(timer);
   }, [cashierControlFeedback, cashierControlFeedbackDrawer]);

@@ -65,12 +65,13 @@ test("PR32 : quatre catégories, comptabilité réelle, refus et réponse résea
       body: JSON.stringify({ fields: { schoolId: { stringValue: f.school }, amount: { doubleValue: 999 } } }),
     });
     expect(denied.status).toBe(403);
-    await page.getByRole("button", { name: /Fermer Autres entrées/ }).click();
+    await page.getByRole("button", { name: "Fermer Enregistrer", exact: true }).click();
     await page.getByRole("button", { name: "Historique", exact: true }).click();
     await page.getByLabel("Type d'historique").selectOption("cashInflows");
     await expect(page.getByRole("dialog", { name: "Historique" }).locator("article")).toHaveCount(5);
     await page.getByRole("button", { name: "Fermer l'historique" }).click();
-    await page.getByRole("button", { name: "Rapports", exact: true }).last().click();
+    await page.getByRole("button", { name: "Menu", exact: true }).last().click();
+    await page.getByRole("button", { name: /Rapport financier/ }).click();
     await expect(page.getByText("Frais de fonctionnement reçus", { exact: false }).first()).toBeVisible();
     await page.screenshot({ path: test.info().outputPath("cash-report.png"), fullPage: true });
     await page.getByRole("button", { name: "Export PDF", exact: true }).click();
