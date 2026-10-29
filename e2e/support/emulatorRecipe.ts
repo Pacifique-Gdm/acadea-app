@@ -49,7 +49,8 @@ export function fixture() {
         schoolOptions: ["Sciences", "Littéraire"], schoolType: "Secondaire uniquement", educationLevels: ["Secondaire"],
         subscriptionStatus: "active", subscriptionPlan: "premium", createdAt: new Date().toISOString() });
       const y = id === school ? year : tag + "-other-year";
-      await put("schoolYears/" + y, { id: y, schoolId: id, name: "2026-2027", status: "active", currency: "CDF" });
+      await put("schoolYears/" + y, { id: y, schoolId: id, name: "2026-2027", status: "active", currency: "CDF",
+        startsAt: "2026-09-01", endsAt: "2027-07-31" });
     }
     for (const role of roles) {
       const uid = tag + "-" + role;
