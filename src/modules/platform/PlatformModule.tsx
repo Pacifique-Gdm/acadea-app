@@ -27,7 +27,7 @@ import { SchoolAcronymEditDrawer } from "./SchoolAcronymEditDrawer";
 import { schoolInformationPatch } from "./schoolInformation";
 import type { SchoolInformationDraft } from "./schoolInformation";
 import { isArchivedStudent } from "../../utils/studentUtils";
-import { canonicalSchoolOption, normalizeSchoolOptions } from "../../utils/schoolOptions";
+import { canonicalSchoolOption, normalizeSchoolOptions, schoolOptionDisplayName, SCHOOL_OPTION_RENAME_CONFIRMATION } from "../../utils/schoolOptions";
 import { isSchoolOptionAddConfirmation, SCHOOL_OPTION_ADD_CONFIRMATION } from "../../utils/schoolOptions";
 import { addSchoolOptionToCatalog, loadSchoolOptionCatalog } from "../../services/schoolOptionCatalog";
 import { coordinationStatusDistribution } from "../../utils/platformStatusDistribution";
@@ -147,6 +147,12 @@ export function PlatformModule({
   const [schoolAcronymTargetId, setSchoolAcronymTargetId] = useState("");
   const [schoolAcronymSaving, setSchoolAcronymSaving] = useState(false);
   const [schoolAcronymError, setSchoolAcronymError] = useState("");
+  const [optionRenameTarget, setOptionRenameTarget] = useState("");
+  const [optionRenameSchoolId, setOptionRenameSchoolId] = useState("");
+  const [optionRenameName, setOptionRenameName] = useState("");
+  const [optionRenameConfirmation, setOptionRenameConfirmation] = useState("");
+  const [optionRenameError, setOptionRenameError] = useState("");
+  const [optionRenameSaving, setOptionRenameSaving] = useState(false);
   const [currencyChangeTarget, setCurrencyChangeTarget] = useState<{ school: School; year: SchoolYear; currency: "USD" | "CDF" } | null>(null);
   const [currencyChangeConfirmation, setCurrencyChangeConfirmation] = useState("");
   const [currencyChangeLoading, setCurrencyChangeLoading] = useState(false);
@@ -248,7 +254,7 @@ export function PlatformModule({
       .filter((student) => (drawerYear?.id ? student.schoolYearId === drawerYear.id : true))
       .filter((student) => !isArchivedStudent(student))
       .forEach((student) => {
-        const label = formatStudentClassName(student);
+        const label = formatStudentClassName({ ...student, option: student.option ? schoolOptionDisplayName(drawerSchool, student.option) : student.option });
         const key = `${student.className}::${student.option ?? ""}`;
         const current = counts.get(key);
         counts.set(key, {
@@ -485,6 +491,21 @@ export function PlatformModule({
     } finally {
       setSchoolAcronymSaving(false);
     }
+  }
+
+  async function saveSchoolOptionName() {
+    if (!drawerSchool || drawerSchool.id !== optionRenameSchoolId || !optionRenameTarget || optionRenameSaving || optionRenameConfirmation !== SCHOOL_OPTION_RENAME_CONFIRMATION) return;
+    setOptionRenameSaving(true);
+    setOptionRenameError("");
+    try {
+      const payload = await manageSchool({ action: "rename-option", schoolId: drawerSchool.id, option: optionRenameTarget, newName: optionRenameName, confirmation: optionRenameConfirmation });
+      if (!payload.school || payload.school.schoolOptionDisplayNames?.[optionRenameTarget] !== optionRenameName.trim().replace(/\s+/g, " ")) throw new Error("Le nouveau libellé n'a pas été confirmé par le serveur.");
+      updateData({ schools: data.schools.map((item) => item.id === drawerSchool.id ? payload.school as School : item) }, { persist: false });
+      setOptionRenameTarget(""); setOptionRenameSchoolId(""); setOptionRenameName(""); setOptionRenameConfirmation("");
+      setSchoolActionSuccess("Le nom de l'option scolaire a été modifié.");
+    } catch (error) {
+      setOptionRenameError(error instanceof Error ? error.message : "Renommage impossible.");
+    } finally { setOptionRenameSaving(false); }
   }
 
   function resetTerminalForm() {
@@ -1494,7 +1515,19 @@ export function PlatformModule({
                 <InfoRow label="Date de création" value={drawerSchool.createdAt ? new Date(drawerSchool.createdAt).toLocaleDateString("fr-FR") : "-"} />
                 <InfoRow label="Administrateur principal" value={drawerMainAdmin?.name ?? "-"} />
                 <InfoRow label="Niveaux" value={(drawerSchool.educationLevels ?? []).join(", ") || "-"} />
-                <InfoRow label="Options" value={drawerSchoolOptions.join(", ") || "-"} />
+                <div className="grid gap-2 rounded bg-slate-50 p-3 text-sm sm:col-span-2">
+                  <span className="font-semibold text-slate-500">Options scolaires</span>
+                  {drawerSchoolOptions.length === 0 && <span>Aucune option</span>}
+                  {drawerSchoolOptions.map((option) => <button type="button" key={option} className="secondary-button justify-start text-left" onClick={() => { setOptionRenameSchoolId(drawerSchool.id); setOptionRenameTarget(option); setOptionRenameName(schoolOptionDisplayName(drawerSchool, option)); setOptionRenameConfirmation(""); setOptionRenameError(""); }}>{schoolOptionDisplayName(drawerSchool, option)} <span className="ml-auto text-xs">Renommer</span></button>)}
+                  {optionRenameTarget && optionRenameSchoolId === drawerSchool.id && <div role="dialog" aria-label="Renommer une option scolaire" className="grid gap-2 rounded border border-amber-200 bg-white p-3">
+                    <p>Nom actuel : <strong>{schoolOptionDisplayName(drawerSchool, optionRenameTarget)}</strong></p>
+                    <label className="grid gap-1">Nouveau nom<input className="input" value={optionRenameName} onChange={(event) => setOptionRenameName(event.target.value)} disabled={optionRenameSaving} /></label>
+                    <p>Saisissez exactement : <strong>{SCHOOL_OPTION_RENAME_CONFIRMATION}</strong></p>
+                    <input aria-label="Confirmation du renommage de l'option" className="input" autoComplete="off" value={optionRenameConfirmation} onChange={(event) => setOptionRenameConfirmation(event.target.value)} disabled={optionRenameSaving} />
+                    {optionRenameError && <p role="alert" className="text-red-700">{optionRenameError}</p>}
+                    <div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" disabled={optionRenameSaving} onClick={() => { setOptionRenameTarget(""); setOptionRenameSchoolId(""); setOptionRenameConfirmation(""); }}>Annuler</button><button type="button" className="primary-button justify-center" disabled={optionRenameSaving || optionRenameConfirmation !== SCHOOL_OPTION_RENAME_CONFIRMATION || !optionRenameName.trim()} onClick={() => void saveSchoolOptionName()}>Enregistrer</button></div>
+                  </div>}
+                </div>
                 <InfoRow label="Type" value={drawerSchool.schoolType ?? "-"} />
                 <InfoRow label="Élèves" value={String(drawerStats.students)} />
                 <InfoRow label="Parents" value={String(drawerStats.parents)} />

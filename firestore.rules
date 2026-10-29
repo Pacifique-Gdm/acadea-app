@@ -479,6 +479,7 @@ service cloud.firestore {
 
     function superAdminAiAssistantUpdate() {
       return superAdmin()
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["schoolOptionDisplayNames", "schoolOptions"])
         && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["aiAssistant"])
           || (request.resource.data.aiAssistant is map
             && request.resource.data.aiAssistant.keys().hasOnly(["enabled", "monthlyLimit", "monthlyUsage", "usageMonth", "updatedAt", "updatedBy"])

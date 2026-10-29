@@ -1,0 +1,7 @@
+# Renommage d'une option scolaire
+
+Les valeurs de `schools/{schoolId}.schoolOptions` servent aujourd'hui d'identités historiques : `students.option`, `classes.option`, `classOptionKey` et certains identifiants d'affectation peuvent en dépendre. La PR ne réécrit donc aucun de ces documents. L'API `manage-school` (`rename-option`) conserve la valeur d'origine et modifie seulement `schoolOptionDisplayNames[option]` dans le document de l'école, avec un audit serveur dans la même transaction. Les autres écoles et les années archivées ne sont pas mutées.
+
+L'interface affiche ce libellé, mais continue d'envoyer la valeur stable dans les formulaires et filtres. Le listener `useRealtimeSchoolSettings` répercute le changement aux utilisateurs connectés. Les règles Firestore interdisent aux clients toute modification directe de `schoolOptionDisplayNames`, y compris au Super Administrateur ; l'API vérifie le jeton, le profil actif, le rôle, l'appartenance de l'option, le nouveau nom, les doublons et la phrase exacte.
+
+Pour Staging et une future Production, déployer d'abord les règles qui protègent le nouveau champ, puis le code API et interface. En cas de retour arrière applicatif, les données historiques restent intactes ; le nouveau champ de libellés peut demeurer sans changer les liens. Ne jamais remplacer en masse les anciennes chaînes par les nouveaux libellés, ni restaurer des règles qui permettraient l'écriture directe du champ protégé.

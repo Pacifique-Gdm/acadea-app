@@ -5,6 +5,7 @@ import { AUDIT_EVENT_TYPES, buildServerAudit } from "./_lib/serverAudit.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
 import { CashBalanceError, resolveRecordedCurrency } from "./_lib/cashBalance.js";
+import { canonicalSchoolOption, normalizeSchoolOptions } from "./_lib/schoolOptions.js";
 
 export const maxDuration = 300;
 
@@ -36,6 +37,28 @@ function normalizeText(value) {
 }
 
 const SCHOOL_INFORMATION_CONFIRMATION = "MODIFIER INFORMATIONS ÉCOLE";
+const SCHOOL_OPTION_RENAME_CONFIRMATION = "CHANGER LE NOM DE CETTE OPTION";
+
+function optionNameKey(value) {
+  return canonicalSchoolOption(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().replace(/\s+/g, " ").toLocaleLowerCase("fr");
+}
+
+export function validateSchoolOptionRename(school, body) {
+  if (body.confirmation !== SCHOOL_OPTION_RENAME_CONFIRMATION) return { error: "Confirmation exacte requise." };
+  if (typeof body.option !== "string" || typeof body.newName !== "string") return { error: "Option ou nouveau nom invalide." };
+  const option = body.option.trim();
+  const newName = body.newName.trim().replace(/\s+/g, " ");
+  const options = normalizeSchoolOptions(school.schoolOptions);
+  if (!options.includes(option)) return { error: "Cette option n'appartient pas à l'établissement." };
+  if (newName.length < 2 || newName.length > 80 || /[\u0000-\u001f\u007f<>]/.test(newName)) return { error: "Le nouveau nom doit contenir de 2 à 80 caractères valides." };
+  const labels = school.schoolOptionDisplayNames && typeof school.schoolOptionDisplayNames === "object" ? school.schoolOptionDisplayNames : {};
+  const oldName = typeof labels[option] === "string" && labels[option] ? labels[option] : option;
+  if (optionNameKey(newName) === optionNameKey(oldName)) return { error: "Le nom de l'option est inchangé." };
+  if (options.some((candidate) => candidate !== option && optionNameKey(typeof labels[candidate] === "string" && labels[candidate] ? labels[candidate] : candidate) === optionNameKey(newName))) {
+    return { error: "Une autre option de cet établissement porte déjà ce nom." };
+  }
+  return { option, oldName, newName, labels: { ...labels, [option]: newName } };
+}
 const SCHOOL_LEVELS = new Map([
   ["Maternelle", ["Maternelle"]],
   ["Primaire", ["Maternelle", "Primaire"]],
@@ -121,7 +144,7 @@ export default async function handler(req, res) {
 
     const body = await readBody(req);
     const requestedAction = normalizeText(body.action);
-    const action = ["update", "change-acronym", "change-currency", "suspend", "reactivate", "delete"].includes(requestedAction) ? requestedAction : "invalid";
+    const action = ["update", "change-acronym", "change-currency", "rename-option", "suspend", "reactivate", "delete"].includes(requestedAction) ? requestedAction : "invalid";
     const schoolId = normalizeText(body.schoolId);
 
     if (!schoolId) {
@@ -140,6 +163,28 @@ export default async function handler(req, res) {
       }
       sendJson(res, 404, { error: "Ecole introuvable.", code: "not-found" });
       return;
+    }
+
+    if (action === "rename-option") {
+      // L'identité historique (schoolOptions, classOptionKey, affectations) reste inchangée.
+      // Seul le libellé et la trace d'audit sont engagés atomiquement.
+      const auditRef = db.collection("auditLogs").doc(`school-option-rename-${randomUUID()}`);
+      const result = await db.runTransaction(async (transaction) => {
+        const latest = await transaction.get(schoolRef);
+        if (!latest.exists) return { status: 404, error: "École introuvable." };
+        const validation = validateSchoolOptionRename(latest.data(), body);
+        if (validation.error) return { status: 400, error: validation.error };
+        const now = new Date().toISOString();
+        transaction.update(schoolRef, { schoolOptionDisplayNames: validation.labels, updatedAt: now, updatedBy: caller.uid });
+        transaction.set(auditRef, buildServerAudit({
+          id: auditRef.id, eventType: AUDIT_EVENT_TYPES.SCHOOL_OPTION_RENAMED, actor: caller,
+          schoolId, resourceType: "schoolOption", resourceId: validation.option,
+          metadata: { option: validation.option, oldName: validation.oldName, newName: validation.newName, result: "success" },
+        }));
+        return { school: { id: latest.id, ...latest.data(), schoolOptionDisplayNames: validation.labels, updatedAt: now, updatedBy: caller.uid } };
+      });
+      if (result.error) return sendJson(res, result.status, { error: result.error, code: result.status === 404 ? "not-found" : "invalid-argument" });
+      return sendJson(res, 200, result);
     }
 
     if (action === "change-acronym") {
