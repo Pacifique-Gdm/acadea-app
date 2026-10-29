@@ -1126,7 +1126,7 @@ export default function App() {
         showInstallButton={showInstallPwaButton}
         onInstallPwa={installPwa}
         EnvironmentBannerComponent={EnvironmentBanner}
-        HeaderComponent={(props) => (
+        renderHeader={(props) => (
           <Header
             {...props}
             notificationsOpen={Boolean(focusedPushMessage || focusedOperationalNotification) || props.notificationsOpen}

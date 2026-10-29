@@ -120,7 +120,11 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
       await session.page.getByLabel("Cote locale").fill("12");
       await draft(session.page);
       expect((await db!.collection("gradeEntries").where("schoolId", "==", schoolId).get()).empty).toBe(true);
-      await session.page.reload();
+      const offlineUrl = session.page.url();
+      await session.page.close();
+      session.page = await session.context.newPage();
+      pageRoles.set(session.page, "teacher");
+      await session.page.goto(offlineUrl);
       await expect(session.page.getByRole("heading", { name: "Acadéa hors connexion" })).toBeVisible({ timeout: 25_000 });
       await returnOnline(session.context, session.page);
       await expect.poll(async () => (await db!.collection("gradeEntries").where("schoolId", "==", schoolId).get()).size, { timeout: 45_000 }).toBe(1);

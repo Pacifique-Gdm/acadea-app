@@ -102,7 +102,7 @@ export function DisciplinePortal({
   onInstallPwa,
   onLogout,
   EnvironmentBannerComponent,
-  HeaderComponent,
+  renderHeader,
   DisciplineBottomNavigationComponent,
   MessagesModuleComponent,
   createId,
@@ -123,7 +123,7 @@ export function DisciplinePortal({
   onInstallPwa: () => void;
   onLogout: () => void;
   EnvironmentBannerComponent: ComponentType;
-  HeaderComponent: ComponentType<HeaderComponentProps>;
+  renderHeader: (props: HeaderComponentProps) => ReactNode;
   DisciplineBottomNavigationComponent: ComponentType<DisciplineBottomNavigationComponentProps>;
   MessagesModuleComponent: ComponentType<MessagesModuleComponentProps>;
   createId: (prefix: string) => string;
@@ -675,28 +675,21 @@ export function DisciplinePortal({
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#f6f8fb]">
       <EnvironmentBannerComponent />
-      <HeaderComponent
-        user={user}
-        data={data}
-        yearData={yearData}
-        school={school}
-        year={year}
-        unreadNotifications={unread}
-        notificationsOpen={notificationsOpen}
-        isRefreshing={isRefreshing}
-        refreshError={refreshError}
-        onRefresh={onRefresh}
-        onToggleNotifications={toggleNotifications}
-        onCloseNotifications={closeNotifications}
-        onRealtimeNotifications={(notifications) => {
+      {renderHeader({
+        user, data, yearData, school, year,
+        unreadNotifications: unread,
+        notificationsOpen, isRefreshing, refreshError, onRefresh,
+        onToggleNotifications: toggleNotifications,
+        onCloseNotifications: closeNotifications,
+        onRealtimeNotifications: (notifications) => {
           if (notifications.length === 0) return;
           updateData({ notifications: mergeNotificationsById(data.notifications, notifications) }, { persist: false });
-        }}
-        onRealtimeMessages={(messages) => {
+        },
+        onRealtimeMessages: (messages) => {
           if (messages.length === 0) return;
           updateData({ messages: mergeMessagesById(data.messages, messages) }, { persist: false });
-        }}
-      />
+        },
+      })}
       <main className="mx-auto grid w-full max-w-7xl min-w-0 flex-1 gap-4 overflow-y-auto px-3 py-5 pb-28 sm:px-6 sm:pb-32 lg:px-8">
         {feedback && <p className={`rounded border p-3 text-sm font-semibold ${feedbackTone}`}>{feedback}</p>}
         {activeDisciplineTab === "status" && (
