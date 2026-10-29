@@ -7,20 +7,29 @@ import enrollmentHandler from "../api/provision-school-account.js";
 import financialHandler from "../api/manage-financial-transaction.js";
 
 const origin = "http://127.0.0.1:4173";
-const enabled = process.env.ACADEA_STAGING_E2E === "YES";
+const local = process.env.ACADEA_E2E_LOCAL_EMULATORS === "YES";
+const enabled = local || process.env.ACADEA_STAGING_E2E === "YES";
 const fixture = enabled ? JSON.parse(readFileSync("test-results/offline-staging-fixture.json", "utf8")) as {
   projectId: string; tag: string; ids: Record<string, string>;
   users: Record<string, { uid: string; email: string; role: string }>;
 } : null;
 
-test.skip(!enabled, "Recette réservée au déclenchement manuel GitHub Actions Staging.");
-if (enabled && (fixture?.projectId !== "acadea-staging" || !fixture.tag.startsWith("e2e-offline-")
+test.skip(!enabled, "Recette réservée aux émulateurs explicites ou à GitHub Actions Staging.");
+if (local && (fixture?.projectId !== "demo-acadea" || process.env.VITE_FIREBASE_PROJECT_ID !== "demo-acadea"
+  || process.env.FIREBASE_AUTH_EMULATOR_HOST !== "127.0.0.1:9099"
+  || process.env.FIRESTORE_EMULATOR_HOST !== "127.0.0.1:8080"
+  || process.env.FIREBASE_STORAGE_EMULATOR_HOST !== "127.0.0.1:9199"
+  || process.env.ACADEA_E2E_BASE_URL !== origin
+  || process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.FIREBASE_SERVICE_ACCOUNT_JSON)) {
+  throw new Error("Émulateurs demo-acadea exclusivement requis.");
+}
+if (enabled && !local && (fixture?.projectId !== "acadea-staging" || !fixture.tag.startsWith("e2e-offline-")
   || process.env.GOOGLE_CLOUD_PROJECT !== "acadea-staging"
   || process.env.VITE_FIREBASE_PROJECT_ID !== "acadea-staging"
   || process.env.ACADEA_E2E_BASE_URL !== origin || process.env.GITHUB_ACTIONS !== "true")) {
   throw new Error("Environnement Staging authentifié invalide.");
 }
-const app = enabled ? getApps()[0] ?? initializeApp({ credential: applicationDefault(), projectId: "acadea-staging" }) : null;
+const app = enabled ? getApps()[0] ?? initializeApp(local ? { projectId: "demo-acadea" } : { credential: applicationDefault(), projectId: "acadea-staging" }) : null;
 const db = app ? getFirestore(app) : null;
 const ids = fixture?.ids;
 const schoolId = ids?.school;
@@ -97,7 +106,7 @@ async function draft(page: Page) {
   await expect(page.getByText("Brouillon local enregistré.", { exact: false })).toBeVisible();
 }
 
-test.describe.serial("recette hors connexion authentifiée sur acadea-staging", () => {
+test.describe.serial(local ? "recette hors connexion authentifiée sur émulateurs" : "recette hors connexion authentifiée sur acadea-staging", () => {
   test.setTimeout(180_000);
 
   test("réouverture, cote, accusé serveur et idempotence", async ({ browser }) => {

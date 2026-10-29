@@ -5,7 +5,8 @@ import { applicationDefault, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 
-const projectId = "acadea-staging";
+const local = process.env.ACADEA_E2E_LOCAL_EMULATORS === "YES";
+const projectId = local ? "demo-acadea" : "acadea-staging";
 const manifestPath = resolve("test-results/offline-staging-fixture.json");
 const collections = [
   "gradeEntries", "attendance", "students", "payments", "offlineOperationReceipts",
@@ -16,6 +17,17 @@ const collections = [
 ];
 
 function guard() {
+  if (local) {
+    if (process.env.VITE_FIREBASE_PROJECT_ID !== projectId
+      || process.env.FIREBASE_AUTH_EMULATOR_HOST !== "127.0.0.1:9099"
+      || process.env.FIRESTORE_EMULATOR_HOST !== "127.0.0.1:8080"
+      || process.env.FIREBASE_STORAGE_EMULATOR_HOST !== "127.0.0.1:9199"
+      || process.env.ACADEA_E2E_BASE_URL !== "http://127.0.0.1:4173"
+      || process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+      throw new Error("Émulateurs locaux sans identifiants distants obligatoires.");
+    }
+    return;
+  }
   if (process.env.ACADEA_STAGING_E2E !== "YES" || process.env.GITHUB_ACTIONS !== "true"
     || process.env.GITHUB_REPOSITORY !== "Pacifique-Gdm/acadea-app"
     || process.env.GITHUB_REF !== "refs/heads/codex/offline-staging-e2e-20261028"
@@ -52,7 +64,7 @@ async function absent(db, auth, fixture) {
 async function prepare(db, auth) {
   if (!process.env.ACADEA_E2E_PASSWORD || process.env.ACADEA_E2E_PASSWORD.length < 40) throw new Error("Mot de passe éphémère manquant.");
   if (existsSync(manifestPath)) throw new Error("Manifeste de fixture déjà présent.");
-  const tag = `e2e-offline-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}-${randomUUID().slice(0, 8)}`;
+  const tag = `e2e-offline-${process.env.GITHUB_RUN_ID || Date.now()}-${process.env.GITHUB_RUN_ATTEMPT || 1}-${randomUUID().slice(0, 8)}`;
   const fixture = { projectId, tag, ids: ids(tag), configId: "", users: {} };
   fixture.configId = [fixture.ids.school, fixture.ids.year, fixture.ids.class, fixture.ids.subject].join("__");
   for (const role of ["teacher", "discipline_director", "secretary", "cashier"]) {
@@ -82,7 +94,7 @@ async function prepare(db, auth) {
   await put("teachers", teacher, { schoolYearId: year, userId: fixture.users.teacher.uid, fullName: "Professeur E2E", status: "active", active: true });
   await put("pedagogicalAssignments", assignment, { schoolYearId: year, teacherId: teacher, classId, subjectId: subject, active: true });
   await put("courseGradingConfigs", fixture.configId, { schoolYearId: year, classId, subjectId: subject, maxScore: 20, active: true });
-  console.log("Fixture Staging isolée créée.");
+  console.log(local ? "Fixture émulateurs isolée créée." : "Fixture Staging isolée créée.");
 }
 
 async function cleanup(db, auth) {
@@ -136,7 +148,7 @@ async function cleanup(db, auth) {
 }
 
 guard();
-const app = initializeApp({ credential: applicationDefault(), projectId });
+const app = initializeApp({ ...(local ? {} : { credential: applicationDefault() }), projectId });
 const db = getFirestore(app), auth = getAuth(app);
 const command = process.argv[2];
 if (command === "prepare") await prepare(db, auth);
