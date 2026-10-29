@@ -1,4 +1,7 @@
 import { readFileSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, dirname, basename } from "node:path";
 import { applicationDefault, getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
@@ -54,10 +57,14 @@ async function invoke(handler: ApiHandler, method: string, headers: Record<strin
   return { status, payload: payload as Record<string, unknown> };
 }
 
-async function createSession(browser: Browser, role: string, transport = { dropNextAttendanceResponse: false }) {
-  const context = await browser.newContext({ baseURL: origin, serviceWorkers: "allow" });
+async function createSession(browser: Browser, role: string, transport = { dropNextAttendanceResponse: false }, persistent = false) {
+  const profile = persistent ? await mkdtemp(join(tmpdir(), "acadea-offline-browser-")) : null;
+  const openContext = (offline = false) => profile
+    ? browser.browserType().launchPersistentContext(profile, { baseURL: origin, serviceWorkers: "allow", offline, headless: true })
+    : browser.newContext({ baseURL: origin, serviceWorkers: "allow", offline });
+  let context = await openContext();
   const calls: Array<{ path: string; status: number; body: Record<string, unknown>; result: Record<string, unknown>; authorization: string }> = [];
-  await context.route("**/api/**", async (route) => {
+  const attachApi = (target: BrowserContext) => target.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     const handler = handlers[path];
     if (!handler) return route.fulfill({ status: 404, body: "API E2E absente" });
@@ -71,7 +78,8 @@ async function createSession(browser: Browser, role: string, transport = { dropN
     }
     return route.fulfill({ status: outcome.status, contentType: "application/json", body: JSON.stringify(outcome.payload) });
   });
-  const page = await context.newPage();
+  await attachApi(context);
+  let page = await context.newPage();
   page.setDefaultTimeout(15_000);
   const login = async () => {
     await page.goto("/login");
@@ -87,7 +95,28 @@ async function createSession(browser: Browser, role: string, transport = { dropN
       return Boolean(await cache.match(document.querySelector<HTMLScriptElement>('script[type="module"]')?.src || ""));
     }), { timeout: 30_000 }).toBe(true);
   };
-  return { context, page, calls, login };
+  const session = { context, page, calls, login,
+    async restartOffline() {
+      if (!profile) throw new Error("Profil persistant requis pour redémarrer Chromium.");
+      const url = page.url();
+      await context.close(); // Ferme entièrement le processus Chromium persistant.
+      context = await openContext(true);
+      await attachApi(context);
+      page = await context.newPage();
+      page.setDefaultTimeout(15_000);
+      session.context = context;
+      session.page = page;
+      await page.goto(url);
+    },
+    async dispose() {
+      await context.close();
+      if (profile) {
+        if (dirname(profile) !== tmpdir() || !basename(profile).startsWith("acadea-offline-browser-")) throw new Error("Profil temporaire inattendu.");
+        await rm(profile, { recursive: true });
+      }
+    },
+  };
+  return session;
 }
 
 async function returnOnline(context: BrowserContext, page: Page) {
@@ -114,7 +143,7 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
   test.setTimeout(180_000);
 
   test("réouverture, cote, accusé serveur et idempotence", async ({ browser }) => {
-    const session = await createSession(browser, "teacher");
+    const session = await createSession(browser, "teacher", { dropNextAttendanceResponse: false }, true);
     pageRoles.set(session.page, "teacher");
     try {
       await session.login();
@@ -124,11 +153,8 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
       await session.page.getByLabel("Cote locale").fill("12");
       await draft(session.page);
       expect((await db!.collection("gradeEntries").where("schoolId", "==", schoolId).get()).empty).toBe(true);
-      const offlineUrl = session.page.url();
-      await session.page.close();
-      session.page = await session.context.newPage();
+      await session.restartOffline();
       pageRoles.set(session.page, "teacher");
-      await session.page.goto(offlineUrl);
       await expect(session.page.getByRole("heading", { name: "Acadéa hors connexion" })).toBeVisible({ timeout: 25_000 });
       await returnOnline(session.context, session.page);
       await expect.poll(async () => (await db!.collection("gradeEntries").where("schoolId", "==", schoolId).get()).size, { timeout: 45_000 }).toBe(1);
@@ -139,7 +165,7 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
       const repeated = await invoke(gradingHandler, "POST", { authorization: call!.authorization }, call!.body);
       expect(repeated.status).toBe(200);
       expect((await db!.collection("gradeEntries").where("schoolId", "==", schoolId).get()).size).toBe(1);
-    } finally { await session.context.close(); }
+    } finally { await session.dispose(); }
   });
 
   test("maximum modifié pendant la déconnexion : conflit sans écrasement", async ({ browser }) => {
