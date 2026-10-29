@@ -35,6 +35,39 @@ self.addEventListener("message", (event) => {
   if (event.data?.type === "SKIP_WAITING") {
     self.skipWaiting();
   }
+  if (event.data?.type === "PREPARE_OFFLINE_SHELL") {
+    const version = event.data.version;
+    const reply = event.ports?.[0];
+    event.waitUntil((async () => {
+      try {
+        if (typeof version !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(version)) throw new Error("Version invalide.");
+        const manifestResponse = await fetch(`/offline-assets.json?build=${encodeURIComponent(version)}`, { cache: "no-store" });
+        if (!manifestResponse.ok || !manifestResponse.headers.get("content-type")?.includes("application/json")) throw new Error("Manifeste indisponible.");
+        const manifest = await manifestResponse.json();
+        if (manifest.version !== version || !Array.isArray(manifest.assets) ||
+          !manifest.assets.every((path) => typeof path === "string" && /^\/assets\/[a-zA-Z0-9_./-]+\.(js|css)$/.test(path))) {
+          throw new Error("Manifeste invalide.");
+        }
+        const shell = await fetch("/", { cache: "no-store", credentials: "same-origin" });
+        if (!shell.ok || !shell.headers.get("content-type")?.includes("text/html")) throw new Error("Interface indisponible.");
+        const assets = await Promise.all(manifest.assets.map(async (path) => {
+          const response = await fetch(path, { cache: "no-store", credentials: "same-origin" });
+          const type = response.headers.get("content-type") || "";
+          if (!response.ok || !((path.endsWith(".js") && type.includes("javascript")) || (path.endsWith(".css") && type.includes("css")))) {
+            throw new Error(`Fichier indisponible : ${path}`);
+          }
+          return [path, response];
+        }));
+        const shellCache = await caches.open(SHELL_CACHE);
+        const assetCache = await caches.open(ASSET_CACHE);
+        await shellCache.put("/", shell);
+        await Promise.all(assets.map(([path, response]) => assetCache.put(path, response)));
+        reply?.postMessage({ ok: true, version });
+      } catch (error) {
+        reply?.postMessage({ ok: false, error: error instanceof Error ? error.message : "Préparation impossible." });
+      }
+    })());
+  }
 });
 
 function allowedPushData(payload) {
@@ -138,7 +171,9 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     caches.open(BRAND_CACHE).then((brandCache) => brandCache.match(url.pathname)).then((branded) => {
       if (branded) return branded;
-      return caches.match(request);
+      // Hashed build assets are immutable; module/CSS requests can carry a
+      // different Accept/Origin variant from the prefetch performed by this worker.
+      return caches.match(url.href, { ignoreVary: true });
     }).then((cached) => {
       if (cached) return cached;
       return fetch(request).then((response) => {

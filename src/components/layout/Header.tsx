@@ -5,6 +5,8 @@ import { MessagingDrawerShell } from "../messages/MessagingDrawerShell";
 import { usePaginatedNotifications } from "../../hooks/usePaginatedNotifications";
 import { useRealtimeMessageFeed } from "../../hooks/useRealtimeMessageFeed";
 import type { AppData, AppNotification, AppUser, Message, School, SchoolYear } from "../../types";
+import { OfflineQueuePanel } from "../offline/OfflineQueuePanel";
+import { offlineAccessEligible } from "../../services/offlineAccess";
 
 type HeaderYearData = Pick<AppData, "auditLogs" | "messages" | "notifications" | "parents" | "students" | "users">;
 
@@ -161,6 +163,8 @@ export function Header({
           <div className="relative flex flex-col gap-2 sm:flex-row sm:items-center">
             <div className="flex items-center justify-end gap-3">
             <span className="rounded bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600">Année scolaire : {year.name}</span>
+            {offlineAccessEligible(user)
+              && <OfflineQueuePanel scope={{ userId: user.id, schoolId: school.id, schoolYearId: year.id }} role={user.role} autoSync={year.status === "active" && school.status === "active"} />}
             <button
               onClick={() => void refreshHeaderData()}
               disabled={isRefreshing || manualRefreshing}

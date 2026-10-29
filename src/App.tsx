@@ -1,5 +1,10 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ARCHIVED_TEACHER_LOGIN_MARKER, getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateCoordinator, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff, validateSecretary, validateStudyDirector, validateTeacher } from "./services/auth";
+import { ARCHIVED_TEACHER_LOGIN_MARKER, getCurrentFirebaseIdToken, getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateCoordinator, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff, validateSecretary, validateStudyDirector, validateTeacher } from "./services/auth";
+import { auth } from "./firebase";
+import { clearOfflineAccess, offlineAccessEligible, readOfflineAccess, readOfflineAccessForCurrentDevice, rememberOfflineAccess, type OfflineAccess } from "./services/offlineAccess";
+import { OfflineAccessScreen } from "./components/auth/OfflineAccessScreen";
+import { prepareOfflineContext } from "./services/offlineContext";
+import { prepareOfflineShell } from "./services/offlineShell";
 import { AccessDenied } from "./components/auth/AccessDenied";
 import { SuspendedSchool } from "./components/auth/SuspendedSchool";
 import { ActivityHistoryContent } from "./components/history/ActivityHistoryContent";
@@ -183,6 +188,7 @@ export default function App() {
   const [route, setRoute] = useState(() => getInitialRoute());
   const [authReady, setAuthReady] = useState(false);
   const [authError, setAuthError] = useState("");
+  const [offlineAccess, setOfflineAccess] = useState<OfflineAccess | null>(null);
   const [dataLoading, setDataLoading] = useState(false);
   const [bootstrapError, setBootstrapError] = useState("");
   const [schoolSuspended, setSchoolSuspended] = useState(false);
@@ -393,6 +399,21 @@ export default function App() {
   const school = data.schools.find((item) => item.id === user?.schoolId);
   const schoolYears = useMemo(() => (school ? orderSchoolYears(data.schoolYears.filter((year) => year.schoolId === school.id), school.activeSchoolYearId) : []), [data.schoolYears, school]);
   const selectedYear = schoolYears.find((year) => year.id === selectedYearId);
+  useEffect(() => {
+    if (!user || !school || !selectedYear || dataLoading || offlineAccess || !offlineAccessEligible(user)
+      || school.status !== "active" || selectedYear.status !== "active") return;
+    let busy = false;
+    const prepare = () => {
+      if (busy || navigator.onLine === false) return;
+      busy = true;
+      void prepareOfflineContext(user, school, selectedYear).catch(() => {
+        /* The online portal remains usable if optional local preparation fails. */
+      }).finally(() => { busy = false; });
+    };
+    prepare();
+    window.addEventListener("online", prepare);
+    return () => window.removeEventListener("online", prepare);
+  }, [user, school, selectedYear, dataLoading, offlineAccess]);
   const realtimeDashboardSchoolId = user && (user.role === "school_admin" || user.role === "cashier") ? school?.id ?? "" : "";
   const [realtimeDashboardUsers, setRealtimeDashboardUsers] = useState<AppUser[]>([]);
   useRealtimeSchoolUsers({ user, schoolId: realtimeDashboardSchoolId, onUsers: setRealtimeDashboardUsers });
@@ -457,15 +478,51 @@ export default function App() {
     subscribeToFirebaseUser(
       (nextUser) => {
         if (cancelled) return;
+        if (!nextUser && navigator.onLine === false) {
+          void readOfflineAccessForCurrentDevice().then((ticket) => {
+            if (cancelled) return;
+            setAuthReady(true);
+            if (ticket) {
+              setUser(null);
+              setData(loadInitialData());
+              setOfflineAccess(ticket);
+            } else applyAuthenticatedUser(null);
+          }).catch(() => { if (!cancelled) { setAuthReady(true); applyAuthenticatedUser(null); } });
+          return;
+        }
+        setOfflineAccess(null);
         setAuthReady(true);
         applyAuthenticatedUser(nextUser);
       },
       (error) => {
         if (cancelled) return;
         console.error("[Acadéa auth] Session Firebase invalide.", { code: firebaseErrorCode(error) });
+        const offlineUid = auth?.currentUser?.uid;
+        const networkFailure = navigator.onLine === false && (firebaseErrorCode(error) === "unavailable"
+          || firebaseErrorCode(error) === "auth/network-request-failed"
+          || (error instanceof Error && error.message.includes("session a expiré")));
+        if (networkFailure && offlineUid) {
+          void readOfflineAccess(offlineUid).then((ticket) => {
+            if (cancelled) return;
+            if (ticket) {
+              setUser(null);
+              setData(loadInitialData());
+              setOfflineAccess(ticket);
+              setAuthReady(true);
+              return;
+            }
+            setAuthError("Accès hors connexion indisponible ou expiré. Reconnectez cet appareil à Internet.");
+            setAuthReady(true);
+            navigate("/login");
+          }).catch(() => {
+            if (!cancelled) { setAuthReady(true); navigate("/login"); }
+          });
+          return;
+        }
         if (!logoutInProgressRef.current) {
           setAuthError(userFacingError(error, "Session Firebase invalide."));
         }
+        setOfflineAccess(null);
         setUser(null);
         setSelectedYearId("");
         setActiveTab("dashboard");
@@ -490,6 +547,14 @@ export default function App() {
       unsubscribe?.();
     };
   }, [applyAuthenticatedUser, navigate]);
+
+  useEffect(() => {
+    if (!offlineAccess) return;
+    const remaining = Date.parse(offlineAccess.expiresAt) - Date.now();
+    if (remaining <= 0) { setOfflineAccess(null); navigate("/login"); return; }
+    const timeout = window.setTimeout(() => { setOfflineAccess(null); navigate("/login"); }, remaining);
+    return () => window.clearTimeout(timeout);
+  }, [offlineAccess, navigate]);
 
   useEffect(() => {
     const bootstrapUser = firestoreBootstrapUserRef.current;
@@ -530,11 +595,28 @@ export default function App() {
       let bootstrapResolved = false;
       try {
         const bootstrap = await loadFirestoreBootstrapData(bootstrapUser);
-        if (!bootstrap || cancelled) return;
+        if (!bootstrap || cancelled) {
+          if (!cancelled && navigator.onLine === false) {
+            const ticket = await readOfflineAccess(bootstrapUser.id).catch(() => null);
+            if (!cancelled && ticket && ticket.schoolId === bootstrapUser.schoolId && ticket.role === bootstrapUser.role) {
+              setUser(null); setData(loadInitialData()); setOfflineAccess(ticket); setBootstrapError("");
+            }
+          }
+          return;
+        }
         bootstrapResolved = true;
         const nextSchool = bootstrap.schools.find((item) => item.id === bootstrapUser.schoolId);
         const nextSchoolYears = nextSchool ? bootstrap.schoolYears.filter((year) => year.schoolId === nextSchool.id) : [];
         const nextYearId = resolveDefaultSchoolYear(nextSchool, nextSchoolYears)?.id ?? "";
+        const nextYear = nextSchoolYears.find((item) => item.id === nextYearId);
+        if (offlineAccessEligible(bootstrapUser) && nextSchool?.status === "active" && nextYear?.status === "active" && navigator.onLine !== false) {
+          void getCurrentFirebaseIdToken().then(() => {
+            if (cancelled || auth?.currentUser?.uid !== bootstrapUser.id) return;
+            return prepareOfflineShell().then(() => rememberOfflineAccess({ userId: bootstrapUser.id, role: bootstrapUser.role,
+              schoolId: nextSchool.id, schoolName: nextSchool.name,
+              schoolYearId: nextYear.id, schoolYearName: nextYear.name }));
+          }).catch(() => { /* An unavailable local store must not interrupt normal online access. */ });
+        }
         setData({ ...loadInitialData(), ...bootstrap });
         setSelectedYearId(nextYearId);
         setDataLoading(false);
@@ -562,6 +644,13 @@ export default function App() {
           console.warn("Chargement des données secondaires indisponible.", error);
           setRefreshError(refreshErrorMessage(error));
           return;
+        }
+        if (navigator.onLine === false) {
+          const ticket = await readOfflineAccess(bootstrapUser.id).catch(() => null);
+          if (!cancelled && ticket && ticket.schoolId === bootstrapUser.schoolId && ticket.role === bootstrapUser.role) {
+            setUser(null); setData(loadInitialData()); setOfflineAccess(ticket); setBootstrapError("");
+            return;
+          }
         }
         console.warn("[Acadéa auth] Chargement initial Firestore indisponible sans invalidation de session.", {
           code: firebaseErrorCode(error),
@@ -654,7 +743,10 @@ export default function App() {
     setData(loadInitialData());
     setDataLoading(false);
     setAuthError("");
+    setOfflineAccess(null);
     navigate("/login");
+    try { await clearOfflineAccess(); }
+    catch { setAuthError("Le nettoyage du stockage local a échoué. Effacez les données de ce site avant de partager l'appareil."); }
     try {
       await signOutUser();
     } catch (error) {
@@ -796,6 +888,10 @@ export default function App() {
         </div>
       </main>
     );
+  }
+
+  if (offlineAccess) {
+    return <OfflineAccessScreen access={offlineAccess} onLogout={() => { void logout(); }} />;
   }
 
   if (!user || route === "/login") {
@@ -1040,7 +1136,7 @@ export default function App() {
         showInstallButton={showInstallPwaButton}
         onInstallPwa={installPwa}
         EnvironmentBannerComponent={EnvironmentBanner}
-        HeaderComponent={(props) => (
+        renderHeader={(props) => (
           <Header
             {...props}
             notificationsOpen={Boolean(focusedPushMessage || focusedOperationalNotification) || props.notificationsOpen}
