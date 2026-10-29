@@ -10,7 +10,7 @@ test("PR32 : quatre catégories, comptabilité réelle, refus et réponse résea
   test.setTimeout(240_000);
   const f = fixture(); let context: BrowserContext | undefined;
   try {
-    await f.seed(["cashier", "teacher"]);
+    await f.seed(["cashier", "teacher", "school_admin"]);
     const today = new Date().toISOString().slice(0, 10);
     const token = await f.token("cashier");
     const body = { action: "create-cash-inflow", schoolYearId: f.year, category: "Don", amount: 50.25, entryDate: today,
@@ -22,7 +22,7 @@ test("PR32 : quatre catégories, comptabilité réelle, refus et réponse résea
     const transport = { dropNextWriteResponse: false };
     const session = await f.session(browser, "cashier", { "/api/manage-financial-transaction": handler }, transport);
     context = session.context;
-    const page = session.page;
+    let page = session.page;
     await page.getByRole("button", { name: "Contrôle", exact: true }).last().click();
     await page.getByRole("button", { name: "Enregistrer", exact: true }).click();
     await page.getByLabel("Type d'enregistrement").selectOption("inflow");
@@ -70,6 +70,11 @@ test("PR32 : quatre catégories, comptabilité réelle, refus et réponse résea
     await page.getByLabel("Type d'historique").selectOption("cashInflows");
     await expect(page.getByRole("dialog", { name: "Historique" }).locator("article")).toHaveCount(5);
     await page.getByRole("button", { name: "Fermer l'historique" }).click();
+    // Le rapport financier appartient au menu Administrateur, pas au menu Caissier.
+    await context.close();
+    const admin = await f.session(browser, "school_admin", { "/api/manage-financial-transaction": handler });
+    context = admin.context;
+    page = admin.page;
     await page.getByRole("button", { name: "Menu", exact: true }).last().click();
     await page.getByRole("button", { name: /Rapport financier/ }).click();
     await expect(page.getByText("Frais de fonctionnement reçus", { exact: false }).first()).toBeVisible();
