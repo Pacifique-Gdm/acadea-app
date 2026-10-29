@@ -11,6 +11,7 @@ export const AUDIT_EVENT_TYPES = Object.freeze({
   STUDENT_TERMINAL_COMPLETED: "student.terminal_completed",
   FINANCE_PAYMENT_CREATED: "finance.payment.created", FINANCE_PAYMENT_UPDATED: "finance.payment.updated", FINANCE_PAYMENT_DELETED: "finance.payment.deleted",
   FINANCE_EXPENSE_CREATED: "finance.expense.created", FINANCE_EXPENSE_UPDATED: "finance.expense.updated", FINANCE_EXPENSE_DELETED: "finance.expense.deleted",
+  FINANCE_CASH_INFLOW_CREATED: "finance.cash_inflow.created",
 });
 
 const labels = Object.freeze({
@@ -23,6 +24,7 @@ const labels = Object.freeze({
   [AUDIT_EVENT_TYPES.STUDENT_TERMINAL_COMPLETED]: "Fin de scolarité terminale confirmée",
   [AUDIT_EVENT_TYPES.FINANCE_PAYMENT_CREATED]: "Création paiement", [AUDIT_EVENT_TYPES.FINANCE_PAYMENT_UPDATED]: "Correction paiement", [AUDIT_EVENT_TYPES.FINANCE_PAYMENT_DELETED]: "Suppression paiement",
   [AUDIT_EVENT_TYPES.FINANCE_EXPENSE_CREATED]: "Création dépense", [AUDIT_EVENT_TYPES.FINANCE_EXPENSE_UPDATED]: "Modification dépense", [AUDIT_EVENT_TYPES.FINANCE_EXPENSE_DELETED]: "Suppression dépense",
+  [AUDIT_EVENT_TYPES.FINANCE_CASH_INFLOW_CREATED]: "Autre entrée de caisse enregistrée",
 });
 
 const forbiddenMetadataKeys = /password|token|secret|prompt|content|medical|attachment/i;

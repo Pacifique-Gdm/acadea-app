@@ -7,10 +7,12 @@ import { fromMoneyMinor, sumMoneyMinor, toMoneyMinor } from "./money.js";
 const PAYMENT_CREATE_KEYS = ["action", "schoolYearId", "studentId", "feeTypeId", "debtSchoolYearId", "amount", "note", "clientRequestId"];
 const ARREARS_READ_KEYS = ["action", "schoolYearId", "studentId"];
 const EXPENSE_CREATE_KEYS = ["action", "schoolYearId", "amount", "category", "description", "beneficiary", "paymentMethod", "reference", "clientRequestId"];
+const CASH_INFLOW_CREATE_KEYS = ["action", "schoolYearId", "amount", "category", "description", "source", "paymentMethod", "reference", "entryDate", "clientRequestId"];
 const PAYMENT_UPDATE_KEYS = ["action", "transactionId", "amount", "reason", "confirmation", "expectedUpdatedAt", "clientRequestId"];
 const EXPENSE_UPDATE_KEYS = ["action", "transactionId", "amount", "category", "description", "reason", "clientRequestId"];
 const DELETE_KEYS = ["action", "transactionId", "reason", "clientRequestId"];
 const EXPENSE_CATEGORIES = new Set(["Fournitures", "Transport", "Salaire", "Maintenance", "Autre", "Autres"]);
+const CASH_INFLOW_CATEGORIES = new Set(["Subvention", "Don", "Frais de fonctionnement", "Autres"]);
 
 export class FinancialApiError extends Error {
   constructor(status, code, message) {
@@ -458,6 +460,46 @@ async function createExpense(transaction, db, caller, body, hash, now) {
   return { expense };
 }
 
+async function createCashInflow(transaction, db, caller, body, hash, now) {
+  assertAllowedKeys(body, CASH_INFLOW_CREATE_KEYS);
+  const amount = positiveAmount(body.amount);
+  const { schoolYearId, year, school, actorName, currency } = await assertContext(transaction, db, caller, body.schoolYearId);
+  if (year.status !== "active" || school.activeSchoolYearId !== schoolYearId) {
+    throw new FinancialApiError(409, "failed-precondition", "Seule l'année scolaire active peut recevoir une entrée de caisse.");
+  }
+  const category = text(body.category, 100);
+  const description = text(body.description, 1000);
+  const source = text(body.source, 200);
+  const paymentMethod = text(body.paymentMethod, 100);
+  const reference = text(body.reference, 160);
+  const entryDate = text(body.entryDate, 10);
+  const dateValid = /^\d{4}-\d{2}-\d{2}$/.test(entryDate) && !Number.isNaN(Date.parse(`${entryDate}T00:00:00.000Z`))
+    && new Date(`${entryDate}T00:00:00.000Z`).toISOString().slice(0, 10) === entryDate;
+  if (!CASH_INFLOW_CATEGORIES.has(category) || description.length < 10 || !source || !paymentMethod || !dateValid) {
+    throw new FinancialApiError(400, "invalid-argument", "Nature, provenance, mode, date et description détaillée sont requis.");
+  }
+  if (entryDate > now.slice(0, 10) || year.startsAt && entryDate < String(year.startsAt).slice(0, 10)
+    || year.endsAt && entryDate > String(year.endsAt).slice(0, 10)) {
+    throw new FinancialApiError(400, "invalid-argument", "Date de recette hors de l'année scolaire active ou dans le futur.");
+  }
+  const inflowId = `cash_inflow_${hash.slice(0, 24)}`;
+  const inflow = {
+    id: inflowId, schoolId: caller.schoolId, schoolYearId, category, amount, currency, entryDate,
+    source, paymentMethod, description, ...(reference ? { reference } : {}),
+    createdAt: now, validatedAt: now, createdBy: caller.uid, cashierName: actorName,
+    provenance: "financial-api", clientRequestIdHash: hash,
+  };
+  await protectCashMutation({ db, transaction, schoolId: caller.schoolId, schoolYearId, currency, yearCurrency: currency,
+    deltaCents: toMoneyMinor(amount), now });
+  transaction.create(db.doc(`cashInflows/${inflowId}`), inflow);
+  const auditId = `audit_fin_${hash.slice(0, 24)}`;
+  transaction.create(db.doc(`auditLogs/${auditId}`), buildServerAudit({ id: auditId,
+    eventType: AUDIT_EVENT_TYPES.FINANCE_CASH_INFLOW_CREATED, actor: { ...caller, name: actorName },
+    schoolId: caller.schoolId, schoolYearId, resourceType: "cashInflow", resourceId: inflowId,
+    metadata: { category, amount, currency, entryDate } }));
+  return { cashInflow: inflow };
+}
+
 async function mutateExisting(transaction, db, caller, body, hash, now, kind, operation) {
   const isPayment = kind === "payment";
   assertAllowedKeys(body, operation === "delete" ? DELETE_KEYS : isPayment ? PAYMENT_UPDATE_KEYS : EXPENSE_UPDATE_KEYS);
@@ -568,17 +610,18 @@ export async function executeFinancialOperation({ db, caller: rawCaller, body, n
     let result;
     if (action === "create-payment") result = await createPayment(transaction, db, caller, body, hash, now);
     else if (action === "create-expense") result = await createExpense(transaction, db, caller, body, hash, now);
+    else if (action === "create-cash-inflow") result = await createCashInflow(transaction, db, caller, body, hash, now);
     else if (action === "update-payment") result = await mutateExisting(transaction, db, caller, body, hash, now, "payment", "update");
     else if (action === "update-expense") result = await mutateExisting(transaction, db, caller, body, hash, now, "expense", "update");
     else if (action === "delete-payment") result = await mutateExisting(transaction, db, caller, body, hash, now, "payment", "delete");
     else if (action === "delete-expense") result = await mutateExisting(transaction, db, caller, body, hash, now, "expense", "delete");
     else throw new FinancialApiError(400, "invalid-argument", "Action financière invalide.");
-    transaction.create(idempotencyRef, { schoolId: caller.schoolId, schoolYearId: body.schoolYearId ?? result.payment?.schoolYearId ?? result.expense?.schoolYearId ?? null, userId: caller.uid, action, fingerprint, result, createdAt: now });
+    transaction.create(idempotencyRef, { schoolId: caller.schoolId, schoolYearId: body.schoolYearId ?? result.payment?.schoolYearId ?? result.expense?.schoolYearId ?? result.cashInflow?.schoolYearId ?? null, userId: caller.uid, action, fingerprint, result, createdAt: now });
     return { ...result, idempotent: false };
   });
 }
 
 export function authorizeFinancialCaller(rawCaller, action) {
-  const createAction = action === "create-payment" || action === "create-expense";
+  const createAction = action === "create-payment" || action === "create-expense" || action === "create-cash-inflow";
   return assertRole(rawCaller, action === "list-arrears" ? ["cashier", "school_admin", "parent"] : action === "list-arrears-batch" ? ["cashier", "school_admin"] : createAction ? ["cashier"] : ["school_admin"]);
 }

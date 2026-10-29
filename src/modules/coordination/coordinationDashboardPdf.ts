@@ -54,6 +54,7 @@ export async function exportCoordinationDashboardPdf({
           { label: "Recouvrement", value: `${group.recoveryRate}%` },
           { label: "Attendu", value: amount(group.expected, group.currency) },
           { label: "Frais de l'année encaissés", value: amount(group.paid, group.currency) },
+          { label: "Autres entrées de caisse", value: amount(group.cashInflows, group.currency) },
           ...arrearsCollections.filter((item) => item.currency === group.currency).map((item) => ({ label: "Arriérés encaissés (hors recouvrement)", value: amount(item.amount, item.currency) })),
           { label: "Dépenses", value: amount(group.expenses, group.currency) },
           { label: "Reste", value: amount(group.remaining, group.currency) },

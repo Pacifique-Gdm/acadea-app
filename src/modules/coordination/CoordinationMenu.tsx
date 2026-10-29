@@ -92,10 +92,11 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, prin
   const payments = model.payments.filter((item) => inActiveSchoolYear(item) && (!from || item.paidAt >= from) && (!to || item.paidAt <= to));
   const arrearsPayments = model.payments.filter((item) => item.collectionSchoolYearId && activeYearBySchool.get(item.schoolId) === item.collectionSchoolYearId && (!from || item.paidAt >= from) && (!to || item.paidAt <= to));
   const expenses = resolvedExpenses.filter((item) => inActiveSchoolYear(item) && (!from || item.spentAt >= from) && (!to || item.spentAt <= to));
+  const cashInflows = (model.cashInflows ?? []).filter((item) => inActiveSchoolYear(item) && (!from || item.entryDate >= from) && (!to || item.entryDate <= to));
   const personnel = model.personnel.filter((item) => { const inactive = item.active === false || item.status === "inactive"; return isInternalPersonnel(item) && typeof item.schoolId === "string" && schoolIds.includes(item.schoolId) && (!personnelRole || item.role === personnelRole) && (!personnelStatus || (personnelStatus === "inactive" ? inactive : !inactive)) && `${item.name} ${item.email ?? ""} ${item.role}`.toLowerCase().includes(search.toLowerCase()); });
   const logs = model.auditLogs.filter((item) => { const authorized = user.role === "coordination_admin" ? (item.coordinationId === coordination.id || Boolean(item.schoolId && allSchoolIds.includes(item.schoolId))) : (item.subCoordinationId === user.subCoordinationId || Boolean(item.schoolId && allSchoolIds.includes(item.schoolId))); return authorized && !isSuperAdministratorAuditLog(item) && (!drawerSchoolId || item.schoolId === drawerSchoolId) && `${item.action} ${item.actorName ?? ""} ${item.details ?? ""}`.toLowerCase().includes(search.toLowerCase()); }).sort((a, b) => activityTimestamp(b.createdAt) - activityTimestamp(a.createdAt));
   const visibleYearRows = yearRows.filter((row) => schoolIds.includes(row.schoolId));
-  const financialGroups = groupCoordinationFinancialsByCurrency({ schools: scopedSchools, students, feeTypes: fees, payments, expenses });
+  const financialGroups = groupCoordinationFinancialsByCurrency({ schools: scopedSchools, students, feeTypes: fees, payments, expenses, cashInflows });
   const hasUnknownFinancialCurrency = financialGroups.some((group) => (group.unknownCurrencyCount ?? 0) > 0)
     || arrearsPayments.some((payment) => payment.currency !== "CDF" && payment.currency !== "USD");
   const financialExportBlocked = !financialVerificationReady || hasUnknownFinancialCurrency;
@@ -122,6 +123,17 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, prin
       : kind === "personnel" ? [pdfSection("Personnels", pdfTable([{ header: "École", render: (item) => schoolName(item.schoolId) }, { header: "Nom", render: (item) => item.name }, { header: "Fonction", render: (item) => roleLabel[item.role] ?? item.role }, { header: "Statut", render: (item) => item.active === false || item.status === "inactive" ? "Inactif" : "Actif" }], personnel, "Aucun personnel."))]
       : kind === "years" ? [pdfSection("Années scolaires", pdfTable([{ header: "École", render: (item) => item.schoolName }, { header: "Année active", render: (item) => item.activeYear?.name ?? "Aucune" }, { header: "Alignement", render: (item) => !referenceYear || item.activeYear?.name === referenceYear ? "Alignée" : "Année scolaire non alignée" }], visibleYearRows, "Aucune école."))]
       : [pdfSection("Historique", pdfTable([{ header: "Date", render: (item) => formatActivityDateTime(item.createdAt) }, { header: "École", render: (item) => schoolName(item.schoolId) }, { header: "Action", render: (item) => escapePdfHtml(item.action) }, { header: "Acteur", render: (item) => item.actorName ?? "—" }], logs, "Aucune activité."))];
+    if (kind === "finance") sections.push(...financialGroups.map((group) => pdfSection(
+      `Autres entrées de caisse — ${group.currency} · Total ${formatCurrencyMoney(group.cashInflows, group.currency)}`,
+      pdfTable([
+        { header: "École", render: (item) => schoolName(item.schoolId) },
+        { header: "Date", render: (item) => item.entryDate },
+        { header: "Nature", render: (item) => item.category },
+        { header: "Provenance", render: (item) => item.source },
+        { header: "Description", render: (item) => item.description },
+        { header: "Montant", render: (item) => formatCurrencyMoney(item.amount, group.currency) },
+      ], group.cashInflowRows, "Aucune autre entrée de caisse."),
+    )));
     await renderAcadPdfPreview({ filename: `coordination-${kind}-${drawerSchoolId || "toutes"}.pdf`, title: `Coordination — ${kind}`, school: coordinationPdfInstitution(coordination, contextSchool), subtitle: context, sections });
   }
 
@@ -181,6 +193,9 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, prin
       {financialGroups.map((group) => <section key={group.currency} className="grid gap-3 rounded border border-slate-200 p-3">
         <h3 className="font-bold text-ink">Synthèse financière — {group.currency}</h3>
         <ReadTable headers={["Indicateur", "Montant"]} rows={[["Attendu", formatCurrencyMoney(group.expected, group.currency)], ["Encaissé frais de l'année", formatCurrencyMoney(group.paid, group.currency)], ["Dépenses", formatCurrencyMoney(group.expenses, group.currency)], ["Reste", formatCurrencyMoney(group.remaining, group.currency)], ["Recouvrement", `${group.recoveryRate}%`]]} />
+        <p className="text-sm font-semibold">Autres entrées de caisse : {formatCurrencyMoney(group.cashInflows, group.currency)}</p>
+        <h4 className="font-semibold text-ink">Autres entrées de caisse — {group.currency}</h4>
+        <ReadTable headers={["École", "Date", "Nature", "Provenance", "Description", "Montant"]} rows={group.cashInflowRows.map((item) => [schoolName(item.schoolId), item.entryDate, item.category, item.source, item.description, formatCurrencyMoney(item.amount, group.currency)])} />
         <h4 className="font-semibold text-ink">Paiements — {group.currency}</h4>
         <ReadTable headers={["École", "Date", "Montant"]} rows={group.payments.map((item) => [schoolName(item.schoolId), item.paidAt, formatCurrencyMoney(item.amount, group.currency)])} />
         <h4 className="font-semibold text-ink">Dépenses — {group.currency}</h4>

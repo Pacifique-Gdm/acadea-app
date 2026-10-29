@@ -75,7 +75,7 @@ function seedSchool(db: FakeDb, schoolId: string, uid: string) {
 describe("SEC-004 school deletion", () => {
   it("centralise toutes les ressources sensibles connues", () => {
     const inventory = schoolDeletionInventory();
-    expect(inventory.collections).toEqual(expect.arrayContaining(["correspondences", "secretaryReports", "secretaryCounters", "studentMedicalRecords", "aiUsageLogs", "attendanceSettings", "financialCounters", "financialIdempotency"]));
+    expect(inventory.collections).toEqual(expect.arrayContaining(["correspondences", "secretaryReports", "secretaryCounters", "studentMedicalRecords", "aiUsageLogs", "attendanceSettings", "financialCounters", "financialIdempotency", "cashInflows"]));
     expect(inventory.storagePrefixes).toEqual(["valves/{schoolId}/", "schools/{schoolId}/"]);
   });
 

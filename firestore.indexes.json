@@ -1,6 +1,16 @@
 {
   "indexes": [
     {
+      "collectionGroup": "cashInflows",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "schoolId", "order": "ASCENDING" },
+        { "fieldPath": "schoolYearId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "pedagogicalActivityLogs",
       "queryScope": "COLLECTION",
       "fields": [

@@ -74,10 +74,10 @@ export default async function handler(req, res) {
       return sendJson(res, 200, requestedAction === "create-personnel-payment" ? await createPersonnelPayment({ db, caller, body })
         : requestedAction === "update-personnel-payment" ? await updatePersonnelPayment({ db, caller, body }) : await listPayroll({ db, caller, body }));
     }
-    const action = ["create-payment", "create-expense", "update-payment", "update-expense", "delete-payment", "delete-expense", "list-arrears", "list-arrears-batch"].includes(requestedAction) ? requestedAction : "invalid";
+    const action = ["create-payment", "create-expense", "create-cash-inflow", "update-payment", "update-expense", "delete-payment", "delete-expense", "list-arrears", "list-arrears-batch"].includes(requestedAction) ? requestedAction : "invalid";
     const authorizedCaller = authorizeFinancialCaller(caller, action);
     await requireActiveApiUser(db, authorizedCaller);
-    const rate = action === "create-payment" || action === "create-expense" ? API_RATE_LIMITS.FINANCE_CREATE : API_RATE_LIMITS.FINANCE_MUTATE;
+    const rate = action === "create-payment" || action === "create-expense" || action === "create-cash-inflow" ? API_RATE_LIMITS.FINANCE_CREATE : API_RATE_LIMITS.FINANCE_MUTATE;
     await enforceApiRateLimit({ db, actorId: authorizedCaller.uid, schoolId: authorizedCaller.schoolId, action: `finance.${action}`, idempotencyKey: typeof body.clientRequestId === "string" ? body.clientRequestId : undefined, ...rate });
     const result = action === "list-arrears-batch" ? await listStudentArrearsBatch({ db, caller: authorizedCaller, body }) : action === "list-arrears"
       ? await listStudentArrears({ db, caller: authorizedCaller, body })

@@ -1,11 +1,11 @@
 import { collection, getDocs, limit, orderBy, query, startAfter, where } from "@firebase/firestore";
 import type { DocumentSnapshot, Firestore } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
-import type { Expense, Payment } from "../types";
+import type { CashInflow, Expense, Payment } from "../types";
 
 export const CONTROL_HISTORY_PAGE_SIZE = 50;
-export type ControlHistoryKind = "payments" | "expenses";
-export type ControlHistoryItem = Payment | Expense;
+export type ControlHistoryKind = "payments" | "expenses" | "cashInflows";
+export type ControlHistoryItem = Payment | Expense | CashInflow;
 
 export type ControlHistoryPage<T extends ControlHistoryItem> = {
   items: T[];

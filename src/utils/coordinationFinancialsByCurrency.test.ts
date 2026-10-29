@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Expense, FeeType, Payment, School, Student } from "../types";
+import type { CashInflow, Expense, FeeType, Payment, School, Student } from "../types";
 import { groupCoordinationFinancialsByCurrency } from "./coordinationFinancialsByCurrency";
 
 const school = (id: string, currency?: "USD" | "CDF"): School => ({
@@ -18,8 +18,20 @@ const student = (id: string, schoolId: string): Student => ({ id, schoolId, scho
 const fee = (id: string, schoolId: string, amount: number): FeeType => ({ id, schoolId, schoolYearId: `year-${schoolId}`, name: "Minerval", amount });
 const payment = (id: string, schoolId: string, studentId: string, feeTypeId: string, amount: number, currency: "USD" | "CDF" = schoolId === "school-b" || schoolId === "school-c" ? "CDF" : "USD"): Payment => ({ id, schoolId, schoolYearId: `year-${schoolId}`, studentId, feeTypeId, amount, currency, paidAt: "2026-10-10", cashierName: "Caissier" });
 const expense = (id: string, schoolId: string, amount: number, currency: "USD" | "CDF" = schoolId === "school-b" || schoolId === "school-c" ? "CDF" : "USD"): Expense => ({ id, schoolId, schoolYearId: `year-${schoolId}`, amount, currency, category: "Bureau", description: "", spentAt: "2026-10-10", createdAt: "2026-10-10", cashierName: "Caissier" });
+const inflow = (id: string, schoolId: string, amount: number, currency: "USD" | "CDF"): CashInflow => ({ id, schoolId, schoolYearId: `year-${schoolId}`, amount, currency,
+  category: "Don", entryDate: "2026-10-10", source: "Test", paymentMethod: "Espèces", description: "Recette de test", createdAt: "2026-10-10",
+  validatedAt: "2026-10-10", createdBy: "cashier", cashierName: "Caissier", provenance: "financial-api", clientRequestIdHash: "hash" });
 
 describe("agrégation financière canonique par devise", () => {
+  it("sépare les autres entrées de caisse des paiements scolaires et des devises", () => {
+    const groups = groupCoordinationFinancialsByCurrency({ schools: [school("school-a", "USD"), school("school-b", "CDF")],
+      students: [student("student-a", "school-a")], feeTypes: [fee("fee-a", "school-a", 100)],
+      payments: [payment("payment-a", "school-a", "student-a", "fee-a", 60)], expenses: [],
+      cashInflows: [inflow("inflow-a", "school-a", 25.25, "USD"), inflow("inflow-b", "school-b", 2000, "CDF")],
+    });
+    expect(groups.find((group) => group.currency === "USD")).toMatchObject({ paid: 60, remaining: 40, cashInflows: 25.25 });
+    expect(groups.find((group) => group.currency === "CDF")).toMatchObject({ cashInflows: 2000, paid: 0 });
+  });
   it("conserve le comportement mono-devise USD, y compris le fallback historique explicite", () => {
     const groups = groupCoordinationFinancialsByCurrency({
       schools: [school("school-a")],
