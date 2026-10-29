@@ -78,9 +78,9 @@ async function prepare(db, auth) {
   const put = async (collection, id, data) => db.doc(`${collection}/${id}`).create({ id, schoolId: school, fixtureId: tag, ...data });
   await put("schools", school, { name: `École fictive ${tag}`, status: "active", activeSchoolYearId: year, currency: "CDF" });
   await put("schoolYears", year, { name: "2027-2028", status: "active", currency: "CDF" });
-  await put("classes", classId, { schoolYearId: year, name: "Classe E2E", section: "secondary", active: true });
+  await put("classes", classId, { schoolYearId: year, name: "1ère Primaire", section: "Primaire", active: true });
   await put("subjects", subject, { schoolYearId: year, name: "Mathématiques E2E", active: true });
-  await put("students", student, { schoolYearId: year, classId, className: "Classe E2E", section: "secondary", status: "ACTIVE",
+  await put("students", student, { schoolYearId: year, classId, className: "1ère Primaire", section: "Primaire", status: "ACTIVE",
     nom: "Élève", postnom: "Fictif", prenom: "Alice", matricule: `${tag}-001`, sexe: "F", birthDate: "2015-04-05" });
   await put("feeTypes", fee, { schoolYearId: year, name: "Frais E2E", amount: 1000, currency: "CDF", active: true });
   await put("feeTypes", feeConflict, { schoolYearId: year, name: "Frais conflit E2E", amount: 500, currency: "CDF", active: true });
@@ -89,7 +89,7 @@ async function prepare(db, auth) {
     await auth.setCustomUserClaims(user.uid, { role: user.role, schoolId: school });
     await put("users", user.uid, { role: user.role, name: `Compte fictif ${user.role}`, email: user.email,
       activeSchoolYearId: year, status: "active", active: true,
-      ...(user.role === "discipline_director" ? { sectionIds: ["secondary"] } : {}) });
+      ...(user.role === "discipline_director" ? { sectionIds: ["Primaire"] } : {}) });
   }
   await put("teachers", teacher, { schoolYearId: year, userId: fixture.users.teacher.uid, fullName: "Professeur E2E", status: "active", active: true });
   await put("pedagogicalAssignments", assignment, { schoolYearId: year, teacherId: teacher, classId, subjectId: subject, active: true });

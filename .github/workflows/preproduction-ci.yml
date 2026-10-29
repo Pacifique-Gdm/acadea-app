@@ -55,6 +55,12 @@ jobs:
           npx --yes firebase-tools@15.25.0 emulators:exec
           --project demo-acadea --config firebase.emulators.recipe.json --only auth,firestore,storage
           "bash scripts/offlineEmulatorRecipe.sh"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: offline-emulator-errors
+          path: playwright-results/**/error-context.md
+          retention-days: 7
 
   application-and-functions:
     name: application-and-functions

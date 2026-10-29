@@ -106,7 +106,7 @@ async function draft(page: Page) {
   await expect(page.getByText("Brouillon local enregistré.", { exact: false })).toBeVisible();
 }
 
-test.describe.serial(local ? "recette hors connexion authentifiée sur émulateurs" : "recette hors connexion authentifiée sur acadea-staging", () => {
+test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "recette hors connexion authentifiée sur acadea-staging", () => {
   test.setTimeout(180_000);
 
   test("réouverture, cote, accusé serveur et idempotence", async ({ browser }) => {
