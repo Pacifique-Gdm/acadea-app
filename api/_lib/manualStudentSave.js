@@ -102,9 +102,9 @@ export async function saveManualStudent({ db, caller, body }) {
     }
     const existing = existingSnapshot.exists ? existingSnapshot.data() : undefined;
     if (offlineOperationId && existing) reject("Cette inscription a déjà été modifiée ou son identifiant est occupé.", 409, "offline-conflict");
+    if (existing && (existing.schoolId !== schoolId || existing.schoolYearId !== schoolYearId || existing.deletedAt || existing.status !== "ACTIVE")) reject("Élève hors périmètre ou archivé.", 403, "permission-denied");
     if (intent === "create" && existing) reject("Cet identifiant d'élève est déjà utilisé. Actualisez la liste avant de réessayer.", 409, "already-exists");
     if (intent === "update" && !existing) reject("L'élève à modifier n'existe plus.", 404, "not-found");
-    if (existing && (existing.schoolId !== schoolId || existing.schoolYearId !== schoolYearId || existing.deletedAt || existing.status !== "ACTIVE")) reject("Élève hors périmètre ou archivé.", 403, "permission-denied");
     if (!existing && (!id.startsWith("student-") || input.status !== "ACTIVE")) reject("Création d’élève invalide.");
     const next = existing ? { ...existing, ...fields } : {
       id, schoolId, schoolYearId, annee_scolaire_id: schoolYearId,

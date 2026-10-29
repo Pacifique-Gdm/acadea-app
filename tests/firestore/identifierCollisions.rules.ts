@@ -21,7 +21,7 @@ let app: App;
 let db: Firestore;
 let environment: RulesTestEnvironment;
 async function invoke(handler: typeof createSchool, body: Record<string, unknown>) {
-  const response = { statusCode: 0, setHeader: () => {}, end: (_value: string) => {} };
+  const response = { statusCode: 0, setHeader: () => {}, end: () => {} };
   await handler({ method: "POST", headers: { authorization: "Bearer fictitious-emulator-token" }, body }, response);
   return response.statusCode;
 }
