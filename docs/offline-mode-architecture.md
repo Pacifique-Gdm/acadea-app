@@ -14,7 +14,7 @@ Les règles Firestore, Storage et index du candidat sont identiques à ceux de c
 
 ### Première activation et procédure de livraison
 
-Après autorisation, intégrer #34 à sa base, puis livrer l'ensemble de la base à main selon les protections GitHub ; fusionner #34 seule ne livre pas les fonctionnalités dans main. Vérifier les CI du SHA final. Préparer un déploiement Vercel non promu contenant simultanément frontend, API compatibles et Service Worker. Vérifier le SHA, la configuration Firebase, `offline-assets.json` et ses assets avant promotion. Ne pas réinitialiser les bases IndexedDB ni les clés de chiffrement.
+Après autorisation, recibler la PR #34 existante vers `main` : sa tête contient déjà toute la branche de base et le main intégré. Vérifier le diff complet et les contrôles obligatoires avant sa fusion ; ne pas fusionner simplement #34 dans sa base en croyant avoir livré main. Ce reciblage évite une nouvelle PR et préserve la branche de base. Vérifier les CI du SHA final. Préparer un déploiement Vercel non promu contenant simultanément frontend, API compatibles et Service Worker. Vérifier le SHA, la configuration Firebase, `offline-assets.json` et ses assets avant promotion. Ne pas réinitialiser les bases IndexedDB ni les clés de chiffrement.
 
 La première connexion et le préchargement doivent réussir en ligne sur l'origine finale ; le cache d'un Preview ne prépare pas l'origine Production. L'utilisateur doit conserver le même navigateur/profil. Une expiration de session bloque les opérations, sans supprimer la file. L'effacement volontaire des données du navigateur, l'éviction par l'OS, le mode privé et un appareil compromis restent des risques ; les tests Chromium ne démontrent pas le comportement de tous les appareils mobiles.
 
