@@ -35,6 +35,7 @@ test("PR31 : renommage réel, sessions ouvertes, références, tableaux et PDF",
     const platform = await f.session(browser, "super_admin", handlers); sessions.push(platform.context);
     await platform.page.getByRole("button", { name: /Écoles/, exact: false }).first().click();
     await platform.page.getByText("École recette locale", { exact: true }).first().click();
+    await platform.page.getByRole("button", { name: "Informations", exact: true }).click();
     await platform.page.getByRole("button", { name: /Sciences.*Renommer/ }).click();
     const dialog = platform.page.getByRole("dialog", { name: "Renommer une option scolaire" });
     await dialog.getByLabel("Nouveau nom").fill("Technologies");

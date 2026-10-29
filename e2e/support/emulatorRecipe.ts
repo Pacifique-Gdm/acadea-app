@@ -69,7 +69,7 @@ export function fixture() {
     if (!response.ok) throw new Error("Connexion émulateur refusée : " + response.status);
     return "Bearer " + (await response.json()).idToken;
   }
-  async function session(browser: Browser, role: string, handlers: Record<string, Handler>) {
+  async function session(browser: Browser, role: string, handlers: Record<string, Handler>, transport = { dropNextWriteResponse: false }) {
     const context = await browser.newContext({ baseURL: origin, viewport: { width: 1440, height: 1000 }, serviceWorkers: "block" });
     await context.route("**/*", async route => {
       const request = route.request(), url = new URL(request.url());
@@ -78,6 +78,10 @@ export function fixture() {
       const handler = handlers[url.pathname];
       if (!handler) return route.fulfill({ status: 404, body: "{}" });
       const result = await invoke(handler, request.headers().authorization || "", request.postData() ? request.postDataJSON() : {}, request.method());
+      if (transport.dropNextWriteResponse && result.status === 200 && request.postDataJSON()?.action === "create-cash-inflow") {
+        transport.dropNextWriteResponse = false;
+        return route.abort("connectionreset");
+      }
       return route.fulfill({ status: result.status, contentType: "application/json", body: JSON.stringify(result.payload) });
     });
     const page = await context.newPage();
