@@ -53,7 +53,7 @@ jobs:
       - name: Auth, Firestore et Storage locaux — vrais écrans et handlers
         run: >-
           npx --yes firebase-tools@15.25.0 emulators:exec
-          --project demo-acadea --only auth,firestore,storage
+          --project demo-acadea --config firebase.emulators.recipe.json --only auth,firestore,storage
           "bash scripts/offlineEmulatorRecipe.sh"
 
   application-and-functions:
