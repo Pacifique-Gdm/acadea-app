@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { MoneyInput } from "../ui";
 import { createCashInflowTransaction } from "../../services/financialTransactions";
 import { toMoneyMinor } from "../../utils/money";
+import { cashInflowCategoryLabel } from "../../utils/cashInflowCategory";
 import type { CashInflow, SchoolYear } from "../../types";
 
 const categories: CashInflow["category"][] = ["Subvention", "Don", "Frais de fonctionnement", "Autres"];
@@ -52,7 +53,7 @@ export function OtherCashInflowForm({ year, onRecorded }: { year: SchoolYear; on
     <p className="text-sm text-slate-600">Cette recette n'est confirmée qu'après validation par le serveur Acadéa.</p>
     <label className="grid gap-1 text-sm font-semibold">Nature de l'entrée
       <select aria-label="Nature de l'entrée" className="input w-full" value={category} onChange={(event) => setCategory(event.target.value as CashInflow["category"])} disabled={saving}>
-        {categories.map((value) => <option key={value} value={value}>{value}</option>)}
+        {categories.map((value) => <option key={value} value={value}>{cashInflowCategoryLabel(value)}</option>)}
       </select>
     </label>
     <label className="grid gap-1 text-sm font-semibold">Montant

@@ -10,6 +10,7 @@ import { buildCoordinationDashboardStats, type DashboardCurrency } from "../../u
 import { formatCurrencyMoney, resolveSchoolCurrency } from "../../utils/currency";
 import { sumMoney } from "../../utils/money";
 import { expenseCategoryLabel } from "../../utils/expenseCategory";
+import { cashInflowCategoryLabel } from "../../utils/cashInflowCategory";
 import { formatCount } from "../../utils/numberFormat";
 import { getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
 import {
@@ -114,7 +115,7 @@ export function CoordinationDashboard({
   const transactions = [
     ...visiblePayments.map((payment) => ({ id: `${payment.schoolId}:${payment.id}`, type: "Paiement", label: `${schoolById.get(payment.schoolId)?.name ?? payment.schoolId} · ${payment.cashierName}`, amount: payment.amount, currency: payment.currency, date: payment.paidAt, occurredAt: payment.createdAt ?? payment.paidAt })),
     ...visibleExpenses.map((expense) => ({ id: `${expense.schoolId}:${expense.id}`, type: "Dépense", label: `${schoolById.get(expense.schoolId)?.name ?? expense.schoolId} · ${expenseCategoryLabel(expense.category)}`, amount: -expense.amount, currency: expense.currency, date: expense.spentAt, occurredAt: expense.createdAt ?? expense.spentAt })),
-    ...visibleCashInflows.map((inflow) => ({ id: `${inflow.schoolId}:${inflow.id}`, type: "Autre entrée de caisse", label: `${schoolById.get(inflow.schoolId)?.name ?? inflow.schoolId} · ${inflow.category}`, amount: inflow.amount, currency: inflow.currency, date: inflow.entryDate, occurredAt: inflow.createdAt })),
+    ...visibleCashInflows.map((inflow) => ({ id: `${inflow.schoolId}:${inflow.id}`, type: "Autre entrée de caisse", label: `${schoolById.get(inflow.schoolId)?.name ?? inflow.schoolId} · ${cashInflowCategoryLabel(inflow.category)}`, amount: inflow.amount, currency: inflow.currency, date: inflow.entryDate, occurredAt: inflow.createdAt })),
   ].sort((first, second) => second.occurredAt.localeCompare(first.occurredAt));
 
   const chartGroups = stats.financialGroups.map((financial) => {

@@ -14,6 +14,7 @@ import { PaidAmountDropdown } from "../../components/PaidAmountDropdown";
 import { arrearsFilterActive, arrearsFilterForCriterion, matchesArrearsFilter, type ArrearsTotals } from "../../utils/arrearsFilter";
 import { createAuditLog } from "../../utils/audit";
 import { expenseCategoryLabel } from "../../utils/expenseCategory";
+import { cashInflowCategoryLabel } from "../../utils/cashInflowCategory";
 import { buildSchoolYearDataIndexes, sumPaymentsForStudentFee } from "../../utils/dataIndexes";
 import { resolveExpenseCashierName, resolvePaymentCashierName } from "../../utils/finance";
 import { escapePdfHtml, generateExpensePdf, generateReceiptPdf, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
@@ -1722,7 +1723,7 @@ export function ControlModule({
             {cashInflowHistory.isInitialLoading && <p>Chargement des entrées de caisse…</p>}
             {cashInflowHistory.loadError && <p role="alert" className="text-red-700">{cashInflowHistory.loadError}</p>}
             {cashInflowHistory.items.map((inflow) => <article key={inflow.id} className="rounded border border-slate-200 p-3 text-sm">
-              <p className="font-semibold text-ink">Autres entrées de caisse · {inflow.category}</p>
+              <p className="font-semibold text-ink">Autres entrées de caisse · {cashInflowCategoryLabel(inflow.category)}</p>
               <p>{formatCurrencyMoney(inflow.amount, inflow.currency)} · {inflow.entryDate} · {inflow.source}</p>
               <p className="break-words">Description : {inflow.description}</p>
               <p>Mode de paiement : {inflow.paymentMethod}{inflow.reference ? ` · Référence : ${inflow.reference}` : ""}</p>
