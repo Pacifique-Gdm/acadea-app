@@ -10,7 +10,8 @@ import { formatChartDate, getTransactionPeriodDates, isInDashboardDateRange } fr
 import { exportDashboardReportPdf } from "../../utils/dashboardPdf";
 import { money } from "../../utils/pdf";
 import { expenseCategoryLabel } from "../../utils/expenseCategory";
-import { formatCurrencyMoney, resolveSchoolYearCurrency } from "../../utils/currency";
+import { formatCurrencyMoney, resolveSchoolYearCurrency, type SchoolCurrency } from "../../utils/currency";
+import { formatTransactionAxisTick, transactionChartAxis } from "../../utils/transactionChartAxis";
 import { hasCurrencyOutside } from "../../utils/operationCurrency";
 import { sumMoney } from "../../utils/money";
 import { useExpenseCurrencyResolution } from "../../hooks/useResolvedExpenseCurrencies";
@@ -53,7 +54,6 @@ export type TransactionChartItem = {
   agentName?: string;
 };
 export type TransactionChartRow = { date: string; label: string; payments: number; expenses: number; transactions: TransactionChartItem[] };
-const transactionAxisStep = 1500;
 const feeShareColors = ["#2563eb", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", "#06b6d4", "#84cc16", "#f97316"];
 
 export function FinancialFeeShareChart({ rows, formatAmount = money, totalAriaLabel }: { rows: DashboardFeeShare[]; formatAmount?: (value: number) => string; totalAriaLabel?: string }) {
@@ -106,33 +106,26 @@ function formatChartTooltipDate(dateKey: string) {
   return new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" }).format(new Date(`${dateKey}T12:00:00`));
 }
 
-function formatAxisAmount(value: number) {
-  return new Intl.NumberFormat("fr-FR").format(value);
-}
-
-function getChartMaxAmount(rows: TransactionChartRow[]) {
-  const maxAmount = Math.max(1, ...rows.map((row) => Math.max(row.payments, row.expenses)));
-  return Math.max(transactionAxisStep, Math.ceil(maxAmount / transactionAxisStep) * transactionAxisStep);
-}
-
 export function TransactionComboChart({
   rows,
   period,
   onPeriodChange,
+  currency,
   formatAmount = money,
 }: {
   rows: TransactionChartRow[];
   period: TransactionPeriod;
   onPeriodChange: (period: TransactionPeriod) => void;
+  currency: SchoolCurrency;
   formatAmount?: (value: number) => string;
 }) {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const chartWidth = Math.max(560, rows.length * 96);
   const chartHeight = 180;
-  const margin = { top: 16, right: 24, bottom: 34, left: 54 };
+  const margin = { top: 16, right: 24, bottom: 34, left: currency === "CDF" ? 116 : 54 };
   const plotWidth = chartWidth - margin.left - margin.right;
   const plotHeight = chartHeight - margin.top - margin.bottom;
-  const chartMax = getChartMaxAmount(rows);
+  const { max: chartMax, ticks } = transactionChartAxis(rows, currency);
   const baseline = margin.top + plotHeight;
   const groupWidth = rows.length > 0 ? plotWidth / rows.length : plotWidth;
   const barWidth = Math.min(18, groupWidth * 0.22);
@@ -147,7 +140,6 @@ export function TransactionComboChart({
     return { x: centerX + barWidth / 2 + barGap / 2, y: yFor(row.expenses) };
   });
   const pathFromPoints = (points: { x: number; y: number }[]) => points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
-  const ticks = Array.from({ length: chartMax / transactionAxisStep + 1 }, (_, index) => index * transactionAxisStep);
   const selectedRow = selectedDate ? rows.find((row) => row.date === selectedDate) : null;
   const selectedTransactions = selectedRow ? [...selectedRow.transactions].sort((a, b) => (b.occurredAt ?? b.date).localeCompare(a.occurredAt ?? a.date)) : [];
 
@@ -199,7 +191,7 @@ export function TransactionComboChart({
               <g key={tick}>
                 <line x1={margin.left} x2={chartWidth - margin.right} y1={y} y2={y} stroke="#e2e8f0" strokeWidth="1" />
                 <text x={margin.left - 10} y={y + 4} textAnchor="end" className="fill-slate-500 text-[11px] font-semibold">
-                  {formatAxisAmount(tick)}
+                  {formatTransactionAxisTick(tick, currency)}
                 </text>
               </g>
             );
@@ -720,7 +712,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
           {transactions.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">{"Aucune transaction pour cette p\u00e9riode."}</p>}
         </div>
         {!financialExportBlocked && <div className="mt-4 border-t border-slate-100 pt-4">
-          <TransactionComboChart rows={transactionChartRows} period={transactionPeriod} onPeriodChange={setTransactionPeriod} formatAmount={(value) => formatCurrencyMoney(value, currentCurrency)} />
+          <TransactionComboChart rows={transactionChartRows} period={transactionPeriod} onPeriodChange={setTransactionPeriod} currency={currentCurrency} formatAmount={(value) => formatCurrencyMoney(value, currentCurrency)} />
         </div>}
       </FormPanel>
 
