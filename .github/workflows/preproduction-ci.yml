@@ -9,6 +9,56 @@ permissions:
   contents: read
 
 jobs:
+  authenticated-emulator-e2e:
+    name: authenticated-emulator-e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      ACADEA_E2E_LOCAL_EMULATORS: 'YES'
+      ACADEA_E2E_BASE_URL: http://127.0.0.1:4173
+      VITE_LOCAL_EMULATORS: 'true'
+      VITE_FIREBASE_PROJECT_ID: demo-acadea
+      FIREBASE_AUTH_EMULATOR_HOST: 127.0.0.1:9099
+      FIRESTORE_EMULATOR_HOST: 127.0.0.1:8080
+      FIREBASE_STORAGE_EMULATOR_HOST: 127.0.0.1:9199
+      VERCEL_GIT_COMMIT_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Bundle exclusivement destiné aux émulateurs
+        run: npx vite build --mode test
+      - name: Servir le bundle local
+        run: |
+          npx vite preview --mode test --host 127.0.0.1 --port 4173 > /tmp/acadea-preview.log 2>&1 &
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:4173/version.json > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - name: Recette des vrais composants et handlers sur émulateurs
+        run: >-
+          npx --yes firebase-tools@15.25.0 emulators:exec
+          --project demo-acadea --only auth,firestore,storage
+          "npx playwright test e2e/options-students-emulator.spec.ts --workers=1 --retries=0"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: options-students-emulator-proofs
+          path: |
+            test-results/**/*.pdf
+            test-results/**/*.png
+            test-results/**/error-context.md
+          retention-days: 7
+
   application-and-functions:
     name: application-and-functions
     runs-on: ubuntu-latest
