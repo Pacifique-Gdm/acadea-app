@@ -122,8 +122,8 @@ export async function provisionCashier(input: ProvisionCashierInput) {
   return provisionSchoolUser({ role: "cashier", ...input });
 }
 
-export async function saveManualStudent(student: Student) {
-  const payload = await provisionSchoolAccount<{ student?: Student }>({ action: "save-manual-student", student });
+export async function saveManualStudent(student: Student, intent: "create" | "update" = "create") {
+  const payload = await provisionSchoolAccount<{ student?: Student }>({ action: "save-manual-student", student, intent });
   if (!payload.student || payload.student.id !== student.id) throw new Error("Réponse d’enregistrement de l’élève incomplète.");
   return payload.student;
 }

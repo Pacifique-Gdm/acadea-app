@@ -13,7 +13,7 @@ import { CORRESPONDENCE_DELIVERY_MODES } from "./correspondenceOptions";
 
 const today = () => new Date().toISOString().slice(0, 10);
 export const DEFAULT_OUTGOING_ISSUE_PLACE = "Kinshasa / RDC";
-const uid = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+const uid = () => globalThis.crypto.randomUUID();
 const correspondenceTypes = [
   ["administrative_letter", "Lettre administrative"], ["official_request", "Demande officielle"], ["administrative_response", "Réponse administrative"], ["transmission_letter", "Lettre de transmission"], ["summons", "Convocation"], ["notification", "Notification"], ["formal_notice", "Mise en demeure"], ["information_letter", "Lettre d’information"], ["other", "Autre courrier sortant"],
 ] as const;

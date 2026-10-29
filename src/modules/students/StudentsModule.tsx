@@ -84,6 +84,7 @@ export function StudentsModule({
   const [saveMessage, setSaveMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const saveInProgressRef = useRef(false);
+  const creationIds = useRef(new Map<string, string>());
   const [showForm, setShowForm] = useState(false);
   const [structuredClasses, setStructuredClasses] = useState<SchoolClassRecord[]>([]);
   const [structuredClassesLoaded, setStructuredClassesLoaded] = useState(false);
@@ -249,7 +250,12 @@ export function StudentsModule({
         ...form,
         prenom: form.prenom?.trim() ?? "",
         address: form.address?.trim() ?? "",
-        id: exists ? form.id : uid("student"),
+        id: exists ? form.id : (() => {
+          // Keep the same ID on an uncertain network outcome; never silently create a second pupil.
+          let id = creationIds.current.get(form.id);
+          if (!id) { id = uid("student"); creationIds.current.set(form.id, id); }
+          return id;
+        })(),
         option: form.option ? canonicalSchoolOption(form.option) : undefined,
         matricule: exists ? form.matricule : "",
         section: getClassSection(form.className),
@@ -265,7 +271,7 @@ export function StudentsModule({
       if (!student.classId) delete student.classId;
       if (!student.subClassId) delete student.subClassId;
       const previousParentId = studentRecords.find((item) => item.id === student.id)?.parentId;
-      const persistedStudent = await saveManualStudent(studentForPersistence(studentBeforeParentMutation(student, previousParentId)));
+      const persistedStudent = await saveManualStudent(studentForPersistence(studentBeforeParentMutation(student, previousParentId)), exists ? "update" : "create");
       const nextStudents = exists ? studentRecords.map((item) => (item.id === student.id ? persistedStudent : item)) : [...studentRecords, persistedStudent];
 
       if (pendingParentForStudent) {

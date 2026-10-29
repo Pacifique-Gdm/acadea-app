@@ -290,7 +290,8 @@ export function ValvesDrawerContent({
         return;
       }
       try {
-        const valvesPersisted = await persistFirestorePatch({ valves: [publication] }, { throwOnError: true });
+        const valvesPersisted = await persistFirestorePatch({ valves: [publication] }, { throwOnError: true,
+          createIds: { valves: existingPublication ? [] : [publication.id] } });
         if (!valvesPersisted) {
           throw new Error("Firestore indisponible.");
         }
@@ -348,7 +349,7 @@ export function ValvesDrawerContent({
         const sideEffectsPersisted = await persistFirestorePatch({
           notifications: valveNotifications,
           auditLogs: [auditLog],
-        }, { throwOnError: true });
+        }, { throwOnError: true, createIds: { notifications: valveNotifications.map((item) => item.id), auditLogs: [auditLog.id] } });
         if (!sideEffectsPersisted) {
           throw new Error("Firestore indisponible.");
         }

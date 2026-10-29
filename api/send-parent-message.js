@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomId as uid } from "./_lib/randomId.js";
 import { FieldValue } from "firebase-admin/firestore";
 import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
@@ -27,9 +27,6 @@ function sendJson(res, statusCode, body) {
   res.end(JSON.stringify(body));
 }
 
-function uid(prefix) {
-  return `${prefix}-${randomUUID().slice(0, 8)}`;
-}
 
 function normalizeText(value) {
   return String(value ?? "").trim();
@@ -174,6 +171,7 @@ async function currentQuota({ db, caller, schoolYearId, now = new Date() }) {
 }
 
 function publicError(error) {
+  if (error?.code === 6 || error?.code === "already-exists") return { statusCode: 409, body: { error: "already-exists", message: "Identifiant de message déjà utilisé. Aucun message existant n'a été remplacé." } };
   if (error?.statusCode === 400 && !error?.code) return { statusCode: 400, body: { error: "invalid-argument", message: "Corps JSON invalide." } };
   if (error?.code === "unauthenticated") return { statusCode: 401, body: { error: "unauthenticated", message: error.message } };
   if (error?.code === "quota-exceeded") return { statusCode: 429, body: { error: "quota-exceeded", message: "Vous avez atteint la limite de 3 messages pour 12 heures." } };
@@ -309,8 +307,8 @@ export default async function handler(req, res) {
         createdAt, read: false,
       }));
       transaction.set(db.doc(`conversations/${conversationId}`), conversation, { merge: true });
-      transaction.set(db.doc(`messages/${messageId}`), message);
-      notifications.forEach((notification) => transaction.set(db.doc(`notifications/${notification.id}`), notification));
+      transaction.create(db.doc(`messages/${messageId}`), message);
+      notifications.forEach((notification) => transaction.create(db.doc(`notifications/${notification.id}`), notification));
       transaction.set(counterRef, {
         schoolId: caller.schoolId,
         schoolYearId,

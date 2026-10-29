@@ -612,7 +612,9 @@ export function MenuModule({
     const feeAuditDetails = `Admin ${user.name} a ${feeActionVerb} le type de frais ${feeName}.`;
     const feeAuditLog = createAuditLog(user, school.id, selectedYear.id, feeAction, feeAuditDetails, createId);
     try {
-      await persistFirestorePatch({ feeTypes: feesToSave, auditLogs: [feeAuditLog] }, { throwOnError: true });
+      await persistFirestorePatch({ feeTypes: feesToSave, auditLogs: [feeAuditLog] }, {
+        throwOnError: true, createIds: { feeTypes: feesToSave.filter((fee) => fee.id !== editingFeeId).map((fee) => fee.id), auditLogs: [feeAuditLog.id] },
+      });
       updateData({
         feeTypes: editingFeeId
           ? [...data.feeTypes.map((item) => (item.id === editingFeeId ? feesToSave[0] : item)), ...feesToSave.slice(1)]

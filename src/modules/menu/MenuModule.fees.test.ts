@@ -41,7 +41,9 @@ describe("Types de frais", () => {
   it("exige la confirmation exacte avant une création et attend la persistance", () => {
     expect(source).toContain('confirmation !== "AJOUTER CE FRAIS"');
     expect(source).toContain('feeAddConfirmation !== "AJOUTER CE FRAIS"');
-    expect(source).toContain("await persistFirestorePatch({ feeTypes: feesToSave, auditLogs: [feeAuditLog] }, { throwOnError: true })");
+    expect(source).toContain("await persistFirestorePatch({ feeTypes: feesToSave, auditLogs: [feeAuditLog] }, {");
+    expect(source).toContain("throwOnError: true, createIds:");
+    expect(source).toContain("feeTypes: feesToSave.filter((fee) => fee.id !== editingFeeId).map((fee) => fee.id)");
     expect(source.indexOf("await persistFirestorePatch")).toBeLessThan(source.indexOf("updateData({", source.indexOf("await persistFirestorePatch")));
   });
 

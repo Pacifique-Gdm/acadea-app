@@ -14,6 +14,7 @@ const year = "year-a";
 const actor = (uid: string, role: string, schoolId = school) => ({ uid, role, schoolId });
 const student = (id: string, changes: Record<string, unknown> = {}) => ({ id, schoolId: school, schoolYearId: year, matricule: id, nom: "KABAMBA", postnom: "ILUNGA", prenom: "JEAN", sexe: "M", birthDate: "2014-01-01", address: "", phone: "", className: "1ère Primaire", status: "ACTIVE", ...changes });
 const save = (value: Record<string, unknown>, uid = "admin-a", role = "school_admin", schoolId = school) => saveManualStudent({ db, caller: actor(uid, role, schoolId), body: { student: value } });
+const edit = (value: Record<string, unknown>) => saveManualStudent({ db, caller: actor("admin-a", "school_admin"), body: { student: value, intent: "update" } });
 
 beforeAll(async () => {
   if (!process.env.FIRESTORE_EMULATOR_HOST?.match(/^(127\.0\.0\.1|localhost):\d+$/)) throw new Error("Ce test exige exclusivement un Emulator Firestore local.");
@@ -51,6 +52,27 @@ describe("identité élève médiée par le serveur", () => {
 });
 
 describe("enregistrement manuel atomique", () => {
+  it("refuse une création avec un ID occupé sans altérer la fiche", async () => {
+    const before = (await db.doc("students/existing").get()).data();
+    await expect(save(student("existing", { nom: "COLLISION", address: "Écrasement" })))
+      .rejects.toMatchObject({ code: "already-exists", statusCode: 409 });
+    expect((await db.doc("students/existing").get()).data()).toEqual(before);
+  });
+  it("deux créations concurrentes avec le même ID ne deviennent jamais une édition", async () => {
+    const attempts = await Promise.allSettled([
+      save(student("student-collision", { nom: "ALPHA" })),
+      save(student("student-collision", { nom: "BETA" })),
+    ]);
+    expect(attempts.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(attempts.filter((result) => result.status === "rejected")).toHaveLength(1);
+    const winner = attempts.find((result) => result.status === "fulfilled");
+    if (winner?.status !== "fulfilled") throw new Error("Missing successful create");
+    expect((await db.doc("students/student-collision").get()).data()).toEqual(winner.value.student);
+  });
+  it("refuse une modification d'une fiche absente", async () => {
+    await expect(edit(student("student-absent"))).rejects.toMatchObject({ code: "not-found" });
+    expect((await db.doc("students/student-absent").get()).exists).toBe(false);
+  });
   it("alloue deux matricules distincts à deux identités créées simultanément par Admin et Secrétaire", async () => {
     const attempts = await Promise.all([
       save(student("student-concurrent-admin", { nom: "MUTOMBO", prenom: "ALICE", matricule: "ACD-26-0002" })),
@@ -65,7 +87,7 @@ describe("enregistrement manuel atomique", () => {
     const created = await save(student("student-after-history", { prenom: "PAUL", matricule: "ACD-26-0001" }));
     expect(created.student.matricule).toBe("ACD-26-0100");
     expect(created.student.searchPrefixes).toContain("0100");
-    const edited = await save(student("student-after-history", { prenom: "PAUL", address: "Nouvelle adresse", matricule: "FAKE" }));
+    const edited = await edit(student("student-after-history", { prenom: "PAUL", address: "Nouvelle adresse", matricule: "FAKE" }));
     expect(edited.student.matricule).toBe("ACD-26-0100");
     expect((await db.doc("studentMatriculeCounters/school-a__year-a").get()).data()?.lastAllocated).toBe(100);
   }, 60_000);
@@ -118,10 +140,10 @@ describe("enregistrement manuel atomique", () => {
   });
 
   it("permet l’édition de soi-même et refuse un changement vers l’identité d’un autre élève", async () => {
-    const same = await save(student("existing", { address: "Nouvelle adresse" }));
+    const same = await edit(student("existing", { address: "Nouvelle adresse" }));
     expect(same.student.address).toBe("Nouvelle adresse");
     await save(student("student-paul", { prenom: "PAUL" }));
-    await expect(save(student("existing", { prenom: "Paul" }))).rejects.toMatchObject({ code: "duplicate-student" });
+    await expect(edit(student("existing", { prenom: "Paul" }))).rejects.toMatchObject({ code: "duplicate-student" });
     expect((await db.doc("students/existing").get()).data()?.prenom).toBe("JEAN");
   });
 

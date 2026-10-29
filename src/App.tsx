@@ -1,6 +1,7 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ARCHIVED_TEACHER_LOGIN_MARKER, getCurrentFirebaseIdToken, getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateCoordinator, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff, validateSecretary, validateStudyDirector, validateTeacher } from "./services/auth";
 import { auth } from "./firebase";
+import { randomId } from "./utils/randomId";
 import { clearOfflineAccess, offlineAccessEligible, readOfflineAccess, readOfflineAccessForCurrentDevice, rememberOfflineAccess, type OfflineAccess } from "./services/offlineAccess";
 import { OfflineAccessScreen } from "./components/auth/OfflineAccessScreen";
 import { prepareOfflineContext } from "./services/offlineContext";
@@ -123,9 +124,7 @@ const emptyAppData: AppData = {
   biometricTerminals: [],
 };
 
-function uid(prefix: string) {
-  return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
-}
+const uid = randomId;
 
 function nextSchoolYearDefaults(year: SchoolYear) {
   const startYear = Number(year.startsAt.slice(0, 4));
@@ -760,7 +759,16 @@ export default function App() {
     setData((prev) => {
       const updated = { ...prev, ...next };
       if (options.persist !== false) {
-        void persistFirestorePatch(next).catch((error) => {
+        const createIds: Partial<Record<keyof AppData, string[]>> = {};
+        for (const key of Object.keys(next) as Array<keyof AppData>) {
+          const items = next[key];
+          const previous = prev[key];
+          if (Array.isArray(items) && Array.isArray(previous)) {
+            const known = new Set((previous as Array<{ id: string }>).map((item) => item.id));
+            createIds[key] = (items as Array<{ id: string }>).filter((item) => !known.has(item.id)).map((item) => item.id);
+          }
+        }
+        void persistFirestorePatch(next, { createIds, throwOnError: true }).catch((error) => {
           console.warn("Sauvegarde Firestore indisponible.", error);
         });
       }

@@ -67,6 +67,9 @@ export async function saveManualStudent({ db, caller, body }) {
   if (!["school_admin", "secretary"].includes(caller?.role) || caller.schoolId !== schoolId || !caller.uid) reject("Enregistrement de l’élève non autorisé.", 403, "permission-denied");
   const fields = validatedFields(input);
   const offlineOperationId = body?.offlineOperationId;
+  // Missing intent is creation-only: an older client must never turn a collision into an edit.
+  const intent = body?.intent ?? "create";
+  if (!["create", "update"].includes(intent) || (offlineOperationId && intent !== "create")) reject("Intention d'enregistrement invalide.");
   if (offlineOperationId !== undefined && (typeof offlineOperationId !== "string"
     || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(offlineOperationId)
     || id !== `student-${offlineOperationId}` || input.status !== "ACTIVE")) {
@@ -99,6 +102,8 @@ export async function saveManualStudent({ db, caller, body }) {
     }
     const existing = existingSnapshot.exists ? existingSnapshot.data() : undefined;
     if (offlineOperationId && existing) reject("Cette inscription a déjà été modifiée ou son identifiant est occupé.", 409, "offline-conflict");
+    if (intent === "create" && existing) reject("Cet identifiant d'élève est déjà utilisé. Actualisez la liste avant de réessayer.", 409, "already-exists");
+    if (intent === "update" && !existing) reject("L'élève à modifier n'existe plus.", 404, "not-found");
     if (existing && (existing.schoolId !== schoolId || existing.schoolYearId !== schoolYearId || existing.deletedAt || existing.status !== "ACTIVE")) reject("Élève hors périmètre ou archivé.", 403, "permission-denied");
     if (!existing && (!id.startsWith("student-") || input.status !== "ACTIVE")) reject("Création d’élève invalide.");
     const next = existing ? { ...existing, ...fields } : {

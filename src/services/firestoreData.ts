@@ -1,5 +1,6 @@
 import { collection, doc, getDoc, getDocs, query, setDoc, where } from "firebase/firestore";
 import { db, firebaseReady } from "../firebase";
+import { conditionalFirestoreWrite } from "./conditionalFirestoreWrite";
 import { loadSuperAdminInitialData } from "./superAdminData";
 import type { AppData, AppUser } from "../types";
 import { resolveDefaultSchoolYear } from "../utils/schoolYears";
@@ -11,6 +12,7 @@ type CollectionKey = keyof AppData;
 type PersistableItem = { id: string };
 type PersistFirestorePatchOptions = {
   throwOnError?: boolean;
+  createIds?: Partial<Record<CollectionKey, readonly string[]>>;
 };
 export type FirestoreYearData = Partial<Pick<AppData, "students" | "parents" | "feeTypes" | "payments" | "expenses" | "cashInflows" | "messages" | "valves" | "attendance" | "attendanceSettings" | "auditLogs">>;
 export type DisciplineYearData = Pick<AppData, "students" | "parents" | "messages" | "notifications" | "disciplineSanctions" | "attendance" | "attendanceSettings" | "valves">;
@@ -517,7 +519,9 @@ export async function persistFirestorePatch(patch: Partial<AppData>, options: Pe
         if (!collectionName) return;
         await Promise.all(
           (items as PersistableItem[]).map((item) =>
-            setDoc(doc(db, collectionName, item.id), item).catch((error) => {
+            (options.createIds?.[key]?.includes(item.id)
+              ? conditionalFirestoreWrite(collectionName, item.id, item, false)
+              : setDoc(doc(db, collectionName, item.id), item)).catch((error) => {
               if (options.throwOnError) {
                 throw error;
               }

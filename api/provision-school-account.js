@@ -1,4 +1,5 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
+import { randomId as uid } from "./_lib/randomId.js";
 import { firebaseAdminPublicError, initAdmin } from "./_lib/firebaseAdmin.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./_lib/serverAudit.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
@@ -75,9 +76,6 @@ function sendJson(res, statusCode, body) {
   res.end(JSON.stringify(body));
 }
 
-function uid(prefix) {
-  return `${prefix}-${randomUUID().slice(0, 8)}`;
-}
 
 function normalizeText(value) {
   return String(value ?? "").trim();
@@ -255,7 +253,7 @@ async function deleteParentAccount({ auth, db, caller, body }) {
   });
 
   const auditRef = db.collection("auditLogs").doc(uid("audit"));
-  await auditRef.set(buildServerAudit({ eventType: AUDIT_EVENT_TYPES.USER_DELETED, actor: caller, schoolId, resourceType: "parent", resourceId: parentId, metadata: { authStatus } }));
+  await auditRef.create(buildServerAudit({ eventType: AUDIT_EVENT_TYPES.USER_DELETED, actor: caller, schoolId, resourceType: "parent", resourceId: parentId, metadata: { authStatus } }));
 
   const status = authStatus === "failed" ? "partial" : "complete";
   return {
@@ -346,7 +344,7 @@ export async function unlinkParentFromStudent({ db, caller, body }) {
       const currentStudentIds = Array.isArray(userProfile.studentIds) ? userProfile.studentIds : parent.studentIds;
       transaction.update(snapshot.ref, { studentIds: currentStudentIds.filter((linkedStudentId) => linkedStudentId !== studentId), updatedAt: now });
     });
-    transaction.set(auditRef, buildServerAudit({
+    transaction.create(auditRef, buildServerAudit({
       id: auditRef.id,
       eventType: AUDIT_EVENT_TYPES.PARENT_UNLINKED_FROM_STUDENT,
       actor: caller,
@@ -464,7 +462,7 @@ export async function linkParentToStudent({ db, caller, body }) {
       const previousIds = Array.isArray(snapshot.data()?.studentIds) ? snapshot.data().studentIds : [];
       transaction.update(snapshot.ref, { studentIds: previousIds.filter((id) => id !== studentId), updatedAt: now });
     });
-    transaction.set(auditRef, buildServerAudit({
+    transaction.create(auditRef, buildServerAudit({
       id: auditRef.id,
       eventType: AUDIT_EVENT_TYPES.PARENT_LINKED_TO_STUDENT,
       actor: caller,
@@ -535,7 +533,7 @@ export async function removeSchoolAdmin({ auth, db, caller, body }) {
   const auditRef = db.collection("auditLogs").doc(uid("audit"));
   const batch = db.batch();
   batch.update(adminRef, { status: "inactive", removedAt, removedBy: caller.uid });
-  batch.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.USER_DISABLED, actor: caller, schoolId, resourceType: "user", resourceId: adminId, metadata: { role: "school_admin" } }));
+  batch.create(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.USER_DISABLED, actor: caller, schoolId, resourceType: "user", resourceId: adminId, metadata: { role: "school_admin" } }));
   try {
     await batch.commit();
   } catch (error) {
@@ -587,7 +585,7 @@ export async function createServicePersonnel({ db, caller, body }) {
     transaction.create(personnelRef, personnel);
     transaction.create(lockRef, { schoolId, personnelId: personnelRef.id, createdAt: now });
     transaction.set(counterRef, { lastNumber: next, updatedAt: now, updatedBy: caller.uid }, { merge: true });
-    transaction.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.USER_CREATED, actor: caller, schoolId, resourceType: "personnelProfile", resourceId: personnelRef.id, metadata: { kind: "service", jobTitle } }));
+    transaction.create(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.USER_CREATED, actor: caller, schoolId, resourceType: "personnelProfile", resourceId: personnelRef.id, metadata: { kind: "service", jobTitle } }));
     return { personnel };
   });
 }
@@ -609,7 +607,7 @@ async function manageServicePersonnel({ db, caller, body, action, schoolId, pers
       const current = await transaction.get(personnelRef);
       if (!current.exists || current.data()?.kind !== "service" || current.data()?.schoolId !== schoolId) throw Object.assign(new Error("Fiche de personnel introuvable."), { statusCode: 404, code: "not-found" });
       transaction.update(personnelRef, patch);
-      transaction.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: archive ? AUDIT_EVENT_TYPES.USER_DISABLED : AUDIT_EVENT_TYPES.USER_REACTIVATED, actor: caller, schoolId, resourceType: "personnelProfile", resourceId: personnelId, metadata: { kind: "service" } }));
+      transaction.create(auditRef, buildServerAudit({ id: auditRef.id, eventType: archive ? AUDIT_EVENT_TYPES.USER_DISABLED : AUDIT_EVENT_TYPES.USER_REACTIVATED, actor: caller, schoolId, resourceType: "personnelProfile", resourceId: personnelId, metadata: { kind: "service" } }));
     });
     return { personnel: { ...previous, ...patch }, authStatus: "not-applicable" };
   }
@@ -640,7 +638,7 @@ async function manageServicePersonnel({ db, caller, body, action, schoolId, pers
       transaction.delete(oldLockRef);
     }
     transaction.update(personnelRef, patch);
-    transaction.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.USER_UPDATED, actor: caller, schoolId, resourceType: "personnelProfile", resourceId: personnelId, metadata: { kind: "service" } }));
+    transaction.create(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.USER_UPDATED, actor: caller, schoolId, resourceType: "personnelProfile", resourceId: personnelId, metadata: { kind: "service" } }));
   });
   return { personnel: { ...previous, ...patch } };
 }
@@ -703,7 +701,7 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
         const administrativeProfile = { id: personnelId, schoolId, personnelId, matricule, ...profile, createdAt: existing?.createdAt ?? now, createdBy: existing?.createdBy ?? caller.uid, updatedAt: now, updatedBy: caller.uid };
         transaction.update(targetRef, { name, phone, email, section: sectionIds[0] ?? null, sectionIds, updatedAt: now, updatedBy: caller.uid });
         transaction.set(profileRef, administrativeProfile);
-        transaction.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.USER_UPDATED, actor: caller, schoolId, resourceType: "user", resourceId: personnelId, metadata: { role: target.role } }));
+        transaction.create(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.USER_UPDATED, actor: caller, schoolId, resourceType: "user", resourceId: personnelId, metadata: { role: target.role } }));
         return administrativeProfile;
       });
     } catch (error) {
@@ -794,7 +792,7 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
     teacherContextRefs.forEach(({ ref, type }) => batch.update(ref, { active: false, resetOnReactivation: true, resetAt: now, resetBy: caller.uid, updatedAt: now, ...(type === "timetableEntries" ? {} : { updatedBy: caller.uid }) }));
     assignmentLockRefs.forEach((ref) => batch.delete(ref));
   }
-  batch.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: archive ? AUDIT_EVENT_TYPES.USER_DISABLED : AUDIT_EVENT_TYPES.USER_REACTIVATED, actor: caller, schoolId, resourceType: "user", resourceId: personnelId, metadata: { role: target.role } }));
+  batch.create(auditRef, buildServerAudit({ id: auditRef.id, eventType: archive ? AUDIT_EVENT_TYPES.USER_DISABLED : AUDIT_EVENT_TYPES.USER_REACTIVATED, actor: caller, schoolId, resourceType: "user", resourceId: personnelId, metadata: { role: target.role } }));
   try { await batch.commit(); } catch (error) {
     if (authChanged) await auth.updateUser(personnelId, { disabled: authTarget.disabled }).catch(() => undefined);
     if (!archive && claimsNeedRestore) await auth.setCustomUserClaims(personnelId, previousClaims).catch(() => undefined);
@@ -973,8 +971,8 @@ export default async function handler(req, res) {
         const teacherRef = db.doc(`teachers/${teacherId}`);
         const auditRef = db.collection("auditLogs").doc(uid("audit"));
         const batch = db.batch();
-        batch.set(userRef, schoolUser);
-        batch.set(teacherRef, {
+        batch.create(userRef, schoolUser);
+        batch.create(teacherRef, {
           id: teacherId,
           userId: authUser.uid,
           schoolId,
@@ -985,13 +983,13 @@ export default async function handler(req, res) {
           updatedAt: now,
           createdBy: caller.uid,
         });
-        batch.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.USER_CREATED, actor: caller, schoolId, schoolYearId, resourceType: "user", resourceId: authUser.uid, metadata: { role } }));
+        batch.create(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.USER_CREATED, actor: caller, schoolId, schoolYearId, resourceType: "user", resourceId: authUser.uid, metadata: { role } }));
         await batch.commit();
         createdRefs.push(userRef.path, teacherRef.path);
       } else {
-        await userRef.set(schoolUser);
+        await userRef.create(schoolUser);
         createdRefs.push(userRef.path);
-        await db.collection("auditLogs").doc(uid("audit")).set(buildServerAudit({ eventType: AUDIT_EVENT_TYPES.USER_CREATED, actor: caller, schoolId, schoolYearId, resourceType: "user", resourceId: authUser.uid, metadata: { role } }));
+        await db.collection("auditLogs").doc(uid("audit")).create(buildServerAudit({ eventType: AUDIT_EVENT_TYPES.USER_CREATED, actor: caller, schoolId, schoolYearId, resourceType: "user", resourceId: authUser.uid, metadata: { role } }));
       }
       await auth.setCustomUserClaims(authUser.uid, { role, schoolId });
 
@@ -1031,10 +1029,10 @@ export default async function handler(req, res) {
     const parentRef = db.doc(`parents/${parentId}`);
     const userRef = db.doc(`users/${authUser.uid}`);
     const batch = db.batch();
-    batch.set(parentRef, parent);
-    batch.set(userRef, parentUser);
+    batch.create(parentRef, parent);
+    batch.create(userRef, parentUser);
     const auditRef = db.collection("auditLogs").doc(uid("audit"));
-    batch.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.USER_CREATED, actor: caller, schoolId, schoolYearId, resourceType: "parent", resourceId: parentId, metadata: { role: "parent" } }));
+    batch.create(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.USER_CREATED, actor: caller, schoolId, schoolYearId, resourceType: "parent", resourceId: parentId, metadata: { role: "parent" } }));
     parentStudentSnapshots.forEach((snapshot) => batch.update(snapshot.ref, { parentId }));
     await batch.commit();
     createdRefs.push(parentRef.path, userRef.path);
@@ -1046,6 +1044,10 @@ export default async function handler(req, res) {
     }
 
     if (sendRateLimitError(res, error)) return;
+    if (error?.code === 6 || error?.code === "already-exists") {
+      sendJson(res, 409, { error: "Cet identifiant est déjà utilisé. Aucune ressource existante n'a été remplacée.", code: "already-exists" });
+      return;
+    }
     if (error?.statusCode === 400 && !error?.code) return sendJson(res, 400, { error: "Corps JSON invalide.", code: "invalid-argument" });
     const statusCode = typeof error?.statusCode === "number"
       ? error.statusCode
