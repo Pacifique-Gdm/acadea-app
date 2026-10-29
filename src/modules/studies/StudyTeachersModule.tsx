@@ -13,6 +13,7 @@ import { TeacherAvailabilityDrawer, TeacherAvailabilitySummary } from "./Teacher
 import { classesWithEnrolledStudents } from "../../services/schoolSubclasses";
 import { primaryTeacherSections, studyClassSection, subjectAppliesToClass } from "./teacherAssignmentScope";
 import { schoolSectionLabels } from "../../utils/schoolConfig";
+import { schoolOptionDisplayName } from "../../utils/schoolOptions";
 import { sectionsAvailableToUser, userSectionIds } from "../../utils/userSections";
 import { replaceStudySubjectFeedbackTimer } from "./studySubjectFeedback";
 import { resolveAttendanceSchoolDays } from "../../utils/attendance";
@@ -252,7 +253,8 @@ export function StudyTeachersModule({ user, school, year, data }: { user: AppUse
       <MultiSelectDropdown label="Classes" inline options={assignmentClasses.map((item) => ({ value: item.id, label: item.name }))} values={classIds} onChange={updateAssignmentClasses} placeholder="Aucune classe sélectionnée" />
       {classIds.map((classId) => {
         const schoolClass = assignmentClasses.find((item) => item.id === classId);
-        const options = assignmentOptionChoices(schoolClass ? [schoolClass, ...data.sourceClasses] : data.sourceClasses, classId, school.schoolOptions);
+        const options = assignmentOptionChoices(schoolClass ? [schoolClass, ...data.sourceClasses] : data.sourceClasses, classId, school.schoolOptions)
+          .map((item) => ({ ...item, label: schoolOptionDisplayName(school, item.label) }));
         const scope = classScopes[classId];
         if (!schoolClass) return null;
         if (!options.length) return <p key={classId} className="rounded border border-amber-200 bg-amber-50 p-3 text-sm">Aucune option scolaire liée à {schoolClass.name}.{scope?.targetOptionIds.length ? " L’ancienne option reste enregistrée ; elle ne sera pas remplacée automatiquement." : ""}</p>;
