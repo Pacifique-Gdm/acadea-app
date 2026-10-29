@@ -4,6 +4,8 @@ import type { PdfTableColumn } from "./pdf";
 import { formatStudentClassName, getClassSection } from "./studentClasses";
 import { formatOperationalStudentClassName, resolveStudentSubclass } from "../services/schoolSubclasses";
 import { compareStudentsAlphabetically } from "./studentSearch.js";
+import { displayStudentBirthDate } from "./studentBirthDate";
+import { schoolOptionDisplayName } from "./schoolOptions";
 
 export function formatStudentPdfClassName(student: Student, classes: readonly SchoolClassRecord[] = []) {
   return getClassSection(student.className) === "Secondaire"
@@ -63,11 +65,11 @@ export async function exportStudentsPdf(school: School, year: SchoolYear, studen
     { header: "Matricule", render: (student) => student.matricule || "-" },
     { header: "Nom complet", render: (student) => [student.nom, student.postnom, student.prenom].filter(Boolean).join(" ").trim() || "-" },
     { header: "Sexe", render: (student) => student.sexe || "-", align: "center" },
-    { header: "Classe", render: (student) => formatStudentPdfClassName(student, classes) || "-" },
-    { header: "Téléphone", render: (student) => student.phone || "-" },
+    { header: "Classe", render: (student) => formatStudentPdfClassName({ ...student, option: student.option ? schoolOptionDisplayName(school, student.option) : student.option }, classes) || "-" },
+    { header: "Date de naissance", render: (student) => displayStudentBirthDate(student.birthDate) },
   ];
   if (showOptionColumn) {
-    studentColumns.splice(4, 0, { header: "Option", render: (student) => formatStudentPdfOptionName(student, classes) });
+    studentColumns.splice(4, 0, { header: "Option", render: (student) => formatStudentPdfOptionName({ ...student, option: student.option ? schoolOptionDisplayName(school, student.option) : student.option }, classes) });
   }
   await renderAcadPdfPreview({
     filename: `eleves-${year.name}.pdf`,

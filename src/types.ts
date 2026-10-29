@@ -66,6 +66,8 @@ export interface School {
   timeZone?: string;
   educationLevels?: string[];
   schoolOptions?: string[];
+  /** Libellés visibles indexés par la valeur historique stable de l'option. */
+  schoolOptionDisplayNames?: Record<string, string>;
   schoolType?: "Maternelle" | "Primaire" | "CTEB" | "Secondaire" | "Primaire uniquement" | "CTEB uniquement" | "Secondaire uniquement" | "CTEB et Secondaire" | "Mixte";
   createdAt?: string;
   createdBy?: string;
@@ -402,6 +404,26 @@ export interface Expense {
     personnelPaymentId?: string;
 }
 
+export interface CashInflow {
+  id: string;
+  schoolId: string;
+  schoolYearId: string;
+  category: "Subvention" | "Don" | "Frais de fonctionnement" | "Autres";
+  amount: number;
+  currency: "USD" | "CDF";
+  entryDate: string;
+  source: string;
+  paymentMethod: string;
+  description: string;
+  reference?: string;
+  createdAt: string;
+  validatedAt: string;
+  createdBy: string;
+  cashierName: string;
+  provenance: "financial-api";
+  clientRequestIdHash: string;
+}
+
 export interface Message {
   id: string;
   schoolId: string;
@@ -632,6 +654,7 @@ export interface AppData {
   feeTypes: FeeType[];
   payments: Payment[];
   expenses: Expense[];
+  cashInflows?: CashInflow[];
   messages: Message[];
   notifications: AppNotification[];
   auditLogs: AuditLog[];

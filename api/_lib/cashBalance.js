@@ -42,6 +42,7 @@ function cashQueries(db, { schoolId, schoolYearId }) {
     db.collection("payments").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId),
     db.collection("payments").where("schoolId", "==", schoolId).where("collectionSchoolYearId", "==", schoolYearId),
     db.collection("expenses").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId),
+    db.collection("cashInflows").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId),
   ];
 }
 
@@ -61,6 +62,11 @@ export async function readCashBalance({ db, reader, schoolId, schoolYearId, curr
       const annualHere = data.schoolYearId === schoolYearId && !data.collectionSchoolYearId;
       if (data.schoolId !== schoolId || !collectedHere && !annualHere) continue;
       if (await resolveRecordedCurrency(data, { db, reader, documentId: document.id, collection: "payments" }) === currency) receivedCents += moneyCents(data.amount);
+    }
+    for (const document of snapshots[3].docs) {
+      const data = document.data();
+      if (data.schoolId !== schoolId || data.schoolYearId !== schoolYearId) continue;
+      if (await resolveRecordedCurrency(data, { db, reader, documentId: document.id, collection: "cashInflows" }) === currency) receivedCents += moneyCents(data.amount);
     }
     let spentCents = 0;
     for (const document of snapshots[2].docs) {

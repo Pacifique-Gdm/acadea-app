@@ -1,4 +1,4 @@
-import type { AppUser, Expense, FeeType, Payment, School, SchoolSection, SchoolYear, Student } from "../types";
+import type { AppUser, CashInflow, Expense, FeeType, Payment, School, SchoolSection, SchoolYear, Student } from "../types";
 import { buildDashboardClassRows } from "./dashboardClassStats";
 import { groupCoordinationFinancialsByCurrency } from "./coordinationFinancialsByCurrency";
 import type { CoordinationCurrencyFinancialGroup } from "./coordinationFinancialsByCurrency";
@@ -12,6 +12,7 @@ export type CoordinationDashboardModel = {
   feeTypes: FeeType[];
   payments: Payment[];
   expenses: Expense[];
+  cashInflows?: CashInflow[];
   personnel: AppUser[];
   schoolYears: SchoolYear[];
 };
@@ -34,6 +35,7 @@ export type CoordinationDashboardStats = {
   feeTypes: FeeType[];
   payments: Payment[];
   expenses: Expense[];
+  cashInflows: CashInflow[];
   totalStudents: number;
   totalClasses: number;
   totalParents: number;
@@ -91,6 +93,9 @@ export function buildCoordinationDashboardStats(
   const expenses = filters.section && filters.section !== "all"
     ? []
     : uniqueBySchoolAndId(model.expenses.filter(inActiveYear)).filter((expense) => isDateInRange(expense.spentAt, filters));
+  const cashInflows = filters.section && filters.section !== "all"
+    ? []
+    : uniqueBySchoolAndId((model.cashInflows ?? []).filter(inActiveYear)).filter((inflow) => isDateInRange(inflow.entryDate, filters));
   const personnel = [...new Map(model.personnel.filter((person) => person.schoolId && schoolById.has(person.schoolId)).map((person) => [`${person.schoolId}:${person.id}`, person])).values()];
 
   const classRows = buildDashboardClassRows(students, (schoolId) => schoolById.get(schoolId)?.name ?? schoolId) as CoordinationDashboardClassRow[];
@@ -101,6 +106,7 @@ export function buildCoordinationDashboardStats(
     feeTypes,
     payments,
     expenses,
+    cashInflows,
   });
 
   return {
@@ -110,6 +116,7 @@ export function buildCoordinationDashboardStats(
     feeTypes,
     payments,
     expenses,
+    cashInflows,
     totalStudents: students.length,
     totalClasses: new Set(students.map((student) => `${student.schoolId}:${student.className}`)).size,
     totalParents: new Set(students.flatMap((student) => student.parentId ? [`${student.schoolId}:${student.parentId}`] : [])).size,

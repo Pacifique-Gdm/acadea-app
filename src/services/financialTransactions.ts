@@ -1,4 +1,4 @@
-import type { Expense, Payment } from "../types";
+import type { CashInflow, Expense, Payment } from "../types";
 import { resolveApiUrl } from "../config/apiUrl";
 import { apiErrorMessage } from "../utils/rateLimitErrors";
 import { getCurrentFirebaseIdToken } from "./auth";
@@ -7,6 +7,7 @@ import { validateArrearsTotals, type ArrearsTotals } from "../utils/arrearsFilte
 type FinancialAction =
   | "create-payment"
   | "create-expense"
+  | "create-cash-inflow"
   | "update-payment"
   | "update-expense"
   | "delete-payment"
@@ -15,6 +16,7 @@ type FinancialAction =
 type FinancialResponse = {
   payment?: Payment;
   expense?: Expense;
+  cashInflow?: CashInflow;
   deletedId?: string;
   kind?: "payment" | "expense";
   idempotent?: boolean;
@@ -103,6 +105,13 @@ export function createExpenseTransaction(input: { schoolYearId: string; amount: 
   return financialRequest({ action: "create-expense", ...input }).then((result) => {
     if (!result.expense) throw new Error("Réponse de dépense incomplète.");
     return result.expense;
+  });
+}
+
+export function createCashInflowTransaction(input: { schoolYearId: string; amount: number; category: CashInflow["category"]; description: string; source: string; paymentMethod: string; reference?: string; entryDate: string; clientRequestId: string }) {
+  return financialRequest({ action: "create-cash-inflow", ...input }).then((result) => {
+    if (!result.cashInflow) throw new Error("Réponse de recette incomplète.");
+    return result.cashInflow;
   });
 }
 

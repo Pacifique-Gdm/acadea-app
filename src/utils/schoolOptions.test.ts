@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { canonicalSchoolOption, isSchoolOptionAddConfirmation, isSchoolOptionDeleteConfirmation, mergeSchoolOptions, normalizeSchoolOptions, reconcileSchoolOptions, reconcileSchoolOptionsFromStudents, SCHOOL_OPTION_ADD_CONFIRMATION, SCHOOL_OPTION_DELETE_CONFIRMATION } from "./schoolOptions";
+import { canonicalSchoolOption, isSchoolOptionAddConfirmation, isSchoolOptionDeleteConfirmation, mergeSchoolOptions, normalizeSchoolOptions, reconcileSchoolOptions, reconcileSchoolOptionsFromStudents, schoolOptionDisplayName, SCHOOL_OPTION_ADD_CONFIRMATION, SCHOOL_OPTION_DELETE_CONFIRMATION, SCHOOL_OPTION_RENAME_CONFIRMATION } from "./schoolOptions";
 
 describe("schoolOptions", () => {
+  it("change uniquement le libellé visible et conserve la clé historique", () => {
+    expect(SCHOOL_OPTION_RENAME_CONFIRMATION).toBe("CHANGER LE NOM DE CETTE OPTION");
+    const school = { schoolOptions: ["Sciences"], schoolOptionDisplayNames: { Sciences: "Technologies" } };
+    expect(schoolOptionDisplayName(school, "Sciences")).toBe("Technologies");
+    expect(schoolOptionDisplayName(school, "Scientifique")).toBe("Technologies");
+    expect(schoolOptionDisplayName(school, "Section scientifique")).toBe("Technologies");
+    expect(school.schoolOptions).toEqual(["Sciences"]);
+  });
   it("exige la phrase d'ajout exacte sans tolérer de variante", () => {
     expect(SCHOOL_OPTION_ADD_CONFIRMATION).toBe("AJOUTER CETTE OPTION");
     expect(isSchoolOptionAddConfirmation("AJOUTER CETTE OPTION")).toBe(true);

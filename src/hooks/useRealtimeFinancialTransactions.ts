@@ -1,9 +1,9 @@
 import { useEffect } from "react";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../firebase";
-import type { Expense, Payment } from "../types";
+import type { CashInflow, Expense, Payment } from "../types";
 
-type FinancialTransaction = Payment | Expense;
+type FinancialTransaction = Payment | Expense | CashInflow;
 
 export function reconcileFinancialSnapshot<T extends FinancialTransaction>(
   current: T[],
@@ -23,6 +23,7 @@ export function useRealtimeFinancialTransactions({
   schoolYearId,
   onPayments,
   onExpenses,
+  onCashInflows,
   onError,
 }: {
   enabled: boolean;
@@ -30,11 +31,12 @@ export function useRealtimeFinancialTransactions({
   schoolYearId: string;
   onPayments: (payments: Payment[]) => void;
   onExpenses: (expenses: Expense[]) => void;
+  onCashInflows: (cashInflows: CashInflow[]) => void;
   onError?: (error: Error) => void;
 }) {
   useEffect(() => {
     if (!enabled || !db || !schoolId || !schoolYearId) return;
-    const annualQuery = (name: "payments" | "expenses") => query(
+    const annualQuery = (name: "payments" | "expenses" | "cashInflows") => query(
       collection(db, name),
       where("schoolId", "==", schoolId),
       where("schoolYearId", "==", schoolYearId),
@@ -57,10 +59,16 @@ export function useRealtimeFinancialTransactions({
       (snapshot) => onExpenses(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as Expense)),
       (error) => onError?.(error),
     );
+    const unsubscribeCashInflows = onSnapshot(
+      annualQuery("cashInflows"),
+      (snapshot) => onCashInflows(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as CashInflow)),
+      (error) => onError?.(error),
+    );
     return () => {
       unsubscribePayments();
       unsubscribeCollectedArrears();
       unsubscribeExpenses();
+      unsubscribeCashInflows();
     };
-  }, [enabled, onError, onExpenses, onPayments, schoolId, schoolYearId]);
+  }, [enabled, onCashInflows, onError, onExpenses, onPayments, schoolId, schoolYearId]);
 }
