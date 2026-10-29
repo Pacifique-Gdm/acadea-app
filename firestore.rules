@@ -479,6 +479,7 @@ service cloud.firestore {
 
     function superAdminAiAssistantUpdate() {
       return superAdmin()
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["schoolOptionDisplayNames", "schoolOptions"])
         && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["aiAssistant"])
           || (request.resource.data.aiAssistant is map
             && request.resource.data.aiAssistant.keys().hasOnly(["enabled", "monthlyLimit", "monthlyUsage", "usageMonth", "updatedAt", "updatedBy"])
@@ -829,6 +830,13 @@ service cloud.firestore {
 
     match /expenses/{expenseId} {
       allow read: if superAdmin() || coordinatorSchool(resource.data.schoolId) || role() in ["school_admin", "cashier"] && sameTenantResource();
+      allow create, update, delete: if false;
+    }
+
+    match /cashInflows/{inflowId} {
+      allow read: if superAdmin() || coordinatorSchool(resource.data.schoolId)
+        || (role() in ["school_admin", "cashier"] && sameTenantResource());
+      // Encaissements créés uniquement par la transaction Admin vérifiée.
       allow create, update, delete: if false;
     }
 

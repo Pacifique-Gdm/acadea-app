@@ -12,7 +12,7 @@ describe.each([false, true])("élèves de l'année sélectionnée — coordinati
     const active: SchoolYear = { id: "active", schoolId: school.id, name: "2027-2028", status: "active", startsAt: "2027-09-01", endsAt: "2028-07-01" };
     const archived: SchoolYear = { ...active, id: "archived", name: "2026-2027", status: "archived" };
     const data: AppData = { users: [user], schools: [school], schoolYears: [active, archived],
-      students: [active, archived].map((year) => ({ ...emptyStudent(school.id, year.id), id: `student-${year.id}`, nom: `NOM-${year.id}`, prenom: "Élève", matricule: `MAT-${year.id}` })),
+      students: [active, archived].map((year) => ({ ...emptyStudent(school.id, year.id), id: `student-${year.id}`, nom: `NOM-${year.id}`, prenom: "Élève", matricule: `MAT-${year.id}`, birthDate: "2012-09-25", phone: "0999000000" })),
       parents: [], feeTypes: [], payments: [], expenses: [], messages: [], notifications: [], auditLogs: [], valves: [], disciplineSanctions: [], attendance: [], attendanceSettings: [], biometricTerminals: [] };
     // Explicit Secretary capabilities must not override the archived-year lock.
     const capabilities = { canCreate: true, canEdit: true, canArchive: true, canReactivate: true, canCreateParent: true, canManageOptions: true };
@@ -23,6 +23,10 @@ describe.each([false, true])("élèves de l'année sélectionnée — coordinati
       expect(markup).toContain(`NOM-${year.id}`);
       expect(markup).not.toContain(`NOM-${year.id === "active" ? "archived" : "active"}`);
       expect(markup).toContain("Exporter PDF");
+      expect(markup).toContain("Date de naissance");
+      expect(markup).not.toContain('<th class="px-3 py-3">Téléphone</th>');
+      expect(markup).toContain("25/09/2012");
+      expect(markup).not.toContain("0999000000");
       if (year.status === "archived") {
         expect(markup).not.toContain("Ajouter un élève");
         expect(markup).not.toContain('title="Modifier"');

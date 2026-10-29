@@ -20,6 +20,25 @@ describe("ordre des élèves dans les PDF", () => {
 });
 
 describe("compteur de la liste PDF Élèves", () => {
+  it("exporte les dates de naissance de la sélection sans colonne téléphone", async () => {
+    const students = [{ id: "a", nom: "Alpha", postnom: "", prenom: "", className: "1ère Primaire", birthDate: "2012-09-25", phone: "0999000000" }, { id: "b", nom: "Beta", postnom: "", prenom: "", className: "1ère Primaire" }] as Student[];
+    await exportStudentsPdf({ id: "school" } as School, { id: "year", name: "2027-2028" } as SchoolYear, students, ["Classe filtrée"]);
+    const html = vi.mocked(renderAcadPdfPreview).mock.calls.at(-1)?.[0].sections.join("") ?? "";
+    expect(html).toContain("Date de naissance");
+    expect(html).toContain("25/09/2012");
+    expect(html).toContain("Non renseignée");
+    expect(html).not.toContain("Téléphone");
+    expect(html).not.toContain("0999000000");
+    expect(students[0].phone).toBe("0999000000");
+  });
+  it("affiche le nouveau nom d'option sans modifier la référence stockée sur l'élève", async () => {
+    const student = { id: "a", nom: "Alpha", postnom: "", prenom: "", className: "1ère Humanité", option: "Sciences", birthDate: "2012-09-25" } as Student;
+    const school: School = { id: "school", name: "École fictive", address: "", phone: "", email: "", activeSchoolYearId: "year", status: "active", subscriptionPlan: "Starter", subscriptionAmount: 0, schoolOptionDisplayNames: { Sciences: "Technologies" } };
+    await exportStudentsPdf(school, { id: "year", name: "2027-2028" } as SchoolYear, [student], []);
+    const html = vi.mocked(renderAcadPdfPreview).mock.calls.at(-1)?.[0].sections.join("") ?? "";
+    expect(html).toContain("Technologies");
+    expect(student.option).toBe("Sciences");
+  });
   it("affiche près de l'en-tête le nombre de lignes réellement exportées, y compris au-delà d'une page", async () => {
     const students = Array.from({ length: 58 }, (_, index) => ({
       id: `student-${index}`, nom: `Nom ${index}`, postnom: "", prenom: "", className: "1ère Primaire",

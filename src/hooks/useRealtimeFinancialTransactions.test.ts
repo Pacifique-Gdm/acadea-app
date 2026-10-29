@@ -4,16 +4,18 @@ import type { Expense, Payment } from "../types";
 import { reconcileFinancialSnapshot } from "./useRealtimeFinancialTransactions";
 
 describe("transactions financières temps réel", () => {
-  it("écoute paiements et dépenses avec le même périmètre école/année", () => {
+  it("écoute paiements, dépenses et autres recettes avec le même périmètre école/année", () => {
     const source = readFileSync(new URL("./useRealtimeFinancialTransactions.ts", import.meta.url), "utf8");
     expect(source).toContain('annualQuery("payments")');
     expect(source).toContain('annualQuery("expenses")');
+    expect(source).toContain('annualQuery("cashInflows")');
     expect(source).toContain('where("schoolId", "==", schoolId)');
     expect(source).toContain('where("schoolYearId", "==", schoolYearId)');
     expect(source).toContain('where("collectionSchoolYearId", "==", schoolYearId)');
     expect(source).toContain("unsubscribeCollectedArrears()");
     expect(source).toContain("unsubscribePayments()");
     expect(source).toContain("unsubscribeExpenses()");
+    expect(source).toContain("unsubscribeCashInflows()");
   });
 
   it("réconcilie un règlement d'arriéré par année d'encaissement sans le dupliquer", () => {

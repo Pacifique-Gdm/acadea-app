@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AdminDrawer } from "../../components/ui/AdminDrawer";
 import type { School, SchoolYear } from "../../types";
 import { formatMoneyInput, parseMoneyInput } from "../../utils/currency";
+import { schoolOptionDisplayName } from "../../utils/schoolOptions";
 import { toMoneyMinor } from "../../utils/money";
 import { userFacingError } from "../../utils/userFacingError";
 import { ConsolidatedGradesView } from "../teacher/ConsolidatedGradesView";
@@ -97,7 +98,7 @@ export function GradePublicationDrawer({ school, year, classes, onClose }: { sch
     {error && screen === "report" && !loading && !report && <button type="button" className="secondary-button mb-3 w-full justify-center" onClick={() => void showReport(classId)}>Réessayer la fiche</button>}
     {screen === "classes" && <div className="grid gap-3">
       {classes.filter((item) => item.active !== false).map((item) => <article key={item.id} className="grid gap-3 rounded border bg-white p-4">
-        <div><h3 className="font-bold">{item.name}</h3>{item.option && <p className="text-sm text-slate-600">Option : {item.option}</p>}<p className="text-xs text-slate-500">Fiche consolidée · {year.name}</p></div>
+        <div><h3 className="font-bold">{item.name}</h3>{item.option && <p className="text-sm text-slate-600">Option : {schoolOptionDisplayName(school, item.option)}</p>}<p className="text-xs text-slate-500">Fiche consolidée · {year.name}</p></div>
         <div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button min-w-0 justify-center text-center" onClick={() => void showReport(item.id)}>Voir la fiche consolidée</button><button type="button" className="primary-button min-w-0 justify-center text-center" onClick={() => openOptions(item.id)}>Option de publication</button></div>
       </article>)}
       {classes.length === 0 && <p>Aucune classe opérationnelle disponible.</p>}
