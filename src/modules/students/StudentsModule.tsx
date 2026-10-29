@@ -104,6 +104,7 @@ export function StudentsModule({
   const [terminalFeedback, setTerminalFeedback] = useState("");
   const [terminalBusy, setTerminalBusy] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const pdfExportLock = useRef(false);
   const [terminalDecisions, setTerminalDecisions] = useState<Record<string, "completed" | "reenrolled">>({});
   const defaultCanManage = user.role === "school_admin" && year.status !== "archived";
   const studentCapabilities: StudentModuleCapabilities = {
@@ -542,6 +543,8 @@ export function StudentsModule({
   }
 
   async function printStudentsPdf() {
+    if (pdfExportLock.current) return;
+    pdfExportLock.current = true;
     const filters = [
       `Recherche: ${query || "Toutes"}`,
       `Statut: ${archiveFilter === "active" ? "Actifs" : archiveFilter === "archived" ? "Archivés" : "Tous"}`,
@@ -553,10 +556,11 @@ export function StudentsModule({
     setSaveError("");
     try {
       const exportStudents = await loadAllStudentResults(studentFilters, yearData.students);
-      exportStudentsPdf(school, year, exportStudents, filters, structuredClasses);
+      await exportStudentsPdf(school, year, exportStudents, filters, structuredClasses);
     } catch (cause) {
       setSaveError(cause instanceof Error ? cause.message : "Impossible de charger les élèves à exporter.");
     } finally {
+      pdfExportLock.current = false;
       setIsExporting(false);
     }
   }

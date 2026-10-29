@@ -560,9 +560,7 @@ export function DisciplinePortal({
       );
       return;
     }
-    updateData({
-      attendanceSettings: [settings, ...data.attendanceSettings.filter((item) => !sameAttendanceSettingsScope(item))],
-    });
+    throw new Error("Enregistrement serveur indisponible. Les paramètres n’ont pas été enregistrés.");
   }
 
   async function exportDisciplinePdf(filteredSanctions: DisciplineSanction[]) {

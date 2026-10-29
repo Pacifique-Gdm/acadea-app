@@ -18,6 +18,7 @@ import { cashInflowCategoryLabel } from "../../utils/cashInflowCategory";
 import { buildSchoolYearDataIndexes, sumPaymentsForStudentFee } from "../../utils/dataIndexes";
 import { resolveExpenseCashierName, resolvePaymentCashierName } from "../../utils/finance";
 import { escapePdfHtml, generateExpensePdf, generateReceiptPdf, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
+import { useAsyncAction } from "../../hooks/useAsyncAction";
 import type { PdfTableColumn } from "../../utils/pdf";
 import { getStudentBalance } from "../../utils/stats";
 import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
@@ -85,6 +86,7 @@ export function ControlModule({
   const deferredAmountThreshold = useDeferredValue(amountThreshold);
   const [pdfExporting, setPdfExporting] = useState(false);
   const [pdfExportError, setPdfExportError] = useState("");
+  const receiptAction = useAsyncAction();
   const pdfExportingRef = useRef(false);
   const [controlClassKey, setControlClassKey] = useState("");
   const [paymentError, setPaymentError] = useState("");
@@ -1187,7 +1189,7 @@ export function ControlModule({
                   <p className="break-words text-slate-500">{formatExpenseDateTime(expense)} | {expenseCategoryLabel(expense.category)} | {formatMoney(expense.amount)}</p>
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-1">
-                  <button onClick={() => void generateExpensePdf(expense, school, year, resolveExpenseCashierName(expense, yearData.auditLogs))} className="rounded bg-slate-100 p-2" title="Télécharger le justificatif PDF" type="button">
+                  <button disabled={receiptAction.isPending(expense.id)} aria-busy={receiptAction.isPending(expense.id)} onClick={() => void receiptAction.run(expense.id, () => generateExpensePdf(expense, school, year, resolveExpenseCashierName(expense, yearData.auditLogs)))} className="rounded bg-slate-100 p-2" title="Télécharger le justificatif PDF" type="button">
                     <Download className="h-4 w-4" />
                   </button>
                   {user.role !== "cashier" && canManageExpenses && !expense.personnelPaymentId && <button onClick={() => openEditExpense(expense)} className="rounded bg-slate-100 p-2" title="Modifier" type="button">
@@ -1372,6 +1374,8 @@ export function ControlModule({
           {amountSearching && <p role="status">Recherche...</p>}
           {filterArrearsError && <p role="alert" className="text-red-700">{filterArrearsError}</p>}
           {pdfExportError && <p role="alert" className="text-red-700">{pdfExportError}</p>}
+          {receiptAction.error && <p role="alert" className="text-red-700">{receiptAction.error}</p>}
+          {receiptAction.pending.length > 0 && <p role="status">Préparation du PDF…</p>}
           <div className="grid w-full min-w-0 grid-cols-1 items-stretch gap-2 box-border sm:grid-cols-2 lg:flex lg:flex-nowrap lg:items-center lg:gap-1.5">
               <select value={controlClassKey} onChange={(event) => setControlClassKey(event.target.value)} className="h-10 min-w-0 w-full rounded border border-slate-200 bg-white px-2 text-sm lg:flex-1 lg:basis-0" aria-label="Classe">
                 <option value="" disabled hidden>Classe</option>
@@ -1509,6 +1513,8 @@ export function ControlModule({
       )}
       {user.role === "cashier" && cashierControlDrawer && (
         <AdminDrawer title={cashierDrawerTitle} onClose={() => setCashierControlDrawer(null)} closeLabel={`Fermer ${cashierDrawerTitle}`}>
+          {receiptAction.error && <p role="alert" className="text-red-700">{receiptAction.error}</p>}
+          {receiptAction.pending.length > 0 && <p role="status">Préparation du PDF…</p>}
           <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
             Type d'enregistrement
             <select aria-label="Type d'enregistrement" className="input min-w-0 w-full" value={cashierControlDrawer} onChange={(event) => setCashierControlDrawer(event.target.value as "payment" | "expense" | "personnel" | "inflow")}>
@@ -1668,6 +1674,8 @@ export function ControlModule({
       )}
       {historyOpen && (
         <AdminDrawer title="Historique" onClose={() => setHistoryOpen(false)} closeLabel="Fermer l'historique">
+          {receiptAction.error && <p role="alert" className="text-red-700">{receiptAction.error}</p>}
+          {receiptAction.pending.length > 0 && <p role="status">Préparation du PDF…</p>}
           <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
             Type d'historique
             <select aria-label="Type d'historique" className="input min-w-0 w-full" value={historyKind} onChange={(event) => setHistoryKind(event.target.value as typeof historyKind)}>
@@ -1696,7 +1704,7 @@ export function ControlModule({
                     <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <p className="min-w-0 break-words font-semibold text-ink">{student.nom} {student.prenom}</p>
                       <div className="flex shrink-0 flex-wrap gap-1">
-                        <button onClick={() => generateReceiptPdf(payment, student, fee, school, resolvePaymentCashierName(payment, yearData.auditLogs))} className="rounded bg-slate-100 p-2" title="Voir le reçu PDF">
+                        <button disabled={receiptAction.isPending(payment.id)} aria-busy={receiptAction.isPending(payment.id)} onClick={() => void receiptAction.run(payment.id, () => generateReceiptPdf(payment, student, fee, school, resolvePaymentCashierName(payment, yearData.auditLogs)))} className="rounded bg-slate-100 p-2" title="Voir le reçu PDF">
                           <Download className="h-4 w-4" />
                         </button>
                         {canCorrectPayments && !payment.collectionSchoolYearId && <button onClick={() => correctPayment(payment)} disabled={financialMutationId === payment.id} className="rounded bg-slate-100 p-2 disabled:opacity-50" title="Corriger"><Edit3 className="h-4 w-4" /></button>}

@@ -14,6 +14,7 @@ import { Header } from "./components/layout/Header";
 import { BottomNavigation } from "./components/layout/BottomNavigation";
 import { DisciplineBottomNavigation } from "./components/layout/DisciplineBottomNavigation";
 import { EnvironmentBanner } from "./components/layout/EnvironmentBanner";
+import { trackPersistence } from "./services/persistenceStatus";
 import { InstallPwaNavButton } from "./components/layout/InstallPwaNavButton";
 import { ParentBottomNavigation } from "./components/layout/ParentBottomNavigation";
 import { SecretaryBottomNavigation } from "./components/layout/SecretaryBottomNavigation";
@@ -756,24 +757,20 @@ export default function App() {
   }
 
   function updateData(next: Partial<AppData>, options: { persist?: boolean } = {}) {
-    setData((prev) => {
-      const updated = { ...prev, ...next };
-      if (options.persist !== false) {
+    // Keep network effects outside React's replayable state updater.
+    if (options.persist !== false) {
         const createIds: Partial<Record<keyof AppData, string[]>> = {};
         for (const key of Object.keys(next) as Array<keyof AppData>) {
           const items = next[key];
-          const previous = prev[key];
+          const previous = data[key];
           if (Array.isArray(items) && Array.isArray(previous)) {
             const known = new Set((previous as Array<{ id: string }>).map((item) => item.id));
             createIds[key] = (items as Array<{ id: string }>).filter((item) => !known.has(item.id)).map((item) => item.id);
           }
         }
-        void persistFirestorePatch(next, { createIds, throwOnError: true }).catch((error) => {
-          console.warn("Sauvegarde Firestore indisponible.", error);
-        });
-      }
-      return updated;
-    });
+        void trackPersistence(() => persistFirestorePatch(next, { createIds, throwOnError: true }));
+    }
+    setData((prev) => ({ ...prev, ...next }));
   }
 
   async function refreshCurrentYearData() {

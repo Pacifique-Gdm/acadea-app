@@ -17,6 +17,7 @@ import { resolvePaymentCashierName } from "../../utils/finance";
 import { sumMoney } from "../../utils/money";
 import { nextMessageThreadId } from "../../utils/messageThreads";
 import { generateReceiptPdf } from "../../utils/pdf";
+import { useAsyncAction } from "../../hooks/useAsyncAction";
 import { formatCurrencyMoney, formatSchoolMoney } from "../../utils/currency";
 import { mergeMessagesById, mergeNotificationsById } from "../../utils/realtimeMerges";
 import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
@@ -99,6 +100,7 @@ export function ParentPortal({
   const [messageRecipientSearch, setMessageRecipientSearch] = useState("");
   const [messageRecipients, setMessageRecipients] = useState<SchoolMessageRecipient[]>([]);
   const [messageRecipientsLoading, setMessageRecipientsLoading] = useState(false);
+  const receiptAction = useAsyncAction();
   const [messageRecipientsError, setMessageRecipientsError] = useState("");
   const [messageSubject, setMessageSubject] = useState("");
   const [messageBody, setMessageBody] = useState("");
@@ -375,6 +377,8 @@ export function ParentPortal({
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#f6f8fb]">
       {renderEnvironmentBanner()}
+      {receiptAction.error && <p role="alert" className="text-sm text-red-700">{receiptAction.error}</p>}
+      {receiptAction.pending.length > 0 && <p role="status">Préparation du reçu PDF…</p>}
       {renderHeader({
         unreadNotifications: unread,
         notificationsOpen: parentMessageDrawerOpen,
@@ -459,8 +463,9 @@ export function ParentPortal({
                                 <span className="break-words text-slate-500"> | {fee?.name ?? "Frais"} | {payment.paidAt}</span>
                               </div>
                               <button
-                                onClick={() => fee && generateReceiptPdf(payment, student, fee, school, resolvePaymentCashierName(payment, yearData.auditLogs))}
-                                disabled={!fee}
+                                aria-busy={receiptAction.isPending(payment.id)}
+                                onClick={() => fee && void receiptAction.run(payment.id, () => generateReceiptPdf(payment, student, fee, school, resolvePaymentCashierName(payment, yearData.auditLogs)))}
+                                disabled={!fee || receiptAction.isPending(payment.id)}
                                 className="inline-flex w-full items-center justify-center gap-2 rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
                                 title="Télécharger le reçu PDF"
                                 type="button"

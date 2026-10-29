@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const session = vi.hoisted(() => ({ currentUser: { uid: "fixture", getIdToken: async () => "fake-test-token" } }));
 vi.mock("../firebase", () => ({ auth: session, firebaseConfig: { projectId: "demo-acadea" } }));
+vi.mock("./auth", () => ({ getCurrentFirebaseIdToken: async () => "fake-test-token" }));
 import { conditionalFirestoreWrite, firestoreValue } from "./conditionalFirestoreWrite";
 
 describe("conditional client writes", () => {

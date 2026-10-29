@@ -1,4 +1,5 @@
 import { auth, firebaseConfig } from "../firebase";
+import { getCurrentFirebaseIdToken } from "./auth";
 
 type Value = { nullValue: null } | { booleanValue: boolean } | { stringValue: string }
   | { integerValue: string } | { doubleValue: number }
@@ -22,7 +23,7 @@ export async function conditionalFirestoreWrite(collection: string, id: string, 
   const user = auth?.currentUser;
   if (!user) throw new Error("Connexion requise pour enregistrer.");
   if (!/^[A-Za-z][A-Za-z0-9]*$/.test(collection) || !id || id.includes("/")) throw new Error("Chemin Firestore invalide.");
-  const token = await user.getIdToken();
+  const token = await getCurrentFirebaseIdToken();
   if (auth?.currentUser?.uid !== user.uid) throw new Error("La session a changé. Enregistrement interrompu.");
   const local = import.meta.env.VITE_LOCAL_EMULATORS === "true" && typeof window !== "undefined"
     && ["127.0.0.1", "localhost"].includes(window.location.hostname);

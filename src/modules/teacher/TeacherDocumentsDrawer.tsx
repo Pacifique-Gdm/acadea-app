@@ -6,6 +6,7 @@ import { archivePedagogicalDocument, savePedagogicalDocument } from "./teacherLe
 import { downloadTeacherDocument, uploadTeacherDocument } from "./teacherDocumentStorage";
 import type { TeacherPortalData } from "./teacherPortalData";
 import { useTeacherLearning } from "./useTeacherLearning";
+import { useAsyncAction } from "../../hooks/useAsyncAction";
 
 export function TeacherDocumentsDrawer({ user, school, year, data, onClose }: { user: AppUser; school: School; year: SchoolYear; data: TeacherPortalData; onClose: () => void }) {
   const learning = useTeacherLearning(user, school.id, year.id, data.teacher?.id);
@@ -18,6 +19,7 @@ export function TeacherDocumentsDrawer({ user, school, year, data, onClose }: { 
   const [file, setFile] = useState<File>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const action = useAsyncAction();
 
   async function submit() {
     const view = views.find((item) => item.assignment.id === assignmentId);
@@ -39,9 +41,12 @@ export function TeacherDocumentsDrawer({ user, school, year, data, onClose }: { 
     catch (cause) { setError(cause instanceof Error ? cause.message : "Téléchargement impossible."); }
   }
 
-  return <AdminDrawer title="Documents pédagogiques" closeLabel="Fermer" onClose={() => !busy && onClose()}>
+  return <AdminDrawer title="Documents pédagogiques" closeLabel="Fermer" onClose={() => !busy && action.pending.length === 0 && onClose()}>
     <p className="text-sm text-slate-600">Préparations et ressources</p>
     {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+    {action.error && <p role="alert" className="text-sm text-red-700">{action.error}</p>}
+    {learning.loading && <p role="status">Chargement des documents…</p>}
+    {learning.error && <div role="alert"><p>{learning.error}</p><button type="button" className="secondary-button" onClick={learning.retry}>Réessayer</button></div>}
     {!views.length ? <p className="rounded bg-slate-50 p-4">Aucun cours ne vous a encore été affecté.</p> : <div className="grid gap-3 rounded border border-slate-200 p-4">
       <select className="input" value={assignmentId} onChange={(event) => setAssignmentId(event.target.value)}>{views.map((item) => <option key={item.assignment.id} value={item.assignment.id}>{item.subject?.name ?? "Matière"} — {item.schoolClass?.name ?? "Classe"}</option>)}</select>
       <select className="input" value={category} onChange={(event) => setCategory(event.target.value as PedagogicalDocumentCategory)}>{pedagogicalDocumentCategories.map((item) => <option key={item} value={item}>{pedagogicalDocumentCategoryLabels[item]}</option>)}</select>
@@ -53,7 +58,7 @@ export function TeacherDocumentsDrawer({ user, school, year, data, onClose }: { 
     </div>}
     <div className="grid gap-2">{learning.documents.filter((item) => !item.archived).map((item) => <article key={item.id} className="rounded border border-slate-200 p-3">
       <strong>{item.title}</strong><p className="text-xs text-slate-500">{pedagogicalDocumentCategoryLabels[item.category]} · {item.originalFileName}</p>
-      <div className="mt-2 flex gap-2"><button type="button" className="secondary-button" onClick={() => void download(item.storagePath, item.originalFileName)}>Voir / télécharger</button><button type="button" className="secondary-button" onClick={() => void archivePedagogicalDocument(user, item)}>Archiver</button></div>
-    </article>)}{!learning.loading && !learning.documents.some((item) => !item.archived) && <p className="text-sm text-slate-500">Aucun document pédagogique enregistré.</p>}</div>
+      <div className="mt-2 flex gap-2"><button type="button" className="secondary-button" disabled={action.isPending(item.id)} onClick={() => void action.run(item.id, () => download(item.storagePath, item.originalFileName))}>{action.isPending(item.id) ? "Traitement…" : "Voir / télécharger"}</button><button type="button" className="secondary-button" disabled={action.isPending(item.id)} onClick={() => void action.run(item.id, () => archivePedagogicalDocument(user, item))}>{action.isPending(item.id) ? "Traitement…" : "Archiver"}</button></div>
+    </article>)}{!learning.loading && !learning.error && !learning.documents.some((item) => !item.archived) && <p className="text-sm text-slate-500">Aucun document pédagogique enregistré.</p>}</div>
   </AdminDrawer>;
 }

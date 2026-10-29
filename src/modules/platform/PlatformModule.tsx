@@ -134,6 +134,8 @@ export function PlatformModule({
   const [aiAssistantSaving, setAiAssistantSaving] = useState(false);
   const [aiAssistantMessage, setAiAssistantMessage] = useState("");
   const [aiAssistantError, setAiAssistantError] = useState("");
+  const [aiQuotaWarning, setAiQuotaWarning] = useState("");
+  const [aiQuotaLoading, setAiQuotaLoading] = useState(false);
   const [aiAssistantChangeTarget, setAiAssistantChangeTarget] = useState<{ school: School; enabled: boolean } | null>(null);
   const [aiAssistantConfirmation, setAiAssistantConfirmation] = useState("");
   const [aiAssistantMonthlyLimit, setAiAssistantMonthlyLimit] = useState("25");
@@ -952,6 +954,21 @@ export function PlatformModule({
     setPlatformView("students");
   }
 
+  async function refreshSchoolQuota(schoolId: string, requestId: number) {
+    setAiQuotaLoading(true); setAiQuotaWarning("");
+    try {
+      const aiAssistant = await loadSchoolAiAssistantSetting(schoolId);
+      if (schoolDetailRequestRef.current !== requestId) return;
+      if (!aiAssistant) throw new Error("Quota indisponible");
+      setAiAssistantMonthlyLimit(String(schoolAiUsageThisMonth(aiAssistant).monthlyLimit));
+      updateData({ schools: data.schools.map((item) => item.id === schoolId ? { ...item, aiAssistant } : item) }, { persist: false });
+    } catch {
+      if (schoolDetailRequestRef.current === requestId) setAiQuotaWarning("Quota non actualisé : dernière valeur connue affichée.");
+    } finally {
+      if (schoolDetailRequestRef.current === requestId) setAiQuotaLoading(false);
+    }
+  }
+
   function loadSchoolDrawerData(schoolId: string, schoolYearId: string) {
     const requestId = schoolDetailRequestRef.current + 1;
     schoolDetailRequestRef.current = requestId;
@@ -965,11 +982,7 @@ export function PlatformModule({
     setSchoolDrawerId(schoolId);
     setSchoolDetailError("");
     setSchoolDetailLoading(true);
-    void loadSchoolAiAssistantSetting(schoolId).then((aiAssistant) => {
-      if (!aiAssistant || schoolDetailRequestRef.current !== requestId) return;
-      setAiAssistantMonthlyLimit(String(schoolAiUsageThisMonth(aiAssistant).monthlyLimit));
-      updateData({ schools: data.schools.map((item) => item.id === schoolId ? { ...item, aiAssistant } : item) }, { persist: false });
-    }).catch((error) => console.warn("Chargement du quota Assistant IA impossible.", error));
+    void refreshSchoolQuota(schoolId, requestId);
     loadSuperAdminSchoolData(schoolId, schoolYearId)
       .then((schoolData) => {
         if (schoolDetailRequestRef.current !== requestId) return;
@@ -1458,6 +1471,8 @@ export function PlatformModule({
                     <span><strong>Utilisation ce mois</strong><br />{drawerAiUsage.monthlyUsage} / {drawerAiUsage.monthlyLimit}</span>
                     <button type="button" title="Réinitialiser le quota mensuel" aria-label="Réinitialiser le quota mensuel" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-700 transition hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50" disabled={aiAssistantSaving || drawerAiUsage.monthlyUsage === 0} onClick={() => setAiQuotaResetTarget(drawerSchool)}><RotateCcw className="h-4 w-4" /></button>
                   </div>
+                  {aiQuotaLoading && <p role="status" className="text-sm text-slate-500">Actualisation du quota…</p>}
+                  {aiQuotaWarning && <p role="alert" className="text-sm text-amber-800">{aiQuotaWarning} <button type="button" className="underline" disabled={aiQuotaLoading} onClick={() => void refreshSchoolQuota(drawerSchool.id, schoolDetailRequestRef.current)}>Réessayer</button></p>}
                   {aiAssistantSaving && <p className="text-sm text-slate-500">Enregistrement en cours…</p>}
                   {aiAssistantMessage && <p role="status" className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">{aiAssistantMessage}</p>}
                   {aiAssistantError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{aiAssistantError}</p>}
