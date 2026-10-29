@@ -54,7 +54,7 @@ async function invoke(handler: ApiHandler, method: string, headers: Record<strin
   return { status, payload: payload as Record<string, unknown> };
 }
 
-async function createSession(browser: Browser, role: string) {
+async function createSession(browser: Browser, role: string, transport = { dropNextAttendanceResponse: false }) {
   const context = await browser.newContext({ baseURL: origin, serviceWorkers: "allow" });
   const calls: Array<{ path: string; status: number; body: Record<string, unknown>; result: Record<string, unknown>; authorization: string }> = [];
   await context.route("**/api/**", async (route) => {
@@ -65,6 +65,10 @@ async function createSession(browser: Browser, role: string) {
     const outcome = await invoke(handler, route.request().method(), route.request().headers(), body);
     calls.push({ path, status: outcome.status, body, result: outcome.payload,
       authorization: route.request().headers().authorization });
+    if (transport.dropNextAttendanceResponse && outcome.status === 200 && body.action === "sync-offline-attendance") {
+      transport.dropNextAttendanceResponse = false;
+      return route.abort("connectionreset");
+    }
     return route.fulfill({ status: outcome.status, contentType: "application/json", body: JSON.stringify(outcome.payload) });
   });
   const page = await context.newPage();
@@ -152,12 +156,16 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
       await db!.doc(`courseGradingConfigs/${[ids!.school, ids!.year, ids!.class, ids!.subject].join("__")}`).update({ maxScore: 25 });
       await returnOnline(session.context, session.page);
       await expect.poll(() => session.calls.some((item) => item.body.action === "sync-offline-grade" && item.status === 409), { timeout: 45_000 }).toBe(true);
+      await expect(session.page.getByText("Conflit — intervention nécessaire", { exact: true })).toBeVisible();
+      await session.page.getByRole("button", { name: "Réessayer la synchronisation", exact: true }).click();
+      await expect(session.page.getByText("Conflit — intervention nécessaire", { exact: true })).toBeVisible();
       expect((await db!.collection("gradeEntries").where("schoolId", "==", schoolId).get()).size).toBe(1);
     } finally { await session.context.close(); }
   });
 
-  test("présence hors ligne puis écriture Firestore", async ({ browser }) => {
-    const session = await createSession(browser, "discipline_director");
+  test("présence hors ligne, réponse perdue et nouvelle tentative sans doublon", async ({ browser }) => {
+    const transport = { dropNextAttendanceResponse: true };
+    const session = await createSession(browser, "discipline_director", transport);
     pageRoles.set(session.page, "discipline_director");
     try {
       await session.login();
@@ -168,6 +176,10 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
       expect((await db!.collection("attendance").where("schoolId", "==", schoolId).get()).empty).toBe(true);
       await returnOnline(session.context, session.page);
       await expect.poll(async () => (await db!.collection("attendance").where("schoolId", "==", schoolId).get()).size, { timeout: 45_000 }).toBe(1);
+      await expect(session.page.getByText("À réessayer à la reconnexion", { exact: true })).toBeVisible();
+      await session.page.getByRole("button", { name: "Réessayer la synchronisation", exact: true }).click();
+      await expect(session.page.getByText("Confirmée par le serveur", { exact: true })).toBeVisible();
+      expect((await db!.collection("attendance").where("schoolId", "==", schoolId).get()).size).toBe(1);
       expect(session.calls.some((item) => item.body.action === "sync-offline-attendance" && item.status === 200)).toBe(true);
     } finally { await session.context.close(); }
   });
