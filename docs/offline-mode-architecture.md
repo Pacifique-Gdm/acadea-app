@@ -1,6 +1,30 @@
 # Mode hors connexion — contrat de sécurité (étape 1)
 
-Statut : socle local en cours. Aucun flux métier hors connexion n'est activé par ce document.
+## État de livraison — 29 octobre 2026
+
+Les sections ci-dessous décrivent l'historique de conception ; leurs mentions « pas encore implémenté » ne décrivent plus l'état courant. Les flux notes, présences, inscriptions et paiements provisoires, la file chiffrée et la session locale de huit heures sont implémentés.
+
+La chaîne reste volontairement empilée : `main` → `codex/offline-secure-20261027` → PR #34 (`codex/offline-staging-e2e-20261028`). La Production `8585b8bf63e557892e322869d54d64876dddf9a9` a été intégrée dans la base, puis cette base dans #34, sans fusion de PR vers main. Le fichier local `.env.staging` de la base n'a pas été inclus dans ces commits.
+
+### Vérifications après intégration
+
+Les CI du candidat intégré doivent confirmer TypeScript, lint, tests applicatifs/Functions, build Staging et règles Firebase. Le job `offline-emulator-e2e` rejoue les cinq parcours existants : arrêt complet/réouverture Chromium avec brouillon, conflit de maximum, présence avec réponse serveur perdue, inscription idempotente, paiement provisoire et conflit tarifaire. Le workflow `authenticated-emulator-ci` vérifie également les parcours options/élèves et autres entrées de caisse désormais présents dans main.
+
+Les règles Firestore, Storage et index du candidat sont identiques à ceux de ce main : aucun nouveau déploiement de règles ou d'index n'est requis pour le hors connexion. Les accusés serveur restent interdits aux écritures directes du client. La réussite sur émulateurs ne vaut pas recette Firebase hébergé/Vercel ; cette dernière reste distincte et dépend de l'identité WIF Staging autorisée.
+
+### Première activation et procédure de livraison
+
+Après autorisation, intégrer #34 à sa base, puis livrer l'ensemble de la base à main selon les protections GitHub ; fusionner #34 seule ne livre pas les fonctionnalités dans main. Vérifier les CI du SHA final. Préparer un déploiement Vercel non promu contenant simultanément frontend, API compatibles et Service Worker. Vérifier le SHA, la configuration Firebase, `offline-assets.json` et ses assets avant promotion. Ne pas réinitialiser les bases IndexedDB ni les clés de chiffrement.
+
+La première connexion et le préchargement doivent réussir en ligne sur l'origine finale ; le cache d'un Preview ne prépare pas l'origine Production. L'utilisateur doit conserver le même navigateur/profil. Une expiration de session bloque les opérations, sans supprimer la file. L'effacement volontaire des données du navigateur, l'éviction par l'OS, le mode privé et un appareil compromis restent des risques ; les tests Chromium ne démontrent pas le comportement de tous les appareils mobiles.
+
+### Retour arrière préservant les saisies
+
+Ne pas promouvoir aveuglément une ancienne application dépourvue de lecture de la file hors connexion. Ne jamais effacer IndexedDB, remplacer ses clés ou supprimer les accusés d'idempotence/écritures financières serveur. Préserver les opérations `LOCAL_PENDING`, `SYNCING`, `RETRYABLE_ERROR`, `CONFLICT` et `REJECTED`, ainsi que leurs identifiants. Un accusé perdu doit être résolu en réutilisant le même identifiant, jamais par une nouvelle opération. Aucun reçu définitif ni encaissement supplémentaire ne doit découler d'une proposition locale.
+
+En cas d'incident, privilégier un correctif conservant le schéma local, l'accès à la file et les API de réconciliation. La suspension ciblée de la synchronisation doit elle aussi préserver ces éléments ; aucun interrupteur d'urgence distant préexistant n'est supposé. Un retour à un ancien frontend peut rendre la file temporairement inaccessible, même s'il ne l'efface pas : il n'est pas un retour arrière sans risque. Aucune migration ou purge automatique ne fait partie de cette livraison.
+
+## Historique de conception
 
 ## Périmètre actuel constaté
 
