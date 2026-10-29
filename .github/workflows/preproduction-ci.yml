@@ -36,9 +36,9 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Bundle exclusivement destiné aux émulateurs
         run: npx vite build --mode test
-      - name: Servir le bundle local
+      - name: Servir les sources candidates en mode émulateurs
         run: |
-          npx vite preview --mode test --host 127.0.0.1 --port 4173 > /tmp/acadea-preview.log 2>&1 &
+          npx vite --mode test --host 127.0.0.1 --port 4173 > /tmp/acadea-preview.log 2>&1 &
           for attempt in $(seq 1 40); do
             if curl --fail --silent http://127.0.0.1:4173/version.json > /dev/null; then exit 0; fi
             sleep 1
