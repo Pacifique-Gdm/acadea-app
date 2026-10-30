@@ -43,6 +43,15 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
   const pdfExportingRef = useRef(false);
   const page = useCoordinationControlPage(user, schools, selectedSchoolId, refreshToken, classKey, amountComparator, amountThreshold, arrearsFilter);
   const { rows, loading, error: loadError, classChoices } = page;
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const [resultsHeight, setResultsHeight] = useState(0);
+  useEffect(() => {
+    const element = resultsRef.current;
+    if (loading || !element) return;
+    const observer = new ResizeObserver(() => setResultsHeight(element.getBoundingClientRect().height));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [loading, selectedStudentId]);
   const [history, setHistory] = useState<{ students: Student[]; payments: Payment[]; expenses: Expense[] }>({ students: [], payments: [], expenses: [] });
   const [historyLoading, setHistoryLoading] = useState(false);
   const historyScope = schools.filter((school) => !selectedSchoolId || school.id === selectedSchoolId).map((school) => school.id).sort().join("|");
@@ -194,10 +203,12 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
       <button type="button" className="secondary-button min-w-0 w-full justify-center xl:w-auto" onClick={() => { setClassKey(""); setAmountComparator(""); setAmountThreshold(""); page.setSelectedYearId(COORDINATION_ACTIVE_YEAR); page.setStatus("all"); page.setOption(""); }}><RotateCcw className="h-4 w-4"/> Réinitialiser</button>
       <button type="button" className="secondary-button min-w-0 w-full justify-center xl:w-auto" onClick={() => { const today = defaultControlHistoryDate(); setHistoryStart(today); setHistoryEnd(today); setHistoryKind("payments"); }}>Historique</button>
     </div>
+    <div ref={resultsRef} aria-busy={loading} style={loading && resultsHeight ? { minHeight: resultsHeight } : undefined}>
     {loading && <p role="status" className="rounded bg-blue-50 p-3 text-sm text-blue-700">{amountComparator && amountThreshold ? "Recherche..." : "Chargement du contrôle…"}</p>}
     {loadError && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{loadError}</p>}
     {!historyKind && documentError && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{documentError}</p>}
     {!loading && <div className="grid min-w-0 gap-3">{rows.map(({ student, balance, progress, feeSummaries }) => <article key={student.id} className="min-w-0 rounded border border-slate-200 bg-white p-4"><div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:justify-between"><div className="min-w-0"><button type="button" className="break-words text-left font-bold text-ink hover:text-blue-700 hover:underline" onClick={() => setSelectedStudentId(student.id)}>{student.nom} {student.prenom}</button><p className="break-words text-sm text-slate-500">{student.matricule} | {formatStudentClassName(student)} | {schoolName(student.schoolId)}</p></div><span className={`w-fit shrink-0 rounded px-2 py-1 text-xs font-semibold ${balance.expected > 0 && balance.remaining === 0 ? "bg-mint/10 text-mint" : "bg-amber-100 text-amber-700"}`}>{balance.expected > 0 && balance.remaining === 0 ? "En ordre" : "Non en ordre"}</span></div><div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3"><Metric label="Prévu" value={rowMoney(student, balance.expected)}/><Metric label="Payé" value={rowMoney(student, balance.paid)}/><Metric label="Solde" value={rowMoney(student, balance.remaining)}/></div><div className="mt-4 h-3 overflow-hidden rounded bg-slate-100"><div className="h-full rounded bg-blue-700" style={{ width: `${progress}%` }}/></div>{feeSummaries.length === 0 && <p className="mt-2 text-xs text-slate-500">Aucun frais défini pour cette classe.</p>}</article>)}{rows.length === 0 && <p className="rounded bg-white p-5 text-sm text-slate-500">Aucune donnée de contrôle dans le périmètre sélectionné.</p>}</div>}
+    </div>
     <nav aria-label="Pagination du contrôle" className="flex flex-wrap items-center justify-between gap-2"><span>Page {formatCount(page.pageIndex + 1)} · {formatCount(rows.length)} élèves · 50 maximum par page</span><div className="flex gap-2"><button type="button" className="secondary-button" disabled={loading || page.pageIndex === 0} onClick={page.previous}>Précédente</button><button type="button" className="secondary-button" disabled={loading || !page.hasNext} onClick={page.next}>Suivante</button></div></nav>
     {historyKind && <AdminDrawer width="wide" title="Historique du contrôle" closeLabel="Fermer l’historique" toolbar={<div className="grid grid-cols-1 gap-2 sm:grid-cols-3"><button type="button" className={historyKind === "payments" ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setHistoryKind("payments")}>Paiements</button><button type="button" className={historyKind === "expenses" ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setHistoryKind("expenses")}>Dépenses</button><button type="button" className={historyKind === "payroll" ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setHistoryKind("payroll")}>Salaire/Prime</button></div>} onClose={() => { setHistoryKind(null); setDocumentError(""); }}>
       <div className="mb-3 grid min-w-0 grid-cols-2 gap-2 lg:grid-cols-4">

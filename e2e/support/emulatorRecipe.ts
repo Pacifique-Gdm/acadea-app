@@ -3,7 +3,7 @@ import { deleteApp, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
-import { expect, type Browser, type Page } from "@playwright/test";
+import { expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
 
 export const origin = "http://127.0.0.1:4173";
 export function guard() {
@@ -70,7 +70,7 @@ export function fixture() {
     if (!response.ok) throw new Error("Connexion émulateur refusée : " + response.status);
     return "Bearer " + (await response.json()).idToken;
   }
-  async function session(browser: Browser, role: string, handlers: Record<string, Handler>, transport = { dropNextWriteResponse: false }) {
+  async function session(browser: Browser, role: string, handlers: Record<string, Handler>, transport = { dropNextWriteResponse: false }, prepareContext?: (context: BrowserContext) => Promise<void>) {
     const context = await browser.newContext({ baseURL: origin, viewport: { width: 1440, height: 1000 }, serviceWorkers: "block" });
     await context.route("**/*", async route => {
       const request = route.request(), url = new URL(request.url());
@@ -85,6 +85,7 @@ export function fixture() {
       }
       return route.fulfill({ status: result.status, contentType: "application/json", body: JSON.stringify(result.payload) });
     });
+    if (prepareContext) await prepareContext(context);
     const page = await context.newPage();
     page.setDefaultTimeout(20_000);
     await page.goto("/login");

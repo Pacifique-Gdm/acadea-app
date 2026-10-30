@@ -1,13 +1,14 @@
 import { Download, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { DisciplineSanction, Student } from "../../types";
+import { useAsyncAction } from "../../hooks/useAsyncAction";
 
 type DisciplineStatusProps = {
   sanctions: DisciplineSanction[];
   students: Student[];
   onNewSanction: () => void;
   onOpenStudent: (studentId: string) => void;
-  onExportPdf: (sanctions: DisciplineSanction[]) => void;
+  onExportPdf: (sanctions: DisciplineSanction[]) => Promise<void>;
 };
 
 function statusLabel(status: DisciplineSanction["status"]) {
@@ -22,6 +23,7 @@ export function DisciplineStatus({ sanctions, students, onNewSanction, onOpenStu
   const [status, setStatus] = useState<"all" | DisciplineSanction["status"]>("all");
   const [className, setClassName] = useState("all");
   const [search, setSearch] = useState("");
+  const pdf = useAsyncAction();
   const studentsById = useMemo(() => new Map(students.map((student) => [student.id, student])), [students]);
   const normalizedSearch = search.trim().toLowerCase();
   const classChoices = useMemo(() => Array.from(new Set(sanctions.map((sanction) => sanction.className).filter(Boolean))).sort((a, b) => a.localeCompare(b, "fr")), [sanctions]);
@@ -116,12 +118,13 @@ export function DisciplineStatus({ sanctions, students, onNewSanction, onOpenStu
             <option value="all">Toutes les classes</option>
             {classChoices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}
           </select>
-          <button onClick={() => onExportPdf(filteredSanctions)} className="primary-button w-full justify-center lg:w-auto" type="button">
-            <Download className="h-4 w-4" /> Export PDF
+          <button onClick={() => void pdf.run("export", () => onExportPdf(filteredSanctions))} disabled={pdf.isPending("export")} className="primary-button w-full justify-center lg:w-auto" type="button">
+            <Download className="h-4 w-4" /> {pdf.isPending("export") ? "Préparation du PDF…" : "Export PDF"}
           </button>
         </div>
       </div>
 
+      {pdf.error && <p role="alert" className="text-sm text-red-700">{pdf.error}</p>}
       <div className="grid min-w-0 gap-3">
         {sanctionedStudents.length === 0 && (
           <p className="rounded border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-500">Aucun élève ne correspond aux filtres.</p>

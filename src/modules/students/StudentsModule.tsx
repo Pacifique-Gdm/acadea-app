@@ -84,6 +84,7 @@ export function StudentsModule({
   const [saveMessage, setSaveMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const saveInProgressRef = useRef(false);
+  const creationIds = useRef(new Map<string, string>());
   const [showForm, setShowForm] = useState(false);
   const [structuredClasses, setStructuredClasses] = useState<SchoolClassRecord[]>([]);
   const [structuredClassesLoaded, setStructuredClassesLoaded] = useState(false);
@@ -103,6 +104,8 @@ export function StudentsModule({
   const [terminalFeedback, setTerminalFeedback] = useState("");
   const [terminalBusy, setTerminalBusy] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [pdfError, setPdfError] = useState("");
+  const pdfExportLock = useRef(false);
   const [terminalDecisions, setTerminalDecisions] = useState<Record<string, "completed" | "reenrolled">>({});
   const defaultCanManage = user.role === "school_admin" && year.status !== "archived";
   const studentCapabilities: StudentModuleCapabilities = {
@@ -249,7 +252,12 @@ export function StudentsModule({
         ...form,
         prenom: form.prenom?.trim() ?? "",
         address: form.address?.trim() ?? "",
-        id: exists ? form.id : uid("student"),
+        id: exists ? form.id : (() => {
+          // Keep the same ID on an uncertain network outcome; never silently create a second pupil.
+          let id = creationIds.current.get(form.id);
+          if (!id) { id = uid("student"); creationIds.current.set(form.id, id); }
+          return id;
+        })(),
         option: form.option ? canonicalSchoolOption(form.option) : undefined,
         matricule: exists ? form.matricule : "",
         section: getClassSection(form.className),
@@ -265,7 +273,7 @@ export function StudentsModule({
       if (!student.classId) delete student.classId;
       if (!student.subClassId) delete student.subClassId;
       const previousParentId = studentRecords.find((item) => item.id === student.id)?.parentId;
-      const persistedStudent = await saveManualStudent(studentForPersistence(studentBeforeParentMutation(student, previousParentId)));
+      const persistedStudent = await saveManualStudent(studentForPersistence(studentBeforeParentMutation(student, previousParentId)), exists ? "update" : "create");
       const nextStudents = exists ? studentRecords.map((item) => (item.id === student.id ? persistedStudent : item)) : [...studentRecords, persistedStudent];
 
       if (pendingParentForStudent) {
@@ -536,6 +544,8 @@ export function StudentsModule({
   }
 
   async function printStudentsPdf() {
+    if (pdfExportLock.current) return;
+    pdfExportLock.current = true;
     const filters = [
       `Recherche: ${query || "Toutes"}`,
       `Statut: ${archiveFilter === "active" ? "Actifs" : archiveFilter === "archived" ? "Archivés" : "Tous"}`,
@@ -544,13 +554,14 @@ export function StudentsModule({
       `Option: ${optionFilter || "Toutes les options"}`,
     ];
     setIsExporting(true);
-    setSaveError("");
+    setPdfError("");
     try {
       const exportStudents = await loadAllStudentResults(studentFilters, yearData.students);
-      exportStudentsPdf(school, year, exportStudents, filters, structuredClasses);
+      await exportStudentsPdf(school, year, exportStudents, filters, structuredClasses);
     } catch (cause) {
-      setSaveError(cause instanceof Error ? cause.message : "Impossible de charger les élèves à exporter.");
+      setPdfError(cause instanceof Error ? cause.message : "Impossible de charger les élèves à exporter.");
     } finally {
+      pdfExportLock.current = false;
       setIsExporting(false);
     }
   }
@@ -606,6 +617,7 @@ export function StudentsModule({
           </button>
           </div>
         </div>
+        {pdfError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{pdfError}</p>}
         {studentPage.error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Impossible de charger les élèves : {studentPage.error}</p>}
         {studentPage.loading && <p className="rounded border border-slate-200 bg-white p-3 text-sm text-slate-500">Chargement des élèves…</p>}
         <div className="max-w-full overflow-x-auto rounded border border-slate-200 bg-white">

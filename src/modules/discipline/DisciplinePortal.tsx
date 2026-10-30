@@ -525,7 +525,9 @@ export function DisciplinePortal({
 
     if (records.length > 0 || auditLogs.length > 0 || notifications.length > 0) {
       if (canUseFirestoreData()) {
-        await persistFirestorePatch({ attendance: records, auditLogs, notifications }, { throwOnError: true });
+        await persistFirestorePatch({ attendance: records, auditLogs, notifications }, { throwOnError: true,
+          createIds: { attendance: records.filter((item) => !data.attendance.some((old) => old.id === item.id)).map((item) => item.id),
+            notifications: notifications.map((item) => item.id), auditLogs: auditLogs.map((item) => item.id) } });
         updateData(
           {
             attendance: [...records, ...data.attendance.filter((item) => !records.some((record) => record.id === item.id))],
@@ -558,9 +560,7 @@ export function DisciplinePortal({
       );
       return;
     }
-    updateData({
-      attendanceSettings: [settings, ...data.attendanceSettings.filter((item) => !sameAttendanceSettingsScope(item))],
-    });
+    throw new Error("Enregistrement serveur indisponible. Les paramètres n’ont pas été enregistrés.");
   }
 
   async function exportDisciplinePdf(filteredSanctions: DisciplineSanction[]) {

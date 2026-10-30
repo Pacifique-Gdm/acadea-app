@@ -15,7 +15,7 @@ function createBackend(options?: { commitError?: Error }) {
   const db = {
     doc: vi.fn(() => adminRef),
     collection: vi.fn(() => ({ doc: vi.fn(() => ({ id: "audit-1" })) })),
-    batch: vi.fn(() => ({ update, set, commit })),
+    batch: vi.fn(() => ({ update, set, create: vi.fn(), commit })),
   };
   const auth = { updateUser: vi.fn().mockResolvedValue(undefined), revokeRefreshTokens: vi.fn().mockResolvedValue(undefined) };
   return { auth, db, update, set, commit };

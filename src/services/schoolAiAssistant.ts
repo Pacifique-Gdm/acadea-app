@@ -45,7 +45,7 @@ function assertSuperAdmin(user: AppUser, schoolId: string) {
 }
 
 function buildAuditLog(user: AppUser, schoolId: string, action: string, details: string): AuditLog {
-  return { id: globalThis.crypto?.randomUUID?.() ?? `audit-${Date.now()}`, schoolId, actorId: user.id, actorName: user.name, action, details, createdAt: new Date().toISOString() };
+  return { id: globalThis.crypto.randomUUID(), schoolId, actorId: user.id, actorName: user.name, action, details, createdAt: new Date().toISOString() };
 }
 
 export async function saveSchoolAiAssistantSetting(user: AppUser, school: Pick<School, "id" | "aiAssistant">, patch: { enabled?: boolean; monthlyLimit?: number }): Promise<SchoolAiAssistantMutation> {

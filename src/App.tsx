@@ -1,6 +1,7 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ARCHIVED_TEACHER_LOGIN_MARKER, getCurrentFirebaseIdToken, getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateCoordinator, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff, validateSecretary, validateStudyDirector, validateTeacher } from "./services/auth";
 import { auth } from "./firebase";
+import { randomId } from "./utils/randomId";
 import { clearOfflineAccess, offlineAccessEligible, readOfflineAccess, readOfflineAccessForCurrentDevice, rememberOfflineAccess, type OfflineAccess } from "./services/offlineAccess";
 import { OfflineAccessScreen } from "./components/auth/OfflineAccessScreen";
 import { prepareOfflineContext } from "./services/offlineContext";
@@ -13,6 +14,7 @@ import { Header } from "./components/layout/Header";
 import { BottomNavigation } from "./components/layout/BottomNavigation";
 import { DisciplineBottomNavigation } from "./components/layout/DisciplineBottomNavigation";
 import { EnvironmentBanner } from "./components/layout/EnvironmentBanner";
+import { trackPersistence } from "./services/persistenceStatus";
 import { InstallPwaNavButton } from "./components/layout/InstallPwaNavButton";
 import { ParentBottomNavigation } from "./components/layout/ParentBottomNavigation";
 import { SecretaryBottomNavigation } from "./components/layout/SecretaryBottomNavigation";
@@ -123,9 +125,7 @@ const emptyAppData: AppData = {
   biometricTerminals: [],
 };
 
-function uid(prefix: string) {
-  return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
-}
+const uid = randomId;
 
 function nextSchoolYearDefaults(year: SchoolYear) {
   const startYear = Number(year.startsAt.slice(0, 4));
@@ -179,6 +179,7 @@ function isStandaloneDisplayMode() {
 
 export default function App() {
   const [data, setData] = useState<AppData>(() => loadInitialData());
+  const unconfirmedCreations = useRef(new Set<string>());
   const [user, setUser] = useState<AppUser | null>(null);
   const [selectedYearId, setSelectedYearId] = useState("");
   const yearRequestVersion = useRef(0);
@@ -757,15 +758,28 @@ export default function App() {
   }
 
   function updateData(next: Partial<AppData>, options: { persist?: boolean } = {}) {
-    setData((prev) => {
-      const updated = { ...prev, ...next };
-      if (options.persist !== false) {
-        void persistFirestorePatch(next).catch((error) => {
-          console.warn("Sauvegarde Firestore indisponible.", error);
+    // Keep network effects outside React's replayable state updater.
+    if (options.persist !== false) {
+        const createIds: Partial<Record<keyof AppData, string[]>> = {};
+        for (const key of Object.keys(next) as Array<keyof AppData>) {
+          const items = next[key];
+          const previous = data[key];
+          if (Array.isArray(items) && Array.isArray(previous)) {
+            const known = new Set((previous as Array<{ id: string }>).map((item) => item.id));
+            createIds[key] = (items as Array<{ id: string }>).filter((item) => {
+              const identity = `${key}/${item.id}`;
+              if (!known.has(item.id)) unconfirmedCreations.current.add(identity);
+              return unconfirmedCreations.current.has(identity);
+            }).map((item) => item.id);
+          }
+        }
+        void trackPersistence(() => persistFirestorePatch(next, { createIds, throwOnError: true })).then((confirmed) => {
+          if (confirmed) for (const [key, ids] of Object.entries(createIds)) {
+            for (const id of ids) unconfirmedCreations.current.delete(`${key}/${id}`);
+          }
         });
-      }
-      return updated;
-    });
+    }
+    setData((prev) => ({ ...prev, ...next }));
   }
 
   async function refreshCurrentYearData() {

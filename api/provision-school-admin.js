@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomId as uid } from "./_lib/randomId.js";
 import { firebaseAdminPublicError, initAdmin } from "./_lib/firebaseAdmin.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./_lib/serverAudit.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
@@ -50,9 +50,6 @@ function buildAcronym(value) {
     .toUpperCase();
 }
 
-function uid(prefix) {
-  return `${prefix}-${randomUUID().slice(0, 8)}`;
-}
 
 function subscriptionAmount(plan) {
   if (plan === "Starter") return 29;
@@ -189,9 +186,9 @@ export default async function handler(req, res) {
       currency,
     };
 
-    await db.doc(`schools/${schoolId}`).set(school);
+    await db.doc(`schools/${schoolId}`).create(school);
     createdRefs.push(`schools/${schoolId}`);
-    await db.doc(`schoolYears/${yearId}`).set(year);
+    await db.doc(`schoolYears/${yearId}`).create(year);
     createdRefs.push(`schoolYears/${yearId}`);
 
     const adminUserRecord = await auth.createUser({
@@ -213,14 +210,14 @@ export default async function handler(req, res) {
       createdAt: now,
     };
 
-    await db.doc(`users/${adminUid}`).set(adminUser);
+    await db.doc(`users/${adminUid}`).create(adminUser);
     createdRefs.push(`users/${adminUid}`);
     await auth.setCustomUserClaims(adminUid, { role: "school_admin", schoolId });
     await db.doc(`schools/${schoolId}`).update({ mainAdminId: adminUid });
     school.mainAdminId = adminUid;
 
     const auditLog = buildServerAudit({ id: auditId, eventType: AUDIT_EVENT_TYPES.SCHOOL_CREATED, actor: caller, schoolId, schoolYearId: yearId, resourceType: "school", resourceId: schoolId, metadata: { subscriptionPlan: plan } });
-    await db.doc(`auditLogs/${auditId}`).set(auditLog);
+    await db.doc(`auditLogs/${auditId}`).create(auditLog);
 
     sendJson(res, 200, {
       school,
@@ -233,6 +230,10 @@ export default async function handler(req, res) {
       await cleanup({ auth: adminAuth, db: adminDb, adminUid, refs: createdRefs });
     }
     if (sendRateLimitError(res, error)) return;
+    if (error?.code === 6 || error?.code === "already-exists") {
+      sendJson(res, 409, { error: "Un identifiant de création est déjà utilisé. Aucune ressource existante n'a été remplacée.", code: "already-exists" });
+      return;
+    }
     if (error?.statusCode === 400 && !error?.code) return sendJson(res, 400, { error: "Corps JSON invalide.", code: "invalid-argument" });
     if (error?.statusCode === 400 || error?.statusCode === 401 || (error?.statusCode === 403 && error?.code === "permission-denied")) {
       sendJson(res, error.statusCode, { error: error.message, code: error.code });
