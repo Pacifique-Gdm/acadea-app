@@ -16,7 +16,7 @@ describe("rôle Directeur des études", () => {
     expect(api).toContain('"study_director"');
     expect(api).toContain("setCustomUserClaims(authUser.uid, { role, schoolId })");
     expect(api).toContain("const userRef = db.doc(`users/${authUser.uid}`)");
-    expect(api).toContain("userRef.create(schoolUser)");
+    expect(api).toContain("batch.create(userRef, schoolUser)");
   });
 
   it("n'obtient que les lectures tenant nécessaires à la phase 1", () => {
