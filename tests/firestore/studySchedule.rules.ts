@@ -21,3 +21,23 @@ describe("persistance des périodes",()=>{
     await assertFails(updateDoc(doc(db("study_director","school-b"),"schedulePeriods","period-a"),{label:"Interdit"}));
   });
 });
+
+describe("vacations journalières et portée ciblée", () => {
+  it("permet au Directeur de configurer sa classe sans modifier son identité", async () => {
+    const id = `${school}__${year}__classe-test`;
+    await assertSucceeds(setDoc(doc(db(), "classes", id), { id, schoolId: school, schoolYearId: year, name: "Classe test", active: true, createdBy: "study_director-user", createdAt: now, updatedAt: now, vacation: "morning", saturdayEnabled: false, saturdayVacation: null, dayVacations: { monday: "full", tuesday: "none" } }));
+    await assertSucceeds(updateDoc(doc(db(), "classes", id), { dayVacations: { monday: "afternoon", tuesday: "none" }, updatedAt: "later" }));
+    await assertFails(updateDoc(doc(db(), "classes", id), { dayVacations: { monday: "invalid" } }));
+    await assertFails(updateDoc(doc(db("school_admin"), "classes", id), { dayVacations: { monday: "full" } }));
+    await assertFails(updateDoc(doc(db("study_director", "school-b"), "classes", id), { dayVacations: { monday: "full" } }));
+    expect((await getDoc(doc(db(), "classes", id))).data()?.dayVacations).toEqual({ monday: "afternoon", tuesday: "none" });
+  });
+
+  it("borne les périodes collectives à l'école, l'année et au Directeur", async () => {
+    const targeted = { ...period, targetPairs: [`${school}__${year}__classe-test|monday`, `${school}__${year}__classe-test|tuesday`] };
+    await assertSucceeds(setDoc(doc(db(), "schedulePeriods", "period-a"), targeted));
+    await assertFails(setDoc(doc(db("cashier"), "schedulePeriods", "other"), { ...targeted, id: "other", createdBy: "cashier-user" }));
+    await assertFails(setDoc(doc(db(), "schedulePeriods", "empty"), { ...targeted, id: "empty", targetPairs: [] }));
+    await assertFails(updateDoc(doc(db("study_director", "school-b"), "schedulePeriods", "period-a"), { label: "Hors école" }));
+  });
+});

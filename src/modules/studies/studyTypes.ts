@@ -32,6 +32,7 @@ export interface StudySubject {
 }
 
 export type StudyVacation = "morning" | "afternoon";
+export type StudyDayVacation = StudyVacation | "full" | "none";
 
 export interface StudyClass {
   id: string;
@@ -47,6 +48,8 @@ export interface StudyClass {
   vacation?: StudyVacation;
   saturdayVacation?: StudyVacation | null;
   saturdayEnabled?: boolean;
+  /** Explicit daily organization; absent on historical classes. */
+  dayVacations?: Partial<Record<StudyDay, StudyDayVacation>>;
 }
 
 export interface PedagogicalAssignment {
@@ -96,7 +99,7 @@ export type StudyDay = "monday" | "tuesday" | "wednesday" | "thursday" | "friday
 export type AvailabilityStatus = "available" | "unavailable" | "rest";
 export interface TeacherAvailability { id:string; schoolId:string; schoolYearId:string; teacherId:string; dayOfWeek:StudyDay; status:AvailabilityStatus; startTime?:string; endTime?:string; active:boolean; createdBy:string; createdAt:string; updatedAt:string; }
 export type SchedulePeriodType = "course" | "break" | "recess";
-export interface SchedulePeriod { id:string; schoolId:string; schoolYearId:string; label:string; startTime:string; endTime:string; order:number; type:SchedulePeriodType; active:boolean; createdBy:string; createdAt:string; updatedAt:string; vacation?:StudyVacation; dayScope?:"weekdays"|"saturday"; }
+export interface SchedulePeriod { id:string; schoolId:string; schoolYearId:string; label:string; startTime:string; endTime:string; order:number; type:SchedulePeriodType; active:boolean; createdBy:string; createdAt:string; updatedAt:string; vacation?:StudyVacation; dayScope?:"weekdays"|"saturday"; /** Explicit operational-class/day pairs; absent on legacy shared periods. */ targetPairs?:string[]; }
 
 export type TimetableStatus = "DRAFT" | "VALID" | "PUBLISHED";
 

@@ -229,6 +229,8 @@ export interface SchoolClassRecord {
   vacation?: "morning" | "afternoon";
   saturdayVacation?: "morning" | "afternoon" | null;
   saturdayEnabled?: boolean;
+  /** Optional per-day study schedule; legacy classes use vacation/saturdayVacation. */
+  dayVacations?: Partial<Record<"monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday", "morning" | "afternoon" | "full" | "none">>;
   active?: boolean;
   parentClassId?: string;
   /** Operational parent option for a secondary subclass. */

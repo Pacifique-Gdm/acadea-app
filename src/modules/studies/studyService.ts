@@ -1,9 +1,9 @@
-import { collection, doc, onSnapshot, query, runTransaction, setDoc, where } from "@firebase/firestore";
+import { collection, doc, onSnapshot, query, runTransaction, setDoc, where, writeBatch } from "@firebase/firestore";
 import type { Firestore } from "@firebase/firestore";
 import { db } from "../../firebase";
 import type { AppUser, AttendanceSettings, Student } from "../../types";
 import { activeAssignmentLockId, pedagogicalAssignmentId, validateWeeklyPeriods } from "./studyAssignments";
-import type { AssignmentSessionPattern, ClassTitular, PedagogicalAssignment, SchedulePeriod, StudyClass, StudyRoom, StudySubject, StudyTeacher, StudyVacation, TeacherAvailability, Timetable, TimetableEntry } from "./studyTypes";
+import type { AssignmentSessionPattern, ClassTitular, PedagogicalAssignment, SchedulePeriod, StudyClass, StudyDay, StudyDayVacation, StudyRoom, StudySubject, StudyTeacher, StudyVacation, TeacherAvailability, Timetable, TimetableEntry } from "./studyTypes";
 import { DAY_LABELS, detectAvailabilityConflicts, validTimeRange, validateAvailabilityRanges, validatePeriod } from "./studySchedule";
 import { persistGeneratedTimetable } from "./timetablePersistence";
 import { normalizeSectionIds, userSectionIds } from "../../utils/userSections";
@@ -155,6 +155,28 @@ export async function setStudyClassVacation(input:{user:AppUser;item:StudyClass;
   const vacationFields={vacation:input.vacation,saturdayEnabled:input.saturdayEnabled,saturdayVacation:input.saturdayEnabled?(input.saturdayVacation??input.vacation):null,updatedAt:now};
   if(input.persisted){await setDoc(doc(database,"classes",input.item.id),vacationFields,{merge:true});return;}
   await setDoc(doc(database,"classes",input.item.id),{id:input.item.id,schoolId:input.item.schoolId,schoolYearId:input.item.schoolYearId,name:input.item.name.trim(),active:true,createdBy:input.user.id,createdAt:now,...vacationFields});
+}
+
+export async function saveStudyClassDayVacations(input: { user: AppUser; classes: StudyClass[]; sourceClasses: StudyClass[]; days: readonly StudyDay[]; values: Record<string, Partial<Record<StudyDay, StudyDayVacation>>> }) {
+  if (!input.classes.length || input.classes.length > 400 || !input.days.length) throw new Error("Sélection de classes invalide.");
+  const first = input.classes[0];
+  const database = requireScope(input.user, first.schoolId, first.schoolYearId);
+  const batch = writeBatch(database);
+  const now = new Date().toISOString();
+  const known = new Set(input.sourceClasses.filter((item) => item.schoolId === first.schoolId && item.schoolYearId === first.schoolYearId).map((item) => item.id));
+  for (const item of input.classes) {
+    if (item.schoolId !== first.schoolId || item.schoolYearId !== first.schoolYearId || item.active === false) throw new Error("Classe hors périmètre.");
+    const next = { ...(item.dayVacations ?? {}) };
+    for (const day of input.days) {
+      const value = input.values[item.id]?.[day];
+      if (!value || !["morning", "afternoon", "full", "none"].includes(value)) throw new Error("Vacation journalière invalide.");
+      next[day] = value;
+    }
+    const ref = doc(database, "classes", item.id);
+    if (known.has(item.id)) batch.set(ref, { dayVacations: next, updatedAt: now }, { merge: true });
+    else batch.set(ref, { id: item.id, schoolId: item.schoolId, schoolYearId: item.schoolYearId, name: item.name.trim(), active: true, createdBy: input.user.id, createdAt: now, updatedAt: now, vacation: item.vacation ?? "morning", saturdayEnabled: item.saturdayEnabled ?? false, saturdayVacation: item.saturdayVacation ?? null, dayVacations: next });
+  }
+  await batch.commit();
 }
 
 export async function saveGeneratedTimetable(input:{user:AppUser;schoolId:string;schoolYearId:string;version:number;entries:TimetableEntry[];existing:Timetable[];metadata:Timetable["generationMetadata"]}){const database=requireScope(input.user,input.schoolId,input.schoolYearId);return persistGeneratedTimetable(database,input);}

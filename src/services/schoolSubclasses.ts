@@ -158,6 +158,7 @@ export function operationalSchoolClasses<T extends OperationalClass>(classes: re
     const vacation = isCertainLegacyOptionRecord(item, parent) ? (parent?.vacation ?? item.vacation) : (item.vacation ?? parent?.vacation);
     const saturdayEnabled = item.saturdayEnabled ?? parent?.saturdayEnabled;
     const saturdayVacation = item.saturdayVacation ?? parent?.saturdayVacation;
+    const dayVacations = item.dayVacations ?? parent?.dayVacations;
     const key = operationalClassIdentity({ ...item, ...(classOptionKey ? { classOptionKey } : {}), ...(option ? { option } : {}) });
     if (!unique.has(key)) unique.set(key, {
       ...item,
@@ -169,6 +170,7 @@ export function operationalSchoolClasses<T extends OperationalClass>(classes: re
       ...(vacation ? { vacation } : {}),
       ...(saturdayEnabled !== undefined ? { saturdayEnabled } : {}),
       ...(saturdayVacation !== undefined ? { saturdayVacation } : {}),
+      ...(dayVacations ? { dayVacations } : {}),
     });
   });
   return [...unique.values()].sort((first, second) => first.name.localeCompare(second.name, "fr", { numeric: true, sensitivity: "base" }));
@@ -226,6 +228,7 @@ export function canonicalOperationalClasses(
         ...(parent?.vacation ? { vacation: parent.vacation } : {}),
         ...(parent?.saturdayEnabled !== undefined ? { saturdayEnabled: parent.saturdayEnabled } : {}),
         ...(parent?.saturdayVacation !== undefined ? { saturdayVacation: parent.saturdayVacation } : {}),
+        ...(parent?.dayVacations ? { dayVacations: parent.dayVacations } : {}),
         active: true,
       });
     });

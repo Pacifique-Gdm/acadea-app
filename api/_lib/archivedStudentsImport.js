@@ -166,6 +166,18 @@ function remapOptionKey(value, classIds) {
   return value;
 }
 
+export function remapPeriodTargetPairs(targetPairs, classIds) {
+  if (!Array.isArray(targetPairs)) return targetPairs;
+  return targetPairs.map((pair) => {
+    const separator = typeof pair === "string" ? pair.lastIndexOf("|") : -1;
+    if (separator < 1) fail(409, "failed-precondition", "Portée d'une période source invalide.");
+    const classId = pair.slice(0, separator), day = pair.slice(separator + 1);
+    const mapped = classIds.get(classId);
+    if (!mapped || !["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"].includes(day)) fail(409, "failed-precondition", "Classe ou jour d'une période source introuvable.");
+    return `${mapped}|${day}`;
+  }).sort();
+}
+
 export function mappedAssignmentScope(item, classIds, alreadyMapped = false) {
   if (!item.courseScope) return {};
   const targetOptionIds = [...new Set((item.targetOptionIds ?? []).map((value) => alreadyMapped ? value : remapOptionKey(value, classIds)).filter(identifier))].sort();
@@ -218,7 +230,7 @@ function planAnnualImport({ school, schoolId, schoolYearId, source, target, pare
   const teacherIds = semanticTargetMap(source.teachers, target.teachers, (item) => normalized(item.userId || item.email || item.fullName), "teachers", schoolId, schoolYearId);
   const subjectIds = semanticTargetMap(source.subjects, target.subjects, (item) => `${normalized(item.name)}|${normalized(item.section)}`, "subjects", schoolId, schoolYearId);
   const roomIds = semanticTargetMap(source.rooms, target.rooms, (item) => normalized(item.name), "rooms", schoolId, schoolYearId);
-  const periodIds = semanticTargetMap(source.schedulePeriods, target.schedulePeriods, (item) => [normalized(item.label), item.startTime, item.endTime, item.type, item.dayScope].join("|"), "schedulePeriods", schoolId, schoolYearId);
+  const periodIds = semanticTargetMap(source.schedulePeriods, target.schedulePeriods, (item) => [normalized(item.label), item.startTime, item.endTime, item.type, item.vacation, item.dayScope, item.targetPairs ? JSON.stringify([...item.targetPairs].sort()) : "legacy"].join("|"), "schedulePeriods", schoolId, schoolYearId);
   const timetableIds = semanticTargetMap(source.timetables, target.timetables, (item) => `${item.version}|${item.status}`, "timetables", schoolId, schoolYearId);
 
   const assignmentKey = (item, mapped = false) => [
@@ -267,7 +279,7 @@ function planAnnualImport({ school, schoolId, schoolYearId, source, target, pare
   addPlan("teachers", source.teachers, target.teachers, teacherIds, (item, id) => genericPayload("teachers", item, id, schoolId, schoolYearId, { storageAssignmentIds: [] }));
   addPlan("subjects", source.subjects, target.subjects, subjectIds, (item, id) => genericPayload("subjects", item, id, schoolId, schoolYearId, { classIds: item.classIds?.map((classId) => classPlan.ids.get(classId)).filter(Boolean) }));
   addPlan("rooms", source.rooms, target.rooms, roomIds, (item, id) => genericPayload("rooms", item, id, schoolId, schoolYearId));
-  addPlan("schedulePeriods", source.schedulePeriods, target.schedulePeriods, periodIds, (item, id) => genericPayload("schedulePeriods", item, id, schoolId, schoolYearId));
+  addPlan("schedulePeriods", source.schedulePeriods, target.schedulePeriods, periodIds, (item, id) => genericPayload("schedulePeriods", item, id, schoolId, schoolYearId, { targetPairs: remapPeriodTargetPairs(item.targetPairs, classPlan.ids) }));
 
   const availabilityIds = semanticTargetMap(source.teacherAvailabilities, target.teacherAvailabilities, (item) => [teacherIds.get(item.teacherId) ?? item.teacherId, item.dayOfWeek, item.status, item.startTime, item.endTime, item.active !== false].join("|"), "teacherAvailabilities", schoolId, schoolYearId);
   addPlan("teacherAvailabilities", source.teacherAvailabilities.filter((item) => teacherIds.has(item.teacherId)), target.teacherAvailabilities, availabilityIds,
