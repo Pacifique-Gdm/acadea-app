@@ -245,8 +245,9 @@ describe("API de provisionnement Acadéa", () => {
       role: "parent", schoolId: "school-1", parentId: "parent-1",
     });
     const batch = mocks.db.batch.mock.results[0]?.value;
-    expect(batch.set).toHaveBeenCalledTimes(3);
-    expect(batch.set).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ eventType: "user.created", actorId: "admin-1", actorRole: "school_admin", schoolId: "school-1", source: "server" }));
+    expect(batch.create).toHaveBeenCalledTimes(3);
+    expect(batch.set).not.toHaveBeenCalled();
+    expect(batch.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ eventType: "user.created", actorId: "admin-1", actorRole: "school_admin", schoolId: "school-1", source: "server" }));
     expect(batch.update).toHaveBeenCalledWith(expect.objectContaining({ path: "students/student-1" }), { parentId: "parent-1" });
     expect(batch.commit).toHaveBeenCalledOnce();
   });
