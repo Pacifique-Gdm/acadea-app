@@ -80,6 +80,11 @@ async function createSession(browser: Browser, role: string, transport = { dropN
   });
   await attachApi(context);
   let page = await context.newPage();
+  await page.addInitScript(() => {
+    window.addEventListener("acadea:offline-context-ready", () => {
+      (window as Window & { acadeaOfflineContextReady?: boolean }).acadeaOfflineContextReady = true;
+    });
+  });
   page.setDefaultTimeout(15_000);
   const login = async () => {
     await page.goto("/login");
@@ -92,6 +97,8 @@ async function createSession(browser: Browser, role: string, transport = { dropN
       const cache = await caches.open("acadea-pwa-v6-assets");
       return Boolean(await cache.match(document.querySelector<HTMLScriptElement>('script[type="module"]')?.src || ""));
     }), { timeout: 30_000 }).toBe(true);
+    await expect.poll(() => page.evaluate(() => Boolean((window as Window & { acadeaOfflineContextReady?: boolean }).acadeaOfflineContextReady)),
+      { timeout: 45_000 }).toBe(true);
   };
   const session = { context, page, calls, login,
     async restartOffline() {

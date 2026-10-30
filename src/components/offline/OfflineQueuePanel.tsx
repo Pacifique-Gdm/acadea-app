@@ -86,7 +86,7 @@ export function OfflineQueuePanel({ scope, autoSync, role, initialOpen = false }
       <span>{needsIntervention ? error || action.error || `Des opérations nécessitent votre intervention (${outstanding}).` : notice}</span>
       {(needsIntervention || !online) && <button type="button" className="ml-2 font-semibold underline" onClick={() => { refresh(); setOpen(true); }}>Voir les opérations</button>}
     </div>}
-    {open && <section className={initialOpen ? "w-full rounded-lg border border-slate-200 bg-white p-4 text-ink shadow-xl" : "fixed bottom-20 left-3 right-3 z-[80] max-h-[70vh] overflow-y-auto rounded-lg border border-slate-200 bg-white p-4 text-ink shadow-xl sm:bottom-4 sm:left-auto sm:right-4 sm:w-[min(90vw,26rem)]"}
+    {open && <section className={initialOpen ? "w-full rounded-lg border border-slate-200 bg-white p-4 text-ink shadow-xl" : "fixed bottom-32 left-3 right-3 z-[80] max-h-[70vh] overflow-y-auto rounded-lg border border-slate-200 bg-white p-4 text-ink shadow-xl sm:bottom-4 sm:left-auto sm:right-4 sm:w-[min(90vw,26rem)]"}
       aria-label="État des opérations hors connexion">
       <div className="flex items-center justify-between gap-3"><h2 className="font-semibold">Opérations locales</h2>{!initialOpen && <button type="button" className="text-sm underline" onClick={() => setOpen(false)}>Fermer</button>}</div>
       <p className="mt-1 text-xs text-slate-600">Seul un accusé serveur confirme une opération. Un paiement provisoire ne produit jamais de reçu local.</p>
