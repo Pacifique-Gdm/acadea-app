@@ -75,9 +75,14 @@ export async function saveManualStudent({ db, caller, body }) {
     || id !== `student-${offlineOperationId}` || input.status !== "ACTIVE")) {
     reject("Identifiant d'inscription locale invalide.");
   }
-  const fingerprint = offlineOperationId ? createHash("sha256").update(JSON.stringify({ schoolId, schoolYearId, id, fields })).digest("hex") : "";
-  const receiptRef = offlineOperationId ? db.doc(`offlineOperationReceipts/${createHash("sha256")
-    .update(`${caller.uid}\0${schoolId}\0${offlineOperationId}`).digest("hex")}`) : null;
+  const clientRequestId = body?.clientRequestId;
+  if (clientRequestId !== undefined && (intent !== "create" || offlineOperationId || typeof clientRequestId !== "string" || !/^[a-f0-9]{32}$/.test(clientRequestId))) {
+    reject("Identifiant de demande élève invalide.");
+  }
+  const operationId = offlineOperationId || clientRequestId;
+  const fingerprint = operationId ? createHash("sha256").update(JSON.stringify({ schoolId, schoolYearId, id, fields })).digest("hex") : "";
+  const receiptRef = operationId ? db.doc(`${offlineOperationId ? "offlineOperationReceipts" : "manualStudentReceipts"}/${createHash("sha256")
+    .update(`${caller.uid}\0${schoolId}\0${operationId}`).digest("hex")}`) : null;
   const studentRef = db.doc(`students/${id}`);
   const actorRef = db.doc(`users/${caller.uid}`);
   const schoolRef = db.doc(`schools/${schoolId}`);
@@ -157,7 +162,7 @@ export async function saveManualStudent({ db, caller, body }) {
     if (!existing) transaction.set(counterRef, { schoolId, schoolYearId, lastAllocated: sequence });
     if (identityChanged) transaction.set(newLockRef, { schoolId, studentId: id, key: newKey });
     if (receiptRef) transaction.create(receiptRef, { actorId: caller.uid, schoolId, schoolYearId,
-      operationId: offlineOperationId, fingerprint, studentId: id, createdAt: new Date().toISOString() });
+      operationId, fingerprint, studentId: id, createdAt: new Date().toISOString() });
     return { student, ...(receiptRef ? { idempotent: false } : {}) };
   });
 }

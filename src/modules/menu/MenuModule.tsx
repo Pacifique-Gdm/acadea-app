@@ -539,8 +539,9 @@ export function MenuModule({
     } finally {
       setSchoolUserSubmitting(false);
     }
-    const auditLog = createAuditLog(user, school.id, selectedYear.id, `Création ${schoolUserProvisionLabels[schoolUserRole]}`, `${cashierName} - ${cashierEmail}`, createId);
-    updateData({ users: [...data.users, provisionedUser], auditLogs: [auditLog, ...data.auditLogs] });
+    // The provisioning API has already created the user and its audit record.
+    // A second conditional client create would report ALREADY_EXISTS despite success.
+    updateData({ users: [...data.users, provisionedUser] }, { persist: false });
     setCashierName("");
     setCashierPhone("");
     setCashierEmail("");

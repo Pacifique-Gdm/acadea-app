@@ -112,6 +112,9 @@ export function PlatformModule({
   const [typeFilter, setTypeFilter] = useState<"all" | NonNullable<School["schoolType"]>>("all");
   const [sortBy, setSortBy] = useState<SchoolSort>("az");
   const [adminModalOpen, setAdminModalOpen] = useState(false);
+  const [adminSaveError, setAdminSaveError] = useState("");
+  const [adminSaving, setAdminSaving] = useState(false);
+  const adminSavingRef = useRef(false);
   const [adminRemovalTarget, setAdminRemovalTarget] = useState<AppUser | null>(null);
   const [adminRemovalConfirmation, setAdminRemovalConfirmation] = useState("");
   const [adminRemovalLoading, setAdminRemovalLoading] = useState(false);
@@ -333,6 +336,7 @@ export function PlatformModule({
         },
         { persist: false },
       );
+      setSchoolActionSuccess(`École « ${provisioned.school.name} » et administrateur principal créés et confirmés par le serveur.`);
       setSchoolName("");
       setMainAdminName("");
       setAdminEmail("");
@@ -730,6 +734,7 @@ export function PlatformModule({
   }
 
   function openCreateAdminModal() {
+    setAdminSaveError("");
     setEditingAdminId(null);
     setAdminName("");
     setAdminPhone("");
@@ -741,6 +746,7 @@ export function PlatformModule({
   }
 
   function openEditAdminModal(admin: AppUser) {
+    setAdminSaveError("");
     setEditingAdminId(admin.id);
     setAdminName(admin.name);
     setAdminPhone(admin.phone ?? "");
@@ -752,32 +758,38 @@ export function PlatformModule({
   }
 
   async function saveAdmin() {
-    if (!selectedSchool || !adminFormValid) return;
-
-    if (editingAdminId) {
-      updateData({
-        users: data.users.map((item) =>
-          item.id === editingAdminId ? { ...item, name: adminName, phone: adminPhone, email: modalAdminEmail } : item,
-        ),
-        auditLogs: [writeAudit(selectedSchool.id, `Modification de l'administrateur ${adminName}`), ...data.auditLogs],
-      });
-    } else {
-      const adminUser = await provisionSchoolUser({
-        role: "school_admin",
-        schoolId: selectedSchool.id,
-        schoolYearId: selectedSchool.activeSchoolYearId,
-        name: adminName,
-        email: modalAdminEmail,
-        password: modalAdminPassword,
-        phone: adminPhone,
-      });
-      updateData({
-        users: [...data.users, adminUser],
-        auditLogs: [writeAudit(selectedSchool.id, `Ajout de l'administrateur ${adminName}`), ...data.auditLogs],
-      });
+    if (!selectedSchool || !adminFormValid || adminSavingRef.current) return;
+    adminSavingRef.current = true;
+    setAdminSaving(true);
+    setAdminSaveError("");
+    try {
+      if (editingAdminId) {
+        updateData({
+          users: data.users.map((item) =>
+            item.id === editingAdminId ? { ...item, name: adminName, phone: adminPhone, email: modalAdminEmail } : item,
+          ),
+          auditLogs: [writeAudit(selectedSchool.id, `Modification de l'administrateur ${adminName}`), ...data.auditLogs],
+        });
+      } else {
+        const adminUser = await provisionSchoolUser({
+          role: "school_admin",
+          schoolId: selectedSchool.id,
+          schoolYearId: selectedSchool.activeSchoolYearId,
+          name: adminName,
+          email: modalAdminEmail,
+          password: modalAdminPassword,
+          phone: adminPhone,
+        });
+        updateData({ users: [...data.users, adminUser] }, { persist: false });
+        setSchoolActionSuccess(`Administrateur « ${adminName} » créé et confirmé par le serveur.`);
+      }
+      setAdminModalOpen(false);
+    } catch (cause) {
+      setAdminSaveError(cause instanceof Error ? cause.message : "Création ou modification impossible.");
+    } finally {
+      adminSavingRef.current = false;
+      setAdminSaving(false);
     }
-
-    setAdminModalOpen(false);
   }
 
   function toggleAdminStatus(admin: AppUser) {
@@ -1878,8 +1890,9 @@ export function PlatformModule({
                   </p>
                 </>
               )}
-              <button disabled={!adminFormValid} onClick={saveAdmin} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50">
-                <CheckCircle2 className="h-4 w-4" /> Enregistrer
+              {adminSaveError && <p role="alert" className="text-sm text-red-700">{adminSaveError}</p>}
+              <button disabled={!adminFormValid || adminSaving} onClick={saveAdmin} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50">
+                <CheckCircle2 className="h-4 w-4" /> {adminSaving ? "Enregistrement…" : "Enregistrer"}
               </button>
             </div>
           </section>

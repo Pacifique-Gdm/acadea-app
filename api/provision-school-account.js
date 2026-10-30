@@ -10,6 +10,7 @@ import { deleteSchoolSubclass } from "./_lib/schoolSubclassDeletion.js";
 import { createSchoolSubclasses } from "./_lib/schoolSubclassCreation.js";
 import { saveManualStudent } from "./_lib/manualStudentSave.js";
 import { saveStudyAssignments, setStudyAssignmentActive } from "./_lib/studyAssignmentGrants.js";
+import { findProvisioningReceipt, provisioningReceipt, provisioningRequestId } from "./_lib/provisioningReceipt.js";
 
 const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent"]);
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
@@ -808,6 +809,7 @@ export default async function handler(req, res) {
   }
 
   let createdAuthUid = "";
+  let creationCommitted = false;
   const createdRefs = [];
   let adminAuth;
   let adminDb;
@@ -829,6 +831,20 @@ export default async function handler(req, res) {
     const body = await readBody(req);
     await requireActiveApiUser(db, caller);
     const action = normalizeText(body.action);
+    if (action === "recover-creation") {
+      const role = normalizeText(body.role);
+      const schoolId = normalizeText(body.schoolId);
+      const schoolYearId = normalizeText(body.schoolYearId);
+      const email = normalizeEmail(body.email);
+      if (!allowedRoles.has(role) || !schoolId || !schoolYearId || !email) throw Object.assign(new Error("Demande de récupération invalide."), { statusCode: 400, code: "invalid-argument" });
+      await assertAuthorizedCaller({ db, caller, schoolId, allowSecretary: role === "parent", allowStudyDirectorTeacher: role === "teacher", targetRole: role });
+      await requireActiveSchoolYear(db, schoolId, schoolYearId);
+      const requestId = provisioningRequestId(body.clientRequestId);
+      if (!requestId) throw Object.assign(new Error("Identifiant de demande requis."), { statusCode: 400, code: "invalid-argument" });
+      const result = await findProvisioningReceipt(db, requestId, caller.uid, "account", JSON.stringify([role, schoolId, schoolYearId, email]));
+      sendJson(res, result ? 200 : 202, result ?? { status: "pending" });
+      return;
+    }
     if (action === "import-archived-students") {
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: "students.import-archive", ...API_RATE_LIMITS.FINANCE_CREATE });
       sendJson(res, 200, await importArchivedStudents({ db, caller, body }));
@@ -941,6 +957,10 @@ export default async function handler(req, res) {
 
     const parentId = role === "parent" ? normalizeText(body.parentId) || uid("parent") : "";
     const studentIds = role === "parent" && Array.isArray(body.studentIds) ? [...new Set(body.studentIds.map(normalizeText).filter(Boolean))] : [];
+    const requestId = provisioningRequestId(body.clientRequestId);
+    const receiptIdentity = JSON.stringify([role, schoolId, schoolYearId, email]);
+    const previousResult = await findProvisioningReceipt(db, requestId, caller.uid, "account", receiptIdentity);
+    if (previousResult) { sendJson(res, 200, previousResult); return; }
     const parentStudentSnapshots = role === "parent" ? await loadParentStudents(db, { studentIds, schoolId, schoolYearId, parentId }) : [];
 
     const authUser = await createAuthUser(auth, {
@@ -966,6 +986,8 @@ export default async function handler(req, res) {
       };
 
       const userRef = db.doc(`users/${authUser.uid}`);
+      await auth.setCustomUserClaims(authUser.uid, { role, schoolId });
+      const result = { user: schoolUser };
       if (role === "teacher") {
         const teacherId = `${schoolId}__${schoolYearId}__${authUser.uid}`;
         const teacherRef = db.doc(`teachers/${teacherId}`);
@@ -984,16 +1006,22 @@ export default async function handler(req, res) {
           createdBy: caller.uid,
         });
         batch.create(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.USER_CREATED, actor: caller, schoolId, schoolYearId, resourceType: "user", resourceId: authUser.uid, metadata: { role } }));
+        if (requestId) batch.create(db.doc(`provisioningReceipts/${requestId}`), provisioningReceipt(requestId, caller.uid, "account", receiptIdentity, schoolId, result));
         await batch.commit();
+        creationCommitted = true;
         createdRefs.push(userRef.path, teacherRef.path);
       } else {
-        await userRef.create(schoolUser);
+        const auditRef = db.collection("auditLogs").doc(uid("audit"));
+        const batch = db.batch();
+        batch.create(userRef, schoolUser);
+        batch.create(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.USER_CREATED, actor: caller, schoolId, schoolYearId, resourceType: "user", resourceId: authUser.uid, metadata: { role } }));
+        if (requestId) batch.create(db.doc(`provisioningReceipts/${requestId}`), provisioningReceipt(requestId, caller.uid, "account", receiptIdentity, schoolId, result));
+        await batch.commit();
+        creationCommitted = true;
         createdRefs.push(userRef.path);
-        await db.collection("auditLogs").doc(uid("audit")).create(buildServerAudit({ eventType: AUDIT_EVENT_TYPES.USER_CREATED, actor: caller, schoolId, schoolYearId, resourceType: "user", resourceId: authUser.uid, metadata: { role } }));
       }
-      await auth.setCustomUserClaims(authUser.uid, { role, schoolId });
 
-      sendJson(res, 200, { user: schoolUser });
+      sendJson(res, 200, result);
       return;
     }
 
@@ -1034,12 +1062,15 @@ export default async function handler(req, res) {
     const auditRef = db.collection("auditLogs").doc(uid("audit"));
     batch.create(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.USER_CREATED, actor: caller, schoolId, schoolYearId, resourceType: "parent", resourceId: parentId, metadata: { role: "parent" } }));
     parentStudentSnapshots.forEach((snapshot) => batch.update(snapshot.ref, { parentId }));
+    const result = { parent, user: parentUser };
+    if (requestId) batch.create(db.doc(`provisioningReceipts/${requestId}`), provisioningReceipt(requestId, caller.uid, "account", receiptIdentity, schoolId, result));
     await batch.commit();
+    creationCommitted = true;
     createdRefs.push(parentRef.path, userRef.path);
 
-    sendJson(res, 200, { parent, user: parentUser });
+    sendJson(res, 200, result);
   } catch (error) {
-    if (adminAuth && adminDb) {
+    if (!creationCommitted && adminAuth && adminDb) {
       await cleanup({ auth: adminAuth, db: adminDb, authUid: createdAuthUid, refs: createdRefs });
     }
 
@@ -1054,12 +1085,12 @@ export default async function handler(req, res) {
       : error?.code === "auth/email-already-exists"
         ? 409
         : 500;
-    const diagnostic = firebaseAdminPublicError(error, "provision-school-account");
     const safeAuthError = error?.code === "auth/email-already-exists";
+    const diagnostic = statusCode === 500 || safeAuthError ? firebaseAdminPublicError(error, "provision-school-account") : null;
     sendJson(res, statusCode, {
-      error: statusCode === 500 || safeAuthError ? diagnostic.message : error.message,
-      code: statusCode === 500 || safeAuthError ? diagnostic.code : error?.code ?? (statusCode === 404 ? "not-found" : statusCode === 403 ? "permission-denied" : "invalid-argument"),
-      ...(statusCode === 500 && diagnostic.correlationId ? { correlationId: diagnostic.correlationId } : {}),
+      error: diagnostic ? diagnostic.message : error.message,
+      code: diagnostic ? diagnostic.code : error?.code ?? (statusCode === 404 ? "not-found" : statusCode === 403 ? "permission-denied" : "invalid-argument"),
+      ...(statusCode === 500 && diagnostic?.correlationId ? { correlationId: diagnostic.correlationId } : {}),
     });
   }
 }

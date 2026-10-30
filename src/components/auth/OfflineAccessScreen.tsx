@@ -25,7 +25,7 @@ export function OfflineAccessScreen({ access, onLogout }: {
       <p className="mt-2 text-sm">Cet accès local expire le {new Date(access.expiresAt).toLocaleString("fr-FR")}.
         Les données non préchargées restent indisponibles.</p>
     </div>
-    <OfflineQueuePanel scope={{ userId: access.userId, schoolId: access.schoolId, schoolYearId: access.schoolYearId }} role={access.role} autoSync={false} />
+    <OfflineQueuePanel scope={{ userId: access.userId, schoolId: access.schoolId, schoolYearId: access.schoolYearId }} role={access.role} autoSync={false} initialOpen />
     <button type="button" className="primary-button justify-center" onClick={onReconnect}>Réessayer la connexion sécurisée</button>
     <button type="button" className="secondary-button justify-center" onClick={onLogout}>Se déconnecter de cet appareil</button>
   </main>;
