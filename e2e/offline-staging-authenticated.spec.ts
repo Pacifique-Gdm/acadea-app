@@ -157,18 +157,24 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
     pageRoles.set(session.page, "teacher");
     try {
       await session.login();
+      console.info("[offline-reopen] context prepared");
       await offline(session.context);
       await expect(session.page.getByRole("button", { name: "Enregistrer le brouillon local" })).toBeVisible({ timeout: 30_000 });
       await session.page.getByLabel("Cours préchargé").selectOption(ids!.assignment);
       await session.page.getByLabel("Élève", { exact: true }).selectOption(ids!.student);
       await session.page.getByLabel("Cote locale").fill("12");
       await draft(session.page);
+      console.info("[offline-reopen] draft saved locally");
       expect((await db!.collection("gradeEntries").where("schoolId", "==", schoolId).get()).empty).toBe(true);
       await session.restartOffline();
+      console.info("[offline-reopen] browser restarted offline");
       pageRoles.set(session.page, "teacher");
       await expect(session.page.getByRole("heading", { name: "Acadéa hors connexion" })).toBeVisible({ timeout: 25_000 });
+      console.info("[offline-reopen] offline page visible");
       await returnOnline(session.context, session.page);
+      console.info("[offline-reopen] connection restored");
       await expect.poll(async () => (await db!.collection("gradeEntries").where("schoolId", "==", schoolId).get()).size, { timeout: 45_000 }).toBe(1);
+      console.info("[offline-reopen] server receipt observed");
       const grade = (await db!.collection("gradeEntries").where("schoolId", "==", schoolId).get()).docs[0].data();
       expect(grade.score).toBe(12);
       const call = session.calls.find((item) => item.body.action === "sync-offline-grade" && item.status === 200);
@@ -183,6 +189,7 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
     const session = await createSession(browser, "teacher");
     pageRoles.set(session.page, "teacher");
     try {
+      const initialGradeCount = (await db!.collection("gradeEntries").where("schoolId", "==", schoolId).get()).size;
       await session.login();
       await offline(session.context);
       await session.page.getByLabel("Cours préchargé").selectOption(ids!.assignment);
@@ -196,7 +203,7 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
       await expect(session.page.getByText("Conflit — intervention nécessaire", { exact: true })).toBeVisible();
       await session.page.getByRole("button", { name: "Réessayer la synchronisation", exact: true }).click();
       await expect(session.page.getByText("Conflit — intervention nécessaire", { exact: true })).toBeVisible();
-      expect((await db!.collection("gradeEntries").where("schoolId", "==", schoolId).get()).size).toBe(1);
+      expect((await db!.collection("gradeEntries").where("schoolId", "==", schoolId).get()).size).toBe(initialGradeCount);
     } finally { await session.context.close(); }
   });
 
