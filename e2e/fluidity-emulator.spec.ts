@@ -80,7 +80,7 @@ test("real discipline export component locks double clicks and exposes failure/r
     }));
   });
   const container = page.locator("#fluidity-test");
-  const button = container.getByRole("button", { name: "Exporter PDF" });
+  const button = container.getByRole("button", { name: "Export PDF", exact: true });
   await button.evaluate((element: HTMLButtonElement) => { element.click(); element.click(); });
   await expect(container.getByRole("button", { name: "Préparation du PDF…" })).toBeDisabled();
   expect(await page.evaluate(() => (window as unknown as { fluidityTest: { calls: number } }).fluidityTest.calls)).toBe(1);
