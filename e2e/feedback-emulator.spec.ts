@@ -3,24 +3,28 @@ import { writeFile } from "node:fs/promises";
 import { calls, feedbackTransport, mount, settle } from "./support/feedbackHarness";
 import { fixture, students } from "./support/emulatorRecipe";
 
-test("Study director: independent class saves, failure and retry", async ({ page, context }) => {
-  await feedbackTransport(context, { "/src/modules/studies/studyService.ts": `export function setStudyClassVacation({item}) { return window.feedback.call(item.id); }` });
+test("Study director: grouped class/day saves, failure and retry", async ({ page, context }) => {
+  await feedbackTransport(context, { "/src/modules/studies/studyService.ts": `export function saveStudyClassDayVacations({classes}) { return window.feedback.call(classes.map(item => item.id).join(',')); }` });
   const classes = [{ id: "class-a", name: "1ère A", vacation: "morning" }, { id: "class-b", name: "2ème B", vacation: "morning" }];
   const view = await mount(page, "/src/modules/studies/StudyPeriodsModule.tsx", "StudyPeriodsModule", {
     user: { id: "u", role: "study_director", schoolId: "s" }, school: { id: "s" }, year: { id: "y" },
-    data: { classes, sourceClasses: classes, periods: [], attendanceSettings: undefined },
+    data: { classes, sourceClasses: classes, periods: [], timetables: [], timetableEntries: [], attendanceSettings: { schoolDays: ["monday", "tuesday", "wednesday", "thursday", "friday"] } },
   });
-  const selects = view.locator('select[aria-label^="Vacation de"]');
-  await selects.nth(0).selectOption("afternoon"); await selects.nth(1).selectOption("afternoon");
-  await expect(selects.nth(0)).toBeDisabled(); await expect(selects.nth(1)).toBeDisabled();
-  await settle(page, "class-a");
-  await expect(selects.nth(0)).toBeEnabled(); await expect(selects.nth(1)).toBeDisabled();
-  await settle(page, "class-b", undefined, "Sauvegarde refusée (test)");
+  await view.getByRole("button", { name: "Toutes les classes" }).click();
+  const selects = view.locator('select[aria-label*=" — "]');
+  await expect(selects).toHaveCount(10);
+  await expect(view.getByText("Samedi", { exact: true })).toHaveCount(0);
+  await view.getByRole("combobox", { name: "1ère A — Lundi" }).selectOption("afternoon");
+  await view.getByRole("combobox", { name: "2ème B — Mardi" }).selectOption("afternoon");
+  await view.getByRole("textbox", { name: /REMPLACER LES VACATIONS/ }).fill("REMPLACER LES VACATIONS");
+  const save = view.getByRole("button", { name: "Enregistrer les vacations sélectionnées" });
+  await save.click();
+  await expect(view.getByRole("button", { name: "Enregistrement…" })).toBeDisabled();
+  await settle(page, "class-a,class-b", undefined, "Sauvegarde refusée (test)");
   await expect(view.getByRole("alert")).toContainText("Sauvegarde refusée");
-  await expect(selects.nth(1)).toBeEnabled();
-  await selects.nth(1).selectOption("afternoon");
-  await settle(page, "class-b");
-  expect(await calls(page, "class-b")).toBe(2);
+  await save.click();
+  await settle(page, "class-a,class-b");
+  expect(await calls(page, "class-a,class-b")).toBe(2);
   await expect(view.getByRole("alert")).toHaveCount(0);
 });
 
