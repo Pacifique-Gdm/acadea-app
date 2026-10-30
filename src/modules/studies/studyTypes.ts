@@ -50,6 +50,7 @@ export interface StudyClass {
   saturdayEnabled?: boolean;
   /** Explicit daily organization; absent on historical classes. */
   dayVacations?: Partial<Record<StudyDay, StudyDayVacation>>;
+  updatedAt?: string;
 }
 
 export interface PedagogicalAssignment {

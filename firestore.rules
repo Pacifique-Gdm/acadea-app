@@ -1044,8 +1044,7 @@ service cloud.firestore {
           && request.resource.data.name is string
           && request.resource.data.name.size() > 0
           && request.resource.data.createdBy == request.auth.uid
-          && request.resource.data.keys().hasOnly(["id", "schoolId", "schoolYearId", "name", "active", "createdBy", "createdAt", "updatedAt", "vacation", "saturdayVacation", "saturdayEnabled", "dayVacations"])
-          && validStudyDayVacations(request.resource.data)
+          && request.resource.data.keys().hasOnly(["id", "schoolId", "schoolYearId", "name", "active", "createdBy", "createdAt", "updatedAt", "vacation", "saturdayVacation", "saturdayEnabled"])
           && (!("vacation" in request.resource.data) || request.resource.data.vacation in ["morning", "afternoon"])
           && (!("saturdayEnabled" in request.resource.data) || request.resource.data.saturdayEnabled is bool)
           && (!("saturdayVacation" in request.resource.data) || request.resource.data.saturdayVacation == null || request.resource.data.saturdayVacation in ["morning", "afternoon"]);
@@ -1071,8 +1070,7 @@ service cloud.firestore {
           && existsAfter(titularPath)
           && getAfter(titularPath).data.classId == classId
           && getAfter(titularPath).data.updatedBy == request.auth.uid
-          && request.resource.data.keys().hasOnly(["id", "schoolId", "schoolYearId", "name", "active", "parentClassId", "classOptionKey", "subClassLabel", "option", "vacation", "saturdayVacation", "saturdayEnabled", "dayVacations", "createdBy", "createdAt", "updatedAt"])
-          && validStudyDayVacations(request.resource.data);
+          && request.resource.data.keys().hasOnly(["id", "schoolId", "schoolYearId", "name", "active", "parentClassId", "classOptionKey", "subClassLabel", "option", "vacation", "saturdayVacation", "saturdayEnabled", "createdBy", "createdAt", "updatedAt"]);
       }
       allow read: if superAdmin() || sameTenantResource() || studyTenantResource() || teacherTenantResource();
       allow create: if (schoolAdmin() && activeTenantYearCreate() && !("parentClassId" in request.resource.data) && !("dayVacations" in request.resource.data)) || validSecretaryBaseClassCreate() || validStudyLegacyClassCreate() || validStudyOperationalClassCreate();
@@ -1080,12 +1078,7 @@ service cloud.firestore {
           && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["dayVacations"])
           && (!("parentClassId" in resource.data)
             || request.resource.data.diff(resource.data).affectedKeys().hasOnly(["vacation", "saturdayVacation", "saturdayEnabled", "updatedAt"])))
-        || (activeStudyYearUpdate()
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["vacation", "saturdayVacation", "saturdayEnabled", "dayVacations", "updatedAt"])
-          && validStudyDayVacations(request.resource.data)
-          && (!("vacation" in request.resource.data) || request.resource.data.vacation in ["morning", "afternoon"])
-          && (!("saturdayEnabled" in request.resource.data) || request.resource.data.saturdayEnabled is bool)
-          && (!("saturdayVacation" in request.resource.data) || request.resource.data.saturdayVacation == null || request.resource.data.saturdayVacation in ["morning", "afternoon"]));
+        ; // Director vacation changes are transactionally checked by the API.
       allow delete: if schoolAdmin() && sameTenantResource() && !("parentClassId" in resource.data)
         && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
     }
@@ -1432,12 +1425,12 @@ service cloud.firestore {
     }
 
     match /schedulePeriods/{periodId} {
-      function validPeriodTargets(data) {
-        return !("targetPairs" in data) || (data.targetPairs is list && data.targetPairs.size() > 0 && data.targetPairs.size() <= 400);
-      }
+      // Targeted periods are written only by the authenticated server API,
+      // which verifies every class/day and established timetable atomically.
+      function validPeriodTargets(data) { return !("targetPairs" in data); }
       allow read: if superAdmin() || studyTenantResource() || teacherTenantResource();
       allow create: if activeStudyYearCreate() && request.resource.data.label is string && request.resource.data.startTime is string && request.resource.data.endTime is string && request.resource.data.startTime < request.resource.data.endTime && request.resource.data.order is int && request.resource.data.order > 0 && request.resource.data.type in ["course","break","recess"] && (!request.resource.data.keys().hasAny(["vacation"]) || request.resource.data.vacation in ["morning","afternoon"]) && (!request.resource.data.keys().hasAny(["dayScope"]) || request.resource.data.dayScope in ["weekdays","saturday"]) && validPeriodTargets(request.resource.data) && request.resource.data.active is bool && request.resource.data.createdBy == request.auth.uid;
-      allow update: if activeStudyYearUpdate() && request.resource.data.createdBy == resource.data.createdBy && request.resource.data.createdAt == resource.data.createdAt && validPeriodTargets(request.resource.data);
+      allow update: if false; // Even historical periods may back a VALID/PUBLISHED timetable.
       allow delete: if false;
     }
 
