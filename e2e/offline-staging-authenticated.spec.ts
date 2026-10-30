@@ -131,7 +131,12 @@ async function returnOnline(context: BrowserContext, page: Page) {
 // This role marker is kept in the test process only; it is not written to the browser or logs.
 const pageRoles = new WeakMap<Page, string>();
 function roleOf(page: Page) { const role = pageRoles.get(page); if (!role) throw new Error("Rôle E2E absent."); return role; }
-async function offline(context: BrowserContext) { await context.setOffline(true); }
+async function offline(context: BrowserContext) {
+  await context.setOffline(true);
+  const page = context.pages()[0];
+  await page.getByRole("button", { name: "Voir les opérations" }).click();
+  await expect(page.getByRole("region", { name: "État des opérations hors connexion" })).toBeVisible();
+}
 async function draft(page: Page) {
   await page.getByRole("button", { name: "Enregistrer le brouillon local" }).click();
   await expect(page.getByText("Brouillon local enregistré.", { exact: false })).toBeVisible();
