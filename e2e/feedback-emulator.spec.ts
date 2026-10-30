@@ -166,3 +166,24 @@ test("mobile: no permanent offline button, conflict opens the contextual operati
   expect(bounds!.x).toBeGreaterThanOrEqual(0);
   expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
 });
+
+test("offline notice leaves forms usable until the user opens operations", async ({ page, context }) => {
+  await feedbackTransport(context, {
+    "/src/services/offlineQueue.ts": `export function listOfflineOperations() { return Promise.resolve([]); }`,
+    "/src/services/offlineSync.ts": `export function syncOfflineOperations() { return Promise.resolve(); }`,
+  });
+  const view = await mount(page, "/src/components/offline/OfflineQueuePanel.tsx", "OfflineQueuePanel", {
+    scope: { userId: "u", schoolId: "s", schoolYearId: "y" }, role: "teacher", autoSync: false,
+  });
+  await page.evaluate(() => {
+    const button = document.createElement("button"); button.textContent = "Enregistrer le brouillon local";
+    button.onclick = () => { button.dataset.clicked = "true"; };
+    document.body.appendChild(button);
+    window.dispatchEvent(new Event("offline"));
+  });
+  await expect(view.getByRole("region", { name: "État des opérations hors connexion" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Enregistrer le brouillon local" }).click();
+  await expect(page.getByRole("button", { name: "Enregistrer le brouillon local" })).toHaveAttribute("data-clicked", "true");
+  await view.getByRole("button", { name: "Voir les opérations" }).click();
+  await expect(view.getByRole("region", { name: "État des opérations hors connexion" })).toBeVisible();
+});

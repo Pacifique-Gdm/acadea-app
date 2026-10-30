@@ -29,7 +29,6 @@ export function OfflineQueuePanel({ scope, autoSync, role, initialOpen = false }
   const scopeKey = `${stableScope.userId}/${stableScope.schoolId}/${stableScope.schoolYearId}`;
   const loading = loadedScope !== scopeKey;
   const requestVersion = useRef(0);
-  const openedByConnectivity = useRef(false);
   const invalidateRequests = useCallback(() => { requestVersion.current++; }, []);
   const action = useAsyncAction();
   const run = action.run;
@@ -53,10 +52,6 @@ export function OfflineQueuePanel({ scope, autoSync, role, initialOpen = false }
         setNotice("Des opérations nécessitent votre intervention.");
       } else if (after.some((item) => item.status === "SERVER_CONFIRMED" && before.find((old) => old.id === item.id)?.status !== "SERVER_CONFIRMED")) {
         setNotice("Opérations synchronisées et confirmées par le serveur.");
-        if (openedByConnectivity.current && !after.some((item) => item.status !== "SERVER_CONFIRMED")) {
-          openedByConnectivity.current = false;
-          setOpen(false);
-        }
       }
       refresh();
     }, "Synchronisation indisponible. Les brouillons restent conservés localement.");
@@ -65,7 +60,7 @@ export function OfflineQueuePanel({ scope, autoSync, role, initialOpen = false }
     refresh();
     sync();
     const onOnline = () => { setOnline(true); setNotice("Connexion rétablie. Synchronisation en cours."); refresh(); sync(); };
-    const onOffline = () => { setOnline(false); setNotice("Connexion interrompue. Les opérations compatibles restent locales."); openedByConnectivity.current = true; setOpen(true); refresh(); };
+    const onOffline = () => { setOnline(false); setNotice("Connexion interrompue. Les opérations compatibles restent locales."); refresh(); };
     const onFocus = () => { refresh(); sync(); };
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
@@ -81,15 +76,15 @@ export function OfflineQueuePanel({ scope, autoSync, role, initialOpen = false }
   }, [refresh, sync, invalidateRequests]);
   const needsIntervention = (!loading && operations.some((item) => item.status === "CONFLICT" || item.status === "REJECTED" || (online && item.status === "RETRYABLE_ERROR"))) || Boolean(error || action.error);
   useEffect(() => {
-    if (!notice || needsIntervention) return;
+    if (!notice || needsIntervention || !online) return;
     const timer = window.setTimeout(() => setNotice(""), 5000);
     return () => window.clearTimeout(timer);
-  }, [notice, needsIntervention]);
+  }, [notice, needsIntervention, online]);
   const outstanding = loading ? 0 : operations.filter((operation) => operation.status !== "SERVER_CONFIRMED").length;
   return <div>
-    {(notice || needsIntervention) && !open && <div role={needsIntervention ? "alert" : "status"} className="fixed bottom-20 left-3 right-3 z-[80] rounded border border-amber-200 bg-white p-3 text-sm text-ink shadow-lg sm:bottom-4 sm:left-auto sm:right-4 sm:max-w-sm">
+    {(notice || needsIntervention) && !open && <div role={needsIntervention ? "alert" : "status"} className="fixed left-3 right-3 top-4 z-[80] rounded border border-amber-200 bg-white p-3 text-sm text-ink shadow-lg sm:left-auto sm:right-4 sm:max-w-sm">
       <span>{needsIntervention ? error || action.error || `Des opérations nécessitent votre intervention (${outstanding}).` : notice}</span>
-      {needsIntervention && <button type="button" className="ml-2 font-semibold underline" onClick={() => { refresh(); setOpen(true); }}>Voir les opérations</button>}
+      {(needsIntervention || !online) && <button type="button" className="ml-2 font-semibold underline" onClick={() => { refresh(); setOpen(true); }}>Voir les opérations</button>}
     </div>}
     {open && <section className={initialOpen ? "w-full rounded-lg border border-slate-200 bg-white p-4 text-ink shadow-xl" : "fixed bottom-20 left-3 right-3 z-[80] max-h-[70vh] overflow-y-auto rounded-lg border border-slate-200 bg-white p-4 text-ink shadow-xl sm:bottom-4 sm:left-auto sm:right-4 sm:w-[min(90vw,26rem)]"}
       aria-label="État des opérations hors connexion">
