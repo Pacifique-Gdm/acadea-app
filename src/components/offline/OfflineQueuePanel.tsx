@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { abandonFailedOfflineOperation, listOfflineOperations, type OfflineOperation, type OfflineOperationKind, type OfflineScope } from "../../services/offlineQueue";
 import { syncOfflineOperations } from "../../services/offlineSync";
 import type { OfflineAccess } from "../../services/offlineAccess";
@@ -81,7 +82,7 @@ export function OfflineQueuePanel({ scope, autoSync, role, initialOpen = false }
     return () => window.clearTimeout(timer);
   }, [notice, needsIntervention, online]);
   const outstanding = loading ? 0 : operations.filter((operation) => operation.status !== "SERVER_CONFIRMED").length;
-  return <div>
+  const content = <div>
     {(notice || needsIntervention) && !open && <div role={needsIntervention ? "alert" : "status"} className="fixed left-3 right-3 top-4 z-[80] rounded border border-amber-200 bg-white p-3 text-sm text-ink shadow-lg sm:left-auto sm:right-4 sm:max-w-sm">
       <span>{needsIntervention ? error || action.error || `Des opérations nécessitent votre intervention (${outstanding}).` : notice}</span>
       {(needsIntervention || !online) && <button type="button" className="ml-2 font-semibold underline" onClick={() => { refresh(); setOpen(true); }}>Voir les opérations</button>}
@@ -116,4 +117,5 @@ export function OfflineQueuePanel({ scope, autoSync, role, initialOpen = false }
       <OfflineDraftForms scope={stableScope} role={role} />
     </section>}
   </div>;
+  return initialOpen ? content : createPortal(content, document.body);
 }
