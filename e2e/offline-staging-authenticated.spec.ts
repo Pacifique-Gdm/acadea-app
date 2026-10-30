@@ -104,14 +104,17 @@ async function createSession(browser: Browser, role: string, transport = { dropN
     async restartOffline() {
       if (!profile) throw new Error("Profil persistant requis pour redémarrer Chromium.");
       const url = page.url();
+      console.info("[offline-reopen] closing Chromium profile");
       await context.close(); // Ferme entièrement le processus Chromium persistant.
+      console.info("[offline-reopen] Chromium profile closed");
       context = await openContext(true);
+      console.info("[offline-reopen] Chromium profile reopened offline");
       await attachApi(context);
       page = await context.newPage();
       page.setDefaultTimeout(15_000);
       session.context = context;
       session.page = page;
-      await page.goto(url);
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
     },
     async dispose() {
       await context.close();
@@ -138,15 +141,9 @@ async function returnOnline(context: BrowserContext, page: Page) {
 // This role marker is kept in the test process only; it is not written to the browser or logs.
 const pageRoles = new WeakMap<Page, string>();
 function roleOf(page: Page) { const role = pageRoles.get(page); if (!role) throw new Error("Rôle E2E absent."); return role; }
-async function offline(context: BrowserContext, persistent = false) {
+async function offline(context: BrowserContext) {
   const page = context.pages()[0];
-  if (persistent) {
-    const cdp = await context.newCDPSession(page);
-    await cdp.send("Network.enable");
-    await cdp.send("Network.emulateNetworkConditions", { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 });
-  } else {
-    await context.setOffline(true);
-  }
+  await context.setOffline(true);
   await expect.poll(() => page.evaluate(() => navigator.onLine), { timeout: 15_000 }).toBe(false);
   await page.getByRole("button", { name: "Voir les opérations" }).click();
   await expect(page.getByRole("region", { name: "État des opérations hors connexion" })).toBeVisible();
@@ -165,7 +162,10 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
     try {
       await session.login();
       console.info("[offline-reopen] context prepared");
-      await offline(session.context, true);
+      await session.restartOffline();
+      console.info("[offline-reopen] browser restarted before draft");
+      pageRoles.set(session.page, "teacher");
+      await expect(session.page.getByRole("heading", { name: "Acadéa hors connexion" })).toBeVisible({ timeout: 25_000 });
       await expect(session.page.getByRole("button", { name: "Enregistrer le brouillon local" })).toBeVisible({ timeout: 30_000 });
       await session.page.getByLabel("Cours préchargé").selectOption(ids!.assignment);
       await session.page.getByLabel("Élève", { exact: true }).selectOption(ids!.student);
