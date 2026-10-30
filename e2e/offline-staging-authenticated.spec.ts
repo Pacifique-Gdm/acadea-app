@@ -138,9 +138,16 @@ async function returnOnline(context: BrowserContext, page: Page) {
 // This role marker is kept in the test process only; it is not written to the browser or logs.
 const pageRoles = new WeakMap<Page, string>();
 function roleOf(page: Page) { const role = pageRoles.get(page); if (!role) throw new Error("Rôle E2E absent."); return role; }
-async function offline(context: BrowserContext) {
-  await context.setOffline(true);
+async function offline(context: BrowserContext, persistent = false) {
   const page = context.pages()[0];
+  if (persistent) {
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("Network.enable");
+    await cdp.send("Network.emulateNetworkConditions", { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 });
+  } else {
+    await context.setOffline(true);
+  }
+  await expect.poll(() => page.evaluate(() => navigator.onLine), { timeout: 15_000 }).toBe(false);
   await page.getByRole("button", { name: "Voir les opérations" }).click();
   await expect(page.getByRole("region", { name: "État des opérations hors connexion" })).toBeVisible();
 }
@@ -158,7 +165,7 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
     try {
       await session.login();
       console.info("[offline-reopen] context prepared");
-      await offline(session.context);
+      await offline(session.context, true);
       await expect(session.page.getByRole("button", { name: "Enregistrer le brouillon local" })).toBeVisible({ timeout: 30_000 });
       await session.page.getByLabel("Cours préchargé").selectOption(ids!.assignment);
       await session.page.getByLabel("Élève", { exact: true }).selectOption(ids!.student);
