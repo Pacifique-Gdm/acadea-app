@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { writeFile } from "node:fs/promises";
 import { calls, feedbackTransport, mount, settle } from "./support/feedbackHarness";
 import { fixture, students } from "./support/emulatorRecipe";
 
@@ -102,7 +103,9 @@ for (const role of ["coordination_admin", "sub_coordination_admin"]) test(`${rol
   const after = await position();
   expect(Math.abs(during - before)).toBeLessThanOrEqual(1);
   expect(Math.abs(after - before)).toBeLessThanOrEqual(1);
-  await test.info().attach(`${role}-layout-measurements`, { body: JSON.stringify({ before, during, after, unit: "CSS px", viewport: page.viewportSize() }), contentType: "application/json" });
+  const proof = test.info().outputPath(`${role}-layout-measurements.json`);
+  await writeFile(proof, JSON.stringify({ before, during, after, unit: "CSS px (document coordinates)", viewport: page.viewportSize() }));
+  await test.info().attach(`${role}-layout-measurements`, { path: proof, contentType: "application/json" });
 });
 
 test("generic saving notice reflects acknowledgement, failure and retry", async ({ page, context }) => {
