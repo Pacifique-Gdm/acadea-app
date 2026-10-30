@@ -179,6 +179,7 @@ function isStandaloneDisplayMode() {
 
 export default function App() {
   const [data, setData] = useState<AppData>(() => loadInitialData());
+  const unconfirmedCreations = useRef(new Set<string>());
   const [user, setUser] = useState<AppUser | null>(null);
   const [selectedYearId, setSelectedYearId] = useState("");
   const yearRequestVersion = useRef(0);
@@ -765,10 +766,18 @@ export default function App() {
           const previous = data[key];
           if (Array.isArray(items) && Array.isArray(previous)) {
             const known = new Set((previous as Array<{ id: string }>).map((item) => item.id));
-            createIds[key] = (items as Array<{ id: string }>).filter((item) => !known.has(item.id)).map((item) => item.id);
+            createIds[key] = (items as Array<{ id: string }>).filter((item) => {
+              const identity = `${key}/${item.id}`;
+              if (!known.has(item.id)) unconfirmedCreations.current.add(identity);
+              return unconfirmedCreations.current.has(identity);
+            }).map((item) => item.id);
           }
         }
-        void trackPersistence(() => persistFirestorePatch(next, { createIds, throwOnError: true }));
+        void trackPersistence(() => persistFirestorePatch(next, { createIds, throwOnError: true })).then((confirmed) => {
+          if (confirmed) for (const [key, ids] of Object.entries(createIds)) {
+            for (const id of ids) unconfirmedCreations.current.delete(`${key}/${id}`);
+          }
+        });
     }
     setData((prev) => ({ ...prev, ...next }));
   }

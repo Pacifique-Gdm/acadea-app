@@ -36,7 +36,9 @@ describe("Périodes & tranches horaires — présentation", () => {
     expect(source).toContain("useMemo(() => data.classes, [data.classes])");
     expect(source).not.toContain("logicalStudyClasses(data.classes, data.sourceClasses)");
     expect(source).toContain("persisted: data.sourceClasses.some");
-    expect(source).toContain('setVacationError(cause instanceof Error ? cause.message');
+    expect(source).toContain('vacationActions.error');
+    expect(source).toContain('await vacationActions.run(item.id');
+    expect(source).toContain('disabled={vacationActions.isPending(item.id)}');
     expect(source).toContain('role="alert"');
     expect(source).toContain('value={item.vacation ?? ""}');
   });

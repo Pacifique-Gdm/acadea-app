@@ -65,10 +65,10 @@ describe("API de provisionnement Acadéa", () => {
     mocks.auth.getUser.mockResolvedValue({ uid: "target-user", email: "old@example.invalid", displayName: "Ancien nom", disabled: false });
     mocks.auth.updateUser.mockResolvedValue(undefined);
     mocks.auth.revokeRefreshTokens.mockResolvedValue(undefined);
-    mocks.db.batch.mockReturnValue({ set: vi.fn(), update: vi.fn(), delete: vi.fn(), commit: vi.fn().mockResolvedValue(undefined) });
-    mocks.db.runTransaction.mockImplementation(async (operation: (transaction: { get: (reference: { get: () => Promise<unknown> }) => Promise<unknown>; set: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn> }) => Promise<unknown>) => operation({ get: (reference) => reference.get(), set: vi.fn(), update: vi.fn() }));
+    mocks.db.batch.mockReturnValue({ create: vi.fn(), set: vi.fn(), update: vi.fn(), delete: vi.fn(), commit: vi.fn().mockResolvedValue(undefined) });
+    mocks.db.runTransaction.mockImplementation(async (operation: (transaction: { get: (reference: { get: () => Promise<unknown> }) => Promise<unknown>; create: ReturnType<typeof vi.fn>; set: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn> }) => Promise<unknown>) => operation({ get: (reference) => reference.get(), create: vi.fn(), set: vi.fn(), update: vi.fn() }));
     mocks.db.collection.mockImplementation(() => ({
-      doc: vi.fn(() => ({ id: "audit-test", set: vi.fn().mockResolvedValue(undefined) })),
+      doc: vi.fn(() => ({ id: "audit-test", create: vi.fn(), set: vi.fn().mockResolvedValue(undefined) })),
       where: vi.fn(() => ({ where: vi.fn(() => ({ get: vi.fn().mockResolvedValue({ docs: [], empty: true }) })), get: vi.fn().mockResolvedValue({ docs: [], empty: true }) })),
     }));
     mocks.db.doc.mockImplementation((path: string) => ({
@@ -82,7 +82,7 @@ describe("API de provisionnement Acadéa", () => {
         : path === "students/student-1"
           ? { exists: true, data: () => ({ id: "student-1", schoolId: "school-1", schoolYearId: "year-1", status: "ACTIVE" }), ref: { path } }
           : { exists: false }),
-      set: vi.fn().mockResolvedValue(undefined),
+      create: vi.fn(), set: vi.fn().mockResolvedValue(undefined),
       update: vi.fn().mockResolvedValue(undefined),
       delete: vi.fn().mockResolvedValue(undefined),
     }));
@@ -138,7 +138,7 @@ describe("API de provisionnement Acadéa", () => {
     const transaction = {
       get: vi.fn(async (target: { get: () => Promise<unknown> }) => target.get()),
       update: vi.fn(),
-      set: vi.fn(),
+      create: vi.fn(), set: vi.fn(),
     };
     mocks.db.runTransaction.mockImplementation(async (operation: (value: typeof transaction) => Promise<unknown>) => operation(transaction));
     return { transaction, parentUserRef, auditRef };
@@ -156,7 +156,7 @@ describe("API de provisionnement Acadéa", () => {
     };
     const reference = (path: string) => ({ path, get: vi.fn(async () => snapshots[path] ?? { exists: false, data: () => ({}) }) });
     const parentUsersQuery = { get: vi.fn(async () => ({ docs: [{ ref: parentUserRef, data: () => ({ id: "parent-user-1", role: "parent", schoolId: "school-1", parentId: "parent-1", studentIds: parentStudentIds }) }] })) };
-    const transaction = { get: vi.fn(async (target: { get: () => Promise<unknown> }) => target.get()), update: vi.fn(), set: vi.fn() };
+    const transaction = { get: vi.fn(async (target: { get: () => Promise<unknown> }) => target.get()), update: vi.fn(), create: vi.fn(), set: vi.fn() };
     mocks.db.doc.mockImplementation(reference);
     mocks.db.collection.mockImplementation((name: string) => name === "users"
       ? { where: vi.fn(() => ({ where: vi.fn(() => parentUsersQuery) })) }
@@ -191,7 +191,7 @@ describe("API de provisionnement Acadéa", () => {
       if (role === "teacher") {
         expect(mocks.db.doc).toHaveBeenCalledWith("teachers/school-1__year-1__created-user");
         const batch = mocks.db.batch.mock.results[0]?.value;
-        expect(batch.set).toHaveBeenCalledWith(expect.objectContaining({ path: "teachers/school-1__year-1__created-user" }), expect.objectContaining({ userId: "created-user", schoolId: "school-1", schoolYearId: "year-1", status: "active" }));
+        expect(batch.create).toHaveBeenCalledWith(expect.objectContaining({ path: "teachers/school-1__year-1__created-user" }), expect.objectContaining({ userId: "created-user", schoolId: "school-1", schoolYearId: "year-1", status: "active" }));
       }
     });
   }
@@ -207,7 +207,7 @@ describe("API de provisionnement Acadéa", () => {
           : path === "users/director-1"
             ? { exists: true, data: () => ({ role: "study_director", schoolId: "school-1", status: "active", active: true }) }
             : { exists: false }),
-      set: vi.fn().mockResolvedValue(undefined),
+      create: vi.fn(), set: vi.fn().mockResolvedValue(undefined),
     }));
     const allowed = response();
     await provisionSchoolAccount(request({ role: "teacher", schoolId: "school-1", schoolYearId: "year-1", name: "Enseignant", email: "teacher@example.invalid", password: "test-password", phone: "0991234567" }), allowed);
@@ -274,7 +274,7 @@ describe("API de provisionnement Acadéa", () => {
     expect(transaction.update).toHaveBeenCalledWith(expect.objectContaining({ path: "students/student-1" }), expect.objectContaining({ parentId: null, updatedBy: "actor-1" }));
     expect(transaction.update).toHaveBeenCalledWith(expect.objectContaining({ path: "parents/parent-1" }), expect.objectContaining({ studentIds: ["student-2"], updatedBy: "actor-1" }));
     expect(transaction.update).toHaveBeenCalledWith(parentUserRef, expect.objectContaining({ studentIds: ["student-2"] }));
-    expect(transaction.set).toHaveBeenCalledWith(auditRef, expect.objectContaining({ eventType: "parent.unlinked_from_student", actorId: "actor-1", schoolId: "school-1", schoolYearId: "year-1", source: "server" }));
+    expect(transaction.create).toHaveBeenCalledWith(auditRef, expect.objectContaining({ eventType: "parent.unlinked_from_student", actorId: "actor-1", schoolId: "school-1", schoolYearId: "year-1", source: "server" }));
     expect(mocks.auth.deleteUser).not.toHaveBeenCalled();
   });
 
@@ -290,7 +290,7 @@ describe("API de provisionnement Acadéa", () => {
     expect(transaction.update).toHaveBeenCalledWith(expect.objectContaining({ path: "students/student-1" }), expect.objectContaining({ parentId: "parent-1", updatedBy: "actor-1" }));
     expect(transaction.update).toHaveBeenCalledWith(expect.objectContaining({ path: "parents/parent-1" }), expect.objectContaining({ studentIds: ["student-1"], updatedBy: "actor-1" }));
     expect(transaction.update).toHaveBeenCalledWith(parentUserRef, expect.objectContaining({ studentIds: ["student-1"] }));
-    expect(transaction.set).toHaveBeenCalledWith(auditRef, expect.objectContaining({ eventType: "parent.linked_to_student", actorId: "actor-1", schoolId: "school-1", schoolYearId: "year-1", source: "server" }));
+    expect(transaction.create).toHaveBeenCalledWith(auditRef, expect.objectContaining({ eventType: "parent.linked_to_student", actorId: "actor-1", schoolId: "school-1", schoolYearId: "year-1", source: "server" }));
   });
 
   it("refuse une liaison sans confirmation exacte avant toute transaction", async () => {
@@ -435,9 +435,9 @@ describe("API de provisionnement Acadéa", () => {
 
     expect(res.statusCode).toBe(200);
     const schoolRef = mocks.db.doc.mock.results
-      .map((result) => result.value as { path?: string; set?: ReturnType<typeof vi.fn> })
+      .map((result) => result.value as { path?: string; create?: ReturnType<typeof vi.fn>; set?: ReturnType<typeof vi.fn> })
       .find((ref) => ref.path?.startsWith("schools/school-"));
-    expect(schoolRef?.set).toHaveBeenCalledWith(expect.objectContaining({ educationLevels: ["CTEB", "Primaire"] }));
+    expect(schoolRef?.create).toHaveBeenCalledWith(expect.objectContaining({ educationLevels: ["CTEB", "Primaire"] }));
   });
 
   it.each([
@@ -464,9 +464,9 @@ describe("API de provisionnement Acadéa", () => {
 
     expect(res.statusCode).toBe(200);
     const schoolRef = mocks.db.doc.mock.results
-      .map((result) => result.value as { path?: string; set?: ReturnType<typeof vi.fn> })
+      .map((result) => result.value as { path?: string; create?: ReturnType<typeof vi.fn>; set?: ReturnType<typeof vi.fn> })
       .find((ref) => ref.path?.startsWith("schools/school-"));
-    expect(schoolRef?.set).toHaveBeenCalledWith(expect.objectContaining({
+    expect(schoolRef?.create).toHaveBeenCalledWith(expect.objectContaining({
       schoolType,
       educationLevels,
       schoolOptions: keepsOptions ? ["Sciences", "Littéraire"] : [],
@@ -501,8 +501,8 @@ describe("API de provisionnement Acadéa", () => {
       educationLevels: ["Secondaire"], schoolOptions: ["Scientifique", " SCIENCES ", "Littéraire"], currency: "CDF",
     }), res);
     expect(res.statusCode).toBe(200);
-    const schoolRef = mocks.db.doc.mock.results.map((result) => result.value as { path?: string; set?: ReturnType<typeof vi.fn> }).find((ref) => ref.path?.startsWith("schools/school-"));
-    expect(schoolRef?.set).toHaveBeenCalledWith(expect.objectContaining({ schoolOptions: ["Sciences", "Littéraire"], currency: "CDF" }));
+    const schoolRef = mocks.db.doc.mock.results.map((result) => result.value as { path?: string; create?: ReturnType<typeof vi.fn>; set?: ReturnType<typeof vi.fn> }).find((ref) => ref.path?.startsWith("schools/school-"));
+    expect(schoolRef?.create).toHaveBeenCalledWith(expect.objectContaining({ schoolOptions: ["Sciences", "Littéraire"], currency: "CDF" }));
   });
 
   it("refuse une devise arbitraire lors du provisionnement", async () => {
@@ -536,7 +536,7 @@ describe("API de provisionnement Acadéa", () => {
       ["personnelProfiles/teacher-1", { exists: false, data: () => ({}) }],
       ["schools/school-1/counters/personnelMatricules", { exists: true, data: () => ({ lastNumber: 4 }) }],
     ]);
-    const transaction = { get: vi.fn(async (reference: { path: string }) => reads.get(reference.path) ?? { exists: false, data: () => ({}) }), set: vi.fn(), update: vi.fn() };
+    const transaction = { get: vi.fn(async (reference: { path: string }) => reads.get(reference.path) ?? { exists: false, data: () => ({}) }), create: vi.fn(), set: vi.fn(), update: vi.fn() };
     mocks.db.runTransaction.mockImplementationOnce(async (operation: (value: typeof transaction) => Promise<unknown>) => operation(transaction));
     mocks.db.doc.mockImplementation((path: string) => ({ path, get: vi.fn().mockResolvedValue({ exists: true, data: () => path === "users/admin-1" ? { role: "school_admin", schoolId: "school-1", status: "active" } : path === "schools/school-1" ? { educationLevels: ["Primaire"] } : { role: "teacher", schoolId: "school-1", status: "active" } }) }));
     const res = response();
@@ -566,7 +566,7 @@ describe("API de provisionnement Acadéa", () => {
         : path === "schoolYears/year-1"
           ? { exists: true, data: () => ({ id: "year-1", schoolId: "school-1", status: "active" }) }
           : { exists: false }),
-      set: vi.fn().mockResolvedValue(undefined),
+      create: vi.fn(), set: vi.fn().mockResolvedValue(undefined),
     }));
     const res = response();
 
@@ -578,9 +578,9 @@ describe("API de provisionnement Acadéa", () => {
 
     expect(res.statusCode).toBe(200);
     const userRef = mocks.db.doc.mock.results
-      .map((result) => result.value as { path?: string; set?: ReturnType<typeof vi.fn> })
+      .map((result) => result.value as { path?: string; create?: ReturnType<typeof vi.fn>; set?: ReturnType<typeof vi.fn> })
       .find((ref) => ref.path === "users/created-user");
-    expect(userRef?.set).toHaveBeenCalledWith(expect.objectContaining({ section: "CTEB", sectionIds: ["CTEB"] }));
+    expect(userRef?.create).toHaveBeenCalledWith(expect.objectContaining({ section: "CTEB", sectionIds: ["CTEB"] }));
   });
 
   it("archive logiquement un personnel de la même école sans supprimer Auth ni Firestore", async () => {
@@ -720,7 +720,7 @@ describe("API de provisionnement Acadéa", () => {
   it("ne réactive pas Auth si la réparation idempotente du profil échoue", async () => {
     const teacherRef = { path: "teachers/profile-1" };
     mocks.auth.getUser.mockResolvedValue({ uid: "teacher-1", disabled: true, customClaims: { role: "teacher", schoolId: "school-1" } });
-    mocks.db.batch.mockReturnValue({ set: vi.fn(), update: vi.fn(), delete: vi.fn(), commit: vi.fn().mockRejectedValue(new Error("batch failed")) });
+    mocks.db.batch.mockReturnValue({ create: vi.fn(), set: vi.fn(), update: vi.fn(), delete: vi.fn(), commit: vi.fn().mockRejectedValue(new Error("batch failed")) });
     mocks.db.collection.mockImplementation((name: string) => ({ doc: vi.fn(() => ({ id: "audit-test" })), where: vi.fn(() => ({ get: vi.fn().mockResolvedValue({ docs: name === "teachers" ? [{ id: "profile-1", ref: teacherRef, data: () => ({ userId: "teacher-1", schoolId: "school-1", schoolYearId: "year-1", status: "active" }) }] : [] }) })) }));
     mocks.db.doc.mockImplementation((path: string) => ({ path, get: vi.fn().mockResolvedValue({ exists: true, data: () => path === "users/admin-1" ? { role: "school_admin", schoolId: "school-1", status: "active" } : path === "schools/school-1" ? { id: "school-1", status: "active" } : { role: "teacher", schoolId: "school-1", status: "inactive", active: false } }) }));
     const res = response();
@@ -731,7 +731,7 @@ describe("API de provisionnement Acadéa", () => {
   });
 
   it("restaure l'état Auth initial si le batch d'un nouvel archivage échoue", async () => {
-    mocks.db.batch.mockReturnValue({ set: vi.fn(), update: vi.fn(), delete: vi.fn(), commit: vi.fn().mockRejectedValue(new Error("batch failed")) });
+    mocks.db.batch.mockReturnValue({ create: vi.fn(), set: vi.fn(), update: vi.fn(), delete: vi.fn(), commit: vi.fn().mockRejectedValue(new Error("batch failed")) });
     mocks.db.doc.mockImplementation((path: string) => ({ path, get: vi.fn().mockResolvedValue({ exists: true, data: () => path === "users/admin-1" ? { role: "school_admin", schoolId: "school-1", status: "active" } : { role: "teacher", schoolId: "school-1", status: "active", active: true } }) }));
     const res = response();
     await provisionSchoolAccount(request({ action: "archive-personnel", schoolId: "school-1", personnelId: "teacher-1" }), res);
@@ -776,7 +776,7 @@ describe("API de provisionnement Acadéa", () => {
           : { exists: false }),
     }));
     mocks.db.collection.mockImplementation((name: string) => ({
-      doc: vi.fn(() => ({ id: "audit-test", set: vi.fn().mockResolvedValue(undefined) })),
+      doc: vi.fn(() => ({ id: "audit-test", create: vi.fn(), set: vi.fn().mockResolvedValue(undefined) })),
       where: vi.fn(() => ({ get: vi.fn().mockResolvedValue({ docs: name === "teachers" ? [teacherSnapshot] : name === "pedagogicalAssignments" ? [assignmentSnapshot, archivedYearAssignment] : name === "teacherAvailabilities" ? [availabilitySnapshot] : name === "classTitulars" ? [titularSnapshot] : name === "timetableEntries" ? [timetableEntrySnapshot] : [] }) })),
     }));
     const res = response();

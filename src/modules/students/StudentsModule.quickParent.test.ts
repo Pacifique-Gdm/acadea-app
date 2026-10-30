@@ -9,7 +9,9 @@ describe("création rapide différée d'un Parent", () => {
     const provisionAfterPersistence = source.indexOf("const provisioned = await provisionParent(", persistence);
     expect(persistence).toBeGreaterThan(-1);
     expect(provisionAfterPersistence).toBeGreaterThan(persistence);
-    expect(source).toContain('id: exists ? form.id : uid("student")');
+    expect(source).toContain('id: exists ? form.id : (() =>');
+    expect(source).toContain('creationIds.current.get(form.id)');
+    expect(source).toContain('creationIds.current.set(form.id, id)');
     expect(source).toContain("studentIds: [student.id]");
     expect(source).not.toContain("studentIds: [form.id]");
   });

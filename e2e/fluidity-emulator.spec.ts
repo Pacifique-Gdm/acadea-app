@@ -3,6 +3,35 @@ import { fixture } from "./support/emulatorRecipe";
 
 const roles = ["super_admin", "school_admin", "secretary", "study_director", "discipline_director", "teacher", "cashier", "parent", "coordination_admin", "sub_coordination_admin"];
 
+test("authenticated conditional creation rejects collisions and cross-school writes", async ({ browser }) => {
+  const f = fixture();
+  try {
+    await f.seed(["school_admin"]);
+    const { page, context } = await f.session(browser, "school_admin", {});
+    try {
+      const id = f.tag + "-valve";
+      const write = (schoolId: string, title: string) => page.evaluate(async (value) => {
+        const path = "/src/services/conditionalFirestoreWrite.ts";
+        const { conditionalFirestoreWrite } = await import(path);
+        try { await conditionalFirestoreWrite("valves", value.id, value, false); return "created"; }
+        catch (error) { return String((error as { code?: string }).code); }
+      }, { id, schoolId, schoolYearId: f.year, title, content: "Fixture", attachments: [], createdAt: new Date().toISOString() });
+      expect(await write(f.school, "Original")).toBe("created");
+      expect(await write(f.school, "Collision")).toBe("ALREADY_EXISTS");
+      expect((await f.db.doc("valves/" + id).get()).data()?.title).toBe("Original");
+      // A fresh document ID ensures this assertion exercises tenant rules, not the absence precondition.
+      const denied = await page.evaluate(async ({ schoolId, year, id }) => {
+        const path = "/src/services/conditionalFirestoreWrite.ts";
+        const { conditionalFirestoreWrite } = await import(path);
+        try { await conditionalFirestoreWrite("valves", id, { id, schoolId, schoolYearId: year, title: "Forbidden", attachments: [] }, false); return false; }
+        catch { return true; }
+      }, { schoolId: f.other, year: f.year, id: id + "-other" });
+      expect(denied).toBe(true);
+      expect((await f.db.doc("valves/" + id + "-other").get()).exists).toBe(false);
+    } finally { await context.close(); }
+  } finally { await f.cleanup(); }
+});
+
 test("ten roles retain authenticated access and responsive menus", async ({ browser }) => {
   test.setTimeout(240_000);
   const f = fixture();
@@ -40,7 +69,9 @@ test("real discipline export component locks double clicks and exposes failure/r
   await page.evaluate(async () => {
     const reactPath = "/node_modules/.vite/deps/react.js", domPath = "/node_modules/.vite/deps/react-dom_client.js";
     const componentPath = "/src/components/discipline/DisciplineStatus.tsx";
-    const React = await import(reactPath), { createRoot } = await import(domPath), { DisciplineStatus } = await import(componentPath);
+    const reactModule = await import(reactPath), domModule = await import(domPath), { DisciplineStatus } = await import(componentPath);
+    const React = reactModule.default ?? reactModule;
+    const { createRoot } = domModule.default ?? domModule;
     const container = document.createElement("div"); container.id = "fluidity-test"; document.body.appendChild(container);
     const state = { calls: 0, reject: () => {} };
     Object.assign(window, { fluidityTest: state });
