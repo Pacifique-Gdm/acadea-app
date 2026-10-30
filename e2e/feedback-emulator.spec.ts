@@ -91,14 +91,15 @@ for (const role of ["coordination_admin", "sub_coordination_admin"]) test(`${rol
   // Two frames let the browser measure the initial results and deliver ResizeObserver.
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const nav = view.getByRole("navigation", { name: "Pagination du contrôle" });
-  const before = (await nav.boundingBox())!.y;
+  const position = () => nav.evaluate(element => element.getBoundingClientRect().top + window.scrollY);
+  const before = await position();
   await view.getByRole("button", { name: "Suivante" }).click();
   await expect(view.getByRole("status")).toBeVisible();
   await expect(view.getByText("Ancien Fictif")).toHaveCount(0);
-  const during = (await nav.boundingBox())!.y;
+  const during = await position();
   await page.evaluate(() => (window as unknown as { feedback: { setLoading: (value: boolean) => void } }).feedback.setLoading(false));
   await expect(view.getByText("Ancien Fictif").first()).toBeVisible();
-  const after = (await nav.boundingBox())!.y;
+  const after = await position();
   expect(Math.abs(during - before)).toBeLessThanOrEqual(1);
   expect(Math.abs(after - before)).toBeLessThanOrEqual(1);
   await test.info().attach(`${role}-layout-measurements`, { body: JSON.stringify({ before, during, after, unit: "CSS px", viewport: page.viewportSize() }), contentType: "application/json" });
@@ -117,4 +118,28 @@ test("generic saving notice reflects acknowledgement, failure and retry", async 
   await expect(view.getByRole("alert")).toContainText("Échec");
   await start(); await settle(page, "save", true);
   await expect(view.getByRole("status")).toContainText("Enregistré sur le serveur");
+});
+
+test("offline panel: pending reads are not empty, failed synchronization retains drafts", async ({ page, context }) => {
+  await feedbackTransport(context, {
+    "/src/services/offlineQueue.ts": `export function listOfflineOperations() { return window.feedback.call('queue-list'); }`,
+    "/src/services/offlineSync.ts": `export function syncOfflineOperations() { return window.feedback.call('queue-sync'); }`,
+  });
+  const view = await mount(page, "/src/components/offline/OfflineQueuePanel.tsx", "OfflineQueuePanel", {
+    scope: { userId: "u", schoolId: "s", schoolYearId: "y" }, role: "teacher", autoSync: true,
+  });
+  await view.getByRole("button", { name: /Opérations hors connexion/ }).click();
+  await expect(view.getByRole("status")).toHaveText("Lecture des opérations locales…");
+  await expect(view.getByText(/Aucune opération locale/)).toHaveCount(0);
+  await settle(page, "queue-list", [{ id: "historical-id", kind: "grade", status: "CONFLICT", createdAt: "2026-10-29T00:00:00Z" }]);
+  await expect(view.getByText("Conflit — intervention nécessaire", { exact: true })).toBeVisible();
+  await settle(page, "queue-sync", undefined, "Network unavailable (test)");
+  await expect(view.getByRole("alert")).toContainText("Network unavailable (test)");
+  await expect(view.getByText("Conflit — intervention nécessaire", { exact: true })).toBeVisible();
+  await view.getByRole("button", { name: "Réessayer la synchronisation" }).click();
+  await expect(view.getByRole("button", { name: "Synchronisation…", exact: true })).toBeDisabled();
+  await settle(page, "queue-sync");
+  await expect(view.getByRole("alert")).toHaveCount(0);
+  // A successful transport without a server receipt must not invent confirmation.
+  await expect(view.getByText("Conflit — intervention nécessaire", { exact: true })).toBeVisible();
 });

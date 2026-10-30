@@ -104,6 +104,7 @@ export function StudentsModule({
   const [terminalFeedback, setTerminalFeedback] = useState("");
   const [terminalBusy, setTerminalBusy] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [pdfError, setPdfError] = useState("");
   const pdfExportLock = useRef(false);
   const [terminalDecisions, setTerminalDecisions] = useState<Record<string, "completed" | "reenrolled">>({});
   const defaultCanManage = user.role === "school_admin" && year.status !== "archived";
@@ -553,12 +554,12 @@ export function StudentsModule({
       `Option: ${optionFilter || "Toutes les options"}`,
     ];
     setIsExporting(true);
-    setSaveError("");
+    setPdfError("");
     try {
       const exportStudents = await loadAllStudentResults(studentFilters, yearData.students);
       await exportStudentsPdf(school, year, exportStudents, filters, structuredClasses);
     } catch (cause) {
-      setSaveError(cause instanceof Error ? cause.message : "Impossible de charger les élèves à exporter.");
+      setPdfError(cause instanceof Error ? cause.message : "Impossible de charger les élèves à exporter.");
     } finally {
       pdfExportLock.current = false;
       setIsExporting(false);
@@ -616,6 +617,7 @@ export function StudentsModule({
           </button>
           </div>
         </div>
+        {pdfError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{pdfError}</p>}
         {studentPage.error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Impossible de charger les élèves : {studentPage.error}</p>}
         {studentPage.loading && <p className="rounded border border-slate-200 bg-white p-3 text-sm text-slate-500">Chargement des élèves…</p>}
         <div className="max-w-full overflow-x-auto rounded border border-slate-200 bg-white">
