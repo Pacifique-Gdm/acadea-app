@@ -65,7 +65,12 @@ No Firebase configuration, production data, deployment or merge was performed.
 ## Payment correction boundary
 
 - The financial transaction core now supports only `update-payment` and `delete-payment` for a section role, with the role still blocked by the public active-user gate. Inside the transaction it rechecks the authoritative profile, originating student's section and year, and any linked current student for historical arrears. An idempotent retry is returned only while the actor still holds the originating section.
-- Cross-section, inconsistent historical links and revoked section assignments are rejected; tests exercise both writes, retries and refusals. Creation of payments, expenses and other cash inflows remains denied. The schoolwide balance, all financial histories, and missing section attribution on historical expenses remain release blockers.
+- Cross-section, inconsistent historical links and revoked section assignments are rejected; tests exercise both writes, retries and refusals. Expenses and other cash inflows remain denied. The schoolwide balance, all financial histories, and missing section attribution on historical expenses remain release blockers.
+
+## Payment creation boundary
+
+- The transaction core also permits a section administrator to create a payment only for a current student whose explicit section belongs to the authoritative profile. A historical debt additionally checks each linked historical student against that same scope. The payment and idempotent result carry the verified section; a retry after section revocation is denied.
+- This is still an internal core capability, not an enabled route: the active-user HTTP gate and Firestore gate remain closed. Expenses, other cash inflows, section balance, and complete financial history are not available to these profiles.
 
 ## Messaging recipient boundary
 

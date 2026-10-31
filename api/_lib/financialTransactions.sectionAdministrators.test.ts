@@ -47,10 +47,35 @@ function fixture(section = "Primaire") {
 }
 
 describe("corrections de paiements du profil administratif de section", () => {
-  it("ne lui accorde ni création d'encaissement, ni dépense, ni entrée de caisse", () => {
-    for (const action of ["create-payment", "create-expense", "create-cash-inflow", "update-expense", "delete-expense"]) {
+  it("ne lui accorde ni dépense, ni entrée de caisse non attribuée", () => {
+    for (const action of ["create-expense", "create-cash-inflow", "update-expense", "delete-expense"]) {
       expect(() => authorizeFinancialCaller(caller, action)).toThrow();
     }
+  });
+
+  it("crée un encaissement seulement pour un élève de sa section, sans écraser ni doubler un paiement", async () => {
+    const state = fixture();
+    const body = { action: "create-payment", schoolYearId: "year-a", studentId: "student-a", feeTypeId: "fee-a",
+      amount: 12, clientRequestId: "section-create-0001" };
+    await expect(executeFinancialOperation({ db: state.db, caller, body }))
+      .resolves.toMatchObject({ idempotent: false, section: "Primaire", payment: { section: "Primaire", amount: 12 } });
+    expect([...state.values.entries()].filter(([path]) => path.startsWith("payments/"))).toHaveLength(2);
+    await expect(executeFinancialOperation({ db: state.db, caller, body }))
+      .resolves.toMatchObject({ idempotent: true, section: "Primaire" });
+    expect([...state.values.entries()].filter(([path]) => path.startsWith("payments/"))).toHaveLength(2);
+    state.values.set("users/section-a", { role: "primary_admin", schoolId: "school-a", status: "active", sectionIds: ["Secondaire"] });
+    await expect(executeFinancialOperation({ db: state.db, caller, body }))
+      .rejects.toMatchObject({ status: 403, code: "permission-denied" });
+  });
+
+  it("refuse la création pour un élève d'une autre section avant toute écriture", async () => {
+    const state = fixture("Secondaire");
+    const body = { action: "create-payment", schoolYearId: "year-a", studentId: "student-a", feeTypeId: "fee-a",
+      amount: 12, clientRequestId: "section-create-0002" };
+    await expect(executeFinancialOperation({ db: state.db, caller, body }))
+      .rejects.toMatchObject({ statusCode: 403, code: "permission-denied" });
+    expect([...state.values.keys()].filter((path) => path.startsWith("payments/"))).toEqual(["payments/payment-a"]);
+    expect([...state.values.keys()].some((path) => path.startsWith("financialIdempotency/"))).toBe(false);
   });
 
   it("refuse une autre section avant toute écriture", async () => {

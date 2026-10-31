@@ -336,7 +336,7 @@ export async function listScopedStudentArrears({ db, studentId, schoolIds }) {
 async function createPayment(transaction, db, caller, body, hash, now) {
   assertAllowedKeys(body, PAYMENT_CREATE_KEYS);
   const amount = positiveAmount(body.amount);
-  const { schoolYearId: collectionSchoolYearId, year, school, currency, actorName } = await assertContext(transaction, db, caller, body.schoolYearId);
+  const { schoolYearId: collectionSchoolYearId, year, school, profile, currency, actorName } = await assertContext(transaction, db, caller, body.schoolYearId);
   const currentStudentId = text(body.studentId, 120);
   const feeTypeId = text(body.feeTypeId, 120);
   const debtSchoolYearId = text(body.debtSchoolYearId, 120);
@@ -350,6 +350,8 @@ async function createPayment(transaction, db, caller, body, hash, now) {
   if (!currentStudentSnapshot.exists || currentStudent.schoolId !== caller.schoolId || currentStudent.schoolYearId !== collectionSchoolYearId || currentStudent.status !== "ACTIVE") {
     throw new FinancialApiError(400, "invalid-argument", "Élève invalide pour cet établissement et cette année.");
   }
+  const sectionProfile = isSectionAdministrator(caller.role) ? profile : undefined;
+  if (sectionProfile) requireSectionAdministratorResource(sectionProfile, currentStudent);
   if (!feeSnapshot.exists || fee.schoolId !== caller.schoolId || !(Number(fee.amount) > 0)) {
     throw new FinancialApiError(400, "invalid-argument", "Type de frais invalide pour cet établissement et cette année.");
   }
@@ -364,7 +366,7 @@ async function createPayment(transaction, db, caller, body, hash, now) {
     if (debtSchoolYearId === collectionSchoolYearId || year.status !== "active" || school.activeSchoolYearId !== collectionSchoolYearId) {
       throw new FinancialApiError(409, "failed-precondition", "Une créance historique exige l'année scolaire active.");
     }
-    const debts = await historicalDebts(transaction, db, caller, { id: currentStudentId, ...currentStudent }, year, school);
+    const debts = await historicalDebts(transaction, db, caller, { id: currentStudentId, ...currentStudent }, year, school, undefined, undefined, sectionProfile);
     debt = debts.find((item) => item.schoolYearId === debtSchoolYearId && item.feeTypeId === feeTypeId);
     if (!debt) throw new FinancialApiError(400, "invalid-argument", "Créance historique invalide pour cet élève.");
     schoolYearId = debt.schoolYearId;
@@ -413,6 +415,7 @@ async function createPayment(transaction, db, caller, body, hash, now) {
     schoolId: caller.schoolId,
     schoolYearId,
     studentId,
+    ...(sectionProfile ? { section: currentStudent.section } : {}),
     ...(typeof currentStudent.parentId === "string" && currentStudent.parentId ? { parentId: currentStudent.parentId } : {}),
     feeTypeId,
     ...(debt ? { collectionSchoolYearId, currentStudentId, debtSchoolYearName: debt.yearName, feeName: debt.feeName, currency: debt.currency } : {}),
@@ -448,7 +451,7 @@ async function createPayment(transaction, db, caller, body, hash, now) {
       createdAt: now, read: false,
     });
   }
-  return { payment };
+  return { payment, ...(sectionProfile ? { section: currentStudent.section } : {}) };
 }
 
 async function createExpense(transaction, db, caller, body, hash, now) {
@@ -670,7 +673,7 @@ export async function executeFinancialOperation({ db, caller: rawCaller, body, n
 }
 
 export function authorizeFinancialCaller(rawCaller, action) {
-  if (["list-arrears", "list-arrears-batch", "update-payment", "delete-payment"].includes(action) && isSectionAdministrator(rawCaller.role)) return assertRole(rawCaller, Object.keys(SECTION_ADMINISTRATORS));
+  if (["list-arrears", "list-arrears-batch", "create-payment", "update-payment", "delete-payment"].includes(action) && isSectionAdministrator(rawCaller.role)) return assertRole(rawCaller, Object.keys(SECTION_ADMINISTRATORS));
   const createAction = action === "create-payment" || action === "create-expense" || action === "create-cash-inflow";
   return assertRole(rawCaller, action === "list-arrears" ? ["cashier", "school_admin", "parent"] : action === "list-arrears-batch" ? ["cashier", "school_admin"] : createAction ? ["cashier"] : ["school_admin"]);
 }
