@@ -556,7 +556,9 @@ export function MenuModule({
     setShowCashierPassword(false);
     setSchoolUserRole("cashier");
     setSchoolUserSections([]);
-    setCashierSuccess(`Compte ${schoolUserProvisionLabels[schoolUserRole].toLowerCase()} créé avec succès. Il peut maintenant se connecter avec son email et son mot de passe.`);
+    setCashierSuccess(["kindergarten_admin", "primary_admin", "studies_prefect"].includes(schoolUserRole)
+      ? "Profil créé et désactivé. La connexion restera bloquée jusqu’à validation des protections et activation par le Super Administrateur."
+      : `Compte ${schoolUserProvisionLabels[schoolUserRole].toLowerCase()} créé avec succès. Il peut maintenant se connecter avec son email et son mot de passe.`);
     window.setTimeout(() => setCreatePersonnelOpen(false), 2000);
   }
 

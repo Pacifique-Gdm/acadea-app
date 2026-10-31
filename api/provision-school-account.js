@@ -1,3 +1,4 @@
+import { manageSectionAdministrators } from "./_lib/manageSectionAdministrators.js";
 import { isSectionAdministrator } from "./_lib/sectionAdministrators.js";
 import { createHash } from "node:crypto";
 import { randomId as uid } from "./_lib/randomId.js";
@@ -876,6 +877,11 @@ export default async function handler(req, res) {
     }
     const destructive = action === "delete-parent" || action === "delete-school-subclass" || action === "unlink-parent-from-student" || action === "remove-school-admin" || action === "archive-personnel" || action === "reactivate-personnel";
     await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? "platform"), action: destructive ? `provision.${action}` : "provision.account", ...(destructive ? API_RATE_LIMITS.PROVISION_DESTRUCTIVE : API_RATE_LIMITS.PROVISION_ACCOUNT) });
+
+    if (action === "manage-section-administrator") {
+      sendJson(res, 200, await manageSectionAdministrators({ db, auth, caller, body }));
+      return;
+    }
 
     if (action === "delete-parent") {
       const result = await deleteParentAccount({ auth, db, caller, body });

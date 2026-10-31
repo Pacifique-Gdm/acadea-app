@@ -1,3 +1,4 @@
+import { SectionAdministratorActions } from "./SectionAdministratorActions";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ArrowUpDown, BookOpen, Building2, CheckCircle2, Filter, GraduationCap, LayoutDashboard, LogOut, Menu as MenuIcon, Plus, RotateCcw, Search, ShieldCheck, Sparkles, Upload, UsersRound, X } from "lucide-react";
@@ -1517,6 +1518,7 @@ export function PlatformModule({
 
             {detailTab === "info" && (
               <div className="grid gap-3 sm:grid-cols-2">
+                <SectionAdministratorActions key={drawerSchool.id} schoolId={drawerSchool.id} />
                 <InfoRow label="Nom" value={drawerSchool.name} />
                 <div className="grid gap-2"><InfoRow label="Sigle" value={drawerSchool.acronym ?? "-"} /><button type="button" className="secondary-button justify-center" onClick={() => { setSchoolAcronymError(""); setSchoolAcronymTargetId(drawerSchool.id); }}>Modifier le sigle</button></div>
                 <InfoRow label="Adresse" value={drawerSchool.address || "-"} />

@@ -457,3 +457,8 @@ export async function manageSchool(input: ManageSchoolInput) {
 
   return payload;
 }
+
+export type SectionAdministratorSummary = Pick<AppUser, "id" | "name" | "role" | "sectionIds" | "status" | "active">;
+export async function manageSectionAdministrator(input: { schoolId: string; operation: "list" | "activate" | "deactivate" | "delete"; userId?: string; confirmation?: string }) {
+  return provisionSchoolAccount<{ users?: SectionAdministratorSummary[] }>({ action: "manage-section-administrator", ...input });
+}

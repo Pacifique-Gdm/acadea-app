@@ -24,3 +24,14 @@ Remaining required implementation:
 8. Only then review removing release guards. No automatic activation based on this checkpoint.
 
 No Firebase configuration, production data, deployment or merge was performed.
+
+## Personnel creation and lifecycle checkpoint
+
+- Existing personnel account form now offers all three roles and requires sections.
+- Server checks configured school sections and creates Auth/profile records disabled.
+- Personnel role labels, typed roles and generated email prefixes added.
+- School information drawer now lists section administrators and exposes exact manual confirmations.
+- Super-admin-only lifecycle API scopes targets to the selected school, disables Auth, revokes sessions and writes an audit entry. Deletion removes Auth access and preserves a tombstone for history attribution.
+- Activation deliberately returns 409 until the five-tab/data security integration is validated. It is not a completed activation workflow.
+- API/provisioning/policy tests: 116 passed. Credentials/routes/lifecycle tests: 45 passed (overlapping lifecycle tests). TypeScript and lint passed after fixing new-role integrations.
+- Still outstanding: five-tab permissions and section-scoped queries, financial/message/history/PDF integration, emulator and browser lifecycle validation. No connections have been enabled.
