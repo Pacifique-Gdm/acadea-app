@@ -35,3 +35,12 @@ No Firebase configuration, production data, deployment or merge was performed.
 - Activation deliberately returns 409 until the five-tab/data security integration is validated. It is not a completed activation workflow.
 - API/provisioning/policy tests: 116 passed. Credentials/routes/lifecycle tests: 45 passed (overlapping lifecycle tests). TypeScript and lint passed after fixing new-role integrations.
 - Still outstanding: five-tab permissions and section-scoped queries, financial/message/history/PDF integration, emulator and browser lifecycle validation. No connections have been enabled.
+
+## Historical arrears and shared interface filtering checkpoint
+
+- Financial arrears single/batch readers accept section roles internally while public access remains blocked by the release gate.
+- Scope is loaded from the authoritative user document inside the transaction. Empty/invalid assignments fail closed, regardless of claim sections.
+- Current student and historical student records must belong to an authorized section. Cross-section ancestry and unattributed historical data reject the read before monetary details are calculated/returned.
+- Existing authorized totals and USD/CDF separation are preserved. Financial regression suite: 39 tests passed; TypeScript and targeted lint passed.
+- Shared UI section filters now reject empty scope, other-school records and records lacking an explicit section for the new roles. Legacy role behavior is unchanged. 11 filter tests passed.
+- This is not complete financial authorization: payment/expense/cash/payroll mutations and balances remain unavailable to section roles; all five-tab, message, PDF and Firestore integrations remain pending. No activation or deployment is authorized by this checkpoint.
