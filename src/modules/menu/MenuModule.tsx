@@ -35,7 +35,7 @@ import { SchoolYearArchiveDrawer } from "../../components/archive/SchoolYearArch
 import { LibraryDrawer } from "../library/LibraryDrawer";
 import type { StudentMedicalRecord } from "../secretary/secretaryTypes";
 
-type SchoolUserProvisionRole = "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher";
+type SchoolUserProvisionRole = "kindergarten_admin" | "primary_admin" | "studies_prefect" | "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher";
 
 type MenuYearData = {
   students: Student[];
@@ -70,6 +70,7 @@ type MenuModuleProps = {
 };
 
 const schoolUserProvisionLabels: Record<SchoolUserProvisionRole, string> = {
+kindergarten_admin: "Directrice Maternelle", primary_admin: "Admin. Primaire", studies_prefect: "Préfet d’études",
   cashier: "Caissier",
   discipline_director: "Directeur de Discipline",
   study_director: "Directeur des études",
@@ -510,6 +511,10 @@ export function MenuModule({
     const normalizedPhone = normalizeProvisioningPhone(cashierPhone);
     if (!cashierName.trim() || !cashierEmail.trim() || !normalizedPhone) {
       setCashierError("Nom, téléphone et email sont requis.");
+      return;
+    }
+    if (["kindergarten_admin", "primary_admin", "studies_prefect"].includes(schoolUserRole) && !schoolUserSections.length) {
+      setCashierError("Attribuez au moins une section scolaire à ce profil.");
       return;
     }
     if (!cashierPassword) return;
@@ -1097,7 +1102,7 @@ export function MenuModule({
           <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
             Type d'utilisateur
             <select value={schoolUserRole} onChange={(event) => { setSchoolUserRole(event.target.value as SchoolUserProvisionRole); setSchoolUserEmailManuallyEdited(false); }} className="input">
-              <option value="cashier">Caissier</option>
+              <option value="kindergarten_admin">Directrice Maternelle</option><option value="primary_admin">Admin. Primaire</option><option value="studies_prefect">Préfet d’études</option><option value="cashier">Caissier</option>
               <option value="discipline_director">Directeur de Discipline</option>
               <option value="study_director">Directeur des études</option>
               <option value="secretary">Secrétaire</option>

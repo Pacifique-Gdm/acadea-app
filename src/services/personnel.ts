@@ -6,12 +6,13 @@ import { resolveApiUrl } from "../config/apiUrl";
 import { getCurrentFirebaseIdToken } from "./auth";
 import { apiErrorMessage } from "../utils/rateLimitErrors";
 
-export const INTERNAL_PERSONNEL_ROLES = ["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"] as const satisfies readonly Role[];
+export const INTERNAL_PERSONNEL_ROLES = ["kindergarten_admin", "primary_admin", "studies_prefect", "school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"] as const satisfies readonly Role[];
 export type InternalPersonnelRole = typeof INTERNAL_PERSONNEL_ROLES[number];
 export type PersonnelRecord = AppUser | ServicePersonnel;
 export const isServicePersonnel = (personnel: PersonnelRecord): personnel is ServicePersonnel => "kind" in personnel && personnel.kind === "service";
 
 export const personnelRoleLabels: Record<InternalPersonnelRole, string> = {
+  kindergarten_admin: "Directrice Maternelle", primary_admin: "Admin. Primaire", studies_prefect: "Préfet d’études",
   school_admin: "Administrateur",
   cashier: "Caissier",
   discipline_director: "Directeur de Discipline",

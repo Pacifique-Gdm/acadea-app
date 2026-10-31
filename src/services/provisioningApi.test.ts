@@ -174,6 +174,20 @@ describe("API de provisionnement Acadéa", () => {
     expect(mocks.auth.verifyIdToken).not.toHaveBeenCalled();
   });
 
+  it.each(["kindergarten_admin", "primary_admin", "studies_prefect"])("crée %s désactivé avec sections explicites", async role => {
+    const res = response();
+    await provisionSchoolAccount(request({ role, schoolId: "school-1", schoolYearId: "year-1", name: "Profil section", email: `${role}@example.invalid`, password: "test-password", phone: "0991234567", sectionIds: ["Maternelle", "CTEB"] }), res);
+    expect(res.statusCode).toBe(200);
+    expect(mocks.auth.createUser).toHaveBeenCalledWith(expect.objectContaining({ disabled: true }));
+    expect(res.body?.user).toMatchObject({ role, schoolId: "school-1", sectionIds: ["Maternelle", "CTEB"], status: "inactive", active: false });
+  });
+  it.each([undefined, [], ["unknown"]])("refuse un administrateur de section sans périmètre valide %j", async sectionIds => {
+    const res = response();
+    await provisionSchoolAccount(request({ role: "primary_admin", schoolId: "school-1", schoolYearId: "year-1", name: "Profil section", email: "section@example.invalid", password: "test-password", sectionIds }), res);
+    expect(res.statusCode).toBe(400);
+    expect(mocks.auth.createUser).not.toHaveBeenCalled();
+  });
+
   for (const role of ["cashier", "secretary", "discipline_director", "study_director", "teacher"] as const) {
     it(`crée Firebase Auth, le profil Firestore et les claims pour ${role}`, async () => {
       const res = response();

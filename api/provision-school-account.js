@@ -1,3 +1,4 @@
+import { isSectionAdministrator } from "./_lib/sectionAdministrators.js";
 import { createHash } from "node:crypto";
 import { randomId as uid } from "./_lib/randomId.js";
 import { firebaseAdminPublicError, initAdmin } from "./_lib/firebaseAdmin.js";
@@ -12,7 +13,7 @@ import { saveManualStudent } from "./_lib/manualStudentSave.js";
 import { saveStudyAssignments, setStudyAssignmentActive } from "./_lib/studyAssignmentGrants.js";
 import { findProvisioningReceipt, provisioningReceipt, provisioningRequestId } from "./_lib/provisioningReceipt.js";
 
-const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent"]);
+const allowedRoles = new Set(["kindergarten_admin", "primary_admin", "studies_prefect", "school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent"]);
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
 const parentLinkConfirmation = "LIER À CE PARENT";
 const parentUnlinkConfirmation = "DÉLIER LE PARENT";
@@ -486,12 +487,12 @@ export async function linkParentToStudent({ db, caller, body }) {
   });
 }
 
-async function createAuthUser(auth, { email, password, displayName }) {
+async function createAuthUser(auth, { email, password, displayName, disabled = false }) {
   return auth.createUser({
     email,
     password,
     displayName,
-    disabled: false,
+    disabled,
   });
 }
 
@@ -963,14 +964,18 @@ export default async function handler(req, res) {
     if (previousResult) { sendJson(res, 200, previousResult); return; }
     const parentStudentSnapshots = role === "parent" ? await loadParentStudents(db, { studentIds, schoolId, schoolYearId, parentId }) : [];
 
+    if (isSectionAdministrator(role) && (!Array.isArray(body.sectionIds) || !body.sectionIds.length || body.sectionIds.some(value => !schoolSections.has(value)))) {
+      throw Object.assign(new Error("Sections scolaires explicites et valides requises."), { statusCode: 400, code: "invalid-argument" });
+    }
     const authUser = await createAuthUser(auth, {
       email,
       password,
       displayName: name,
+      disabled: isSectionAdministrator(role),
     });
     createdAuthUid = authUser.uid;
 
-    if (role === "school_admin" || role === "cashier" || role === "discipline_director" || role === "study_director" || role === "secretary" || role === "teacher") {
+    if (isSectionAdministrator(role) || role === "school_admin" || role === "cashier" || role === "discipline_director" || role === "study_director" || role === "secretary" || role === "teacher") {
       const schoolUser = {
         id: authUser.uid,
         name,
@@ -979,8 +984,8 @@ export default async function handler(req, res) {
         schoolId,
         activeSchoolYearId: schoolYearId,
         phone,
-        status: "active",
-        active: true,
+        status: isSectionAdministrator(role) ? "inactive" : "active",
+        active: !isSectionAdministrator(role),
         createdAt: now,
         ...(sectionIds.length ? { section: sectionIds[0], sectionIds } : {}),
       };

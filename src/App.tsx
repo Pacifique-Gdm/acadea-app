@@ -90,7 +90,7 @@ type BeforeInstallPromptEvent = Event & {
 };
 
 const roleLabels: Record<AppUser["role"], string> = {
-  super_admin: "Super Administrateur",
+  kindergarten_admin: "Directrice Maternelle", primary_admin: "Admin. Primaire", studies_prefect: "Préfet d’études", super_admin: "Super Administrateur",
   coordination_admin: "Coordinateur",
   sub_coordination_admin: "Sous-coordinateur",
   school_admin: "Administrateur d'école",
