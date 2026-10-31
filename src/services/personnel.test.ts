@@ -17,8 +17,8 @@ const admin = { id: "admin-a", name: "Admin", email: "admin@test", role: "school
 describe("service Personnels", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("utilise une liste explicite des rôles internes et exclut Parent", () => {
-    expect(INTERNAL_PERSONNEL_ROLES).toEqual(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]);
+  it("inclut les trois administrateurs de section dans les personnels internes et exclut Parent", () => {
+    expect(INTERNAL_PERSONNEL_ROLES).toEqual(["kindergarten_admin", "primary_admin", "studies_prefect", "school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]);
     expect(isInternalPersonnel(admin)).toBe(true);
     expect(isInternalPersonnel({ ...admin, role: "parent" })).toBe(false);
   });
