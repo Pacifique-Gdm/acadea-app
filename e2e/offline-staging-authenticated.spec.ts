@@ -80,6 +80,11 @@ async function createSession(browser: Browser, role: string, transport = { dropN
   });
   await attachApi(context);
   let page = await context.newPage();
+  await page.addInitScript(() => {
+    window.addEventListener("acadea:offline-context-ready", () => {
+      (window as Window & { acadeaOfflineContextReady?: boolean }).acadeaOfflineContextReady = true;
+    });
+  });
   page.setDefaultTimeout(15_000);
   const login = async () => {
     await page.goto("/login");
@@ -87,26 +92,29 @@ async function createSession(browser: Browser, role: string, transport = { dropN
     await page.getByPlaceholder("Votre mot de passe").fill(process.env.ACADEA_E2E_PASSWORD!);
     await page.getByRole("button", { name: "Se connecter", exact: true }).click();
     await page.waitForURL((url) => url.pathname !== "/login");
-    await page.getByRole("button", { name: /Opérations hors connexion/ }).click();
-    await expect(page.getByRole("button", { name: "Enregistrer le brouillon local" })).toBeVisible({ timeout: 30_000 });
     await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller)), { timeout: 30_000 }).toBe(true);
     await expect.poll(() => page.evaluate(async () => {
       const cache = await caches.open("acadea-pwa-v6-assets");
       return Boolean(await cache.match(document.querySelector<HTMLScriptElement>('script[type="module"]')?.src || ""));
     }), { timeout: 30_000 }).toBe(true);
+    await expect.poll(() => page.evaluate(() => Boolean((window as Window & { acadeaOfflineContextReady?: boolean }).acadeaOfflineContextReady)),
+      { timeout: 45_000 }).toBe(true);
   };
   const session = { context, page, calls, login,
     async restartOffline() {
       if (!profile) throw new Error("Profil persistant requis pour redémarrer Chromium.");
       const url = page.url();
+      console.info("[offline-reopen] closing Chromium profile");
       await context.close(); // Ferme entièrement le processus Chromium persistant.
+      console.info("[offline-reopen] Chromium profile closed");
       context = await openContext(true);
+      console.info("[offline-reopen] Chromium profile reopened offline");
       await attachApi(context);
       page = await context.newPage();
       page.setDefaultTimeout(15_000);
       session.context = context;
       session.page = page;
-      await page.goto(url);
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
     },
     async dispose() {
       await context.close();
@@ -133,7 +141,13 @@ async function returnOnline(context: BrowserContext, page: Page) {
 // This role marker is kept in the test process only; it is not written to the browser or logs.
 const pageRoles = new WeakMap<Page, string>();
 function roleOf(page: Page) { const role = pageRoles.get(page); if (!role) throw new Error("Rôle E2E absent."); return role; }
-async function offline(context: BrowserContext) { await context.setOffline(true); }
+async function offline(context: BrowserContext) {
+  const page = context.pages()[0];
+  await context.setOffline(true);
+  await expect.poll(() => page.evaluate(() => navigator.onLine), { timeout: 15_000 }).toBe(false);
+  await page.getByRole("button", { name: "Voir les opérations" }).click();
+  await expect(page.getByRole("region", { name: "État des opérations hors connexion" })).toBeVisible();
+}
 async function draft(page: Page) {
   await page.getByRole("button", { name: "Enregistrer le brouillon local" }).click();
   await expect(page.getByText("Brouillon local enregistré.", { exact: false })).toBeVisible();
@@ -147,17 +161,27 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
     pageRoles.set(session.page, "teacher");
     try {
       await session.login();
-      await session.page.getByLabel("Cours préchargé").selectOption(ids!.assignment);
-      await session.page.getByLabel("Élève", { exact: true }).selectOption(ids!.student);
-      await offline(session.context);
-      await session.page.getByLabel("Cote locale").fill("12");
-      await draft(session.page);
-      expect((await db!.collection("gradeEntries").where("schoolId", "==", schoolId).get()).empty).toBe(true);
+      console.info("[offline-reopen] context prepared");
       await session.restartOffline();
+      console.info("[offline-reopen] browser restarted before draft");
       pageRoles.set(session.page, "teacher");
       await expect(session.page.getByRole("heading", { name: "Acadéa hors connexion" })).toBeVisible({ timeout: 25_000 });
+      await expect(session.page.getByRole("button", { name: "Enregistrer le brouillon local" })).toBeVisible({ timeout: 30_000 });
+      await session.page.getByLabel("Cours préchargé").selectOption(ids!.assignment);
+      await session.page.getByLabel("Élève", { exact: true }).selectOption(ids!.student);
+      await session.page.getByLabel("Cote locale").fill("12");
+      await draft(session.page);
+      console.info("[offline-reopen] draft saved locally");
+      expect((await db!.collection("gradeEntries").where("schoolId", "==", schoolId).get()).empty).toBe(true);
+      await session.restartOffline();
+      console.info("[offline-reopen] browser restarted offline");
+      pageRoles.set(session.page, "teacher");
+      await expect(session.page.getByRole("heading", { name: "Acadéa hors connexion" })).toBeVisible({ timeout: 25_000 });
+      console.info("[offline-reopen] offline page visible");
       await returnOnline(session.context, session.page);
+      console.info("[offline-reopen] connection restored");
       await expect.poll(async () => (await db!.collection("gradeEntries").where("schoolId", "==", schoolId).get()).size, { timeout: 45_000 }).toBe(1);
+      console.info("[offline-reopen] server receipt observed");
       const grade = (await db!.collection("gradeEntries").where("schoolId", "==", schoolId).get()).docs[0].data();
       expect(grade.score).toBe(12);
       const call = session.calls.find((item) => item.body.action === "sync-offline-grade" && item.status === 200);
@@ -172,11 +196,12 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
     const session = await createSession(browser, "teacher");
     pageRoles.set(session.page, "teacher");
     try {
+      const initialGradeCount = (await db!.collection("gradeEntries").where("schoolId", "==", schoolId).get()).size;
       await session.login();
+      await offline(session.context);
       await session.page.getByLabel("Cours préchargé").selectOption(ids!.assignment);
       await session.page.getByLabel("Période").selectOption("period_2");
       await session.page.getByLabel("Élève", { exact: true }).selectOption(ids!.student);
-      await offline(session.context);
       await session.page.getByLabel("Cote locale").fill("13");
       await draft(session.page);
       await db!.doc(`courseGradingConfigs/${[ids!.school, ids!.year, ids!.class, ids!.subject].join("__")}`).update({ maxScore: 25 });
@@ -185,7 +210,7 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
       await expect(session.page.getByText("Conflit — intervention nécessaire", { exact: true })).toBeVisible();
       await session.page.getByRole("button", { name: "Réessayer la synchronisation", exact: true }).click();
       await expect(session.page.getByText("Conflit — intervention nécessaire", { exact: true })).toBeVisible();
-      expect((await db!.collection("gradeEntries").where("schoolId", "==", schoolId).get()).size).toBe(1);
+      expect((await db!.collection("gradeEntries").where("schoolId", "==", schoolId).get()).size).toBe(initialGradeCount);
     } finally { await session.context.close(); }
   });
 
@@ -195,9 +220,9 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
     pageRoles.set(session.page, "discipline_director");
     try {
       await session.login();
+      await offline(session.context);
       await session.page.getByLabel("Élève", { exact: true }).selectOption(ids!.student);
       await session.page.getByLabel("Motif manuel").fill("Contrôle E2E fictif");
-      await offline(session.context);
       await draft(session.page);
       expect((await db!.collection("attendance").where("schoolId", "==", schoolId).get()).empty).toBe(true);
       await returnOnline(session.context, session.page);
@@ -215,12 +240,12 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
     pageRoles.set(session.page, "secretary");
     try {
       await session.login();
+      await offline(session.context);
       await session.page.getByLabel("Classe préchargée").selectOption(ids!.class);
       await session.page.getByLabel("Nom", { exact: true }).fill("Fictif");
       await session.page.getByLabel("Post-nom").fill("Essai");
       await session.page.getByLabel("Prénom").fill("Bob");
       await session.page.getByLabel("Date de naissance").fill("2016-05-06");
-      await offline(session.context);
       await draft(session.page);
       expect((await db!.collection("students").where("schoolId", "==", schoolId).get()).size).toBe(1);
       await returnOnline(session.context, session.page);
@@ -239,10 +264,10 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
     pageRoles.set(session.page, "cashier");
     try {
       await session.login();
+      await offline(session.context);
       await session.page.getByLabel("Élève", { exact: true }).selectOption(ids!.student);
       await session.page.getByLabel("Type de frais").selectOption(ids!.fee);
       await session.page.getByLabel("Montant provisoire").fill("100");
-      await offline(session.context);
       await draft(session.page);
       expect((await db!.collection("payments").where("schoolId", "==", schoolId).get()).empty).toBe(true);
       await returnOnline(session.context, session.page);
@@ -260,10 +285,10 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
       pageRoles.set(conflict.page, "cashier");
       try {
         await conflict.login();
+        await offline(conflict.context);
         await conflict.page.getByLabel("Élève", { exact: true }).selectOption(ids!.student);
         await conflict.page.getByLabel("Type de frais").selectOption(ids!.feeConflict);
         await conflict.page.getByLabel("Montant provisoire").fill("50");
-        await offline(conflict.context);
         await draft(conflict.page);
         await db!.doc(`feeTypes/${ids!.feeConflict}`).update({ amount: 600 });
         await returnOnline(conflict.context, conflict.page);
