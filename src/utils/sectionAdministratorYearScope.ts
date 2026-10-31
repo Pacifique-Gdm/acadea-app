@@ -7,7 +7,7 @@ export function isSectionAdministratorRole(role: AppUser["role"]): boolean {
 /** Defense in depth only. Firestore queries and API handlers must enforce the same scope before these roles are released. */
 export function sectionAdministratorYearScope(data: AppData, user: AppUser, schoolId: string, schoolYearId: string) {
   const known = new Set(["Maternelle", "Primaire", "CTEB", "Secondaire"]);
-  const sections = new Set(user.sectionIds ?? []);
+  const sections = new Set<string>(user.sectionIds ?? []);
   const valid = isSectionAdministratorRole(user.role)
     && user.schoolId === schoolId
     && user.status === "active"

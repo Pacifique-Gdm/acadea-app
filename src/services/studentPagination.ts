@@ -140,7 +140,7 @@ export function filterStudentFallback(students: Student[], filters: StudentQuery
     const section = sectionRole ? student.section : student.section ?? getClassSection(student.className);
     return student.schoolId === filters.schoolId
       && student.schoolYearId === filters.schoolYearId
-      && (!allowed.size || allowed.has(section))
+      && (!allowed.size || Boolean(section && allowed.has(section)))
       && (filters.archive === "all" || archived === (filters.archive === "archived"))
       && (!search || prefixes.includes(search))
       && (filters.section === "all" || section === filters.section)
