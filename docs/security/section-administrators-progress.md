@@ -77,3 +77,8 @@ No Firebase configuration, production data, deployment or merge was performed.
 - The student pagination query used by both the list and its PDF export now carries the actor role. All three section roles require explicit valid sections; missing scopes query an impossible section and local fallback returns no students. Unattributed legacy class labels are never used to infer permission. The module also skips the school-wide structured-class listener for these roles.
 - Dashboard class options are limited to assigned sections and the school-wide class listener is skipped. Its incomplete financial synthesis and PDF export are explicitly disabled for section roles rather than showing misleading totals. The standalone school financial report route is denied.
 - These are defense-in-depth controls only; the public profile gate and Firestore rule gate are still in place. A fully attributed financial report and section-constrained class reader are required to restore the same features safely.
+
+## Firestore release-gate regression
+
+- Added emulator assertions that the three roles and stale `school_admin` claims against a section profile cannot read students, payments, messages or the school record, while the existing principal administrator still reads students. This tests the present deny-by-default gate, **not** future section-aware rules.
+- The local emulator test is not yet validated in this Windows worktree: direct Vitest execution had no Firestore emulator host, and the local Firebase CLI did not complete startup. Do not label it PASS until an emulator-backed run succeeds. No Firestore rules were deployed or changed by this checkpoint.
