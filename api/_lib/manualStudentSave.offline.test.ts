@@ -48,6 +48,18 @@ function fixture() {
 }
 
 describe("inscription locale sans doublon", () => {
+  it("retrouve une inscription en ligne après perte de réponse sans second matricule", async () => {
+    const { db, rows } = fixture();
+    const request = { intent: "create", clientRequestId: "c".repeat(32), student: { ...body.student, id: `student-${"d".repeat(32)}` } };
+    const first = await saveManualStudent({ db, caller, body: request });
+    const repeated = await saveManualStudent({ db, caller, body: request });
+    expect(first.student).toMatchObject({ matricule: "ACD-27-0001" });
+    expect(repeated).toMatchObject({ idempotent: true, student: first.student });
+    expect([...rows.keys()].filter((key) => key.startsWith("students/"))).toHaveLength(1);
+    await expect(saveManualStudent({ db, caller, body: { ...request, student: { ...request.student, nom: "Autre" } } }))
+      .rejects.toMatchObject({ statusCode: 409, code: "offline-conflict" });
+    expect(rows.get(`students/${request.student.id}`)?.nom).toBe("Fictif");
+  });
   it("attribue un seul matricule et retourne la même fiche sur répétition", async () => {
     const { db, rows } = fixture();
     const first = await saveManualStudent({ db, caller, body });

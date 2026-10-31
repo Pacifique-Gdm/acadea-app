@@ -4,6 +4,7 @@ import { AUDIT_EVENT_TYPES, buildServerAudit } from "./_lib/serverAudit.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { normalizeSchoolOptions } from "./_lib/schoolOptions.js";
 import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
+import { findProvisioningReceipt, provisioningReceipt, provisioningRequestId } from "./_lib/provisioningReceipt.js";
 
 const allowedPlans = new Set(["Starter", "Standard", "Premium"]);
 const schoolLevels = new Map([
@@ -79,6 +80,7 @@ export default async function handler(req, res) {
   }
 
   let adminUid = "";
+  let creationCommitted = false;
   const createdRefs = [];
   let adminAuth;
   let adminDb;
@@ -102,9 +104,18 @@ export default async function handler(req, res) {
       return;
     }
     await requireActiveApiUser(db, caller);
-    await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: "platform", action: "provision.school", ...API_RATE_LIMITS.PROVISION_SCHOOL });
-
     const body = await readBody(req);
+    const requestId = provisioningRequestId(body.clientRequestId);
+    const receiptIdentity = JSON.stringify([String(body.schoolName ?? "").trim(), String(body.adminEmail ?? "").trim().toLowerCase()]);
+    if (body.action === "recover-creation") {
+      if (!requestId) throw Object.assign(new Error("Identifiant de demande requis."), { statusCode: 400, code: "invalid-argument" });
+      const result = await findProvisioningReceipt(db, requestId, caller.uid, "school", receiptIdentity);
+      sendJson(res, result ? 200 : 202, result ?? { status: "pending" });
+      return;
+    }
+    const previousResult = await findProvisioningReceipt(db, requestId, caller.uid, "school", receiptIdentity);
+    if (previousResult) { sendJson(res, 200, previousResult); return; }
+    await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: "platform", action: "provision.school", ...API_RATE_LIMITS.PROVISION_SCHOOL });
     const schoolName = String(body.schoolName ?? "").trim();
     const adminName = String(body.adminName ?? "").trim();
     const adminEmail = String(body.adminEmail ?? "").trim().toLowerCase();
@@ -217,16 +228,21 @@ export default async function handler(req, res) {
     school.mainAdminId = adminUid;
 
     const auditLog = buildServerAudit({ id: auditId, eventType: AUDIT_EVENT_TYPES.SCHOOL_CREATED, actor: caller, schoolId, schoolYearId: yearId, resourceType: "school", resourceId: schoolId, metadata: { subscriptionPlan: plan } });
-    await db.doc(`auditLogs/${auditId}`).create(auditLog);
-
-    sendJson(res, 200, {
+    const result = {
       school,
       schoolYear: year,
       adminUser,
       auditLog,
-    });
+    };
+    const batch = db.batch();
+    batch.create(db.doc(`auditLogs/${auditId}`), auditLog);
+    if (requestId) batch.create(db.doc(`provisioningReceipts/${requestId}`), provisioningReceipt(requestId, caller.uid, "school", receiptIdentity, schoolId, result));
+    await batch.commit();
+    creationCommitted = true;
+
+    sendJson(res, 200, result);
   } catch (error) {
-    if (adminAuth && adminDb) {
+    if (!creationCommitted && adminAuth && adminDb) {
       await cleanup({ auth: adminAuth, db: adminDb, adminUid, refs: createdRefs });
     }
     if (sendRateLimitError(res, error)) return;
@@ -235,7 +251,7 @@ export default async function handler(req, res) {
       return;
     }
     if (error?.statusCode === 400 && !error?.code) return sendJson(res, 400, { error: "Corps JSON invalide.", code: "invalid-argument" });
-    if (error?.statusCode === 400 || error?.statusCode === 401 || (error?.statusCode === 403 && error?.code === "permission-denied")) {
+    if (error?.statusCode === 400 || error?.statusCode === 401 || error?.statusCode === 409 || (error?.statusCode === 403 && error?.code === "permission-denied")) {
       sendJson(res, error.statusCode, { error: error.message, code: error.code });
       return;
     }
