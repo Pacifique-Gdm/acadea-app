@@ -42,6 +42,7 @@ function fixture() {
     ],
     ["users/a", { schoolId: "s", role: "school_admin", name: "Admin" }],
     ["users/c", { schoolId: "s", role: "cashier", name: "Caissier" }],
+    ["users/sec", { schoolId: "s", role: "secretary", name: "Secrétaire" }],
     [
       "students/p",
       {
@@ -180,6 +181,14 @@ async function save(
   };
 }
 
+function seedLegacyThirdParty(f: ReturnType<typeof fixture>, name = "Organisme local") {
+  const decision = { id: "legacy-support", schoolId: "s", schoolYearId: "y", studentId: "p", status: "active", version: 1,
+    reason: "third-party", thirdPartyName: name, history: [], lines: { f: { feeName: "Minerval", officialMinor: 30000, value: 100, reductionMinor: 0, commitmentMinor: 10000 } } };
+  f.values.set(`socialSupportDecisions/${decision.id}`, decision);
+  f.values.set("students/p", { ...f.values.get("students/p"), financialSupport: { [decision.id]: { id: decision.id, schoolYearId: "y", lines: decision.lines } } });
+  return decision;
+}
+
 describe("décisions financières atomiques", () => {
   it("réduit le net partagé sans créer de paiement ni changer le catalogue", async () => {
     const f = fixture();
@@ -234,11 +243,7 @@ describe("décisions financières atomiques", () => {
     expect(JSON.stringify(f.values.get("payments/pay"))).toBe(original);
   });
   it("distingue promesse, recette et débiteurs sans doubler la créance", async () => {
-    const f = fixture(),
-      { decision } = await save(f, {
-        reason: "third-party",
-        thirdPartyName: "Association",
-      });
+    const f = fixture(), decision = seedLegacyThirdParty(f, "Association");
     const student = f.values.get("students/p") as unknown as Student,
       fee = f.values.get("feeTypes/f") as unknown as FeeType;
     expect(supportBalance(student, fee)).toMatchObject({
@@ -345,15 +350,48 @@ describe("décisions financières atomiques", () => {
       f.values.set(path, { ...f.values.get(path), ...patch });
       await expect(save(f)).rejects.toThrow();
     });
-  it("refuse le caissier avant toute lecture", async () => {
+  it("refuse le coordinateur en écriture avant toute lecture", async () => {
     const f = fixture();
     await expect(
       manageSocialSupport({
         db: {},
-        caller: { ...f.caller, role: "cashier" },
+        caller: { ...f.caller, role: "coordination_admin" },
         body: f.body,
       }),
     ).rejects.toMatchObject({ status: 403 });
+  });
+  it("autorise le Caissier et le Secrétaire du même établissement avec une trace commune", async () => {
+    for (const [uid, role] of [["c", "cashier"], ["sec", "secretary"]] as const) {
+      const f = fixture();
+      const result = await manageSocialSupport({ db: f.db, caller: { uid, role, schoolId: "s" }, body: f.body });
+      expect(result.decision.history[0]).toMatchObject({ actorId: uid, actorRole: role });
+      expect(f.values.get("students/p")?.financialSupport).toBeTruthy();
+    }
+  });
+  it("fournit aux rôles de gestion uniquement les noms de personnel nécessaires", async () => {
+    const f = fixture();
+    f.values.set("users/a", { ...f.values.get("users/a"), email: "prive@example.invalid" });
+    f.values.set("users/foreign", { role: "teacher", schoolId: "other", name: "Hors école" });
+    f.values.set("personnelProfiles/service", { schoolId: "s", kind: "service", name: "Service", jobTitle: "Entretien", phone: "private-phone-value" });
+    const result = await manageSocialSupport({ db: f.db, caller: { uid: "c", role: "cashier", schoolId: "s" }, body: { action: "list-social-support-personnel" } });
+    expect(result.personnel).toContainEqual({ id: "a", name: "Admin", role: "school_admin" });
+    expect(result.personnel).toContainEqual({ id: "service", name: "Service", kind: "service", jobTitle: "Entretien" });
+    expect(JSON.stringify(result)).not.toContain("prive@example.invalid");
+    expect(JSON.stringify(result)).not.toContain("private-phone-value");
+    expect(JSON.stringify(result)).not.toContain("Hors école");
+  });
+  it("oriente un paiement tiers ordinaire vers la caisse sans nouveau dossier social", async () => {
+    const f = fixture();
+    await expect(save(f, { reason: "third-party", thirdPartyName: "Association" })).rejects.toThrow("module Caissier");
+    const receipt = await executeFinancialOperation({ db: f.db, caller: { uid: "c", role: "cashier", schoolId: "s" }, body: {
+      action: "create-payment", schoolYearId: "y", studentId: "p", feeTypeId: "f", amount: 30,
+      note: "Payé par Association", clientRequestId: "ordinary-third-payment-001",
+    } });
+    expect(receipt.payment).toMatchObject({ amount: 30, note: "Payé par Association" });
+    expect(receipt.payment.receiptNumber).toMatch(/^REC-/);
+    expect(supportBalance(f.values.get("students/p") as unknown as Student, f.values.get("feeTypes/f") as unknown as FeeType,
+      [receipt.payment as Payment])).toMatchObject({ paid: 30, remaining: 270, commitment: 0 });
+    expect([...f.values.keys()].some((key) => key.startsWith("socialSupportDecisions/"))).toBe(false);
   });
   it("bloque le trop-perçu sans altérer le reçu", async () => {
     const f = fixture();
@@ -372,10 +410,7 @@ describe("décisions financières atomiques", () => {
 describe("encaissement par le service financier existant", () => {
   it("encaisse un paiement tiers partiel, produit un reçu et refuse de dépasser la créance", async () => {
     const f = fixture();
-    const { decision } = await save(f, {
-      reason: "third-party",
-      thirdPartyName: "Organisme local",
-    });
+    const decision = seedLegacyThirdParty(f);
     const body = {
       action: "create-payment",
       schoolYearId: "y",
@@ -425,7 +460,7 @@ describe("encaissement par le service financier existant", () => {
   });
   it("refuse de facturer la part promise au tiers comme une seconde dette élève", async () => {
     const f = fixture();
-    await save(f, { reason: "third-party", thirdPartyName: "Organisme local" });
+    seedLegacyThirdParty(f);
     await expect(
       executeFinancialOperation({
         db: f.db,
@@ -519,7 +554,7 @@ describe("répercussion automatique dans le calcul financier commun", () => {
 });
 
 it('ne place aucun motif, observation ou nom du tiers dans la projection financière visible au Caissier',async()=>{
- const f=fixture();await save(f,{reason:'third-party',thirdPartyName:'Organisme privé',observation:'Situation sociale confidentielle'});
+ const f=fixture();seedLegacyThirdParty(f,'Organisme privé');
  const projection=JSON.stringify(f.values.get('students/p')?.financialSupport);
  expect(projection).not.toContain('Situation sociale confidentielle');
  expect(projection).not.toContain('Organisme privé');

@@ -119,3 +119,23 @@ textarea {
     @apply inline-flex max-w-full min-w-0 items-center justify-center gap-2 rounded border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50;
   }
 }
+@media (max-width: 639px) {
+  .acadea-mobile-tables :has(> table) {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+  .acadea-mobile-tables table {
+    width: max-content;
+    min-width: 100%;
+    table-layout: auto;
+  }
+  .acadea-mobile-tables table th,
+  .acadea-mobile-tables table td {
+    white-space: nowrap;
+  }
+  .acadea-mobile-tables table .truncate {
+    max-width: none;
+    overflow: visible;
+    text-overflow: clip;
+  }
+}

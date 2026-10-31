@@ -174,6 +174,7 @@ export function MenuModule({
   const isArchivedContext = selectedYear.status === "archived";
   const canReadAdmin = user.role === "school_admin";
   const canAdmin = canReadAdmin && !isArchivedContext;
+  const canViewSocialSupport = canReadAdmin || user.role === "cashier";
   const yearManagementLocked = Boolean(school.activeCoordinationId);
   const canManageYears = canAdmin && !yearManagementLocked;
   const menuSections = [
@@ -847,7 +848,7 @@ export function MenuModule({
   }
 
   function renderMenuSectionForm(sectionId: MenuSection) {
-    if (sectionId === "socialSupport" && canAdmin) return <SocialSupportDrawer user={user} school={school} years={years} data={data} />;
+    if (sectionId === "socialSupport" && canViewSocialSupport) return <SocialSupportDrawer user={user} school={school} years={years} data={data} readOnly={isArchivedContext} />;
     if (sectionId === "biometrics" && canReadAdmin) {
       return (
         <div className="grid gap-3">
@@ -1358,7 +1359,7 @@ export function MenuModule({
     return null;
   }
 
-  const visibleMenuSections = menuSections.filter((section) => (section.id !== "socialSupport" || canAdmin) && (canReadAdmin || user.role === "cashier" && (section.id === "valves" || section.id === "history" || section.id === "library")));
+  const visibleMenuSections = menuSections.filter((section) => (section.id !== "socialSupport" || canViewSocialSupport) && (canReadAdmin || user.role === "cashier" && (section.id === "valves" || section.id === "history" || section.id === "library" || section.id === "socialSupport")));
   const activeMenuSectionConfig = visibleMenuSections.find((section) => section.id === activeMenuSection);
 
   return (

@@ -17,6 +17,7 @@ import { refreshErrorMessage } from "../../utils/refreshErrors";
 import { orderSchoolYears } from "../../utils/schoolYears";
 import type { AppData, AppUser, School, SchoolYear } from "../../types";
 import { BiometricStudentsPage } from "../biometrics/BiometricStudentsPage";
+import { SocialSupportDrawer } from "../menu/SocialSupportDrawer";
 import { SecretaryMedicalRecordsDrawer, SecretaryStatisticsDrawer } from "./SecretaryMedicalTools";
 import type { StudentMedicalRecord } from "./secretaryTypes";
 
@@ -51,6 +52,7 @@ export function SecretaryMenuModule({ user, data, yearData, school, year, onYear
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [parentsDrawerOpen, setParentsDrawerOpen] = useState(false);
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
+  const [socialSupportOpen, setSocialSupportOpen] = useState(false);
   const [archiveDrawerOpen, setArchiveDrawerOpen] = useState(false);
   const [servicePersonnelOpen, setServicePersonnelOpen] = useState(false);
   const [parentFormRequest, setParentFormRequest] = useState<{ parentId?: string; requestId: number } | null>(null);
@@ -115,6 +117,7 @@ export function SecretaryMenuModule({ user, data, yearData, school, year, onYear
       <button type="button" onClick={() => setAgeDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><BarChart3 className="h-5 w-5" /></span><span className="font-bold text-ink">Tableau d’homogénéité d’âge</span></button>
       <button type="button" onClick={() => setStatisticsDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><BarChart3 className="h-5 w-5" /></span><span className="font-bold text-ink">Statistiques</span></button>
       <button type="button" onClick={() => setImportDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><Upload className="h-5 w-5" /></span><span className="font-bold text-ink">Importer les élèves d’une année archivée</span></button>
+      <button type="button" onClick={() => setSocialSupportOpen(true)} className={menuButtonClass}><span className={menuIconClass}><HeartPulse className="h-5 w-5" /></span><span className="font-bold text-ink">Cas sociaux et prises en charge</span></button>
       <button type="button" onClick={() => setHistoryDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><Clock3 className="h-5 w-5" /></span><span className="font-bold text-ink">Historique</span></button>
       <button type="button" onClick={() => setArchiveDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><CalendarRange className="h-5 w-5" /></span><span className="font-bold text-ink">Année scolaire</span></button>
       <button onClick={onLogout} className="inline-flex w-full items-center justify-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 transition hover:bg-red-100" type="button"><LogOut className="h-4 w-4" /> Déconnexion</button>
@@ -128,6 +131,7 @@ export function SecretaryMenuModule({ user, data, yearData, school, year, onYear
     {libraryOpen && <LibraryDrawer audience="secretary" onClose={() => setLibraryOpen(false)} />}
     {parentsDrawerOpen && <AdminDrawer title="Parents / Tuteurs" onClose={() => setParentsDrawerOpen(false)} closeLabel="Fermer Parents / Tuteurs"><ParentsDirectoryDrawer parents={yearData.parents} students={yearData.students} school={school} year={year} schoolId={school.id} schoolYearId={year.id} onCreateParent={year.status === "active" ? () => openParentForm() : undefined} onEditParent={year.status === "active" ? (parent) => openParentForm(parent.id) : undefined} onDeleteParent={year.status === "active" ? openParentDelete : undefined} /></AdminDrawer>}
     {historyDrawerOpen && <AdminDrawer title="Historique" onClose={() => setHistoryDrawerOpen(false)} closeLabel="Fermer l'historique"><ActivityHistoryContent user={user} data={data} yearData={yearData} role="secretary" /></AdminDrawer>}
+    {socialSupportOpen && <AdminDrawer title="Cas sociaux et prises en charge" onClose={() => setSocialSupportOpen(false)} closeLabel="Fermer les prises en charge"><SocialSupportDrawer user={user} school={school} years={data.schoolYears} data={data} readOnly={year.status === "archived"} /></AdminDrawer>}
     {archiveDrawerOpen && <SchoolYearArchiveDrawer schoolId={school.id} onClose={() => setArchiveDrawerOpen(false)} />}
     {servicePersonnelOpen && year.status === "active" && <AdminDrawer title="Créer un personnel" onClose={() => setServicePersonnelOpen(false)} closeLabel="Fermer la création de personnel"><ServicePersonnelForm schoolId={school.id}/></AdminDrawer>}
     {year.status === "active" && parentFormRequest && <AdminDrawer title={parentFormRequest.parentId ? "Modifier le parent" : "Créer un parent"} onClose={() => setParentFormRequest(null)} closeLabel="Fermer le formulaire parent"><ParentFormEditor data={data} yearData={yearData} school={school} year={year} updateData={updateData} initialParentId={parentFormRequest.parentId} requestId={parentFormRequest.requestId} onBack={() => { setParentFormRequest(null); setParentsDrawerOpen(true); }} showBackButton createId={createId} /></AdminDrawer>}

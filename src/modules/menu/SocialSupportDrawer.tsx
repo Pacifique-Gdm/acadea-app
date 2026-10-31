@@ -7,14 +7,13 @@ import {
   subscribeSupportContext,
   reconcileSupport,
   saveSupport,
+  loadSupportPersonnel,
   type SupportDecision,
 } from "../../services/socialSupport";
 import {
   subscribeToSchoolPersonnel,
   subscribeToServicePersonnel,
   personnelRoleLabels,
-  type PersonnelRecord,
-  isServicePersonnel,
 } from "../../services/personnel";
 import { getApplicableFeeTypes } from "../../utils/stats";
 import {
@@ -57,12 +56,19 @@ export function SocialSupportDrawer({
   school,
   years,
   data: initialData,
+  readOnly = false,
+  scopeSchools,
 }: {
   user: AppUser;
   school: School;
   years: SchoolYear[];
-  data: AppData;
+  data: Pick<AppData, "students" | "feeTypes" | "payments">;
+  readOnly?: boolean;
+  scopeSchools?: School[];
 }) {
+  const scopedSchools = scopeSchools?.length ? scopeSchools : [school];
+  const scopeIds = scopedSchools.map((item) => item.id);
+  const scopeKey = scopeIds.join("|");
   const [data, setData] = useState(initialData);
   const [contextReady, setContextReady] = useState(false);
   const [tab, setTab] = useState("Bénéficiaires"),
@@ -71,8 +77,8 @@ export function SocialSupportDrawer({
     [error, setError] = useState(""),
     [success, setSuccess] = useState(""),
     [busy, setBusy] = useState(false);
-  const [accounts, setAccounts] = useState<PersonnelRecord[]>([]),
-    [staff, setStaff] = useState<PersonnelRecord[]>([]);
+  const [accounts, setAccounts] = useState<Array<{ id: string; name: string; role?: string; kind?: "service"; jobTitle?: string }>>([]),
+    [staff, setStaff] = useState<Array<{ id: string; name: string; role?: string; kind?: "service"; jobTitle?: string }>>([]);
   const [studentId, setStudentId] = useState(""),
     [studentQuery, setStudentQuery] = useState(""),
     [nature, setNature] = useState("fixed"),
@@ -83,6 +89,7 @@ export function SocialSupportDrawer({
     [values, setValues] = useState<Record<string, string>>({}),
     [editing, setEditing] = useState<SupportDecision | null>(null);
   const [search, setSearch] = useState(""),
+    [filterSchool, setFilterSchool] = useState(""),
     [filterYear, setFilterYear] = useState(""),
     [filterClass, setFilterClass] = useState(""),
     [filterFee, setFilterFee] = useState(""),
@@ -93,26 +100,27 @@ export function SocialSupportDrawer({
     [cancelTarget, setCancelTarget] = useState<SupportDecision | null>(null);
   const request = useRef({ fingerprint: "", id: "" });
   useEffect(() => {
+    if (readOnly) return;
     void reconcileSupport().catch((e) =>
       setError(e instanceof Error ? e.message : "Actualisation impossible."),
     );
-  }, [school.id]);
-  useEffect(
-    () =>
-      subscribeSupport(
-        school.id,
-        (rows) => {
-          setDecisions(rows);
-          setLoading(false);
-        },
-        (e) => {
-          setError(e.message);
-          setLoading(false);
-        },
-      ),
-    [school.id],
-  );
+  }, [school.id, readOnly]);
   useEffect(() => {
+    const snapshots = new Map<string, SupportDecision[]>();
+    setLoading(true);
+    const stops = scopeKey.split("|").filter(Boolean).map((id) => subscribeSupport(id, (rows) => {
+      snapshots.set(id, rows);
+      setDecisions([...snapshots.values()].flat());
+      if (snapshots.size === scopeKey.split("|").filter(Boolean).length) setLoading(false);
+    }, (cause) => { setError(cause.message); setLoading(false); }));
+    return () => stops.forEach((stop) => stop());
+  }, [scopeKey]);
+  useEffect(() => {
+    if (readOnly) return;
+    if (user.role === "cashier" || user.role === "secretary") {
+      void loadSupportPersonnel().then(setAccounts).catch((cause) => setError(cause instanceof Error ? cause.message : "Personnel indisponible."));
+      return;
+    }
     const onError = (e: Error) => setError(e.message);
     const a = subscribeToSchoolPersonnel({
       user,
@@ -130,8 +138,10 @@ export function SocialSupportDrawer({
       a();
       b();
     };
-  }, [user, school.id]);
+  }, [user, school.id, readOnly]);
+  useEffect(() => { if (readOnly) setData(initialData); }, [initialData, readOnly]);
   useEffect(() => {
+    if (readOnly) { setContextReady(true); return; }
     const ready = new Set<string>();
     return subscribeSupportContext(
       school.id,
@@ -145,7 +155,7 @@ export function SocialSupportDrawer({
         setError(e.message);
       },
     );
-  }, [school.id]);
+  }, [school.id, readOnly]);
   const year = years.find(
     (y) =>
       y.id === school.activeSchoolYearId &&
@@ -257,6 +267,8 @@ export function SocialSupportDrawer({
       .join(" ")
       .toLocaleLowerCase("fr");
     return (
+      scopeIds.includes(d.schoolId) &&
+      (!filterSchool || d.schoolId === filterSchool) &&
       (!filterYear || d.schoolYearId === filterYear) &&
       (!filterClass || d.className === filterClass) &&
       (!filterFee || d.lines[filterFee]) &&
@@ -267,16 +279,16 @@ export function SocialSupportDrawer({
   });
   function decisionFinances(d: SupportDecision) {
     const pupil = data.students.find(
-      (s) => s.id === d.studentId && s.schoolId === school.id,
+      (s) => s.id === d.studentId && s.schoolId === d.schoolId,
     );
     if (!pupil) return "Données financières indisponibles";
     return Object.entries(d.lines)
       .map(([id, line]) => {
         const fee = data.feeTypes.find(
-          (f) => f.id === id && f.schoolId === school.id,
+          (f) => f.id === id && f.schoolId === d.schoolId,
         ) ?? {
           id,
-          schoolId: school.id,
+          schoolId: d.schoolId,
           schoolYearId: d.schoolYearId,
           name: line.feeName,
           amount: line.officialMinor / 100,
@@ -336,11 +348,14 @@ export function SocialSupportDrawer({
       tab === "Historique"
         ? "Historique des prises en charge"
         : "Liste des bénéficiaires";
+    const pdfSchool = scopedSchools.length > 1
+      ? { ...school, name: "Établissements de la coordination", address: "", phone: "", email: "", logoUrl: undefined }
+      : school;
     try {
       await renderAcadPdfPreview({
         filename: `prises-en-charge-${tab}.pdf`,
         title,
-        school,
+        school: pdfSchool,
         year: years.find((y) => y.id === filterYear),
         subtitle: `Recherche : ${search || "Toutes"} · Classe : ${filterClass || "Toutes"} · Frais : ${filterFee || "Tous"} · Motif : ${supportReasons[filterReason] || "Tous"} · Statut : ${filterStatus || "Tous"} · Opération : ${filterAction || "Toutes"}`,
         throwOnError: true,
@@ -349,6 +364,7 @@ export function SocialSupportDrawer({
           tab === "Historique"
             ? pdfTable(
                 [
+                  ...(scopedSchools.length > 1 ? [{ header: "Établissement", render: (r: { decision: SupportDecision }) => scopedSchools.find((item) => item.id === r.decision.schoolId)?.name ?? r.decision.schoolId }] : []),
                   {
                     header: "Élève / décision",
                     render: (r) =>
@@ -359,7 +375,7 @@ export function SocialSupportDrawer({
                     header: "Date",
                     render: (r) => new Date(r.event.at).toLocaleString("fr"),
                   },
-                  { header: "Auteur", render: (r) => r.event.actorName },
+                  { header: "Auteur", render: (r) => `${r.event.actorName} (${r.event.actorRole ?? "rôle historique inconnu"})` },
                   {
                     header: "Montants (unités monétaires)",
                     render: (r) =>
@@ -378,6 +394,7 @@ export function SocialSupportDrawer({
               )
             : pdfTable(
                 [
+                  ...(scopedSchools.length > 1 ? [{ header: "Établissement", render: (d: SupportDecision) => scopedSchools.find((item) => item.id === d.schoolId)?.name ?? d.schoolId }] : []),
                   {
                     header: "Élève / classe",
                     render: (d) => `${d.studentName} / ${d.className}`,
@@ -434,7 +451,7 @@ export function SocialSupportDrawer({
   return (
     <div className="grid min-w-0 gap-4">
       <div role="tablist" className="flex flex-wrap gap-2">
-        {["Bénéficiaires", "Nouvelle prise en charge", "Historique"].map(
+        {(readOnly ? ["Bénéficiaires", "Historique"] : ["Bénéficiaires", "Nouvelle prise en charge", "Historique"]).map(
           (t) => (
             <button
               key={t}
@@ -545,7 +562,7 @@ export function SocialSupportDrawer({
                 </option>
               ))}
             </select>
-            {reason === "third-party" && (
+      {reason === "third-party" && (
               <p>
                 Ces montants sont des engagements du tiers, sans réduction
                 scolaire ni encaissement. « Exonération totale » signifie ici
@@ -604,7 +621,7 @@ export function SocialSupportDrawer({
                 }}
               >
                 <option value="">Sélectionner un motif</option>
-                {Object.entries(supportReasons).map(([id, label]) => (
+                {Object.entries(supportReasons).filter(([id]) => id !== "third-party" || editing?.reason === "third-party").map(([id, label]) => (
                   <option key={id} value={id}>
                     {label}
                   </option>
@@ -622,7 +639,7 @@ export function SocialSupportDrawer({
                   {[...accounts, ...staff].map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name} —{" "}
-                      {isServicePersonnel(p)
+                      {p.kind === "service"
                         ? p.jobTitle
                         : (personnelRoleLabels[
                             p.role as keyof typeof personnelRoleLabels
@@ -748,6 +765,7 @@ export function SocialSupportDrawer({
             </button>
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
+            {scopedSchools.length > 1 && <select aria-label="Établissement" className="input" value={filterSchool} onChange={(event) => setFilterSchool(event.target.value)}><option value="">Tous les établissements</option>{scopedSchools.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}
             <select
               aria-label="Année scolaire"
               className="input"
@@ -756,7 +774,7 @@ export function SocialSupportDrawer({
             >
               <option value="">Toutes les années</option>
               {years
-                .filter((y) => y.schoolId === school.id)
+                .filter((y) => scopeIds.includes(y.schoolId) && (!filterSchool || y.schoolId === filterSchool))
                 .map((y) => (
                   <option key={y.id} value={y.id}>
                     {y.name}
@@ -782,7 +800,7 @@ export function SocialSupportDrawer({
             >
               <option value="">Tous les frais</option>
               {data.feeTypes
-                .filter((f) => f.schoolId === school.id)
+                .filter((f) => scopeIds.includes(f.schoolId) && (!filterSchool || f.schoolId === filterSchool))
                 .map((f) => (
                   <option key={f.id} value={f.id}>
                     {f.name}
@@ -838,7 +856,7 @@ export function SocialSupportDrawer({
                   {decision.studentName} — {event.action}
                 </strong>
                 <p>
-                  {new Date(event.at).toLocaleString("fr")} · {event.actorName}{" "}
+                  {new Date(event.at).toLocaleString("fr")} · {event.actorName} ({event.actorRole ?? "rôle historique inconnu"}){" "}
                   · {decision.id}
                 </p>
                 <button
@@ -861,7 +879,7 @@ export function SocialSupportDrawer({
             filtered.map((d) => (
               <article className="grid gap-2 rounded border p-3" key={d.id}>
                 <strong>
-                  {d.studentName} — {d.matricule} — {d.className}
+                  {scopedSchools.length > 1 && `${scopedSchools.find((item) => item.id === d.schoolId)?.name ?? d.schoolId} — `}{d.studentName} — {d.matricule} — {d.className}
                 </strong>
                 <p>
                   {years.find((y) => y.id === d.schoolYearId)?.name} ·{" "}
@@ -887,7 +905,7 @@ export function SocialSupportDrawer({
                   >
                     Détails
                   </button>
-                  <button
+                  {!readOnly && <button
                     className="secondary-button"
                     disabled={
                       busy ||
@@ -897,8 +915,8 @@ export function SocialSupportDrawer({
                     onClick={() => edit(d)}
                   >
                     Modifier
-                  </button>
-                  <button
+                  </button>}
+                  {!readOnly && <button
                     className="secondary-button"
                     disabled={
                       busy ||
@@ -908,7 +926,7 @@ export function SocialSupportDrawer({
                     onClick={() => setCancelTarget(d)}
                   >
                     Annuler la décision
-                  </button>
+                  </button>}
                 </div>
               </article>
             ))
@@ -938,7 +956,7 @@ export function SocialSupportDrawer({
           </button>
         </section>
       )}
-      {cancelTarget && (
+      {!readOnly && cancelTarget && (
         <section
           role="alertdialog"
           aria-label="Confirmer l’annulation"

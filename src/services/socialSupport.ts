@@ -36,7 +36,9 @@ export type SupportEvent = {
   id: string;
   action: string;
   at: string;
+  actorId?: string;
   actorName: string;
+  actorRole?: string;
   before: SupportDecision | null;
   after: SupportDecision;
 };
@@ -123,4 +125,16 @@ export async function reconcileSupport() {
     const result = await response.json().catch(() => ({}));
     throw new Error(result.error ?? "Actualisation des décisions impossible.");
   }
+}
+
+export async function loadSupportPersonnel(): Promise<Array<{ id: string; name: string; role?: string; kind?: "service"; jobTitle?: string }>> {
+  const token = await getCurrentFirebaseIdToken();
+  const response = await fetch(resolveApiUrl("/api/manage-financial-transaction"), {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "list-social-support-personnel" }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error ?? "Personnel indisponible.");
+  return Array.isArray(result.personnel) ? result.personnel : [];
 }

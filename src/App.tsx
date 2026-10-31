@@ -1293,7 +1293,7 @@ export default function App() {
         focusedMessageId={focusedPushMessage?.id}
       />
 
-      <main className="mx-auto w-full max-w-7xl min-w-0 flex-1 overflow-y-auto px-3 py-5 pb-28 sm:px-6 sm:pb-32 lg:px-8">
+      <main className={`mx-auto w-full max-w-7xl min-w-0 flex-1 overflow-y-auto px-3 py-5 pb-28 sm:px-6 sm:pb-32 lg:px-8 ${user.role === "school_admin" ? "acadea-mobile-tables" : ""}`}>
         {studentDetailMatch ? (
           <StudentDetailPage
             studentId={studentDetailMatch[1]}
