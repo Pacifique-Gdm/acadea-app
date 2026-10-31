@@ -7,6 +7,7 @@ import { resolveDefaultSchoolYear } from "../utils/schoolYears";
 import { userSectionIds } from "../utils/userSections";
 import { disciplineAttendanceScope, disciplineParentScope, disciplineSanctionScope, disciplineStudentScope } from "../utils/disciplineSectionScope";
 import { canonicalSchoolOption, normalizeSchoolOptions } from "../utils/schoolOptions";
+import { isSectionAdministratorRole } from "../utils/sectionAdministratorYearScope";
 
 type CollectionKey = keyof AppData;
 type PersistableItem = { id: string };
@@ -257,6 +258,13 @@ export async function loadFirestoreData(
 ) {
   if (!canUseFirestoreData() || !db) return null;
 
+  // The legacy school-wide loader must never serve a section administrator.
+  // These roles need section-constrained Firestore queries and linked-entity
+  // authorization before their release gate can be removed.
+  if (user && isSectionAdministratorRole(user.role)) {
+    throw new Error("Chargement indisponible : périmètre administratif non sécurisé.");
+  }
+
   if (user?.role === "super_admin") {
     const { data } = await loadSuperAdminInitialData(user.id);
     return data;
@@ -447,6 +455,9 @@ export async function loadParentPortalData(user: AppUser) {
 
 export async function loadFirestoreYearData(user: AppUser, schoolYearId: string) {
   if (!canUseFirestoreData() || !db) return null;
+  if (isSectionAdministratorRole(user.role)) {
+    throw new Error("Chargement indisponible : périmètre administratif non sécurisé.");
+  }
   if (!user.schoolId) {
     throw new Error("Chargement Firestore impossible : schoolId manquant dans les Custom Claims.");
   }

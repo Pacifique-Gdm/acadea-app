@@ -51,3 +51,8 @@ No Firebase configuration, production data, deployment or merge was performed.
 - `scopeData` now routes the three new roles through a conservative, pure section-and-school filter. Explicitly attributed students, their unambiguous parents and linked payments/attendance/sanctions may appear. Unattributed, cross-section or schoolwide financial/message/history records are withheld; this is **not** a substitute for Firestore query/API authorization.
 - Synthetic tests cover four sections, multiple assignments, foreign schools, missing attribution and mixed-section parents. Existing admin behavior is unchanged; the server and Firestore release guards remain in place.
 - The following are still blocking release: section-scoped Firestore queries and rules, server financial mutations and balances, messaging/attachments, PDF exports, offline caches and each of the five administrator tabs. Do not activate accounts or lift either release guard on the strength of this display filter.
+
+## Generic loader fail-closed checkpoint
+
+- Both the initial and year-refresh Firestore loaders now reject the three section administrator roles before launching any school-wide collection query. This is a defense against accidental exposure if the authentication release gate is lifted prematurely; it does not implement the future section-scoped loaders.
+- Existing `school_admin` queries remain unchanged. Focused tests verify all three roles are refused without reading a collection.
