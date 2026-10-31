@@ -63,3 +63,16 @@ describe("jeton d'acteur API", () => {
     await expect(verifyActorIdToken({ verifyIdToken: vi.fn().mockRejectedValue(error) }, "token")).rejects.toBe(error);
   });
 });
+
+
+describe("section administrators release gate", () => {
+  it.each(["kindergarten_admin", "primary_admin", "studies_prefect"])("rejects %s with current or stale privileged claims", async role => {
+    const profile = { role, status: "active", schoolId: "school-a", sectionIds: ["Primaire"] };
+    for (const claimRole of [role, "school_admin", "super_admin"]) {
+      await expect(requireActiveApiUser(database(profile), { uid: "section-admin", role: claimRole, schoolId: "school-a" }))
+        .rejects.toMatchObject({ statusCode: 403, code: "permission-denied" });
+    }
+    await expect(requireActiveApiUser(database({ ...profile, role: "school_admin" }), { uid: "section-admin", role, schoolId: "school-a" }))
+      .rejects.toMatchObject({ statusCode: 403, code: "permission-denied" });
+  });
+});
