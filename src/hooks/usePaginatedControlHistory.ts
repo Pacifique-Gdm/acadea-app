@@ -2,11 +2,13 @@ import { useCallback, useEffect, useState } from "react";
 import type { DocumentSnapshot } from "@firebase/firestore";
 import { loadControlHistoryPage } from "../services/controlHistory";
 import type { ControlHistoryItem, ControlHistoryKind } from "../services/controlHistory";
+import type { AppUser } from "../types";
 
 type UsePaginatedControlHistoryOptions = {
   kind: ControlHistoryKind;
   schoolId: string;
   schoolYearId: string;
+  actor: Pick<AppUser, "role" | "schoolId">;
   enabled: boolean;
 };
 
@@ -22,6 +24,7 @@ export function usePaginatedControlHistory<T extends ControlHistoryItem>({
   kind,
   schoolId,
   schoolYearId,
+  actor,
   enabled,
 }: UsePaginatedControlHistoryOptions) {
   const [items, setItems] = useState<T[]>([]);
@@ -37,7 +40,7 @@ export function usePaginatedControlHistory<T extends ControlHistoryItem>({
     setIsInitialLoading(true);
     setLoadError("");
     try {
-      const page = await loadControlHistoryPage<T>(kind, schoolId, schoolYearId);
+      const page = await loadControlHistoryPage<T>(kind, schoolId, schoolYearId, actor);
       setItems(mergeById([], page.items));
       setCursor(page.lastVisible);
       setHasMore(page.hasMore);
@@ -48,14 +51,14 @@ export function usePaginatedControlHistory<T extends ControlHistoryItem>({
     } finally {
       setIsInitialLoading(false);
     }
-  }, [enabled, isInitialLoading, kind, schoolId, schoolYearId]);
+  }, [enabled, isInitialLoading, kind, schoolId, schoolYearId, actor]);
 
   const loadMore = useCallback(async () => {
     if (!enabled || !schoolId || !schoolYearId || !hasMore || isLoadingMore) return;
     setIsLoadingMore(true);
     setLoadError("");
     try {
-      const page = await loadControlHistoryPage<T>(kind, schoolId, schoolYearId, cursor);
+      const page = await loadControlHistoryPage<T>(kind, schoolId, schoolYearId, actor, cursor);
       setItems((current) => mergeById(current, page.items));
       setCursor(page.lastVisible);
       setHasMore(page.hasMore);
@@ -65,7 +68,7 @@ export function usePaginatedControlHistory<T extends ControlHistoryItem>({
     } finally {
       setIsLoadingMore(false);
     }
-  }, [cursor, enabled, hasMore, isLoadingMore, kind, schoolId, schoolYearId]);
+  }, [cursor, enabled, hasMore, isLoadingMore, kind, schoolId, schoolYearId, actor]);
 
   const prependItem = useCallback((item: T) => {
     setItems((current) => mergeById([item], current));

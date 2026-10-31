@@ -56,3 +56,8 @@ No Firebase configuration, production data, deployment or merge was performed.
 
 - Both the initial and year-refresh Firestore loaders now reject the three section administrator roles before launching any school-wide collection query. This is a defense against accidental exposure if the authentication release gate is lifted prematurely; it does not implement the future section-scoped loaders.
 - Existing `school_admin` queries remain unchanged. Focused tests verify all three roles are refused without reading a collection.
+
+## Financial history boundary
+
+- The shared Control history pagination now requires the current actor and refuses the three section roles before any whole-school payments, expenses or cash-inflows query. It also rejects a mismatched school for legacy roles.
+- The school-wide cash-balance API and all financial mutations remain unavailable to section roles. Historical expenses and inflows have no reliable section attribution, so their values cannot safely be presented as section balances. A section-linked server history and balance contract is still required before activation; hiding rows after a global client query is not acceptable.

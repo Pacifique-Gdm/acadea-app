@@ -155,18 +155,21 @@ export function ControlModule({
   const controlIndexes = useMemo(() => buildSchoolYearDataIndexes(yearData.students, yearData.feeTypes, yearData.payments), [yearData.students, yearData.feeTypes, yearData.payments]);
   const paymentHistory = usePaginatedControlHistory<Payment>({
     kind: "payments",
+    actor: user,
     schoolId: school.id,
     schoolYearId: year.id,
     enabled: historyOpen && historyKind === "payments",
   });
   const expenseHistory = usePaginatedControlHistory<Expense>({
     kind: "expenses",
+    actor: user,
     schoolId: school.id,
     schoolYearId: year.id,
     enabled: historyOpen && historyKind === "expenses",
   });
   const cashInflowHistory = usePaginatedControlHistory<CashInflow>({
     kind: "cashInflows", schoolId: school.id, schoolYearId: year.id,
+    actor: user,
     enabled: historyOpen && historyKind === "cashInflows",
   });
   const classChoices = useMemo(() => buildControlClassChoices(yearData.students), [yearData.students]);
