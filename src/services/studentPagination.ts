@@ -15,8 +15,9 @@ import {
   type QueryDocumentSnapshot,
 } from "@firebase/firestore";
 import { db } from "../firebase";
-import type { SchoolSection, Student } from "../types";
+import type { AppUser, SchoolSection, Student } from "../types";
 import { canonicalSchoolOption } from "../utils/schoolOptions";
+import { isSectionAdministratorRole } from "../utils/sectionAdministratorYearScope";
 import { getClassSection } from "../utils/studentClasses";
 import { compareStudentsAlphabetically, normalizeStudentSearch, studentSearchFields } from "../utils/studentSearch.js";
 
@@ -37,6 +38,7 @@ export interface StudentQueryFilters {
   className: string;
   option: string;
   allowedSections?: readonly SchoolSection[];
+  actorRole?: AppUser["role"];
 }
 
 function normalizedAllowedSections(filters: StudentQueryFilters) {
@@ -53,6 +55,10 @@ export function studentFilterConstraints(filters: StudentQueryFilters): QueryCon
     where("schoolYearId", "==", filters.schoolYearId),
   ];
   const allowedSections = normalizedAllowedSections(filters);
+  if (filters.actorRole && isSectionAdministratorRole(filters.actorRole)
+    && (!allowedSections.length || allowedSections.some((section) => !["Maternelle", "Primaire", "CTEB", "Secondaire"].includes(section)))) {
+    return [...constraints, where("section", "==", "__unauthorized__")];
+  }
   if (filters.section !== "all") {
     if (allowedSections.length && !allowedSections.includes(filters.section)) return [...constraints, where("section", "==", "__unauthorized__")];
     constraints.push(where("section", "==", filters.section));
@@ -123,12 +129,15 @@ export async function nextStudentMatricule(yearName: string, schoolId: string, s
 }
 
 export function filterStudentFallback(students: Student[], filters: StudentQueryFilters) {
-  const allowed = new Set(filters.allowedSections ?? []);
+  const allowedSections = normalizedAllowedSections(filters);
+  const sectionRole = Boolean(filters.actorRole && isSectionAdministratorRole(filters.actorRole));
+  if (sectionRole && (!allowedSections.length || allowedSections.some((section) => !["Maternelle", "Primaire", "CTEB", "Secondaire"].includes(section)))) return [];
+  const allowed = new Set(allowedSections);
   const search = normalizeStudentSearch(filters.search);
   return students.filter((student) => {
     const archived = student.searchArchived ?? studentSearchFields(student).searchArchived;
     const prefixes = student.searchPrefixes ?? studentSearchFields(student).searchPrefixes;
-    const section = student.section ?? getClassSection(student.className);
+    const section = sectionRole ? student.section : student.section ?? getClassSection(student.className);
     return student.schoolId === filters.schoolId
       && student.schoolYearId === filters.schoolYearId
       && (!allowed.size || allowed.has(section))

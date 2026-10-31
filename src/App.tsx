@@ -1024,6 +1024,10 @@ export default function App() {
     return <AccessDenied onLogout={logout} />;
   }
 
+  if (isSectionAdministratorRole(user.role) && route === "/admin/rapport-financier") {
+    return <AccessDenied onLogout={logout} />;
+  }
+
   function markNotificationsRead(notificationId?: string) {
     if (!user || currentYear.status !== "active") return;
     updateData(
@@ -1321,7 +1325,7 @@ export default function App() {
               navigate("/dashboard");
             }}
           />
-        ) : activeTab === "dashboard" && <Dashboard data={{ ...yearData, users: realtimeDashboardUsers.length > 0 ? realtimeDashboardUsers : yearData.users }} school={currentSchool} year={selectedYear} />}
+        ) : activeTab === "dashboard" && <Dashboard actor={user} data={{ ...yearData, users: realtimeDashboardUsers.length > 0 ? realtimeDashboardUsers : yearData.users }} school={currentSchool} year={selectedYear} />}
         {!standaloneAdminRoute && activeTab === "students" && (
           <StudentsModule
             user={user}

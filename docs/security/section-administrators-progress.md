@@ -71,3 +71,9 @@ No Firebase configuration, production data, deployment or merge was performed.
 
 - The server message core now requires an explicit authorized section for section-administrator senders. A parent recipient must have unambiguous same-school student links and every current-year child in that section; a staff recipient must be explicitly section-attributed, except the principal school administrator. Foreign schools and stale scope are rejected.
 - New message and conversation documents receive the validated section. Existing sender behavior is unchanged. The full directory still refuses these profiles before any whole-school query; Firestore reads, thread history, the section selector UI and attachment rules still need completion before the release gate can be removed.
+
+## Student PDF and dashboard boundary
+
+- The student pagination query used by both the list and its PDF export now carries the actor role. All three section roles require explicit valid sections; missing scopes query an impossible section and local fallback returns no students. Unattributed legacy class labels are never used to infer permission. The module also skips the school-wide structured-class listener for these roles.
+- Dashboard class options are limited to assigned sections and the school-wide class listener is skipped. Its incomplete financial synthesis and PDF export are explicitly disabled for section roles rather than showing misleading totals. The standalone school financial report route is denied.
+- These are defense-in-depth controls only; the public profile gate and Firestore rule gate are still in place. A fully attributed financial report and section-constrained class reader are required to restore the same features safely.

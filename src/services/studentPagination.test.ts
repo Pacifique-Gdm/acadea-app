@@ -63,6 +63,27 @@ describe("pagination source des élèves", () => {
     expect(studentQueryKey({ ...filters, allowedSections: ["Primaire", "CTEB"] })).toBe(studentQueryKey({ ...filters, allowedSections: ["CTEB", "Primaire"] }));
   });
 
+  it.each(["kindergarten_admin", "primary_admin", "studies_prefect"] as const)("ne charge aucun élève sans section explicite pour %s", (actorRole) => {
+    studentFilterConstraints({ ...filters, actorRole, section: "all", className: "", allowedSections: [] });
+    expect(mocks.where).toHaveBeenCalledWith("section", "==", "__unauthorized__");
+    expect(filterStudentFallback([{ id: "student-a", schoolId: "school-a", schoolYearId: "year-a", className: "1ère Primaire", section: "Primaire" }] as never[],
+      { ...filters, actorRole, section: "all", className: "", allowedSections: [] })).toEqual([]);
+  });
+
+  it("borne le PDF de plusieurs sections et refuse une section déduite d'un libellé", () => {
+    const scoped = { ...filters, actorRole: "primary_admin" as const, section: "all" as const, className: "", search: "", archive: "all" as const,
+      allowedSections: ["Primaire", "CTEB"] as const };
+    studentFilterConstraints(scoped);
+    expect(mocks.where).toHaveBeenCalledWith("section", "in", ["CTEB", "Primaire"]);
+    const students = [
+      { id: "primary", schoolId: "school-a", schoolYearId: "year-a", className: "1ère Primaire", section: "Primaire" },
+      { id: "cteb", schoolId: "school-a", schoolYearId: "year-a", className: "CTEB", section: "CTEB" },
+      { id: "secondary", schoolId: "school-a", schoolYearId: "year-a", className: "1ère Humanité", section: "Secondaire" },
+      { id: "legacy", schoolId: "school-a", schoolYearId: "year-a", className: "1ère Primaire" },
+    ] as never[];
+    expect(filterStudentFallback(students, scoped).map((student) => student.id)).toEqual(["cteb", "primary"]);
+  });
+
   it("pagine globalement sur la clé alphabétique canonique avant l’identifiant", () => {
     subscribeStudentPage(filters, undefined, vi.fn(), vi.fn());
     expect(mocks.orderBy).toHaveBeenCalledWith("sortName");
