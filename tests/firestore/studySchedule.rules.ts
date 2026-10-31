@@ -23,6 +23,19 @@ describe("persistance des périodes",()=>{
 });
 
 describe("vacations journalières et portée ciblée", () => {
+  it("empêche l'Administrateur de contourner l'API sur les vacations historiques d'un horaire validé", async () => {
+    const id = `${school}__${year}__classe-historique`;
+    await seed(`classes/${id}`, { id, schoolId: school, schoolYearId: year, name: "Classe historique", active: true, vacation: "morning", saturdayEnabled: false, saturdayVacation: null, createdBy: "study_director-user", createdAt: now, updatedAt: now });
+    await seed("timetables/valid", { id: "valid", schoolId: school, schoolYearId: year, status: "VALID" });
+    await seed("timetableEntries/entry", { id: "entry", scheduleId: "valid", schoolId: school, schoolYearId: year, classId: id, periodId: "period-a", active: true });
+    const classRef = doc(db("school_admin"), "classes", id);
+    await assertFails(updateDoc(classRef, { vacation: "afternoon", updatedAt: "later" }));
+    await assertFails(updateDoc(classRef, { saturdayEnabled: true, saturdayVacation: "afternoon", updatedAt: "later" }));
+    await assertFails(updateDoc(classRef, { dayVacations: { monday: "afternoon" }, updatedAt: "later" }));
+    await assertSucceeds(updateDoc(classRef, { name: "Classe historique renommée", updatedAt: "later" }));
+    expect((await getDoc(classRef)).data()).toMatchObject({ vacation: "morning", saturdayEnabled: false, saturdayVacation: null, name: "Classe historique renommée" });
+  });
+
   it("permet au Directeur de configurer sa classe sans modifier son identité", async () => {
     const id = `${school}__${year}__classe-test`;
     await assertSucceeds(setDoc(doc(db(), "classes", id), { id, schoolId: school, schoolYearId: year, name: "Classe test", active: true, createdBy: "study_director-user", createdAt: now, updatedAt: now, vacation: "morning", saturdayEnabled: false, saturdayVacation: null }));

@@ -1074,8 +1074,9 @@ service cloud.firestore {
       }
       allow read: if superAdmin() || sameTenantResource() || studyTenantResource() || teacherTenantResource();
       allow create: if (schoolAdmin() && activeTenantYearCreate() && !("parentClassId" in request.resource.data) && !("dayVacations" in request.resource.data)) || validSecretaryBaseClassCreate() || validStudyLegacyClassCreate() || validStudyOperationalClassCreate();
+      // Legacy vacation fields also affect established timetables; only the server API may change them.
       allow update: if (schoolAdmin() && activeTenantYearUpdate()
-          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["dayVacations"])
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["dayVacations", "vacation", "saturdayVacation", "saturdayEnabled"])
           && (!("parentClassId" in resource.data)
             || request.resource.data.diff(resource.data).affectedKeys().hasOnly(["vacation", "saturdayVacation", "saturdayEnabled", "updatedAt"])))
         ; // Director vacation changes are transactionally checked by the API.
