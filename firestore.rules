@@ -16,7 +16,9 @@ service cloud.firestore {
 
     function activeActorProfile() {
       let profile = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
-      return profile.get("status", "active") != "inactive"
+      return !(request.auth.token.role in ["kindergarten_admin", "primary_admin", "studies_prefect"])
+        && !(profile.get("role", "") in ["kindergarten_admin", "primary_admin", "studies_prefect"])
+        && profile.get("status", "active") != "inactive"
         && profile.get("active", true) != false
         && (request.auth.token.role in ["admin", "school_admin", "super_admin", "coordination_admin", "sub_coordination_admin"]
           ? ((profile.get("role", "") == request.auth.token.role
