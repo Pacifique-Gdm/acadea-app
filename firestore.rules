@@ -801,6 +801,7 @@ service cloud.firestore {
         || (parentUser() && resource.data.schoolId == tenantSchoolId() && resource.data.parentId == tenantParentId());
       allow create: if false; // Annual import and manual creation use Admin SDK server workflows.
       allow update: if schoolAdmin() && activeTenantYearUpdate() && validStudentClassReferences()
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["financialSupport"])
         && request.resource.data.get("nom", "") == resource.data.get("nom", "")
         && request.resource.data.get("postnom", "") == resource.data.get("postnom", "")
         && request.resource.data.get("prenom", "") == resource.data.get("prenom", "");
@@ -818,6 +819,16 @@ service cloud.firestore {
         && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
     }
 
+    match /socialSupportDecisions/{decisionId} {
+      allow read: if schoolAdmin() && sameTenantResource();
+      allow write: if false;
+    }
+    match /socialSupportAudit/{eventId} {
+      allow read: if schoolAdmin() && sameTenantResource();
+      allow write: if false;
+    }
+    match /socialSupportFeeLocks/{feeId} { allow read: if schoolAdmin() && sameTenantResource(); allow write: if false; }
+    match /socialSupportRequests/{requestId} { allow read, write: if false; }
     match /payments/{paymentId} {
       allow read: if superAdmin()
         || coordinatorSchool(resource.data.schoolId)
@@ -995,8 +1006,11 @@ service cloud.firestore {
     match /feeTypes/{feeTypeId} {
       allow read: if superAdmin() || coordinatorSchool(resource.data.schoolId) || sameTenantResource();
       allow create: if schoolAdmin() && activeTenantYearCreate();
-      allow update: if schoolAdmin() && activeTenantYearUpdate();
+      allow update: if schoolAdmin() && activeTenantYearUpdate()
+        && (!exists(/databases/$(database)/documents/socialSupportFeeLocks/$(feeTypeId))
+          || !request.resource.data.diff(resource.data).affectedKeys().hasAny(["amount", "className", "classOptionKey"]));
       allow delete: if schoolAdmin() && sameTenantResource()
+        && !exists(/databases/$(database)/documents/socialSupportFeeLocks/$(feeTypeId))
         && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
     }
 
@@ -1822,8 +1836,8 @@ service cloud.firestore {
     // Secretary writes remain limited to student administration; manual
     // identity changes and student creation are mediated by the server API.
     match /students/{studentId} {
-      allow create: if secretaryStudentCreate() && validStudentClassReferences();
-      allow update: if secretaryStudentUpdate() && validStudentClassReferences();
+      allow create: if secretaryStudentCreate() && validStudentClassReferences() && !request.resource.data.keys().hasAny(["financialSupport"]);
+      allow update: if secretaryStudentUpdate() && validStudentClassReferences() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["financialSupport"]);
     }
 
     match /parents/{parentId} {
