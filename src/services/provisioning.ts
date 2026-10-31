@@ -111,7 +111,7 @@ type ProvisionCashierInput = {
 };
 
 type ProvisionSchoolUserInput = ProvisionCashierInput & {
-  role: "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher";
+  role: "kindergarten_admin" | "primary_admin" | "studies_prefect" | "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher";
   section?: SchoolSection;
   sectionIds?: SchoolSection[];
 };
@@ -456,4 +456,9 @@ export async function manageSchool(input: ManageSchoolInput) {
   }
 
   return payload;
+}
+
+export type SectionAdministratorSummary = Pick<AppUser, "id" | "name" | "role" | "sectionIds" | "status" | "active">;
+export async function manageSectionAdministrator(input: { schoolId: string; operation: "list" | "activate" | "deactivate" | "delete"; userId?: string; confirmation?: string }) {
+  return provisionSchoolAccount<{ users?: SectionAdministratorSummary[] }>({ action: "manage-section-administrator", ...input });
 }

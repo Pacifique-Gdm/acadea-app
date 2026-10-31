@@ -21,6 +21,7 @@ import { canonicalOperationalClasses, subscribeToSchoolClasses } from "../../ser
 import { getSchoolClassChoices, getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
 import { formatStudentClassName, getClassSection } from "../../utils/studentClasses";
 import { isArchivedStudent } from "../../utils/studentUtils";
+import { isSectionAdministratorRole } from "../../utils/sectionAdministratorYearScope";
 import type { AppUser, Expense, FeeType, ParentProfile, Payment, School, SchoolClassRecord, SchoolSection, SchoolYear, Student } from "../../types";
 
 type DashboardData = {
@@ -36,6 +37,7 @@ type DashboardProps = {
   data: DashboardData;
   school: School;
   year: SchoolYear;
+  actor?: Pick<AppUser, "role" | "schoolId" | "sectionIds">;
 };
 
 export type TransactionPeriod = "today" | "last5" | "week";
@@ -330,7 +332,8 @@ export function TransactionComboChart({
   );
 }
 
-export function Dashboard({ data, school, year }: DashboardProps) {
+export function Dashboard({ data, school, year, actor }: DashboardProps) {
+  const sectionRole = Boolean(actor && isSectionAdministratorRole(actor.role));
   const expenseResolution = useExpenseCurrencyResolution(data.expenses);
   const resolvedExpenses = expenseResolution.rows;
   const today = toDateKey(new Date());
@@ -341,19 +344,18 @@ export function Dashboard({ data, school, year }: DashboardProps) {
   const [dateFilterError, setDateFilterError] = useState("");
   const [transactionPeriod, setTransactionPeriod] = useState<TransactionPeriod>("last5");
   const [schoolClasses, setSchoolClasses] = useState<SchoolClassRecord[]>([]);
-  const dashboardClassChoices = useMemo(() => getSchoolClassChoices(school), [school]);
-  const dashboardSectionChoices = useMemo(() => getSchoolSections(school), [school]);
+  const dashboardSectionChoices = useMemo(() => getSchoolSections(school).filter((section) => !sectionRole || Boolean(actor?.sectionIds?.includes(section))), [actor?.sectionIds, school, sectionRole]);
+  const dashboardClassChoices = useMemo(() => getSchoolClassChoices(school).filter((className) => !sectionRole || dashboardSectionChoices.includes(getClassSection(className))), [dashboardSectionChoices, school, sectionRole]);
   useEffect(() => {
     if (sectionFilter !== "all" && !dashboardSectionChoices.includes(sectionFilter)) {
       setSectionFilter("all");
     }
   }, [dashboardSectionChoices, sectionFilter]);
-  useEffect(() => subscribeToSchoolClasses(
-    school.id,
-    year.id,
-    setSchoolClasses,
-    (error) => console.warn("Actualisation des classes du Dashboard indisponible.", error),
-  ), [school.id, year.id]);
+  useEffect(() => {
+    if (sectionRole) { setSchoolClasses([]); return; }
+    return subscribeToSchoolClasses(school.id, year.id, setSchoolClasses,
+      (error) => console.warn("Actualisation des classes du Dashboard indisponible.", error));
+  }, [school.id, sectionRole, year.id]);
   const yearIndexes = useMemo(() => buildSchoolYearDataIndexes(data.students, data.feeTypes, data.payments), [data.students, data.feeTypes, data.payments]);
   const activeStudents = useMemo(() => data.students.filter((student) => !isArchivedStudent(student)), [data.students]);
   const filteredStudents = useMemo(() => activeStudents.filter((student) => sectionFilter === "all" || getClassSection(student.className) === sectionFilter), [activeStudents, sectionFilter]);
@@ -394,7 +396,8 @@ export function Dashboard({ data, school, year }: DashboardProps) {
   const currentCurrency = resolveSchoolYearCurrency(year, school);
   const hasUnreliableFinancialCurrency = hasCurrencyOutside([...data.payments, ...resolvedExpenses], currentCurrency);
   const financialVerificationReady = expenseResolution.status === "ready";
-  const financialExportBlocked = !financialVerificationReady || hasUnreliableFinancialCurrency;
+  // A section slice cannot claim to be the school's complete cash balance.
+  const financialExportBlocked = sectionRole || !financialVerificationReady || hasUnreliableFinancialCurrency;
   const transactionStartDate = dateFilterActive ? startDate : today;
   const transactionEndDate = dateFilterActive ? endDate : today;
   const arrearsCollections = useMemo(() => (["USD", "CDF"] as const).map((currency) => ({
@@ -632,6 +635,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
       {expenseResolution.status === "loading" && <p role="status" className="rounded border border-slate-200 bg-white p-3 text-sm">Vérification des devises historiques en cours…</p>}
       {expenseResolution.status === "error" && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Vérification des devises indisponible. Réessayez après avoir rétabli la connexion.</p>}
       {financialVerificationReady && hasUnreliableFinancialCurrency && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Synthèse financière et PDF indisponibles : des opérations historiques ont une devise inconnue ou différente de la devise actuelle. Vérification ou réconciliation nécessaire.</p>}
+      {sectionRole && <p role="status" className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Synthèse financière et export PDF indisponibles tant que les opérations de cette section ne sont pas réconciliées côté serveur.</p>}
 
       <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {cards.map((card) => {

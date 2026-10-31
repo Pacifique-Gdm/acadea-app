@@ -1,7 +1,8 @@
 import { requireActiveApiUser, verifyActorIdToken } from "./activeUser.js";
 import { requireActiveSchoolYear } from "./schoolYear.js";
+import { isSectionAdministrator, sectionAdministratorScope } from "./sectionAdministrators.js";
 
-const ALLOWED_SENDERS = new Set(["school_admin", "admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent"]);
+const ALLOWED_SENDERS = new Set(["school_admin", "admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent", "kindergarten_admin", "primary_admin", "studies_prefect"]);
 
 const RECIPIENTS_BY_ROLE = Object.freeze({
   school_admin: new Set(["cashier", "secretary", "discipline_director", "study_director", "teacher", "parent", "coordination_admin", "sub_coordination_admin"]),
@@ -11,6 +12,9 @@ const RECIPIENTS_BY_ROLE = Object.freeze({
   secretary: new Set(["school_admin", "cashier", "discipline_director", "study_director", "teacher", "parent"]),
   teacher: new Set(["school_admin", "cashier", "secretary", "discipline_director", "study_director", "parent"]),
   parent: new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]),
+  kindergarten_admin: new Set(["school_admin", "cashier", "secretary", "discipline_director", "study_director", "teacher", "parent"]),
+  primary_admin: new Set(["school_admin", "cashier", "secretary", "discipline_director", "study_director", "teacher", "parent"]),
+  studies_prefect: new Set(["school_admin", "cashier", "secretary", "discipline_director", "study_director", "teacher", "parent"]),
 });
 
 export function normalizedMessagingRole(value) {
@@ -28,6 +32,22 @@ export function messagingSenderIdentity(caller) {
 
 export function allowedRecipientRoles(role) {
   return RECIPIENTS_BY_ROLE[normalizedMessagingRole(role)] ?? new Set();
+}
+
+export function requireSectionMessageContext(caller, section) {
+  if (!isSectionAdministrator(caller?.role)) return null;
+  const scope = sectionAdministratorScope(caller.profile);
+  if (scope.schoolId !== caller.schoolId || !scope.sectionIds.includes(section)) {
+    throw Object.assign(new Error("Section de message hors du périmètre autorisé."), { statusCode: 403, code: "invalid-recipient" });
+  }
+  return section;
+}
+
+export function sectionMessageStaffRecipientAllowed(recipient, section) {
+  if (normalizedMessagingRole(recipient?.role) === "school_admin") return true;
+  return Array.isArray(recipient?.sectionIds)
+    ? recipient.sectionIds.includes(section)
+    : recipient?.section === section;
 }
 
 function callerSectionScope(caller) {
@@ -148,6 +168,11 @@ export async function requireMessagingCaller(auth, db, token) {
 }
 
 export async function listAllowedMessageRecipients(db, caller, schoolYearId = "") {
+  // The school-wide directory is not suitable for these profiles. It must be
+  // replaced by a section-constrained directory before the release gate lifts.
+  if (isSectionAdministrator(caller.role)) {
+    throw Object.assign(new Error("Annuaire de section non disponible."), { statusCode: 403, code: "not-authorized" });
+  }
   const allowed = allowedRecipientRoles(caller.role);
   if (allowed.size === 0) throw Object.assign(new Error("Action non autorisee."), { statusCode: 403, code: "not-authorized" });
   const snapshot = await db.collection("users").where("schoolId", "==", caller.schoolId).get();

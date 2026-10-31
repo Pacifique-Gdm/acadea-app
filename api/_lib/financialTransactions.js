@@ -1,3 +1,4 @@
+import { SECTION_ADMINISTRATORS, isSectionAdministrator, sectionAdministratorScope, requireSectionAdministratorResource } from "./sectionAdministrators.js";
 import { createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
@@ -113,6 +114,7 @@ async function assertContext(transaction, db, caller, requestedYearId, readOnly 
   if (!userSnapshot.exists || profile.schoolId !== caller.schoolId || profile.status === "inactive" || profile.active === false || profileRole !== caller.role) {
     throw new FinancialApiError(403, "permission-denied", "Profil utilisateur financier invalide.");
   }
+  if (isSectionAdministrator(caller.role)) sectionAdministratorScope(profile);
   const yearCurrency = yearSnapshot.data()?.currency;
   const currency = yearCurrency === "CDF" || yearCurrency === "USD"
     ? yearCurrency
@@ -182,8 +184,12 @@ async function historicalStudentRecords(transaction, db, caller, currentStudent,
   return [...byYear.values()];
 }
 
-async function historicalDebts(transaction, db, caller, currentStudent, currentYear, school, reads, knownRecords) {
+async function historicalDebts(transaction, db, caller, currentStudent, currentYear, school, reads, knownRecords, sectionProfile) {
   const records = knownRecords ?? await historicalStudentRecords(transaction, db, caller, currentStudent, currentYear, reads);
+  if (sectionProfile) {
+    requireSectionAdministratorResource(sectionProfile, currentStudent);
+    for (const { student } of records) requireSectionAdministratorResource(sectionProfile, student);
+  }
   const groups = await Promise.all(records.map(async ({ student, year }) => {
     const debts = [];
     const [feeSnapshot, paymentSnapshot] = reads ? [
@@ -215,7 +221,7 @@ async function historicalDebts(transaction, db, caller, currentStudent, currentY
 
 // Request-local grouped reads only: no persisted projection and no second debt formula.
 // Each source page is at most 50 students. Firestore `in` operands stay <= 30.
-async function arrearsBatch(transaction, db, studentIds, schoolIds, requestedYearId, includeDetails = false) {
+async function arrearsBatch(transaction, db, studentIds, schoolIds, requestedYearId, includeDetails = false, sectionProfile) {
   if (!Array.isArray(studentIds) || !studentIds.length || studentIds.length > 50 || studentIds.some((id) => typeof id !== "string" || !id || id.length > 120 || id.includes("/")) || new Set(studentIds).size !== studentIds.length) {
     throw new FinancialApiError(400, "invalid-argument", "Une liste de 1 à 50 élèves distincts est requise.");
   }
@@ -223,6 +229,7 @@ async function arrearsBatch(transaction, db, studentIds, schoolIds, requestedYea
   if (documents.some((document) => !document.exists || !schoolIds.includes(document.data().schoolId) || (requestedYearId && document.data().schoolYearId !== requestedYearId))) {
     throw new FinancialApiError(404, "not-found", "Élève introuvable dans le périmètre autorisé.");
   }
+  if (sectionProfile) for (const document of documents) requireSectionAdministratorResource(sectionProfile, document.data());
   const queryMany = async (collection, field, values) => {
     const unique = [...new Set(values.filter(Boolean))];
     const snapshots = await Promise.all(Array.from({ length: Math.ceil(unique.length / 30) }, (_, i) => transaction.get(db.collection(collection).where(field, "in", unique.slice(i * 30, i * 30 + 30)))));
@@ -251,6 +258,7 @@ async function arrearsBatch(transaction, db, studentIds, schoolIds, requestedYea
     const school = schoolSnapshot?.data(), year = yearSnapshot?.data();
     if (!schoolSnapshot?.exists || school?.status !== "active" || !year || year.schoolId !== student.schoolId) throw new FinancialApiError(409, "failed-precondition", "Contexte scolaire indisponible.");
     const records = await historicalStudentRecords(transaction, db, { schoolId: student.schoolId }, student, year, reads);
+    if (sectionProfile) for (const record of records) requireSectionAdministratorResource(sectionProfile, record.student);
     return { student, school, year, records };
   }));
   [reads.fees, reads.payments] = await Promise.all([
@@ -274,16 +282,16 @@ export function listScopedStudentArrearsBatch({ db, studentIds, schoolIds, inclu
 export function listStudentArrearsBatch({ db, caller: rawCaller, body }) {
   assertAllowedKeys(body, ["action", "schoolYearId", "studentIds", "includeDetails"]);
   if (body.includeDetails !== undefined && typeof body.includeDetails !== "boolean") throw new FinancialApiError(400, "invalid-argument", "Option de détail invalide.");
-  const caller = assertRole(rawCaller, ["school_admin", "cashier"]);
+  const caller = assertRole(rawCaller, ["school_admin", "cashier", ...Object.keys(SECTION_ADMINISTRATORS)]);
   return db.runTransaction(async (transaction) => {
-    const { schoolYearId } = await assertContext(transaction, db, caller, body.schoolYearId, true);
-    return arrearsBatch(transaction, db, body.studentIds, [caller.schoolId], schoolYearId, body.includeDetails === true);
+    const { schoolYearId, profile } = await assertContext(transaction, db, caller, body.schoolYearId, true);
+    return arrearsBatch(transaction, db, body.studentIds, [caller.schoolId], schoolYearId, body.includeDetails === true, isSectionAdministrator(caller.role) ? profile : undefined);
   });
 }
 
 export async function listStudentArrears({ db, caller: rawCaller, body }) {
   assertAllowedKeys(body, ARREARS_READ_KEYS);
-  const caller = assertRole(rawCaller, ["cashier", "school_admin", "parent"]);
+  const caller = assertRole(rawCaller, ["cashier", "school_admin", "parent", ...Object.keys(SECTION_ADMINISTRATORS)]);
   return db.runTransaction(async (transaction) => {
     const { schoolYearId, year, school, profile } = await assertContext(transaction, db, caller, body.schoolYearId);
     if (year.status !== "active" || school.activeSchoolYearId !== schoolYearId) {
@@ -298,7 +306,9 @@ export async function listStudentArrears({ db, caller: rawCaller, body }) {
     if (caller.role === "parent" && (!text(caller.parentId, 120) || profile.parentId !== caller.parentId || student.parentId !== caller.parentId)) {
       throw new FinancialApiError(403, "permission-denied", "Cet élève n'est pas lié à ce parent.");
     }
-    const debts = await historicalDebts(transaction, db, caller, { id: studentId, ...student }, year, school);
+    const sectionProfile = isSectionAdministrator(caller.role) ? profile : undefined;
+    if (sectionProfile) requireSectionAdministratorResource(sectionProfile, student);
+    const debts = await historicalDebts(transaction, db, caller, { id: studentId, ...student }, year, school, undefined, undefined, sectionProfile);
     return { debts: debts.filter((debt) => debt.remaining > 0), settled: debts.filter((debt) => debt.remaining === 0) };
   });
 }
@@ -326,7 +336,7 @@ export async function listScopedStudentArrears({ db, studentId, schoolIds }) {
 async function createPayment(transaction, db, caller, body, hash, now) {
   assertAllowedKeys(body, PAYMENT_CREATE_KEYS);
   const amount = positiveAmount(body.amount);
-  const { schoolYearId: collectionSchoolYearId, year, school, currency, actorName } = await assertContext(transaction, db, caller, body.schoolYearId);
+  const { schoolYearId: collectionSchoolYearId, year, school, profile, currency, actorName } = await assertContext(transaction, db, caller, body.schoolYearId);
   const currentStudentId = text(body.studentId, 120);
   const feeTypeId = text(body.feeTypeId, 120);
   const debtSchoolYearId = text(body.debtSchoolYearId, 120);
@@ -340,6 +350,8 @@ async function createPayment(transaction, db, caller, body, hash, now) {
   if (!currentStudentSnapshot.exists || currentStudent.schoolId !== caller.schoolId || currentStudent.schoolYearId !== collectionSchoolYearId || currentStudent.status !== "ACTIVE") {
     throw new FinancialApiError(400, "invalid-argument", "Élève invalide pour cet établissement et cette année.");
   }
+  const sectionProfile = isSectionAdministrator(caller.role) ? profile : undefined;
+  if (sectionProfile) requireSectionAdministratorResource(sectionProfile, currentStudent);
   if (!feeSnapshot.exists || fee.schoolId !== caller.schoolId || !(Number(fee.amount) > 0)) {
     throw new FinancialApiError(400, "invalid-argument", "Type de frais invalide pour cet établissement et cette année.");
   }
@@ -354,7 +366,7 @@ async function createPayment(transaction, db, caller, body, hash, now) {
     if (debtSchoolYearId === collectionSchoolYearId || year.status !== "active" || school.activeSchoolYearId !== collectionSchoolYearId) {
       throw new FinancialApiError(409, "failed-precondition", "Une créance historique exige l'année scolaire active.");
     }
-    const debts = await historicalDebts(transaction, db, caller, { id: currentStudentId, ...currentStudent }, year, school);
+    const debts = await historicalDebts(transaction, db, caller, { id: currentStudentId, ...currentStudent }, year, school, undefined, undefined, sectionProfile);
     debt = debts.find((item) => item.schoolYearId === debtSchoolYearId && item.feeTypeId === feeTypeId);
     if (!debt) throw new FinancialApiError(400, "invalid-argument", "Créance historique invalide pour cet élève.");
     schoolYearId = debt.schoolYearId;
@@ -403,6 +415,7 @@ async function createPayment(transaction, db, caller, body, hash, now) {
     schoolId: caller.schoolId,
     schoolYearId,
     studentId,
+    ...(sectionProfile ? { section: currentStudent.section } : {}),
     ...(typeof currentStudent.parentId === "string" && currentStudent.parentId ? { parentId: currentStudent.parentId } : {}),
     feeTypeId,
     ...(debt ? { collectionSchoolYearId, currentStudentId, debtSchoolYearName: debt.yearName, feeName: debt.feeName, currency: debt.currency } : {}),
@@ -438,7 +451,7 @@ async function createPayment(transaction, db, caller, body, hash, now) {
       createdAt: now, read: false,
     });
   }
-  return { payment };
+  return { payment, ...(sectionProfile ? { section: currentStudent.section } : {}) };
 }
 
 async function createExpense(transaction, db, caller, body, hash, now) {
@@ -526,7 +539,24 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
   }
   if (current.schoolId !== caller.schoolId) throw new FinancialApiError(403, "permission-denied", "Transaction financière hors établissement.");
   if (!isPayment && current.personnelPaymentId) throw new FinancialApiError(409, "conflict", "Cette dépense est liée à une paie et ne peut pas être corrigée ou supprimée séparément.");
-  const { schoolYearId, actorName, currency: yearCurrency } = await assertContext(transaction, db, caller, current.schoolYearId);
+  const { schoolYearId, actorName, currency: yearCurrency, profile } = await assertContext(transaction, db, caller, current.schoolYearId);
+  let scopeSection;
+  if (isSectionAdministrator(caller.role)) {
+    if (!isPayment || !text(current.studentId, 120)) {
+      throw new FinancialApiError(403, "permission-denied", "Transaction hors du périmètre de section.");
+    }
+    const linkedIds = [...new Set([current.studentId, current.currentStudentId].filter(Boolean))];
+    const linked = await Promise.all(linkedIds.map((id) => transaction.get(db.doc(`students/${id}`))));
+    for (const [index, snapshot] of linked.entries()) {
+      const student = snapshot.exists ? { id: linkedIds[index], ...snapshot.data() } : null;
+      requireSectionAdministratorResource(profile, student);
+      const expectedYearId = linkedIds[index] === current.studentId ? current.schoolYearId : current.collectionSchoolYearId;
+      if (student.schoolYearId !== expectedYearId) {
+        throw new FinancialApiError(403, "permission-denied", "Filiation du paiement hors du périmètre de section.");
+      }
+    }
+    scopeSection = linked[0].data().section;
+  }
   if (current.currency !== "CDF" && current.currency !== "USD") {
     throw new FinancialApiError(409, "currency-reconciliation-required", "Devise historique inconnue : correction bloquée jusqu'à réconciliation.");
   }
@@ -601,6 +631,7 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
     id: auditId, operationId: transactionId, kind, schoolId: caller.schoolId, schoolYearId,
     actorId: caller.uid, actorName, createdAt: now, serverTimestamp: FieldValue.serverTimestamp(), reason, ...correction,
   });
+  if (scopeSection) result.section = scopeSection;
   return result;
 }
 
@@ -612,8 +643,21 @@ export async function executeFinancialOperation({ db, caller: rawCaller, body, n
   const fingerprint = createHash("sha256").update(JSON.stringify(body)).digest("hex");
   const idempotencyRef = db.doc(`financialIdempotency/${hash}`);
   return db.runTransaction(async (transaction) => {
+    let sectionScope;
+    if (isSectionAdministrator(caller.role)) {
+      const profileSnapshot = await transaction.get(db.doc(`users/${caller.uid}`));
+      sectionScope = sectionAdministratorScope(profileSnapshot.exists ? profileSnapshot.data() : null);
+      if (sectionScope.schoolId !== caller.schoolId) {
+        throw new FinancialApiError(403, "permission-denied", "Établissement financier invalide.");
+      }
+    }
     const prior = idempotentResult(await transaction.get(idempotencyRef), fingerprint);
-    if (prior) return prior;
+    if (prior) {
+      if (sectionScope && (!prior.section || !sectionScope.sectionIds.includes(prior.section))) {
+        throw new FinancialApiError(403, "permission-denied", "Transaction hors du périmètre de section.");
+      }
+      return prior;
+    }
     let result;
     if (action === "create-payment") result = await createPayment(transaction, db, caller, body, hash, now);
     else if (action === "create-expense") result = await createExpense(transaction, db, caller, body, hash, now);
@@ -629,6 +673,7 @@ export async function executeFinancialOperation({ db, caller: rawCaller, body, n
 }
 
 export function authorizeFinancialCaller(rawCaller, action) {
+  if (["list-arrears", "list-arrears-batch", "create-payment", "update-payment", "delete-payment"].includes(action) && isSectionAdministrator(rawCaller.role)) return assertRole(rawCaller, Object.keys(SECTION_ADMINISTRATORS));
   const createAction = action === "create-payment" || action === "create-expense" || action === "create-cash-inflow";
   return assertRole(rawCaller, action === "list-arrears" ? ["cashier", "school_admin", "parent"] : action === "list-arrears-batch" ? ["cashier", "school_admin"] : createAction ? ["cashier"] : ["school_admin"]);
 }

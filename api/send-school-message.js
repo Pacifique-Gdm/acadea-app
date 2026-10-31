@@ -2,7 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { requireActiveSchoolYear } from "./_lib/schoolYear.js";
-import { allowedRecipientRoles, isRelatedCoordinationRecipient, messagingSenderIdentity, normalizedMessagingRole, requireMessagingCaller } from "./_lib/messageRecipients.js";
+import { allowedRecipientRoles, isRelatedCoordinationRecipient, messagingSenderIdentity, normalizedMessagingRole, requireMessagingCaller, requireSectionMessageContext, sectionMessageStaffRecipientAllowed } from "./_lib/messageRecipients.js";
+import { isSectionAdministrator } from "./_lib/sectionAdministrators.js";
 
 export const MAX_TOTAL_BYTES = 10 * 1024 * 1024;
 const MAX_ATTACHMENTS = 10;
@@ -52,7 +53,8 @@ function stableId(prefix, ...values) {
   return `${prefix}-${createHash("sha256").update(values.join("\u001f")).digest("hex").slice(0, 24)}`;
 }
 
-export async function resolveRecipients(db, caller, recipientRoles, recipientIds, schoolYearId) {
+export async function resolveRecipients(db, caller, recipientRoles, recipientIds, schoolYearId, messageSection = "") {
+  const section = requireSectionMessageContext(caller, messageSection);
   const requestedRoles = [...new Set(recipientRoles.map(normalizedRole))];
   const allowed = allowedRecipientRoles(caller.role);
   if (!requestedRoles.length || requestedRoles.some((role) => !allowed.has(role))) throw httpError(400, "invalid-recipient", "Destinataire non autorise.");
@@ -67,17 +69,26 @@ export async function resolveRecipients(db, caller, recipientRoles, recipientIds
     if ((!isSameSchool && !isRelatedCoordinator) || !requestedRoles.includes(role) || recipient.active === false || recipient.status === "inactive") {
       throw httpError(403, "invalid-recipient", "Un destinataire n'appartient pas a cet etablissement ou n'est pas autorise.");
     }
+    if (section && role !== "parent" && !sectionMessageStaffRecipientAllowed(recipient, section)) {
+      throw httpError(403, "invalid-recipient", "Destinataire hors du périmètre de section.");
+    }
     if (role === "parent") {
       if (!recipient.parentId) throw httpError(403, "invalid-recipient", "Profil parent incomplet.");
       const parentSnapshot = await db.doc(`parents/${recipient.parentId}`).get();
       const parent = parentSnapshot.exists ? parentSnapshot.data() : undefined;
       if (!parent || parent.schoolId !== caller.schoolId || !Array.isArray(parent.studentIds) || parent.studentIds.length === 0) throw httpError(403, "invalid-recipient", "Parent non rattache a cet etablissement.");
       const studentSnapshots = await db.getAll(...parent.studentIds.map((id) => db.doc(`students/${id}`)));
+      const currentYearStudents = studentSnapshots.filter((snapshot) => snapshot.exists && snapshot.data().schoolYearId === schoolYearId);
       const activeYearStudents = studentSnapshots.filter((snapshot) => snapshot.exists && snapshot.data().schoolId === caller.schoolId && snapshot.data().schoolYearId === schoolYearId);
       if (!activeYearStudents.length) {
         throw httpError(403, "invalid-recipient", "Parent sans eleve rattache a l'annee scolaire active.");
       }
       const callerSections = new Set(Array.isArray(caller.profile?.sectionIds) ? caller.profile.sectionIds : caller.profile?.section ? [caller.profile.section] : []);
+      if (section && (!studentSnapshots.every((snapshot) => snapshot.exists && snapshot.data().schoolId === caller.schoolId)
+        || activeYearStudents.length !== currentYearStudents.length
+        || !activeYearStudents.every((snapshot) => snapshot.data().section === section))) {
+        throw httpError(403, "invalid-recipient", "Parent lié à une autre section.");
+      }
       if (["discipline_director", "study_director"].includes(normalizedRole(caller.role)) && callerSections.size > 0
         && !activeYearStudents.some((snapshot) => callerSections.has(snapshot.data().section))) {
         throw httpError(403, "invalid-recipient", "Parent hors du perimetre de sections autorise.");
@@ -129,11 +140,12 @@ export async function verifyAndMoveAttachments(bucket, caller, schoolYearId, dra
   }
 }
 
-export function createSchoolMessageDocument({ messageId, caller, schoolYearId, recipients, participantIds, conversationId, subject, messageBody, attachments, createdAt }) {
+export function createSchoolMessageDocument({ messageId, caller, schoolYearId, recipients, participantIds, conversationId, subject, messageBody, attachments, createdAt, messageSection }) {
   return {
     id: messageId,
     schoolId: caller.schoolId,
     schoolYearId,
+    ...(isSectionAdministrator(caller.role) ? { section: messageSection } : {}),
     senderId: caller.uid,
     ...messagingSenderIdentity(caller),
     recipientIds: recipients.map((recipient) => recipient.id),
@@ -165,9 +177,10 @@ export default async function handler(req, res) {
     const draftId = text(body.draftId, 120);
     const recipientRoles = Array.isArray(body.recipientRoles) ? body.recipientRoles.map((item) => text(item, 40)) : [];
     const recipientIds = Array.isArray(body.recipientIds) ? [...new Set(body.recipientIds.map((item) => text(item, 128)).filter(Boolean))] : [];
+    const messageSection = text(body.section, 40);
     if (!schoolYearId || !subject || !messageBody || !draftId) throw httpError(400, "invalid-argument", "Annee, objet, message et brouillon sont requis.");
     await requireActiveSchoolYear(db, caller.schoolId, schoolYearId);
-    const recipients = await resolveRecipients(db, caller, recipientRoles, recipientIds, schoolYearId);
+    const recipients = await resolveRecipients(db, caller, recipientRoles, recipientIds, schoolYearId, messageSection);
     const idempotencyKey = text(req.headers["x-idempotency-key"], 128);
     if (!idempotencyKey) throw httpError(400, "invalid-argument", "Cle d'idempotence requise.");
     await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.schoolId, action: "school.message.send", idempotencyKey, ...API_RATE_LIMITS.SCHOOL_MESSAGE });
@@ -186,8 +199,8 @@ export default async function handler(req, res) {
     const attachments = await verifyAndMoveAttachments(bucket, caller, schoolYearId, draftId, inputAttachments, conversationId, messageId);
     finalPaths = attachments.map((item) => item.path);
     const participantIds = [...new Set([caller.uid, ...recipients.map((recipient) => recipient.id)])];
-    const savedMessage = createSchoolMessageDocument({ messageId, caller, schoolYearId, recipients, participantIds, conversationId, subject, messageBody, attachments, createdAt });
-    const conversation = { id: conversationId, schoolId: caller.schoolId, schoolYearId, threadId: conversationId, threadParentId: "school", parentId: "school", participantIds, lastMessage: messageBody, lastMessageAt: createdAt, lastSenderId: caller.uid, lastSenderRole: caller.role, messageCount: 1, unreadParentCount: 0, unreadAdminCount: 0, unreadCashierCount: 0, unreadDisciplineCount: 0, createdAt, updatedAt: createdAt, status: "active" };
+    const savedMessage = createSchoolMessageDocument({ messageId, caller, schoolYearId, recipients, participantIds, conversationId, subject, messageBody, attachments, createdAt, messageSection });
+    const conversation = { id: conversationId, schoolId: caller.schoolId, schoolYearId, ...(isSectionAdministrator(caller.role) ? { section: messageSection } : {}), threadId: conversationId, threadParentId: "school", parentId: "school", participantIds, lastMessage: messageBody, lastMessageAt: createdAt, lastSenderId: caller.uid, lastSenderRole: caller.role, messageCount: 1, unreadParentCount: 0, unreadAdminCount: 0, unreadCashierCount: 0, unreadDisciplineCount: 0, createdAt, updatedAt: createdAt, status: "active" };
     const batch = db.batch();
     batch.set(db.doc(`messages/${messageId}`), savedMessage);
     batch.set(db.doc(`conversations/${conversationId}`), conversation);

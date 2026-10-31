@@ -1,8 +1,11 @@
 import type { AppUser, ParentProfile, School } from "../types";
 
-export type SchoolStaffRole = "cashier" | "secretary" | "discipline_director" | "study_director" | "teacher";
+export type SchoolStaffRole = "kindergarten_admin" | "primary_admin" | "studies_prefect" | "cashier" | "secretary" | "discipline_director" | "study_director" | "teacher";
 
 export const schoolStaffEmailPrefixes: Record<SchoolStaffRole, string> = {
+  kindergarten_admin: "maternelle",
+  primary_admin: "primaire",
+  studies_prefect: "prefet",
   cashier: "caissier",
   secretary: "secretaire",
   discipline_director: "discipline",

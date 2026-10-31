@@ -72,6 +72,7 @@ import { userFacingError } from "./utils/userFacingError";
 import { runRefreshTask } from "./utils/refreshTask";
 import { resolveSchoolCurrency, schoolWithYearCurrency } from "./utils/currency";
 import { filterByAllowedSections } from "./utils/userSections";
+import { isSectionAdministratorRole, sectionAdministratorYearScope } from "./utils/sectionAdministratorYearScope";
 import { getStudentSection } from "./utils/studentClasses";
 import type { SchoolLevelChoice } from "./utils/schoolConfig";
 import type {
@@ -90,7 +91,7 @@ type BeforeInstallPromptEvent = Event & {
 };
 
 const roleLabels: Record<AppUser["role"], string> = {
-  super_admin: "Super Administrateur",
+  kindergarten_admin: "Directrice Maternelle", primary_admin: "Admin. Primaire", studies_prefect: "Préfet d’études", super_admin: "Super Administrateur",
   coordination_admin: "Coordinateur",
   sub_coordination_admin: "Sous-coordinateur",
   school_admin: "Administrateur d'école",
@@ -1023,6 +1024,10 @@ export default function App() {
     return <AccessDenied onLogout={logout} />;
   }
 
+  if (isSectionAdministratorRole(user.role) && route === "/admin/rapport-financier") {
+    return <AccessDenied onLogout={logout} />;
+  }
+
   function markNotificationsRead(notificationId?: string) {
     if (!user || currentYear.status !== "active") return;
     updateData(
@@ -1320,7 +1325,7 @@ export default function App() {
               navigate("/dashboard");
             }}
           />
-        ) : activeTab === "dashboard" && <Dashboard data={{ ...yearData, users: realtimeDashboardUsers.length > 0 ? realtimeDashboardUsers : yearData.users }} school={currentSchool} year={selectedYear} />}
+        ) : activeTab === "dashboard" && <Dashboard actor={user} data={{ ...yearData, users: realtimeDashboardUsers.length > 0 ? realtimeDashboardUsers : yearData.users }} school={currentSchool} year={selectedYear} />}
         {!standaloneAdminRoute && activeTab === "students" && (
           <StudentsModule
             user={user}
@@ -1439,6 +1444,7 @@ export default function App() {
 }
 
 function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: AppUser) {
+  if (isSectionAdministratorRole(user.role)) return sectionAdministratorYearScope(data, user, schoolId, schoolYearId);
   const tenantStudents =
     user.role === "parent"
       ? data.students.filter((student) => student.parentId === user.parentId && student.schoolId === schoolId && student.schoolYearId === schoolYearId)

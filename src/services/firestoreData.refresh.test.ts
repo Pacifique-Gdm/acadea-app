@@ -9,7 +9,7 @@ vi.mock("firebase/firestore", async (importOriginal) => ({
   query: vi.fn((path: unknown) => path),
   getDocs: reads.getDocs,
 }));
-import { loadFirestoreYearData } from "./firestoreData";
+import { loadFirestoreData, loadFirestoreYearData } from "./firestoreData";
 
 const user = (role: AppUser["role"]) => ({ id: "user-a", name: "E2E", role, schoolId: "school-a", status: "active" } as AppUser);
 describe("périmètre réel du refresh scolaire", () => {
@@ -21,5 +21,10 @@ describe("périmètre réel du refresh scolaire", () => {
   it("préserve le chemin Administrateur", async () => {
     await loadFirestoreYearData(user("school_admin"), "year-a");
     expect(reads.getDocs).toHaveBeenCalled();
+  });
+  it.each(["kindergarten_admin", "primary_admin", "studies_prefect"] as const)("refuse les lectures génériques de %s avant toute requête", async (role) => {
+    await expect(loadFirestoreData(user(role), "year-a")).rejects.toThrow("périmètre administratif non sécurisé");
+    await expect(loadFirestoreYearData(user(role), "year-a")).rejects.toThrow("périmètre administratif non sécurisé");
+    expect(reads.getDocs).not.toHaveBeenCalled();
   });
 });

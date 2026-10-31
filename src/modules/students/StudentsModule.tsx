@@ -19,6 +19,7 @@ import type { SchoolClassRecord } from "../../types";
 import { formatOperationalStudentClassName, resolveStudentParentClass, schoolClassOptionKey, studentSchoolClassOptionKey, subscribeToSchoolClasses, validateStudentAcademicSelection } from "../../services/schoolSubclasses";
 import { canonicalAnnualClassName, isEligibleForAnnualTransition, isImmediatelyPreviousArchivedYear, studentImportKey } from "../../utils/studentYearTransition.js";
 import { useStudentPage } from "../../hooks/useStudentPage";
+import { isSectionAdministratorRole } from "../../utils/sectionAdministratorYearScope";
 import { loadAllStudentResults, STUDENT_SOURCE_PAGE_SIZE, type StudentQueryFilters } from "../../services/studentPagination";
 
 export interface StudentModuleCapabilities {
@@ -108,6 +109,10 @@ export function StudentsModule({
   const pdfExportLock = useRef(false);
   const [terminalDecisions, setTerminalDecisions] = useState<Record<string, "completed" | "reenrolled">>({});
   const defaultCanManage = user.role === "school_admin" && year.status !== "archived";
+  const sectionRole = isSectionAdministratorRole(user.role);
+  const effectiveAllowedSections = sectionRole
+    ? user.schoolId === school.id && user.status === "active" && user.active !== false ? user.sectionIds ?? [] : []
+    : allowedSections;
   const studentCapabilities: StudentModuleCapabilities = {
     canCreate: year.status === "active" && (capabilities?.canCreate ?? defaultCanManage),
     canEdit: year.status === "active" && (capabilities?.canEdit ?? defaultCanManage),
@@ -119,7 +124,9 @@ export function StudentsModule({
   const activeTargetYear = data.schoolYears.find((item) => item.id === school.activeSchoolYearId && item.schoolId === school.id && item.status === "active");
   const canDecideTerminal = ["school_admin", "secretary"].includes(user.role) && user.status === "active" && user.active !== false && !user.archivedAt && user.schoolId === school.id && isImmediatelyPreviousArchivedYear(year, activeTargetYear);
   const showActionsColumn = studentCapabilities.canEdit || studentCapabilities.canArchive || studentCapabilities.canReactivate || canDecideTerminal;
-  const studentSectionChoices = getSchoolSections(school).filter((section) => !allowedSections?.length || allowedSections.includes(section));
+  const studentSectionChoices = getSchoolSections(school).filter((section) => sectionRole
+    ? effectiveAllowedSections?.includes(section)
+    : !effectiveAllowedSections?.length || effectiveAllowedSections.includes(section));
   const studentClassChoices = getSchoolClassChoices(school).filter((className) => studentSectionChoices.includes(getClassSection(className)));
   const availableClasses = studentClassChoices.filter((className) => sectionFilter === "all" || getClassSection(className) === sectionFilter);
   const schoolOptions = normalizeSchoolOptions(school.schoolOptions);
@@ -133,9 +140,14 @@ export function StudentsModule({
   };
 
   useEffect(() => {
+    if (sectionRole) {
+      setStructuredClasses([]);
+      setStructuredClassesLoaded(false);
+      return;
+    }
     setStructuredClassesLoaded(false);
     return subscribeToSchoolClasses(school.id, year.id, (items) => { setStructuredClasses(items); setStructuredClassesLoaded(true); }, (cause) => { setStructuredClassesLoaded(false); setSaveError(cause.message); });
-  }, [school.id, year.id]);
+  }, [school.id, sectionRole, year.id]);
   useEffect(() => {
     if (sectionFilter !== "all" && !studentSectionChoices.includes(sectionFilter)) {
       setSectionFilter("all");
@@ -156,7 +168,7 @@ export function StudentsModule({
   }, [quickParentFeedback]);
 
   const deferredQuery = useDeferredValue(query);
-  const allowedSectionsKey = (allowedSections ?? []).join("|");
+  const allowedSectionsKey = (effectiveAllowedSections ?? []).join("|");
   const studentFilters = useMemo<StudentQueryFilters>(() => ({
     schoolId: school.id,
     schoolYearId: year.id,
@@ -166,7 +178,8 @@ export function StudentsModule({
     className: classFilter,
     option: optionFilter,
     allowedSections: allowedSectionsKey ? allowedSectionsKey.split("|") as SchoolSection[] : undefined,
-  }), [allowedSectionsKey, archiveFilter, classFilter, deferredQuery, optionFilter, school.id, sectionFilter, year.id]);
+    actorRole: user.role,
+  }), [allowedSectionsKey, archiveFilter, classFilter, deferredQuery, optionFilter, school.id, sectionFilter, user.role, year.id]);
   const studentPage = useStudentPage(studentFilters, yearData.students);
   const students = studentPage.students;
   const visibleStudents = students;

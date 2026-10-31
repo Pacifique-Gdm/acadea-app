@@ -25,7 +25,8 @@ service cloud.firestore {
               || (request.auth.token.role == "super_admin" && !("role" in profile)))
             && (request.auth.token.role in ["super_admin", "coordination_admin", "sub_coordination_admin"]
               || profile.get("schoolId", "") == request.auth.token.schoolId))
-          : (profile.role == request.auth.token.role
+          : (!(request.auth.token.role in ["kindergarten_admin", "primary_admin", "studies_prefect"])
+            && profile.role == request.auth.token.role
             && profile.schoolId == request.auth.token.schoolId));
     }
 
