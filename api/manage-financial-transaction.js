@@ -1,3 +1,4 @@
+import { manageSocialSupport } from "./_lib/socialSupport.js";
 import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
 import { authorizeFinancialCaller, executeFinancialOperation, FinancialApiError, listStudentArrears, listStudentArrearsBatch } from "./_lib/financialTransactions.js";
@@ -51,6 +52,11 @@ export default async function handler(req, res) {
     const caller = await verifyActorIdToken(auth, token);
     const body = await readBody(req);
     const requestedAction = typeof body.action === "string" ? body.action : "";
+    if (["list-social-support", "save-social-support", "cancel-social-support"].includes(requestedAction)) {
+      await requireActiveApiUser(db, caller);
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: requestedAction, ...API_RATE_LIMITS.FINANCE_MUTATE });
+      return sendJson(res, 200, await manageSocialSupport({ db, caller, body }));
+    }
     if (requestedAction === "list-resolved-expense-currencies") {
       const actor = ["coordination_admin", "sub_coordination_admin"].includes(caller.role)
         ? await requireActiveCoordinationActor(auth, db, token)

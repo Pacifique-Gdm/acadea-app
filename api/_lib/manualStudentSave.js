@@ -152,6 +152,9 @@ export async function saveManualStudent({ db, caller, body }) {
       next.matricule = `${prefix}${String(sequence).padStart(4, "0")}`;
     }
     const student = studentForPersistence(next);
+    // Financial projection is exclusively maintained by the support transaction.
+    delete student.financialSupport;
+    if (existing?.financialSupport) student.financialSupport = existing.financialSupport;
     if (existing) transaction.set(studentRef, student);
     else transaction.create(studentRef, student);
     if (!existing) transaction.set(counterRef, { schoolId, schoolYearId, lastAllocated: sequence });

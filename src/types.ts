@@ -113,6 +113,8 @@ export interface SchoolYear {
 }
 
 export interface Student {
+  /** Server-maintained financial projection; no confidential administrative data. */
+  financialSupport?: Record<string, { id: string; schoolYearId: string; thirdPartyName: string; lines: Record<string, { reductionMinor: number; commitmentMinor: number }> }>;
   id: string;
   schoolId: string;
   schoolYearId: string;
@@ -193,6 +195,7 @@ export interface FeeType {
 }
 
 export interface Payment {
+  supportDecisionId?: string;
   id: string;
   schoolId: string;
   schoolYearId: string;
