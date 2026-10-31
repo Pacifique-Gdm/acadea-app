@@ -44,3 +44,10 @@ No Firebase configuration, production data, deployment or merge was performed.
 - Existing authorized totals and USD/CDF separation are preserved. Financial regression suite: 39 tests passed; TypeScript and targeted lint passed.
 - Shared UI section filters now reject empty scope, other-school records and records lacking an explicit section for the new roles. Legacy role behavior is unchanged. 11 filter tests passed.
 - This is not complete financial authorization: payment/expense/cash/payroll mutations and balances remain unavailable to section roles; all five-tab, message, PDF and Firestore integrations remain pending. No activation or deployment is authorized by this checkpoint.
+
+## Isolated Windows continuation — display boundary
+
+- The published rebuild branch was recovered at `7c9f15b` in a separate worktree; other local worktrees and their untracked files were left intact. PR #39 remains based on PR #38, not on this branch.
+- `scopeData` now routes the three new roles through a conservative, pure section-and-school filter. Explicitly attributed students, their unambiguous parents and linked payments/attendance/sanctions may appear. Unattributed, cross-section or schoolwide financial/message/history records are withheld; this is **not** a substitute for Firestore query/API authorization.
+- Synthetic tests cover four sections, multiple assignments, foreign schools, missing attribution and mixed-section parents. Existing admin behavior is unchanged; the server and Firestore release guards remain in place.
+- The following are still blocking release: section-scoped Firestore queries and rules, server financial mutations and balances, messaging/attachments, PDF exports, offline caches and each of the five administrator tabs. Do not activate accounts or lift either release guard on the strength of this display filter.

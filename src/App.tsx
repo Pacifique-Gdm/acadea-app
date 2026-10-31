@@ -72,6 +72,7 @@ import { userFacingError } from "./utils/userFacingError";
 import { runRefreshTask } from "./utils/refreshTask";
 import { resolveSchoolCurrency, schoolWithYearCurrency } from "./utils/currency";
 import { filterByAllowedSections } from "./utils/userSections";
+import { isSectionAdministratorRole, sectionAdministratorYearScope } from "./utils/sectionAdministratorYearScope";
 import { getStudentSection } from "./utils/studentClasses";
 import type { SchoolLevelChoice } from "./utils/schoolConfig";
 import type {
@@ -1439,6 +1440,7 @@ export default function App() {
 }
 
 function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: AppUser) {
+  if (isSectionAdministratorRole(user.role)) return sectionAdministratorYearScope(data, user, schoolId, schoolYearId);
   const tenantStudents =
     user.role === "parent"
       ? data.students.filter((student) => student.parentId === user.parentId && student.schoolId === schoolId && student.schoolYearId === schoolYearId)
