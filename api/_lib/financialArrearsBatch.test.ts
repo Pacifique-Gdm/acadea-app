@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { listScopedStudentArrears, listScopedStudentArrearsBatch, listStudentArrearsBatch } from "./financialTransactions.js";
+import { listScopedStudentArrears, listScopedStudentArrearsBatch, listStudentArrearsBatch, listStudentArrears } from "./financialTransactions.js";
 
 type RecordData = Record<string, unknown>;
 function fixture(count = 1) {
@@ -81,5 +81,37 @@ describe("canonical grouped historical arrears", () => {
     expect(() => listStudentArrearsBatch({ db: f.db, caller, body: { schoolYearId: "now", studentIds: f.ids, includeDetails: "yes" } })).toThrow();
     expect(() => listStudentArrearsBatch({ db: f.db, caller: { ...caller, role: "parent" }, body: {} })).toThrow();
     await expect(listStudentArrearsBatch({ db: f.db, caller, body: { schoolYearId: "other", studentIds: f.ids } })).rejects.toBeTruthy();
+  });
+});
+
+
+describe("section administrator historical debt scope", () => {
+  function scoped() {
+    const f = fixture();
+    f.data.set("users/admin", { schoolId: "a", role: "primary_admin", status: "active", sectionIds: ["Primaire"] });
+    for (const id of ["current0", "old0", "older0"]) f.data.get(`students/${id}`)!.section = "Primaire";
+    const caller = { uid: "admin", schoolId: "a", role: "primary_admin" };
+    return { ...f, caller };
+  }
+  it("preserves exact authorized totals and detail", async () => {
+    const f = scoped();
+    const result = await listStudentArrearsBatch({ db: f.db, caller: f.caller, body: { schoolYearId: "now", studentIds: f.ids, includeDetails: true } });
+    expect(result.totals.current0).toEqual({ USD: 65, CDF: 9000 });
+    expect(result.details?.current0).toHaveLength(3);
+    const individual = await listStudentArrears({ db: f.db, caller: f.caller, body: { schoolYearId: "now", studentId: "current0" } });
+    expect(individual.debts).toHaveLength(2);
+  });
+  it.each(["current0", "old0", "older0"])("rejects a foreign section in %s including historical ancestors", async id => {
+    const f = scoped(); f.data.get(`students/${id}`)!.section = "Secondaire";
+    await expect(listStudentArrearsBatch({ db: f.db, caller: f.caller, body: { schoolYearId: "now", studentIds: f.ids, includeDetails: true } })).rejects.toMatchObject({ statusCode: 403 });
+    await expect(listStudentArrears({ db: f.db, caller: f.caller, body: { schoolYearId: "now", studentId: "current0" } })).rejects.toMatchObject({ statusCode: 403 });
+  });
+  it("does not accept stale or forged claim sections after assignment removal", async () => {
+    const f = scoped(); f.data.get("users/admin")!.sectionIds = [];
+    await expect(listStudentArrearsBatch({ db: f.db, caller: Object.assign({}, f.caller, { sectionIds: ["Primaire"] }), body: { schoolYearId: "now", studentIds: f.ids } })).rejects.toMatchObject({ statusCode: 403 });
+  });
+  it("rejects unattributed records without guessing from class names", async () => {
+    const f = scoped(); delete f.data.get("students/old0")!.section;
+    await expect(listStudentArrearsBatch({ db: f.db, caller: f.caller, body: { schoolYearId: "now", studentIds: f.ids } })).rejects.toMatchObject({ statusCode: 403 });
   });
 });
