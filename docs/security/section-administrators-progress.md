@@ -60,4 +60,9 @@ No Firebase configuration, production data, deployment or merge was performed.
 ## Financial history boundary
 
 - The shared Control history pagination now requires the current actor and refuses the three section roles before any whole-school payments, expenses or cash-inflows query. It also rejects a mismatched school for legacy roles.
-- The school-wide cash-balance API and all financial mutations remain unavailable to section roles. Historical expenses and inflows have no reliable section attribution, so their values cannot safely be presented as section balances. A section-linked server history and balance contract is still required before activation; hiding rows after a global client query is not acceptable.
+- At this checkpoint the school-wide cash-balance API and financial mutations were unavailable to section roles. Historical expenses and inflows have no reliable section attribution, so their values cannot safely be presented as section balances. A section-linked server history and balance contract is still required before activation; hiding rows after a global client query is not acceptable.
+
+## Payment correction boundary
+
+- The financial transaction core now supports only `update-payment` and `delete-payment` for a section role, with the role still blocked by the public active-user gate. Inside the transaction it rechecks the authoritative profile, originating student's section and year, and any linked current student for historical arrears. An idempotent retry is returned only while the actor still holds the originating section.
+- Cross-section, inconsistent historical links and revoked section assignments are rejected; tests exercise both writes, retries and refusals. Creation of payments, expenses and other cash inflows remains denied. The schoolwide balance, all financial histories, and missing section attribution on historical expenses remain release blockers.

@@ -536,7 +536,24 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
   }
   if (current.schoolId !== caller.schoolId) throw new FinancialApiError(403, "permission-denied", "Transaction financière hors établissement.");
   if (!isPayment && current.personnelPaymentId) throw new FinancialApiError(409, "conflict", "Cette dépense est liée à une paie et ne peut pas être corrigée ou supprimée séparément.");
-  const { schoolYearId, actorName, currency: yearCurrency } = await assertContext(transaction, db, caller, current.schoolYearId);
+  const { schoolYearId, actorName, currency: yearCurrency, profile } = await assertContext(transaction, db, caller, current.schoolYearId);
+  let scopeSection;
+  if (isSectionAdministrator(caller.role)) {
+    if (!isPayment || !text(current.studentId, 120)) {
+      throw new FinancialApiError(403, "permission-denied", "Transaction hors du périmètre de section.");
+    }
+    const linkedIds = [...new Set([current.studentId, current.currentStudentId].filter(Boolean))];
+    const linked = await Promise.all(linkedIds.map((id) => transaction.get(db.doc(`students/${id}`))));
+    for (const [index, snapshot] of linked.entries()) {
+      const student = snapshot.exists ? { id: linkedIds[index], ...snapshot.data() } : null;
+      requireSectionAdministratorResource(profile, student);
+      const expectedYearId = linkedIds[index] === current.studentId ? current.schoolYearId : current.collectionSchoolYearId;
+      if (student.schoolYearId !== expectedYearId) {
+        throw new FinancialApiError(403, "permission-denied", "Filiation du paiement hors du périmètre de section.");
+      }
+    }
+    scopeSection = linked[0].data().section;
+  }
   if (current.currency !== "CDF" && current.currency !== "USD") {
     throw new FinancialApiError(409, "currency-reconciliation-required", "Devise historique inconnue : correction bloquée jusqu'à réconciliation.");
   }
@@ -611,6 +628,7 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
     id: auditId, operationId: transactionId, kind, schoolId: caller.schoolId, schoolYearId,
     actorId: caller.uid, actorName, createdAt: now, serverTimestamp: FieldValue.serverTimestamp(), reason, ...correction,
   });
+  if (scopeSection) result.section = scopeSection;
   return result;
 }
 
@@ -622,8 +640,21 @@ export async function executeFinancialOperation({ db, caller: rawCaller, body, n
   const fingerprint = createHash("sha256").update(JSON.stringify(body)).digest("hex");
   const idempotencyRef = db.doc(`financialIdempotency/${hash}`);
   return db.runTransaction(async (transaction) => {
+    let sectionScope;
+    if (isSectionAdministrator(caller.role)) {
+      const profileSnapshot = await transaction.get(db.doc(`users/${caller.uid}`));
+      sectionScope = sectionAdministratorScope(profileSnapshot.exists ? profileSnapshot.data() : null);
+      if (sectionScope.schoolId !== caller.schoolId) {
+        throw new FinancialApiError(403, "permission-denied", "Établissement financier invalide.");
+      }
+    }
     const prior = idempotentResult(await transaction.get(idempotencyRef), fingerprint);
-    if (prior) return prior;
+    if (prior) {
+      if (sectionScope && (!prior.section || !sectionScope.sectionIds.includes(prior.section))) {
+        throw new FinancialApiError(403, "permission-denied", "Transaction hors du périmètre de section.");
+      }
+      return prior;
+    }
     let result;
     if (action === "create-payment") result = await createPayment(transaction, db, caller, body, hash, now);
     else if (action === "create-expense") result = await createExpense(transaction, db, caller, body, hash, now);
@@ -639,7 +670,7 @@ export async function executeFinancialOperation({ db, caller: rawCaller, body, n
 }
 
 export function authorizeFinancialCaller(rawCaller, action) {
-  if (["list-arrears", "list-arrears-batch"].includes(action) && isSectionAdministrator(rawCaller.role)) return assertRole(rawCaller, Object.keys(SECTION_ADMINISTRATORS));
+  if (["list-arrears", "list-arrears-batch", "update-payment", "delete-payment"].includes(action) && isSectionAdministrator(rawCaller.role)) return assertRole(rawCaller, Object.keys(SECTION_ADMINISTRATORS));
   const createAction = action === "create-payment" || action === "create-expense" || action === "create-cash-inflow";
   return assertRole(rawCaller, action === "list-arrears" ? ["cashier", "school_admin", "parent"] : action === "list-arrears-batch" ? ["cashier", "school_admin"] : createAction ? ["cashier"] : ["school_admin"]);
 }
