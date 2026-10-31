@@ -1,7 +1,7 @@
 import type { SchoolClass, SchoolSection } from "../../types";
 import { getClassSection } from "../../utils/studentClasses";
 import { normalizeSchoolSection } from "../../utils/schoolSections";
-import type { PedagogicalAssignment, SchedulePeriod, StudyClass, StudyDay, StudySubject, StudyVacation, TimetableEntry } from "./studyTypes";
+import type { PedagogicalAssignment, SchedulePeriod, StudyClass, StudyDay, StudyDayVacation, StudySubject, StudyVacation, TimetableEntry } from "./studyTypes";
 import { classOptionId, normalizedAssignmentScope } from "./studyCourseGroups";
 
 export const studySectionLabels: Record<SchoolSection, string> = { Maternelle: "Maternelle", Primaire: "Primaire", CTEB: "CTEB", Secondaire: "Secondaire" };
@@ -37,17 +37,33 @@ export function subjectAppliesToClass(subject: StudySubject, schoolClass: StudyC
 }
 
 export function periodAppliesToClass(period: SchedulePeriod, schoolClass: StudyClass, day: StudyDay) {
-  if (!schoolClass.vacation && !period.vacation && !period.dayScope) return true;
+  if (period.targetPairs && !period.targetPairs.includes(`${schoolClass.id}|${day}`)) return false;
+  if (!schoolClass.dayVacations?.[day] && !period.targetPairs && !schoolClass.vacation && !period.vacation && !period.dayScope) return true;
   const saturday = day === "saturday";
-  if (saturday && schoolClass.saturdayEnabled === false) return false;
-  if ((period.dayScope ?? "weekdays") !== (saturday ? "saturday" : "weekdays")) return false;
+  if (saturday && schoolClass.saturdayEnabled === false && !schoolClass.dayVacations?.saturday) return false;
+  if (!period.targetPairs && (period.dayScope ?? "weekdays") !== (saturday ? "saturday" : "weekdays")) return false;
   // Les classes historiques n'avaient pas de vacation persistée. Le reste de
   // l'éditeur les interprète déjà comme des classes du matin ; appliquer la
   // même normalisation ici évite de supprimer tous leurs créneaux modernes.
-  const vacation = saturday
+  const legacyVacation = saturday
     ? (schoolClass.saturdayVacation ?? schoolClass.vacation ?? "morning")
     : (schoolClass.vacation ?? "morning");
-  return (period.vacation ?? vacation) === vacation;
+  const vacation: StudyDayVacation = schoolClass.dayVacations?.[day] ?? legacyVacation;
+  if (vacation === "none") return false;
+  return vacation === "full" || (period.vacation ?? legacyVacation) === vacation;
+}
+
+export function studyDayVacation(schoolClass: StudyClass, day: StudyDay): StudyDayVacation {
+  if (schoolClass.dayVacations?.[day]) return schoolClass.dayVacations[day];
+  if (day === "saturday" && schoolClass.saturdayEnabled === false) return "none";
+  return day === "saturday" ? schoolClass.saturdayVacation ?? schoolClass.vacation ?? "morning" : schoolClass.vacation ?? "morning";
+}
+
+export function periodTargetPairs(classes: readonly StudyClass[], days: readonly StudyDay[], vacation: StudyVacation) {
+  return classes.flatMap((schoolClass) => days.filter((day) => {
+    const assigned = studyDayVacation(schoolClass, day);
+    return assigned === vacation || assigned === "full";
+  }).map((day) => `${schoolClass.id}|${day}`)).sort();
 }
 
 export function assignmentVacationClasses(assignment: PedagogicalAssignment, classes: readonly StudyClass[]) {

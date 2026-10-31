@@ -28,11 +28,14 @@ function teacherAvailableAt(teacherId, day, period, items) {
   return available.length === 0 || available.some((x) => !x.startTime || minutes(x.startTime) <= minutes(period.startTime) && minutes(x.endTime) >= minutes(period.endTime));
 }
 var isTraversableTeachingBreak = (period) => period.type === "break" || period.type === "recess";
+function samePeriodTemplate(left, right) {
+  return (left.vacation ?? "morning") === (right.vacation ?? "morning") && (left.dayScope ?? "weekdays") === (right.dayScope ?? "weekdays") && JSON.stringify([...left.targetPairs ?? []].sort()) === JSON.stringify([...right.targetPairs ?? []].sort());
+}
 function arePeriodsPedagogicallyConsecutive(periods, allPeriods) {
   if (periods.length <= 1) return periods.length === 1 && periods[0].active && periods[0].type === "course";
   const first = periods[0];
-  const template = allPeriods.filter((item) => item.active && (item.vacation ?? "morning") === (first.vacation ?? "morning") && (item.dayScope ?? "weekdays") === (first.dayScope ?? "weekdays")).sort((left, right) => left.order - right.order || minutes(left.startTime) - minutes(right.startTime));
-  if (!periods.every((period) => period.active && period.type === "course" && (period.vacation ?? "morning") === (first.vacation ?? "morning") && (period.dayScope ?? "weekdays") === (first.dayScope ?? "weekdays"))) return false;
+  const template = allPeriods.filter((item) => item.active && samePeriodTemplate(item, first)).sort((left, right) => left.order - right.order || minutes(left.startTime) - minutes(right.startTime));
+  if (!periods.every((period) => period.active && period.type === "course" && samePeriodTemplate(period, first))) return false;
   return periods.every((period, index) => {
     if (index === 0) return true;
     const previousIndex = template.findIndex((item) => item.id === periods[index - 1].id);
@@ -175,12 +178,15 @@ function studyClassSection(item) {
   return normalizeSchoolSection(item.section) ?? getClassSection(item.name);
 }
 function periodAppliesToClass(period, schoolClass, day) {
-  if (!schoolClass.vacation && !period.vacation && !period.dayScope) return true;
+  if (period.targetPairs && !period.targetPairs.includes(`${schoolClass.id}|${day}`)) return false;
+  if (!schoolClass.dayVacations?.[day] && !period.targetPairs && !schoolClass.vacation && !period.vacation && !period.dayScope) return true;
   const saturday = day === "saturday";
-  if (saturday && schoolClass.saturdayEnabled === false) return false;
-  if ((period.dayScope ?? "weekdays") !== (saturday ? "saturday" : "weekdays")) return false;
-  const vacation = saturday ? schoolClass.saturdayVacation ?? schoolClass.vacation ?? "morning" : schoolClass.vacation ?? "morning";
-  return (period.vacation ?? vacation) === vacation;
+  if (saturday && schoolClass.saturdayEnabled === false && !schoolClass.dayVacations?.saturday) return false;
+  if (!period.targetPairs && (period.dayScope ?? "weekdays") !== (saturday ? "saturday" : "weekdays")) return false;
+  const legacyVacation = saturday ? schoolClass.saturdayVacation ?? schoolClass.vacation ?? "morning" : schoolClass.vacation ?? "morning";
+  const vacation = schoolClass.dayVacations?.[day] ?? legacyVacation;
+  if (vacation === "none") return false;
+  return vacation === "full" || (period.vacation ?? legacyVacation) === vacation;
 }
 function assignmentVacationClasses(assignment, classes) {
   const scope = normalizedAssignmentScope(assignment, classes);

@@ -1,6 +1,7 @@
 import{initAdmin}from"./_lib/firebaseAdmin.js";import{verifyActorIdToken,requireActiveApiUser}from"./_lib/activeUser.js";import{executeTeacherGrading,GradingApiError}from"./_lib/teacherGrading.js";import{executeGradePublication}from"./_lib/gradePublication.js";import{executeSchoolYearArchive}from"./_lib/schoolYearArchive.js";
 const send=(res,status,body)=>{res.status(status).json(body)};
 import { executeTimetableWorkflow } from "./_lib/timetableWorkflow.js";
+import { executeStudyPeriodMutation } from "./_lib/studyPeriodMutations.js";
 import { listPedagogicalActivity, PedagogicalHistoryError } from "./_lib/pedagogicalActivity.js";
 import { OfflineAttendanceError, syncOfflineAttendance } from "./_lib/offlineAttendance.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
@@ -18,7 +19,7 @@ export default async function handler(req, res) {
         action: "offline.attendance", idempotencyKey: body.operationId, ...API_RATE_LIMITS.FINANCE_CREATE });
       return send(res, 200, await syncOfflineAttendance({ db, caller, body }));
     }
-    const execute = action === "list-pedagogical-history" ? listPedagogicalActivity : action.startsWith("timetable-") ? executeTimetableWorkflow
+    const execute = action === "list-pedagogical-history" ? listPedagogicalActivity : action.startsWith("study-period-") || action === "study-class-vacations" ? executeStudyPeriodMutation : action.startsWith("timetable-") ? executeTimetableWorkflow
       : action.startsWith("archive-") ? executeSchoolYearArchive
         : action.startsWith("grades-") ? executeGradePublication : executeTeacherGrading;
     return send(res, 200, await execute({ db, caller, body }));

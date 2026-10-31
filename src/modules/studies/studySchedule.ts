@@ -7,7 +7,7 @@ export function studyDayLabel(day: string) { return ALL_DAY_LABELS[day] ?? day; 
 export function schedulePeriodLabel(periodId: string, periods: SchedulePeriod[]) {
   const period = periods.find((item) => item.id === periodId);
   if (!period) return "Période inconnue";
-  const coursePeriods = periods.filter((item) => item.active && item.type === "course" && (item.vacation ?? "morning") === (period.vacation ?? "morning") && (item.dayScope ?? "weekdays") === (period.dayScope ?? "weekdays")).sort((left, right) => left.order - right.order || left.startTime.localeCompare(right.startTime));
+  const coursePeriods = periods.filter((item) => item.active && item.type === "course" && samePeriodTemplate(item, period)).sort((left, right) => left.order - right.order || left.startTime.localeCompare(right.startTime));
   const courseIndex = coursePeriods.findIndex((item) => item.id === period.id);
   const periodNumber = courseIndex >= 0 ? courseIndex + 1 : period.order;
   const timeRange = period.startTime && period.endTime ? `${period.startTime} – ${period.endTime}` : "";
@@ -48,11 +48,24 @@ export function teacherAvailableAt(teacherId:string,day:StudyDay,period:Schedule
 export const getActiveCoursePeriods=(items:SchedulePeriod[])=>items.filter(x=>x.active&&x.type==="course").sort((a,b)=>a.order-b.order||minutes(a.startTime)-minutes(b.startTime));
 export const getNonTeachingPeriods=(items:SchedulePeriod[])=>items.filter(x=>x.active&&x.type!=="course").sort((a,b)=>a.order-b.order||minutes(a.startTime)-minutes(b.startTime));
 const isTraversableTeachingBreak=(period:SchedulePeriod)=>period.type==="break"||period.type==="recess";
+export function samePeriodTemplate(left: SchedulePeriod, right: SchedulePeriod) {
+  return (left.vacation ?? "morning") === (right.vacation ?? "morning")
+    && (left.dayScope ?? "weekdays") === (right.dayScope ?? "weekdays")
+    && JSON.stringify([...(left.targetPairs ?? [])].sort()) === JSON.stringify([...(right.targetPairs ?? [])].sort());
+}
+function periodTargetsOverlap(left: SchedulePeriod, right: SchedulePeriod) {
+  if (left.targetPairs && right.targetPairs) return left.targetPairs.some((pair) => right.targetPairs!.includes(pair));
+  if (!left.targetPairs && !right.targetPairs) return (left.dayScope ?? "weekdays") === (right.dayScope ?? "weekdays");
+  const targeted = left.targetPairs ?? right.targetPairs ?? [];
+  const legacy = left.targetPairs ? right : left;
+  return targeted.some((pair) => pair.endsWith(`|${(legacy.dayScope ?? "weekdays") === "saturday" ? "saturday" : "monday"}`)
+    || ((legacy.dayScope ?? "weekdays") === "weekdays" && !pair.endsWith("|saturday")));
+}
 export function arePeriodsPedagogicallyConsecutive(periods: readonly SchedulePeriod[], allPeriods: readonly SchedulePeriod[]) {
   if (periods.length <= 1) return periods.length === 1 && periods[0].active && periods[0].type === "course";
   const first = periods[0];
-  const template = allPeriods.filter((item) => item.active && (item.vacation ?? "morning") === (first.vacation ?? "morning") && (item.dayScope ?? "weekdays") === (first.dayScope ?? "weekdays")).sort((left, right) => left.order - right.order || minutes(left.startTime) - minutes(right.startTime));
-  if (!periods.every((period) => period.active && period.type === "course" && (period.vacation ?? "morning") === (first.vacation ?? "morning") && (period.dayScope ?? "weekdays") === (first.dayScope ?? "weekdays"))) return false;
+  const template = allPeriods.filter((item) => item.active && samePeriodTemplate(item, first)).sort((left, right) => left.order - right.order || minutes(left.startTime) - minutes(right.startTime));
+  if (!periods.every((period) => period.active && period.type === "course" && samePeriodTemplate(period, first))) return false;
   return periods.every((period, index) => {
     if (index === 0) return true;
     const previousIndex = template.findIndex((item) => item.id === periods[index - 1].id);
@@ -67,10 +80,10 @@ export function maxConsecutiveCoursePeriods(items: readonly SchedulePeriod[]) {
   const active = items.filter((item) => item.active && item.type === "course");
   let maximum = active.length ? 1 : 0;
   for (const first of active) {
-    const sameTemplate = active.filter((item) => (item.vacation ?? "morning") === (first.vacation ?? "morning") && (item.dayScope ?? "weekdays") === (first.dayScope ?? "weekdays")).sort((left, right) => left.order - right.order || minutes(left.startTime) - minutes(right.startTime));
+    const sameTemplate = active.filter((item) => samePeriodTemplate(item, first)).sort((left, right) => left.order - right.order || minutes(left.startTime) - minutes(right.startTime));
     const start = sameTemplate.findIndex((item) => item.id === first.id);
     for (let size = 2; start >= 0 && start + size <= sameTemplate.length; size += 1) if (arePeriodsPedagogicallyConsecutive(sameTemplate.slice(start, start + size), items)) maximum = Math.max(maximum, size);
   }
   return maximum;
 }
-export function validatePeriod(candidate:SchedulePeriod,items:SchedulePeriod[],ignored?:string){if(!candidate.vacation)return "La vacation est obligatoire.";if(!validTimeRange(candidate.startTime,candidate.endTime))return "L’heure de fin doit être postérieure à l’heure de début.";const sameTemplate=(x:SchedulePeriod)=>x.id!==ignored&&x.active&&(x.vacation??"morning")===candidate.vacation&&(x.dayScope??"weekdays")===(candidate.dayScope??"weekdays");if(items.some(x=>sameTemplate(x)&&x.order===candidate.order))return "Cet ordre est déjà utilisé dans cette vacation.";if(items.some(x=>sameTemplate(x)&&overlaps(x,candidate)))return "Cette tranche chevauche une période de la même vacation.";return "";}
+export function validatePeriod(candidate:SchedulePeriod,items:SchedulePeriod[],ignored?:string){if(!candidate.vacation)return "La vacation est obligatoire.";if(!validTimeRange(candidate.startTime,candidate.endTime))return "L’heure de fin doit être postérieure à l’heure de début.";if(candidate.targetPairs && (!candidate.targetPairs.length || candidate.targetPairs.length>400 || new Set(candidate.targetPairs).size!==candidate.targetPairs.length || candidate.targetPairs.some(pair=>!/^.+\|(monday|tuesday|wednesday|thursday|friday|saturday)$/.test(pair))))return "Le groupe de classes et jours est invalide.";const sameTemplate=(x:SchedulePeriod)=>x.id!==ignored&&x.active&&(x.vacation??"morning")===candidate.vacation&&periodTargetsOverlap(x,candidate);if(items.some(x=>sameTemplate(x)&&x.order===candidate.order))return "Cet ordre est déjà utilisé dans cette vacation.";if(items.some(x=>sameTemplate(x)&&overlaps(x,candidate)))return "Cette tranche chevauche une période de la même vacation.";return "";}
