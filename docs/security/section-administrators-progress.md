@@ -66,3 +66,8 @@ No Firebase configuration, production data, deployment or merge was performed.
 
 - The financial transaction core now supports only `update-payment` and `delete-payment` for a section role, with the role still blocked by the public active-user gate. Inside the transaction it rechecks the authoritative profile, originating student's section and year, and any linked current student for historical arrears. An idempotent retry is returned only while the actor still holds the originating section.
 - Cross-section, inconsistent historical links and revoked section assignments are rejected; tests exercise both writes, retries and refusals. Creation of payments, expenses and other cash inflows remains denied. The schoolwide balance, all financial histories, and missing section attribution on historical expenses remain release blockers.
+
+## Messaging recipient boundary
+
+- The server message core now requires an explicit authorized section for section-administrator senders. A parent recipient must have unambiguous same-school student links and every current-year child in that section; a staff recipient must be explicitly section-attributed, except the principal school administrator. Foreign schools and stale scope are rejected.
+- New message and conversation documents receive the validated section. Existing sender behavior is unchanged. The full directory still refuses these profiles before any whole-school query; Firestore reads, thread history, the section selector UI and attachment rules still need completion before the release gate can be removed.
