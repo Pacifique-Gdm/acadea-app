@@ -258,7 +258,7 @@ export function ControlModule({
     <p>Montant officiel : {formatMoney(support.official)} · Réduction : {formatMoney(support.reduction)}</p>
     <p>Net exigible : {formatMoney(support.net)} · Encaissé : {formatMoney(support.paid)} · Solde total : {formatMoney(support.remaining)}</p>
     {support.commitment > 0 && <><p>Part élève restante : {formatMoney(support.studentRemaining)} · Engagement tiers : {formatMoney(support.commitment)} · Payé par les tiers : {formatMoney(support.thirdPaid)} · Solde tiers : {formatMoney(support.thirdRemaining)}</p>
-      <label className="grid gap-1">Origine du paiement<select className="input" value={currentSupportPayer} onChange={e => setSupportPayer(e.target.value)}><option value="">Élève / famille</option>{support.commitments.filter(c => c.amount > 0).map(c => <option key={c.decisionId} value={c.decisionId}>{c.name || "Tiers"} — {formatMoney(c.amount / 100)}</option>)}</select></label></>}
+      <label className="grid gap-1">Engagement historique éventuel<select className="input" value={currentSupportPayer} onChange={e => setSupportPayer(e.target.value)}><option value="">Paiement ordinaire</option>{support.commitments.filter(c => c.amount > 0).map(c => <option key={c.decisionId} value={c.decisionId}>{c.name || "Tiers"} — {formatMoney(c.amount / 100)}</option>)}</select></label></>}
   </section> : null;
   const selectedPaymentFeeBalance = {
     expected: support?.net ?? selectedPaymentDebt?.expected ?? 0,
@@ -1501,7 +1501,7 @@ export function ControlModule({
             {selectedPaymentDebt && <p className="rounded bg-amber-50 p-3 text-sm font-semibold text-amber-800">Créance de {selectedPaymentDebt.yearName} · encaissement en {year.name} · montant en {selectedPaymentDebt.currency}</p>}
             {selectedPaymentFee && selectedPaymentFeeRemaining === 0 && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">Ce type de frais est déjà soldé.</p>}
             <MoneyInput value={amount} onChange={setAmount} max={selectedPaymentFeeRemaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" />
-            <textarea value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} maxLength={1000} className="input min-h-20" placeholder="Description" />
+            <textarea value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} maxLength={1000} className="input min-h-20" placeholder="Description ou nom du tiers payeur, sans engagement préalable" />
             <button onClick={savePayment} disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button justify-center disabled:opacity-50"><Plus className="h-4 w-4" /> {paymentSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
           </FormPanel>
         )}
@@ -1603,7 +1603,7 @@ export function ControlModule({
               <MoneyInput value={amount} onChange={setAmount} max={selectedPaymentFeeRemaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" />
               <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
                 Description
-                <textarea value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} maxLength={1000} className="input min-h-20" placeholder="Écrivez la description" />
+                <textarea value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} maxLength={1000} className="input min-h-20" placeholder="Description ou nom du tiers payeur, sans engagement préalable" />
               </label>
               <button onClick={savePayment} disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button w-full justify-center" type="button"><Plus className="h-4 w-4" /> {paymentSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
             </>

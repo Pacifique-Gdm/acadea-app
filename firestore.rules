@@ -820,11 +820,13 @@ service cloud.firestore {
     }
 
     match /socialSupportDecisions/{decisionId} {
-      allow read: if schoolAdmin() && sameTenantResource();
+      allow read: if (role() in ["school_admin", "cashier", "secretary"] && schoolUser() && sameTenantResource())
+        || coordinatorSchool(resource.data.schoolId);
       allow write: if false;
     }
     match /socialSupportAudit/{eventId} {
-      allow read: if schoolAdmin() && sameTenantResource();
+      allow read: if (role() in ["school_admin", "cashier", "secretary"] && schoolUser() && sameTenantResource())
+        || coordinatorSchool(resource.data.schoolId);
       allow write: if false;
     }
     match /socialSupportFeeLocks/{feeId} { allow read: if schoolAdmin() && sameTenantResource(); allow write: if false; }

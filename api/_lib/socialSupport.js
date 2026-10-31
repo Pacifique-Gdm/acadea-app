@@ -11,6 +11,8 @@ const reasons = [
   "third-party",
   "other",
 ];
+const managingRoles = ["admin", "school_admin", "cashier", "secretary"];
+const normalizedRole = (role) => role === "admin" ? "school_admin" : role;
 const fail = (message, status = 400) => {
   throw new FinancialApiError(
     status,
@@ -23,9 +25,23 @@ const id = (value) =>
     ? value
     : fail("Identifiant invalide.");
 export async function manageSocialSupport({ db, caller, body }) {
-  if (!["school_admin", "admin"].includes(caller.role) || !caller.schoolId)
-    fail("Réservé à l’administrateur de l’établissement.", 403);
+  if (!managingRoles.includes(caller.role) || !caller.schoolId)
+    fail("Gestion des prises en charge non autorisée.", 403);
   const schoolId = id(caller.schoolId);
+  if (body.action === "list-social-support-personnel") {
+    const [users, profiles] = await Promise.all([
+      db.collection("users").where("schoolId", "==", schoolId).get(),
+      db.collection("personnelProfiles").where("schoolId", "==", schoolId).get(),
+    ]);
+    return { personnel: [
+      ...users.docs.map((document) => ({ id: document.id, ...document.data() }))
+        .filter((person) => ["school_admin", "cashier", "secretary", "teacher", "study_director", "discipline_director"].includes(person.role))
+        .map((person) => ({ id: person.id, name: person.name ?? "", role: person.role })),
+      ...profiles.docs.map((document) => ({ id: document.id, ...document.data() }))
+        .filter((person) => person.kind === "service")
+        .map((person) => ({ id: person.id, name: person.name ?? "", kind: "service", jobTitle: person.jobTitle ?? "" })),
+    ] };
+  }
   if (body.action === "list-social-support") {
     const snapshot = await db
       .collection("socialSupportDecisions")
@@ -76,6 +92,7 @@ export async function manageSocialSupport({ db, caller, body }) {
             at,
             actorId: caller.uid,
             actorName: "Réconciliation de l’année scolaire",
+            actorRole: "system",
             before: { ...decision, history: undefined },
             after: { ...next, history: undefined },
           };
@@ -140,11 +157,12 @@ export async function manageSocialSupport({ db, caller, body }) {
     if (
       !actor ||
       actor.schoolId !== schoolId ||
-      !["admin", "school_admin"].includes(actor.role) ||
+      !managingRoles.includes(actor.role) ||
+      normalizedRole(actor.role) !== normalizedRole(caller.role) ||
       actor.active === false ||
       actor.status === "inactive"
     )
-      fail("Administrateur inactif.", 403);
+      fail("Utilisateur inactif ou non autorisé.", 403);
     if (
       !school ||
       ["inactive", "suspended", "deleting"].includes(school.status)
@@ -192,6 +210,8 @@ export async function manageSocialSupport({ db, caller, body }) {
       next = { ...old, status: "cancelled" };
     } else {
       if (!reasons.includes(body.reason)) fail("Sélectionner un motif.");
+      if (body.reason === "third-party" && !old)
+        fail("Un paiement par un tiers s'enregistre directement dans le module Caissier, sans engagement préalable.");
       if (!["fixed", "percent", "full"].includes(body.nature))
         fail("Nature invalide.");
       if (
@@ -329,6 +349,7 @@ export async function manageSocialSupport({ db, caller, body }) {
       at: now,
       actorId: caller.uid,
       actorName: actor.name ?? "",
+      actorRole: actor.role,
       before: old ? { ...old, history: undefined } : null,
       after: { ...next, history: undefined },
     };
