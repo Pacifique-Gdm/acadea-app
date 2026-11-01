@@ -7,6 +7,7 @@ import { requireActiveSchoolYear } from "./_lib/schoolYear.js";
 import { allowedRecipientRoles, normalizedMessagingRole } from "./_lib/messageRecipients.js";
 import { reciprocalSectionContact } from "./_lib/messageRecipients.js";
 import { isSectionAdministrator } from "./_lib/sectionAdministrators.js";
+import { transactionalMessagingContext } from "./_lib/transactionalMessaging.js";
 
 const messageLimit = 3;
 const quotaWindowMs = 12 * 60 * 60 * 1000;
@@ -246,6 +247,13 @@ export default async function handler(req, res) {
     const messageId = uid("msg");
     const notificationId = uid("notif");
     const saved = await db.runTransaction(async (transaction) => {
+      if (messageSection) {
+        const context = await transactionalMessagingContext(db, transaction, caller, schoolYearId);
+        const currentRecipients = await resolveParentMessageRecipients(context.db, context.caller, recipientIds, schoolYearId, messageSection);
+        if (currentRecipients.some((recipient) => !recipients.some((previous) => previous.id === recipient.id && previous.role === recipient.role))) {
+          throw Object.assign(new Error("Les destinataires ont changé. Veuillez réessayer."), { statusCode: 409, code: "recipient-changed" });
+        }
+      }
       const counterSnapshot = await transaction.get(counterRef);
       const quota = counterSnapshot.exists
         ? quotaFromCounter(counterSnapshot.data(), Date.parse(createdAt))

@@ -5,6 +5,7 @@ import { requireActiveSchoolYear } from "./_lib/schoolYear.js";
 import { allowedRecipientRoles, isRelatedCoordinationRecipient, messagingSenderIdentity, normalizedMessagingRole, requireMessagingCaller, requireSectionMessageContext, sectionMessageStaffRecipientAllowed } from "./_lib/messageRecipients.js";
 import { isSectionAdministrator } from "./_lib/sectionAdministrators.js";
 import { reciprocalSectionContact } from "./_lib/messageRecipients.js";
+import { transactionalMessagingContext } from "./_lib/transactionalMessaging.js";
 
 export const MAX_TOTAL_BYTES = 10 * 1024 * 1024;
 const MAX_ATTACHMENTS = 10;
@@ -218,16 +219,38 @@ export default async function handler(req, res) {
     const participantIds = [...new Set([caller.uid, ...recipients.map((recipient) => recipient.id)])];
     const savedMessage = createSchoolMessageDocument({ messageId, caller, schoolYearId, recipients, participantIds, conversationId, subject, messageBody, attachments, createdAt, messageSection });
     const conversation = { id: conversationId, schoolId: caller.schoolId, schoolYearId, ...(savedMessage.section ? { section: savedMessage.section } : {}), threadId: conversationId, threadParentId: "school", parentId: "school", participantIds, lastMessage: messageBody, lastMessageAt: createdAt, lastSenderId: caller.uid, lastSenderRole: caller.role, messageCount: 1, unreadParentCount: 0, unreadAdminCount: 0, unreadCashierCount: 0, unreadDisciplineCount: 0, createdAt, updatedAt: createdAt, status: "active" };
-    const batch = db.batch();
-    batch.set(db.doc(`messages/${messageId}`), savedMessage);
-    batch.set(db.doc(`conversations/${conversationId}`), conversation);
+    const scopedExchange = isSectionAdministrator(caller.role) || recipients.some((recipient) => isSectionAdministrator(recipient.role));
+    const writeMessage = (batch, createOnly = false) => {
+    const save = (ref, data) => createOnly ? batch.create(ref, data) : batch.set(ref, data);
+    save(db.doc(`messages/${messageId}`), savedMessage);
+    save(db.doc(`conversations/${conversationId}`), conversation);
     recipients.forEach((recipient) => {
       const notificationId = stableId("notif", messageId, recipient.id);
-      batch.set(db.doc(`notifications/${notificationId}`), { id: notificationId, schoolId: caller.schoolId, schoolYearId, recipientUserId: recipient.id, audienceRoles: [normalizedRole(recipient.role)], messageId, type: "message", title: "Nouveau message", body: subject, createdAt, read: false });
+      save(db.doc(`notifications/${notificationId}`), { id: notificationId, schoolId: caller.schoolId, schoolYearId, recipientUserId: recipient.id, audienceRoles: [normalizedRole(recipient.role)], messageId, type: "message", title: "Nouveau message", body: subject, createdAt, read: false });
     });
-    await batch.commit();
+    };
+    let committedMessage = savedMessage;
+    if (scopedExchange) {
+      committedMessage = await db.runTransaction(async (transaction) => {
+        const context = await transactionalMessagingContext(db, transaction, caller, schoolYearId);
+        const currentRecipients = await resolveRecipients(context.db, context.caller, recipientRoles, recipientIds, schoolYearId, messageSection);
+        const existing = await transaction.get(db.doc(`messages/${messageId}`));
+        if (existing.exists) {
+          requireScopedMessageReplay(context.caller, existing.data(), schoolYearId, messageSection, currentRecipients);
+          return existing.data();
+        }
+        writeMessage(transaction, true);
+        return savedMessage;
+      });
+      if (committedMessage !== savedMessage) await Promise.allSettled(finalPaths.map((path) => bucket.file(path).delete({ ignoreNotFound: true })));
+    } else {
+      const batch = db.batch();
+      writeMessage(batch);
+      await batch.commit();
+    }
+    finalPaths = []; // A response failure must never delete a committed attachment.
     await Promise.allSettled(temporaryPaths.map((path) => bucket.file(path).delete({ ignoreNotFound: true })));
-    sendJson(res, 200, { message: savedMessage });
+    sendJson(res, 200, { message: committedMessage });
   } catch (error) {
     if (sendRateLimitError(res, error)) return;
     if (error?.statusCode === 400 && !error?.code) return sendJson(res, 400, { error: "invalid-argument", message: "Corps JSON invalide." });

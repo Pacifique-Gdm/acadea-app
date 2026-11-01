@@ -88,3 +88,11 @@ historique. Elles incluent désormais les trois destinataires ajoutés, avec les
 tests de refus conservés. Le rendu des messages en cache vérifie aussi le profil,
 la section, l'école, l'année et la participation ; les enfants affichés d'un parent
 mixte sont re-filtrés au dernier moment. 23 tests ciblés PASS et lint PASS.
+
+Les échanges impliquant un profil de section relisent désormais les autorisations
+dans la transaction d'enregistrement : profil, établissement, année, destinataires,
+parent et enfants. Une réattribution observée à la nouvelle tentative est refusée.
+La création des messages/notifications est conditionnelle et un échec de réponse
+ne supprime plus les pièces jointes d'un message déjà enregistré. 30 tests ciblés
+PASS, lint PASS. Il s'agit de tests unitaires de transactions simulées, pas d'une
+preuve de concurrence sur Firebase hébergé. La validation intégrée reste B08.
