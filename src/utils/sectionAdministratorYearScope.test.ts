@@ -30,6 +30,17 @@ const data = {
 } as unknown as AppData;
 
 describe("section administrator display boundary", () => {
+  it("conserve les arriérés seulement si les deux dossiers élèves sont dans le périmètre", () => {
+    const old = { ...data.students[0], id: "old", schoolYearId: "previous" };
+    const payment = { ...data.payments[0], id: "arrears", schoolYearId: "previous", collectionSchoolYearId: "year-a", studentId: "old", currentStudentId: "primary" };
+    const source = { ...data, students: [...data.students, old], payments: [payment] };
+    expect(sectionAdministratorYearScope(source, actor, "school-a", "year-a").payments).toEqual([payment]);
+    expect(sectionAdministratorYearScope(source, actor, "school-a", "year-a").students.map((item) => item.id)).toEqual(["primary"]);
+    for (const section of [undefined, "Secondaire"]) {
+      expect(sectionAdministratorYearScope({ ...source, students: [...data.students, { ...old, section }] }, actor, "school-a", "year-a").payments).toEqual([]);
+    }
+    expect(sectionAdministratorYearScope({ ...source, payments: [{ ...payment, currentStudentId: "secondary" }] }, actor, "school-a", "year-a").payments).toEqual([]);
+  });
   it.each(["kindergarten_admin", "primary_admin", "studies_prefect"] as const)("identifies %s without treating school_admin as scoped", (role) => {
     expect(isSectionAdministratorRole(role)).toBe(true);
     expect(isSectionAdministratorRole("school_admin")).toBe(false);

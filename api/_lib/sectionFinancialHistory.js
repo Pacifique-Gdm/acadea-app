@@ -20,24 +20,26 @@ function publicRecord(kind, document) {
 export async function listSectionFinancialHistory({ db, caller, body }) {
   if (!isSectionAdministrator(caller?.role)) denied();
   if (!body || typeof body !== "object" || Array.isArray(body)
-      || Object.keys(body).some((key) => !["action", "kind", "schoolYearId", "cursorId"].includes(key))
+      || Object.keys(body).some((key) => !["action", "kind", "schoolYearId", "cursorId", "yearBasis"].includes(key))
       || !kinds.has(body.kind) || !idValid(body.schoolYearId)
+      || body.yearBasis !== undefined && (body.yearBasis !== "collection" || body.kind !== "payments")
       || body.cursorId !== undefined && !idValid(body.cursorId)) invalid();
+  const yearField = body.yearBasis === "collection" ? "collectionSchoolYearId" : "schoolYearId";
   return db.runTransaction(async (transaction) => {
   const scope = await requireActiveSectionAdministratorActor(db, caller, transaction);
   const year = await transaction.get(db.doc(`schoolYears/${body.schoolYearId}`));
   if (!year.exists || year.data()?.schoolId !== scope.schoolId) denied();
 
   let history = db.collection(body.kind).where("schoolId", "==", scope.schoolId)
-    .where("schoolYearId", "==", body.schoolYearId).orderBy("createdAt", "desc");
+    .where(yearField, "==", body.schoolYearId).orderBy(body.yearBasis === "collection" ? "__name__" : "createdAt", body.yearBasis === "collection" ? "asc" : "desc");
   if (body.cursorId) {
     const cursor = await transaction.get(db.doc(`${body.kind}/${body.cursorId}`));
-    if (!cursor.exists || cursor.data()?.schoolId !== scope.schoolId || cursor.data()?.schoolYearId !== body.schoolYearId) denied();
+    if (!cursor.exists || cursor.data()?.schoolId !== scope.schoolId || cursor.data()?.[yearField] !== body.schoolYearId) denied();
     history = history.startAfter(cursor);
   }
   const snapshot = await transaction.get(history.limit(PAGE_SIZE));
   if (snapshot.docs.some((document) => document.data().schoolId !== scope.schoolId
-      || document.data().schoolYearId !== body.schoolYearId)) denied();
+      || document.data()[yearField] !== body.schoolYearId)) denied();
   const records = snapshot.docs;
   let visible = records;
   if (body.kind === "payments") {

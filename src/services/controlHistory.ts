@@ -24,19 +24,25 @@ export async function loadControlHistoryPage<T extends ControlHistoryItem>(
   schoolYearId: string,
   actor: Pick<AppUser, "role" | "schoolId">,
   cursor?: ControlHistoryCursor | null,
+  yearBasis?: "collection",
 ): Promise<ControlHistoryPage<T>> {
+  if (yearBasis && (kind !== "payments" || !isSectionAdministratorRole(actor.role))) {
+    throw new Error("Filtre de collecte non autorisé.");
+  }
   if (!schoolId || actor.schoolId !== schoolId) {
     throw new Error("Historique financier hors établissement.");
   }
   if (isSectionAdministratorRole(actor.role)) {
     const token = await getCurrentFirebaseIdToken();
+    if (!token) throw new Error("Authentification requise.");
     const response = await fetch(resolveApiUrl("/api/manage-financial-transaction"), {
       method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "list-section-financial-history", kind, schoolYearId, ...(cursor ? { cursorId: cursor.id } : {}) }),
+      body: JSON.stringify({ action: "list-section-financial-history", kind, schoolYearId, ...(yearBasis ? { yearBasis } : {}), ...(cursor ? { cursorId: cursor.id } : {}) }),
     });
     const payload = await response.json().catch(() => ({})) as { items?: T[]; nextCursorId?: string | null; error?: string };
     if (!response.ok) throw new Error(payload.error || "Historique financier indisponible.");
-    if (!Array.isArray(payload.items) || payload.items.some((item) => item.schoolId !== schoolId || item.schoolYearId !== schoolYearId)
+    if (!Array.isArray(payload.items) || payload.items.some((item) => !item || item.schoolId !== schoolId
+        || (yearBasis ? (item as Payment).collectionSchoolYearId : item.schoolYearId) !== schoolYearId)
       || payload.nextCursorId !== null && payload.nextCursorId !== undefined && typeof payload.nextCursorId !== "string") {
       throw new Error("Réponse de l'historique financier invalide.");
     }

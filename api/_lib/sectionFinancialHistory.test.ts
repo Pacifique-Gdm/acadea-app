@@ -36,6 +36,25 @@ function fixture() {
 }
 
 describe("historique financier des administrateurs de section", () => {
+  it("charge les arriérés par année de collecte sans exposer un élève hors section", async () => {
+    const { db, records } = fixture();
+    records.set("students/old-a", { schoolId: "school-a", schoolYearId: "old-year", section: "Primaire" });
+    records.set("payments/arrears", { schoolId: "school-a", schoolYearId: "old-year", collectionSchoolYearId: "year-a", studentId: "old-a", currentStudentId: "student-a", amount: 12 });
+    const body = { kind: "payments", schoolYearId: "year-a", yearBasis: "collection" };
+    const result = await listSectionFinancialHistory({ db, caller: actor, body });
+    expect(result.items.map((item: { id: string }) => item.id)).toEqual(["arrears"]);
+    records.set("students/old-a", { schoolId: "school-a", schoolYearId: "old-year", section: "Secondaire" });
+    expect((await listSectionFinancialHistory({ db, caller: actor, body })).items).toEqual([]);
+    records.set("students/old-a", { schoolId: "school-a", schoolYearId: "old-year", section: "Primaire" });
+    records.set("students/student-a", { schoolId: "school-b", schoolYearId: "year-a", section: "Primaire" });
+    expect((await listSectionFinancialHistory({ db, caller: actor, body })).items).toEqual([]);
+  });
+  it("refuse un filtre de collecte détourné vers la comptabilité générale", async () => {
+    const { db } = fixture();
+    for (const kind of ["expenses", "cashInflows"]) {
+      await expect(listSectionFinancialHistory({ db, caller: actor, body: { kind, schoolYearId: "year-a", yearBasis: "collection" } })).rejects.toMatchObject({ status: 400 });
+    }
+  });
   it("ne rend que les paiements des élèves de la section, sans identifiant interne", async () => {
     const { db } = fixture();
     const result = await listSectionFinancialHistory({ db, caller: actor, body: { action: "list-section-financial-history", kind: "payments", schoolYearId: "year-a" } });

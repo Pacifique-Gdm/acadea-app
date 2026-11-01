@@ -7,16 +7,29 @@ const record = { id: "class-a", schoolId: "a", schoolYearId: "y", section: "Prim
 const page = { schoolId: "a", schoolYearId: "y", items: [record], nextCursorId: null };
 afterEach(() => vi.unstubAllGlobals());
 describe("transport des lectures scolaires bornées", () => {
+  it("charge la provenance des arriérés et déduplique les deux historiques", async () => {
+    const payment = { id: "arrears", schoolId: "a", schoolYearId: "old", collectionSchoolYearId: "y", studentId: "old-pupil", currentStudentId: record.id };
+    vi.stubGlobal("fetch", vi.fn(async (_url, init) => {
+      const input = JSON.parse(init.body);
+      if (input.action === "list-section-financial-history") return { ok: true, json: async () => ({ items: input.yearBasis ? [payment] : [], nextCursorId: null }) };
+      const items = input.kind === "feeTypes" ? [] : input.schoolYearId === "old"
+        ? [{ ...record, id: "old-pupil", schoolYearId: "old" }, { ...record, id: "unrelated", schoolYearId: "old" }] : [record];
+      return { ok: true, json: async () => ({ ...page, schoolYearId: input.schoolYearId, items }) };
+    }));
+    const result = await loadSectionSchoolYear(user, "y");
+    expect(result.payments).toEqual([payment]);
+    expect(result.students.map((item) => item.id)).toEqual([record.id, "old-pupil"]);
+  });
   it("assemble l'année sans annuaire de parents ni comptabilité globale", async () => {
     const requests: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (_url, init) => {
       const input = JSON.parse(init.body);
       requests.push(input.kind);
-      if (input.action === "list-section-financial-history") return { ok: true, json: async () => ({ items: [{ id: "pay", schoolId: "a", schoolYearId: "y", studentId: record.id }], nextCursorId: null }) };
+      if (input.action === "list-section-financial-history") return { ok: true, json: async () => ({ items: input.yearBasis ? [] : [{ id: "pay", schoolId: "a", schoolYearId: "y", studentId: record.id }], nextCursorId: null }) };
       return { ok: true, json: async () => ({ ...page, items: input.kind === "feeTypes" ? [{ id: "fee", schoolId: "a", schoolYearId: "y", amount: 10 }] : [record] }) };
     }));
     const result = await loadSectionSchoolYear(user, "y");
-    expect(requests.sort()).toEqual(["feeTypes", "payments", "students"]);
+    expect(requests.sort()).toEqual(["feeTypes", "payments", "payments", "students"]);
     expect(result.students).toEqual([record]); expect(result.payments).toHaveLength(1);
     expect(result.parents).toEqual([]); expect(result.expenses).toEqual([]); expect(result.cashInflows).toEqual([]);
   });

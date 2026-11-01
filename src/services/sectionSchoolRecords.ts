@@ -68,15 +68,27 @@ export async function loadSectionSchoolYear(user: AppUser, schoolYearId: string)
     loadSectionSchoolRecords("feeTypes", user, schoolId, schoolYearId),
   ]);
   const payments = new Map<string, Payment>();
-  const cursors = new Set<string>();
-  let cursor: { id: string } | null = null;
-  do {
-    const page: ControlHistoryPage<Payment> = await loadControlHistoryPage<Payment>("payments", schoolId, schoolYearId, user, cursor);
-    for (const payment of page.items) payments.set(payment.id, payment);
-    cursor = page.lastVisible ? { id: page.lastVisible.id } : null;
-    if (cursor && cursors.has(cursor.id)) throw new Error("Pagination financière invalide.");
-    if (cursor) cursors.add(cursor.id);
-  } while (cursor);
+  for (const yearBasis of [undefined, "collection"] as const) {
+    const cursors = new Set<string>();
+    let cursor: { id: string } | null = null;
+    do {
+      const page: ControlHistoryPage<Payment> = await loadControlHistoryPage<Payment>("payments", schoolId, schoolYearId, user, cursor, yearBasis);
+      for (const payment of page.items) payments.set(payment.id, payment);
+      cursor = page.lastVisible ? { id: page.lastVisible.id } : null;
+      if (cursor && cursors.has(cursor.id)) throw new Error("Pagination financière invalide.");
+      if (cursor) cursors.add(cursor.id);
+    } while (cursor);
+  }
+  // Keep only the scoped historical pupils referenced by a collection. The
+  // year view still filters pupils to its own year, while retaining enough
+  // provenance to validate both ends of an arrears payment on the client.
+  const historicalYears = [...new Set([...payments.values()].map((payment) => payment.schoolYearId)
+    .filter((id) => id !== schoolYearId))];
+  for (const historicalYear of historicalYears) {
+    const referenced = new Set([...payments.values()].filter((payment) => payment.schoolYearId === historicalYear).map((payment) => payment.studentId));
+    const historicalStudents = await loadSectionSchoolRecords("students", user, schoolId, historicalYear);
+    students.push(...historicalStudents.filter((student) => referenced.has(student.id)));
+  }
   return { students, feeTypes, payments: [...payments.values()], parents: [], expenses: [], cashInflows: [],
     messages: [], valves: [], attendance: [], attendanceSettings: [], auditLogs: [] };
 }

@@ -29,6 +29,8 @@ export function sectionAdministratorYearScope(data: AppData, user: AppUser, scho
     student.schoolId === schoolId && student.schoolYearId === schoolYearId
     && Boolean(student.section && sections.has(student.section))) : [];
   const studentIds = new Set(students.map((student) => student.id));
+  const scopedStudents = new Map(valid ? data.students.filter((student) => student.schoolId === schoolId
+    && Boolean(student.section && sections.has(student.section))).map((student) => [student.id, student]) : []);
   return {
     students,
     // Parent contacts are exposed only by the scoped messaging directory.
@@ -43,8 +45,11 @@ export function sectionAdministratorYearScope(data: AppData, user: AppUser, scho
     // Expenses, inflows, messages and audit logs have no authoritative
     // section attribution in the legacy client data model.
     payments: valid ? data.payments.filter((payment) =>
-      payment.schoolId === schoolId && payment.schoolYearId === schoolYearId
-      && studentIds.has(payment.studentId)) : [],
+      payment.schoolId === schoolId
+      && scopedStudents.get(payment.studentId)?.schoolYearId === payment.schoolYearId
+      && (!payment.currentStudentId || scopedStudents.get(payment.currentStudentId)?.schoolYearId === payment.collectionSchoolYearId)
+      && (payment.schoolYearId === schoolYearId && studentIds.has(payment.studentId)
+        || payment.collectionSchoolYearId === schoolYearId && studentIds.has(payment.currentStudentId ?? ""))) : [],
     expenses: [],
     cashInflows: [],
     auditLogs: [],
