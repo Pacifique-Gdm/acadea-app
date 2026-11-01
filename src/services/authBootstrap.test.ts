@@ -87,6 +87,18 @@ describe("bootstrap Firebase Auth", () => {
     expect(mocks.getIdTokenResult).toHaveBeenCalledTimes(1);
   });
 
+  it("ferme la session de section si les règles révoquent le listener profil", async () => {
+    mocks.getIdTokenResult.mockResolvedValue({ claims: { role: "primary_admin", schoolId: "school-a" } });
+    const onUser = vi.fn(), onError = vi.fn();
+    await subscribeToFirebaseUser(onUser, onError);
+    mocks.authNext?.({ uid: "section-a", email: "section@example.invalid" });
+    mocks.profileNext?.(profileSnapshot({ ...validProfile, role: "primary_admin", schoolId: "school-a" }));
+    await vi.waitFor(() => expect(onUser).toHaveBeenCalledTimes(1));
+    mocks.profileError?.(new Error("permission-denied"));
+    expect(mocks.signOut).toHaveBeenCalled();
+    expect(onError).toHaveBeenCalled();
+  });
+
   it("termine le loader sur erreur Firestore et profil absent", async () => {
     const onUser = vi.fn(), onError = vi.fn();
     await subscribeToFirebaseUser(onUser, onError);

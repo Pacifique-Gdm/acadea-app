@@ -258,7 +258,14 @@ export async function subscribeToFirebaseUser(
           failBootstrap(error, currentGeneration);
           void authModule.signOut(auth);
         });
-      }, (error) => failBootstrap(error, currentGeneration));
+      }, (error) => {
+        if (generation !== currentGeneration) return;
+        const sectionSession = resolvedUser && isSectionAdministratorRole(resolvedUser.role);
+        failBootstrap(error, currentGeneration);
+        // Rules revoke the profile listener itself when the account is disabled.
+        // Do not leave its previously authorized data displayed after that refusal.
+        if (sectionSession) void authModule.signOut(auth);
+      });
     },
     (error) => {
       generation += 1;
