@@ -4,14 +4,17 @@ import { db, firebaseReady } from "../firebase";
 import type { CashInflow, Expense, Payment } from "../types";
 import type { AppUser } from "../types";
 import { isSectionAdministratorRole } from "../utils/sectionAdministratorYearScope";
+import { getCurrentFirebaseIdToken } from "./auth";
+import { resolveApiUrl } from "../config/apiUrl";
 
 export const CONTROL_HISTORY_PAGE_SIZE = 50;
 export type ControlHistoryKind = "payments" | "expenses" | "cashInflows";
 export type ControlHistoryItem = Payment | Expense | CashInflow;
+export type ControlHistoryCursor = DocumentSnapshot | { id: string };
 
 export type ControlHistoryPage<T extends ControlHistoryItem> = {
   items: T[];
-  lastVisible: DocumentSnapshot | null;
+  lastVisible: ControlHistoryCursor | null;
   hasMore: boolean;
 };
 
@@ -20,16 +23,25 @@ export async function loadControlHistoryPage<T extends ControlHistoryItem>(
   schoolId: string,
   schoolYearId: string,
   actor: Pick<AppUser, "role" | "schoolId">,
-  cursor?: DocumentSnapshot | null,
+  cursor?: ControlHistoryCursor | null,
 ): Promise<ControlHistoryPage<T>> {
-  // The existing pagination query reads the entire school's financial ledger.
-  // A section administrator needs a server-resolved, linked-entity history;
-  // filtering the result in the browser would disclose other sections.
-  if (isSectionAdministratorRole(actor.role)) {
-    throw new Error("Historique financier indisponible : périmètre de section non sécurisé.");
-  }
   if (!schoolId || actor.schoolId !== schoolId) {
     throw new Error("Historique financier hors établissement.");
+  }
+  if (isSectionAdministratorRole(actor.role)) {
+    const token = await getCurrentFirebaseIdToken();
+    const response = await fetch(resolveApiUrl("/api/manage-financial-transaction"), {
+      method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "list-section-financial-history", kind, schoolYearId, ...(cursor ? { cursorId: cursor.id } : {}) }),
+    });
+    const payload = await response.json().catch(() => ({})) as { items?: T[]; nextCursorId?: string | null; error?: string };
+    if (!response.ok) throw new Error(payload.error || "Historique financier indisponible.");
+    if (!Array.isArray(payload.items) || payload.items.some((item) => item.schoolId !== schoolId || item.schoolYearId !== schoolYearId)
+      || payload.nextCursorId !== null && payload.nextCursorId !== undefined && typeof payload.nextCursorId !== "string") {
+      throw new Error("Réponse de l'historique financier invalide.");
+    }
+    return { items: payload.items, lastVisible: payload.nextCursorId ? { id: payload.nextCursorId } : null,
+      hasMore: Boolean(payload.nextCursorId) };
   }
   if (!firebaseReady || !db) {
     throw new Error("Firestore indisponible pour l'historique.");

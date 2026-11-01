@@ -34,6 +34,7 @@ import { compareStudentsForPdfByClass, formatStudentPdfClassName } from "../../u
 import { filterControlStudentRows } from "../../utils/controlStudentSearch";
 import { historicalArrearsPdfSection } from "./historicalArrearsPdf";
 import type { AppData, AppUser, AuditLog, CashInflow, Expense, FeeType, ParentProfile, Payment, PersonnelPayment, School, SchoolYear, Student } from "../../types";
+import { isSectionAdministratorRole } from "../../utils/sectionAdministratorYearScope";
 
 type ControlYearData = {
   students: Student[];
@@ -350,7 +351,11 @@ export function ControlModule({
   const paginatedControlRows = visibleRows.slice((controlPage - 1) * CONTROL_PAGE_SIZE, controlPage * CONTROL_PAGE_SIZE);
   useEffect(() => { setControlPage(1); }, [amountComparator, amountThreshold, controlClassKey, controlStudentSearch, year.id]);
   useEffect(() => { if (controlPage > controlPageCount) setControlPage(controlPageCount); }, [controlPage, controlPageCount]);
-  const historyPayments = [...new Map([...paymentHistory.items, ...yearData.payments.filter((payment) => payment.collectionSchoolYearId === year.id)].map((payment) => [payment.id, payment])).values()]
+  // Section roles receive a server-filtered page only. Never merge a local
+  // school-wide arrears cache into their visible payment history.
+  const historySource = isSectionAdministratorRole(user.role) ? paymentHistory.items
+    : [...paymentHistory.items, ...yearData.payments.filter((payment) => payment.collectionSchoolYearId === year.id)];
+  const historyPayments = [...new Map(historySource.map((payment) => [payment.id, payment])).values()]
     .map((payment) => {
       const student = controlIndexes.studentsById.get(payment.currentStudentId ?? payment.studentId);
       const fee = controlIndexes.feeTypesById.get(payment.feeTypeId) ?? (payment.feeName ? { name: payment.feeName } : undefined);

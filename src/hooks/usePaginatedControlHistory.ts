@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import type { DocumentSnapshot } from "@firebase/firestore";
 import { loadControlHistoryPage } from "../services/controlHistory";
-import type { ControlHistoryItem, ControlHistoryKind } from "../services/controlHistory";
+import type { ControlHistoryCursor, ControlHistoryItem, ControlHistoryKind } from "../services/controlHistory";
 import type { AppUser } from "../types";
 
 type UsePaginatedControlHistoryOptions = {
@@ -28,7 +27,7 @@ export function usePaginatedControlHistory<T extends ControlHistoryItem>({
   enabled,
 }: UsePaginatedControlHistoryOptions) {
   const [items, setItems] = useState<T[]>([]);
-  const [cursor, setCursor] = useState<DocumentSnapshot | null>(null);
+  const [cursor, setCursor] = useState<ControlHistoryCursor | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(false);

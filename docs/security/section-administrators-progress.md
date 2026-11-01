@@ -79,6 +79,12 @@ No Firebase configuration, production data, deployment or merge was performed.
 - The internal payroll/balance/history and expense-currency readers now re-read the authoritative active profile, role, school and nonempty valid sections before a school-wide read. Payroll mutations continue to reject these roles; the existing financial transaction core rejects general expense and inflow mutations.
 - This is an implementation checkpoint, not a release. The outer HTTP account gate and Firestore login gate still reject the three profiles. Financial history UI, message threads, remaining PDFs, five tabs and section-aware Firestore/Storage rules must be completed and validated before activation.
 
+## Financial history interface boundary
+
+- The Control history hook now uses a dedicated server reader for all three section administrator roles; it no longer issues their school-wide Firestore history query. Student payments are linked to authoritative student records and exposed only when both historical and current links remain in assigned sections. Unattributed or mismatched payments are omitted. Expenses and other cash inflows are returned for the caller's school as general read-only accounting, without section allocation.
+- Profile, cursor, payment page and linked students are read in one Firestore transaction, so concurrent role or student changes cannot silently authorize a stale page. Cursor documents are validated for school and year; responses use an explicit field allowlist. The UI does not merge its locally cached arrears into a section administrator's payment history.
+- The outer HTTP release gate remains intentionally closed. This reader is not a substitute for completing the five-tab loaders, message/attachment permissions, other PDF exports and Firebase rules.
+
 ## Messaging recipient boundary
 
 - The server message core now requires an explicit authorized section for section-administrator senders. A parent recipient must have unambiguous same-school student links and every current-year child in that section; a staff recipient must be explicitly section-attributed, except the principal school administrator. Foreign schools and stale scope are rejected.
