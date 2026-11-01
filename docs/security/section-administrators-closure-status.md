@@ -1,6 +1,26 @@
 # PR #40 — état de finalisation du 1er novembre 2026
 
-## B08 — intégration candidate en cours de validation
+## B08 — résultat candidat au commit 35fb171
+
+Les deux CI obligatoires sont PASS sur `35fb171b7dfb2419dfe2e33cadaea2d10c57be20`.
+2 562 tests unitaires, 161 tests Functions, 457 tests Firestore (1 ignoré),
+55 tests Storage et 17 scénarios Chromium authentifiés sur émulateurs PASS.
+Lint, TypeScript et builds sont PASS dans la CI application/functions.
+
+Le scénario B08 exécute les handlers réels d'activation/désactivation du Super
+Administrateur, la connexion Auth émulée des trois profils, les cinq onglets,
+la visibilité des élèves Maternelle/Primaire/CTEB/Secondaire, des refus API et
+la fermeture de session après désactivation. Ses fixtures locales sont nettoyées
+et leur suppression contrôlée par le helper. Ce scénario n'est pas une recette
+exhaustive de chaque bouton, PDF ou pièce jointe sur Firebase hébergé.
+
+Le raccordement normal candidat est implémenté et les contrôles exécutés passent.
+Il reste la configuration WIF, l'autorisation d'un déploiement Staging compatible
+et la recette hébergée complète (avec son orchestrateur de fixtures dédié).
+Le workflow préparé est un préflight d'identité, pas cette recette complète.
+PR en brouillon ; aucune activation distante, fusion ou publication de règles.
+
+## Journal du raccordement candidat
 
 Les paragraphes historiques ci-dessous décrivent l'état avant le raccordement
 B08. Le candidat local remplace maintenant le refus global par la validation du

@@ -11,11 +11,15 @@ Le workflow historique hors connexion est inchangé.
    sans clé privée. Configurer un fournisseur OIDC Workload Identity Federation
    pour `https://token.actions.githubusercontent.com`.
 2. Restreindre la confiance au dépôt `Pacifique-Gdm/acadea-app` (utiliser ses
-   identifiants numériques réels de dépôt/propriétaire), à la branche
+   identifiants vérifiés par l'API GitHub : dépôt `1280525031`, propriétaire
+   `296899034`), à la branche
    `refs/heads/codex/section-admin-profiles-final-20261031`, à l'événement
    `workflow_dispatch` et à l'environnement `acadea-staging-e2e`. Ne pas autoriser
    les forks ni toutes les branches. Mapper `google.subject=assertion.sub` et
    les attributs nécessaires à ces restrictions.
+
+   Condition de confiance à adapter uniquement au nom réel du fournisseur :
+   `assertion.repository_id == '1280525031' && assertion.repository_owner_id == '296899034' && assertion.ref == 'refs/heads/codex/section-admin-profiles-final-20261031' && assertion.event_name == 'workflow_dispatch' && assertion.sub == 'repo:Pacifique-Gdm/acadea-app:environment:acadea-staging-e2e'`.
 3. Accorder `roles/iam.workloadIdentityUser` à cette identité fédérée **sur ce seul
    compte de service**. Aucun rôle Owner/Editor, aucun accès Production.
 4. Dans GitHub → Settings → Environments → **acadea-staging-e2e** → Variables,
@@ -41,6 +45,12 @@ documents fictifs Firestore. Les droits IAM Firestore ne sont pas bornés par le
 règles clientes : cette portée doit être explicitement acceptée sur Staging,
 avec manifeste et contrôles d'appartenance stricts. Aucun droit de déploiement
 ou de modification IAM n'est nécessaire au runner de recette.
+Pour le rôle personnalisé de fixture, partir de `firebaseauth.users.create`,
+`firebaseauth.users.get`, `firebaseauth.users.update`, `firebaseauth.users.delete`,
+`datastore.entities.create`, `datastore.entities.get`, `datastore.entities.list`,
+`datastore.entities.update`, `datastore.entities.delete` et
+`datastore.databases.get`. Vérifier les permissions effectivement nécessaires
+avec le script de fixture retenu ; ne pas remplacer un refus par Owner/Editor.
 Les permissions Storage doivent être accordées seulement si le scénario écrit
 des fichiers, sur le bucket Staging et un préfixe de fixture contrôlé.
 
