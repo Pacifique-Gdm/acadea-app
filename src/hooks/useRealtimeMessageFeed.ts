@@ -4,6 +4,7 @@ import type { Firestore, Query } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
 import type { AppUser, Message } from "../types";
 import { isSectionAdministratorRole, sectionAdministratorQuerySections } from "../utils/sectionAdministratorYearScope";
+import { sectionMessageVisible } from "../utils/sectionMessageVisibility";
 
 type UseRealtimeMessageFeedOptions = {
   user: AppUser;
@@ -116,5 +117,6 @@ export function useRealtimeMessageFeed({ user, schoolId, schoolYearId, enabled, 
     };
   }, [enabled, refreshToken, schoolId, schoolYearId, user]);
 
-  return { messages, error };
+  return { messages: isSectionAdministratorRole(user.role)
+    ? messages.filter((message) => enabled && sectionMessageVisible(user, message, schoolId, schoolYearId)) : messages, error };
 }

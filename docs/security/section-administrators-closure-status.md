@@ -82,3 +82,9 @@ transaction serveur (API existante `message-recipients`, action POST dédiée).
 Le profil, l'école, l'année et le destinataire personnel sont vérifiés avant toute
 écriture. Seul `read` est modifié ; aucun compteur partagé n'est utilisé.
 29 tests ciblés PASS sur les marqueurs, destinataires et API existante ; lint PASS.
+
+La CI complète a détecté cinq assertions de matrice de rôles restées sur la liste
+historique. Elles incluent désormais les trois destinataires ajoutés, avec les
+tests de refus conservés. Le rendu des messages en cache vérifie aussi le profil,
+la section, l'école, l'année et la participation ; les enfants affichés d'un parent
+mixte sont re-filtrés au dernier moment. 23 tests ciblés PASS et lint PASS.

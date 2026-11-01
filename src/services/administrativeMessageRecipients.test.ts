@@ -118,6 +118,6 @@ describe("annuaire des administratifs", () => {
     ["discipline_director", ["school_admin", "cashier", "secretary", "study_director", "teacher", "parent"]],
     ["study_director", ["school_admin", "cashier", "discipline_director", "secretary", "teacher", "parent"]],
   ])("preserve la matrice de destinataires de %s", (role, expected) => {
-    expect([...allowedRecipientRoles(role)].sort()).toEqual([...expected].sort());
+    expect([...allowedRecipientRoles(role)].sort()).toEqual([...expected, "kindergarten_admin", "primary_admin", "studies_prefect"].sort());
   });
 });

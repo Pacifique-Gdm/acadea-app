@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 import type { AppData, AppNotification, AppUser, AuditLog, Message, ParentProfile, School, Student } from "../../types";
 import { administrativeSenderDetails } from "../../utils/administrativeSender";
 import { MessageAttachments } from "./MessageAttachments";
+import { isSectionAdministratorRole, sectionAdministratorQuerySections } from "../../utils/sectionAdministratorYearScope";
+import { sectionMessageVisible } from "../../utils/sectionMessageVisibility";
 
 type MessageDrawerYearData = {
   auditLogs: AuditLog[];
@@ -82,7 +84,12 @@ export function MessageDrawerContent({
 
   function parentChildren(parentProfile?: ParentProfile) {
     if (!parentProfile) return [];
-    return yearData.students.filter((student) => student.parentId === parentProfile.id || parentProfile.studentIds.includes(student.id));
+    let sections: string[] | null = null;
+    if (isSectionAdministratorRole(user.role)) {
+      try { sections = sectionAdministratorQuerySections(user, user.schoolId ?? ""); } catch { return []; }
+    }
+    return yearData.students.filter((student) => (!sections || student.schoolId === user.schoolId && sections.includes(student.section ?? ""))
+      && (student.parentId === parentProfile.id || parentProfile.studentIds.includes(student.id)));
   }
 
   function isParentDisciplineMessage(message: Message) {
@@ -117,6 +124,7 @@ export function MessageDrawerContent({
   }
 
   function canShowMessageInConversation(message: Message) {
+    if (isSectionAdministratorRole(user.role)) return sectionMessageVisible(user, message, user.schoolId ?? "");
     if (isParent) return true;
     if (message.participantIds?.includes(user.id)) return true;
     if (user.role === "secretary") return Boolean(message.participantIds?.includes(user.id));
