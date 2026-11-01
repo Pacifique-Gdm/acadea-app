@@ -35,6 +35,7 @@ import { filterControlStudentRows } from "../../utils/controlStudentSearch";
 import { historicalArrearsPdfSection } from "./historicalArrearsPdf";
 import type { AppData, AppUser, AuditLog, CashInflow, Expense, FeeType, ParentProfile, Payment, PersonnelPayment, School, SchoolYear, Student } from "../../types";
 import { isSectionAdministratorRole } from "../../utils/sectionAdministratorYearScope";
+import { canManageSectionStudentFinances } from "../../utils/sectionAdministratorFinance";
 
 type ControlYearData = {
   students: Student[];
@@ -228,7 +229,9 @@ export function ControlModule({
   }, [cashierControlFeedback, cashierControlFeedbackDrawer]);
   const isArchivedContext = year.status === "archived";
   const canPay = user.role === "cashier" && !isArchivedContext;
-  const canCorrectPayments = user.role === "school_admin" && !isArchivedContext;
+  const canManageSectionPayments = canManageSectionStudentFinances(user, school.id, isArchivedContext);
+  const canRecordStudentPayment = canPay || canManageSectionPayments;
+  const canCorrectPayments = (user.role === "school_admin" && !isArchivedContext) || canManageSectionPayments;
   const canManageExpenses = user.role === "school_admin" && !isArchivedContext;
   const expenseCurrency = resolveSchoolYearCurrency(year, school);
   useEffect(() => {
@@ -533,6 +536,7 @@ export function ControlModule({
   }
 
   async function savePayment() {
+    if (!canRecordStudentPayment) return;
     if (paymentSubmittingRef.current) return;
     setCashierControlFeedback("");
     setCashierControlFeedbackDrawer(null);
@@ -1472,7 +1476,7 @@ export function ControlModule({
       </div>
       {user.role !== "cashier" && (
       <div className="min-w-0 space-y-4">
-        {canPay && (
+        {canRecordStudentPayment && (
           <FormPanel title="Enregistrer un paiement">
             <select value={studentId} onChange={(event) => setStudentId(event.target.value)} className="input">
               {yearData.students.map((student) => (

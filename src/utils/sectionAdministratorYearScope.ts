@@ -36,9 +36,13 @@ export function sectionAdministratorYearScope(data: AppData, user: AppUser, scho
     students,
     parents,
     users: valid ? data.users.filter((item) => item.id === user.id && item.schoolId === schoolId) : [],
-    // Fee types, expenses, inflows, messages and audit logs have no authoritative
-    // section attribution. Do not infer permission from an untrusted label.
-    feeTypes: [],
+    // Fee definitions are school/year-wide reference data. They are needed to
+    // collect a scoped student's fees, but never confer permission to mutate
+    // the general ledger or another section's student.
+    feeTypes: valid ? data.feeTypes.filter((fee) => fee.schoolId === schoolId
+      && fee.schoolYearId === schoolYearId) : [],
+    // Expenses, inflows, messages and audit logs have no authoritative
+    // section attribution in the legacy client data model.
     payments: valid ? data.payments.filter((payment) =>
       payment.schoolId === schoolId && payment.schoolYearId === schoolYearId
       && studentIds.has(payment.studentId)) : [],

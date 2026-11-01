@@ -44,7 +44,8 @@ describe("section administrator display boundary", () => {
     expect(scoped.disciplineSanctions.map((item) => item.id)).toEqual(["primary"]);
     expect(scoped.attendance.map((item) => item.id)).toEqual(["primary"]);
     expect(scoped.notifications.map((item) => item.id)).toEqual(["own"]);
-    for (const key of ["feeTypes", "expenses", "cashInflows", "auditLogs", "messages", "attendanceSettings"] as const) expect(scoped[key]).toEqual([]);
+    expect(scoped.feeTypes.map((item) => item.id)).toEqual(["fee"]);
+    for (const key of ["expenses", "cashInflows", "auditLogs", "messages", "attendanceSettings"] as const) expect(scoped[key]).toEqual([]);
   });
   it("accepts a second explicitly assigned section but never an unknown or foreign school", () => {
     const multi = sectionAdministratorYearScope(data, { ...actor, sectionIds: ["Primaire", "Secondaire"] }, "school-a", "year-a");
