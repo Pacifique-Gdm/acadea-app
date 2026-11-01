@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 // @ts-expect-error Vercel helper is implemented in JavaScript.
 import { listAllowedMessageRecipients } from "../../api/_lib/messageRecipients.js";
 // @ts-expect-error Vercel endpoint is implemented in JavaScript.
-import { createSchoolMessageDocument, resolveRecipients } from "../../api/send-school-message.js";
+import { createSchoolMessageDocument, requireScopedMessageReplay, resolveRecipients } from "../../api/send-school-message.js";
 
 const caller = { uid: "section-a", role: "primary_admin", schoolId: "school-a",
   profile: { role: "primary_admin", schoolId: "school-a", status: "active", sectionIds: ["Primaire"] } };
@@ -40,6 +40,18 @@ function database(overrides: Record<string, Record<string, unknown>> = {}) {
 }
 
 describe("destinataires des administrateurs de section", () => {
+  it("ne restitue pas un ancien message après transfert, retrait de section ou changement de destinataires", () => {
+    const message = { schoolId: "school-a", senderId: caller.uid, schoolYearId: "year-a", section: "Primaire", recipientIds: ["parent-primary"] };
+    const recipients = [{ id: "parent-primary" }];
+    expect(() => requireScopedMessageReplay(caller, message, "year-a", "Primaire", recipients)).not.toThrow();
+    for (const patch of [{ schoolId: "school-b" }, { senderId: "other" }, { schoolYearId: "year-old" },
+      { section: "Secondaire" }, { recipientIds: ["parent-mixed"] }, { recipientIds: undefined }]) {
+      expect(() => requireScopedMessageReplay(caller, { ...message, ...patch }, "year-a", "Primaire", recipients)).toThrow();
+    }
+    const reassigned = { ...caller, profile: { ...caller.profile, sectionIds: ["Secondaire"] } };
+    expect(() => requireScopedMessageReplay(reassigned, message, "year-a", "Primaire", recipients)).toThrow();
+  });
+
   it("retourne le parent multi-sections sans exposer les autres enfants", async () => {
     const db = database();
     const recipients = await listAllowedMessageRecipients(db, caller, "year-a");

@@ -160,6 +160,18 @@ export function createSchoolMessageDocument({ messageId, caller, schoolYearId, r
   };
 }
 
+export function requireScopedMessageReplay(caller, message, schoolYearId, messageSection, recipients) {
+  if (!isSectionAdministrator(caller.role)) return;
+  requireSectionMessageContext(caller, messageSection);
+  const expected = new Set(recipients.map((recipient) => recipient.id));
+  if (message?.schoolId !== caller.schoolId || message.senderId !== caller.uid
+      || message.schoolYearId !== schoolYearId || message.section !== messageSection
+      || !Array.isArray(message.recipientIds) || message.recipientIds.length !== expected.size
+      || message.recipientIds.some((id) => !expected.has(id))) {
+    throw httpError(403, "permission-denied", "Ce message ne relève plus du périmètre autorisé.");
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return sendJson(res, 405, { error: "method-not-allowed", message: "Methode non autorisee." });
   let temporaryPaths = [];
@@ -192,6 +204,7 @@ export default async function handler(req, res) {
     temporaryPaths = inputAttachments.map((item) => text(item?.path, 500)).filter(Boolean);
     const existingMessage = await db.doc(`messages/${messageId}`).get();
     if (existingMessage.exists) {
+      requireScopedMessageReplay(caller, existingMessage.data(), schoolYearId, messageSection, recipients);
       await Promise.allSettled(temporaryPaths.map((path) => bucket.file(path).delete({ ignoreNotFound: true })));
       sendJson(res, 200, { message: existingMessage.data(), idempotent: true });
       return;

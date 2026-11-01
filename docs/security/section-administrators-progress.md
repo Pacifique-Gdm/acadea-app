@@ -1,8 +1,27 @@
 # Section administrators — implementation checkpoint
 
-Branch: codex/section-admin-profiles-rebuild-20261031
+Branch: codex/section-admin-profiles-final-20261031
 
 This is an incomplete implementation, not ready for activation or deployment.
+
+## Current mandatory policy — 2026-11-01 (supersedes earlier checkpoints)
+
+- No separate financial grant: active school/section assignment is the intended authorization. The release gates remain closed until integration is complete.
+- Student payment creation/correction is section-scoped. Deletion, cancellation and refunds are denied to all three roles; zero-value corrections are rejected. Payment deletion controls are principal-administrator-only.
+- Expenses, other cash inflows, balances and payroll are school-wide read-only; they are never artificially divided by section. History pagination uses distinct payment/expense/inflow types and the scoped server reader.
+- No parent or user-account administration, including self administration. The provisioning endpoint denies every action other than scoped manual student save. Firestore explicitly denies self updates for these roles. Student archival, reactivation, parent creation and option administration controls cannot be enabled by injected UI capabilities.
+- Student creation/editing checks both old and new sections, canonical class identity and the authoritative class document. A replay after a student moves outside the actor's scope is rejected before returning the saved response. Student deletion remains denied.
+- Messaging may return a parent contact if at least one current-year child belongs to an assigned section. The directory projects only contact identity and eligible sections, not siblings or their records. A replay must match the currently authorized school, section, year and recipients.
+- PDF boundaries check students and linked payments immediately before export. Direct Storage valve reads for section roles are denied until a scoped server reader exists.
+
+### Evidence and remaining work
+
+- Latest policy tests: 36/36 targeted tests passed; after adding more cases, the financial/student subset passed 14/14. Message replay and history subset passed 12/12. Targeted lint and diff checks passed. These are local automated tests, not hosted role acceptance tests.
+- GitHub checks for `e7baabf` passed: application-and-functions, firebase-rules, authenticated-emulator-e2e and offline-emulator-e2e. Newer commits require their own CI results; do not inherit a PASS from this SHA.
+- Still required before activation: complete section-scoped initial/year loaders and class subscriptions, positive read authorization in Firestore, all five-tab integration (including safe dashboard aggregates), bidirectional messaging and scoped file consultation, then authenticated acceptance tests for the three profiles.
+- Existing global API/Firestore/authentication release gates and activation rejection remain intentional. Tests of these gates do not prove legitimate profile workflows work. No Staging acceptance test or deployment was performed for this checkpoint.
+
+The sections below are historical implementation notes, not the current permission contract.
 
 Implemented:
 - Server policy identifies kindergarten_admin (Directrice Maternelle), primary_admin (Admin. Primaire), studies_prefect (Préfet d'études).

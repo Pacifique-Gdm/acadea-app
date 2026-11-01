@@ -78,9 +78,19 @@ export function ActivityHistoryContent({
     setSectionLoading(true);
     setSectionError("");
     try {
-      const page = await loadControlHistoryPage<Payment & Expense & CashInflow>(kind, user.schoolId, scopedYearId, user, sectionCursors[kind]);
-      setSectionRecords((current) => ({ ...current, [kind]: [...current[kind], ...page.items] }));
-      setSectionCursors((current) => ({ ...current, [kind]: page.lastVisible }));
+      if (kind === "payments") {
+        const page = await loadControlHistoryPage<Payment>(kind, user.schoolId, scopedYearId, user, sectionCursors[kind]);
+        setSectionRecords((current) => ({ ...current, payments: [...current.payments, ...page.items] }));
+        setSectionCursors((current) => ({ ...current, payments: page.lastVisible }));
+      } else if (kind === "expenses") {
+        const page = await loadControlHistoryPage<Expense>(kind, user.schoolId, scopedYearId, user, sectionCursors[kind]);
+        setSectionRecords((current) => ({ ...current, expenses: [...current.expenses, ...page.items] }));
+        setSectionCursors((current) => ({ ...current, expenses: page.lastVisible }));
+      } else {
+        const page = await loadControlHistoryPage<CashInflow>(kind, user.schoolId, scopedYearId, user, sectionCursors[kind]);
+        setSectionRecords((current) => ({ ...current, cashInflows: [...current.cashInflows, ...page.items] }));
+        setSectionCursors((current) => ({ ...current, cashInflows: page.lastVisible }));
+      }
     } catch { setSectionError("Suite de l'historique indisponible. Veuillez réessayer."); }
     finally { setSectionLoading(false); }
   }
