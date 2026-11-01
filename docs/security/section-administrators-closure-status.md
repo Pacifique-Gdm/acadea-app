@@ -127,3 +127,11 @@ rapport de section n'affiche pas de faux solde mélangeant recettes partielles e
 dépenses globales ; le solde général dispose de sa consultation dédiée. Pagination
 complète, refus d'échec partiel et de curseur répété : 24 tests PASS, lint PASS.
 Les preuves PDF portent ici sur le contenu généré, pas sur une inspection visuelle.
+
+Complément B07 : lecture des Valves explicitement attribuées aux sections. Les
+URL permanentes et données inline ne sortent pas du lecteur ; les fichiers
+canoniques sont servis par la Function authentifiée, avec vérification du profil,
+de l'école, de la publication, du chemin, du type et de la taille, puis relecture
+après téléchargement. Les archives `all_parents`/sans section vérifiable ne sont
+pas devinées ni migrées. 32 tests lecteurs PASS, 17 tests Functions PASS, lint
+PASS. Index Valves préparé, non déployé ; téléchargement hébergé non exécuté.

@@ -26,7 +26,8 @@ export async function loadSectionSchoolBootstrap(user: AppUser) {
 }
 
 export type SectionPersonnel = { id: string; schoolId: string; name: string; role?: AppUser["role"]; kind?: "service"; jobTitle?: string; status?: "active" | "inactive"; active?: boolean };
-type Records = { classes: SchoolClassRecord; students: Student; feeTypes: FeeType; personnel: SectionPersonnel; servicePersonnel: SectionPersonnel; medicalRecords: StudentMedicalRecord & { section: string } };
+export type SectionValve = { id: string; schoolId: string; schoolYearId: string; section: string; title: string; body: string; authorName: string; createdAt: string; attachments: Array<{ name: string; type: string; size: number; path: string }> };
+type Records = { classes: SchoolClassRecord; students: Student; feeTypes: FeeType; personnel: SectionPersonnel; servicePersonnel: SectionPersonnel; medicalRecords: StudentMedicalRecord & { section: string }; valves: SectionValve };
 export async function loadSectionSchoolRecords<K extends keyof Records>(
   kind: K, user: AppUser, schoolId: string, schoolYearId: string, signal?: AbortSignal,
 ): Promise<Records[K][]> {

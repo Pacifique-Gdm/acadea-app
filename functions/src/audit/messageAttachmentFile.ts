@@ -1,6 +1,7 @@
 import { getFirestore, type DocumentData } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
+import { handleSectionValveFile } from "./sectionValveFile.js";
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const allowedTypes: Record<string, string> = {
@@ -71,6 +72,7 @@ export function assertMessageAttachmentAccess(identity: Identity, profile: Docum
 }
 
 export async function handleMessageAttachmentFile(request: { auth: { uid: string; token: Record<string, unknown> } | null; data: Record<string, unknown> }) {
+  if (request.data?.valveId !== undefined) return handleSectionValveFile(request);
   if (!request.auth) throw new HttpsError("unauthenticated", "Authentification requise.");
   const messageId = request.data?.messageId;
   const path = request.data?.path;

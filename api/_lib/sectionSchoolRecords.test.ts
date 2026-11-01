@@ -40,6 +40,16 @@ function fixture() {
 const body = { action: "list-section-school-records", kind: "students", schoolYearId: "y" };
 
 describe("lecture scolaire transactionnelle bornée", () => {
+  it("limite les valves à une section explicite et supprime les URL à jeton", async () => {
+    const { db, rows } = fixture();
+    rows.set("valves/v", { schoolId: "a", schoolYearId: "y", visibility: "Primaire", title: "Test", attachmentUrl: "SECRET", attachments: [{ path: "valves/a/y/v/file.pdf", url: "SECRET", name: "Test", size: 10, type: "application/pdf" }] });
+    rows.set("valves/other", { schoolId: "a", schoolYearId: "y", visibility: "Secondaire" });
+    rows.set("valves/ambiguous", { schoolId: "a", schoolYearId: "y", visibility: "all_parents" });
+    const result = await listSectionSchoolRecords({ db, caller, body: { ...body, kind: "valves" } });
+    expect(result.items.map((item: { id: string }) => item.id)).toEqual(["v"]);
+    expect(JSON.stringify(result)).not.toContain("SECRET");
+    expect(result.items[0].attachments).toEqual([{ path: "valves/a/y/v/file.pdf", name: "Test", size: 10, type: "application/pdf" }]);
+  });
   it("lit les fiches médicales par les élèves autorisés, jamais par une requête globale", async () => {
     const { db, rows, reads } = fixture();
     rows.set("studentMedicalRecords/one", { studentId: "one", schoolId: "a", schoolYearId: "y", allergies: "Test" });

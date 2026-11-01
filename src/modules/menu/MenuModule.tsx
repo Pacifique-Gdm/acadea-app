@@ -32,6 +32,7 @@ import { SecretaryMedicalRecordsDrawer } from "../secretary/SecretaryMedicalTool
 import { PersonnelDrawerContent } from "./PersonnelDrawerContent";
 import { SectionPersonnelReadOnly } from "./SectionPersonnelReadOnly";
 import { SectionFinancialReport } from "./SectionFinancialReport";
+import { SectionValvesReadOnly } from "./SectionValvesReadOnly";
 import { loadSectionSchoolRecords } from "../../services/sectionSchoolRecords";
 import { ServicePersonnelForm } from "../../components/personnel/ServicePersonnelForm";
 import { OwnPayrollEntry } from "../../components/personnel/OwnPayrollEntry";
@@ -1345,6 +1346,7 @@ export function MenuModule({
       );
     }
 
+    if (sectionId === "valves" && sectionRole) return <SectionValvesReadOnly user={user} schoolId={school.id} schoolYearId={selectedYear.id} />;
     if (sectionId === "valves" && (canReadAdmin || user.role === "cashier")) {
       return (
         <ValvesDrawerContent
@@ -1387,7 +1389,7 @@ export function MenuModule({
 
   const visibleMenuSections = menuSections.filter((section) => canReadAdmin
     || user.role === "cashier" && (section.id === "valves" || section.id === "history" || section.id === "library")
-    || sectionRole && ["years", "school", "history", "fees", "personnel", "library", "medicalRecords", "financial"].includes(section.id));
+    || sectionRole && ["years", "school", "history", "fees", "personnel", "library", "medicalRecords", "financial", "valves"].includes(section.id));
   const activeMenuSectionConfig = visibleMenuSections.find((section) => section.id === activeMenuSection);
 
   return (

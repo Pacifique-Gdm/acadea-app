@@ -1,6 +1,6 @@
 import { requireActiveSectionAdministratorActor } from "./sectionAdministrators.js";
 
-const kinds = new Set(["students", "classes", "feeTypes", "personnel", "servicePersonnel", "medicalRecords"]);
+const kinds = new Set(["students", "classes", "feeTypes", "personnel", "servicePersonnel", "medicalRecords", "valves"]);
 const staffRoles = ["school_admin", "kindergarten_admin", "primary_admin", "studies_prefect", "cashier", "discipline_director", "study_director", "secretary", "teacher"];
 const validId = (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,180}$/.test(value);
 const validCursor = (value) => typeof value === "string" && /^[A-Za-z0-9_:-]{1,500}$/.test(value);
@@ -39,15 +39,16 @@ export async function listSectionSchoolRecords({ db, caller, body }) {
     const globalPersonnel = body.kind === "personnel" || body.kind === "servicePersonnel";
     const collectionName = body.kind === "personnel" ? "users" : body.kind === "servicePersonnel" ? "personnelProfiles" : body.kind === "medicalRecords" ? "students" : body.kind;
     const sectionBound = !globalPersonnel && body.kind !== "feeTypes";
+    const sectionField = body.kind === "valves" ? "visibility" : "section";
     const authorized = (record) => record?.schoolId === scope.schoolId
-      && (globalPersonnel || record.schoolYearId === body.schoolYearId) && (!sectionBound || scope.sectionIds.includes(record.section))
+      && (globalPersonnel || record.schoolYearId === body.schoolYearId) && (!sectionBound || scope.sectionIds.includes(record[sectionField]))
       && (body.kind !== "personnel" || staffRoles.includes(record.role))
       && (body.kind !== "servicePersonnel" || record.kind === "service");
     let query = db.collection(collectionName).where("schoolId", "==", scope.schoolId);
     if (!globalPersonnel) query = query.where("schoolYearId", "==", body.schoolYearId);
     if (body.kind === "personnel") query = query.where("role", "in", staffRoles);
     if (body.kind === "servicePersonnel") query = query.where("kind", "==", "service");
-    if (sectionBound) query = query.where("section", "in", scope.sectionIds);
+    if (sectionBound) query = query.where(sectionField, "in", scope.sectionIds);
     query = query.orderBy("__name__");
     if (body.cursorId) {
       const cursor = await transaction.get(db.doc(`${collectionName}/${body.cursorId}`));
@@ -70,10 +71,20 @@ export async function listSectionSchoolRecords({ db, caller, body }) {
     }
     return {
       schoolId: scope.schoolId, schoolYearId: body.schoolYearId,
-      items: medicalRecords ?? visible.map((record) => globalPersonnel
+      items: medicalRecords ?? visible.map((record) => body.kind === "valves"
+        ? sectionValveProjection(record.id, record.data()) : globalPersonnel
         ? pick(record.data(), ["schoolId", "name", "role", "kind", "jobTitle", "status", "active"], record.id)
         : ({ ...record.data(), id: record.id })),
       nextCursorId: page.docs.length > 100 ? visible.at(-1).id : null,
     };
   });
+}
+
+/** No tokenized URLs, inline data or inferred visibility in a section response. */
+export function sectionValveProjection(id, data) {
+  const attachments = Array.isArray(data.attachments) ? data.attachments : data.attachmentPath
+    ? [{ name: data.attachmentName, type: data.attachmentType, size: data.attachmentSize, path: data.attachmentPath }] : [];
+  return { ...pick(data, ["schoolId", "schoolYearId", "title", "kind", "visibility", "body", "authorName", "createdAt"], id), section: data.visibility,
+    attachments: attachments.filter((item) => typeof item.path === "string" && item.path.startsWith(`valves/${data.schoolId}/${data.schoolYearId}/${id}/`))
+      .map((item) => pick(item, ["name", "type", "size", "path"], undefined)).map(({ id: _id, ...item }) => item) };
 }
