@@ -3,6 +3,7 @@ import type { Firestore } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
 import type { AppNotification, AppUser, Conversation, Message } from "../types";
 import { createConversationId } from "../utils/conversationIds";
+import { conversationReadField } from "../utils/conversationReadField";
 
 type PersistConversationMessageInput = {
   user: AppUser;
@@ -104,6 +105,8 @@ export async function persistMessageWithConversation({
 }
 
 export async function markConversationUnreadCountRead(user: AppUser, schoolId: string, schoolYearId: string) {
+  if (!conversationReadField(user.role)) throw new Error("Compteur de conversation non autorisé pour ce profil.");
+  if (user.schoolId !== schoolId) throw new Error("Conversation hors établissement.");
   if (!firebaseReady || !db) return;
 
   const database = db as unknown as Firestore;
@@ -146,6 +149,7 @@ export async function markConversationUnreadCountRead(user: AppUser, schoolId: s
 }
 
 export async function markSingleConversationUnreadCountRead(user: AppUser, conversationId: string) {
+  if (!conversationReadField(user.role)) throw new Error("Compteur de conversation non autorisé pour ce profil.");
   if (!firebaseReady || !db) return;
 
   const database = db as unknown as Firestore;

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { DocumentSnapshot } from "@firebase/firestore";
 import { loadConversationsPage } from "../services/conversationsPagination";
 import type { AppUser, Conversation } from "../types";
+import { conversationReadField } from "../utils/conversationReadField";
 
 type UsePaginatedConversationsOptions = {
   user: AppUser;
@@ -63,6 +64,7 @@ export function usePaginatedConversations({ user, schoolId, schoolYearId, enable
   }, [cursor, enabled, hasMore, isLoadingMoreConversations, schoolId, schoolYearId, user]);
 
   const markConversationRead = useCallback((conversationId: string, role: AppUser["role"]) => {
+    if (!conversationReadField(role)) return;
     setItems((current) =>
       current.map((item) => {
         if (item.id !== conversationId) return item;

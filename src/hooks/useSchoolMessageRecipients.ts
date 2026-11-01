@@ -3,6 +3,7 @@ import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../firebase";
 import { loadSchoolMessageRecipients, type SchoolMessageRecipient } from "../services/schoolMessaging";
 import type { AppUser, School } from "../types";
+import { createScopedAsyncLoader } from "../utils/scopedAsyncLoader";
 
 type DirectoryState = {
   recipients: SchoolMessageRecipient[];
@@ -11,40 +12,28 @@ type DirectoryState = {
 };
 
 export function useSchoolMessageRecipients(user: AppUser, school: School, schoolYearId?: string): DirectoryState {
-  const [recipients, setRecipients] = useState<SchoolMessageRecipient[]>([]);
-  const [loading, setLoading] = useState(true);
+  const scopeKey = JSON.stringify([user.id, user.role, user.schoolId, user.status, user.active,
+    [...(user.sectionIds ?? [])].sort(), school.id, schoolYearId]);
+  const [directory, setDirectory] = useState<DirectoryState & { scope: string }>({ scope: "", recipients: [], loading: true, error: "" });
+  const recipients = useMemo(() => directory.scope === scopeKey ? directory.recipients : [], [directory, scopeKey]);
+  const loading = directory.scope !== scopeKey || directory.loading;
   const [error, setError] = useState("");
   const [coordinationId, setCoordinationId] = useState(school.activeCoordinationId ?? "");
   const [subCoordinationIds, setSubCoordinationIds] = useState<string[]>([]);
-  const mounted = useRef(true);
-  const inFlight = useRef(false);
-  const queued = useRef(false);
+  const loader = useRef<ReturnType<typeof createScopedAsyncLoader<SchoolMessageRecipient[]>> | null>(null);
 
   useEffect(() => {
-    mounted.current = true;
-    return () => { mounted.current = false; };
-  }, []);
+    setError("");
+    const next = createScopedAsyncLoader(() => loadSchoolMessageRecipients(schoolYearId), (state) => {
+      // Clear previous contacts while revalidating, including after a refusal.
+      setDirectory({ scope: scopeKey, recipients: state.value ?? [], loading: state.loading, error: state.error });
+    });
+    loader.current = next;
+    void next.reload();
+    return () => { next.dispose(); if (loader.current === next) loader.current = null; };
+  }, [scopeKey, schoolYearId]);
 
-  const reload = useCallback(async () => {
-    if (inFlight.current) { queued.current = true; return; }
-    inFlight.current = true;
-    do {
-      queued.current = false;
-      if (mounted.current) { setLoading(true); setError(""); }
-      try {
-        const next = await loadSchoolMessageRecipients(schoolYearId);
-        if (mounted.current) setRecipients(next);
-      } catch (cause) {
-        if (mounted.current) setError(cause instanceof Error ? cause.message : "Destinataires indisponibles. Veuillez réessayer.");
-      }
-    } while (queued.current && mounted.current);
-    inFlight.current = false;
-    if (mounted.current) setLoading(false);
-  }, [schoolYearId]);
-
-  useEffect(() => {
-    void reload();
-  }, [reload, user.id, school.id, schoolYearId]);
+  const reload = useCallback(async () => { await loader.current?.reload(); }, []);
 
   useEffect(() => {
     if (!db || user.role !== "school_admin") return;
@@ -109,5 +98,5 @@ export function useSchoolMessageRecipients(user: AppUser, school: School, school
     return () => stops.forEach((stop) => stop());
   }, [coordinationRecipientIds, reload, user.role]);
 
-  return { recipients, loading, error };
+  return { recipients, loading, error: directory.scope === scopeKey ? directory.error || error : "" };
 }
