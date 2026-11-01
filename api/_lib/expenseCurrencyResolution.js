@@ -1,6 +1,7 @@
 import { CashBalanceError, resolveRecordedCurrency } from "./cashBalance.js";
 import { resolveCoordinationSchoolScope } from "./coordination.js";
 import { FinancialApiError } from "./financialTransactions.js";
+import { isSectionAdministrator, requireActiveSectionAdministratorActor } from "./sectionAdministrators.js";
 
 export async function listResolvedExpenseCurrencies({ db, caller, body }) {
   const expenseIds = body.expenseIds;
@@ -10,9 +11,11 @@ export async function listResolvedExpenseCurrencies({ db, caller, body }) {
     throw new FinancialApiError(400, "invalid-argument", "Dépenses demandées invalides.");
   }
   const coordinationRole = ["coordination_admin", "sub_coordination_admin"].includes(caller.role);
-  if (!coordinationRole && !["school_admin", "cashier"].includes(caller.role)) {
+  const sectionReader = isSectionAdministrator(caller.role);
+  if (!coordinationRole && !["school_admin", "cashier"].includes(caller.role) && !sectionReader) {
     throw new FinancialApiError(403, "permission-denied", "Consultation financière interdite.");
   }
+  if (sectionReader) await requireActiveSectionAdministratorActor(db, caller);
   const allowedSchools = new Set(coordinationRole
     ? await resolveCoordinationSchoolScope(db, caller) : [caller.schoolId]);
   const snapshots = await db.getAll(...expenseIds.map((id) => db.doc(`expenses/${id}`)));

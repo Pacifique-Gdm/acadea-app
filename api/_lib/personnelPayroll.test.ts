@@ -50,6 +50,22 @@ async function write(db: FakeDb, changes: Data, id: string) {
 }
 
 describe("paie du personnel — transactions et confidentialité", () => {
+  it("donne au profil de section actif la lecture du solde global et de la paie, sans pouvoir écrire", async () => {
+    const db = seeded();
+    const sectionActor = { uid: "section-a", role: "primary_admin", schoolId: "school-a" };
+    db.values.set("users/section-a", { role: "primary_admin", schoolId: "school-a", status: "active", sectionIds: ["Primaire"] });
+    db.values.set("users/worker-a", { role: "teacher", schoolId: "school-a", name: "Enseignant A" });
+    db.values.set("personnelPayments/payroll-a", { schoolId: "school-a", beneficiaryId: "worker-a", kind: "salary", amount: 50, paidAt: "2026-10-09" });
+    const balance = await listPayroll({ db, caller: sectionActor, body: { action: "list-cash-balance", schoolYearId: "year-a" } });
+    expect(balance).toMatchObject({ schoolId: "school-a", availableCents: 1_000_000 });
+    const history = await listPayroll({ db, caller: sectionActor, body: { action: "list-personnel-payments", beneficiaryId: "worker-a" } });
+    expect(history.payments).toHaveLength(1);
+    await expect(createPersonnelPayment({ db, caller: sectionActor, body: base })).rejects.toMatchObject({ status: 403 });
+    await expect(updatePersonnelPayment({ db, caller: sectionActor, body: { action: "update-personnel-payment" } })).rejects.toMatchObject({ status: 403 });
+    db.values.set("users/section-a", { role: "primary_admin", schoolId: "school-a", status: "inactive", sectionIds: ["Primaire"] });
+    await expect(listPayroll({ db, caller: sectionActor, body: { action: "list-personnel-payments", beneficiaryId: "worker-a" } })).rejects.toMatchObject({ statusCode: 403 });
+    await expect(listPayroll({ db, caller: sectionActor, body: { action: "list-cash-balance", schoolYearId: "year-a" } })).rejects.toMatchObject({ status: 403 });
+  });
   it("corrige une paie avec confirmation exacte, dépense liée, audit et notification idempotente", async () => {
     const db = seeded();
     db.values.delete("personnelProfiles/worker-a");

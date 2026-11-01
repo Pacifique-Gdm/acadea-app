@@ -26,6 +26,17 @@ export function sectionAdministratorScope(profile) {
   }
   return Object.freeze({ schoolId: profile.schoolId, sectionIds: Object.freeze([...new Set(profile.sectionIds)]) });
 }
+/** A claim is never enough: re-read the active account and its assigned sections. */
+export async function requireActiveSectionAdministratorActor(db, caller, transaction) {
+  if (!isSectionAdministrator(caller?.role) || typeof caller.uid !== "string" || !caller.uid
+      || typeof caller.schoolId !== "string" || !caller.schoolId) throw denied("Profil administratif invalide.");
+  const ref = db.doc(`users/${caller.uid}`);
+  const snapshot = transaction ? await transaction.get(ref) : await ref.get();
+  if (!snapshot.exists || snapshot.data()?.role !== caller.role) throw denied("Profil administratif invalide.");
+  const scope = sectionAdministratorScope(snapshot.data());
+  if (scope.schoolId !== caller.schoolId) throw denied("Établissement administratif invalide.");
+  return scope;
+}
 /** Unknown/missing section fails closed, including aggregate and historical records. */
 export function requireSectionAdministratorResource(profile, resource) {
   const scope = sectionAdministratorScope(profile);

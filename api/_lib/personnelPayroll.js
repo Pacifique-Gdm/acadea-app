@@ -4,8 +4,9 @@ import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { payrollWritesSuspended } from "./payrollRollbackMode.js";
 import { FieldValue } from "firebase-admin/firestore";
 import { protectCashMutation, readCashBalance } from "./cashBalance.js";
+import { isSectionAdministrator, requireActiveSectionAdministratorActor } from "./sectionAdministrators.js";
 
-const STAFF_ROLES = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]);
+const STAFF_ROLES = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "kindergarten_admin", "primary_admin", "studies_prefect"]);
 const WRITE_KEYS = new Set(["action", "schoolYearId", "beneficiaryId", "kind", "periodMonth", "periodYear", "paidAt", "amount", "recoveries", "deduction", "deductionReason", "cnss", "tax", "description", "clientRequestId"]);
 
 function invalid(message, code = "invalid-argument", status = 400) { throw new FinancialApiError(status, code, message); }
@@ -49,8 +50,12 @@ async function readBeneficiary(reader, db, schoolId, beneficiaryId, requireActiv
 export async function listPayroll({ db, caller, body }) {
   assertReader(caller);
   const action = field(body.action, 80);
+  const sectionReader = isSectionAdministrator(caller.role);
+  if (sectionReader && !["list-cash-balance", "list-personnel-payments", "list-payroll-advances", "list-own-payroll"].includes(action)) {
+    invalid("Consultation de paie interdite.", "permission-denied", 403);
+  }
   if (action === "list-payroll-cash-balance" || action === "list-cash-balance") {
-    if (action === "list-payroll-cash-balance" ? caller.role !== "cashier" : !["cashier", "school_admin"].includes(caller.role)) invalid("Consultation de caisse interdite.", "permission-denied", 403);
+    if (action === "list-payroll-cash-balance" ? caller.role !== "cashier" : !["cashier", "school_admin"].includes(caller.role) && !sectionReader) invalid("Consultation de caisse interdite.", "permission-denied", 403);
     const schoolYearId = field(body.schoolYearId, 150);
     if (!/^[\w-]{1,150}$/.test(schoolYearId)) invalid("Année scolaire invalide.");
     return db.runTransaction(async (transaction) => {
@@ -60,10 +65,12 @@ export async function listPayroll({ db, caller, body }) {
       if (!school.exists || ["inactive", "deleting", "suspended"].includes(school.data()?.status)
         || !year.exists || year.data()?.schoolId !== caller.schoolId || year.data()?.status === "archived") invalid("Caisse indisponible.", "failed-precondition", 409);
       if (!actor.exists || actor.data()?.role !== caller.role || actor.data()?.schoolId !== caller.schoolId || actor.data()?.status === "inactive" || actor.data()?.active === false) invalid("Consultation de caisse interdite.", "permission-denied", 403);
+      if (sectionReader) await requireActiveSectionAdministratorActor(db, caller, transaction);
       const currency = year.data()?.currency === "CDF" || year.data()?.currency === "USD" ? year.data().currency : school.data()?.currency === "CDF" ? "CDF" : "USD";
       return readCashBalance({ db, reader: transaction, schoolId: caller.schoolId, schoolYearId, currency, yearCurrency: currency });
     });
   }
+  if (sectionReader) await requireActiveSectionAdministratorActor(db, caller);
   if (action === "list-payroll-personnel") {
     if (caller.role !== "cashier") invalid("Opération réservée au Caissier.", "permission-denied", 403);
     const [users, service] = await Promise.all([
@@ -76,7 +83,7 @@ export async function listPayroll({ db, caller, body }) {
     ].sort((a, b) => a.name.localeCompare(b.name, "fr")) };
   }
   const beneficiaryId = action === "list-own-payroll" ? caller.uid : field(body.beneficiaryId, 180);
-  if (action !== "list-own-payroll" && caller.role !== "cashier" && caller.role !== "school_admin") invalid("Consultation interdite.", "permission-denied", 403);
+  if (action !== "list-own-payroll" && caller.role !== "cashier" && caller.role !== "school_admin" && !sectionReader) invalid("Consultation interdite.", "permission-denied", 403);
   if (!beneficiaryId) invalid("Bénéficiaire requis.");
   if (action !== "list-own-payroll") await readBeneficiary(null, db, caller.schoolId, beneficiaryId);
   const snapshot = await db.collection("personnelPayments").where("beneficiaryId", "==", beneficiaryId).get();

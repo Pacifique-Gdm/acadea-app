@@ -5,7 +5,7 @@ vi.mock("./coordination.js", () => ({
   resolveCoordinationSchoolScope: async (_db: unknown, actor: { role: string }) => actor.role === "sub_coordination_admin" ? ["school-a"] : ["school-a", "school-b"],
 }));
 
-function database(items: Array<Record<string, unknown>> = [], role = "cashier") {
+function database(items: Array<Record<string, unknown>> = [], role = "cashier", profilePatch: Record<string, unknown> = {}) {
   const filters: Array<[string, string, unknown]> = [];
   const query = {
     where(field: string, operator: string, value: unknown) { filters.push([field, operator, value]); return this; },
@@ -14,7 +14,7 @@ function database(items: Array<Record<string, unknown>> = [], role = "cashier") 
   };
   return {
     filters,
-    doc: (path: string) => ({ path, get: async () => ({ exists: true, data: () => ({ role, schoolId: "school-a" }) }) }),
+    doc: (path: string) => ({ path, get: async () => ({ exists: true, data: () => ({ role, schoolId: "school-a", ...profilePatch }) }) }),
     collection: () => query,
   };
 }
@@ -22,6 +22,15 @@ function database(items: Array<Record<string, unknown>> = [], role = "cashier") 
 const payment = (id: string, schoolId = "school-a", kind = "salary") => ({ id, schoolId, schoolYearId: "year-a", kind, paidAt: "2026-10-10", beneficiaryId: "staff-a", beneficiaryName: "Personnel fictif", beneficiaryJobTitle: "Enseignant", netPaid: 50, amount: 50, recoveredAmount: 0, recoveries: [], deduction: 0, cnss: 0, tax: 0, createdAt: "2026-10-10T10:00:00.000Z", currency: "CDF", reference: id, periodMonth: 9, periodYear: 2026, clientRequestIdHash: "private" });
 
 describe("historique sécurisé des salaires et primes", () => {
+  it("accorde la lecture globale de la paie au profil de section actif, jamais à une école étrangère", async () => {
+    const actor = { uid: "section-a", role: "primary_admin", schoolId: "school-a" };
+    const db = database([payment("salary-a"), payment("foreign", "school-b")], "primary_admin", { status: "active", sectionIds: ["Primaire"] });
+    const result = await listPersonnelPayrollHistory({ db, actor, body: { action: "list-payroll-history" } });
+    expect(result.payments.map((item: { id: string }) => item.id)).toEqual(["salary-a"]);
+    expect(db.filters).toContainEqual(["schoolId", "in", ["school-a"]]);
+    await expect(listPersonnelPayrollHistory({ db, actor, body: { action: "list-payroll-history", schoolId: "school-b" } })).rejects.toMatchObject({ status: 403 });
+    await expect(listPersonnelPayrollHistory({ db: database([], "primary_admin", { status: "inactive", sectionIds: ["Primaire"] }), actor, body: { action: "list-payroll-history" } })).rejects.toMatchObject({ statusCode: 403 });
+  });
   it("limite le Caissier à son école, fournit les champs PDF et exclut les champs internes", async () => {
     const db = database([payment("salary-a"), payment("foreign", "school-b"), payment("advance-a", "school-a", "advance")]);
     const result = await listPersonnelPayrollHistory({ db, actor: { uid: "cashier-a", role: "cashier", schoolId: "school-a" }, body: { action: "list-payroll-history" } });

@@ -1,5 +1,6 @@
 import { resolveCoordinationSchoolScope } from "./coordination.js";
 import { FinancialApiError } from "./financialTransactions.js";
+import { isSectionAdministrator, requireActiveSectionAdministratorActor } from "./sectionAdministrators.js";
 
 const PAGE_SIZE = 50;
 const SCHOOL_BATCH_SIZE = 15; // Deux natures de paiement : au plus 30 clauses disjonctives Firestore.
@@ -7,7 +8,7 @@ const denied = () => { throw new FinancialApiError(403, "permission-denied", "Hi
 const invalid = () => { throw new FinancialApiError(400, "invalid-argument", "Filtres de l'historique invalides."); };
 
 export async function listPersonnelPayrollHistory({ db, actor, body }) {
-  if (!actor?.uid || !["school_admin", "cashier", "coordination_admin", "sub_coordination_admin"].includes(actor.role)) denied();
+  if (!actor?.uid || !["school_admin", "cashier", "coordination_admin", "sub_coordination_admin"].includes(actor.role) && !isSectionAdministrator(actor.role)) denied();
   if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some((key) => !["action", "schoolId", "cursor", "startDate", "endDate"].includes(key))) invalid();
   const requestedSchoolId = body.schoolId === undefined ? "" : body.schoolId;
   if (typeof requestedSchoolId !== "string" || requestedSchoolId.length > 150) invalid();
@@ -22,9 +23,12 @@ export async function listPersonnelPayrollHistory({ db, actor, body }) {
     || !/^[\w-]{1,180}$/.test(cursor.id))) invalid();
 
   let schoolIds;
-  if (actor.role === "school_admin" || actor.role === "cashier") {
-    const profile = await db.doc(`users/${actor.uid}`).get();
-    if (!profile.exists || profile.data()?.role !== actor.role || profile.data()?.schoolId !== actor.schoolId) denied();
+  if (actor.role === "school_admin" || actor.role === "cashier" || isSectionAdministrator(actor.role)) {
+    if (isSectionAdministrator(actor.role)) await requireActiveSectionAdministratorActor(db, actor);
+    else {
+      const profile = await db.doc(`users/${actor.uid}`).get();
+      if (!profile.exists || profile.data()?.role !== actor.role || profile.data()?.schoolId !== actor.schoolId) denied();
+    }
     schoolIds = actor.schoolId ? [actor.schoolId] : [];
   } else {
     schoolIds = await resolveCoordinationSchoolScope(db, actor);

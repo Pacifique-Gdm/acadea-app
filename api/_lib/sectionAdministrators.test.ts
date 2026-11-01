@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SECTION_ADMINISTRATORS, SECTION_ADMIN_CONFIRMATIONS, sectionAdministratorScope, requireSectionAdministratorResource, requireSectionAdministratorMutation, requireSectionAdministratorConfirmation, rejectUnreleasedSectionAdministrator } from './sectionAdministrators.js';
+import { SECTION_ADMINISTRATORS, SECTION_ADMIN_CONFIRMATIONS, sectionAdministratorScope, requireActiveSectionAdministratorActor, requireSectionAdministratorResource, requireSectionAdministratorMutation, requireSectionAdministratorConfirmation, rejectUnreleasedSectionAdministrator } from './sectionAdministrators.js';
 const profile = { role: 'primary_admin', status: 'active', schoolId: 'school-a', sectionIds: ['Primaire'] };
 describe('section administrator authorization boundaries', () => {
   it.each(Object.keys(SECTION_ADMINISTRATORS))('keeps %s inaccessible pending integration', role => {
@@ -38,4 +38,15 @@ describe('section administrator authorization boundaries', () => {
     for (const value of ['', confirmation.toLowerCase(), ` ${confirmation}`, `${confirmation} `]) expect(() => requireSectionAdministratorConfirmation(action, value)).toThrow();
   });
   it('rejects unknown management actions', () => expect(() => requireSectionAdministratorConfirmation('toString', '')).toThrow());
+  it('re-reads active role, school and sections before granting a financial view', async () => {
+    let record = { ...profile };
+    const db = { doc: () => ({ get: async () => ({ exists: true, data: () => record }) }) };
+    const caller = { uid: 'admin-a', role: 'primary_admin', schoolId: 'school-a' };
+    await expect(requireActiveSectionAdministratorActor(db, caller)).resolves.toMatchObject({ schoolId: 'school-a', sectionIds: ['Primaire'] });
+    record = { ...record, status: 'inactive' };
+    await expect(requireActiveSectionAdministratorActor(db, caller)).rejects.toMatchObject({ statusCode: 403 });
+    record = { ...profile };
+    await expect(requireActiveSectionAdministratorActor(db, { ...caller, schoolId: 'school-b' })).rejects.toMatchObject({ statusCode: 403 });
+    await expect(requireActiveSectionAdministratorActor(db, { ...caller, role: 'school_admin' })).rejects.toMatchObject({ statusCode: 403 });
+  });
 });

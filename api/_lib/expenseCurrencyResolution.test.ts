@@ -27,6 +27,21 @@ describe("linked historical expense currency", () => {
       .resolves.toEqual({ resolvedCurrencies: { "expense-a": "USD" } });
   });
 
+  it("resolves school-wide expense currency for an active section profile without granting foreign data", async () => {
+    const sectionActor = { uid: "section-a", role: "primary_admin", schoolId: "school-a" };
+    const db = fakeDb({ "users/section-a": { role: "primary_admin", schoolId: "school-a", status: "active", sectionIds: ["Primaire"] },
+      "expenses/expense-a": expense, "personnelPayments/payroll-a": payroll,
+      "expenses/foreign": { schoolId: "school-b", currency: "CDF", amount: 20 } });
+    await expect(listResolvedExpenseCurrencies({ db, caller: sectionActor, body: { expenseIds: ["expense-a"] } }))
+      .resolves.toEqual({ resolvedCurrencies: { "expense-a": "USD" } });
+    await expect(listResolvedExpenseCurrencies({ db, caller: sectionActor, body: { expenseIds: ["foreign"] } }))
+      .rejects.toMatchObject({ status: 403 });
+    const inactive = fakeDb({ "users/section-a": { role: "primary_admin", schoolId: "school-a", status: "inactive", sectionIds: ["Primaire"] },
+      "expenses/expense-a": expense });
+    await expect(listResolvedExpenseCurrencies({ db: inactive, caller: sectionActor, body: { expenseIds: ["expense-a"] } }))
+      .rejects.toMatchObject({ statusCode: 403 });
+  });
+
   it("keeps an expense unresolved when the link or amount is inconsistent", async () => {
     const db = fakeDb({ "expenses/expense-a": expense,
       "personnelPayments/payroll-a": { ...payroll, netPaid: 26 } });
