@@ -65,10 +65,14 @@ describe("jeton d'acteur API", () => {
 });
 
 
-describe("section administrators release gate", () => {
-  it.each(["kindergarten_admin", "primary_admin", "studies_prefect"])("rejects %s with current or stale privileged claims", async role => {
+describe("section administrators normal authorization", () => {
+  it.each(["kindergarten_admin", "primary_admin", "studies_prefect"])("accepts %s but refuses stale privileged claims", async role => {
     const profile = { role, status: "active", schoolId: "school-a", sectionIds: ["Primaire"] };
-    for (const claimRole of [role, "school_admin", "super_admin"]) {
+    await expect(requireActiveApiUser(database(profile), { uid: "section-admin", role, schoolId: "school-a" })).resolves.toMatchObject({ role });
+    for (const patch of [{ status: "inactive" }, { active: false }, { sectionIds: [] }, { sectionIds: ["unknown"] }, { deletedAt: "now" }, { schoolId: "school-b" }]) {
+      await expect(requireActiveApiUser(database({ ...profile, ...patch }), { uid: "section-admin", role, schoolId: "school-a" })).rejects.toMatchObject({ statusCode: 403 });
+    }
+    for (const claimRole of ["school_admin", "super_admin"]) {
       await expect(requireActiveApiUser(database(profile), { uid: "section-admin", role: claimRole, schoolId: "school-a" }))
         .rejects.toMatchObject({ statusCode: 403, code: "permission-denied" });
     }

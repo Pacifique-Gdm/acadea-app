@@ -2,9 +2,9 @@ import { describe, it, expect, vi } from 'vitest';
 import { manageSectionAdministrators } from './manageSectionAdministrators.js';
 function setup() {
   const profile = { role: 'primary_admin', schoolId: 'school-a', sectionIds: ['Primaire'], status: 'inactive', active: false };
-  const db = { doc: (path: string) => ({ path, get: async () => ({ exists: true, data: () => path === 'users/root' ? { role: 'super_admin' } : profile }) }), collection: () => ({ doc: () => ({ id: 'audit' }) }), runTransaction: vi.fn(async (fn: (tx: unknown) => Promise<void>) => fn(tx)) };
+  const db = { doc: (path: string) => ({ path, get: async () => ({ exists: true, data: () => path.startsWith('schools/') ? { status: 'active' } : path === 'users/root' ? { role: 'super_admin' } : profile }) }), collection: () => ({ doc: () => ({ id: 'audit' }) }), runTransaction: vi.fn(async (fn: (tx: unknown) => Promise<void>) => fn(tx)) };
   const tx = { get: async (ref: { get: () => Promise<unknown> }) => ref.get(), update: vi.fn(), create: vi.fn() };
-  const auth = { updateUser: vi.fn().mockResolvedValue({}), revokeRefreshTokens: vi.fn().mockResolvedValue(undefined), deleteUser: vi.fn().mockResolvedValue(undefined) };
+  const auth = { updateUser: vi.fn().mockResolvedValue({}), setCustomUserClaims: vi.fn().mockResolvedValue(undefined), revokeRefreshTokens: vi.fn().mockResolvedValue(undefined), deleteUser: vi.fn().mockResolvedValue(undefined) };
   return { db, auth, tx, caller: { uid: 'root', role: 'super_admin' }, body: { schoolId: 'school-a', userId: 'target', operation: 'deactivate', confirmation: 'DÉSACTIVER CET UTILISATEUR' } };
 }
 describe('section administrator lifecycle', () => {
@@ -36,9 +36,11 @@ describe('section administrator lifecycle', () => {
     await expect(manageSectionAdministrators(input)).rejects.toThrow(/Confirmation exacte/);
     expect(input.auth.updateUser).not.toHaveBeenCalled();
   });
-  it('keeps activation blocked even with exact confirmation', async () => {
+  it('activates only after exact confirmation and authoritative validation', async () => {
     const input = setup(); input.body.operation = 'activate'; input.body.confirmation = 'ACTIVER CET UTILISATEUR';
-    await expect(manageSectionAdministrators(input)).rejects.toMatchObject({ statusCode: 409 });
-    expect(input.auth.updateUser).not.toHaveBeenCalled();
+    await expect(manageSectionAdministrators(input)).resolves.toMatchObject({ status: 'active' });
+    expect(input.auth.setCustomUserClaims).toHaveBeenCalledWith('target', { role: 'primary_admin', schoolId: 'school-a' });
+    expect(input.tx.update).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ active: true }));
+    expect(input.auth.updateUser).toHaveBeenLastCalledWith('target', { disabled: false });
   });
 });

@@ -1,12 +1,16 @@
-import { rejectUnreleasedSectionAdministrator } from "./sectionAdministrators.js";
+import { isSectionAdministrator, sectionAdministratorScope } from "./sectionAdministrators.js";
 export async function requireActiveApiUser(db, caller) {
   const snapshot = await db.doc(`users/${caller.uid}`).get();
   const profile = snapshot.exists ? snapshot.data() : undefined;
   if (!profile || profile.status === "inactive" || profile.active === false) {
     throw Object.assign(new Error("Compte utilisateur inactif ou introuvable."), { statusCode: 403, code: "permission-denied" });
   }
-  rejectUnreleasedSectionAdministrator(caller.role);
-  rejectUnreleasedSectionAdministrator(profile.role);
+  if (isSectionAdministrator(caller.role) || isSectionAdministrator(profile.role)) {
+    const scope = sectionAdministratorScope(profile);
+    if (profile.role !== caller.role || scope.schoolId !== caller.schoolId) {
+      throw Object.assign(new Error("Périmètre administratif invalide."), { statusCode: 403, code: "permission-denied" });
+    }
+  }
   const role = caller.role === "admin" ? "school_admin" : caller.role;
   const profileRole = profile.role === "admin" ? "school_admin" : profile.role;
   if (profileRole !== role && !(role === "super_admin" && !profile.role)) {
@@ -17,7 +21,7 @@ export async function requireActiveApiUser(db, caller) {
     || (role === "sub_coordination_admin" && (!caller.subCoordinationId || profile.subCoordinationId !== caller.subCoordinationId))) {
     throw Object.assign(new Error("Périmètre du compte invalide."), { statusCode: 403, code: "permission-denied" });
   }
-  if (["admin", "school_admin", "secretary", "cashier", "study_director", "discipline_director", "teacher", "parent"].includes(caller.role)) {
+  if (isSectionAdministrator(caller.role) || ["admin", "school_admin", "secretary", "cashier", "study_director", "discipline_director", "teacher", "parent"].includes(caller.role)) {
     if (!caller.schoolId || profile.schoolId !== caller.schoolId) {
       throw Object.assign(new Error("École du compte invalide."), { statusCode: 403, code: "permission-denied" });
     }

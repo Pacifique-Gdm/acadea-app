@@ -31,7 +31,7 @@ vi.mock("firebase/auth", () => ({
   }),
 }));
 
-import { AUTH_BOOTSTRAP_WATCHDOG_MS, subscribeToFirebaseUser } from "./auth";
+import { AUTH_BOOTSTRAP_WATCHDOG_MS, subscribeToFirebaseUser, canEnterRoute, validateSchoolStaff } from "./auth";
 
 const profileSnapshot = (profile?: Record<string, unknown>) => ({ exists: () => Boolean(profile), data: () => profile });
 const validProfile = { name: "Admin", email: "admin@example.test", status: "active", sectionIds: ["Primaire"] };
@@ -55,6 +55,24 @@ describe("bootstrap Firebase Auth", () => {
     mocks.authNext?.(null);
     expect(onUser).toHaveBeenCalledWith(null);
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it.each(["kindergarten_admin", "primary_admin", "studies_prefect"])("ouvre la session normale de %s et refuse le retrait des sections", async role => {
+    mocks.getIdTokenResult.mockResolvedValue({ claims: { role, schoolId: "school-a" } });
+    const onUser = vi.fn(), onError = vi.fn();
+    await subscribeToFirebaseUser(onUser, onError);
+    mocks.authNext?.({ uid: "section-a", email: "section@example.invalid" });
+    const profile = { ...validProfile, role, schoolId: "school-a" };
+    mocks.profileNext?.(profileSnapshot(profile));
+    await vi.waitFor(() => expect(onUser).toHaveBeenCalledTimes(1));
+    const user = onUser.mock.calls[0][0];
+    expect(validateSchoolStaff(user)).toBe(true);
+    expect(canEnterRoute(user, "/dashboard")).toBe(true);
+    expect(canEnterRoute(user, "/platform")).toBe(false);
+    mocks.profileNext?.(profileSnapshot({ ...profile, sectionIds: [] }));
+    expect(onError).toHaveBeenCalled();
+    expect(mocks.signOut).toHaveBeenCalled();
+    expect(onUser).toHaveBeenCalledTimes(1);
   });
 
   it("utilise un seul listener profil pour le bootstrap et les mises à jour temps réel", async () => {

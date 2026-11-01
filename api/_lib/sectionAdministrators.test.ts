@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { SECTION_ADMINISTRATORS, SECTION_ADMIN_CONFIRMATIONS, sectionAdministratorScope, requireActiveSectionAdministratorActor, requireSectionAdministratorResource, requireSectionAdministratorMutation, requireSectionAdministratorConfirmation, rejectUnreleasedSectionAdministrator } from './sectionAdministrators.js';
+import { SECTION_ADMINISTRATORS, SECTION_ADMIN_CONFIRMATIONS, sectionAdministratorScope, requireActiveSectionAdministratorActor, requireSectionAdministratorResource, requireSectionAdministratorMutation, requireSectionAdministratorConfirmation } from './sectionAdministrators.js';
 const profile = { role: 'primary_admin', status: 'active', schoolId: 'school-a', sectionIds: ['Primaire'] };
 describe('section administrator authorization boundaries', () => {
-  it.each(Object.keys(SECTION_ADMINISTRATORS))('keeps %s inaccessible pending integration', role => {
-    expect(() => rejectUnreleasedSectionAdministrator(role)).toThrow(/Connexion indisponible/);
+  it.each(Object.keys(SECTION_ADMINISTRATORS))('accepts the active assigned profile %s', role => {
+    expect(sectionAdministratorScope({ ...profile, role })).toMatchObject({ schoolId: 'school-a' });
   });
-  it('does not block existing administrators', () => expect(() => rejectUnreleasedSectionAdministrator('school_admin')).not.toThrow());
   it.each([undefined, [], ['unknown'], ['Primaire', 'unknown']])('rejects invalid assignment %j', sectionIds => {
     expect(() => sectionAdministratorScope({ ...profile, sectionIds })).toThrow();
   });

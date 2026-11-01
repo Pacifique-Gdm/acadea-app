@@ -4,6 +4,7 @@ import { auth, db, firebaseConfig, firebaseReady } from "../firebase";
 import type { AppUser, Role } from "../types";
 import { markAuthStep, measureAuthStep } from "../utils/authPerformance";
 import { normalizeSectionIds } from "../utils/userSections";
+import { isSectionAdministratorRole, sectionAdministratorQuerySections } from "../utils/sectionAdministratorYearScope";
 
 interface FirebaseAuthModule {
   signInWithEmailAndPassword: (authInstance: unknown, email: string, password: string) => Promise<{ user: FirebaseUser }>;
@@ -41,7 +42,7 @@ function assertFirebaseAuthReady() {
 }
 
 function isRole(role: unknown): role is AppUser["role"] | "admin" | "superadmin" {
-  return ["super_admin", "coordination_admin", "sub_coordination_admin", "school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent", "admin", "superadmin"].includes(String(role));
+  return ["kindergarten_admin", "primary_admin", "studies_prefect", "super_admin", "coordination_admin", "sub_coordination_admin", "school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent", "admin", "superadmin"].includes(String(role));
 }
 
 function normalizeUserProfile(user: RawAppUser): AppUser {
@@ -60,6 +61,10 @@ function normalizeUserProfile(user: RawAppUser): AppUser {
 }
 
 export function mergeRealtimeUserProfile(resolvedUser: AppUser, profile: Record<string, unknown>): AppUser {
+  if (isSectionAdministratorRole(resolvedUser.role)) {
+    if (profile.role !== resolvedUser.role || profile.schoolId !== resolvedUser.schoolId) throw new Error("Profil administratif modifié. Reconnexion nécessaire.");
+    sectionAdministratorQuerySections({ ...resolvedUser, ...profile } as AppUser, resolvedUser.schoolId!);
+  }
   return normalizeUserProfile({
     ...resolvedUser,
     ...profile,
@@ -78,6 +83,10 @@ function resolveFirebaseUserProfile(firebaseUser: FirebaseUser, firestoreDocumen
 
   if (!isRole(claims.role)) {
     throw new Error("Connexion refusée : votre profil d'accès est incomplet.");
+  }
+  if (isSectionAdministratorRole(claims.role as Role)) {
+    if (firestoreDocument.role !== claims.role || firestoreDocument.schoolId !== claims.schoolId) throw new Error("Périmètre administratif invalide.");
+    sectionAdministratorQuerySections(firestoreDocument as unknown as AppUser, String(claims.schoolId ?? ""));
   }
 
   if (["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "admin"].includes(String(claims.role)) && typeof claims.schoolId !== "string") {
@@ -230,7 +239,8 @@ export async function subscribeToFirebaseUser(
           return;
         }
         if (resolvedUser) {
-          onUser(mergeRealtimeUserProfile(resolvedUser, profile ?? {}));
+          try { onUser(mergeRealtimeUserProfile(resolvedUser, profile ?? {})); }
+          catch (error) { failBootstrap(error, currentGeneration); void authModule.signOut(auth); }
           return;
         }
         if (initialResolution) return;
@@ -266,7 +276,7 @@ export function canEnterRoute(user: AppUser | null, route: string) {
   if (route === "/coordination") return ["coordination_admin", "sub_coordination_admin"].includes(user.role) && Boolean(user.coordinationId) && (user.role !== "sub_coordination_admin" || Boolean(user.subCoordinationId));
   if (route === "/studies") return user.role === "study_director" && Boolean(user.schoolId);
   if (route === "/teacher") return user.role === "teacher" && Boolean(user.schoolId);
-  if (route === "/dashboard") return ["school_admin", "cashier", "discipline_director", "secretary"].includes(user.role) && Boolean(user.schoolId);
+  if (route === "/dashboard") return validateSectionAdministrator(user) || ["school_admin", "cashier", "discipline_director", "secretary"].includes(user.role) && Boolean(user.schoolId);
 
   return false;
 }
@@ -276,7 +286,12 @@ export function validateSchoolAdmin(user: AppUser) {
 }
 
 export function validateSchoolStaff(user: AppUser) {
-  return ["school_admin", "cashier"].includes(user.role) && Boolean(user.schoolId) && user.status !== "inactive" && user.active !== false;
+  return validateSectionAdministrator(user) || ["school_admin", "cashier"].includes(user.role) && Boolean(user.schoolId) && user.status !== "inactive" && user.active !== false;
+}
+
+export function validateSectionAdministrator(user: AppUser) {
+  try { sectionAdministratorQuerySections(user, user.schoolId ?? ""); return true; }
+  catch { return false; }
 }
 
 export function validateDisciplineDirector(user: AppUser) {

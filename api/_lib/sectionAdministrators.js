@@ -26,7 +26,7 @@ function denied(message) {
 /** Read the authoritative profile, never scopes supplied by a request body or stale claims. */
 export function sectionAdministratorScope(profile) {
   if (!isSectionAdministrator(profile?.role) || profile.status !== "active" || profile.active === false
-      || typeof profile.schoolId !== "string" || !profile.schoolId.trim()
+      || profile.deletedAt || typeof profile.schoolId !== "string" || !profile.schoolId.trim()
       || !Array.isArray(profile.sectionIds) || !profile.sectionIds.length
       || profile.sectionIds.some(section => !sections.has(section))) {
     throw denied("Périmètre administratif invalide.");
@@ -60,8 +60,4 @@ export function requireSectionAdministratorConfirmation(action, confirmation) {
   if (!Object.hasOwn(SECTION_ADMIN_CONFIRMATIONS, action) || confirmation !== SECTION_ADMIN_CONFIRMATIONS[action]) {
     throw Object.assign(new Error("Confirmation exacte requise."), { statusCode: 400, code: "invalid-argument" });
   }
-}
-/** Keep access closed until every API, rules and UI integration has been validated. */
-export function rejectUnreleasedSectionAdministrator(role) {
-  if (isSectionAdministrator(role)) throw denied("Profil administratif en cours de sécurisation. Connexion indisponible.");
 }

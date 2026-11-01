@@ -19,10 +19,28 @@ export async function manageSectionAdministrators({ db, auth, caller, body }) {
   const snapshot = await ref.get();
   const target = snapshot.data();
   if (!snapshot.exists || target.schoolId !== schoolId || !isSectionAdministrator(target.role) || target.deletedAt) throw fail('Profil introuvable dans cet établissement.');
-  // Activation remains blocked until all data paths and emulator protections are validated.
   if (body.operation === 'activate') {
     sectionAdministratorScope({ ...target, status: 'active', active: true });
-    throw fail('Activation indisponible : validation de sécurité des cinq onglets en cours.', 409);
+    // Auth stays disabled until the authoritative transaction succeeds. A failure
+    // in the final Auth step leaves access closed and can safely be retried.
+    await auth.updateUser(body.userId, { disabled: true });
+    await auth.revokeRefreshTokens(body.userId);
+    await auth.setCustomUserClaims(body.userId, { role: target.role, schoolId });
+    await db.runTransaction(async tx => {
+      const current = await tx.get(ref);
+      const actor = await tx.get(db.doc(`users/${caller.uid}`));
+      const currentSchool = await tx.get(db.doc(`schools/${schoolId}`));
+      if (!actor.exists || actor.data().role !== 'super_admin' || actor.data().active === false || actor.data().status === 'inactive') throw fail('Acteur inactif.');
+      if (!currentSchool.exists || currentSchool.data().status !== 'active') throw fail('Établissement inactif.');
+      if (!current.exists || current.data().role !== target.role || current.data().schoolId !== schoolId || current.data().deletedAt) throw fail('Profil modifié.');
+      sectionAdministratorScope({ ...current.data(), status: 'active', active: true });
+      const now = new Date().toISOString();
+      tx.update(ref, { status: 'active', active: true, updatedAt: now, updatedBy: caller.uid });
+      const audit = db.collection('auditLogs').doc();
+      tx.create(audit, { id: audit.id, schoolId, actorId: caller.uid, actorRole: caller.role, action: 'section-admin.activate', resourceId: body.userId, createdAt: now });
+    });
+    await auth.updateUser(body.userId, { disabled: false });
+    return { userId: body.userId, status: 'active', deleted: false };
   }
   await auth.updateUser(body.userId, { disabled: true }).catch(error => { if (error.code !== 'auth/user-not-found') throw error; });
   await auth.revokeRefreshTokens(body.userId).catch(error => { if (error.code !== 'auth/user-not-found') throw error; });

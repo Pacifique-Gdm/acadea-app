@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
-import { deleteDoc, doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import { collection, query, where, getDocs, deleteDoc, doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
 
 let environment: RulesTestEnvironment;
@@ -29,16 +29,40 @@ beforeEach(async () => {
 });
 afterAll(async () => environment?.cleanup(), 30_000);
 
-describe("garde de publication des profils administratifs de section", () => {
-  it.each(["kindergarten_admin", "primary_admin", "studies_prefect"])("refuse toutes les lectures sensibles à %s avant la recette complète", async (role) => {
+describe("autorisations normales des profils administratifs de section", () => {
+  it.each(["kindergarten_admin", "primary_admin", "studies_prefect"])("autorise les échanges bornés de %s, réserve les dossiers aux API", async (role) => {
     await environment.withSecurityRulesDisabled(async (admin) => {
       await updateDoc(doc(admin.firestore(), "users", "section-a"), { role });
     });
     const db = actor("section-a", role);
     await assertFails(getDoc(doc(db, "students", "student-a")));
     await assertFails(getDoc(doc(db, "payments", "payment-a")));
-    await assertFails(getDoc(doc(db, "messages", "message-a")));
-    await assertFails(getDoc(doc(db, "schools", "school-a")));
+    await assertSucceeds(getDoc(doc(db, "messages", "message-a")));
+    await assertSucceeds(getDoc(doc(db, "schools", "school-a")));
+    await assertSucceeds(getDocs(query(collection(db, "messages"), where("schoolId", "==", "school-a"), where("section", "in", ["Primaire"]), where("participantIds", "array-contains", "section-a"))));
+    await assertFails(getDocs(query(collection(db, "messages"), where("schoolId", "==", "school-a"))));
+  });
+
+  it.each([{ section: "Secondaire" }, { schoolId: "school-b" }, { participantIds: ["other"] }, { section: null }])("refuse l'échange hors périmètre %j", async patch => {
+    await environment.withSecurityRulesDisabled(async admin => updateDoc(doc(admin.firestore(), "messages", "message-a"), patch));
+    await assertFails(getDoc(doc(actor("section-a", "primary_admin"), "messages", "message-a")));
+  });
+
+  it.each([{ status: "inactive" }, { active: false }, { sectionIds: [] }, { sectionIds: ["unknown"] }, { deletedAt: "now" }])("révoque la lecture immédiatement pour %j", async patch => {
+    await environment.withSecurityRulesDisabled(async admin => updateDoc(doc(admin.firestore(), "users", "section-a"), patch));
+    await assertFails(getDoc(doc(actor("section-a", "primary_admin"), "messages", "message-a")));
+  });
+
+  it("isole les notifications et conserve leurs mutations côté serveur", async () => {
+    await environment.withSecurityRulesDisabled(async admin => {
+      const db = admin.firestore();
+      await setDoc(doc(db, "notifications", "own"), { schoolId: "school-a", schoolYearId: "year-a", section: "Primaire", recipientUserId: "section-a", read: false });
+      await setDoc(doc(db, "notifications", "other"), { schoolId: "school-a", schoolYearId: "year-a", section: "Primaire", recipientUserId: "other", read: false });
+    });
+    const db = actor("section-a", "primary_admin");
+    await assertSucceeds(getDoc(doc(db, "notifications", "own")));
+    await assertFails(getDoc(doc(db, "notifications", "other")));
+    await assertFails(updateDoc(doc(db, "notifications", "own"), { read: true }));
   });
 
   it("refuse une ancienne claim school_admin contre un profil de section", async () => {

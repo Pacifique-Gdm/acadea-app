@@ -1,5 +1,24 @@
 # PR #40 — état de finalisation du 1er novembre 2026
 
+## B08 — intégration candidate en cours de validation
+
+Les paragraphes historiques ci-dessous décrivent l'état avant le raccordement
+B08. Le candidat local remplace maintenant le refus global par la validation du
+profil actif, du rôle, de l'établissement et des sections. Activation normale
+réservée au Super Administrateur, jetons révoqués et audit transactionnel ; aucun
+compte réel activé. Les lectures scolaires restent via les API bornées. Les
+messages/conversations/notifications sont lisibles uniquement par leur participant
+ou destinataire dans sa section ; mutations sensibles toujours côté serveur.
+Les pièces jointes restent servies par les Functions contrôlées, pas par une
+ouverture générale de Storage.
+
+Preuves locales du lot : 55 tests Auth/API PASS, 18 tests Firestore sur émulateur
+PASS, lint ciblé PASS. Le scénario Chromium B08 ajouté utilise Auth émulé et les
+vrais handlers ; son résultat et les CI restent à confirmer. Aucun résultat
+hébergé n'est revendiqué. Le préflight WIF manuel ne déploie et ne crée rien ;
+voir `section-administrators-staging-access.md` pour les configurations manquantes.
+La clôture technique de B08 n'est pas déclarée avant ces validations intégrées.
+
 Ce document ne constitue pas une validation de livraison. Les connexions restent
 verrouillées et la PR reste en brouillon. Aucun déploiement ni changement Firebase
 distant n'a été effectué pour les lots ci-dessous.

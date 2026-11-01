@@ -17,9 +17,9 @@ export function guard() {
   }
 }
 export type Handler = (req: unknown, res: unknown) => Promise<unknown>;
-export async function invoke(handler: Handler, authorization: string, body: unknown, method = "POST") {
+export async function invoke(handler: Handler, authorization: string, body: unknown, method = "POST", query: Record<string, string> = {}) {
   let status = 200, payload: Record<string, unknown> = {};
-  await handler({ method, headers: { authorization }, body }, {
+  await handler({ method, headers: { authorization }, body, query }, {
     set statusCode(value: number) { status = value; },
     status(value: number) { status = value; return this; },
     setHeader() {},
@@ -78,7 +78,7 @@ export function fixture() {
       if (!url.pathname.startsWith("/api/")) return route.continue();
       const handler = handlers[url.pathname];
       if (!handler) return route.fulfill({ status: 404, body: "{}" });
-      const result = await invoke(handler, request.headers().authorization || "", request.postData() ? request.postDataJSON() : {}, request.method());
+      const result = await invoke(handler, request.headers().authorization || "", request.postData() ? request.postDataJSON() : {}, request.method(), Object.fromEntries(url.searchParams));
       if (transport.dropNextWriteResponse && result.status === 200 && request.postDataJSON()?.action === "create-cash-inflow") {
         transport.dropNextWriteResponse = false;
         return route.abort("connectionreset");

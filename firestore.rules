@@ -25,9 +25,25 @@ service cloud.firestore {
               || (request.auth.token.role == "super_admin" && !("role" in profile)))
             && (request.auth.token.role in ["super_admin", "coordination_admin", "sub_coordination_admin"]
               || profile.get("schoolId", "") == request.auth.token.schoolId))
-          : (!(request.auth.token.role in ["kindergarten_admin", "primary_admin", "studies_prefect"])
-            && profile.role == request.auth.token.role
-            && profile.schoolId == request.auth.token.schoolId));
+          : (profile.role == request.auth.token.role
+            && profile.schoolId == request.auth.token.schoolId
+            && (!(request.auth.token.role in ["kindergarten_admin", "primary_admin", "studies_prefect"])
+              || validSectionProfile(profile))));
+    }
+
+    function validSectionProfile(profile) {
+      return profile.get("status", "") == "active" && profile.get("active", true) != false
+        && profile.get("deletedAt", null) == null
+        && profile.get("sectionIds", []) is list
+        && profile.sectionIds.size() > 0 && profile.sectionIds.size() <= 4
+        && profile.sectionIds.hasOnly(["Maternelle", "Primaire", "CTEB", "Secondaire"]);
+    }
+    function sectionAdministrator() {
+      return signedIn() && role() in ["kindergarten_admin", "primary_admin", "studies_prefect"];
+    }
+    function sectionResource() {
+      return sectionAdministrator() && resource.data.schoolId == tenantSchoolId()
+        && resource.data.section in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.sectionIds;
     }
 
     function role() {
@@ -1638,7 +1654,7 @@ service cloud.firestore {
     }
 
     match /messages/{messageId} {
-      allow read: if superAdmin()
+      allow read: if (sectionResource() && request.auth.uid in resource.data.participantIds) || superAdmin()
         || (coordinatorSchool(resource.data.schoolId)
           && request.auth.uid in resource.data.participantIds)
         || (schoolAdmin() && sameTenantResource()
@@ -1666,7 +1682,7 @@ service cloud.firestore {
     }
 
     match /conversations/{conversationId} {
-      allow read: if superAdmin()
+      allow read: if (sectionResource() && request.auth.uid in resource.data.participantIds) || superAdmin()
         || (coordinatorSchool(resource.data.schoolId)
           && request.auth.uid in resource.data.participantIds)
         || (schoolAdmin() && sameTenantResource()
@@ -1734,7 +1750,7 @@ service cloud.firestore {
     }
 
     match /notifications/{notificationId} {
-      allow read: if superAdmin()
+      allow read: if (sectionResource() && resource.data.recipientUserId == request.auth.uid) || superAdmin()
         || (coordinatorSchool(resource.data.schoolId)
           && resource.data.recipientUserId == request.auth.uid)
         || (role() in ["school_admin", "cashier"] && sameTenantResource()
@@ -1777,7 +1793,7 @@ service cloud.firestore {
           && coordinatorSchool(resource.data.schoolId)
           && resource.data.recipientUserId == request.auth.uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["read"]))
-        || (signedIn()
+        || (signedIn() && !(role() in ["kindergarten_admin", "primary_admin", "studies_prefect"])
           && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId())
           && resource.data.schoolId == tenantSchoolId()
           && resource.data.recipientUserId == request.auth.uid
