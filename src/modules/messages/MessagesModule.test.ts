@@ -42,7 +42,7 @@ describe("messagerie des modules administratifs", () => {
   });
 
   it("étend au Caissier les Parents de l'année active avec résolution UID et lots de 50", () => {
-    expect(source).toContain('isSchoolAdmin || isSecretary || isCashier || isDisciplineDirector || isStudyDirector ? (');
+    expect(source).toContain('isSchoolAdmin || isSecretary || isCashier || isDisciplineDirector || isStudyDirector || isSectionAdmin ? (');
     expect(source).toContain('currentYearParentCandidates');
     expect(source).toContain('secureParentRecipientIds');
     expect(source).toContain('[parent.userId, parent.id].find');

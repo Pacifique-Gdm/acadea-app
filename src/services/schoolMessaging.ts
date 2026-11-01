@@ -5,7 +5,7 @@ import type { Message } from "../types";
 import type { PendingMessageAttachment } from "./messageStorage";
 
 export type SchoolMessageRecipientRole = "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher" | "parent" | "coordination_admin" | "sub_coordination_admin";
-export type SchoolMessageRecipient = { uid: string; name: string; role: SchoolMessageRecipientRole };
+export type SchoolMessageRecipient = { uid: string; name: string; role: SchoolMessageRecipientRole; sections?: string[] };
 
 async function authenticatedRequest(path: string, init: RequestInit) {
   const currentUser = auth?.currentUser;
@@ -22,7 +22,7 @@ export async function loadSchoolMessageRecipients(schoolYearId?: string): Promis
   return Array.isArray(payload.recipients) ? payload.recipients : [];
 }
 
-export async function sendSchoolMessage(input: { schoolYearId: string; recipientRoles: SchoolMessageRecipientRole[]; recipientIds: string[]; subject: string; body: string; draftId: string; attachments: PendingMessageAttachment[]; idempotencyKey: string }): Promise<Message> {
+export async function sendSchoolMessage(input: { schoolYearId: string; recipientRoles: SchoolMessageRecipientRole[]; recipientIds: string[]; subject: string; body: string; draftId: string; attachments: PendingMessageAttachment[]; idempotencyKey: string; section?: string }): Promise<Message> {
   const response = await authenticatedRequest("/api/send-school-message", { method: "POST", headers: { "Content-Type": "application/json", "X-Idempotency-Key": input.idempotencyKey }, body: JSON.stringify(input) });
   const payload = await response.json().catch(() => ({})) as { message?: Message | string; error?: string };
   if (!response.ok) throw Object.assign(new Error(typeof payload.message === "string" ? payload.message : "Message non envoyé. Veuillez réessayer."), { code: payload.error, status: response.status });

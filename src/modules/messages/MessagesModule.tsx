@@ -69,6 +69,7 @@ export function MessagesModule({
   const [teacherRecipientMode, setTeacherRecipientMode] = useState<AdministrativeRecipientMode>("all");
   const [teacherSearch, setTeacherSearch] = useState("");
   const [messageFiles, setMessageFiles] = useState<File[]>([]);
+  const [selectedMessageSection, setSelectedMessageSection] = useState<SchoolSection | "">("");
   const messageRequestKey = useRef(crypto.randomUUID());
   const canSend = user.role !== "parent" && year.status !== "archived";
   const isSchoolAdmin = user.role === "school_admin";
@@ -76,8 +77,14 @@ export function MessagesModule({
   const isDisciplineDirector = user.role === "discipline_director";
   const isStudyDirector = user.role === "study_director";
   const isSecretary = user.role === "secretary";
+  const isSectionAdmin = user.role === "kindergarten_admin" || user.role === "primary_admin" || user.role === "studies_prefect";
+  const sectionChoices = isSectionAdmin ? (user.sectionIds ?? []).filter((section): section is SchoolSection => schoolSectionOrder.includes(section)) : [];
+  const canSendAttachments = canAttachFiles && !isSectionAdmin;
   const disciplineMessageSubjects = ["Avertissement disciplinaire", "Convocation", "Décision disciplinaire", "Notification de fin de sanction"];
-  const { recipients: secureDirectory, loading: isLoadingAdministrativeRecipients, error: administrativeLoadError } = useSchoolMessageRecipients(user, school, year.id);
+  const { recipients: fullSecureDirectory, loading: isLoadingAdministrativeRecipients, error: administrativeLoadError } = useSchoolMessageRecipients(user, school, year.id);
+  const secureDirectory = useMemo(() => isSectionAdmin
+    ? fullSecureDirectory.filter((recipient) => selectedMessageSection && recipient.sections?.includes(selectedMessageSection))
+    : fullSecureDirectory, [fullSecureDirectory, isSectionAdmin, selectedMessageSection]);
   const recipientCategories = useMemo(() => schoolMessageRecipientCategories(secureDirectory, isSchoolAdmin), [isSchoolAdmin, secureDirectory]);
   const administrativeRecipients = useMemo(() => schoolMessageRecipientsForCategory(secureDirectory, "administrative", isSchoolAdmin), [isSchoolAdmin, secureDirectory]);
   const coordinationRecipients = useMemo(() => schoolMessageRecipientsForCategory(secureDirectory, "coordination", isSchoolAdmin), [isSchoolAdmin, secureDirectory]);
@@ -141,6 +148,10 @@ export function MessagesModule({
 
   async function sendToSecureRecipients() {
     if (isSendingAdministrative || !resolvedSecureRecipientIds.length || !subject.trim() || !body.trim()) return;
+    if (isSectionAdmin && (!selectedMessageSection || !sectionChoices.includes(selectedMessageSection))) {
+      setMessageFeedback("Sélectionnez une section autorisée avant l'envoi.");
+      return;
+    }
     const attachmentError = validateMessageAttachments(messageFiles);
     if (attachmentError) { setMessageFeedback(attachmentError); return; }
     setIsSendingAdministrative(true);
@@ -148,8 +159,8 @@ export function MessagesModule({
     const draftId = crypto.randomUUID();
     let uploaded: Awaited<ReturnType<typeof uploadPendingMessageAttachments>> = [];
     try {
-      if (canAttachFiles && messageFiles.length) uploaded = await uploadPendingMessageAttachments({ schoolId: school.id, schoolYearId: year.id, senderId: user.id, draftId, files: messageFiles });
-      const recipientBatches = (isCashier || isDisciplineDirector || isStudyDirector) && recipientCategory === "parents"
+      if (canSendAttachments && messageFiles.length) uploaded = await uploadPendingMessageAttachments({ schoolId: school.id, schoolYearId: year.id, senderId: user.id, draftId, files: messageFiles });
+      const recipientBatches = (isCashier || isDisciplineDirector || isStudyDirector || isSectionAdmin) && recipientCategory === "parents"
         ? Array.from({ length: Math.ceil(resolvedSecureRecipientIds.length / 50) }, (_, index) => resolvedSecureRecipientIds.slice(index * 50, (index + 1) * 50))
         : [resolvedSecureRecipientIds];
       const sentMessages: Message[] = [];
@@ -166,6 +177,7 @@ export function MessagesModule({
             body: body.trim(),
             draftId,
             attachments: uploaded,
+            ...(isSectionAdmin ? { section: selectedMessageSection } : {}),
             idempotencyKey: recipientBatches.length === 1 ? messageRequestKey.current : `${messageRequestKey.current}:parents:${index + 1}:${recipientBatches.length}`,
           });
           sentMessages.push(message);
@@ -238,7 +250,7 @@ export function MessagesModule({
     : selectedDirectorParentIds.filter((id) => secureParentRecipientIds.has(id));
   const resolvedSecureRecipientIds = (isSecretary || isCashier) && recipientCategory === "parents"
     ? [...new Set(resolvedSecureParentIds)]
-    : (isDisciplineDirector || isStudyDirector) && recipientCategory === "parents"
+    : (isDisciplineDirector || isStudyDirector || isSectionAdmin) && recipientCategory === "parents"
       ? [...new Set(resolvedDirectorParentIds)]
     : recipientCategory === "teachers" ? resolvedTeacherIds : resolvedAdministrativeIds;
   const isSecureDirectoryCategory = recipientCategory === "administrative"
@@ -295,7 +307,7 @@ export function MessagesModule({
       await sendToSecureRecipients();
       return;
     }
-    if ((isDisciplineDirector || isStudyDirector) && recipientCategory === "parents") {
+    if ((isDisciplineDirector || isStudyDirector || isSectionAdmin) && recipientCategory === "parents") {
       await sendToSecureRecipients();
       return;
     }
@@ -461,6 +473,12 @@ export function MessagesModule({
       {canSend && (
         <FormPanel title="Envoyer un message">
           <div className="grid min-w-0 gap-2">
+            {isSectionAdmin && <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">Section autorisée
+              <select className="input" value={selectedMessageSection} onChange={(event) => { setSelectedMessageSection(event.target.value as SchoolSection | ""); setSelectedAdministrativeIds([]); setSelectedTeacherIds([]); setSelectedDirectorParentIds([]); }}>
+                <option value="">Sélectionner une section</option>
+                {sectionChoices.map((section) => <option key={section} value={section}>{schoolSectionLabels[section]}</option>)}
+              </select>
+            </label>}
             <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
               Destinataires
               <select value={recipientCategory} onChange={(event) => { setRecipientCategory(event.target.value as SchoolMessageRecipientCategory); setSubject(""); setAdministrativeRecipientMode("all"); setAdministrativeSearch(""); setTeacherRecipientMode("all"); setTeacherSearch(""); changeAdminRecipientMode("all"); setSelectedAdministrativeIds([]); setSelectedTeacherIds([]); }} className="input">
@@ -471,15 +489,15 @@ export function MessagesModule({
               <AdministrativeRecipientSelector kind={activeAdministrativeKind} showRecipientsWithoutSearch={isSchoolAdmin} mode={administrativeRecipientMode} onModeChange={setAdministrativeRecipientMode} search={administrativeSearch} onSearchChange={setAdministrativeSearch} recipients={activeAdministrativeRecipients} selectedIds={selectedAdministrativeIds} onSelectedIdsChange={setSelectedAdministrativeIds} isLoading={isLoadingAdministrativeRecipients} error={administrativeLoadError} />
             ) : recipientCategory === "teachers" ? (
               <AdministrativeRecipientSelector kind="teacher" mode={teacherRecipientMode} onModeChange={setTeacherRecipientMode} search={teacherSearch} onSearchChange={setTeacherSearch} recipients={teacherRecipients} selectedIds={selectedTeacherIds} onSelectedIdsChange={setSelectedTeacherIds} isLoading={isLoadingAdministrativeRecipients} error={administrativeLoadError} />
-            ) : isSchoolAdmin || isSecretary || isCashier || isDisciplineDirector || isStudyDirector ? (
+            ) : isSchoolAdmin || isSecretary || isCashier || isDisciplineDirector || isStudyDirector || isSectionAdmin ? (
               <>
                 <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
                   Destinataires
                   <select value={adminRecipientMode} onChange={(event) => changeAdminRecipientMode(event.target.value as "all" | "parents" | "sections" | "classes")} className="input">
                     <option value="all">Tous les parents</option>
                     <option value="parents">Sélection parent</option>
-                    {!isCashier && !isDisciplineDirector && !isStudyDirector && <option value="sections">Sections</option>}
-                    {!isCashier && !isDisciplineDirector && !isStudyDirector && <option value="classes">Classes</option>}
+                    {!isCashier && !isDisciplineDirector && !isStudyDirector && !isSectionAdmin && <option value="sections">Sections</option>}
+                    {!isCashier && !isDisciplineDirector && !isStudyDirector && !isSectionAdmin && <option value="classes">Classes</option>}
                   </select>
                 </label>
                 {adminRecipientMode === "parents" && (
@@ -493,7 +511,7 @@ export function MessagesModule({
                         placeholder="Rechercher parent, téléphone ou email"
                       />
                     </label>
-                    {(isDisciplineDirector || isStudyDirector) ? <div className="max-h-60 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+                    {(isDisciplineDirector || isStudyDirector || isSectionAdmin) ? <div className="max-h-60 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
                       {directorParentResults.map((recipient) => {
                         const selected = selectedDirectorParentIds.includes(recipient.uid);
                         return <button key={recipient.uid} type="button" onClick={() => toggleDirectorParent(recipient.uid)} className={`w-full rounded border p-3 text-left text-sm transition ${selected ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50 hover:border-slate-200"}`}>
@@ -550,7 +568,7 @@ export function MessagesModule({
                     </select>
                   </label>
                 )}
-                {(isDisciplineDirector || isStudyDirector) && selectedDirectorParentIds.length > 0 ? (
+                {(isDisciplineDirector || isStudyDirector || isSectionAdmin) && selectedDirectorParentIds.length > 0 ? (
                   <div className="grid gap-2 rounded bg-blue-50 p-3 text-sm font-semibold text-blue-700">
                     <p>{selectedDirectorParentIds.length} parent(s) sélectionné(s)</p>
                   </div>
@@ -575,7 +593,7 @@ export function MessagesModule({
                   </div>
                 )}
                 <p className="rounded bg-slate-50 p-3 text-sm font-semibold text-slate-600">
-                  {(isDisciplineDirector || isStudyDirector) ? resolvedDirectorParentIds.length : secureResolvedParents.length} parent{((isDisciplineDirector || isStudyDirector) ? resolvedDirectorParentIds.length : secureResolvedParents.length) > 1 ? "s" : ""} destinataire{((isDisciplineDirector || isStudyDirector) ? resolvedDirectorParentIds.length : secureResolvedParents.length) > 1 ? "s" : ""}
+                  {(isDisciplineDirector || isStudyDirector || isSectionAdmin) ? resolvedDirectorParentIds.length : secureResolvedParents.length} parent{((isDisciplineDirector || isStudyDirector || isSectionAdmin) ? resolvedDirectorParentIds.length : secureResolvedParents.length) > 1 ? "s" : ""} destinataire{((isDisciplineDirector || isStudyDirector || isSectionAdmin) ? resolvedDirectorParentIds.length : secureResolvedParents.length) > 1 ? "s" : ""}
                 </p>
               </>
             ) : (
@@ -658,7 +676,7 @@ export function MessagesModule({
             <input value={subject} onChange={(event) => setSubject(event.target.value)} className="input" placeholder="Objet" />
           )}
           <textarea value={body} onChange={(event) => setBody(event.target.value)} className="input min-h-32" placeholder="Message" />
-          {canAttachFiles && <>
+          {canSendAttachments && <>
             <label className="secondary-button w-full cursor-pointer justify-center"><FilePlus2 className="h-4 w-4" /> Joindre des fichiers<input className="sr-only" type="file" multiple accept={MESSAGE_ATTACHMENT_ACCEPT} onChange={(event) => { const nextFiles = [...messageFiles, ...Array.from(event.target.files ?? [])]; const error = validateMessageAttachments(nextFiles); if (error) setMessageFeedback(error); else { setMessageFiles(nextFiles); setMessageFeedback(""); } event.currentTarget.value = ""; }} /></label>
             <p className={`text-xs font-semibold ${messageFilesTotalBytes > MAX_MESSAGE_ATTACHMENTS_TOTAL_SIZE ? "text-red-600" : "text-slate-500"}`}>Pièces jointes : {formatMessageAttachmentSize(messageFilesTotalBytes)} / 10 Mo</p>
             {messageFiles.map((file, index) => <div key={`${file.name}-${index}`} className="flex min-w-0 items-center justify-between gap-3 rounded bg-slate-50 px-3 py-2 text-sm"><span className="min-w-0 truncate">{file.name} · {formatMessageAttachmentSize(file.size)}</span><button type="button" className="shrink-0 rounded p-1 hover:bg-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600" aria-label={`Retirer ${file.name}`} onClick={() => setMessageFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))}><X className="h-4 w-4" /></button></div>)}
@@ -676,7 +694,7 @@ export function MessagesModule({
               {messageFeedback}
             </p>
           )}
-          <button onClick={sendMessage} disabled={!subject || !body || ((isSecureDirectoryCategory || isSecretary || isCashier || ((isDisciplineDirector || isStudyDirector) && recipientCategory === "parents")) ? isSendingAdministrative || resolvedSecureRecipientIds.length === 0 : isDisciplineDirector && selectedDisciplineParentIds.length === 0)} className="primary-button disabled:opacity-50">
+          <button onClick={sendMessage} disabled={!subject || !body || (isSectionAdmin && !selectedMessageSection) || ((isSecureDirectoryCategory || isSecretary || isCashier || ((isDisciplineDirector || isStudyDirector || isSectionAdmin) && recipientCategory === "parents")) ? isSendingAdministrative || resolvedSecureRecipientIds.length === 0 : isDisciplineDirector && selectedDisciplineParentIds.length === 0)} className="primary-button disabled:opacity-50">
             <MessageSquare className="h-4 w-4" /> {isSendingAdministrative ? "Envoi en cours…" : "Envoyer"}
           </button>
         </FormPanel>

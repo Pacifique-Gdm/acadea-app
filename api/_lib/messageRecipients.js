@@ -1,6 +1,6 @@
 import { requireActiveApiUser, verifyActorIdToken } from "./activeUser.js";
 import { requireActiveSchoolYear } from "./schoolYear.js";
-import { isSectionAdministrator, sectionAdministratorScope } from "./sectionAdministrators.js";
+import { isSectionAdministrator, requireActiveSectionAdministratorActor, sectionAdministratorScope } from "./sectionAdministrators.js";
 
 const ALLOWED_SENDERS = new Set(["school_admin", "admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent", "kindergarten_admin", "primary_admin", "studies_prefect"]);
 
@@ -168,10 +168,40 @@ export async function requireMessagingCaller(auth, db, token) {
 }
 
 export async function listAllowedMessageRecipients(db, caller, schoolYearId = "") {
-  // The school-wide directory is not suitable for these profiles. It must be
-  // replaced by a section-constrained directory before the release gate lifts.
   if (isSectionAdministrator(caller.role)) {
-    throw Object.assign(new Error("Annuaire de section non disponible."), { statusCode: 403, code: "not-authorized" });
+    const scope = await requireActiveSectionAdministratorActor(db, caller);
+    await requireActiveSchoolYear(db, scope.schoolId, schoolYearId);
+    const [userSnapshot, studentSnapshot] = await Promise.all([
+      db.collection("users").where("schoolId", "==", scope.schoolId).get(),
+      db.collection("students").where("schoolId", "==", scope.schoolId).where("schoolYearId", "==", schoolYearId).get(),
+    ]);
+    const currentStudents = new Map(studentSnapshot.docs.map((document) => [document.id, { id: document.id, ...document.data() }]));
+    const users = userSnapshot.docs.map((document) => ({ id: document.id, ...document.data() }));
+    const eligible = [];
+    for (const user of users) {
+      const role = normalizedMessagingRole(user.role);
+      if (user.id === caller.uid || user.schoolId !== scope.schoolId || !isActive(user) || !allowedRecipientRoles(caller.role).has(role)) continue;
+      let sections = scope.sectionIds.filter((section) => sectionMessageStaffRecipientAllowed(user, section));
+      if (role === "parent") {
+        sections = [];
+        if (typeof user.parentId !== "string" || !user.parentId) continue;
+        const parentSnapshot = await db.doc(`parents/${user.parentId}`).get();
+        const parent = parentSnapshot.exists ? parentSnapshot.data() : null;
+        if (!parent || parent.schoolId !== scope.schoolId || !Array.isArray(parent.studentIds) || !parent.studentIds.length
+          || parent.studentIds.some((id) => typeof id !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(id))) continue;
+        const linked = await db.getAll(...parent.studentIds.map((id) => db.doc(`students/${id}`)));
+        if (linked.some((document) => !document.exists || document.data()?.schoolId !== scope.schoolId)) continue;
+        const active = linked.filter((document) => document.data()?.schoolYearId === schoolYearId);
+        const assigned = new Set(active.map((document) => document.data()?.section));
+        if (!active.length || assigned.size !== 1) continue;
+        const section = [...assigned][0];
+        if (!scope.sectionIds.includes(section) || active.some((document) => !currentStudents.has(document.id))) continue;
+        sections = [section];
+      }
+      if (sections.length) eligible.push({ uid: user.id,
+        name: String(user.displayName ?? user.name ?? "Utilisateur").trim() || "Utilisateur", role, sections });
+    }
+    return eligible.sort((first, second) => first.name.localeCompare(second.name, "fr"));
   }
   const allowed = allowedRecipientRoles(caller.role);
   if (allowed.size === 0) throw Object.assign(new Error("Action non autorisee."), { statusCode: 403, code: "not-authorized" });
