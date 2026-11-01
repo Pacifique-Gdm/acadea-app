@@ -2,6 +2,9 @@ import type { SchoolMessageRecipient } from "../../services/schoolMessaging";
 
 const administrativeRoleLabels: Record<Exclude<SchoolMessageRecipient["role"], "parent">, string> = {
   school_admin: "Administrateur",
+  kindergarten_admin: "Directrice Maternelle",
+  primary_admin: "Admin. Primaire",
+  studies_prefect: "Préfet d’études",
   cashier: "Caissier",
   secretary: "Secrétaire",
   discipline_director: "Directeur de Discipline",

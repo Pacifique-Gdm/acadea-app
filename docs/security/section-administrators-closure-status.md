@@ -63,3 +63,16 @@ PDF. Ces tests de contenu ne constituent pas une inspection visuelle PDF ni une
 recette authentifiée. B05 implémenté ; validation intégrée finale rattachée à B08.
 
 **Verdict : PR non prête pour validation finale / livraison ; B06–B08 ouverts.**
+
+## Reprise B06 — destinataires réciproques
+
+Le répertoire expose maintenant les administrateurs de section aux interlocuteurs
+autorisés. Les envois vers ces profils exigent une section explicite validée côté
+serveur. Pour un parent, cette section doit correspondre à au moins un enfant actif
+de l'année choisie ; aucune donnée d'enfant n'est ajoutée au répertoire. Les messages
+et conversations sont estampillés avec cette section, et les fils parent de
+sections différentes ne sont plus réutilisés entre eux. Les formulaires Parent et
+personnel utilisent cette sélection. 60 tests ciblés PASS, lint ciblé PASS.
+
+B06 reste ouvert jusqu'à la validation intégrée de lecture, marqueurs personnels
+et pièces jointes. Les gardes de connexion n'ont pas été retirées.

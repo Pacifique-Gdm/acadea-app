@@ -5,6 +5,8 @@ import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { requireActiveSchoolYear } from "./_lib/schoolYear.js";
 import { allowedRecipientRoles, normalizedMessagingRole } from "./_lib/messageRecipients.js";
+import { reciprocalSectionContact } from "./_lib/messageRecipients.js";
+import { isSectionAdministrator } from "./_lib/sectionAdministrators.js";
 
 const messageLimit = 3;
 const quotaWindowMs = 12 * 60 * 60 * 1000;
@@ -32,7 +34,7 @@ function normalizeText(value) {
   return String(value ?? "").trim();
 }
 
-export async function resolveParentMessageRecipients(db, caller, recipientIds) {
+export async function resolveParentMessageRecipients(db, caller, recipientIds, schoolYearId, section) {
   const uniqueIds = [...new Set(recipientIds.map((value) => normalizeText(value)).filter(Boolean))];
   if (!uniqueIds.length || uniqueIds.length > 50) {
     throw Object.assign(new Error("Selection de destinataires invalide."), { statusCode: 400, code: "invalid-recipient" });
@@ -45,6 +47,9 @@ export async function resolveParentMessageRecipients(db, caller, recipientIds) {
   }
   for (const recipient of recipients) {
     const role = normalizedMessagingRole(recipient.role);
+    if (isSectionAdministrator(role) && !(await reciprocalSectionContact(db, caller, recipient, schoolYearId)).includes(section)) {
+      throw Object.assign(new Error("Parent sans enfant dans la section choisie."), { statusCode: 403, code: "invalid-recipient" });
+    }
     if (recipient.schoolId !== caller.schoolId || recipient.active === false || recipient.status === "inactive" || !allowedRoles.has(role)) {
       throw Object.assign(new Error("Destinataire non autorise."), { statusCode: 403, code: "invalid-recipient" });
     }
@@ -226,7 +231,8 @@ export default async function handler(req, res) {
     const recipientIds = Array.isArray(body.recipientIds) ? body.recipientIds : [];
     const subject = normalizeText(body.subject);
     const messageBody = normalizeText(body.body);
-    const recipients = await resolveParentMessageRecipients(db, caller, recipientIds);
+    const recipients = await resolveParentMessageRecipients(db, caller, recipientIds, schoolYearId, body.section);
+    const messageSection = recipients.some((recipient) => isSectionAdministrator(recipient.role)) ? body.section : undefined;
     if (!subject || !messageBody) {
       sendJson(res, 400, { error: "invalid-message", message: "Objet et message requis." });
       return;
@@ -258,7 +264,8 @@ export default async function handler(req, res) {
           .where("schoolYearId", "==", schoolYearId)
           .where("threadParentId", "==", caller.parentId),
       );
-      const existingMessages = messagesSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+      const existingMessages = messagesSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+        .filter((message) => message.section === messageSection);
       const threadId = nextMessageThreadId(existingMessages, caller.uid, "school", caller.parentId) ?? uid("thread");
       const conversationId = createConversationId(caller.schoolId, schoolYearId, caller.parentId, threadId);
       const message = {
@@ -266,6 +273,7 @@ export default async function handler(req, res) {
         schoolId: caller.schoolId,
         schoolYearId,
         senderId: caller.uid,
+        ...(messageSection ? { section: messageSection } : {}),
         recipientParentId: "school",
         threadParentId: caller.parentId,
         threadId,
@@ -282,6 +290,7 @@ export default async function handler(req, res) {
         threadId,
         threadParentId: caller.parentId,
         parentId: caller.parentId,
+        ...(messageSection ? { section: messageSection } : {}),
         parentName: parent.fullName ?? caller.name ?? "Parent",
         participantIds,
         lastMessage: messageBody,

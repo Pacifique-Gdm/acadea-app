@@ -12,7 +12,7 @@ describe("portail Parent", () => {
   });
 
   it("utilise un annuaire dynamique multiselection sans destinataires statiques", () => {
-    expect(source).toContain("loadSchoolMessageRecipients()");
+    expect(source).toContain("loadSchoolMessageRecipients(year.id)");
     expect(source).toContain("AdministrativeRecipientSelector");
     expect(selectorSource).toContain('type="checkbox"');
     expect(source).toContain("messageRecipientIds");

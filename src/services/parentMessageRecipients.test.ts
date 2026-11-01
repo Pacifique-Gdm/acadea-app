@@ -54,7 +54,7 @@ describe("destinataires dynamiques du Parent", () => {
 
   it("compte une seule unite de quota quel que soit le nombre de destinataires", () => {
     const source = readFileSync(new URL("../../api/send-parent-message.js", import.meta.url), "utf8");
-    expect(source).toContain("const recipients = await resolveParentMessageRecipients(db, caller, recipientIds)");
+    expect(source).toContain("const recipients = await resolveParentMessageRecipients(db, caller, recipientIds, schoolYearId, body.section)");
     expect(source).toContain("messageCount: existingCount + 1");
     expect(source.match(/messageCount: existingCount \+ 1/g)).toHaveLength(2);
     expect(source).not.toMatch(/existingCount\s*\+\s*recipients\.length/);

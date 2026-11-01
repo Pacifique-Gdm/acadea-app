@@ -88,6 +88,7 @@ export async function fetchParentMessageQuota(schoolYearId: string): Promise<Par
 }
 
 export async function sendParentMessageWithQuota(input: {
+  section?: string;
   schoolYearId: string;
   recipientIds: string[];
   subject: string;

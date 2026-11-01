@@ -4,6 +4,7 @@ import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib
 import { requireActiveSchoolYear } from "./_lib/schoolYear.js";
 import { allowedRecipientRoles, isRelatedCoordinationRecipient, messagingSenderIdentity, normalizedMessagingRole, requireMessagingCaller, requireSectionMessageContext, sectionMessageStaffRecipientAllowed } from "./_lib/messageRecipients.js";
 import { isSectionAdministrator } from "./_lib/sectionAdministrators.js";
+import { reciprocalSectionContact } from "./_lib/messageRecipients.js";
 
 export const MAX_TOTAL_BYTES = 10 * 1024 * 1024;
 const MAX_ATTACHMENTS = 10;
@@ -64,6 +65,9 @@ export async function resolveRecipients(db, caller, recipientRoles, recipientIds
   if (recipients.some((recipient) => !recipient)) throw httpError(400, "invalid-recipient", "Un destinataire est introuvable.");
   for (const recipient of recipients) {
     const role = normalizedRole(recipient.role);
+    if (isSectionAdministrator(role) && !(await reciprocalSectionContact(db, caller, recipient, schoolYearId)).includes(messageSection)) {
+      throw httpError(403, "invalid-recipient", "Section du destinataire interdite ou manquante.");
+    }
     const isSameSchool = recipient.schoolId === caller.schoolId;
     const isRelatedCoordinator = !isSameSchool && await isRelatedCoordinationRecipient(db, caller, recipient);
     if ((!isSameSchool && !isRelatedCoordinator) || !requestedRoles.includes(role) || recipient.active === false || recipient.status === "inactive") {
@@ -145,7 +149,7 @@ export function createSchoolMessageDocument({ messageId, caller, schoolYearId, r
     id: messageId,
     schoolId: caller.schoolId,
     schoolYearId,
-    ...(isSectionAdministrator(caller.role) ? { section: messageSection } : {}),
+    ...(isSectionAdministrator(caller.role) || recipients.some((recipient) => isSectionAdministrator(recipient.role)) ? { section: messageSection } : {}),
     senderId: caller.uid,
     ...messagingSenderIdentity(caller),
     recipientIds: recipients.map((recipient) => recipient.id),
@@ -161,7 +165,7 @@ export function createSchoolMessageDocument({ messageId, caller, schoolYearId, r
 }
 
 export function requireScopedMessageReplay(caller, message, schoolYearId, messageSection, recipients) {
-  if (!isSectionAdministrator(caller.role)) return;
+  if (!isSectionAdministrator(caller.role) && !recipients.some((recipient) => isSectionAdministrator(recipient.role))) return;
   requireSectionMessageContext(caller, messageSection);
   const expected = new Set(recipients.map((recipient) => recipient.id));
   if (message?.schoolId !== caller.schoolId || message.senderId !== caller.uid
@@ -213,7 +217,7 @@ export default async function handler(req, res) {
     finalPaths = attachments.map((item) => item.path);
     const participantIds = [...new Set([caller.uid, ...recipients.map((recipient) => recipient.id)])];
     const savedMessage = createSchoolMessageDocument({ messageId, caller, schoolYearId, recipients, participantIds, conversationId, subject, messageBody, attachments, createdAt, messageSection });
-    const conversation = { id: conversationId, schoolId: caller.schoolId, schoolYearId, ...(isSectionAdministrator(caller.role) ? { section: messageSection } : {}), threadId: conversationId, threadParentId: "school", parentId: "school", participantIds, lastMessage: messageBody, lastMessageAt: createdAt, lastSenderId: caller.uid, lastSenderRole: caller.role, messageCount: 1, unreadParentCount: 0, unreadAdminCount: 0, unreadCashierCount: 0, unreadDisciplineCount: 0, createdAt, updatedAt: createdAt, status: "active" };
+    const conversation = { id: conversationId, schoolId: caller.schoolId, schoolYearId, ...(savedMessage.section ? { section: savedMessage.section } : {}), threadId: conversationId, threadParentId: "school", parentId: "school", participantIds, lastMessage: messageBody, lastMessageAt: createdAt, lastSenderId: caller.uid, lastSenderRole: caller.role, messageCount: 1, unreadParentCount: 0, unreadAdminCount: 0, unreadCashierCount: 0, unreadDisciplineCount: 0, createdAt, updatedAt: createdAt, status: "active" };
     const batch = db.batch();
     batch.set(db.doc(`messages/${messageId}`), savedMessage);
     batch.set(db.doc(`conversations/${conversationId}`), conversation);

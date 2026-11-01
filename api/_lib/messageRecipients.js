@@ -31,7 +31,30 @@ export function messagingSenderIdentity(caller) {
 }
 
 export function allowedRecipientRoles(role) {
-  return RECIPIENTS_BY_ROLE[normalizedMessagingRole(role)] ?? new Set();
+  const base = RECIPIENTS_BY_ROLE[normalizedMessagingRole(role)];
+  return base ? new Set([...base, "kindergarten_admin", "primary_admin", "studies_prefect"]) : new Set();
+}
+
+/** Reciprocal contact grants no access to a parent's other children. */
+export async function reciprocalSectionContact(db, caller, recipient, schoolYearId) {
+  const target = sectionAdministratorScope(recipient);
+  if (target.schoolId !== caller.schoolId) return [];
+  if (!schoolYearId) return [];
+  await requireActiveSchoolYear(db, caller.schoolId, schoolYearId);
+  if (caller.role === "parent") {
+    if (!caller.parentId && !caller.profile?.parentId) return [];
+    const parentId = caller.parentId ?? caller.profile.parentId;
+    const snapshot = await db.doc(`parents/${parentId}`).get();
+    const parent = snapshot.exists ? snapshot.data() : null;
+    if (!parent || parent.schoolId !== caller.schoolId || !Array.isArray(parent.studentIds)
+      || parent.studentIds.length > 100 || parent.studentIds.some((id) => typeof id !== "string" || !/^[A-Za-z0-9_-]{1,180}$/.test(id))) return [];
+    const children = parent.studentIds.length ? await db.getAll(...parent.studentIds.map((id) => db.doc(`students/${id}`))) : [];
+    return target.sectionIds.filter((section) => children.some((child) => child.exists && child.data()?.schoolId === caller.schoolId
+      && child.data()?.schoolYearId === schoolYearId && child.data()?.section === section && !child.data()?.deletedAt
+      && (child.data()?.status ?? "ACTIVE") === "ACTIVE"));
+  }
+  const source = callerSectionScope(caller);
+  return source.size ? target.sectionIds.filter((section) => source.has(section)) : target.sectionIds;
 }
 
 export function requireSectionMessageContext(caller, section) {
@@ -208,13 +231,21 @@ export async function listAllowedMessageRecipients(db, caller, schoolYearId = ""
   const relatedRecipients = await relatedCoordinationRecipients(db, caller);
   const allowedParentIds = await scopedParentIds(db, caller, schoolYearId);
   const recipients = [...snapshot.docs.map((document) => ({ id: document.id, ...document.data() })), ...relatedRecipients];
+  const reciprocal = new Map();
+  for (const recipient of recipients) {
+    if (!isSectionAdministrator(recipient.role)) continue;
+    try { reciprocal.set(recipient.id, await reciprocalSectionContact(db, caller, recipient, schoolYearId)); }
+    catch { reciprocal.set(recipient.id, []); }
+  }
   return [...new Map(recipients.map((profile) => [profile.id, profile])).values()]
     .filter((profile) => profile.id !== caller.uid && profile.active !== false && profile.status !== "inactive" && allowed.has(normalizedMessagingRole(profile.role))
+      && (!isSectionAdministrator(profile.role) || reciprocal.get(profile.id)?.length)
       && (normalizedMessagingRole(profile.role) !== "parent" || allowedParentIds === null || allowedParentIds.has(profile.parentId)))
     .map((profile) => ({
       uid: profile.id,
       name: String(profile.displayName ?? profile.name ?? "Utilisateur").trim() || "Utilisateur",
       role: normalizedMessagingRole(profile.role),
+      ...(isSectionAdministrator(profile.role) ? { sections: reciprocal.get(profile.id) } : {}),
     }))
     .sort((first, second) => first.name.localeCompare(second.name, "fr"));
 }

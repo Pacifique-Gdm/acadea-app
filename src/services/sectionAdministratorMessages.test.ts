@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import { listAllowedMessageRecipients } from "../../api/_lib/messageRecipients.js";
 // @ts-expect-error Vercel endpoint is implemented in JavaScript.
 import { createSchoolMessageDocument, requireScopedMessageReplay, resolveRecipients } from "../../api/send-school-message.js";
+// @ts-expect-error Vercel endpoint is implemented in JavaScript.
+import { resolveParentMessageRecipients } from "../../api/send-parent-message.js";
 
 const caller = { uid: "section-a", role: "primary_admin", schoolId: "school-a",
   profile: { role: "primary_admin", schoolId: "school-a", status: "active", sectionIds: ["Primaire"] } };
@@ -40,6 +42,26 @@ function database(overrides: Record<string, Record<string, unknown>> = {}) {
 }
 
 describe("destinataires des administrateurs de section", () => {
+  it("autorise un parent mixte à répondre uniquement dans la section commune", async () => {
+    const db = database();
+    const parent = { uid: "parent-mixed", role: "parent", parentId: "parent-b", schoolId: "school-a" };
+    await expect(resolveParentMessageRecipients(db, parent, ["section-a"], "year-a", "Primaire")).resolves.toHaveLength(1);
+    await expect(resolveParentMessageRecipients(db, parent, ["section-a"], "year-a", "Secondaire")).rejects.toMatchObject({ statusCode: 403 });
+    await expect(resolveParentMessageRecipients(db, parent, ["section-a"], "year-a")).rejects.toMatchObject({ statusCode: 403 });
+    const unrelated = database({ "parents/parent-b": { schoolId: "school-a", studentIds: ["student-secondary"] } });
+    await expect(resolveParentMessageRecipients(unrelated, parent, ["section-a"], "year-a", "Primaire")).rejects.toMatchObject({ statusCode: 403 });
+    const directory = await listAllowedMessageRecipients(db, parent, "year-a");
+    expect(directory.find((item: { uid: string }) => item.uid === "section-a")).toMatchObject({ sections: ["Primaire"] });
+    expect(JSON.stringify(directory)).not.toContain("student-secondary");
+  });
+  it("autorise le personnel à contacter la section sans accepter une section implicite", async () => {
+    const db = database();
+    const staff = { uid: "admin", role: "school_admin", schoolId: "school-a", profile: {} };
+    await expect(resolveRecipients(db, staff, ["primary_admin"], ["section-a"], "year-a", "Primaire")).resolves.toHaveLength(1);
+    await expect(resolveRecipients(db, staff, ["primary_admin"], ["section-a"], "year-a")).rejects.toMatchObject({ statusCode: 403 });
+    const inactive = database({ "users/section-a": { ...caller.profile, active: false } });
+    await expect(resolveRecipients(inactive, staff, ["primary_admin"], ["section-a"], "year-a", "Primaire")).rejects.toThrow();
+  });
   it("ne restitue pas un ancien message après transfert, retrait de section ou changement de destinataires", () => {
     const message = { schoolId: "school-a", senderId: caller.uid, schoolYearId: "year-a", section: "Primaire", recipientIds: ["parent-primary"] };
     const recipients = [{ id: "parent-primary" }];

@@ -78,13 +78,14 @@ export function MessagesModule({
   const isStudyDirector = user.role === "study_director";
   const isSecretary = user.role === "secretary";
   const isSectionAdmin = user.role === "kindergarten_admin" || user.role === "primary_admin" || user.role === "studies_prefect";
-  const sectionChoices = isSectionAdmin ? (user.sectionIds ?? []).filter((section): section is SchoolSection => schoolSectionOrder.includes(section)) : [];
   const canSendAttachments = canAttachFiles && !isSectionAdmin;
   const disciplineMessageSubjects = ["Avertissement disciplinaire", "Convocation", "Décision disciplinaire", "Notification de fin de sanction"];
   const { recipients: fullSecureDirectory, loading: isLoadingAdministrativeRecipients, error: administrativeLoadError } = useSchoolMessageRecipients(user, school, year.id);
+  const sectionChoices = schoolSectionOrder.filter((section) => isSectionAdmin
+    ? user.sectionIds?.includes(section) : fullSecureDirectory.some((recipient) => recipient.sections?.includes(section)));
   const secureDirectory = useMemo(() => isSectionAdmin
     ? fullSecureDirectory.filter((recipient) => selectedMessageSection && recipient.sections?.includes(selectedMessageSection))
-    : fullSecureDirectory, [fullSecureDirectory, isSectionAdmin, selectedMessageSection]);
+    : fullSecureDirectory.filter((recipient) => !recipient.sections || recipient.sections.includes(selectedMessageSection)), [fullSecureDirectory, isSectionAdmin, selectedMessageSection]);
   const recipientCategories = useMemo(() => schoolMessageRecipientCategories(secureDirectory, isSchoolAdmin), [isSchoolAdmin, secureDirectory]);
   const administrativeRecipients = useMemo(() => schoolMessageRecipientsForCategory(secureDirectory, "administrative", isSchoolAdmin), [isSchoolAdmin, secureDirectory]);
   const coordinationRecipients = useMemo(() => schoolMessageRecipientsForCategory(secureDirectory, "coordination", isSchoolAdmin), [isSchoolAdmin, secureDirectory]);
@@ -177,7 +178,7 @@ export function MessagesModule({
             body: body.trim(),
             draftId,
             attachments: uploaded,
-            ...(isSectionAdmin ? { section: selectedMessageSection } : {}),
+            ...(selectedMessageSection ? { section: selectedMessageSection } : {}),
             idempotencyKey: recipientBatches.length === 1 ? messageRequestKey.current : `${messageRequestKey.current}:parents:${index + 1}:${recipientBatches.length}`,
           });
           sentMessages.push(message);
@@ -473,7 +474,7 @@ export function MessagesModule({
       {canSend && (
         <FormPanel title="Envoyer un message">
           <div className="grid min-w-0 gap-2">
-            {isSectionAdmin && <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">Section autorisée
+            {sectionChoices.length > 0 && <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">Section autorisée
               <select className="input" value={selectedMessageSection} onChange={(event) => { setSelectedMessageSection(event.target.value as SchoolSection | ""); setSelectedAdministrativeIds([]); setSelectedTeacherIds([]); setSelectedDirectorParentIds([]); }}>
                 <option value="">Sélectionner une section</option>
                 {sectionChoices.map((section) => <option key={section} value={section}>{schoolSectionLabels[section]}</option>)}
