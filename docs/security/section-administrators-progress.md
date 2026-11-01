@@ -23,6 +23,15 @@ This is an incomplete implementation, not ready for activation or deployment.
 
 The sections below are historical implementation notes, not the current permission contract.
 
+## Scoped school records and form follow-up
+
+- `list-section-school-records` reads only classes/students matching the authoritative school, year and assigned sections. The profile, cursor and page share a transaction. Records lacking an explicit section are not inferred from labels. A class index is prepared, not deployed.
+- Dashboard and Student form class lists use that reader for section profiles. Every response is checked again by the client; pagination refuses a repeated cursor and never returns a partially loaded result after failure. Legacy administrator listeners remain unchanged.
+- The generic initial/year data loader is still closed for section roles. Adding this reader does not yet finish the initial bootstrap or every student's paginated view. API/auth/Firestore release guards remain closed.
+- Student editing no longer attempts parent linking/unlinking after saving for these roles. Parent controls and structural class mutation controls are absent from their form. Menu no longer exposes the Parent directory to section profiles; eligible contacts remain a messaging responsibility.
+- Targeted validation: 72 tests for scoped reads/classes/account restrictions; 20 for the actual rendered Student form and existing student-form behavior; 10 for Dashboard/reader follow-up. This is local test evidence, not an authenticated Staging recipe.
+- Remaining: complete bootstrap/year refresh, positive Firebase read permissions, scoped Dashboard aggregates, bidirectional messaging/read markers, file consultation and all five authenticated role journeys. Do not unlock accounts on the strength of these partial integrations.
+
 Implemented:
 - Server policy identifies kindergarten_admin (Directrice Maternelle), primary_admin (Admin. Primaire), studies_prefect (Préfet d'études).
 - Explicit same-school and assigned-section checks; missing/unknown sections deny access.

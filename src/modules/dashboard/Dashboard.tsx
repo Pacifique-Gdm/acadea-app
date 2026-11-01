@@ -345,6 +345,8 @@ export function Dashboard({ data, school, year, actor }: DashboardProps) {
   const [dateFilterError, setDateFilterError] = useState("");
   const [transactionPeriod, setTransactionPeriod] = useState<TransactionPeriod>("last5");
   const [schoolClasses, setSchoolClasses] = useState<SchoolClassRecord[]>([]);
+  const [classesError, setClassesError] = useState("");
+  const [classesRefresh, setClassesRefresh] = useState(0);
   const dashboardSectionChoices = useMemo(() => getSchoolSections(school).filter((section) => !sectionRole || Boolean(actor?.sectionIds?.includes(section))), [actor?.sectionIds, school, sectionRole]);
   const dashboardClassChoices = useMemo(() => getSchoolClassChoices(school).filter((className) => !sectionRole || dashboardSectionChoices.includes(getClassSection(className))), [dashboardSectionChoices, school, sectionRole]);
   useEffect(() => {
@@ -353,17 +355,18 @@ export function Dashboard({ data, school, year, actor }: DashboardProps) {
     }
   }, [dashboardSectionChoices, sectionFilter]);
   useEffect(() => {
+    setClassesError("");
     if (sectionRole && actor) {
       setSchoolClasses([]);
       const controller = new AbortController();
       void loadSectionSchoolRecords("classes", actor, school.id, year.id, controller.signal)
         .then((items) => { if (!controller.signal.aborted) setSchoolClasses(items); })
-        .catch(() => { /* No fallback to whole-school classes on failure. */ });
+        .catch(() => { if (!controller.signal.aborted) setClassesError("Classes autorisées indisponibles."); });
       return () => controller.abort();
     }
     return subscribeToSchoolClasses(school.id, year.id, setSchoolClasses,
       (error) => console.warn("Actualisation des classes du Dashboard indisponible.", error));
-  }, [actor, school.id, sectionRole, year.id]);
+  }, [actor, classesRefresh, school.id, sectionRole, year.id]);
   const yearIndexes = useMemo(() => buildSchoolYearDataIndexes(data.students, data.feeTypes, data.payments), [data.students, data.feeTypes, data.payments]);
   const activeStudents = useMemo(() => data.students.filter((student) => !isArchivedStudent(student)), [data.students]);
   const filteredStudents = useMemo(() => activeStudents.filter((student) => sectionFilter === "all" || getClassSection(student.className) === sectionFilter), [activeStudents, sectionFilter]);
@@ -599,6 +602,9 @@ export function Dashboard({ data, school, year, actor }: DashboardProps) {
 
   return (
     <section className="grid min-w-0 gap-4">
+      {classesError && <div role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        {classesError} <button type="button" className="underline" onClick={() => setClassesRefresh((value) => value + 1)}>Réessayer</button>
+      </div>}
       <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold text-ink">Dashboard</h1>
