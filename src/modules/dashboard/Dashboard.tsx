@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { Banknote, BarChart3, BookOpen, Download, GraduationCap, ShieldCheck, UserRound, UsersRound, X } from "lucide-react";
 import { FormPanel, Metric } from "../../components/ui";
+import { SchoolCashReadOnlyBalance } from "../../components/SchoolCashReadOnlyBalance";
 import { buildDashboardFeeShares, buildDashboardFinancialAggregates, buildDashboardTransactionDayRows } from "../../utils/dashboardStats";
 import type { DashboardFeeShare } from "../../utils/dashboardStats";
 import { buildSchoolYearDataIndexes } from "../../utils/dataIndexes";
@@ -602,6 +603,7 @@ export function Dashboard({ data, school, year, actor }: DashboardProps) {
 
   return (
     <section className="grid min-w-0 gap-4">
+      {sectionRole && actor && <SchoolCashReadOnlyBalance user={actor} schoolId={school.id} yearId={year.id} />}
       {classesError && <div role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
         {classesError} <button type="button" className="underline" onClick={() => setClassesRefresh((value) => value + 1)}>Réessayer</button>
       </div>}

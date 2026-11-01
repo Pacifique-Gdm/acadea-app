@@ -5,6 +5,7 @@ import { PersonnelPaymentForm } from "../../components/personnel/PersonnelPaymen
 import { OtherCashInflowForm } from "../../components/finance/OtherCashInflowForm";
 import { loadExpenseCashBalance, type PayrollCashBalance } from "../../services/personnelPayroll";
 import { PersonnelPayrollHistory } from "../../components/personnel/PersonnelPayrollHistory";
+import { SchoolCashReadOnlyBalance } from "../../components/SchoolCashReadOnlyBalance";
 import { printPersonnelPaymentPdf } from "../../utils/personnelPayrollPdf";
 import { usePaginatedControlHistory } from "../../hooks/usePaginatedControlHistory";
 import { createExpenseTransaction, createPaymentTransaction, deleteFinancialTransaction, loadStudentArrears, updateExpenseTransaction, updatePaymentTransaction } from "../../services/financialTransactions";
@@ -1744,6 +1745,7 @@ export function ControlModule({
             </div>}
             {renderPaymentHistoryPagination()}
           </>}
+          {isSectionAdministratorRole(user.role) && historyKind !== "payments" && <SchoolCashReadOnlyBalance user={user} schoolId={school.id} yearId={year.id} />}
           {historyKind === "expenses" && renderExpenseHistoryContent()}
           {historyKind === "cashInflows" && <div className="grid gap-2">
             {cashInflowHistory.isInitialLoading && <p>Chargement des entrées de caisse…</p>}
