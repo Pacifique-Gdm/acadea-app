@@ -86,8 +86,8 @@ export async function resolveRecipients(db, caller, recipientRoles, recipientIds
       const callerSections = new Set(Array.isArray(caller.profile?.sectionIds) ? caller.profile.sectionIds : caller.profile?.section ? [caller.profile.section] : []);
       if (section && (!studentSnapshots.every((snapshot) => snapshot.exists && snapshot.data().schoolId === caller.schoolId)
         || activeYearStudents.length !== currentYearStudents.length
-        || !activeYearStudents.every((snapshot) => snapshot.data().section === section))) {
-        throw httpError(403, "invalid-recipient", "Parent lié à une autre section.");
+        || !activeYearStudents.some((snapshot) => snapshot.data().section === section))) {
+        throw httpError(403, "invalid-recipient", "Parent sans enfant dans la section autorisée.");
       }
       if (["discipline_director", "study_director"].includes(normalizedRole(caller.role)) && callerSections.size > 0
         && !activeYearStudents.some((snapshot) => callerSections.has(snapshot.data().section))) {

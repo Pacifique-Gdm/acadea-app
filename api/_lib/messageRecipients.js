@@ -192,11 +192,10 @@ export async function listAllowedMessageRecipients(db, caller, schoolYearId = ""
         const linked = await db.getAll(...parent.studentIds.map((id) => db.doc(`students/${id}`)));
         if (linked.some((document) => !document.exists || document.data()?.schoolId !== scope.schoolId)) continue;
         const active = linked.filter((document) => document.data()?.schoolYearId === schoolYearId);
-        const assigned = new Set(active.map((document) => document.data()?.section));
-        if (!active.length || assigned.size !== 1) continue;
-        const section = [...assigned][0];
-        if (!scope.sectionIds.includes(section) || active.some((document) => !currentStudents.has(document.id))) continue;
-        sections = [section];
+        // A parent belongs to the school, not to one section. Return only the
+        // contact and the caller's eligible sections, never sibling records.
+        sections = scope.sectionIds.filter((section) => active.some((document) =>
+          currentStudents.has(document.id) && document.data()?.section === section));
       }
       if (sections.length) eligible.push({ uid: user.id,
         name: String(user.displayName ?? user.name ?? "Utilisateur").trim() || "Utilisateur", role, sections });

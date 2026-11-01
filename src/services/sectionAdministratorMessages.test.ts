@@ -40,11 +40,13 @@ function database(overrides: Record<string, Record<string, unknown>> = {}) {
 }
 
 describe("destinataires des administrateurs de section", () => {
-  it("retourne un annuaire borné à la section et refuse la fratrie mixte", async () => {
+  it("retourne le parent multi-sections sans exposer les autres enfants", async () => {
     const db = database();
     const recipients = await listAllowedMessageRecipients(db, caller, "year-a");
-    expect(recipients.map((recipient: { uid: string }) => recipient.uid).sort()).toEqual(["admin", "parent-primary", "teacher-primary"]);
+    expect(recipients.map((recipient: { uid: string }) => recipient.uid).sort()).toEqual(["admin", "parent-mixed", "parent-primary", "teacher-primary"]);
     expect(recipients.find((recipient: { uid: string }) => recipient.uid === "parent-primary")?.sections).toEqual(["Primaire"]);
+    expect(recipients.find((recipient: { uid: string }) => recipient.uid === "parent-mixed")).toEqual({ uid: "parent-mixed", name: "Utilisateur", role: "parent", sections: ["Primaire"] });
+    expect(JSON.stringify(recipients)).not.toContain("student-secondary");
     expect(db.collection).toHaveBeenCalledTimes(2);
   });
 
@@ -61,11 +63,14 @@ describe("destinataires des administrateurs de section", () => {
     expect(recipients.map((recipient: { uid: string }) => recipient.uid)).not.toContain("parent-primary");
   });
 
-  it("autorise un parent entièrement lié à la section et refuse une fratrie mixte", async () => {
+  it("autorise le parent dès qu'un enfant est dans la section choisie", async () => {
     const db = database();
     await expect(resolveRecipients(db, caller, ["parent"], ["parent-primary"], "year-a", "Primaire"))
       .resolves.toHaveLength(1);
     await expect(resolveRecipients(db, caller, ["parent"], ["parent-mixed"], "year-a", "Primaire"))
+      .resolves.toHaveLength(1);
+    const unrelated = database({ "parents/parent-b": { schoolId: "school-a", studentIds: ["student-secondary"] } });
+    await expect(resolveRecipients(unrelated, caller, ["parent"], ["parent-mixed"], "year-a", "Primaire"))
       .rejects.toMatchObject({ statusCode: 403, code: "invalid-recipient" });
   });
 
