@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { listSectionSchoolRecords, loadSectionSchoolBootstrap } from "./sectionSchoolRecords.js";
+import { loadSectionDashboard, sectionDashboardTotals } from "./sectionDashboard.js";
+import { buildDashboardFinancialAggregates } from "../../src/utils/dashboardStats";
+import type { Student, FeeType, Payment } from "../../src/types";
 
 const caller = { uid: "actor", role: "primary_admin", schoolId: "a" };
 function fixture() {
@@ -37,6 +40,32 @@ function fixture() {
 const body = { action: "list-section-school-records", kind: "students", schoolYearId: "y" };
 
 describe("lecture scolaire transactionnelle bornée", () => {
+  it("agrège le Dashboard sans exposer les parents mixtes ni les autres sections", async () => {
+    const { db, rows } = fixture();
+    rows.set("schools/a", { status: "active", currency: "CDF" });
+    rows.set("students/one", { schoolId: "a", schoolYearId: "y", section: "Primaire", parentId: "mixed", className: "1ère Primaire" });
+    rows.set("parents/mixed", { schoolId: "a", studentIds: ["one", "other"], confidential: "never-return" });
+    rows.set("parents/foreign", { schoolId: "b", studentIds: ["one"] });
+    rows.set("feeTypes/fee", { schoolId: "a", schoolYearId: "y", name: "Minerval", amount: 100 });
+    rows.set("payments/p", { schoolId: "a", schoolYearId: "y", studentId: "one", feeTypeId: "fee", amount: 25.25, currency: "CDF", paidAt: "2026-11-01" });
+    rows.set("payments/other", { schoolId: "a", schoolYearId: "y", studentId: "other", feeTypeId: "fee", amount: 999, currency: "CDF" });
+    const request = { action: "load-section-dashboard", schoolYearId: "y" };
+    const result = await loadSectionDashboard({ db, caller, body: request });
+    expect(result.financialStats).toEqual({ expected: 100, paid: 25.25, remaining: 74.75 });
+    expect(result.parents).toBe(1);
+    expect(JSON.stringify(result)).not.toMatch(/never-return|mixed|studentIds/);
+    await expect(loadSectionDashboard({ db, caller, body: { ...request, section: "Secondaire" } })).rejects.toMatchObject({ statusCode: 403 });
+    await expect(loadSectionDashboard({ db, caller, body: { ...request, schoolId: "b" } })).rejects.toMatchObject({ statusCode: 400 });
+    rows.set("users/actor", { ...rows.get("users/actor"), active: false });
+    await expect(loadSectionDashboard({ db, caller, body: request })).rejects.toMatchObject({ statusCode: 403 });
+  });
+  it("conserve les règles de calcul et refuse les devises incohérentes", () => {
+    const students = [{ id: "s", className: "1ère Primaire" }] as Student[];
+    const fees = [{ id: "f", name: "Minerval", amount: 100 }, { id: "unpaid", name: "Autre", amount: 50 }] as FeeType[];
+    const payments = [{ id: "p", studentId: "s", feeTypeId: "f", amount: 30.25, currency: "CDF" }] as Payment[];
+    expect(sectionDashboardTotals(students, fees, payments, "CDF")).toEqual(buildDashboardFinancialAggregates(students, fees, payments));
+    expect(() => sectionDashboardTotals(students, fees, payments, "USD")).toThrow("Devise");
+  });
   it("lit les définitions de frais de l'année sans leur inventer de section", async () => {
     const { db, rows, reads } = fixture();
     rows.set("feeTypes/fee", { schoolId: "a", schoolYearId: "y", amount: 10 });

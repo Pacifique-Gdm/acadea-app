@@ -48,4 +48,18 @@ ne démontre pas les effets asynchrones d'un navigateur.
   d'administration des utilisateurs restent interdites.
 - La comptabilité générale n'est jamais ventilée artificiellement par section.
 
-**Verdict : PR non prête pour validation finale / livraison.**
+## Reprise B05
+
+La synthèse scolaire est maintenant calculée côté serveur dans une transaction,
+avec profil actif relu, école/année vérifiées, sections bornées et refus des
+réponses partielles trop volumineuses. Les effectifs parents sont agrégés sans
+exposer les dossiers ni les enfants d'autres sections. Les effectifs de personnel
+sont explicitement globaux à l'établissement. Les KPI sont séparés de la caisse
+générale et le PDF de section n'attribue plus de dépenses générales aux sections.
+
+28 tests ciblés PASS : calculs comparés au helper historique, refus de section et
+école étrangères, compte désactivé, devises incohérentes, transport et contenu du
+PDF. Ces tests de contenu ne constituent pas une inspection visuelle PDF ni une
+recette authentifiée. B05 implémenté ; validation intégrée finale rattachée à B08.
+
+**Verdict : PR non prête pour validation finale / livraison ; B06–B08 ouverts.**

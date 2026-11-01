@@ -13,6 +13,17 @@ vi.mock("./pdf", () => ({
 import { exportDashboardReportPdf } from "./dashboardPdf";
 
 describe("Dashboard PDF — devise de l'année scolaire", () => {
+  it("ne présente jamais les dépenses générales comme des dépenses de section", async () => {
+    await exportDashboardReportPdf({ school: { id: "a", currency: "CDF" } as School,
+      year: { id: "y", name: "Test", currency: "CDF" } as SchoolYear,
+      sectionScoped: true, sectionLabel: "Primaire", dateLabel: "Année", recoveryRate: 25,
+      totalPayments: 25, arrearsCollections: [], totalExpenses: 999, expected: 100, remaining: 75,
+      transactions: [], classRows: [], totalGirls: 0, totalBoys: 0, totalStudents: 0 });
+    const output = render.mock.calls.at(-1)?.[0];
+    expect(output.subtitle).toContain("hors comptabilité générale");
+    expect(output.sections.join(" ")).not.toContain("Dépenses");
+    expect(output.sections.join(" ")).not.toContain("999");
+  });
   it("utilise la devise de l'année sans réétiqueter les arriérés d'une autre devise", async () => {
     const school = { id: "school-a", name: "École fictive", currency: "USD" } as School;
     const year = { id: "year-a", name: "2026-2027", schoolId: "school-a", currency: "CDF" } as SchoolYear;

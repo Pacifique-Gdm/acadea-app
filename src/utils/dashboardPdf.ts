@@ -20,6 +20,7 @@ export async function exportDashboardReportPdf({
   totalGirls,
   totalBoys,
   totalStudents,
+  sectionScoped = false,
 }: {
   school: School;
   year: SchoolYear;
@@ -36,6 +37,7 @@ export async function exportDashboardReportPdf({
   totalGirls: number;
   totalBoys: number;
   totalStudents: number;
+  sectionScoped?: boolean;
 }) {
   const yearCurrency = resolveSchoolYearCurrency(year, school);
   await renderAcadPdfPreview({
@@ -43,7 +45,7 @@ export async function exportDashboardReportPdf({
     title: "Dashboard",
     school,
     year,
-    subtitle: `Section : ${sectionLabel} | Tranche de date : ${dateLabel}`,
+    subtitle: `Section : ${sectionLabel} | Tranche de date : ${dateLabel}${sectionScoped ? " | Finances scolaires des sections autorisées uniquement, hors comptabilité générale" : ""}`,
     sections: [
       pdfSection(
         "KPI financier",
@@ -51,7 +53,7 @@ export async function exportDashboardReportPdf({
           { label: "Recouvrement", value: `${recoveryRate}%` },
           { label: "Frais de l'année encaissés", value: formatCurrencyMoney(totalPayments, yearCurrency) },
           ...arrearsCollections.map((group) => ({ label: `Arriérés encaissés (${group.currency})`, value: formatCurrencyMoney(group.amount, group.currency) })),
-          { label: "Dépenses", value: formatCurrencyMoney(totalExpenses, yearCurrency) },
+          ...(!sectionScoped ? [{ label: "Dépenses", value: formatCurrencyMoney(totalExpenses, yearCurrency) }] : []),
           { label: "Attendu", value: formatCurrencyMoney(expected, yearCurrency) },
           { label: "Reste", value: formatCurrencyMoney(remaining, yearCurrency) },
         ]),

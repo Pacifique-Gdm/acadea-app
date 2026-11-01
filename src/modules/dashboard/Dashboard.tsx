@@ -24,6 +24,7 @@ import { formatStudentClassName, getClassSection } from "../../utils/studentClas
 import { isArchivedStudent } from "../../utils/studentUtils";
 import { isSectionAdministratorRole } from "../../utils/sectionAdministratorYearScope";
 import { loadSectionSchoolRecords } from "../../services/sectionSchoolRecords";
+import { loadSectionDashboard, type SectionDashboard } from "../../services/sectionDashboard";
 import type { AppUser, Expense, FeeType, ParentProfile, Payment, School, SchoolClassRecord, SchoolSection, SchoolYear, Student } from "../../types";
 
 type DashboardData = {
@@ -348,6 +349,21 @@ export function Dashboard({ data, school, year, actor }: DashboardProps) {
   const [schoolClasses, setSchoolClasses] = useState<SchoolClassRecord[]>([]);
   const [classesError, setClassesError] = useState("");
   const [classesRefresh, setClassesRefresh] = useState(0);
+  const summaryKey = JSON.stringify([actor?.id, actor?.status, actor?.active, actor?.sectionIds, school.id, year.id, sectionFilter, dateFilterActive, startDate, endDate]);
+  const [summary, setSummary] = useState<{ key: string; data?: SectionDashboard; error?: string }>({ key: "" });
+  const sectionSummary = summary.key === summaryKey ? summary.data : undefined;
+  useEffect(() => {
+    if (!sectionRole || !actor) return;
+    const controller = new AbortController();
+    setSummary({ key: summaryKey });
+    void loadSectionDashboard(actor, school.id, year.id, {
+      ...(sectionFilter !== "all" ? { section: sectionFilter } : {}),
+      ...(dateFilterActive && startDate ? { startDate } : {}),
+      ...(dateFilterActive && endDate ? { endDate } : {}),
+    }, controller.signal).then((data) => { if (!controller.signal.aborted) setSummary({ key: summaryKey, data }); })
+      .catch(() => { if (!controller.signal.aborted) setSummary({ key: summaryKey, error: "Synthèse scolaire indisponible. Réessayez." }); });
+    return () => controller.abort();
+  }, [actor, classesRefresh, dateFilterActive, endDate, school.id, sectionFilter, sectionRole, startDate, summaryKey, year.id]);
   const dashboardSectionChoices = useMemo(() => getSchoolSections(school).filter((section) => !sectionRole || Boolean(actor?.sectionIds?.includes(section))), [actor?.sectionIds, school, sectionRole]);
   const dashboardClassChoices = useMemo(() => getSchoolClassChoices(school).filter((className) => !sectionRole || dashboardSectionChoices.includes(getClassSection(className))), [dashboardSectionChoices, school, sectionRole]);
   useEffect(() => {
@@ -402,14 +418,16 @@ export function Dashboard({ data, school, year, actor }: DashboardProps) {
     [activeStudents, data.feeTypes, data.payments, yearIndexes],
   );
   const hasDashboardFinancialFilter = sectionFilter !== "all" || dateFilterActive;
-  const activeFinancialAggregates = hasDashboardFinancialFilter ? dashboardFinancialAggregates : fullYearFinancialAggregates;
+  const activeFinancialAggregates = sectionRole
+    ? sectionSummary ?? { financialStats: { expected: 0, paid: 0, remaining: 0 }, feeProgressRows: [] }
+    : hasDashboardFinancialFilter ? dashboardFinancialAggregates : fullYearFinancialAggregates;
   const dashboardFinancialStats = activeFinancialAggregates.financialStats;
   const totalPayments = dashboardFinancialStats.paid;
   const currentCurrency = resolveSchoolYearCurrency(year, school);
   const hasUnreliableFinancialCurrency = hasCurrencyOutside([...data.payments, ...resolvedExpenses], currentCurrency);
   const financialVerificationReady = expenseResolution.status === "ready";
   // A section slice cannot claim to be the school's complete cash balance.
-  const financialExportBlocked = sectionRole || !financialVerificationReady || hasUnreliableFinancialCurrency;
+  const financialExportBlocked = (sectionRole && (!sectionSummary || sectionSummary.currency !== currentCurrency)) || !financialVerificationReady || hasUnreliableFinancialCurrency;
   const transactionStartDate = dateFilterActive ? startDate : today;
   const transactionEndDate = dateFilterActive ? endDate : today;
   const arrearsCollections = useMemo(() => (["USD", "CDF"] as const).map((currency) => ({
@@ -540,11 +558,11 @@ export function Dashboard({ data, school, year, actor }: DashboardProps) {
   const cards = [
     { label: "Nombre total d'\u00e9l\u00e8ves", value: totalActiveStudents, icon: GraduationCap, tone: "bg-mint/10 text-mint" },
     { label: "Nombre de classes", value: operationalClassCount, icon: BookOpen, tone: "bg-indigo-100 text-indigo-700" },
-    { label: "Nombre total de parents", value: totalUniqueParents, icon: UsersRound, tone: "bg-coral/10 text-coral" },
-    { label: "Administrateurs", value: personnelCounts.school_admin, icon: ShieldCheck, tone: "bg-blue-100 text-blue-700" },
-    { label: "Caissiers", value: personnelCounts.cashier, icon: UserRound, tone: "bg-pink-100 text-pink-700" },
-    { label: "Directeurs de Discipline", value: personnelCounts.discipline_director, icon: ShieldCheck, tone: "bg-violet-100 text-violet-700" },
-    { label: "Montant attendu", value: formatCurrencyMoney(dashboardFinancialStats.expected, currentCurrency), icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
+    { label: "Nombre total de parents", value: sectionRole ? sectionSummary?.parents ?? "Indisponible" : totalUniqueParents, icon: UsersRound, tone: "bg-coral/10 text-coral" },
+    { label: "Administrateurs", value: sectionRole ? sectionSummary?.personnel.school_admin ?? "Indisponible" : personnelCounts.school_admin, icon: ShieldCheck, tone: "bg-blue-100 text-blue-700" },
+    { label: "Caissiers", value: sectionRole ? sectionSummary?.personnel.cashier ?? "Indisponible" : personnelCounts.cashier, icon: UserRound, tone: "bg-pink-100 text-pink-700" },
+    { label: "Directeurs de Discipline", value: sectionRole ? sectionSummary?.personnel.discipline_director ?? "Indisponible" : personnelCounts.discipline_director, icon: ShieldCheck, tone: "bg-violet-100 text-violet-700" },
+    { label: "Montant attendu", value: financialExportBlocked ? "Non calculable" : formatCurrencyMoney(dashboardFinancialStats.expected, currentCurrency), icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
     { label: "Frais de l'année encaissés", value: financialExportBlocked ? "Non calculable" : formatCurrencyMoney(totalPayments, currentCurrency), icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
     { label: "Montant restant \u00e0 payer", value: financialExportBlocked ? "Non calculable" : formatCurrencyMoney(remaining, currentCurrency), icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
   ];
@@ -567,6 +585,7 @@ export function Dashboard({ data, school, year, actor }: DashboardProps) {
       totalPayments,
       arrearsCollections,
       totalExpenses,
+      sectionScoped: sectionRole,
       expected: dashboardFinancialStats.expected,
       remaining,
       transactions,
@@ -651,7 +670,11 @@ export function Dashboard({ data, school, year, actor }: DashboardProps) {
       {expenseResolution.status === "loading" && <p role="status" className="rounded border border-slate-200 bg-white p-3 text-sm">Vérification des devises historiques en cours…</p>}
       {expenseResolution.status === "error" && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Vérification des devises indisponible. Réessayez après avoir rétabli la connexion.</p>}
       {financialVerificationReady && hasUnreliableFinancialCurrency && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Synthèse financière et PDF indisponibles : des opérations historiques ont une devise inconnue ou différente de la devise actuelle. Vérification ou réconciliation nécessaire.</p>}
-      {sectionRole && <p role="status" className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Synthèse financière et export PDF indisponibles tant que les opérations de cette section ne sont pas réconciliées côté serveur.</p>}
+      {sectionRole && <div className="rounded border border-slate-200 bg-white p-3 text-sm">
+        <p>Finances scolaires : sections autorisées uniquement. Personnel : effectifs de l’établissement. La caisse générale est présentée séparément.</p>
+        {!sectionSummary && <p role={summary.error ? "alert" : "status"}>{summary.key === summaryKey && summary.error ? summary.error : "Chargement de la synthèse scolaire…"}</p>}
+        <button type="button" className="secondary-button" onClick={() => setClassesRefresh((value) => value + 1)}>Actualiser la synthèse</button>
+      </div>}
 
       <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {cards.map((card) => {
@@ -682,7 +705,7 @@ export function Dashboard({ data, school, year, actor }: DashboardProps) {
         <div className="mt-4 grid gap-2 sm:grid-cols-4">
           <Metric label="Attendu" value={formatCurrencyMoney(dashboardFinancialStats.expected, currentCurrency)} />
           <Metric label={"Frais de l'année encaissés"} value={formatCurrencyMoney(totalPayments, currentCurrency)} />
-          <Metric label={"D\u00e9penses"} value={formatCurrencyMoney(totalExpenses, currentCurrency)} />
+          {!sectionRole && <Metric label={"D\u00e9penses"} value={formatCurrencyMoney(totalExpenses, currentCurrency)} />}
           <Metric label="Reste" value={formatCurrencyMoney(remaining, currentCurrency)} />
         </div>
         <div className="mt-5 grid gap-3">
