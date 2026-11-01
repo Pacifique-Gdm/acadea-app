@@ -3,6 +3,7 @@ import { resolveApiUrl } from "../config/apiUrl";
 import { sectionAdministratorQuerySections } from "../utils/sectionAdministratorYearScope";
 import type { AppUser, School, SchoolYear, SchoolClassRecord, Student, FeeType, Payment } from "../types";
 import { loadControlHistoryPage, type ControlHistoryPage } from "./controlHistory";
+import type { StudentMedicalRecord } from "../modules/secretary/secretaryTypes";
 
 export async function loadSectionSchoolBootstrap(user: AppUser) {
   const schoolId = user.schoolId ?? "";
@@ -24,11 +25,13 @@ export async function loadSectionSchoolBootstrap(user: AppUser) {
   return data;
 }
 
-type Records = { classes: SchoolClassRecord; students: Student; feeTypes: FeeType };
+export type SectionPersonnel = { id: string; schoolId: string; name: string; role?: AppUser["role"]; kind?: "service"; jobTitle?: string; status?: "active" | "inactive"; active?: boolean };
+type Records = { classes: SchoolClassRecord; students: Student; feeTypes: FeeType; personnel: SectionPersonnel; servicePersonnel: SectionPersonnel; medicalRecords: StudentMedicalRecord & { section: string } };
 export async function loadSectionSchoolRecords<K extends keyof Records>(
   kind: K, user: AppUser, schoolId: string, schoolYearId: string, signal?: AbortSignal,
 ): Promise<Records[K][]> {
   const sections = sectionAdministratorQuerySections(user, schoolId);
+  const globalPersonnel = kind === "personnel" || kind === "servicePersonnel";
   if (!schoolYearId) throw new Error("Année scolaire requise.");
   const token = await getCurrentFirebaseIdToken();
   if (!token) throw new Error("Authentification requise.");
@@ -45,7 +48,8 @@ export async function loadSectionSchoolRecords<K extends keyof Records>(
     const page = await response.json() as { schoolId: string; schoolYearId: string; items: Records[K][]; nextCursorId: unknown };
     if (page.schoolId !== schoolId || page.schoolYearId !== schoolYearId || !Array.isArray(page.items)
       || page.items.some((item) => !item || typeof item.id !== "string" || item.schoolId !== schoolId
-        || item.schoolYearId !== schoolYearId || kind !== "feeTypes"
+        || globalPersonnel && (!("name" in item) || typeof item.name !== "string")
+        || !globalPersonnel && (!("schoolYearId" in item) || item.schoolYearId !== schoolYearId) || !globalPersonnel && kind !== "feeTypes"
           && (!("section" in item) || !item.section || !sections.includes(String(item.section))))) {
       throw new Error("Réponse scolaire hors périmètre.");
     }

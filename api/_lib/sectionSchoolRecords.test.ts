@@ -40,6 +40,32 @@ function fixture() {
 const body = { action: "list-section-school-records", kind: "students", schoolYearId: "y" };
 
 describe("lecture scolaire transactionnelle bornée", () => {
+  it("lit les fiches médicales par les élèves autorisés, jamais par une requête globale", async () => {
+    const { db, rows, reads } = fixture();
+    rows.set("studentMedicalRecords/one", { studentId: "one", schoolId: "a", schoolYearId: "y", allergies: "Test" });
+    rows.set("studentMedicalRecords/other", { studentId: "other", schoolId: "a", schoolYearId: "y", allergies: "Secret" });
+    const result = await listSectionSchoolRecords({ db, caller, body: { ...body, kind: "medicalRecords" } });
+    expect(result.items).toEqual([{ id: "one", studentId: "one", schoolId: "a", schoolYearId: "y", section: "Primaire", allergies: "Test" }]);
+    expect(reads.every((query) => query.name === "students")).toBe(true);
+    rows.set("studentMedicalRecords/one", { studentId: "other", schoolId: "a", schoolYearId: "y" });
+    await expect(listSectionSchoolRecords({ db, caller, body: { ...body, kind: "medicalRecords" } })).rejects.toMatchObject({ statusCode: 403 });
+  });
+  it("projette le personnel global sans comptes parents ni informations administratives privées", async () => {
+    const { db, rows } = fixture();
+    rows.set("users/teacher", { schoolId: "a", role: "teacher", name: "Test", sectionIds: ["Secondaire"], email: "private", phone: "private", permissions: ["private"] });
+    rows.set("users/parent", { schoolId: "a", role: "parent", name: "Parent" });
+    rows.set("users/foreign", { schoolId: "b", role: "teacher", name: "Foreign" });
+    const result = await listSectionSchoolRecords({ db, caller, body: { ...body, kind: "personnel" } });
+    expect(result.items.find((item: { id: string }) => item.id === "teacher")).toEqual({ id: "teacher", schoolId: "a", name: "Test", role: "teacher" });
+    expect(result.items.map((item: { id: string }) => item.id)).not.toContain("parent");
+    expect(result.items.map((item: { id: string }) => item.id)).not.toContain("foreign");
+    expect(JSON.stringify(result)).not.toContain("private");
+    await expect(listSectionSchoolRecords({ db, caller, body: { ...body, kind: "personnel", cursorId: "parent" } })).rejects.toMatchObject({ statusCode: 403 });
+    rows.set("personnelProfiles/service", { kind: "service", schoolId: "a", name: "Test", jobTitle: "Gardien", bankAccount: "private" });
+    rows.set("personnelProfiles/profile", { schoolId: "a", name: "Confidentiel" });
+    const service = await listSectionSchoolRecords({ db, caller, body: { ...body, kind: "servicePersonnel" } });
+    expect(service.items).toEqual([{ id: "service", schoolId: "a", kind: "service", name: "Test", jobTitle: "Gardien" }]);
+  });
   it("agrège le Dashboard sans exposer les parents mixtes ni les autres sections", async () => {
     const { db, rows } = fixture();
     rows.set("schools/a", { status: "active", currency: "CDF" });

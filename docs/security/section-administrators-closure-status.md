@@ -96,3 +96,20 @@ La création des messages/notifications est conditionnelle et un échec de répo
 ne supprime plus les pièces jointes d'un message déjà enregistré. 30 tests ciblés
 PASS, lint PASS. Il s'agit de tests unitaires de transactions simulées, pas d'une
 preuve de concurrence sur Firebase hébergé. La validation intégrée reste B08.
+
+## Reprise B07 — consultations bornées du Menu
+
+Types de frais (référentiel en lecture seule), bibliothèque existante, personnel
+global et consultation de sa paie sont raccordés. Le lecteur personnel projette
+uniquement nom, fonction et statut ; aucune donnée administrative privée ni compte
+Parent n'est retourné. Les fiches médicales sont lues par identifiants d'élèves
+autorisés dans la même transaction, puis affichées avec le composant existant sans
+commande de modification. Aucune mutation de compte ou de paie n'est ajoutée.
+47 tests ciblés PASS, lint et diff check PASS. B07 reste ouvert pour les autres
+consultations non encore raccordées ; ce lot n'est pas une recette navigateur.
+
+Les 6 tests unitaires Functions de contrôle des pièces jointes de messages sont
+PASS. TypeScript local reste limité par les dépendances absentes `@vvo/tzdb`,
+`pdfjs-dist` et `tesseract.js`; la CI application/functions du commit f1831c3 est
+PASS (installation propre, types, tests et build), sans prétendre valider le lot
+Menu postérieur avant sa CI.

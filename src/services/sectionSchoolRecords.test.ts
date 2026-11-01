@@ -7,6 +7,13 @@ const record = { id: "class-a", schoolId: "a", schoolYearId: "y", section: "Prim
 const page = { schoolId: "a", schoolYearId: "y", items: [record], nextCursorId: null };
 afterEach(() => vi.unstubAllGlobals());
 describe("transport des lectures scolaires bornées", () => {
+  it("accepte le personnel global uniquement dans l'établissement sans exiger une section fictive", async () => {
+    const personnel = { id: "staff", schoolId: "a", name: "Test", role: "teacher" };
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ ...page, items: [personnel] }) })));
+    expect(await loadSectionSchoolRecords("personnel", user, "a", "y")).toEqual([personnel]);
+    personnel.schoolId = "b";
+    await expect(loadSectionSchoolRecords("personnel", user, "a", "y")).rejects.toThrow("hors périmètre");
+  });
   it("charge la provenance des arriérés et déduplique les deux historiques", async () => {
     const payment = { id: "arrears", schoolId: "a", schoolYearId: "old", collectionSchoolYearId: "y", studentId: "old-pupil", currentStudentId: record.id };
     vi.stubGlobal("fetch", vi.fn(async (_url, init) => {

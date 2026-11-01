@@ -30,6 +30,8 @@ import { FEE_KINDS } from "../../types";
 import { groupFeeTypes } from "./feeTypeGroups";
 import { SecretaryMedicalRecordsDrawer } from "../secretary/SecretaryMedicalTools";
 import { PersonnelDrawerContent } from "./PersonnelDrawerContent";
+import { SectionPersonnelReadOnly } from "./SectionPersonnelReadOnly";
+import { loadSectionSchoolRecords } from "../../services/sectionSchoolRecords";
 import { ServicePersonnelForm } from "../../components/personnel/ServicePersonnelForm";
 import { OwnPayrollEntry } from "../../components/personnel/OwnPayrollEntry";
 import { SchoolYearArchiveDrawer } from "../../components/archive/SchoolYearArchiveDrawer";
@@ -226,7 +228,16 @@ export function MenuModule({
   }, [canAdmin, school.id, user]);
 
   useEffect(() => {
-    if (!medicalRecordsOpen || !canReadAdmin) return undefined;
+    if (!medicalRecordsOpen || !canReadAdmin && !sectionRole) return undefined;
+    setMedicalRecords([]);
+    setMedicalRecordsError("");
+    if (sectionRole) {
+      const controller = new AbortController();
+      void loadSectionSchoolRecords("medicalRecords", user, school.id, selectedYear.id, controller.signal)
+        .then((records) => { if (!controller.signal.aborted) setMedicalRecords(records); })
+        .catch((error) => { if (!controller.signal.aborted) setMedicalRecordsError(refreshErrorMessage(error)); });
+      return () => controller.abort();
+    }
     return subscribeToStudentMedicalRecords({
       user,
       schoolId: school.id,
@@ -234,7 +245,7 @@ export function MenuModule({
       onData: (records) => { setMedicalRecords(records); setMedicalRecordsError(""); },
       onError: (error) => setMedicalRecordsError(refreshErrorMessage(error)),
     });
-  }, [canReadAdmin, medicalRecordsOpen, school.id, selectedYear.id, user]);
+  }, [canReadAdmin, sectionRole, medicalRecordsOpen, school.id, selectedYear.id, user]);
 
   useEffect(() => {
     if (schoolUserEmailManuallyEdited) return;
@@ -1086,6 +1097,13 @@ export function MenuModule({
       );
     }
 
+    if (sectionId === "personnel" && sectionRole) return <SectionPersonnelReadOnly user={user} school={school} schoolYearId={selectedYear.id} />;
+    if (sectionId === "fees" && sectionRole) return <div className="grid min-w-0 gap-3">
+      <p className="text-sm text-slate-600">Référentiel des frais de l’établissement — lecture seule. Les opérations sur les élèves restent limitées à vos sections.</p>
+      {yearData.feeTypes.filter((fee) => fee.schoolId === school.id && fee.schoolYearId === selectedYear.id).map((fee) => <div key={fee.id} className="rounded bg-slate-50 p-3 text-sm">
+        <strong>{fee.name}</strong> · {formatFeeTargetLabel(fee)} · {formatCurrencyMoney(fee.amount, feeCurrency)}
+      </div>)}
+    </div>;
     if (sectionId === "personnel" && canReadAdmin) {
       return <PersonnelDrawerContent user={user} school={school} readOnly={isArchivedContext} onCreatePersonnel={canAdmin ? () => { clearMenuMessages(); setCreatePersonnelOpen(true); } : undefined} />;
     }
@@ -1367,7 +1385,7 @@ export function MenuModule({
 
   const visibleMenuSections = menuSections.filter((section) => canReadAdmin
     || user.role === "cashier" && (section.id === "valves" || section.id === "history" || section.id === "library")
-    || sectionRole && ["years", "school", "history"].includes(section.id));
+    || sectionRole && ["years", "school", "history", "fees", "personnel", "library", "medicalRecords"].includes(section.id));
   const activeMenuSectionConfig = visibleMenuSections.find((section) => section.id === activeMenuSection);
 
   return (
@@ -1421,7 +1439,7 @@ export function MenuModule({
         </AdminDrawer>
       )}
       {medicalRecordsError && medicalRecordsOpen && <p role="alert" aria-live="assertive" className="rounded border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800">{medicalRecordsError}</p>}
-      <SecretaryMedicalRecordsDrawer open={medicalRecordsOpen} onClose={() => { setMedicalRecordsOpen(false); setMedicalRecordsError(""); }} user={user} students={yearData.students} records={medicalRecords} school={school} year={selectedYear} />
+      <SecretaryMedicalRecordsDrawer open={medicalRecordsOpen} onClose={() => { setMedicalRecordsOpen(false); setMedicalRecordsError(""); }} user={user} students={yearData.students} records={sectionRole ? medicalRecords.filter((record) => record.schoolId === school.id && record.schoolYearId === selectedYear.id && yearData.students.some((student) => student.id === record.studentId && student.schoolId === school.id && student.schoolYearId === selectedYear.id && user.sectionIds?.includes(student.section!))) : medicalRecords} school={school} year={selectedYear} />
       {parentDeleteOpen && (
         <AdminDrawer title="Supprimer un parent" onClose={closeParentDeleteDrawer} closeLabel="Annuler la suppression du parent">
           <div className="grid min-w-0 gap-4">
