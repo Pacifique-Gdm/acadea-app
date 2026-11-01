@@ -38,7 +38,7 @@ type DashboardProps = {
   data: DashboardData;
   school: School;
   year: SchoolYear;
-  actor?: Pick<AppUser, "role" | "schoolId" | "sectionIds">;
+  actor?: AppUser;
 };
 
 export type TransactionPeriod = "today" | "last5" | "week";
