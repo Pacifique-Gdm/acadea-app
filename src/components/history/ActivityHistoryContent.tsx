@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowUpDown, Banknote, Bell, Clock3, MessageSquare, Search, ShieldCheck } from "lucide-react";
-import type { AppData, AppUser, AuditLog } from "../../types";
+import type { AppData, AppUser, AuditLog, CashInflow, Expense, Payment } from "../../types";
 import { listPedagogicalHistory, type PedagogicalHistoryCursor } from "../../services/pedagogicalHistory";
+import { loadControlHistoryPage, type ControlHistoryCursor, type ControlHistoryKind } from "../../services/controlHistory";
+import { buildSectionFinancialHistoryItems } from "../../utils/sectionFinancialHistory";
+import { isSectionAdministratorRole } from "../../utils/sectionAdministratorYearScope";
 import { buildActivityHistoryItems, formatActivityDateTime } from "../../utils/activityHistory";
 import type { ActivityHistoryItem, ActivityHistoryYearData } from "../../utils/activityHistory";
 
@@ -28,9 +31,14 @@ export function ActivityHistoryContent({
   const [pedagogicalCursor, setPedagogicalCursor] = useState<PedagogicalHistoryCursor | null>(null);
   const [pedagogicalLoading, setPedagogicalLoading] = useState(false);
   const [pedagogicalError, setPedagogicalError] = useState("");
+  const sectionRole = isSectionAdministratorRole(user.role);
+  const [sectionRecords, setSectionRecords] = useState<{ payments: Payment[]; expenses: Expense[]; cashInflows: CashInflow[] }>({ payments: [], expenses: [], cashInflows: [] });
+  const [sectionCursors, setSectionCursors] = useState<Partial<Record<ControlHistoryKind, ControlHistoryCursor | null>>>({});
+  const [sectionLoading, setSectionLoading] = useState(false);
+  const [sectionError, setSectionError] = useState("");
   const scopedYearId = schoolYearId || user.activeSchoolYearId || data.schools.find((school) => school.id === user.schoolId)?.activeSchoolYearId || data.schoolYears.find((year) => year.schoolId === user.schoolId && year.status === "active")?.id || "";
   useEffect(() => {
-    if (!["teacher", "study_director", "admin"].includes(role) || !user.schoolId || !scopedYearId) return;
+    if (sectionRole || !["teacher", "study_director", "admin"].includes(role) || !user.schoolId || !scopedYearId) return;
     let active = true;
     setPedagogicalLogs([]);
     setPedagogicalCursor(null);
@@ -41,9 +49,41 @@ export function ActivityHistoryContent({
     }).catch(() => { if (active) setPedagogicalError("Impossible de charger les activités pédagogiques. Veuillez réessayer."); })
       .finally(() => { if (active) setPedagogicalLoading(false); });
     return () => { active = false; };
-  }, [role, scopedYearId, user.schoolId]);
+  }, [role, scopedYearId, sectionRole, user.schoolId]);
+  useEffect(() => {
+    if (!sectionRole || !user.schoolId || !scopedYearId) return;
+    let active = true;
+    setSectionRecords({ payments: [], expenses: [], cashInflows: [] });
+    setSectionCursors({});
+    setSectionError("");
+    setSectionLoading(true);
+    void Promise.all([
+      loadControlHistoryPage<Payment>("payments", user.schoolId, scopedYearId, user),
+      loadControlHistoryPage<Expense>("expenses", user.schoolId, scopedYearId, user),
+      loadControlHistoryPage<CashInflow>("cashInflows", user.schoolId, scopedYearId, user),
+    ]).then(([payments, expenses, cashInflows]) => {
+      if (!active) return;
+      setSectionRecords({ payments: payments.items, expenses: expenses.items, cashInflows: cashInflows.items });
+      setSectionCursors({ payments: payments.lastVisible, expenses: expenses.lastVisible, cashInflows: cashInflows.lastVisible });
+    }).catch(() => { if (active) setSectionError("Historique financier indisponible. Veuillez réessayer."); })
+      .finally(() => { if (active) setSectionLoading(false); });
+    return () => { active = false; };
+  }, [scopedYearId, sectionRole, user]);
   const combinedYearData = useMemo(() => ({ ...yearData, auditLogs: [...yearData.auditLogs, ...pedagogicalLogs] }), [yearData, pedagogicalLogs]);
-  const items = useMemo(() => buildActivityHistoryItems(user, data, combinedYearData, role), [data, role, user, combinedYearData]);
+  const items = useMemo(() => sectionRole
+    ? buildSectionFinancialHistoryItems(sectionRecords, yearData.students)
+    : buildActivityHistoryItems(user, data, combinedYearData, role), [combinedYearData, data, role, sectionRecords, sectionRole, user, yearData.students]);
+  async function loadMoreSectionHistory(kind: ControlHistoryKind) {
+    if (!user.schoolId || !scopedYearId || !sectionCursors[kind] || sectionLoading) return;
+    setSectionLoading(true);
+    setSectionError("");
+    try {
+      const page = await loadControlHistoryPage<Payment & Expense & CashInflow>(kind, user.schoolId, scopedYearId, user, sectionCursors[kind]);
+      setSectionRecords((current) => ({ ...current, [kind]: [...current[kind], ...page.items] }));
+      setSectionCursors((current) => ({ ...current, [kind]: page.lastVisible }));
+    } catch { setSectionError("Suite de l'historique indisponible. Veuillez réessayer."); }
+    finally { setSectionLoading(false); }
+  }
   async function loadMorePedagogical() {
     if (!pedagogicalCursor || !user.schoolId || !scopedYearId || pedagogicalLoading) return;
     setPedagogicalLoading(true);
@@ -95,6 +135,8 @@ export function ActivityHistoryContent({
       {!loading && !error && <>
       {pedagogicalError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{pedagogicalError}</p>}
       {pedagogicalLoading && <p role="status" className="text-sm text-slate-500">Chargement des activités pédagogiques…</p>}
+      {sectionError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{sectionError}</p>}
+      {sectionLoading && <p role="status" className="text-sm text-slate-500">Chargement de l'historique financier…</p>}
       <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_160px]">
         <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
           <Search className="h-4 w-4 shrink-0 text-slate-400" />
@@ -117,7 +159,7 @@ export function ActivityHistoryContent({
       </div>
 
       <div className="min-w-0 max-w-full space-y-2">
-        {filteredItems.length === 0 && (
+        {filteredItems.length === 0 && !sectionLoading && !sectionError && (
           <p className="rounded border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">Aucune activité disponible.</p>
         )}
         {filteredItems.map((item) => (
@@ -143,6 +185,7 @@ export function ActivityHistoryContent({
         ))}
       </div>
       {pedagogicalCursor && <button type="button" className="secondary-button justify-center" disabled={pedagogicalLoading} onClick={() => void loadMorePedagogical()}>Afficher plus d’activités pédagogiques</button>}
+      {sectionRole && (Object.keys(sectionCursors) as ControlHistoryKind[]).filter((kind) => sectionCursors[kind]).map((kind) => <button key={kind} type="button" className="secondary-button justify-center" disabled={sectionLoading} onClick={() => void loadMoreSectionHistory(kind)}>Afficher plus : {kind === "payments" ? "paiements" : kind === "expenses" ? "dépenses" : "autres entrées"}</button>)}
       </>}
     </div>
   );

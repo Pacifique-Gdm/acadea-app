@@ -11,6 +11,7 @@ import { deleteParentAccount, provisionSchoolUser } from "../../services/provisi
 import { subscribeToStudentMedicalRecords } from "../../services/studentMedicalRecords";
 import { createAuditLog } from "../../utils/audit";
 import { refreshErrorMessage } from "../../utils/refreshErrors";
+import { isSectionAdministratorRole } from "../../utils/sectionAdministratorYearScope";
 import { buildFeeTargetChoices, feeTargetClassName } from "../../utils/feeTargets";
 import { feeTypeBusinessKey } from "../../utils/feeTypeIdentity";
 import { getSchoolEducationLevels, getSchoolSections, schoolSectionLabels, toggleSchoolEducationLevel } from "../../utils/schoolConfig";
@@ -173,6 +174,7 @@ export function MenuModule({
   const [teacherAccountsError, setTeacherAccountsError] = useState("");
   const isArchivedContext = selectedYear.status === "archived";
   const canReadAdmin = user.role === "school_admin";
+  const sectionRole = isSectionAdministratorRole(user.role);
   const canAdmin = canReadAdmin && !isArchivedContext;
   const yearManagementLocked = Boolean(school.activeCoordinationId);
   const canManageYears = canAdmin && !yearManagementLocked;
@@ -1340,7 +1342,7 @@ export function MenuModule({
       );
     }
 
-    if (sectionId === "parentsDirectory" && canReadAdmin) {
+    if (sectionId === "parentsDirectory" && (canReadAdmin || sectionRole)) {
       return (
         <ParentsDirectoryDrawer
           parents={yearData.parents}
@@ -1363,7 +1365,9 @@ export function MenuModule({
     return null;
   }
 
-  const visibleMenuSections = menuSections.filter((section) => canReadAdmin || user.role === "cashier" && (section.id === "valves" || section.id === "history" || section.id === "library"));
+  const visibleMenuSections = menuSections.filter((section) => canReadAdmin
+    || user.role === "cashier" && (section.id === "valves" || section.id === "history" || section.id === "library")
+    || sectionRole && ["years", "school", "parentsDirectory", "history"].includes(section.id));
   const activeMenuSectionConfig = visibleMenuSections.find((section) => section.id === activeMenuSection);
 
   return (
