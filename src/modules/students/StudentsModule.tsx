@@ -21,6 +21,7 @@ import { canonicalAnnualClassName, isEligibleForAnnualTransition, isImmediatelyP
 import { useStudentPage } from "../../hooks/useStudentPage";
 import { isSectionAdministratorRole } from "../../utils/sectionAdministratorYearScope";
 import { assertSectionStudentPdfScope } from "../../utils/sectionAdministratorPdf";
+import { loadSectionSchoolRecords } from "../../services/sectionSchoolRecords";
 import { loadAllStudentResults, STUDENT_SOURCE_PAGE_SIZE, type StudentQueryFilters } from "../../services/studentPagination";
 
 export interface StudentModuleCapabilities {
@@ -144,11 +145,15 @@ export function StudentsModule({
     if (sectionRole) {
       setStructuredClasses([]);
       setStructuredClassesLoaded(false);
-      return;
+      const controller = new AbortController();
+      void loadSectionSchoolRecords("classes", user, school.id, year.id, controller.signal)
+        .then((items) => { if (!controller.signal.aborted) { setStructuredClasses(items); setStructuredClassesLoaded(true); } })
+        .catch(() => { if (!controller.signal.aborted) setSaveError("Classes autorisées indisponibles. Veuillez réessayer."); });
+      return () => controller.abort();
     }
     setStructuredClassesLoaded(false);
     return subscribeToSchoolClasses(school.id, year.id, (items) => { setStructuredClasses(items); setStructuredClassesLoaded(true); }, (cause) => { setStructuredClassesLoaded(false); setSaveError(cause.message); });
-  }, [school.id, sectionRole, year.id]);
+  }, [school.id, sectionRole, user, year.id]);
   useEffect(() => {
     if (sectionFilter !== "all" && !studentSectionChoices.includes(sectionFilter)) {
       setSectionFilter("all");

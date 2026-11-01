@@ -22,6 +22,7 @@ import { getSchoolClassChoices, getSchoolSections, schoolSectionLabels } from ".
 import { formatStudentClassName, getClassSection } from "../../utils/studentClasses";
 import { isArchivedStudent } from "../../utils/studentUtils";
 import { isSectionAdministratorRole } from "../../utils/sectionAdministratorYearScope";
+import { loadSectionSchoolRecords } from "../../services/sectionSchoolRecords";
 import type { AppUser, Expense, FeeType, ParentProfile, Payment, School, SchoolClassRecord, SchoolSection, SchoolYear, Student } from "../../types";
 
 type DashboardData = {
@@ -352,10 +353,17 @@ export function Dashboard({ data, school, year, actor }: DashboardProps) {
     }
   }, [dashboardSectionChoices, sectionFilter]);
   useEffect(() => {
-    if (sectionRole) { setSchoolClasses([]); return; }
+    if (sectionRole && actor) {
+      setSchoolClasses([]);
+      const controller = new AbortController();
+      void loadSectionSchoolRecords("classes", actor, school.id, year.id, controller.signal)
+        .then((items) => { if (!controller.signal.aborted) setSchoolClasses(items); })
+        .catch(() => { /* No fallback to whole-school classes on failure. */ });
+      return () => controller.abort();
+    }
     return subscribeToSchoolClasses(school.id, year.id, setSchoolClasses,
       (error) => console.warn("Actualisation des classes du Dashboard indisponible.", error));
-  }, [school.id, sectionRole, year.id]);
+  }, [actor, school.id, sectionRole, year.id]);
   const yearIndexes = useMemo(() => buildSchoolYearDataIndexes(data.students, data.feeTypes, data.payments), [data.students, data.feeTypes, data.payments]);
   const activeStudents = useMemo(() => data.students.filter((student) => !isArchivedStudent(student)), [data.students]);
   const filteredStudents = useMemo(() => activeStudents.filter((student) => sectionFilter === "all" || getClassSection(student.className) === sectionFilter), [activeStudents, sectionFilter]);
