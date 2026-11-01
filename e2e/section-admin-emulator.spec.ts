@@ -11,7 +11,8 @@ test("B08 : connexions normales, cinq onglets et refus des trois profils", async
   const f = fixture(), contexts: BrowserContext[] = [];
   const roles = ["kindergarten_admin", "primary_admin", "studies_prefect"];
   try {
-    await f.seed(roles);
+    await f.seed(["super_admin", ...roles]);
+    const supervisor = await f.token("super_admin");
     const sections = ["Maternelle", "Primaire", "CTEB", "Secondaire"];
     await f.db.doc(`schools/${f.school}`).update({ educationLevels: sections });
     for (const [index, section] of sections.entries()) {
@@ -24,7 +25,11 @@ test("B08 : connexions normales, cinq onglets et refus des trois profils", async
     for (const role of roles) {
       const uid = `${f.tag}-${role}`;
       const authorized = role === "kindergarten_admin" ? ["Maternelle"] : role === "primary_admin" ? ["Primaire"] : ["CTEB", "Secondaire"];
-      await f.db.doc(`users/${uid}`).update({ sectionIds: authorized });
+      await f.db.doc(`users/${uid}`).update({ sectionIds: authorized, status: "inactive", active: false });
+      await f.auth.updateUser(uid, { disabled: true });
+      const activation = { action: "manage-section-administrator", operation: "activate", schoolId: f.school, userId: uid, confirmation: "ACTIVER CET UTILISATEUR" };
+      expect((await invoke(provision, supervisor, { ...activation, confirmation: "incorrecte" })).status).toBe(400);
+      expect((await invoke(provision, supervisor, activation)).status).toBe(200);
       const token = await f.token(role);
       expect((await invoke(provision, token, { action: "load-section-school-bootstrap" })).status).toBe(200);
       expect((await invoke(provision, token, { action: "create-parent", schoolId: f.school })).status).toBe(403);
@@ -51,8 +56,8 @@ test("B08 : connexions normales, cinq onglets et refus des trois profils", async
         await expect(page.getByRole("button", { name: "Créer un utilisateur", exact: true })).toHaveCount(0);
       }
       await expect(page.getByText("Parents / Tuteurs", { exact: true })).toHaveCount(0);
-      await f.db.doc(`users/${uid}`).update({ active: false, status: "inactive" });
-      expect((await invoke(provision, token, { action: "load-section-school-bootstrap" })).status).toBe(403);
+      expect((await invoke(provision, supervisor, { ...activation, operation: "deactivate", confirmation: "DÉSACTIVER CET UTILISATEUR" })).status).toBe(200);
+      expect([401, 403]).toContain((await invoke(provision, token, { action: "load-section-school-bootstrap" })).status);
       await expect(page).toHaveURL(/\/login/, { timeout: 30_000 });
       await context.close();
       contexts.splice(contexts.indexOf(context), 1);
