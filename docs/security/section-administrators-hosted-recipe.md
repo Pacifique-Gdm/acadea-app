@@ -74,15 +74,12 @@ Codex peut réaliser cette configuration avec la session disponible, puis :
    `section-administrators-staging-access.md`. Restreindre aussi `workflow_ref`
    aux trois workflows Staging `section-admin-staging-preflight.yml`,
    `section-admin-staging-recipe.yml` et `section-admin-staging-cleanup.yml`.
-2. Accorder un rôle personnalisé limité à Auth users create/get/update/delete,
-   Firestore entities create/get/list/update/delete et databases.get. Sur le
-   seul bucket Staging : objects.create/get/delete pour les chemins de fixture
-   `messages/e2e-section-…`, `valves/e2e-section-…`, `message-uploads/e2e-section-…`,
-   et objects.list pour le nettoyage. Aucun Owner/Editor, droit IAM ou déploiement
-   pour le runner. Les droits Admin SDK Auth/Firestore ne sont pas restreints par
-   les règles clientes : accepter explicitement ce risque Staging et maintenir
-   la branche et l'environnement protégés. Le droit list Storage porte sur le
-   bucket, pas sur un préfixe ; le script limite toutes ses requêtes aux fixtures.
+2. Le rôle `projects/acadea-staging/roles/sectionAdminFixture` est désormais
+   attribué au compte `section-admin-e2e@acadea-staging.iam.gserviceaccount.com` :
+   Auth users get/create/update et Firestore entities get/list/create/update,
+   exclusivement. Aucun droit de suppression, Owner/Editor ou Production.
+   Les droits Admin SDK restent de portée projet, conformément à l'autorisation.
+   Ne pas ajouter de droits Storage ou de suppression implicitement.
 3. Enregistrer les deux noms réels créés dans les variables WIF existantes
    attendues. Ajouter le reviewer du propriétaire à l'environnement GitHub et
    autoriser seulement la branche candidate. Enregistrer le secret officiel
@@ -103,13 +100,30 @@ Staging et contenir les mêmes API que les scripts.
 
 Après déploiement autorisé, Codex lance `section-admin-staging-recipe` avec URL,
 SHA complet et confirmation `RECETTE STAGING AUTORISEE`, conserve les résultats
-expurgés, inspecte les PNG et contrôle le manifeste final `cleaned: true`.
-Tout test, nettoyage ou OCR échoué interdit un verdict PASS global.
+expurgés, inspecte les PNG et contrôle la clôture des fixtures.
+Les workflows utilisent désormais `retire`, sans suppression : profils et écoles
+fictifs désactivés, comptes Auth désactivés, claims retirés et refresh tokens
+révoqués. Les documents financiers et objets sont conservés. Le manifeste porte
+`retired: true`, `cleaned: false`, `retained: true` ; ce n'est PAS zéro résidu.
+Les chemins et comptes sont contrôlés avant mutation, les mises à jour Firestore
+utilisent une précondition et un réessai est possible après interruption.
+La révocation effective des accès avec des jetons déjà émis doit encore être
+contrôlée sur l'environnement hébergé avant de déclarer le cycle maîtrisé.
+La commande distante `cleanup` est désactivée ; ses anciens tests restent locaux.
+Tout test, clôture ou OCR échoué interdit un verdict PASS global.
 
 Un `always()` ne peut pas garantir son exécution après destruction du runner.
 Dans ce cas Codex lance le workflow de récupération avec run/tentative source,
 URL et SHA. L'artefact préalable expire après sept jours : intervenir avant cette
 expiration. Aucun document ambigu n'est supprimé ; un conflit bloque le nettoyage.
+
+Le précontrôle `push` est seul autorisé dans WIF, sur la branche candidate et
+l'environnement protégé. Les autres workflows restent `workflow_dispatch` :
+leur absence de la branche par défaut n'est pas résolue par cette autorisation.
+Le précontrôle du 2 novembre est en attente du reviewer GitHub, sans accès ni
+écriture Firebase exécutés. Ne pas auto-approuver ce contrôle.
+Le scénario de fichier utilise encore une création Admin SDK Storage : il doit
+être adapté au parcours applicatif autorisé avant tout lancement avec ce rôle.
 
 ## Preuves locales de préparation
 

@@ -17,5 +17,5 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - run: node --test scripts/sectionStagingPlan.test.mjs scripts/sectionStagingCleanup.test.mjs
+      - run: node --test scripts/sectionStagingPlan.test.mjs scripts/sectionStagingCleanup.test.mjs scripts/sectionStagingRetire.test.mjs
       - run: echo 'Candidate push trigger only. No credentials, deployment or remote fixture.'

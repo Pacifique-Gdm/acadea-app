@@ -77,9 +77,9 @@ jobs:
         run: npx playwright test --config playwright.section-staging.config.mjs
       - name: Rendre toutes les pages PDF et contrôler leur cloisonnement
         run: node scripts/sectionStagingPdfCheck.mjs
-      - name: Nettoyer et vérifier les résidus même après échec
+      - name: Désactiver les fixtures et conserver leur manifeste même après échec
         if: always() && steps.auth.outcome == 'success'
-        run: node scripts/sectionStagingFixture.mjs cleanup
+        run: node scripts/sectionStagingFixture.mjs retire
       - name: Conserver uniquement les preuves fictives et résultats expurgés
         if: always()
         uses: actions/upload-artifact@v4

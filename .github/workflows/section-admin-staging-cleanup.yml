@@ -67,7 +67,7 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_STAGING_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_STAGING_E2E_SERVICE_ACCOUNT }}
           create_credentials_file: true
-      - run: node scripts/sectionStagingFixture.mjs cleanup
+      - run: node scripts/sectionStagingFixture.mjs retire
       - uses: actions/upload-artifact@v4
         with:
           name: section-cleanup-confirmation-${{ github.run_id }}

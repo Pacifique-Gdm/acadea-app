@@ -7,6 +7,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { getStorage } from 'firebase-admin/storage';
 import { guard, plan, assertOwned } from './sectionStagingPlan.mjs';
+import { retire } from './sectionStagingRetire.mjs';
 
 const file = () => resolve('test-results/section-staging-manifest.json');
 const save = m => { mkdirSync('test-results', { recursive: true }); writeFileSync(file(), JSON.stringify(m, null, 2), { mode: 0o600 }); };
@@ -103,6 +104,8 @@ export async function cleanup(s) {
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const s = await services();
-  try { if (process.argv[2] === 'plan') await preparePlan(s); else if (process.argv[2] === 'prepare') await prepare(s); else if (process.argv[2] === 'cleanup') await cleanup(s); else throw new Error('Commande invalide.'); }
+  try { if (process.argv[2] === 'plan') await preparePlan(s); else if (process.argv[2] === 'prepare') await prepare(s); else if (process.argv[2] === 'retire') {
+    if (existsSync(file())) { const m = manifest(); Object.assign(m, await retire(s, m)); save(m); }
+  } else throw new Error('Commande invalide : suppression distante désactivée.'); }
   finally { await deleteApp(s.app); }
 }
