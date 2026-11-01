@@ -1,4 +1,5 @@
 import { collection, doc, getCountFromServer, getDocs, limit, orderBy, query, startAfter, updateDoc, where, writeBatch } from "@firebase/firestore";
+import { markSectionNotificationsRead } from "./schoolMessaging";
 import type { DocumentSnapshot, Firestore, QueryConstraint } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
 import type { AppNotification, AppUser } from "../types";
@@ -143,6 +144,10 @@ async function commitReadUpdates(database: Firestore, notificationIds: string[])
 }
 
 export async function markNotificationsReadTargeted(user: AppUser, schoolId: string, schoolYearId: string, notificationId?: string) {
+  if (isSectionAdministratorRole(user.role)) {
+    if (user.schoolId !== schoolId) throw new Error("Notification hors établissement.");
+    return markSectionNotificationsRead(schoolYearId, notificationId);
+  }
   const database = requireFirestore();
   if (notificationId) {
     await updateDoc(doc(database, "notifications", notificationId), { read: true });

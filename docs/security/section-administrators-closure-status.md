@@ -76,3 +76,9 @@ personnel utilisent cette sélection. 60 tests ciblés PASS, lint ciblé PASS.
 
 B06 reste ouvert jusqu'à la validation intégrée de lecture, marqueurs personnels
 et pièces jointes. Les gardes de connexion n'ont pas été retirées.
+
+Le marquage des notifications des profils de section passe désormais par une
+transaction serveur (API existante `message-recipients`, action POST dédiée).
+Le profil, l'école, l'année et le destinataire personnel sont vérifiés avant toute
+écriture. Seul `read` est modifié ; aucun compteur partagé n'est utilisé.
+29 tests ciblés PASS sur les marqueurs, destinataires et API existante ; lint PASS.

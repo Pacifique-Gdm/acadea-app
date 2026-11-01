@@ -22,6 +22,20 @@ export async function loadSchoolMessageRecipients(schoolYearId?: string): Promis
   return Array.isArray(payload.recipients) ? payload.recipients : [];
 }
 
+export async function markSectionNotificationsRead(schoolYearId: string, notificationId?: string) {
+  let count = 0;
+  for (let page = 0; page < 100; page += 1) {
+    const response = await authenticatedRequest("/api/message-recipients", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "mark-section-notifications-read", schoolYearId, ...(notificationId ? { notificationId } : {}) }) });
+    if (!response.ok) throw new Error("Lecture de notification refusée. Réessayez.");
+    const result = await response.json() as { count: number; hasMore: boolean };
+    if (!Number.isSafeInteger(result.count) || result.count < 0 || result.count > 200 || typeof result.hasMore !== "boolean") throw new Error("Réponse de lecture invalide.");
+    count += result.count;
+    if (!result.hasMore) return count;
+  }
+  throw new Error("Actualisation incomplète. Réessayez.");
+}
+
 export async function sendSchoolMessage(input: { schoolYearId: string; recipientRoles: SchoolMessageRecipientRole[]; recipientIds: string[]; subject: string; body: string; draftId: string; attachments: PendingMessageAttachment[]; idempotencyKey: string; section?: string }): Promise<Message> {
   const response = await authenticatedRequest("/api/send-school-message", { method: "POST", headers: { "Content-Type": "application/json", "X-Idempotency-Key": input.idempotencyKey }, body: JSON.stringify(input) });
   const payload = await response.json().catch(() => ({})) as { message?: Message | string; error?: string };
