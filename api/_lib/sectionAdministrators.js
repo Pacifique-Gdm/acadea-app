@@ -13,6 +13,13 @@ const sections = new Set(["Maternelle", "Primaire", "CTEB", "Secondaire"]);
 export function isSectionAdministrator(role) {
   return Object.hasOwn(SECTION_ADMINISTRATORS, role ?? "");
 }
+/** Student files are the only provisioning mutation these roles may perform.
+ * Parent and account lifecycle operations remain reserved to existing roles. */
+export function requireSectionProvisioningAction(caller, action) {
+  if (isSectionAdministrator(caller?.role) && action !== "save-manual-student") {
+    throw denied("Administration des parents et des comptes interdite à ce profil.");
+  }
+}
 function denied(message) {
   return Object.assign(new Error(message), { statusCode: 403, code: "permission-denied" });
 }

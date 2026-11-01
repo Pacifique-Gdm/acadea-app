@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
-import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import { deleteDoc, doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
 
 let environment: RulesTestEnvironment;
@@ -48,5 +48,29 @@ describe("garde de publication des profils administratifs de section", () => {
 
   it("préserve la lecture historique de l'administrateur principal", async () => {
     await assertSucceeds(getDoc(doc(actor("admin-a", "school_admin"), "students", "student-a")));
+  });
+
+  it.each(["kindergarten_admin", "primary_admin", "studies_prefect"])("refuse les mutations directes interdites à %s", async (role) => {
+    await environment.withSecurityRulesDisabled(async (admin) => {
+      await updateDoc(doc(admin.firestore(), "users", "section-a"), { role });
+      for (const collection of ["parents", "expenses", "cashInflows", "personnelPayments"]) {
+        await setDoc(doc(admin.firestore(), collection, "fixture-a"), { schoolId: "school-a", schoolYearId: "year-a", amount: 10 });
+      }
+    });
+    const db = actor("section-a", role);
+    for (const patch of [{ name: "Compte modifié" }, { role: "school_admin" }, { sectionIds: ["Secondaire"] }, { active: true }]) {
+      await assertFails(updateDoc(doc(db, "users", "section-a"), patch));
+    }
+    await assertFails(deleteDoc(doc(db, "users", "section-a")));
+    await assertFails(setDoc(doc(db, "users", "new-parent"), { schoolId: "school-a", role: "parent" }));
+    await assertFails(deleteDoc(doc(db, "students", "student-a")));
+    await assertFails(updateDoc(doc(db, "students", "student-a"), { section: "Secondaire" }));
+    await assertFails(deleteDoc(doc(db, "payments", "payment-a")));
+    await assertFails(updateDoc(doc(db, "payments", "payment-a"), { status: "cancelled", amount: 0 }));
+    for (const collection of ["parents", "expenses", "cashInflows", "personnelPayments"]) {
+      await assertFails(setDoc(doc(db, collection, "created-a"), { schoolId: "school-a", schoolYearId: "year-a", amount: 1 }));
+      await assertFails(updateDoc(doc(db, collection, "fixture-a"), { amount: 0, status: "cancelled" }));
+      await assertFails(deleteDoc(doc(db, collection, "fixture-a")));
+    }
   });
 });

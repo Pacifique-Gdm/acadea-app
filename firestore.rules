@@ -590,6 +590,7 @@ service cloud.firestore {
           && !('storageAssignmentKeys' in request.resource.data));
       allow update: if signedIn()
         && request.auth.uid == userId
+        && !(role() in ["kindergarten_admin", "primary_admin", "studies_prefect"])
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["id", "role", "schoolId", "coordinationId", "subCoordinationId", "parentId", "studentIds", "section", "sectionIds", "status", "active", "archivedAt", "archivedBy", "reactivatedAt", "reactivatedBy", "storageAssignmentKeys"]);
       allow delete: if false;
 

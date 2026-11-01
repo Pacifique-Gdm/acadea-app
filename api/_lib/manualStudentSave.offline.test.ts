@@ -90,3 +90,52 @@ describe("inscription locale sans doublon", () => {
     expect(rows.get(`students/${studentId}`)?.subClassId).toBe("option-a");
   });
 });
+
+describe("enregistrement d'un élève par un administrateur de section", () => {
+  const sectionActor = { uid: "section-a", role: "primary_admin", schoolId: "school-a" };
+  const request = { intent: "create", clientRequestId: "a".repeat(32), student: {
+    ...body.student, id: `student-${"b".repeat(32)}`, section: "Primaire",
+  } };
+
+  function scopedFixture() {
+    const state = fixture();
+    state.rows.set("users/section-a", { role: "primary_admin", schoolId: "school-a", status: "active", active: true, sectionIds: ["Primaire"] });
+    state.rows.set("classes/class-secondary", { name: "1ère Humanité", schoolId: "school-a", schoolYearId: "year-a", active: true, section: "Secondaire" });
+    return state;
+  }
+
+  it("crée uniquement dans sa section et conserve l'idempotence", async () => {
+    const { db, rows } = scopedFixture();
+    const created = await saveManualStudent({ db, caller: sectionActor, body: request });
+    expect(created.student).toMatchObject({ section: "Primaire", classId: "class-a", schoolId: "school-a" });
+    await expect(saveManualStudent({ db, caller: sectionActor, body: request })).resolves.toMatchObject({ idempotent: true });
+    expect([...rows.keys()].filter((path) => path.startsWith("students/"))).toHaveLength(1);
+    rows.set(`students/${request.student.id}`, { ...created.student, section: "Secondaire", className: "1ère Humanité" });
+    await expect(saveManualStudent({ db, caller: sectionActor, body: request }))
+      .rejects.toMatchObject({ statusCode: 403, code: "permission-denied" });
+  });
+
+  it("refuse une autre section, une classe falsifiée et un compte désactivé sans écriture", async () => {
+    const { db, rows } = scopedFixture();
+    for (const student of [
+      { ...request.student, className: "1ère Humanité", classId: "class-secondary", section: "Secondaire" },
+      { ...request.student, className: "1ère Primaire", classId: "class-secondary", section: "Primaire" },
+      { ...request.student, className: "1ère Primaire", classId: "class-a", section: "Secondaire" },
+    ]) {
+      await expect(saveManualStudent({ db, caller: sectionActor, body: { ...request, student } }))
+        .rejects.toMatchObject({ statusCode: 403, code: "permission-denied" });
+    }
+    rows.set("users/section-a", { role: "primary_admin", schoolId: "school-a", status: "inactive", active: false, sectionIds: ["Primaire"] });
+    await expect(saveManualStudent({ db, caller: sectionActor, body: request }))
+      .rejects.toMatchObject({ statusCode: 403, code: "permission-denied" });
+    expect([...rows.keys()].filter((path) => path.startsWith("students/"))).toHaveLength(0);
+  });
+
+  it("ne modifie pas un élève historique d'une autre section", async () => {
+    const { db, rows } = scopedFixture();
+    rows.set(`students/${request.student.id}`, { ...request.student, section: "Secondaire", className: "1ère Humanité", classId: "class-secondary", status: "ACTIVE" });
+    await expect(saveManualStudent({ db, caller: sectionActor, body: { ...request, intent: "update", clientRequestId: undefined } }))
+      .rejects.toMatchObject({ statusCode: 403, code: "permission-denied" });
+    expect(rows.get(`students/${request.student.id}`)?.section).toBe("Secondaire");
+  });
+});

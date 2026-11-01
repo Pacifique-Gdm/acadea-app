@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { studentForPersistence } from "../../src/utils/studentYearTransition.js";
+import { canonicalAnnualClassName, getClassSection, studentForPersistence } from "../../src/utils/studentYearTransition.js";
 import { studentIdentityKey } from "../../src/utils/studentSearch.js";
+import { isSectionAdministrator, sectionAdministratorScope } from "./sectionAdministrators.js";
 
 const DUPLICATE_MESSAGE = "Un élève avec le même nom, post-nom et prénom existe déjà.";
 const EDITABLE_FIELDS = ["nom", "postnom", "prenom", "sexe", "birthDate", "address", "phone", "className", "classId", "subClassId", "classOptionKey", "section", "option", "photoUrl"];
@@ -30,13 +31,18 @@ function validatedFields(input) {
   return result;
 }
 
-async function validClassReferences(transaction, db, student, offline = false) {
+async function validClassReferences(transaction, db, student, offline = false, sectionScoped = false) {
   let parent;
   if (student.classId) {
     const snapshot = await transaction.get(db.doc(`classes/${student.classId}`));
     parent = snapshot.exists ? snapshot.data() : undefined;
     if (!parent || parent.schoolId !== student.schoolId || parent.schoolYearId !== student.schoolYearId || parent.parentClassId || parent.active === false) reject("Classe hors périmètre.", 403, "permission-denied");
     if (offline && parent.name !== student.className) reject("Le libellé de la classe a changé depuis la saisie locale.", 409, "offline-conflict");
+  }
+  if (sectionScoped && (!parent || parent.name !== student.className
+    || !canonicalAnnualClassName(parent.name)
+    || (parent.section && parent.section !== student.section))) {
+    reject("Classe opérationnelle hors du périmètre de section.", 403, "permission-denied");
   }
   let subclass;
   if (student.subClassId) {
@@ -64,7 +70,8 @@ export async function saveManualStudent({ db, caller, body }) {
   const schoolId = safeId(input?.schoolId);
   const schoolYearId = safeId(input?.schoolYearId);
   if (!id || !schoolId || !schoolYearId) reject("Identifiants de la fiche élève invalides.");
-  if (!["school_admin", "secretary"].includes(caller?.role) || caller.schoolId !== schoolId || !caller.uid) reject("Enregistrement de l’élève non autorisé.", 403, "permission-denied");
+  if (!(["school_admin", "secretary"].includes(caller?.role) || isSectionAdministrator(caller?.role))
+    || caller.schoolId !== schoolId || !caller.uid) reject("Enregistrement de l’élève non autorisé.", 403, "permission-denied");
   const fields = validatedFields(input);
   const offlineOperationId = body?.offlineOperationId;
   // Missing intent is creation-only: an older client must never turn a collision into an edit.
@@ -96,8 +103,21 @@ export async function saveManualStudent({ db, caller, body }) {
     ]);
     const actor = actorSnapshot.exists ? actorSnapshot.data() : undefined;
     if (!actor || actor.role !== caller.role || actor.schoolId !== schoolId || actor.status === "inactive" || actor.active === false) reject("Compte utilisateur inactif ou hors périmètre.", 403, "permission-denied");
+    const sectionScope = isSectionAdministrator(caller.role) ? sectionAdministratorScope(actor) : null;
+    if (sectionScope && (!canonicalAnnualClassName(fields.className)
+      || fields.section !== getClassSection(fields.className)
+      || !sectionScope.sectionIds.includes(fields.section))) {
+      reject("Classe ou section hors du périmètre administratif.", 403, "permission-denied");
+    }
     if (!schoolSnapshot.exists || ["deleting", "inactive", "suspended"].includes(schoolSnapshot.data()?.status)) reject("École inactive ou introuvable.", 409, "failed-precondition");
     if (!yearSnapshot.exists || yearSnapshot.data()?.schoolId !== schoolId || yearSnapshot.data()?.status !== "active") reject("Année scolaire inactive ou hors périmètre.", 409, "failed-precondition");
+    const existing = existingSnapshot.exists ? existingSnapshot.data() : undefined;
+    if (sectionScope && existing && (existing.schoolId !== sectionScope.schoolId
+      || !sectionScope.sectionIds.includes(existing.section)
+      || !canonicalAnnualClassName(existing.className)
+      || existing.section !== getClassSection(existing.className))) {
+      reject("L'élève existant est hors du périmètre administratif.", 403, "permission-denied");
+    }
     if (receiptSnapshot?.exists) {
       if (receiptSnapshot.data()?.actorId !== caller.uid || receiptSnapshot.data()?.fingerprint !== fingerprint
         || receiptSnapshot.data()?.schoolId !== schoolId) reject("Opération locale réutilisée avec d'autres données.", 409, "offline-conflict");
@@ -105,7 +125,6 @@ export async function saveManualStudent({ db, caller, body }) {
       if (!savedStudent || savedStudent.schoolId !== schoolId || savedStudent.schoolYearId !== schoolYearId) reject("Inscription locale introuvable ou transférée.", 409, "offline-conflict");
       return { student: savedStudent, idempotent: true };
     }
-    const existing = existingSnapshot.exists ? existingSnapshot.data() : undefined;
     if (offlineOperationId && existing) reject("Cette inscription a déjà été modifiée ou son identifiant est occupé.", 409, "offline-conflict");
     if (existing && (existing.schoolId !== schoolId || existing.schoolYearId !== schoolYearId || existing.deletedAt || existing.status !== "ACTIVE")) reject("Élève hors périmètre ou archivé.", 403, "permission-denied");
     if (intent === "create" && existing) reject("Cet identifiant d'élève est déjà utilisé. Actualisez la liste avant de réessayer.", 409, "already-exists");
@@ -119,7 +138,7 @@ export async function saveManualStudent({ db, caller, body }) {
       biometric: input.biometric && typeof input.biometric === "object" && !Array.isArray(input.biometric) ? input.biometric : undefined,
     };
     if (existing) for (const key of OPTIONAL_FIELDS) if (!(key in fields)) delete next[key];
-    await validClassReferences(transaction, db, next, Boolean(offlineOperationId));
+    await validClassReferences(transaction, db, next, Boolean(offlineOperationId), Boolean(sectionScope));
     const oldKey = existing ? studentIdentityKey(existing) : "";
     const newKey = studentIdentityKey(next);
     const identityChanged = !existing || oldKey !== newKey;

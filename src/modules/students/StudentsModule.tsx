@@ -117,10 +117,10 @@ export function StudentsModule({
   const studentCapabilities: StudentModuleCapabilities = {
     canCreate: year.status === "active" && (capabilities?.canCreate ?? defaultCanManage),
     canEdit: year.status === "active" && (capabilities?.canEdit ?? defaultCanManage),
-    canArchive: year.status === "active" && (capabilities?.canArchive ?? defaultCanManage),
-    canReactivate: year.status === "active" && (capabilities?.canReactivate ?? defaultCanManage),
-    canCreateParent: year.status === "active" && (capabilities?.canCreateParent ?? defaultCanManage),
-    canManageOptions: year.status === "active" && (capabilities?.canManageOptions ?? defaultCanManage),
+    canArchive: !sectionRole && year.status === "active" && (capabilities?.canArchive ?? defaultCanManage),
+    canReactivate: !sectionRole && year.status === "active" && (capabilities?.canReactivate ?? defaultCanManage),
+    canCreateParent: !sectionRole && year.status === "active" && (capabilities?.canCreateParent ?? defaultCanManage),
+    canManageOptions: !sectionRole && year.status === "active" && (capabilities?.canManageOptions ?? defaultCanManage),
   };
   const activeTargetYear = data.schoolYears.find((item) => item.id === school.activeSchoolYearId && item.schoolId === school.id && item.status === "active");
   const canDecideTerminal = ["school_admin", "secretary"].includes(user.role) && user.status === "active" && user.active !== false && !user.archivedAt && user.schoolId === school.id && isImmediatelyPreviousArchivedYear(year, activeTargetYear);

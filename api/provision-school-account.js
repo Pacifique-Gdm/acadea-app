@@ -1,5 +1,5 @@
 import { manageSectionAdministrators } from "./_lib/manageSectionAdministrators.js";
-import { isSectionAdministrator } from "./_lib/sectionAdministrators.js";
+import { isSectionAdministrator, requireSectionProvisioningAction } from "./_lib/sectionAdministrators.js";
 import { createHash } from "node:crypto";
 import { randomId as uid } from "./_lib/randomId.js";
 import { firebaseAdminPublicError, initAdmin } from "./_lib/firebaseAdmin.js";
@@ -833,6 +833,7 @@ export default async function handler(req, res) {
     const body = await readBody(req);
     await requireActiveApiUser(db, caller);
     const action = normalizeText(body.action);
+    requireSectionProvisioningAction(caller, action);
     if (action === "recover-creation") {
       const role = normalizeText(body.role);
       const schoolId = normalizeText(body.schoolId);
