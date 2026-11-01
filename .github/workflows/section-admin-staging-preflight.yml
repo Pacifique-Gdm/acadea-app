@@ -1,6 +1,10 @@
 name: section-admin-staging-preflight
 on:
   workflow_dispatch:
+  push:
+    branches: [codex/section-admin-profiles-final-20261031]
+    paths:
+      - '.github/workflows/section-admin-staging-preflight.yml'
 permissions:
   contents: read
 jobs:
