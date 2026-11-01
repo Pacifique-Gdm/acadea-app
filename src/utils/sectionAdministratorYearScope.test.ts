@@ -36,7 +36,7 @@ describe("section administrator display boundary", () => {
     const source = { ...data, students: [...data.students, old], payments: [payment] };
     expect(sectionAdministratorYearScope(source, actor, "school-a", "year-a").payments).toEqual([payment]);
     expect(sectionAdministratorYearScope(source, actor, "school-a", "year-a").students.map((item) => item.id)).toEqual(["primary"]);
-    for (const section of [undefined, "Secondaire"]) {
+    for (const section of [undefined, "Secondaire"] as const) {
       expect(sectionAdministratorYearScope({ ...source, students: [...data.students, { ...old, section }] }, actor, "school-a", "year-a").payments).toEqual([]);
     }
     expect(sectionAdministratorYearScope({ ...source, payments: [{ ...payment, currentStudentId: "secondary" }] }, actor, "school-a", "year-a").payments).toEqual([]);
