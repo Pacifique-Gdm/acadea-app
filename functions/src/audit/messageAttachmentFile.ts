@@ -42,6 +42,12 @@ export function assertMessageAttachmentAccess(identity: Identity, profile: Docum
     || !message.participantIds.includes(identity.uid)) {
     throw new HttpsError("permission-denied", "Message hors de votre périmètre.");
   }
+  if (["kindergarten_admin", "primary_admin", "studies_prefect"].includes(String(role))
+    && (profile.status !== "active" || !Array.isArray(profile.sectionIds) || !profile.sectionIds.length
+      || profile.sectionIds.some((section: unknown) => !["Maternelle", "Primaire", "CTEB", "Secondaire"].includes(String(section)))
+      || typeof message.section !== "string" || !profile.sectionIds.includes(message.section))) {
+    throw new HttpsError("permission-denied", "Pièce jointe hors des sections autorisées.");
+  }
   const conversationId = message.conversationId ?? message.threadId;
   if (message.id != null && message.id !== messageId) throw new HttpsError("failed-precondition", "Identifiant de message incohérent.");
   if (typeof conversationId !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(conversationId)

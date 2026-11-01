@@ -29,4 +29,15 @@ describe("accès serveur aux pièces jointes de messages", () => {
     expect(() => assertMessageAttachmentAccess(identity, profile, school, { ...message, attachments: [{ ...message.attachments[0], type: "text/html" }] }, "message-a", path)).toThrow();
     expect(() => assertMessageAttachmentAccess(identity, profile, school, { ...message, attachments: [{ ...message.attachments[0], size: 0 }] }, "message-a", path)).toThrow();
   });
+  it("borne les pièces jointes d'un administrateur de section au profil actif et au message étiqueté", () => {
+    const actor = { ...identity, uid: "section-user", role: "primary_admin", parentId: undefined };
+    const sectionProfile = { role: "primary_admin", schoolId: "school-a", status: "active", active: true, sectionIds: ["Primaire"] };
+    const sectionMessage = { ...message, section: "Primaire", participantIds: ["section-user"] };
+    expect(assertMessageAttachmentAccess(actor, sectionProfile, school, sectionMessage, "message-a", path).path).toBe(path);
+    expect(() => assertMessageAttachmentAccess(actor, sectionProfile, school, { ...sectionMessage, section: "Secondaire" }, "message-a", path)).toThrow();
+    expect(() => assertMessageAttachmentAccess(actor, sectionProfile, school, { ...sectionMessage, section: undefined }, "message-a", path)).toThrow();
+    expect(() => assertMessageAttachmentAccess(actor, { ...sectionProfile, status: "inactive" }, school, sectionMessage, "message-a", path)).toThrow();
+    expect(() => assertMessageAttachmentAccess(actor, { ...sectionProfile, sectionIds: [] }, school, sectionMessage, "message-a", path)).toThrow();
+    expect(() => assertMessageAttachmentAccess(actor, { ...sectionProfile, sectionIds: ["Primaire", "Inconnue"] }, school, sectionMessage, "message-a", path)).toThrow();
+  });
 });

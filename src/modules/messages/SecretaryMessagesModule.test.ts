@@ -28,7 +28,7 @@ describe("interface Message du Secrétaire", () => {
   });
 
   it("partage avec l'Administrateur le second filtre Parents et tous ses modes", () => {
-    expect(source).toContain("isSchoolAdmin || isSecretary || isCashier || isDisciplineDirector || isStudyDirector ? (");
+    expect(source).toContain("isSchoolAdmin || isSecretary || isCashier || isDisciplineDirector || isStudyDirector || isSectionAdmin ? (");
     [
       '<option value="all">Tous les parents</option>',
       '<option value="parents">Sélection parent</option>',
@@ -49,7 +49,8 @@ describe("interface Message du Secrétaire", () => {
 
   it("réserve les pièces jointes au module Secrétaire", () => {
     expect(source).toContain("canAttachFiles = false");
-    expect(source).toContain("{canAttachFiles && <>");
+    expect(source).toContain("const canSendAttachments = canAttachFiles && !isSectionAdmin");
+    expect(source).toContain("{canSendAttachments && <>");
     expect(appSource.match(/canAttachFiles/g)).toHaveLength(1);
   });
 
