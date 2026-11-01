@@ -5,7 +5,7 @@ function fixture(patch = {}) {
   const rows: Record<string, Record<string, unknown>> = {
     "users/actor": { ...caller, status: "active", sectionIds: ["Primaire"] },
     "schools/a": { status: "active" }, "schoolYears/y": { schoolId: "a" },
-    "notifications/n": { schoolId: "a", schoolYearId: "y", recipientUserId: "actor", read: false, ...patch },
+    "notifications/n": { schoolId: "a", schoolYearId: "y", recipientUserId: "actor", section: "Primaire", read: false, ...patch },
   };
   const update = vi.fn();
   const db = { doc: (path: string) => ({ path }), runTransaction: async (run: (tx: unknown) => Promise<unknown>) => run({
@@ -19,7 +19,7 @@ describe("marqueurs personnels des profils de section", () => {
     expect(await markSectionNotificationsRead(db, caller, { schoolYearId: "y", notificationId: "n" })).toEqual({ count: 1, hasMore: false });
     expect(update).toHaveBeenCalledExactlyOnceWith({ path: "notifications/n" }, { read: true });
   });
-  it.each([{ recipientUserId: "other" }, { schoolId: "b" }, { schoolYearId: "other" }])("refuse une notification étrangère", async (patch) => {
+  it.each([{ recipientUserId: "other" }, { schoolId: "b" }, { schoolYearId: "other" }, { section: "Secondaire" }, { section: undefined }])("refuse une notification étrangère", async (patch) => {
     const { db, update } = fixture(patch);
     await expect(markSectionNotificationsRead(db, caller, { schoolYearId: "y", notificationId: "n" })).rejects.toMatchObject({ statusCode: 403 });
     expect(update).not.toHaveBeenCalled();

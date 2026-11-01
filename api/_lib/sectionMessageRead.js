@@ -11,11 +11,13 @@ export async function markSectionNotificationsRead(db, caller, body) {
     if (!school.exists || school.data()?.status !== "active" || !year.exists || year.data()?.schoolId !== scope.schoolId) deny();
     const records = body.notificationId ? [await tx.get(db.doc(`notifications/${body.notificationId}`))]
       : (await tx.get(db.collection("notifications").where("schoolId", "==", scope.schoolId)
-        .where("schoolYearId", "==", body.schoolYearId).where("recipientUserId", "==", caller.uid).where("read", "==", false).limit(200))).docs;
+        .where("schoolYearId", "==", body.schoolYearId).where("recipientUserId", "==", caller.uid)
+        .where("section", "in", scope.sectionIds).where("read", "==", false).limit(200))).docs;
     const eligible = [];
     for (const snapshot of records) {
       const notification = snapshot.exists ? snapshot.data() : null;
-      if (!notification || notification.schoolId !== scope.schoolId || notification.schoolYearId !== body.schoolYearId || notification.recipientUserId !== caller.uid) deny();
+      if (!notification || notification.schoolId !== scope.schoolId || notification.schoolYearId !== body.schoolYearId || notification.recipientUserId !== caller.uid
+        || !scope.sectionIds.includes(notification.section)) deny();
       // A read flag acknowledges only this account's notification, never another
       // participant's state or a legacy school-wide conversation counter.
       eligible.push(snapshot.ref ?? db.doc(`notifications/${snapshot.id}`));
