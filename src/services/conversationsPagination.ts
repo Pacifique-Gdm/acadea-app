@@ -2,6 +2,7 @@ import { collection, getDocs, limit, orderBy, query, startAfter, where } from "@
 import type { DocumentSnapshot, Firestore, QueryConstraint } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
 import type { AppUser, Conversation } from "../types";
+import { isSectionAdministratorRole, sectionAdministratorQuerySections } from "../utils/sectionAdministratorYearScope";
 
 export const CONVERSATIONS_PAGE_SIZE = 30;
 
@@ -28,6 +29,11 @@ function conversationRecipientConstraints(user: AppUser, schoolId: string, schoo
   }
   if (user.role === "discipline_director") {
     return [...constraints, where("schoolRecipient", "==", "discipline")];
+  }
+  if (isSectionAdministratorRole(user.role)) {
+    const sections = sectionAdministratorQuerySections(user, schoolId);
+    return [...constraints, where("participantIds", "array-contains", user.id),
+      sections.length === 1 ? where("section", "==", sections[0]) : where("section", "in", sections)];
   }
   return [...constraints, where("schoolRecipient", "in", [user.role === "cashier" ? "cashier" : "admin", "both"])];
 }

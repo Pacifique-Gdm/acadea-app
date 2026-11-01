@@ -3,6 +3,7 @@ import { collection, limit, onSnapshot, orderBy, query, where } from "@firebase/
 import type { Firestore, Query } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
 import type { AppUser, Message } from "../types";
+import { isSectionAdministratorRole, sectionAdministratorQuerySections } from "../utils/sectionAdministratorYearScope";
 
 type UseRealtimeMessageFeedOptions = {
   user: AppUser;
@@ -62,6 +63,12 @@ function messageFeedQueries(database: Firestore, user: AppUser, schoolId: string
         ...recentConstraints,
       ),
     ];
+  }
+
+  if (isSectionAdministratorRole(user.role)) {
+    const sections = sectionAdministratorQuerySections(user, schoolId);
+    return [query(messagesCollection, ...constraints, where("participantIds", "array-contains", user.id),
+      sections.length === 1 ? where("section", "==", sections[0]) : where("section", "in", sections), ...recentConstraints)];
   }
 
   const recipients = user.role === "cashier" ? ["cashier", "both"] : ["admin", "both"];

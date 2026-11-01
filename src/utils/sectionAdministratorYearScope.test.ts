@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AppData, AppUser } from "../types";
-import { isSectionAdministratorRole, sectionAdministratorYearScope } from "./sectionAdministratorYearScope";
+import { isSectionAdministratorRole, sectionAdministratorQuerySections, sectionAdministratorYearScope } from "./sectionAdministratorYearScope";
 
 const actor = { id: "primary-a", role: "primary_admin", schoolId: "school-a", status: "active", active: true, sectionIds: ["Primaire"] } as AppUser;
 const student = (id: string, section?: string, schoolId = "school-a") => ({ id, schoolId, schoolYearId: "year-a", section });
@@ -53,6 +53,14 @@ describe("section administrator display boundary", () => {
       const denied = sectionAdministratorYearScope(data, user as AppUser, "school-a", "year-a");
       expect(denied.students).toEqual([]);
       expect(denied.payments).toEqual([]);
+    }
+  });
+  it("refuse une requête de messagerie avec compte révoqué, école étrangère ou section invalide", () => {
+    expect(sectionAdministratorQuerySections(actor, "school-a")).toEqual(["Primaire"]);
+    expect(sectionAdministratorQuerySections({ ...actor, sectionIds: ["Primaire", "CTEB", "Primaire"] }, "school-a")).toEqual(["Primaire", "CTEB"]);
+    for (const user of [{ ...actor, active: false }, { ...actor, status: "inactive" }, { ...actor, sectionIds: [] },
+      { ...actor, sectionIds: ["inconnue"] }, { ...actor, schoolId: "school-b" }]) {
+      expect(() => sectionAdministratorQuerySections(user as AppUser, "school-a")).toThrow();
     }
   });
 });

@@ -432,7 +432,8 @@ export interface Message {
   schoolYearId: string;
   senderId: string;
   senderName?: string;
-  senderRole?: "parent" | "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher" | "coordination_admin" | "sub_coordination_admin";
+  senderRole?: Role;
+  section?: SchoolSection;
   participantIds?: string[];
   recipientIds?: string[];
   recipientParentId: string | "all" | "school";
@@ -459,6 +460,7 @@ export interface Conversation {
   id: string;
   schoolId: string;
   schoolYearId: string;
+  section?: SchoolSection;
   threadId: string;
   participantIds?: string[];
   threadParentId: string;
@@ -468,7 +470,7 @@ export interface Conversation {
   lastMessage: string;
   lastMessageAt: string;
   lastSenderId: string;
-  lastSenderRole: "parent" | "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher";
+  lastSenderRole: Role;
   messageCount: number;
   unreadParentCount: number;
   unreadAdminCount: number;

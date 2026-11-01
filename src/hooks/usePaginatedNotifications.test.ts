@@ -27,4 +27,11 @@ describe("badge personnel de messagerie", () => {
     expect(mergeRealtimeNotifications(admin, [], snapshots).map((item) => item.id)).toEqual(["admin"]);
     expect(mergeRealtimeNotifications({ ...admin, id: "cashier-a", role: "cashier" }, [], snapshots).map((item) => item.id)).toEqual(["cashier"]);
   });
+
+  it("ne montre à un administrateur de section que ses notifications personnelles", () => {
+    const actor = { ...admin, role: "primary_admin" as const, sectionIds: ["Primaire"] as AppUser["sectionIds"] };
+    const schoolWide = { ...notification("general", ""), recipientRole: "school" as const };
+    const snapshots = [[notification("mine", "admin-a"), notification("other", "other-user"), schoolWide]];
+    expect(mergeRealtimeNotifications(actor, [], snapshots).map((item) => item.id)).toEqual(["mine"]);
+  });
 });

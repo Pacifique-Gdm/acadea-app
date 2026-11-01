@@ -2,6 +2,7 @@ import { collection, getDocs, limit, orderBy, query, startAfter, where } from "@
 import type { DocumentSnapshot, Firestore, QueryConstraint } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
 import type { AppUser, Conversation, Message } from "../types";
+import { isSectionAdministratorRole, sectionAdministratorQuerySections } from "../utils/sectionAdministratorYearScope";
 
 export const CONVERSATION_MESSAGES_PAGE_SIZE = 30;
 
@@ -26,6 +27,12 @@ function messageConversationConstraints(user: AppUser, conversation: Conversatio
   ];
   if (user.role === "parent") {
     return [...constraints, where("threadParentId", "==", user.parentId)];
+  }
+  if (isSectionAdministratorRole(user.role)) {
+    const sections = sectionAdministratorQuerySections(user, conversation.schoolId);
+    if (!conversation.section || !sections.includes(conversation.section)
+      || !conversation.participantIds?.includes(user.id)) throw new Error("Conversation hors du périmètre autorisé.");
+    return [...constraints, where("section", "==", conversation.section), where("participantIds", "array-contains", user.id)];
   }
   if (conversation.participantIds) return [...constraints, where("participantIds", "array-contains", user.id)];
   return constraints;

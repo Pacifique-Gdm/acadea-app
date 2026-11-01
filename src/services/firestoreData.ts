@@ -7,7 +7,7 @@ import { resolveDefaultSchoolYear } from "../utils/schoolYears";
 import { userSectionIds } from "../utils/userSections";
 import { disciplineAttendanceScope, disciplineParentScope, disciplineSanctionScope, disciplineStudentScope } from "../utils/disciplineSectionScope";
 import { canonicalSchoolOption, normalizeSchoolOptions } from "../utils/schoolOptions";
-import { isSectionAdministratorRole } from "../utils/sectionAdministratorYearScope";
+import { isSectionAdministratorRole, sectionAdministratorQuerySections } from "../utils/sectionAdministratorYearScope";
 
 type CollectionKey = keyof AppData;
 type PersistableItem = { id: string };
@@ -232,6 +232,13 @@ export async function loadFirestoreBootstrapData(user: AppUser): Promise<Firesto
 async function loadSchoolMessages(user: AppUser, schoolId: string, schoolYearId: string) {
   if (!db) return [];
   const base = [where("schoolId", "==", schoolId), where("schoolYearId", "==", schoolYearId)];
+  if (isSectionAdministratorRole(user.role)) {
+    const sections = sectionAdministratorQuerySections(user, schoolId);
+    const snapshot = await withFirestoreTimeout(getDocs(query(collection(db, "messages"), ...base,
+      where("participantIds", "array-contains", user.id),
+      sections.length === 1 ? where("section", "==", sections[0]) : where("section", "in", sections))), "messages");
+    return snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as AppData["messages"][number]));
+  }
   const legacyRecipients = schoolMessageLegacyRecipients(user.role);
   const queries = [
     withFirestoreTimeout(getDocs(query(collection(db, "messages"), ...base, where("participantIds", "array-contains", user.id))), "messages"),

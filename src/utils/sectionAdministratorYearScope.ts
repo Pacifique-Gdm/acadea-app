@@ -4,6 +4,17 @@ export function isSectionAdministratorRole(role: AppUser["role"]): boolean {
   return role === "kindergarten_admin" || role === "primary_admin" || role === "studies_prefect";
 }
 
+/** Client-side query guard; Firestore rules must independently re-read the active profile. */
+export function sectionAdministratorQuerySections(user: AppUser, schoolId: string): string[] {
+  const known = new Set(["Maternelle", "Primaire", "CTEB", "Secondaire"]);
+  const sections = [...new Set(user.sectionIds ?? [])];
+  if (!isSectionAdministratorRole(user.role) || user.schoolId !== schoolId || user.status !== "active"
+    || user.active === false || !sections.length || !sections.every((section) => known.has(section))) {
+    throw new Error("Périmètre administratif indisponible.");
+  }
+  return sections;
+}
+
 /** Defense in depth only. Firestore queries and API handlers must enforce the same scope before these roles are released. */
 export function sectionAdministratorYearScope(data: AppData, user: AppUser, schoolId: string, schoolYearId: string) {
   const known = new Set(["Maternelle", "Primaire", "CTEB", "Secondaire"]);
