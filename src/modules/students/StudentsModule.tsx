@@ -20,6 +20,7 @@ import { formatOperationalStudentClassName, resolveStudentParentClass, schoolCla
 import { canonicalAnnualClassName, isEligibleForAnnualTransition, isImmediatelyPreviousArchivedYear, studentImportKey } from "../../utils/studentYearTransition.js";
 import { useStudentPage } from "../../hooks/useStudentPage";
 import { isSectionAdministratorRole } from "../../utils/sectionAdministratorYearScope";
+import { assertSectionStudentPdfScope } from "../../utils/sectionAdministratorPdf";
 import { loadAllStudentResults, STUDENT_SOURCE_PAGE_SIZE, type StudentQueryFilters } from "../../services/studentPagination";
 
 export interface StudentModuleCapabilities {
@@ -570,6 +571,7 @@ export function StudentsModule({
     setPdfError("");
     try {
       const exportStudents = await loadAllStudentResults(studentFilters, yearData.students);
+      assertSectionStudentPdfScope(user, school.id, year.id, exportStudents);
       await exportStudentsPdf(school, year, exportStudents, filters, structuredClasses);
     } catch (cause) {
       setPdfError(cause instanceof Error ? cause.message : "Impossible de charger les élèves à exporter.");

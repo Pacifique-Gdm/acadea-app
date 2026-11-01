@@ -36,6 +36,7 @@ import { historicalArrearsPdfSection } from "./historicalArrearsPdf";
 import type { AppData, AppUser, AuditLog, CashInflow, Expense, FeeType, ParentProfile, Payment, PersonnelPayment, School, SchoolYear, Student } from "../../types";
 import { isSectionAdministratorRole } from "../../utils/sectionAdministratorYearScope";
 import { canManageSectionStudentFinances } from "../../utils/sectionAdministratorFinance";
+import { assertSectionPaymentReceiptScope, assertSectionStudentPdfScope } from "../../utils/sectionAdministratorPdf";
 
 type ControlYearData = {
   students: Student[];
@@ -1000,6 +1001,7 @@ export function ControlModule({
   async function generateFilteredStudentsPdf() {
     if (amountComparator.startsWith("arrears-")) {
       const filteredStudents = [...rows].sort((first, second) => compareStudentsForPdfByClass(first.student, second.student)).map((row) => row.student);
+      assertSectionStudentPdfScope(user, school.id, year.id, filteredStudents);
       const details: Record<string, HistoricalDebt[]> = {};
       for (let offset = 0; offset < filteredStudents.length; offset += 50) {
         Object.assign(details, await loadStudentArrearsDetailsBatch(year.id, filteredStudents.slice(offset, offset + 50).map((student) => student.id)));
@@ -1013,6 +1015,7 @@ export function ControlModule({
       return;
     }
     const feeFilter = amountComparator.match(/^fee:(.+):(gte|lt)$/);
+    assertSectionStudentPdfScope(user, school.id, year.id, rows.map((row) => row.student));
     const selectedPdfFeeGroup = feeFilter ? amountFeeGroups.find((fee) => fee.key === feeFilter[1]) : undefined;
     const filterLabel =
       !amountComparator || amountComparator === "all" || !amountThreshold
@@ -1716,7 +1719,7 @@ export function ControlModule({
                     <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <p className="min-w-0 break-words font-semibold text-ink">{student.nom} {student.prenom}</p>
                       <div className="flex shrink-0 flex-wrap gap-1">
-                        <button disabled={receiptAction.isPending(payment.id)} aria-busy={receiptAction.isPending(payment.id)} onClick={() => void receiptAction.run(payment.id, () => generateReceiptPdf(payment, student, fee, school, resolvePaymentCashierName(payment, yearData.auditLogs)))} className="rounded bg-slate-100 p-2" title="Voir le reçu PDF">
+                        <button disabled={receiptAction.isPending(payment.id)} aria-busy={receiptAction.isPending(payment.id)} onClick={() => void receiptAction.run(payment.id, () => { assertSectionPaymentReceiptScope(user, school.id, year.id, student, payment); return generateReceiptPdf(payment, student, fee, school, resolvePaymentCashierName(payment, yearData.auditLogs)); })} className="rounded bg-slate-100 p-2" title="Voir le reçu PDF">
                           <Download className="h-4 w-4" />
                         </button>
                         {canCorrectPayments && !payment.collectionSchoolYearId && <button onClick={() => correctPayment(payment)} disabled={financialMutationId === payment.id} className="rounded bg-slate-100 p-2 disabled:opacity-50" title="Corriger"><Edit3 className="h-4 w-4" /></button>}
