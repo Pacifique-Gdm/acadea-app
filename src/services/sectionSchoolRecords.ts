@@ -2,7 +2,7 @@ import { getCurrentFirebaseIdToken } from "./auth";
 import { resolveApiUrl } from "../config/apiUrl";
 import { sectionAdministratorQuerySections } from "../utils/sectionAdministratorYearScope";
 import type { AppUser, School, SchoolYear, SchoolClassRecord, Student, FeeType, Payment } from "../types";
-import { loadControlHistoryPage } from "./controlHistory";
+import { loadControlHistoryPage, type ControlHistoryPage } from "./controlHistory";
 
 export async function loadSectionSchoolBootstrap(user: AppUser) {
   const schoolId = user.schoolId ?? "";
@@ -71,7 +71,7 @@ export async function loadSectionSchoolYear(user: AppUser, schoolYearId: string)
   const cursors = new Set<string>();
   let cursor: { id: string } | null = null;
   do {
-    const page = await loadControlHistoryPage<Payment>("payments", schoolId, schoolYearId, user, cursor);
+    const page: ControlHistoryPage<Payment> = await loadControlHistoryPage<Payment>("payments", schoolId, schoolYearId, user, cursor);
     for (const payment of page.items) payments.set(payment.id, payment);
     cursor = page.lastVisible ? { id: page.lastVisible.id } : null;
     if (cursor && cursors.has(cursor.id)) throw new Error("Pagination financière invalide.");
