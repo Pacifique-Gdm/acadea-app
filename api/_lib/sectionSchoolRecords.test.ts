@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { listSectionSchoolRecords } from "./sectionSchoolRecords.js";
+import { listSectionSchoolRecords, loadSectionSchoolBootstrap } from "./sectionSchoolRecords.js";
 
 const caller = { uid: "actor", role: "primary_admin", schoolId: "a" };
 function fixture() {
@@ -37,6 +37,32 @@ function fixture() {
 const body = { action: "list-section-school-records", kind: "students", schoolYearId: "y" };
 
 describe("lecture scolaire transactionnelle bornée", () => {
+  it("lit les définitions de frais de l'année sans leur inventer de section", async () => {
+    const { db, rows, reads } = fixture();
+    rows.set("feeTypes/fee", { schoolId: "a", schoolYearId: "y", amount: 10 });
+    rows.set("feeTypes/foreign", { schoolId: "b", schoolYearId: "y", amount: 20 });
+    const result = await listSectionSchoolRecords({ db, caller, body: { ...body, kind: "feeTypes" } });
+    expect(result.items).toEqual([{ id: "fee", schoolId: "a", schoolYearId: "y", amount: 10 }]);
+    expect(reads[0].filters).toEqual([["schoolId", "==", "a"], ["schoolYearId", "==", "y"]]);
+  });
+  it("charge uniquement le propre profil et les références publiques de son école", async () => {
+    const { db, rows, reads } = fixture();
+    rows.set("schools/a", { status: "active", name: "Fictive", privateMetadata: "excluded" });
+    rows.set("users/other", { schoolId: "a", role: "parent" });
+    rows.set("schoolYears/foreign", { schoolId: "b" });
+    const result = await loadSectionSchoolBootstrap({ db, caller, body: { action: "load-section-school-bootstrap" } });
+    expect(result.users).toHaveLength(1);
+    expect(result.users[0]).toMatchObject({ id: "actor", role: "primary_admin", sectionIds: ["Primaire"] });
+    expect(result.schools).toEqual([{ id: "a", name: "Fictive", status: "active" }]);
+    expect(result.schoolYears.map((year: { id: string }) => year.id)).toEqual(["y"]);
+    expect(reads).toEqual([{ name: "schoolYears", filters: [["schoolId", "==", "a"]] }]);
+  });
+  it("refuse le bootstrap désactivé et toute école demandée par le client", async () => {
+    const { db, rows } = fixture();
+    await expect(loadSectionSchoolBootstrap({ db, caller, body: { action: "load-section-school-bootstrap", schoolId: "b" } })).rejects.toMatchObject({ statusCode: 400 });
+    rows.set("users/actor", { ...rows.get("users/actor"), active: false });
+    await expect(loadSectionSchoolBootstrap({ db, caller, body: { action: "load-section-school-bootstrap" } })).rejects.toMatchObject({ statusCode: 403 });
+  });
   it("borne la requête avant lecture et n'infère pas une section historique", async () => {
     const { db, reads } = fixture();
     const result = await listSectionSchoolRecords({ db, caller, body });

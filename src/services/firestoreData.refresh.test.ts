@@ -23,8 +23,8 @@ describe("périmètre réel du refresh scolaire", () => {
     expect(reads.getDocs).toHaveBeenCalled();
   });
   it.each(["kindergarten_admin", "primary_admin", "studies_prefect"] as const)("refuse les lectures génériques de %s avant toute requête", async (role) => {
-    await expect(loadFirestoreData(user(role), "year-a")).rejects.toThrow("périmètre administratif non sécurisé");
-    await expect(loadFirestoreYearData(user(role), "year-a")).rejects.toThrow("périmètre administratif non sécurisé");
+    await expect(loadFirestoreData(user(role), "year-a")).rejects.toThrow("Périmètre administratif indisponible");
+    await expect(loadFirestoreYearData(user(role), "year-a")).rejects.toThrow("Périmètre administratif indisponible");
     expect(reads.getDocs).not.toHaveBeenCalled();
   });
 });

@@ -16,7 +16,7 @@ export function isSectionAdministrator(role) {
 /** Student files are the only provisioning mutation these roles may perform.
  * Parent and account lifecycle operations remain reserved to existing roles. */
 export function requireSectionProvisioningAction(caller, action) {
-  if (isSectionAdministrator(caller?.role) && !["save-manual-student", "list-section-school-records"].includes(action)) {
+  if (isSectionAdministrator(caller?.role) && !["save-manual-student", "list-section-school-records", "load-section-school-bootstrap"].includes(action)) {
     throw denied("Administration des parents et des comptes interdite à ce profil.");
   }
 }

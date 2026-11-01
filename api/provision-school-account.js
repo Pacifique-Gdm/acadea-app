@@ -1,5 +1,5 @@
 import { manageSectionAdministrators } from "./_lib/manageSectionAdministrators.js";
-import { listSectionSchoolRecords } from "./_lib/sectionSchoolRecords.js";
+import { listSectionSchoolRecords, loadSectionSchoolBootstrap } from "./_lib/sectionSchoolRecords.js";
 import { isSectionAdministrator, requireSectionProvisioningAction } from "./_lib/sectionAdministrators.js";
 import { createHash } from "node:crypto";
 import { randomId as uid } from "./_lib/randomId.js";
@@ -835,6 +835,11 @@ export default async function handler(req, res) {
     await requireActiveApiUser(db, caller);
     const action = normalizeText(body.action);
     requireSectionProvisioningAction(caller, action);
+    if (action === "load-section-school-bootstrap") {
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action, ...API_RATE_LIMITS.MESSAGE_RECIPIENTS });
+      sendJson(res, 200, await loadSectionSchoolBootstrap({ db, caller, body }));
+      return;
+    }
     if (action === "list-section-school-records") {
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action, ...API_RATE_LIMITS.MESSAGE_RECIPIENTS });
       sendJson(res, 200, await listSectionSchoolRecords({ db, caller, body }));
