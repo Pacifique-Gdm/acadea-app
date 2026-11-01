@@ -1,0 +1,21 @@
+name: section-isolated-recipe-contract
+on:
+  push:
+    branches: [codex/section-admin-profiles-final-20261031]
+    paths:
+      - '.github/workflows/section-isolated-recipe-contract.yml'
+      - 'scripts/sectionStaging*.mjs'
+permissions:
+  contents: read
+jobs:
+  candidate-trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node --test scripts/sectionStagingPlan.test.mjs scripts/sectionStagingCleanup.test.mjs
+      - run: echo 'Candidate push trigger only. No credentials, deployment or remote fixture.'
