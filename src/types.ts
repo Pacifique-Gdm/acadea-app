@@ -482,6 +482,7 @@ export interface Conversation {
 }
 
 export interface AppNotification {
+  section?: SchoolSection;
   id: string;
   schoolId: string;
   schoolYearId: string;

@@ -3,7 +3,7 @@ import { markSectionNotificationsRead } from "./schoolMessaging";
 import type { DocumentSnapshot, Firestore, QueryConstraint } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
 import type { AppNotification, AppUser } from "../types";
-import { isSectionAdministratorRole } from "../utils/sectionAdministratorYearScope";
+import { isSectionAdministratorRole, sectionAdministratorQuerySections } from "../utils/sectionAdministratorYearScope";
 
 export const NOTIFICATIONS_PAGE_SIZE = 30;
 
@@ -34,7 +34,8 @@ function notificationRecipientConstraints(user: AppUser, schoolId: string, schoo
   if (user.role === "parent") {
     return [...constraints, where("parentId", "==", user.parentId)];
   }
-  if (isSectionAdministratorRole(user.role) || ["secretary", "teacher", "study_director", "coordination_admin", "sub_coordination_admin"].includes(user.role)) return [...constraints, where("recipientUserId", "==", user.id)];
+  if (isSectionAdministratorRole(user.role)) return [...constraints, where("recipientUserId", "==", user.id), where("section", "in", sectionAdministratorQuerySections(user, schoolId))];
+  if (["secretary", "teacher", "study_director", "coordination_admin", "sub_coordination_admin"].includes(user.role)) return [...constraints, where("recipientUserId", "==", user.id)];
   if (user.role === "discipline_director") {
     return [...constraints, where("recipientRole", "==", "school"), where("schoolRecipient", "==", "discipline")];
   }

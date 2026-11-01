@@ -318,6 +318,7 @@ export default async function handler(req, res) {
       message.recipientIds = recipients.map((recipient) => recipient.id);
       message.participantIds = participantIds;
       const notifications = recipients.map((recipient, index) => ({
+        ...(messageSection ? { section: messageSection } : {}),
         id: index === 0 ? notificationId : uid("notif"), schoolId: caller.schoolId, schoolYearId,
         recipientRole: "school", recipientUserId: recipient.id, audienceRoles: [recipient.role], messageId, type: "message",
         title: `Nouveau message parent - ${recipientLabel}`, body: `${parent.fullName ?? caller.name ?? "Parent"} : ${subject}`,

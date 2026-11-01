@@ -4,7 +4,7 @@ import type { AppData, AppNotification, AppUser, AuditLog, Message, ParentProfil
 import { administrativeSenderDetails } from "../../utils/administrativeSender";
 import { MessageAttachments } from "./MessageAttachments";
 import { isSectionAdministratorRole, sectionAdministratorQuerySections } from "../../utils/sectionAdministratorYearScope";
-import { sectionMessageVisible } from "../../utils/sectionMessageVisibility";
+import { sectionMessageVisible, sectionNotificationVisible } from "../../utils/sectionMessageVisibility";
 
 type MessageDrawerYearData = {
   auditLogs: AuditLog[];
@@ -73,7 +73,9 @@ export function MessageDrawerContent({
     return timestamp > 0 ? new Date(timestamp).toLocaleString("fr-FR") : "Date non renseignée";
   }
 
-  const notifications = [...(paginatedNotifications ?? yearData.notifications)].sort((a, b) => messageTimestamp(b.createdAt) - messageTimestamp(a.createdAt));
+  const notifications = [...(paginatedNotifications ?? yearData.notifications)]
+    .filter((item) => !isSectionAdministratorRole(user.role) || sectionNotificationVisible(user, item))
+    .sort((a, b) => messageTimestamp(b.createdAt) - messageTimestamp(a.createdAt));
   const notificationReadState = new Map(yearData.notifications.map((notification) => [notification.id, notification.read]));
 
   function getParentForMessage(message: Message) {

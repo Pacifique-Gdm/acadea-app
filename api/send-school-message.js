@@ -226,7 +226,7 @@ export default async function handler(req, res) {
     save(db.doc(`conversations/${conversationId}`), conversation);
     recipients.forEach((recipient) => {
       const notificationId = stableId("notif", messageId, recipient.id);
-      save(db.doc(`notifications/${notificationId}`), { id: notificationId, schoolId: caller.schoolId, schoolYearId, recipientUserId: recipient.id, audienceRoles: [normalizedRole(recipient.role)], messageId, type: "message", title: "Nouveau message", body: subject, createdAt, read: false });
+      save(db.doc(`notifications/${notificationId}`), { id: notificationId, schoolId: caller.schoolId, schoolYearId, ...(savedMessage.section ? { section: savedMessage.section } : {}), recipientUserId: recipient.id, audienceRoles: [normalizedRole(recipient.role)], messageId, type: "message", title: "Nouveau message", body: subject, createdAt, read: false });
     });
     };
     let committedMessage = savedMessage;

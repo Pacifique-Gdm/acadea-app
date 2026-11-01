@@ -113,3 +113,9 @@ PASS. TypeScript local reste limité par les dépendances absentes `@vvo/tzdb`,
 `pdfjs-dist` et `tesseract.js`; la CI application/functions du commit f1831c3 est
 PASS (installation propre, types, tests et build), sans prétendre valider le lot
 Menu postérieur avant sa CI.
+
+Complément B06 : les notifications personnelles des échanges de section portent
+désormais la section du message. Requêtes et affichage refusent les aperçus d'une
+ancienne section, même si l'utilisateur reste destinataire. Deux index composites
+sont préparés (non déployés). 20 tests ciblés PASS, lint PASS. Les notifications
+anciennes non étiquetées sont volontairement invisibles aux nouveaux profils.

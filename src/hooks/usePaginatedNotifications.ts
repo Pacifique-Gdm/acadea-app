@@ -4,7 +4,8 @@ import type { Firestore, Query } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
 import { countUnreadNotifications, loadNotificationsPage, type NotificationsCursor } from "../services/notificationsPagination";
 import type { AppNotification, AppUser, Message } from "../types";
-import { isSectionAdministratorRole } from "../utils/sectionAdministratorYearScope";
+import { isSectionAdministratorRole, sectionAdministratorQuerySections } from "../utils/sectionAdministratorYearScope";
+import { sectionNotificationVisible } from "../utils/sectionMessageVisibility";
 
 type UsePaginatedNotificationsOptions = {
   user: AppUser;
@@ -62,7 +63,10 @@ function realtimeNotificationQueries(
     ];
   }
 
-  if (isSectionAdministratorRole(user.role) || ["secretary", "teacher", "study_director"].includes(user.role)) {
+  if (isSectionAdministratorRole(user.role)) {
+    return [query(notificationCollection, ...constraints, where("recipientUserId", "==", user.id), where("section", "in", sectionAdministratorQuerySections(user, schoolId)), ...readConstraint, ...recentConstraints)];
+  }
+  if (["secretary", "teacher", "study_director"].includes(user.role)) {
     return [query(notificationCollection, ...constraints, where("recipientUserId", "==", user.id), ...readConstraint, ...recentConstraints)];
   }
 
@@ -97,8 +101,8 @@ export function mergeRealtimeNotifications(user: AppUser, messages: Message[], s
 }
 
 function canShowSchoolNotification(user: AppUser, notification: AppNotification, messages: Message[]) {
+  if (isSectionAdministratorRole(user.role)) return sectionNotificationVisible(user, notification);
   if (notification.recipientUserId) return notification.recipientUserId === user.id;
-  if (isSectionAdministratorRole(user.role)) return false;
   if (user.role === "secretary") return notification.recipientUserId === user.id;
   if (notification.parentId || notification.recipientRole !== "school") return false;
   if (notification.schoolRecipient) {
@@ -134,8 +138,9 @@ export function usePaginatedNotifications({
 
   const visibleItems = useMemo(() => {
     if (user.role === "parent") return items;
-    return items.filter((notification) => canShowSchoolNotification(user, notification, messages));
-  }, [items, messages, user]);
+    return items.filter((notification) => (!isSectionAdministratorRole(user.role) || notification.schoolId === schoolId && notification.schoolYearId === schoolYearId)
+      && canShowSchoolNotification(user, notification, messages));
+  }, [items, messages, schoolId, schoolYearId, user]);
 
   const refreshUnreadCount = useCallback(async () => {
     try {
