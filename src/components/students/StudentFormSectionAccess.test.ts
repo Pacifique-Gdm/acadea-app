@@ -36,6 +36,11 @@ describe("formulaire Élèves limité aux opérations permises", () => {
     const save = students.slice(students.indexOf("const nextStudents = exists"), students.indexOf("if (pendingParentForStudent)"));
     expect(save).toContain("if (sectionRole)");
     expect(save).toContain("return;");
-    expect(menu).toContain('sectionRole && ["years", "school", "history"].includes(section.id)');
+    const sectionEntries = menu.match(/sectionRole && (\[[^\]]+\])\.includes\(section\.id\)/);
+    expect(sectionEntries).not.toBeNull();
+    const entries: string[] = JSON.parse(sectionEntries![1]);
+    expect(entries).toEqual(expect.arrayContaining(["years", "school", "history"]));
+    expect(entries).not.toContain("parentsDirectory");
+    expect(entries).not.toContain("accounts");
   });
 });
