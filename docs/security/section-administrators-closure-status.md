@@ -12,14 +12,18 @@ distant n'a été effectué pour les lots ci-dessous.
 | B02 | `useSchoolMessageRecipients` | Une réponse tardive pouvait conserver un annuaire d'un ancien utilisateur/périmètre ; une erreur conservait les contacts précédents. | Corrigé : invalidation par identité, école, année, statut et sections ; réponse ancienne ignorée ; liste vidée pendant revalidation et après refus. |
 | B03 | `conversations`, `usePaginatedConversations` | Les marqueurs historiques utilisaient le compteur de l'administrateur principal par défaut. | Corrigé pour la sécurité : seuls les quatre rôles historiques propriétaires de ces compteurs peuvent les modifier. Cela ne valide pas le parcours de lecture personnel des nouveaux profils (B06). |
 | B04 | `Dashboard`, `ControlModule` | Le solde général n'avait pas de consultation dédiée indépendante des commandes de dépense interdites. | Corrigé : composant partagé de consultation, sans mutation, utilisant l'API existante ; réponse école/année/devise vérifiée ; annulation des réponses obsolètes. |
-| B05 | `Dashboard`, `dashboardPdf` | La synthèse financière scolaire et le PDF sont toujours bloqués pour les profils de section ; les compteurs de population reposent sur des collections volontairement incomplètes. | Ouvert : terminer les agrégats bornés et le PDF sans confondre population visible, finances scolaires de section et caisse générale. |
-| B06 | `messageRecipients`, `send-parent-message`, notifications/conversations et pièces jointes | Les listes de destinataires des autres rôles n'incluent pas encore les trois nouveaux profils. Le parcours bidirectionnel, les marqueurs personnels et les fichiers ne disposent pas d'une validation intégrée complète. | Ouvert : destinataires réciproques contrôlés, parent mixte borné à la relation autorisée, lecture personnelle et téléchargement authentifié vérifiés de bout en bout. Ne pas élargir simplement les listes de rôles. |
-| B07 | `MenuModule`, services documentaires | Le Menu des profils de section ne présente que les années, paramètres école et historiques. Les autres consultations légitimes ne sont pas toutes intégrées ; les lectures directes des valves restent interdites. | Ouvert : établir les consultations permises avec leurs lecteurs bornés, sans réintroduire l'administration des comptes/parents ou les mutations de comptabilité. |
+| B05 | `sectionDashboard`, `Dashboard`, `dashboardPdf` | Agrégats scolaires transactionnels bornés aux sections, compteurs et PDF séparés de la comptabilité générale. | Implémenté et testé unitairement ; validation des chargements et PDF depuis une session réelle encore dépendante de B08. |
+| B06 | `transactionalMessaging`, `messageRecipients`, `sectionMessageRead`, lecteurs de fichiers | Destinataires réciproques, parent mixte, création transactionnelle, notifications par compte et filtrage des caches implémentés. | Tests ciblés réussis ; parcours bidirectionnel complet non validé. Les gardes globales refusent encore les profils : clôture conditionnée à B08. |
+| B07 | `MenuModule`, `sectionSchoolRecords`, lecteurs documentaires | Personnel/paie, frais, bibliothèque, médical, rapport financier, Valves et biométrie raccordés en lecture seule. | Lecteurs et rendus statiques testés ; navigation authentifiée non exécutée. Publications historiques sans section vérifiable non exposées ; aucune association inventée. |
 | B08 | `auth`, `activeUser`, règles Firebase et recette | Les gardes de livraison refusent encore les trois rôles. Aucun parcours authentifié de leurs cinq onglets n'a été exécuté. | Ouvert : finaliser les chemins autorisés puis préparer une recette isolée qui conserve les contrôles métier. Une CI E2E historique verte ne prouve pas cette recette. |
 
-Huit blocages confirmés dans ce registre, quatre corrections techniques effectuées,
-quatre blocages de finalisation ouverts. Ce décompte ne certifie pas l'absence de
-défauts supplémentaires dans les parcours authentifiés encore non exécutés.
+Huit blocages initiaux : B01–B04 corrigés, implémentations B05–B07 complétées par
+les lots décrits ci-dessous, mais leur recette intégrée n'est pas certifiée.
+B08 reste ouvert, avec un volet de raccordement/activation contrôlée et un volet
+d'accès Staging. Ne pas interpréter les tests unitaires comme huit blocages clos.
+
+Les sections « Reprise » ci-dessous constituent le journal chronologique : leurs
+verdicts intermédiaires ne remplacent pas le présent registre.
 
 ## Vérifications réellement exécutées sur les nouveaux lots
 
@@ -142,3 +146,58 @@ Les trois profils disposent maintenant des entrées de consultation du Menu, sau
 l'annuaire Parents et l'administration des comptes, volontairement interdits.
 14 tests ciblés PASS (dont rendu React statique des trois menus), lint PASS.
 Ce rendu statique ne démontre pas un parcours de clics authentifié.
+
+## B08 — limites vérifiées et recette à exécuter
+
+Contrôle non destructif de l'environnement GitHub `acadea-staging-e2e` : les cinq
+variables publiques `STAGING_FIREBASE_*` sont renseignées. Les variables
+`GCP_STAGING_WIF_PROVIDER` et `GCP_STAGING_E2E_SERVICE_ACCOUNT` sont absentes.
+Aucun identifiant de fournisseur ou de compte de service n'est inventé. Le chemin
+ADC local conventionnel est absent et `GOOGLE_APPLICATION_CREDENTIALS` n'est pas
+défini. Cela ne prouve pas l'absence de tout autre accès, mais aucun accès de
+fixture hébergée utilisable n'a été établi pour ce lot.
+
+Le workflow Staging existant est spécifique au hors connexion et à sa branche :
+il ne constitue pas un runner prêt pour cette recette, et n'a pas été détourné.
+L'accès WIF seul ne suffirait donc pas à clôturer B08.
+
+Limite technique distincte : `requireActiveApiUser`, la garde d'authentification
+et les règles Firestore/Storage refusent encore les trois profils avant livraison.
+Les tests de règles vérifient ce refus, pas les parcours positifs des cinq onglets.
+Une intégration candidate permettant une activation isolée tout en conservant les
+contrôles de profil/école/sections reste à finaliser et tester avant toute levée de
+garde. Aucune garde n'a été contournée pour produire un résultat PASS.
+
+Recette requise sur un environnement candidat isolé et compatible :
+
+1. Refuser toute cible autre que `acadea-staging`, vérifier le SHA et les versions
+   candidates d'API, Functions, règles et index. Aucun déploiement effectué ici.
+2. Préparer un manifeste de chemins absents, deux écoles fictives, les trois
+   profils actifs et des variantes désactivées/sections invalides, des élèves par
+   section et un parent mixte. Conserver les secrets hors logs et dépôt.
+3. Dashboard : comparer les agrégats aux écritures fictives connues, aux arriérés
+   et aux PDF ; distinguer clairement recettes scolaires et solde général.
+4. Élèves/Contrôle : création et correction autorisées dans la section, refus de
+   suppression/transfert hors section et d'annulation de paiement ; comptabilité
+   générale et paie lisibles mais non modifiables, y compris par requêtes directes.
+5. Message : envoi/réponse depuis les deux comptes, parent mixte sans fuite de
+   fratrie, marqueurs propres au destinataire, changements de section/statut,
+   téléchargement autorisé et refus d'un autre fichier/établissement.
+6. Menu : toutes les consultations raccordées, changement d'année, erreurs et
+   réessais ; absence des commandes interdites ; PDF et fichiers inspectés.
+7. Vérifier les refus interétablissements et le retrait des droits après
+   désactivation. Nettoyer uniquement les ressources du manifeste et vérifier
+   séparément Auth, Firestore et Storage, même après échec.
+
+Cette recette est **NON EXÉCUTÉE**. Aucune fixture distante n'a été créée, donc
+aucun nettoyage distant n'est revendiqué. La PR doit rester en brouillon.
+
+## Dernières corrections de validation
+
+La CI a détecté TS7022 dans le lecteur paginé du rapport : résultat typé
+explicitement avec `ControlHistoryPage<T>` (`f1d8123`). Elle a ensuite détecté une
+assertion imposant l'ancien Menu à trois entrées. Le test vérifie désormais
+l'absence des comptes/annuaire Parents sans interdire les consultations légitimes
+ajoutées. Les 8 tests des deux fichiers concernés sont PASS (`da33d01`).
+La réussite des CI du dernier HEAD doit être vérifiée séparément ; un résultat
+vert sur un commit antérieur n'est pas transféré au nouveau HEAD.
