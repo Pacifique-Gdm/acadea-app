@@ -22,6 +22,15 @@ const cashInflow = { id: "inflow-a", schoolId: "school-a", schoolYearId: "year-a
 
 describe("rapport financier PDF — devise historique", () => {
   beforeEach(() => render.mockClear());
+  it("ne mélange pas les paiements de section et la caisse globale dans un faux solde", async () => {
+    await exportReportPdf(school, year, "2026-10-01", "2026-10-31", "Sections autorisées", true,
+      totalsByRecordedCurrency([payment]), totalsByRecordedCurrency([expense]), null, [payment], [expense], [], [], [cashInflow], true);
+    const sections = render.mock.calls[0]?.[0]?.sections.join(" ") ?? "";
+    expect(sections).toContain("500 000,00 FC");
+    expect(sections).toContain("200 000,00 FC");
+    expect(sections).toContain("globales pour l'école");
+    expect(sections).not.toContain("Solde:");
+  });
 
   it("préserve CDF dans la synthèse et chaque ligne après changement du défaut en USD", async () => {
     await exportReportPdf(school, year, "2026-10-01", "2026-10-31", "Toutes", false,

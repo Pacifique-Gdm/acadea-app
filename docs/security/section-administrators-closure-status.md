@@ -119,3 +119,11 @@ désormais la section du message. Requêtes et affichage refusent les aperçus d
 ancienne section, même si l'utilisateur reste destinataire. Deux index composites
 sont préparés (non déployés). 20 tests ciblés PASS, lint PASS. Les notifications
 anciennes non étiquetées sont volontairement invisibles aux nouveaux profils.
+
+Complément B07 : le rapport financier réutilise le composant/PDF existants avec
+les seuls élèves autorisés, chargés par les lecteurs serveur. Les dépenses et
+autres recettes sont chargées séparément, globalement, en lecture seule. Le
+rapport de section n'affiche pas de faux solde mélangeant recettes partielles et
+dépenses globales ; le solde général dispose de sa consultation dédiée. Pagination
+complète, refus d'échec partiel et de curseur répété : 24 tests PASS, lint PASS.
+Les preuves PDF portent ici sur le contenu généré, pas sur une inspection visuelle.

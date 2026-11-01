@@ -21,6 +21,7 @@ export async function exportReportPdf(
   students: Student[],
   arrearsPayments: Payment[] = [],
   cashInflows: CashInflow[] = [],
+  sectionScoped = false,
 ) {
   if (paid.unknownCount || spent.unknownCount || cashInflows.some((inflow) => inflow.currency !== "CDF" && inflow.currency !== "USD") || arrearsPayments.some((payment) => payment.currency !== "CDF" && payment.currency !== "USD")) {
     throw new Error("Export bloqué : devise historique inconnue.");
@@ -76,7 +77,7 @@ export async function exportReportPdf(
           { label: "Paiements", value: formatRecordedTotals(paid, defaultCurrency) },
           { label: "Autres entrées de caisse", value: formatRecordedTotals(inflowTotals, defaultCurrency) },
           { label: "Dépenses", value: formatRecordedTotals(spent, defaultCurrency) },
-          { label: "Solde", value: formatRecordedTotals({ CDF: sumMoney([paid.CDF, inflowTotals.CDF, -spent.CDF]), USD: sumMoney([paid.USD, inflowTotals.USD, -spent.USD]), unknownCount: 0 }, defaultCurrency) },
+          ...(!sectionScoped ? [{ label: "Solde", value: formatRecordedTotals({ CDF: sumMoney([paid.CDF, inflowTotals.CDF, -spent.CDF]), USD: sumMoney([paid.USD, inflowTotals.USD, -spent.USD]), unknownCount: 0 }, defaultCurrency) }] : []),
           { label: "Recouvrement", value: recovery === null ? "Non calculable" : `${recovery}%` },
           ...(showGlobalExpenseNote
             ? [{ label: "Note caisse", value: "Les dépenses et autres entrées de caisse sont globales pour l'école, car elles ne sont pas rattachées à une section." }]

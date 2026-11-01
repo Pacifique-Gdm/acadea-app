@@ -26,25 +26,27 @@ type ReportsModuleProps = {
   yearData: ReportsYearData;
   school: School;
   year: SchoolYear;
+  allowedSections?: SchoolSection[];
 };
 
-export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
+export function ReportsModule({ yearData, school, year, allowedSections }: ReportsModuleProps) {
   const resolvedExpenses = useResolvedExpenseCurrencies(yearData.expenses);
   const today = new Date().toISOString().slice(0, 10);
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
   const [sectionFilter, setSectionFilter] = useState<"all" | SchoolSection>("all");
   const sectionLabels: Record<"all" | SchoolSection, string> = {
-    all: "Toutes les sections",
+    all: allowedSections ? "Sections autorisées" : "Toutes les sections",
     ...schoolSectionLabels,
   };
-  const reportSectionChoices = useMemo(() => getSchoolSections(school), [school]);
+  const reportSectionChoices = useMemo(() => allowedSections ?? getSchoolSections(school), [allowedSections, school]);
   useEffect(() => {
     if (sectionFilter !== "all" && !reportSectionChoices.includes(sectionFilter)) {
       setSectionFilter("all");
     }
   }, [reportSectionChoices, sectionFilter]);
-  const filteredStudents = yearData.students.filter((student) => sectionFilter === "all" || getClassSection(student.className) === sectionFilter);
+  const filteredStudents = yearData.students.filter((student) => (!allowedSections || Boolean(student.section && allowedSections.includes(student.section)))
+    && (sectionFilter === "all" || (allowedSections ? student.section : getClassSection(student.className)) === sectionFilter));
   const filteredStudentIds = new Set(filteredStudents.map((student) => student.id));
   const payments = yearData.payments.filter((payment) => payment.paidAt >= startDate && payment.paidAt <= endDate && filteredStudentIds.has(payment.studentId));
   const arrearsPayments = yearData.payments.filter((payment) => payment.collectionSchoolYearId === year.id && payment.paidAt >= startDate && payment.paidAt <= endDate && filteredStudentIds.has(payment.currentStudentId ?? ""));
@@ -60,7 +62,7 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
   const expected = buildStats(filteredStudents, yearData.parents, yearData.feeTypes, payments).expected;
   const recovery = !hasUnknownCurrency && paidTotals[yearCurrency === "CDF" ? "USD" : "CDF"] === 0 && expected > 0
     ? Math.round((paidTotals[yearCurrency] / expected) * 100) : null;
-  const usesSectionFilter = sectionFilter !== "all";
+  const usesSectionFilter = sectionFilter !== "all" || Boolean(allowedSections);
   const netTotals = { CDF: sumMoney([paidTotals.CDF, inflowTotals.CDF, -spentTotals.CDF]),
     USD: sumMoney([paidTotals.USD, inflowTotals.USD, -spentTotals.USD]), unknownCount: 0 };
 
@@ -79,7 +81,7 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
               ))}
             </select>
           </label>
-          <button disabled={hasUnknownCurrency} onClick={() => exportReportPdf(school, year, startDate, endDate, sectionLabels[sectionFilter], usesSectionFilter, paidTotals, spentTotals, recovery, payments, expenses, filteredStudents, arrearsPayments, cashInflows)} className="primary-button self-end">
+          <button disabled={hasUnknownCurrency} onClick={() => exportReportPdf(school, year, startDate, endDate, sectionLabels[sectionFilter], usesSectionFilter, paidTotals, spentTotals, recovery, payments, expenses, filteredStudents, arrearsPayments, cashInflows, Boolean(allowedSections))} className="primary-button self-end">
             <Download className="h-4 w-4" /> Export PDF
           </button>
         </div>
@@ -94,7 +96,7 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
         <Metric label="Paiements des frais de l'année" value={hasUnknownCurrency ? "Indéterminé" : formatRecordedTotals(paidTotals, yearCurrency)} />
         <Metric label="Autres entrées de caisse" value={hasUnknownCurrency ? "Indéterminé" : formatRecordedTotals(inflowTotals, yearCurrency)} />
         <Metric label="Dépenses" value={hasUnknownCurrency ? "Indéterminé" : formatRecordedTotals(spentTotals, yearCurrency)} />
-        <Metric label="Solde net hors arriérés" value={hasUnknownCurrency ? "Indéterminé" : formatRecordedTotals(netTotals, yearCurrency)} />
+        {!allowedSections && <Metric label="Solde net hors arriérés" value={hasUnknownCurrency ? "Indéterminé" : formatRecordedTotals(netTotals, yearCurrency)} />}
         <Metric label="Recouvrement période" value={recovery === null ? "Non calculable" : `${recovery}%`} />
       </div>
       {arrearsByCurrency.length > 0 && <div className="rounded border border-amber-200 bg-amber-50 p-4 text-sm">
