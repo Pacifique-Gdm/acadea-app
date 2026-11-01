@@ -22,7 +22,8 @@ import { useStudentPage } from "../../hooks/useStudentPage";
 import { isSectionAdministratorRole } from "../../utils/sectionAdministratorYearScope";
 import { assertSectionStudentPdfScope } from "../../utils/sectionAdministratorPdf";
 import { loadSectionSchoolRecords } from "../../services/sectionSchoolRecords";
-import { loadAllStudentResults, STUDENT_SOURCE_PAGE_SIZE, type StudentQueryFilters } from "../../services/studentPagination";
+import { filterStudentFallback, loadAllStudentResults, STUDENT_SOURCE_PAGE_SIZE, type StudentQueryFilters } from "../../services/studentPagination";
+import { canManageSectionStudentFinances } from "../../utils/sectionAdministratorFinance";
 
 export interface StudentModuleCapabilities {
   canCreate: boolean;
@@ -110,7 +111,8 @@ export function StudentsModule({
   const [pdfError, setPdfError] = useState("");
   const pdfExportLock = useRef(false);
   const [terminalDecisions, setTerminalDecisions] = useState<Record<string, "completed" | "reenrolled">>({});
-  const defaultCanManage = user.role === "school_admin" && year.status !== "archived";
+  const defaultCanManage = (user.role === "school_admin" && year.status !== "archived")
+    || canManageSectionStudentFinances(user, school.id, year.status !== "active");
   const sectionRole = isSectionAdministratorRole(user.role);
   const effectiveAllowedSections = sectionRole
     ? user.schoolId === school.id && user.status === "active" && user.active !== false ? user.sectionIds ?? [] : []
@@ -587,7 +589,9 @@ export function StudentsModule({
     setIsExporting(true);
     setPdfError("");
     try {
-      const exportStudents = await loadAllStudentResults(studentFilters, yearData.students);
+      const exportStudents = sectionRole
+        ? filterStudentFallback(await loadSectionSchoolRecords("students", user, school.id, year.id), studentFilters)
+        : await loadAllStudentResults(studentFilters, yearData.students);
       assertSectionStudentPdfScope(user, school.id, year.id, exportStudents);
       await exportStudentsPdf(school, year, exportStudents, filters, structuredClasses);
     } catch (cause) {
