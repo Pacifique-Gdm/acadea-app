@@ -140,7 +140,11 @@ service firebase.storage {
     }
 
     match /valves/{schoolId}/{schoolYearId}/{publicationId}/{fileName} {
-      allow read: if signedIn() && tenantSchoolId() == schoolId && schoolAcceptsWrites(schoolId);
+      // A section administrator cannot read a school-wide attachment by path:
+      // Storage cannot prove the publication's section within its Firestore
+      // lookup limit. Keep the direct route closed until a scoped server read exists.
+      allow read: if signedIn() && !(role() in ["kindergarten_admin", "primary_admin", "studies_prefect"])
+        && tenantSchoolId() == schoolId && schoolAcceptsWrites(schoolId);
       allow create, update: if signedIn()
         && valvesRole()
         && tenantSchoolId() == schoolId

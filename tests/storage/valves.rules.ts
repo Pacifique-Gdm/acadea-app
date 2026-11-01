@@ -127,4 +127,17 @@ describe("pieces jointes Valves", () => {
     await assertSucceeds(matching.storage().ref(path).getDownloadURL());
     await assertFails(mismatched.storage().ref(path).getDownloadURL());
   });
+
+  it("interdit aux administrateurs de section la lecture directe d'une pièce Valves non attribuée", async () => {
+    const path = `valves/${schoolId}/${yearId}/${publicationId}/${fileId}.pdf`;
+    await testEnvironment().withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), "users/section-a"), {
+        role: "primary_admin", schoolId, sectionIds: ["Primaire"], status: "active", active: true,
+      });
+      await admin.storage().ref(path).put(new Uint8Array(10), { contentType: "application/pdf" });
+    });
+    const scoped = testEnvironment().authenticatedContext("section-a", { role: "primary_admin", schoolId });
+    await assertFails(scoped.storage().ref(path).getDownloadURL());
+    await assertSucceeds(context("school_admin").storage().ref(path).getDownloadURL());
+  });
 });
