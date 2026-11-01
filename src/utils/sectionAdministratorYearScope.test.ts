@@ -37,7 +37,7 @@ describe("section administrator display boundary", () => {
   it("excludes other schools, sections and unattributed records across all displayed collections", () => {
     const scoped = sectionAdministratorYearScope(data, actor, "school-a", "year-a");
     expect(scoped.students.map((item) => item.id)).toEqual(["primary"]);
-    expect(scoped.parents.map((item) => item.id)).toEqual(["own"]);
+    expect(scoped.parents).toEqual([]);
     expect(scoped.users.map((item) => item.id)).toEqual(["primary-a"]);
     expect(scoped.payments.map((item) => item.id)).toEqual(["primary"]);
     expect(scoped.valves.map((item) => item.id)).toEqual(["Primaire"]);

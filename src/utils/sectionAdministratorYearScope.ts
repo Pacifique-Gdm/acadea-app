@@ -29,12 +29,11 @@ export function sectionAdministratorYearScope(data: AppData, user: AppUser, scho
     student.schoolId === schoolId && student.schoolYearId === schoolYearId
     && Boolean(student.section && sections.has(student.section))) : [];
   const studentIds = new Set(students.map((student) => student.id));
-  const parents = valid ? data.parents.filter((parent) =>
-    parent.schoolId === schoolId && parent.schoolYearId === schoolYearId
-    && parent.studentIds.length > 0 && parent.studentIds.every((id) => studentIds.has(id))) : [];
   return {
     students,
-    parents,
+    // Parent contacts are exposed only by the scoped messaging directory.
+    // Never reuse an old general-school cache to populate a parent directory.
+    parents: [],
     users: valid ? data.users.filter((item) => item.id === user.id && item.schoolId === schoolId) : [],
     // Fee definitions are school/year-wide reference data. They are needed to
     // collect a scoped student's fees, but never confer permission to mutate
