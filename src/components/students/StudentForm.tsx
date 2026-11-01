@@ -27,6 +27,8 @@ export function StudentForm({
   errorMessage,
   isSaving = false,
   canCreateParent = true,
+  canManageParentLinks = true,
+  canManageClasses = true,
   canAddOption = true,
   structuredClasses = [],
   onAddSubclasses,
@@ -49,6 +51,8 @@ export function StudentForm({
   errorMessage?: string;
   isSaving?: boolean;
   canCreateParent?: boolean;
+  canManageParentLinks?: boolean;
+  canManageClasses?: boolean;
   canAddOption?: boolean;
   structuredClasses?: SchoolClassRecord[];
   onAddSubclasses?: (parent: SchoolClassRecord, labels: string[], classOptionKey: string | undefined, confirmation: string) => Promise<void>;
@@ -322,7 +326,7 @@ export function StudentForm({
       {!selectedClass && <p className="text-xs text-slate-500">Sélectionnez d’abord une classe principale pour ajouter des sous-classes.</p>}
       {selectedClass && isSecondaryClass && !selectedOptionKey && <p className="text-xs text-slate-500">Sélectionnez d’abord une option pour ajouter ou choisir ses sous-classes.</p>}
       {selectedClass && subclasses.length > 0 && <label className="grid gap-1 text-sm font-medium text-slate-700">Sous-classe<select className="input" required disabled={subclassAddSaving || subclassDeletePending} value={form.subClassId ?? ""} onChange={(event) => setForm({ ...form, subClassId: event.target.value || undefined })}><option value="">Choisir une sous-classe</option>{subclasses.map((item) => <option key={item.id} value={item.id}>{item.subClassLabel ?? item.name}</option>)}</select></label>}
-      <div ref={subclassControlsRef} className="grid min-w-0 gap-2">
+      {canManageClasses && <div ref={subclassControlsRef} className="grid min-w-0 gap-2">
         {showEmptySubclassMessage && <p role="alert" className="text-sm font-medium text-red-700">Cette classe n'a pas de sous-classe</p>}
         <div className="grid min-w-0 grid-cols-2 gap-2">
           <button type="button" className="secondary-button w-full min-w-0 whitespace-normal px-2 text-center leading-tight" disabled={!canAddSubclass || subclassAddSaving || subclassDeletePending} title={!selectedClass ? "Sélectionnez d’abord une classe principale." : isSecondaryClass && !selectedOptionKey ? "Sélectionnez d’abord une option." : undefined} onClick={toggleAddSubclass}>Ajouter sous-classe</button>
@@ -339,9 +343,9 @@ export function StudentForm({
         {subclassMode === "delete" && selectedClass && onDeleteSubclass && <ul className="grid min-w-0 gap-1" aria-label="Sous-classes existantes">{subclasses.map((item) => <li key={item.id} className="grid min-w-0 gap-2 rounded border border-slate-200 p-2 text-sm"><div className="flex min-w-0 items-center justify-between gap-2"><span className="min-w-0 break-words">{item.subClassLabel ?? item.name}</span><button type="button" className="shrink-0 rounded p-2 text-red-700 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-600" aria-label={`Supprimer la sous-classe ${item.subClassLabel ?? item.name}`} onClick={() => { setSubclassDeleteTarget(item); setSubclassDeleteConfirmation(""); setSubclassError(""); }}><X className="h-4 w-4" /></button></div>
           {subclassDeleteTarget?.id === item.id && <div role="dialog" aria-label="Confirmer la suppression de sous-classe" className="grid min-w-0 gap-2 rounded border border-red-200 bg-red-50 p-3"><p>Supprimer la sous-classe <strong>{item.subClassLabel ?? item.name}</strong> de {selectedClass.name} ?</p><p>Saisissez exactement <strong>SUPPRIMER CETTE SOUS-CLASSE</strong>.</p><input className="input min-w-0" aria-label="Confirmation de la suppression" value={subclassDeleteConfirmation} onChange={(event) => setSubclassDeleteConfirmation(event.target.value)} /><div className="grid min-w-0 grid-cols-2 gap-2"><button type="button" className="secondary-button w-full min-w-0 whitespace-normal px-2 text-center" disabled={subclassDeletePending} onClick={() => { setSubclassDeleteTarget(undefined); setSubclassDeleteConfirmation(""); setSubclassError(""); }}>Annuler</button><button type="button" className="primary-button w-full min-w-0 whitespace-normal px-2 text-center" disabled={subclassDeletePending || subclassDeleteConfirmation !== "SUPPRIMER CETTE SOUS-CLASSE"} onClick={() => { setSubclassDeletePending(true); void onDeleteSubclass(item, subclassDeleteConfirmation).then(() => { if (form.subClassId === item.id) setForm({ ...form, subClassId: undefined }); resetSubclassContext(); }).catch((cause) => setSubclassError(cause instanceof Error ? cause.message : "Suppression impossible.")).finally(() => setSubclassDeletePending(false)); }}>Supprimer définitivement</button></div>{subclassError && <p role="alert" className="text-sm text-red-700">{subclassError}</p>}</div>}
         </li>)}</ul>}
-      </div>
+      </div>}
       <ImageUploadField label="Photo de l'élève" value={form.photoUrl ?? ""} onChange={(value) => setForm({ ...form, photoUrl: value })} maxWidth={800} maxBytes={300 * 1024} />
-      <label className="grid gap-1 text-sm font-medium text-slate-700">
+      {canManageParentLinks && <label className="grid gap-1 text-sm font-medium text-slate-700">
         Parent
         <input value={parentQuery} onChange={(event) => setParentQuery(event.target.value)} className="input" placeholder="Rechercher un parent par nom" aria-label="Rechercher un parent" />
         <select value={form.parentId ?? ""} onChange={(event) => setForm({ ...form, parentId: event.target.value || undefined })} className="input">
@@ -352,8 +356,8 @@ export function StudentForm({
           ))}
         </select>
         {visibleParents.length === 0 && <span className="rounded bg-slate-50 p-2 text-sm font-normal text-slate-500">Aucun parent trouvé.</span>}
-      </label>
-      {canCreateParent && <div className="rounded border border-slate-100 bg-slate-50 p-3">
+      </label>}
+      {canCreateParent && canManageParentLinks && <div className="rounded border border-slate-100 bg-slate-50 p-3">
         <p className="mb-2 text-sm font-semibold text-ink">Créer un parent sans quitter la fiche</p>
         <div className="grid gap-2">
           <input value={quickParent.fullName} onChange={(event) => setQuickParent({ ...quickParent, fullName: event.target.value })} className="input" placeholder="Nom complet" />

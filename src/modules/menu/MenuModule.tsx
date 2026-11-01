@@ -1342,7 +1342,7 @@ export function MenuModule({
       );
     }
 
-    if (sectionId === "parentsDirectory" && (canReadAdmin || sectionRole)) {
+    if (sectionId === "parentsDirectory" && canReadAdmin) {
       return (
         <ParentsDirectoryDrawer
           parents={yearData.parents}
@@ -1367,7 +1367,7 @@ export function MenuModule({
 
   const visibleMenuSections = menuSections.filter((section) => canReadAdmin
     || user.role === "cashier" && (section.id === "valves" || section.id === "history" || section.id === "library")
-    || sectionRole && ["years", "school", "parentsDirectory", "history"].includes(section.id));
+    || sectionRole && ["years", "school", "history"].includes(section.id));
   const activeMenuSectionConfig = visibleMenuSections.find((section) => section.id === activeMenuSection);
 
   return (

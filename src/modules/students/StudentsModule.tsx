@@ -295,6 +295,18 @@ export function StudentsModule({
       const persistedStudent = await saveManualStudent(studentForPersistence(studentBeforeParentMutation(student, previousParentId)), exists ? "update" : "create");
       const nextStudents = exists ? studentRecords.map((item) => (item.id === student.id ? persistedStudent : item)) : [...studentRecords, persistedStudent];
 
+      // These profiles only mutate the student file. Never follow a successful
+      // student save with parent provisioning/link/unlink calls.
+      if (sectionRole) {
+        updateData({ students: nextStudents }, { persist: false });
+        setForm(emptyCurrentStudent());
+        setPendingQuickParent(undefined);
+        setQuickParent(emptyQuickParent());
+        setShowForm(false);
+        setSaveMessage(exists ? "Élève modifié avec succès." : "Élève enregistré avec succès.");
+        return;
+      }
+
       if (pendingParentForStudent) {
         try {
           const provisioned = await provisionParent({
@@ -748,6 +760,8 @@ export function StudentsModule({
             errorMessage={saveError}
             isSaving={isSaving}
             canCreateParent={studentCapabilities.canCreateParent}
+            canManageParentLinks={!sectionRole}
+            canManageClasses={!sectionRole}
           canAddOption={studentCapabilities.canManageOptions}
           structuredClasses={structuredClasses}
           onAddSubclasses={(parent, labels, classOptionKey, confirmation) => createSchoolSubclasses({ schoolId: school.id, schoolYearId: year.id, parentId: parent.id, parentName: parent.name, labels, classOptionKey, confirmation }).then(() => undefined)}
