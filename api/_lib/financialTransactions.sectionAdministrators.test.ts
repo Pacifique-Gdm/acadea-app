@@ -48,8 +48,10 @@ function fixture(section = "Primaire") {
 
 describe("corrections de paiements du profil administratif de section", () => {
   it("ne lui accorde ni dépense, ni entrée de caisse non attribuée", () => {
-    for (const action of ["create-expense", "create-cash-inflow", "update-expense", "delete-expense"]) {
-      expect(() => authorizeFinancialCaller(caller, action)).toThrow();
+    for (const role of ["kindergarten_admin", "primary_admin", "studies_prefect"]) {
+      for (const action of ["create-expense", "create-cash-inflow", "update-expense", "delete-expense", "delete-payment", "cancel-payment", "refund-payment"]) {
+        expect(() => authorizeFinancialCaller({ ...caller, role }, action)).toThrow();
+      }
     }
   });
 
@@ -107,17 +109,14 @@ describe("corrections de paiements du profil administratif de section", () => {
     expect(state.values.get("payments/payment-a")?.amount).toBe(10);
   });
 
-  it("supprime un paiement de sa section sans supprimer une écriture étrangère", async () => {
+  it("refuse toute suppression ou annulation de paiement, même dans sa section", async () => {
     const state = fixture();
     const deleteBody = { action: "delete-payment", transactionId: "payment-a", reason: "Annulation vérifiée", clientRequestId: "section-delete-0001" };
     await expect(executeFinancialOperation({ db: state.db, caller, body: deleteBody }))
-      .resolves.toMatchObject({ deletedId: "payment-a", section: "Primaire", idempotent: false });
-    expect(state.values.has("payments/payment-a")).toBe(false);
-    await expect(executeFinancialOperation({ db: state.db, caller, body: deleteBody }))
-      .resolves.toMatchObject({ deletedId: "payment-a", section: "Primaire", idempotent: true });
-    const foreign = fixture("Secondaire");
-    await expect(executeFinancialOperation({ db: foreign.db, caller, body: deleteBody }))
-      .rejects.toMatchObject({ statusCode: 403, code: "permission-denied" });
-    expect(foreign.values.has("payments/payment-a")).toBe(true);
+      .rejects.toMatchObject({ status: 403, code: "permission-denied" });
+    await expect(executeFinancialOperation({ db: state.db, caller, body: { ...updateBody, amount: 0, clientRequestId: "section-zero-0001" } }))
+      .rejects.toMatchObject({ status: 400, code: "invalid-argument" });
+    expect(state.values.get("payments/payment-a")?.amount).toBe(10);
+    expect([...state.values.keys()].some((path) => path.startsWith("financialIdempotency/"))).toBe(false);
   });
 });

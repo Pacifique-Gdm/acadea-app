@@ -673,7 +673,7 @@ export async function executeFinancialOperation({ db, caller: rawCaller, body, n
 }
 
 export function authorizeFinancialCaller(rawCaller, action) {
-  if (["list-arrears", "list-arrears-batch", "create-payment", "update-payment", "delete-payment"].includes(action) && isSectionAdministrator(rawCaller.role)) return assertRole(rawCaller, Object.keys(SECTION_ADMINISTRATORS));
+  if (["list-arrears", "list-arrears-batch", "create-payment", "update-payment"].includes(action) && isSectionAdministrator(rawCaller.role)) return assertRole(rawCaller, Object.keys(SECTION_ADMINISTRATORS));
   const createAction = action === "create-payment" || action === "create-expense" || action === "create-cash-inflow";
   return assertRole(rawCaller, action === "list-arrears" ? ["cashier", "school_admin", "parent"] : action === "list-arrears-batch" ? ["cashier", "school_admin"] : createAction ? ["cashier"] : ["school_admin"]);
 }

@@ -233,6 +233,7 @@ export function ControlModule({
   const canManageSectionPayments = canManageSectionStudentFinances(user, school.id, isArchivedContext);
   const canRecordStudentPayment = canPay || canManageSectionPayments;
   const canCorrectPayments = (user.role === "school_admin" && !isArchivedContext) || canManageSectionPayments;
+  const canDeletePayments = user.role === "school_admin" && !isArchivedContext;
   const canManageExpenses = user.role === "school_admin" && !isArchivedContext;
   const expenseCurrency = resolveSchoolYearCurrency(year, school);
   useEffect(() => {
@@ -923,7 +924,7 @@ export function ControlModule({
   }
 
   async function deletePayment(payment: Payment) {
-    if (!canCorrectPayments || financialMutationRef.current) return;
+    if (!canDeletePayments || financialMutationRef.current) return;
     const reason = prompt("Motif obligatoire de suppression du paiement");
     if (!reason) return;
     financialMutationRef.current = payment.id;
@@ -1723,7 +1724,7 @@ export function ControlModule({
                           <Download className="h-4 w-4" />
                         </button>
                         {canCorrectPayments && !payment.collectionSchoolYearId && <button onClick={() => correctPayment(payment)} disabled={financialMutationId === payment.id} className="rounded bg-slate-100 p-2 disabled:opacity-50" title="Corriger"><Edit3 className="h-4 w-4" /></button>}
-                        {canCorrectPayments && !payment.collectionSchoolYearId && <button onClick={() => deletePayment(payment)} disabled={financialMutationId === payment.id} className="rounded bg-red-50 p-2 text-red-700 disabled:opacity-50" title="Supprimer"><Trash2 className="h-4 w-4" /></button>}
+                        {canDeletePayments && !payment.collectionSchoolYearId && <button onClick={() => deletePayment(payment)} disabled={financialMutationId === payment.id} className="rounded bg-red-50 p-2 text-red-700 disabled:opacity-50" title="Supprimer"><Trash2 className="h-4 w-4" /></button>}
                       </div>
                     </div>
                     <p className="break-words text-slate-500">{fee.name} {payment.collectionSchoolYearId ? `| Arriéré ${payment.debtSchoolYearName ?? payment.schoolYearId}` : ""} | {payment.currency ? formatCurrencyMoney(payment.amount, payment.currency) : formatMoney(payment.amount)} | {payment.paidAt}</p>
