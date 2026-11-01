@@ -33,6 +33,7 @@ import { PersonnelDrawerContent } from "./PersonnelDrawerContent";
 import { SectionPersonnelReadOnly } from "./SectionPersonnelReadOnly";
 import { SectionFinancialReport } from "./SectionFinancialReport";
 import { SectionValvesReadOnly } from "./SectionValvesReadOnly";
+import { BiometricStudentsPage } from "../biometrics/BiometricStudentsPage";
 import { loadSectionSchoolRecords } from "../../services/sectionSchoolRecords";
 import { ServicePersonnelForm } from "../../components/personnel/ServicePersonnelForm";
 import { OwnPayrollEntry } from "../../components/personnel/OwnPayrollEntry";
@@ -156,6 +157,7 @@ export function MenuModule({
   const [feeEditPending, setFeeEditPending] = useState(false);
   const [feeEditConfirmation, setFeeEditConfirmation] = useState("");
   const [activeMenuSection, setActiveMenuSection] = useState<MenuSection | null>(initialBiometricsOpen ? "biometrics" : null);
+  const [sectionBiometricMode, setSectionBiometricMode] = useState<"fingerprints" | "cards" | null>(null);
   const [createPersonnelOpen, setCreatePersonnelOpen] = useState(false);
   const [personnelCreationKind, setPersonnelCreationKind] = useState<"account" | "service">("account");
   const [newYearOpen, setNewYearOpen] = useState(false);
@@ -868,15 +870,19 @@ export function MenuModule({
   }
 
   function renderMenuSectionForm(sectionId: MenuSection) {
-    if (sectionId === "biometrics" && canReadAdmin) {
+    if (sectionId === "biometrics" && (canReadAdmin || sectionRole)) {
+      if (sectionRole && sectionBiometricMode) return <BiometricStudentsPage
+        mode={sectionBiometricMode} readOnly loading={false} error=""
+        students={yearData.students.filter((student) => student.schoolId === school.id && student.schoolYearId === selectedYear.id && Boolean(student.section && user.sectionIds?.includes(student.section)))}
+        onBack={() => setSectionBiometricMode(null)} />;
       return (
         <div className="grid gap-3">
-          <button type="button" className="flex min-w-0 items-center gap-3 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint hover:bg-slate-50" onClick={() => onOpenBiometrics("fingerprints")}>
+          <button type="button" className="flex min-w-0 items-center gap-3 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint hover:bg-slate-50" onClick={() => sectionRole ? setSectionBiometricMode("fingerprints") : onOpenBiometrics("fingerprints")}>
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink"><Fingerprint className="h-5 w-5" /></span>
             <span className="min-w-0 flex-1"><span className="block font-bold text-ink">Empreintes</span><span className="mt-1 block break-words text-sm text-slate-500">Consulter les élèves avec une empreinte enregistrée.</span></span>
             <ChevronRight className="h-5 w-5 shrink-0 text-slate-400" />
           </button>
-          <button type="button" className="flex min-w-0 items-center gap-3 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint hover:bg-slate-50" onClick={() => onOpenBiometrics("cards")}>
+          <button type="button" className="flex min-w-0 items-center gap-3 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint hover:bg-slate-50" onClick={() => sectionRole ? setSectionBiometricMode("cards") : onOpenBiometrics("cards")}>
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink"><CreditCard className="h-5 w-5" /></span>
             <span className="min-w-0 flex-1"><span className="block font-bold text-ink">Cartes</span><span className="mt-1 block break-words text-sm text-slate-500">Consulter les élèves avec une carte RFID associée.</span></span>
             <ChevronRight className="h-5 w-5 shrink-0 text-slate-400" />
@@ -1389,7 +1395,7 @@ export function MenuModule({
 
   const visibleMenuSections = menuSections.filter((section) => canReadAdmin
     || user.role === "cashier" && (section.id === "valves" || section.id === "history" || section.id === "library")
-    || sectionRole && ["years", "school", "history", "fees", "personnel", "library", "medicalRecords", "financial", "valves"].includes(section.id));
+    || sectionRole && ["years", "school", "history", "fees", "personnel", "library", "medicalRecords", "financial", "valves", "biometrics"].includes(section.id));
   const activeMenuSectionConfig = visibleMenuSections.find((section) => section.id === activeMenuSection);
 
   return (
@@ -1424,7 +1430,9 @@ export function MenuModule({
               </div>
               <div className="min-w-0">
                 <h2 className="break-words font-bold text-ink">{section.title}</h2>
-                <p className="mt-1 break-words text-sm text-slate-500">{section.description}</p>
+                <p className="mt-1 break-words text-sm text-slate-500">{sectionRole && section.id === "personnel" ? "Consultation du personnel et de la paie, sans administration des comptes."
+                  : sectionRole && section.id === "medicalRecords" ? "Consultation des fiches médicales des élèves de vos sections."
+                    : sectionRole && section.id === "biometrics" ? "Consultation des empreintes et cartes des élèves de vos sections." : section.description}</p>
               </div>
             </div>
           </button>

@@ -7,7 +7,7 @@ import type { Student } from "../../types";
 
 type BiometricMode = "fingerprints" | "cards";
 
-export function BiometricStudentsPage({ mode, students, loading, error, onBack }: { mode: BiometricMode; students: Student[]; loading: boolean; error: string; onBack: () => void }) {
+export function BiometricStudentsPage({ mode, students, loading, error, onBack, readOnly = false }: { mode: BiometricMode; students: Student[]; loading: boolean; error: string; onBack: () => void; readOnly?: boolean }) {
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [message, setMessage] = useState("");
@@ -73,9 +73,11 @@ export function BiometricStudentsPage({ mode, students, loading, error, onBack }
               <p className="text-sm text-slate-500">{formatStudentClassName(selectedStudent)}</p>
             </FormPanel>
             <div className="grid gap-2">
+              {!readOnly && <>
               <button type="button" onClick={unavailable} className="secondary-button justify-center">{isFingerprintMode ? <Fingerprint className="h-4 w-4" /> : <Radio className="h-4 w-4" />} {isFingerprintMode ? "Ajouter une empreinte" : "Associer une carte"}</button>
               <button type="button" onClick={unavailable} className="secondary-button justify-center"><RefreshCw className="h-4 w-4" /> {isFingerprintMode ? "Remplacer l’empreinte" : "Remplacer la carte"}</button>
               <button type="button" onClick={unavailable} className="secondary-button justify-center"><Ban className="h-4 w-4" /> {isFingerprintMode ? "Désactiver l’empreinte" : "Désactiver la carte"}</button>
+              </>}
               <button type="button" onClick={() => setHistoryOpen(true)} className="secondary-button justify-center"><FileText className="h-4 w-4" /> {isFingerprintMode ? "Historique des empreintes" : "Historique des cartes"}</button>
             </div>
           </div>

@@ -135,3 +135,10 @@ de l'école, de la publication, du chemin, du type et de la taille, puis relectu
 après téléchargement. Les archives `all_parents`/sans section vérifiable ne sont
 pas devinées ni migrées. 32 tests lecteurs PASS, 17 tests Functions PASS, lint
 PASS. Index Valves préparé, non déployé ; téléchargement hébergé non exécuté.
+
+La consultation Empreintes/Cartes réutilise le composant existant, avec les seuls
+élèves autorisés et sans commandes d'association, remplacement ou désactivation.
+Les trois profils disposent maintenant des entrées de consultation du Menu, sauf
+l'annuaire Parents et l'administration des comptes, volontairement interdits.
+14 tests ciblés PASS (dont rendu React statique des trois menus), lint PASS.
+Ce rendu statique ne démontre pas un parcours de clics authentifié.
