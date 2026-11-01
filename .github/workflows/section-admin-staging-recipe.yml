@@ -1,0 +1,92 @@
+name: section-admin-staging-recipe
+on:
+  workflow_dispatch:
+    inputs:
+      preview_url:
+        description: Preview Staging isolé déjà déployé et autorisé
+        required: true
+        type: string
+      candidate_sha:
+        description: SHA complet du Preview autorisé
+        required: true
+        type: string
+      authorization:
+        description: Saisir RECETTE STAGING AUTORISEE après accord du propriétaire
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  recipe:
+    if: github.repository == 'Pacifique-Gdm/acadea-app' && github.ref == 'refs/heads/codex/section-admin-profiles-final-20261031' && inputs.authorization == 'RECETTE STAGING AUTORISEE'
+    environment: acadea-staging-e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    concurrency:
+      group: section-admin-staging-recipe
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GOOGLE_CLOUD_PROJECT: acadea-staging
+      ACADEA_SECTION_RECIPE_AUTHORIZED: YES
+      ACADEA_SECTION_PREVIEW_URL: ${{ inputs.preview_url }}
+      ACADEA_EXPECTED_SHA: ${{ inputs.candidate_sha }}
+      STAGING_FIREBASE_API_KEY: ${{ vars.STAGING_FIREBASE_API_KEY }}
+      STAGING_FIREBASE_STORAGE_BUCKET: ${{ vars.STAGING_FIREBASE_STORAGE_BUCKET }}
+      VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Vérifier la cible avant toute identité ou écriture
+        run: node scripts/sectionStagingPrecheck.mjs
+      - uses: google-github-actions/auth@v3
+        id: auth
+        with:
+          project_id: acadea-staging
+          workload_identity_provider: ${{ vars.GCP_STAGING_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_STAGING_E2E_SERVICE_ACCOUNT }}
+          create_credentials_file: true
+          export_environment_variables: true
+      - run: npx playwright install --with-deps chromium
+      - name: Installer le rendu PDF et OCR
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils tesseract-ocr tesseract-ocr-fra
+      - name: Identifiant éphémère masqué
+        shell: bash
+        run: |
+          password="$(openssl rand -hex 32)"
+          echo "::add-mask::$password"
+          echo "ACADEA_E2E_PASSWORD=$password" >> "$GITHUB_ENV"
+      - name: Vérifier les collisions et enregistrer le manifeste avant création
+        run: node scripts/sectionStagingFixture.mjs plan
+      - name: Sauvegarder le manifeste de récupération sans secret
+        uses: actions/upload-artifact@v4
+        with:
+          name: section-fixture-manifest-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/section-staging-manifest.json
+          retention-days: 7
+          if-no-files-found: error
+      - name: Créer exclusivement les fixtures du manifeste
+        run: node scripts/sectionStagingFixture.mjs prepare
+      - name: Recette réelle du Preview et Firebase hébergé
+        run: npx playwright test --config playwright.section-staging.config.mjs
+      - name: Rendre toutes les pages PDF et contrôler leur cloisonnement
+        run: node scripts/sectionStagingPdfCheck.mjs
+      - name: Nettoyer et vérifier les résidus même après échec
+        if: always() && steps.auth.outcome == 'success'
+        run: node scripts/sectionStagingFixture.mjs cleanup
+      - name: Conserver uniquement les preuves fictives et résultats expurgés
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: section-recipe-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/section-staging-results.json
+            test-results/section-staging-manifest.json
+            test-results/section-evidence/
+          retention-days: 7

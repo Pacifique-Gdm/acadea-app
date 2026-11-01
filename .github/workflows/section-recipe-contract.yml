@@ -1,0 +1,26 @@
+name: section-recipe-contract
+on:
+  pull_request:
+    paths:
+      - 'scripts/sectionStaging*'
+      - 'e2e/section-admin-staging.spec.mjs'
+      - 'e2e/support/sectionStagingReporter.mjs'
+      - 'playwright.section-staging.config.mjs'
+      - '.github/workflows/section-*'
+permissions:
+  contents: read
+jobs:
+  fixture-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node --test scripts/sectionStagingPlan.test.mjs scripts/sectionStagingCleanup.test.mjs
+      - name: Syntaxe des scripts sans connexion Firebase
+        shell: bash
+        run: |
+          for file in scripts/sectionStaging*.mjs e2e/section-admin-staging.spec.mjs e2e/support/sectionStagingReporter.mjs playwright.section-staging.config.mjs; do node --check "$file"; done

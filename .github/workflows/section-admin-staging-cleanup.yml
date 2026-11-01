@@ -1,0 +1,75 @@
+name: section-admin-staging-cleanup
+on:
+  workflow_dispatch:
+    inputs:
+      source_run:
+        description: Identifiant du run de recette interrompu
+        required: true
+        type: string
+      source_attempt:
+        description: Numéro de tentative du run
+        required: true
+        type: string
+      preview_url:
+        description: URL Preview du run interrompu
+        required: true
+        type: string
+      candidate_sha:
+        description: SHA complet du run interrompu
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  cleanup:
+    if: github.repository == 'Pacifique-Gdm/acadea-app' && github.ref == 'refs/heads/codex/section-admin-profiles-final-20261031'
+    environment: acadea-staging-e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: section-admin-staging-recipe
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    env:
+      GOOGLE_CLOUD_PROJECT: acadea-staging
+      ACADEA_SECTION_RECIPE_AUTHORIZED: YES
+      ACADEA_SECTION_PREVIEW_URL: ${{ inputs.preview_url }}
+      ACADEA_EXPECTED_SHA: ${{ inputs.candidate_sha }}
+      STAGING_FIREBASE_STORAGE_BUCKET: ${{ vars.STAGING_FIREBASE_STORAGE_BUCKET }}
+      SOURCE_RUN: ${{ inputs.source_run }}
+      SOURCE_ATTEMPT: ${{ inputs.source_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Vérifier la provenance du manifeste
+        uses: actions/github-script@v7
+        with:
+          script: |
+            if (!/^\d+$/.test(process.env.SOURCE_RUN) || !/^\d+$/.test(process.env.SOURCE_ATTEMPT)) throw new Error('Run invalide');
+            const {data: run} = await github.rest.actions.getWorkflowRun({...context.repo, run_id: Number(process.env.SOURCE_RUN)});
+            if (run.head_branch !== 'codex/section-admin-profiles-final-20261031' || run.path !== '.github/workflows/section-admin-staging-recipe.yml' || run.event !== 'workflow_dispatch' || run.status !== 'completed') throw new Error('Run non admissible');
+      - uses: actions/download-artifact@v4
+        with:
+          name: section-fixture-manifest-${{ inputs.source_run }}-${{ inputs.source_attempt }}
+          run-id: ${{ inputs.source_run }}
+          github-token: ${{ github.token }}
+          path: test-results
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - uses: google-github-actions/auth@v3
+        with:
+          project_id: acadea-staging
+          workload_identity_provider: ${{ vars.GCP_STAGING_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_STAGING_E2E_SERVICE_ACCOUNT }}
+          create_credentials_file: true
+      - run: node scripts/sectionStagingFixture.mjs cleanup
+      - uses: actions/upload-artifact@v4
+        with:
+          name: section-cleanup-confirmation-${{ github.run_id }}
+          path: test-results/section-staging-manifest.json
+          retention-days: 7
