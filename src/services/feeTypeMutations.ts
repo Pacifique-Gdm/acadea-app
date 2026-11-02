@@ -11,8 +11,8 @@ export class FeeTypeSaveError extends Error {
 
 export async function saveFeeTypes(request: FeeTypeSaveRequest): Promise<FeeTypeSaveResult> {
   const token = await getCurrentFirebaseIdToken();
-  const response = await fetch(resolveApiUrl("/api/manage-fee-type"), {
-    method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(request),
+  const response = await fetch(resolveApiUrl("/api/manage-financial-transaction"), {
+    method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ action: "save-fee-types", ...request }),
   });
   const payload = await response.json().catch(() => ({})) as Partial<FeeTypeSaveResult> & { error?: string; code?: string };
   if (!response.ok) {

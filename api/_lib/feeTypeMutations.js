@@ -19,7 +19,7 @@ const classes = new Set(["Maternelle 1", "Maternelle 2", "Maternelle 3", "1ère 
 
 export async function saveFeeTypes({ db, caller, body }) {
   if (!caller?.uid || !caller?.schoolId || !["admin", "school_admin"].includes(caller.role)) fail(403, "permission-denied", "Gestion des frais non autorisée.");
-  if (!body || Object.keys(body).some((key) => !["schoolYearId", "requestId", "editingFeeId", "fees"].includes(key))) fail(400, "invalid-argument", "Requête de frais invalide.");
+  if (!body || Object.keys(body).some((key) => !["action", "schoolYearId", "requestId", "editingFeeId", "fees"].includes(key)) || (body.action && body.action !== "save-fee-types")) fail(400, "invalid-argument", "Requête de frais invalide.");
   const { schoolYearId, requestId, editingFeeId = "", fees } = body;
   if (!validId(requestId) || requestId.length < 12 || !validId(schoolYearId) || (editingFeeId && !validId(editingFeeId)) || !Array.isArray(fees) || fees.length < 1 || fees.length > 30) fail(400, "invalid-argument", "Identifiants ou nombre de frais invalides.");
   const normalized = fees.map((raw) => {
