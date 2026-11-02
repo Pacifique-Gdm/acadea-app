@@ -445,7 +445,7 @@ export function Dashboard({ data, school, year, actor }: DashboardProps) {
   const recoveryTone = recoveryRate >= 80 ? "text-mint bg-mint/10" : recoveryRate >= 50 ? "text-amber-700 bg-amber-100" : "text-red-700 bg-red-50";
   const feeProgressRows = activeFinancialAggregates.feeProgressRows;
   const feeShares = useMemo(() => buildDashboardFeeShares(feeProgressRows), [feeProgressRows]);
-  const totalActiveStudents = filteredStudents.length;
+  const totalActiveStudents = sectionRole ? sectionSummary?.students ?? "Indisponible" : filteredStudents.length;
   const totalUniqueParents = useMemo(() => uniqueActiveParentCount(filteredParents), [filteredParents]);
   const personnelCounts = useMemo(() => activeDashboardPersonnelCounts(data.users, school.id), [data.users, school.id]);
   const operationalClassCount = useMemo(() => canonicalOperationalClasses(
@@ -455,7 +455,7 @@ export function Dashboard({ data, school, year, actor }: DashboardProps) {
     year.id,
     sectionFilter === "all" ? undefined : [sectionFilter],
   ).length, [activeStudents, school.id, schoolClasses, sectionFilter, year.id]);
-  const classRows = useMemo(
+  const localClassRows = useMemo(
     () =>
       dashboardClassChoices.map((className) => {
         const students = filteredStudents.filter((student) => student.className === className);
@@ -468,10 +468,13 @@ export function Dashboard({ data, school, year, actor }: DashboardProps) {
       }).filter((row) => row.total > 0),
     [dashboardClassChoices, filteredStudents],
   );
-  const classDisplayRows = useMemo(
+  const localClassDisplayRows = useMemo(
     () => buildDashboardClassRows(filteredStudents),
     [filteredStudents],
   );
+  const classRows = useMemo(() => sectionRole ? sectionSummary?.classRows ?? [] : localClassRows,
+    [localClassRows, sectionRole, sectionSummary]);
+  const classDisplayRows = sectionRole ? sectionSummary?.classRows ?? [] : localClassDisplayRows;
   const totalGirls = useMemo(() => classRows.reduce((sum, row) => sum + row.girls, 0), [classRows]);
   const totalBoys = useMemo(() => classRows.reduce((sum, row) => sum + row.boys, 0), [classRows]);
   const totalStudents = totalGirls + totalBoys;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { listSectionSchoolRecords, loadSectionSchoolBootstrap } from "./sectionSchoolRecords.js";
-import { loadSectionDashboard, sectionDashboardTotals } from "./sectionDashboard.js";
+import { loadSectionDashboard, sectionDashboardClassRows, sectionDashboardTotals } from "./sectionDashboard.js";
 import { buildDashboardFinancialAggregates } from "../../src/utils/dashboardStats";
 import type { Student, FeeType, Payment } from "../../src/types";
 
@@ -88,6 +88,7 @@ describe("lecture scolaire transactionnelle bornée", () => {
     const request = { action: "load-section-dashboard", schoolYearId: "y" };
     const result = await loadSectionDashboard({ db, caller, body: request });
     expect(result.financialStats).toEqual({ expected: 100, paid: 25.25, remaining: 74.75 });
+    expect(result.classRows).toEqual([{ className: "1ère Primaire", girls: 0, boys: 0, total: 1 }]);
     expect(result.parents).toBe(1);
     expect(JSON.stringify(result)).not.toMatch(/never-return|mixed|studentIds/);
     await expect(loadSectionDashboard({ db, caller, body: { ...request, section: "Secondaire" } })).rejects.toMatchObject({ statusCode: 403 });
@@ -101,6 +102,15 @@ describe("lecture scolaire transactionnelle bornée", () => {
     const payments = [{ id: "p", studentId: "s", feeTypeId: "f", amount: 30.25, currency: "CDF" }] as Payment[];
     expect(sectionDashboardTotals(students, fees, payments, "CDF")).toEqual(buildDashboardFinancialAggregates(students, fees, payments));
     expect(() => sectionDashboardTotals(students, fees, payments, "USD")).toThrow("Devise");
+  });
+  it("agrège les classes autorisées sans confondre les options du Secondaire", () => {
+    expect(sectionDashboardClassRows([
+      { className: "1ère Humanité", section: "Secondaire", option: "Sciences", sexe: "F" },
+      { className: "1ère Humanité", section: "Secondaire", option: "Lettres", sexe: "M" },
+    ])).toEqual([
+      { className: "1ère Lettres", girls: 0, boys: 1, total: 1 },
+      { className: "1ère Sciences", girls: 1, boys: 0, total: 1 },
+    ]);
   });
   it("lit les définitions de frais de l'année sans leur inventer de section", async () => {
     const { db, rows, reads } = fixture();

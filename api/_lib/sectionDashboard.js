@@ -27,6 +27,23 @@ export function sectionDashboardTotals(students, fees, payments, currency) {
   return { financialStats: { expected, paid, remaining: fromMoneyMinor(Math.max(0, sumMoneyMinor([expected, -paid]))) }, feeProgressRows };
 }
 
+export function sectionDashboardClassRows(students) {
+  const rows = new Map();
+  for (const student of students) {
+    const base = typeof student.className === "string" ? student.className.trim() : "";
+    const option = typeof student.option === "string" ? student.option.trim() : "";
+    const label = student.section === "Secondaire" && option
+      ? `${base.replace(/\s+Humanit[ée]s?$/i, "").trim() || base} ${option}` : base;
+    const className = label || "Classe non renseignée";
+    const row = rows.get(className) ?? { className, girls: 0, boys: 0, total: 0 };
+    row.girls += student.sexe === "F" ? 1 : 0;
+    row.boys += student.sexe === "M" ? 1 : 0;
+    row.total += 1;
+    rows.set(className, row);
+  }
+  return [...rows.values()].sort((a, b) => a.className.localeCompare(b.className, "fr"));
+}
+
 /** One read snapshot; only aggregates leave the server. Oversized snapshots fail closed. */
 export async function loadSectionDashboard({ db, caller, body }) {
   if (!body || Object.keys(body).some((key) => !["action", "schoolYearId", "section", "startDate", "endDate"].includes(key))
@@ -72,7 +89,7 @@ export async function loadSectionDashboard({ db, caller, body }) {
       .map((parent) => parent.userId || parent.id)).size;
     const personnel = Object.fromEntries(["school_admin", "cashier", "discipline_director"].map((role) => [role, users.filter((user) => user.role === role && active(user)).length]));
     return { schoolId: scope.schoolId, schoolYearId: body.schoolYearId, sections, currency,
-      students: students.length, parents: parentCount, personnel,
+      students: students.length, classRows: sectionDashboardClassRows(students), parents: parentCount, personnel,
       ...sectionDashboardTotals(students, fees, payments, currency) };
   });
 }

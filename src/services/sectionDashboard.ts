@@ -6,6 +6,7 @@ import { resolveApiUrl } from "../config/apiUrl";
 export type SectionDashboard = DashboardFinancialAggregates & {
   schoolId: string; schoolYearId: string; sections: string[]; currency: "CDF" | "USD";
   students: number; parents: number;
+  classRows: { className: string; girls: number; boys: number; total: number }[];
   personnel: { school_admin: number; cashier: number; discipline_director: number };
 };
 export async function loadSectionDashboard(user: AppUser, schoolId: string, schoolYearId: string,
@@ -23,7 +24,12 @@ export async function loadSectionDashboard(user: AppUser, schoolId: string, scho
   if (result.schoolId !== schoolId || result.schoolYearId !== schoolYearId
     || !Array.isArray(result.sections) || result.sections.length !== expected.length || result.sections.some((section) => !expected.includes(section))
     || !["CDF", "USD"].includes(result.currency) || !result.financialStats || !Array.isArray(result.feeProgressRows)
-    || !result.personnel || [result.students, result.parents, ...Object.values(result.personnel)].some((count) => !Number.isSafeInteger(count) || count < 0)
+    || !result.personnel || !Array.isArray(result.classRows)
+    || result.classRows.some((row) => typeof row.className !== "string" || !row.className.trim()
+      || [row.girls, row.boys, row.total].some((count) => !Number.isSafeInteger(count) || count < 0)
+      || row.girls + row.boys > row.total)
+    || result.classRows.reduce((sum, row) => sum + row.total, 0) !== result.students
+    || [result.students, result.parents, ...Object.values(result.personnel)].some((count) => !Number.isSafeInteger(count) || count < 0)
     || Object.values(result.financialStats).some((amount) => !Number.isFinite(amount))) throw new Error("Synthèse hors périmètre ou invalide.");
   return result;
 }

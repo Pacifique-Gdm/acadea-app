@@ -185,7 +185,10 @@ for (const [role, allowed] of Object.entries(roles)) test(`${role} — cinq ongl
       await page.getByRole('button', { name: tab, exact: true }).last().click();
       await expect(page.getByText('Accès refusé', { exact: true })).toHaveCount(0);
       await expect(page.getByRole('button', { name: 'Créer un utilisateur', exact: true })).toHaveCount(0);
-      if (tab === 'Dashboard') await capturePdf(page.getByRole('button', { name: 'Exporter PDF', exact: true }), 'dashboard');
+      if (tab === 'Dashboard') {
+        await expect(page.getByRole('article').filter({ hasText: "Nombre total d'élèves" }).getByText(String(indexes.length), { exact: true })).toBeVisible();
+        await capturePdf(page.getByRole('button', { name: 'Exporter PDF', exact: true }), 'dashboard');
+      }
       if (tab === 'Élèves') {
         for (let i = 0; i < 4; i++) {
           const row = page.getByRole('row').filter({ hasText: `FICTIF0${i}` });
