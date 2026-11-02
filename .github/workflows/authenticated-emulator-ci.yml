@@ -44,11 +44,26 @@ jobs:
             sleep 1
           done
           exit 1
-      - name: Recette des vrais composants et handlers sur émulateurs
+      - name: Recette métier authentifiée sur le bundle compilé
         run: >-
           npx --yes firebase-tools@15.25.0 emulators:exec
           --project demo-acadea --config firebase.emulators.recipe.json --only auth,firestore,storage
-          "npx playwright test e2e/.*-emulator.spec.ts --workers=1 --retries=0"
+          "npx playwright test e2e/cash-inflows-emulator.spec.ts e2e/options-students-emulator.spec.ts e2e/provisioning-emulator.spec.ts e2e/section-admin-emulator.spec.ts --workers=1 --retries=0"
+      - name: Servir les composants source pour leurs tests de retour visuel
+        run: |
+          npx vite --mode test --host 127.0.0.1 --port 4174 --strictPort > /tmp/acadea-vite-components.log 2>&1 &
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:4174/src/main.tsx > /dev/null && curl --fail --silent http://127.0.0.1:4174/node_modules/.vite/deps/react.js > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - name: Retour visuel et fluidité des composants source
+        env:
+          ACADEA_E2E_BASE_URL: http://127.0.0.1:4174
+        run: >-
+          npx --yes firebase-tools@15.25.0 emulators:exec
+          --project demo-acadea --config firebase.emulators.recipe.json --only auth,firestore,storage
+          "npx playwright test e2e/feedback-emulator.spec.ts e2e/fluidity-emulator.spec.ts --workers=1 --retries=0"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
