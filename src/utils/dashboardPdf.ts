@@ -1,4 +1,4 @@
-import type { School, SchoolClass, SchoolYear } from "../types";
+import type { School, SchoolYear } from "../types";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./pdf";
 import { formatCurrencyMoney, resolveSchoolYearCurrency, type SchoolCurrency } from "./currency";
 
@@ -33,7 +33,7 @@ export async function exportDashboardReportPdf({
   expected: number;
   remaining: number;
   transactions: DashboardTransaction[];
-  classRows: { className: SchoolClass; girls: number; boys: number; total: number }[];
+  classRows: { className: string; girls: number; boys: number; total: number }[];
   totalGirls: number;
   totalBoys: number;
   totalStudents: number;
