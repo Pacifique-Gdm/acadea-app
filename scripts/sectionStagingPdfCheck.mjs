@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { roles, sections } from './sectionStagingPlan.mjs';
+import { roles } from './sectionStagingPlan.mjs';
+import { assertSectionPdfScope } from './sectionStagingPdfScope.mjs';
 const directory = 'test-results/section-evidence';
 const results = [];
 for (const [role, allowed] of Object.entries(roles)) {
@@ -15,11 +16,9 @@ for (const [role, allowed] of Object.entries(roles)) {
     execFileSync('tesseract', [join(directory, image), base, '-l', 'fra+eng'], { stdio: 'pipe' });
     text += readFileSync(`${base}.txt`, 'utf8').toUpperCase().replace(/\s/g, '');
   }
-  for (const [i, section] of sections.entries()) {
-    const present = text.includes(`FICTIF0${i}`);
-    if (present !== allowed.includes(section)) throw new Error(`PDF ${role} : contenu de section non démontré par OCR.`);
-    if (text.includes(`FICTIF1${i}`)) throw new Error('PDF contenant une autre école.');
-  }
+  const embeddedText = execFileSync('pdftotext', ['-layout', pdf, '-'], { encoding: 'utf8' });
+  try { assertSectionPdfScope(embeddedText, text, allowed); }
+  catch (error) { throw new Error(`PDF ${role} : ${error.message}`); }
   results.push({ role, pages: images.length, scopedContent: 'PASS', visualReview: 'NON EXÉCUTÉ — images disponibles' });
   for (const kind of ['dashboard', 'financial']) {
     execFileSync('pdftoppm', ['-r', '150', '-png', join(directory, `${role}-${kind}.pdf`), join(directory, `${role}-${kind}-render`)], { stdio: 'pipe' });
