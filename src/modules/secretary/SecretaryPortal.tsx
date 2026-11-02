@@ -40,7 +40,7 @@ export function SecretaryPortal({
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#f6f8fb]">
       {renderHeader()}
-      <main className="mx-auto w-full max-w-7xl min-w-0 flex-1 overflow-y-auto px-3 py-5 pb-28 sm:px-6 sm:pb-32 lg:px-8">
+      <main className="acadea-mobile-tables mx-auto w-full max-w-7xl min-w-0 flex-1 overflow-y-auto px-3 py-5 pb-28 sm:px-6 sm:pb-32 lg:px-8">
         {activeTab === "students" && (renderStudents?.() ?? <SectionTitle title="Élèves" subtitle="Gestion administrative des élèves." />)}
         {activeTab === "correspondence" && renderCorrespondence?.()}
         {activeTab === "reports" && renderReports?.()}

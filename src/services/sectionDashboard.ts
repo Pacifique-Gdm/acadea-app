@@ -30,6 +30,8 @@ export async function loadSectionDashboard(user: AppUser, schoolId: string, scho
       || row.girls + row.boys > row.total)
     || result.classRows.reduce((sum, row) => sum + row.total, 0) !== result.students
     || [result.students, result.parents, ...Object.values(result.personnel)].some((count) => !Number.isSafeInteger(count) || count < 0)
-    || Object.values(result.financialStats).some((amount) => !Number.isFinite(amount))) throw new Error("Synthèse hors périmètre ou invalide.");
+    || [result.financialStats.official, result.financialStats.reduction, result.financialStats.expected,
+      result.financialStats.paid, result.financialStats.remaining].some((amount) => !Number.isFinite(amount) || amount < 0)
+    || Math.abs(result.financialStats.official - result.financialStats.reduction - result.financialStats.expected) > 0.01) throw new Error("Synthèse hors périmètre ou invalide.");
   return result;
 }

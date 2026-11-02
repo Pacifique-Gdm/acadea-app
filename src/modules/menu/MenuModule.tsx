@@ -183,6 +183,7 @@ export function MenuModule({
   const canReadAdmin = user.role === "school_admin";
   const sectionRole = isSectionAdministratorRole(user.role);
   const canAdmin = canReadAdmin && !isArchivedContext;
+  const canViewSocialSupport = canReadAdmin || user.role === "cashier";
   const yearManagementLocked = Boolean(school.activeCoordinationId);
   const canManageYears = canAdmin && !yearManagementLocked;
   const menuSections = [
@@ -872,7 +873,7 @@ export function MenuModule({
   }
 
   function renderMenuSectionForm(sectionId: MenuSection) {
-    if (sectionId === "socialSupport" && canAdmin) return <SocialSupportDrawer user={user} school={school} years={years} data={data} />;
+    if (sectionId === "socialSupport" && canViewSocialSupport) return <SocialSupportDrawer user={user} school={school} years={years} data={data} readOnly={isArchivedContext} />;
     if (sectionId === "biometrics" && (canReadAdmin || sectionRole)) {
       if (sectionRole && sectionBiometricMode) return <BiometricStudentsPage
         mode={sectionBiometricMode} readOnly loading={false} error=""
@@ -1396,8 +1397,8 @@ export function MenuModule({
     return null;
   }
 
-  const visibleMenuSections = menuSections.filter((section) => (section.id !== "socialSupport" || canAdmin) && (canReadAdmin
-    || user.role === "cashier" && (section.id === "valves" || section.id === "history" || section.id === "library")
+  const visibleMenuSections = menuSections.filter((section) => (section.id !== "socialSupport" || canViewSocialSupport) && (canReadAdmin
+    || user.role === "cashier" && (section.id === "valves" || section.id === "history" || section.id === "library" || section.id === "socialSupport")
     || sectionRole && ["years", "school", "history", "fees", "personnel", "library", "medicalRecords", "financial", "valves", "biometrics"].includes(section.id)));
   const activeMenuSectionConfig = visibleMenuSections.find((section) => section.id === activeMenuSection);
 

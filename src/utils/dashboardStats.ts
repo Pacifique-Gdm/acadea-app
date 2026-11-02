@@ -6,14 +6,18 @@ import { feeAppliesToStudent } from "./stats";
 import { remainingMoney, sumMoney } from "./money";
 
 export type DashboardFinancialStats = {
+  official: number;
+  reduction: number;
   expected: number;
   paid: number;
   remaining: number;
 };
 
-export type DashboardFeeProgressRow = DashboardFinancialStats & {
+export type DashboardFeeProgressRow = Pick<DashboardFinancialStats, "expected" | "paid" | "remaining"> & {
   name: string;
   rate: number;
+  official?: number;
+  reduction?: number;
 };
 
 export type DashboardFeeShare = {
@@ -42,25 +46,29 @@ function resolveIndexes(students: Student[], feeTypes: FeeType[], payments: Paym
 
 export function buildDashboardFinancialAggregates(students: Student[], feeTypes: FeeType[], payments: Payment[], indexes?: SchoolYearDataIndexes): DashboardFinancialAggregates {
   const dataIndexes = resolveIndexes(students, feeTypes, payments, indexes);
-  const rowsByFeeName = new Map<string, { name: string; expected: number; paid: number }>();
-  const totals = { expected: 0, paid: 0 };
+  const rowsByFeeName = new Map<string, { name: string; official: number; reduction: number; expected: number; paid: number }>();
+  const totals = { official: 0, reduction: 0, expected: 0, paid: 0 };
 
   students.forEach((student) => {
     const applicableFeeTypes = dataIndexes.applicableFeeTypesByStudentId.get(student.id) ?? feeTypes.filter((fee) => feeAppliesToStudent(fee, student));
 
     applicableFeeTypes.forEach((fee) => {
       const feePayments = getPaymentsForStudentFee(dataIndexes, student.id, fee.id);
-      if (feePayments.length === 0) return;
-
       const paid = sumPayments(feePayments);
-      totals.expected = sumMoney([totals.expected, supportBalance(student, fee).net]);
+      const balance = supportBalance(student, fee);
+      const net = balance.net;
+      totals.official = sumMoney([totals.official, balance.official]);
+      totals.reduction = sumMoney([totals.reduction, balance.reduction]);
+      totals.expected = sumMoney([totals.expected, net]);
       totals.paid = sumMoney([totals.paid, paid]);
 
       const key = fee.name.trim().toLowerCase();
-      const current = rowsByFeeName.get(key) ?? { name: fee.name, expected: 0, paid: 0 };
+      const current = rowsByFeeName.get(key) ?? { name: fee.name, official: 0, reduction: 0, expected: 0, paid: 0 };
       rowsByFeeName.set(key, {
         ...current,
-        expected: sumMoney([current.expected, supportBalance(student, fee).net]),
+        official: sumMoney([current.official, balance.official]),
+        reduction: sumMoney([current.reduction, balance.reduction]),
+        expected: sumMoney([current.expected, net]),
         paid: sumMoney([current.paid, paid]),
       });
     });
@@ -72,7 +80,7 @@ export function buildDashboardFinancialAggregates(students: Student[], feeTypes:
       const rate = row.expected > 0 ? Math.round((row.paid / row.expected) * 100) : 0;
       return { ...row, remaining, rate, originalIndex: index };
     })
-    .filter((row) => row.expected > 0)
+    .filter((row) => row.official > 0 || row.paid > 0)
     .sort((first, second) => {
       const firstIsMinerval = first.name.trim().toLowerCase() === "minerval";
       const secondIsMinerval = second.name.trim().toLowerCase() === "minerval";
@@ -81,6 +89,8 @@ export function buildDashboardFinancialAggregates(students: Student[], feeTypes:
     })
     .map((row) => ({
       name: row.name,
+      official: row.official,
+      reduction: row.reduction,
       expected: row.expected,
       paid: row.paid,
       remaining: row.remaining,

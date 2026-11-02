@@ -87,7 +87,7 @@ describe("lecture scolaire transactionnelle bornée", () => {
     rows.set("payments/other", { schoolId: "a", schoolYearId: "y", studentId: "other", feeTypeId: "fee", amount: 999, currency: "CDF" });
     const request = { action: "load-section-dashboard", schoolYearId: "y" };
     const result = await loadSectionDashboard({ db, caller, body: request });
-    expect(result.financialStats).toEqual({ expected: 100, paid: 25.25, remaining: 74.75 });
+    expect(result.financialStats).toEqual({ official: 100, reduction: 0, expected: 100, paid: 25.25, remaining: 74.75 });
     expect(result.classRows).toEqual([{ className: "1ère Primaire", girls: 0, boys: 0, total: 1 }]);
     expect(result.parents).toBe(1);
     expect(JSON.stringify(result)).not.toMatch(/never-return|mixed|studentIds/);
@@ -119,7 +119,7 @@ describe("lecture scolaire transactionnelle bornée", () => {
     const fees = [{ id: "fee", schoolId: "a", schoolYearId: "y", name: "Minerval", amount: 100 }];
     const payments = [{ id: "paid", studentId: "one", feeTypeId: "fee", amount: 25, currency: "CDF" }];
     expect(sectionDashboardTotals(students, fees, payments, "CDF").financialStats)
-      .toEqual({ expected: 75, paid: 25, remaining: 50 });
+      .toEqual({ official: 100, reduction: 25, expected: 75, paid: 25, remaining: 50 });
   });
   it("lit les définitions de frais de l'année sans leur inventer de section", async () => {
     const { db, rows, reads } = fixture();

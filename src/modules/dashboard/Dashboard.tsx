@@ -419,7 +419,7 @@ export function Dashboard({ data, school, year, actor }: DashboardProps) {
   );
   const hasDashboardFinancialFilter = sectionFilter !== "all" || dateFilterActive;
   const activeFinancialAggregates = sectionRole
-    ? sectionSummary ?? { financialStats: { expected: 0, paid: 0, remaining: 0 }, feeProgressRows: [] }
+    ? sectionSummary ?? { financialStats: { official: 0, reduction: 0, expected: 0, paid: 0, remaining: 0 }, feeProgressRows: [] }
     : hasDashboardFinancialFilter ? dashboardFinancialAggregates : fullYearFinancialAggregates;
   const dashboardFinancialStats = activeFinancialAggregates.financialStats;
   const totalPayments = dashboardFinancialStats.paid;
@@ -565,7 +565,9 @@ export function Dashboard({ data, school, year, actor }: DashboardProps) {
     { label: "Administrateurs", value: sectionRole ? sectionSummary?.personnel.school_admin ?? "Indisponible" : personnelCounts.school_admin, icon: ShieldCheck, tone: "bg-blue-100 text-blue-700" },
     { label: "Caissiers", value: sectionRole ? sectionSummary?.personnel.cashier ?? "Indisponible" : personnelCounts.cashier, icon: UserRound, tone: "bg-pink-100 text-pink-700" },
     { label: "Directeurs de Discipline", value: sectionRole ? sectionSummary?.personnel.discipline_director ?? "Indisponible" : personnelCounts.discipline_director, icon: ShieldCheck, tone: "bg-violet-100 text-violet-700" },
-    { label: "Montant attendu", value: financialExportBlocked ? "Non calculable" : formatCurrencyMoney(dashboardFinancialStats.expected, currentCurrency), icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
+    { label: "Montant officiel", value: financialExportBlocked ? "Non calculable" : formatCurrencyMoney(dashboardFinancialStats.official, currentCurrency), icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
+    { label: "Réductions et exonérations", value: financialExportBlocked ? "Non calculable" : formatCurrencyMoney(dashboardFinancialStats.reduction, currentCurrency), icon: BarChart3, tone: "bg-violet-100 text-violet-700" },
+    { label: "Montant net exigible", value: financialExportBlocked ? "Non calculable" : formatCurrencyMoney(dashboardFinancialStats.expected, currentCurrency), icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
     { label: "Frais de l'année encaissés", value: financialExportBlocked ? "Non calculable" : formatCurrencyMoney(totalPayments, currentCurrency), icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
     { label: "Montant restant \u00e0 payer", value: financialExportBlocked ? "Non calculable" : formatCurrencyMoney(remaining, currentCurrency), icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
   ];
@@ -705,8 +707,10 @@ export function Dashboard({ data, school, year, actor }: DashboardProps) {
         <div className="mt-4 h-3 overflow-hidden rounded bg-slate-100">
           <div className={`h-full rounded ${progressBarTone(recoveryRate)}`} style={{ width: Math.min(100, recoveryRate) + "%" }} />
         </div>
-        <div className="mt-4 grid gap-2 sm:grid-cols-4">
-          <Metric label="Attendu" value={formatCurrencyMoney(dashboardFinancialStats.expected, currentCurrency)} />
+        <div className="mt-4 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
+          <Metric label="Officiel" value={formatCurrencyMoney(dashboardFinancialStats.official, currentCurrency)} />
+          <Metric label="Réductions" value={formatCurrencyMoney(dashboardFinancialStats.reduction, currentCurrency)} />
+          <Metric label="Net exigible" value={formatCurrencyMoney(dashboardFinancialStats.expected, currentCurrency)} />
           <Metric label={"Frais de l'année encaissés"} value={formatCurrencyMoney(totalPayments, currentCurrency)} />
           {!sectionRole && <Metric label={"D\u00e9penses"} value={formatCurrencyMoney(totalExpenses, currentCurrency)} />}
           <Metric label="Reste" value={formatCurrencyMoney(remaining, currentCurrency)} />
@@ -724,8 +728,10 @@ export function Dashboard({ data, school, year, actor }: DashboardProps) {
               <div className="mt-3 h-2.5 overflow-hidden rounded bg-white">
                 <div className={`h-full rounded ${progressBarTone(row.rate)}`} style={{ width: Math.min(100, row.rate) + "%" }} />
               </div>
-              <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
-                <span className="rounded bg-white px-2 py-1 text-slate-600">Attendu : <strong className="text-ink">{formatCurrencyMoney(row.expected, currentCurrency)}</strong></span>
+              <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3 lg:grid-cols-5">
+                <span className="rounded bg-white px-2 py-1 text-slate-600">Officiel : <strong className="text-ink">{formatCurrencyMoney(row.official ?? row.expected, currentCurrency)}</strong></span>
+                <span className="rounded bg-white px-2 py-1 text-slate-600">Réductions : <strong className="text-ink">{formatCurrencyMoney(row.reduction ?? 0, currentCurrency)}</strong></span>
+                <span className="rounded bg-white px-2 py-1 text-slate-600">Net exigible : <strong className="text-ink">{formatCurrencyMoney(row.expected, currentCurrency)}</strong></span>
                 <span className="rounded bg-white px-2 py-1 text-slate-600">Payé : <strong className="text-ink">{formatCurrencyMoney(row.paid, currentCurrency)}</strong></span>
                 <span className="rounded bg-white px-2 py-1 text-slate-600">Solde : <strong className="text-ink">{formatCurrencyMoney(row.remaining, currentCurrency)}</strong></span>
               </div>

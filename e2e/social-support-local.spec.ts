@@ -10,11 +10,12 @@ test.beforeAll(async () => {
  const fee={id:'f',schoolId:'s',schoolYearId:'y',name:'Minerval',amount:300};
  const decision={id:'decision-local',schoolId:'s',schoolYearId:'y',studentId:'p',studentName:'Élève Local Test',matricule:'LOCAL-1',className:'1ère Primaire',reason:'social',nature:'fixed',personnelId:null,thirdPartyName:'',observation:'Observation privée locale',lines:{f:{feeName:'Minerval',officialMinor:30000,value:100,reductionMinor:10000,commitmentMinor:0}},status:'active',version:1,validUntil:'2099-06-30',createdAt:'2026-10-30T00:00:00Z',updatedAt:'2026-10-30T00:00:00Z',currency:'USD',history:[]};
  decision.history=[{id:'event-local',action:'create',at:decision.createdAt,actorName:'Admin test',before:null,after:{...decision,history:[]}}];
- const data={users:[],schools:[school],schoolYears:[year],students:[student],feeTypes:[fee],payments:[],parents:[],expenses:[],auditLogs:[],messages:[],notifications:[],valves:[]};`;
+ const secondSchool={...school,id:'school-b',name:'École B',activeSchoolYearId:'year-b'};const secondYear={...year,id:'year-b',schoolId:'school-b'};
+ const data={users:[],schools:[school,secondSchool],schoolYears:[year,secondYear],students:[student],feeTypes:[fee],payments:[],parents:[],expenses:[],auditLogs:[],messages:[],notifications:[],valves:[]};`;
   const result = await build({
     stdin: {
       contents: `import React from 'react';import{createRoot}from'react-dom/client';import{SocialSupportDrawer}from'./src/modules/menu/SocialSupportDrawer';${fixture}
- if(new URL(location.href).searchParams.has('capped')){student.financialSupport={[decision.id]:{id:decision.id,schoolYearId:'y',thirdPartyName:'',lines:decision.lines}};data.payments.push({id:'paid',schoolId:'s',schoolYearId:'y',studentId:'p',feeTypeId:'f',amount:50});}window.__data=data;window.__decision=decision;createRoot(document.getElementById('root')).render(<SocialSupportDrawer user={{id:'a',schoolId:'s',role:'school_admin'}} school={school} years={[year]} data={data}/>);`,
+ if(new URL(location.href).searchParams.has('capped')){student.financialSupport={[decision.id]:{id:decision.id,schoolYearId:'y',thirdPartyName:'',lines:decision.lines}};data.payments.push({id:'paid',schoolId:'s',schoolYearId:'y',studentId:'p',feeTypeId:'f',amount:50});}window.__data=data;window.__decision=decision;const role=new URL(location.href).searchParams.get('role')||'school_admin';const multi=new URL(location.href).searchParams.has('multi');createRoot(document.getElementById('root')).render(<SocialSupportDrawer user={{id:'a',schoolId:'s',role}} school={school} scopeSchools={multi?[school,secondSchool]:undefined} years={multi?[year,secondYear]:[year]} data={data} readOnly={role==='coordination_admin'||role==='sub_coordination_admin'}/>);`,
       resolveDir: process.cwd(),
       loader: "tsx",
     },
@@ -28,7 +29,7 @@ test.beforeAll(async () => {
         name: "local-only-services",
         setup(builder) {
           builder.onLoad({ filter: /\/services\/socialSupport\.ts$/ }, () => ({
-            contents: `export async function reconcileSupport(){}export function subscribeSupport(id,onData){onData(Array.from({length:Number(new URL(location.href).searchParams.get('rows')||1)},(_,i)=>({...window.__decision,id:'decision-'+i,studentName:window.__decision.studentName+' '+i,history:window.__decision.history.map(e=>({...e,id:'event-'+i}))})));return()=>{};}export function subscribeSupportContext(id,onData){for(const name of ['students','payments','feeTypes'])onData({[name]:window.__data[name]});return()=>{};}export async function saveSupport(input){window.__submitted=input;return {...window.__decision,reason:input.reason};}`,
+            contents: `export async function reconcileSupport(){}export async function loadSupportPersonnel(){return [];}export function subscribeSupport(id,onData){onData(Array.from({length:Number(new URL(location.href).searchParams.get('rows')||1)},(_,i)=>({...window.__decision,id:'decision-'+id+'-'+i,schoolId:id,schoolYearId:id==='s'?'y':'year-b',studentName:window.__decision.studentName+' '+i,history:window.__decision.history.map(e=>({...e,id:'event-'+id+'-'+i}))})));return()=>{};}export function subscribeSupportContext(id,onData){for(const name of ['students','payments','feeTypes'])onData({[name]:window.__data[name]});return()=>{};}export async function saveSupport(input){window.__submitted=input;return {...window.__decision,reason:input.reason};}`,
             loader: "js",
           }));
           builder.onLoad({ filter: /\/services\/personnel\.ts$/ }, () => ({
@@ -63,9 +64,44 @@ test.beforeAll(async () => {
 test.beforeEach(async ({ page }) => {
   page.on("pageerror", (error) => console.error("Local UI:", error.message));
 });
-test.afterAll(async () => {
-  await new Promise<void>((r) => server.close(() => r()));
+for (const role of ["cashier", "secretary"]) {
+  test(`${role} peut préparer une décision avec le même plafond`, async ({ page }) => {
+    await page.goto(`${origin}/?role=${role}`);
+    await page.getByRole("tab", { name: "Nouvelle prise en charge" }).click();
+    await page.getByLabel("Élève bénéficiaire", { exact: true }).selectOption("p");
+    await page.getByRole("checkbox").check();
+    await page.getByLabel("Minerval — Montant").fill("100");
+    await page.getByLabel("Motif de l’avantage *").selectOption("social");
+    await expect(page.getByRole("button", { name: "Confirmer la prise en charge" })).toBeEnabled();
+    await page.getByRole("button", { name: "Confirmer la prise en charge" }).click();
+    await expect(page.getByRole("status")).toContainText("confirmée");
+  });
+}
+for (const role of ["coordination_admin", "sub_coordination_admin"]) {
+  test(`${role} ne dispose que de la consultation et de l'export`, async ({ page }) => {
+    await page.goto(`${origin}/?role=${role}`);
+    await expect(page.getByRole("tab", { name: "Bénéficiaires" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Historique" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Nouvelle prise en charge" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Modifier" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Annuler la décision" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Exporter PDF" })).toBeEnabled();
+  });
+}
+test("la consultation multi-établissements respecte le filtre école", async ({ page }) => {
+  await page.goto(`${origin}/?role=sub_coordination_admin&multi=1`);
+  const details = page.getByRole("button", { name: "Détails" });
+  await expect(details).toHaveCount(2);
+  await expect(page.getByText(/École B — Élève Local Test/)).toBeVisible();
+  await page.getByLabel("Établissement", { exact: true }).selectOption("school-b");
+  await expect(details).toHaveCount(1);
+  await expect(page.getByText(/École B — Élève Local Test/)).toBeVisible();
+  await expect(page.getByText(/École de test local — Élève Local Test/)).toHaveCount(0);
+  await page.getByLabel("Établissement", { exact: true }).selectOption("s");
+  await expect(details).toHaveCount(1);
+  await expect(page.getByText(/École de test local — Élève Local Test/)).toBeVisible();
 });
+test.afterAll(async () => { if (server) await new Promise<void>((r) => server.close(() => r())); });
 test("validation des motifs, montants et changement de motif sans Firebase", async ({
   page,
 }) => {
@@ -88,8 +124,8 @@ test("validation des motifs, montants et changement de motif sans Firebase", asy
   await expect(
     page.getByRole("button", { name: "Confirmer la prise en charge" }),
   ).toBeEnabled();
-  await page.getByLabel("Motif de l’avantage *").selectOption("third-party");
-  await page.getByLabel("Nom du tiers responsable *").fill("Tiers de test");
+  await expect(page.getByLabel("Motif de l’avantage *").locator('option[value="third-party"]')).toHaveCount(0);
+  await page.getByLabel("Motif de l’avantage *").selectOption("direction");
   await page.getByLabel("Motif de l’avantage *").selectOption("personnel");
   await expect(page.getByLabel("Personnel concerné *")).toHaveValue("");
   await page.getByLabel("Motif de l’avantage *").selectOption("social");

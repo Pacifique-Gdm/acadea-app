@@ -52,7 +52,9 @@ export async function exportCoordinationDashboardPdf({
       ...stats.financialGroups.flatMap((group) => [
         pdfSection(`Synthèse financière — ${group.currency}`, pdfInfoGrid([
           { label: "Recouvrement", value: `${group.recoveryRate}%` },
-          { label: "Attendu", value: amount(group.expected, group.currency) },
+          { label: "Montant officiel", value: amount(group.official, group.currency) },
+          { label: "Réductions et exonérations", value: amount(group.reduction, group.currency) },
+          { label: "Net exigible", value: amount(group.expected, group.currency) },
           { label: "Frais de l'année encaissés", value: amount(group.paid, group.currency) },
           { label: "Autres entrées de caisse", value: amount(group.cashInflows, group.currency) },
           ...arrearsCollections.filter((item) => item.currency === group.currency).map((item) => ({ label: "Arriérés encaissés (hors recouvrement)", value: amount(item.amount, item.currency) })),
@@ -61,7 +63,9 @@ export async function exportCoordinationDashboardPdf({
         ])),
         pdfSection(`Types de frais — ${group.currency}`, pdfTable([
           { header: "Type", render: (row) => row.name },
-          { header: "Attendu", render: (row) => amount(row.expected, group.currency), align: "right" },
+          { header: "Officiel", render: (row) => amount(row.official ?? row.expected, group.currency), align: "right" },
+          { header: "Réductions", render: (row) => amount(row.reduction ?? 0, group.currency), align: "right" },
+          { header: "Net exigible", render: (row) => amount(row.expected, group.currency), align: "right" },
           { header: "Payé", render: (row) => amount(row.paid, group.currency), align: "right" },
           { header: "Solde", render: (row) => amount(row.remaining, group.currency), align: "right" },
           { header: "%", render: (row) => `${row.rate}%`, align: "right" },

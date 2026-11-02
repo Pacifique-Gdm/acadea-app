@@ -11,21 +11,26 @@ export function sectionDashboardTotals(students, fees, payments, currency) {
   for (const student of students) for (const fee of fees) {
     if (!feeAppliesToPublishedStudent(fee, student)) continue;
     const paid = payments.filter((payment) => payment.studentId === student.id && payment.feeTypeId === fee.id);
-    if (!paid.length) continue; // Existing Acadéa rule: expected fees are those already initiated.
     if (paid.some((payment) => payment.currency !== currency)) fail(409, "Devise historique à vérifier.");
+    const balance = supportBalance(student, fee);
     const key = fee.name.trim().toLowerCase();
-    const previous = rows.get(key) ?? { name: fee.name, expected: 0, paid: 0 };
+    const previous = rows.get(key) ?? { name: fee.name, official: 0, reduction: 0, expected: 0, paid: 0 };
     rows.set(key, { name: previous.name,
-      expected: fromMoneyMinor(sumMoneyMinor([previous.expected, supportBalance(student, fee).net])),
+      official: fromMoneyMinor(sumMoneyMinor([previous.official, balance.official])),
+      reduction: fromMoneyMinor(sumMoneyMinor([previous.reduction, balance.reduction])),
+      expected: fromMoneyMinor(sumMoneyMinor([previous.expected, balance.net])),
       paid: fromMoneyMinor(sumMoneyMinor([previous.paid, ...paid.map((payment) => payment.amount)])) });
   }
   const feeProgressRows = [...rows.values()].map((row) => ({ ...row,
     remaining: fromMoneyMinor(Math.max(0, sumMoneyMinor([row.expected, -row.paid]))),
     rate: row.expected > 0 ? Math.round(row.paid / row.expected * 100) : 0,
-  })).sort((a, b) => Number(b.name.trim().toLowerCase() === "minerval") - Number(a.name.trim().toLowerCase() === "minerval"));
+  })).filter((row) => row.official > 0 || row.paid > 0)
+    .sort((a, b) => Number(b.name.trim().toLowerCase() === "minerval") - Number(a.name.trim().toLowerCase() === "minerval"));
+  const official = fromMoneyMinor(sumMoneyMinor(feeProgressRows.map((row) => row.official)));
+  const reduction = fromMoneyMinor(sumMoneyMinor(feeProgressRows.map((row) => row.reduction)));
   const expected = fromMoneyMinor(sumMoneyMinor(feeProgressRows.map((row) => row.expected)));
   const paid = fromMoneyMinor(sumMoneyMinor(feeProgressRows.map((row) => row.paid)));
-  return { financialStats: { expected, paid, remaining: fromMoneyMinor(Math.max(0, sumMoneyMinor([expected, -paid]))) }, feeProgressRows };
+  return { financialStats: { official, reduction, expected, paid, remaining: fromMoneyMinor(Math.max(0, sumMoneyMinor([expected, -paid]))) }, feeProgressRows };
 }
 
 export function sectionDashboardClassRows(students) {
