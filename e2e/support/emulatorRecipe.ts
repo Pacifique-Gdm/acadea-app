@@ -88,8 +88,16 @@ export function fixture() {
     if (prepareContext) await prepareContext(context);
     const page = await context.newPage();
     page.setDefaultTimeout(20_000);
+    let pageError = "";
+    page.on("pageerror", (error) => {
+      if (!pageError) pageError = `${error.name}: ${error.message}`.slice(0, 240)
+        .replace(/[A-Za-z0-9_-]{40,}/g, "[redacted]");
+    });
     await page.goto("/login");
-    await page.getByPlaceholder("email@ecole.com").fill(accounts[role].email);
+    const emailInput = page.getByPlaceholder("email@ecole.com");
+    try { await emailInput.waitFor({ state: "visible" }); }
+    catch { throw new Error(`Formulaire de connexion absent${pageError ? ` ; erreur de page : ${pageError}` : " ; aucune erreur JavaScript capturée"}`); }
+    await emailInput.fill(accounts[role].email);
     await page.getByPlaceholder("Votre mot de passe").fill(accounts[role].password);
     await page.getByRole("button", { name: "Se connecter", exact: true }).click();
     await expect(page).not.toHaveURL(/\/login/, { timeout: 40_000 });
