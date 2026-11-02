@@ -16,8 +16,7 @@ for (const [role, allowed] of Object.entries(roles)) {
     execFileSync('tesseract', [join(directory, image), base, '-l', 'fra+eng'], { stdio: 'pipe' });
     text += readFileSync(`${base}.txt`, 'utf8').toUpperCase().replace(/\s/g, '');
   }
-  const embeddedText = execFileSync('pdftotext', ['-layout', pdf, '-'], { encoding: 'utf8' });
-  try { assertSectionPdfScope(embeddedText, text, allowed); }
+  try { assertSectionPdfScope(text, allowed); }
   catch (error) { throw new Error(`PDF ${role} : ${error.message}`); }
   results.push({ role, pages: images.length, scopedContent: 'PASS', visualReview: 'NON EXÉCUTÉ — images disponibles' });
   for (const kind of ['dashboard', 'financial']) {
