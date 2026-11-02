@@ -10,6 +10,7 @@ import { generateReceiptPdf } from "../../utils/pdf";
 import { MISSING_FINANCIAL_OPERATION_SCHOOL_ERROR, resolveFinancialOperationSchool } from "../../utils/financialOperationSchool";
 import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
 import { formatStudentClassName } from "../../utils/studentClasses";
+import { formatCurrencyMoney, resolveSchoolYearCurrency } from "../../utils/currency";
 import { schoolOptionDisplayName } from "../../utils/schoolOptions";
 import { isArchivedStudent } from "../../utils/studentUtils";
 import { applyParentLinkResult, applyParentUnlinkResult, isExactParentLinkConfirmation, isExactParentUnlinkConfirmation, PARENT_LINK_CONFIRMATION, PARENT_UNLINK_CONFIRMATION } from "../../utils/parentStudentLink";
@@ -296,7 +297,7 @@ export function StudentDetailPage({
                       <Download className="h-4 w-4" />
                     </button>
                   </div>
-                  <p className="break-words text-slate-500">${payment.amount} | {payment.paidAt} | {payment.cashierName}</p>
+                  <p className="break-words text-slate-500">{formatCurrencyMoney(payment.amount, payment.currency ?? resolveSchoolYearCurrency(year, school))} | {payment.paidAt} | {payment.cashierName}</p>
                 </div>
               );
             })}

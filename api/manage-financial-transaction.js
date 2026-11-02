@@ -7,6 +7,7 @@ import { requireActiveCoordinationActor } from "./_lib/coordination.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { CashBalanceError } from "./_lib/cashBalance.js";
 import { listResolvedExpenseCurrencies } from "./_lib/expenseCurrencyResolution.js";
+import { FeeTypeError, saveFeeTypes } from "./_lib/feeTypeMutations.js";
 
 function parseJsonBody(raw) {
   try { const parsed = JSON.parse(raw || "{}"); if (parsed && typeof parsed === "object") return parsed; }
@@ -51,6 +52,13 @@ export default async function handler(req, res) {
     const caller = await verifyActorIdToken(auth, token);
     const body = await readBody(req);
     const requestedAction = typeof body.action === "string" ? body.action : "";
+    if (requestedAction === "save-fee-types") {
+      if (!caller.schoolId || !["admin", "school_admin"].includes(caller.role)) throw new FeeTypeError(403, "permission-denied", "Gestion des frais non autorisée.");
+      await requireActiveApiUser(db, caller);
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.schoolId,
+        action: "finance.save-fee-types", idempotencyKey: body.requestId, ...API_RATE_LIMITS.FINANCE_CREATE });
+      return sendJson(res, 200, await saveFeeTypes({ db, caller, body }));
+    }
     if (requestedAction === "list-resolved-expense-currencies") {
       const actor = ["coordination_admin", "sub_coordination_admin"].includes(caller.role)
         ? await requireActiveCoordinationActor(auth, db, token)
@@ -86,7 +94,7 @@ export default async function handler(req, res) {
   } catch (error) {
     if (sendRateLimitError(res, error)) return;
     if (error instanceof CashBalanceError) return sendJson(res, error.status, { error: error.message, code: error.code, ...error.details });
-    if (error instanceof FinancialApiError) return sendJson(res, error.status, { error: error.message, code: error.code });
+    if (error instanceof FinancialApiError || error instanceof FeeTypeError) return sendJson(res, error.status, { error: error.message, code: error.code });
     if (error?.code === 10 || error?.code === "aborted") return sendJson(res, 409, { error: "La caisse a changé pendant l'opération. Actualisez le solde et confirmez à nouveau.", code: "cash-balance-conflict" });
     if (error?.statusCode === 400 && !error?.code) return sendJson(res, 400, { error: "Corps JSON invalide.", code: "invalid-argument" });
     if (error?.statusCode === 401) return sendJson(res, 401, { error: error.message, code: error.code });

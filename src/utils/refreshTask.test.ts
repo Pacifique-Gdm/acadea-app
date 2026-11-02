@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { runRefreshTask } from "./refreshTask";
+import { retryableRefreshError } from "./refreshErrors";
 
 describe("runRefreshTask", () => {
   it("remplace les données seulement après une lecture réussie", async () => {
@@ -35,5 +36,25 @@ describe("runRefreshTask", () => {
     expect(load).toHaveBeenCalledOnce();
     resolveLoad(["ok"]);
     await first;
+  });
+
+  it("réessaie une seule fois un réseau indisponible et n'affiche pas une fausse erreur", async () => {
+    const load = vi.fn().mockRejectedValueOnce({ code: "unavailable" }).mockResolvedValueOnce(["nouvelle"]);
+    const onError = vi.fn();
+    const apply = vi.fn();
+    expect(await runRefreshTask({ lock: { current: false }, setRefreshing: vi.fn(), load, apply, onError,
+      retryOnError: retryableRefreshError, retryDelayMs: 0 })).toBe(true);
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(apply).toHaveBeenCalledWith(["nouvelle"]);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("ne relance pas un refus de permission et conserve les données", async () => {
+    const load = vi.fn().mockRejectedValue({ code: "permission-denied" });
+    const apply = vi.fn();
+    expect(await runRefreshTask({ lock: { current: false }, setRefreshing: vi.fn(), load, apply, onError: vi.fn(),
+      retryOnError: retryableRefreshError, retryDelayMs: 0 })).toBe(false);
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(apply).not.toHaveBeenCalled();
   });
 });

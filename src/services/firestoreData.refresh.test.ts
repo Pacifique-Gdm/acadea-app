@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppUser } from "../types";
 
-const reads = vi.hoisted(() => ({ getDocs: vi.fn(async () => ({ docs: [] })) }));
+const reads = vi.hoisted(() => ({ getDocs: vi.fn(async () => ({ docs: [], metadata: { fromCache: false } })) }));
 vi.mock("../firebase", () => ({ db: {}, firebaseReady: true }));
 vi.mock("firebase/firestore", async (importOriginal) => ({
   ...await importOriginal<typeof import("firebase/firestore")>(),
@@ -21,5 +21,13 @@ describe("périmètre réel du refresh scolaire", () => {
   it("préserve le chemin Administrateur", async () => {
     await loadFirestoreYearData(user("school_admin"), "year-a");
     expect(reads.getDocs).toHaveBeenCalled();
+  });
+  it("n'annonce pas une actualisation réussie si une lecture serveur est refusée", async () => {
+    reads.getDocs.mockRejectedValueOnce({ code: "permission-denied", message: "denied" });
+    await expect(loadFirestoreYearData(user("school_admin"), "year-a")).rejects.toMatchObject({ code: "permission-denied", collectionPath: "students" });
+  });
+  it("ne prend pas un cache local pour une actualisation serveur", async () => {
+    reads.getDocs.mockResolvedValueOnce({ docs: [], metadata: { fromCache: true } });
+    await expect(loadFirestoreYearData(user("school_admin"), "year-a")).rejects.toMatchObject({ code: "unavailable", collectionPath: "students" });
   });
 });
