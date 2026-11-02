@@ -1,5 +1,6 @@
 import { requireActiveSectionAdministratorActor } from "./sectionAdministrators.js";
 import { feeAppliesToPublishedStudent } from "./gradePublicationCriteria.js";
+import { supportBalance } from "./socialSupportMath.js";
 import { fromMoneyMinor, sumMoneyMinor } from "./money.js";
 
 const fail = (statusCode, message) => { throw Object.assign(new Error(message), { statusCode }); };
@@ -15,7 +16,7 @@ export function sectionDashboardTotals(students, fees, payments, currency) {
     const key = fee.name.trim().toLowerCase();
     const previous = rows.get(key) ?? { name: fee.name, expected: 0, paid: 0 };
     rows.set(key, { name: previous.name,
-      expected: fromMoneyMinor(sumMoneyMinor([previous.expected, fee.amount])),
+      expected: fromMoneyMinor(sumMoneyMinor([previous.expected, supportBalance(student, fee).net])),
       paid: fromMoneyMinor(sumMoneyMinor([previous.paid, ...paid.map((payment) => payment.amount)])) });
   }
   const feeProgressRows = [...rows.values()].map((row) => ({ ...row,

@@ -1,3 +1,4 @@
+import { supportBalance } from "../../api/_lib/socialSupportMath.js";
 import type { Expense, FeeType, Payment, Student } from "../types";
 import { buildSchoolYearDataIndexes, getPaymentsForStudentFee, sumPayments } from "./dataIndexes";
 import type { SchoolYearDataIndexes } from "./dataIndexes";
@@ -52,14 +53,14 @@ export function buildDashboardFinancialAggregates(students: Student[], feeTypes:
       if (feePayments.length === 0) return;
 
       const paid = sumPayments(feePayments);
-      totals.expected = sumMoney([totals.expected, fee.amount]);
+      totals.expected = sumMoney([totals.expected, supportBalance(student, fee).net]);
       totals.paid = sumMoney([totals.paid, paid]);
 
       const key = fee.name.trim().toLowerCase();
       const current = rowsByFeeName.get(key) ?? { name: fee.name, expected: 0, paid: 0 };
       rowsByFeeName.set(key, {
         ...current,
-        expected: sumMoney([current.expected, fee.amount]),
+        expected: sumMoney([current.expected, supportBalance(student, fee).net]),
         paid: sumMoney([current.paid, paid]),
       });
     });

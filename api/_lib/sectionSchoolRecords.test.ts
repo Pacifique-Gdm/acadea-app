@@ -112,6 +112,15 @@ describe("lecture scolaire transactionnelle bornée", () => {
       { className: "1ère Sciences", girls: 1, boys: 0, total: 1 },
     ]);
   });
+  it("applique les réductions de cas sociaux à la synthèse financière des sections", () => {
+    const students = [{ id: "one", schoolId: "a", schoolYearId: "y", section: "Primaire", financialSupport: {
+      support: { id: "support", schoolYearId: "y", thirdPartyName: "Tiers fictif", lines: { fee: { reductionMinor: 2500, commitmentMinor: 0 } } },
+    } }];
+    const fees = [{ id: "fee", schoolId: "a", schoolYearId: "y", name: "Minerval", amount: 100 }];
+    const payments = [{ id: "paid", studentId: "one", feeTypeId: "fee", amount: 25, currency: "CDF" }];
+    expect(sectionDashboardTotals(students, fees, payments, "CDF").financialStats)
+      .toEqual({ expected: 75, paid: 25, remaining: 50 });
+  });
   it("lit les définitions de frais de l'année sans leur inventer de section", async () => {
     const { db, rows, reads } = fixture();
     rows.set("feeTypes/fee", { schoolId: "a", schoolYearId: "y", amount: 10 });

@@ -1,3 +1,4 @@
+import { supportBalance } from "../../api/_lib/socialSupportMath.js";
 import type { FeeType, ParentProfile, Payment, Student } from "../types";
 import { remainingMoney, sumMoney } from "./money";
 
@@ -22,7 +23,7 @@ function getExpectedFromPaidFees(student: Student | undefined, feeTypes: FeeType
   const paidFeeIds = new Set(payments.map((payment) => payment.feeTypeId));
   return getApplicableFeeTypes(student, feeTypes)
     .filter((fee) => paidFeeIds.has(fee.id))
-    .reduce((sum, fee) => sumMoney([sum, fee.amount]), 0);
+    .reduce((sum, fee) => sumMoney([sum, student ? supportBalance(student, fee).net : fee.amount]), 0);
 }
 
 export function getStudentBalance(studentId: string, feeTypes: FeeType[], payments: Payment[], students: Student[] = []) {
