@@ -5,7 +5,10 @@ import { getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
 
-export const origin = "http://127.0.0.1:4173";
+// Source-module component tests require Vite; business tests use the built bundle.
+// Both origins remain loopback-only and the emulator guard below remains mandatory.
+export const origin = process.env.ACADEA_E2E_SOURCE_MODULES === "YES"
+  ? "http://127.0.0.1:4174" : "http://127.0.0.1:4173";
 export function guard() {
   if (process.env.ACADEA_E2E_LOCAL_EMULATORS !== "YES" || process.env.VITE_FIREBASE_PROJECT_ID !== "demo-acadea"
     || process.env.FIREBASE_AUTH_EMULATOR_HOST !== "127.0.0.1:9099"

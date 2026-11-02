@@ -60,6 +60,7 @@ jobs:
       - name: Retour visuel et fluidité des composants source
         env:
           ACADEA_E2E_BASE_URL: http://127.0.0.1:4174
+          ACADEA_E2E_SOURCE_MODULES: 'YES'
         run: >-
           npx --yes firebase-tools@15.25.0 emulators:exec
           --project demo-acadea --config firebase.emulators.recipe.json --only auth,firestore,storage
