@@ -187,7 +187,10 @@ export async function requireMessagingCaller(auth, db, token) {
   if (!profile || normalizedMessagingRole(profile.role) !== role || profile.schoolId !== decoded.schoolId || profile.active === false || profile.status === "inactive") {
     throw Object.assign(new Error("Profil utilisateur non autorise."), { statusCode: 403, code: "not-authorized" });
   }
-  return { uid: decoded.uid, schoolId: decoded.schoolId, role, profile };
+  // Preserve the verified parent identity through the transactional send path.
+  // requireActiveApiUser has already matched this claim against the active profile.
+  return { uid: decoded.uid, schoolId: decoded.schoolId, role,
+    ...(role === "parent" ? { parentId: decoded.parentId } : {}), profile };
 }
 
 export async function listAllowedMessageRecipients(db, caller, schoolYearId = "") {

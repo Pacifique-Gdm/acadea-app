@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 // @ts-expect-error Server helper is JavaScript.
 import { transactionalMessagingContext } from "./transactionalMessaging.js";
+// @ts-expect-error Server helper is JavaScript.
+import { requireMessagingCaller } from "./messageRecipients.js";
 // @ts-expect-error Server handler is JavaScript.
 import { resolveParentMessageRecipients } from "../send-parent-message.js";
 
@@ -22,6 +24,19 @@ function fixture(patch: Record<string, unknown> = {}) {
   return { db, tx };
 }
 describe("transactional recipient authorization", () => {
+  it("retains the verified parentId from API authentication into a bidirectional transaction", async () => {
+    const { db, tx } = fixture();
+    const profiles: Record<string, unknown> = {
+      "users/p": { role: "parent", schoolId: "school", parentId: "parent", status: "active" },
+      "schools/school": { status: "active" },
+    };
+    const auth = { verifyIdToken: vi.fn(async () => caller) };
+    const apiDb = { doc: (path: string) => ({ get: async () => ({ exists: Boolean(profiles[path]), data: () => profiles[path] }) }) };
+    const verified = await requireMessagingCaller(auth, apiDb, "fixture-token");
+    expect(verified.parentId).toBe("parent");
+    const context = await transactionalMessagingContext(db, tx, verified, "y");
+    await expect(resolveParentMessageRecipients(context.db, context.caller, ["a"], "y", "Primaire")).resolves.toHaveLength(1);
+  });
   it("enlists profile, school, year, parent and children in the commit transaction", async () => {
     const { db, tx } = fixture();
     const context = await transactionalMessagingContext(db, tx, caller, "y");

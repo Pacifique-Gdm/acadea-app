@@ -41,6 +41,9 @@ async function direct(key, path, method, fields) {
 test.beforeAll(async () => {
   m = manifest(); s = await services();
   for (const [key, user] of Object.entries(m.users).filter(([, u]) => roles[u.role])) {
+    // Playwright restarts a worker after a failed test. Do not repeat successful
+    // activations: the Super Administrator endpoint has a production rate limit.
+    if (!(await s.auth.getUser(user.uid)).disabled) { await token(key); continue; }
     const data = { action: 'manage-section-administrator', operation: 'activate', schoolId: user.schoolId, userId: user.uid, confirmation: 'ACTIVER CET UTILISATEUR' };
     expect((await api('super_admin', provision, { ...data, confirmation: 'NON' })).status).toBe(400);
     await ok('super_admin', provision, data);
