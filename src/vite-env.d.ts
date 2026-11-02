@@ -97,7 +97,7 @@ declare module "firebase/firestore" {
     commit(): Promise<void>;
   };
   export function getDoc(ref: unknown): Promise<{ id: string; exists(): boolean; data(): Record<string, unknown> }>;
-  export function getDocs(ref: unknown): Promise<{ size: number; docs: Array<{ id: string; ref: unknown; data(): Record<string, unknown> }> }>;
+  export function getDocs(ref: unknown): Promise<{ size: number; docs: Array<{ id: string; ref: unknown; data(): Record<string, unknown> }>; metadata?: { fromCache: boolean } }>;
   export function onSnapshot(ref: DocumentReference, next: (snapshot: DocumentSnapshot) => void, error?: (error: Error) => void): () => void;
   export function onSnapshot(ref: unknown, next: (snapshot: { docs: Array<{ id: string; data(): Record<string, unknown> }> }) => void, error?: (error: Error) => void): () => void;
   export function runTransaction<T>(db: unknown, operation: (transaction: {

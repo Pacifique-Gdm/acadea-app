@@ -18,7 +18,7 @@ import { sumMoney } from "../../utils/money";
 import { nextMessageThreadId } from "../../utils/messageThreads";
 import { generateReceiptPdf } from "../../utils/pdf";
 import { useAsyncAction } from "../../hooks/useAsyncAction";
-import { formatCurrencyMoney, formatSchoolMoney } from "../../utils/currency";
+import { formatCurrencyMoney, formatSchoolMoney, resolveSchoolYearCurrency } from "../../utils/currency";
 import { mergeMessagesById, mergeNotificationsById } from "../../utils/realtimeMerges";
 import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
 import { formatStudentClassName } from "../../utils/studentClasses";
@@ -459,7 +459,7 @@ export function ParentPortal({
                           <div key={payment.id} className="min-w-0 rounded bg-slate-50 p-3 text-sm">
                             <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                               <div className="min-w-0">
-                                <span className="font-semibold text-ink">${payment.amount}</span>
+                                <span className="font-semibold text-ink">{formatCurrencyMoney(payment.amount, payment.currency ?? resolveSchoolYearCurrency(year, school))}</span>
                                 <span className="break-words text-slate-500"> | {fee?.name ?? "Frais"} | {payment.paidAt}</span>
                               </div>
                               <button

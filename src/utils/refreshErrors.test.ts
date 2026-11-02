@@ -11,12 +11,18 @@ describe("actualisation Firestore", () => {
     expect(firebaseErrorCode(error)).toBe("permission-denied");
   });
 
+  it("classe le délai Firestore comme erreur réseau sans masquer les permissions", () => {
+    const timeout = new FirestoreDataError("feeTypes", new Error("Chargement Firestore trop long : feeTypes."));
+    expect(timeout.code).toBe("deadline-exceeded");
+    expect(refreshErrorMessage(timeout)).toContain("données déjà affichées sont conservées");
+  });
+
   it.each([
     ["permission-denied", "autorisation"],
     ["unavailable", "temporairement indisponible"],
     ["unauthenticated", "session a expiré"],
     ["failed-precondition", "configuration supplémentaire"],
-    ["deadline-exceeded", "trop de temps"],
+    ["deadline-exceeded", "connexion est lente"],
     ["unknown", "contactez l'assistance"],
   ])("affiche un message utile pour %s", (code, expected) => {
     expect(refreshErrorMessage({ code })).toContain(expected);

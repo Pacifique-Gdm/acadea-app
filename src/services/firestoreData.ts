@@ -106,7 +106,8 @@ export class FirestoreDataError extends Error {
     super(`Chargement Firestore impossible pour ${collectionPath} : ${message}`);
     this.name = "FirestoreDataError";
     this.collectionPath = collectionPath;
-    this.code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "unknown";
+    this.code = typeof error === "object" && error !== null && "code" in error ? String(error.code)
+      : message.startsWith("Chargement Firestore trop long") ? "deadline-exceeded" : "unknown";
   }
 }
 
@@ -118,20 +119,22 @@ export function getYearRefreshScope(role: AppUser["role"]) {
   return role === "secretary" ? "secretary" : "school";
 }
 
-async function loadCollection<T>(collectionName: string, filters: [string, unknown][]) {
+async function loadCollection<T>(collectionName: string, filters: [string, unknown][], serverOnly = false) {
   if (!db) return [];
 
   const constraints = filters.map(([field, value]) => where(field, "==", value));
-  const snapshot = await withFirestoreTimeout(getDocs(query(collection(db, collectionName), ...constraints)), collectionName).catch((error) => {
+  const collectionQuery = query(collection(db, collectionName), ...constraints);
+  const snapshot = await withFirestoreTimeout(getDocs(collectionQuery), collectionName).catch((error) => {
     throw describeFirestoreError(collectionName, error);
   });
+  if (serverOnly && snapshot.metadata?.fromCache) throw describeFirestoreError(collectionName, { code: "unavailable", message: "Réponse du cache local uniquement." });
   return snapshot.docs.map((item) => normalizeSchoolDomainDocument(collectionName, { id: item.id, ...item.data() })) as T[];
 }
 
-async function loadPaymentsForYear(schoolId: string, schoolYearId: string) {
+async function loadPaymentsForYear(schoolId: string, schoolYearId: string, serverOnly = false) {
   const [annual, collected] = await Promise.all([
-    loadCollection<AppData["payments"][number]>("payments", [["schoolId", schoolId], ["schoolYearId", schoolYearId]]),
-    loadCollection<AppData["payments"][number]>("payments", [["schoolId", schoolId], ["collectionSchoolYearId", schoolYearId]]),
+    loadCollection<AppData["payments"][number]>("payments", [["schoolId", schoolId], ["schoolYearId", schoolYearId]], serverOnly),
+    loadCollection<AppData["payments"][number]>("payments", [["schoolId", schoolId], ["collectionSchoolYearId", schoolYearId]], serverOnly),
   ]);
   return [...new Map([...annual, ...collected].map((payment) => [payment.id, payment])).values()];
 }
@@ -228,7 +231,7 @@ export async function loadFirestoreBootstrapData(user: AppUser): Promise<Firesto
   return { users: [user], schools, schoolYears };
 }
 
-async function loadSchoolMessages(user: AppUser, schoolId: string, schoolYearId: string) {
+async function loadSchoolMessages(user: AppUser, schoolId: string, schoolYearId: string, serverOnly = false) {
   if (!db) return [];
   const base = [where("schoolId", "==", schoolId), where("schoolYearId", "==", schoolYearId)];
   const legacyRecipients = schoolMessageLegacyRecipients(user.role);
@@ -239,6 +242,7 @@ async function loadSchoolMessages(user: AppUser, schoolId: string, schoolYearId:
     queries.push(withFirestoreTimeout(getDocs(query(collection(db, "messages"), ...base, where("schoolRecipient", "in", legacyRecipients))), "messages"));
   }
   const snapshots = await Promise.all(queries).catch((error) => { throw describeFirestoreError("messages", error); });
+  if (serverOnly && snapshots.some((snapshot) => snapshot.metadata?.fromCache)) throw describeFirestoreError("messages", { code: "unavailable", message: "Réponse du cache local uniquement." });
   return Array.from(new Map(snapshots.flatMap((snapshot) => snapshot.docs).map((item) => [item.id, { id: item.id, ...item.data() } as AppData["messages"][number]])).values());
 }
 
@@ -466,24 +470,24 @@ export async function loadFirestoreYearData(user: AppUser, schoolYearId: string)
   if (getYearRefreshScope(user.role) === "secretary") {
     const schoolFilter: [string, unknown][] = [["schoolId", user.schoolId]];
     const [students, parents, feeTypes, payments] = await Promise.all([
-      loadCollection<AppData["students"][number]>("students", schoolFilter),
-      loadCollection<AppData["parents"][number]>("parents", schoolFilter),
-      loadCollection<AppData["feeTypes"][number]>("feeTypes", annualFilter),
-      loadCollection<AppData["payments"][number]>("payments", annualFilter),
+      loadCollection<AppData["students"][number]>("students", schoolFilter, true),
+      loadCollection<AppData["parents"][number]>("parents", schoolFilter, true),
+      loadCollection<AppData["feeTypes"][number]>("feeTypes", annualFilter, true),
+      loadCollection<AppData["payments"][number]>("payments", annualFilter, true),
     ]);
     return { students, parents, feeTypes, payments };
   }
 
   const yearData: FirestoreYearData = {
-    students: await loadCollection<AppData["students"][number]>("students", annualFilter),
-    feeTypes: await loadCollection<AppData["feeTypes"][number]>("feeTypes", annualFilter),
-    payments: await loadPaymentsForYear(user.schoolId, schoolYearId),
-    expenses: await loadCollection<AppData["expenses"][number]>("expenses", annualFilter),
-    cashInflows: await loadCollection<NonNullable<AppData["cashInflows"]>[number]>("cashInflows", annualFilter),
-    messages: await loadSchoolMessages(user, user.schoolId, schoolYearId),
-    valves: await loadCollection<AppData["valves"][number]>("valves", annualFilter),
-    attendance: await loadAttendanceCollection(annualFilter),
-    attendanceSettings: await loadAttendanceSettingsCollection(annualFilter),
+    students: await loadCollection<AppData["students"][number]>("students", annualFilter, true),
+    feeTypes: await loadCollection<AppData["feeTypes"][number]>("feeTypes", annualFilter, true),
+    payments: await loadPaymentsForYear(user.schoolId, schoolYearId, true),
+    expenses: await loadCollection<AppData["expenses"][number]>("expenses", annualFilter, true),
+    cashInflows: await loadCollection<NonNullable<AppData["cashInflows"]>[number]>("cashInflows", annualFilter, true),
+    messages: await loadSchoolMessages(user, user.schoolId, schoolYearId, true),
+    valves: await loadCollection<AppData["valves"][number]>("valves", annualFilter, true),
+    attendance: await loadCollection<AppData["attendance"][number]>("attendance", annualFilter, true),
+    attendanceSettings: await loadCollection<AppData["attendanceSettings"][number]>("attendanceSettings", annualFilter, true),
   };
 
   return yearData;

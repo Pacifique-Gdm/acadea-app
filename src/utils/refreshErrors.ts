@@ -3,13 +3,17 @@ export function firebaseErrorCode(error: unknown) {
   return "unknown";
 }
 
+export function retryableRefreshError(error: unknown) {
+  return ["unavailable", "deadline-exceeded", "network-request-failed"].includes(firebaseErrorCode(error));
+}
+
 export function refreshErrorMessage(error: unknown) {
   switch (firebaseErrorCode(error)) {
     case "permission-denied": return "Vous n'avez pas l'autorisation d'actualiser ces données pour l'établissement actif.";
     case "unauthenticated": return "Votre session a expiré. Veuillez vous reconnecter.";
     case "unavailable": return "Le service est temporairement indisponible. Vérifiez votre connexion puis réessayez.";
     case "failed-precondition": return "La requête nécessite une configuration supplémentaire. Contactez l'administrateur technique.";
-    case "deadline-exceeded": return "L'actualisation a pris trop de temps. Réessayez.";
+    case "deadline-exceeded": return "La connexion est lente. Les données déjà affichées sont conservées ; réessayez lorsque le réseau est stable.";
     case "network-request-failed": return "Connexion impossible. Les données affichées sont conservées.";
     default: return "Impossible d'actualiser les données. Réessayez ou contactez l'assistance.";
   }

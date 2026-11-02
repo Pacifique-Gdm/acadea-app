@@ -4,6 +4,7 @@ import { loadOfflineContext, type OfflineContext } from "../../services/offlineC
 import { captureOfflineDraft } from "../../services/offlineDrafts";
 import type { OfflineScope } from "../../services/offlineQueue";
 import { attendanceRecordId } from "../../utils/attendance";
+import { formatCurrencyMoney } from "../../utils/currency";
 
 const slots = ["period_1", "period_2", "semester_1_exam", "period_3", "period_4", "semester_2_exam"];
 const slotLabel: Record<string, string> = { period_1: "1re période", period_2: "2e période", semester_1_exam: "Examen du 1er semestre",
@@ -113,7 +114,7 @@ export function OfflineDraftForms({ scope, role }: { scope: OfflineScope; role: 
     </>}
     {role === "cashier" && <>
       <select className="input" aria-label="Élève" value={studentId} onChange={(event) => setStudentId(event.target.value)}><option value="">Choisir un élève</option>{students.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
-      <select className="input" aria-label="Type de frais" value={feeTypeId} onChange={(event) => setFeeTypeId(event.target.value)}><option value="">Choisir un frais</option>{context.fees.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.amount} {item.currency}</option>)}</select>
+      <select className="input" aria-label="Type de frais" value={feeTypeId} onChange={(event) => setFeeTypeId(event.target.value)}><option value="">Choisir un frais</option>{context.fees.map((item) => <option key={item.id} value={item.id}>{item.name} · {formatCurrencyMoney(item.amount, item.currency)}</option>)}</select>
       <input className="input" aria-label="Montant provisoire" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} />
       <input className="input" aria-label="Note facultative" value={note} onChange={(event) => setNote(event.target.value)} />
       <p className="font-semibold text-amber-800">Proposition provisoire uniquement : aucun reçu ni solde actualisé avant validation serveur.</p>
