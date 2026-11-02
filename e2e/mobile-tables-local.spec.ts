@@ -8,7 +8,7 @@ const css = readFileSync(`dist/assets/${cssFile}`, "utf8");
 for (const [role, width] of [["Administrateur", 390], ["Secrétaire", 375]] as const) {
   test(`tableau ${role} lisible et défilable sur smartphone`, async ({ page }) => {
     await page.setViewportSize({ width, height: 780 });
-    await page.setContent(`<main class="acadea-mobile-tables" style="width:100%;max-width:100%"><div class="max-w-full overflow-x-auto"><table class="w-full table-fixed text-sm"><thead><tr><th>Établissement</th><th>Montant net exigible</th><th>Actions</th></tr></thead><tbody><tr><td class="truncate" title="École avec un nom très long">École avec un nom très long</td><td>150 000,00 USD</td><td><button type="button">Voir le reçu</button></td></tr></tbody></table></div></main>`);
+    await page.setContent(`<main class="acadea-mobile-tables" style="width:100%;max-width:100%"><div class="max-w-full overflow-x-auto"><table class="w-full table-fixed text-sm"><thead><tr><th>Établissement</th><th>Montant net exigible</th><th>Actions</th></tr></thead><tbody><tr><td class="truncate" title="École fictive au nom volontairement très long pour vérifier la largeur sur un écran de téléphone">École fictive au nom volontairement très long pour vérifier la largeur sur un écran de téléphone</td><td>150 000,00 USD</td><td><button type="button">Voir le reçu</button></td></tr></tbody></table></div></main>`);
     await page.addStyleTag({ content: css });
     const state = await page.evaluate(() => {
       const table = document.querySelector("table")!;

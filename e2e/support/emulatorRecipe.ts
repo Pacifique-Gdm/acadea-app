@@ -93,10 +93,14 @@ export function fixture() {
       if (!pageError) pageError = `${error.name}: ${error.message}`.slice(0, 240)
         .replace(/[A-Za-z0-9_-]{40,}/g, "[redacted]");
     });
-    await page.goto("/login");
+    const loginResponse = await page.goto("/login");
     const emailInput = page.getByPlaceholder("email@ecole.com");
     try { await emailInput.waitFor({ state: "visible" }); }
-    catch { throw new Error(`Formulaire de connexion absent${pageError ? ` ; erreur de page : ${pageError}` : " ; aucune erreur JavaScript capturée"}`); }
+    catch {
+      const body = (await page.locator("body").innerText().catch(() => "")).slice(0, 160)
+        .replace(/\b\S+@\S+\b/g, "[email]").replace(/[A-Za-z0-9_-]{40,}/g, "[redacted]");
+      throw new Error(`Formulaire de connexion absent ; HTTP ${loginResponse?.status() ?? "inconnu"} ; route ${new URL(page.url()).pathname} ; texte ${JSON.stringify(body)}${pageError ? ` ; erreur de page : ${pageError}` : " ; aucune erreur JavaScript capturée"}`);
+    }
     await emailInput.fill(accounts[role].email);
     await page.getByPlaceholder("Votre mot de passe").fill(accounts[role].password);
     await page.getByRole("button", { name: "Se connecter", exact: true }).click();

@@ -28,11 +28,11 @@ test.beforeAll(async () => {
       {
         name: "local-only-services",
         setup(builder) {
-          builder.onLoad({ filter: /\/services\/socialSupport\.ts$/ }, () => ({
+          builder.onLoad({ filter: /[\\/]services[\\/]socialSupport\.ts$/ }, () => ({
             contents: `export async function reconcileSupport(){}export async function loadSupportPersonnel(){return [];}export function subscribeSupport(id,onData){onData(Array.from({length:Number(new URL(location.href).searchParams.get('rows')||1)},(_,i)=>({...window.__decision,id:'decision-'+id+'-'+i,schoolId:id,schoolYearId:id==='s'?'y':'year-b',studentName:window.__decision.studentName+' '+i,history:window.__decision.history.map(e=>({...e,id:'event-'+id+'-'+i}))})));return()=>{};}export function subscribeSupportContext(id,onData){for(const name of ['students','payments','feeTypes'])onData({[name]:window.__data[name]});return()=>{};}export async function saveSupport(input){window.__submitted=input;return {...window.__decision,reason:input.reason};}`,
             loader: "js",
           }));
-          builder.onLoad({ filter: /\/services\/personnel\.ts$/ }, () => ({
+          builder.onLoad({ filter: /[\\/]services[\\/]personnel\.ts$/ }, () => ({
             contents: `export const personnelRoleLabels={teacher:'Enseignant'};export const isServicePersonnel=p=>p.kind==='service';export function subscribeToSchoolPersonnel({onData}){onData([{id:'staff',name:'Personnel test',role:'teacher'}]);return()=>{};}export function subscribeToServicePersonnel({onData}){onData([]);return()=>{};}`,
             loader: "js",
           }));
