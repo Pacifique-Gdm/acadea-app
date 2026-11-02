@@ -105,7 +105,8 @@ export async function cleanup(s) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const s = await services();
   try { if (process.argv[2] === 'plan') await preparePlan(s); else if (process.argv[2] === 'prepare') await prepare(s); else if (process.argv[2] === 'retire') {
-    if (existsSync(file())) { const m = manifest(); Object.assign(m, await retire(s, m)); save(m); }
+    if (!existsSync(file())) throw new Error('Manifeste absent : clôture non effectuée. Récupérer le manifeste sauvegardé.');
+    const m = manifest(); Object.assign(m, await retire(s, m)); save(m);
   } else throw new Error('Commande invalide : suppression distante désactivée.'); }
   finally { await deleteApp(s.app); }
 }

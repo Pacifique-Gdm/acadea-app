@@ -26,7 +26,7 @@ permissions:
   contents: read
 jobs:
   cleanup:
-    if: github.repository == 'Pacifique-Gdm/acadea-app' && github.ref == 'refs/heads/codex/section-admin-profiles-final-20261031' && (github.event_name == 'workflow_dispatch' || vars.ACADEA_SECTION_RECOVERY_RUN != '')
+    if: github.repository == 'Pacifique-Gdm/acadea-app' && github.ref == 'refs/heads/codex/section-admin-profiles-final-20261031'
     environment: acadea-staging-e2e
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -71,7 +71,8 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_STAGING_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_STAGING_E2E_SERVICE_ACCOUNT }}
           create_credentials_file: true
-      - run: node scripts/sectionStagingFixture.mjs retire
+      - name: Clôturer les comptes du manifeste sauvegardé, sans suppression
+        run: node scripts/sectionStagingFixture.mjs retire
       - uses: actions/upload-artifact@v4
         with:
           name: section-cleanup-confirmation-${{ github.run_id }}

@@ -24,7 +24,7 @@ permissions:
   contents: read
 jobs:
   recipe:
-    if: github.repository == 'Pacifique-Gdm/acadea-app' && github.ref == 'refs/heads/codex/section-admin-profiles-final-20261031' && (github.event_name == 'push' || inputs.authorization == 'RECETTE STAGING AUTORISEE')
+    if: github.repository == 'Pacifique-Gdm/acadea-app' && github.ref == 'refs/heads/codex/section-admin-profiles-final-20261031' && ((github.event_name == 'push' && vars.ACADEA_SECTION_READY_SHA == github.sha) || inputs.authorization == 'RECETTE STAGING AUTORISEE')
     environment: acadea-staging-e2e
     runs-on: ubuntu-latest
     timeout-minutes: 40
