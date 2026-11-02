@@ -8,6 +8,7 @@ import { getStorage, ref, uploadBytes, deleteObject } from 'firebase/storage';
 import { jsPDF } from 'jspdf';
 import { manifest, services } from '../scripts/sectionStagingFixture.mjs';
 import { roles, sections } from '../scripts/sectionStagingPlan.mjs';
+import { removeDraftAfterSend } from './support/sectionStagingAttachmentCleanup.mjs';
 
 let m, s, witness;
 const tokens = new Map();
@@ -144,7 +145,7 @@ for (const [role, allowed] of Object.entries(roles)) test(`${role} — cinq ongl
     const response = await api('0-secretary', '/api/send-school-message', { schoolYearId: year, section: allowed[0], subject: 'Fichier fictif B08', body: 'Document de recette', draftId, recipientRoles: [role], recipientIds: [m.users[key].uid], attachments: [{ path: draft.fullPath }] }, { 'x-idempotency-key': randomUUID() });
     expect(response.status).toBe(200); fileMessage = response.body.message;
   } finally {
-    try { if (uploaded) await deleteObject(draft); }
+    try { await removeDraftAfterSend(deleteObject, draft, uploaded, fileMessage); }
     finally { try { await signOut(clientAuth); } finally { await deleteClient(client); } }
   }
   expect(fileMessage.attachments).toHaveLength(1);
