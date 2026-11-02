@@ -10,7 +10,7 @@ export function guard(env) {
     || !/^[a-f0-9]{40}$/.test(env.ACADEA_EXPECTED_SHA || '')
     || ['FIREBASE_AUTH_EMULATOR_HOST', 'FIRESTORE_EMULATOR_HOST', 'FIREBASE_STORAGE_EMULATOR_HOST', 'FIREBASE_SERVICE_ACCOUNT_JSON'].some(k => env[k])) throw new Error('Recette Staging non autorisée ou cible invalide.');
   const url = new URL(env.ACADEA_SECTION_PREVIEW_URL);
-  if (url.protocol !== 'https:' || !/^acadea-staging-[a-z0-9-]+\.vercel\.app$/.test(url.hostname)
+  if (url.protocol !== 'https:' || !(url.hostname === 'acadea-staging.vercel.app' || /^acadea-staging-[a-z0-9-]+\.vercel\.app$/.test(url.hostname))
     || url.username || url.password || url.search || url.hash || url.pathname !== '/') throw new Error('Preview Staging isolé obligatoire.');
   if (!['acadea-staging.firebasestorage.app', 'acadea-staging.appspot.com'].includes(env.STAGING_FIREBASE_STORAGE_BUCKET)) throw new Error('Bucket Staging invalide.');
 }

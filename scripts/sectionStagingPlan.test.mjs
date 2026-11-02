@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import { guard, plan, assertOwned, roles } from './sectionStagingPlan.mjs';
 const env = { GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: 'Pacifique-Gdm/acadea-app', GITHUB_REF: 'refs/heads/codex/section-admin-profiles-final-20261031', GOOGLE_CLOUD_PROJECT: 'acadea-staging', ACADEA_SECTION_RECIPE_AUTHORIZED: 'YES', ACADEA_EXPECTED_SHA: 'a'.repeat(40), ACADEA_SECTION_PREVIEW_URL: 'https://acadea-staging-abcdef-pacifique-gdms-projects.vercel.app/', STAGING_FIREBASE_STORAGE_BUCKET: 'acadea-staging.firebasestorage.app' };
 test('garde Staging accepte uniquement le périmètre explicite', () => assert.doesNotThrow(() => guard(env)));
+test('alias officiel Staging accepté, domaine ressemblant refusé', () => {
+  assert.doesNotThrow(() => guard({ ...env, ACADEA_SECTION_PREVIEW_URL: 'https://acadea-staging.vercel.app/' }));
+  assert.throws(() => guard({ ...env, ACADEA_SECTION_PREVIEW_URL: 'https://acadea-staging.vercel.app.attacker.example/' }));
+});
 for (const [key, value] of Object.entries({ GOOGLE_CLOUD_PROJECT: 'acadea-production', ACADEA_SECTION_PREVIEW_URL: 'https://acadea-app.vercel.app/', STAGING_FIREBASE_STORAGE_BUCKET: 'acadea-production.appspot.com', GITHUB_REF: 'refs/heads/main', ACADEA_SECTION_RECIPE_AUTHORIZED: '', FIRESTORE_EMULATOR_HOST: 'localhost:8080', FIREBASE_SERVICE_ACCOUNT_JSON: '{}' })) {
   test(`refus cible/configuration ${key}`, () => assert.throws(() => guard({ ...env, [key]: value })));
 }

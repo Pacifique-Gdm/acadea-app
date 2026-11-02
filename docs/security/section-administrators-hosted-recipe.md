@@ -117,13 +117,20 @@ Dans ce cas Codex lance le workflow de récupération avec run/tentative source,
 URL et SHA. L'artefact préalable expire après sept jours : intervenir avant cette
 expiration. Aucun document ambigu n'est supprimé ; un conflit bloque le nettoyage.
 
-Le précontrôle `push` est seul autorisé dans WIF, sur la branche candidate et
-l'environnement protégé. Les autres workflows restent `workflow_dispatch` :
-leur absence de la branche par défaut n'est pas résolue par cette autorisation.
-Le précontrôle du 2 novembre est en attente du reviewer GitHub, sans accès ni
-écriture Firebase exécutés. Ne pas auto-approuver ce contrôle.
-Le scénario de fichier utilise encore une création Admin SDK Storage : il doit
-être adapté au parcours applicatif autorisé avant tout lancement avec ce rôle.
+Les trois workflows sont désormais autorisés sur `push` dans WIF, uniquement
+sur la branche candidate, le dépôt et l'environnement protégés. Le précontrôle
+41363999505 a réussi. Chaque nouveau job conserve son approbation GitHub.
+La recette compare le SHA servi au SHA du push avant toute identité ou fixture.
+La récupération sur push nécessite les variables ACADEA_SECTION_RECOVERY_RUN,
+ACADEA_SECTION_RECOVERY_ATTEMPT et ACADEA_SECTION_RECOVERY_SHA ; sans run explicite
+elle est ignorée. Elle vérifie dépôt, branche, workflow, événement, SHA, tentative
+et état terminé du run source avant de télécharger son manifeste.
+Le scénario de fichier passe maintenant par une vraie connexion Secrétaire,
+l'upload client soumis aux règles Storage et l'API send-school-message ; aucun
+upload Admin SDK ni modification directe des pièces jointes du message.
+Seul le brouillon propre au Secrétaire est supprimé par ses droits applicatifs.
+Le fichier final fictif reste conservé selon la politique de clôture sans purge.
+Ce parcours modifié n'est pas encore validé sur Firebase hébergé.
 
 ## Preuves locales de préparation
 

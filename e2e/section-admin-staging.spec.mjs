@@ -2,6 +2,9 @@ import { test, expect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { deleteApp } from 'firebase-admin/app';
+import { initializeApp as initializeClient, deleteApp as deleteClient } from 'firebase/app';
+import { getAuth, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { getStorage, ref, uploadBytes, deleteObject } from 'firebase/storage';
 import { jsPDF } from 'jspdf';
 import { manifest, services } from '../scripts/sectionStagingFixture.mjs';
 import { roles, sections } from '../scripts/sectionStagingPlan.mjs';
@@ -121,13 +124,27 @@ for (const [role, allowed] of Object.entries(roles)) test(`${role} — cinq ongl
   expect(otherNotifications.docs[0].data().read).toBe(false);
   await denied(key, '/api/message-recipients', { action: 'mark-section-notifications-read', schoolYearId: year, notificationId: otherNotifications.docs[0].id });
 
-  // Fixture-only message file, no public token, downloaded through the deployed secured Function.
+  // Real secretary sign-in and client upload: no privileged Storage fixture write.
   const pdf = new jsPDF(); pdf.text('Piece jointe B08 fictive', 20, 20);
   const bytes = Buffer.from(pdf.output('arraybuffer'));
-  const path = `messages/${school}/${incoming.conversationId}/${incoming.id}/fixture.pdf`;
-  await s.bucket.file(path).save(bytes, { resumable: false, preconditionOpts: { ifGenerationMatch: 0 }, metadata: { contentType: 'application/pdf', metadata: { fixtureId: m.tag } } });
-  await s.db.doc(`messages/${incoming.id}`).update({ attachments: [{ path, name: 'fixture.pdf', type: 'application/pdf', size: bytes.length }] });
-  const download = async who => fetch('https://europe-west1-acadea-staging.cloudfunctions.net/messageAttachmentFile', { method: 'POST', headers: { Authorization: `Bearer ${await token(who)}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ data: { messageId: incoming.id, path } }) });
+  const secretary = m.users['0-secretary'], draftId = randomUUID();
+  const client = initializeClient({ apiKey: process.env.STAGING_FIREBASE_API_KEY, projectId: 'acadea-staging', storageBucket: process.env.STAGING_FIREBASE_STORAGE_BUCKET }, `file-${draftId}`);
+  const clientAuth = getAuth(client);
+  const draft = ref(getStorage(client), `message-uploads/${school}/${secretary.uid}/${draftId}/${randomUUID()}.pdf`);
+  let uploaded = false, fileMessage;
+  try {
+    await signInWithEmailAndPassword(clientAuth, secretary.email, process.env.ACADEA_E2E_PASSWORD);
+    await uploadBytes(draft, bytes, { contentType: 'application/pdf', customMetadata: { schoolId: school, schoolYearId: year, senderId: secretary.uid, draftId, originalName: 'fixture.pdf' } });
+    uploaded = true;
+    const response = await api('0-secretary', '/api/send-school-message', { schoolYearId: year, section: allowed[0], subject: 'Fichier fictif B08', body: 'Document de recette', draftId, recipientRoles: [role], recipientIds: [m.users[key].uid], attachments: [{ path: draft.fullPath }] }, { 'x-idempotency-key': randomUUID() });
+    expect(response.status).toBe(200); fileMessage = response.body.message;
+  } finally {
+    try { if (uploaded) await deleteObject(draft); }
+    finally { try { await signOut(clientAuth); } finally { await deleteClient(client); } }
+  }
+  expect(fileMessage.attachments).toHaveLength(1);
+  const path = fileMessage.attachments[0].path;
+  const download = async who => fetch('https://europe-west1-acadea-staging.cloudfunctions.net/messageAttachmentFile', { method: 'POST', headers: { Authorization: `Bearer ${await token(who)}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ data: { messageId: fileMessage.id, path } }) });
   const fileResponse = await download(key);
   expect(fileResponse.status).toBe(200);
   const filePayload = await fileResponse.json();

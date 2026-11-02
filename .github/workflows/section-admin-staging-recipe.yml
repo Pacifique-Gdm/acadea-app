@@ -1,5 +1,11 @@
 name: section-admin-staging-recipe
 on:
+  push:
+    branches: [codex/section-admin-profiles-final-20261031]
+    paths:
+      - '.github/workflows/section-admin-staging-recipe.yml'
+      - 'scripts/sectionStaging*.mjs'
+      - 'e2e/section-admin-staging.spec.mjs'
   workflow_dispatch:
     inputs:
       preview_url:
@@ -18,7 +24,7 @@ permissions:
   contents: read
 jobs:
   recipe:
-    if: github.repository == 'Pacifique-Gdm/acadea-app' && github.ref == 'refs/heads/codex/section-admin-profiles-final-20261031' && inputs.authorization == 'RECETTE STAGING AUTORISEE'
+    if: github.repository == 'Pacifique-Gdm/acadea-app' && github.ref == 'refs/heads/codex/section-admin-profiles-final-20261031' && (github.event_name == 'push' || inputs.authorization == 'RECETTE STAGING AUTORISEE')
     environment: acadea-staging-e2e
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -31,8 +37,8 @@ jobs:
     env:
       GOOGLE_CLOUD_PROJECT: acadea-staging
       ACADEA_SECTION_RECIPE_AUTHORIZED: YES
-      ACADEA_SECTION_PREVIEW_URL: ${{ inputs.preview_url }}
-      ACADEA_EXPECTED_SHA: ${{ inputs.candidate_sha }}
+      ACADEA_SECTION_PREVIEW_URL: ${{ inputs.preview_url || vars.ACADEA_SECTION_PREVIEW_URL || 'https://acadea-staging.vercel.app/' }}
+      ACADEA_EXPECTED_SHA: ${{ inputs.candidate_sha || github.sha }}
       STAGING_FIREBASE_API_KEY: ${{ vars.STAGING_FIREBASE_API_KEY }}
       STAGING_FIREBASE_STORAGE_BUCKET: ${{ vars.STAGING_FIREBASE_STORAGE_BUCKET }}
       VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
