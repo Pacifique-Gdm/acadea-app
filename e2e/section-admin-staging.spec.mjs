@@ -41,6 +41,7 @@ async function direct(key, path, method, fields) {
 test.beforeAll(async () => {
   m = manifest(); s = await services();
   for (const [key, user] of Object.entries(m.users).filter(([, u]) => roles[u.role])) {
+    console.log(`Activation contrôlée du profil fictif : ${user.role}`);
     // Playwright restarts a worker after a failed test. Do not repeat successful
     // activations: the Super Administrator endpoint has a production rate limit.
     if (!(await s.auth.getUser(user.uid)).disabled) { await token(key); continue; }
@@ -49,6 +50,7 @@ test.beforeAll(async () => {
     await ok('super_admin', provision, data);
     await token(key);
   }
+  console.log('Activations fictives terminées.');
   witness = await Promise.all(m.documents.filter(d => d.data.schoolId === m.schools[1] || d.path === `schools/${m.schools[1]}`).map(async d => [d.path, (await s.db.doc(d.path).get()).data()]));
 });
 test.afterAll(async () => {
