@@ -5,6 +5,7 @@ import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { isEmulatorSharedModuleRequest } from "./emulatorRequestRouting";
 
 export const origin = process.env.ACADEA_E2E_BASE_URL === "http://127.0.0.1:4187" ? "http://127.0.0.1:4187" : "http://127.0.0.1:4173";
 export function guard() {
@@ -76,7 +77,11 @@ export function fixture() {
     await context.route("**/*", async route => {
       const request = route.request(), url = new URL(request.url());
       if (!["127.0.0.1", "localhost"].includes(url.hostname)) return route.abort("blockedbyclient");
-      if (!url.pathname.startsWith("/api/")) return route.continue();
+      // Vite serves shared frontend calculation modules from /api/_lib/.
+      // These GET script loads are not API calls; intercepting them as handlers
+      // returns a false 404 and prevents React (including /login) from mounting.
+      const sharedModule = isEmulatorSharedModuleRequest(request.method(), request.resourceType(), url.pathname);
+      if (!url.pathname.startsWith("/api/") || sharedModule) return route.continue();
       const handler = handlers[url.pathname];
       if (!handler) return route.fulfill({ status: 404, body: "{}" });
       const result = await invoke(handler, request.headers().authorization || "", request.postData() ? request.postDataJSON() : {}, request.method());
