@@ -1,0 +1,91 @@
+name: social-finance-staging-visual
+on:
+  push:
+    branches: [codex/staging-pr38-pr39-only-20261103]
+    paths:
+      - .github/workflows/social-finance-staging-visual.yml
+      - scripts/socialFinanceStaging*.mjs
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: social-finance-staging-visual
+  cancel-in-progress: false
+jobs:
+  visual:
+    if: github.repository == 'Pacifique-Gdm/acadea-app' && github.ref == 'refs/heads/codex/staging-pr38-pr39-only-20261103'
+    runs-on: ubuntu-latest
+    environment: acadea-staging-e2e
+    timeout-minutes: 40
+    env:
+      GOOGLE_CLOUD_PROJECT: acadea-staging
+      GOOGLE_CLOUD_QUOTA_PROJECT: acadea-staging
+      ACADEA_SOCIAL_STAGING: 'YES'
+      ACADEA_EXPECTED_SHA: ${{ github.sha }}
+      STAGING_FIREBASE_API_KEY: ${{ vars.STAGING_FIREBASE_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: sudo apt-get update && sudo apt-get install -y poppler-utils
+      - name: Attendre la synchronisation du SHA Staging sans créer de fixture
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          assert.equal(process.env.GOOGLE_CLOUD_PROJECT,'acadea-staging');
+          for(let i=0;i<120;i++) {
+            try { const r=await fetch('https://acadea-staging.vercel.app/version.json',{signal:AbortSignal.timeout(10000)});
+              if(r.ok && (await r.json()).version===process.env.ACADEA_EXPECTED_SHA) process.exit(0);
+            } catch {}
+            await new Promise(r=>setTimeout(r,10000));
+          }
+          throw Error('SHA Staging différent : aucune fixture créée');
+          JS
+      - uses: google-github-actions/auth@v3
+        id: auth
+        with:
+          project_id: acadea-staging
+          workload_identity_provider: ${{ vars.GCP_STAGING_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_STAGING_E2E_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_lifetime: 3600s
+          create_credentials_file: false
+          export_environment_variables: false
+      - name: Recette hébergée réelle et clôture contrôlée
+        env:
+          ACADEA_STAGING_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: node scripts/socialFinanceStagingRecipe.mjs
+      - name: Clôture de secours idempotente
+        if: always() && steps.auth.outcome == 'success'
+        env:
+          ACADEA_STAGING_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: node scripts/socialFinanceStagingRetire.mjs
+      - name: Vérifier et rendre les PDF réellement exportés
+        if: always() && steps.auth.outcome == 'success'
+        shell: bash
+        run: |
+          shopt -s nullglob
+          pdfs=(diagnostics/social-finance-staging/*-beneficiaries.pdf)
+          test "${#pdfs[@]}" -eq 3
+          for pdf in "${pdfs[@]}"; do
+            pdfinfo "$pdf" > "${pdf%.pdf}-info.txt"
+            pdftotext -layout "$pdf" "${pdf%.pdf}.txt"
+            grep -q 'SOCIAL' "${pdf%.pdf}.txt"
+            grep -q 'IMPAYE' "${pdf%.pdf}.txt"
+            pdftoppm -scale-to 1600 -png "$pdf" "${pdf%.pdf}-page"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: social-finance-staging-proofs
+          retention-days: 7
+          path: |
+            diagnostics/social-finance-staging/results.json
+            diagnostics/social-finance-staging/manifest.json
+            diagnostics/social-finance-staging/*.png
+            diagnostics/social-finance-staging/*.pdf
+            diagnostics/social-finance-staging/*.txt

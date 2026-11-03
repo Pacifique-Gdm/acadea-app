@@ -54,6 +54,7 @@ export async function prepare(s) {
   }
   for (const [i, id] of [student, tag + '-unpaid'].entries()) add('students', id, { schoolId: schools[0], schoolYearId: year, nom: i ? 'IMPAYE' : 'SOCIAL', postnom: 'FICTIF', prenom: 'Recette', matricule: `E2E-${i}`, className: '1ère Primaire', section: 'Primaire', status: 'ACTIVE', sexe: 'F', birthDate: '2090-01-01' });
   add('feeTypes', fee, { schoolId: schools[0], schoolYearId: year, name: 'Minerval', amount: 300, className: '1ère Primaire' });
+  add('correspondences', tag + '-letter', { schoolId: schools[0], schoolYearId: year, status: 'draft', subject: 'Recette fictive PDF' });
   for (const u of users) add('users', u.uid, { role: u.role, schoolId: u.schoolId, name: 'Compte fictif ' + u.role, email: u.email, active: true, status: 'active', activeSchoolYearId: year });
   for (const row of documents) {
     let existing;

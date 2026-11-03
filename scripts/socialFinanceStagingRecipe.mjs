@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { writeFileSync, mkdirSync } from 'node:fs';
-import { chromium } from '@playwright/test';
+import { chromium, expect } from '@playwright/test';
+import { jsPDF } from 'jspdf';
 import { guard, services, prepare, retire } from './socialFinanceStagingFixture.mjs';
 
 const origin = 'https://acadea-staging.vercel.app';
@@ -19,9 +20,11 @@ const bundle = await (await fetch(origin + asset)).text();
 assert.ok(bundle.includes('acadea-staging') && !bundle.includes('acadea-production.firebaseapp.com'), 'Configuration Firebase incorrecte');
 const s = services();
 let browser;
+let fixture, passwordForClosure, attachmentCleanup;
 mkdirSync(output, { recursive: true });
 try {
   const { m, password } = await prepare(s);
+  fixture = m; passwordForClosure = password;
   const tokens = {};
   for (const u of m.users) {
     const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${process.env.STAGING_FIREBASE_API_KEY}`, {
@@ -60,6 +63,30 @@ try {
     method: 'PATCH', headers: { Authorization: `Bearer ${tokens.school_admin}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ fields: { financialSupport: { mapValue: { fields: {} } } } }),
   });
   check('Projection directe refusée par règles', direct.status, 403);
+  const callFile = async (role, data) => {
+    const response = await fetch('https://europe-west1-acadea-staging.cloudfunctions.net/secretaryCorrespondenceFile', {
+      method: 'POST', headers: { Authorization: `Bearer ${tokens[role]}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ data }),
+    });
+    return { status: response.status, body: await response.json() };
+  };
+  const document = new jsPDF(); document.text('ACADEA - DOCUMENT FICTIF STAGING', 15, 20);
+  const pdfBytes = Buffer.from(document.output('arraybuffer'));
+  const correspondenceId = m.tag + '-letter';
+  const upload = await callFile('secretary', { action:'upload', correspondenceId, name:'recette.pdf', contentType:'application/pdf', dataBase64:pdfBytes.toString('base64') });
+  check('Pièce jointe téléversée par API autorisée', upload.status, 200);
+  const uploadedPath = upload.body.result?.attachment?.path;
+  assert.ok(uploadedPath?.startsWith(`schools/${m.schools[0]}/correspondences/${correspondenceId}/`));
+  attachmentCleanup = async () => {
+    const ref = s.db.doc(`correspondences/${correspondenceId}`), snapshot = await ref.get();
+    assert.equal(snapshot.data().fixtureId, m.tag);
+    assert.equal(snapshot.data().attachment?.path, uploadedPath);
+    await ref.update({ attachment: null }, { lastUpdateTime: snapshot.updateTime });
+    check('Purge applicative du fichier fictif', (await callFile('secretary', { action:'purge', correspondenceId, path:uploadedPath })).status, 200);
+  };
+  const downloaded = await callFile('secretary', { action:'download', correspondenceId });
+  check('Pièce jointe relue sans altération', downloaded.body.result?.dataBase64, pdfBytes.toString('base64'));
+  check('Pièce jointe refusée à Enseignant', (await callFile('teacher', { action:'download', correspondenceId })).status, 403);
+  check('Pièce jointe refusée à Administrateur', (await callFile('school_admin', { action:'download', correspondenceId })).status, 403);
   browser = await chromium.launch({ headless: true });
   for (const role of ['school_admin', 'cashier', 'secretary']) {
     const u = m.users.find(u => u.role === role);
@@ -71,11 +98,19 @@ try {
     await page.getByPlaceholder('Votre mot de passe').fill(password);
     await page.getByRole('button', { name: 'Se connecter', exact: true }).click();
     await page.waitForURL('**/dashboard', { timeout: 60000 });
+    await expect(page.getByRole('button', { name:'Menu', exact:true }).last()).toBeVisible();
+    if (role !== 'secretary') {
+      await expect(page.getByText('Réductions et exonérations', { exact:true })).toBeVisible();
+      await expect(page.getByText('Net exigible', { exact:true }).first()).toBeVisible();
+      check(`Dashboard financier visible ${role}`, true, true);
+    }
     await page.screenshot({ path: `${output}/${role}-dashboard.png`, fullPage: true });
     await page.getByRole('button', { name: 'Menu', exact: true }).last().click();
     await page.getByRole('button', { name: /Cas sociaux et prises en charge/ }).click();
     await page.getByRole('tab', { name: 'Bénéficiaires', exact: true }).waitFor();
     await page.getByRole('button', { name: 'Détails', exact: true }).first().waitFor();
+    await expect(page.getByText(/SOCIAL/).first()).toBeVisible();
+    await expect(page.getByText(/IMPAYE/).first()).toBeVisible();
     await page.getByRole('button', { name: 'Exporter PDF', exact: true }).click();
     const download = page.locator('[data-pdf-download][aria-disabled="false"]');
     await download.waitFor({ timeout: 60000 });
@@ -83,6 +118,7 @@ try {
     assert.ok(Buffer.from(bytes).subarray(0, 5).toString() === '%PDF-');
     writeFileSync(`${output}/${role}-beneficiaries.pdf`, Buffer.from(bytes));
     results.push({ name: `Interface et PDF authentifiés ${role}`, result: 'PASS' });
+    await page.screenshot({path:`${output}/${role}-social.png`,fullPage:true});
     await context.close();
   }
 } catch (e) {
@@ -90,8 +126,19 @@ try {
   process.exitCode = 1;
 } finally {
   if (browser) await browser.close();
+  if (attachmentCleanup) {
+    try { await attachmentCleanup(); } catch(e) { results.push({name:'Clôture fichier',result:'FAIL',error:String(e.message).slice(0,400)}); process.exitCode=1; }
+  }
   try { await retire(s); results.push({ name: 'Clôture sans suppression', result: 'PASS' }); }
   catch(e) { results.push({ name: 'Clôture', result: 'FAIL', error: String(e.message).slice(0, 500) }); process.exitCode = 1; }
+  if(fixture && passwordForClosure) {
+    for(const u of fixture.users) {
+      const response=await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${process.env.STAGING_FIREBASE_API_KEY}`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:u.email,password:passwordForClosure,returnSecureToken:true})});
+      const body=await response.json();
+      if(response.status !== 400 || body.error?.message !== 'USER_DISABLED') { results.push({name:`Connexion clôturée ${u.role}`,result:'FAIL'});process.exitCode=1; }
+      else results.push({name:`Connexion clôturée ${u.role}`,result:'PASS'});
+    }
+  }
   await s.close();
   writeFileSync(`${output}/results.json`, JSON.stringify({ sha: process.env.ACADEA_EXPECTED_SHA, results }, null, 2));
   for (const r of results) console.log(`${r.result}: ${r.name}${r.error ? ' — ' + r.error : ''}`);
