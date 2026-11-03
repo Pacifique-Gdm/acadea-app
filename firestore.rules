@@ -2,10 +2,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() {
-      // Only roles supported by this release may use generic tenant permissions.
-      return request.auth != null
-        && request.auth.token.role in ["admin", "school_admin", "super_admin", "coordination_admin", "sub_coordination_admin", "cashier", "secretary", "teacher", "parent", "study_director", "discipline_director"]
-        && activeActorProfile()
+      return request.auth != null && activeActorProfile()
         && (request.auth.token.role in ["super_admin", "coordination_admin", "sub_coordination_admin"]
           || tenantSchoolActive());
     }
@@ -28,7 +25,10 @@ service cloud.firestore {
               || (request.auth.token.role == "super_admin" && !("role" in profile)))
             && (request.auth.token.role in ["super_admin", "coordination_admin", "sub_coordination_admin"]
               || profile.get("schoolId", "") == request.auth.token.schoolId))
-          : (profile.role == request.auth.token.role
+          // The administrative branch above already enumerates its supported roles.
+          // Gate only the fallback to avoid repeated work in coordination reads.
+          : (request.auth.token.role in ["cashier", "secretary", "teacher", "parent", "study_director", "discipline_director"]
+            && profile.role == request.auth.token.role
             && profile.schoolId == request.auth.token.schoolId));
     }
 
