@@ -34,6 +34,17 @@ describe("Cas sociaux — isolation Firestore et rôles", () => {
   });
   afterAll(async () => environment?.cleanup(), 30_000);
 
+  it("refuse les anciens rôles non pris en charge, même avec profil et claims concordants", async () => {
+    await seed("feeTypes/fee-a", { schoolId: "school-a", schoolYearId: "year-a", name: "Minerval", amount: 100 });
+    for (const role of ["kindergarten_admin", "primary_admin", "studies_prefect", "unknown_role"]) {
+      await seed(`users/${role}`, { role, schoolId: "school-a", active: true, status: "active" });
+      const db = auth(role, { role, schoolId: "school-a" });
+      await assertFails(getDoc(doc(db, "feeTypes/fee-a")));
+      await assertFails(updateDoc(doc(db, `users/${role}`), { name: "Changed" }));
+      await assertFails(getDoc(doc(db, "socialSupportDecisions/decision-school-a")));
+    }
+  });
+
   it("permet aux trois rôles de l'école de lire son historique sans lire l'autre école ni écrire directement", async () => {
     for (const [uid, role] of [["admin-a", "school_admin"], ["cashier-a", "cashier"], ["secretary-a", "secretary"]]) {
       const db = auth(uid, { role, schoolId: "school-a" });
