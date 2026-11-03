@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { initializeApp, deleteApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
-import { getFirestore } from 'firebase-admin/firestore';
+import { Firestore } from '@google-cloud/firestore';
+import { GoogleAuth, OAuth2Client } from 'google-auth-library';
 
 export const projectId = 'acadea-staging';
 export const manifestPath = 'diagnostics/social-finance-staging/manifest.json';
@@ -21,7 +22,13 @@ export function guard() {
 export function services() {
   guard();
   const app = initializeApp({ projectId, credential: { getAccessToken: async () => ({ access_token: process.env.ACADEA_STAGING_ACCESS_TOKEN, expires_in: 1800 }) } }, `social-${randomUUID()}`);
-  return { db: getFirestore(app), auth: getAuth(app), close: () => deleteApp(app) };
+  // Firebase Admin Auth accepts a short-lived credential; its Firestore wrapper
+  // only accepts ADC/certificates. Use the official Google Cloud client with
+  // the same OAuth identity, without persisting credentials or changing IAM.
+  const authClient = new OAuth2Client({ quotaProjectId: projectId });
+  authClient.setCredentials({ access_token: process.env.ACADEA_STAGING_ACCESS_TOKEN });
+  const db = new Firestore({ projectId, preferRest: true, auth: new GoogleAuth({ projectId, authClient }) });
+  return { db, auth: getAuth(app), close: async () => { await db.terminate(); await deleteApp(app); } };
 }
 export function saveManifest(m) {
   mkdirSync('diagnostics/social-finance-staging', { recursive: true });
