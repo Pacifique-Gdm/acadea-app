@@ -23,6 +23,21 @@ const inflow = (id: string, schoolId: string, amount: number, currency: "USD" | 
   validatedAt: "2026-10-10", createdBy: "cashier", cashierName: "Caissier", provenance: "financial-api", clientRequestIdHash: "hash" });
 
 describe("agrégation financière canonique par devise", () => {
+  it("consolide les élèves sans paiement et les réductions sans moyenner les taux d'écoles", () => {
+    const reduced = { ...student("student-a2", "school-a"), financialSupport: {
+      decision: { id: "decision", schoolYearId: "year-school-a", thirdPartyName: "", lines: { "fee-a": { reductionMinor: 5000, commitmentMinor: 0 } } },
+    } };
+    const groups = groupCoordinationFinancialsByCurrency({
+      schools: [school("school-a", "USD"), school("school-b", "USD")],
+      students: [student("student-a1", "school-a"), reduced, student("student-b1", "school-b")],
+      feeTypes: [fee("fee-a", "school-a", 100), fee("fee-b", "school-b", 200)],
+      payments: [payment("payment-a", "school-a", "student-a1", "fee-a", 100)],
+      expenses: [],
+    });
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({ official: 400, reduction: 50, expected: 350, paid: 100, remaining: 250, recoveryRate: 29 });
+    expect(groups[0].feeProgressRows[0]).toMatchObject({ official: 400, reduction: 50, expected: 350, paid: 100, remaining: 250, rate: 29 });
+  });
   it("sépare les autres entrées de caisse des paiements scolaires et des devises", () => {
     const groups = groupCoordinationFinancialsByCurrency({ schools: [school("school-a", "USD"), school("school-b", "CDF")],
       students: [student("student-a", "school-a")], feeTypes: [fee("fee-a", "school-a", 100)],
@@ -64,8 +79,8 @@ describe("agrégation financière canonique par devise", () => {
       expenses: [expense("expense-a", "school-a", 10), expense("expense-b", "school-b", 1000)],
     });
     expect(groups.map((group) => group.currency)).toEqual(["USD", "CDF"]);
-    expect(groups[0].feeProgressRows).toEqual([{ name: "Minerval", expected: 100, paid: 60, remaining: 40, rate: 60 }]);
-    expect(groups[1].feeProgressRows).toEqual([{ name: "Minerval", expected: 20000, paid: 5000, remaining: 15000, rate: 25 }]);
+    expect(groups[0].feeProgressRows).toEqual([{ name: "Minerval", official: 100, reduction: 0, expected: 100, paid: 60, remaining: 40, rate: 60 }]);
+    expect(groups[1].feeProgressRows).toEqual([{ name: "Minerval", official: 20000, reduction: 0, expected: 20000, paid: 5000, remaining: 15000, rate: 25 }]);
     expect(groups.some((group) => group.expected === 20100 || group.paid === 5060)).toBe(false);
   });
 

@@ -1,10 +1,11 @@
+import { supportBalance } from "./socialSupportMath.js";
 import { createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { protectCashMutation } from "./cashBalance.js";
 import { fromMoneyMinor, sumMoneyMinor, toMoneyMinor } from "./money.js";
 
-const PAYMENT_CREATE_KEYS = ["action", "schoolYearId", "studentId", "feeTypeId", "debtSchoolYearId", "amount", "note", "clientRequestId", "expectedCurrency", "expectedFeeAmount"];
+const PAYMENT_CREATE_KEYS = ["action", "schoolYearId", "studentId", "feeTypeId", "debtSchoolYearId", "amount", "note", "clientRequestId", "expectedCurrency", "expectedFeeAmount", "supportDecisionId"];
 const ARREARS_READ_KEYS = ["action", "schoolYearId", "studentId"];
 const EXPENSE_CREATE_KEYS = ["action", "schoolYearId", "amount", "category", "description", "beneficiary", "paymentMethod", "reference", "clientRequestId"];
 const CASH_INFLOW_CREATE_KEYS = ["action", "schoolYearId", "amount", "category", "description", "source", "paymentMethod", "reference", "entryDate", "clientRequestId"];
@@ -198,7 +199,7 @@ async function historicalDebts(transaction, db, caller, currentStudent, currentY
     for (const document of feeSnapshot.docs) {
       const fee = document.data();
       if (fee.schoolId !== caller.schoolId || !feeAppliesToHistoricalStudent(fee, student)) continue;
-      const expectedMinor = recordedMinor(fee.amount);
+      const expectedMinor = toMoneyMinor(supportBalance(student, { ...fee, id: document.id }).net);
       if (expectedMinor <= 0) continue;
       const paidMinor = payments.filter((payment) => payment.feeTypeId === document.id)
         .reduce((total, payment) => total + recordedMinor(payment.amount), 0);
@@ -377,7 +378,16 @@ async function createPayment(transaction, db, caller, body, hash, now) {
   const alreadyPaidMinor = sumMoneyMinor(matchingPayments
     .filter((payment) => payment.studentId === studentId && payment.feeTypeId === feeTypeId)
     .map((payment) => fromMoneyMinor(recordedMinor(payment.amount))));
-  const remainingMinor = Math.max(recordedMinor(fee.amount) - alreadyPaidMinor, 0);
+  const financialStudent = debt ? { id: studentId, ...(await transaction.get(db.doc(`students/${studentId}`))).data() } : { ...currentStudent, id: studentId };
+  const balance = supportBalance(financialStudent, { ...fee, id: feeTypeId }, matchingPayments);
+  const supportDecisionId = text(body.supportDecisionId, 120);
+  let payerRemaining = balance.studentRemaining;
+  if (supportDecisionId) {
+    const commitment = balance.commitments.find(item => item.decisionId === supportDecisionId);
+    if (!commitment) throw new FinancialApiError(400, "invalid-argument", "Engagement tiers introuvable.");
+    payerRemaining = fromMoneyMinor(Math.max(0, commitment.amount - sumMoneyMinor(matchingPayments.filter(p => p.supportDecisionId === supportDecisionId && p.feeTypeId === feeTypeId && p.studentId === studentId).map(p => p.amount))));
+  }
+  const remainingMinor = Math.min(Math.max(toMoneyMinor(balance.net) - alreadyPaidMinor, 0), toMoneyMinor(payerRemaining));
   if (remainingMinor === 0) {
     throw new FinancialApiError(409, "conflict", "Ce type de frais est déjà soldé.");
   }
@@ -400,6 +410,7 @@ async function createPayment(transaction, db, caller, body, hash, now) {
   const paymentId = `pay_${hash.slice(0, 24)}`;
   const payment = {
     id: paymentId,
+    ...(supportDecisionId ? { supportDecisionId } : {}),
     schoolId: caller.schoolId,
     schoolYearId,
     studentId,
@@ -430,7 +441,7 @@ async function createPayment(transaction, db, caller, body, hash, now) {
     const studentName = [currentStudent.nom, currentStudent.postnom, currentStudent.prenom].map((value) => text(value, 120)).filter(Boolean).join(" ") || "Élève";
     const symbol = (debt?.currency ?? currency) === "CDF" ? "FC" : "$";
     const formatAmount = (value) => symbol === "$" ? `$${value.toFixed(2)}` : `${value.toFixed(2)} FC`;
-    const remaining = fromMoneyMinor(Math.max(remainingMinor - toMoneyMinor(amount), 0));
+    const remaining = fromMoneyMinor(Math.max(toMoneyMinor(balance.remaining) - toMoneyMinor(amount), 0));
     transaction.set(db.doc(`notifications/${notificationId}`), {
       id: notificationId, schoolId: caller.schoolId, schoolYearId: collectionSchoolYearId, parentId: currentStudent.parentId, studentId: currentStudentId,
       recipientRole: "parent", type: "payment", module: "payments", event: "payment_recorded", destination: "/dashboard",
@@ -536,6 +547,7 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
     schoolYearId: cashSchoolYearId, currency, yearCurrency, deltaCents, now });
   let result;
   let correction;
+  if (isPayment && current.supportDecisionId) throw new FinancialApiError(409, "failed-precondition", "La correction d’un paiement tiers nécessite une réconciliation contrôlée.");
   if (operation === "delete") {
     await cashImpact((isPayment ? -1 : 1) * recordedMinor(current.amount));
     transaction.delete(documentRef);
@@ -555,7 +567,9 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
     const paidWithoutCurrentMinor = annualSnapshot.docs.map((document) => document.data())
       .filter((payment) => payment.id !== transactionId && payment.studentId === current.studentId && payment.feeTypeId === current.feeTypeId)
       .reduce((sum, payment) => sum + recordedMinor(payment.amount), 0);
-    if (!Number.isSafeInteger(paidWithoutCurrentMinor) || paidWithoutCurrentMinor + toMoneyMinor(amount) > recordedMinor(feeSnapshot.data()?.amount)) throw new FinancialApiError(409, "conflict", "Ce paiement dépasse le montant prévu pour ce frais.");
+    if (!Number.isSafeInteger(paidWithoutCurrentMinor) || paidWithoutCurrentMinor + toMoneyMinor(amount) > toMoneyMinor(supportBalance({ ...studentSnapshot.data(), id: current.studentId }, { ...feeSnapshot.data(), id: current.feeTypeId }).net)) throw new FinancialApiError(409, "conflict", "Ce paiement dépasse le montant prévu pour ce frais.");
+    const correctedBalance = supportBalance({ ...studentSnapshot.data(), id: current.studentId }, { ...feeSnapshot.data(), id: current.feeTypeId }, annualSnapshot.docs.map(d => d.data()).filter(p => p.id !== transactionId));
+    if (toMoneyMinor(amount) > toMoneyMinor(correctedBalance.studentRemaining)) throw new FinancialApiError(409, "conflict", "La correction empiète sur un engagement tiers ou dépasse le net exigible.");
     const payment = { ...current, id: transactionId, amount, updatedAt: now, updatedBy: caller.uid, correctionReason: reason };
     result = { payment };
     const student = studentSnapshot.data();

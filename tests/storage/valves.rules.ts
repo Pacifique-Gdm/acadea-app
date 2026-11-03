@@ -53,6 +53,15 @@ beforeEach(async () => {
 afterAll(async () => environment?.cleanup(), 30_000);
 
 describe("pieces jointes Valves", () => {
+  it("refuse les rôles abandonnés ou inconnus malgré un profil actif concordant", async () => {
+    await assertSucceeds(put("secretary", `${fileId}.pdf`, "application/pdf"));
+    for (const role of ["kindergarten_admin", "primary_admin", "studies_prefect", "unknown_role"]) {
+      await testEnvironment().withSecurityRulesDisabled(async admin => {
+        await setDoc(doc(admin.firestore(), "users/other-a"), { role, schoolId, status: "active", active: true });
+      });
+      await assertFails(context(role).storage().ref(`valves/${schoolId}/${yearId}/${publicationId}/${fileId}.pdf`).getDownloadURL());
+    }
+  });
   it("refuse upload et lecture déjà autorisée après suspension de l'école", async () => {
     await assertSucceeds(put("secretary", `${fileId}.pdf`, "application/pdf"));
     await testEnvironment().withSecurityRulesDisabled(async (admin) => {

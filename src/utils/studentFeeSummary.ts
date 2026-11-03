@@ -1,8 +1,9 @@
+import { supportBalance } from "../../api/_lib/socialSupportMath.js";
 import type { FeeType, Payment, Student } from "../types";
 import { getPaymentsForStudentFee, sumPayments } from "./dataIndexes";
 import type { SchoolYearDataIndexes } from "./dataIndexes";
 import { getApplicableFeeTypes } from "./stats";
-import { remainingMoney } from "./money";
+
 
 export type StudentFeeSummary = {
   feeTypeId: string;
@@ -18,12 +19,13 @@ export function getStudentFeeSummaries(student: Student, feeTypes: FeeType[], pa
     const feePayments = indexes ? getPaymentsForStudentFee(indexes, student.id, fee.id) : payments.filter((payment) => payment.studentId === student.id && payment.feeTypeId === fee.id);
     const paid = sumPayments(feePayments);
 
+    const balance = supportBalance(student, fee, payments);
     return {
       feeTypeId: fee.id,
       feeName: String(fee.name),
-      expected: fee.amount,
+      expected: balance.net,
       paid,
-      remaining: remainingMoney(fee.amount, paid),
+      remaining: balance.remaining,
     };
   });
 }

@@ -1,3 +1,4 @@
+import { supportBalance } from "../../../api/_lib/socialSupportMath.js";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Bell, Download, Edit3, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { AdminDrawer, Field, FormPanel, Metric, MoneyInput, SectionTitle } from "../../components/ui";
@@ -66,6 +67,7 @@ export function ControlModule({
   createId,
 }: ControlModuleProps) {
   const [studentId, setStudentId] = useState("");
+  const [supportPayer, setSupportPayer] = useState("");
   const [paymentStudentQuery, setPaymentStudentQuery] = useState("");
   const [feeTypeId, setFeeTypeId] = useState(yearData.feeTypes[0]?.id ?? "");
   const [amount, setAmount] = useState("100");
@@ -249,9 +251,17 @@ export function ControlModule({
   const selectedPaymentFeePaid = selectedPaymentStudent && selectedPaymentFee
     ? sumPaymentsForStudentFee(controlIndexes, selectedPaymentStudent.id, selectedPaymentFee.id)
     : selectedPaymentDebt?.paid ?? 0;
-  const selectedPaymentFeeRemaining = selectedPaymentFee ? remainingMoney(selectedPaymentFee.amount, selectedPaymentFeePaid) : selectedPaymentDebt?.remaining ?? 0;
+  const support = selectedPaymentStudent && selectedPaymentFee ? supportBalance(selectedPaymentStudent, selectedPaymentFee, yearData.payments) : undefined;
+  const currentSupportPayer = support?.commitments.some(c => c.decisionId === supportPayer) ? supportPayer : "";
+  const selectedPaymentFeeRemaining = support ? currentSupportPayer ? Math.max(0, (support.commitments.find(c => c.decisionId === currentSupportPayer)?.amount ?? 0)/100 - sumMoney(yearData.payments.filter(p => p.studentId === studentId && p.feeTypeId === selectedFeeTypeValue && p.supportDecisionId === currentSupportPayer).map(p => p.amount))) : support.studentRemaining : selectedPaymentDebt?.remaining ?? 0;
+  const supportDetails = support && (support.reduction > 0 || support.commitment > 0) ? <section className="grid gap-2 rounded border border-blue-200 p-3">
+    <p>Montant officiel : {formatMoney(support.official)} · Réduction : {formatMoney(support.reduction)}</p>
+    <p>Net exigible : {formatMoney(support.net)} · Encaissé : {formatMoney(support.paid)} · Solde total : {formatMoney(support.remaining)}</p>
+    {support.commitment > 0 && <><p>Part élève restante : {formatMoney(support.studentRemaining)} · Engagement tiers : {formatMoney(support.commitment)} · Payé par les tiers : {formatMoney(support.thirdPaid)} · Solde tiers : {formatMoney(support.thirdRemaining)}</p>
+      <label className="grid gap-1">Engagement historique éventuel<select className="input" value={currentSupportPayer} onChange={e => setSupportPayer(e.target.value)}><option value="">Paiement ordinaire</option>{support.commitments.filter(c => c.amount > 0).map(c => <option key={c.decisionId} value={c.decisionId}>{c.name || "Tiers"} — {formatMoney(c.amount / 100)}</option>)}</select></label></>}
+  </section> : null;
   const selectedPaymentFeeBalance = {
-    expected: selectedPaymentFee?.amount ?? selectedPaymentDebt?.expected ?? 0,
+    expected: support?.net ?? selectedPaymentDebt?.expected ?? 0,
     paid: selectedPaymentFeePaid,
     remaining: selectedPaymentFeeRemaining,
   };
@@ -554,7 +564,7 @@ export function ControlModule({
           payment.feeTypeId === selectedPaymentFee?.id,
       )
       .map((payment) => payment.amount));
-    const remaining = remainingMoney(selectedPaymentFee?.amount ?? selectedPaymentDebt?.expected ?? 0, alreadyPaidForFee);
+    const remaining = support ? selectedPaymentFeeRemaining : remainingMoney(selectedPaymentDebt?.expected ?? 0, alreadyPaidForFee);
     if (remaining === 0) {
       setPaymentError("Ce type de frais est déjà soldé.");
       return;
@@ -570,7 +580,7 @@ export function ControlModule({
     paymentSubmittingRef.current = true;
     setPaymentSubmitting(true);
     try {
-      const payment = await createPaymentTransaction({ schoolYearId: year.id, studentId, feeTypeId: selectedFeeTypeValue, ...(selectedPaymentDebt ? { debtSchoolYearId: selectedPaymentDebt.schoolYearId } : {}), amount: paymentAmount, note: trimmedNote || undefined, clientRequestId: requestId });
+      const payment = await createPaymentTransaction({ ...(currentSupportPayer ? { supportDecisionId: currentSupportPayer } : {}), schoolYearId: year.id, studentId, feeTypeId: selectedFeeTypeValue, ...(selectedPaymentDebt ? { debtSchoolYearId: selectedPaymentDebt.schoolYearId } : {}), amount: paymentAmount, note: trimmedNote || undefined, clientRequestId: requestId });
       paymentHistory.prependItem(payment);
       void refreshExpenseCashBalance().catch(() => {});
       if (selectedPaymentDebt) {
@@ -881,7 +891,7 @@ export function ControlModule({
     const paidForFee = paymentStudent && paymentFee
       ? remainingMoney(sumPaymentsForStudentFee(controlIndexes, paymentStudent.id, paymentFee.id), payment.amount)
       : 0;
-    if (!paymentFee || toMoneyMinor(paidForFee) + correctedMinor > toMoneyMinor(paymentFee.amount)) {
+    if (!paymentFee || toMoneyMinor(paidForFee) + correctedMinor > toMoneyMinor(paymentStudent ? supportBalance(paymentStudent, paymentFee).net : paymentFee.amount)) {
       setPaymentEditError("Paiement impossible : ce montant dépasse le montant prévu pour ce frais.");
       return;
     }
@@ -1014,7 +1024,7 @@ export function ControlModule({
       if (!selectedPdfFeeGroup) return row.balance;
       const expected = yearData.feeTypes
         .filter((fee) => selectedPdfFeeGroup.ids.includes(fee.id) && feeAppliesToStudent(fee, row.student))
-        .reduce((sum, fee) => sumMoney([sum, fee.amount]), 0);
+        .reduce((sum, fee) => sumMoney([sum, supportBalance(row.student, fee).net]), 0);
       const paid = sumMoney(selectedPdfFeeGroup.ids.map((feeId) => sumPaymentsForStudentFee(controlIndexes, row.student.id, feeId)));
       return { expected, paid, remaining: remainingMoney(expected, paid) };
     };
@@ -1473,6 +1483,7 @@ export function ControlModule({
             </select>
             <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
               <Metric label="Attendu" value={selectedPaymentDebt ? formatCurrencyMoney(selectedPaymentFeeBalance.expected, selectedPaymentDebt.currency) : formatMoney(selectedPaymentFeeBalance.expected)} />
+              {supportDetails}
               <Metric label="Payé" value={selectedPaymentDebt ? formatCurrencyMoney(selectedPaymentFeeBalance.paid, selectedPaymentDebt.currency) : formatMoney(selectedPaymentFeeBalance.paid)} />
               <Metric label="Solde" value={selectedPaymentDebt ? formatCurrencyMoney(selectedPaymentFeeBalance.remaining, selectedPaymentDebt.currency) : formatMoney(selectedPaymentFeeBalance.remaining)} />
             </div>
@@ -1490,7 +1501,7 @@ export function ControlModule({
             {selectedPaymentDebt && <p className="rounded bg-amber-50 p-3 text-sm font-semibold text-amber-800">Créance de {selectedPaymentDebt.yearName} · encaissement en {year.name} · montant en {selectedPaymentDebt.currency}</p>}
             {selectedPaymentFee && selectedPaymentFeeRemaining === 0 && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">Ce type de frais est déjà soldé.</p>}
             <MoneyInput value={amount} onChange={setAmount} max={selectedPaymentFeeRemaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" />
-            <textarea value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} maxLength={1000} className="input min-h-20" placeholder="Description" />
+            <textarea value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} maxLength={1000} className="input min-h-20" placeholder="Description ou nom du tiers payeur, sans engagement préalable" />
             <button onClick={savePayment} disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button justify-center disabled:opacity-50"><Plus className="h-4 w-4" /> {paymentSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
           </FormPanel>
         )}
@@ -1572,7 +1583,8 @@ export function ControlModule({
               </div>
               <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
                 <Metric label="Attendu" value={selectedPaymentDebt ? formatCurrencyMoney(selectedPaymentFeeBalance.expected, selectedPaymentDebt.currency) : formatMoney(selectedPaymentFeeBalance.expected)} />
-                <Metric label="Payé" value={selectedPaymentDebt ? formatCurrencyMoney(selectedPaymentFeeBalance.paid, selectedPaymentDebt.currency) : formatMoney(selectedPaymentFeeBalance.paid)} />
+                {supportDetails}
+              <Metric label="Payé" value={selectedPaymentDebt ? formatCurrencyMoney(selectedPaymentFeeBalance.paid, selectedPaymentDebt.currency) : formatMoney(selectedPaymentFeeBalance.paid)} />
                 <Metric label="Solde" value={selectedPaymentDebt ? formatCurrencyMoney(selectedPaymentFeeBalance.remaining, selectedPaymentDebt.currency) : formatMoney(selectedPaymentFeeBalance.remaining)} />
               </div>
               {paymentError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{paymentError}</p>}
@@ -1591,7 +1603,7 @@ export function ControlModule({
               <MoneyInput value={amount} onChange={setAmount} max={selectedPaymentFeeRemaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" />
               <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
                 Description
-                <textarea value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} maxLength={1000} className="input min-h-20" placeholder="Écrivez la description" />
+                <textarea value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} maxLength={1000} className="input min-h-20" placeholder="Description ou nom du tiers payeur, sans engagement préalable" />
               </label>
               <button onClick={savePayment} disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button w-full justify-center" type="button"><Plus className="h-4 w-4" /> {paymentSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
             </>

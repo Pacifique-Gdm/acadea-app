@@ -1,9 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
+import { writeFile } from "node:fs/promises";
 import { deleteApp, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
-import { expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { isEmulatorSharedModuleRequest } from "./emulatorRequestRouting";
 
 export const origin = process.env.ACADEA_E2E_BASE_URL === "http://127.0.0.1:4187" ? "http://127.0.0.1:4187" : "http://127.0.0.1:4173";
 export function guard() {
@@ -75,7 +77,11 @@ export function fixture() {
     await context.route("**/*", async route => {
       const request = route.request(), url = new URL(request.url());
       if (!["127.0.0.1", "localhost"].includes(url.hostname)) return route.abort("blockedbyclient");
-      if (!url.pathname.startsWith("/api/")) return route.continue();
+      // Vite serves shared frontend calculation modules from /api/_lib/.
+      // These GET script loads are not API calls; intercepting them as handlers
+      // returns a false 404 and prevents React (including /login) from mounting.
+      const sharedModule = isEmulatorSharedModuleRequest(request.method(), request.resourceType(), url.pathname);
+      if (!url.pathname.startsWith("/api/") || sharedModule) return route.continue();
       const handler = handlers[url.pathname];
       if (!handler) return route.fulfill({ status: 404, body: "{}" });
       const result = await invoke(handler, request.headers().authorization || "", request.postData() ? request.postDataJSON() : {}, request.method());
@@ -88,7 +94,35 @@ export function fixture() {
     if (prepareContext) await prepareContext(context);
     const page = await context.newPage();
     page.setDefaultTimeout(20_000);
-    await page.goto("/login");
+    // Capture only the unauthenticated bootstrap: no fixture credentials or tokens.
+    const bootstrapErrors: string[] = [];
+    const bootstrapResponses: { path: string; status: number }[] = [];
+    const onPageError = (error: Error) => bootstrapErrors.push(error.message);
+    const onResponse = (response: import("@playwright/test").Response) => {
+      const url = new URL(response.url());
+      if (url.origin === origin && response.status() >= 400) {
+        bootstrapResponses.push({ path: url.pathname, status: response.status() });
+      }
+    };
+    page.on("pageerror", onPageError);
+    page.on("response", onResponse);
+    try {
+      await page.goto("/login");
+      await expect(page.getByPlaceholder("email@ecole.com")).toBeVisible({ timeout: 20_000 });
+    } catch (error) {
+      // The line reporter does not persist in-memory attachments for artifact upload.
+      const jsonPath = test.info().outputPath("login-bootstrap.json");
+      const htmlPath = test.info().outputPath("login-bootstrap.html");
+      await writeFile(jsonPath, JSON.stringify({ url: page.url(), errors: bootstrapErrors, responses: bootstrapResponses }));
+      await writeFile(htmlPath, await page.content());
+      await test.info().attach("login-bootstrap.json", { path: jsonPath, contentType: "application/json" });
+      await test.info().attach("login-bootstrap.html", { path: htmlPath, contentType: "text/html" });
+      await context.close();
+      throw error;
+    } finally {
+      page.off("pageerror", onPageError);
+      page.off("response", onResponse);
+    }
     await page.getByPlaceholder("email@ecole.com").fill(accounts[role].email);
     await page.getByPlaceholder("Votre mot de passe").fill(accounts[role].password);
     await page.getByRole("button", { name: "Se connecter", exact: true }).click();

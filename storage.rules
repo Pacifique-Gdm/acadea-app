@@ -4,6 +4,7 @@ service firebase.storage {
   match /b/{bucket}/o {
     function signedIn() {
       return request.auth != null
+        && role() in ["school_admin", "super_admin", "coordination_admin", "sub_coordination_admin", "cashier", "secretary", "teacher", "parent", "study_director", "discipline_director"]
         && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
         && (!firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.keys().hasAny(["status"])
           || firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.status != "inactive")

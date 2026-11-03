@@ -75,7 +75,7 @@ export async function resolveHistoricalExpenseCurrencies(expenses: Expense[], fa
   }
 }
 
-export function createPaymentTransaction(input: { schoolYearId: string; studentId: string; feeTypeId: string; debtSchoolYearId?: string; amount: number; note?: string; clientRequestId: string }) {
+export function createPaymentTransaction(input: { supportDecisionId?: string; schoolYearId: string; studentId: string; feeTypeId: string; debtSchoolYearId?: string; amount: number; note?: string; clientRequestId: string }) {
   return financialRequest({ action: "create-payment", ...input }).then((result) => {
     if (!result.payment) throw new Error("Réponse de paiement incomplète.");
     return result.payment;

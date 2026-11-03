@@ -41,6 +41,16 @@ const caller = { uid: "admin-a", role: "school_admin", schoolId: "school-a", nam
 const body = { schoolYearId: "year-a", requestId: "request-1234567890", fees: [{ id: "fee-1234567890", name: "Minerval", amount: 1250000, className: "6ème Primaire" }] };
 
 describe("enregistrement transactionnel des types de frais", () => {
+  it("préserve le montant et la cible d'un frais utilisé par une décision sociale", async () => {
+    const db = fakeDb();
+    await saveFeeTypes({ db, caller, body });
+    db.records.set("socialSupportFeeLocks/fee-1234567890", { schoolId: "school-a", schoolYearId: "year-a" });
+    const edit = { ...body, editingFeeId: body.fees[0].id, requestId: "locked-edit-123456", fees: [{ ...body.fees[0], amount: 100 }] };
+    await expect(saveFeeTypes({ db, caller, body: edit })).rejects.toMatchObject({ status: 409 });
+    expect(db.records.get("feeTypes/fee-1234567890")?.amount).toBe(1250000);
+    await expect(saveFeeTypes({ db, caller, body: { ...edit, fees: [{ ...body.fees[0], className: "5ème Primaire" }] } })).rejects.toMatchObject({ status: 409 });
+    await expect(saveFeeTypes({ db, caller, body: { ...edit, fees: [{ ...body.fees[0], name: "Libellé corrigé" }] } })).resolves.toMatchObject({ idempotent: false });
+  });
   it("accepte sans la renommer une classe historique réellement utilisée par cette école et cette année", async () => {
     const db = fakeDb();
     db.records.set("students/legacy", { schoolId: "school-a", schoolYearId: "year-a", className: "1ère Sciences" });

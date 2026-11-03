@@ -95,6 +95,15 @@ export async function saveFeeTypes({ db, caller, body }) {
     }
     assertActiveYear(school, year, caller, schoolYearId);
     if (editingFeeId && (!current[0].exists || current[0].data()?.schoolId !== caller.schoolId || current[0].data()?.schoolYearId !== schoolYearId)) fail(409, "conflict", "Le type de frais à modifier a changé ou n'existe plus.");
+    if (editingFeeId) {
+      // Admin SDK bypasses rules: preserve the same social-decision lock here.
+      // Reading the lock in this transaction also serializes concurrent decisions.
+      const supportLock = await transaction.get(db.doc(`socialSupportFeeLocks/${editingFeeId}`));
+      const previous = current[0].data();
+      if (supportLock.exists && ["amount", "className", "classOptionKey"].some(key => (previous[key] ?? "") !== (normalized[0][key] ?? ""))) {
+        fail(409, "failed-precondition", "Ce frais est lié à une décision sociale. Son montant et sa classe ne peuvent plus être modifiés.");
+      }
+    }
     // Historical labels offered by the real form are preserved, not renamed.
     // Accept them only when backed by students in this exact tenant/year, or by
     // the already-authorized fee being edited. Arbitrary/foreign labels fail.

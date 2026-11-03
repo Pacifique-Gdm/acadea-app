@@ -1,3 +1,4 @@
+import { SocialSupportDrawer } from "./SocialSupportDrawer";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Fragment, type ReactNode } from "react";
 import { Banknote, BarChart3, BookOpen, CalendarRange, CheckCircle2, ChevronRight, Clock3, CreditCard, Fingerprint, HeartPulse, Plus, RefreshCw, Settings, Trash2, UserRound, UsersRound, X } from "lucide-react";
@@ -102,7 +103,7 @@ export function MenuModule({
   onOpenBiometrics,
   initialBiometricsOpen = false,
 }: MenuModuleProps) {
-  type MenuSection = "school" | "years" | "accounts" | "personnel" | "fees" | "financial" | "valves" | "library" | "parentsDirectory" | "history" | "biometrics" | "medicalRecords";
+  type MenuSection = "socialSupport" | "school" | "years" | "accounts" | "personnel" | "fees" | "financial" | "valves" | "library" | "parentsDirectory" | "history" | "biometrics" | "medicalRecords";
   const [schoolForm, setSchoolForm] = useState(school);
   const [cashierArchiveOpen, setCashierArchiveOpen] = useState(false);
   const [schoolSaveStatus, setSchoolSaveStatus] = useState<"success" | "error" | "">("");
@@ -180,9 +181,11 @@ export function MenuModule({
   const isArchivedContext = selectedYear.status === "archived";
   const canReadAdmin = user.role === "school_admin";
   const canAdmin = canReadAdmin && !isArchivedContext;
+  const canViewSocialSupport = canReadAdmin || user.role === "cashier";
   const yearManagementLocked = Boolean(school.activeCoordinationId);
   const canManageYears = canAdmin && !yearManagementLocked;
   const menuSections = [
+    { id: "socialSupport", title: "Cas sociaux et prises en charge", description: "Décisions administratives et suivi financier des bénéficiaires.", icon: HeartPulse },
     { id: "valves", title: "Valves", description: "Communiqués, palmarès, points, images et documents.", icon: BookOpen },
     { id: "library", title: "Bibliothèque", description: "Cours et ressources éducatives externes.", icon: BookOpen },
     { id: "medicalRecords", title: "Fiches médicales", description: "Création, consultation et suivi des fiches médicales des élèves.", icon: HeartPulse },
@@ -850,6 +853,7 @@ export function MenuModule({
   }
 
   function renderMenuSectionForm(sectionId: MenuSection) {
+    if (sectionId === "socialSupport" && canViewSocialSupport) return <SocialSupportDrawer user={user} school={school} years={years} data={data} readOnly={isArchivedContext} />;
     if (sectionId === "biometrics" && canReadAdmin) {
       return (
         <div className="grid gap-3">
@@ -1364,7 +1368,7 @@ export function MenuModule({
     return null;
   }
 
-  const visibleMenuSections = menuSections.filter((section) => canReadAdmin || user.role === "cashier" && (section.id === "valves" || section.id === "history" || section.id === "library"));
+  const visibleMenuSections = menuSections.filter((section) => (section.id !== "socialSupport" || canViewSocialSupport) && (canReadAdmin || user.role === "cashier" && (section.id === "valves" || section.id === "history" || section.id === "library" || section.id === "socialSupport")));
   const activeMenuSectionConfig = visibleMenuSections.find((section) => section.id === activeMenuSection);
 
   return (
