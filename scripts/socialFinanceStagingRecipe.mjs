@@ -102,6 +102,18 @@ try {
     if (role !== 'secretary') {
       await expect(page.getByText('Réductions et exonérations', { exact:true })).toBeVisible();
       await expect(page.getByText('Net exigible', { exact:true }).first()).toBeVisible();
+      for (const [label, value] of [
+        ["Nombre total d'élèves", '2'],
+        ['Montant officiel', '$600,00'],
+        ['Réductions et exonérations', '$400,00'],
+        ['Montant net exigible', '$200,00'],
+        ["Frais de l'année encaissés", '$50,00'],
+        ['Montant restant à payer', '$150,00'],
+      ]) {
+        const card = page.locator('article').filter({ has: page.getByText(label, { exact: true }) });
+        await expect(card.locator('p').last()).toHaveText(value, { timeout: 60000 });
+      }
+      check(`Dashboard financier montants confirmés ${role}`, true, true);
       check(`Dashboard financier visible ${role}`, true, true);
     }
     await page.screenshot({ path: `${output}/${role}-dashboard.png`, fullPage: true });
