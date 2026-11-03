@@ -14,7 +14,7 @@ for (const [name, mutate] of [
 ]) test(`clôture refusée : ${name}`, () => { const m = valid(); mutate(m); assert.throws(() => validateManifest(m)); });
 test('absence de consentement Staging : refus sans appel distant', () => { const previous = process.env.ACADEA_SOCIAL_STAGING; delete process.env.ACADEA_SOCIAL_STAGING; try { assert.throws(guard); } finally { if(previous !== undefined) process.env.ACADEA_SOCIAL_STAGING = previous; } });
 test('initialisation OAuth éphémère sans appel distant ni certificat', async () => {
-  const keys = ['ACADEA_SOCIAL_STAGING', 'GOOGLE_CLOUD_PROJECT', 'ACADEA_STAGING_ACCESS_TOKEN', 'FIRESTORE_EMULATOR_HOST', 'FIREBASE_AUTH_EMULATOR_HOST'];
+  const keys = ['ACADEA_SOCIAL_STAGING', 'GOOGLE_CLOUD_PROJECT', 'GOOGLE_CLOUD_QUOTA_PROJECT', 'ACADEA_STAGING_ACCESS_TOKEN', 'FIRESTORE_EMULATOR_HOST', 'FIREBASE_AUTH_EMULATOR_HOST'];
   const previous = Object.fromEntries(keys.map(key => [key, process.env[key]]));
   try {
     process.env.ACADEA_SOCIAL_STAGING = 'YES'; process.env.GOOGLE_CLOUD_PROJECT = 'acadea-staging';
@@ -22,6 +22,7 @@ test('initialisation OAuth éphémère sans appel distant ni certificat', async 
     delete process.env.FIRESTORE_EMULATOR_HOST; delete process.env.FIREBASE_AUTH_EMULATOR_HOST;
     const s = services();
     assert.equal(s.db.projectId, 'acadea-staging');
+    assert.equal(process.env.GOOGLE_CLOUD_QUOTA_PROJECT, 'acadea-staging');
     await s.close();
   } finally {
     for (const key of keys) { if(previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key]; }

@@ -21,6 +21,9 @@ export function guard() {
 }
 export function services() {
   guard();
+  // Admin Auth reads this official setting when using end-user OAuth tokens.
+  // Pin quota attribution to Staging, exactly like the Firestore OAuth client.
+  process.env.GOOGLE_CLOUD_QUOTA_PROJECT = projectId;
   const app = initializeApp({ projectId, credential: { getAccessToken: async () => ({ access_token: process.env.ACADEA_STAGING_ACCESS_TOKEN, expires_in: 1800 }) } }, `social-${randomUUID()}`);
   // Firebase Admin Auth accepts a short-lived credential; its Firestore wrapper
   // only accepts ADC/certificates. Use the official Google Cloud client with
@@ -52,9 +55,16 @@ export async function prepare(s) {
   for (const [i, id] of [student, tag + '-unpaid'].entries()) add('students', id, { schoolId: schools[0], schoolYearId: year, nom: i ? 'IMPAYE' : 'SOCIAL', postnom: 'FICTIF', prenom: 'Recette', matricule: `E2E-${i}`, className: '1ère Primaire', section: 'Primaire', status: 'ACTIVE', sexe: 'F', birthDate: '2090-01-01' });
   add('feeTypes', fee, { schoolId: schools[0], schoolYearId: year, name: 'Minerval', amount: 300, className: '1ère Primaire' });
   for (const u of users) add('users', u.uid, { role: u.role, schoolId: u.schoolId, name: 'Compte fictif ' + u.role, email: u.email, active: true, status: 'active', activeSchoolYearId: year });
-  for (const row of documents) if ((await s.db.doc(row.path).get()).exists) throw Error('Collision de document.');
+  for (const row of documents) {
+    let existing;
+    try { existing = await s.db.doc(row.path).get(); }
+    catch (e) { throw Error(`Précontrôle Firestore (${e.code ?? 'inconnu'}) : ${e.message}`); }
+    if (existing.exists) throw Error('Collision de document.');
+  }
   for (const u of users) {
-    try { await s.auth.getUser(u.uid); throw Error('Collision Auth.'); } catch(e) { if(e.code !== 'auth/user-not-found') throw e; }
+    try { await s.auth.getUser(u.uid); throw Error('Collision Auth.'); } catch(e) {
+      if(e.code !== 'auth/user-not-found') throw Error(`Précontrôle Auth (${e.code ?? 'inconnu'}) : ${e.message}`);
+    }
   }
   const m = { projectId, tag, schools, year, student, fee, users, documents, createdAt: new Date().toISOString(), retired: false };
   saveManifest(m); // Durable plan before ANY write. No password or token persisted.
