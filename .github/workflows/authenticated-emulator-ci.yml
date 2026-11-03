@@ -37,11 +37,12 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Bundle exclusivement destiné aux émulateurs
         run: npx vite build --mode test
-      - name: Servir le bundle candidat et son API locale en mode émulateurs
+      - name: Servir les composants et le bundle avec API locale en mode émulateurs
         run: |
-          node scripts/serveEmulatorBundle.mjs > /tmp/acadea-preview.log 2>&1 &
+          ACADEA_E2E_PORT=4187 node scripts/serveEmulatorBundle.mjs > /tmp/acadea-fee-preview.log 2>&1 &
+          npx vite --mode test --host 127.0.0.1 --port 4173 > /tmp/acadea-preview.log 2>&1 &
           for attempt in $(seq 1 40); do
-            if curl --fail --silent http://127.0.0.1:4173/version.json > /dev/null; then exit 0; fi
+            if curl --fail --silent http://127.0.0.1:4173/version.json > /dev/null && curl --fail --silent http://127.0.0.1:4187/version.json > /dev/null; then exit 0; fi
             sleep 1
           done
           exit 1
@@ -49,7 +50,7 @@ jobs:
         run: >-
           npx --yes firebase-tools@15.25.0 emulators:exec
           --project demo-acadea --config firebase.emulators.recipe.json --only auth,firestore,storage
-          "npx playwright test e2e/.*-emulator.spec.ts --workers=1 --retries=0"
+          "npx playwright test e2e/.*-emulator.spec.ts --grep-invert 'incident frais' --workers=1 --retries=0 && ACADEA_E2E_BASE_URL=http://127.0.0.1:4187 npx playwright test e2e/fee-incident-emulator.spec.ts --workers=1 --retries=0"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
