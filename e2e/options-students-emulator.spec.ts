@@ -42,7 +42,12 @@ test("PR31 : renommage réel, sessions ouvertes, références, tableaux et PDF",
     await dialog.getByLabel("Confirmation du renommage de l'option").fill("incorrecte");
     await expect(dialog.getByRole("button", { name: "Enregistrer", exact: true })).toBeDisabled();
     await dialog.getByLabel("Confirmation du renommage de l'option").fill(payload.confirmation);
+    const renameResponse = platform.page.waitForResponse(response =>
+      new URL(response.url()).pathname === "/api/manage-school"
+      && response.request().method() === "POST"
+      && response.request().postDataJSON()?.action === "rename-option");
     await dialog.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    expect((await renameResponse).status()).toBe(200);
     await expect.poll(async () => (await f.db.doc("schools/" + f.school).get()).data()?.schoolOptionDisplayNames?.Sciences).toBe("Technologies");
     for (const [role, { page }] of [["admin", admin], ["secretary", secretary]] as const) {
       // Les deux sessions étaient ouvertes avant le renommage : ni reload ni reconnexion.

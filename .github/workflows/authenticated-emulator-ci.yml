@@ -15,6 +15,7 @@ jobs:
     timeout-minutes: 25
     env:
       ACADEA_E2E_LOCAL_EMULATORS: 'YES'
+      ACADEA_E2E_FEE_HANDLER: 'YES'
       ACADEA_E2E_BASE_URL: http://127.0.0.1:4173
       VITE_LOCAL_EMULATORS: 'true'
       VITE_FIREBASE_PROJECT_ID: demo-acadea
@@ -36,9 +37,9 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Bundle exclusivement destiné aux émulateurs
         run: npx vite build --mode test
-      - name: Servir les sources candidates en mode émulateurs
+      - name: Servir le bundle candidat et son API locale en mode émulateurs
         run: |
-          npx vite --mode test --host 127.0.0.1 --port 4173 > /tmp/acadea-preview.log 2>&1 &
+          node scripts/serveEmulatorBundle.mjs > /tmp/acadea-preview.log 2>&1 &
           for attempt in $(seq 1 40); do
             if curl --fail --silent http://127.0.0.1:4173/version.json > /dev/null; then exit 0; fi
             sleep 1
