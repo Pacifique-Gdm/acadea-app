@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { writeFile } from "node:fs/promises";
 import { deleteApp, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
@@ -102,13 +103,15 @@ export function fixture() {
     page.on("response", onResponse);
     try {
       await page.goto("/login");
-      await expect(page.getByPlaceholder("email@ecole.com")).toBeVisible();
+      await expect(page.getByPlaceholder("email@ecole.com")).toBeVisible({ timeout: 20_000 });
     } catch (error) {
-      await test.info().attach("login-bootstrap.json", {
-        body: JSON.stringify({ url: page.url(), errors: bootstrapErrors, responses: bootstrapResponses }),
-        contentType: "application/json",
-      });
-      await test.info().attach("login-bootstrap.html", { body: await page.content(), contentType: "text/html" });
+      // The line reporter does not persist in-memory attachments for artifact upload.
+      const jsonPath = test.info().outputPath("login-bootstrap.json");
+      const htmlPath = test.info().outputPath("login-bootstrap.html");
+      await writeFile(jsonPath, JSON.stringify({ url: page.url(), errors: bootstrapErrors, responses: bootstrapResponses }));
+      await writeFile(htmlPath, await page.content());
+      await test.info().attach("login-bootstrap.json", { path: jsonPath, contentType: "application/json" });
+      await test.info().attach("login-bootstrap.html", { path: htmlPath, contentType: "text/html" });
       await context.close();
       throw error;
     } finally {
