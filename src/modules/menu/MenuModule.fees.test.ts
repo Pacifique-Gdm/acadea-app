@@ -4,6 +4,13 @@ import { describe, expect, it } from "vitest";
 const source = readFileSync(new URL("./MenuModule.tsx", import.meta.url), "utf8");
 
 describe("Types de frais", () => {
+  it("confirme le libellé par API sans écriture cliente sur l'année coordonnée", () => {
+    const add = source.slice(source.indexOf("async function addFeeKind()"), source.indexOf("function closeSchoolSectionConfirmation"));
+    expect(add).toContain("await persistFeeKind(request)");
+    expect(add).toContain("{ persist: false }");
+    expect(add.indexOf("await persistFeeKind(request)")).toBeLessThan(add.indexOf("updateData("));
+    expect(add).toContain("newFeeRequestRef.current = request");
+  });
   it("réutilise la saisie monétaire formatée sans changer le stockage numérique", () => {
     expect(source).toContain("<MoneyInput value={feeAmount} onChange={setFeeAmount}");
     expect(source).toContain("const amount = Number(feeAmount)");

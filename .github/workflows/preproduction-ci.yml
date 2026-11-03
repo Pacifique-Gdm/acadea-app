@@ -21,6 +21,7 @@ jobs:
     timeout-minutes: 25
     env:
       ACADEA_E2E_LOCAL_EMULATORS: 'YES'
+      ACADEA_E2E_FEE_HANDLER: 'YES'
       ACADEA_E2E_BASE_URL: http://127.0.0.1:4173
       VITE_LOCAL_EMULATORS: 'true'
       VITE_FIREBASE_PROJECT_ID: demo-acadea
@@ -60,7 +61,9 @@ jobs:
         if: always()
         with:
           name: offline-emulator-errors
-          path: playwright-results/**/error-context.md
+          path: |
+            playwright-results/**/error-context.md
+            playwright-results-fees/**/error-context.md
           retention-days: 7
 
   application-and-functions:
