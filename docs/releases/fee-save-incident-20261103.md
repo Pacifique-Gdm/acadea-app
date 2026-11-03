@@ -24,6 +24,10 @@ Preuves déjà obtenues localement : 22 tests ciblés PASS ; quatre tests de rè
 
 Le scénario est intégré au job CI existant `offline-emulator-e2e`, sans authentification distante et sans modification des approbations. Les résultats CI du SHA final font foi pour l'intégration finale. Une recette sur émulateurs n'est pas une recette Firebase hébergée.
 
+Validation de récupération : 40 tests financiers ciblés, TypeScript et lint locaux réussis. Le build Staging local reste bloqué par les cinq variables absentes de ce worktree ; le build officiel CI réussit avec sa configuration dédiée, sans accès Firebase distant. Les CI ont exécuté 2 393 tests applicatifs, 149 tests Functions, 443 tests Firestore (un ignoré), 54 tests Storage, cinq scénarios hors connexion et le scénario de frais authentifié. Le runner Chromium étendu a également réussi ses 16 scénarios existants et le scénario de frais après séparation du serveur Vite des composants (4173) et du bundle avec vraie API HTTP (4187). Les sorties Playwright sont séparées pour conserver les preuves entre les deux commandes.
+
+Le déploiement de secours a été vérifié READY. Les Preview Vercel sont contrôlés par l'accès officiel `vercel curl /version.json` ; la concordance finale et les CI du dernier commit sont consignées dans la PR. Aucun enregistrement authentifié sur Firebase hébergé n'a été exécuté : la preuve de bout en bout concerne les émulateurs, avec authentification réelle locale et transaction du handler candidat.
+
 ## Livraison contrôlée proposée
 
 - Aucun changement de règles Firestore/Storage, d'index, de Functions Firebase ou de données existantes ; aucune purge IndexedDB.
