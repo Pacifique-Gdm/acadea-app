@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isEmulatorSharedModuleRequest } from "../e2e/support/emulatorRequestRouting";
+import { isEmulatorSharedModuleRequest } from "./emulatorRequestRouting";
 
 describe("emulator routing preserves Vite modules without bypassing API handlers", () => {
   it("loads the shared social-support calculation module used before login", () => {
