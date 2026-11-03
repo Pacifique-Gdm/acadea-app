@@ -3,7 +3,7 @@ import { deleteApp, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
-import { expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 
 export const origin = process.env.ACADEA_E2E_BASE_URL === "http://127.0.0.1:4187" ? "http://127.0.0.1:4187" : "http://127.0.0.1:4173";
 export function guard() {
@@ -88,7 +88,33 @@ export function fixture() {
     if (prepareContext) await prepareContext(context);
     const page = await context.newPage();
     page.setDefaultTimeout(20_000);
-    await page.goto("/login");
+    // Capture only the unauthenticated bootstrap: no fixture credentials or tokens.
+    const bootstrapErrors: string[] = [];
+    const bootstrapResponses: { path: string; status: number }[] = [];
+    const onPageError = (error: Error) => bootstrapErrors.push(error.message);
+    const onResponse = (response: import("@playwright/test").Response) => {
+      const url = new URL(response.url());
+      if (url.origin === origin && response.status() >= 400) {
+        bootstrapResponses.push({ path: url.pathname, status: response.status() });
+      }
+    };
+    page.on("pageerror", onPageError);
+    page.on("response", onResponse);
+    try {
+      await page.goto("/login");
+      await expect(page.getByPlaceholder("email@ecole.com")).toBeVisible();
+    } catch (error) {
+      await test.info().attach("login-bootstrap.json", {
+        body: JSON.stringify({ url: page.url(), errors: bootstrapErrors, responses: bootstrapResponses }),
+        contentType: "application/json",
+      });
+      await test.info().attach("login-bootstrap.html", { body: await page.content(), contentType: "text/html" });
+      await context.close();
+      throw error;
+    } finally {
+      page.off("pageerror", onPageError);
+      page.off("response", onResponse);
+    }
     await page.getByPlaceholder("email@ecole.com").fill(accounts[role].email);
     await page.getByPlaceholder("Votre mot de passe").fill(accounts[role].password);
     await page.getByRole("button", { name: "Se connecter", exact: true }).click();

@@ -59,5 +59,6 @@ jobs:
             test-results/**/*.pdf
             test-results/**/*.png
             test-results/**/*.json
+            test-results/**/*.html
             test-results/**/error-context.md
           retention-days: 7
