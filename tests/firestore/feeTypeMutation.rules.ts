@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 let environment: RulesTestEnvironment;
@@ -26,6 +26,7 @@ describe("types de frais : audit et reçus réservés au serveur", () => {
     await assertFails(setDoc(doc(db, "auditLogs", "forged-fee"), { id: "forged-fee", schoolId: school, actorId: "fee-admin", action: "Ajout type de frais" }));
     await assertFails(setDoc(doc(db, "feeTypeRequests", "forged-fee"), { schoolId: school }));
     await assertFails(setDoc(doc(db, "feeTypeKeys", "forged-fee"), { schoolId: school }));
+    await assertFails(setDoc(doc(db, "feeKindRequests", "forged-kind"), { schoolId: school }));
   }, 30000);
 
   it("refuse la création de frais dans une autre école", async () => {
@@ -42,4 +43,15 @@ describe("types de frais : audit et reçus réservés au serveur", () => {
     ])).rejects.toBeTruthy();
     expect((await assertSucceeds(getDoc(fee))).exists()).toBe(true);
   });
+
+  it("reproduit le rejet du libellé sur une année coordonnée sans ouvrir ses paramètres au client", async () => {
+    await environment.withSecurityRulesDisabled(async context => {
+      await setDoc(doc(context.firestore(), "coordinations", "fee-coordination"), { status: "active" });
+      await updateDoc(doc(context.firestore(), "schools", school), { activeCoordinationId: "fee-coordination" });
+    });
+    const ref = doc(admin(), "schoolYears", year);
+    await assertFails(updateDoc(ref, { customFeeKindChoices: ["Frais fictif"] }));
+    await assertFails(updateDoc(ref, { currency: "USD" }));
+    expect((await getDoc(ref)).data()?.customFeeKindChoices).toBeUndefined();
+  }, 30000);
 });

@@ -7,7 +7,7 @@ import { ParentDrawerBackButton } from "../../components/parents/ParentFormEdito
 import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent";
 import { canUseFirestoreData } from "../../services/firestoreData";
 import { deleteFeeType } from "../../services/feeTypesRepository";
-import { FeeTypeSaveError, saveFeeTypes, type FeeTypeSaveRequest } from "../../services/feeTypeMutations";
+import { addFeeKind as persistFeeKind, FeeTypeSaveError, saveFeeTypes, type FeeKindAddRequest, type FeeTypeSaveRequest } from "../../services/feeTypeMutations";
 import { deleteParentAccount, provisionSchoolUser } from "../../services/provisioning";
 import { subscribeToStudentMedicalRecords } from "../../services/studentMedicalRecords";
 import { createAuditLog } from "../../utils/audit";
@@ -137,6 +137,10 @@ export function MenuModule({
   const [newFeeName, setNewFeeName] = useState("");
   const [customFeeKindChoices, setCustomFeeKindChoices] = useState<FeeKind[]>([]);
   const [newFeeError, setNewFeeError] = useState("");
+  const [newFeeSaving, setNewFeeSaving] = useState(false);
+  const [newFeePending, setNewFeePending] = useState(false);
+  const newFeeSavingRef = useRef(false);
+  const newFeeRequestRef = useRef<FeeKindAddRequest | null>(null);
   const [schoolOptionDraft, setSchoolOptionDraft] = useState("");
   const [schoolOptionAddPending, setSchoolOptionAddPending] = useState(false);
   const [schoolOptionAddConfirmation, setSchoolOptionAddConfirmation] = useState("");
@@ -276,7 +280,7 @@ export function MenuModule({
 
   function closeActiveMenuSection() {
     if (schoolSectionSavingRef.current) return;
-    if (feeSubmittingRef.current) return;
+    if (feeSubmittingRef.current || newFeeSavingRef.current || newFeeRequestRef.current) return;
     setFeeEditPending(false);
     setFeeEditConfirmation("");
     closeSchoolSectionConfirmation();
@@ -625,7 +629,7 @@ export function MenuModule({
   }
 
   function editFee(fee: FeeType) {
-    if (feePendingConfirmation) return;
+    if (feePendingConfirmation || newFeePending || newFeeSaving) return;
     setFeeEditPending(false);
     setFeeEditConfirmation("");
     setFeeAddPending(false);
@@ -662,7 +666,7 @@ export function MenuModule({
   }
 
   function cancelFeeEdit() {
-    if (feeSubmittingRef.current) return;
+    if (feeSubmittingRef.current || newFeeSavingRef.current || newFeeRequestRef.current) return;
     setEditingFeeId("");
     setFeeName("Minerval");
     setFeeClassNames([]);
@@ -703,27 +707,40 @@ export function MenuModule({
     }
   }
 
-  function addFeeKind() {
+  async function addFeeKind() {
+    if (newFeeSavingRef.current || !canAdmin) return;
     const trimmed = newFeeName.trim();
     if (!trimmed) return;
     const normalized = trimmed.toLowerCase();
     const feeKindExists = [...FEE_KINDS, ...yearData.feeTypes.map((fee) => fee.name), ...persistedCustomFeeKindChoices, ...customFeeKindChoices]
       .some((kind) => kind.trim().toLowerCase() === normalized);
-    if (feeKindExists) {
+    if (feeKindExists && !newFeeRequestRef.current) {
       setNewFeeError("Ce type de frais existe déjà.");
       return;
     }
-    const nextCustomFeeKindChoices = [...persistedCustomFeeKindChoices, trimmed];
-    updateData({
-      schoolYears: data.schoolYears.map((year) =>
-        year.id === selectedYear.id ? { ...year, customFeeKindChoices: nextCustomFeeKindChoices } : year,
-      ),
-    });
-    setCustomFeeKindChoices((current) => [...current, trimmed]);
-    setFeeName(trimmed);
-    setNewFeeName("");
+    const request = newFeeRequestRef.current ?? { schoolYearId: selectedYear.id, requestId: createId("fee-kind-request"), name: trimmed };
+    newFeeRequestRef.current = request;
+    newFeeSavingRef.current = true;
+    setNewFeeSaving(true);
     setNewFeeError("");
-    setShowNewFeeForm(false);
+    try {
+      const result = await persistFeeKind(request);
+      updateData({ schoolYears: data.schoolYears.map(year => year.id === request.schoolYearId ? { ...year, customFeeKindChoices: result.customFeeKindChoices } : year) }, { persist: false });
+      setCustomFeeKindChoices(result.customFeeKindChoices);
+      setFeeName(result.name);
+      newFeeRequestRef.current = null;
+      setNewFeePending(false);
+      setNewFeeName("");
+      setShowNewFeeForm(false);
+    } catch (error) {
+      const confirmed = error instanceof FeeTypeSaveError && error.confirmed;
+      if (confirmed) newFeeRequestRef.current = null;
+      setNewFeePending(!confirmed);
+      setNewFeeError(confirmed && error instanceof Error ? error.message : "Confirmation serveur indisponible. Vérifiez cette même demande : ne recréez pas le libellé.");
+    } finally {
+      newFeeSavingRef.current = false;
+      setNewFeeSaving(false);
+    }
   }
 
   function closeSchoolSectionConfirmation() {
@@ -1119,8 +1136,8 @@ export function MenuModule({
           <span className="min-w-0 break-words font-semibold text-ink">{fee.name} - {formatFeeTargetLabel(fee)}</span>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             <strong>{formatCurrencyMoney(fee.amount, feeCurrency)}</strong>
-            <button onClick={() => editFee(fee)} type="button" className="rounded bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100">Modifier</button>
-            <button onClick={() => deleteFee(fee)} type="button" className="rounded bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100">Supprimer</button>
+            <button onClick={() => editFee(fee)} disabled={newFeePending || newFeeSaving} type="button" className="rounded bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50">Modifier</button>
+            <button onClick={() => deleteFee(fee)} disabled={newFeePending || newFeeSaving} type="button" className="rounded bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:opacity-50">Supprimer</button>
           </div>
         </div>
       );
@@ -1183,6 +1200,8 @@ export function MenuModule({
               <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                 <input
                   value={newFeeName}
+                  disabled={newFeeSaving || newFeePending}
+                  maxLength={120}
                   onChange={(event) => {
                     setNewFeeName(event.target.value);
                     setNewFeeError("");
@@ -1190,8 +1209,8 @@ export function MenuModule({
                   className="input"
                   placeholder="Nom du frais"
                 />
-                <button onClick={addFeeKind} type="button" className="primary-button w-full justify-center sm:w-auto">
-                  <Plus className="h-4 w-4" /> Ajouter le frais
+                <button onClick={() => void addFeeKind()} disabled={newFeeSaving || !newFeeName.trim()} type="button" className="primary-button w-full justify-center sm:w-auto disabled:opacity-50">
+                  <Plus className="h-4 w-4" /> {newFeeSaving ? "Enregistrement…" : newFeePending ? "Vérifier l'ajout" : "Ajouter le frais"}
                 </button>
               </div>
             </div>
