@@ -127,8 +127,10 @@ export function ParentFormEditor({
     if (!form.fullName || !form.email || !form.phone) return;
 
     const isNew = form.id.startsWith("new");
-    const parentId = isNew ? createId("parent") : form.id;
+    let parentId = isNew ? createId("parent") : form.id;
     const existingUser = data.users.find((item) => item.id === form.userId || item.parentId === parentId);
+    let confirmedParent: ParentProfile | undefined;
+    let confirmedUser: AppUser | undefined;
     if (isNew && !password) {
       setParentError("Mot de passe requis pour créer le compte Firebase Auth du parent.");
       return;
@@ -148,7 +150,11 @@ export function ParentFormEditor({
           studentIds: form.studentIds,
           status: form.status ?? "active",
         });
+        // A recovered server receipt may refer to the first attempt's ID.
+        parentId = provisioned.parent.id;
         userId = provisioned.user.id;
+        confirmedParent = provisioned.parent;
+        confirmedUser = provisioned.user;
       } catch (error) {
         setParentError(error instanceof Error ? `Provisionnement parent impossible : ${error.message}` : "Provisionnement parent impossible.");
         return;
@@ -158,7 +164,7 @@ export function ParentFormEditor({
       setParentError("Compte utilisateur parent introuvable. Modification du parent impossible sans recréer le compte.");
       return;
     }
-    const parent: ParentProfile = {
+    const parent: ParentProfile = confirmedParent ?? {
       ...form,
       id: parentId,
       userId,
@@ -167,7 +173,7 @@ export function ParentFormEditor({
       status: form.status ?? "active",
       studentIds: form.studentIds,
     };
-    const parentUser: AppUser = {
+    const parentUser: AppUser = confirmedUser ?? {
       id: userId,
       name: parent.fullName,
       email: parent.email,

@@ -4,6 +4,7 @@ import fs from "node:fs";
 import type { SchoolClassRecord } from "../types";
 const base = (id: string, extra: Partial<SchoolClassRecord> = {}): SchoolClassRecord => ({ id, schoolId: "school-a", schoolYearId: "year-a", name: id, active: true, ...extra });
 it("filtre les classes opérationnelles par école, année et sections", () => { const items = [base("parent", { name: "1ère Humanité" }), base("commerciale", { name: "1ère Humanité Commerciale", parentClassId: "parent" }), base("Primaire", { name: "1ère Primaire" }), { ...base("foreign", { name: "2ème Humanité" }), schoolId: "school-b" }]; expect(operationalSchoolClasses(items, "school-a", "year-a", ["Secondaire"]).map((item) => item.id)).toEqual(["commerciale"]); });
+it("préserve les vacations journalières propres à une sous-classe", () => { const parent = base("parent", { name: "7ème CTEB", dayVacations: { monday: "morning" } }); const child = base("child", { parentClassId: "parent", subClassLabel: "A", dayVacations: { monday: "full", tuesday: "none" } }); expect(operationalSchoolClasses([parent, child], "school-a", "year-a")[0].dayVacations).toEqual({ monday: "full", tuesday: "none" }); });
 describe("sous-classes structurées", () => {
   it("reproduit l'ajout incrémental et borne les vrais doublons au parent, à l'école, à l'année et à l'option", () => {
     const parent = base("parent", { name: "7ème CTEB" });

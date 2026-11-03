@@ -8,6 +8,7 @@ import { requireActiveCoordinationActor } from "./_lib/coordination.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { CashBalanceError } from "./_lib/cashBalance.js";
 import { listResolvedExpenseCurrencies } from "./_lib/expenseCurrencyResolution.js";
+import { addFeeKind, FeeTypeError, saveFeeTypes } from "./_lib/feeTypeMutations.js";
 
 function parseJsonBody(raw) {
   try { const parsed = JSON.parse(raw || "{}"); if (parsed && typeof parsed === "object") return parsed; }
@@ -44,6 +45,8 @@ function sendJson(res, status, body) {
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return sendJson(res, 405, { error: "Méthode non autorisée.", code: "invalid-argument" });
+  let feeAction;
+  let feeStage;
   try {
     const authorization = req.headers.authorization ?? "";
     const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
@@ -56,6 +59,20 @@ export default async function handler(req, res) {
       await requireActiveApiUser(db, caller);
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: requestedAction, ...API_RATE_LIMITS.FINANCE_MUTATE });
       return sendJson(res, 200, await manageSocialSupport({ db, caller, body }));
+    }
+    if (["save-fee-types", "add-fee-kind"].includes(requestedAction)) {
+      feeAction = requestedAction;
+      feeStage = "authorization";
+      if (!caller.schoolId || !["admin", "school_admin"].includes(caller.role)) throw new FeeTypeError(403, "permission-denied", "Gestion des frais non autorisée.");
+      feeStage = "active-profile";
+      await requireActiveApiUser(db, caller);
+      feeStage = "rate-limit";
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.schoolId,
+        action: `finance.${requestedAction}`, idempotencyKey: body.requestId, ...API_RATE_LIMITS.FINANCE_CREATE });
+      feeStage = "transaction";
+      const result = await (requestedAction === "add-fee-kind" ? addFeeKind : saveFeeTypes)({ db, caller, body });
+      console.info("[Acadéa fee-types] Confirmation serveur.", { action: feeAction, status: 200, idempotent: result.idempotent });
+      return sendJson(res, 200, result);
     }
     if (requestedAction === "list-resolved-expense-currencies") {
       const actor = ["coordination_admin", "sub_coordination_admin"].includes(caller.role)
@@ -90,9 +107,12 @@ export default async function handler(req, res) {
       : await executeFinancialOperation({ db, caller: authorizedCaller, body });
     return sendJson(res, 200, result);
   } catch (error) {
+    // Deliberately exclude body, tokens, names, tenant IDs and financial values.
+    if (feeAction) console.warn("[Acadéa fee-types] Requête refusée ou non confirmée.", { action: feeAction, stage: feeStage,
+      status: error?.status ?? error?.statusCode ?? 500, code: typeof error?.code === "string" || typeof error?.code === "number" ? error.code : "internal" });
     if (sendRateLimitError(res, error)) return;
     if (error instanceof CashBalanceError) return sendJson(res, error.status, { error: error.message, code: error.code, ...error.details });
-    if (error instanceof FinancialApiError) return sendJson(res, error.status, { error: error.message, code: error.code });
+    if (error instanceof FinancialApiError || error instanceof FeeTypeError) return sendJson(res, error.status, { error: error.message, code: error.code });
     if (error?.code === 10 || error?.code === "aborted") return sendJson(res, 409, { error: "La caisse a changé pendant l'opération. Actualisez le solde et confirmez à nouveau.", code: "cash-balance-conflict" });
     if (error?.statusCode === 400 && !error?.code) return sendJson(res, 400, { error: "Corps JSON invalide.", code: "invalid-argument" });
     if (error?.statusCode === 401) return sendJson(res, 401, { error: error.message, code: error.code });

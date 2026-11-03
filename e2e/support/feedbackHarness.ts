@@ -32,7 +32,7 @@ export async function calls(page: Page, key: string) {
   return page.evaluate((key) => (window as unknown as { feedback: { calls: Record<string, number> } }).feedback.calls[key] ?? 0, key);
 }
 export async function mount(page: Page, path: string, name: string, props: Record<string, unknown>) {
-  await page.goto("/login");
+  await page.goto("/login", { waitUntil: "domcontentloaded" });
   await page.evaluate(async ({ path, name, props }) => {
     const reactPath = "/node_modules/.vite/deps/react.js", domPath = "/node_modules/.vite/deps/react-dom_client.js";
     const r = await import(reactPath), d = await import(domPath), module = await import(path);

@@ -4,6 +4,13 @@ import { describe, expect, it } from "vitest";
 const source = readFileSync(new URL("./MenuModule.tsx", import.meta.url), "utf8");
 
 describe("Types de frais", () => {
+  it("confirme le libellé par API sans écriture cliente sur l'année coordonnée", () => {
+    const add = source.slice(source.indexOf("async function addFeeKind()"), source.indexOf("function closeSchoolSectionConfirmation"));
+    expect(add).toContain("await persistFeeKind(request)");
+    expect(add).toContain("{ persist: false }");
+    expect(add.indexOf("await persistFeeKind(request)")).toBeLessThan(add.indexOf("updateData("));
+    expect(add).toContain("newFeeRequestRef.current = request");
+  });
   it("réutilise la saisie monétaire formatée sans changer le stockage numérique", () => {
     expect(source).toContain("<MoneyInput value={feeAmount} onChange={setFeeAmount}");
     expect(source).toContain("const amount = Number(feeAmount)");
@@ -27,7 +34,7 @@ describe("Types de frais", () => {
     expect(source).toContain("feeTypeBusinessKey");
     expect(source).toContain("Ce type de frais existe déjà pour cette classe.");
     expect(source).toContain("if (feeSubmittingRef.current");
-    expect(source).toContain("disabled={feeClassNames.length === 0 || feeSubmitting}");
+    expect(source).toContain("disabled={(feeClassNames.length === 0 && !feePendingConfirmation) || feeSubmitting}");
   });
 
   it("ramène le formulaire d'édition dans la zone visible et place le focus", () => {
@@ -41,10 +48,10 @@ describe("Types de frais", () => {
   it("exige la confirmation exacte avant une création et attend la persistance", () => {
     expect(source).toContain('confirmation !== "AJOUTER CE FRAIS"');
     expect(source).toContain('feeAddConfirmation !== "AJOUTER CE FRAIS"');
-    expect(source).toContain("await persistFirestorePatch({ feeTypes: feesToSave, auditLogs: [feeAuditLog] }, {");
-    expect(source).toContain("throwOnError: true, createIds:");
-    expect(source).toContain("feeTypes: feesToSave.filter((fee) => fee.id !== editingFeeId).map((fee) => fee.id)");
-    expect(source.indexOf("await persistFirestorePatch")).toBeLessThan(source.indexOf("updateData({", source.indexOf("await persistFirestorePatch")));
+    expect(source).toContain("await saveFeeTypes(request)");
+    expect(source).toContain("feeSaveRequestRef.current = request");
+    expect(source).toContain("feePendingConfirmation ? \"Vérifier l'enregistrement\"");
+    expect(source.indexOf("await saveFeeTypes(request)")).toBeLessThan(source.indexOf("updateData({", source.indexOf("await saveFeeTypes(request)")));
   });
 
   it("supprime le document canonique avant de retirer le frais de l'état local", () => {

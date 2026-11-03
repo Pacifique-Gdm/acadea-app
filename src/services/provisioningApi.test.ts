@@ -424,6 +424,32 @@ describe("API de provisionnement Acadéa", () => {
     expect(mocks.db.doc).toHaveBeenCalledWith("users/created-user");
   });
 
+  it("ne recrée pas l'école après une réponse perdue et protège le reçu par acteur", async () => {
+    mocks.auth.verifyIdToken.mockResolvedValue({ uid: "super-1", role: "super_admin", email: "super@example.invalid" });
+    const clientRequestId = "b".repeat(32);
+    const body = { schoolName: "École reprise", adminName: "Administrateur", adminEmail: "admin-reprise@example.invalid", adminPassword: "test-password", clientRequestId };
+    const first = response();
+    await provisionSchoolAdmin(request(body), first);
+    expect(first.statusCode).toBe(200);
+    const batch = mocks.db.batch.mock.results[0]?.value;
+    const receiptWrite = batch.create.mock.calls.find(([ref]: [{ path: string }]) => ref.path === `provisioningReceipts/${clientRequestId}`);
+    expect(receiptWrite?.[1]).toMatchObject({ actorId: "super-1", kind: "school", result: first.body });
+    const originalDoc = mocks.db.doc.getMockImplementation()!;
+    mocks.db.doc.mockImplementation((path: string) => path === `provisioningReceipts/${clientRequestId}`
+      ? { path, get: vi.fn().mockResolvedValue({ exists: true, data: () => receiptWrite?.[1] }) }
+      : originalDoc(path));
+    const repeated = response();
+    await provisionSchoolAdmin(request(body), repeated);
+    expect(repeated.statusCode).toBe(200);
+    expect(repeated.body).toEqual(first.body);
+    expect(mocks.auth.createUser).toHaveBeenCalledOnce();
+    mocks.auth.verifyIdToken.mockResolvedValue({ uid: "other-super", role: "super_admin", email: "other@example.invalid" });
+    const forbidden = response();
+    await provisionSchoolAdmin(request(body), forbidden);
+    expect(forbidden.statusCode).toBe(403);
+    expect(mocks.auth.createUser).toHaveBeenCalledOnce();
+  });
+
   it("enregistre uniquement la valeur canonique CTEB lors de la création d'une école", async () => {
     mocks.auth.verifyIdToken.mockResolvedValue({ uid: "super-1", role: "super_admin", email: "super@example.invalid" });
     const res = response();
@@ -524,6 +550,27 @@ describe("API de provisionnement Acadéa", () => {
     expect(mocks.db.doc).not.toHaveBeenCalledWith("users/created-user");
   });
 
+  it("rejoue l'accusé du même compte après perte de réponse sans recréer Auth ni le profil", async () => {
+    const clientRequestId = "a".repeat(32);
+    const body = { role: "secretary", schoolId: "school-1", schoolYearId: "year-1", name: "Secrétaire test", email: "secretary-retry@example.invalid", password: "test-password", clientRequestId };
+    const first = response();
+    await provisionSchoolAccount(request(body), first);
+    expect(first.statusCode).toBe(200);
+    const batch = mocks.db.batch.mock.results[0]?.value;
+    const receiptWrite = batch.create.mock.calls.find(([ref]: [{ path: string }]) => ref.path === `provisioningReceipts/${clientRequestId}`);
+    expect(receiptWrite?.[1]).toMatchObject({ actorId: "admin-1", kind: "account", result: first.body });
+    const originalDoc = mocks.db.doc.getMockImplementation()!;
+    mocks.db.doc.mockImplementation((path: string) => path === `provisioningReceipts/${clientRequestId}`
+      ? { path, get: vi.fn().mockResolvedValue({ exists: true, data: () => receiptWrite?.[1] }) }
+      : originalDoc(path));
+    const repeated = response();
+    await provisionSchoolAccount(request(body), repeated);
+    expect(repeated.statusCode).toBe(200);
+    expect(repeated.body).toEqual(first.body);
+    expect(mocks.auth.createUser).toHaveBeenCalledOnce();
+    expect(mocks.db.batch).toHaveBeenCalledOnce();
+  });
+
   it("autorise la conservation de son propre email lors d’une modification", async () => {
     mocks.db.doc.mockImplementation((path: string) => ({ path, get: vi.fn().mockResolvedValue({ exists: true, data: () => path === "users/admin-1" ? { role: "school_admin", schoolId: "school-1", status: "active" } : path === "schools/school-1" ? { educationLevels: ["Primaire"] } : { role: "teacher", schoolId: "school-1", status: "active", email: "same@example.invalid" } }) }));
     const res = response();
@@ -578,10 +625,8 @@ describe("API de provisionnement Acadéa", () => {
     }), res);
 
     expect(res.statusCode).toBe(200);
-    const userRef = mocks.db.doc.mock.results
-      .map((result) => result.value as { path?: string; create?: ReturnType<typeof vi.fn>; set?: ReturnType<typeof vi.fn> })
-      .find((ref) => ref.path === "users/created-user");
-    expect(userRef?.create).toHaveBeenCalledWith(expect.objectContaining({ section: "CTEB", sectionIds: ["CTEB"] }));
+    const batch = mocks.db.batch.mock.results[0]?.value;
+    expect(batch.create).toHaveBeenCalledWith(expect.objectContaining({ path: "users/created-user" }), expect.objectContaining({ section: "CTEB", sectionIds: ["CTEB"] }));
   });
 
   it("archive logiquement un personnel de la même école sans supprimer Auth ni Firestore", async () => {

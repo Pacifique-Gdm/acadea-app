@@ -32,14 +32,17 @@ describe("Périodes & tranches horaires — présentation", () => {
     expect(source).toContain("periodTypeLabel(item.type)");
   });
 
-  it("persiste chaque classe opérationnelle et rend les erreurs de vacation visibles", () => {
+  it("sélectionne une, plusieurs ou toutes les classes et leurs jours configurés", () => {
     expect(source).toContain("useMemo(() => data.classes, [data.classes])");
     expect(source).not.toContain("logicalStudyClasses(data.classes, data.sourceClasses)");
-    expect(source).toContain("persisted: data.sourceClasses.some");
-    expect(source).toContain('vacationActions.error');
-    expect(source).toContain('await vacationActions.run(item.id');
-    expect(source).toContain('disabled={vacationActions.isPending(item.id)}');
+    expect(source).toContain("Toutes les classes");
+    expect(source).toContain("setSelectedIds");
+    expect(source).toContain("schoolDays.map");
+    expect(source).toContain("saveStudyClassDayVacations");
+    expect(source).toContain("periodTargetPairs");
+    expect(source).toContain("classHasEstablishedEntries");
+    expect(source).toContain("REMPLACER LES VACATIONS");
     expect(source).toContain('role="alert"');
-    expect(source).toContain('value={item.vacation ?? ""}');
+    expect(source).toContain('value={dayDraft[item.id]?.[day] ?? studyDayVacation(item, day)}');
   });
 });

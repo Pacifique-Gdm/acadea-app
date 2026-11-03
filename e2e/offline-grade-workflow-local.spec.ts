@@ -83,16 +83,15 @@ test.describe("saisie locale → réouverture → synchronisation serveur", () =
       await page.getByPlaceholder("Votre mot de passe").fill(password);
       await page.getByRole("button", { name: "Se connecter", exact: true }).click();
       await page.waitForURL((url) => url.pathname !== "/login");
-      await page.getByRole("button", { name: /Opérations hors connexion/ }).click();
-      await expect(page.getByLabel("Cours préchargé")).toBeVisible({ timeout: 20_000 });
-      await page.getByLabel("Cours préchargé").selectOption(assignmentId);
-      await page.getByLabel("Élève", { exact: true }).selectOption(studentId);
       await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller)), { timeout: 30_000 }).toBe(true);
       await expect.poll(() => page.evaluate(async () => {
         const cache = await caches.open("acadea-pwa-v6-assets");
         return Boolean(await cache.match(document.querySelector<HTMLScriptElement>('script[type="module"]')?.src || ""));
       }), { timeout: 30_000 }).toBe(true);
       await context.setOffline(true);
+      await expect(page.getByLabel("Cours préchargé")).toBeVisible({ timeout: 20_000 });
+      await page.getByLabel("Cours préchargé").selectOption(assignmentId);
+      await page.getByLabel("Élève", { exact: true }).selectOption(studentId);
       await page.getByLabel("Cote locale").fill("12");
       await page.getByRole("button", { name: "Enregistrer le brouillon local" }).click();
       await expect(page.getByText("Brouillon local enregistré.", { exact: false })).toBeVisible();

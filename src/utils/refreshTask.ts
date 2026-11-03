@@ -6,12 +6,21 @@ export async function runRefreshTask<T>(params: {
   load: () => Promise<T>;
   apply: (data: T) => void;
   onError: (error: unknown) => void;
+  retryOnError?: (error: unknown) => boolean;
+  retryDelayMs?: number;
 }) {
   if (params.lock.current) return false;
   params.lock.current = true;
   params.setRefreshing(true);
   try {
-    const data = await params.load();
+    let data: T;
+    try {
+      data = await params.load();
+    } catch (error) {
+      if (!params.retryOnError?.(error)) throw error;
+      await new Promise((resolve) => globalThis.setTimeout(resolve, params.retryDelayMs ?? 500));
+      data = await params.load();
+    }
     params.apply(data);
     return true;
   } catch (error) {

@@ -3,24 +3,28 @@ import { writeFile } from "node:fs/promises";
 import { calls, feedbackTransport, mount, settle } from "./support/feedbackHarness";
 import { fixture, students } from "./support/emulatorRecipe";
 
-test("Study director: independent class saves, failure and retry", async ({ page, context }) => {
-  await feedbackTransport(context, { "/src/modules/studies/studyService.ts": `export function setStudyClassVacation({item}) { return window.feedback.call(item.id); }` });
+test("Study director: grouped class/day saves, failure and retry", async ({ page, context }) => {
+  await feedbackTransport(context, { "/src/modules/studies/studyService.ts": `export function saveStudyClassDayVacations({classes}) { return window.feedback.call(classes.map(item => item.id).join(',')); }` });
   const classes = [{ id: "class-a", name: "1ère A", vacation: "morning" }, { id: "class-b", name: "2ème B", vacation: "morning" }];
   const view = await mount(page, "/src/modules/studies/StudyPeriodsModule.tsx", "StudyPeriodsModule", {
     user: { id: "u", role: "study_director", schoolId: "s" }, school: { id: "s" }, year: { id: "y" },
-    data: { classes, sourceClasses: classes, periods: [], attendanceSettings: undefined },
+    data: { classes, sourceClasses: classes, periods: [], timetables: [], timetableEntries: [], attendanceSettings: { schoolDays: ["monday", "tuesday", "wednesday", "thursday", "friday"] } },
   });
-  const selects = view.locator('select[aria-label^="Vacation de"]');
-  await selects.nth(0).selectOption("afternoon"); await selects.nth(1).selectOption("afternoon");
-  await expect(selects.nth(0)).toBeDisabled(); await expect(selects.nth(1)).toBeDisabled();
-  await settle(page, "class-a");
-  await expect(selects.nth(0)).toBeEnabled(); await expect(selects.nth(1)).toBeDisabled();
-  await settle(page, "class-b", undefined, "Sauvegarde refusée (test)");
+  await view.getByRole("button", { name: "Toutes les classes" }).click();
+  const selects = view.locator('select[aria-label*=" — "]');
+  await expect(selects).toHaveCount(10);
+  await expect(view.getByText("Samedi", { exact: true })).toHaveCount(0);
+  await view.getByRole("combobox", { name: "1ère A — Lundi" }).selectOption("afternoon");
+  await view.getByRole("combobox", { name: "2ème B — Mardi" }).selectOption("afternoon");
+  await view.getByRole("textbox", { name: /REMPLACER LES VACATIONS/ }).fill("REMPLACER LES VACATIONS");
+  const save = view.getByRole("button", { name: "Enregistrer les vacations sélectionnées" });
+  await save.click();
+  await expect(view.getByRole("button", { name: "Enregistrement…" })).toBeDisabled();
+  await settle(page, "class-a,class-b", undefined, "Sauvegarde refusée (test)");
   await expect(view.getByRole("alert")).toContainText("Sauvegarde refusée");
-  await expect(selects.nth(1)).toBeEnabled();
-  await selects.nth(1).selectOption("afternoon");
-  await settle(page, "class-b");
-  expect(await calls(page, "class-b")).toBe(2);
+  await save.click();
+  await settle(page, "class-a,class-b");
+  expect(await calls(page, "class-a,class-b")).toBe(2);
   await expect(view.getByRole("alert")).toHaveCount(0);
 });
 
@@ -125,13 +129,13 @@ test("generic saving notice reflects acknowledgement, failure and retry", async 
 
 test("offline panel: pending reads are not empty, failed synchronization retains drafts", async ({ page, context }) => {
   await feedbackTransport(context, {
-    "/src/services/offlineQueue.ts": `export function listOfflineOperations() { return window.feedback.call('queue-list'); }`,
+    "/src/services/offlineQueue.ts": `let reads=0; export function listOfflineOperations() { return reads++===0 ? window.feedback.call('queue-list') : Promise.resolve([{ id: 'historical-id', kind: 'grade', status: 'CONFLICT', createdAt: '2026-10-29T00:00:00Z' }]); }`,
     "/src/services/offlineSync.ts": `export function syncOfflineOperations() { return window.feedback.call('queue-sync'); }`,
   });
   const view = await mount(page, "/src/components/offline/OfflineQueuePanel.tsx", "OfflineQueuePanel", {
-    scope: { userId: "u", schoolId: "s", schoolYearId: "y" }, role: "teacher", autoSync: true,
+    scope: { userId: "u", schoolId: "s", schoolYearId: "y" }, role: "teacher", autoSync: true, initialOpen: true,
   });
-  await view.getByRole("button", { name: /Opérations hors connexion/ }).click();
+  await expect(view.getByRole("button", { name: /Hors connexion ·/ })).toHaveCount(0);
   await expect(view.getByRole("status")).toHaveText("Lecture des opérations locales…");
   await expect(view.getByText(/Aucune opération locale/)).toHaveCount(0);
   await settle(page, "queue-list", [{ id: "historical-id", kind: "grade", status: "CONFLICT", createdAt: "2026-10-29T00:00:00Z" }]);
@@ -145,4 +149,47 @@ test("offline panel: pending reads are not empty, failed synchronization retains
   await expect(view.getByRole("alert")).toHaveCount(0);
   // A successful transport without a server receipt must not invent confirmation.
   await expect(view.getByText("Conflit — intervention nécessaire", { exact: true })).toBeVisible();
+});
+
+test("mobile: no permanent offline button, conflict opens the contextual operation panel", async ({ page, context }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await feedbackTransport(context, {
+    "/src/services/offlineQueue.ts": `export function listOfflineOperations() { return Promise.resolve([{ id: 'conflict-local', kind: 'attendance', status: 'CONFLICT', createdAt: '2026-10-29T00:00:00Z' }]); }`,
+    "/src/services/offlineSync.ts": `export function syncOfflineOperations() { return Promise.resolve(); }`,
+  });
+  await mount(page, "/src/components/offline/OfflineQueuePanel.tsx", "OfflineQueuePanel", {
+    scope: { userId: "u", schoolId: "s", schoolYearId: "y" }, role: "teacher", autoSync: false,
+  });
+  await expect(page.getByRole("button", { name: /Hors connexion ·/ })).toHaveCount(0);
+  await expect(page.getByRole("alert")).toContainText("intervention");
+  await page.getByRole("button", { name: "Voir les opérations" }).click();
+  const panel = page.getByRole("region", { name: "État des opérations hors connexion" });
+  await expect(panel).toContainText("Conflit — intervention nécessaire");
+  const bounds = await panel.boundingBox();
+  expect(bounds).not.toBeNull();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
+});
+
+test("offline notice leaves forms usable until the user opens operations", async ({ page, context }) => {
+  await feedbackTransport(context, {
+    "/src/services/offlineQueue.ts": `export function listOfflineOperations() { window.queueReady = true; return Promise.resolve([]); }`,
+    "/src/services/offlineSync.ts": `export function syncOfflineOperations() { return Promise.resolve(); }`,
+  });
+  await mount(page, "/src/components/offline/OfflineQueuePanel.tsx", "OfflineQueuePanel", {
+    scope: { userId: "u", schoolId: "s", schoolYearId: "y" }, role: "teacher", autoSync: false,
+  });
+  await expect.poll(() => page.evaluate(() => Boolean((window as unknown as { queueReady?: boolean }).queueReady))).toBe(true);
+  await page.evaluate(() => {
+    const button = document.createElement("button"); button.textContent = "Enregistrer le brouillon local";
+    button.onclick = () => { button.dataset.clicked = "true"; };
+    document.body.appendChild(button);
+  });
+  await context.setOffline(true);
+  await expect(page.getByRole("status")).toContainText("Connexion interrompue");
+  await expect(page.getByRole("region", { name: "État des opérations hors connexion" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Enregistrer le brouillon local" }).click();
+  await expect(page.getByRole("button", { name: "Enregistrer le brouillon local" })).toHaveAttribute("data-clicked", "true");
+  await page.getByRole("button", { name: "Voir les opérations" }).click();
+  await expect(page.getByRole("region", { name: "État des opérations hors connexion" })).toBeVisible();
 });

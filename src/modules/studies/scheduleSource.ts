@@ -43,6 +43,7 @@ export function canonicalScheduleSource(problem: ScheduleProblem) {
       vacation: item.vacation ?? null,
       saturdayVacation: item.saturdayVacation ?? null,
       saturdayEnabled: item.saturdayEnabled ?? null,
+      dayVacations: item.dayVacations ?? null,
     })).sort((left, right) => left.id.localeCompare(right.id)),
     periods: problem.periods.filter((item) => item.active).map((item) => ({
       id: item.id,
@@ -52,6 +53,7 @@ export function canonicalScheduleSource(problem: ScheduleProblem) {
       type: item.type,
       vacation: item.vacation ?? null,
       dayScope: item.dayScope ?? null,
+      targetPairs: item.targetPairs ? [...item.targetPairs].sort() : null,
     })).sort((left, right) => left.id.localeCompare(right.id)),
     assignmentCount: assignmentIds.size,
   };

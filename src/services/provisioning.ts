@@ -3,6 +3,35 @@ import type { AppUser, AuditLog, ParentProfile, School, SchoolSection, SchoolYea
 import { resolveApiUrl } from "../config/apiUrl";
 import { apiErrorMessage } from "../utils/rateLimitErrors";
 
+// A lost HTTP response must not turn a confirmed creation into a second create.
+// Kept only in memory; no password, token or request identifier is persisted locally.
+const pendingCreationRequests = new Map<string, string>();
+function requestIdFor(key: string) {
+  let id = pendingCreationRequests.get(key);
+  if (!id) {
+    id = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+    pendingCreationRequests.set(key, id);
+  }
+  return id;
+}
+
+async function recoverCreation(endpoint: string, token: string, identity: Record<string, unknown>) {
+  for (const delay of [0, 200, 500]) {
+    if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+    try {
+      const response = await fetch(resolveApiUrl(endpoint), { method: "POST", headers: {
+        Authorization: `Bearer ${token}`, "Content-Type": "application/json",
+      }, body: JSON.stringify({ action: "recover-creation", ...identity }) });
+      if (response.status === 202) continue;
+      if (response.ok) return await response.json() as Record<string, unknown>;
+      return null;
+    } catch { /* The original request may still be finishing. */ }
+  }
+  return null;
+}
+
+const uncertainCreationMessage = "Réponse réseau perdue. La création peut déjà être confirmée par le serveur. Vérifiez la liste avant de réessayer ; aucun nouvel identifiant ne sera généré pour cette tentative.";
+
 type ProvisionSchoolAdminInput = {
   schoolName: string;
   adminName: string;
@@ -24,26 +53,51 @@ type ProvisionSchoolAdminResponse = {
 
 export async function provisionSchoolAdmin(input: ProvisionSchoolAdminInput) {
   const token = await getCurrentFirebaseIdToken();
-  const response = await fetch(resolveApiUrl("/api/provision-school-admin"), {
+  const key = `school/${input.adminEmail.trim().toLowerCase()}`;
+  const clientRequestId = requestIdFor(key);
+  const identity = { clientRequestId, schoolName: input.schoolName, adminEmail: input.adminEmail };
+  let response: Response;
+  try { response = await fetch(resolveApiUrl("/api/provision-school-admin"), {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(input),
-  });
+    body: JSON.stringify({ ...input, clientRequestId }),
+  }); } catch {
+    const recovered = await recoverCreation("/api/provision-school-admin", token, identity);
+    if (recovered?.school && recovered?.schoolYear && recovered?.adminUser && recovered?.auditLog) {
+      pendingCreationRequests.delete(key);
+      return recovered as ProvisionSchoolAdminResponse;
+    }
+    throw new Error(uncertainCreationMessage);
+  }
 
   const payload = (await response.json().catch(() => ({}))) as Partial<ProvisionSchoolAdminResponse> & { error?: string; code?: string; details?: string };
   if (!response.ok) {
+    if (response.status === 409 || response.status === 429 || response.status >= 500) {
+      const recovered = await recoverCreation("/api/provision-school-admin", token, identity);
+      if (recovered?.school && recovered?.schoolYear && recovered?.adminUser && recovered?.auditLog) {
+        pendingCreationRequests.delete(key);
+        return recovered as ProvisionSchoolAdminResponse;
+      }
+    }
+    if (response.status < 500 && response.status !== 429) pendingCreationRequests.delete(key);
     const message = apiErrorMessage(response.status, payload, "Provisionnement impossible.");
     const diagnostic = [payload.code, payload.details].filter(Boolean).join(" — ");
     throw new Error(diagnostic ? `${message} Détail serveur : ${diagnostic}` : message);
   }
 
   if (!payload.school || !payload.schoolYear || !payload.adminUser || !payload.auditLog) {
-    throw new Error("Réponse de provisionnement incomplète.");
+    const recovered = await recoverCreation("/api/provision-school-admin", token, identity);
+    if (recovered?.school && recovered?.schoolYear && recovered?.adminUser && recovered?.auditLog) {
+      pendingCreationRequests.delete(key);
+      return recovered as ProvisionSchoolAdminResponse;
+    }
+    throw new Error(uncertainCreationMessage);
   }
 
+  pendingCreationRequests.delete(key);
   return payload as ProvisionSchoolAdminResponse;
 }
 
@@ -84,17 +138,31 @@ async function provisionSchoolAccount<TResponse>(input: Record<string, unknown>,
   const token = await getCurrentFirebaseIdToken();
   const endpoint = "/api/provision-school-account";
   const endpointUrl = getProvisionEndpointUrl(endpoint);
-  const response = await fetch(resolveApiUrl(endpoint), {
+  const role = typeof input.role === "string" ? input.role : "";
+  const key = role ? JSON.stringify([role, input.schoolId, input.schoolYearId, String(input.email ?? "").trim().toLowerCase()]) : "";
+  const clientRequestId = key ? requestIdFor(key) : "";
+  const identity = { clientRequestId, role, schoolId: input.schoolId, schoolYearId: input.schoolYearId, email: input.email };
+  let response: Response;
+  try { response = await fetch(resolveApiUrl(endpoint), {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(input),
-  });
+    body: JSON.stringify(clientRequestId ? { ...input, clientRequestId } : input),
+  }); } catch {
+    const recovered = clientRequestId ? await recoverCreation(endpoint, token, identity) : null;
+    if (recovered) { pendingCreationRequests.delete(key); return recovered as TResponse; }
+    throw new Error(clientRequestId ? uncertainCreationMessage : "Connexion indisponible. L'opération n'a pas été confirmée par le serveur.");
+  }
 
   const payload = (await response.json().catch(() => ({}))) as TResponse & { error?: string; code?: string; details?: string };
   if (!response.ok) {
+    if (clientRequestId && (response.status === 409 || response.status === 429 || response.status >= 500)) {
+      const recovered = await recoverCreation(endpoint, token, identity);
+      if (recovered) { pendingCreationRequests.delete(key); return recovered as TResponse; }
+    }
+    if (key && response.status < 500 && response.status !== 429) pendingCreationRequests.delete(key);
     if (response.status === 404 && options?.showEndpointOnNotFound) {
       throw new Error(`Endpoint API introuvable (HTTP 404) : ${endpointUrl}. Lancez l'application avec npx vercel dev pour activer les routes /api.`);
     }
@@ -103,6 +171,12 @@ async function provisionSchoolAccount<TResponse>(input: Record<string, unknown>,
     throw new Error(diagnostic ? `${message} Détail serveur : ${diagnostic}` : message);
   }
 
+  if (clientRequestId && !Object.keys(payload).length) {
+    const recovered = await recoverCreation(endpoint, token, identity);
+    if (recovered) { pendingCreationRequests.delete(key); return recovered as TResponse; }
+    throw new Error(uncertainCreationMessage);
+  }
+  if (key) pendingCreationRequests.delete(key);
   return payload;
 }
 
@@ -123,8 +197,21 @@ export async function provisionCashier(input: ProvisionCashierInput) {
 }
 
 export async function saveManualStudent(student: Student, intent: "create" | "update" = "create") {
-  const payload = await provisionSchoolAccount<{ student?: Student }>({ action: "save-manual-student", student, intent });
-  if (!payload.student || payload.student.id !== student.id) throw new Error("Réponse d’enregistrement de l’élève incomplète.");
+  const key = `student/${student.schoolId}/${student.id}`;
+  const clientRequestId = intent === "create" ? requestIdFor(key) : undefined;
+  let payload: { student?: Student } | undefined;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      payload = await provisionSchoolAccount<{ student?: Student }>({ action: "save-manual-student", student, intent, ...(clientRequestId ? { clientRequestId } : {}) });
+      break;
+    } catch (cause) {
+      if (!clientRequestId || !(cause instanceof Error) || !cause.message.includes("Connexion indisponible")) throw cause;
+      if (attempt) throw new Error(uncertainCreationMessage);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
+  if (!payload?.student || payload.student.id !== student.id) throw new Error("Réponse d’enregistrement de l’élève incomplète.");
+  if (clientRequestId) pendingCreationRequests.delete(key);
   return payload.student;
 }
 

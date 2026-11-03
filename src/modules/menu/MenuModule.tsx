@@ -6,8 +6,9 @@ import { AdminDrawer, Field, ImageUploadField, LogoutButton, MoneyInput, MultiSe
 import { ParentsDirectoryDrawer } from "../../components/parents/ParentsDirectoryDrawer";
 import { ParentDrawerBackButton } from "../../components/parents/ParentFormEditor";
 import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent";
-import { canUseFirestoreData, persistFirestorePatch } from "../../services/firestoreData";
+import { canUseFirestoreData } from "../../services/firestoreData";
 import { deleteFeeType } from "../../services/feeTypesRepository";
+import { addFeeKind as persistFeeKind, FeeTypeSaveError, saveFeeTypes, type FeeKindAddRequest, type FeeTypeSaveRequest } from "../../services/feeTypeMutations";
 import { deleteParentAccount, provisionSchoolUser } from "../../services/provisioning";
 import { subscribeToStudentMedicalRecords } from "../../services/studentMedicalRecords";
 import { createAuditLog } from "../../utils/audit";
@@ -130,11 +131,17 @@ export function MenuModule({
   const [feeAmount, setFeeAmount] = useState("100");
   const [editingFeeId, setEditingFeeId] = useState("");
   const [feeSaveError, setFeeSaveError] = useState("");
+  const [feePendingConfirmation, setFeePendingConfirmation] = useState(false);
+  const feeSaveRequestRef = useRef<FeeTypeSaveRequest | null>(null);
   const [feeSubmitting, setFeeSubmitting] = useState(false);
   const [showNewFeeForm, setShowNewFeeForm] = useState(false);
   const [newFeeName, setNewFeeName] = useState("");
   const [customFeeKindChoices, setCustomFeeKindChoices] = useState<FeeKind[]>([]);
   const [newFeeError, setNewFeeError] = useState("");
+  const [newFeeSaving, setNewFeeSaving] = useState(false);
+  const [newFeePending, setNewFeePending] = useState(false);
+  const newFeeSavingRef = useRef(false);
+  const newFeeRequestRef = useRef<FeeKindAddRequest | null>(null);
   const [schoolOptionDraft, setSchoolOptionDraft] = useState("");
   const [schoolOptionAddPending, setSchoolOptionAddPending] = useState(false);
   const [schoolOptionAddConfirmation, setSchoolOptionAddConfirmation] = useState("");
@@ -276,7 +283,7 @@ export function MenuModule({
 
   function closeActiveMenuSection() {
     if (schoolSectionSavingRef.current) return;
-    if (feeSubmittingRef.current) return;
+    if (feeSubmittingRef.current || newFeeSavingRef.current || newFeeRequestRef.current) return;
     setFeeEditPending(false);
     setFeeEditConfirmation("");
     closeSchoolSectionConfirmation();
@@ -542,8 +549,9 @@ export function MenuModule({
     } finally {
       setSchoolUserSubmitting(false);
     }
-    const auditLog = createAuditLog(user, school.id, selectedYear.id, `Création ${schoolUserProvisionLabels[schoolUserRole]}`, `${cashierName} - ${cashierEmail}`, createId);
-    updateData({ users: [...data.users, provisionedUser], auditLogs: [auditLog, ...data.auditLogs] });
+    // The provisioning API has already created the user and its audit record.
+    // A second conditional client create would report ALREADY_EXISTS despite success.
+    updateData({ users: [...data.users, provisionedUser] }, { persist: false });
     setCashierName("");
     setCashierPhone("");
     setCashierEmail("");
@@ -558,72 +566,49 @@ export function MenuModule({
   }
 
   async function saveFee(confirmation = "") {
-    if (feeSubmittingRef.current || !feeName || feeClassNames.length === 0 || !feeAmount) return;
+    if (feeSubmittingRef.current) return;
     setFeeSaveError("");
-    const amount = Number(feeAmount);
-    let amountMinor: number;
-    try { amountMinor = toMoneyMinor(amount); } catch { amountMinor = 0; }
-    if (amountMinor <= 0) {
-      setFeeSaveError("Le montant du type de frais doit être positif avec deux décimales au maximum.");
-      return;
-    }
-    const selectedClasses = Array.from(new Set(feeClassNames));
-    const existingFeeKeys = new Set(
-      data.feeTypes
+    let request = feeSaveRequestRef.current;
+    if (!request) {
+      if (!feeName || feeClassNames.length === 0 || !feeAmount) return;
+      const amount = Number(feeAmount);
+      let amountMinor: number;
+      try { amountMinor = toMoneyMinor(amount); } catch { amountMinor = 0; }
+      if (amountMinor <= 0) {
+        setFeeSaveError("Le montant du type de frais doit être positif avec deux décimales au maximum.");
+        return;
+      }
+      const selectedClasses = Array.from(new Set(feeClassNames));
+      const existingFeeKeys = new Set(data.feeTypes
         .filter((fee) => fee.schoolId === school.id && fee.schoolYearId === selectedYear.id && fee.id !== editingFeeId)
-        .map(feeTypeBusinessKey),
-    );
-    const duplicateTarget = selectedClasses.find((target) => existingFeeKeys.has(feeTypeBusinessKey({
-      schoolId: school.id,
-      schoolYearId: selectedYear.id,
-      name: feeName,
-      className: feeTargetClassName(target),
-      ...(feeTargetHasOption(target) ? { classOptionKey: target } : {}),
-    })));
-    if (duplicateTarget) {
-      setFeeSaveError("Ce type de frais existe déjà pour cette classe.");
-      return;
-    }
-    if (!editingFeeId && confirmation !== "AJOUTER CE FRAIS") {
-      setFeeAddConfirmation("");
-      setFeeAddPending(true);
-      return;
-    }
-    if (editingFeeId && confirmation !== "MODIFIER CE FRAIS") {
-      setFeeEditConfirmation("");
-      setFeeEditPending(true);
-      return;
-    }
-    const feesToSave = selectedClasses.map((target, index) => {
-        const fee: FeeType = {
+        .map(feeTypeBusinessKey));
+      const duplicateTarget = selectedClasses.find((target) => existingFeeKeys.has(feeTypeBusinessKey({
+        schoolId: school.id, schoolYearId: selectedYear.id, name: feeName,
+        className: feeTargetClassName(target), ...(feeTargetHasOption(target) ? { classOptionKey: target } : {}),
+      })));
+      if (duplicateTarget) { setFeeSaveError("Ce type de frais existe déjà pour cette classe."); return; }
+      if (!editingFeeId && confirmation !== "AJOUTER CE FRAIS") { setFeeAddConfirmation(""); setFeeAddPending(true); return; }
+      if (editingFeeId && confirmation !== "MODIFIER CE FRAIS") { setFeeEditConfirmation(""); setFeeEditPending(true); return; }
+      request = { schoolYearId: selectedYear.id, requestId: createId("fee-request"),
+        ...(editingFeeId ? { editingFeeId } : {}),
+        fees: selectedClasses.map((target, index) => ({
           id: editingFeeId && index === 0 ? editingFeeId : createId("fee"),
-          schoolId: school.id,
-          schoolYearId: selectedYear.id,
-          name: feeName,
-          className: feeTargetClassName(target),
-          amount,
-        };
-        if (feeTargetHasOption(target)) {
-          fee.classOptionKey = target;
-        }
-        return fee;
-      });
+          name: feeName, className: feeTargetClassName(target), amount,
+          ...(feeTargetHasOption(target) ? { classOptionKey: target } : {}),
+        })),
+      };
+      feeSaveRequestRef.current = request;
+    }
     feeSubmittingRef.current = true;
     setFeeSubmitting(true);
-    const feeAction = editingFeeId ? "Modification type de frais" : "Ajout type de frais";
-    const feeActionVerb = editingFeeId ? "modifié" : "ajouté";
-    const feeAuditDetails = `Admin ${user.name} a ${feeActionVerb} le type de frais ${feeName}.`;
-    const feeAuditLog = createAuditLog(user, school.id, selectedYear.id, feeAction, feeAuditDetails, createId);
     try {
-      await persistFirestorePatch({ feeTypes: feesToSave, auditLogs: [feeAuditLog] }, {
-        throwOnError: true, createIds: { feeTypes: feesToSave.filter((fee) => fee.id !== editingFeeId).map((fee) => fee.id), auditLogs: [feeAuditLog.id] },
-      });
+      const { fees: feesToSave, audit: feeAuditLog } = await saveFeeTypes(request);
       updateData({
-        feeTypes: editingFeeId
-          ? [...data.feeTypes.map((item) => (item.id === editingFeeId ? feesToSave[0] : item)), ...feesToSave.slice(1)]
-          : [...data.feeTypes, ...feesToSave],
-        auditLogs: [feeAuditLog, ...data.auditLogs],
+        feeTypes: [...new Map([...data.feeTypes, ...feesToSave].map((item) => [item.id, item])).values()],
+        auditLogs: [feeAuditLog, ...data.auditLogs.filter((item) => item.id !== feeAuditLog.id)],
       }, { persist: false });
+      feeSaveRequestRef.current = null;
+      setFeePendingConfirmation(false);
       setEditingFeeId("");
       setFeeName("Minerval");
       setFeeClassNames([]);
@@ -633,7 +618,13 @@ export function MenuModule({
       setFeeEditPending(false);
       setFeeEditConfirmation("");
     } catch (error) {
-      setFeeSaveError(error instanceof Error ? error.message : "Enregistrement du type de frais impossible.");
+      const confirmed = error instanceof FeeTypeSaveError && error.confirmed;
+      if (confirmed) feeSaveRequestRef.current = null;
+      setFeePendingConfirmation(!confirmed);
+      setFeeAddPending(false);
+      setFeeEditPending(false);
+      setFeeSaveError(confirmed && error instanceof Error ? error.message
+        : "Confirmation serveur indisponible. Ne recréez pas ce frais : vérifiez cette même demande dès que la connexion revient.");
     } finally {
       feeSubmittingRef.current = false;
       setFeeSubmitting(false);
@@ -641,6 +632,7 @@ export function MenuModule({
   }
 
   function editFee(fee: FeeType) {
+    if (feePendingConfirmation || newFeePending || newFeeSaving) return;
     setFeeEditPending(false);
     setFeeEditConfirmation("");
     setFeeAddPending(false);
@@ -677,7 +669,7 @@ export function MenuModule({
   }
 
   function cancelFeeEdit() {
-    if (feeSubmittingRef.current) return;
+    if (feeSubmittingRef.current || newFeeSavingRef.current || newFeeRequestRef.current) return;
     setEditingFeeId("");
     setFeeName("Minerval");
     setFeeClassNames([]);
@@ -718,27 +710,40 @@ export function MenuModule({
     }
   }
 
-  function addFeeKind() {
+  async function addFeeKind() {
+    if (newFeeSavingRef.current || !canAdmin) return;
     const trimmed = newFeeName.trim();
     if (!trimmed) return;
     const normalized = trimmed.toLowerCase();
     const feeKindExists = [...FEE_KINDS, ...yearData.feeTypes.map((fee) => fee.name), ...persistedCustomFeeKindChoices, ...customFeeKindChoices]
       .some((kind) => kind.trim().toLowerCase() === normalized);
-    if (feeKindExists) {
+    if (feeKindExists && !newFeeRequestRef.current) {
       setNewFeeError("Ce type de frais existe déjà.");
       return;
     }
-    const nextCustomFeeKindChoices = [...persistedCustomFeeKindChoices, trimmed];
-    updateData({
-      schoolYears: data.schoolYears.map((year) =>
-        year.id === selectedYear.id ? { ...year, customFeeKindChoices: nextCustomFeeKindChoices } : year,
-      ),
-    });
-    setCustomFeeKindChoices((current) => [...current, trimmed]);
-    setFeeName(trimmed);
-    setNewFeeName("");
+    const request = newFeeRequestRef.current ?? { schoolYearId: selectedYear.id, requestId: createId("fee-kind-request"), name: trimmed };
+    newFeeRequestRef.current = request;
+    newFeeSavingRef.current = true;
+    setNewFeeSaving(true);
     setNewFeeError("");
-    setShowNewFeeForm(false);
+    try {
+      const result = await persistFeeKind(request);
+      updateData({ schoolYears: data.schoolYears.map(year => year.id === request.schoolYearId ? { ...year, customFeeKindChoices: result.customFeeKindChoices } : year) }, { persist: false });
+      setCustomFeeKindChoices(result.customFeeKindChoices);
+      setFeeName(result.name);
+      newFeeRequestRef.current = null;
+      setNewFeePending(false);
+      setNewFeeName("");
+      setShowNewFeeForm(false);
+    } catch (error) {
+      const confirmed = error instanceof FeeTypeSaveError && error.confirmed;
+      if (confirmed) newFeeRequestRef.current = null;
+      setNewFeePending(!confirmed);
+      setNewFeeError(confirmed && error instanceof Error ? error.message : "Confirmation serveur indisponible. Vérifiez cette même demande : ne recréez pas le libellé.");
+    } finally {
+      newFeeSavingRef.current = false;
+      setNewFeeSaving(false);
+    }
   }
 
   function closeSchoolSectionConfirmation() {
@@ -1135,20 +1140,22 @@ export function MenuModule({
           <span className="min-w-0 break-words font-semibold text-ink">{fee.name} - {formatFeeTargetLabel(fee)}</span>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             <strong>{formatCurrencyMoney(fee.amount, feeCurrency)}</strong>
-            <button onClick={() => editFee(fee)} type="button" className="rounded bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100">Modifier</button>
-            <button onClick={() => deleteFee(fee)} type="button" className="rounded bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100">Supprimer</button>
+            <button onClick={() => editFee(fee)} disabled={newFeePending || newFeeSaving} type="button" className="rounded bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50">Modifier</button>
+            <button onClick={() => deleteFee(fee)} disabled={newFeePending || newFeeSaving} type="button" className="rounded bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:opacity-50">Supprimer</button>
           </div>
         </div>
       );
       return (
         <fieldset disabled={!canAdmin} className="grid min-w-0 gap-4">
           {feeSaveError && <p role="alert" aria-live="assertive" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{feeSaveError}</p>}
+          {feePendingConfirmation && <p role="status" className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Confirmation en attente. Le bouton ci-dessous vérifie la même demande, sans créer un nouveau frais.</p>}
           <div ref={feeEditorRef} className="grid min-w-0 scroll-mt-4 gap-2" data-testid="fee-editor">
             <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">Frais
             <select
               ref={feeNameSelectRef}
               aria-label="Frais"
               value={feeName}
+              disabled={feePendingConfirmation}
               onChange={(event) => {
                 if (event.target.value === "__add_fee__") {
                   setShowNewFeeForm(true);
@@ -1169,7 +1176,7 @@ export function MenuModule({
               <div className="grid gap-1">
                 {feeClassChoices.map((choice) => (
                   <label key={choice.value} className="flex min-w-0 items-center gap-2 rounded px-2 py-1 hover:bg-slate-50">
-                    <input type="checkbox" checked={feeClassNames.includes(choice.value)} onChange={() => toggleFeeClass(choice.value)} className="h-4 w-4 shrink-0 accent-[#1E3A8A]" />
+                    <input type="checkbox" checked={feeClassNames.includes(choice.value)} onChange={() => toggleFeeClass(choice.value)} disabled={feePendingConfirmation} className="h-4 w-4 shrink-0 accent-[#1E3A8A]" />
                     <span className="min-w-0 break-words">{choice.label}</span>
                   </label>
                 ))}
@@ -1181,13 +1188,13 @@ export function MenuModule({
             <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
               Montant ({feeCurrencySymbol})
               <span className="relative min-w-0">
-              <MoneyInput value={feeAmount} onChange={setFeeAmount} className="input min-w-0 w-full pr-12" ariaLabel={`Montant (${feeCurrencySymbol})`} />
+              <MoneyInput value={feeAmount} onChange={setFeeAmount} disabled={feePendingConfirmation} className="input min-w-0 w-full pr-12" ariaLabel={`Montant (${feeCurrencySymbol})`} />
               <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm font-semibold text-slate-500" aria-hidden="true">{feeCurrencySymbol}</span>
               </span>
             </label>
             <div className={editingFeeId ? "grid min-w-0 grid-cols-2 gap-2" : "grid min-w-0"} data-testid="fee-editor-actions">
-              {editingFeeId && <button onClick={cancelFeeEdit} disabled={feeSubmitting} className="secondary-button w-full min-w-0 justify-center disabled:opacity-50" type="button">Annuler</button>}
-              <button onClick={() => void saveFee()} disabled={feeClassNames.length === 0 || feeSubmitting} className="primary-button w-full min-w-0 justify-center disabled:opacity-50" type="button">{feeSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
+              {editingFeeId && <button onClick={cancelFeeEdit} disabled={feeSubmitting || feePendingConfirmation} className="secondary-button w-full min-w-0 justify-center disabled:opacity-50" type="button">Annuler</button>}
+              <button onClick={() => void saveFee()} disabled={(feeClassNames.length === 0 && !feePendingConfirmation) || feeSubmitting} className="primary-button w-full min-w-0 justify-center disabled:opacity-50" type="button">{feeSubmitting ? "Enregistrement…" : feePendingConfirmation ? "Vérifier l'enregistrement" : "Enregistrer"}</button>
             </div>
           </div>
           {showNewFeeForm && (
@@ -1197,6 +1204,8 @@ export function MenuModule({
               <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                 <input
                   value={newFeeName}
+                  disabled={newFeeSaving || newFeePending}
+                  maxLength={120}
                   onChange={(event) => {
                     setNewFeeName(event.target.value);
                     setNewFeeError("");
@@ -1204,8 +1213,8 @@ export function MenuModule({
                   className="input"
                   placeholder="Nom du frais"
                 />
-                <button onClick={addFeeKind} type="button" className="primary-button w-full justify-center sm:w-auto">
-                  <Plus className="h-4 w-4" /> Ajouter le frais
+                <button onClick={() => void addFeeKind()} disabled={newFeeSaving || !newFeeName.trim()} type="button" className="primary-button w-full justify-center sm:w-auto disabled:opacity-50">
+                  <Plus className="h-4 w-4" /> {newFeeSaving ? "Enregistrement…" : newFeePending ? "Vérifier l'ajout" : "Ajouter le frais"}
                 </button>
               </div>
             </div>

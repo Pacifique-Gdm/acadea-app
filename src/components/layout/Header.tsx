@@ -20,7 +20,7 @@ type HeaderProps = {
   notificationsOpen: boolean;
   isRefreshing?: boolean;
   refreshError?: string;
-  onRefresh: () => void;
+  onRefresh: () => void | boolean | Promise<void | boolean>;
   onToggleNotifications: () => void;
   onCloseNotifications?: () => void;
   onRealtimeNotifications?: (notifications: AppNotification[]) => void;
@@ -78,8 +78,8 @@ export function Header({
     if (manualRefreshing || isRefreshing) return;
     setManualRefreshing(true);
     try {
-      await Promise.resolve(onRefresh());
-      setManualRefreshToken((value) => value + 1);
+      const refreshed = await Promise.resolve(onRefresh());
+      if (refreshed !== false) setManualRefreshToken((value) => value + 1);
     } finally {
       setManualRefreshing(false);
     }

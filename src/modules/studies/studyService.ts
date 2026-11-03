@@ -3,7 +3,7 @@ import type { Firestore } from "@firebase/firestore";
 import { db } from "../../firebase";
 import type { AppUser, AttendanceSettings, Student } from "../../types";
 import { activeAssignmentLockId, pedagogicalAssignmentId, validateWeeklyPeriods } from "./studyAssignments";
-import type { AssignmentSessionPattern, ClassTitular, PedagogicalAssignment, SchedulePeriod, StudyClass, StudyRoom, StudySubject, StudyTeacher, StudyVacation, TeacherAvailability, Timetable, TimetableEntry } from "./studyTypes";
+import type { AssignmentSessionPattern, ClassTitular, PedagogicalAssignment, SchedulePeriod, StudyClass, StudyDay, StudyDayVacation, StudyRoom, StudySubject, StudyTeacher, StudyVacation, TeacherAvailability, Timetable, TimetableEntry } from "./studyTypes";
 import { DAY_LABELS, detectAvailabilityConflicts, validTimeRange, validateAvailabilityRanges, validatePeriod } from "./studySchedule";
 import { persistGeneratedTimetable } from "./timetablePersistence";
 import { normalizeSectionIds, userSectionIds } from "../../utils/userSections";
@@ -11,6 +11,9 @@ import { normalizeSectionField } from "../../utils/schoolSections";
 import { assignmentStudentGroupKey, baseStudyClassId, classOptionId, operationalTitularClasses, validateAssignmentClassSelection, type AssignmentClassSelection } from "./studyCourseScope";
 import { normalizedSessionPattern, validateAssignmentSessionPattern } from "./assignmentSessionPattern";
 import { requestTimetableTransition } from "./timetableWorkflowClient";
+import { conditionalFirestoreWrite } from "../../services/conditionalFirestoreWrite";
+import { getCurrentFirebaseIdToken } from "../../services/auth";
+import { resolveApiUrl } from "../../config/apiUrl";
 
 function requireScope(user: AppUser, schoolId: string, schoolYearId: string) {
   if (!db || user.role !== "study_director" || user.schoolId !== schoolId || !schoolId || !schoolYearId) throw new Error("Périmètre pédagogique non autorisé.");
@@ -147,14 +150,43 @@ export async function saveTeacherWeekAvailability(input: { user: AppUser; school
   });
 }
 
-export async function saveSchedulePeriod(input:{user:AppUser;item:SchedulePeriod;existing:SchedulePeriod[]}){const database=requireScope(input.user,input.item.schoolId,input.item.schoolYearId);const error=validatePeriod(input.item,input.existing,input.item.id);if(error)throw new Error(error);await setDoc(doc(database,"schedulePeriods",input.item.id),input.item);}
-export async function setSchedulePeriodActive(user:AppUser,item:SchedulePeriod,active:boolean){const database=requireScope(user,item.schoolId,item.schoolYearId);await setDoc(doc(database,"schedulePeriods",item.id),{active,updatedAt:new Date().toISOString()},{merge:true});}
+async function mutateStudyPeriods(body: Record<string, unknown>) {
+  const token = await getCurrentFirebaseIdToken();
+  const response = await fetch(resolveApiUrl("/api/manage-teacher-grading"), {
+    method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  const payload = await response.json() as { error?: string };
+  if (!response.ok) throw new Error(payload.error ?? "Enregistrement pédagogique impossible.");
+}
+export async function saveSchedulePeriod(input:{user:AppUser;item:SchedulePeriod;existing:SchedulePeriod[]}){requireScope(input.user,input.item.schoolId,input.item.schoolYearId);const error=validatePeriod(input.item,input.existing,input.item.id);if(error)throw new Error(error);await mutateStudyPeriods({action:"study-period-save",schoolId:input.item.schoolId,schoolYearId:input.item.schoolYearId,item:input.item,expectedUpdatedAt:input.existing.find((entry)=>entry.id===input.item.id)?.updatedAt??null});}
+export async function setSchedulePeriodActive(user:AppUser,item:SchedulePeriod,active:boolean){requireScope(user,item.schoolId,item.schoolYearId);if(active)throw new Error("La réactivation nécessite une nouvelle période.");await mutateStudyPeriods({action:"study-period-active",schoolId:item.schoolId,schoolYearId:item.schoolYearId,item:{id:item.id,schoolId:item.schoolId,schoolYearId:item.schoolYearId,createdBy:item.createdBy,active:false},expectedUpdatedAt:item.updatedAt});}
 export async function setStudyClassVacation(input:{user:AppUser;item:StudyClass;vacation:StudyVacation;saturdayEnabled:boolean;saturdayVacation?:StudyVacation|null;persisted:boolean}){
   const database=requireScope(input.user,input.item.schoolId,input.item.schoolYearId);
   const now=new Date().toISOString();
   const vacationFields={vacation:input.vacation,saturdayEnabled:input.saturdayEnabled,saturdayVacation:input.saturdayEnabled?(input.saturdayVacation??input.vacation):null,updatedAt:now};
   if(input.persisted){await setDoc(doc(database,"classes",input.item.id),vacationFields,{merge:true});return;}
   await setDoc(doc(database,"classes",input.item.id),{id:input.item.id,schoolId:input.item.schoolId,schoolYearId:input.item.schoolYearId,name:input.item.name.trim(),active:true,createdBy:input.user.id,createdAt:now,...vacationFields});
+}
+
+export async function saveStudyClassDayVacations(input: { user: AppUser; classes: StudyClass[]; sourceClasses: StudyClass[]; days: readonly StudyDay[]; values: Record<string, Partial<Record<StudyDay, StudyDayVacation>>> }) {
+  if (!input.classes.length || input.classes.length > 400 || !input.days.length) throw new Error("Sélection de classes invalide.");
+  const first = input.classes[0];
+  requireScope(input.user, first.schoolId, first.schoolYearId);
+  const now = new Date().toISOString();
+  const updates: { id: string; dayVacations: Partial<Record<StudyDay, StudyDayVacation>>; expectedUpdatedAt?: string }[] = [];
+  const known = new Set(input.sourceClasses.filter((item) => item.schoolId === first.schoolId && item.schoolYearId === first.schoolYearId).map((item) => item.id));
+  for (const item of input.classes) {
+    if (item.schoolId !== first.schoolId || item.schoolYearId !== first.schoolYearId || item.active === false) throw new Error("Classe hors périmètre.");
+    const next = { ...(item.dayVacations ?? {}) };
+    for (const day of input.days) {
+      const value = input.values[item.id]?.[day];
+      if (!value || !["morning", "afternoon", "full", "none"].includes(value)) throw new Error("Vacation journalière invalide.");
+      next[day] = value;
+    }
+    if (!known.has(item.id)) await conditionalFirestoreWrite("classes", item.id, { id: item.id, schoolId: item.schoolId, schoolYearId: item.schoolYearId, name: item.name.trim(), active: true, createdBy: input.user.id, createdAt: now, updatedAt: now, vacation: item.vacation ?? "morning", saturdayEnabled: item.saturdayEnabled ?? false, saturdayVacation: item.saturdayVacation ?? null }, false);
+    updates.push({ id: item.id, dayVacations: next, expectedUpdatedAt: known.has(item.id) ? input.sourceClasses.find((source) => source.id === item.id)?.updatedAt : now });
+  }
+  await mutateStudyPeriods({action:"study-class-vacations",schoolId:first.schoolId,schoolYearId:first.schoolYearId,updates});
 }
 
 export async function saveGeneratedTimetable(input:{user:AppUser;schoolId:string;schoolYearId:string;version:number;entries:TimetableEntry[];existing:Timetable[];metadata:Timetable["generationMetadata"]}){const database=requireScope(input.user,input.schoolId,input.schoolYearId);return persistGeneratedTimetable(database,input);}

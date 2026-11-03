@@ -67,7 +67,7 @@ import { feeTargetHasOption, formatFeeTargetValue } from "./utils/feeTargets";
 import { schoolEducationLevelChoices } from "./utils/schoolConfig";
 import { markAuthStep, measureAuthStep } from "./utils/authPerformance";
 import { getPlatformSchoolStats } from "./utils/platformSchoolStats";
-import { firebaseErrorCode, logRefreshError, refreshErrorMessage } from "./utils/refreshErrors";
+import { firebaseErrorCode, logRefreshError, refreshErrorMessage, retryableRefreshError } from "./utils/refreshErrors";
 import { userFacingError } from "./utils/userFacingError";
 import { runRefreshTask } from "./utils/refreshTask";
 import { resolveSchoolCurrency, schoolWithYearCurrency } from "./utils/currency";
@@ -783,14 +783,13 @@ export default function App() {
   }
 
   async function refreshCurrentYearData() {
-    if (refreshInFlightRef.current || !user || !selectedYearId || !canUseFirestoreData()) return;
+    if (refreshInFlightRef.current || !user || !selectedYearId || !canUseFirestoreData()) return false;
     const requestVersion = yearRequestVersion.current;
-    setRefreshError("");
-    await runRefreshTask({ lock: refreshInFlightRef, setRefreshing: setIsRefreshing, load: async () => {
+    return runRefreshTask({ lock: refreshInFlightRef, setRefreshing: setIsRefreshing, retryOnError: retryableRefreshError, load: async () => {
       const next = await loadFirestoreYearData(user, selectedYearId);
       if (!next) throw new Error("Actualisation Firestore indisponible.");
       return next;
-    }, apply: (next) => { if (requestVersion !== yearRequestVersion.current) return; setData((previous) => ({ ...previous, ...next })); setDataRefreshToken((value) => value + 1); }, onError: (error) => {
+    }, apply: (next) => { if (requestVersion !== yearRequestVersion.current) return; setData((previous) => ({ ...previous, ...next })); setDataRefreshToken((value) => value + 1); setRefreshError(""); }, onError: (error) => {
       if (requestVersion !== yearRequestVersion.current) return;
       logRefreshError({ module: "school-portal", error });
       setRefreshError(refreshErrorMessage(error));
@@ -800,12 +799,11 @@ export default function App() {
   async function refreshDisciplineData() {
     if (refreshInFlightRef.current || !user || !selectedYearId || !canUseFirestoreData()) return;
     const requestVersion = yearRequestVersion.current;
-    setRefreshError("");
-    await runRefreshTask({ lock: refreshInFlightRef, setRefreshing: setIsRefreshing, load: async () => {
+    return runRefreshTask({ lock: refreshInFlightRef, setRefreshing: setIsRefreshing, retryOnError: retryableRefreshError, load: async () => {
       const next = await loadDisciplineYearData(user, selectedYearId);
       if (!next) throw new Error("Actualisation Firestore indisponible.");
       return next;
-    }, apply: (next) => { if (requestVersion !== yearRequestVersion.current) return; setData((previous) => ({ ...previous, ...next })); setDataRefreshToken((value) => value + 1); }, onError: (error) => {
+    }, apply: (next) => { if (requestVersion !== yearRequestVersion.current) return; setData((previous) => ({ ...previous, ...next })); setDataRefreshToken((value) => value + 1); setRefreshError(""); }, onError: (error) => {
       if (requestVersion !== yearRequestVersion.current) return;
       logRefreshError({ module: "discipline", error });
       setRefreshError(refreshErrorMessage(error));
@@ -814,12 +812,11 @@ export default function App() {
 
   async function refreshParentPortalData() {
     if (refreshInFlightRef.current || !user || !canUseFirestoreData()) return;
-    setRefreshError("");
-    await runRefreshTask({ lock: refreshInFlightRef, setRefreshing: setIsRefreshing, load: async () => {
+    return runRefreshTask({ lock: refreshInFlightRef, setRefreshing: setIsRefreshing, retryOnError: retryableRefreshError, load: async () => {
       const next = await loadParentPortalData(user);
       if (!next) throw new Error("Actualisation Firestore indisponible.");
       return next;
-    }, apply: (next) => { setData((previous) => ({ ...previous, ...next })); setDataRefreshToken((value) => value + 1); }, onError: (error) => {
+    }, apply: (next) => { setData((previous) => ({ ...previous, ...next })); setDataRefreshToken((value) => value + 1); setRefreshError(""); }, onError: (error) => {
       logRefreshError({ module: "parent", error });
       setRefreshError(refreshErrorMessage(error));
     } });

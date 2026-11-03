@@ -17,3 +17,4 @@ cleanup() {
 trap cleanup EXIT
 node scripts/offlineStagingFixture.mjs prepare
 npx playwright test e2e/offline-staging-authenticated.spec.ts --workers=1 --retries=0 --output=playwright-results
+npx playwright test e2e/fee-incident-emulator.spec.ts --workers=1 --retries=0 --output=playwright-results-fees

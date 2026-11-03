@@ -5,7 +5,7 @@ import { getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
 
-export const origin = "http://127.0.0.1:4173";
+export const origin = process.env.ACADEA_E2E_BASE_URL === "http://127.0.0.1:4187" ? "http://127.0.0.1:4187" : "http://127.0.0.1:4173";
 export function guard() {
   if (process.env.ACADEA_E2E_LOCAL_EMULATORS !== "YES" || process.env.VITE_FIREBASE_PROJECT_ID !== "demo-acadea"
     || process.env.FIREBASE_AUTH_EMULATOR_HOST !== "127.0.0.1:9099"
@@ -120,7 +120,7 @@ export function fixture() {
     }
     await deleteApp(app);
   }
-  return { tag, app, db, auth, school, other, year, put, seed, token, session, cleanup };
+  return { tag, app, db, auth, school, other, year, accounts, put, seed, token, session, cleanup };
 }
 export async function students(page: Page) {
   await page.getByRole("button", { name: "Élèves", exact: true }).last().click();

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { mappedAssignmentScope, reenrollTerminalStudent } from "./archivedStudentsImport.js";
+import { mappedAssignmentScope, reenrollTerminalStudent, remapPeriodTargetPairs } from "./archivedStudentsImport.js";
+
+it("remappe les couples classe/jour des périodes collectives entre années sans changer les anciennes périodes", () => {
+  expect(remapPeriodTargetPairs(undefined, new Map())).toBeUndefined();
+  expect(remapPeriodTargetPairs(["class-old|tuesday", "class-old|monday"], new Map([["class-old", "class-new"]]))).toEqual(["class-new|monday", "class-new|tuesday"]);
+  expect(() => remapPeriodTargetPairs(["missing|monday"], new Map())).toThrow();
+});
 
 describe("import annuel des portées pédagogiques", () => {
   it("remappe les options canoniques et recalcule la clé de groupe", () => {
