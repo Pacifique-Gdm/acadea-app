@@ -31,7 +31,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: sudo apt-get update && sudo apt-get install -y poppler-utils
+      - run: sudo apt-get update && sudo apt-get install -y poppler-utils tesseract-ocr
       - name: Attendre la synchronisation du SHA Staging sans créer de fixture
         run: |
           node --input-type=module <<'JS'
@@ -74,9 +74,15 @@ jobs:
           for pdf in "${pdfs[@]}"; do
             pdfinfo "$pdf" > "${pdf%.pdf}-info.txt"
             pdftotext -layout "$pdf" "${pdf%.pdf}.txt"
-            grep -q 'SOCIAL' "${pdf%.pdf}.txt"
-            grep -q 'IMPAYE' "${pdf%.pdf}.txt"
-            pdftoppm -scale-to 1600 -png "$pdf" "${pdf%.pdf}-page"
+            # Acadéa embeds the table as an image. Text extraction alone only
+            # sees the footer; verify the actual rendered page with OCR too.
+            pdftoppm -scale-to 2400 -png "$pdf" "${pdf%.pdf}-page"
+            pages=("${pdf%.pdf}"-page-*.png)
+            test "${#pages[@]}" -eq 1
+            tesseract "${pages[0]}" "${pdf%.pdf}-ocr" --psm 11
+            grep -q 'SOCIAL' "${pdf%.pdf}-ocr.txt"
+            grep -q 'IMPAYE' "${pdf%.pdf}-ocr.txt"
+            grep -q '150,00' "${pdf%.pdf}-ocr.txt"
           done
       - uses: actions/upload-artifact@v4
         if: always()
