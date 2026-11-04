@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { useDashboardArrears } from "../../hooks/useDashboardArrears";
+import { DashboardArrearsValue } from "../../components/financial/DashboardArrearsValue";
 import type { CSSProperties } from "react";
 import { Banknote, BarChart3, BookOpen, Download, GraduationCap, ShieldCheck, UserRound, UsersRound, X } from "lucide-react";
 import { FormPanel, Metric } from "../../components/ui";
@@ -358,6 +360,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
   const activeStudents = useMemo(() => data.students.filter((student) => !isArchivedStudent(student)), [data.students]);
   const filteredStudents = useMemo(() => activeStudents.filter((student) => sectionFilter === "all" || getClassSection(student.className) === sectionFilter), [activeStudents, sectionFilter]);
   const filteredStudentIds = useMemo(() => new Set(filteredStudents.map((student) => student.id)), [filteredStudents]);
+  const dashboardArrears = useDashboardArrears(filteredStudents, data.payments);
   const filteredParents = useMemo(() => {
     const filteredParentIds = new Set(filteredStudents.map((student) => student.parentId).filter(Boolean));
     return data.parents.filter((parent) => filteredParentIds.has(parent.id) || parent.studentIds.some((studentId) => filteredStudentIds.has(studentId)));
@@ -534,6 +537,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
     { label: "Montant net exigible", value: formatCurrencyMoney(dashboardFinancialStats.expected, currentCurrency), icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
     { label: "Frais de l'année encaissés", value: financialExportBlocked ? "Non calculable" : formatCurrencyMoney(totalPayments, currentCurrency), icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
     { label: "Montant restant \u00e0 payer", value: financialExportBlocked ? "Non calculable" : formatCurrencyMoney(remaining, currentCurrency), icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
+    { label: "Arriérés", value: <DashboardArrearsValue {...dashboardArrears} currency={currentCurrency} />, icon: Banknote, tone: "bg-amber-100 text-amber-700" },
   ];
 
   function progressBarTone(rate: number) {

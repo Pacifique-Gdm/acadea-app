@@ -40,6 +40,16 @@ const personnel: AppUser[] = [
 const model = { students, feeTypes, payments, expenses, personnel, schoolYears };
 
 describe("agrégations du Dashboard Coordination", () => {
+  it("utilise la devise annuelle des obligations sans convertir ni mélanger les écoles", () => {
+    const result = buildCoordinationDashboardStats(schools.slice(0, 2), {
+      ...model,
+      schoolYears: schoolYears.map((year) => year.id === "year-a" ? { ...year, currency: "CDF" as const } : year),
+      payments: payments.map((payment) => payment.schoolId === "school-a" ? { ...payment, currency: "CDF" as const } : payment),
+      expenses: [],
+    });
+    expect(result.financialGroups).toHaveLength(1);
+    expect(result.financialGroups[0]).toMatchObject({ currency: "CDF", official: 20100, expected: 20100, paid: 5050, remaining: 15050 });
+  });
   it("agrège toutes les écoles autorisées sans fusionner classes ni parents homonymes entre écoles", () => {
     const result = buildCoordinationDashboardStats(schools.slice(0, 2), model, { referenceSchoolYear: "2026-2027" });
     expect(result.totalStudents).toBe(2);

@@ -2,7 +2,7 @@ import type { AppUser, CashInflow, Expense, FeeType, Payment, School, SchoolSect
 import { buildDashboardClassRows } from "./dashboardClassStats";
 import { groupCoordinationFinancialsByCurrency } from "./coordinationFinancialsByCurrency";
 import type { CoordinationCurrencyFinancialGroup } from "./coordinationFinancialsByCurrency";
-import type { SchoolCurrency } from "./currency";
+import { schoolWithYearCurrency, type SchoolCurrency } from "./currency";
 import { getClassSection } from "./studentClasses";
 
 export type DashboardCurrency = SchoolCurrency;
@@ -101,7 +101,7 @@ export function buildCoordinationDashboardStats(
   const classRows = buildDashboardClassRows(students, (schoolId) => schoolById.get(schoolId)?.name ?? schoolId) as CoordinationDashboardClassRow[];
 
   const financialGroups = groupCoordinationFinancialsByCurrency({
-    schools: alignedSchools,
+    schools: alignedSchools.map((school) => schoolWithYearCurrency(school, yearsById.get(school.activeSchoolYearId))),
     students,
     feeTypes,
     payments,

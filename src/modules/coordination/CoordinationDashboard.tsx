@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { useDashboardArrears } from "../../hooks/useDashboardArrears";
+import { DashboardArrearsValue } from "../../components/financial/DashboardArrearsValue";
 import { Banknote, BarChart3, BookOpen, Download, GraduationCap, ShieldCheck, UserRound, UsersRound } from "lucide-react";
 import { FormPanel, Metric } from "../../components/ui";
 import { useExpenseCurrencyResolution } from "../../hooks/useResolvedExpenseCurrencies";
@@ -85,6 +87,7 @@ export function CoordinationDashboard({
     referenceSchoolYear: coordination.referenceSchoolYear,
     section: sectionFilter,
   }), [coordination.referenceSchoolYear, financialModel, scopedSchools, sectionFilter]);
+  const dashboardArrears = useDashboardArrears(stats.students, model.payments, true);
   const schoolById = useMemo(() => new Map(scopedSchools.map((school) => [school.id, school])), [scopedSchools]);
   const hasUnknownFinancialCurrency = stats.financialGroups.some((group) => (group.unknownCurrencyCount ?? 0) > 0)
     || model.payments.some((payment) => payment.collectionSchoolYearId && stats.alignedSchoolIds.includes(payment.schoolId)
@@ -165,6 +168,7 @@ export function CoordinationDashboard({
     { label: "Montant net exigible", value: financialValue("expected"), icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
     { label: "Frais de l'année encaissés", value: financialValue("paid"), icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
     { label: "Montant restant à payer", value: financialValue("remaining"), icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
+    { label: "Arriérés", value: <DashboardArrearsValue {...dashboardArrears} />, icon: Banknote, tone: "bg-amber-100 text-amber-700" },
   ];
 
   function resetFilters() {

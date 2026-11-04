@@ -50,3 +50,17 @@ export function formatMoneyInput(value: string) {
   const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
   return decimals === undefined ? grouped : `${grouped},${decimals}`;
 }
+
+/** Only keyboard edits may temporarily disrupt the grouping we rendered.
+ * Pasted text still passes the strict, unambiguous money parser. */
+export function parseMoneyEdit(value: string, inputType: string) {
+  if (inputType === "insertText" || inputType === "deleteContentBackward" || inputType === "deleteContentForward" || inputType === "deleteByCut") {
+    const compact = value.replace(/[ \u00a0\u202f]/g, "");
+    if (/^\d*(?:[.,]\d{0,2})?$/.test(compact)) return parseMoneyInput(compact);
+  }
+  return parseMoneyInput(value);
+}
+
+export function defaultFeeAmount(currency: SchoolCurrency) {
+  return currency === "CDF" ? "10000" : "100";
+}

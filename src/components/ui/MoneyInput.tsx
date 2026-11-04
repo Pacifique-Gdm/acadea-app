@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { formatMoneyInput, parseMoneyInput } from "../../utils/currency";
+import { formatMoneyInput, parseMoneyEdit } from "../../utils/currency";
 import { moneyInputCaret } from "../../utils/moneyInputCaret";
 
 export function MoneyInput({ value, onChange, className = "input", placeholder = "Montant", disabled, max, ariaLabel }: {
@@ -27,7 +27,7 @@ export function MoneyInput({ value, onChange, className = "input", placeholder =
     value={formatMoneyInput(value)}
     onChange={(event) => {
       pendingCaret.current = { raw: event.target.value, position: event.target.selectionStart ?? event.target.value.length };
-      onChange(parseMoneyInput(event.target.value));
+      onChange(parseMoneyEdit(event.target.value, (event.nativeEvent as InputEvent).inputType ?? ""));
       // Repositionne aussi le curseur quand seule une espace de regroupement
       // change : la valeur numérique normalisée peut alors rester identique.
       setRevision((current) => current + 1);

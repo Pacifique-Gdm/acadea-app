@@ -120,10 +120,10 @@ try {
     await page.getByRole('button', { name: 'Menu', exact: true }).last().click();
     await page.getByRole('button', { name: /Cas sociaux et prises en charge/ }).click();
     await page.getByRole('tab', { name: 'Bénéficiaires', exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Détails', exact: true }).first().waitFor();
+    await page.locator('article').filter({ hasText: 'SOCIAL' }).first().waitFor();
     await expect(page.getByText(/SOCIAL/).first()).toBeVisible();
     await expect(page.getByText(/IMPAYE/).first()).toBeVisible();
-    await page.getByRole('button', { name: 'Exporter PDF', exact: true }).click();
+    await page.getByRole('button', { name: 'PDF', exact: true }).click();
     const download = page.locator('[data-pdf-download][aria-disabled="false"]');
     await download.waitFor({ timeout: 60000 });
     const bytes = await page.evaluate(async () => Array.from(new Uint8Array(await (await fetch(document.querySelector('[data-pdf-download]').href)).arrayBuffer())));
