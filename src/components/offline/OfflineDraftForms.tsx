@@ -1,16 +1,21 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { OfflineAccess } from "../../services/offlineAccess";
 import { loadOfflineContext, type OfflineContext } from "../../services/offlineContext";
 import { captureOfflineDraft } from "../../services/offlineDrafts";
 import type { OfflineScope } from "../../services/offlineQueue";
 import { attendanceRecordId } from "../../utils/attendance";
 import { formatCurrencyMoney } from "../../utils/currency";
+import { offlineEnrollmentClasses, offlineFeeChoices, sortedOfflineStudents } from "../../utils/offlineFormChoices";
 
 const slots = ["period_1", "period_2", "semester_1_exam", "period_3", "period_4", "semester_2_exam"];
 const slotLabel: Record<string, string> = { period_1: "1re période", period_2: "2e période", semester_1_exam: "Examen du 1er semestre",
   period_3: "3e période", period_4: "4e période", semester_2_exam: "Examen du 2e semestre" };
 
 export function OfflineDraftForms({ scope, role }: { scope: OfflineScope; role: OfflineAccess["role"] }) {
+  return <ScopedOfflineDraftForms key={`${scope.userId}:${scope.schoolId}:${scope.schoolYearId}:${role}`} scope={scope} role={role} />;
+}
+
+function ScopedOfflineDraftForms({ scope, role }: { scope: OfflineScope; role: OfflineAccess["role"] }) {
   const [context, setContext] = useState<OfflineContext | null>(null);
   const [courseId, setCourseId] = useState("");
   const [slot, setSlot] = useState("period_1");
@@ -31,9 +36,11 @@ export function OfflineDraftForms({ scope, role }: { scope: OfflineScope; role: 
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [message, setMessage] = useState("");
   useEffect(() => {
     let active = true;
+    setContext(null);
     const refresh = () => { void loadOfflineContext(scope).then((value) => { if (active) setContext(value?.role === role ? value : null); }); };
     refresh();
     window.addEventListener("acadea:offline-context-ready", refresh);
@@ -42,14 +49,17 @@ export function OfflineDraftForms({ scope, role }: { scope: OfflineScope; role: 
   const course = useMemo(() => context?.courses.find((item) => item.assignmentId === courseId), [context, courseId]);
   const config = course?.configs.find((item) => item.slot === slot) ?? course?.configs.find((item) => item.slot === "legacy");
   const existingGrade = course?.entries.find((item) => item.studentId === studentId && item.slot === slot);
-  const selectedClass = context?.classes.find((item) => item.id === classId);
+  const enrollmentClasses = offlineEnrollmentClasses(context);
+  const selectedClass = enrollmentClasses.find((item) => item.id === classId);
   const parentClass = selectedClass?.parentClassId
     ? context?.classes.find((item) => item.id === selectedClass.parentClassId) : selectedClass;
-  const fee = context?.fees.find((item) => item.id === feeTypeId);
-  const students = role === "teacher" ? course?.students ?? [] : context?.students ?? [];
+  const fees = offlineFeeChoices(context, studentId);
+  const fee = fees.find((item) => item.id === feeTypeId);
+  const students = sortedOfflineStudents(role === "teacher" ? course?.students ?? [] : context?.students ?? []);
 
   async function save() {
-    if (!context || saving) return;
+    if (!context || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true); setMessage("");
     try {
       if (role === "teacher") {
@@ -80,13 +90,16 @@ export function OfflineDraftForms({ scope, role }: { scope: OfflineScope; role: 
           amount: Number(amount.replace(",", ".")), currency: fee.currency, expectedFeeAmount: fee.amount, note });
       }
       setMessage("Brouillon local enregistré. Aucune opération n'est encore confirmée par le serveur.");
+      if (role === "school_admin" || role === "secretary") {
+        setNom(""); setPostnom(""); setPrenom(""); setSexe("M"); setBirthDate(""); setClassId("");
+      }
       setConfirmation(""); setScore(""); setReason(""); setAmount(""); setNote("");
     } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Brouillon local impossible."); }
-    finally { setSaving(false); }
+    finally { setSaving(false); savingRef.current = false; }
   }
 
   if (!context) return <p className="mt-3 text-sm text-amber-800">Références locales non préchargées sur cet appareil. Reconnectez-vous pour les télécharger.</p>;
-  return <section className="mt-4 grid gap-2 border-t border-slate-200 pt-3 text-sm" aria-label="Préparer une opération hors connexion">
+  return <section className="mt-4 grid min-w-0 gap-3 rounded border border-slate-200 bg-white p-4 text-sm shadow-sm" aria-label="Préparer une opération hors connexion">
     <h3 className="font-semibold">Préparer un brouillon local</h3>
     <p className="text-xs text-amber-800">Données préchargées le {new Date(context.savedAt).toLocaleString("fr-FR")}. Le serveur revérifiera tout à la reconnexion.</p>
     {role === "teacher" && <>
@@ -105,7 +118,8 @@ export function OfflineDraftForms({ scope, role }: { scope: OfflineScope; role: 
       <input className="input" aria-label="Motif manuel" value={reason} onChange={(event) => setReason(event.target.value)} />
     </>}
     {(role === "school_admin" || role === "secretary") && <>
-      <select className="input" aria-label="Classe préchargée" value={classId} onChange={(event) => setClassId(event.target.value)}><option value="">Choisir une classe</option>{context.classes.map((item) => <option key={item.id} value={item.id}>{item.name}{item.option ? ` · ${item.option}` : ""}</option>)}</select>
+      <select className="input" aria-label="Classe préchargée" value={classId} onChange={(event) => setClassId(event.target.value)}><option value="">Choisir une classe</option>{enrollmentClasses.map((item) => <option key={item.id} value={item.id}>{item.label ?? item.name}</option>)}</select>
+      {!enrollmentClasses.length && <p role="status">Aucune classe opérationnelle préchargée. Actualisez les références en ligne avant une inscription.</p>}
       <input className="input" aria-label="Nom" placeholder="Nom" value={nom} onChange={(event) => setNom(event.target.value)} />
       <input className="input" aria-label="Post-nom" placeholder="Post-nom" value={postnom} onChange={(event) => setPostnom(event.target.value)} />
       <input className="input" aria-label="Prénom" placeholder="Prénom" value={prenom} onChange={(event) => setPrenom(event.target.value)} />
@@ -113,8 +127,9 @@ export function OfflineDraftForms({ scope, role }: { scope: OfflineScope; role: 
       <input className="input" aria-label="Date de naissance" type="date" value={birthDate} onChange={(event) => setBirthDate(event.target.value)} />
     </>}
     {role === "cashier" && <>
-      <select className="input" aria-label="Élève" value={studentId} onChange={(event) => setStudentId(event.target.value)}><option value="">Choisir un élève</option>{students.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
-      <select className="input" aria-label="Type de frais" value={feeTypeId} onChange={(event) => setFeeTypeId(event.target.value)}><option value="">Choisir un frais</option>{context.fees.map((item) => <option key={item.id} value={item.id}>{item.name} · {formatCurrencyMoney(item.amount, item.currency)}</option>)}</select>
+      <select className="input" aria-label="Élève" value={studentId} onChange={(event) => { setStudentId(event.target.value); setFeeTypeId(""); }}><option value="">Choisir un élève</option>{students.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+      <select className="input" aria-label="Type de frais" value={feeTypeId} onChange={(event) => setFeeTypeId(event.target.value)}><option value="">Choisir un frais</option>{fees.map((item) => <option key={item.id} value={item.id}>{item.name} · {formatCurrencyMoney(item.amount, item.currency)}</option>)}</select>
+      {studentId && !fees.length && <p role="status">Aucune obligation identifiable dans le cache pour cet élève. Actualisez les références en ligne.</p>}
       <input className="input" aria-label="Montant provisoire" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} />
       <input className="input" aria-label="Note facultative" value={note} onChange={(event) => setNote(event.target.value)} />
       <p className="font-semibold text-amber-800">Proposition provisoire uniquement : aucun reçu ni solde actualisé avant validation serveur.</p>

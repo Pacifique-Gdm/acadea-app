@@ -2,6 +2,10 @@ import { useEffect, useId, useRef } from "react";
 import type { ReactNode } from "react";
 import { X } from "lucide-react";
 
+// Nested drawers must not dispatch Escape/Tab to the consultation underneath.
+const drawerStack: symbol[] = [];
+let initialOverflow: { body: string; html: string } | undefined;
+
 export function AdminDrawer({
   title,
   children,
@@ -30,14 +34,16 @@ export function AdminDrawer({
   }, [onClose]);
 
   useEffect(() => {
-    const previousBodyOverflow = document.body.style.overflow;
-    const previousHtmlOverflow = document.documentElement.style.overflow;
+    const token = Symbol("drawer");
+    if (!drawerStack.length) initialOverflow = { body: document.body.style.overflow, html: document.documentElement.style.overflow };
+    drawerStack.push(token);
     const previousActiveElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     document.body.style.overflow = "hidden";
     document.documentElement.style.overflow = "hidden";
     closeButtonRef.current?.focus();
 
     function handleKeyDown(event: KeyboardEvent) {
+      if (drawerStack.at(-1) !== token) return;
       if (event.key === "Escape") {
         event.preventDefault();
         onCloseRef.current();
@@ -61,10 +67,15 @@ export function AdminDrawer({
 
     document.addEventListener("keydown", handleKeyDown);
     return () => {
+      const index = drawerStack.indexOf(token);
+      if (index >= 0) drawerStack.splice(index, 1);
       document.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = previousBodyOverflow;
-      document.documentElement.style.overflow = previousHtmlOverflow;
-      previousActiveElement?.focus();
+      if (!drawerStack.length && initialOverflow) {
+        document.body.style.overflow = initialOverflow.body;
+        document.documentElement.style.overflow = initialOverflow.html;
+        initialOverflow = undefined;
+      }
+      if (previousActiveElement?.isConnected) previousActiveElement.focus();
     };
   }, []);
 

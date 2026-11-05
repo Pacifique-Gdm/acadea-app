@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { AppUser, AttendanceSettings, Student } from "../../types";
-import { subscribeToStudyData } from "./studyService";
+import { subscribeToStudyData, subscribeToStudyStudents } from "./studyService";
 import type { ClassTitular, PedagogicalAssignment, SchedulePeriod, StudyClass, StudyRoom, StudySubject, StudyTeacher, TeacherAvailability, Timetable, TimetableEntry } from "./studyTypes";
 import { getStudentSection } from "../../utils/studentClasses";
 import { filterByAllowedSections, isSectionAllowed, userSectionIds } from "../../utils/userSections";
@@ -10,20 +10,27 @@ import { currentTimetableEntries } from "./studyScope";
 import { completedStudyTimetables } from "./studySchedule";
 
 export function useStudyData(user: AppUser, schoolId: string, schoolYearId: string, refreshToken = 0, includeStudents = true) {
+  const scope = `${user.id}:${user.role}:${schoolId}:${schoolYearId}:${userSectionIds(user).join(",")}`;
+  const [dataScope, setDataScope] = useState(scope);
   const [teachers,setTeachers]=useState<StudyTeacher[]>([]),[subjects,setSubjects]=useState<StudySubject[]>([]),[classes,setClasses]=useState<StudyClass[]>([]),[students,setStudents]=useState<Student[]>([]),[assignments,setAssignments]=useState<PedagogicalAssignment[]>([]),[titulars,setTitulars]=useState<ClassTitular[]>([]),[availabilities,setAvailabilities]=useState<TeacherAvailability[]>([]),[periods,setPeriods]=useState<SchedulePeriod[]>([]),[timetables,setTimetables]=useState<Timetable[]>([]),[timetableEntries,setTimetableEntries]=useState<TimetableEntry[]>([]),[rooms,setRooms]=useState<StudyRoom[]>([]);
   const [attendanceSettings,setAttendanceSettings]=useState<AttendanceSettings>();
   const [error,setError]=useState("");
   const [loadedSources, setLoadedSources] = useState<Set<string>>(() => new Set());
   useEffect(() => {
-    if (!includeStudents) setStudents([]);
+    let active = true;
+    setDataScope(scope);
+    setTeachers([]); setSubjects([]); setClasses([]); setAssignments([]); setTitulars([]);
+    setAvailabilities([]); setPeriods([]); setTimetables([]); setTimetableEntries([]); setRooms([]);
+    setAttendanceSettings(undefined);
     setLoadedSources(new Set());
     setError("");
     const mark = <T,>(source: string, setter: (items: T[]) => void) => (items: T[]) => {
+      if (!active) return;
       setter(items);
       setLoadedSources((current) => current.has(source) ? current : new Set(current).add(source));
     };
     const unsubscribes = subscribeToStudyData({
-      user, schoolId, schoolYearId, includeStudents,
+      user, schoolId, schoolYearId, includeStudents: false,
       onTeachers: mark("teachers", setTeachers),
       onSubjects: mark("subjects", setSubjects),
       onClasses: mark("classes", setClasses),
@@ -36,12 +43,21 @@ export function useStudyData(user: AppUser, schoolId: string, schoolYearId: stri
       onTimetableEntries: mark("timetableEntries", setTimetableEntries),
       onRooms: mark("rooms", setRooms),
       onAttendanceSettings: (items) => {
+        if (!active) return;
         setAttendanceSettings(items[0]);
         setLoadedSources((current) => current.has("attendanceSettings") ? current : new Set(current).add("attendanceSettings"));
       },
-      onError: (cause) => setError(cause.message),
+      onError: (cause) => { if (active) setError(cause.message); },
     });
-    return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
+    return () => { active = false; unsubscribes.forEach((unsubscribe) => unsubscribe()); };
+  }, [refreshToken, schoolId, schoolYearId, user, scope]);
+  useEffect(() => {
+    let active = true;
+    setStudents([]);
+    if (!includeStudents) return;
+    const stop = subscribeToStudyStudents(user, schoolId, schoolYearId,
+      (rows) => { if (active) setStudents(rows); }, (cause) => { if (active) setError(cause.message); });
+    return () => { active = false; stop(); };
   }, [includeStudents, refreshToken, schoolId, schoolYearId, user]);
   const scopedClasses = useMemo(() => canonicalOperationalClasses(classes, students, schoolId, schoolYearId, userSectionIds(user)), [classes, schoolId, schoolYearId, students, user]);
   const scopedClassIds = useMemo(() => new Set(scopedClasses.map((item) => item.id)), [scopedClasses]);
@@ -57,5 +73,7 @@ export function useStudyData(user: AppUser, schoolId: string, schoolYearId: stri
   const generationReady = ["teachers", "subjects", "classes", "assignments", "availabilities", "periods", "attendanceSettings"].every((source) => loadedSources.has(source));
   const schedulesReady = ["timetables", "timetableEntries"].every((source) => loadedSources.has(source));
   const workflowReady = generationReady && schedulesReady && loadedSources.has("rooms") && !error;
+  // Effects run after paint: never expose the previous scope during that render.
+  if (dataScope !== scope) return {teachers:[],subjects:[],classes:[],sourceClasses:[],students:[],assignments:[],titulars:[],availabilities:[],periods:[],timetables:[],timetableEntries:[],rooms:[],attendanceSettings:undefined,error:"",generationReady:false,schedulesReady:false,workflowReady:false};
   return {teachers:scopedTeachers,subjects:scopedSubjects,classes:scopedClasses,sourceClasses:classes,students:scopedStudents,assignments:scopedAssignments,titulars:scopedTitulars,availabilities,periods,timetables,timetableEntries:activeTimetableEntries,rooms,attendanceSettings,error,generationReady,schedulesReady,workflowReady};
 }

@@ -1,12 +1,14 @@
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "../firebase";
-import type { AppUser, School, SchoolYear } from "../types";
+import type { AppUser, FeeType, School, SchoolClassRecord, SchoolYear, Student } from "../types";
+import { operationalSchoolClasses } from "./schoolSubclasses";
+import { getApplicableFeeTypes } from "../utils/stats";
 import { loadTeacherGrading, loadTeacherGradingRoster } from "../modules/teacher/teacherGradingService";
 import { loadDisciplineYearData } from "./firestoreData";
 import { readOfflineContext, saveOfflineContext, type OfflineScope } from "./offlineQueue";
 
-export type OfflineStudent = { id: string; name: string; className: string; section?: string };
-export type OfflineClass = { id: string; name: string; parentClassId?: string; section?: string; option?: string; classOptionKey?: string };
+export type OfflineStudent = { id: string; name: string; className: string; section?: string; feeTypeIds?: string[] };
+export type OfflineClass = { id: string; name: string; parentClassId?: string; section?: string; option?: string; classOptionKey?: string; operational?: boolean; label?: string };
 export type OfflineGradeCourse = { assignmentId: string; classId: string; subjectId: string;
   className: string; subjectName: string; students: OfflineStudent[];
   configs: Array<{ slot: string; maxScore: number; version: string }>;
@@ -62,16 +64,23 @@ export async function prepareOfflineContext(user: AppUser, school: School, year:
       const fees = await getDocs(query(collection(db, "feeTypes"), where("schoolId", "==", school.id), where("schoolYearId", "==", year.id)));
       const currency = year.currency === "CDF" || year.currency === "USD" ? year.currency : null;
       if (!currency) return;
+      const feeRows = fees.docs.map((snapshot) => ({ ...snapshot.data(), id: snapshot.id } as FeeType));
+      context.students = students.docs.map((snapshot) => {
+        const pupil = { ...snapshot.data(), id: snapshot.id } as Student;
+        return { ...asStudent(pupil), feeTypeIds: getApplicableFeeTypes(pupil, feeRows).map((fee) => fee.id) };
+      });
       context.fees = fees.docs.map((snapshot) => ({ id: snapshot.id, name: String(snapshot.data().name ?? "Frais"),
         amount: Number(snapshot.data().amount), currency }));
     } else {
       const classes = await getDocs(query(collection(db, "classes"), where("schoolId", "==", school.id), where("schoolYearId", "==", year.id)));
+      const operational = new Map(operationalSchoolClasses(classes.docs.map((snapshot) => ({ ...snapshot.data(), id: snapshot.id } as SchoolClassRecord)), school.id, year.id).map((item) => [item.id, item]));
       context.classes = classes.docs.filter((snapshot) => snapshot.data().active !== false)
         .map((snapshot) => ({ id: snapshot.id, name: String(snapshot.data().name ?? ""),
-          parentClassId: typeof snapshot.data().parentClassId === "string" ? snapshot.data().parentClassId as string : undefined,
+          operational: operational.has(snapshot.id), label: operational.get(snapshot.id)?.name,
+          parentClassId: operational.get(snapshot.id)?.parentClassId ?? (typeof snapshot.data().parentClassId === "string" ? snapshot.data().parentClassId as string : undefined),
           section: typeof snapshot.data().section === "string" ? snapshot.data().section as string : undefined,
-          option: typeof snapshot.data().option === "string" ? snapshot.data().option as string : undefined,
-          classOptionKey: typeof snapshot.data().classOptionKey === "string" ? snapshot.data().classOptionKey as string : undefined }));
+          option: operational.get(snapshot.id)?.option ?? (typeof snapshot.data().option === "string" ? snapshot.data().option as string : undefined),
+          classOptionKey: operational.get(snapshot.id)?.classOptionKey ?? (typeof snapshot.data().classOptionKey === "string" ? snapshot.data().classOptionKey as string : undefined) }));
     }
   } else return;
   await saveOfflineContext(scope, context);

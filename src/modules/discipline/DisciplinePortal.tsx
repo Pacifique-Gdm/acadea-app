@@ -23,6 +23,9 @@ import { buildDisciplineStats } from "../../utils/disciplineStats";
 import { nextMessageThreadId } from "../../utils/messageThreads";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import { mergeMessagesById, mergeNotificationsById } from "../../utils/realtimeMerges";
+import { subscribeToSchoolClasses } from "../../services/schoolSubclasses";
+import { userSectionIds } from "../../utils/userSections";
+import type { SchoolClassRecord } from "../../types";
 import type { AppData, AppNotification, AppUser, AttendanceRecord, AttendanceSettings, AttendanceStatus, AuditLog, DisciplineSanction, Message, School, SchoolYear, Student } from "../../types";
 
 type DisciplineTab = "status" | "attendance" | "messages" | "menu";
@@ -132,6 +135,15 @@ export function DisciplinePortal({
   renderPublishedTimetable?: () => ReactNode;
 }) {
   const [activeDisciplineTab, setActiveDisciplineTab] = useState<DisciplineTab>("status");
+  const [classRecords, setClassRecords] = useState<SchoolClassRecord[]>([]);
+  const [classesError, setClassesError] = useState("");
+  useEffect(() => {
+    let active = true;
+    setClassRecords([]); setClassesError("");
+    const stop = subscribeToSchoolClasses(school.id, year.id, (rows) => { if (active) setClassRecords(rows); },
+      (cause) => { if (active) setClassesError(cause.message); });
+    return () => { active = false; stop(); };
+  }, [school.id, year.id]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [newSanctionOpen, setNewSanctionOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -699,6 +711,9 @@ export function DisciplinePortal({
           <DisciplineAttendanceDrawer
             students={yearData.students}
             attendance={yearData.attendance}
+            classRecords={classRecords}
+            allowedSections={userSectionIds(user)}
+            classesError={classesError}
             settings={attendanceSettings}
             school={school}
             year={year}

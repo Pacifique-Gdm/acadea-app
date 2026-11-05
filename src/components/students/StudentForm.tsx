@@ -7,6 +7,7 @@ import { resolveStudentParentClass, schoolClassRecordId, secondarySubclassesForO
 import { nextSubclassLetters } from "../../utils/subclassLetters.js";
 import { deleteStudentBirthDateInput, formatStudentBirthDateInput, guideStudentBirthDateInput, parseStudentBirthDateInput } from "../../utils/studentBirthDate";
 import type { ParentProfile, SchoolClass, SchoolClassRecord, Student } from "../../types";
+import { ParentSearchPicker } from "../parents/ParentSearchPicker";
 import { isSchoolOptionAddConfirmation, SCHOOL_OPTION_ADD_CONFIRMATION } from "../../utils/schoolOptions";
 
 export function StudentForm({
@@ -94,9 +95,6 @@ export function StudentForm({
   const [subclassDeleteConfirmation, setSubclassDeleteConfirmation] = useState("");
   const [subclassDeletePending, setSubclassDeletePending] = useState(false);
   const subclassControlsRef = useRef<HTMLDivElement>(null);
-  const [parentQuery, setParentQuery] = useState("");
-  const normalizedParentQuery = parentQuery.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase("fr");
-  const visibleParents = parents.filter((parent) => !normalizedParentQuery || `${parent.fullName} ${parent.phone}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("fr").includes(normalizedParentQuery));
   const selectedStructuredClass = resolveStudentParentClass(structuredClasses, form);
   const selectedClass = selectedStructuredClass ?? (form.className ? { id: schoolClassRecordId(form.schoolId, form.schoolYearId, form.className), schoolId: form.schoolId, schoolYearId: form.schoolYearId, name: form.className, active: true } : undefined);
   const isSecondaryClass = getClassSection(form.className) === "Secondaire";
@@ -341,18 +339,8 @@ export function StudentForm({
         </li>)}</ul>}
       </div>
       <ImageUploadField label="Photo de l'élève" value={form.photoUrl ?? ""} onChange={(value) => setForm({ ...form, photoUrl: value })} maxWidth={800} maxBytes={300 * 1024} />
-      <label className="grid gap-1 text-sm font-medium text-slate-700">
-        Parent
-        <input value={parentQuery} onChange={(event) => setParentQuery(event.target.value)} className="input" placeholder="Rechercher un parent par nom" aria-label="Rechercher un parent" />
-        <select value={form.parentId ?? ""} onChange={(event) => setForm({ ...form, parentId: event.target.value || undefined })} className="input">
-          <option value="">Aucun parent lié</option>
-          {pendingParent && <option value={pendingParent.id}>{pendingParent.fullName} - {pendingParent.phone} (création en attente)</option>}
-          {visibleParents.map((parent) => (
-            <option key={parent.id} value={parent.id}>{parent.fullName} - {parent.phone}</option>
-          ))}
-        </select>
-        {visibleParents.length === 0 && <span className="rounded bg-slate-50 p-2 text-sm font-normal text-slate-500">Aucun parent trouvé.</span>}
-      </label>
+      <ParentSearchPicker key={form.schoolId} schoolId={form.schoolId} parents={parents} selectedId={form.parentId} pendingParent={pendingParent}
+        onChange={(parentId) => setForm({ ...form, parentId })} />
       {canCreateParent && <div className="rounded border border-slate-100 bg-slate-50 p-3">
         <p className="mb-2 text-sm font-semibold text-ink">Créer un parent sans quitter la fiche</p>
         <div className="grid gap-2">
