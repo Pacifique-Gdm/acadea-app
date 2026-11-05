@@ -16,6 +16,7 @@ import { MessagingDrawerShell } from "../../components/messages/MessagingDrawerS
 import { MessageDrawerContent } from "../../components/messages/MessageDrawerContent";
 import { runRefreshTask } from "../../utils/refreshTask";
 import { coordinationSchoolBatches } from "../../services/coordinationSchoolBatches";
+import { subscribeCoordinationDashboardUpdates } from "../../services/coordinationDashboardUpdates";
 
 type CoordinationTab = "dashboard" | "students" | "control" | "messages" | "menu";
 const emptySupervisionModel: CoordinationDashboardReadModel = { students: [], feeTypes: [], payments: [], expenses: [], personnel: [], schoolYears: [] };
@@ -104,6 +105,13 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
       throw new Error("Chargement de la supervision impossible.");
     } finally { if (requestId === supervisionRequestRef.current) setSupervisionLoading(false); }
   }, [activeSchools, supervisionScope, user.role]);
+
+  useEffect(() => {
+    if (!db || tab !== "dashboard" || !supervisionScope) return;
+    return subscribeCoordinationDashboardUpdates(db as unknown as Firestore, supervisionScope.split("|"),
+      user.role === "sub_coordination_admin", loadSupervision,
+      () => setSupervisionError("Actualisation automatique indisponible. Utilisez Actualiser ou vérifiez votre connexion et vos droits."));
+  }, [loadSupervision, supervisionScope, tab, user.role]);
 
   useEffect(() => {
     if (supervisionScope) return;
