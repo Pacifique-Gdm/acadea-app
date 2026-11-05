@@ -6,6 +6,14 @@ import { guard, services, prepare, retire } from './socialFinanceStagingFixture.
 const origin = 'https://acadea-staging.vercel.app';
 const output = 'diagnostics/navigation-staging';
 const results = [];
+const responsive=async(page,label)=>{
+  for(const width of [320,360,375,390,414,768,1024,1280,1440]){
+    await page.setViewportSize({width,height:1000});
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),`Débordement horizontal ${label}, largeur ${width}`);
+    await page.screenshot({path:`${output}/${label}-${width}.png`,fullPage:true});
+  }
+  await page.setViewportSize({width:1365,height:1000});
+};
 guard();
 assert.match(process.env.ACADEA_EXPECTED_SHA || '', /^[a-f0-9]{40}$/);
 assert.ok(process.env.STAGING_FIREBASE_API_KEY);
@@ -40,10 +48,14 @@ try {
       await check(`Navigation ${role}`,async()=>{
         const nav=page.locator('nav.mobile-bottom-navigation');
         const labels=await nav.locator('button').allTextContents();
+        const timings=[];
         for(const label of [...labels,...labels].filter(t=>!t.includes('Installer'))) {
           const button=nav.getByRole('button',{name:label.trim(),exact:true});
+          const started=Date.now();
           await button.click();await expect(button).toHaveAttribute('aria-current','page');
+          timings.push(Date.now()-started);
         }
+        results.push({name:`Navigation ${role} — clic vers indicateur actif, sans référence avant`,result:'MEASURED',milliseconds:timings});
         await page.screenshot({path:`${output}/${role}-navigation.png`,fullPage:true});
       });
       if(role==='discipline_director') await check('Présences par classes opérationnelles hébergées',async()=>{
@@ -75,6 +87,7 @@ try {
           await page.getByRole('option',{name:/Émilie Parent Fictif/}).click();
           await expect(page.getByRole('button',{name:'Retirer le parent sélectionné'})).toBeVisible();
           await page.screenshot({path:`${output}/${role}-parent.png`,fullPage:true});
+          if(role==='school_admin')await check('Responsive formulaire parent — neuf largeurs Chromium',()=>responsive(page,'parent'));
           await page.keyboard.press('Escape');
         });
         await check(`Inscription hors réseau et synchronisation ${role}`,async()=>{
@@ -126,6 +139,7 @@ try {
         await page.getByRole('button',{name:'Modifier',exact:true}).click();
         const editor=page.getByRole('dialog',{name:'Modifier la décision sociale'});
         await expect(page.getByRole('tab',{name:'Nouveau',exact:true})).toHaveAttribute('aria-selected','false');
+        await check('Responsive drawer social — neuf largeurs Chromium',()=>responsive(page,'social-editor'));
         await editor.getByLabel('Minerval — Montant').fill('80');
         await editor.getByRole('button',{name:'Modifier',exact:true}).click();
         await editor.getByLabel('Saisissez JE CONFIRME LA MODIFICATION').fill('incorrect');
