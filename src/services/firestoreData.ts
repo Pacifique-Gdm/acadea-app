@@ -392,10 +392,8 @@ export async function loadDisciplineYearData(user: AppUser, schoolYearId: string
   const schoolFilter: [string, unknown][] = [["schoolId", user.schoolId]];
   const assignedSections = userSectionIds(user);
 
-  const loadedStudents = assignedSections.length
-    ? await loadCollectionInSections<AppData["students"][number]>("students", annualFilter, assignedSections)
-    : [];
-  const [loadedParents, loadedMessages, loadedNotifications, loadedSanctions, loadedAttendance, loadedAttendanceSettings, loadedValves] = await Promise.all([
+  const [loadedStudents, loadedParents, loadedMessages, loadedNotifications, loadedSanctions, loadedAttendance, loadedAttendanceSettings, loadedValves] = await Promise.all([
+    assignedSections.length ? loadCollectionInSections<AppData["students"][number]>("students", annualFilter, assignedSections) : Promise.resolve([]),
     loadCollection<AppData["parents"][number]>("parents", schoolFilter),
     loadCollection<AppData["messages"][number]>("messages", [...annualFilter, ["schoolRecipient", "discipline"]]),
     loadCollection<AppData["notifications"][number]>("notifications", [...annualFilter, ["recipientRole", "school"], ["schoolRecipient", "discipline"]]),

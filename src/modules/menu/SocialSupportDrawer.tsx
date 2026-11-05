@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { SupportStudentPicker } from "./SupportStudentPicker";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AppData, AppUser, School, SchoolYear } from "../../types";
-import { MoneyInput } from "../../components/ui";
+import { AdminDrawer, MoneyInput } from "../../components/ui";
 import {
   subscribeSupport,
   subscribeSupportContext,
@@ -59,6 +59,9 @@ export function SocialSupportDrawer({
   data: initialData,
   readOnly = false,
   scopeSchools,
+  editingDecision,
+  onEdited,
+  onDirtyChange,
 }: {
   user: AppUser;
   school: School;
@@ -66,6 +69,9 @@ export function SocialSupportDrawer({
   data: Pick<AppData, "students" | "feeTypes" | "payments">;
   readOnly?: boolean;
   scopeSchools?: School[];
+  editingDecision?: SupportDecision;
+  onEdited?: (decision: SupportDecision) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const scopedSchools = scopeSchools?.length ? scopeSchools : [school];
   const scopeIds = scopedSchools.map((item) => item.id);
@@ -80,15 +86,21 @@ export function SocialSupportDrawer({
     [busy, setBusy] = useState(false);
   const [accounts, setAccounts] = useState<Array<{ id: string; name: string; role?: string; kind?: "service"; jobTitle?: string }>>([]),
     [staff, setStaff] = useState<Array<{ id: string; name: string; role?: string; kind?: "service"; jobTitle?: string }>>([]);
-  const [studentId, setStudentId] = useState(""),
+  const [studentId, setStudentId] = useState(editingDecision?.studentId ?? ""),
     [studentQuery, setStudentQuery] = useState(""),
-    [nature, setNature] = useState("fixed"),
-    [reason, setReason] = useState(""),
-    [personnelId, setPersonnelId] = useState(""),
-    [thirdPartyName, setThirdPartyName] = useState(""),
-    [observation, setObservation] = useState(""),
-    [values, setValues] = useState<Record<string, string>>({}),
-    [editing, setEditing] = useState<SupportDecision | null>(null);
+    [nature, setNature] = useState(editingDecision?.nature ?? "fixed"),
+    [reason, setReason] = useState(editingDecision?.reason ?? ""),
+    [personnelId, setPersonnelId] = useState(editingDecision?.personnelId ?? ""),
+    [thirdPartyName, setThirdPartyName] = useState(editingDecision?.thirdPartyName ?? ""),
+    [observation, setObservation] = useState(editingDecision?.observation ?? ""),
+    [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(Object.entries(editingDecision?.lines ?? {}).map(([id, line]) => [id, String(line.value)]))),
+    [editing, setEditing] = useState<SupportDecision | null>(editingDecision ?? null);
+  const [editTarget, setEditTarget] = useState<SupportDecision | null>(null);
+  const [editDirty, setEditDirty] = useState(false);
+  const initialEditFingerprint = useRef(JSON.stringify([nature, reason, personnelId, thirdPartyName, observation, values]));
+  useLayoutEffect(() => {
+    onDirtyChange?.(busy || initialEditFingerprint.current !== JSON.stringify([nature, reason, personnelId, thirdPartyName, observation, values]));
+  }, [busy, nature, reason, personnelId, thirdPartyName, observation, values, onDirtyChange]);
   const [search, setSearch] = useState(""),
     [filterSchool, setFilterSchool] = useState(""),
     [filterYear, setFilterYear] = useState(""),
@@ -102,7 +114,7 @@ export function SocialSupportDrawer({
   const [editConfirmation, setEditConfirmation] = useState("");
   const [confirmEditOpen, setConfirmEditOpen] = useState(false);
   const [filterCriterion, setFilterCriterion] = useState("year");
-  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>(editingDecision ? [editingDecision.studentId] : []);
   const batchRequests = useRef(new Map<string, string>());
   const savingRef = useRef(false);
   useEffect(() => {
@@ -323,7 +335,7 @@ export function SocialSupportDrawer({
     setNature("fixed");
   }
   async function mutate(input: Record<string, unknown>) {
-    if (busy || savingRef.current) return;
+    if (readOnly || busy || savingRef.current) return;
     savingRef.current = true;
     if (!editing && selectedStudentIds.length > 1) {
       setBusy(true);
@@ -381,6 +393,10 @@ export function SocialSupportDrawer({
         decision,
       ]);
       setSuccess("Prise en charge confirmée par le serveur.");
+      if (editingDecision) {
+        onEdited?.(decision);
+        return;
+      }
       reset();
       setTab("Bénéficiaires");
       request.current = { fingerprint: "", id: "" };
@@ -484,26 +500,13 @@ export function SocialSupportDrawer({
     }
   }
   function edit(d: SupportDecision) {
-    setSelectedStudentIds([d.studentId]);
-    setEditConfirmation("");
-    setConfirmEditOpen(false);
-    setEditing(d);
-    setStudentId(d.studentId);
-    setNature(d.nature);
-    setReason(d.reason);
-    setPersonnelId(d.personnelId ?? "");
-    setThirdPartyName(d.thirdPartyName);
-    setObservation(d.observation);
-    setValues(
-      Object.fromEntries(
-        Object.entries(d.lines).map(([id, l]) => [id, String(l.value)]),
-      ),
-    );
-    setTab("Nouveau");
+    if (readOnly || d.schoolId !== school.id || d.schoolYearId !== year?.id || status(d) !== "Active") return;
+    setEditDirty(false);
+    setEditTarget(d);
   }
   return (
     <div className="grid min-w-0 gap-4">
-      <div role="tablist" className={`grid gap-1 ${readOnly ? "grid-cols-2" : "grid-cols-3"}`}>
+      {!editingDecision && <div role="tablist" className={`grid gap-1 ${readOnly ? "grid-cols-2" : "grid-cols-3"}`}>
         {(readOnly ? ["Bénéficiaires", "Historique"] : ["Bénéficiaires", "Nouveau", "Historique"]).map(
           (t) => (
             <button
@@ -517,7 +520,7 @@ export function SocialSupportDrawer({
             </button>
           ),
         )}
-      </div>
+      </div>}
       {error && (
         <p role="alert" className="text-red-700">
           {error}
@@ -528,7 +531,7 @@ export function SocialSupportDrawer({
           {success}
         </p>
       )}
-      {tab === "Nouveau" ? (
+      {(tab === "Nouveau" || editingDecision) && !readOnly ? (
         <>
           <section className="grid gap-2">
             <h3 className="font-bold">1. Élève bénéficiaire</h3>
@@ -755,9 +758,9 @@ export function SocialSupportDrawer({
           >
             {busy ? "Enregistrement…" : editing ? (confirmEditOpen ? "Confirmer la modification" : "Modifier") : "Confirmer la prise en charge"}
           </button>
-          <button className="secondary-button" disabled={busy} onClick={reset}>
+          {!editingDecision && <button className="secondary-button" disabled={busy} onClick={reset}>
             Réinitialiser le formulaire
-          </button>
+          </button>}
         </>
       ) : (
         <>
@@ -957,6 +960,15 @@ export function SocialSupportDrawer({
             )}
         </>
       )}
+      {editTarget && !readOnly && <AdminDrawer title="Modifier la décision sociale" closeLabel="Fermer la modification sociale"
+        onClose={() => { if (!editDirty || window.confirm("Abandonner les modifications non enregistrées ?")) setEditTarget(null); }}>
+        <SocialSupportDrawer key={`${editTarget.id}:${editTarget.version}`} user={user} school={school} years={years} data={data}
+          editingDecision={editTarget} onDirtyChange={setEditDirty} onEdited={(decision) => {
+            setDecisions((rows) => rows.map((row) => row.id === decision.id ? decision : row));
+            setDetail((current) => current?.id === decision.id ? decision : current);
+            setSuccess("Modification confirmée par le serveur."); setEditTarget(null);
+          }} />
+      </AdminDrawer>}
       {detail && (
         <section className="rounded border p-4">
           <h3 className="font-bold">{detail.studentName} — {detail.className}</h3>

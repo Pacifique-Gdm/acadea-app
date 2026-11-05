@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, Download, Plus, RotateCcw, Search } from "lucide-react";
-import type { AttendanceRecord, AttendanceSettings, AttendanceStatus, School, SchoolSection, SchoolYear, Student } from "../../types";
+import type { AttendanceRecord, AttendanceSettings, AttendanceStatus, School, SchoolClassRecord, SchoolSection, SchoolYear, Student } from "../../types";
+import { canonicalOperationalClasses, studentBelongsToOperationalClass } from "../../services/schoolSubclasses";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import { attendanceSchoolDayFromDate, attendanceSchoolDayLabels, resolveAttendanceSchoolDays } from "../../utils/attendance";
 import { getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
@@ -30,6 +31,9 @@ type AttendanceSectionFilter = "all" | SchoolSection;
 type DisciplineAttendanceDrawerProps = {
   students: Student[];
   attendance: AttendanceRecord[];
+  classRecords?: SchoolClassRecord[];
+  allowedSections?: SchoolSection[];
+  classesError?: string;
   settings?: AttendanceSettings;
   school: School;
   year: SchoolYear;
@@ -156,7 +160,8 @@ function groupStudents(students: Student[]) {
     .sort(compareAttendanceGroups);
 }
 
-export function DisciplineAttendanceDrawer({ students, attendance, settings, school, year, onSaveManualAttendance }: DisciplineAttendanceDrawerProps) {
+const noClassRecords: SchoolClassRecord[] = [];
+export function DisciplineAttendanceDrawer({ students, attendance, classRecords = noClassRecords, allowedSections, classesError, settings, school, year, onSaveManualAttendance }: DisciplineAttendanceDrawerProps) {
   const [weekStart, setWeekStart] = useState(() => formatDateKey(startOfWeek(new Date())));
   const [selectedSection, setSelectedSection] = useState<AttendanceSectionFilter>("all");
   const [selectedClass, setSelectedClass] = useState("");
@@ -245,7 +250,20 @@ export function DisciplineAttendanceDrawer({ students, attendance, settings, sch
       .sort((first, second) => studentFullName(first).localeCompare(studentFullName(second), "fr"));
   }, [search, selectedClass, selectedOption, selectedSection, showOptionFilter, students]);
 
-  const groupedStudents = useMemo(() => groupStudents(filteredStudents), [filteredStudents]);
+  const groupedStudents = useMemo(() => {
+    const operational = canonicalOperationalClasses(classRecords, students, school.id, year.id, allowedSections);
+    const subdivided = new Set(operational.map((item) => item.parentClassId).filter(Boolean));
+    const assigned = new Set<string>();
+    const groups: AttendanceGroup[] = operational.flatMap((item) => {
+      const pupils = filteredStudents.filter((pupil) => !assigned.has(pupil.id) && studentBelongsToOperationalClass(pupil, item));
+      if (!pupils.length && subdivided.has(item.id)) return [];
+      pupils.forEach((pupil) => assigned.add(pupil.id));
+      if (!pupils.length && (search || selectedClass || selectedOption || (selectedSection !== "all" && item.section !== selectedSection))) return [];
+      return [{ key: item.id, className: item.name, option: "—", students: pupils }];
+    });
+    // Preserve historical pupils whose class reference cannot yet be resolved.
+    return [...groups, ...groupStudents(filteredStudents.filter((pupil) => !assigned.has(pupil.id)))];
+  }, [allowedSections, classRecords, filteredStudents, school.id, year.id, students, search, selectedClass, selectedOption, selectedSection]);
   const hasManualStudentSearch = normalizeSearch(manualStudentSearch).length > 0;
   const manualStudentResults = useMemo(() => {
     const normalizedSearch = normalizeSearch(manualStudentSearch);
@@ -526,6 +544,7 @@ export function DisciplineAttendanceDrawer({ students, attendance, settings, sch
       </section>
 
       <section className="grid min-w-0 gap-4">
+        {classesError && <p role="alert" className="text-sm text-red-700">Classes structurées indisponibles : {classesError}. Les inscriptions déjà chargées restent consultables.</p>}
         {groupedStudents.length === 0 && (
           <p className="rounded border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-500">Aucun élève ne correspond à cette sélection.</p>
         )}

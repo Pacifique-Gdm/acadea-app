@@ -83,6 +83,12 @@ export function subscribeToStudyData(input: { user: AppUser; schoolId: string; s
   ];
 }
 
+export function subscribeToStudyStudents(user: AppUser, schoolId: string, schoolYearId: string, onData: (items: Student[]) => void, onError: (error: Error) => void) {
+  requireScope(user, schoolId, schoolYearId);
+  const sections = userSectionIds(user);
+  return scopedSubscription("students", schoolId, schoolYearId, onData, onError, sections);
+}
+
 export function mergeStudyTeachers(profiles: StudyTeacher[], users: AppUser[]) {
   const teacherAccounts = new Map(users
     .filter((user) => user.role === "teacher" && Boolean(user.schoolId))

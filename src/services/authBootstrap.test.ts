@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   authNext: undefined as undefined | ((user: { uid: string; email: string } | null) => void),
   authError: undefined as undefined | ((error: unknown) => void),
-  profileNext: undefined as undefined | ((snapshot: { exists: () => boolean; data: () => Record<string, unknown> | undefined }) => void),
+  profileNext: undefined as undefined | ((snapshot: { exists: () => boolean; data: () => Record<string, unknown> | undefined; metadata: { fromCache: boolean } }) => void),
   profileError: undefined as undefined | ((error: unknown) => void),
   authUnsubscribe: vi.fn(),
   profileUnsubscribe: vi.fn(),
@@ -33,7 +33,7 @@ vi.mock("firebase/auth", () => ({
 
 import { AUTH_BOOTSTRAP_WATCHDOG_MS, subscribeToFirebaseUser } from "./auth";
 
-const profileSnapshot = (profile?: Record<string, unknown>) => ({ exists: () => Boolean(profile), data: () => profile });
+const profileSnapshot = (profile?: Record<string, unknown>, fromCache = false) => ({ exists: () => Boolean(profile), data: () => profile, metadata: { fromCache } });
 const validProfile = { name: "Admin", email: "admin@example.test", status: "active", sectionIds: ["Primaire"] };
 const claims = { role: "school_admin", schoolId: "school-a" };
 
@@ -80,6 +80,48 @@ describe("bootstrap Firebase Auth", () => {
     mocks.authNext?.({ uid: "missing", email: "missing@example.test" });
     mocks.profileNext?.(profileSnapshot());
     expect(onError).toHaveBeenLastCalledWith(expect.objectContaining({ message: expect.stringContaining("Aucun profil") }));
+    expect(mocks.signOut).toHaveBeenCalledOnce();
+  });
+
+  it("refuse et déconnecte toujours un compte désactivé confirmé", async () => {
+    const onUser = vi.fn(), onError = vi.fn();
+    await subscribeToFirebaseUser(onUser, onError);
+    mocks.authNext?.({ uid: "admin-a", email: "admin@example.test" });
+    mocks.profileNext?.(profileSnapshot({ ...validProfile, active: false }));
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("plus actif") }));
+    expect(mocks.signOut).toHaveBeenCalledOnce();
+    expect(onUser).not.toHaveBeenCalled();
+  });
+
+  it("ne déconnecte pas une identité persistée lorsqu'un cache Firestore vide est lu hors connexion", async () => {
+    const onUser = vi.fn(), onError = vi.fn();
+    vi.stubGlobal("navigator", { onLine: false });
+    try {
+      await subscribeToFirebaseUser(onUser, onError);
+      mocks.authNext?.({ uid: "admin-a", email: "admin@example.test" });
+      mocks.profileNext?.(profileSnapshot(undefined, true));
+      expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("session a expiré") }));
+      expect(mocks.signOut).not.toHaveBeenCalled();
+      expect(onUser).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("attend le serveur avant de conclure qu'un profil absent du cache a disparu", async () => {
+    const onUser = vi.fn(), onError = vi.fn();
+    vi.stubGlobal("navigator", { onLine: true });
+    try {
+      await subscribeToFirebaseUser(onUser, onError);
+      mocks.authNext?.({ uid: "admin-a", email: "admin@example.test" });
+      mocks.profileNext?.(profileSnapshot(undefined, true));
+      expect(mocks.signOut).not.toHaveBeenCalled();
+      expect(onError).not.toHaveBeenCalled();
+      mocks.profileNext?.(profileSnapshot(validProfile));
+      await vi.waitFor(() => expect(onUser).toHaveBeenCalledOnce());
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("sort vers une erreur contrôlée lorsqu'une opération réseau reste suspendue", async () => {

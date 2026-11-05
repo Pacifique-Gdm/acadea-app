@@ -37,6 +37,8 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Bundle exclusivement destiné aux émulateurs
         run: npx vite build --mode test
+      - name: Navigation et formulaires réels — Chromium local
+        run: npx playwright test --config playwright.navigation.config.ts
       - name: Servir les composants et le bundle avec API locale en mode émulateurs
         run: |
           ACADEA_E2E_PORT=4187 node scripts/serveEmulatorBundle.mjs > /tmp/acadea-fee-preview.log 2>&1 &

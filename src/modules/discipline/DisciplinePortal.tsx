@@ -23,6 +23,9 @@ import { buildDisciplineStats } from "../../utils/disciplineStats";
 import { nextMessageThreadId } from "../../utils/messageThreads";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import { mergeMessagesById, mergeNotificationsById } from "../../utils/realtimeMerges";
+import { readDisciplineClasses } from "../../services/disciplineClasses";
+import { userSectionIds } from "../../utils/userSections";
+import type { SchoolClassRecord } from "../../types";
 import type { AppData, AppNotification, AppUser, AttendanceRecord, AttendanceSettings, AttendanceStatus, AuditLog, DisciplineSanction, Message, School, SchoolYear, Student } from "../../types";
 
 type DisciplineTab = "status" | "attendance" | "messages" | "menu";
@@ -132,6 +135,17 @@ export function DisciplinePortal({
   renderPublishedTimetable?: () => ReactNode;
 }) {
   const [activeDisciplineTab, setActiveDisciplineTab] = useState<DisciplineTab>("status");
+  const [classRecords, setClassRecords] = useState<SchoolClassRecord[]>([]);
+  const [classesError, setClassesError] = useState("");
+  useEffect(() => {
+    let active = true;
+    const controller = new AbortController();
+    setClassRecords([]); setClassesError("");
+    if (!isRefreshing) void readDisciplineClasses(school.id, year.id, controller.signal)
+      .then(rows => { if (active) setClassRecords(rows); })
+      .catch((cause: unknown) => { if (active) setClassesError(cause instanceof Error ? cause.message : "Classes indisponibles."); });
+    return () => { active = false; controller.abort(); };
+  }, [school.id, year.id, user.id, user.role, user.section, user.sectionIds, isRefreshing]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [newSanctionOpen, setNewSanctionOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -699,6 +713,9 @@ export function DisciplinePortal({
           <DisciplineAttendanceDrawer
             students={yearData.students}
             attendance={yearData.attendance}
+            classRecords={classRecords}
+            allowedSections={userSectionIds(user)}
+            classesError={classesError}
             settings={attendanceSettings}
             school={school}
             year={year}

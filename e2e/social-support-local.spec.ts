@@ -71,6 +71,39 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/*", (route) => new URL(route.request().url()).hostname === "127.0.0.1" ? route.continue() : route.abort("blockedbyclient"));
   page.on("pageerror", (error) => console.error("Local UI:", error.message));
 });
+test("modifier ouvre un drawer isolé et conserve l'identifiant sans passer par Nouveau", async ({ page }) => {
+  await page.goto(origin);
+  await page.getByRole("button", { name: "Modifier", exact: true }).click();
+  const editor = page.getByRole("dialog", { name: "Modifier la décision sociale" });
+  await expect(editor).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Bénéficiaires", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "Nouveau", exact: true })).toHaveAttribute("aria-selected", "false");
+  await expect(editor.getByLabel("Minerval — Montant")).toHaveValue("100");
+  await editor.getByLabel("Minerval — Montant").fill("80");
+  await editor.getByRole("button", { name: "Modifier", exact: true }).click();
+  await editor.getByLabel("Saisissez JE CONFIRME LA MODIFICATION").fill("incorrect");
+  await expect(editor.getByRole("button", { name: "Confirmer la modification" })).toBeDisabled();
+  await editor.getByLabel("Saisissez JE CONFIRME LA MODIFICATION").fill("JE CONFIRME LA MODIFICATION");
+  await editor.getByRole("button", { name: "Confirmer la modification" }).click();
+  await expect(editor).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { __submitted: {decisionId:string;expectedVersion:number} }).__submitted)).toMatchObject({decisionId:"decision-s-0",expectedVersion:1});
+  await page.getByRole("tab", { name: "Nouveau", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "Rechercher un élève" })).toBeEnabled();
+});
+test("fermer une modification sale avertit et restaure le défilement sans écriture", async ({page}) => {
+  await page.goto(origin);
+  await page.getByRole('button',{name:'Modifier',exact:true}).click();
+  const editor=page.getByRole('dialog',{name:'Modifier la décision sociale'});
+  await editor.getByLabel('Minerval — Montant').fill('75');
+  page.once('dialog',dialog=>dialog.dismiss());
+  await page.keyboard.press('Escape');
+  await expect(editor).toBeVisible();
+  page.once('dialog',dialog=>dialog.accept());
+  await page.keyboard.press('Escape');
+  await expect(editor).toHaveCount(0);
+  expect(await page.evaluate(()=>document.body.style.overflow)).toBe('');
+  expect(await page.evaluate(()=>(window as unknown as {__submitted?:unknown}).__submitted)).toBeUndefined();
+});
 for (const role of ["cashier", "secretary"]) {
   test(`${role} peut préparer une décision avec le même plafond`, async ({ page }) => {
     await page.goto(`${origin}/?role=${role}`);
@@ -217,7 +250,7 @@ test('plafond visible et message immédiat pour montant, pourcentage et exonéra
 test("modification : confirmation exacte avant toute écriture du composant", async ({ page }) => {
   await page.goto(origin);
   await page.getByRole("button", { name: "Modifier", exact: true }).click();
-  await page.getByRole("button", { name: "Modifier", exact: true }).click();
+  await page.getByRole("dialog", { name: "Modifier la décision sociale" }).getByRole("button", { name: "Modifier", exact: true }).click();
   expect(await page.evaluate(() => (window as unknown as { __submitted?: unknown }).__submitted)).toBeUndefined();
   const confirm = page.getByRole("button", { name: "Confirmer la modification", exact: true });
   await expect(confirm).toBeDisabled();

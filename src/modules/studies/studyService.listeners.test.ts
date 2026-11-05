@@ -25,7 +25,7 @@ vi.mock("@firebase/firestore", () => ({
   writeBatch: vi.fn(),
 }));
 
-import { mergeStudyTeachers, subscribeToStudyData } from "./studyService";
+import { mergeStudyTeachers, subscribeToStudyData, subscribeToStudyStudents } from "./studyService";
 
 const user: AppUser = { id: "director-1", name: "Direction", email: "direction@example.test", role: "study_director", schoolId: "school-1" };
 
@@ -54,6 +54,20 @@ describe("listeners temps réel Direction des études", () => {
   beforeEach(() => {
     firestore.subscriptions.length = 0;
     vi.clearAllMocks();
+  });
+
+  it("isole l'écoute élèves sans réduire le périmètre des comptes historiques", () => {
+    subscribeToStudyStudents(user,"school-1","year-1",vi.fn(),vi.fn());
+    expect(firestore.subscriptions).toHaveLength(1);
+    expect(firestore.subscriptions[0].source).toMatchObject({source:{name:"students"},filters:[
+      {field:"schoolId",operator:"==",value:"school-1"},{field:"schoolYearId",operator:"==",value:"year-1"},
+    ]});
+    subscribeToStudyStudents({...user,sectionIds:["Primaire"]},"school-1","year-1",vi.fn(),vi.fn());
+    expect(firestore.subscriptions[1].source).toMatchObject({filters:[
+      {field:"schoolId",operator:"==",value:"school-1"},{field:"schoolYearId",operator:"==",value:"year-1"},
+      {field:"section",operator:"in",value:["Primaire"]},
+    ]});
+    expect(()=>subscribeToStudyStudents(user,"foreign","year-1",vi.fn(),vi.fn())).toThrow();
   });
 
   it("crée une seule écoute par collection avec les bons périmètres", () => {
