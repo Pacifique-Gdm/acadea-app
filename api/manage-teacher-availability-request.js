@@ -2,6 +2,7 @@ import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
 import { AvailabilityRequestApiError, createAvailabilityRequest, reviewAvailabilityRequest } from "./_lib/teacherAvailabilityRequests.js";
 import { PublishedTimetableReadError, readPublishedTimetable } from "./_lib/publishedTimetableRead.js";
+import { readDisciplineClasses } from "./_lib/disciplineClassesRead.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 
 const send=(res,status,body)=>{res.statusCode=status;res.setHeader("Content-Type","application/json");res.end(JSON.stringify(body))};
@@ -12,13 +13,14 @@ async function publishedTimetable(req,res){
   res.setHeader("Cache-Control","private, no-store");
   try {
     const query=req.query??{};
-    if(query.view!=="published-timetable"||Object.keys(query).some(key=>!["view","schoolYearId"].includes(key)))throw new PublishedTimetableReadError(400,"invalid-argument","Paramètres de consultation invalides.");
+    if(!["published-timetable","attendance-classes"].includes(query.view)||Object.keys(query).some(key=>!["view","schoolYearId"].includes(key)))throw new PublishedTimetableReadError(400,"invalid-argument","Paramètres de consultation invalides.");
     const authorization=req.headers.authorization??"",token=authorization.startsWith("Bearer ")?authorization.slice(7):"";
     if(!token)throw new PublishedTimetableReadError(401,"unauthenticated","Authentification requise.");
     const{auth,db}=initAdmin(),caller=await verifyActorIdToken(auth,token);
     await requireActiveApiUser(db,caller);
     if(!["school_admin","secretary","discipline_director","study_director","teacher"].includes(caller.role)||!caller.schoolId)throw new PublishedTimetableReadError(403,"permission-denied","Consultation de l’horaire non autorisée.");
     await enforceApiRateLimit({db,actorId:caller.uid,schoolId:caller.schoolId,action:"school.published-timetable.read",...API_RATE_LIMITS.PUBLISHED_TIMETABLE});
+    if(query.view==="attendance-classes")return send(res,200,{classes:await readDisciplineClasses({db,caller,schoolYearId:query.schoolYearId})});
     const timetable=await readPublishedTimetable({db,caller,schoolYearId:query.schoolYearId});
     return send(res,200,{timetable});
   } catch(error) {

@@ -17,8 +17,10 @@ assert.ok(asset);
 const bundle = await (await fetch(origin+asset)).text();
 assert.ok(bundle.includes('acadea-staging') && !bundle.includes('acadea-production.firebaseapp.com'));
 mkdirSync(output,{recursive:true});
-const s=services(); let browser, fixture, password;
-const check=async(name,run)=>{try{await run();results.push({name,result:'PASS'});}catch(e){results.push({name,result:'FAIL',error:String(e.message).slice(0,800)});process.exitCode=1;}};
+const s=services(); let browser, fixture, password, activePage;
+const check=async(name,run)=>{try{await run();results.push({name,result:'PASS'});}catch(e){
+  if(activePage&&!activePage.isClosed())await activePage.screenshot({path:`${output}/failure-${results.length}.png`,fullPage:true}).catch(()=>{});
+  results.push({name,result:'FAIL',error:String(e.message).slice(0,800)});process.exitCode=1;}};
 try {
   ({m:fixture,password}=await prepare(s,'navigation'));
   browser=await chromium.launch({headless:true});
@@ -27,6 +29,7 @@ try {
     const context=await browser.newContext({viewport:{width:1365,height:1000},serviceWorkers:'allow'});
     await context.addInitScript(()=>{ window.addEventListener('acadea:offline-context-ready',()=>{window.__recipeOfflineReady=true;}); });
     const page=await context.newPage();page.setDefaultTimeout(30000);
+    activePage=page;
     try {
       await page.goto(origin+'/login');
       await page.getByPlaceholder('email@ecole.com').fill(account.email);
@@ -44,9 +47,24 @@ try {
         await page.screenshot({path:`${output}/${role}-navigation.png`,fullPage:true});
       });
       if(role==='discipline_director') await check('Présences par classes opérationnelles hébergées',async()=>{
+        const started=Date.now();
         await page.getByRole('button',{name:'Présence',exact:true}).last().click();
         for(const name of ['1ère Primaire A','1ère Primaire B','2ème Primaire']) await expect(page.getByRole('heading',{name,exact:true})).toBeVisible();
+        results.push({name:'Temps d’ouverture Présences (mesure hébergée, sans référence avant)',milliseconds:Date.now()-started,result:'MEASURED'});
         await page.screenshot({path:`${output}/presence.png`,fullPage:true});
+      });
+      if(role==='cashier')await check('Caissier hors réseau : élèves triés et obligations sans doublons',async()=>{
+        await expect.poll(()=>page.evaluate(()=>window.__recipeOfflineReady===true),{timeout:60000}).toBe(true);
+        await context.setOffline(true);
+        await page.getByRole('button',{name:'Voir les opérations'}).click();
+        const form=page.getByRole('region',{name:'État des opérations hors connexion'});
+        const names=(await form.getByLabel('Élève',{exact:true}).locator('option').allTextContents()).slice(1);
+        assert.ok(names.length>=2);assert.deepEqual(names,[...names].sort((a,b)=>a.localeCompare(b,'fr',{sensitivity:'base',numeric:true})));
+        await form.getByLabel('Élève',{exact:true}).selectOption(fixture.student);
+        const ids=await form.getByLabel('Type de frais').locator('option').evaluateAll(nodes=>nodes.map(n=>n.value).filter(Boolean));
+        assert.ok(ids.includes(fixture.fee));assert.equal(ids.length,new Set(ids).size);
+        await page.screenshot({path:`${output}/cashier-offline.png`,fullPage:true});
+        await context.setOffline(false);
       });
       if(['school_admin','secretary'].includes(role)) {
         await check(`Recherche parent ${role}`,async()=>{
@@ -62,6 +80,7 @@ try {
         await check(`Inscription hors réseau et synchronisation ${role}`,async()=>{
           // Wait for the application-owned preparation, never inject a session/cache.
           await expect.poll(()=>page.evaluate(()=>window.__recipeOfflineReady===true),{timeout:60000}).toBe(true);
+          await expect.poll(()=>page.evaluate(()=>Boolean(navigator.serviceWorker.controller)),{timeout:60000}).toBe(true);
           await context.setOffline(true);
           await page.getByRole('button',{name:'Voir les opérations'}).click();
           const form=page.getByRole('region',{name:'État des opérations hors connexion'});
@@ -80,6 +99,10 @@ try {
           const read=()=>s.db.collection('students').where('schoolId','==',fixture.schools[0]).get();
           const initial=await read();assert.ok(!initial.docs.some(d=>d.data().nom===`LOCAL-${role}-1`));
           await page.screenshot({path:`${output}/${role}-offline.png`,fullPage:true});
+          await page.reload();
+          await expect(page.getByRole('button',{name:'Menu',exact:true}).last()).toBeVisible();
+          await page.getByRole('button',{name:'Voir les opérations'}).click();
+          await expect(page.getByRole('region',{name:'État des opérations hors connexion'}).getByRole('listitem').filter({hasText:"Inscription d'élève"})).toHaveCount(2);
           await context.setOffline(false);
           await expect.poll(async()=> (await read()).docs.filter(d=>d.data().nom?.startsWith(`LOCAL-${role}-`)).length,{timeout:90000}).toBe(2);
           await page.reload();
@@ -116,7 +139,7 @@ try {
         await page.screenshot({path:`${output}/social-modified.png`,fullPage:true});
       });
     } catch(e) {results.push({name:`Parcours ${role}`,result:'FAIL',error:String(e.message).slice(0,800)});process.exitCode=1;}
-    finally {await context.close();}
+    finally {await context.setOffline(false);await page.setViewportSize({width:390,height:844});await page.screenshot({path:`${output}/${role}-mobile.png`,fullPage:true}).catch(()=>{});await context.close();activePage=undefined;}
   }
 } finally {
   if(browser) await browser.close();

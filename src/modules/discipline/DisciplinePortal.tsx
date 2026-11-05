@@ -23,7 +23,7 @@ import { buildDisciplineStats } from "../../utils/disciplineStats";
 import { nextMessageThreadId } from "../../utils/messageThreads";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import { mergeMessagesById, mergeNotificationsById } from "../../utils/realtimeMerges";
-import { subscribeToSchoolClasses } from "../../services/schoolSubclasses";
+import { readDisciplineClasses } from "../../services/disciplineClasses";
 import { userSectionIds } from "../../utils/userSections";
 import type { SchoolClassRecord } from "../../types";
 import type { AppData, AppNotification, AppUser, AttendanceRecord, AttendanceSettings, AttendanceStatus, AuditLog, DisciplineSanction, Message, School, SchoolYear, Student } from "../../types";
@@ -139,11 +139,13 @@ export function DisciplinePortal({
   const [classesError, setClassesError] = useState("");
   useEffect(() => {
     let active = true;
+    const controller = new AbortController();
     setClassRecords([]); setClassesError("");
-    const stop = subscribeToSchoolClasses(school.id, year.id, (rows) => { if (active) setClassRecords(rows); },
-      (cause) => { if (active) setClassesError(cause.message); });
-    return () => { active = false; stop(); };
-  }, [school.id, year.id]);
+    if (!isRefreshing) void readDisciplineClasses(school.id, year.id, controller.signal)
+      .then(rows => { if (active) setClassRecords(rows); })
+      .catch((cause: unknown) => { if (active) setClassesError(cause instanceof Error ? cause.message : "Classes indisponibles."); });
+    return () => { active = false; controller.abort(); };
+  }, [school.id, year.id, user.id, user.role, user.section, user.sectionIds, isRefreshing]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [newSanctionOpen, setNewSanctionOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
