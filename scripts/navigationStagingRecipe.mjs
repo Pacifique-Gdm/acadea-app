@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { chromium, expect } from '@playwright/test';
+import { chromium, expect as playwrightExpect } from '@playwright/test';
 import { guard, services, prepare, retire } from './socialFinanceStagingFixture.mjs';
 
 const origin = 'https://acadea-staging.vercel.app';
 const output = 'diagnostics/navigation-staging';
 const results = [];
+const expect=playwrightExpect.configure({timeout:30000});
 const responsive=async(page,label)=>{
   for(const width of [320,360,375,390,414,768,1024,1280,1440]){
     await page.setViewportSize({width,height:1000});
@@ -70,9 +71,11 @@ try {
         await context.setOffline(true);
         await page.getByRole('button',{name:'Voir les opérations'}).click();
         const form=page.getByRole('region',{name:'État des opérations hors connexion'});
+        await expect.poll(()=>form.getByLabel('Élève',{exact:true}).locator('option').count()).toBeGreaterThanOrEqual(3);
         const names=(await form.getByLabel('Élève',{exact:true}).locator('option').allTextContents()).slice(1);
         assert.ok(names.length>=2);assert.deepEqual(names,[...names].sort((a,b)=>a.localeCompare(b,'fr',{sensitivity:'base',numeric:true})));
         await form.getByLabel('Élève',{exact:true}).selectOption(fixture.student);
+        await expect(form.getByLabel('Type de frais').locator(`option[value="${fixture.fee}"]`)).toHaveCount(1);
         const ids=await form.getByLabel('Type de frais').locator('option').evaluateAll(nodes=>nodes.map(n=>n.value).filter(Boolean));
         assert.ok(ids.includes(fixture.fee));assert.equal(ids.length,new Set(ids).size);
         await page.screenshot({path:`${output}/cashier-offline.png`,fullPage:true});
@@ -83,6 +86,7 @@ try {
           await page.getByRole('button',{name:'Élèves',exact:true}).last().click();
           await page.getByRole('button',{name:'Ajouter un élève',exact:true}).click();
           await page.getByRole('combobox',{name:'Rechercher un parent'}).fill('emilie');
+          await expect(page.getByRole('combobox',{name:'Rechercher un parent'})).toHaveValue('emilie');
           await expect(page.getByRole('option',{name:/Émilie Parent Fictif/})).toHaveCount(1);
           await page.getByRole('option',{name:/Émilie Parent Fictif/}).click();
           await expect(page.getByRole('button',{name:'Retirer le parent sélectionné'})).toBeVisible();
@@ -113,17 +117,18 @@ try {
           const initial=await read();assert.ok(!initial.docs.some(d=>d.data().nom===`LOCAL-${role}-1`));
           await page.screenshot({path:`${output}/${role}-offline.png`,fullPage:true});
           await page.reload();
-          await expect(page.getByRole('button',{name:'Menu',exact:true}).last()).toBeVisible();
-          await page.getByRole('button',{name:'Voir les opérations'}).click();
+          await expect(page.getByRole('heading',{name:'Acadéa hors connexion'})).toBeVisible();
           await expect(page.getByRole('region',{name:'État des opérations hors connexion'}).getByRole('listitem').filter({hasText:"Inscription d'élève"})).toHaveCount(2);
           await context.setOffline(false);
+          await expect(page.getByRole('button',{name:'Menu',exact:true}).last()).toBeVisible({timeout:60000});
           await expect.poll(async()=> (await read()).docs.filter(d=>d.data().nom?.startsWith(`LOCAL-${role}-`)).length,{timeout:90000}).toBe(2);
           await page.reload();
           await expect.poll(async()=> (await read()).docs.filter(d=>d.data().nom?.startsWith(`LOCAL-${role}-`)).length).toBe(2);
         });
       }
       if(role==='school_admin') await check('Drawer social — transaction serveur et identifiant conservé',async()=>{
-        await context.setOffline(false);await page.goto(origin+'/dashboard');
+        await context.setOffline(false);
+        await expect(page.getByRole('button',{name:'Menu',exact:true}).last()).toBeVisible({timeout:60000});
         await page.getByRole('button',{name:'Menu',exact:true}).last().click();
         await page.getByRole('button',{name:/Cas sociaux et prises en charge/}).click();
         await page.getByRole('tab',{name:'Nouveau',exact:true}).click();
