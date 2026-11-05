@@ -23,6 +23,21 @@ const firebaseAuthStoreCount=page=>page.evaluate(async()=>{
     };
   });
 });
+const offlineAccessStoreCount=page=>page.evaluate(async()=>{
+  const databases=await indexedDB.databases();
+  if(!databases.some(item=>item.name==='acadea-offline-access-v1'))return 0;
+  return new Promise((resolve,reject)=>{
+    const open=indexedDB.open('acadea-offline-access-v1');
+    open.onerror=()=>reject(new Error('Offline access IndexedDB unavailable'));
+    open.onsuccess=()=>{
+      const database=open.result;
+      if(!database.objectStoreNames.contains('access')){database.close();resolve(0);return;}
+      const count=database.transaction('access','readonly').objectStore('access').count();
+      count.onsuccess=()=>{database.close();resolve(count.result);};
+      count.onerror=()=>{database.close();reject(new Error('Offline access record unavailable'));};
+    };
+  });
+});
 const offlineOperationMetadata=(page,scope)=>page.evaluate(async scope=>{
   const partition=JSON.stringify([scope.userId,scope.schoolId,scope.schoolYearId]);
   return new Promise((resolve,reject)=>{
@@ -105,6 +120,7 @@ try {
       });
       if(role==='cashier')await check('Caissier hors réseau : élèves triés et obligations sans doublons',async()=>{
         await expect.poll(()=>page.evaluate(()=>window.__recipeOfflineReady===true),{timeout:60000}).toBe(true);
+        await expect.poll(()=>offlineAccessStoreCount(page),{timeout:60000}).toBe(1);
         await context.setOffline(true);
         await page.getByRole('button',{name:'Voir les opérations'}).click();
         const form=page.getByRole('region',{name:'État des opérations hors connexion'});
@@ -134,6 +150,7 @@ try {
         await check(`Inscription hors réseau et synchronisation ${role}`,async()=>{
           // Wait for the application-owned preparation, never inject a session/cache.
           await expect.poll(()=>page.evaluate(()=>window.__recipeOfflineReady===true),{timeout:60000}).toBe(true);
+          await expect.poll(()=>offlineAccessStoreCount(page),{timeout:60000}).toBe(1);
           await expect.poll(()=>page.evaluate(()=>Boolean(navigator.serviceWorker.controller)),{timeout:60000}).toBe(true);
           await context.setOffline(true);
           await page.getByRole('button',{name:'Voir les opérations'}).click();
