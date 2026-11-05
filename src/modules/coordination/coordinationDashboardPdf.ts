@@ -2,6 +2,7 @@ import type { Coordination, School } from "../../types";
 import type { CoordinationDashboardStats, DashboardCurrency } from "../../utils/coordinationDashboardStats";
 import { formatCurrencyMoney } from "../../utils/currency";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
+import { dashboardPdfFeeShareChart, dashboardPdfTransactionChart, type DashboardPdfChartRow } from "../../utils/dashboardPdf";
 import { coordinationPdfInstitution } from "./coordinationPdfInstitution";
 
 type DashboardPdfTransaction = { id: string; type: string; label: string; amount: number; currency?: DashboardCurrency; date: string };
@@ -16,18 +17,26 @@ export async function exportCoordinationDashboardPdf({
   selectedSchoolId,
   stats,
   arrearsCollections = [],
+  historicalArrears,
   sectionLabel,
   dateLabel,
   transactions,
+  chartGroups,
+  transactionPeriodLabel,
+  showTransactionCharts,
 }: {
   coordination: Coordination;
   schools: School[];
   selectedSchoolId: string;
   stats: CoordinationDashboardStats;
   arrearsCollections?: { currency: DashboardCurrency; amount: number }[];
+  historicalArrears: { USD: number; CDF: number };
   sectionLabel: string;
   dateLabel: string;
   transactions: DashboardPdfTransaction[];
+  chartGroups: { currency: DashboardCurrency; rows: DashboardPdfChartRow[] }[];
+  transactionPeriodLabel: string;
+  showTransactionCharts: boolean;
 }) {
   const contextSchool = schools.find((school) => school.id === selectedSchoolId) ?? schools[0];
   if (!contextSchool) return;
@@ -39,8 +48,10 @@ export async function exportCoordinationDashboardPdf({
     filename: `coordination-dashboard-${selectedSchoolId || "toutes"}.pdf`,
     title: "Dashboard — Coordination",
     school: coordinationPdfInstitution(coordination, contextSchool),
-    subtitle: `Périmètre : ${context} | Section : ${sectionLabel} | Tranche de date : ${dateLabel}`,
+    subtitle: `Périmètre : ${context} | Année de référence : ${coordination.referenceSchoolYear ?? "Non définie"} | Section : ${sectionLabel} | Tranche de date : ${dateLabel}`,
+    throwOnError: true,
     sections: [
+      ...(stats.excludedSchoolIds.length ? [pdfSection("Écoles non alignées", `<p>${stats.excludedSchoolIds.length} école(s) non alignée(s) sur l'année de référence sont exclues des statistiques.</p>`)] : []),
       pdfSection("Indicateurs", pdfInfoGrid([
         { label: "Nombre total d'élèves", value: stats.totalStudents },
         { label: "Nombre de classes", value: stats.totalClasses },
@@ -49,6 +60,9 @@ export async function exportCoordinationDashboardPdf({
         { label: "Caissiers", value: stats.cashiers },
         { label: "Directeurs de Discipline", value: stats.disciplineDirectors },
       ], { columns: 3 })),
+      pdfSection("Arriérés des années antérieures", pdfInfoGrid((["USD", "CDF"] as const).map((currency) => ({
+        label: `Dettes historiques (${currency})`, value: amount(historicalArrears[currency], currency),
+      })))),
       ...stats.financialGroups.flatMap((group) => [
         pdfSection(`Synthèse financière — ${group.currency}`, pdfInfoGrid([
           { label: "Recouvrement", value: `${group.recoveryRate}%` },
@@ -69,13 +83,13 @@ export async function exportCoordinationDashboardPdf({
           { header: "Payé", render: (row) => amount(row.paid, group.currency), align: "right" },
           { header: "Solde", render: (row) => amount(row.remaining, group.currency), align: "right" },
           { header: "%", render: (row) => `${row.rate}%`, align: "right" },
-        ], group.feeProgressRows, "Aucun frais applicable.")),
-        pdfSection(`Répartition des montants — ${group.currency}`, pdfTable([
-          { header: "Catégorie", render: (row) => row.name },
-          { header: "Montant", render: (row) => amount(row.amount, group.currency), align: "right" },
-          { header: "Pourcentage", render: (row) => `${row.percentage.toFixed(1)}%`, align: "right" },
-        ], group.feeShares, "Aucune répartition disponible.")),
+        ], group.feeProgressRows, "Aucun frais applicable."), { pageBreakBefore: true }),
+        pdfSection(`Répartition des montants — ${group.currency}`, dashboardPdfFeeShareChart(group.feeShares, group.currency)),
+        ...(showTransactionCharts ? [pdfSection(`Graphique des transactions — ${group.currency}`,
+          dashboardPdfTransactionChart(chartGroups.find((chart) => chart.currency === group.currency)?.rows ?? [], group.currency, transactionPeriodLabel), { pageBreakBefore: true })] : []),
       ]),
+      ...(!showTransactionCharts ? [pdfSection("Graphique des transactions indisponible",
+        "<p>Les graphiques par école sont masqués car des opérations historiques portent une autre devise que la devise actuelle de leur école.</p>")] : []),
       pdfSection("Transactions du jour", pdfTable([
         { header: "Date", render: (transaction) => transaction.date.slice(0, 10) },
         { header: "Type", render: (transaction) => transaction.type },
@@ -88,7 +102,7 @@ export async function exportCoordinationDashboardPdf({
         { header: "Filles", render: (row) => row.girls, align: "center" as const },
         { header: "Garçons", render: (row) => row.boys, align: "center" as const },
         { header: "Total", render: (row) => row.total, align: "center" as const },
-      ], stats.classRows, "Aucune classe à afficher.")),
+      ], stats.classRows, "Aucune classe à afficher.", { footerHtml: `<tr>${schools.length > 1 ? "<td></td>" : ""}<td>Totaux</td><td class="align-center">${stats.totalGirls}</td><td class="align-center">${stats.totalBoys}</td><td class="align-center">${stats.totalStudents}</td></tr>` }), { pageBreakBefore: true }),
     ],
   });
 }

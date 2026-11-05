@@ -57,4 +57,15 @@ describe("runRefreshTask", () => {
     expect(load).toHaveBeenCalledTimes(1);
     expect(apply).not.toHaveBeenCalled();
   });
+
+  it("ne superpose pas une seconde requête à une lecture encore en cours après un délai client", async () => {
+    const load = vi.fn().mockRejectedValue({ code: "client-timeout" });
+    const apply = vi.fn();
+    const onError = vi.fn();
+    expect(await runRefreshTask({ lock: { current: false }, setRefreshing: vi.fn(), load, apply, onError,
+      retryOnError: retryableRefreshError, retryDelayMs: 0 })).toBe(false);
+    expect(load).toHaveBeenCalledOnce();
+    expect(apply).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith({ code: "client-timeout" });
+  });
 });
