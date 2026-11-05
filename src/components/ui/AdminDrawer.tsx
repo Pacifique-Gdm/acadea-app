@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useLayoutEffect, useId, useRef } from "react";
 import type { ReactNode } from "react";
 import { X } from "lucide-react";
 
@@ -29,7 +29,7 @@ export function AdminDrawer({
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
   const onCloseRef = useRef(onClose);
-  useEffect(() => {
+  useLayoutEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
 

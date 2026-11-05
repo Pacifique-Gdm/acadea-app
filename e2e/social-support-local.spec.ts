@@ -90,6 +90,20 @@ test("modifier ouvre un drawer isolé et conserve l'identifiant sans passer par 
   await page.getByRole("tab", { name: "Nouveau", exact: true }).click();
   await expect(page.getByRole("combobox", { name: "Rechercher un élève" })).toBeEnabled();
 });
+test("fermer une modification sale avertit et restaure le défilement sans écriture", async ({page}) => {
+  await page.goto(origin);
+  await page.getByRole('button',{name:'Modifier',exact:true}).click();
+  const editor=page.getByRole('dialog',{name:'Modifier la décision sociale'});
+  await editor.getByLabel('Minerval — Montant').fill('75');
+  page.once('dialog',dialog=>dialog.dismiss());
+  await page.keyboard.press('Escape');
+  await expect(editor).toBeVisible();
+  page.once('dialog',dialog=>dialog.accept());
+  await page.keyboard.press('Escape');
+  await expect(editor).toHaveCount(0);
+  expect(await page.evaluate(()=>document.body.style.overflow)).toBe('');
+  expect(await page.evaluate(()=>(window as unknown as {__submitted?:unknown}).__submitted)).toBeUndefined();
+});
 for (const role of ["cashier", "secretary"]) {
   test(`${role} peut préparer une décision avec le même plafond`, async ({ page }) => {
     await page.goto(`${origin}/?role=${role}`);

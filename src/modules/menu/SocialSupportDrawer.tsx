@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { SupportStudentPicker } from "./SupportStudentPicker";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AppData, AppUser, School, SchoolYear } from "../../types";
 import { AdminDrawer, MoneyInput } from "../../components/ui";
 import {
@@ -98,7 +98,7 @@ export function SocialSupportDrawer({
   const [editTarget, setEditTarget] = useState<SupportDecision | null>(null);
   const [editDirty, setEditDirty] = useState(false);
   const initialEditFingerprint = useRef(JSON.stringify([nature, reason, personnelId, thirdPartyName, observation, values]));
-  useEffect(() => {
+  useLayoutEffect(() => {
     onDirtyChange?.(busy || initialEditFingerprint.current !== JSON.stringify([nature, reason, personnelId, thirdPartyName, observation, values]));
   }, [busy, nature, reason, personnelId, thirdPartyName, observation, values, onDirtyChange]);
   const [search, setSearch] = useState(""),

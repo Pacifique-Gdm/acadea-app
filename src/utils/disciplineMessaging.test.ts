@@ -8,7 +8,8 @@ describe("messagerie du Directeur de Discipline", () => {
     const portal = readFileSync(new URL("../modules/discipline/DisciplinePortal.tsx", import.meta.url), "utf8");
     expect(messages).toContain("overflow-y-auto");
     expect(drawer).toContain("onClick={onClose}");
-    expect(drawer).toContain('document.body.style.overflow = previousBodyOverflow');
+    expect(drawer).toContain('if (!drawerStack.length && initialOverflow)');
+    expect(drawer).toContain('document.body.style.overflow = initialOverflow.body');
     expect(portal).toContain("setNotificationsOpen(false)");
     expect(portal).toContain("setNotificationsOpen(true)");
   });
