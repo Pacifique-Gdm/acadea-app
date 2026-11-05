@@ -4,6 +4,28 @@ import { validateManifest, guard, services } from './socialFinanceStagingFixture
 const tag = 'e2e-social-' + 'a'.repeat(32);
 const valid = () => ({ projectId: 'acadea-staging', tag, schools: [tag + '-a', tag + '-b'], users: ['school_admin', 'cashier', 'secretary', 'teacher'].map(role => ({ role, uid: tag + '-' + role, email: `${tag}-${role}@example.invalid`, schoolId: tag + '-a' })) });
 test('le manifeste fictif exact est accepté', () => assert.doesNotThrow(() => validateManifest(valid())));
+test('la recette combinée exige uniquement ses rôles fictifs connus', () => {
+  const m = valid();
+  m.recipe = 'pr46pr47';
+  m.users.push(...['study_director', 'discipline_director', 'coordination_admin', 'sub_coordination_admin'].map(role => ({ role, uid: tag + '-' + role, email: `${tag}-${role}@example.invalid`, schoolId: tag + '-a' })));
+  assert.doesNotThrow(() => validateManifest(m));
+  m.users.push({ role: 'super_admin', uid: tag + '-super_admin', email: 'unwanted@example.invalid', schoolId: tag + '-a' });
+  assert.throws(() => validateManifest(m));
+});
+test('inscription UI manifestée : une école, une année, un nom unique et un rôle exact', () => {
+  const m = valid();
+  m.recipe = 'pr46pr47'; m.year = tag + '-year';
+  m.users.push(...['study_director', 'discipline_director', 'coordination_admin', 'sub_coordination_admin'].map(role => ({ role, uid: tag + '-' + role, email: `${tag}-${role}@example.invalid`, schoolId: tag + '-a' })));
+  const entry = { role: 'school_admin', nom: tag.toUpperCase(), postnom: 'PR46', prenom: 'Admin',
+    schoolId: m.schools[0], schoolYearId: m.year, className: '2ème Primaire', path: 'students/student-' + 'a'.repeat(32) };
+  m.uiEnrollments = [entry];
+  assert.doesNotThrow(() => validateManifest(m));
+  for (const [field, bad] of [['nom', 'RÉEL'], ['schoolId', 'existing-school'], ['schoolYearId', 'existing-year'],
+    ['role', 'super_admin'], ['path', 'students/existing-student']]) {
+    const altered = structuredClone(m); altered.uiEnrollments[0][field] = bad;
+    assert.throws(() => validateManifest(altered), field);
+  }
+});
 for (const [name, mutate] of [
   ['Production', m => m.projectId = 'acadea-production'],
   ['école étrangère', m => m.schools[0] = 'existing-school'],

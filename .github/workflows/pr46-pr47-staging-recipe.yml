@@ -1,0 +1,104 @@
+name: pr46-pr47-staging-recipe
+
+on:
+  push:
+    branches: [codex/staging-integration-pr46-pr47]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: social-finance-staging-visual
+  cancel-in-progress: false
+
+jobs:
+  authenticated-recipe:
+    if: github.repository == 'Pacifique-Gdm/acadea-app' && github.ref == 'refs/heads/codex/staging-integration-pr46-pr47'
+    runs-on: ubuntu-latest
+    environment: acadea-staging-e2e
+    timeout-minutes: 50
+    env:
+      ACADEA_SOCIAL_STAGING: 'YES'
+      ACADEA_EXPECTED_SHA: ${{ github.sha }}
+      GOOGLE_CLOUD_PROJECT: acadea-staging
+      GOOGLE_CLOUD_QUOTA_PROJECT: acadea-staging
+      STAGING_FIREBASE_API_KEY: ${{ vars.STAGING_FIREBASE_API_KEY }}
+      GCP_STAGING_WIF_PROVIDER: ${{ vars.GCP_STAGING_WIF_PROVIDER }}
+      GCP_STAGING_E2E_SERVICE_ACCOUNT: ${{ vars.GCP_STAGING_E2E_SERVICE_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirmer les cibles fixes avant tout accès et toute fixture
+        shell: bash
+        run: |
+          test "$GITHUB_REPOSITORY" = 'Pacifique-Gdm/acadea-app'
+          test "$GITHUB_REF" = 'refs/heads/codex/staging-integration-pr46-pr47'
+          test "$GOOGLE_CLOUD_PROJECT" = 'acadea-staging'
+          test "$GOOGLE_CLOUD_QUOTA_PROJECT" = 'acadea-staging'
+          test -n "$STAGING_FIREBASE_API_KEY"
+          test -n "$GCP_STAGING_WIF_PROVIDER"
+          case "$GCP_STAGING_E2E_SERVICE_ACCOUNT" in
+            *@acadea-staging.iam.gserviceaccount.com) ;;
+            *) echo 'Compte E2E hors Firebase Staging'; exit 1 ;;
+          esac
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node --test scripts/socialFinanceStagingFixture.test.mjs
+      - run: npx playwright install --with-deps chromium
+      - name: Confirmer le SHA effectivement servi avant création de données
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          assert.equal(process.env.GOOGLE_CLOUD_PROJECT, 'acadea-staging');
+          const response = await fetch('https://acadea-staging.vercel.app/version.json', { signal: AbortSignal.timeout(15000) });
+          assert.equal(response.status, 200, 'Version Staging inaccessible : aucune fixture créée');
+          assert.equal((await response.json()).version, process.env.ACADEA_EXPECTED_SHA, 'SHA Staging différent : aucune fixture créée');
+          JS
+      - uses: google-github-actions/auth@v3
+        id: auth
+        with:
+          project_id: acadea-staging
+          workload_identity_provider: ${{ vars.GCP_STAGING_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_STAGING_E2E_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_lifetime: 3600s
+          create_credentials_file: false
+          export_environment_variables: false
+      - name: Recette Chromium authentifiée des PR 46 et 47
+        env:
+          ACADEA_STAGING_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: node scripts/pr46Pr47StagingRecipe.mjs
+      - name: Clôture de secours idempotente, même après un échec
+        if: always() && steps.auth.outcome == 'success'
+        env:
+          ACADEA_STAGING_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: node scripts/socialFinanceStagingRetire.mjs
+      - name: Vérifier les quatre PDF et leurs pages physiques
+        if: always() && steps.auth.outcome == 'success'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr
+          shopt -s nullglob
+          pdfs=(diagnostics/pr46-pr47-staging/*-dashboard.pdf)
+          test "${#pdfs[@]}" -eq 4
+          for pdf in "${pdfs[@]}"; do
+            pdfinfo "$pdf" > "${pdf%.pdf}-info.txt"
+            pdftoppm -f 1 -l 1 -scale-to 2400 -png -singlefile "$pdf" "${pdf%.pdf}-first-page"
+            tesseract "${pdf%.pdf}-first-page.png" "${pdf%.pdf}-ocr" --psm 11
+            test "$(wc -c < "${pdf%.pdf}-ocr.txt")" -gt 20
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr46-pr47-staging-proofs
+          retention-days: 7
+          path: |
+            diagnostics/pr46-pr47-staging/*.json
+            diagnostics/pr46-pr47-staging/*.png
+            diagnostics/pr46-pr47-staging/*.pdf
+            diagnostics/pr46-pr47-staging/*.txt
+            diagnostics/social-finance-staging/manifest.json
