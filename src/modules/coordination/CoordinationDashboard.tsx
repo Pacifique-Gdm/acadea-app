@@ -65,6 +65,7 @@ export function CoordinationDashboard({
   const [dateFilterActive, setDateFilterActive] = useState(false);
   const [dateFilterError, setDateFilterError] = useState("");
   const [transactionPeriod, setTransactionPeriod] = useState<TransactionPeriod>("last5");
+  const [pdfExportError, setPdfExportError] = useState("");
   const expenseResolution = useExpenseCurrencyResolution(model.expenses);
   const resolvedExpenses = expenseResolution.rows;
   const financialVerificationReady = !loading && !loadError && expenseResolution.status === "ready";
@@ -94,6 +95,7 @@ export function CoordinationDashboard({
       && schoolById.get(payment.schoolId)?.activeSchoolYearId === payment.collectionSchoolYearId
       && payment.currency !== "CDF" && payment.currency !== "USD");
   const financialExportBlocked = !financialVerificationReady || hasUnknownFinancialCurrency;
+  const pdfExportBlocked = financialExportBlocked || !dashboardArrears.totals || Boolean(dashboardArrears.error);
   const hasCrossCurrencyHistory = [...stats.payments, ...stats.expenses, ...stats.cashInflows].some((operation) => operation.currency
     && operation.currency !== resolveSchoolCurrency(schoolById.get(operation.schoolId) ?? {}));
   const studentsByKey = useMemo(() => new Map(transactionScope.students.map((student) => [`${student.schoolId}:${student.id}`, student])), [transactionScope.students]);
@@ -189,7 +191,20 @@ export function CoordinationDashboard({
   }
 
   async function exportPdf() {
-    await exportCoordinationDashboardPdf({ coordination, schools: scopedSchools, selectedSchoolId, stats, arrearsCollections, sectionLabel: sectionFilter === "all" ? "Toutes les sections" : schoolSectionLabels[sectionFilter], dateLabel: dateFilterActive ? `${startDate || "Début"} au ${endDate || "Fin"}` : "Année scolaire active", transactions });
+    if (pdfExportBlocked || !dashboardArrears.totals) return;
+    setPdfExportError("");
+    try {
+      await exportCoordinationDashboardPdf({
+        coordination, schools: scopedSchools, selectedSchoolId, stats, arrearsCollections,
+        historicalArrears: dashboardArrears.totals,
+        sectionLabel: sectionFilter === "all" ? "Toutes les sections" : schoolSectionLabels[sectionFilter],
+        dateLabel: dateFilterActive ? `${startDate || "Début"} au ${endDate || "Fin"}` : "Année scolaire active",
+        transactions, chartGroups, transactionPeriodLabel: transactionPeriod === "today" ? "Aujourd'hui" : transactionPeriod === "week" ? "Semaine en cours" : "5 derniers jours",
+        showTransactionCharts: !hasCrossCurrencyHistory,
+      });
+    } catch (error) {
+      setPdfExportError(error instanceof Error ? error.message : "La génération du PDF a échoué.");
+    }
   }
 
   return <section className="grid min-w-0 gap-4">
@@ -201,14 +216,16 @@ export function CoordinationDashboard({
         <input value={startDate} onChange={(event) => updateDate("start", event.target.value)} type="date" max={today} className="input" aria-label="Date de début" />
         <input value={endDate} onChange={(event) => updateDate("end", event.target.value)} type="date" max={today} className="input" aria-label="Date de fin" />
         <button onClick={resetFilters} type="button" className="w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:border-mint hover:text-mint xl:w-auto">Réinitialiser</button>
-        <button onClick={() => void exportPdf()} type="button" disabled={!scopedSchools.length || financialExportBlocked} className="pdf-export-button w-full xl:w-auto"><Download className="h-4 w-4" /> Exporter PDF</button>
+        <button onClick={() => void exportPdf()} type="button" disabled={!scopedSchools.length || pdfExportBlocked} className="pdf-export-button w-full xl:w-auto"><Download className="h-4 w-4" /> Exporter PDF</button>
         {dateFilterError && <p className="text-xs font-semibold text-red-600 sm:col-span-2 xl:col-span-6">{dateFilterError}</p>}
+        {pdfExportError && <p role="alert" className="text-xs font-semibold text-red-600 sm:col-span-2 xl:col-span-6">{pdfExportError}</p>}
       </div>
     </div>
     {loadError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{loadError}</p>}
     {financialVerificationReady && hasUnknownFinancialCurrency && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Synthèse financière et export indisponibles : des opérations historiques sans devise exigent une réconciliation.</p>}
     {!loading && !loadError && expenseResolution.status === "loading" && <p role="status" className="rounded border bg-white p-3 text-sm text-slate-500">Vérification des devises historiques en cours…</p>}
     {expenseResolution.status === "error" && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Vérification des devises indisponible. Réessayez après avoir rétabli la connexion.</p>}
+    {dashboardArrears.error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Export PDF indisponible : les arriérés historiques ne sont pas vérifiés.</p>}
     {hasCrossCurrencyHistory && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Les graphiques par école sont masqués car des opérations portent une autre devise que la devise actuelle de leur école.</p>}
     {loading && <p className="rounded border bg-white p-4 text-sm text-slate-500">Chargement du Dashboard…</p>}
     {!loading && !loadError && stats.excludedSchoolIds.length > 0 && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{formatCount(stats.excludedSchoolIds.length)} école(s) non alignée(s) sur l’année de référence sont exclues des statistiques.</p>}

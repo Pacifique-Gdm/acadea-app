@@ -79,10 +79,10 @@ function emptyFirestoreData(): AppData {
   };
 }
 
-function withFirestoreTimeout<T>(operation: Promise<T>, context: string) {
+export function withFirestoreTimeout<T>(operation: Promise<T>, context: string) {
   return new Promise<T>((resolve, reject) => {
     const timer = globalThis.setTimeout(() => {
-      reject(new Error(`Chargement Firestore trop long : ${context}.`));
+      reject(Object.assign(new Error(`Chargement Firestore trop long : ${context}.`), { code: "client-timeout" }));
     }, 15000);
     operation.then(
       (value) => {
@@ -476,17 +476,20 @@ export async function loadFirestoreYearData(user: AppUser, schoolYearId: string)
     return { students, parents, feeTypes, payments };
   }
 
-  const yearData: FirestoreYearData = {
-    students: await loadCollection<AppData["students"][number]>("students", annualFilter, true),
-    feeTypes: await loadCollection<AppData["feeTypes"][number]>("feeTypes", annualFilter, true),
-    payments: await loadPaymentsForYear(user.schoolId, schoolYearId, true),
-    expenses: await loadCollection<AppData["expenses"][number]>("expenses", annualFilter, true),
-    cashInflows: await loadCollection<NonNullable<AppData["cashInflows"]>[number]>("cashInflows", annualFilter, true),
-    messages: await loadSchoolMessages(user, user.schoolId, schoolYearId, true),
-    valves: await loadCollection<AppData["valves"][number]>("valves", annualFilter, true),
-    attendance: await loadCollection<AppData["attendance"][number]>("attendance", annualFilter, true),
-    attendanceSettings: await loadCollection<AppData["attendanceSettings"][number]>("attendanceSettings", annualFilter, true),
-  };
+  // Independent, school/year-scoped reads must not add their latency together.
+  // Apply only after every required collection has confirmed a server response.
+  const [students, feeTypes, payments, expenses, cashInflows, messages, valves, attendance, attendanceSettings] = await Promise.all([
+    loadCollection<AppData["students"][number]>("students", annualFilter, true),
+    loadCollection<AppData["feeTypes"][number]>("feeTypes", annualFilter, true),
+    loadPaymentsForYear(user.schoolId, schoolYearId, true),
+    loadCollection<AppData["expenses"][number]>("expenses", annualFilter, true),
+    loadCollection<NonNullable<AppData["cashInflows"]>[number]>("cashInflows", annualFilter, true),
+    loadSchoolMessages(user, user.schoolId, schoolYearId, true),
+    loadCollection<AppData["valves"][number]>("valves", annualFilter, true),
+    loadCollection<AppData["attendance"][number]>("attendance", annualFilter, true),
+    loadCollection<AppData["attendanceSettings"][number]>("attendanceSettings", annualFilter, true),
+  ]);
+  const yearData: FirestoreYearData = { students, feeTypes, payments, expenses, cashInflows, messages, valves, attendance, attendanceSettings };
 
   return yearData;
 }

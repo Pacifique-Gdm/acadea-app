@@ -20,6 +20,7 @@ import { formatOperationalStudentClassName, resolveStudentParentClass, schoolCla
 import { canonicalAnnualClassName, isEligibleForAnnualTransition, isImmediatelyPreviousArchivedYear, studentImportKey } from "../../utils/studentYearTransition.js";
 import { useStudentPage } from "../../hooks/useStudentPage";
 import { loadAllStudentResults, STUDENT_SOURCE_PAGE_SIZE, type StudentQueryFilters } from "../../services/studentPagination";
+import { studentOptionFilterChoices } from "./studentOptionFilterChoices";
 
 export interface StudentModuleCapabilities {
   canCreate: boolean;
@@ -127,6 +128,8 @@ export function StudentsModule({
   // Les anciennes options présentes uniquement sur des élèves doivent être
   // réconciliées par une migration dédiée, jamais réintroduites en mémoire.
   const optionChoices = schoolOptions;
+  const filterOptionChoices = useMemo(() => studentOptionFilterChoices({ school, schoolYearId: year.id, records: structuredClasses, students: yearData.students, section: sectionFilter, className: classFilter }), [school, year.id, structuredClasses, yearData.students, sectionFilter, classFilter]);
+  const effectiveOptionFilter = structuredClassesLoaded && !filterOptionChoices.includes(optionFilter) ? "" : optionFilter;
   const emptyCurrentStudent = () => {
     const className = studentClassChoices[0] ?? CLASSES[0];
     return { ...emptyStudent(school.id, year.id), className, section: getClassSection(className) };
@@ -141,6 +144,10 @@ export function StudentsModule({
       setSectionFilter("all");
     }
   }, [studentSectionChoices, sectionFilter]);
+  useEffect(() => { setClassFilter(""); setOptionFilter(""); }, [school.id, year.id]);
+  useEffect(() => {
+    if (structuredClassesLoaded && optionFilter && !filterOptionChoices.includes(optionFilter)) setOptionFilter("");
+  }, [filterOptionChoices, optionFilter, structuredClassesLoaded]);
   useEffect(() => {
     if (!saveError && !saveMessage) return;
     const timer = window.setTimeout(() => {
@@ -164,9 +171,9 @@ export function StudentsModule({
     archive: archiveFilter,
     section: sectionFilter,
     className: classFilter,
-    option: optionFilter,
+    option: effectiveOptionFilter,
     allowedSections: allowedSectionsKey ? allowedSectionsKey.split("|") as SchoolSection[] : undefined,
-  }), [allowedSectionsKey, archiveFilter, classFilter, deferredQuery, optionFilter, school.id, sectionFilter, year.id]);
+  }), [allowedSectionsKey, archiveFilter, classFilter, deferredQuery, effectiveOptionFilter, school.id, sectionFilter, year.id]);
   const studentPage = useStudentPage(studentFilters, yearData.students);
   const students = studentPage.students;
   const visibleStudents = students;
@@ -551,7 +558,7 @@ export function StudentsModule({
       `Statut: ${archiveFilter === "active" ? "Actifs" : archiveFilter === "archived" ? "Archivés" : "Tous"}`,
       `Section: ${sectionFilter === "all" ? "Toutes les sections" : schoolSectionLabels[sectionFilter]}`,
       `Classe: ${classFilter || "Toutes les classes"}`,
-      `Option: ${optionFilter || "Toutes les options"}`,
+      `Option: ${effectiveOptionFilter || "Toutes les options"}`,
     ];
     setIsExporting(true);
     setPdfError("");
@@ -592,6 +599,7 @@ export function StudentsModule({
             onChange={(event) => {
               setSectionFilter(event.target.value as typeof sectionFilter);
               setClassFilter("");
+              setOptionFilter("");
             }}
             className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2 lg:flex-1 lg:basis-0"
           >
@@ -600,15 +608,15 @@ export function StudentsModule({
               <option key={section} value={section}>{schoolSectionLabels[section]}</option>
             ))}
           </select>
-          <select value={classFilter} onChange={(event) => setClassFilter(event.target.value)} className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2 lg:flex-1 lg:basis-0">
+          <select value={classFilter} onChange={(event) => { setClassFilter(event.target.value); setOptionFilter(""); }} className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2 lg:flex-1 lg:basis-0">
             <option value="">Toutes les classes</option>
             {availableClasses.map((className) => (
               <option key={className} value={className}>{className}</option>
             ))}
           </select>
-          <select value={optionFilter} onChange={(event) => setOptionFilter(event.target.value)} className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2 lg:flex-1 lg:basis-0">
-            <option value="">Toutes les options</option>
-            {optionChoices.map((option) => (
+          <select value={effectiveOptionFilter} onChange={(event) => setOptionFilter(event.target.value)} disabled={!structuredClassesLoaded || filterOptionChoices.length === 0} aria-label="Option" className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2 lg:flex-1 lg:basis-0">
+            <option value="">{filterOptionChoices.length ? "Toutes les options" : "Aucune option disponible"}</option>
+            {filterOptionChoices.map((option) => (
               <option key={option} value={option}>{schoolOptionDisplayName(school, option)}</option>
             ))}
           </select>
@@ -617,6 +625,7 @@ export function StudentsModule({
           </button>
           </div>
         </div>
+        {structuredClassesLoaded && filterOptionChoices.length === 0 && <p role="status" className="mb-3 text-sm text-slate-600">{classFilter ? "Aucune option disponible pour la classe sélectionnée." : sectionFilter !== "all" ? "Aucune option disponible pour cette section." : "Aucune option disponible pour les classes accessibles."}</p>}
         {pdfError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{pdfError}</p>}
         {studentPage.error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Impossible de charger les élèves : {studentPage.error}</p>}
         {studentPage.loading && <p className="rounded border border-slate-200 bg-white p-3 text-sm text-slate-500">Chargement des élèves…</p>}
