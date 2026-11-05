@@ -1,9 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateManifest, guard, services } from './socialFinanceStagingFixture.mjs';
+import { validateManifest, guard, services, fixtureDocument } from './socialFinanceStagingFixture.mjs';
 const tag = 'e2e-social-' + 'a'.repeat(32);
 const valid = () => ({ projectId: 'acadea-staging', tag, schools: [tag + '-a', tag + '-b'], users: ['school_admin', 'cashier', 'secretary', 'teacher'].map(role => ({ role, uid: tag + '-' + role, email: `${tag}-${role}@example.invalid`, schoolId: tag + '-a' })) });
 test('le manifeste fictif exact est accepté', () => assert.doesNotThrow(() => validateManifest(valid())));
+test('élève fictif : champs matérialisés pour pagination, recherche et filtre actif', () => {
+  const row = fixtureDocument('students', tag + '-student', tag, {
+    schoolId: tag + '-a', schoolYearId: tag + '-year', nom: 'SOCIAL', postnom: 'FICTIF', prenom: 'Recette',
+    matricule: 'E2E-SOCIAL', status: 'ACTIVE',
+  });
+  assert.equal(row.path, `students/${tag}-student`);
+  assert.equal(row.data.sortName, 'social fictif recette');
+  assert.equal(row.data.searchArchived, false);
+  assert.ok(row.data.searchPrefixes.includes('social'));
+  assert.ok(row.data.searchPrefixes.includes('e2e-social'));
+});
+test('parent fictif : année courante explicite et aucun lien inventé', () => {
+  const row = fixtureDocument('parents', tag + '-parent-alt', tag, {
+    schoolId: tag + '-a', schoolYearId: tag + '-year', fullName: 'Basile Parent Fictif', studentIds: [],
+  });
+  assert.equal(row.data.schoolYearId, tag + '-year');
+  assert.deepEqual(row.data.studentIds, []);
+  assert.equal(row.data.sortName, undefined);
+});
 test('la recette combinée exige uniquement ses rôles fictifs connus', () => {
   const m = valid();
   m.recipe = 'pr46pr47';

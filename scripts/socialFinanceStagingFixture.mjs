@@ -4,10 +4,14 @@ import { initializeApp, deleteApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { Firestore } from '@google-cloud/firestore';
 import { GoogleAuth, OAuth2Client } from 'google-auth-library';
+import { studentSearchFields } from '../src/utils/studentSearch.js';
 
 export const projectId = 'acadea-staging';
 export const manifestPath = 'diagnostics/social-finance-staging/manifest.json';
 const navigationRecipe = (recipe) => recipe === 'navigation' || recipe === 'pr46pr47';
+export function fixtureDocument(collection, id, tag, data) {
+  return { path: `${collection}/${id}`, data: { id, fixtureId: tag, ...data, ...(collection === 'students' ? studentSearchFields(data) : {}) } };
+}
 export function validateManifest(m) {
   if (m.recipe !== undefined && !navigationRecipe(m.recipe)) throw Error('Recette de manifeste inconnue.');
   const roles = ['school_admin', 'cashier', 'secretary', 'teacher', ...(navigationRecipe(m.recipe) ? ['study_director', 'discipline_director', 'coordination_admin', 'sub_coordination_admin'] : [])];
@@ -138,7 +142,7 @@ export async function prepare(s, recipe) {
   const year = tag + '-year', student = tag + '-student', fee = tag + '-fee';
   const users = ['school_admin', 'cashier', 'secretary', 'teacher', ...(navigationRecipe(recipe) ? ['study_director', 'discipline_director', 'coordination_admin', 'sub_coordination_admin'] : [])].map(role => ({ uid: tag + '-' + role, email: `${tag}-${role}@example.invalid`, role, schoolId: schools[0], ...(role.includes('coordination_admin') ? {coordinationId:tag+'-coordination'} : {}), ...(role==='sub_coordination_admin' ? {subCoordinationId:tag+'-subcoordination'} : {}) }));
   const documents = [];
-  const add = (collection, id, data) => documents.push({ path: `${collection}/${id}`, data: { id, fixtureId: tag, ...data } });
+  const add = (collection, id, data) => documents.push(fixtureDocument(collection, id, tag, data));
   for (const [i, schoolId] of schools.entries()) {
     const schoolYearId = i ? tag + '-other-year' : year;
     const currency = recipe === 'pr46pr47' && i === 1 ? 'CDF' : 'USD';
@@ -165,9 +169,9 @@ export async function prepare(s, recipe) {
     add('classes', tag+'-class', {schoolId:schools[0],schoolYearId:year,name:'1ère Primaire',section:'Primaire',active:true});
     for (const suffix of ['A','B']) add('classes', tag+'-class-'+suffix, {schoolId:schools[0],schoolYearId:year,name:'1ère Primaire',section:'Primaire',active:true,parentClassId:tag+'-class',subClassLabel:suffix});
     add('classes', tag+'-empty', {schoolId:schools[0],schoolYearId:year,name:'2ème Primaire',section:'Primaire',active:true});
-    add('parents', tag+'-parent', {schoolId:schools[0],fullName:'Émilie Parent Fictif',phone:'+243000000001',email:'parent@example.invalid',studentIds:[student],status:'active'});
+    add('parents', tag+'-parent', {schoolId:schools[0],schoolYearId:year,fullName:'Émilie Parent Fictif',phone:'+243000000001',email:'parent@example.invalid',studentIds:[student],status:'active'});
     if (recipe === 'pr46pr47') {
-      add('parents', tag+'-parent-alt', {schoolId:schools[0],fullName:'Basile Parent Fictif',phone:'+243000000002',email:'parent-alt@example.invalid',studentIds:[],status:'active'});
+      add('parents', tag+'-parent-alt', {schoolId:schools[0],schoolYearId:year,fullName:'Basile Parent Fictif',phone:'+243000000002',email:'parent-alt@example.invalid',studentIds:[],status:'active'});
       add('parents', tag+'-parent-foreign', {schoolId:schools[1],fullName:'Parent Étranger Fictif',phone:'+243000000003',email:'parent-foreign@example.invalid',studentIds:[],status:'active'});
       add('students', tag+'-student-foreign', {schoolId:schools[1],schoolYearId:tag+'-other-year',nom:'ÉTRANGER',postnom:'FICTIF',prenom:'Recette',matricule:'E2E-FOREIGN',className:'1ère Primaire',section:'Primaire',status:'ACTIVE',sexe:'M',birthDate:'2090-01-01'});
       for (const [suffix, option] of [['commercial', 'Commerciale'], ['sciences', 'Sciences']])

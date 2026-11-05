@@ -119,7 +119,13 @@ async function assertFilters(dashboard, role, expected, baseCards, currencies) {
       'Le filtre section augmente les effectifs.');
     assertCards(filtered, expected.filters?.section ?? {}, currencies.filter((currency) => filtered[FINANCIAL_LABELS.official].includes(currency === 'CDF' ? 'FC' : '$')));
     summary.section = sectionValue;
-    await dashboard.getByRole('button', { name: 'Réinitialiser', exact: true }).click();
+    if (role === 'school_admin' || role === 'cashier') {
+      // This dashboard's reset button clears only the date range; restore its
+      // independent section filter explicitly before comparing base totals.
+      await section.selectOption('all');
+    } else {
+      await dashboard.getByRole('button', { name: 'Réinitialiser', exact: true }).click();
+    }
     await expect(section).toHaveValue('all');
   }
   if (role === 'coordination_admin' || role === 'sub_coordination_admin') {
@@ -187,7 +193,8 @@ async function inspectPdf(page, dashboard, role, outputDir, expected, currencies
   }));
   assert.equal(bytes.subarray(0, 5).toString(), '%PDF-', 'Export non PDF.');
   writeFileSync(resolve(outputDir, `${role}-dashboard.pdf`), bytes);
-  const pdf = await getDocument({ data: new Uint8Array(bytes), useSystemFonts: true }).promise;
+  const loadingTask = getDocument({ data: new Uint8Array(bytes), useSystemFonts: true });
+  const pdf = await loadingTask.promise;
   let worker;
   const pages = [];
   try {
@@ -240,7 +247,7 @@ async function inspectPdf(page, dashboard, role, outputDir, expected, currencies
     return { pageCount: pages.length, bytes: bytes.length, pageInk: pages.map((item) => item.ink), ocrUsed: Boolean(worker) };
   } finally {
     await worker?.terminate();
-    await pdf.destroy();
+    await loadingTask.destroy();
     await page.locator('[data-pdf-close]').click().catch(() => undefined);
   }
 }
