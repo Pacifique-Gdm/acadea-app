@@ -8,7 +8,7 @@ import { GoogleAuth, OAuth2Client } from 'google-auth-library';
 export const projectId = 'acadea-staging';
 export const manifestPath = 'diagnostics/social-finance-staging/manifest.json';
 export function validateManifest(m) {
-  const roles = ['school_admin', 'cashier', 'secretary', 'teacher', ...(m.recipe === 'navigation' ? ['study_director', 'discipline_director'] : [])];
+  const roles = ['school_admin', 'cashier', 'secretary', 'teacher', ...(m.recipe === 'navigation' ? ['study_director', 'discipline_director', 'coordination_admin', 'sub_coordination_admin'] : [])];
   if (m.projectId !== projectId || !/^e2e-social-[a-f0-9]{32}$/.test(m.tag)
     || JSON.stringify(m.schools) !== JSON.stringify([m.tag + '-a', m.tag + '-b'])
     || !Array.isArray(m.users) || m.users.length !== roles.length
@@ -44,7 +44,7 @@ export async function prepare(s, recipe) {
   const tag = `e2e-social-${randomUUID().replaceAll('-', '')}`;
   const schools = [tag + '-a', tag + '-b'];
   const year = tag + '-year', student = tag + '-student', fee = tag + '-fee';
-  const users = ['school_admin', 'cashier', 'secretary', 'teacher', ...(recipe === 'navigation' ? ['study_director', 'discipline_director'] : [])].map(role => ({ uid: tag + '-' + role, email: `${tag}-${role}@example.invalid`, role, schoolId: schools[0] }));
+  const users = ['school_admin', 'cashier', 'secretary', 'teacher', ...(recipe === 'navigation' ? ['study_director', 'discipline_director', 'coordination_admin', 'sub_coordination_admin'] : [])].map(role => ({ uid: tag + '-' + role, email: `${tag}-${role}@example.invalid`, role, schoolId: schools[0], ...(role.includes('coordination_admin') ? {coordinationId:tag+'-coordination'} : {}), ...(role==='sub_coordination_admin' ? {subCoordinationId:tag+'-subcoordination'} : {}) }));
   const documents = [];
   const add = (collection, id, data) => documents.push({ path: `${collection}/${id}`, data: { id, fixtureId: tag, ...data } });
   for (const [i, schoolId] of schools.entries()) {
@@ -56,8 +56,14 @@ export async function prepare(s, recipe) {
   for (const [i, id] of [student, tag + '-unpaid'].entries()) add('students', id, { schoolId: schools[0], schoolYearId: year, nom: i ? 'IMPAYE' : 'SOCIAL', postnom: 'FICTIF', prenom: 'Recette', matricule: `E2E-${i}`, className: '1ère Primaire', section: 'Primaire', status: 'ACTIVE', sexe: 'F', birthDate: '2090-01-01' });
   add('feeTypes', fee, { schoolId: schools[0], schoolYearId: year, name: 'Minerval', amount: 300, className: '1ère Primaire' });
   add('correspondences', tag + '-letter', { schoolId: schools[0], schoolYearId: year, status: 'draft', subject: 'Recette fictive PDF' });
-  for (const u of users) add('users', u.uid, { role: u.role, schoolId: u.schoolId, name: 'Compte fictif ' + u.role, email: u.email, active: true, status: 'active', activeSchoolYearId: year, ...(recipe === 'navigation' ? {sectionIds:['Primaire']} : {}) });
+  for (const u of users) add('users', u.uid, { role: u.role, schoolId: u.schoolId, name: 'Compte fictif ' + u.role, email: u.email, active: true, status: 'active', activeSchoolYearId: year, ...(recipe === 'navigation' ? {sectionIds:['Primaire']} : {}), ...(u.coordinationId ? {coordinationId:u.coordinationId} : {}), ...(u.subCoordinationId ? {subCoordinationId:u.subCoordinationId} : {}) });
   if (recipe === 'navigation') {
+    const coordinationId=tag+'-coordination',subCoordinationId=tag+'-subcoordination';
+    add('coordinations',coordinationId,{name:'Coordination fictive navigation',code:'FICTIF',status:'active',referenceSchoolYear:'2098-2099',principalCoordinatorUserId:tag+'-coordination_admin'});
+    add('subCoordinations',subCoordinationId,{coordinationId,coordinatorUserId:tag+'-sub_coordination_admin',active:true,status:'active',circumscription:'Fictif'});
+    add('coordinationSchools',coordinationId+'__'+schools[0],{coordinationId,schoolId:schools[0],active:true,addedAt:new Date().toISOString()});
+    add('subCoordinationSchools',subCoordinationId+'__'+schools[0],{coordinationId,subCoordinationId,schoolId:schools[0],active:true});
+    documents.find(row=>row.path==='schools/'+schools[0]).data.activeCoordinationId=coordinationId;
     add('classes', tag+'-class', {schoolId:schools[0],schoolYearId:year,name:'1ère Primaire',section:'Primaire',active:true});
     for (const suffix of ['A','B']) add('classes', tag+'-class-'+suffix, {schoolId:schools[0],schoolYearId:year,name:'1ère Primaire',section:'Primaire',active:true,parentClassId:tag+'-class',subClassLabel:suffix});
     add('classes', tag+'-empty', {schoolId:schools[0],schoolYearId:year,name:'2ème Primaire',section:'Primaire',active:true});
@@ -81,7 +87,7 @@ export async function prepare(s, recipe) {
   for (const row of documents) await s.db.doc(row.path).create(row.data);
   for (const u of users) {
     await s.auth.createUser({ uid: u.uid, email: u.email, password });
-    await s.auth.setCustomUserClaims(u.uid, { role: u.role, schoolId: u.schoolId });
+    await s.auth.setCustomUserClaims(u.uid, { role: u.role, schoolId: u.schoolId, ...(u.coordinationId ? {coordinationId:u.coordinationId} : {}), ...(u.subCoordinationId ? {subCoordinationId:u.subCoordinationId} : {}) });
   }
   return { m, password };
 }
@@ -91,7 +97,8 @@ export async function retire(s) {
   const m = JSON.parse(readFileSync(manifestPath, 'utf8'));
   validateManifest(m);
   const docs = [];
-  for (const path of [...m.schools.map(id => `schools/${id}`), ...m.users.map(u => `users/${u.uid}`)]) {
+  const extra = m.recipe === 'navigation' ? [`coordinations/${m.tag}-coordination`,`subCoordinations/${m.tag}-subcoordination`,`coordinationSchools/${m.tag}-coordination__${m.schools[0]}`,`subCoordinationSchools/${m.tag}-subcoordination__${m.schools[0]}`] : [];
+  for (const path of [...m.schools.map(id => `schools/${id}`), ...m.users.map(u => `users/${u.uid}`), ...extra]) {
     const d = await s.db.doc(path).get();
     if (d.exists && (d.data().fixtureId !== m.tag || d.data().id !== d.id)) throw Error('Document étranger.');
     if (d.exists) docs.push(d);

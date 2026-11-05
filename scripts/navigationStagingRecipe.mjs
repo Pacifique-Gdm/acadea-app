@@ -22,7 +22,7 @@ const check=async(name,run)=>{try{await run();results.push({name,result:'PASS'})
 try {
   ({m:fixture,password}=await prepare(s,'navigation'));
   browser=await chromium.launch({headless:true});
-  for(const role of ['school_admin','secretary','cashier','study_director','discipline_director']) {
+  for(const role of ['school_admin','secretary','cashier','study_director','discipline_director','coordination_admin','sub_coordination_admin']) {
     const account=fixture.users.find(u=>u.role===role);
     const context=await browser.newContext({viewport:{width:1365,height:1000},serviceWorkers:'allow'});
     await context.addInitScript(()=>{ window.addEventListener('acadea:offline-context-ready',()=>{window.__recipeOfflineReady=true;}); });
