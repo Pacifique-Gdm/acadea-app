@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { chromium, expect as playwrightExpect } from '@playwright/test';
 import { guard, services, prepare, retire } from './socialFinanceStagingFixture.mjs';
@@ -7,6 +8,35 @@ const origin = 'https://acadea-staging.vercel.app';
 const output = 'diagnostics/navigation-staging';
 const results = [];
 const expect=playwrightExpect.configure({timeout:30000});
+const firebaseAuthStoreCount=page=>page.evaluate(async()=>{
+  const databases=await indexedDB.databases();
+  if(!databases.some(item=>item.name==='firebaseLocalStorageDb'))return 0;
+  return new Promise((resolve,reject)=>{
+    const open=indexedDB.open('firebaseLocalStorageDb');
+    open.onerror=()=>reject(new Error('Auth IndexedDB unavailable'));
+    open.onsuccess=()=>{
+      const database=open.result;
+      if(!database.objectStoreNames.contains('firebaseLocalStorage')){database.close();resolve(0);return;}
+      const count=database.transaction('firebaseLocalStorage','readonly').objectStore('firebaseLocalStorage').count();
+      count.onsuccess=()=>{database.close();resolve(count.result);};
+      count.onerror=()=>{database.close();reject(new Error('Auth IndexedDB count unavailable'));};
+    };
+  });
+});
+const offlineOperationMetadata=(page,scope)=>page.evaluate(async scope=>{
+  const partition=JSON.stringify([scope.userId,scope.schoolId,scope.schoolYearId]);
+  return new Promise((resolve,reject)=>{
+    const open=indexedDB.open('acadea-offline-operations-v1');
+    open.onerror=()=>reject(new Error('Offline operations IndexedDB unavailable'));
+    open.onsuccess=()=>{
+      const database=open.result;
+      if(!database.objectStoreNames.contains('operations')){database.close();resolve([]);return;}
+      const rows=database.transaction('operations','readonly').objectStore('operations').index('partition').getAll(partition);
+      rows.onsuccess=()=>{database.close();resolve(rows.result.map(({id,kind,status,attempts})=>({id,kind,status,attempts})));};
+      rows.onerror=()=>{database.close();reject(new Error('Offline operations metadata unavailable'));};
+    };
+  });
+},scope);
 const responsive=async(page,label)=>{
   for(const width of [320,360,375,390,414,768,1024,1280,1440]){
     await page.setViewportSize({width,height:1000});
@@ -38,6 +68,13 @@ try {
     const context=await browser.newContext({viewport:{width:1365,height:1000},serviceWorkers:'allow'});
     await context.addInitScript(()=>{ window.addEventListener('acadea:offline-context-ready',()=>{window.__recipeOfflineReady=true;}); });
     const page=await context.newPage();page.setDefaultTimeout(30000);
+    const authEvents=[];
+    page.on('console',event=>{
+      const message=event.text();
+      if(message.includes('Profil utilisateur introuvable'))authEvents.push('profile-not-found');
+      else if(message.includes('Session Firebase invalide'))authEvents.push('session-invalid');
+      else if(message.includes('Chargement Firestore indisponible'))authEvents.push('firestore-load-unavailable');
+    });
     activePage=page;
     try {
       await page.goto(origin+'/login');
@@ -115,15 +152,61 @@ try {
           }
           const read=()=>s.db.collection('students').where('schoolId','==',fixture.schools[0]).get();
           const initial=await read();assert.ok(!initial.docs.some(d=>d.data().nom===`LOCAL-${role}-1`));
+          const scope={userId:account.uid,schoolId:fixture.schools[0],schoolYearId:fixture.year};
+          const pending=(await offlineOperationMetadata(page,scope)).filter(row=>row.kind==='student_enrollment');
+          assert.equal(pending.length,2);
+          assert.ok(pending.every(row=>row.status==='LOCAL_PENDING'));
+          assert.equal(new Set(pending.map(row=>row.id)).size,2);
           await page.screenshot({path:`${output}/${role}-offline.png`,fullPage:true});
+          const beforeReloadAuthRecords=await firebaseAuthStoreCount(page);
           await page.reload();
           await expect(page.getByRole('heading',{name:'Acadéa hors connexion'})).toBeVisible();
           await expect(page.getByRole('region',{name:'État des opérations hors connexion'}).getByRole('listitem').filter({hasText:"Inscription d'élève"})).toHaveCount(2);
+          assert.deepEqual((await offlineOperationMetadata(page,scope)).filter(row=>row.kind==='student_enrollment').map(row=>row.id).sort(),pending.map(row=>row.id).sort());
+          const offlineAuthRecords=await firebaseAuthStoreCount(page);
           await context.setOffline(false);
-          await expect(page.getByRole('button',{name:'Menu',exact:true}).last()).toBeVisible({timeout:60000});
+          const menu=page.getByRole('button',{name:'Menu',exact:true}).last();
+          const login=page.getByPlaceholder('email@ecole.com');
+          await expect.poll(async()=>await menu.isVisible()?'authenticated':await login.isVisible()?'login':'restoring',{timeout:60000}).not.toBe('restoring');
+          const promptedForLogin=await login.isVisible();
+          const onlineAuthRecords=await firebaseAuthStoreCount(page);
+          results.push({name:`Restauration Auth ${role}`,result:'OBSERVED',state:promptedForLogin?'login-required':'restored',
+            authStoreCounts:[beforeReloadAuthRecords,offlineAuthRecords,onlineAuthRecords],authEvents:[...authEvents]});
+          assert.equal(promptedForLogin,false,'La session doit être restaurée sans nouvelle connexion.');
+          assert.deepEqual([beforeReloadAuthRecords,offlineAuthRecords,onlineAuthRecords],[1,1,1]);
+          await expect(menu).toBeVisible({timeout:60000});
+          await expect.poll(async()=>{
+            const rows=await offlineOperationMetadata(page,scope);
+            return rows.filter(row=>pending.some(item=>item.id===row.id)&&row.status==='SERVER_CONFIRMED').length;
+          },{timeout:90000}).toBe(2);
           await expect.poll(async()=> (await read()).docs.filter(d=>d.data().nom?.startsWith(`LOCAL-${role}-`)).length,{timeout:90000}).toBe(2);
+          const created=(await read()).docs.filter(d=>d.data().nom?.startsWith(`LOCAL-${role}-`));
+          assert.deepEqual(created.map(d=>d.data().nom).sort(),[`LOCAL-${role}-1`,`LOCAL-${role}-2`]);
+          assert.equal(new Set(created.map(d=>d.id)).size,2);
+          for(const doc of created){
+            assert.equal(doc.data().schoolId,fixture.schools[0]);
+            assert.equal(doc.data().schoolYearId,fixture.year);
+            assert.equal(doc.data().classId,fixture.tag+'-class');
+            assert.equal(doc.data().subClassId,fixture.tag+'-class-A');
+          }
+          for(const operation of pending){
+            const student=await s.db.doc(`students/student-${operation.id}`).get();
+            assert.ok(student.exists);
+            assert.equal(student.data().schoolId,scope.schoolId);
+            assert.equal(student.data().schoolYearId,scope.schoolYearId);
+            const receiptId=createHash('sha256').update(`${account.uid}\0${scope.schoolId}\0${operation.id}`).digest('hex');
+            const receipt=await s.db.doc(`offlineOperationReceipts/${receiptId}`).get();
+            assert.ok(receipt.exists);
+            assert.equal(receipt.data().actorId,account.uid);
+            assert.equal(receipt.data().schoolId,scope.schoolId);
+            assert.equal(receipt.data().schoolYearId,scope.schoolYearId);
+            assert.equal(receipt.data().operationId,operation.id);
+            assert.equal(receipt.data().studentId,student.id);
+          }
           await page.reload();
+          assert.ok((await offlineOperationMetadata(page,scope)).filter(row=>pending.some(item=>item.id===row.id)&&row.status==='SERVER_CONFIRMED').length===2);
           await expect.poll(async()=> (await read()).docs.filter(d=>d.data().nom?.startsWith(`LOCAL-${role}-`)).length).toBe(2);
+          results.push({name:`Preuve opérations et reçus ${role}`,result:'PASS',operations:2,receipts:2});
         });
       }
       if(role==='school_admin') await check('Drawer social — transaction serveur et identifiant conservé',async()=>{

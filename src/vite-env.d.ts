@@ -81,7 +81,7 @@ declare module "firebase/auth" {
 
 declare module "firebase/firestore" {
   interface DocumentReference { readonly __documentReference: true }
-  interface DocumentSnapshot { id: string; exists(): boolean; data(): Record<string, unknown> }
+  interface DocumentSnapshot { id: string; exists(): boolean; data(): Record<string, unknown>; metadata: { fromCache: boolean } }
   export function getFirestore(app?: unknown): unknown;
   export function connectFirestoreEmulator(db: unknown, host: string, port: number): void;
   export function doc(db: unknown, collectionName: string, id: string): DocumentReference;

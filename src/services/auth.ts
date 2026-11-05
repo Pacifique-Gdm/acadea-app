@@ -219,6 +219,15 @@ export async function subscribeToFirebaseUser(
         if (generation !== currentGeneration) return;
         const profile = snapshot.data();
         if (!snapshot.exists()) {
+          // An empty local Firestore cache is not proof that a profile was deleted.
+          // In particular, the offline shell can reopen without a cached users/{uid}
+          // document while Firebase Auth still has a valid persisted identity.
+          if (snapshot.metadata.fromCache) {
+            if (navigator.onLine === false) {
+              failBootstrap(new Error("La préparation de votre session a expiré. Vérifiez votre connexion puis réessayez."), currentGeneration);
+            }
+            return;
+          }
           console.error("[Acadéa auth] Profil utilisateur introuvable.", { code: "auth/profile-not-found" });
           failBootstrap(new Error("Aucun profil Acadéa n'est associé à ce compte."), currentGeneration);
           void authModule.signOut(auth);
