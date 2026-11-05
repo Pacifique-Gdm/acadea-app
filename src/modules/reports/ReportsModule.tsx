@@ -102,7 +102,7 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
         <p className="text-slate-600">Ces encaissements sont distincts du recouvrement des frais de l'année actuelle.</p>
         {arrearsByCurrency.map((group) => <p key={group.currency} className="font-semibold">{formatCurrencyMoney(group.amount, group.currency)}</p>)}
       </div>}
-      <div className="grid min-w-0 gap-4 xl:grid-cols-2">
+      <div className="grid min-w-0 grid-cols-1 gap-4">
         <FormPanel title="Paiements">
           <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
             {payments.map((payment) => {
@@ -117,7 +117,19 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
             {payments.length === 0 && <p className="text-sm text-slate-500">Aucun paiement sur cette période.</p>}
           </div>
         </FormPanel>
-        <FormPanel title="Autres entrées de caisse">
+        <FormPanel title="Dépenses">
+          <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+            {expenses.map((expense) => (
+              <div key={expense.id} className="min-w-0 rounded bg-slate-50 p-3 text-sm">
+                <p className="break-words font-semibold text-ink">{expenseCategoryLabel(expense.category)}</p>
+                <p className="break-words text-slate-500">{formatRecordedOperation(expense)} | {expense.spentAt} | {expense.cashierName}</p>
+                <p className="break-words text-slate-500">{expense.description}</p>
+              </div>
+            ))}
+            {expenses.length === 0 && <p className="text-sm text-slate-500">Aucune dépense sur cette période.</p>}
+          </div>
+        </FormPanel>
+        <FormPanel title="Autres entrées de caisses">
           <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
             {cashInflows.map((inflow) => <div key={inflow.id} className="min-w-0 rounded bg-slate-50 p-3 text-sm">
               <p className="break-words font-semibold text-ink">{cashInflowCategoryLabel(inflow.category)} · {formatRecordedOperation(inflow)}</p>
@@ -138,18 +150,6 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
             })}
           </div>
         </FormPanel>}
-        <FormPanel title="Dépenses">
-          <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
-            {expenses.map((expense) => (
-              <div key={expense.id} className="min-w-0 rounded bg-slate-50 p-3 text-sm">
-                <p className="break-words font-semibold text-ink">{expenseCategoryLabel(expense.category)}</p>
-                <p className="break-words text-slate-500">{formatRecordedOperation(expense)} | {expense.spentAt} | {expense.cashierName}</p>
-                <p className="break-words text-slate-500">{expense.description}</p>
-              </div>
-            ))}
-            {expenses.length === 0 && <p className="text-sm text-slate-500">Aucune dépense sur cette période.</p>}
-          </div>
-        </FormPanel>
       </div>
     </section>
   );

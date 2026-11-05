@@ -29,6 +29,7 @@ test("incident frais : école coordonnée, classe historique, confirmation et r�
     await page.getByRole("button", { name: "Menu", exact: true }).last().click();
     await page.getByRole("button", { name: /Types de frais/ }).click();
     const drawer = page.getByRole("dialog", { name: "Types de frais", exact: true });
+    await expect(drawer.getByRole("textbox", { name: /^Montant/ })).toHaveValue("10 000");
     await drawer.getByLabel("Frais", { exact: true }).selectOption("__add_fee__");
     await drawer.getByPlaceholder("Nom du frais").fill("Frais fictif incident");
     let lostKind = false;
@@ -47,7 +48,9 @@ test("incident frais : école coordonnée, classe historique, confirmation et r�
     const afterYear = (await f.db.doc(`schoolYears/${f.year}`).get()).data()!;
     expect({ ...afterYear, customFeeKindChoices: undefined }).toEqual({ ...beforeYear, customFeeKindChoices: undefined });
     await drawer.getByRole("checkbox", { name: "1ère Sciences", exact: true }).check();
-    await drawer.getByRole("textbox", { name: /^Montant/ }).fill("15000");
+    await drawer.getByRole("textbox", { name: /^Montant/ }).fill("");
+    await drawer.getByRole("textbox", { name: /^Montant/ }).pressSequentially("15000");
+    await expect(drawer.getByRole("textbox", { name: /^Montant/ })).toHaveValue("15 000");
     await drawer.getByRole("button", { name: "Enregistrer", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Ajouter le type de frais", exact: true });
     await dialog.getByPlaceholder("AJOUTER CE FRAIS").fill("AJOUTER CE FRAIS");

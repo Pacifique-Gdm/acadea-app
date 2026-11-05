@@ -24,7 +24,7 @@ import { persistSchoolEducationLevel, persistSchoolOption, persistSchoolSettings
 import { isSchoolSectionConfirmation, SCHOOL_SECTION_CONFIRMATIONS, type SchoolSectionAction } from "../../utils/schoolSectionConfirmation";
 import { canonicalSchoolOption, isSchoolOptionAddConfirmation, isSchoolOptionDeleteConfirmation, normalizeSchoolOptions, schoolOptionDisplayName, SCHOOL_OPTION_ADD_CONFIRMATION, SCHOOL_OPTION_DELETE_CONFIRMATION } from "../../utils/schoolOptions";
 import { formatStudentClassName } from "../../utils/studentClasses";
-import { formatCurrencyMoney, resolveSchoolYearCurrency, schoolCurrencySymbol } from "../../utils/currency";
+import { defaultFeeAmount, formatCurrencyMoney, resolveSchoolYearCurrency, schoolCurrencySymbol } from "../../utils/currency";
 import { toMoneyMinor } from "../../utils/money";
 import type { AppData, AppUser, FeeKind, FeeType, ParentProfile, School, SchoolSection, SchoolYear, Student, ValvePublication } from "../../types";
 import { FEE_KINDS } from "../../types";
@@ -128,7 +128,7 @@ export function MenuModule({
   const [showCashierPassword, setShowCashierPassword] = useState(false);
   const [feeName, setFeeName] = useState<FeeKind>("Minerval");
   const [feeClassNames, setFeeClassNames] = useState<string[]>([]);
-  const [feeAmount, setFeeAmount] = useState("100");
+  const [feeAmountDraft, setFeeAmount] = useState<string | null>(null);
   const [editingFeeId, setEditingFeeId] = useState("");
   const [feeSaveError, setFeeSaveError] = useState("");
   const [feePendingConfirmation, setFeePendingConfirmation] = useState(false);
@@ -201,6 +201,7 @@ export function MenuModule({
   const persistedCustomFeeKindChoices = selectedYear.customFeeKindChoices ?? [];
   const feeKindChoices = Array.from(new Set([...FEE_KINDS, ...yearData.feeTypes.map((fee) => fee.name), ...persistedCustomFeeKindChoices, ...customFeeKindChoices]));
   const feeCurrency = resolveSchoolYearCurrency(selectedYear, school);
+  const feeAmount = feeAmountDraft ?? defaultFeeAmount(feeCurrency);
   const feeCurrencySymbol = schoolCurrencySymbol({ currency: feeCurrency });
   const newFeeFormRef = useRef<HTMLDivElement>(null);
   const feeEditorRef = useRef<HTMLDivElement>(null);
@@ -612,7 +613,7 @@ export function MenuModule({
       setEditingFeeId("");
       setFeeName("Minerval");
       setFeeClassNames([]);
-      setFeeAmount("100");
+      setFeeAmount(null);
       setFeeAddPending(false);
       setFeeAddConfirmation("");
       setFeeEditPending(false);
@@ -673,7 +674,7 @@ export function MenuModule({
     setEditingFeeId("");
     setFeeName("Minerval");
     setFeeClassNames([]);
-    setFeeAmount("100");
+    setFeeAmount(null);
     setFeeSaveError("");
     setFeeEditPending(false);
     setFeeEditConfirmation("");

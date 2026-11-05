@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { SupportStudentPicker } from "./SupportStudentPicker";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppData, AppUser, School, SchoolYear } from "../../types";
 import { MoneyInput } from "../../components/ui";
@@ -43,7 +44,7 @@ const supportReasons: Record<string, string> = {
   scholarship: "Bourse scolaire",
   direction: "Décision de la direction",
   personnel: "Personnel de l’école",
-  "third-party": "Prise en charge par un tiers",
+  "third-party": "Décision historique",
   other: "Autre motif",
 };
 const natures: Record<string, string> = {
@@ -96,9 +97,14 @@ export function SocialSupportDrawer({
     [filterReason, setFilterReason] = useState(""),
     [filterStatus, setFilterStatus] = useState(""),
     [filterAction, setFilterAction] = useState("");
-  const [detail, setDetail] = useState<SupportDecision | null>(null),
-    [cancelTarget, setCancelTarget] = useState<SupportDecision | null>(null);
+  const [detail, setDetail] = useState<SupportDecision | null>(null);
   const request = useRef({ fingerprint: "", id: "" });
+  const [editConfirmation, setEditConfirmation] = useState("");
+  const [confirmEditOpen, setConfirmEditOpen] = useState(false);
+  const [filterCriterion, setFilterCriterion] = useState("year");
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const batchRequests = useRef(new Map<string, string>());
+  const savingRef = useRef(false);
   useEffect(() => {
     if (readOnly) return;
     void reconcileSupport().catch((e) =>
@@ -295,7 +301,7 @@ export function SocialSupportDrawer({
         };
         const b = supportBalance(pupil, fee, data.payments);
         const fmt = (n: number) => formatCurrencyMoney(n, d.currency);
-        return `${line.feeName ?? id} : officiel ${fmt(b.official)} ; réductions ${fmt(b.reduction)} ; tiers ${fmt(b.commitment)} ; encaissé ${fmt(b.paid)} ; solde ${fmt(b.remaining)}`;
+        return `${line.feeName ?? "Frais historique"} : officiel ${fmt(b.official)} ; réductions ${fmt(b.reduction)} ; encaissé ${fmt(b.paid)} ; solde ${fmt(b.remaining)}`;
       })
       .join(" | ");
   }
@@ -304,6 +310,9 @@ export function SocialSupportDrawer({
     .filter((row) => !filterAction || row.event.action === filterAction)
     .sort((a, b) => b.event.at.localeCompare(a.event.at));
   function reset() {
+    setConfirmEditOpen(false);
+    setEditConfirmation("");
+    setSelectedStudentIds([]);
     setEditing(null);
     setStudentId("");
     setValues({});
@@ -314,7 +323,48 @@ export function SocialSupportDrawer({
     setNature("fixed");
   }
   async function mutate(input: Record<string, unknown>) {
-    if (busy) return;
+    if (busy || savingRef.current) return;
+    savingRef.current = true;
+    if (!editing && selectedStudentIds.length > 1) {
+      setBusy(true);
+      setError("");
+      setSuccess("");
+      const failures: string[] = [];
+      const failedIds: string[] = [];
+      let completed = 0;
+      for (const id of [...new Set(selectedStudentIds)]) {
+        const pupil = students.find((item) => item.id === id);
+        try {
+          if (!pupil) throw new Error("Élève indisponible dans le périmètre autorisé.");
+          const applicable = getApplicableFeeTypes(pupil, data.feeTypes.filter((fee) => fee.schoolId === school.id && fee.schoolYearId === year?.id));
+          const lines = preview.map(({ fee }) => {
+            const matches = applicable.filter((candidate) => candidate.name === fee.name);
+            if (matches.length !== 1) throw new Error(`Frais ${fee.name} absent ou ambigu pour cet élève.`);
+            return { feeTypeId: matches[0].id, value: Number(values[fee.id]) };
+          });
+          const payload = { ...input, studentId: id, lines };
+          const fingerprint = JSON.stringify(payload);
+          let key = batchRequests.current.get(fingerprint);
+          if (!key) { key = crypto.randomUUID(); batchRequests.current.set(fingerprint, key); }
+          // The server checks this student's eligibility, remaining balance,
+          // scope and fee locks in its own transaction; never reuse a decision.
+          const decision = await saveSupport({ ...payload, clientRequestId: key });
+          setDecisions((rows) => [...rows.filter((item) => item.id !== decision.id), decision]);
+          completed++;
+        } catch (cause) {
+          failedIds.push(id);
+          failures.push(`${pupil ? `${pupil.nom} ${pupil.prenom}` : "Élève indisponible"} : ${cause instanceof Error ? cause.message : "Confirmation indisponible"}`);
+        }
+      }
+      setSuccess(`${completed} décision(s) confirmée(s) par le serveur.`);
+      setError(failures.join("\n"));
+      // Keep the selection and per-student request keys on partial failure:
+      // a retry replays confirmed transactions instead of duplicating them.
+      if (!failedIds.length) { reset(); setTab("Bénéficiaires"); }
+      setBusy(false);
+      savingRef.current = false;
+      return;
+    }
     setBusy(true);
     setError("");
     setSuccess("");
@@ -333,12 +383,12 @@ export function SocialSupportDrawer({
       setSuccess("Prise en charge confirmée par le serveur.");
       reset();
       setTab("Bénéficiaires");
-      setCancelTarget(null);
       request.current = { fingerprint: "", id: "" };
     } catch (e) {
       setError(e instanceof Error ? e.message : "Enregistrement impossible.");
     } finally {
       setBusy(false);
+      savingRef.current = false;
     }
   }
   async function exportPdf() {
@@ -366,9 +416,9 @@ export function SocialSupportDrawer({
                 [
                   ...(scopedSchools.length > 1 ? [{ header: "Établissement", render: (r: { decision: SupportDecision }) => scopedSchools.find((item) => item.id === r.decision.schoolId)?.name ?? r.decision.schoolId }] : []),
                   {
-                    header: "Élève / décision",
+                    header: "Élève",
                     render: (r) =>
-                      `${r.decision.studentName} / ${r.decision.id}`,
+                      r.decision.studentName,
                   },
                   { header: "Opération", render: (r) => r.event.action },
                   {
@@ -382,7 +432,7 @@ export function SocialSupportDrawer({
                       Object.values(r.event.after.lines)
                         .map(
                           (l) =>
-                            `${l.reductionMinor / 100} réduction / ${l.commitmentMinor / 100} engagement`,
+                            `${formatCurrencyMoney(l.reductionMinor / 100, r.decision.currency)} de réduction`,
                         )
                         .join("; "),
                   },
@@ -406,12 +456,12 @@ export function SocialSupportDrawer({
                       d.schoolYearId,
                   },
                   {
-                    header: "Frais / officiel / réduction / tiers",
+                    header: "Frais / officiel / réduction",
                     render: (d) =>
                       Object.entries(d.lines)
                         .map(
                           ([id, l]) =>
-                            `${data.feeTypes.find((f) => f.id === id)?.name ?? id}: ${l.officialMinor / 100} / ${l.reductionMinor / 100} / ${l.commitmentMinor / 100}`,
+                            `${data.feeTypes.find((f) => f.id === id)?.name ?? l.feeName ?? "Frais historique"}: ${formatCurrencyMoney(l.officialMinor / 100, d.currency)} / ${formatCurrencyMoney(l.reductionMinor / 100, d.currency)}`,
                         )
                         .join("; "),
                   },
@@ -434,6 +484,9 @@ export function SocialSupportDrawer({
     }
   }
   function edit(d: SupportDecision) {
+    setSelectedStudentIds([d.studentId]);
+    setEditConfirmation("");
+    setConfirmEditOpen(false);
     setEditing(d);
     setStudentId(d.studentId);
     setNature(d.nature);
@@ -446,19 +499,19 @@ export function SocialSupportDrawer({
         Object.entries(d.lines).map(([id, l]) => [id, String(l.value)]),
       ),
     );
-    setTab("Nouvelle prise en charge");
+    setTab("Nouveau");
   }
   return (
     <div className="grid min-w-0 gap-4">
-      <div role="tablist" className="flex flex-wrap gap-2">
-        {(readOnly ? ["Bénéficiaires", "Historique"] : ["Bénéficiaires", "Nouvelle prise en charge", "Historique"]).map(
+      <div role="tablist" className={`grid gap-1 ${readOnly ? "grid-cols-2" : "grid-cols-3"}`}>
+        {(readOnly ? ["Bénéficiaires", "Historique"] : ["Bénéficiaires", "Nouveau", "Historique"]).map(
           (t) => (
             <button
               key={t}
               role="tab"
               aria-selected={tab === t}
-              className={tab === t ? "primary-button" : "secondary-button"}
-              onClick={() => setTab(t)}
+              className={`${tab === t ? "primary-button" : "secondary-button"} min-w-0 !px-1 text-xs sm:text-sm`}
+              onClick={() => { setTab(t); if (t !== "Historique" && filterCriterion === "action") setFilterCriterion("year"); }}
             >
               {t}
             </button>
@@ -475,43 +528,15 @@ export function SocialSupportDrawer({
           {success}
         </p>
       )}
-      {tab === "Nouvelle prise en charge" ? (
+      {tab === "Nouveau" ? (
         <>
           <section className="grid gap-2">
             <h3 className="font-bold">1. Élève bénéficiaire</h3>
-            <input
-              aria-label="Rechercher un élève"
-              className="input"
-              value={studentQuery}
-              placeholder="Nom, postnom, prénom, matricule ou classe"
-              onChange={(e) => setStudentQuery(e.target.value)}
-            />
-            <select
-              aria-label="Élève bénéficiaire"
-              className="input"
-              value={studentId}
-              disabled={!!editing}
-              onChange={(e) => {
-                setStudentId(e.target.value);
-                setValues({});
-              }}
-            >
-              <option value="">Sélectionner un élève</option>
-              {students
-                .filter(
-                  (s) =>
-                    s.id === studentId ||
-                    `${s.nom} ${s.postnom} ${s.prenom} ${s.matricule} ${s.className}`
-                      .toLocaleLowerCase()
-                      .includes(studentQuery.toLocaleLowerCase()),
-                )
-                .map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.nom} {s.postnom} {s.prenom} — {s.matricule} —{" "}
-                    {s.className}
-                  </option>
-                ))}
-            </select>
+            <SupportStudentPicker students={students} selectedIds={selectedStudentIds} query={studentQuery} onQuery={setStudentQuery}
+              loading={!contextReady} disabled={!!editing || busy} onChange={(ids) => {
+                setSelectedStudentIds(ids);
+                if ((ids[0] ?? "") !== studentId) { setStudentId(ids[0] ?? ""); setValues({}); }
+              }} />
             {student && (
               <p>
                 {student.nom} {student.postnom} {student.prenom} ·{" "}
@@ -562,13 +587,6 @@ export function SocialSupportDrawer({
                 </option>
               ))}
             </select>
-      {reason === "third-party" && (
-              <p>
-                Ces montants sont des engagements du tiers, sans réduction
-                scolaire ni encaissement. « Exonération totale » signifie ici
-                couverture totale par le tiers.
-              </p>
-            )}
             {preview.map((p) => (
               <div key={p.fee.id}>
                 <Field
@@ -649,16 +667,6 @@ export function SocialSupportDrawer({
                 </select>
               </Field>
             )}
-            {reason === "third-party" && (
-              <Field label="Nom du tiers responsable *">
-                <input
-                  className="input"
-                  maxLength={160}
-                  value={thirdPartyName}
-                  onChange={(e) => setThirdPartyName(e.target.value)}
-                />
-              </Field>
-            )}
             <Field label="Observation administrative">
               <textarea
                 className="input"
@@ -687,18 +695,16 @@ export function SocialSupportDrawer({
                 </p>
                 <p>
                   Nouvel avantage : {money(p.amount)}{" "}
-                  {reason === "third-party"
-                    ? "(engagement tiers)"
-                    : "(réduction)"}
+                  {reason !== "third-party" && "(réduction)"}
                 </p>
                 <p>
-                  Engagements tiers : {money(p.balance.commitment+(reason==='third-party'?p.amount:0))} · Net exigible : {money(p.net)} · Encaissé :{" "}
+                  Net exigible : {money(p.net)} · Encaissé :{" "}
                   {money(p.balance.paid)} · Solde : {money(p.remaining)}
                 </p>
               </article>
             ))}
             <p>
-              Total officiel : {money(fromMoneyMinor(preview.reduce((s,p)=>s+toMoneyMinor(p.fee.amount),0)))} · Réductions antérieures : {money(fromMoneyMinor(preview.reduce((s,p)=>s+toMoneyMinor(p.balance.reduction),0)))} · Nouvel avantage : {money(fromMoneyMinor(preview.reduce((s,p)=>s+toMoneyMinor(p.amount),0)))} · Engagements tiers : {money(fromMoneyMinor(preview.reduce((s,p)=>s+toMoneyMinor(p.balance.commitment)+(reason==='third-party'?toMoneyMinor(p.amount):0),0)))} · Encaissé : {money(fromMoneyMinor(preview.reduce((s,p)=>s+toMoneyMinor(p.balance.paid),0)))} · Total net :{" "}
+              Total officiel : {money(fromMoneyMinor(preview.reduce((s,p)=>s+toMoneyMinor(p.fee.amount),0)))} · Réductions antérieures : {money(fromMoneyMinor(preview.reduce((s,p)=>s+toMoneyMinor(p.balance.reduction),0)))} · Nouvel avantage : {money(fromMoneyMinor(preview.reduce((s,p)=>s+toMoneyMinor(p.amount),0)))} · Encaissé : {money(fromMoneyMinor(preview.reduce((s,p)=>s+toMoneyMinor(p.balance.paid),0)))} · Total net :{" "}
               {money(
                 fromMoneyMinor(
                   preview.reduce((s, p) => s + toMoneyMinor(p.net), 0),
@@ -714,13 +720,20 @@ export function SocialSupportDrawer({
           </section>
           {editing && (
             <p>
-              Modification tracée de {editing.id} (version {editing.version}).
+              Chaque modification est conservée dans l’historique.
             </p>
           )}
+          {editing && confirmEditOpen && <Field label="Saisissez JE CONFIRME LA MODIFICATION">
+            <input className="input" autoComplete="off" value={editConfirmation} onChange={(event) => setEditConfirmation(event.target.value)} />
+          </Field>}
           <button
-            className="primary-button"
-            disabled={!valid}
-            onClick={() =>
+            className="primary-button w-full"
+            disabled={!valid || (!!editing && confirmEditOpen && editConfirmation !== "JE CONFIRME LA MODIFICATION")}
+            onClick={() => {
+              if (editing && (!confirmEditOpen || editConfirmation !== "JE CONFIRME LA MODIFICATION")) {
+                setConfirmEditOpen(true);
+                return;
+              }
               void mutate({
                 action: "save-social-support",
                 studentId,
@@ -735,12 +748,12 @@ export function SocialSupportDrawer({
                   value: Number(values[p.fee.id]),
                 })),
                 ...(editing
-                  ? { decisionId: editing.id, expectedVersion: editing.version }
+                  ? { decisionId: editing.id, expectedVersion: editing.version, confirmation: editConfirmation }
                   : {}),
-              })
-            }
+              });
+            }}
           >
-            {busy ? "Enregistrement…" : "Confirmer la prise en charge"}
+            {busy ? "Enregistrement…" : editing ? (confirmEditOpen ? "Confirmer la modification" : "Modifier") : "Confirmer la prise en charge"}
           </button>
           <button className="secondary-button" disabled={busy} onClick={reset}>
             Réinitialiser le formulaire
@@ -748,27 +761,32 @@ export function SocialSupportDrawer({
         </>
       ) : (
         <>
-          <div className="flex min-w-0 gap-2">
+          <div className="grid min-w-0 grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_auto] gap-1">
             <input
               aria-label="Rechercher les décisions"
               className="input min-w-0 flex-1"
-              placeholder="Élève, matricule, classe, frais ou motif"
+              placeholder="Recherche"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
             <button
-              className="secondary-button shrink-0"
+              className="secondary-button order-4 !px-2"
               disabled={loading || busy || !contextReady}
               onClick={() => void exportPdf()}
             >
-              Exporter PDF
+              PDF
             </button>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {scopedSchools.length > 1 && <select aria-label="Établissement" className="input" value={filterSchool} onChange={(event) => setFilterSchool(event.target.value)}><option value="">Tous les établissements</option>{scopedSchools.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}
+            <select aria-label="Filtres" className="input order-2 min-w-0 !px-1 text-xs" value={filterCriterion} onChange={(event) => setFilterCriterion(event.target.value)}>
+              <option value="year">Année scolaire</option><option value="class">Classe</option><option value="fee">Frais</option><option value="reason">Motif</option><option value="status">Statut</option>
+              {scopedSchools.length > 1 && <option value="school">Établissement</option>}
+              {tab === "Historique" && <option value="action">Opération</option>}
+            </select>
+            {scopedSchools.length > 1 && <select hidden={filterCriterion !== "school"} aria-label="Établissement" title="Choix" className="input order-3 min-w-0 !px-1 text-xs" value={filterSchool} onChange={(event) => setFilterSchool(event.target.value)}><option value="">Tous les établissements</option>{scopedSchools.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}
             <select
+              hidden={filterCriterion !== "year"}
               aria-label="Année scolaire"
-              className="input"
+              title="Choix"
+              className="input order-3 min-w-0 !px-1 text-xs"
               value={filterYear}
               onChange={(e) => setFilterYear(e.target.value)}
             >
@@ -782,8 +800,10 @@ export function SocialSupportDrawer({
                 ))}
             </select>
             <select
+              hidden={filterCriterion !== "class"}
               aria-label="Classe"
-              className="input"
+              title="Choix"
+              className="input order-3 min-w-0 !px-1 text-xs"
               value={filterClass}
               onChange={(e) => setFilterClass(e.target.value)}
             >
@@ -793,8 +813,10 @@ export function SocialSupportDrawer({
               ))}
             </select>
             <select
+              hidden={filterCriterion !== "fee"}
               aria-label="Frais"
-              className="input"
+              title="Choix"
+              className="input order-3 min-w-0 !px-1 text-xs"
               value={filterFee}
               onChange={(e) => setFilterFee(e.target.value)}
             >
@@ -808,8 +830,10 @@ export function SocialSupportDrawer({
                 ))}
             </select>
             <select
+              hidden={filterCriterion !== "reason"}
               aria-label="Motif"
-              className="input"
+              title="Choix"
+              className="input order-3 min-w-0 !px-1 text-xs"
               value={filterReason}
               onChange={(e) => setFilterReason(e.target.value)}
             >
@@ -821,8 +845,10 @@ export function SocialSupportDrawer({
               ))}
             </select>
             <select
+              hidden={filterCriterion !== "status"}
               aria-label="Statut"
-              className="input"
+              title="Choix"
+              className="input order-3 min-w-0 !px-1 text-xs"
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
             >
@@ -833,8 +859,10 @@ export function SocialSupportDrawer({
             </select>
             {tab === "Historique" && (
               <select
+                hidden={filterCriterion !== "action"}
                 aria-label="Opération"
-                className="input"
+                title="Choix"
+                className="input order-3 min-w-0 !px-1 text-xs"
                 value={filterAction}
                 onChange={(e) => setFilterAction(e.target.value)}
               >
@@ -846,6 +874,17 @@ export function SocialSupportDrawer({
                 <option value="validity-update">Clôture modifiée</option>
               </select>
             )}
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs" aria-label="Filtres actifs">
+            {[
+              { value: filterSchool, label: scopedSchools.find((item) => item.id === filterSchool)?.name, clear: () => setFilterSchool("") },
+              { value: filterYear, label: years.find((item) => item.id === filterYear)?.name, clear: () => setFilterYear("") },
+              { value: filterClass, label: filterClass, clear: () => setFilterClass("") },
+              { value: filterFee, label: data.feeTypes.find((item) => item.id === filterFee)?.name, clear: () => setFilterFee("") },
+              { value: filterReason, label: supportReasons[filterReason], clear: () => setFilterReason("") },
+              { value: filterStatus, label: filterStatus, clear: () => setFilterStatus("") },
+              { value: tab === "Historique" ? filterAction : "", label: filterAction, clear: () => setFilterAction("") },
+            ].map((item, index) => item.value && <button key={index} className="rounded bg-slate-100 px-2 py-1" onClick={item.clear} aria-label={`Retirer le filtre ${item.label}`}>{item.label || "Filtre actif"} ×</button>)}
           </div>
           {loading ? (
             <p>Chargement…</p>
@@ -892,21 +931,13 @@ export function SocialSupportDrawer({
                     officiel{" "}
                     {formatCurrencyMoney(l.officialMinor / 100, d.currency)} ·
                     réduction{" "}
-                    {formatCurrencyMoney(l.reductionMinor / 100, d.currency)} ·
-                    engagement{" "}
-                    {formatCurrencyMoney(l.commitmentMinor / 100, d.currency)}
+                    {formatCurrencyMoney(l.reductionMinor / 100, d.currency)}
                   </p>
                 ))}
                 <p>{decisionFinances(d)}</p>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    className="secondary-button"
-                    onClick={() => setDetail(d)}
-                  >
-                    Détails
-                  </button>
+                <div className="grid gap-2">
                   {!readOnly && <button
-                    className="secondary-button"
+                    className="secondary-button w-full"
                     disabled={
                       busy ||
                       status(d) !== "Active" ||
@@ -915,17 +946,6 @@ export function SocialSupportDrawer({
                     onClick={() => edit(d)}
                   >
                     Modifier
-                  </button>}
-                  {!readOnly && <button
-                    className="secondary-button"
-                    disabled={
-                      busy ||
-                      status(d) !== "Active" ||
-                      d.schoolYearId !== year?.id
-                    }
-                    onClick={() => setCancelTarget(d)}
-                  >
-                    Annuler la décision
                   </button>}
                 </div>
               </article>
@@ -939,52 +959,20 @@ export function SocialSupportDrawer({
       )}
       {detail && (
         <section className="rounded border p-4">
-          <h3 className="font-bold">Décision {detail.id}</h3>
+          <h3 className="font-bold">{detail.studentName} — {detail.className}</h3>
+          <p>{scopedSchools.find((item) => item.id === detail.schoolId)?.name} · {years.find((item) => item.id === detail.schoolYearId)?.name}</p>
           <p>
             {supportReasons[detail.reason]} · {natures[detail.nature]}
           </p>
-          <p>{detail.thirdPartyName || detail.personnelId}</p>
-          <p className="whitespace-pre-wrap">{detail.observation}</p>
+          <p>{status(detail)}</p>
+          {detail.observation && <p className="whitespace-pre-wrap">{detail.observation}</p>}
           {Object.entries(detail.lines).map(([id, l]) => (
             <p key={id}>
-              {id} : réduction {l.reductionMinor / 100}, engagement{" "}
-              {l.commitmentMinor / 100}
+              {data.feeTypes.find((fee) => fee.id === id)?.name ?? l.feeName ?? "Frais historique"} : réduction {formatCurrencyMoney(l.reductionMinor / 100, detail.currency)}
             </p>
           ))}
           <button className="secondary-button" onClick={() => setDetail(null)}>
             Fermer les détails
-          </button>
-        </section>
-      )}
-      {!readOnly && cancelTarget && (
-        <section
-          role="alertdialog"
-          aria-label="Confirmer l’annulation"
-          className="rounded border p-4"
-        >
-          <p>
-            Annuler la décision {cancelTarget.id} ? L’historique et les
-            paiements seront conservés.
-          </p>
-          <button
-            disabled={busy}
-            className="primary-button"
-            onClick={() =>
-              void mutate({
-                action: "cancel-social-support",
-                decisionId: cancelTarget.id,
-                expectedVersion: cancelTarget.version,
-              })
-            }
-          >
-            Confirmer l’annulation
-          </button>
-          <button
-            disabled={busy}
-            className="secondary-button"
-            onClick={() => setCancelTarget(null)}
-          >
-            Retour
           </button>
         </section>
       )}

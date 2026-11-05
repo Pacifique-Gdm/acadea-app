@@ -289,6 +289,7 @@ describe("décisions financières atomiques", () => {
       clientRequestId: "request-0000002",
       decisionId: first.decision.id,
       expectedVersion: 1,
+      confirmation: "JE CONFIRME LA MODIFICATION",
       lines: [{ feeTypeId: "f", value: 150 }],
     });
     expect(updated.decision.version).toBe(2);
@@ -298,8 +299,22 @@ describe("décisions financières atomiques", () => {
         clientRequestId: "request-0000003",
         decisionId: first.decision.id,
         expectedVersion: 1,
+        confirmation: "JE CONFIRME LA MODIFICATION",
       }),
     ).rejects.toThrow("changé");
+  });
+  it.each([undefined, "", "JE CONFIRME", "je confirme la modification"])("refuse une modification sans confirmation exacte (%s), sans écriture", async (confirmation) => {
+    const f = fixture();
+    const first = await save(f);
+    const before = JSON.stringify([...f.values.entries()]);
+    await expect(save(f, {
+      clientRequestId: "request-confirmation-002",
+      decisionId: first.decision.id,
+      expectedVersion: 1,
+      confirmation,
+      lines: [{ feeTypeId: "f", value: 150 }],
+    })).rejects.toThrow("JE CONFIRME LA MODIFICATION");
+    expect(JSON.stringify([...f.values.entries()])).toBe(before);
   });
   it("annule sans effacer et restaure le net", async () => {
     const f = fixture(),
