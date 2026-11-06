@@ -21,7 +21,7 @@ students:[{id:'z',name:'Zola',className:'1ère Primaire',feeTypeIds:['f']},{id:'
 fees:[{id:'f',name:'Minerval',amount:100,currency:'USD'},{id:'f',name:'Minerval',amount:100,currency:'USD'},{id:'f2',name:'Minerval',amount:200,currency:'USD'},{id:'other',name:'Autre classe',amount:5,currency:'USD'}]};
 window.operations=()=>listOfflineOperations(scope);
 window.expire=()=>rememberOfflineAccess({...scope,role:mode,schoolName:'Local',schoolYearName:'Local'},Date.now()-9*3600000);
-function Parent(){const[id,setId]=useState();return <><ParentSearchPicker parents={[{id:'p',schoolId:'s',fullName:'Émilie Test',phone:'12345678'},{id:'q',schoolId:'other',fullName:'Émilie Autre',phone:'99999999'}]} schoolId='s' selectedId={id} onChange={setId}/><output>{id}</output></>}
+function Parent(){const[id,setId]=useState();const[parents,setParents]=useState([{id:'p',schoolId:'s',fullName:'Émilie Test',phone:'12345678'},{id:'second',schoolId:'s',fullName:'Basile Test',phone:'87654321'},{id:'q',schoolId:'other',fullName:'Émilie Autre',phone:'99999999'}]);return <><ParentSearchPicker parents={parents} schoolId='s' selectedId={id} onChange={setId}/><button type='button' onClick={()=>setParents([...parents,{id:'late',schoolId:'s',fullName:'Arrivée tardive',phone:'11111111'}])}>Simuler réponse tardive</button><output>{id}</output></>}
 const user={id:'u',schoolId:'s',role:'study_director',sectionIds:['Primaire']};
 function Study(){const[tab,setTab]=useState('dashboard');const data=useStudyData(user,'s','y',0,tab!=='students');return <><nav>{['dashboard','students','schedules'].map(t=><button onClick={()=>setTab(t)} key={t}>{t}</button>)}</nav><main data-tab={tab}>{tab}</main><output>{data.generationReady?'ready':'loading'}</output></>}
 async function start(){if(mode==='parent'){createRoot(document.getElementById('root')).render(<Parent/>);return;}if(mode==='study'){createRoot(document.getElementById('root')).render(<Study/>);return;}
@@ -75,7 +75,14 @@ test('caissier: ordre et obligations propres à chaque élève sans réseau',asy
 test('parent: suggestions accentuées, périmètre, sélection et retrait',async({page})=>{
  await page.goto(`${origin}?mode=parent`);await page.getByRole('combobox').fill('emil');await expect(page.getByRole('option')).toHaveCount(1);
  await page.getByRole('option').click();await expect(page.locator('output')).toHaveText('p');await expect(page.locator('select')).toHaveCount(0);
+ await expect(page.getByRole('combobox')).toHaveCount(0);await expect(page.getByRole('listbox')).toHaveCount(0);
+ await expect(page.getByLabel('Parent sélectionné',{exact:true})).toContainText('Émilie Test');
+ await page.getByRole('button',{name:'Simuler réponse tardive'}).click();await expect(page.getByRole('combobox')).toHaveCount(0);
  await page.getByRole('button',{name:'Retirer le parent sélectionné'}).click();await expect(page.locator('output')).toHaveText('');
+ await expect(page.getByRole('combobox')).toBeVisible();await expect(page.getByLabel('Parent sélectionné',{exact:true})).toHaveCount(0);
+ await page.getByRole('combobox').fill('basile');await page.getByRole('option').click();await expect(page.locator('output')).toHaveText('second');
+ await expect(page.getByRole('combobox')).toHaveCount(0);
+ await page.getByRole('button',{name:'Retirer le parent sélectionné'}).click();
  await page.getByRole('combobox').fill('absent');await expect(page.getByRole('status').filter({hasText:'Aucun parent trouvé.'})).toHaveText('Aucun parent trouvé.');
 });
 test('navigation pédagogique: pas de réabonnement global ni de retour au dashboard',async({page})=>{
