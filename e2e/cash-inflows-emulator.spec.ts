@@ -90,7 +90,7 @@ test("Autres entrées : trois natures de création, précision obligatoire, comp
     await page.getByRole("button", { name: "Historique", exact: true }).click();
     await page.getByLabel("Type d'historique").selectOption("cashInflows");
     await expect(page.getByRole("dialog", { name: "Historique" }).locator("article")).toHaveCount(5);
-    await expect(page.getByRole("dialog", { name: "Historique" }).getByText("Recettes de la fête scolaire", { exact: false })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Historique" }).getByText("Recettes de la fête scolaire", { exact: false }).first()).toBeVisible();
     await expect(page.getByRole("dialog", { name: "Historique" }).getByText("Frais de fonctionnement reçus", { exact: false })).toBeVisible();
     await page.getByRole("button", { name: "Fermer l'historique" }).click();
     // Le rapport financier appartient au menu Administrateur, pas au menu Caissier.
