@@ -18,6 +18,7 @@ import { groupCoordinationFinancialsByCurrency } from "../../utils/coordinationF
 import { formatCurrencyMoney } from "../../utils/currency";
 import { financialDateRangeError, localDateInputValue, schoolYearDatesFromName } from "../../utils/coordinationDates";
 import { SocialSupportDrawer } from "../menu/SocialSupportDrawer";
+import { cashInflowNatureLabel } from "../../utils/cashInflowCategory";
 
 type Drawer = "fees" | "finance" | "personnel" | "years" | "settings" | "history" | "subCoordinations" | "socialSupport";
 const emptyModel: CoordinationReadModel = { students: [], feeTypes: [], payments: [], expenses: [], personnel: [], schoolYears: [], auditLogs: [] };
@@ -129,7 +130,7 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, prin
       pdfTable([
         { header: "École", render: (item) => schoolName(item.schoolId) },
         { header: "Date", render: (item) => item.entryDate },
-        { header: "Nature", render: (item) => item.category },
+        { header: "Nature", render: (item) => escapePdfHtml(cashInflowNatureLabel(item)) },
         { header: "Provenance", render: (item) => item.source },
         { header: "Description", render: (item) => item.description },
         { header: "Montant", render: (item) => formatCurrencyMoney(item.amount, group.currency) },
@@ -200,7 +201,7 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, prin
         <ReadTable headers={["Indicateur", "Montant"]} rows={[["Officiel", formatCurrencyMoney(group.official, group.currency)], ["Réductions", formatCurrencyMoney(group.reduction, group.currency)], ["Net exigible", formatCurrencyMoney(group.expected, group.currency)], ["Encaissé frais de l'année", formatCurrencyMoney(group.paid, group.currency)], ["Dépenses", formatCurrencyMoney(group.expenses, group.currency)], ["Reste", formatCurrencyMoney(group.remaining, group.currency)], ["Recouvrement", `${group.recoveryRate}%`]]} />
         <p className="text-sm font-semibold">Autres entrées de caisse : {formatCurrencyMoney(group.cashInflows, group.currency)}</p>
         <h4 className="font-semibold text-ink">Autres entrées de caisse — {group.currency}</h4>
-        <ReadTable headers={["École", "Date", "Nature", "Provenance", "Description", "Montant"]} rows={group.cashInflowRows.map((item) => [schoolName(item.schoolId), item.entryDate, item.category, item.source, item.description, formatCurrencyMoney(item.amount, group.currency)])} />
+        <ReadTable headers={["École", "Date", "Nature", "Provenance", "Description", "Montant"]} rows={group.cashInflowRows.map((item) => [schoolName(item.schoolId), item.entryDate, cashInflowNatureLabel(item), item.source, item.description, formatCurrencyMoney(item.amount, group.currency)])} />
         <h4 className="font-semibold text-ink">Paiements — {group.currency}</h4>
         <ReadTable headers={["École", "Date", "Montant"]} rows={group.payments.map((item) => [schoolName(item.schoolId), item.paidAt, formatCurrencyMoney(item.amount, group.currency)])} />
         <h4 className="font-semibold text-ink">Dépenses — {group.currency}</h4>

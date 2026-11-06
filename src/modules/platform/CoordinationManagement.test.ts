@@ -16,6 +16,9 @@ describe("gestion Super Administrateur des Coordinations", () => {
     expect(source).toContain("AJOUTER CETTE ECOLE");
     expect(source).toContain("RETIRER CETTE ECOLE");
     expect(source).toContain("confirmation !==");
+    expect(source).toContain('>Retirer</button>');
+    expect(source).toContain('aria-label={`Retirer ${schoolName(relation.schoolId)} de la coordination`}');
+    expect(source).not.toContain('>Retirer de la Coordination</button>');
   });
   it("affiche la fiche, le statut et le Coordinateur principal", () => {
     expect(source).toContain("principalCoordinatorUserId");

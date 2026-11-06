@@ -4,6 +4,18 @@ import { describe, expect, it } from "vitest";
 const source = readFileSync(new URL("./MenuModule.tsx", import.meta.url), "utf8");
 
 describe("Types de frais", () => {
+  it("n'impose aucun libellé à une école neuve tout en conservant les frais enregistrés", () => {
+    expect(source).toContain('const [feeName, setFeeName] = useState<FeeKind>("")');
+    expect(source).toContain('...yearData.feeTypes.map((fee) => fee.name)');
+    expect(source).toContain('...persistedCustomFeeKindChoices');
+    expect(source).not.toContain('...FEE_KINDS');
+    expect(source).toContain('<option value="">Sélectionnez un frais</option>');
+    expect(source).toContain("Aucun type de frais n'a encore été ajouté pour cet établissement.");
+    expect(source).toContain('<option value="__add_fee__">Ajouter un frais</option>');
+    const platform = readFileSync(new URL("../platform/PlatformModule.tsx", import.meta.url), "utf8");
+    const creation = platform.slice(platform.indexOf("async function createSchool()"), platform.indexOf("function changeSchoolLevel("));
+    expect(creation).not.toContain("feeTypes:");
+  });
   it("confirme le libellé par API sans écriture cliente sur l'année coordonnée", () => {
     const add = source.slice(source.indexOf("async function addFeeKind()"), source.indexOf("function closeSchoolSectionConfirmation"));
     expect(add).toContain("await persistFeeKind(request)");

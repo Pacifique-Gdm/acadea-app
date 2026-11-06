@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Download, RotateCcw } from "lucide-react";
 import { AdminDrawer, Metric, MoneyInput, SectionTitle } from "../../components/ui";
 import { PersonnelPayrollHistory } from "../../components/personnel/PersonnelPayrollHistory";
-import type { AppUser, Coordination, Expense, Payment, School, Student } from "../../types";
+import type { AppUser, CashInflow, Coordination, Expense, Payment, School, Student } from "../../types";
 import { escapePdfHtml, generateExpensePdf, generateReceiptPdf, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import { activityTimestamp } from "../../utils/activityHistory";
 import { expenseCategoryLabel } from "../../utils/expenseCategory";
@@ -24,8 +24,9 @@ import { PaidAmountDropdown } from "../../components/PaidAmountDropdown";
 import { COORDINATION_ACTIVE_YEAR, coordinationYearChoices } from "../../services/coordinationStudentPagination";
 import { arrearsFilterForCriterion } from "../../utils/arrearsFilter";
 import { collectPayrollHistoryForExport, personnelPayrollHistoryPdfSections } from "../../utils/personnelPayrollHistoryExport";
+import { cashInflowNatureLabel } from "../../utils/cashInflowCategory";
 
-type HistoryKind = "payments" | "expenses" | "payroll";
+type HistoryKind = "payments" | "expenses" | "cashInflows" | "payroll";
 
 export function CoordinationControl({ user, coordination, schools, selectedSchoolId, onSchoolChange, refreshToken }: { user: AppUser; coordination: Coordination; schools: School[]; selectedSchoolId: string; onSchoolChange: (schoolId: string) => void; refreshToken: number }) {
   const [classKey, setClassKey] = useState("");
@@ -52,15 +53,15 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
     observer.observe(element);
     return () => observer.disconnect();
   }, [loading, selectedStudentId]);
-  const [history, setHistory] = useState<{ students: Student[]; payments: Payment[]; expenses: Expense[] }>({ students: [], payments: [], expenses: [] });
+  const [history, setHistory] = useState<{ students: Student[]; payments: Payment[]; expenses: Expense[]; cashInflows: CashInflow[] }>({ students: [], payments: [], expenses: [], cashInflows: [] });
   const [historyLoading, setHistoryLoading] = useState(false);
   const historyScope = schools.filter((school) => !selectedSchoolId || school.id === selectedSchoolId).map((school) => school.id).sort().join("|");
   const historyOpen = Boolean(historyKind);
   useEffect(() => {
-    if (!historyOpen || historyKind === "payroll") return;
+    if (!historyKind || historyKind === "payroll") return;
     let cancelled = false;
-    setHistory({ students: [], payments: [], expenses: [] }); setHistoryLoading(true); setDocumentError("");
-    loadCoordinationControlHistory(historyScope ? historyScope.split("|") : [], user.role === "sub_coordination_admin")
+    setHistory({ students: [], payments: [], expenses: [], cashInflows: [] }); setHistoryLoading(true); setDocumentError("");
+    loadCoordinationControlHistory(historyScope ? historyScope.split("|") : [], user.role === "sub_coordination_admin", historyKind)
       .then((value) => { if (!cancelled) setHistory(value); })
       .catch(() => { if (!cancelled) setDocumentError("Impossible de charger l'historique du contrôle."); })
       .finally(() => { if (!cancelled) setHistoryLoading(false); });
@@ -80,7 +81,8 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
   const historyFilters = useMemo(() => ({ schoolId: historySchoolId, startDate: historyStart, endDate: historyEnd }), [historySchoolId, historyStart, historyEnd]);
   const historyPayments = useMemo(() => history.payments.filter((payment) => matchesControlHistory(payment, historyFilters)).sort((first, second) => activityTimestamp(second.createdAt ?? second.paidAt) - activityTimestamp(first.createdAt ?? first.paidAt)), [history.payments, historyFilters]);
   const historyExpenses = useMemo(() => history.expenses.filter((expense) => matchesControlHistory(expense, historyFilters)).sort((first, second) => activityTimestamp(second.createdAt ?? second.spentAt) - activityTimestamp(first.createdAt ?? first.spentAt)), [history.expenses, historyFilters]);
-  const historyMoney = (operation: Payment | Expense) => {
+  const historyCashInflows = useMemo(() => history.cashInflows.filter((inflow) => matchesControlHistory(inflow, historyFilters)).sort((first, second) => activityTimestamp(second.createdAt ?? second.entryDate) - activityTimestamp(first.createdAt ?? first.entryDate)), [history.cashInflows, historyFilters]);
+  const historyMoney = (operation: Payment | Expense | CashInflow) => {
     const currency = controlHistoryCurrency(operation);
     return currency ? formatCurrencyMoney(operation.amount, currency) : "Devise historique inconnue";
   };
@@ -103,11 +105,12 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
   async function exportHistory() {
     const contextSchool = schools.find((school) => school.id === (historySchoolId || selectedSchoolId)) ?? schools[0];
     if (!contextSchool || historyLoading || historyKind === "payroll") return;
-    const title = historyKind === "payments" ? "Paiements" : "Dépenses";
+    const title = historyKind === "payments" ? "Paiements" : historyKind === "expenses" ? "Dépenses" : "Autres entrées";
     const reportRows = historyKind === "payments" ? historyPayments.map((payment) => {
       const student = studentsById.get(payment.studentId);
       return { school: schoolName(payment.schoolId), date: payment.paidAt.slice(0, 10), label: `${student ? `${student.nom} ${student.prenom}` : payment.studentId} — ${feeTypesById.get(payment.feeTypeId)?.name ?? payment.feeName ?? "Frais"}`, amount: historyMoney(payment) };
-    }) : historyExpenses.map((expense) => ({ school: schoolName(expense.schoolId), date: expense.spentAt.slice(0, 10), label: `${expenseCategoryLabel(expense.category)} — ${expense.description}`, amount: historyMoney(expense) }));
+    }) : historyKind === "expenses" ? historyExpenses.map((expense) => ({ school: schoolName(expense.schoolId), date: expense.spentAt.slice(0, 10), label: `${expenseCategoryLabel(expense.category)} — ${expense.description}`, amount: historyMoney(expense) }))
+      : historyCashInflows.map((inflow) => ({ school: schoolName(inflow.schoolId), date: inflow.entryDate.slice(0, 10), label: `${cashInflowNatureLabel(inflow)} — ${inflow.source} — ${inflow.description}${inflow.reference ? ` · ${inflow.reference}` : ""}`, amount: historyMoney(inflow) }));
     try {
       await renderAcadPdfPreview({ filename: `historique-controle-${historyKind}.pdf`, title: `Historique du contrôle — ${title}`, school: coordinationPdfInstitution(coordination, contextSchool), subtitle: `École : ${historySchoolId ? schoolName(historySchoolId) : selectedSchoolId ? schoolName(selectedSchoolId) : "Toutes les écoles"} | Période : ${historyStart || "Début"} au ${historyEnd || "Fin"}`, sections: [pdfSection(title, pdfTable([
         { header: "École", render: (row) => escapePdfHtml(row.school) }, { header: "Date", render: (row) => row.date }, { header: "Libellé", render: (row) => escapePdfHtml(row.label) }, { header: "Montant / devise", render: (row) => row.amount, align: "right" },
@@ -210,7 +213,7 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
     {!loading && <div className="grid min-w-0 gap-3">{rows.map(({ student, balance, progress, feeSummaries }) => <article key={student.id} className="min-w-0 rounded border border-slate-200 bg-white p-4"><div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:justify-between"><div className="min-w-0"><button type="button" className="break-words text-left font-bold text-ink hover:text-blue-700 hover:underline" onClick={() => setSelectedStudentId(student.id)}>{student.nom} {student.prenom}</button><p className="break-words text-sm text-slate-500">{student.matricule} | {formatStudentClassName(student)} | {schoolName(student.schoolId)}</p></div><span className={`w-fit shrink-0 rounded px-2 py-1 text-xs font-semibold ${balance.expected > 0 && balance.remaining === 0 ? "bg-mint/10 text-mint" : "bg-amber-100 text-amber-700"}`}>{balance.expected > 0 && balance.remaining === 0 ? "En ordre" : "Non en ordre"}</span></div><div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3"><Metric label="Prévu" value={rowMoney(student, balance.expected)}/><Metric label="Payé" value={rowMoney(student, balance.paid)}/><Metric label="Solde" value={rowMoney(student, balance.remaining)}/></div><div className="mt-4 h-3 overflow-hidden rounded bg-slate-100"><div className="h-full rounded bg-blue-700" style={{ width: `${progress}%` }}/></div>{feeSummaries.length === 0 && <p className="mt-2 text-xs text-slate-500">Aucun frais défini pour cette classe.</p>}</article>)}{rows.length === 0 && <p className="rounded bg-white p-5 text-sm text-slate-500">Aucune donnée de contrôle dans le périmètre sélectionné.</p>}</div>}
     </div>
     <nav aria-label="Pagination du contrôle" className="flex flex-wrap items-center justify-between gap-2"><span>Page {formatCount(page.pageIndex + 1)} · {formatCount(rows.length)} élèves · 50 maximum par page</span><div className="flex gap-2"><button type="button" className="secondary-button" disabled={loading || page.pageIndex === 0} onClick={page.previous}>Précédente</button><button type="button" className="secondary-button" disabled={loading || !page.hasNext} onClick={page.next}>Suivante</button></div></nav>
-    {historyKind && <AdminDrawer width="wide" title="Historique du contrôle" closeLabel="Fermer l’historique" toolbar={<div className="grid grid-cols-1 gap-2 sm:grid-cols-3"><button type="button" className={historyKind === "payments" ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setHistoryKind("payments")}>Paiements</button><button type="button" className={historyKind === "expenses" ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setHistoryKind("expenses")}>Dépenses</button><button type="button" className={historyKind === "payroll" ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setHistoryKind("payroll")}>Salaire/Prime</button></div>} onClose={() => { setHistoryKind(null); setDocumentError(""); }}>
+    {historyKind && <AdminDrawer width="wide" title="Historique du contrôle" closeLabel="Fermer l’historique" toolbar={<div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4"><button type="button" className={historyKind === "payments" ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setHistoryKind("payments")}>Paiements</button><button type="button" className={historyKind === "expenses" ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setHistoryKind("expenses")}>Dépenses</button><button type="button" className={historyKind === "cashInflows" ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setHistoryKind("cashInflows")}>Autres entrées</button><button type="button" className={historyKind === "payroll" ? "primary-button justify-center" : "secondary-button justify-center"} onClick={() => setHistoryKind("payroll")}>Salaire/Prime</button></div>} onClose={() => { setHistoryKind(null); setDocumentError(""); }}>
       <div className="mb-3 grid min-w-0 grid-cols-2 gap-2 lg:grid-cols-4">
         <label className="col-span-2 grid min-w-0 gap-1 text-sm sm:col-span-1">École<select aria-label="École de l’historique" className="input" value={historySchoolId} onChange={(event) => setHistorySchoolId(event.target.value)}><option value="">Toutes les écoles du périmètre</option>{schools.filter((school) => !selectedSchoolId || school.id === selectedSchoolId).map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}</select></label>
         <label className="col-span-2 grid min-w-0 gap-1 text-sm sm:col-span-1">Date début<input type="date" aria-label="Date début historique" className="input min-w-0" value={historyStart} onChange={(event) => setHistoryStart(event.target.value)}/></label>
@@ -219,7 +222,7 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
       </div>
       {historyLoading && <p role="status">Chargement de l’historique…</p>}
       {documentError && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{documentError}</p>}
-      {historyKind === "payroll" ? <PersonnelPayrollHistory schoolId={historySchoolId} schools={schools} startDate={historyStart} endDate={historyEnd} refreshToken={refreshToken} /> : historyKind === "payments" ? <ReadOnlyTable headers={["Élève", "École", "Montant", "Date", "PDF"]} rows={historyPayments.map((payment) => { const student = studentsById.get(payment.studentId); return [student ? `${student.nom} ${student.prenom}` : payment.studentId, schoolName(payment.schoolId), historyMoney(payment), payment.paidAt, <button type="button" className="rounded bg-slate-100 p-2 text-slate-700" title="Voir le reçu PDF" aria-label={`Voir le reçu PDF du paiement ${payment.receiptNumber ?? payment.id}`} onClick={() => void downloadPaymentReceipt(payment)}><Download className="h-4 w-4"/></button>]; })}/> : <ReadOnlyTable headers={["École", "Catégorie", "Description", "Montant", "Date", "PDF"]} rows={historyExpenses.map((expense) => [schoolName(expense.schoolId), expenseCategoryLabel(expense.category), expense.description, historyMoney(expense), expense.spentAt, <button type="button" className="rounded bg-slate-100 p-2 text-slate-700" title="Voir le justificatif PDF" aria-label={`Voir le justificatif PDF de la dépense ${expense.reference ?? expense.id}`} onClick={() => void downloadExpenseProof(expense)}><Download className="h-4 w-4"/></button>])}/>}</AdminDrawer>}
+      {historyKind === "payroll" ? <PersonnelPayrollHistory schoolId={historySchoolId} schools={schools} startDate={historyStart} endDate={historyEnd} refreshToken={refreshToken} /> : historyKind === "payments" ? <ReadOnlyTable headers={["Élève", "École", "Montant", "Date", "PDF"]} rows={historyPayments.map((payment) => { const student = studentsById.get(payment.studentId); return [student ? `${student.nom} ${student.prenom}` : payment.studentId, schoolName(payment.schoolId), historyMoney(payment), payment.paidAt, <button type="button" className="rounded bg-slate-100 p-2 text-slate-700" title="Voir le reçu PDF" aria-label={`Voir le reçu PDF du paiement ${payment.receiptNumber ?? payment.id}`} onClick={() => void downloadPaymentReceipt(payment)}><Download className="h-4 w-4"/></button>]; })}/> : historyKind === "cashInflows" ? <ReadOnlyTable headers={["École", "Date", "Nature", "Provenance", "Description", "Montant", "Auteur", "Référence"]} rows={historyCashInflows.map((inflow) => [schoolName(inflow.schoolId), inflow.entryDate, cashInflowNatureLabel(inflow), inflow.source, inflow.description, historyMoney(inflow), inflow.cashierName, inflow.reference ?? "—"])} /> : <ReadOnlyTable headers={["École", "Catégorie", "Description", "Montant", "Date", "PDF"]} rows={historyExpenses.map((expense) => [schoolName(expense.schoolId), expenseCategoryLabel(expense.category), expense.description, historyMoney(expense), expense.spentAt, <button type="button" className="rounded bg-slate-100 p-2 text-slate-700" title="Voir le justificatif PDF" aria-label={`Voir le justificatif PDF de la dépense ${expense.reference ?? expense.id}`} onClick={() => void downloadExpenseProof(expense)}><Download className="h-4 w-4"/></button>])}/>}</AdminDrawer>}
   </section>;
 }
 

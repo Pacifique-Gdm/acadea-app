@@ -535,16 +535,24 @@ export function SocialSupportDrawer({
         <>
           <section className="grid gap-2">
             <h3 className="font-bold">1. Élève bénéficiaire</h3>
-            <SupportStudentPicker students={students} selectedIds={selectedStudentIds} query={studentQuery} onQuery={setStudentQuery}
-              loading={!contextReady} disabled={!!editing || busy} onChange={(ids) => {
-                setSelectedStudentIds(ids);
-                if ((ids[0] ?? "") !== studentId) { setStudentId(ids[0] ?? ""); setValues({}); }
-              }} />
-            {student && (
-              <p>
-                {student.nom} {student.postnom} {student.prenom} ·{" "}
-                {student.matricule} · {student.className}
+            {editing ? (
+              <p className="font-semibold text-ink" data-testid="social-support-beneficiary">
+                {student ? [student.nom, student.postnom, student.prenom].filter(Boolean).join(" ") : editing.studentName}
               </p>
+            ) : (
+              <>
+                <SupportStudentPicker students={students} selectedIds={selectedStudentIds} query={studentQuery} onQuery={setStudentQuery}
+                  loading={!contextReady} disabled={busy} onChange={(ids) => {
+                    setSelectedStudentIds(ids);
+                    if ((ids[0] ?? "") !== studentId) { setStudentId(ids[0] ?? ""); setValues({}); }
+                  }} />
+                {student && (
+                  <p>
+                    {student.nom} {student.postnom} {student.prenom} ·{" "}
+                    {student.matricule} · {student.className}
+                  </p>
+                )}
+              </>
             )}
           </section>
           <section className="grid gap-2">
