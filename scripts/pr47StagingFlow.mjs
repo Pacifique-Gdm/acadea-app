@@ -252,15 +252,48 @@ async function inspectPdf(page, dashboard, role, outputDir, expected, currencies
   }
 }
 
+async function observeStudentCount(dashboard) {
+  await dashboard.evaluate((root) => {
+    const read = () => {
+      const card = [...root.querySelectorAll('article')]
+        .find((article) => article.querySelector(':scope > p')?.textContent?.trim() === "Nombre total d'élèves");
+      return card?.querySelectorAll(':scope > p')[1]?.textContent?.trim() ?? 'absent';
+    };
+    const seen = [read()];
+    const observer = new MutationObserver(() => {
+      const value = read();
+      if (value !== seen.at(-1)) seen.push(value);
+    });
+    observer.observe(root, { childList: true, subtree: true, characterData: true });
+    root.__acadeaCountObservation = { observer, seen };
+  });
+  return async () => dashboard.evaluate((root) => {
+    const current = root.__acadeaCountObservation;
+    current.observer.disconnect();
+    delete root.__acadeaCountObservation;
+    return current.seen;
+  });
+}
+
 async function assertRefresh(page, context, dashboard, role) {
   const button = page.getByRole('button', { name: 'Actualiser', exact: true }).first();
   await expect(button).toBeVisible();
   const before = await readCards(dashboard);
+  const expectPreservedCards = (message, timeout = 20000) => expect(async () => {
+    assert.deepEqual(await readCards(dashboard), before, message);
+  }).toPass({ timeout, intervals: [250, 500, 1000] });
+  const finishCountObservation = await observeStudentCount(dashboard);
   await button.click();
   const normalObservedBusy = await expect(button).toBeDisabled({ timeout: 3000 }).then(() => true, () => false);
   await expect(button).toBeEnabled({ timeout: 60000 });
   await expect(refreshWarnings(page)).toHaveCount(0, { timeout: 10000 });
-  assert.deepEqual(await readCards(dashboard), before, 'Actualisation normale : valeurs modifiées sans écriture.');
+  const seenCounts = await finishCountObservation();
+  assert.deepEqual(seenCounts, [before["Nombre total d'élèves"]],
+    'Actualisation normale : compteur élèves clignotant ou remis à zéro.');
+  // Do not retry this assertion: a just-finished refresh must not flash zero
+  // totals while root listeners re-subscribe.
+  assert.deepEqual(await readCards(dashboard), before,
+    'Actualisation normale : valeurs modifiées immédiatement après la fin.');
 
   let slowProtected = false;
   const cdp = await context.newCDPSession(page);
@@ -274,6 +307,8 @@ async function assertRefresh(page, context, dashboard, role) {
     assert.ok(slowProtected, 'Actualisation lente : double clic non neutralisé.');
     await expect(button).toBeEnabled({ timeout: 90000 });
     await expect(refreshWarnings(page)).toHaveCount(0, { timeout: 10000 });
+    assert.deepEqual(await readCards(dashboard), before,
+      'Actualisation lente : valeurs modifiées immédiatement après la fin.');
   } finally {
     await cdp.send('Network.emulateNetworkConditions', {
       offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1,
@@ -287,14 +322,14 @@ async function assertRefresh(page, context, dashboard, role) {
     await button.click();
     await expect(button).toBeEnabled({ timeout: 90000 });
     offlineWarning = await refreshWarnings(page).count() > 0;
-    assert.deepEqual(await readCards(dashboard), before, 'La coupure Internet a effacé ou modifié les données affichées.');
+    await expectPreservedCards('La coupure Internet a effacé ou modifié les données affichées.');
   } finally {
     await context.setOffline(false);
   }
   await button.click();
   await expect(button).toBeEnabled({ timeout: 90000 });
   await expect(refreshWarnings(page)).toHaveCount(0, { timeout: 15000 });
-  assert.deepEqual(await readCards(dashboard), before, 'Retour en ligne : valeurs modifiées sans écriture.');
+  await expectPreservedCards('Retour en ligne : valeurs modifiées sans écriture.');
   return { normal: true, normalObservedBusy, slow: true, concurrentClickBlocked: slowProtected,
     offlineDataPreserved: true, offlineWarningObserved: offlineWarning,
     warningClearedAfterReconnect: offlineWarning ? true : 'non applicable (aucun avertissement émis)', role };

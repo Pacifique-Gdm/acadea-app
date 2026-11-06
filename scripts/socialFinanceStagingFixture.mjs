@@ -12,6 +12,16 @@ const navigationRecipe = (recipe) => recipe === 'navigation' || recipe === 'pr46
 export function fixtureDocument(collection, id, tag, data) {
   return { path: `${collection}/${id}`, data: { id, fixtureId: tag, ...data, ...(collection === 'students' ? studentSearchFields(data) : {}) } };
 }
+export function pr46Pr47SecondaryClasses(tag, schoolId, schoolYearId) {
+  const baseId = tag+'-class-secondary';
+  return [
+    { id: baseId, data: {schoolId,schoolYearId,name:'3ème Humanité',section:'Secondaire',active:true} },
+    ...[['commercial', 'Commerciale'], ['sciences', 'Sciences']].map(([suffix, option]) => ({
+      id: baseId+'-'+suffix,
+      data: {schoolId,schoolYearId,name:'3ème Humanité '+option,section:'Secondaire',option,parentClassId:baseId,active:true},
+    })),
+  ];
+}
 export function validateManifest(m) {
   if (m.recipe !== undefined && !navigationRecipe(m.recipe)) throw Error('Recette de manifeste inconnue.');
   const roles = ['school_admin', 'cashier', 'secretary', 'teacher', ...(navigationRecipe(m.recipe) ? ['study_director', 'discipline_director', 'coordination_admin', 'sub_coordination_admin'] : [])];
@@ -178,6 +188,9 @@ export async function prepare(s, recipe) {
         add('students', tag+'-student-'+suffix, {schoolId:schools[0],schoolYearId:year,
           nom:suffix.toUpperCase(),postnom:'FICTIF',prenom:'Recette',matricule:'E2E-'+suffix.toUpperCase(),
           className:'3ème Humanité',section:'Secondaire',option,status:'ACTIVE',sexe:'F',birthDate:'2090-01-01'});
+      // Secretary and Study Director intentionally load pupils page by page;
+      // their option filter must also have the persisted operational class links.
+      for (const row of pr46Pr47SecondaryClasses(tag, schools[0], year)) add('classes', row.id, row.data);
       add('classes', tag+'-class-foreign', {schoolId:schools[1],schoolYearId:tag+'-other-year',name:'1ère Primaire',section:'Primaire',active:true});
       add('feeTypes', tag+'-fee-foreign', {schoolId:schools[1],schoolYearId:tag+'-other-year',name:'Minerval CDF',amount:1500000,className:'1ère Primaire'});
       const today = new Date().toISOString().slice(0, 10);

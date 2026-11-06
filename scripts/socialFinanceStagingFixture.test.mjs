@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateManifest, guard, services, fixtureDocument } from './socialFinanceStagingFixture.mjs';
+import { validateManifest, guard, services, fixtureDocument, pr46Pr47SecondaryClasses } from './socialFinanceStagingFixture.mjs';
 const tag = 'e2e-social-' + 'a'.repeat(32);
 const valid = () => ({ projectId: 'acadea-staging', tag, schools: [tag + '-a', tag + '-b'], users: ['school_admin', 'cashier', 'secretary', 'teacher'].map(role => ({ role, uid: tag + '-' + role, email: `${tag}-${role}@example.invalid`, schoolId: tag + '-a' })) });
 test('le manifeste fictif exact est accepté', () => assert.doesNotThrow(() => validateManifest(valid())));
@@ -22,6 +22,17 @@ test('parent fictif : année courante explicite et aucun lien inventé', () => {
   assert.equal(row.data.schoolYearId, tag + '-year');
   assert.deepEqual(row.data.studentIds, []);
   assert.equal(row.data.sortName, undefined);
+});
+test('options Secondaire fictives : classe opérationnelle et deux liaisons exactes', () => {
+  const schoolId = tag + '-a', year = tag + '-year';
+  const classes = pr46Pr47SecondaryClasses(tag, schoolId, year);
+  assert.deepEqual(classes.map((row) => row.data.name), [
+    '3ème Humanité', '3ème Humanité Commerciale', '3ème Humanité Sciences',
+  ]);
+  assert.equal(classes[0].id, tag + '-class-secondary');
+  assert.deepEqual(classes.slice(1).map((row) => row.data.parentClassId), [classes[0].id, classes[0].id]);
+  assert.deepEqual(classes.slice(1).map((row) => row.data.option), ['Commerciale', 'Sciences']);
+  assert.ok(classes.every((row) => row.data.schoolId === schoolId && row.data.schoolYearId === year && row.data.active));
 });
 test('la recette combinée exige uniquement ses rôles fictifs connus', () => {
   const m = valid();

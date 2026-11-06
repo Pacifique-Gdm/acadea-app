@@ -5,7 +5,8 @@ const render = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 vi.mock("./pdf", () => ({
   escapePdfHtml: (value: unknown) => String(value),
   pdfInfoGrid: (rows: Array<{ label: string; value: string | number }>) => rows.map((row) => `${row.label}:${row.value}`).join("|"),
-  pdfSection: (title: string, body: string) => `${title}|${body}`,
+  pdfSection: (title: string, body: string, options?: { pageBreakBefore?: boolean }) =>
+    `${options?.pageBreakBefore ? "[PAGE_BREAK]" : ""}${title}|${body}`,
   pdfTable: (columns: Array<{ render: (item: Record<string, unknown>) => string }>, rows: Array<Record<string, unknown>>) =>
     rows.map((row) => columns.map((column) => column.render(row)).join("|")).join("|"),
   renderAcadPdfPreview: render,
@@ -59,5 +60,12 @@ describe("Dashboard PDF — couverture et devises", () => {
       ...options, transactions: [{ ...options.transactions[0], currency: "USD" }],
     })).rejects.toThrow("devise différente");
     expect(render).not.toHaveBeenCalled();
+  });
+
+  it("n'ajoute pas une page blanche avant le graphique après un tableau déjà paginé", async () => {
+    await exportDashboardReportPdf(options);
+    const sections: string[] = render.mock.calls[0]?.[0].sections ?? [];
+    expect(sections.find((section) => section.includes("Graphique des transactions"))).not.toContain("[PAGE_BREAK]");
+    expect(sections.find((section) => section.includes("Élèves par classe"))).toContain("[PAGE_BREAK]");
   });
 });

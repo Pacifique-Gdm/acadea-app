@@ -86,6 +86,11 @@ export async function runPr46ParentEnrollment({ page, role, fixture, services, e
   await expect(list.getByRole('option')).toHaveCount(0);
   await expect(list).toContainText('Aucun parent trouvé.');
   await findParent(drawer, 'basile', chosen.fullName);
+  // The default class has a required sub-class. Select the dedicated class
+  // without sub-classes before exercising the application-level rejection;
+  // otherwise native HTML validation prevents onSave from running at all.
+  await drawer.getByLabel('Classe', { exact: true }).selectOption({ label: '2ème Primaire' });
+  await expect(drawer.getByLabel('Sous-classe', { exact: true })).toHaveCount(0);
 
   // A confirmed form rejection must neither clear the selected parent nor
   // create an unmanifested student. This is deliberately a client validation
@@ -101,7 +106,6 @@ export async function runPr46ParentEnrollment({ page, role, fixture, services, e
   await drawer.getByLabel('Nom', { exact: true }).fill(candidate.nom);
   await drawer.getByLabel('Postnom', { exact: true }).fill(candidate.postnom);
   await drawer.getByLabel('Prénom', { exact: true }).fill(candidate.prenom);
-  await drawer.getByLabel('Classe', { exact: true }).selectOption({ label: '2ème Primaire' });
   await expect(drawer.getByRole('button', { name: 'Ajouter sous-classe', exact: true })).toBeEnabled({ timeout: 60000 });
   await expect(drawer.getByLabel('Sous-classe', { exact: true })).toHaveCount(0);
   await expect(drawer.getByLabel('Parent sélectionné', { exact: true })).toContainText(chosen.fullName);

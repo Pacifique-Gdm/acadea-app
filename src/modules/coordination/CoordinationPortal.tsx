@@ -135,7 +135,10 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
         if (tab === "dashboard") await loadSupervision();
         return true;
       },
-      apply: () => setRefreshToken((value) => value + 1),
+      // The dashboard was just reloaded above. Re-subscribing the school
+      // listeners here briefly clears activeSchools and flashes zero totals.
+      // Other tabs still need their refresh token to reload their own data.
+      apply: () => { if (tab !== "dashboard") setRefreshToken((value) => value + 1); },
       onError: () => setRefreshError("Actualisation impossible. Veuillez réessayer."),
     });
   }
