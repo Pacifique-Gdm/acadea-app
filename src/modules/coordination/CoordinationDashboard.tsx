@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useDashboardArrears } from "../../hooks/useDashboardArrears";
 import { DashboardArrearsValue } from "../../components/financial/DashboardArrearsValue";
+import { resolveApplicableArrearsCurrencies } from "../../utils/arrearsCurrencies";
 import { Banknote, BarChart3, BookOpen, Download, GraduationCap, ShieldCheck, UserRound, UsersRound } from "lucide-react";
 import { FormPanel, Metric } from "../../components/ui";
 import { useExpenseCurrencyResolution } from "../../hooks/useResolvedExpenseCurrencies";
@@ -12,7 +13,7 @@ import { buildCoordinationDashboardStats, type DashboardCurrency } from "../../u
 import { formatCurrencyMoney, resolveSchoolCurrency } from "../../utils/currency";
 import { sumMoney } from "../../utils/money";
 import { expenseCategoryLabel } from "../../utils/expenseCategory";
-import { cashInflowCategoryLabel } from "../../utils/cashInflowCategory";
+import { cashInflowNatureLabel } from "../../utils/cashInflowCategory";
 import { formatCount } from "../../utils/numberFormat";
 import { getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
 import {
@@ -89,6 +90,13 @@ export function CoordinationDashboard({
     section: sectionFilter,
   }), [coordination.referenceSchoolYear, financialModel, scopedSchools, sectionFilter]);
   const dashboardArrears = useDashboardArrears(stats.students, model.payments, true);
+  const arrearsCurrencies = resolveApplicableArrearsCurrencies({
+    schools: scopedSchools,
+    schoolYears: model.schoolYears,
+    feeTypes: model.feeTypes,
+    alignedSchoolIds: stats.alignedSchoolIds,
+    totals: dashboardArrears.totals,
+  });
   const schoolById = useMemo(() => new Map(scopedSchools.map((school) => [school.id, school])), [scopedSchools]);
   const hasUnknownFinancialCurrency = stats.financialGroups.some((group) => (group.unknownCurrencyCount ?? 0) > 0)
     || model.payments.some((payment) => payment.collectionSchoolYearId && stats.alignedSchoolIds.includes(payment.schoolId)
@@ -120,7 +128,7 @@ export function CoordinationDashboard({
   const transactions = [
     ...visiblePayments.map((payment) => ({ id: `${payment.schoolId}:${payment.id}`, type: "Paiement", label: `${schoolById.get(payment.schoolId)?.name ?? payment.schoolId} · ${payment.cashierName}`, amount: payment.amount, currency: payment.currency, date: payment.paidAt, occurredAt: payment.createdAt ?? payment.paidAt })),
     ...visibleExpenses.map((expense) => ({ id: `${expense.schoolId}:${expense.id}`, type: "Dépense", label: `${schoolById.get(expense.schoolId)?.name ?? expense.schoolId} · ${expenseCategoryLabel(expense.category)}`, amount: -expense.amount, currency: expense.currency, date: expense.spentAt, occurredAt: expense.createdAt ?? expense.spentAt })),
-    ...visibleCashInflows.map((inflow) => ({ id: `${inflow.schoolId}:${inflow.id}`, type: "Autre entrée de caisse", label: `${schoolById.get(inflow.schoolId)?.name ?? inflow.schoolId} · ${cashInflowCategoryLabel(inflow.category)}`, amount: inflow.amount, currency: inflow.currency, date: inflow.entryDate, occurredAt: inflow.createdAt })),
+    ...visibleCashInflows.map((inflow) => ({ id: `${inflow.schoolId}:${inflow.id}`, type: "Autre entrée de caisse", label: `${schoolById.get(inflow.schoolId)?.name ?? inflow.schoolId} · ${cashInflowNatureLabel(inflow)}`, amount: inflow.amount, currency: inflow.currency, date: inflow.entryDate, occurredAt: inflow.createdAt })),
   ].sort((first, second) => second.occurredAt.localeCompare(first.occurredAt));
 
   const chartGroups = stats.financialGroups.map((financial) => {
@@ -170,7 +178,7 @@ export function CoordinationDashboard({
     { label: "Montant net exigible", value: financialValue("expected"), icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
     { label: "Frais de l'année encaissés", value: financialValue("paid"), icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
     { label: "Montant restant à payer", value: financialValue("remaining"), icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
-    { label: "Arriérés", value: <DashboardArrearsValue {...dashboardArrears} />, icon: Banknote, tone: "bg-amber-100 text-amber-700" },
+    { label: "Arriérés", value: <DashboardArrearsValue {...dashboardArrears} currencies={arrearsCurrencies} />, icon: Banknote, tone: "bg-amber-100 text-amber-700" },
   ];
 
   function resetFilters() {
@@ -196,7 +204,7 @@ export function CoordinationDashboard({
     try {
       await exportCoordinationDashboardPdf({
         coordination, schools: scopedSchools, selectedSchoolId, stats, arrearsCollections,
-        historicalArrears: dashboardArrears.totals,
+        historicalArrears: dashboardArrears.totals, arrearsCurrencies,
         sectionLabel: sectionFilter === "all" ? "Toutes les sections" : schoolSectionLabels[sectionFilter],
         dateLabel: dateFilterActive ? `${startDate || "Début"} au ${endDate || "Fin"}` : "Année scolaire active",
         transactions, chartGroups, transactionPeriodLabel: transactionPeriod === "today" ? "Aujourd'hui" : transactionPeriod === "week" ? "Semaine en cours" : "5 derniers jours",

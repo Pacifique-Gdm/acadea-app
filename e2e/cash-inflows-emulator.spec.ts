@@ -6,7 +6,7 @@ import handler from "../api/manage-financial-transaction.js";
 import { readCashBalance } from "../api/_lib/cashBalance.js";
 import { fixture, invoke } from "./support/emulatorRecipe";
 
-test("PR32 : quatre catégories, comptabilité réelle, refus et réponse réseau perdue", async ({ browser }) => {
+test("Autres entrées : trois natures de création, précision obligatoire, comptabilité et réponse réseau perdue", async ({ browser }) => {
   test.setTimeout(240_000);
   const f = fixture(); let context: BrowserContext | undefined;
   try {
@@ -27,38 +27,59 @@ test("PR32 : quatre catégories, comptabilité réelle, refus et réponse résea
     await page.getByRole("button", { name: "Enregistrer", exact: true }).click();
     await page.getByLabel("Type d'enregistrement").selectOption("inflow");
     const form = page.getByRole("form", { name: "Autres entrées de caisse", exact: true });
-    await expect(form.getByLabel("Nature de l'entrée").locator("option")).toHaveText(["Subvention", "Don", "Frais de fonctionnement reçus", "Autres"]);
-    const categories = ["Subvention", "Don", "Frais de fonctionnement", "Autres"];
-    const amounts = ["100,25", "200.50", "300,75", "400"];
+    await expect(form.getByLabel("Nature de l'entrée", { exact: true }).locator("option")).toHaveText(["Subvention", "Don", "Autres"]);
+    const categories = ["Subvention", "Don", "Autres"];
+    const amounts = ["100,25", "200.50", "400"];
     for (let i = 0; i < categories.length; i++) {
-      await form.getByLabel("Nature de l'entrée").selectOption(categories[i]);
+      await form.getByLabel("Nature de l'entrée", { exact: true }).selectOption(categories[i]);
+      if (categories[i] === "Autres") {
+        await expect(form.getByLabel("Précisez la nature de l'entrée")).toBeVisible();
+      } else await expect(form.getByLabel("Précisez la nature de l'entrée")).toHaveCount(0);
       await form.getByLabel("Montant", { exact: true }).fill(amounts[i]);
       await form.getByLabel("Provenance des fonds").fill("Association fictive");
       await form.getByLabel("Mode de paiement").fill("Espèces");
       await form.getByRole("button", { name: "Enregistrer cette entrée" }).click();
       expect((await f.db.collection("cashInflows").where("schoolId", "==", f.school).get()).size).toBe(i);
       await form.getByLabel("Description", { exact: true }).fill("Recette fictive catégorie " + categories[i]);
+      if (categories[i] === "Autres") {
+        await form.getByLabel("Précisez la nature de l'entrée").fill("   ");
+        await form.getByRole("button", { name: "Enregistrer cette entrée" }).click();
+        expect((await f.db.collection("cashInflows").where("schoolId", "==", f.school).get()).size).toBe(i);
+        await form.getByLabel("Précisez la nature de l'entrée").fill("Recettes de la fête scolaire");
+      }
       await form.getByRole("button", { name: "Enregistrer cette entrée" }).click();
       await expect.poll(async () => (await f.db.collection("cashInflows").where("schoolId", "==", f.school).get()).size).toBe(i + 1);
       await expect(form.getByLabel("Montant", { exact: true })).toHaveValue("");
     }
     const balance = () => readCashBalance({ db: f.db, schoolId: f.school, schoolYearId: f.year, currency: "CDF", yearCurrency: "CDF" });
-    expect((await balance()).availableCents).toBe(100150);
+    expect((await balance()).availableCents).toBe(70075);
+    await form.getByLabel("Nature de l'entrée", { exact: true }).selectOption("Don");
+    await expect(form.getByLabel("Précisez la nature de l'entrée")).toHaveCount(0);
+    await form.getByLabel("Nature de l'entrée", { exact: true }).selectOption("Autres");
+    await expect(form.getByLabel("Précisez la nature de l'entrée")).toHaveValue("");
     // Le serveur engage la transaction, mais le navigateur perd la réponse : réessai du même identifiant.
     await form.getByLabel("Montant", { exact: true }).fill("10");
     await form.getByLabel("Provenance des fonds").fill("Association fictive");
     await form.getByLabel("Mode de paiement").fill("Espèces");
     await form.getByLabel("Description", { exact: true }).fill("Réponse réseau perdue fictive");
+    await form.getByLabel("Précisez la nature de l'entrée").fill("Recettes de la fête scolaire");
     transport.dropNextWriteResponse = true;
     await form.getByRole("button", { name: "Enregistrer cette entrée" }).click();
     await expect(form.getByRole("alert")).toBeVisible();
-    expect((await f.db.collection("cashInflows").where("schoolId", "==", f.school).get()).size).toBe(5);
+    expect((await f.db.collection("cashInflows").where("schoolId", "==", f.school).get()).size).toBe(4);
     await form.getByRole("button", { name: "Enregistrer cette entrée" }).click();
     await expect(form.getByLabel("Montant", { exact: true })).toHaveValue("");
-    expect((await f.db.collection("cashInflows").where("schoolId", "==", f.school).get()).size).toBe(5);
-    expect((await balance()).availableCents).toBe(101150);
+    expect((await f.db.collection("cashInflows").where("schoolId", "==", f.school).get()).size).toBe(4);
+    expect((await balance()).availableCents).toBe(71075);
     expect((await f.db.collection("payments").where("schoolId", "==", f.school).get()).empty).toBe(true);
     expect((await f.db.collection("cashInflows").where("schoolId", "==", f.other).get()).empty).toBe(true);
+    // Une archive de l'ancienne catégorie reste lisible même si elle n'est plus proposée dans le formulaire.
+    const legacyId = f.tag + "-legacy-inflow";
+    await f.db.collection("cashInflows").doc(legacyId).create({ id: legacyId, schoolId: f.school, schoolYearId: f.year,
+      category: "Frais de fonctionnement", amount: 1, currency: "CDF", entryDate: today,
+      source: "Archive fictive", paymentMethod: "Espèces", description: "Ancienne recette fictive",
+      createdAt: new Date().toISOString(), validatedAt: new Date().toISOString(), createdBy: f.tag + "-cashier",
+      cashierName: "Caissier fictif", provenance: "financial-api", clientRequestIdHash: f.tag });
     // Règles réelles : aucune écriture financière client directe, même avec un token Caissier valide.
     const denied = await fetch("http://127.0.0.1:8080/v1/projects/demo-acadea/databases/(default)/documents/cashInflows/" + f.tag + "-forged", {
       method: "PATCH", headers: { Authorization: token, "Content-Type": "application/json" },
@@ -69,6 +90,8 @@ test("PR32 : quatre catégories, comptabilité réelle, refus et réponse résea
     await page.getByRole("button", { name: "Historique", exact: true }).click();
     await page.getByLabel("Type d'historique").selectOption("cashInflows");
     await expect(page.getByRole("dialog", { name: "Historique" }).locator("article")).toHaveCount(5);
+    await expect(page.getByRole("dialog", { name: "Historique" }).getByText("Recettes de la fête scolaire", { exact: false }).first()).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Historique" }).getByText("Frais de fonctionnement reçus", { exact: false })).toBeVisible();
     await page.getByRole("button", { name: "Fermer l'historique" }).click();
     // Le rapport financier appartient au menu Administrateur, pas au menu Caissier.
     await context.close();
@@ -77,6 +100,7 @@ test("PR32 : quatre catégories, comptabilité réelle, refus et réponse résea
     page = admin.page;
     await page.getByRole("button", { name: "Menu", exact: true }).last().click();
     await page.getByRole("button", { name: /Rapport financier/ }).click();
+    await expect(page.getByText("Recettes de la fête scolaire", { exact: false }).first()).toBeVisible();
     await expect(page.getByText("Frais de fonctionnement reçus", { exact: false }).first()).toBeVisible();
     await page.screenshot({ path: test.info().outputPath("cash-report.png"), fullPage: true });
     await page.getByRole("button", { name: "Export PDF", exact: true }).click();

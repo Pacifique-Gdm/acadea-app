@@ -1,6 +1,6 @@
 import { collection, documentId, getDocs, query, where, type Firestore } from "@firebase/firestore";
 import { db } from "../firebase";
-import type { Expense, FeeType, Payment, School, Student } from "../types";
+import type { CashInflow, Expense, FeeType, Payment, School, Student } from "../types";
 import { getStudentFeeSummaries, type StudentFeeSummary } from "../utils/studentFeeSummary";
 import { buildControlFeeGroups } from "../utils/controlFilters";
 import { COORDINATION_STUDENT_PAGE_SIZE, loadCoordinationStudentPage, type CoordinationStudentCursor, type CoordinationStudentFilters } from "./coordinationStudentPagination";
@@ -102,13 +102,17 @@ export async function loadCoordinationControlPage(filters: CoordinationStudentFi
   return { rows, fetchedStudents, nextCursor: pending.length || !exhausted ? { pending, studentCursor, exhausted } : undefined };
 }
 
-export async function loadCoordinationControlHistory(schoolIds: readonly string[], isDelegate: boolean) {
-  const [payments, expenses] = await Promise.all([bySchools<Payment>("payments", schoolIds, isDelegate), bySchools<Expense>("expenses", schoolIds, isDelegate)]);
+export async function loadCoordinationControlHistory(schoolIds: readonly string[], isDelegate: boolean, kind: "payments" | "expenses" | "cashInflows") {
+  const [payments, expenses, cashInflows] = await Promise.all([
+    kind === "payments" ? bySchools<Payment>("payments", schoolIds, isDelegate) : Promise.resolve([]),
+    kind === "expenses" ? bySchools<Expense>("expenses", schoolIds, isDelegate) : Promise.resolve([]),
+    kind === "cashInflows" ? bySchools<CashInflow>("cashInflows", schoolIds, isDelegate) : Promise.resolve([]),
+  ]);
   const students: Student[] = [];
   if (db) for (const schoolId of schoolIds) {
     const ids = [...new Set(payments.filter((payment) => payment.schoolId === schoolId).map((payment) => payment.studentId))];
     const results = await Promise.all(Array.from({ length: Math.ceil(ids.length / 30) }, (_, i) => getDocs(query(collection(db as unknown as Firestore, "students"), where("schoolId", "==", schoolId), where(documentId(), "in", ids.slice(i * 30, i * 30 + 30))))));
     results.forEach((snapshot) => snapshot.docs.forEach((item) => students.push({ id: item.id, ...item.data() } as Student)));
   }
-  return { payments, expenses, students };
+  return { payments, expenses, cashInflows, students };
 }

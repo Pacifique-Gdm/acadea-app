@@ -40,15 +40,16 @@ function seeded() {
   return db;
 }
 
-for (const category of ["Subvention", "Don", "Frais de fonctionnement", "Autres"]) {
+for (const category of ["Subvention", "Don", "Autres"]) {
   test(`recette ${category}: montant exact, idempotence et aucun paiement d'élève`, async () => {
     const db = seeded();
-    const body = payload(category, `cash-inflow-${category.replaceAll(" ", "-")}-node-0001`);
+    const body = { ...payload(category, `cash-inflow-${category.replaceAll(" ", "-")}-node-0001`), ...(category === "Autres" ? { categoryDetail: "Recettes de la fête scolaire" } : {}) };
     const first = await executeFinancialOperation({ db, caller, body, now });
     const retry = await executeFinancialOperation({ db, caller, body, now });
     assert.equal(first.cashInflow.currency, "CDF");
     assert.equal(first.cashInflow.amount, 250.25);
     assert.equal(first.cashInflow.category, category);
+    assert.equal(first.cashInflow.categoryDetail, category === "Autres" ? "Recettes de la fête scolaire" : undefined);
     assert.equal(retry.idempotent, true);
     assert.equal(retry.cashInflow.id, first.cashInflow.id);
     assert.equal((await readCashBalance({ db, schoolId: "school-a", schoolYearId: "year-a", currency: "CDF", yearCurrency: "CDF" })).availableCents, 25025);
@@ -61,7 +62,8 @@ for (const category of ["Subvention", "Don", "Frais de fonctionnement", "Autres"
 test("refus serveur des données et rôles interdits sans écritures partielles", async () => {
   const db = seeded();
   const body = payload("Don", "cash-inflow-invalid-node-0001");
-  for (const invalid of [{ amount: 0 }, { category: "Fournitures" }, { description: "   " }, { entryDate: "2026-10-28" }]) {
+  for (const invalid of [{ amount: 0 }, { category: "Fournitures" }, { category: "Frais de fonctionnement" }, { description: "   " }, { entryDate: "2026-10-28" },
+    { category: "Autres" }, { category: "Autres", categoryDetail: "   " }, { category: "Autres", categoryDetail: "x" }, { categoryDetail: "Ne doit pas être cachée" }]) {
     await assert.rejects(executeFinancialOperation({ db, caller, body: { ...body, ...invalid }, now }), { status: 400 });
   }
   await assert.rejects(executeFinancialOperation({ db, caller: { ...caller, role: "teacher" }, body, now }), { status: 403 });

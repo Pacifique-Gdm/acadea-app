@@ -108,7 +108,7 @@ export function createExpenseTransaction(input: { schoolYearId: string; amount: 
   });
 }
 
-export function createCashInflowTransaction(input: { schoolYearId: string; amount: number; category: CashInflow["category"]; description: string; source: string; paymentMethod: string; reference?: string; entryDate: string; clientRequestId: string }) {
+export function createCashInflowTransaction(input: { schoolYearId: string; amount: number; category: CashInflow["category"]; categoryDetail?: string; description: string; source: string; paymentMethod: string; reference?: string; entryDate: string; clientRequestId: string }) {
   return financialRequest({ action: "create-cash-inflow", ...input }).then((result) => {
     if (!result.cashInflow) throw new Error("Réponse de recette incomplète.");
     return result.cashInflow;
