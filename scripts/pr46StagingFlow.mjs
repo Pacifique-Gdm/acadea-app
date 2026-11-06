@@ -90,9 +90,9 @@ export async function runPr46ParentEnrollment({ page, role, fixture, services, e
   // without sub-classes before exercising the application-level rejection;
   // otherwise native HTML validation prevents onSave from running at all.
   // The select lives inside a label whose accessible text also includes the
-  // option names in Chromium. Locate the actual labelled field, not an exact
-  // accessible-name match that can vary with the available classes.
-  const classSelect = drawer.locator('form > label').filter({ hasText: /^Classe\b/ }).locator('select');
+  // option names in Chromium. Its textContent starts with indentation, so
+  // allow leading whitespace while matching the actual labelled field.
+  const classSelect = drawer.locator('form > label').filter({ hasText: /^\s*Classe\b/ }).locator('select');
   await expect(classSelect).toHaveCount(1);
   await classSelect.selectOption({ label: '2ème Primaire' });
   await expect(drawer.getByLabel('Sous-classe', { exact: true })).toHaveCount(0);
