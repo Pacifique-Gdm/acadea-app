@@ -42,10 +42,12 @@ describe("portail Coordination", () => {
     expect(control).toContain("return () => { cancelled = true; }");
     expect(students).toContain("return () => { cancelled = true; }");
   });
-  it("réabonne les listeners racine lors d'une actualisation sans changer d'onglet", () => {
+  it("garde les écoles affichées pendant l'actualisation du Dashboard, et réabonne les autres onglets", () => {
     expect(source).toContain("refreshToken, user.coordinationId");
     expect(source).toContain("runRefreshTask");
     expect(source).toContain("refreshInFlightRef");
+    expect(source).toContain('if (tab === "dashboard") await loadSupervision();');
+    expect(source).toContain('if (tab !== "dashboard") setRefreshToken((value) => value + 1);');
     expect(source).not.toContain("window.location.reload");
   });
   it("rend l’en-tête sticky avec le logo Coordination persistant et son fallback", () => {

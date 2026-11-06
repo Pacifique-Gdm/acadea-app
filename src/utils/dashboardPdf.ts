@@ -122,7 +122,9 @@ export async function exportDashboardReportPdf({
         { header: "Libellé", render: (transaction) => transaction.label },
         { header: "Montant", render: (transaction) => `${transaction.amount >= 0 ? "+" : "-"}${formatCurrencyMoney(Math.abs(transaction.amount), transaction.currency)}`, align: "right" },
       ], transactions, "Aucune transaction pour cette période.")),
-      pdfSection("Graphique des transactions", dashboardPdfTransactionChart(transactionChartRows, yearCurrency, transactionPeriodLabel), { pageBreakBefore: true }),
+      // The preceding transaction table can already flow onto the next physical
+      // page. A second forced break then creates an otherwise blank page.
+      pdfSection("Graphique des transactions", dashboardPdfTransactionChart(transactionChartRows, yearCurrency, transactionPeriodLabel)),
       pdfSection("Élèves par classe", pdfTable([
         { header: "Classe", render: (row) => row.className },
         { header: "Filles", render: (row) => row.girls, align: "center" },
