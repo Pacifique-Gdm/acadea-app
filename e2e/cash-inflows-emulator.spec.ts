@@ -27,11 +27,11 @@ test("Autres entrées : trois natures de création, précision obligatoire, comp
     await page.getByRole("button", { name: "Enregistrer", exact: true }).click();
     await page.getByLabel("Type d'enregistrement").selectOption("inflow");
     const form = page.getByRole("form", { name: "Autres entrées de caisse", exact: true });
-    await expect(form.getByLabel("Nature de l'entrée").locator("option")).toHaveText(["Subvention", "Don", "Autres"]);
+    await expect(form.getByLabel("Nature de l'entrée", { exact: true }).locator("option")).toHaveText(["Subvention", "Don", "Autres"]);
     const categories = ["Subvention", "Don", "Autres"];
     const amounts = ["100,25", "200.50", "400"];
     for (let i = 0; i < categories.length; i++) {
-      await form.getByLabel("Nature de l'entrée").selectOption(categories[i]);
+      await form.getByLabel("Nature de l'entrée", { exact: true }).selectOption(categories[i]);
       if (categories[i] === "Autres") {
         await expect(form.getByLabel("Précisez la nature de l'entrée")).toBeVisible();
       } else await expect(form.getByLabel("Précisez la nature de l'entrée")).toHaveCount(0);
@@ -53,9 +53,9 @@ test("Autres entrées : trois natures de création, précision obligatoire, comp
     }
     const balance = () => readCashBalance({ db: f.db, schoolId: f.school, schoolYearId: f.year, currency: "CDF", yearCurrency: "CDF" });
     expect((await balance()).availableCents).toBe(70075);
-    await form.getByLabel("Nature de l'entrée").selectOption("Don");
+    await form.getByLabel("Nature de l'entrée", { exact: true }).selectOption("Don");
     await expect(form.getByLabel("Précisez la nature de l'entrée")).toHaveCount(0);
-    await form.getByLabel("Nature de l'entrée").selectOption("Autres");
+    await form.getByLabel("Nature de l'entrée", { exact: true }).selectOption("Autres");
     await expect(form.getByLabel("Précisez la nature de l'entrée")).toHaveValue("");
     // Le serveur engage la transaction, mais le navigateur perd la réponse : réessai du même identifiant.
     await form.getByLabel("Montant", { exact: true }).fill("10");
@@ -73,7 +73,7 @@ test("Autres entrées : trois natures de création, précision obligatoire, comp
     expect((await balance()).availableCents).toBe(71075);
     expect((await f.db.collection("payments").where("schoolId", "==", f.school).get()).empty).toBe(true);
     expect((await f.db.collection("cashInflows").where("schoolId", "==", f.other).get()).empty).toBe(true);
-    // Une archive de l'ancienne catégorie reste lisible, sans autoriser sa création par l'API.
+    // Une archive de l'ancienne catégorie reste lisible même si elle n'est plus proposée dans le formulaire.
     const legacyId = f.tag + "-legacy-inflow";
     await f.db.collection("cashInflows").doc(legacyId).create({ id: legacyId, schoolId: f.school, schoolYearId: f.year,
       category: "Frais de fonctionnement", amount: 1, currency: "CDF", entryDate: today,

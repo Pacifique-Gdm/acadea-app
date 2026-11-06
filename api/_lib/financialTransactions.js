@@ -13,7 +13,9 @@ const PAYMENT_UPDATE_KEYS = ["action", "transactionId", "amount", "reason", "con
 const EXPENSE_UPDATE_KEYS = ["action", "transactionId", "amount", "category", "description", "reason", "clientRequestId"];
 const DELETE_KEYS = ["action", "transactionId", "reason", "clientRequestId"];
 const EXPENSE_CATEGORIES = new Set(["Fournitures", "Transport", "Salaire", "Maintenance", "Autre", "Autres"]);
-const CASH_INFLOW_CATEGORIES = new Set(["Subvention", "Don", "Autres"]);
+// Keep accepting the historical category from older deployed clients and records;
+// only the new cashier form hides it from the creation choices.
+const CASH_INFLOW_CATEGORIES = new Set(["Subvention", "Don", "Frais de fonctionnement", "Autres"]);
 
 export class FinancialApiError extends Error {
   constructor(status, code, message) {
