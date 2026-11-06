@@ -20,7 +20,7 @@ import { useExpenseCurrencyResolution } from "../../hooks/useResolvedExpenseCurr
 import { formatCount } from "../../utils/numberFormat";
 import { activeDashboardPersonnelCounts, uniqueActiveParentCount } from "../../utils/dashboardPopulationStats";
 import { canonicalOperationalClasses, subscribeToSchoolClasses } from "../../services/schoolSubclasses";
-import { getSchoolClassChoices, getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
+import { getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
 import { formatStudentClassName, getClassSection } from "../../utils/studentClasses";
 import { isArchivedStudent } from "../../utils/studentUtils";
 import type { AppUser, Expense, FeeType, ParentProfile, Payment, School, SchoolClassRecord, SchoolSection, SchoolYear, Student } from "../../types";
@@ -342,8 +342,8 @@ export function Dashboard({ data, school, year }: DashboardProps) {
   const [dateFilterActive, setDateFilterActive] = useState(false);
   const [dateFilterError, setDateFilterError] = useState("");
   const [transactionPeriod, setTransactionPeriod] = useState<TransactionPeriod>("last5");
+  const [pdfExportError, setPdfExportError] = useState("");
   const [schoolClasses, setSchoolClasses] = useState<SchoolClassRecord[]>([]);
-  const dashboardClassChoices = useMemo(() => getSchoolClassChoices(school), [school]);
   const dashboardSectionChoices = useMemo(() => getSchoolSections(school), [school]);
   useEffect(() => {
     if (sectionFilter !== "all" && !dashboardSectionChoices.includes(sectionFilter)) {
@@ -398,6 +398,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
   const hasUnreliableFinancialCurrency = hasCurrencyOutside([...data.payments, ...resolvedExpenses], currentCurrency);
   const financialVerificationReady = expenseResolution.status === "ready";
   const financialExportBlocked = !financialVerificationReady || hasUnreliableFinancialCurrency;
+  const pdfExportBlocked = financialExportBlocked || !dashboardArrears.totals || Boolean(dashboardArrears.error);
   const transactionStartDate = dateFilterActive ? startDate : today;
   const transactionEndDate = dateFilterActive ? endDate : today;
   const arrearsCollections = useMemo(() => (["USD", "CDF"] as const).map((currency) => ({
@@ -425,25 +426,12 @@ export function Dashboard({ data, school, year }: DashboardProps) {
     year.id,
     sectionFilter === "all" ? undefined : [sectionFilter],
   ).length, [activeStudents, school.id, schoolClasses, sectionFilter, year.id]);
-  const classRows = useMemo(
-    () =>
-      dashboardClassChoices.map((className) => {
-        const students = filteredStudents.filter((student) => student.className === className);
-        return {
-          className,
-          girls: students.filter((student) => student.sexe === "F").length,
-          boys: students.filter((student) => student.sexe === "M").length,
-          total: students.length,
-        };
-      }).filter((row) => row.total > 0),
-    [dashboardClassChoices, filteredStudents],
-  );
   const classDisplayRows = useMemo(
     () => buildDashboardClassRows(filteredStudents),
     [filteredStudents],
   );
-  const totalGirls = useMemo(() => classRows.reduce((sum, row) => sum + row.girls, 0), [classRows]);
-  const totalBoys = useMemo(() => classRows.reduce((sum, row) => sum + row.boys, 0), [classRows]);
+  const totalGirls = useMemo(() => classDisplayRows.reduce((sum, row) => sum + row.girls, 0), [classDisplayRows]);
+  const totalBoys = useMemo(() => classDisplayRows.reduce((sum, row) => sum + row.boys, 0), [classDisplayRows]);
   const totalStudents = totalGirls + totalBoys;
   const studentsById = yearIndexes.studentsById;
   const feeTypesById = yearIndexes.feeTypesById;
@@ -548,8 +536,13 @@ export function Dashboard({ data, school, year }: DashboardProps) {
   }
 
   function exportDashboardPdf() {
-    if (financialExportBlocked) return;
-    exportDashboardReportPdf({
+    if (pdfExportBlocked || !dashboardArrears.totals) return;
+    if (transactions.some((transaction) => transaction.currency !== currentCurrency)) {
+      setPdfExportError("Export bloqué : une transaction porte une devise historique inconnue ou différente.");
+      return;
+    }
+    setPdfExportError("");
+    void exportDashboardReportPdf({
       school,
       year,
       sectionLabel,
@@ -557,15 +550,27 @@ export function Dashboard({ data, school, year }: DashboardProps) {
       recoveryRate,
       totalPayments,
       arrearsCollections,
+      historicalArrears: dashboardArrears.totals,
       totalExpenses,
+      official: dashboardFinancialStats.official,
+      reduction: dashboardFinancialStats.reduction,
       expected: dashboardFinancialStats.expected,
       remaining,
-      transactions,
-      classRows,
+      transactions: transactions.map((transaction) => ({ ...transaction, currency: currentCurrency })),
+      classRows: classDisplayRows,
       totalGirls,
       totalBoys,
       totalStudents,
-    });
+      totalClasses: operationalClassCount,
+      totalParents: totalUniqueParents,
+      administrators: personnelCounts.school_admin,
+      cashiers: personnelCounts.cashier,
+      disciplineDirectors: personnelCounts.discipline_director,
+      feeProgressRows,
+      feeShares,
+      transactionChartRows,
+      transactionPeriodLabel: transactionPeriodLabels[transactionPeriod],
+    }).catch((error) => setPdfExportError(error instanceof Error ? error.message : "La génération du PDF a échoué."));
   }
 
   function resetDashboardDateFilter() {
@@ -629,14 +634,16 @@ export function Dashboard({ data, school, year }: DashboardProps) {
           <button onClick={resetDashboardDateFilter} type="button" className="rounded border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:border-mint hover:text-mint">
             Réinitialiser
           </button>
-          <button onClick={exportDashboardPdf} disabled={financialExportBlocked} type="button" className="pdf-export-button w-full sm:w-auto">
+          <button onClick={exportDashboardPdf} disabled={pdfExportBlocked} type="button" className="pdf-export-button w-full sm:w-auto">
             <Download className="h-4 w-4" /> Exporter PDF
           </button>
           {dateFilterError && <p className="text-xs font-semibold text-red-600 sm:col-span-2 lg:col-span-5">{dateFilterError}</p>}
+          {pdfExportError && <p role="alert" className="text-xs font-semibold text-red-600 sm:col-span-2 lg:col-span-5">{pdfExportError}</p>}
         </div>
       </div>
       {expenseResolution.status === "loading" && <p role="status" className="rounded border border-slate-200 bg-white p-3 text-sm">Vérification des devises historiques en cours…</p>}
       {expenseResolution.status === "error" && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Vérification des devises indisponible. Réessayez après avoir rétabli la connexion.</p>}
+      {dashboardArrears.error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Export PDF indisponible : les arriérés historiques ne sont pas vérifiés.</p>}
       {financialVerificationReady && hasUnreliableFinancialCurrency && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Synthèse financière et PDF indisponibles : des opérations historiques ont une devise inconnue ou différente de la devise actuelle. Vérification ou réconciliation nécessaire.</p>}
 
       <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">

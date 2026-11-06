@@ -633,6 +633,7 @@ export default function App() {
           realtimeKeys.forEach((key) => { merged[key] = current[key] as never; });
           return merged;
         });
+        setRefreshError("");
       } catch (error) {
         if (cancelled || logoutInProgressRef.current) return;
         if (requestVersion !== yearRequestVersion.current) return;
@@ -694,6 +695,7 @@ export default function App() {
   function enterSchoolYear(yearId: string) {
     if (!user || !schoolYears.some((item) => item.id === yearId && item.schoolId === user.schoolId)) return;
     const requestVersion = ++yearRequestVersion.current;
+    setRefreshError("");
     setSelectedYearId(yearId);
     setUser((currentUser) => (currentUser ? { ...currentUser, activeSchoolYearId: yearId } : currentUser));
     setData((prev) => {
@@ -713,6 +715,7 @@ export default function App() {
             ...firestoreData,
             users: firestoreData.users.map((item) => (item.id === user.id ? { ...item, activeSchoolYearId: yearId } : item)),
           });
+          setRefreshError("");
         })
         .catch((error) => {
           if (requestVersion !== yearRequestVersion.current) return;
@@ -744,6 +747,7 @@ export default function App() {
     setData(loadInitialData());
     setDataLoading(false);
     setAuthError("");
+    setRefreshError("");
     setOfflineAccess(null);
     navigate("/login");
     try { await clearOfflineAccess(); }

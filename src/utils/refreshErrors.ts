@@ -13,6 +13,7 @@ export function refreshErrorMessage(error: unknown) {
     case "unauthenticated": return "Votre session a expiré. Veuillez vous reconnecter.";
     case "unavailable": return "Le service est temporairement indisponible. Vérifiez votre connexion puis réessayez.";
     case "failed-precondition": return "La requête nécessite une configuration supplémentaire. Contactez l'administrateur technique.";
+    case "client-timeout": return "Le chargement des données prend plus de temps que prévu. Les données affichées sont conservées ; vérifiez leur mise à jour avant de réessayer.";
     case "deadline-exceeded": return "La connexion est lente. Les données déjà affichées sont conservées ; réessayez lorsque le réseau est stable.";
     case "network-request-failed": return "Connexion impossible. Les données affichées sont conservées.";
     default: return "Impossible d'actualiser les données. Réessayez ou contactez l'assistance.";

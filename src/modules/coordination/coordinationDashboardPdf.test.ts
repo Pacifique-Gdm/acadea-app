@@ -5,6 +5,7 @@ import { pdfInfoGrid, renderAcadPdfPreview } from "../../utils/pdf";
 import { exportCoordinationDashboardPdf } from "./coordinationDashboardPdf";
 
 vi.mock("../../utils/pdf", () => ({
+  escapePdfHtml: (value: unknown) => String(value),
   pdfInfoGrid: vi.fn(() => "<grid />"),
   pdfSection: vi.fn((title: string, content: string) => `<section>${title}${content}</section>`),
   pdfTable: vi.fn(() => "<table />"),
@@ -26,12 +27,20 @@ describe("PDF Dashboard Coordination", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("conserve l'identité institutionnelle Coordination avec le contexte de l'école filtrée", async () => {
-    await exportCoordinationDashboardPdf({ coordination, schools: [school], selectedSchoolId: school.id, stats, sectionLabel: "Toutes les sections", dateLabel: "Année scolaire active", transactions: [] });
+    await exportCoordinationDashboardPdf({
+      coordination, schools: [school], selectedSchoolId: school.id, stats,
+      historicalArrears: { USD: 40, CDF: 3000 },
+      sectionLabel: "Toutes les sections", dateLabel: "Année scolaire active", transactions: [],
+      chartGroups: [{ currency: "USD", rows: [{ date: "2026-10-13", label: "13 oct.", payments: 60, expenses: 10 }] }],
+      transactionPeriodLabel: "5 derniers jours", showTransactionCharts: true,
+    });
     expect(renderAcadPdfPreview).toHaveBeenCalledOnce();
     const options = vi.mocked(renderAcadPdfPreview).mock.calls[0][0];
     expect(options.school.name).toBe(coordination.name);
     expect(options.school.logoUrl).toBe(coordination.logoUrl);
     expect(options.subtitle).toContain(school.name);
+    expect(options.subtitle).toContain("2026-2027");
+    expect(options.throwOnError).toBe(true);
     expect(options.sections.join(" ")).toContain("Indicateurs");
     expect(options.sections.join(" ")).toContain("Synthèse financière — USD");
     expect(options.sections.join(" ")).toContain("Synthèse financière — CDF");
@@ -39,6 +48,9 @@ describe("PDF Dashboard Coordination", () => {
     expect(options.sections.join(" ")).toContain("Types de frais — CDF");
     expect(options.sections.join(" ")).toContain("Répartition des montants — USD");
     expect(options.sections.join(" ")).toContain("Répartition des montants — CDF");
+    expect(options.sections.join(" ")).toContain("Arriérés des années antérieures");
+    expect(options.sections.join(" ")).toContain("Minerval");
+    expect(options.sections.join(" ")).toContain("Graphique des transactions — USD");
     expect(options.sections.join(" ")).toContain("Transactions du jour");
     expect(options.sections.join(" ")).toContain("Élèves par classe");
     const financialGrids = vi.mocked(pdfInfoGrid).mock.calls.map(([rows]) => rows).filter((rows) => rows.some((row) => row.label === "Recouvrement"));
