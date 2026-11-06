@@ -89,11 +89,16 @@ export async function runPr46ParentEnrollment({ page, role, fixture, services, e
   // The default class has a required sub-class. Select the dedicated class
   // without sub-classes before exercising the application-level rejection;
   // otherwise native HTML validation prevents onSave from running at all.
-  // The select lives inside a label whose accessible text also includes the
-  // option names in Chromium. Its textContent starts with indentation, so
-  // allow leading whitespace while matching the actual labelled field.
-  const classSelect = drawer.locator('form > label').filter({ hasText: /^\s*Classe\b/ }).locator('select');
-  await expect(classSelect).toHaveCount(1);
+  // Locate the actual class selector by its dedicated fictional class option.
+  // Label text normalization differs in hosted Chromium; the option value is
+  // stable and avoids depending on accessible-name or whitespace behavior.
+  const classSelect = drawer.locator('select:has(option[value="2ème Primaire"])');
+  const classSelectCount = await classSelect.count();
+  if (classSelectCount !== 1) {
+    const selectCount = await drawer.locator('select').count();
+    const targetOptionCount = await drawer.locator('option[value="2ème Primaire"]').count();
+    throw new Error(`Champ Classe introuvable ou ambigu (sélecteurs=${selectCount}, options-cibles=${targetOptionCount}, correspondances=${classSelectCount}).`);
+  }
   await classSelect.selectOption({ label: '2ème Primaire' });
   await expect(drawer.getByLabel('Sous-classe', { exact: true })).toHaveCount(0);
 
