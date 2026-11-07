@@ -104,6 +104,11 @@ export async function prepare(s) {
   add('students', `${tag}-a-other-student`, { schoolId: schoolUsd, schoolYearId: year('a'),
     nom: 'AUTRE-FICTIF', postnom: 'RECETTE', prenom: 'Acadéa', matricule: `${tag}-a-other-M`,
     className: '1ère Primaire', section: 'Primaire', status: 'ACTIVE', sexe: 'F', birthDate: '2016-01-01' });
+  // Le sélecteur des classes ciblées par un frais provient des élèves inscrits.
+  // L'école neuve reste sans frais, mais possède une classe opérationnelle.
+  add('students', `${tag}-c-student`, { schoolId: schoolEmpty, schoolYearId: year('c'),
+    nom: 'NOUVELLE-ECOLE-FICTIVE', postnom: 'RECETTE', prenom: 'Acadéa', matricule: `${tag}-c-M`,
+    className: '1ère Primaire', section: 'Primaire', status: 'ACTIVE', sexe: 'F', birthDate: '2016-01-01' });
   add('students', `${tag}-foreign-student`, { schoolId: schoolForeign, schoolYearId: year('d'),
     nom: 'HORS-PERIMETRE', postnom: 'FICTIF', prenom: 'Acadéa', matricule: `${tag}-foreign-M`,
     className: '1ère Primaire', section: 'Primaire', status: 'ACTIVE', sexe: 'F', birthDate: '2016-01-01' });

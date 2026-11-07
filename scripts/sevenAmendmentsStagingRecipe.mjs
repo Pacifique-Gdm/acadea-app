@@ -70,7 +70,8 @@ async function pdfFromPreview(page, label) {
   const bytes = Buffer.from(values);
   assert.equal(bytes.subarray(0, 5).toString(), '%PDF-', `Export ${label} invalide.`);
   writeFileSync(`${output}/${label}.pdf`, bytes);
-  const pdf = await getDocument({ data: new Uint8Array(bytes) }).promise;
+  const loadingTask = getDocument({ data: new Uint8Array(bytes) });
+  const pdf = await loadingTask.promise;
   assert.ok(pdf.numPages > 0 && pdf.numPages < 30, `Pagination ${label} anormale.`);
   const extracted = [];
   for (let index = 1; index <= pdf.numPages; index++) {
@@ -92,7 +93,7 @@ async function pdfFromPreview(page, label) {
   }
   const documentText = extracted.join('\n');
   writeFileSync(`${output}/${label}-text.txt`, documentText);
-  await pdf.destroy();
+  await loadingTask.destroy();
   if (await page.locator('[data-pdf-close]').count()) await page.locator('[data-pdf-close]').click();
   return documentText;
 }

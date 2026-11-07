@@ -48,3 +48,16 @@ test('le workflow vérifie le SHA avant WIF et conserve la clôture systématiqu
   assert.match(workflow, /github\.ref == 'refs\/heads\/codex\/acadea-seven-ui-finance-amendments-20261106'/);
   assert.match(workflow, /GOOGLE_CLOUD_PROJECT: acadea-staging/);
 });
+
+test("l'école neuve possède une classe ciblable sans frais précréé", () => {
+  const fixture = readFileSync('scripts/sevenAmendmentsStagingFixture.mjs', 'utf8');
+  assert.match(fixture, /add\('students', `\$\{tag\}-c-student`, \{ schoolId: schoolEmpty, schoolYearId: year\('c'\)/);
+  assert.doesNotMatch(fixture, /add\('feeTypes', `\$\{tag\}-c-/);
+});
+
+test('les PDF rasterisés sont clôturés via leur tâche de chargement', () => {
+  const recipe = readFileSync('scripts/sevenAmendmentsStagingRecipe.mjs', 'utf8');
+  assert.match(recipe, /const loadingTask = getDocument\(/);
+  assert.match(recipe, /await loadingTask\.destroy\(\)/);
+  assert.doesNotMatch(recipe, /pdf\.destroy\(/);
+});
