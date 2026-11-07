@@ -1,4 +1,5 @@
 name: seven-amendments-staging-preflight
+# Précontrôle non destructif relancé après extension WIF temporaire strictement ciblée.
 on:
   push:
     branches: [codex/acadea-seven-ui-finance-amendments-20261106]
