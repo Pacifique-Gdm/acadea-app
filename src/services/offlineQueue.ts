@@ -137,20 +137,27 @@ export async function queueOfflineOperation<T>(scope: OfflineScope, kind: Offlin
   } finally { database.close(); }
 }
 
-export async function listOfflineOperations<T = unknown>(scope: OfflineScope): Promise<OfflineOperation<T>[]> {
+/** Invalid historical rows are retained verbatim; valid neighbours remain readable. */
+export async function inspectOfflineOperations<T = unknown>(scope: OfflineScope): Promise<{ operations: OfflineOperation<T>[]; unreadableCount: number }> {
   const scopeKey = partition(scope);
   const database = await openDatabase();
   try {
     const read = database.transaction("operations", "readonly");
     const rows = await requestResult(read.objectStore("operations").index("partition").getAll(scopeKey)) as StoredOperation[];
-    if (!rows.length) return [];
+    if (!rows.length) return { operations: [], unreadableCount: 0 };
     const key = await partitionKey(database, scopeKey);
-    return Promise.all(rows.map(async ({ partition: storedScope, iv, ciphertext, ...row }) => {
+    const settled = await Promise.allSettled(rows.map(async ({ partition: storedScope, iv, ciphertext, ...row }) => {
       if (storedScope !== scopeKey) throw new Error("Périmètre local incohérent.");
       const decoded = await crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(iv) }, key, ciphertext);
       return { ...row, payload: JSON.parse(new TextDecoder().decode(decoded)) as T };
     }));
+    return { operations: settled.filter((item): item is PromiseFulfilledResult<OfflineOperation<T>> => item.status === "fulfilled")
+      .map((item) => item.value), unreadableCount: settled.filter((item) => item.status === "rejected").length };
   } finally { database.close(); }
+}
+
+export async function listOfflineOperations<T = unknown>(scope: OfflineScope): Promise<OfflineOperation<T>[]> {
+  return (await inspectOfflineOperations<T>(scope)).operations;
 }
 
 export async function transitionOfflineOperation(scope: OfflineScope, id: string, status: OfflineOperationStatus, error?: string): Promise<void> {

@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ token: vi.fn(), list: vi.fn(), transition: vi.fn(), auth: { currentUser: { uid: "user-a" } } }));
+const mocks = vi.hoisted(() => ({ token: vi.fn(), list: vi.fn(), inspect: vi.fn(), transition: vi.fn(), auth: { currentUser: { uid: "user-a" } as { uid: string } | null } }));
 vi.mock("../firebase", () => ({ auth: mocks.auth }));
 vi.mock("./auth", () => ({ getCurrentFirebaseIdToken: mocks.token }));
-vi.mock("./offlineQueue", () => ({ listOfflineOperations: mocks.list, transitionOfflineOperation: mocks.transition }));
+vi.mock("./offlineQueue", () => ({ listOfflineOperations: mocks.list, inspectOfflineOperations: mocks.inspect, transitionOfflineOperation: mocks.transition }));
 vi.mock("../config/apiUrl", () => ({ resolveApiUrl: (path: string) => path }));
-import { syncOfflineOperations } from "./offlineSync";
+import { offlineRetryDelay, syncOfflineOperations } from "./offlineSync";
 
 const scope = { userId: "user-a", schoolId: "school-a", schoolYearId: "year-a" };
 const base = { id: "0d07b52b-e983-4966-88dc-95a50661796d", scope, createdAt: "2026-10-28T10:00:00Z",
@@ -14,12 +14,18 @@ const base = { id: "0d07b52b-e983-4966-88dc-95a50661796d", scope, createdAt: "20
 beforeEach(() => {
   vi.resetAllMocks();
   vi.stubGlobal("navigator", { onLine: true });
-  mocks.auth.currentUser.uid = "user-a";
+  mocks.auth.currentUser = { uid: "user-a" };
   mocks.token.mockResolvedValue("fresh-firebase-token");
+  mocks.inspect.mockImplementation(async () => ({ operations: await mocks.list(), unreadableCount: 0 }));
   mocks.transition.mockResolvedValue(undefined);
 });
 
 describe("rejeu sécurisé des opérations locales", () => {
+  it("espace les reprises automatiques sans boucle agressive", () => {
+    expect(offlineRetryDelay(1, 0)).toBe(1800);
+    expect(offlineRetryDelay(2, 0)).toBe(3600);
+    expect(offlineRetryDelay(99, 1)).toBe(60_000);
+  });
   it("synchronise une cote et confirme seulement après l'accusé serveur", async () => {
     mocks.list.mockResolvedValue([{ ...base, kind: "grade", payload: { assignmentId: "a", classId: "c", subjectId: "m", studentId: "p", gradingSlot: "period_1", status: "graded", score: 12, maximumAtCapture: 20, expectedMaximumVersion: "1:4", expectedGradeVersion: null } }]);
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ok: true, gradeId: "grade-a" }), { status: 200 }));
@@ -48,7 +54,7 @@ describe("rejeu sécurisé des opérations locales", () => {
   });
 
   it("n'envoie pas une proposition de paiement d'un autre compte", async () => {
-    mocks.auth.currentUser.uid = "other-user";
+    mocks.auth.currentUser = { uid: "other-user" };
     mocks.list.mockResolvedValue([{ ...base, kind: "payment_proposal", payload: { studentId: "p", feeTypeId: "f", amount: 50, currency: "CDF", expectedFeeAmount: 100 } }]);
     const fetchMock = vi.spyOn(globalThis, "fetch");
     await syncOfflineOperations(scope);
@@ -88,4 +94,26 @@ describe("rejeu sécurisé des opérations locales", () => {
     expect(request.offlineOperationId).toBe(base.id);
     expect(mocks.transition.mock.calls.map((call) => call[2])).toEqual(["SYNCING", "SERVER_CONFIRMED"]);
   });
+
+  it("attend la restauration de la même session sans lire ni envoyer la file", async () => {
+    mocks.auth.currentUser = null;
+    mocks.list.mockResolvedValue([{ ...base, kind: "grade", payload: { studentId: "p" } }]);
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ok: true, gradeId: "grade-a" }), { status: 200 }));
+    expect(await syncOfflineOperations(scope)).toBe("AUTH_REQUIRED");
+    expect(mocks.list).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    mocks.auth.currentUser = { uid: "user-a" };
+    expect(await syncOfflineOperations(scope)).toBe("DONE");
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(mocks.transition.mock.calls.map((call) => call[2])).toEqual(["SYNCING", "SERVER_CONFIRMED"]);
+  });
+
+  for (const status of [401, 408]) {
+    it(`conserve et permet le rejeu après HTTP ${status}`, async () => {
+      mocks.list.mockResolvedValue([{ ...base, kind: "attendance", payload: { studentId: "p" } }]);
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ code: "unavailable", error: "Service indisponible" }), { status }));
+      await syncOfflineOperations(scope);
+      expect(mocks.transition.mock.calls.map((call) => call[2])).toEqual(["SYNCING", "RETRYABLE_ERROR"]);
+    });
+  }
 });

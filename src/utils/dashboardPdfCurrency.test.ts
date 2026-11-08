@@ -12,7 +12,7 @@ vi.mock("./pdf", () => ({
   renderAcadPdfPreview: render,
 }));
 
-import { exportDashboardReportPdf } from "./dashboardPdf";
+import { dashboardPdfTransactionChart, exportDashboardReportPdf } from "./dashboardPdf";
 
 const school = { id: "school-a", name: "École fictive", currency: "USD" } as School;
 const year = { id: "year-a", name: "2026-2027", schoolId: "school-a", currency: "CDF" } as SchoolYear;
@@ -33,6 +33,12 @@ const options = {
 
 describe("Dashboard PDF — couverture et devises", () => {
   beforeEach(() => render.mockClear());
+
+  it("réserve un espace lisible entre la période et la première ligne du graphique partagé", () => {
+    const chart = dashboardPdfTransactionChart(options.transactionChartRows, "CDF", options.transactionPeriodLabel);
+    expect(chart).toMatch(/^<p style="[^"]*margin:0 0 8px;[^"]*line-height:1\.4[^"]*">Période :/);
+    expect(chart).toContain('aria-label="Graphique des transactions"');
+  });
 
   it("reprend les indicateurs, frais, arriérés, graphiques et classes de l'écran sans mélanger USD et CDF", async () => {
     await exportDashboardReportPdf(options);
@@ -60,6 +66,15 @@ describe("Dashboard PDF — couverture et devises", () => {
       ...options, transactions: [{ ...options.transactions[0], currency: "USD" }],
     })).rejects.toThrow("devise différente");
     expect(render).not.toHaveBeenCalled();
+  });
+
+  it("conserve le zéro et la période sélectionnée dans le PDF lorsqu'aucun arriéré n'est encaissé", async () => {
+    await exportDashboardReportPdf({ ...options, dateLabel: "2026-09-01 au 2026-09-30",
+      arrearsCollections: [{ currency: "CDF", amount: 0 }] });
+    const pdf = render.mock.calls[0]?.[0];
+    expect(pdf.subtitle).toContain("2026-09-01 au 2026-09-30");
+    expect(pdf.sections.join(" ")).toContain("Arriérés encaissés (CDF):0,00 FC");
+    expect(pdf.sections.join(" ")).not.toContain("Arriérés encaissés (USD):$12,00");
   });
 
   it("n'ajoute pas une page blanche avant le graphique après un tableau déjà paginé", async () => {

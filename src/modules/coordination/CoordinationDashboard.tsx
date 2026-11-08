@@ -8,10 +8,10 @@ import { useExpenseCurrencyResolution } from "../../hooks/useResolvedExpenseCurr
 import type { CoordinationDashboardReadModel } from "../../services/coordinationReadModel";
 import type { AppUser, Coordination, School, SchoolSection } from "../../types";
 import { buildDashboardTransactionDayRows } from "../../utils/dashboardStats";
-import { formatChartDate, getTransactionPeriodDates, isInDashboardDateRange } from "../../utils/dashboardDates";
+import { formatChartDate, getTransactionPeriodDates } from "../../utils/dashboardDates";
+import { buildDashboardCollectedArrears } from "../../utils/dashboardCollectedArrears";
 import { buildCoordinationDashboardStats, type DashboardCurrency } from "../../utils/coordinationDashboardStats";
 import { formatCurrencyMoney, resolveSchoolCurrency } from "../../utils/currency";
-import { sumMoney } from "../../utils/money";
 import { expenseCategoryLabel } from "../../utils/expenseCategory";
 import { cashInflowNatureLabel } from "../../utils/cashInflowCategory";
 import { formatCount } from "../../utils/numberFormat";
@@ -113,16 +113,14 @@ export function CoordinationDashboard({
   const transactionEndDate = dateFilterActive ? endDate : today;
   const visiblePayments = stats.payments.filter((payment) => (!transactionStartDate || payment.paidAt.slice(0, 10) >= transactionStartDate) && (!transactionEndDate || payment.paidAt.slice(0, 10) <= transactionEndDate));
   const visibleStudentKeys = new Set(stats.students.map((student) => `${student.schoolId}:${student.id}`));
-  const arrearsCollections = (["USD", "CDF"] as const).map((currency) => ({
-    currency,
-    amount: model.payments.filter((payment) => payment.collectionSchoolYearId
-      && stats.alignedSchoolIds.includes(payment.schoolId)
-      && scopedSchools.find((school) => school.id === payment.schoolId)?.activeSchoolYearId === payment.collectionSchoolYearId
-      && visibleStudentKeys.has(`${payment.schoolId}:${payment.currentStudentId ?? ""}`)
-      && payment.currency === currency
-      && isInDashboardDateRange(payment.paidAt, transactionStartDate, transactionEndDate))
-      .reduce((total, payment) => sumMoney([total, payment.amount]), 0),
-  })).filter((group) => group.amount > 0);
+  const arrearsCollections = buildDashboardCollectedArrears(model.payments, {
+    currentYearBySchoolId: new Map(scopedSchools.filter((school) => stats.alignedSchoolIds.includes(school.id))
+      .map((school) => [school.id, school.activeSchoolYearId] as const)),
+    visibleStudentKeys,
+    startDate: transactionStartDate,
+    endDate: transactionEndDate,
+    applicableCurrencies: arrearsCurrencies,
+  });
   const visibleExpenses = stats.expenses.filter((expense) => (!transactionStartDate || expense.spentAt.slice(0, 10) >= transactionStartDate) && (!transactionEndDate || expense.spentAt.slice(0, 10) <= transactionEndDate));
   const visibleCashInflows = stats.cashInflows.filter((inflow) => (!transactionStartDate || inflow.entryDate >= transactionStartDate) && (!transactionEndDate || inflow.entryDate <= transactionEndDate));
   const transactions = [
@@ -164,7 +162,7 @@ export function CoordinationDashboard({
       const group = stats.financialGroups[0];
       return formatCurrency(group[field], group.currency);
     }
-    return <span className="grid gap-1 text-xl">{stats.financialGroups.map((group) => <span key={group.currency} className="block"><span className="text-sm font-semibold text-slate-500">{group.currency} :</span> {formatCurrency(group[field], group.currency)}</span>)}</span>;
+    return <span className="grid min-w-0 gap-1">{stats.financialGroups.map((group) => <span key={group.currency} className="block min-w-0 break-words"><span className="text-sm font-semibold text-slate-500">{group.currency} :</span> {formatCurrency(group[field], group.currency)}</span>)}</span>;
   };
   const cards = [
     { label: "Nombre total d'élèves", value: stats.totalStudents, icon: GraduationCap, tone: "bg-mint/10 text-mint" },

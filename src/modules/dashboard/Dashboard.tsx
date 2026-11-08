@@ -8,7 +8,8 @@ import { buildDashboardFeeShares, buildDashboardFinancialAggregates, buildDashbo
 import type { DashboardFeeShare } from "../../utils/dashboardStats";
 import { buildSchoolYearDataIndexes } from "../../utils/dataIndexes";
 import { buildDashboardClassRows } from "../../utils/dashboardClassStats";
-import { formatChartDate, getTransactionPeriodDates, isInDashboardDateRange } from "../../utils/dashboardDates";
+import { formatChartDate, getTransactionPeriodDates } from "../../utils/dashboardDates";
+import { buildDashboardCollectedArrears } from "../../utils/dashboardCollectedArrears";
 import { exportDashboardReportPdf } from "../../utils/dashboardPdf";
 import { money } from "../../utils/pdf";
 import { expenseCategoryLabel } from "../../utils/expenseCategory";
@@ -401,13 +402,13 @@ export function Dashboard({ data, school, year }: DashboardProps) {
   const pdfExportBlocked = financialExportBlocked || !dashboardArrears.totals || Boolean(dashboardArrears.error);
   const transactionStartDate = dateFilterActive ? startDate : today;
   const transactionEndDate = dateFilterActive ? endDate : today;
-  const arrearsCollections = useMemo(() => (["USD", "CDF"] as const).map((currency) => ({
-    currency,
-    amount: sumMoney(data.payments.filter((payment) => payment.collectionSchoolYearId === year.id
-      && payment.currency === currency && filteredStudentIds.has(payment.currentStudentId ?? "")
-      && isInDashboardDateRange(payment.paidAt, transactionStartDate, transactionEndDate))
-      .map((payment) => payment.amount)),
-  })).filter((group) => group.amount > 0), [data.payments, transactionEndDate, filteredStudentIds, transactionStartDate, year.id]);
+  const arrearsCollections = useMemo(() => buildDashboardCollectedArrears(data.payments, {
+    currentYearBySchoolId: new Map([[school.id, year.id]]),
+    visibleStudentKeys: new Set([...filteredStudentIds].map((studentId) => `${school.id}:${studentId}`)),
+    startDate: transactionStartDate,
+    endDate: transactionEndDate,
+    applicableCurrencies: [currentCurrency],
+  }), [currentCurrency, data.payments, filteredStudentIds, school.id, transactionEndDate, transactionStartDate, year.id]);
   const fullYearExpenses = useMemo(() => sumMoney(resolvedExpenses.map((expense) => expense.amount)), [resolvedExpenses]);
   const filteredExpensesTotal = useMemo(() => sumMoney(filteredExpenses.map((expense) => expense.amount)), [filteredExpenses]);
   const totalExpenses = hasDashboardFinancialFilter ? filteredExpensesTotal : fullYearExpenses;

@@ -129,8 +129,8 @@ test("generic saving notice reflects acknowledgement, failure and retry", async 
 
 test("offline panel: pending reads are not empty, failed synchronization retains drafts", async ({ page, context }) => {
   await feedbackTransport(context, {
-    "/src/services/offlineQueue.ts": `let reads=0; export function listOfflineOperations() { return reads++===0 ? window.feedback.call('queue-list') : Promise.resolve([{ id: 'historical-id', kind: 'grade', status: 'CONFLICT', createdAt: '2026-10-29T00:00:00Z' }]); }`,
-    "/src/services/offlineSync.ts": `export function syncOfflineOperations() { return window.feedback.call('queue-sync'); }`,
+    "/src/services/offlineQueue.ts": `let reads=0; export function inspectOfflineOperations() { return reads++===0 ? window.feedback.call('queue-list').then(operations=>({operations,unreadableCount:0})) : Promise.resolve({operations:[{ id: 'historical-id', kind: 'grade', status: 'RETRYABLE_ERROR', createdAt: '2026-10-29T00:00:00Z' }],unreadableCount:0}); }`,
+    "/src/services/offlineSync.ts": `export function offlineRetryDelay() { return 60000; } export function syncOfflineOperations() { return window.feedback.call('queue-sync'); }`,
   });
   const view = await mount(page, "/src/components/offline/OfflineQueuePanel.tsx", "OfflineQueuePanel", {
     scope: { userId: "u", schoolId: "s", schoolYearId: "y" }, role: "teacher", autoSync: true, initialOpen: true,
@@ -138,24 +138,24 @@ test("offline panel: pending reads are not empty, failed synchronization retains
   await expect(view.getByRole("button", { name: /Hors connexion ·/ })).toHaveCount(0);
   await expect(view.getByRole("status")).toHaveText("Lecture des opérations locales…");
   await expect(view.getByText(/Aucune opération locale/)).toHaveCount(0);
-  await settle(page, "queue-list", [{ id: "historical-id", kind: "grade", status: "CONFLICT", createdAt: "2026-10-29T00:00:00Z" }]);
-  await expect(view.getByText("Conflit — intervention nécessaire", { exact: true })).toBeVisible();
+  await settle(page, "queue-list", [{ id: "historical-id", kind: "grade", status: "RETRYABLE_ERROR", createdAt: "2026-10-29T00:00:00Z" }]);
+  await expect(view.getByText("En attente de reprise automatique", { exact: true })).toBeVisible();
   await settle(page, "queue-sync", undefined, "Network unavailable (test)");
   await expect(view.getByRole("alert")).toContainText("Network unavailable (test)");
-  await expect(view.getByText("Conflit — intervention nécessaire", { exact: true })).toBeVisible();
+  await expect(view.getByText("En attente de reprise automatique", { exact: true })).toBeVisible();
   await view.getByRole("button", { name: "Réessayer la synchronisation" }).click();
   await expect(view.getByRole("button", { name: "Synchronisation…", exact: true })).toBeDisabled();
   await settle(page, "queue-sync");
   await expect(view.getByRole("alert")).toHaveCount(0);
   // A successful transport without a server receipt must not invent confirmation.
-  await expect(view.getByText("Conflit — intervention nécessaire", { exact: true })).toBeVisible();
+  await expect(view.getByText("En attente de reprise automatique", { exact: true })).toBeVisible();
 });
 
 test("mobile: no permanent offline button, conflict opens the contextual operation panel", async ({ page, context }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await feedbackTransport(context, {
-    "/src/services/offlineQueue.ts": `export function listOfflineOperations() { return Promise.resolve([{ id: 'conflict-local', kind: 'attendance', status: 'CONFLICT', createdAt: '2026-10-29T00:00:00Z' }]); }`,
-    "/src/services/offlineSync.ts": `export function syncOfflineOperations() { return Promise.resolve(); }`,
+    "/src/services/offlineQueue.ts": `export function inspectOfflineOperations() { return Promise.resolve({operations:[{ id: 'conflict-local', kind: 'attendance', status: 'CONFLICT', createdAt: '2026-10-29T00:00:00Z' }],unreadableCount:0}); }`,
+    "/src/services/offlineSync.ts": `export function offlineRetryDelay() { return 60000; } export function syncOfflineOperations() { return Promise.resolve('DONE'); }`,
   });
   await mount(page, "/src/components/offline/OfflineQueuePanel.tsx", "OfflineQueuePanel", {
     scope: { userId: "u", schoolId: "s", schoolYearId: "y" }, role: "teacher", autoSync: false,
@@ -173,8 +173,8 @@ test("mobile: no permanent offline button, conflict opens the contextual operati
 
 test("offline notice leaves forms usable until the user opens operations", async ({ page, context }) => {
   await feedbackTransport(context, {
-    "/src/services/offlineQueue.ts": `export function listOfflineOperations() { window.queueReady = true; return Promise.resolve([]); }`,
-    "/src/services/offlineSync.ts": `export function syncOfflineOperations() { return Promise.resolve(); }`,
+    "/src/services/offlineQueue.ts": `export function inspectOfflineOperations() { window.queueReady = true; return Promise.resolve({operations:[],unreadableCount:0}); }`,
+    "/src/services/offlineSync.ts": `export function offlineRetryDelay() { return 60000; } export function syncOfflineOperations() { return Promise.resolve('DONE'); }`,
   });
   await mount(page, "/src/components/offline/OfflineQueuePanel.tsx", "OfflineQueuePanel", {
     scope: { userId: "u", schoolId: "s", schoolYearId: "y" }, role: "teacher", autoSync: false,

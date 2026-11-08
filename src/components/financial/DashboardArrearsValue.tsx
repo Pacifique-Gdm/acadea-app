@@ -12,5 +12,5 @@ export function DashboardArrearsValue({ totals, error, currency, currencies }: {
   if (!totals) return <span role="status" className="text-sm">Chargement des arriérés…</span>;
   const visibleCurrencies = currencies ?? (["USD", "CDF"] as const).filter((item) => !currency || currency === item || totals[item] > 0);
   if (!visibleCurrencies.length) return <span className="text-sm text-slate-500">Aucune devise financière applicable.</span>;
-  return <span className="grid gap-1 text-xl" title="Dettes des années antérieures, calculées par le service financier officiel">{visibleCurrencies.map((item) => <span key={item}>{formatCurrencyMoney(totals[item], item)}</span>)}</span>;
+  return <span className="grid min-w-0 gap-1" title="Dettes des années antérieures, calculées par le service financier officiel">{visibleCurrencies.map((item) => <span key={item} className="min-w-0 break-words">{formatCurrencyMoney(totals[item], item)}</span>)}</span>;
 }

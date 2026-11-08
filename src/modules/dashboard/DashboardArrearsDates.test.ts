@@ -40,4 +40,14 @@ describe("Dashboard — encaissements historiques à l'ouverture", () => {
     expect(historicCard).toContain(formatCurrencyMoney(1000, "CDF"));
     expect(historicCard).not.toContain(formatCurrencyMoney(35, "USD"));
   });
+
+  it.each(["school_admin", "cashier", "coordination_admin", "sub_coordination_admin"] as const)("%s conserve l'indicateur et le zéro quand la période ne contient aucun encaissement", (role) => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-04T12:00:00"));
+    const html = renderToStaticMarkup(role.includes("coordination")
+      ? createElement(CoordinationDashboard, { coordination: { id: "coord", name: "Coordination", status: "active", referenceSchoolYear: "2026-2027" } as Coordination, user: { id: "user", name: "Test", email: "test@example.test", role } as AppUser, schools: [school], selectedSchoolId: "", onSchoolChange: () => undefined, model, loading: false, loadError: "" })
+      : createElement(Dashboard, { school, year, data: { ...model, parents: [], users: [] } }));
+    const collected = html.slice(html.indexOf("Arriérés encaissés"));
+    expect(collected).toContain(formatCurrencyMoney(0, "USD"));
+    expect(collected).not.toContain(formatCurrencyMoney(35, "USD"));
+  });
 });

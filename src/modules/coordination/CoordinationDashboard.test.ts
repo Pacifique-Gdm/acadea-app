@@ -98,7 +98,8 @@ describe("alignement du Dashboard Coordination", () => {
   });
 
   it("rend les cartes multi-devises sur des lignes distinctes et un graphique par devise", () => {
-    expect(dashboard).toContain('className="grid gap-1 text-xl"');
+    expect(dashboard).toContain('className="grid min-w-0 gap-1"');
+    expect(dashboard).not.toContain('className="grid gap-1 text-xl"');
     expect(dashboard).toContain("stats.financialGroups.map");
     expect(dashboard).toContain("chartGroups.map");
     expect(dashboard).not.toContain('.join(" · ")');

@@ -208,7 +208,9 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
       await returnOnline(session.context, session.page);
       await expect.poll(() => session.calls.some((item) => item.body.action === "sync-offline-grade" && item.status === 409), { timeout: 45_000 }).toBe(true);
       await expect(session.page.getByText("Conflit — intervention nécessaire", { exact: true })).toBeVisible();
-      await session.page.getByRole("button", { name: "Réessayer la synchronisation", exact: true }).click();
+      // A confirmed conflict is terminal: the user must inspect the draft,
+      // never replay it blindly against a changed grading configuration.
+      await expect(session.page.getByRole("button", { name: "Réessayer la synchronisation", exact: true })).toHaveCount(0);
       await expect(session.page.getByText("Conflit — intervention nécessaire", { exact: true })).toBeVisible();
       expect((await db!.collection("gradeEntries").where("schoolId", "==", schoolId).get()).size).toBe(initialGradeCount);
     } finally { await session.context.close(); }
@@ -227,11 +229,15 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
       expect((await db!.collection("attendance").where("schoolId", "==", schoolId).get()).empty).toBe(true);
       await returnOnline(session.context, session.page);
       await expect.poll(async () => (await db!.collection("attendance").where("schoolId", "==", schoolId).get()).size, { timeout: 45_000 }).toBe(1);
-      await expect(session.page.getByText("À réessayer à la reconnexion", { exact: true })).toBeVisible();
-      await session.page.getByRole("button", { name: "Réessayer la synchronisation", exact: true }).click();
+      expect(transport.dropNextAttendanceResponse).toBe(false);
+      // The first server response was lost, so automatic retry must use the
+      // same operation ID and obtain a receipt without a duplicate write.
+      await expect.poll(() => session.calls.filter((item) => item.body.action === "sync-offline-attendance" && item.status === 200).length,
+        { timeout: 45_000 }).toBeGreaterThanOrEqual(2);
       await expect(session.page.getByText("Confirmée par le serveur", { exact: true })).toBeVisible();
       expect((await db!.collection("attendance").where("schoolId", "==", schoolId).get()).size).toBe(1);
-      expect(session.calls.some((item) => item.body.action === "sync-offline-attendance" && item.status === 200)).toBe(true);
+      const attendanceCalls = session.calls.filter((item) => item.body.action === "sync-offline-attendance" && item.status === 200);
+      expect(new Set(attendanceCalls.map((item) => item.body.offlineOperationId)).size).toBe(1);
     } finally { await session.context.close(); }
   });
 
