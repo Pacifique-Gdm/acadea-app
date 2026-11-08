@@ -57,6 +57,7 @@ try {
 
   browser = await chromium.launch({ headless: true });
   const currentYearName = manifest.documents.find(row => row.path === `schoolYears/${manifest.years.a}`).data.name;
+  const previousYearName = manifest.documents.find(row => row.path === `schoolYears/${manifest.tag}-a-old-year`).data.name;
   const currentYearValue = `period:${currentYearName}`;
   const previousDay = new Date(Date.parse(`${manifest.today}T12:00:00Z`) - 86400000).toISOString().slice(0, 10);
   for (const key of ['admin', 'cashier', 'coordination', 'sub_coordination']) {
@@ -97,8 +98,18 @@ try {
           await expect(year).toBeVisible({ timeout: 60000 });
           await expect.poll(async () => (await year.locator('option').allTextContents()).filter(label => label === currentYearName).length,
             { timeout: 60000 }).toBe(1);
+          await expect.poll(async () => (await year.locator('option').allTextContents()).filter(label => label === previousYearName).length,
+            { timeout: 60000 }).toBe(1);
           await year.selectOption(currentYearValue);
           await expect(year).toHaveValue(currentYearValue);
+          const rows = tab === 'Élèves' ? page.locator('tbody tr') : page.locator('article');
+          for (const name of ['FICTIF-A', 'FICTIF-B', 'NOUVELLE-ECOLE-FICTIVE']) {
+            await expect(rows.filter({ hasText: name }).first()).toBeVisible({ timeout: 60000 });
+          }
+          await schoolFilter.selectOption(manifest.schools[1]);
+          await expect(rows.filter({ hasText: 'FICTIF-B' }).first()).toBeVisible();
+          await expect(rows.filter({ hasText: 'FICTIF-A' })).toHaveCount(0);
+          await schoolFilter.selectOption('');
           await page.screenshot({ path: `${output}/${key}-${tab}-unique-years.png`, fullPage: true });
           await page.reload();
           await page.getByRole('button', { name: tab, exact: true }).last().click();
