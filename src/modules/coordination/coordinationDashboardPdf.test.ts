@@ -73,6 +73,20 @@ describe("PDF Dashboard Coordination", () => {
     expect(historicalGrids).toEqual([[{ label: "Dettes historiques (USD)", value: "$0,00" }]]);
   });
 
+  it("imprime le même arriéré encaissé nul que l'indicateur de la période filtrée", async () => {
+    await exportCoordinationDashboardPdf({
+      coordination, schools: [school], selectedSchoolId: school.id, stats,
+      historicalArrears: { USD: 0, CDF: 0 }, arrearsCurrencies: ["USD"],
+      arrearsCollections: [{ currency: "USD", amount: 0 }],
+      sectionLabel: "Toutes les sections", dateLabel: "2026-09-01 au 2026-09-30",
+      transactions: [], chartGroups: [], transactionPeriodLabel: "5 derniers jours", showTransactionCharts: false,
+    });
+    const pdf = vi.mocked(renderAcadPdfPreview).mock.calls[0][0];
+    expect(pdf.subtitle).toContain("2026-09-01 au 2026-09-30");
+    expect(vi.mocked(pdfInfoGrid).mock.calls.some(([rows]) => rows.some((row) =>
+      row.label === "Arriérés encaissés (hors recouvrement)" && row.value === "$0,00"))).toBe(true);
+  });
+
   it("imprime un état vide sans ajouter deux montants artificiels", async () => {
     await exportCoordinationDashboardPdf({
       coordination, schools: [school], selectedSchoolId: school.id, stats,

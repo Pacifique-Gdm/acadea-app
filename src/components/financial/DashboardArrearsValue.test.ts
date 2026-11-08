@@ -60,6 +60,19 @@ describe("carte Arriérés — devises applicables", () => {
     expect(renderToStaticMarkup(createElement(DashboardArrearsValue, { totals: { USD: 0, CDF: 0 }, currencies: [] }))).toContain("Aucune devise financière applicable.");
   });
 
+  it("laisse chaque montant hériter exactement de la typographie des autres cartes financières", () => {
+    for (const currencies of [["USD"], ["CDF"], ["USD", "CDF"]] as const) {
+      const markup = renderToStaticMarkup(createElement(DashboardArrearsValue, {
+        totals: { USD: 0, CDF: 12500000 }, currencies,
+      }));
+      expect(markup).toContain('class="grid min-w-0 gap-1"');
+      expect(markup).not.toMatch(/text-(?:xs|sm|base|lg|xl|2xl)/);
+      expect(markup).toContain('class="min-w-0 break-words"');
+      expect(markup).not.toContain("USD :");
+      expect(markup).not.toContain("CDF :");
+    }
+  });
+
   it("conserve l'affichage Administrateur/Caissier mono-devise et toute dette historique non nulle", () => {
     const markup = renderToStaticMarkup(createElement(DashboardArrearsValue, { totals: { USD: 0, CDF: 250 }, currency: "USD" }));
     expect(markup).toContain(formatCurrencyMoney(0, "USD"));

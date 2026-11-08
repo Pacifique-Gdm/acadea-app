@@ -81,7 +81,9 @@ test("Dashboards, Contrôle et retrait Coordination — Staging final", async ({
       await expect(card).toContainText(formatCurrencyMoney(10, "USD"));
       await expect(card).not.toContainText(formatCurrencyMoney(1000, "CDF"));
       await end.fill(fixture.today); await expect(card).toContainText(formatCurrencyMoney(35, "USD"));
-      await start.fill("2020-01-01"); await end.fill("2020-01-02"); await expect(card).toHaveCount(0);
+      await start.fill("2020-01-01"); await end.fill("2020-01-02");
+      await expect(card).toContainText(formatCurrencyMoney(0, "USD"));
+      await expect(card).not.toContainText(formatCurrencyMoney(25, "USD"));
       await start.fill(fixture.today); await end.fill(fixture.today); await expect(card).toContainText(formatCurrencyMoney(25, "USD"));
       await responsive(page, `${role}-dashboard`);
       await page.reload(); await expect(card).toContainText(formatCurrencyMoney(25, "USD"), { timeout: 60000 });
