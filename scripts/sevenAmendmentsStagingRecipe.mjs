@@ -218,7 +218,9 @@ try {
       await history.getByRole('button', { name: 'Exporter PDF' }).click();
       const report = await pdfFromPreview(page, 'coordination-other-inflows');
       assertPdfContains(report, 'Recette exceptionnelle fictive', 'coordination-other-inflows');
-      assertPdfContains(report, 'Frais de fonctionnement reçus', 'coordination-other-inflows');
+      // L'OCR raster peut perdre les accents ou des lettres, mais les mots et la ligne d'archive restent contrôlés.
+      assertPdfContains(report, 'Frais de fonctionnement', 'coordination-other-inflows');
+      assertPdfContains(report, 'Archive fictive', 'coordination-other-inflows');
       assertPdfContains(report, '12,50', 'coordination-other-inflows');
       await page.screenshot({ path: `${output}/coordination-history.png`, fullPage: true });
     });
@@ -228,7 +230,7 @@ try {
   await checked('4 — Super Administrateur : Retirer et confirmation non exécutée', async () => {
     await withRole('platform', async page => {
       await page.getByRole('button', { name: 'Coordinations', exact: true }).last().click();
-      await page.getByRole('button', { name: /^Coordination fictive PR48(?:\s|$)/ }).click();
+      await page.getByRole('button', { name: `Coordination fictive PR48 ${m.tag} Active · 3 écoles`, exact: true }).click();
       const management = page.getByRole('region', { name: 'Gestion de la Coordination' });
       const remove = management.getByRole('button', { name: /Retirer École fictive PR48 A de la coordination/ });
       await expect(remove).toBeVisible();
@@ -267,7 +269,7 @@ try {
       await page.reload();
       await page.getByRole('button', { name: 'Menu', exact: true }).last().click();
       await page.getByRole('button', { name: /Types de frais/ }).click();
-      await expect(page.getByText('Bibliothèque fictive PR48', { exact: false }).first()).toBeVisible();
+      await expect(page.getByTestId('fee-editor').getByLabel('Frais').locator('option', { hasText: 'Bibliothèque fictive PR48' })).toHaveCount(1);
       await page.screenshot({ path: `${output}/new-school-fee.png`, fullPage: true });
     });
     assert.equal((await s.db.doc(`feeTypes/${m.fees.a}`).get()).data().name, 'Minerval');

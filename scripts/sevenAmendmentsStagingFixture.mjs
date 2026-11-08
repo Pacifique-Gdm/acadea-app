@@ -80,7 +80,7 @@ export async function prepare(s) {
     if (index < 3) add('subCoordinationSchools', `${subCoordinationId}__${id}`, { coordinationId, subCoordinationId,
       schoolId: id, active: true });
   }
-  add('coordinations', coordinationId, { name: 'Coordination fictive PR48', code: 'E2E48', status: 'active',
+  add('coordinations', coordinationId, { name: `Coordination fictive PR48 ${tag}`, code: 'E2E48', status: 'active',
     active: true, referenceSchoolYear: `${academicStart}-${academicStart + 1}`, principalCoordinatorUserId: `${tag}-coordination` });
   add('coordinations', `${tag}-foreign-coordination`, { name: 'Coordination étrangère fictive PR48', code: 'E2E48X', status: 'active', active: true });
   add('subCoordinations', subCoordinationId, { coordinationId, coordinatorUserId: `${tag}-sub_coordination`,

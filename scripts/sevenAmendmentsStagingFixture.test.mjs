@@ -63,9 +63,19 @@ test('les PDF rasterisés sont clôturés via leur tâche de chargement', () => 
 });
 
 test('la recette cible la bonne coordination et confirme explicitement le nouveau frais', () => {
+  const fixture = readFileSync('scripts/sevenAmendmentsStagingFixture.mjs', 'utf8');
   const recipe = readFileSync('scripts/sevenAmendmentsStagingRecipe.mjs', 'utf8');
-  assert.match(recipe, /name: \/\^Coordination fictive PR48/);
+  assert.match(fixture, /name: `Coordination fictive PR48 \$\{tag\}`/);
+  assert.match(recipe, /name: `Coordination fictive PR48 \$\{m\.tag\} Active · 3 écoles`, exact: true/);
   assert.match(recipe, /getByRole\('dialog', \{ name: 'Ajouter le type de frais' \}\)/);
   assert.match(recipe, /getByRole\('textbox', \{ name: 'Phrase de confirmation' \}\)\.fill\('AJOUTER CE FRAIS'\)/);
   assert.match(recipe, /getByRole\('button', \{ name: "Confirmer l'ajout" \}\)\.click\(\)/);
+  assert.match(recipe, /locator\('option', \{ hasText: 'Bibliothèque fictive PR48' \}\)\)\.toHaveCount\(1\)/);
+});
+
+test("l'OCR vérifie la catégorie et l'archive sans exiger les accents lus imparfaitement", () => {
+  const recipe = readFileSync('scripts/sevenAmendmentsStagingRecipe.mjs', 'utf8');
+  assert.match(recipe, /assertPdfContains\(report, 'Frais de fonctionnement', 'coordination-other-inflows'\)/);
+  assert.match(recipe, /assertPdfContains\(report, 'Archive fictive', 'coordination-other-inflows'\)/);
+  assert.match(recipe, /assertPdfContains\(report, '12,50', 'coordination-other-inflows'\)/);
 });
