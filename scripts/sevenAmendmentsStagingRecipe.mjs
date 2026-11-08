@@ -77,7 +77,9 @@ async function pdfFromPreview(page, label) {
   for (let index = 1; index <= pdf.numPages; index++) {
     const pagePdf = await pdf.getPage(index);
     extracted.push((await pagePdf.getTextContent()).items.map(item => item.str ?? '').join(' '));
-    const viewport = pagePdf.getViewport({ scale: 1.5 });
+    // Les petits montants des cartes d'arriérés (page 1) sont illisibles pour
+    // l'OCR à 1,5×, bien qu'ils soient présents dans le PDF rasterisé.
+    const viewport = pagePdf.getViewport({ scale: index === 1 && label.endsWith('-dashboard') ? 3 : 1.5 });
     const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
     const context = canvas.getContext('2d');
     await pagePdf.render({ canvasContext: context, canvas, viewport }).promise;

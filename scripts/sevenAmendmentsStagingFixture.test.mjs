@@ -79,3 +79,10 @@ test("l'OCR vérifie la catégorie et l'archive sans exiger les accents lus impa
   assert.match(recipe, /assertPdfContains\(report, 'Archive fictive', 'coordination-other-inflows'\)/);
   assert.match(recipe, /assertPdfContains\(report, '12,50', 'coordination-other-inflows'\)/);
 });
+
+test("les montants du Dashboard PDF restent vérifiés à haute résolution", () => {
+  const recipe = readFileSync('scripts/sevenAmendmentsStagingRecipe.mjs', 'utf8');
+  assert.match(recipe, /scale: index === 1 && label\.endsWith\('-dashboard'\) \? 3 : 1\.5/);
+  assert.match(recipe, /assertPdfContains\(report, '80,00', `\$\{key\}-dashboard`\)/);
+  assert.match(recipe, /assertPdfContains\(report, '10 000,00', `\$\{key\}-dashboard`\)/);
+});
