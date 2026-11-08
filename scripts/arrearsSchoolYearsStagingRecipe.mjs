@@ -78,6 +78,8 @@ try {
       await expect(band).toBeVisible({ timeout: 60000 });
       await expect(band).toContainText('20');
       if (key.includes('coordination')) await expect(band).toContainText('1 000');
+      const withCollections = (await band.innerText()).replace(/\s+/g, ' ').trim();
+      await band.scrollIntoViewIfNeeded();
       await page.screenshot({ path: `${output}/${key}-with-collections.png`, fullPage: true });
       await page.getByLabel('Date de début', { exact: true }).fill(previousDay);
       await page.getByLabel('Date de fin', { exact: true }).fill(previousDay);
@@ -86,8 +88,9 @@ try {
       await page.getByLabel('Date de début', { exact: true }).fill(manifest.today);
       await page.getByLabel('Date de fin', { exact: true }).fill(manifest.today);
       await expect(band).toBeVisible();
+      await band.scrollIntoViewIfNeeded();
       await page.screenshot({ path: `${output}/${key}-collections-restored.png`, fullPage: true });
-      record(`Bande conditionnelle Dashboard ${key}`, 'PASS');
+      record(`Bande conditionnelle Dashboard ${key}`, 'PASS', `visible → absente → visible ; ${withCollections}`);
 
       if (key.includes('coordination')) {
         const schoolFilter = page.getByLabel('Filtrer par école').first();
@@ -110,12 +113,14 @@ try {
           await expect(rows.filter({ hasText: 'FICTIF-B' }).first()).toBeVisible();
           await expect(rows.filter({ hasText: 'FICTIF-A' })).toHaveCount(0);
           await schoolFilter.selectOption('');
+          await expect(rows.filter({ hasText: 'FICTIF-A' }).first()).toBeVisible();
+          const yearOptions = await year.locator('option').allTextContents();
           await page.screenshot({ path: `${output}/${key}-${tab}-unique-years.png`, fullPage: true });
           await page.reload();
           await page.getByRole('button', { name: tab, exact: true }).last().click();
           await expect.poll(async () => (await page.getByLabel('Année scolaire', { exact: true })
             .locator('option').allTextContents()).filter(label => label === currentYearName).length).toBe(1);
-          record(`Année scolaire unique ${key} / ${tab}`, 'PASS');
+          record(`Année scolaire unique ${key} / ${tab}`, 'PASS', yearOptions.join(' | '));
         }
       }
     } catch (error) {
