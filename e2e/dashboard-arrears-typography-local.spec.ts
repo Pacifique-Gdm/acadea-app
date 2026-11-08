@@ -11,6 +11,9 @@ test("les montants Arriérés héritent de la même typographie sans débordemen
   const componentSource = readFileSync("src/components/financial/DashboardArrearsValue.tsx", "utf8");
   expect(componentSource).toContain('className="grid min-w-0 gap-1"');
   expect(componentSource).toContain('className="min-w-0 break-words"');
+  const coordinationSource = readFileSync("src/modules/coordination/CoordinationDashboard.tsx", "utf8");
+  expect(coordinationSource).toContain('className="grid min-w-0 gap-1"');
+  expect(coordinationSource).not.toContain('className="grid gap-1 text-xl"');
   for (const currencies of [["USD"], ["CDF"], ["USD", "CDF"]] as const) {
     const arrears = `<span class="grid min-w-0 gap-1" title="Dettes historiques">${currencies.map((currency) =>
       `<span class="min-w-0 break-words">${formatCurrencyMoney(currency === "USD" ? 1250000 : 1250000000, currency)}</span>`).join("")}</span>`;

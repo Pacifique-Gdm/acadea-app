@@ -1,0 +1,88 @@
+name: five-amendments-staging-recipe
+on:
+  push:
+    branches: [codex/acadea-offline-sync-pdf-social-fix]
+    paths:
+      - .github/workflows/five-amendments-staging-recipe.yml
+      - scripts/fiveAmendmentsStagingRecipe.mjs
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: five-amendments-staging-recipe
+  cancel-in-progress: false
+jobs:
+  recipe:
+    if: github.repository == 'Pacifique-Gdm/acadea-app' && github.ref == 'refs/heads/codex/acadea-offline-sync-pdf-social-fix'
+    runs-on: ubuntu-latest
+    environment: acadea-staging-e2e
+    timeout-minutes: 50
+    env:
+      GOOGLE_CLOUD_PROJECT: acadea-staging
+      GOOGLE_CLOUD_QUOTA_PROJECT: acadea-staging
+      ACADEA_SOCIAL_STAGING: 'YES'
+      ACADEA_SEVEN_STAGING: 'YES'
+      ACADEA_FIVE_STAGING: 'YES'
+      ACADEA_EXPECTED_SHA: ${{ github.sha }}
+      STAGING_FIREBASE_API_KEY: ${{ vars.STAGING_FIREBASE_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Vérifier la cible et le SHA avant toute identité ou fixture
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          assert.equal(process.env.GOOGLE_CLOUD_PROJECT, 'acadea-staging');
+          assert.equal(process.env.GOOGLE_CLOUD_QUOTA_PROJECT, 'acadea-staging');
+          assert.match(process.env.ACADEA_EXPECTED_SHA, /^[a-f0-9]{40}$/);
+          const response = await fetch('https://acadea-staging.vercel.app/version.json',
+            { redirect: 'manual', signal: AbortSignal.timeout(15000) });
+          assert.equal(response.status, 200, 'Staging inaccessible ; aucune fixture créée.');
+          assert.equal((await response.json()).version, process.env.ACADEA_EXPECTED_SHA,
+            'SHA Staging incorrect ; aucune fixture créée.');
+          JS
+      - uses: google-github-actions/auth@v3
+        id: auth
+        with:
+          project_id: acadea-staging
+          workload_identity_provider: ${{ vars.GCP_STAGING_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_STAGING_E2E_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_lifetime: 3600s
+          create_credentials_file: false
+          export_environment_variables: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Parcours hébergés authentifiés des cinq amendements
+        env:
+          ACADEA_STAGING_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: node scripts/fiveAmendmentsStagingRecipe.mjs
+      - uses: google-github-actions/auth@v3
+        id: cleanup-auth
+        if: always() && steps.auth.outcome == 'success'
+        with:
+          project_id: acadea-staging
+          workload_identity_provider: ${{ vars.GCP_STAGING_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_STAGING_E2E_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_lifetime: 3600s
+          create_credentials_file: false
+          export_environment_variables: false
+      - name: Clôture idempotente des seuls comptes et écoles fictifs
+        if: always() && steps.cleanup-auth.outcome == 'success'
+        env:
+          ACADEA_STAGING_ACCESS_TOKEN: ${{ steps.cleanup-auth.outputs.access_token }}
+        run: node scripts/sevenAmendmentsStagingRetire.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: five-amendments-staging-proofs
+          retention-days: 7
+          path: |
+            diagnostics/five-amendments-staging/*.json
+            diagnostics/five-amendments-staging/*.png
+            diagnostics/five-amendments-staging/*.pdf
+            diagnostics/seven-amendments-staging/manifest.json

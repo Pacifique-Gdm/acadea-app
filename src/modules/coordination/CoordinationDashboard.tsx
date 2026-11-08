@@ -162,7 +162,7 @@ export function CoordinationDashboard({
       const group = stats.financialGroups[0];
       return formatCurrency(group[field], group.currency);
     }
-    return <span className="grid gap-1 text-xl">{stats.financialGroups.map((group) => <span key={group.currency} className="block"><span className="text-sm font-semibold text-slate-500">{group.currency} :</span> {formatCurrency(group[field], group.currency)}</span>)}</span>;
+    return <span className="grid min-w-0 gap-1">{stats.financialGroups.map((group) => <span key={group.currency} className="block min-w-0 break-words"><span className="text-sm font-semibold text-slate-500">{group.currency} :</span> {formatCurrency(group[field], group.currency)}</span>)}</span>;
   };
   const cards = [
     { label: "Nombre total d'élèves", value: stats.totalStudents, icon: GraduationCap, tone: "bg-mint/10 text-mint" },
