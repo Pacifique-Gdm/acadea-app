@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { SupportStudentPicker } from "./SupportStudentPicker";
+import { socialBeneficiaryLabel } from "./socialBeneficiary";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AppData, AppUser, School, SchoolYear } from "../../types";
 import { AdminDrawer, MoneyInput } from "../../components/ui";
@@ -536,8 +537,8 @@ export function SocialSupportDrawer({
           <section className="grid gap-2">
             <h3 className="font-bold">1. Élève bénéficiaire</h3>
             {editing ? (
-              <p className="font-semibold text-ink" data-testid="social-support-beneficiary">
-                {student ? [student.nom, student.postnom, student.prenom].filter(Boolean).join(" ") : editing.studentName}
+              <p className="min-w-0 break-words font-semibold text-ink" data-testid="social-support-beneficiary">
+                {socialBeneficiaryLabel(student, editing)}
               </p>
             ) : (
               <>
