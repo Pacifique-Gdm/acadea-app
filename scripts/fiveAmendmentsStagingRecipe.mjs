@@ -106,11 +106,17 @@ try {
       await expect(collected).toContainText('$20,00', { timeout: 60000 });
       for (const width of [390, 768, 1440]) {
         await page.setViewportSize({ width, height: 950 });
+        const amounts = arrearsCard.locator('span[title] > span');
+        const expectedCount = key.includes('coordination') ? 2 : 1;
+        await expect(amounts).toHaveCount(expectedCount, { timeout: 60000 });
+        await expect(amounts.first()).toContainText('$80,00');
+        if (expectedCount === 2) await expect(amounts.last()).toContainText('10 000,00 FC');
         const live = await Promise.all([officialCard.locator('p').last().evaluate(node => {
           const s = getComputedStyle(node); return [s.fontSize, s.fontWeight, s.color, s.lineHeight];
         }), arrearsCard.locator('span[title] > span').evaluateAll(nodes => nodes.map(node => {
           const s = getComputedStyle(node); return [s.fontSize, s.fontWeight, s.color, s.lineHeight];
         }))]);
+        assert.equal(live[1].length, expectedCount);
         for (const amount of live[1]) assert.deepEqual(amount, live[0]);
         assert.equal(await arrearsCard.evaluate(node => node.scrollWidth > node.clientWidth + 1), false);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1), false);
