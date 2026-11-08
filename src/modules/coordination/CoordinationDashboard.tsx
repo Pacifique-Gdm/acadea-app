@@ -237,7 +237,9 @@ export function CoordinationDashboard({
     {!loading && !loadError && stats.excludedSchoolIds.length > 0 && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{formatCount(stats.excludedSchoolIds.length)} école(s) non alignée(s) sur l’année de référence sont exclues des statistiques.</p>}
 
     <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">{cards.map((card) => { const Icon = card.icon; return <article key={card.label} className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm"><div className={`mb-4 flex h-10 w-10 items-center justify-center rounded ${card.tone}`}><Icon className="h-5 w-5" /></div><p className="text-sm text-slate-500">{card.label}</p><p className="mt-1 break-words text-2xl font-bold text-ink">{typeof card.value === "number" ? formatCount(card.value) : card.value}</p></article>; })}</div>
-    {arrearsCollections.length > 0 && <div className="rounded border border-amber-200 bg-amber-50 p-4 text-sm"><p className="font-bold">Arriérés encaissés, hors recouvrement de l'année courante</p>{arrearsCollections.map((group) => <p key={group.currency}>{formatCurrency(group.amount, group.currency)}</p>)}</div>}
+    {loading ? <p role="status" className="rounded border border-amber-200 bg-amber-50 p-4 text-sm">Actualisation des arriérés encaissés…</p>
+      : loadError ? <p role="alert" className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-700">Arriérés encaissés non confirmés : {loadError}</p>
+      : arrearsCollections.length > 0 && <div data-testid="collected-arrears-band" className="rounded border border-amber-200 bg-amber-50 p-4 text-sm"><p className="font-bold">Arriérés encaissés, hors recouvrement de l'année courante</p>{arrearsCollections.map((group) => <p key={group.currency}>{formatCurrency(group.amount, group.currency)}</p>)}</div>}
 
     {financialVerificationReady && !hasUnknownFinancialCurrency && stats.financialGroups.map((financial) => {
       const recoveryTone = financial.recoveryRate >= 80 ? "text-mint bg-mint/10" : financial.recoveryRate >= 50 ? "text-amber-700 bg-amber-100" : "text-red-700 bg-red-50";

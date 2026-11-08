@@ -8,6 +8,20 @@ import { mapCoordinationSchoolBatches } from "./coordinationSchoolBatches";
 
 export const COORDINATION_STUDENT_PAGE_SIZE = 50;
 export const COORDINATION_ACTIVE_YEAR = "active";
+/** A coordination year is a period shared by schools, not one school's document ID. */
+export function coordinationYearPeriod(year: SchoolYear) {
+  const name = (year.name ?? "").normalize("NFKC").trim().replace(/\s+/g, " ");
+  const standard = name.match(/^(\d{4})\s*[-\u2010-\u2015/]\s*(\d{4})$/);
+  const label = standard ? `${standard[1]}-${standard[2]}` : name;
+  if (label) return { value: `period:${label.toLocaleLowerCase("fr")}`, label };
+  if (year.startsAt && year.endsAt) return { value: `dates:${year.startsAt}:${year.endsAt}`, label: `${year.startsAt} – ${year.endsAt}` };
+  return { value: `document:${year.schoolId}:${year.id}`, label: year.id };
+}
+
+export function coordinationYearMatches(year: SchoolYear, selectedYearId: string, activeYearId?: string) {
+  if (selectedYearId === COORDINATION_ACTIVE_YEAR) return year.id === activeYearId;
+  return !selectedYearId || selectedYearId === year.id || selectedYearId === coordinationYearPeriod(year).value;
+}
 export function coordinationSourceFetchSize(sourceCount: number) {
   return Math.min(16, Math.max(8, Math.ceil(COORDINATION_STUDENT_PAGE_SIZE / Math.max(1, sourceCount))));
 }
@@ -42,7 +56,7 @@ export function coordinationStudentSources(filters: CoordinationStudentFilters) 
     .filter((year) => allowedSchools.has(year.schoolId)
       && (!filters.selectedSchoolId || year.schoolId === filters.selectedSchoolId)
       && (!filters.filterSchoolId || year.schoolId === filters.filterSchoolId)
-      && (filters.selectedYearId === COORDINATION_ACTIVE_YEAR ? year.id === allowedSchools.get(year.schoolId)?.activeSchoolYearId : !filters.selectedYearId || year.id === filters.selectedYearId))
+      && coordinationYearMatches(year, filters.selectedYearId, allowedSchools.get(year.schoolId)?.activeSchoolYearId))
     .flatMap((year): CoordinationStudentSource[] => {
       const source = { schoolId: year.schoolId, schoolYearId: year.id };
       if (!filters.className) return [source];
@@ -61,7 +75,13 @@ export function coordinationStudentSources(filters: CoordinationStudentFilters) 
 export function coordinationYearChoices(years: readonly SchoolYear[], schools: readonly School[]) {
   const allowed = new Set(schools.map((school) => school.id));
   const active = new Set(schools.map((school) => school.activeSchoolYearId).filter(Boolean));
-  return years.filter((year) => allowed.has(year.schoolId)).sort((a, b) => Number(active.has(b.id)) - Number(active.has(a.id)) || b.startsAt.localeCompare(a.startsAt) || b.name.localeCompare(a.name, "fr") || a.schoolId.localeCompare(b.schoolId) || a.id.localeCompare(b.id));
+  const choices = new Map<string, ReturnType<typeof coordinationYearPeriod>>();
+  for (const year of years.filter((item) => allowed.has(item.schoolId))
+    .sort((a, b) => Number(active.has(b.id)) - Number(active.has(a.id)) || (b.startsAt ?? "").localeCompare(a.startsAt ?? "") || (b.name ?? "").localeCompare(a.name ?? "", "fr") || a.schoolId.localeCompare(b.schoolId) || a.id.localeCompare(b.id))) {
+    const choice = coordinationYearPeriod(year);
+    if (!choices.has(choice.value)) choices.set(choice.value, choice);
+  }
+  return [...choices.values()];
 }
 
 export function coordinationStudentConstraints(filters: CoordinationStudentFilters, source: CoordinationStudentSource): QueryConstraint[] {

@@ -51,7 +51,26 @@ describe("pagination serveur Coordination / Sous-coordination", () => {
     expect(coordinationStudentSources(active)).toEqual([{ schoolId: "school-b", schoolYearId: "year-b" }, { schoolId: "school-a", schoolYearId: "year-a" }]);
     expect(coordinationStudentSources({ ...active, selectedYearId: "old-a" })).toEqual([{ schoolId: "school-a", schoolYearId: "old-a" }]);
     expect(coordinationStudentSources({ ...active, selectedSchoolId: "school-b", selectedYearId: "old-a" })).toEqual([]);
-    expect(coordinationYearChoices([...nextYears, { ...year("future-a", "school-a"), startsAt: "2027-09-01" }], active.schools).map((item) => item.id)).toEqual(["year-b", "year-a", "future-a", "old-a"]);
+    expect(coordinationYearChoices([...nextYears, { ...year("future-a", "school-a"), startsAt: "2027-09-01" }], active.schools).map((item) => item.label)).toEqual(["year-b", "year-a", "future-a", "2024-2025"]);
+  });
+
+  it("regroupe la même année de trois écoles sans perdre aucune source de données", () => {
+    const threeSchools = [school("school-a", "active"), school("school-b", "active"), school("school-c", "active")];
+    const threeYears = [year("year-school-a", "school-a"), year("year-school-b", "school-b"), year("year-school-c", "school-c")]
+      .map((item, index) => ({ ...item, name: ["2025-2026", "2025 / 2026", "2025–2026"][index], startsAt: "2025-09-01" }));
+    const choices = coordinationYearChoices(threeYears, threeSchools);
+    expect(choices).toEqual([{ value: "period:2025-2026", label: "2025-2026" }]);
+    const selected = { ...filters, schools: threeSchools, years: threeYears, selectedYearId: choices[0].value };
+    expect(coordinationStudentSources(selected)).toEqual(threeYears.map((item) => ({ schoolId: item.schoolId, schoolYearId: item.id })));
+    expect(coordinationStudentSources({ ...selected, selectedSchoolId: "school-b" })).toEqual([{ schoolId: "school-b", schoolYearId: "year-school-b" }]);
+    expect(coordinationYearChoices(threeYears, threeSchools.slice(0, 1))).toEqual(choices);
+  });
+
+  it("ne fusionne pas des années différentes ni des libellés non standard distincts", () => {
+    const a = { ...year("a", "school-a"), name: "2025-2026" };
+    const b = { ...year("b", "school-b"), name: "2026-2027" };
+    const special = { ...year("special", "school-b"), name: "2025-2026 Primaire" };
+    expect(coordinationYearChoices([a, b, special], schools.slice(0, 2))).toHaveLength(3);
   });
 
   it("applique le périmètre et les filtres côté requête, sans chargement global", () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { School, SchoolClassRecord, SchoolYear } from "../../types";
 import { coordinationFilterChoices } from "./coordinationFilterChoices";
-import { COORDINATION_ACTIVE_YEAR } from "../../services/coordinationStudentPagination";
+import { COORDINATION_ACTIVE_YEAR, coordinationYearChoices } from "../../services/coordinationStudentPagination";
 
 const school = (id: string, year: string, options: string[]) => ({ id, name: id, status: "active", schoolType: "Secondaire", educationLevels: ["Secondaire"], schoolOptions: options, activeSchoolYearId: year }) as School;
 const year = (id: string, schoolId: string) => ({ id, schoolId, name: id, status: "active" }) as SchoolYear;
@@ -17,6 +17,14 @@ const records = [
 ];
 
 describe("filtres Coordination en cascade", () => {
+  it("conserve les classes des deux écoles quand une année logique commune est choisie", () => {
+    const matchingYears = [{ ...years[1], name: "2025-2026" }, { ...years[2], name: "2025 / 2026" }];
+    const selected = coordinationYearChoices(matchingYears, schools)[0].value;
+    const choices = coordinationFilterChoices(schools, matchingYears, records, "", selected, ["Secondaire"], "");
+    expect(choices.classes.some((item) => item.schoolId === "school-a")).toBe(true);
+    expect(choices.classes.some((item) => item.schoolId === "school-b")).toBe(true);
+    expect(choices.options).toEqual(["Littéraire", "Sciences"]);
+  });
   it("borne classes et options à chaque école et à son année active propre", () => {
     const all = coordinationFilterChoices(schools, years, records, "", COORDINATION_ACTIVE_YEAR, ["Secondaire"], "");
     expect(all.classes.map((item) => item.value)).toContain("school-a::1ère Humanité");

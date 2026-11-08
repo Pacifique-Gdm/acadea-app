@@ -3,7 +3,7 @@ import { getSchoolClassChoices, getSchoolSections } from "../../utils/schoolConf
 import { getClassSection } from "../../utils/studentClasses";
 import { canonicalSchoolOption, normalizeSchoolOptions } from "../../utils/schoolOptions";
 import { canonicalAnnualClassName, canonicalClassNameFromRecordId, operationalBaseClassId, operationalClassOptionKey } from "../../utils/studentYearTransition.js";
-import { COORDINATION_ACTIVE_YEAR } from "../../services/coordinationStudentPagination";
+import { coordinationYearMatches } from "../../services/coordinationStudentPagination";
 
 export type CoordinationClassChoice = { value: string; label: string; schoolId: string; name: string; branchesBySource: Record<string, Array<{ name: string; option?: string; operational: boolean }>> };
 
@@ -29,7 +29,7 @@ export function coordinationFilterChoices(
 ) {
   const visibleSchools = schools.filter((school) => school.status === "active" && (!selectedSchoolId || school.id === selectedSchoolId));
   const sources = years.filter((year) => visibleSchools.some((school) => school.id === year.schoolId
-    && (selectedYearId === COORDINATION_ACTIVE_YEAR ? school.activeSchoolYearId === year.id : !selectedYearId || selectedYearId === year.id)));
+    && coordinationYearMatches(year, selectedYearId, school.activeSchoolYearId)));
   const names = new Map<string, CoordinationClassChoice>();
   for (const year of sources) {
     const school = visibleSchools.find((item) => item.id === year.schoolId)!;

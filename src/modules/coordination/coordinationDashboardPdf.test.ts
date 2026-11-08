@@ -96,5 +96,6 @@ describe("PDF Dashboard Coordination", () => {
     });
     expect(vi.mocked(renderAcadPdfPreview).mock.calls[0][0].sections.join(" ")).toContain("Aucune devise financière applicable.");
     expect(vi.mocked(pdfInfoGrid).mock.calls.some(([rows]) => rows.some((row) => row.label.startsWith("Dettes historiques")))).toBe(false);
+    expect(vi.mocked(pdfInfoGrid).mock.calls.some(([rows]) => rows.some((row) => row.label === "Arriérés encaissés (hors recouvrement)"))).toBe(false);
   });
 });

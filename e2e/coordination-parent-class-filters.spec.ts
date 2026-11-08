@@ -74,7 +74,7 @@ test("Coordination et Sous-coordination : parents distincts, options et paginati
   const contexts = [];
   try {
     await fixture.seed();
-    const { schools, years } = await seedParentClasses(fixture);
+    const { schools } = await seedParentClasses(fixture);
     for (const role of ["coordination_admin", "sub_coordination_admin"]) {
       const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
       contexts.push(context);
@@ -88,6 +88,9 @@ test("Coordination et Sous-coordination : parents distincts, options et paginati
         const option = page.getByLabel("Option", { exact: true });
         await school.selectOption("");
         await expect(parent).toBeEnabled({ timeout: 60_000 });
+        await expect.poll(async () => (await year.locator("option").allTextContents()).filter((name) => name === "2027-2028").length, { timeout: 60_000 }).toBe(1);
+        await expect.poll(async () => (await year.locator("option").allTextContents()).filter((name) => name === "2026-2027").length).toBe(1);
+        await year.screenshot({ path: test.info().outputPath(`${role}-${tab}-school-years.png`) });
         await expect.poll(async () => parent.locator("option").allTextContents(), { timeout: 60_000 }).toEqual(expect.arrayContaining([
           "1ère Primaire — École E2E Finance Coordination", "7ème CTEB — École E2E CTEB",
           "2ème Humanité — École E2E Humanité 2", "1ère Humanité — École E2E Humanité 1",
@@ -96,6 +99,7 @@ test("Coordination et Sous-coordination : parents distincts, options et paginati
         ]));
         const labels = await parent.locator("option").allTextContents();
         expect(labels.join(" ")).not.toMatch(/1ère Sciences|1ère Littéraire|1ère Scientifique|2ème Sciences|2ème Littéraire/);
+        await year.selectOption("period:2027-2028");
         await school.selectOption(schools.d);
         await expect.poll(async () => (await parent.locator("option").allTextContents()).join(" "), { timeout: 60_000 }).toContain("1ère Humanité");
         await parent.selectOption(`${schools.d}::1ère Humanité`);
@@ -144,7 +148,7 @@ test("Coordination et Sous-coordination : parents distincts, options et paginati
         await expect.poll(async () => (await option.locator("option").allTextContents()).join(" ")).toContain("Commerciale");
         await option.selectOption("Commerciale");
         await school.selectOption(schools.d);
-        await year.selectOption(years.oldD);
+        await year.selectOption("period:2026-2027");
         await expect(parent).toHaveValue("");
         await expect(option).toHaveValue("");
         await expect.poll(async () => (await parent.locator("option").allTextContents()).join(" ")).toContain("3ème Humanité");
