@@ -228,7 +228,7 @@ try {
   await checked('4 — Super Administrateur : Retirer et confirmation non exécutée', async () => {
     await withRole('platform', async page => {
       await page.getByRole('button', { name: 'Coordinations', exact: true }).last().click();
-      await page.getByRole('button', { name: /Coordination fictive PR48/ }).click();
+      await page.getByRole('button', { name: /^Coordination fictive PR48(?:\s|$)/ }).click();
       const management = page.getByRole('region', { name: 'Gestion de la Coordination' });
       const remove = management.getByRole('button', { name: /Retirer École fictive PR48 A de la coordination/ });
       await expect(remove).toBeVisible();
@@ -257,6 +257,12 @@ try {
       await editor.getByRole('checkbox').first().check();
       await editor.getByLabel('Montant ($)').fill('15');
       await editor.getByRole('button', { name: 'Enregistrer', exact: true }).click();
+      const confirmation = page.getByRole('dialog', { name: 'Ajouter le type de frais' });
+      await expect(confirmation).toBeVisible();
+      await expect(confirmation.getByRole('button', { name: "Confirmer l'ajout" })).toBeDisabled();
+      await confirmation.getByRole('textbox', { name: 'Phrase de confirmation' }).fill('AJOUTER CE FRAIS');
+      await confirmation.getByRole('button', { name: "Confirmer l'ajout" }).click();
+      await expect(confirmation).toBeHidden();
       await eventually(async () => (await s.db.collection('feeTypes').where('schoolId', '==', m.schools[2]).get()).size, 1, 'Frais créé une seule fois');
       await page.reload();
       await page.getByRole('button', { name: 'Menu', exact: true }).last().click();

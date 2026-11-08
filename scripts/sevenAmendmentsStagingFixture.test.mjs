@@ -61,3 +61,11 @@ test('les PDF rasterisés sont clôturés via leur tâche de chargement', () => 
   assert.match(recipe, /await loadingTask\.destroy\(\)/);
   assert.doesNotMatch(recipe, /pdf\.destroy\(/);
 });
+
+test('la recette cible la bonne coordination et confirme explicitement le nouveau frais', () => {
+  const recipe = readFileSync('scripts/sevenAmendmentsStagingRecipe.mjs', 'utf8');
+  assert.match(recipe, /name: \/\^Coordination fictive PR48/);
+  assert.match(recipe, /getByRole\('dialog', \{ name: 'Ajouter le type de frais' \}\)/);
+  assert.match(recipe, /getByRole\('textbox', \{ name: 'Phrase de confirmation' \}\)\.fill\('AJOUTER CE FRAIS'\)/);
+  assert.match(recipe, /getByRole\('button', \{ name: "Confirmer l'ajout" \}\)\.click\(\)/);
+});
