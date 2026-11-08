@@ -134,3 +134,49 @@ test("conserve les références chiffrées et n'abandonne qu'un conflit confirm�
   });
   expect(restored).toMatchObject({ secretMarker: "reference-privee" });
 });
+
+test("une ancienne ligne illisible reste intacte sans bloquer les autres opérations", async ({ page }) => {
+  await page.goto(origin);
+  await page.addScriptTag({ content: bundle });
+  const result = await page.evaluate(async () => {
+    const queue = (window as unknown as { OfflineQueue: typeof import("../src/services/offlineQueue") }).OfflineQueue;
+    const scope = { userId: "teacher-old", schoolId: "school-old", schoolYearId: "year-old" };
+    const readable = await queue.queueOfflineOperation(scope, "grade", { studentId: "student-good", score: 12 });
+    const unreadable = await queue.queueOfflineOperation(scope, "grade", { studentId: "student-legacy", score: 13 });
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("acadea-offline-operations-v1");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const write = database.transaction("operations", "readwrite");
+    const store = write.objectStore("operations");
+    const row = await new Promise<Record<string, unknown>>((resolve, reject) => {
+      const request = store.get(unreadable.id);
+      request.onsuccess = () => resolve(request.result as Record<string, unknown>);
+      request.onerror = () => reject(request.error);
+    });
+    store.put({ ...row, ciphertext: new Uint8Array([1, 2, 3]).buffer });
+    await new Promise<void>((resolve, reject) => {
+      write.oncomplete = () => resolve();
+      write.onerror = () => reject(write.error);
+      write.onabort = () => reject(write.error);
+    });
+    database.close();
+    const inspected = await queue.inspectOfflineOperations(scope);
+    const reopened = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("acadea-offline-operations-v1");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const stillStored = await new Promise<unknown>((resolve, reject) => {
+      const request = reopened.transaction("operations", "readonly").objectStore("operations").get(unreadable.id);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    reopened.close();
+    return { inspected, readableId: readable.id, stillStored: Boolean(stillStored) };
+  });
+  expect(result.inspected.operations.map((item) => item.id)).toEqual([result.readableId]);
+  expect(result.inspected.unreadableCount).toBe(1);
+  expect(result.stillStored).toBe(true);
+});
