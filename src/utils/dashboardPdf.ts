@@ -26,7 +26,7 @@ export function dashboardPdfFeeShareChart(rows: DashboardFeeShare[], currency: S
 export function dashboardPdfTransactionChart(rows: DashboardPdfChartRow[], currency: SchoolCurrency, periodLabel: string) {
   if (!rows.length) return "<p>Aucune donnée pour cette période.</p>";
   const maximum = Math.max(1, ...rows.flatMap((row) => [row.payments, row.expenses]));
-  return `<p>Période : ${escapePdfHtml(periodLabel)}. Encaissements en vert ; dépenses en rouge.</p>
+  return `<p style="margin:0 0 8px;line-height:1.4">Période : ${escapePdfHtml(periodLabel)}. Encaissements en vert ; dépenses en rouge.</p>
     <div aria-label="Graphique des transactions">${rows.map((row) => `<div class="info-box" style="margin-bottom:5px;min-height:0;display:block">
       <strong style="font-size:9px">${escapePdfHtml(row.label || row.date)}</strong>
       ${([
