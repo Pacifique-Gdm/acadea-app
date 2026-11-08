@@ -5,10 +5,11 @@ import { toMoneyMinor } from "../../utils/money";
 import { cashInflowCategoryLabel } from "../../utils/cashInflowCategory";
 import type { CashInflow, SchoolYear } from "../../types";
 
-const categories: CashInflow["category"][] = ["Subvention", "Don", "Frais de fonctionnement", "Autres"];
+const categories: CashInflow["category"][] = ["Subvention", "Don", "Autres"];
 
 export function OtherCashInflowForm({ year, onRecorded }: { year: SchoolYear; onRecorded: (inflow: CashInflow) => void }) {
   const [category, setCategory] = useState<CashInflow["category"]>("Subvention");
+  const [categoryDetail, setCategoryDetail] = useState("");
   const [amount, setAmount] = useState("");
   const [entryDate, setEntryDate] = useState(new Date().toISOString().slice(0, 10));
   const [source, setSource] = useState("");
@@ -30,7 +31,8 @@ export function OtherCashInflowForm({ year, onRecorded }: { year: SchoolYear; on
       if (!entryDate || !source.trim() || !paymentMethod.trim() || description.trim().length < 10 || description.length > 1000) {
         throw new Error("Renseignez la date, la provenance, le mode et une description d'au moins 10 caractères.");
       }
-      const payload = { schoolYearId: year.id, category, amount: numericAmount, entryDate,
+      if (category === "Autres" && categoryDetail.trim().length < 3) throw new Error("Précisez la nature de l'entrée (au moins 3 caractères).");
+      const payload = { schoolYearId: year.id, category, ...(category === "Autres" ? { categoryDetail: categoryDetail.trim() } : {}), amount: numericAmount, entryDate,
         source: source.trim(), paymentMethod: paymentMethod.trim(), description: description.trim(), reference: reference.trim() };
       const signature = JSON.stringify(payload);
       const requestId = attempt.current?.signature === signature ? attempt.current.id : crypto.randomUUID();
@@ -40,7 +42,7 @@ export function OtherCashInflowForm({ year, onRecorded }: { year: SchoolYear; on
       const inflow = await createCashInflowTransaction({ ...payload, ...(payload.reference ? { reference: payload.reference } : {}), clientRequestId: requestId });
       attempt.current = null;
       onRecorded(inflow);
-      setAmount(""); setSource(""); setPaymentMethod(""); setDescription(""); setReference("");
+      setAmount(""); setSource(""); setPaymentMethod(""); setDescription(""); setReference(""); setCategoryDetail("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Enregistrement impossible. Réessayez après vérification de la connexion.");
     } finally {
@@ -52,10 +54,13 @@ export function OtherCashInflowForm({ year, onRecorded }: { year: SchoolYear; on
   return <form onSubmit={(event) => void submit(event)} className="grid min-w-0 gap-3" aria-label="Autres entrées de caisse">
     <p className="text-sm text-slate-600">Cette recette n'est confirmée qu'après validation par le serveur Acadéa.</p>
     <label className="grid gap-1 text-sm font-semibold">Nature de l'entrée
-      <select aria-label="Nature de l'entrée" className="input w-full" value={category} onChange={(event) => setCategory(event.target.value as CashInflow["category"])} disabled={saving}>
+      <select aria-label="Nature de l'entrée" className="input w-full" value={category} onChange={(event) => { setCategory(event.target.value as CashInflow["category"]); setCategoryDetail(""); }} disabled={saving}>
         {categories.map((value) => <option key={value} value={value}>{cashInflowCategoryLabel(value)}</option>)}
       </select>
     </label>
+    {category === "Autres" && <label className="grid gap-1 text-sm font-semibold">Précisez la nature de l'entrée
+      <input aria-label="Précisez la nature de l'entrée" className="input w-full" minLength={3} maxLength={200} value={categoryDetail} onChange={(event) => setCategoryDetail(event.target.value)} disabled={saving} required />
+    </label>}
     <label className="grid gap-1 text-sm font-semibold">Montant
       <MoneyInput value={amount} onChange={setAmount} disabled={saving} className="input w-full" />
     </label>

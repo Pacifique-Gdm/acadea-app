@@ -240,6 +240,7 @@ describe("caisse annuelle — contrôle serveur", () => {
     db.values.set("schools/school-a", { status: "active", currency: "CDF", activeSchoolYearId: "year-a" });
     db.values.set("schoolYears/year-a", { schoolId: "school-a", status: "active", currency: "CDF", startsAt: "2026-09-01", endsAt: "2027-07-31" });
     const payload = { action: "create-cash-inflow", schoolYearId: "year-a", amount: 250.25, category,
+      ...(category === "Autres" ? { categoryDetail: "Recette événementielle" } : {}),
       source: "Organisme fictif", paymentMethod: "Espèces", entryDate: "2026-10-13",
       description: "Recette de test détaillée", clientRequestId: `cash-inflow-${category.replaceAll(" ", "-")}-0001` };
     const first = await executeFinancialOperation({ db, caller, body: payload, now: "2026-10-13T10:00:00.000Z" });

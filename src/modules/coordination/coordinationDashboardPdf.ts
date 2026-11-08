@@ -18,6 +18,7 @@ export async function exportCoordinationDashboardPdf({
   stats,
   arrearsCollections = [],
   historicalArrears,
+  arrearsCurrencies,
   sectionLabel,
   dateLabel,
   transactions,
@@ -31,6 +32,7 @@ export async function exportCoordinationDashboardPdf({
   stats: CoordinationDashboardStats;
   arrearsCollections?: { currency: DashboardCurrency; amount: number }[];
   historicalArrears: { USD: number; CDF: number };
+  arrearsCurrencies: readonly DashboardCurrency[];
   sectionLabel: string;
   dateLabel: string;
   transactions: DashboardPdfTransaction[];
@@ -60,9 +62,9 @@ export async function exportCoordinationDashboardPdf({
         { label: "Caissiers", value: stats.cashiers },
         { label: "Directeurs de Discipline", value: stats.disciplineDirectors },
       ], { columns: 3 })),
-      pdfSection("Arriérés des années antérieures", pdfInfoGrid((["USD", "CDF"] as const).map((currency) => ({
+      pdfSection("Arriérés des années antérieures", arrearsCurrencies.length ? pdfInfoGrid(arrearsCurrencies.map((currency) => ({
         label: `Dettes historiques (${currency})`, value: amount(historicalArrears[currency], currency),
-      })))),
+      }))) : "<p>Aucune devise financière applicable.</p>"),
       ...stats.financialGroups.flatMap((group) => [
         pdfSection(`Synthèse financière — ${group.currency}`, pdfInfoGrid([
           { label: "Recouvrement", value: `${group.recoveryRate}%` },

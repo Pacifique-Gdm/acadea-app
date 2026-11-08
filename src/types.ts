@@ -414,6 +414,8 @@ export interface CashInflow {
   schoolId: string;
   schoolYearId: string;
   category: "Subvention" | "Don" | "Frais de fonctionnement" | "Autres";
+  /** Précision obligatoire pour les nouvelles entrées « Autres » ; absente des archives. */
+  categoryDetail?: string;
   amount: number;
   currency: "USD" | "CDF";
   entryDate: string;
@@ -671,5 +673,3 @@ export interface AppData {
 }
 
 export { CLASSES } from "./utils/studentYearTransition.js";
-
-export const FEE_KINDS: FeeKind[] = ["Minerval", "Fourniture"];

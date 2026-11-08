@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Expense, Payment } from "../types";
+import type { CashInflow, Expense, Payment } from "../types";
 import { controlHistoryCurrency, defaultControlHistoryDate, matchesControlHistory } from "./coordinationControlHistory";
 describe("Historique Contrôle — filtres export et écran", () => {
   it("préremplit les deux bornes avec le jour local métier", () => {
@@ -9,8 +9,8 @@ describe("Historique Contrôle — filtres export et écran", () => {
       expect(defaultControlHistoryDate()).toBe(new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10));
     } finally { vi.useRealTimers(); }
   });
-  it.each(["paidAt", "spentAt"])("filtre école et bornes inclusives sur %s", (field) => {
-    const operation = (schoolId: string, date: string) => ({ schoolId, [field]: date } as unknown as Payment | Expense);
+  it.each(["paidAt", "spentAt", "entryDate"])("filtre école et bornes inclusives sur %s", (field) => {
+    const operation = (schoolId: string, date: string) => ({ schoolId, [field]: date } as unknown as Payment | Expense | CashInflow);
     const filters = { schoolId: "b", startDate: "2026-10-01", endDate: "2026-10-03" };
     expect(matchesControlHistory(operation("b", "2026-10-03T23:59:59Z"), filters)).toBe(true);
     expect(matchesControlHistory(operation("b", "2026-10-01"), filters)).toBe(true);
@@ -21,5 +21,6 @@ describe("Historique Contrôle — filtres export et écran", () => {
   it("n'attribue pas la devise courante à une opération historique sans devise", () => {
     expect(controlHistoryCurrency({ schoolId: "b", schoolYearId: "old" } as Payment)).toBeNull();
     expect(controlHistoryCurrency({ schoolId: "b", schoolYearId: "old", currency: "USD" } as Payment)).toBe("USD");
+    expect(controlHistoryCurrency({ schoolId: "b", schoolYearId: "old", currency: "CDF" } as CashInflow)).toBe("CDF");
   });
 });

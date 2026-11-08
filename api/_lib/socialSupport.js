@@ -136,6 +136,8 @@ export async function manageSocialSupport({ db, caller, body }) {
       old = oldSnapshot.exists ? oldSnapshot.data() : null;
     if (old && old.schoolId !== schoolId) fail("Décision inaccessible.", 403);
     if (body.decisionId && !old) fail("Décision introuvable.");
+    if (old && body.action === "save-social-support" && body.studentId != null && id(body.studentId) !== old.studentId)
+      fail("Le bénéficiaire d'une décision sociale ne peut pas être modifié.", 409);
     if (old && body.action === "save-social-support" && body.confirmation !== "JE CONFIRME LA MODIFICATION")
       fail("Saisissez exactement JE CONFIRME LA MODIFICATION pour modifier cette décision.");
     if (

@@ -27,7 +27,6 @@ import { formatStudentClassName } from "../../utils/studentClasses";
 import { defaultFeeAmount, formatCurrencyMoney, resolveSchoolYearCurrency, schoolCurrencySymbol } from "../../utils/currency";
 import { toMoneyMinor } from "../../utils/money";
 import type { AppData, AppUser, FeeKind, FeeType, ParentProfile, School, SchoolSection, SchoolYear, Student, ValvePublication } from "../../types";
-import { FEE_KINDS } from "../../types";
 import { groupFeeTypes } from "./feeTypeGroups";
 import { SecretaryMedicalRecordsDrawer } from "../secretary/SecretaryMedicalTools";
 import { PersonnelDrawerContent } from "./PersonnelDrawerContent";
@@ -126,7 +125,7 @@ export function MenuModule({
   const [cashierError, setCashierError] = useState("");
   const [cashierSuccess, setCashierSuccess] = useState("");
   const [showCashierPassword, setShowCashierPassword] = useState(false);
-  const [feeName, setFeeName] = useState<FeeKind>("Minerval");
+  const [feeName, setFeeName] = useState<FeeKind>("");
   const [feeClassNames, setFeeClassNames] = useState<string[]>([]);
   const [feeAmountDraft, setFeeAmount] = useState<string | null>(null);
   const [editingFeeId, setEditingFeeId] = useState("");
@@ -199,7 +198,7 @@ export function MenuModule({
     { id: "history", title: "Historique", description: "Activités et messages enregistrés pour ce compte.", icon: Clock3 },
   ] satisfies { id: MenuSection; title: string; description: string; icon: typeof Settings }[];
   const persistedCustomFeeKindChoices = selectedYear.customFeeKindChoices ?? [];
-  const feeKindChoices = Array.from(new Set([...FEE_KINDS, ...yearData.feeTypes.map((fee) => fee.name), ...persistedCustomFeeKindChoices, ...customFeeKindChoices]));
+  const feeKindChoices = Array.from(new Set([...yearData.feeTypes.map((fee) => fee.name), ...persistedCustomFeeKindChoices, ...customFeeKindChoices]));
   const feeCurrency = resolveSchoolYearCurrency(selectedYear, school);
   const feeAmount = feeAmountDraft ?? defaultFeeAmount(feeCurrency);
   const feeCurrencySymbol = schoolCurrencySymbol({ currency: feeCurrency });
@@ -611,7 +610,7 @@ export function MenuModule({
       feeSaveRequestRef.current = null;
       setFeePendingConfirmation(false);
       setEditingFeeId("");
-      setFeeName("Minerval");
+      setFeeName("");
       setFeeClassNames([]);
       setFeeAmount(null);
       setFeeAddPending(false);
@@ -672,7 +671,7 @@ export function MenuModule({
   function cancelFeeEdit() {
     if (feeSubmittingRef.current || newFeeSavingRef.current || newFeeRequestRef.current) return;
     setEditingFeeId("");
-    setFeeName("Minerval");
+    setFeeName("");
     setFeeClassNames([]);
     setFeeAmount(null);
     setFeeSaveError("");
@@ -716,7 +715,7 @@ export function MenuModule({
     const trimmed = newFeeName.trim();
     if (!trimmed) return;
     const normalized = trimmed.toLowerCase();
-    const feeKindExists = [...FEE_KINDS, ...yearData.feeTypes.map((fee) => fee.name), ...persistedCustomFeeKindChoices, ...customFeeKindChoices]
+    const feeKindExists = [...yearData.feeTypes.map((fee) => fee.name), ...persistedCustomFeeKindChoices, ...customFeeKindChoices]
       .some((kind) => kind.trim().toLowerCase() === normalized);
     if (feeKindExists && !newFeeRequestRef.current) {
       setNewFeeError("Ce type de frais existe déjà.");
@@ -1166,6 +1165,7 @@ export function MenuModule({
               }}
               className="input"
             >
+              <option value="">Sélectionnez un frais</option>
               {feeKindChoices.map((kind) => (
                 <option key={kind} value={kind}>{kind}</option>
               ))}
@@ -1221,6 +1221,9 @@ export function MenuModule({
             </div>
           )}
           <div className="min-w-0 space-y-4" data-testid="fee-groups">
+            {feeGroups.groups.length === 0 && feeGroups.legacy.length === 0 && (
+              <p className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">Aucun type de frais n'a encore été ajouté pour cet établissement.</p>
+            )}
             {feeGroups.groups.map((group) => <section key={group.section} className="min-w-0 space-y-3">
               <h3 className="font-bold text-ink">{schoolSectionLabels[group.section]}</h3>
               {group.classes.map((parent) => <section key={parent.name} className="min-w-0 space-y-2">

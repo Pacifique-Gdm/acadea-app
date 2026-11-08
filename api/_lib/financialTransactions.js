@@ -8,11 +8,13 @@ import { fromMoneyMinor, sumMoneyMinor, toMoneyMinor } from "./money.js";
 const PAYMENT_CREATE_KEYS = ["action", "schoolYearId", "studentId", "feeTypeId", "debtSchoolYearId", "amount", "note", "clientRequestId", "expectedCurrency", "expectedFeeAmount", "supportDecisionId"];
 const ARREARS_READ_KEYS = ["action", "schoolYearId", "studentId"];
 const EXPENSE_CREATE_KEYS = ["action", "schoolYearId", "amount", "category", "description", "beneficiary", "paymentMethod", "reference", "clientRequestId"];
-const CASH_INFLOW_CREATE_KEYS = ["action", "schoolYearId", "amount", "category", "description", "source", "paymentMethod", "reference", "entryDate", "clientRequestId"];
+const CASH_INFLOW_CREATE_KEYS = ["action", "schoolYearId", "amount", "category", "categoryDetail", "description", "source", "paymentMethod", "reference", "entryDate", "clientRequestId"];
 const PAYMENT_UPDATE_KEYS = ["action", "transactionId", "amount", "reason", "confirmation", "expectedUpdatedAt", "clientRequestId"];
 const EXPENSE_UPDATE_KEYS = ["action", "transactionId", "amount", "category", "description", "reason", "clientRequestId"];
 const DELETE_KEYS = ["action", "transactionId", "reason", "clientRequestId"];
 const EXPENSE_CATEGORIES = new Set(["Fournitures", "Transport", "Salaire", "Maintenance", "Autre", "Autres"]);
+// Keep accepting the historical category from older deployed clients and records;
+// only the new cashier form hides it from the creation choices.
 const CASH_INFLOW_CATEGORIES = new Set(["Subvention", "Don", "Frais de fonctionnement", "Autres"]);
 
 export class FinancialApiError extends Error {
@@ -486,6 +488,7 @@ async function createCashInflow(transaction, db, caller, body, hash, now) {
     throw new FinancialApiError(409, "failed-precondition", "Seule l'année scolaire active peut recevoir une entrée de caisse.");
   }
   const category = text(body.category, 100);
+  const categoryDetail = text(body.categoryDetail, 200);
   const description = text(body.description, 1000);
   const source = text(body.source, 200);
   const paymentMethod = text(body.paymentMethod, 100);
@@ -496,13 +499,19 @@ async function createCashInflow(transaction, db, caller, body, hash, now) {
   if (!CASH_INFLOW_CATEGORIES.has(category) || description.length < 10 || !source || !paymentMethod || !dateValid) {
     throw new FinancialApiError(400, "invalid-argument", "Nature, provenance, mode, date et description détaillée sont requis.");
   }
+  if (category === "Autres" && categoryDetail.length < 3) {
+    throw new FinancialApiError(400, "invalid-argument", "Précisez la nature de l'entrée (au moins 3 caractères).");
+  }
+  if (category !== "Autres" && body.categoryDetail !== undefined) {
+    throw new FinancialApiError(400, "invalid-argument", "Une précision n'est acceptée que pour la nature Autres.");
+  }
   if (entryDate > now.slice(0, 10) || year.startsAt && entryDate < String(year.startsAt).slice(0, 10)
     || year.endsAt && entryDate > String(year.endsAt).slice(0, 10)) {
     throw new FinancialApiError(400, "invalid-argument", "Date de recette hors de l'année scolaire active ou dans le futur.");
   }
   const inflowId = `cash_inflow_${hash.slice(0, 24)}`;
   const inflow = {
-    id: inflowId, schoolId: caller.schoolId, schoolYearId, category, amount, currency, entryDate,
+    id: inflowId, schoolId: caller.schoolId, schoolYearId, category, ...(category === "Autres" ? { categoryDetail } : {}), amount, currency, entryDate,
     source, paymentMethod, description, ...(reference ? { reference } : {}),
     createdAt: now, validatedAt: now, createdBy: caller.uid, cashierName: actorName,
     provenance: "financial-api", clientRequestIdHash: hash,

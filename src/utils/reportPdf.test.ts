@@ -4,6 +4,7 @@ import { totalsByRecordedCurrency } from "./operationCurrency";
 
 const render = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 vi.mock("./pdf", () => ({
+  escapePdfHtml: (value: string) => value,
   pdfInfoGrid: (rows: Array<{ label: string; value: string | number }>) => rows.map((row) => `${row.label}:${row.value}`).join("|"),
   pdfSection: (title: string, body: string) => `${title}|${body}`,
   pdfTable: (columns: Array<{ render: (item: Record<string, unknown>) => string }>, rows: Array<Record<string, unknown>>) =>

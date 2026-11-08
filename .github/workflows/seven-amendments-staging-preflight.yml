@@ -1,0 +1,41 @@
+name: seven-amendments-staging-preflight
+# Précontrôle non destructif relancé après extension WIF temporaire strictement ciblée.
+on:
+  push:
+    branches: [codex/acadea-seven-ui-finance-amendments-20261106]
+    paths:
+      - .github/workflows/seven-amendments-staging-preflight.yml
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  identity:
+    if: github.repository == 'Pacifique-Gdm/acadea-app' && github.ref == 'refs/heads/codex/acadea-seven-ui-finance-amendments-20261106'
+    runs-on: ubuntu-latest
+    environment: acadea-staging-e2e
+    timeout-minutes: 10
+    steps:
+      - name: Vérifier le projet et les paramètres sans les afficher
+        env:
+          PROJECT_ID: acadea-staging
+          WIF_PROVIDER: ${{ vars.GCP_STAGING_WIF_PROVIDER }}
+          E2E_SERVICE_ACCOUNT: ${{ vars.GCP_STAGING_E2E_SERVICE_ACCOUNT }}
+        run: |
+          test "$PROJECT_ID" = acadea-staging
+          test -n "$WIF_PROVIDER"
+          test -n "$E2E_SERVICE_ACCOUNT"
+          case "$E2E_SERVICE_ACCOUNT" in
+            *@acadea-staging.iam.gserviceaccount.com) ;;
+            *) exit 1 ;;
+          esac
+      - uses: google-github-actions/auth@v3
+        with:
+          project_id: acadea-staging
+          workload_identity_provider: ${{ vars.GCP_STAGING_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_STAGING_E2E_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_lifetime: 600s
+          create_credentials_file: false
+          export_environment_variables: false
+      - name: Identité fédérée Staging acceptée sans création de données
+        run: echo 'Précontrôle WIF Staging réussi ; aucune fixture créée.'

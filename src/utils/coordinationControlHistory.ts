@@ -1,4 +1,4 @@
-import type { Expense, Payment } from "../types";
+import type { CashInflow, Expense, Payment } from "../types";
 import { getTransactionPeriodDates, isInDashboardDateRange } from "./dashboardDates";
 
 export function defaultControlHistoryDate() {
@@ -6,10 +6,10 @@ export function defaultControlHistoryDate() {
 }
 
 export type ControlHistoryFilters = { schoolId: string; startDate: string; endDate: string };
-export function matchesControlHistory(operation: Payment | Expense, filters: ControlHistoryFilters) {
+export function matchesControlHistory(operation: Payment | Expense | CashInflow, filters: ControlHistoryFilters) {
   return (!filters.schoolId || operation.schoolId === filters.schoolId)
-    && isInDashboardDateRange("paidAt" in operation ? operation.paidAt : operation.spentAt, filters.startDate, filters.endDate);
+    && isInDashboardDateRange("paidAt" in operation ? operation.paidAt : "spentAt" in operation ? operation.spentAt : operation.entryDate, filters.startDate, filters.endDate);
 }
-export function controlHistoryCurrency(operation: Payment | Expense) {
+export function controlHistoryCurrency(operation: Payment | Expense | CashInflow) {
   return operation.currency === "CDF" || operation.currency === "USD" ? operation.currency : null;
 }

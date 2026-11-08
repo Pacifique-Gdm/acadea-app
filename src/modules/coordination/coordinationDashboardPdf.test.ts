@@ -30,6 +30,7 @@ describe("PDF Dashboard Coordination", () => {
     await exportCoordinationDashboardPdf({
       coordination, schools: [school], selectedSchoolId: school.id, stats,
       historicalArrears: { USD: 40, CDF: 3000 },
+      arrearsCurrencies: ["USD", "CDF"],
       sectionLabel: "Toutes les sections", dateLabel: "Année scolaire active", transactions: [],
       chartGroups: [{ currency: "USD", rows: [{ date: "2026-10-13", label: "13 oct.", payments: 60, expenses: 10 }] }],
       transactionPeriodLabel: "5 derniers jours", showTransactionCharts: true,
@@ -58,5 +59,28 @@ describe("PDF Dashboard Coordination", () => {
     expect(financialGrids[0]).toContainEqual({ label: "Net exigible", value: "$100,00" });
     expect(financialGrids[0]).toContainEqual({ label: "Réductions et exonérations", value: "$0,00" });
     expect(financialGrids[1]).toContainEqual({ label: "Net exigible", value: "20\u202f000,00 FC" });
+  });
+
+  it("limite les dettes historiques aux devises applicables, y compris le zéro", async () => {
+    await exportCoordinationDashboardPdf({
+      coordination, schools: [school], selectedSchoolId: school.id, stats,
+      historicalArrears: { USD: 0, CDF: 0 }, arrearsCurrencies: ["USD"],
+      sectionLabel: "Toutes les sections", dateLabel: "Année scolaire active", transactions: [], chartGroups: [],
+      transactionPeriodLabel: "5 derniers jours", showTransactionCharts: false,
+    });
+    const historicalGrids = vi.mocked(pdfInfoGrid).mock.calls.map(([rows]) => rows)
+      .filter((rows) => rows.some((row) => row.label.startsWith("Dettes historiques")));
+    expect(historicalGrids).toEqual([[{ label: "Dettes historiques (USD)", value: "$0,00" }]]);
+  });
+
+  it("imprime un état vide sans ajouter deux montants artificiels", async () => {
+    await exportCoordinationDashboardPdf({
+      coordination, schools: [school], selectedSchoolId: school.id, stats,
+      historicalArrears: { USD: 0, CDF: 0 }, arrearsCurrencies: [],
+      sectionLabel: "Toutes les sections", dateLabel: "Année scolaire active", transactions: [], chartGroups: [],
+      transactionPeriodLabel: "5 derniers jours", showTransactionCharts: false,
+    });
+    expect(vi.mocked(renderAcadPdfPreview).mock.calls[0][0].sections.join(" ")).toContain("Aucune devise financière applicable.");
+    expect(vi.mocked(pdfInfoGrid).mock.calls.some(([rows]) => rows.some((row) => row.label.startsWith("Dettes historiques")))).toBe(false);
   });
 });

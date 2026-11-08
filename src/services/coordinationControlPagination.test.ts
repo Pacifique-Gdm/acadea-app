@@ -6,13 +6,24 @@ vi.mock("../firebase", () => ({ db: {} }));
 vi.mock("@firebase/firestore", () => mocks);
 vi.mock("./coordinationStudentPagination", () => ({ COORDINATION_STUDENT_PAGE_SIZE: 50, loadCoordinationStudentPage: mocks.loadPage }));
 vi.mock("./coordinationService", () => ({ loadCoordinationStudentArrearsBatch: mocks.arrears }));
-import { buildCoordinationAmountOptions, controlRowMatches, loadControlPagePayments, loadCoordinationControlPage, type ControlRow } from "./coordinationControlPagination";
+import { buildCoordinationAmountOptions, controlRowMatches, loadControlPagePayments, loadCoordinationControlHistory, loadCoordinationControlPage, type ControlRow } from "./coordinationControlPagination";
 import { arrearsFilterForCriterion } from "../utils/arrearsFilter";
 const filters: CoordinationStudentFilters = { schools: [{ id: "school", currency: "USD" } as School], years: [], selectedSchoolId: "", selectedYearId: "", filterSchoolId: "", search: "", status: "all", className: "", option: "", allowedSections: [] };
 const student = (i: number): Student => ({ id: `s${i}`, schoolId: "school", schoolYearId: "year", className: "2ème Primaire" } as Student);
 const fees: FeeType[] = [{ id: "fee", schoolId: "school", schoolYearId: "year", name: "Minerval", amount: 100 }, { id: "foreign", schoolId: "other", schoolYearId: "year", name: "Hors périmètre", amount: 999 }];
 describe("Contrôle — pagination réelle et finances groupées", () => {
   beforeEach(() => { vi.clearAllMocks(); mocks.getDocs.mockResolvedValue({ docs: [] }); });
+  it("charge uniquement les autres entrées des écoles autorisées pour la catégorie demandée", async () => {
+    mocks.getDocs.mockResolvedValue({ docs: [{ id: "inflow-a", data: () => ({ schoolId: "school-a", category: "Autres", categoryDetail: "Recettes scolaires" }) }] });
+    const history = await loadCoordinationControlHistory(["school-a", "school-b"], false, "cashInflows");
+    expect(history.cashInflows).toMatchObject([{ id: "inflow-a", schoolId: "school-a", categoryDetail: "Recettes scolaires" }]);
+    expect(history.payments).toEqual([]);
+    expect(history.expenses).toEqual([]);
+    expect(mocks.collection).toHaveBeenCalledWith(expect.anything(), "cashInflows");
+    expect(mocks.collection).not.toHaveBeenCalledWith(expect.anything(), "payments");
+    expect(mocks.collection).not.toHaveBeenCalledWith(expect.anything(), "expenses");
+    expect(mocks.where).toHaveBeenCalledWith("schoolId", "in", ["school-a", "school-b"]);
+  });
   it("regroupe les frais d'une école comme Contrôle Admin, sans fusionner deux écoles homonymes", () => {
     const options = buildCoordinationAmountOptions([{ id: "a", name: "École A" }, { id: "b", name: "École B" }], [
       { id: "a-1", schoolId: "a", name: "Minerval", amount: 10 },

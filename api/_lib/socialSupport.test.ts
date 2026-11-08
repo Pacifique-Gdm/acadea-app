@@ -316,6 +316,20 @@ describe("décisions financières atomiques", () => {
     })).rejects.toThrow("JE CONFIRME LA MODIFICATION");
     expect(JSON.stringify([...f.values.entries()])).toBe(before);
   });
+  it("refuse explicitement le changement de bénéficiaire d'une décision existante sans aucune écriture", async () => {
+    const f = fixture();
+    const first = await save(f);
+    const before = JSON.stringify([...f.values.entries()]);
+    await expect(save(f, {
+      clientRequestId: "request-beneficiary-002",
+      decisionId: first.decision.id,
+      expectedVersion: 1,
+      confirmation: "JE CONFIRME LA MODIFICATION",
+      studentId: "another-student",
+      lines: [{ feeTypeId: "f", value: 150 }],
+    })).rejects.toThrow("Le bénéficiaire d'une décision sociale ne peut pas être modifié.");
+    expect(JSON.stringify([...f.values.entries()])).toBe(before);
+  });
   it("annule sans effacer et restaure le net", async () => {
     const f = fixture(),
       first = await save(f);

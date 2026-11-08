@@ -1,10 +1,10 @@
 import type { CashInflow, Expense, Payment, School, SchoolYear, Student } from "../types";
-import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./pdf";
+import { escapePdfHtml, pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "./pdf";
 import { formatCurrencyMoney, resolveSchoolYearCurrency } from "./currency";
 import { formatRecordedTotals, totalsByRecordedCurrency } from "./operationCurrency";
 import { sumMoney } from "./money";
 import { expenseCategoryLabel } from "./expenseCategory";
-import { cashInflowCategoryLabel } from "./cashInflowCategory";
+import { cashInflowNatureLabel } from "./cashInflowCategory";
 
 export async function exportReportPdf(
   school: School,
@@ -85,7 +85,7 @@ export async function exportReportPdf(
       ),
       pdfSection("Autres entrées de caisse", pdfTable([
         { header: "Date", render: (inflow: CashInflow) => inflow.entryDate },
-        { header: "Nature", render: (inflow: CashInflow) => cashInflowCategoryLabel(inflow.category) },
+        { header: "Nature", render: (inflow: CashInflow) => escapePdfHtml(cashInflowNatureLabel(inflow)) },
         { header: "Provenance", render: (inflow: CashInflow) => inflow.source },
         { header: "Description", render: (inflow: CashInflow) => inflow.description },
         { header: "Caissier", render: (inflow: CashInflow) => inflow.cashierName },
