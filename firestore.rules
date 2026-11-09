@@ -1010,14 +1010,30 @@ service cloud.firestore {
 
     match /feeTypes/{feeTypeId} {
       allow read: if superAdmin() || coordinatorSchool(resource.data.schoolId) || sameTenantResource();
-      allow create: if schoolAdmin() && activeTenantYearCreate();
+      allow create: if schoolAdmin() && activeTenantYearCreate()
+        && !exists(/databases/$(database)/documents/feeAllocationFeeGuards/$(feeTypeId));
       allow update: if schoolAdmin() && activeTenantYearUpdate()
+        && !exists(/databases/$(database)/documents/feeAllocationFeeGuards/$(feeTypeId))
         && (!exists(/databases/$(database)/documents/socialSupportFeeLocks/$(feeTypeId))
           || !request.resource.data.diff(resource.data).affectedKeys().hasAny(["amount", "className", "classOptionKey"]));
       allow delete: if schoolAdmin() && sameTenantResource()
+        && !exists(/databases/$(database)/documents/feeAllocationFeeGuards/$(feeTypeId))
         && !exists(/databases/$(database)/documents/socialSupportFeeLocks/$(feeTypeId))
         && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
     }
+
+    // Phase 1 is server-only. The Admin SDK checks stored profiles, scope and
+    // active school year; clients cannot forge configurations or activation.
+    match /feeAllocationStates/{id} { allow read, write: if false; }
+    match /feeAllocationConfigs/{id} { allow read, write: if false; }
+    match /feeAllocationVersions/{id} { allow read, write: if false; }
+    match /feeAllocationFeeGuards/{id} { allow read, write: if false; }
+    match /feeAllocationRequests/{id} { allow read, write: if false; }
+    match /feeAllocationOpeningAudits/{id} { allow read, write: if false; }
+    match /feeAllocationAnchors/{id} { allow read, write: if false; }
+    match /feeAllocationMovements/{id} { allow read, write: if false; }
+    match /feeAllocationBalances/{id} { allow read, write: if false; }
+    match /feeAllocationReconciliationRuns/{id} { allow read, write: if false; }
 
     match /teachers/{teacherId} {
       allow read: if superAdmin() || sameTenantResource() || studyTenantResource() || teacherOwnProfile();
