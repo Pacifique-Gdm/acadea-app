@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import handler from "./manage-fee-allocation.js";
+import handler from "../manage-financial-transaction.js";
 
 function response() {
   const headers = new Map();
@@ -15,7 +15,7 @@ describe("point d'entrée de répartition des frais", () => {
   });
   it("refuse toute requête sans session avant l'initialisation Admin SDK", async () => {
     const res = response();
-    await handler({ method: "POST", headers: {}, body: { action: "activate" } }, res);
+    await handler({ method: "POST", headers: {}, body: { action: "fee-allocation.activate" } }, res);
     expect(res.statusCode).toBe(401);
     expect(res.body.code).toBe("unauthenticated");
   });

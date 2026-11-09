@@ -19,7 +19,7 @@ Les paiements partiels, arriérés, décisions sociales et prises en charge ne s
 
 ## API et sécurité
 
-`POST /api/manage-fee-allocation` exige un jeton Firebase vérifié, un profil actif stocké, le périmètre école ou coordination vérifié côté serveur, une année valide et une limite de débit. L'Administrateur de l'école peut enregistrer un brouillon et préparer sa version. Le Caissier, le Coordinateur et le Sous-coordinateur ne peuvent que lire dans leur périmètre. Les mutations utilisent transaction, révision attendue, reçu idempotent et audit. Le client ne peut lire ni écrire directement les nouvelles collections : les règles Firestore les ferment toutes.
+`POST /api/manage-financial-transaction` avec une action préfixée `fee-allocation.` exige un jeton Firebase vérifié, un profil actif stocké, le périmètre école ou coordination vérifié côté serveur, une année valide et une limite de débit. Le point d'entrée existant est réutilisé pour rester dans la limite de fonctions Vercel. L'Administrateur de l'école peut enregistrer un brouillon et préparer sa version. Le Caissier, le Coordinateur et le Sous-coordinateur ne peuvent que lire dans leur périmètre. Les mutations utilisent transaction, révision attendue, reçu idempotent et audit. Le client ne peut lire ni écrire directement les nouvelles collections : les règles Firestore les ferment toutes.
 
 Actions préparatoires : `get-state`, `get-permissions`, `list-configurations`, `validate-draft`, `save-draft`, `prepare-version`, `list-versions`, `check-activation`. `publish-configuration` et `activate` retournent toujours `409 phase-not-ready`. Il n'existe pas d'API de solde d'ouverture approuvé en phase 1.
 
