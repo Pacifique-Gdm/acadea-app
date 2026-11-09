@@ -4,9 +4,10 @@ import { chromium, expect } from '@playwright/test';
 import { guard, services, prepare, retire, saveManifest, projectId } from './sevenAmendmentsStagingFixture.mjs';
 
 const origin = 'https://acadea-staging.vercel.app';
-const output = 'diagnostics/arrears-years-staging';
+const output = 'diagnostics/three-corrections-staging';
 const expectedSha = process.env.ACADEA_EXPECTED_SHA;
 const results = [];
+const geometry = [];
 const record = (name, result, detail = '') => {
   results.push({ name, result, ...(detail ? { detail } : {}) });
   console.log(`${result}: ${name}${detail ? ` — ${detail}` : ''}`);
@@ -122,6 +123,56 @@ try {
             .locator('option').allTextContents()).filter(label => label === currentYearName).length).toBe(1);
           record(`Année scolaire unique ${key} / ${tab}`, 'PASS', yearOptions.join(' | '));
         }
+        for (const width of [390, 768, 1024, 1366, 1440]) {
+          await page.setViewportSize({ width, height: 900 });
+          for (const tab of ['Dashboard', 'Élèves', 'Contrôle', 'Message', 'Menu']) {
+            await page.getByRole('button', { name: tab, exact: true }).last().click();
+            const measured = await page.evaluate(() => {
+              const rect = (selector) => document.querySelector(selector)?.getBoundingClientRect();
+              const content = document.querySelector('[data-testid="coordination-content"]');
+              const contentRect = content?.getBoundingClientRect();
+              const padding = content ? getComputedStyle(content) : null;
+              const logo = rect('[data-testid="coordination-institution-logo"]');
+              const actions = rect('[data-testid="coordination-institution-actions"]');
+              const band = rect('[data-testid="coordination-institution-band"]');
+              if (!contentRect || !padding || !logo || !actions || !band) throw Error('Conteneur institutionnel absent.');
+              const contentLeft = contentRect.left + parseFloat(padding.paddingLeft);
+              const contentRight = contentRect.right - parseFloat(padding.paddingRight);
+              return { contentLeft, contentRight, logoLeft: logo.left, actionsRight: actions.right,
+                bandLeft: band.left, bandRight: band.right, viewportWidth: window.innerWidth,
+                scrollWidth: document.documentElement.scrollWidth,
+                logoWidth: logo.width, refreshWidth: rect('[aria-label="Actualiser"]')?.width,
+                notificationWidth: rect('[aria-label="Boîte à Messagerie"]')?.width };
+            });
+            assert.ok(Math.abs(measured.logoLeft - measured.contentLeft) <= 1.1,
+              `${key} ${tab} ${width}px : logo décalé de ${measured.logoLeft - measured.contentLeft}px.`);
+            assert.ok(Math.abs(measured.actionsRight - measured.contentRight) <= 1.1,
+              `${key} ${tab} ${width}px : actions décalées de ${measured.actionsRight - measured.contentRight}px.`);
+            assert.ok(Math.abs(measured.bandLeft) <= 1.1 && Math.abs(measured.bandRight - measured.viewportWidth) <= 1.1,
+              `${key} ${tab} ${width}px : largeur de la bande extérieure modifiée.`);
+            assert.ok(measured.scrollWidth <= measured.viewportWidth + 1,
+              `${key} ${tab} ${width}px : débordement horizontal.`);
+            assert.equal(measured.logoWidth, 48, 'Taille du logo modifiée.');
+            assert.ok(measured.refreshWidth >= 36 && measured.notificationWidth >= 36,
+              'Zone cliquable des actions réduite.');
+            geometry.push({ role: key, tab, width, ...measured });
+            if (tab === 'Dashboard' || width === 1440) {
+              await page.screenshot({ path: `${output}/${key}-${tab}-${width}px-header.png`, fullPage: true });
+            }
+          }
+        }
+        const refresh = page.getByRole('button', { name: 'Actualiser', exact: true });
+        await refresh.focus();
+        assert.equal(await refresh.evaluate(element => element === document.activeElement), true,
+          'Actualisation inaccessible au clavier.');
+        await refresh.click();
+        await expect(refresh).toBeEnabled({ timeout: 60000 });
+        const notification = page.getByRole('button', { name: 'Boîte à Messagerie', exact: true });
+        await notification.focus();
+        await page.keyboard.press('Enter');
+        await expect(page.getByRole('dialog', { name: 'Boîte à Messagerie' })).toBeVisible();
+        await page.getByRole('button', { name: 'Fermer la boîte à messagerie' }).click();
+        record(`En-tête ${key} : 5 onglets × 5 largeurs, actions et clavier`, 'PASS');
       }
     } catch (error) {
       await page.screenshot({ path: `${output}/${key}-failure.png`, fullPage: true }).catch(() => {});
@@ -152,5 +203,5 @@ try {
     process.exitCode = 1;
   }
   await service.close();
-  writeFileSync(`${output}/results.json`, JSON.stringify({ sha: expectedSha, projectId, results }, null, 2));
+  writeFileSync(`${output}/results.json`, JSON.stringify({ sha: expectedSha, projectId, results, geometry }, null, 2));
 }
