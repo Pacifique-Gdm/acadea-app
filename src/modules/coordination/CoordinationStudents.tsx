@@ -87,7 +87,7 @@ export function CoordinationStudents({ user, coordination, schools, selectedScho
 
   useEffect(() => { if (classChoicesReady && classKey && !classes.some((choice) => choice.value === classKey)) setClassKey(""); }, [classChoicesReady, classKey, classes]);
   useEffect(() => { if (classChoicesReady && optionKey && !options.some((choice) => choice.value === optionKey)) setOptionKey(""); }, [classChoicesReady, optionKey, options]);
-  useEffect(() => { if (!yearsLoading && selectedYearId && selectedYearId !== COORDINATION_ACTIVE_YEAR && !years.some((year) => year.id === selectedYearId && (!selectedSchoolId || year.schoolId === selectedSchoolId))) setSelectedYearId(COORDINATION_ACTIVE_YEAR); }, [selectedSchoolId, selectedYearId, years, yearsLoading]);
+  useEffect(() => { if (!yearsLoading && selectedYearId && selectedYearId !== COORDINATION_ACTIVE_YEAR && !coordinationYearChoices(years, visibleSchools).some((year) => year.value === selectedYearId)) setSelectedYearId(COORDINATION_ACTIVE_YEAR); }, [selectedYearId, visibleSchools, years, yearsLoading]);
 
   async function exportPdf() {
     const contextSchool = schools.find((school) => school.id === selectedSchoolId) ?? schools[0];
@@ -104,7 +104,7 @@ export function CoordinationStudents({ user, coordination, schools, selectedScho
       } while (cursor);
       await renderAcadPdfPreview({
         filename: `coordination-eleves-${selectedSchoolId || "toutes"}.pdf`, title: "Élèves — Coordination", school: coordinationPdfInstitution(coordination, contextSchool),
-        subtitle: `École : ${selectedSchoolId ? contextSchool.name : "Toutes les écoles"} | Année : ${selectedYearId === COORDINATION_ACTIVE_YEAR ? "Année active" : selectedYearId || "Toutes"} | Recherche : ${search || "Toutes"} | Statut : ${status === "all" ? "Tous" : status === "active" ? "Actifs" : "Archivés"} | Classe : ${classChoice?.label ?? "Toutes les classes"} | Option : ${optionChoice?.label ?? "Toutes les options"}`,
+        subtitle: `École : ${selectedSchoolId ? contextSchool.name : "Toutes les écoles"} | Année : ${selectedYearId === COORDINATION_ACTIVE_YEAR ? "Année active" : coordinationYearChoices(years, visibleSchools).find((choice) => choice.value === selectedYearId)?.label ?? "Toutes"} | Recherche : ${search || "Toutes"} | Statut : ${status === "all" ? "Tous" : status === "active" ? "Actifs" : "Archivés"} | Classe : ${classChoice?.label ?? "Toutes les classes"} | Option : ${optionChoice?.label ?? "Toutes les options"}`,
         studentCount: exportStudents.length,
         sections: [pdfSection("Élèves", pdfTable([
           { header: "Matricule", render: (student) => escapePdfHtml(student.matricule || "—") },
@@ -121,7 +121,7 @@ export function CoordinationStudents({ user, coordination, schools, selectedScho
   return <section className="grid min-w-0 gap-4">
     <div className="grid min-w-0 grid-cols-2 gap-2 rounded border border-blue-100 bg-blue-50 p-3 text-sm sm:p-4">
       <label className="grid min-w-0 gap-1"><span className="font-bold">École</span><select className="input min-w-0 w-full" aria-label="Filtrer par école" value={selectedSchoolId} onChange={(event) => { setClassKey(""); setOptionKey(""); onSchoolChange(event.target.value); }}><option value="">{user.role === "sub_coordination_admin" ? "Toutes mes écoles" : "Toutes les écoles"} ({schools.length})</option>{schools.map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}</select></label>
-      <label className="grid min-w-0 gap-1"><span className="font-bold">Année scolaire</span><select className="input min-w-0 w-full" aria-label="Année scolaire" value={selectedYearId} onChange={(event) => { setClassKey(""); setOptionKey(""); setSelectedYearId(event.target.value); }}><option value={COORDINATION_ACTIVE_YEAR}>Année active</option>{coordinationYearChoices(years, visibleSchools).map((year) => <option key={year.id} value={year.id}>{year.name}{selectedSchoolId ? "" : ` — ${schools.find((school) => school.id === year.schoolId)?.name ?? year.schoolId}`}</option>)}<option value="">Toutes les années</option></select></label>
+      <label className="grid min-w-0 gap-1"><span className="font-bold">Année scolaire</span><select className="input min-w-0 w-full" aria-label="Année scolaire" value={selectedYearId} onChange={(event) => { setClassKey(""); setOptionKey(""); setSelectedYearId(event.target.value); }}><option value={COORDINATION_ACTIVE_YEAR}>Année active</option>{coordinationYearChoices(years, visibleSchools).map((year) => <option key={year.value} value={year.value}>{year.label}</option>)}<option value="">Toutes les années</option></select></label>
     </div>
     <div><h2 className="text-lg font-bold">Élèves</h2><p className="text-sm text-slate-600">Consultation en lecture seule · page {pageIndex + 1} · {students.length} élève(s) affiché(s).</p></div>
     <div className="grid w-full min-w-0 grid-cols-1 items-stretch gap-2 sm:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto]">

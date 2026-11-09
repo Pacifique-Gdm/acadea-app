@@ -162,10 +162,10 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
     : coordination?.name ?? "Coordination";
 
   return <main className="h-screen min-w-0 max-w-full overflow-x-hidden overflow-y-auto bg-[#F5F7FB] pb-24 text-ink">
-    <header className="sticky top-0 z-20 w-full border-b border-slate-200 bg-white px-4 py-4 shadow-sm">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
+    <header data-testid="coordination-institution-band" className="sticky top-0 z-20 w-full border-b border-slate-200 bg-white py-4 shadow-sm">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4">
         <div className="flex min-w-0 flex-1 items-start gap-3">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded bg-slate-100">{coordination?.logoUrl ? <img src={coordination.logoUrl} alt={`Logo ${coordination.name}`} className="h-full w-full object-contain"/> : <Building2 className="h-6 w-6 text-blue-700"/>}</div>
+          <div data-testid="coordination-institution-logo" className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded bg-slate-100">{coordination?.logoUrl ? <img src={coordination.logoUrl} alt={`Logo ${coordination.name}`} className="h-full w-full object-contain"/> : <Building2 className="h-6 w-6 text-blue-700"/>}</div>
           <div className="min-w-0 flex-1">
             <h1 className="break-words text-base font-bold leading-tight sm:text-lg">{institutionName}</h1>
             {isSubCoordinator && coordination?.name && <p className="break-words text-xs font-semibold text-slate-600">Coordination : {coordination.name}</p>}
@@ -178,14 +178,14 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
             <p className="break-words text-xs font-medium text-slate-700">{user.name} · {isSubCoordinator ? "Sous-coordinateur" : "Coordinateur principal"}</p>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div data-testid="coordination-institution-actions" className="flex shrink-0 items-center gap-2">
           <button type="button" onClick={() => void refreshCoordination()} disabled={refreshing} className="inline-flex h-9 w-9 items-center justify-center rounded text-slate-500 transition hover:bg-slate-100 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50" aria-label="Actualiser" title="Actualiser"><RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}/></button>
           <button type="button" onClick={openNotifications} disabled={activeSchools.length === 0} className="relative inline-flex h-9 w-9 items-center justify-center rounded text-slate-500 transition hover:bg-slate-100 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50" aria-label="Boîte à Messagerie" title="Boîte à Messagerie"><Bell className="h-4 w-4"/>{inbox.unreadCount > 0 && <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-600 px-1 text-center text-[11px] font-bold text-white">{inbox.unreadCount}</span>}</button>
         </div>
       </div>
-      {(refreshError || inbox.error) && <p role="alert" className="mx-auto mt-2 max-w-6xl text-xs font-semibold text-red-600">{refreshError || inbox.error}</p>}
+      {(refreshError || inbox.error) && <p role="alert" className="mx-auto mt-2 max-w-6xl px-4 text-xs font-semibold text-red-600">{refreshError || inbox.error}</p>}
     </header>
-    <section className="mx-auto grid max-w-6xl gap-4 px-4 py-5">
+    <section data-testid="coordination-content" className="mx-auto grid max-w-6xl gap-4 px-4 py-5">
       {tab !== "dashboard" && tab !== "control" && tab !== "students" && <div className="rounded border border-blue-100 bg-blue-50 p-4 text-sm"><b>École</b><select className="input mt-2 w-full" aria-label="Filtrer par école" value={selectedSchoolId} onChange={(event) => setSelectedSchoolId(event.target.value)}><option value="">{user.role === "sub_coordination_admin" ? "Toutes mes écoles" : "Toutes les écoles"} ({activeSchools.length})</option>{activeSchools.map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}</select></div>}
       {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
       {tab === "dashboard" && coordination && <CoordinationDashboard coordination={coordination} schools={activeSchools} selectedSchoolId={selectedSchoolId} onSchoolChange={setSelectedSchoolId} user={user} model={supervisionModel} loading={supervisionLoading || loadedSupervisionScope !== supervisionScope} loadError={supervisionError} />}

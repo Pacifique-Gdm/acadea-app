@@ -1321,7 +1321,7 @@ export default function App() {
               navigate("/dashboard");
             }}
           />
-        ) : activeTab === "dashboard" && <Dashboard data={{ ...yearData, users: realtimeDashboardUsers.length > 0 ? realtimeDashboardUsers : yearData.users }} school={currentSchool} year={selectedYear} />}
+        ) : activeTab === "dashboard" && <Dashboard data={{ ...yearData, users: realtimeDashboardUsers.length > 0 ? realtimeDashboardUsers : yearData.users }} school={currentSchool} year={selectedYear} refreshing={isRefreshing} refreshError={refreshError} />}
         {!standaloneAdminRoute && activeTab === "students" && (
           <StudentsModule
             user={user}

@@ -38,10 +38,19 @@ describe("arriérés encaissés — filtre et périmètre Dashboard", () => {
     ]);
   });
 
-  it("montre zéro pour une période sans encaissement sans réutiliser l'ancien total", () => {
-    expect(collected("2026-09-01", "2026-09-30", ["USD", "CDF"])).toEqual([
-      { currency: "USD", amount: 0 }, { currency: "CDF", amount: 0 },
+  it("supprime tout l'indicateur pour une période sans encaissement, sans réutiliser l'ancien total", () => {
+    expect(collected("2026-09-01", "2026-09-30", ["USD", "CDF"])).toEqual([]);
+    expect(collected("2026-10-03", "2026-10-03", ["USD", "CDF"])).toEqual([
+      { currency: "USD", amount: 25 }, { currency: "CDF", amount: 1000 },
     ]);
+  });
+
+  it("distingue l'existence d'un encaissement corrigé à zéro de l'absence d'opération", () => {
+    expect(buildDashboardCollectedArrears([payment("corrected", { amount: 0 })], {
+      currentYearBySchoolId: new Map([["school-a", "current-year"]]),
+      visibleStudentKeys: new Set(["school-a:student-a"]),
+      startDate: "2026-10-03", endDate: "2026-10-03", applicableCurrencies: ["USD"],
+    })).toEqual([{ currency: "USD", amount: 0 }]);
   });
 
   it("exclut frais courants, autres écoles et sections, même avec des identifiants d'élève égaux", () => {

@@ -165,10 +165,12 @@ test("Dashboards, Contrôle et retrait Coordination — Staging final", async ({
         const controlOption = page.getByLabel("Option", { exact: true });
         await expect(controlYear).toHaveValue("active");
         await expect(controlOption.locator("option")).toHaveText(["Toutes les options", "Commerciale", "Littéraire", "Pédagogie"]);
-        await controlYear.selectOption(bYear);
+        await schoolScope.selectOption(bSchool);
+        await controlYear.selectOption("period:2026-2027");
         await expect(controlOption.locator("option")).toHaveText(["Toutes les options", "Commerciale", "Pédagogie"]);
-        await controlYear.selectOption(fixture.yearId);
+        await schoolScope.selectOption(fixture.schoolId);
         await expect(controlOption.locator("option")).toHaveText(["Toutes les options", "Littéraire", "Pédagogie"]);
+        await schoolScope.selectOption("");
         await controlYear.selectOption("active");
         await expect(page.getByRole("navigation", { name: "Pagination du contrôle" })).toContainText("50 élèves", { timeout: 60000 });
         expect((await page.getByRole("navigation", { name: "Pagination du contrôle" }).boundingBox())!.y).toBeGreaterThan((await page.locator("article").last().boundingBox())!.y);
@@ -186,8 +188,10 @@ test("Dashboards, Contrôle et retrait Coordination — Staging final", async ({
         await expect(page.locator("article button")).toHaveCount(1, { timeout: 60000 });
         await expect(page.locator("article button")).toHaveText("Pagination59 Test");
         await page.getByLabel("Rechercher un élève dans le contrôle").fill("");
-        await page.getByLabel("Année scolaire", { exact: true }).selectOption(fixture.yearId);
+        await schoolScope.selectOption(fixture.schoolId);
+        await page.getByLabel("Année scolaire", { exact: true }).selectOption("period:2026-2027");
         await expect(page.locator("article button")).toHaveCount(31, { timeout: 60000 });
+        await schoolScope.selectOption("");
         await page.getByRole("button", { name: "Réinitialiser", exact: true }).click();
         await expect(page.locator("article button")).toHaveCount(50, { timeout: 60000 });
         for (const tab of ["Contrôle", "Élèves"]) {
@@ -196,7 +200,7 @@ test("Dashboards, Contrôle et retrait Coordination — Staging final", async ({
             const studentYear = page.getByLabel("Année scolaire", { exact: true });
             await expect(studentYear).toHaveValue("active");
             await expect(page.getByLabel("Option", { exact: true }).locator("option")).toHaveText(["Toutes les options", "Commerciale", "Littéraire", "Pédagogie"]);
-            await studentYear.selectOption(bOldYear);
+            await studentYear.selectOption("period:2025-2026");
             await expect(page.getByRole("row").filter({ hasText: "Pagination59" })).toHaveCount(1, { timeout: 60000 });
             await studentYear.selectOption("active");
           }

@@ -35,19 +35,33 @@ describe("Dashboard — encaissements historiques à l'ouverture", () => {
     const html = renderToStaticMarkup(role.includes("coordination")
       ? createElement(CoordinationDashboard, { coordination: { id: "coord", name: "Coordination", status: "active", referenceSchoolYear: "2026-2027" } as Coordination, user: { id: "user", name: "Test", email: "test@example.test", role } as AppUser, schools: [school], selectedSchoolId: "", onSchoolChange: () => undefined, model, loading: false, loadError: "" })
       : createElement(Dashboard, { school, year, data: { ...model, parents: [], users: [] } }));
-    const historicCard = html.slice(html.indexOf("Arriérés encaissés"));
+    const historicCard = html.slice(html.indexOf('data-testid="collected-arrears-band"'));
+    expect(html).toContain('data-testid="collected-arrears-band"');
     expect(historicCard).toContain(formatCurrencyMoney(25, "USD"));
     expect(historicCard).toContain(formatCurrencyMoney(1000, "CDF"));
     expect(historicCard).not.toContain(formatCurrencyMoney(35, "USD"));
   });
 
-  it.each(["school_admin", "cashier", "coordination_admin", "sub_coordination_admin"] as const)("%s conserve l'indicateur et le zéro quand la période ne contient aucun encaissement", (role) => {
+  it.each(["school_admin", "cashier", "coordination_admin", "sub_coordination_admin"] as const)("%s masque la bande entière quand la période ne contient aucun encaissement", (role) => {
     vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-04T12:00:00"));
     const html = renderToStaticMarkup(role.includes("coordination")
       ? createElement(CoordinationDashboard, { coordination: { id: "coord", name: "Coordination", status: "active", referenceSchoolYear: "2026-2027" } as Coordination, user: { id: "user", name: "Test", email: "test@example.test", role } as AppUser, schools: [school], selectedSchoolId: "", onSchoolChange: () => undefined, model, loading: false, loadError: "" })
       : createElement(Dashboard, { school, year, data: { ...model, parents: [], users: [] } }));
-    const collected = html.slice(html.indexOf("Arriérés encaissés"));
-    expect(collected).toContain(formatCurrencyMoney(0, "USD"));
-    expect(collected).not.toContain(formatCurrencyMoney(35, "USD"));
+    expect(html).not.toContain('data-testid="collected-arrears-band"');
+    expect(html).not.toContain("Arriérés encaissés pendant la période, hors recouvrement des frais de l'année");
+    expect(html).not.toContain("Arriérés encaissés, hors recouvrement de l'année courante");
+  });
+
+  it.each(["school_admin", "cashier", "coordination_admin", "sub_coordination_admin"] as const)("%s ne confond pas chargement ou erreur avec un zéro confirmé", (role) => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-03T12:00:00"));
+    const render = (loading: boolean, error: string) => renderToStaticMarkup(role.includes("coordination")
+      ? createElement(CoordinationDashboard, { coordination: { id: "coord", name: "Coordination", status: "active", referenceSchoolYear: "2026-2027" } as Coordination, user: { id: "user", name: "Test", email: "test@example.test", role } as AppUser, schools: [school], selectedSchoolId: "", onSchoolChange: () => undefined, model, loading, loadError: error })
+      : createElement(Dashboard, { school, year, data: { ...model, parents: [], users: [] }, refreshing: loading, refreshError: error }));
+    const pending = render(true, "");
+    expect(pending).not.toContain('data-testid="collected-arrears-band"');
+    expect(pending).toContain("Actualisation des arriérés encaissés");
+    const failed = render(false, "Erreur réseau");
+    expect(failed).not.toContain('data-testid="collected-arrears-band"');
+    expect(failed).toContain("Arriérés encaissés non confirmés");
   });
 });

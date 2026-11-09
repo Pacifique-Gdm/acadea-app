@@ -45,7 +45,7 @@ test("Coordination et sous-coordination : filtres, finance et responsive sur le 
   console.log(JSON.stringify({ fixturePrefix: fixture.prefix }));
   try {
     await fixture.seed();
-    const years = await fixture.seedFilterDiscriminants();
+    await fixture.seedFilterDiscriminants();
     for (const role of ["coordination_admin", "sub_coordination_admin"]) {
       const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
       contexts.push(context);
@@ -59,6 +59,11 @@ test("Coordination et sous-coordination : filtres, finance et responsive sur le 
         const option = page.getByLabel("Option", { exact: true });
         await expect(school).toBeVisible({ timeout: 60_000 });
         await expect(classSelect.locator("option")).toContainText(["Toutes", "1ère Humanité"], { timeout: 60_000 });
+        await expect.poll(async () => (await year.locator("option").allTextContents()).filter((label) => label === "2026-2027").length, { timeout: 60_000 }).toBe(1);
+        await expect.poll(async () => (await year.locator("option").allTextContents()).filter((label) => label === "2025-2026").length).toBe(1);
+        await year.selectOption("period:2026-2027");
+        await expect.poll(async () => (await choices(page, "Classe")).join(" ")).toContain("1ère Humanité");
+        await year.screenshot({ path: test.info().outputPath(`${role}-${tab}-unique-years.png`) });
         await responsive(page, tab);
         expect((await choices(page, "Filtrer par école")).join(" ")).not.toContain("Hors Périmètre");
         if (tab === "Contrôle") {
@@ -91,14 +96,14 @@ test("Coordination et sous-coordination : filtres, finance et responsive sur le 
         await classSelect.selectOption(`${fixture.secondSchoolId}::2ème Humanité`);
         await expect.poll(async () => (await choices(page, "Option")).join(" ")).toContain("Littéraire");
         await option.selectOption("Littéraire");
-        await year.selectOption(years.secondOldYearId);
+        await year.selectOption("period:2025-2026");
         await expect(classSelect).toHaveValue("");
         await expect(option).toHaveValue("");
         await expect.poll(async () => (await choices(page, "Classe")).join(" ")).not.toContain("2ème Humanité");
         await expect.poll(async () => (await choices(page, "Option")).join(" ")).not.toContain("Littéraire");
 
         await school.selectOption(fixture.schoolId);
-        await year.selectOption(fixture.yearId);
+        await year.selectOption("period:2026-2027");
         await classSelect.selectOption(`${fixture.schoolId}::7ème CTEB`);
         if (tab === "Contrôle") {
           await page.getByRole("button", { name: "Finance Élève", exact: true }).first().click();

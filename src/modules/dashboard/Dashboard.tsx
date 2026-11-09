@@ -39,6 +39,8 @@ type DashboardProps = {
   data: DashboardData;
   school: School;
   year: SchoolYear;
+  refreshing?: boolean;
+  refreshError?: string;
 };
 
 export type TransactionPeriod = "today" | "last5" | "week";
@@ -333,7 +335,7 @@ export function TransactionComboChart({
   );
 }
 
-export function Dashboard({ data, school, year }: DashboardProps) {
+export function Dashboard({ data, school, year, refreshing = false, refreshError = "" }: DashboardProps) {
   const expenseResolution = useExpenseCurrencyResolution(data.expenses);
   const resolvedExpenses = expenseResolution.rows;
   const today = toDateKey(new Date());
@@ -399,7 +401,7 @@ export function Dashboard({ data, school, year }: DashboardProps) {
   const hasUnreliableFinancialCurrency = hasCurrencyOutside([...data.payments, ...resolvedExpenses], currentCurrency);
   const financialVerificationReady = expenseResolution.status === "ready";
   const financialExportBlocked = !financialVerificationReady || hasUnreliableFinancialCurrency;
-  const pdfExportBlocked = financialExportBlocked || !dashboardArrears.totals || Boolean(dashboardArrears.error);
+  const pdfExportBlocked = financialExportBlocked || refreshing || Boolean(refreshError) || !dashboardArrears.totals || Boolean(dashboardArrears.error);
   const transactionStartDate = dateFilterActive ? startDate : today;
   const transactionEndDate = dateFilterActive ? endDate : today;
   const arrearsCollections = useMemo(() => buildDashboardCollectedArrears(data.payments, {
@@ -707,7 +709,9 @@ export function Dashboard({ data, school, year }: DashboardProps) {
         </div>
         <FinancialFeeShareChart rows={feeShares} formatAmount={(value) => formatCurrencyMoney(value, currentCurrency)} />
       </div>}
-      {arrearsCollections.length > 0 && <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm">
+      {refreshing ? <p role="status" className="rounded border border-amber-200 bg-amber-50 p-3 text-sm">Actualisation des arriérés encaissés…</p>
+        : refreshError ? <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Arriérés encaissés non confirmés : {refreshError}</p>
+        : arrearsCollections.length > 0 && <div data-testid="collected-arrears-band" className="rounded border border-amber-200 bg-amber-50 p-3 text-sm">
         <p className="font-semibold">Arriérés encaissés pendant la période, hors recouvrement des frais de l'année</p>
         {arrearsCollections.map((group) => <p key={group.currency}>{formatCurrencyMoney(group.amount, group.currency)}</p>)}
       </div>}

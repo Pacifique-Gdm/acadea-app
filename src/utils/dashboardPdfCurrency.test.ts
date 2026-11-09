@@ -68,13 +68,12 @@ describe("Dashboard PDF — couverture et devises", () => {
     expect(render).not.toHaveBeenCalled();
   });
 
-  it("conserve le zéro et la période sélectionnée dans le PDF lorsqu'aucun arriéré n'est encaissé", async () => {
+  it("conserve la période et omet la bande lorsqu'aucun arriéré n'est encaissé", async () => {
     await exportDashboardReportPdf({ ...options, dateLabel: "2026-09-01 au 2026-09-30",
-      arrearsCollections: [{ currency: "CDF", amount: 0 }] });
+      arrearsCollections: [] });
     const pdf = render.mock.calls[0]?.[0];
     expect(pdf.subtitle).toContain("2026-09-01 au 2026-09-30");
-    expect(pdf.sections.join(" ")).toContain("Arriérés encaissés (CDF):0,00 FC");
-    expect(pdf.sections.join(" ")).not.toContain("Arriérés encaissés (USD):$12,00");
+    expect(pdf.sections.join(" ")).not.toContain("Arriérés encaissés pendant la période");
   });
 
   it("n'ajoute pas une page blanche avant le graphique après un tableau déjà paginé", async () => {

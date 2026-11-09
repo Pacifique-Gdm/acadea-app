@@ -63,6 +63,16 @@ test("Coordination finances et gestion Super Admin — validation finale Staging
         await page.getByLabel("Date de fin", { exact: true }).fill(fixture.today);
         await expect(arrearsCard).toContainText(formatCurrencyMoney(35, "USD"));
         await expect(currentFees).toContainText(formatCurrencyMoney(25, "USD"));
+        const noCollectionDay = new Date(Date.parse(`${fixture.yesterdayKey}T12:00:00Z`) - 86400000).toISOString().slice(0, 10);
+        await start.fill(noCollectionDay);
+        await page.getByLabel("Date de fin", { exact: true }).fill(noCollectionDay);
+        await expect(page.getByTestId("collected-arrears-band")).toHaveCount(0);
+        await page.screenshot({ path: testInfo.outputPath(`${role}-arrears-absent.png`), fullPage: true });
+        await start.fill(fixture.today);
+        await page.getByLabel("Date de fin", { exact: true }).fill(fixture.today);
+        await expect(page.getByTestId("collected-arrears-band")).toBeVisible();
+        await expect(page.getByTestId("collected-arrears-band")).toContainText(formatCurrencyMoney(25, "USD"));
+        await page.screenshot({ path: testInfo.outputPath(`${role}-arrears-restored.png`), fullPage: true });
         await responsive(page, `${role}-dashboard`);
         if (role.includes("coordination")) {
           const token = await fixture.token(role);
