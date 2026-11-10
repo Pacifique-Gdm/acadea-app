@@ -13,6 +13,8 @@ beforeAll(async () => {
     await setDoc(doc(db, "schools", "allocation-school"), { id: "allocation-school", status: "active", activeSchoolYearId: "allocation-year" });
     await setDoc(doc(db, "schoolYears", "allocation-year"), { id: "allocation-year", schoolId: "allocation-school", status: "active" });
     await setDoc(doc(db, "users", "allocation-admin"), { id: "allocation-admin", schoolId: "allocation-school", role: "school_admin", status: "active" });
+    await setDoc(doc(db, "users", "allocation-cashier"), { id: "allocation-cashier", schoolId: "allocation-school", role: "cashier", status: "active" });
+    await setDoc(doc(db, "users", "allocation-disabled"), { id: "allocation-disabled", schoolId: "allocation-school", role: "school_admin", status: "inactive" });
     await setDoc(doc(db, "feeTypes", "guarded-fee"), { id: "guarded-fee", schoolId: "allocation-school", schoolYearId: "allocation-year", className: "6ème Primaire", name: "Minerval", amount: 100 });
     await setDoc(doc(db, "feeAllocationFeeGuards", "guarded-fee"), { schoolId: "allocation-school", versionId: "published-version" });
   });
@@ -38,4 +40,14 @@ describe("répartition des frais : collections exclusivement serveur", () => {
     await assertFails(deleteDoc(fee));
     await assertSucceeds(getDoc(fee));
   });
+  it("refuse les écritures sensibles aux autres rôles et aux comptes désactivés", async () => {
+    const cashier = environment.authenticatedContext("allocation-cashier", { role: "cashier", schoolId: "allocation-school" }).firestore();
+    const disabled = environment.authenticatedContext("allocation-disabled", { role: "school_admin", schoolId: "allocation-school" }).firestore();
+    const foreign = environment.authenticatedContext("allocation-admin", { role: "school_admin", schoolId: "foreign-school" }).firestore();
+    for (const db of [cashier, disabled, foreign]) {
+      await assertFails(setDoc(doc(db, "feeAllocationVersions", "forged-version"), { schoolId: "allocation-school", status: "published" }));
+      await assertFails(setDoc(doc(db, "feeAllocationBalances", "forged-balance"), { schoolId: "allocation-school", availableMinor: 1_000_000 }));
+      await assertFails(updateDoc(doc(db, "feeTypes", "guarded-fee"), { amount: 1 }));
+    }
+  }, 30000);
 });

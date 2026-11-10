@@ -63,6 +63,12 @@ describe("fondations de répartition : calculs et états non opérationnels", ()
     expect(() => validateFeeAllocationRubrics([rubric("a", "A", "fixed", 1), rubric("a", "B", "fixed", 1)], 10000)).toThrow();
     expect(() => validateFeeAllocationRubrics([rubric("a", "Non affecté", "fixed", 1)], 10000)).toThrow();
   });
+  it("calcule indépendamment les tarifs de 100 et 200 USD avec fixe et pourcentage", () => {
+    const rubrics = [rubric("a", "Fonctionnement", "percent", 2000), rubric("b", "Salaire", "fixed", 3000), rubric("c", "Prime", "percent", 2500)];
+    const amounts = (fee) => Object.fromEntries(validateFeeAllocationRubrics(rubrics, fee).shares.map((part) => [part.rubricId, part.amountMinor]));
+    expect(amounts(10000)).toMatchObject({ ["a".repeat(32)]: 2000, ["b".repeat(32)]: 3000, ["c".repeat(32)]: 2500, [UNALLOCATED_RUBRIC_ID]: 2500 });
+    expect(amounts(20000)).toMatchObject({ ["a".repeat(32)]: 4000, ["b".repeat(32)]: 3000, ["c".repeat(32)]: 5000, [UNALLOCATED_RUBRIC_ID]: 8000 });
+  });
   it("refuse un solde d'ouverture supérieur aux fonds justifiés et ne l'approuve jamais", () => {
     const cutoffAt = "2026-11-09";
     const evidence = [{ collection: "payments", id: "payment-old" }];
@@ -98,6 +104,7 @@ describe("API de préparation côté serveur", () => {
     await expect(manageFeeAllocationPhase1({ db, caller: { uid: "cashier-a", role: "cashier", schoolId: "school-a" }, body: draft })).rejects.toMatchObject({ status: 403 });
     await expect(manageFeeAllocationPhase1({ db, caller, body: { ...draft, feeTypeId: "foreign" } })).rejects.toMatchObject({ status: 403 });
     await expect(manageFeeAllocationPhase1({ db, caller, body: { action: "activate" } })).rejects.toMatchObject({ status: 409, code: "phase-not-ready" });
+    await expect(manageFeeAllocationPhase1({ db, caller, body: { ...draft, schoolId: "school-b" } })).rejects.toMatchObject({ status: 403 });
     db.records.set("users/admin-a", { role: "school_admin", schoolId: "school-a", status: "inactive" });
     await expect(manageFeeAllocationPhase1({ db, caller, body: { action: "get-state" } })).rejects.toMatchObject({ status: 403 });
   });
@@ -112,6 +119,7 @@ describe("API de préparation côté serveur", () => {
     await expect(manageFeeAllocationPhase1({ db, caller: coord, body: { action: "get-permissions", schoolId: "school-b" } })).rejects.toMatchObject({ status: 403 });
     db.records.set("users/teacher-a", { role: "teacher", schoolId: "school-a", active: true });
     await expect(manageFeeAllocationPhase1({ db, caller: { uid: "teacher-a", role: "teacher", schoolId: "school-a" }, body: { action: "get-state" } })).rejects.toMatchObject({ status: 403 });
+    await expect(manageFeeAllocationPhase1({ db, caller: { uid: "teacher-a", role: "teacher", schoolId: "school-a" }, body: { action: "activate" } })).rejects.toMatchObject({ status: 403 });
   });
   it("refuse les révisions concurrentes et les clés réutilisées avec un autre contenu", async () => {
     const db = fakeDb();
@@ -130,5 +138,28 @@ describe("API de préparation côté serveur", () => {
     db.records.set("feeTypes/fee-a", { ...db.records.get("feeTypes/fee-a"), amount: 120 });
     await expect(manageFeeAllocationPhase1({ db, caller, body: { action: "prepare-version", feeTypeId: "fee-a", requestId: "request-version-changed", expectedRevision: 1 } })).rejects.toMatchObject({ status: 409 });
     await expect(manageFeeAllocationPhase1({ db, caller, body: { action: "validate-draft", feeTypeId: "fee-a" } })).rejects.toMatchObject({ status: 409 });
+  });
+  it("refuse une version dont la classe, l'option ou la devise a changé à tarif identique", async () => {
+    for (const change of [{ className: "5ème Primaire" }, { classOptionKey: "6ème Primaire::option::B" }]) {
+      const db = fakeDb();
+      await manageFeeAllocationPhase1({ db, caller, body: draft });
+      db.records.set("feeTypes/fee-a", { ...db.records.get("feeTypes/fee-a"), ...change });
+      await expect(manageFeeAllocationPhase1({ db, caller, body: { action: "validate-draft", feeTypeId: "fee-a" } })).rejects.toMatchObject({ status: 409 });
+      await expect(manageFeeAllocationPhase1({ db, caller, body: { action: "prepare-version", feeTypeId: "fee-a", requestId: "request-version-target", expectedRevision: 1 } })).rejects.toMatchObject({ status: 409 });
+      expect([...db.records.keys()].filter((key) => key.startsWith("feeAllocationVersions/"))).toHaveLength(0);
+    }
+    const db = fakeDb();
+    await manageFeeAllocationPhase1({ db, caller, body: draft });
+    db.records.set("schoolYears/year-a", { ...db.records.get("schoolYears/year-a"), currency: "USD" });
+    await expect(manageFeeAllocationPhase1({ db, caller, body: { action: "prepare-version", feeTypeId: "fee-a", requestId: "request-version-currency", expectedRevision: 1 } })).rejects.toMatchObject({ status: 409 });
+  });
+  it("confirme idempotemment une demande déjà réussie après changement d'année, sans nouvelle écriture", async () => {
+    const db = fakeDb();
+    await manageFeeAllocationPhase1({ db, caller, body: draft });
+    const count = db.records.size;
+    db.records.set("schools/school-a", { ...db.records.get("schools/school-a"), activeSchoolYearId: "year-b" });
+    expect((await manageFeeAllocationPhase1({ db, caller, body: draft })).idempotent).toBe(true);
+    expect(db.records.size).toBe(count);
+    await expect(manageFeeAllocationPhase1({ db, caller, body: { ...draft, feeTypeId: "foreign" } })).rejects.toMatchObject({ status: 409 });
   });
 });

@@ -81,6 +81,13 @@ async function mutateDraft({ db, caller, body, prepare }) {
     const profile = profileSnapshot.data();
     if (!schoolSnapshot.exists || !active(school) || school.status === "suspended" || school.status === "deleting"
       || !profileSnapshot.exists || !active(profile) || role(profile.role) !== "school_admin" || profile.schoolId !== schoolId) denied();
+    if (receiptSnapshot.exists) {
+      const receipt = receiptSnapshot.data();
+      const priorConfigId = feeAllocationConfigId(schoolId, receipt.schoolYearId, body.feeTypeId);
+      const priorFingerprint = sha([prepare ? "prepare-version" : "save-draft", priorConfigId, body.expectedRevision, body.rubrics ?? null]);
+      if (receipt.schoolId !== schoolId || receipt.userId !== caller.uid || receipt.fingerprint !== priorFingerprint) conflict("Clé de requête déjà utilisée avec un autre contenu.");
+      return { ...receipt.result, idempotent: true };
+    }
     const yearId = school.activeSchoolYearId;
     if (!identifier(yearId)) conflict("Aucune année scolaire active.");
     const yearRef = db.doc(`schoolYears/${yearId}`);
@@ -100,10 +107,6 @@ async function mutateDraft({ db, caller, body, prepare }) {
     catch { invalid("Tarif de référence invalide."); }
     const config = configSnapshot.data();
     const fingerprint = sha([prepare ? "prepare-version" : "save-draft", configId, body.expectedRevision, body.rubrics ?? null]);
-    if (receiptSnapshot.exists) {
-      if (receiptSnapshot.data()?.fingerprint !== fingerprint) conflict("Clé de requête déjà utilisée avec un autre contenu.");
-      return { ...receiptSnapshot.data().result, idempotent: true };
-    }
     if ((config?.draftRevision ?? 0) !== body.expectedRevision) conflict("Le brouillon a changé. Actualisez avant de réessayer.");
     if (config && (config.schoolId !== schoolId || config.schoolYearId !== yearId || config.feeTypeId !== body.feeTypeId)) denied();
     const stateRef = db.doc(`feeAllocationStates/${sha([schoolId, yearId, currency])}`);
@@ -113,7 +116,9 @@ async function mutateDraft({ db, caller, body, prepare }) {
     let auditType;
     const now = new Date().toISOString();
     if (prepare) {
-      if (!config?.draft || config.draft.feeAmountMinor !== feeAmountMinor) conflict("Le tarif a changé depuis le brouillon.");
+      if (!config?.draft || config.draft.feeAmountMinor !== feeAmountMinor
+        || config.className !== fee.className || (config.classOptionKey ?? null) !== (fee.classOptionKey ?? null)
+        || config.currency !== currency) conflict("Le tarif, la classe, l'option ou la devise a changé depuis le brouillon.");
       const validated = validateFeeAllocationRubrics(config.draft.rubrics, feeAmountMinor);
       const versionId = `allocation_version_${sha([configId, body.expectedRevision]).slice(0, 40)}`;
       const versionRef = db.doc(`feeAllocationVersions/${versionId}`);
@@ -150,9 +155,9 @@ async function mutateDraft({ db, caller, body, prepare }) {
 
 export async function manageFeeAllocationPhase1({ db, caller, body }) {
   if (!body || typeof body !== "object" || Array.isArray(body) || !allowedActions.has(body.action)) invalid("Action de répartition invalide.");
-  if (body.action === "publish-configuration" || body.action === "activate") assertFeeAllocationActivationBlocked();
   const requestedSchoolId = body.schoolId ?? caller.schoolId;
   const { school, schoolId } = await readScope(db, caller, requestedSchoolId);
+  if (body.action === "publish-configuration" || body.action === "activate") assertFeeAllocationActivationBlocked();
   if (body.action === "save-draft" || body.action === "prepare-version") {
     if (body.schoolId !== undefined) invalid("L'établissement est déterminé par la session.");
     return mutateDraft({ db, caller, body, prepare: body.action === "prepare-version" });
@@ -173,6 +178,7 @@ export async function manageFeeAllocationPhase1({ db, caller, body }) {
   const configSnapshot = await db.doc(`feeAllocationConfigs/${configId}`).get();
   const config = configSnapshot.data();
   if (!configSnapshot.exists) throw new FeeAllocationError(404, "not-found", "Configuration introuvable.");
+  if (config.schoolId !== schoolId || config.schoolYearId !== yearId || config.feeTypeId !== body.feeTypeId) denied();
   if (body.action === "list-versions") {
     const snapshot = await db.collection("feeAllocationVersions").where("configId", "==", configId).get();
     return { versions: snapshot.docs.map((item) => item.data()), operational: false };
@@ -182,7 +188,10 @@ export async function manageFeeAllocationPhase1({ db, caller, body }) {
     if (!config.draft) conflict("Aucun brouillon à valider.");
     const feeSnapshot = await db.doc(`feeTypes/${body.feeTypeId}`).get();
     if (!feeSnapshot.exists || feeSnapshot.data()?.schoolId !== schoolId || feeSnapshot.data()?.schoolYearId !== yearId) denied();
-    if (toMoneyMinor(feeSnapshot.data().amount) !== config.draft.feeAmountMinor) conflict("Le tarif a changé depuis le brouillon.");
+    if (toMoneyMinor(feeSnapshot.data().amount) !== config.draft.feeAmountMinor
+      || config.className !== feeSnapshot.data().className
+      || (config.classOptionKey ?? null) !== (feeSnapshot.data().classOptionKey ?? null)
+      || config.currency !== currency) conflict("Le tarif, la classe, l'option ou la devise a changé depuis le brouillon.");
     return { ...validateFeeAllocationRubrics(config.draft.rubrics, config.draft.feeAmountMinor), operational: false };
   }
   invalid("Action de répartition invalide.");
