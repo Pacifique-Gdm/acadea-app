@@ -11,6 +11,7 @@ import { listResolvedExpenseCurrencies } from "./_lib/expenseCurrencyResolution.
 import { addFeeKind, FeeTypeError, saveFeeTypes } from "./_lib/feeTypeMutations.js";
 import { FeeAllocationError } from "./_lib/feeAllocationMath.js";
 import { manageFeeAllocationPhase1 } from "./_lib/feeAllocationPhase1.js";
+import { allowClientFailure, validateClientFailure } from "./_lib/clientFailureTelemetry.js";
 
 function parseJsonBody(raw) {
   try { const parsed = JSON.parse(raw || "{}"); if (parsed && typeof parsed === "object") return parsed; }
@@ -57,6 +58,21 @@ export default async function handler(req, res) {
     const caller = await verifyActorIdToken(auth, token);
     const body = await readBody(req);
     const requestedAction = typeof body.action === "string" ? body.action : "";
+    if (requestedAction === "report-client-failure") {
+      const event = validateClientFailure(body.event);
+      if (!event || Object.keys(body).some((key) => key !== "action" && key !== "event")) {
+        throw new FinancialApiError(400, "invalid-argument", "Diagnostic invalide.");
+      }
+      if (!allowClientFailure(caller.uid, event)) {
+        res.statusCode = 429;
+        return res.end();
+      }
+      // No Firestore reads/writes or tenant data. The closed schema excludes
+      // names, amounts, files, URLs, tokens and raw error messages.
+      console.warn("[Acadéa client-failure]", { at: new Date().toISOString(), ...event });
+      res.statusCode = 204;
+      return res.end();
+    }
     if (requestedAction.startsWith("fee-allocation.")) {
       const actor = ["coordination_admin", "sub_coordination_admin"].includes(caller.role)
         ? await requireActiveCoordinationActor(auth, db, token)

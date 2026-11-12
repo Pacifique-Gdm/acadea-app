@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Expense } from "../types";
 import { resolveHistoricalExpenseCurrencies } from "../services/financialTransactions";
+import { reportClientFailure } from "../services/clientFailureTelemetry";
 
 export function useResolvedExpenseCurrencies(expenses: Expense[]) {
   return useExpenseCurrencyResolution(expenses).rows;
@@ -12,9 +13,15 @@ export function useExpenseCurrencyResolution(expenses: Expense[]) {
   useEffect(() => {
     if (!needsResolution) return undefined;
     let cancelled = false;
+    const startedAt = Date.now();
     void resolveHistoricalExpenseCurrencies(expenses, true)
       .then((rows) => { if (!cancelled) setResult({ source: expenses, rows, status: "ready" }); })
-      .catch(() => { if (!cancelled) setResult({ source: expenses, rows: expenses, status: "error" }); });
+      .catch((error) => {
+        if (!cancelled) {
+          setResult({ source: expenses, rows: expenses, status: "error" });
+          void reportClientFailure("dashboard.currency", error, startedAt);
+        }
+      });
     return () => { cancelled = true; };
   }, [expenses, needsResolution]);
   if (!needsResolution) return { rows: expenses, status: "ready" as const };
