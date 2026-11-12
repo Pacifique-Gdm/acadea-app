@@ -51,4 +51,12 @@ describe("devises des dépenses historiques côté navigateur", () => {
     await expect(resolveHistoricalExpenseCurrencies([linkedExpense], true)).rejects.toBeInstanceOf(FinancialRequestError);
     await expect(resolveHistoricalExpenseCurrencies([linkedExpense], true)).rejects.not.toThrow("_rateLimits/private");
   });
+
+  it("préserve aussi le statut 500 et le code interne pour le diagnostic", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 500,
+      json: async () => ({ code: "internal" }) })));
+    await expect(resolveHistoricalExpenseCurrencies([linkedExpense], true)).rejects.toMatchObject({
+      name: "FinancialRequestError", status: 500, code: "internal",
+    });
+  });
 });

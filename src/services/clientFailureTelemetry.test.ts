@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ getIdToken: vi.fn(async () => "test-token") }));
 vi.mock("../firebase", () => ({ auth: { currentUser: { uid: "fixture-user" } } }));
@@ -9,6 +9,7 @@ import { createClientReportLimiter, normalizedClientFailure, reportClientFailure
 
 describe("télémétrie P0 côté navigateur", () => {
   beforeEach(() => { vi.stubGlobal("fetch", vi.fn(async () => ({ status: 204 }))); });
+  afterEach(() => vi.unstubAllGlobals());
 
   it("distingue quota Firestore, limite HTTP API, quota Storage et stockage navigateur", () => {
     expect(normalizedClientFailure({ code: "firestore/resource-exhausted" }, "api")).toEqual({ service: "firestore", code: "resource-exhausted", status: null });
@@ -60,5 +61,11 @@ describe("télémétrie P0 côté navigateur", () => {
     expect(allow("functions-error", true, now + 7)).toBe(false);
     expect(allow("network-1", false, now + 10 * 60_000)).toBe(true);
     expect(createClientReportLimiter()("network-1", false, now)).toBe(true);
+  });
+
+  it("n'ajoute aucune requête de diagnostic quand le navigateur est hors connexion", async () => {
+    vi.stubGlobal("navigator", { onLine: false });
+    await reportClientFailure("students.count", { code: "firestore/unavailable" });
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
