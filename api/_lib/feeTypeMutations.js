@@ -98,7 +98,11 @@ export async function saveFeeTypes({ db, caller, body }) {
     if (editingFeeId) {
       // Admin SDK bypasses rules: preserve the same social-decision lock here.
       // Reading the lock in this transaction also serializes concurrent decisions.
-      const supportLock = await transaction.get(db.doc(`socialSupportFeeLocks/${editingFeeId}`));
+      const [supportLock, allocationGuard] = await Promise.all([
+        transaction.get(db.doc(`socialSupportFeeLocks/${editingFeeId}`)),
+        transaction.get(db.doc(`feeAllocationFeeGuards/${editingFeeId}`)),
+      ]);
+      if (allocationGuard.exists) fail(409, "failed-precondition", "Ce frais possède une répartition publiée. Préparez une nouvelle version avant de modifier le tarif.");
       const previous = current[0].data();
       if (supportLock.exists && ["amount", "className", "classOptionKey"].some(key => (previous[key] ?? "") !== (normalized[0][key] ?? ""))) {
         fail(409, "failed-precondition", "Ce frais est lié à une décision sociale. Son montant et sa classe ne peuvent plus être modifiés.");

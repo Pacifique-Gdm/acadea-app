@@ -41,6 +41,13 @@ const caller = { uid: "admin-a", role: "school_admin", schoolId: "school-a", nam
 const body = { schoolYearId: "year-a", requestId: "request-1234567890", fees: [{ id: "fee-1234567890", name: "Minerval", amount: 1250000, className: "6ème Primaire" }] };
 
 describe("enregistrement transactionnel des types de frais", () => {
+  it("refuse côté Admin SDK toute modification d'un frais protégé par une version publiée", async () => {
+    const db = fakeDb();
+    await saveFeeTypes({ db, caller, body });
+    db.records.set("feeAllocationFeeGuards/fee-1234567890", { schoolId: "school-a", schoolYearId: "year-a", versionId: "version-a" });
+    await expect(saveFeeTypes({ db, caller, body: { ...body, editingFeeId: "fee-1234567890", requestId: "guard-edit-123456", fees: [{ ...body.fees[0], amount: 300 }] } })).rejects.toMatchObject({ status: 409 });
+    expect(db.records.get("feeTypes/fee-1234567890")?.amount).toBe(1250000);
+  });
   it("préserve le montant et la cible d'un frais utilisé par une décision sociale", async () => {
     const db = fakeDb();
     await saveFeeTypes({ db, caller, body });

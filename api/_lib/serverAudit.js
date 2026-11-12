@@ -13,6 +13,7 @@ export const AUDIT_EVENT_TYPES = Object.freeze({
   FINANCE_EXPENSE_CREATED: "finance.expense.created", FINANCE_EXPENSE_UPDATED: "finance.expense.updated", FINANCE_EXPENSE_DELETED: "finance.expense.deleted",
   FINANCE_CASH_INFLOW_CREATED: "finance.cash_inflow.created",
   FINANCE_FEE_TYPE_SAVED: "finance.fee_type.saved",
+  FINANCE_ALLOCATION_DRAFT_SAVED: "finance.allocation.draft_saved", FINANCE_ALLOCATION_VERSION_PREPARED: "finance.allocation.version_prepared",
 });
 
 const labels = Object.freeze({
@@ -27,6 +28,7 @@ const labels = Object.freeze({
   [AUDIT_EVENT_TYPES.FINANCE_EXPENSE_CREATED]: "Création dépense", [AUDIT_EVENT_TYPES.FINANCE_EXPENSE_UPDATED]: "Modification dépense", [AUDIT_EVENT_TYPES.FINANCE_EXPENSE_DELETED]: "Suppression dépense",
   [AUDIT_EVENT_TYPES.FINANCE_CASH_INFLOW_CREATED]: "Autre entrée de caisse enregistrée",
   [AUDIT_EVENT_TYPES.FINANCE_FEE_TYPE_SAVED]: "Type de frais enregistré",
+  [AUDIT_EVENT_TYPES.FINANCE_ALLOCATION_DRAFT_SAVED]: "Brouillon de répartition enregistré", [AUDIT_EVENT_TYPES.FINANCE_ALLOCATION_VERSION_PREPARED]: "Version de répartition préparée",
 });
 
 const forbiddenMetadataKeys = /password|token|secret|prompt|content|medical|attachment/i;

@@ -9,6 +9,8 @@ import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib
 import { CashBalanceError } from "./_lib/cashBalance.js";
 import { listResolvedExpenseCurrencies } from "./_lib/expenseCurrencyResolution.js";
 import { addFeeKind, FeeTypeError, saveFeeTypes } from "./_lib/feeTypeMutations.js";
+import { FeeAllocationError } from "./_lib/feeAllocationMath.js";
+import { manageFeeAllocationPhase1 } from "./_lib/feeAllocationPhase1.js";
 import { allowClientFailure, validateClientFailure } from "./_lib/clientFailureTelemetry.js";
 
 function parseJsonBody(raw) {
@@ -71,6 +73,17 @@ export default async function handler(req, res) {
       res.statusCode = 204;
       return res.end();
     }
+    if (requestedAction.startsWith("fee-allocation.")) {
+      const actor = ["coordination_admin", "sub_coordination_admin"].includes(caller.role)
+        ? await requireActiveCoordinationActor(auth, db, token)
+        : await requireActiveApiUser(db, caller);
+      const allocationAction = requestedAction.slice("fee-allocation.".length);
+      const mutation = ["save-draft", "prepare-version"].includes(allocationAction);
+      await enforceApiRateLimit({ db, actorId: actor.uid, schoolId: String(actor.schoolId ?? actor.coordinationId ?? ""),
+        action: requestedAction, idempotencyKey: mutation ? body.requestId : undefined,
+        ...(mutation ? API_RATE_LIMITS.FINANCE_CREATE : API_RATE_LIMITS.FINANCE_MUTATE) });
+      return sendJson(res, 200, await manageFeeAllocationPhase1({ db, caller: actor, body: { ...body, action: allocationAction } }));
+    }
     if (["list-social-support", "list-social-support-personnel", "save-social-support", "cancel-social-support"].includes(requestedAction)) {
       await requireActiveApiUser(db, caller);
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: requestedAction, ...API_RATE_LIMITS.FINANCE_MUTATE });
@@ -128,7 +141,7 @@ export default async function handler(req, res) {
       status: error?.status ?? error?.statusCode ?? 500, code: typeof error?.code === "string" || typeof error?.code === "number" ? error.code : "internal" });
     if (sendRateLimitError(res, error)) return;
     if (error instanceof CashBalanceError) return sendJson(res, error.status, { error: error.message, code: error.code, ...error.details });
-    if (error instanceof FinancialApiError || error instanceof FeeTypeError) return sendJson(res, error.status, { error: error.message, code: error.code });
+    if (error instanceof FinancialApiError || error instanceof FeeTypeError || error instanceof FeeAllocationError) return sendJson(res, error.status, { error: error.message, code: error.code });
     if (error?.code === 10 || error?.code === "aborted") return sendJson(res, 409, { error: "La caisse a changé pendant l'opération. Actualisez le solde et confirmez à nouveau.", code: "cash-balance-conflict" });
     if (error?.statusCode === 400 && !error?.code) return sendJson(res, 400, { error: "Corps JSON invalide.", code: "invalid-argument" });
     if (error?.statusCode === 401) return sendJson(res, 401, { error: error.message, code: error.code });
