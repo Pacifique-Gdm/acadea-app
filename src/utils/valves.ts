@@ -117,10 +117,18 @@ export function getApproximateValveDocumentSize(publication: ValvePublication) {
 export function getValvePublicationErrorMessage(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : String(error);
   const normalized = message.toLowerCase();
+  const code = typeof error === "object" && error !== null && "code" in error ? String(error.code).toLowerCase() : "";
+  const name = typeof error === "object" && error !== null && "name" in error ? String(error.name) : "";
   if (normalized.includes("upload_inactivity_timeout") || normalized.includes("upload_timeout")) {
     return "L'envoi est interrompu faute de progression. Vérifiez votre connexion et réessayez.";
   }
-  if (normalized.includes("too large") || normalized.includes("taille") || normalized.includes("quota") || normalized.includes("payload") || normalized.includes("bytes")) {
+  if (name === "QuotaExceededError") {
+    return "Le stockage local du navigateur a atteint sa limite. Le fichier n'a pas été publié.";
+  }
+  if (code.includes("quota-exceeded") || code.includes("resource-exhausted") || normalized.includes("quota exceeded") || normalized.includes("quota-exceeded") || normalized.includes("resource-exhausted")) {
+    return "Le service a atteint une limite de ressources. Le fichier n'a pas pu être publié ; vérifiez l'état du service avant de réessayer.";
+  }
+  if (normalized.includes("too large") || normalized.includes("trop volumineux") || normalized.includes("taille maximale") || normalized.includes("payload too large") || code === "413") {
     return "Le fichier joint est trop volumineux pour être publié.";
   }
   if (normalized.includes("permission") || normalized.includes("unauthorized") || normalized.includes("forbidden") || normalized.includes("denied")) {
