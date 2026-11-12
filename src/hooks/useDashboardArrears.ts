@@ -3,6 +3,7 @@ import type { Payment, Student } from "../types";
 import { loadStudentArrearsBatch } from "../services/financialTransactions";
 import { loadCoordinationStudentArrearsBatch } from "../services/coordinationService";
 import { sumMoney } from "../utils/money";
+import { reportClientFailure } from "../services/clientFailureTelemetry";
 
 /** Reuse the canonical historical-debt API, never equate current-year balance
  * with overdue debt. Refresh on confirmed ledger changes, without polling. */
@@ -13,6 +14,7 @@ export function useDashboardArrears(students: Student[], payments: Payment[], co
   const [result, setResult] = useState<{ key: string; totals?: { USD: number; CDF: number }; error?: string }>({ key: "" });
   useEffect(() => {
     let cancelled = false;
+    const startedAt = Date.now();
     const rows = JSON.parse(studentKey) as Pick<Student, "id" | "schoolYearId">[];
     const groups = new Map<string, string[]>();
     for (const row of rows) groups.set(row.schoolYearId, [...(groups.get(row.schoolYearId) ?? []), row.id]);
@@ -32,7 +34,10 @@ export function useDashboardArrears(students: Student[], payments: Payment[], co
         }
         if (!cancelled) setResult({ key, totals });
       } catch (error) {
-        if (!cancelled) setResult({ key, error: error instanceof Error ? error.message : "Arriérés indisponibles." });
+        if (!cancelled) {
+          setResult({ key, error: error instanceof Error ? error.message : "Arriérés indisponibles." });
+          void reportClientFailure("dashboard.arrears", error, startedAt);
+        }
       }
     })();
     return () => { cancelled = true; };

@@ -29,6 +29,18 @@ type FinancialResponse = {
   resolvedCurrencies?: Record<string, "USD" | "CDF">;
 };
 
+export class FinancialRequestError extends Error {
+  readonly status: number;
+  readonly code: string;
+
+  constructor(status: number, code: string, message: string) {
+    super(message);
+    this.name = "FinancialRequestError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
 export type HistoricalDebt = {
   schoolYearId: string;
   yearName: string;
@@ -49,7 +61,9 @@ async function financialRequest(input: Record<string, unknown> & { action: Finan
     body: JSON.stringify(input),
   });
   const payload = await response.json().catch(() => ({})) as FinancialResponse;
-  if (!response.ok) throw new Error(apiErrorMessage(response.status, payload, "Opération financière impossible."));
+  if (!response.ok) throw new FinancialRequestError(response.status,
+    typeof payload.code === "string" ? payload.code : response.status === 429 ? "resource-exhausted" : "unknown",
+    apiErrorMessage(response.status, payload, "Opération financière impossible."));
   return payload;
 }
 

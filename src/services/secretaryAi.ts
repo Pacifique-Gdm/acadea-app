@@ -2,6 +2,7 @@ import { getFunctions, httpsCallable } from "firebase/functions";
 import { app, auth, firebaseConfig } from "../firebase";
 import type { AppUser } from "../types";
 import type { AiWritingRequest, AiWritingResponse } from "../modules/secretary/aiWritingTypes";
+import { reportClientFailure } from "./clientFailureTelemetry";
 
 export function assertSecretaryAiAccess(user: AppUser, schoolId: string) {
   if (!app || !auth?.currentUser || auth.currentUser.uid !== user.id || user.role !== "secretary" || user.status === "inactive" || user.schoolId !== schoolId) throw new Error("Vous ne disposez pas de l'autorisation nécessaire.");
@@ -13,7 +14,11 @@ export async function requestSecretaryAi(user: AppUser, input: AiWritingRequest)
   const region = "europe-west1";
   if (import.meta.env.VITE_APP_ENV === "staging") console.info("Secretary AI callable diagnostic", { action: input.action, documentCategory: input.documentCategory, documentType: input.documentType, firebaseProjectId: firebaseConfig.projectId, functionName, region });
   const callable = httpsCallable<AiWritingRequest & { idempotencyKey: string }, AiWritingResponse>(getFunctions(app!, region), functionName, { timeout: 60000 });
-  const result = await callable({ ...input, idempotencyKey: crypto.randomUUID() });
+  const startedAt = Date.now();
+  const result = await callable({ ...input, idempotencyKey: crypto.randomUUID() }).catch((error) => {
+    void reportClientFailure("ai.secretary", error, startedAt);
+    throw error;
+  });
   if (!result.data?.success || !Array.isArray(result.data.warnings) || !Array.isArray(result.data.missingInformation)) throw new Error("La réponse de l'assistant IA est invalide.");
   return result.data;
 }
