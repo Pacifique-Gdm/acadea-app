@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ verifyIdToken: vi.fn(async () => ({ uid: "fixture-user" })) }));
-vi.mock("../../api/_lib/firebaseAdmin.js", () => ({ initAdmin: () => ({ auth: { verifyIdToken: mocks.verifyIdToken } }) }));
+const mocks = vi.hoisted(() => ({ verifyIdToken: vi.fn(async () => ({ uid: "fixture-user" })), runTransaction: vi.fn() }));
+vi.mock("../../api/_lib/firebaseAdmin.js", () => ({ initAdmin: () => ({ auth: { verifyIdToken: mocks.verifyIdToken }, db: { runTransaction: mocks.runTransaction } }) }));
 
-import handler from "../../api/client-failure.js";
+import handler from "../../api/manage-financial-transaction.js";
 import { allowClientFailure, validateClientFailure } from "../../api/_lib/clientFailureTelemetry.js";
 
 const event = {
@@ -32,11 +32,19 @@ describe("endpoint de diagnostic P0", () => {
     expect(mocks.verifyIdToken).not.toHaveBeenCalled();
   });
 
+  it("refuse les données étrangères au schéma sans écriture Firestore", async () => {
+    const res = response();
+    await handler({ method: "POST", headers: { authorization: "Bearer fixture-token" },
+      body: { action: "report-client-failure", event: { ...event, studentName: "secret" } } }, res);
+    expect(res.statusCode).toBe(400);
+    expect(mocks.runTransaction).not.toHaveBeenCalled();
+  });
+
   it("refuse un jeton révoqué sans consigner le diagnostic", async () => {
-    mocks.verifyIdToken.mockRejectedValueOnce(new Error("revoked"));
+    mocks.verifyIdToken.mockRejectedValueOnce(Object.assign(new Error("revoked"), { code: "auth/id-token-revoked" }));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const res = response();
-    await handler({ method: "POST", headers: { authorization: "Bearer revoked-token" }, body: event }, res);
+    await handler({ method: "POST", headers: { authorization: "Bearer revoked-token" }, body: { action: "report-client-failure", event } }, res);
     expect(res.statusCode).toBe(401);
     expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
@@ -45,12 +53,13 @@ describe("endpoint de diagnostic P0", () => {
   it("consigne uniquement les métadonnées validées sans écriture Firestore", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const res = response();
-    await handler({ method: "POST", headers: { authorization: "Bearer fixture-token" }, body: event }, res);
+    await handler({ method: "POST", headers: { authorization: "Bearer fixture-token" }, body: { action: "report-client-failure", event } }, res);
     expect(res.statusCode).toBe(204);
     expect(mocks.verifyIdToken).toHaveBeenCalledWith("fixture-token", true);
     expect(warn).toHaveBeenCalledWith("[Acadéa client-failure]", expect.objectContaining(event));
     expect(JSON.stringify(warn.mock.calls)).not.toContain("fixture-token");
     expect(JSON.stringify(warn.mock.calls)).not.toContain("fixture-user");
+    expect(mocks.runTransaction).not.toHaveBeenCalled();
     warn.mockRestore();
   });
 

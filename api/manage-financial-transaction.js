@@ -9,6 +9,7 @@ import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib
 import { CashBalanceError } from "./_lib/cashBalance.js";
 import { listResolvedExpenseCurrencies } from "./_lib/expenseCurrencyResolution.js";
 import { addFeeKind, FeeTypeError, saveFeeTypes } from "./_lib/feeTypeMutations.js";
+import { allowClientFailure, validateClientFailure } from "./_lib/clientFailureTelemetry.js";
 
 function parseJsonBody(raw) {
   try { const parsed = JSON.parse(raw || "{}"); if (parsed && typeof parsed === "object") return parsed; }
@@ -55,6 +56,21 @@ export default async function handler(req, res) {
     const caller = await verifyActorIdToken(auth, token);
     const body = await readBody(req);
     const requestedAction = typeof body.action === "string" ? body.action : "";
+    if (requestedAction === "report-client-failure") {
+      const event = validateClientFailure(body.event);
+      if (!event || Object.keys(body).some((key) => key !== "action" && key !== "event")) {
+        throw new FinancialApiError(400, "invalid-argument", "Diagnostic invalide.");
+      }
+      if (!allowClientFailure(caller.uid)) {
+        res.statusCode = 429;
+        return res.end();
+      }
+      // No Firestore reads/writes or tenant data. The closed schema excludes
+      // names, amounts, files, URLs, tokens and raw error messages.
+      console.warn("[Acadéa client-failure]", { at: new Date().toISOString(), ...event });
+      res.statusCode = 204;
+      return res.end();
+    }
     if (["list-social-support", "list-social-support-personnel", "save-social-support", "cancel-social-support"].includes(requestedAction)) {
       await requireActiveApiUser(db, caller);
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: requestedAction, ...API_RATE_LIMITS.FINANCE_MUTATE });

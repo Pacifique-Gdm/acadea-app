@@ -22,11 +22,12 @@ describe("télémétrie P0 côté navigateur", () => {
     await reportClientFailure("students.page", { code: "firestore/resource-exhausted", message: "secret@example.invalid", schoolId: "school-private" }, Date.now() - 42);
     expect(fetch).toHaveBeenCalledTimes(1);
     const [url, options] = vi.mocked(fetch).mock.calls[0];
-    expect(url).toBe("/api/client-failure");
+    expect(url).toBe("/api/manage-financial-transaction");
     const body = JSON.parse(String(options?.body)) as Record<string, unknown>;
-    expect(body).toMatchObject({ operation: "students.page", service: "firestore", code: "resource-exhausted", status: null, attempts: 1 });
-    expect(body.durationMs).toEqual(expect.any(Number));
-    expect(body.correlationId).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(body.action).toBe("report-client-failure");
+    expect(body.event).toMatchObject({ operation: "students.page", service: "firestore", code: "resource-exhausted", status: null, attempts: 1 });
+    expect((body.event as Record<string, unknown>).durationMs).toEqual(expect.any(Number));
+    expect((body.event as Record<string, unknown>).correlationId).toMatch(/^[0-9a-f-]{36}$/i);
     expect(JSON.stringify(body)).not.toContain("secret@example.invalid");
     expect(JSON.stringify(body)).not.toContain("school-private");
     expect(mocks.getIdToken).toHaveBeenCalledWith({ uid: "fixture-user" }, false);

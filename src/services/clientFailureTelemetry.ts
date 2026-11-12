@@ -42,11 +42,11 @@ export async function reportClientFailure(operation: ClientFailureOperation, err
   sentCount += 1;
   try {
     const token = await getIdToken(user, false);
-    await fetch(resolveApiUrl("/api/client-failure"), {
+    await fetch(resolveApiUrl("/api/manage-financial-transaction"), {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ operation, ...failure, correlationId: crypto.randomUUID(),
-        durationMs: Math.max(0, Math.min(120_000, Math.trunc(now - startedAt))), attempts: 1 }),
+      body: JSON.stringify({ action: "report-client-failure", event: { operation, ...failure, correlationId: crypto.randomUUID(),
+        durationMs: Math.max(0, Math.min(120_000, Math.trunc(now - startedAt))), attempts: 1 } }),
       cache: "no-store",
       signal: AbortSignal.timeout(5000),
     });
