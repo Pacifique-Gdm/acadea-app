@@ -11,8 +11,23 @@ const CODES = new Set([
   "deadline-exceeded", "aborted", "failed-precondition", "internal", "invalid-argument",
   "network-failed", "browser-storage-quota", "unknown",
 ]);
-const lastSent = new Map<string, number>();
-let sentCount = 0;
+const REPORT_WINDOW_MS = 10 * 60_000;
+const CRITICAL_CODES = new Set(["resource-exhausted", "quota-exceeded", "browser-storage-quota", "permission-denied", "unavailable", "internal"]);
+
+export function createClientReportLimiter() {
+  const lastSent = new Map<string, number>();
+  const reports: Array<{ at: number; critical: boolean }> = [];
+  return (key: string, critical: boolean, now = Date.now()) => {
+    while (reports.length && now - reports[0].at >= REPORT_WINDOW_MS) reports.shift();
+    for (const [knownKey, at] of lastSent) if (now - at >= REPORT_WINDOW_MS) lastSent.delete(knownKey);
+    if (lastSent.has(key) || reports.length >= 5 || (!critical && reports.filter((item) => !item.critical).length >= 3)) return false;
+    reports.push({ at: now, critical });
+    lastSent.set(key, now);
+    return true;
+  };
+}
+
+const allowReport = createClientReportLimiter();
 
 export function normalizedClientFailure(error: unknown, fallbackService: Service) {
   const value = error && typeof error === "object" ? error as { code?: unknown; status?: unknown; name?: unknown } : {};
@@ -32,14 +47,13 @@ export function normalizedClientFailure(error: unknown, fallbackService: Service
 /** Best effort only: one bounded request per distinct failure, with no queue in IndexedDB. */
 export async function reportClientFailure(operation: ClientFailureOperation, error: unknown, startedAt = Date.now()) {
   const user = auth?.currentUser;
-  if (!user || sentCount >= 5 || typeof fetch !== "function") return;
+  if (!user || typeof fetch !== "function" || (typeof navigator !== "undefined" && navigator.onLine === false)) return;
   const failure = normalizedClientFailure(error, operation.startsWith("dashboard.") ? "api"
     : operation.startsWith("ai.") ? "functions" : operation.startsWith("valves.") ? "storage" : "firestore");
   const key = `${operation}:${failure.service}:${failure.code}:${failure.status ?? ""}`;
   const now = Date.now();
-  if (now - (lastSent.get(key) ?? 0) < 10 * 60_000) return;
-  lastSent.set(key, now);
-  sentCount += 1;
+  const critical = failure.status === 429 || (failure.status !== null && failure.status >= 500) || CRITICAL_CODES.has(failure.code);
+  if (!allowReport(key, critical, now)) return;
   try {
     const token = await getIdToken(user, false);
     await fetch(resolveApiUrl("/api/manage-financial-transaction"), {

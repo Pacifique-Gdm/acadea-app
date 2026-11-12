@@ -5,7 +5,7 @@ vi.mock("../firebase", () => ({ auth: { currentUser: { uid: "fixture-user" } } }
 vi.mock("firebase/auth", () => ({ getIdToken: mocks.getIdToken }));
 vi.mock("../config/apiUrl", () => ({ resolveApiUrl: (path: string) => path }));
 
-import { normalizedClientFailure, reportClientFailure } from "./clientFailureTelemetry";
+import { createClientReportLimiter, normalizedClientFailure, reportClientFailure } from "./clientFailureTelemetry";
 
 describe("télémétrie P0 côté navigateur", () => {
   beforeEach(() => { vi.stubGlobal("fetch", vi.fn(async () => ({ status: 204 }))); });
@@ -16,6 +16,8 @@ describe("télémétrie P0 côté navigateur", () => {
     expect(normalizedClientFailure({ code: "storage/quota-exceeded" }, "storage")).toEqual({ service: "storage", code: "quota-exceeded", status: null });
     expect(normalizedClientFailure({ name: "QuotaExceededError" }, "firestore")).toEqual({ service: "browser-storage", code: "browser-storage-quota", status: null });
     expect(normalizedClientFailure(new TypeError("secret@example.invalid"), "api")).toEqual({ service: "network", code: "network-failed", status: null });
+    expect(normalizedClientFailure({ code: "functions/internal" }, "functions")).toEqual({ service: "functions", code: "internal", status: null });
+    expect(normalizedClientFailure({ code: "internal", status: 500 }, "api")).toEqual({ service: "api", code: "internal", status: 500 });
   });
 
   it("n'envoie que des métadonnées bornées, sans message ni identifiant scolaire", async () => {
@@ -43,5 +45,20 @@ describe("télémétrie P0 côté navigateur", () => {
     await reportClientFailure("dashboard.arrears", { code: "resource-exhausted", status: 429 });
     await reportClientFailure("dashboard.arrears", { code: "resource-exhausted", status: 429 });
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("renouvelle le budget après dix minutes et réserve deux places aux erreurs critiques", () => {
+    const allow = createClientReportLimiter();
+    const now = 1_000_000;
+    expect(allow("network-1", false, now)).toBe(true);
+    expect(allow("network-1", false, now + 1)).toBe(false);
+    expect(allow("network-2", false, now + 2)).toBe(true);
+    expect(allow("network-3", false, now + 3)).toBe(true);
+    expect(allow("network-4", false, now + 4)).toBe(false);
+    expect(allow("firestore-quota", true, now + 5)).toBe(true);
+    expect(allow("storage-quota", true, now + 6)).toBe(true);
+    expect(allow("functions-error", true, now + 7)).toBe(false);
+    expect(allow("network-1", false, now + 10 * 60_000)).toBe(true);
+    expect(createClientReportLimiter()("network-1", false, now)).toBe(true);
   });
 });

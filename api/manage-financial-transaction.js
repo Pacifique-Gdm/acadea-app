@@ -61,7 +61,7 @@ export default async function handler(req, res) {
       if (!event || Object.keys(body).some((key) => key !== "action" && key !== "event")) {
         throw new FinancialApiError(400, "invalid-argument", "Diagnostic invalide.");
       }
-      if (!allowClientFailure(caller.uid)) {
+      if (!allowClientFailure(caller.uid, event)) {
         res.statusCode = 429;
         return res.end();
       }

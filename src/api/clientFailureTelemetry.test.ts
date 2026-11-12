@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({ verifyIdToken: vi.fn(async () => ({ uid: "fixt
 vi.mock("../../api/_lib/firebaseAdmin.js", () => ({ initAdmin: () => ({ auth: { verifyIdToken: mocks.verifyIdToken }, db: { runTransaction: mocks.runTransaction } }) }));
 
 import handler from "../../api/manage-financial-transaction.js";
-import { allowClientFailure, validateClientFailure } from "../../api/_lib/clientFailureTelemetry.js";
+import { allowClientFailure, criticalClientFailure, validateClientFailure } from "../../api/_lib/clientFailureTelemetry.js";
 
 const event = {
   operation: "students.page", service: "firestore", code: "resource-exhausted", status: null,
@@ -66,9 +66,14 @@ describe("endpoint de diagnostic P0", () => {
   it("borne les diagnostics par utilisateur sans dépendre de Firestore", () => {
     const uid = `rate-test-${crypto.randomUUID()}`;
     const now = Date.now() + 120_000;
-    expect(allowClientFailure(uid, now)).toBe(true);
-    expect(allowClientFailure(uid, now)).toBe(true);
-    expect(allowClientFailure(uid, now)).toBe(true);
-    expect(allowClientFailure(uid, now)).toBe(false);
+    const network = { ...event, service: "network", code: "network-failed" };
+    expect(criticalClientFailure(network)).toBe(false);
+    expect(criticalClientFailure(event)).toBe(true);
+    expect(allowClientFailure(uid, network, now)).toBe(true);
+    expect(allowClientFailure(uid, network, now)).toBe(true);
+    expect(allowClientFailure(uid, network, now)).toBe(false);
+    expect(allowClientFailure(uid, event, now)).toBe(true);
+    expect(allowClientFailure(uid, event, now)).toBe(false);
+    expect(allowClientFailure(uid, network, now + 60_000)).toBe(true);
   });
 });

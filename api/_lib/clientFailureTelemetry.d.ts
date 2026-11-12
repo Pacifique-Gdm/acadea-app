@@ -8,4 +8,5 @@ export type ClientFailure = {
   attempts: number;
 };
 export function validateClientFailure(input: unknown): ClientFailure | null;
-export function allowClientFailure(uid: string, now?: number): boolean;
+export function criticalClientFailure(event: ClientFailure): boolean;
+export function allowClientFailure(uid: string, event: ClientFailure, now?: number): boolean;

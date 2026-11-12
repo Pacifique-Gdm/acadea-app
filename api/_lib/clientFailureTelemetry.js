@@ -22,7 +22,12 @@ const CODES = new Set([
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const WINDOW_MS = 60_000;
 const actorWindows = new Map();
-let globalWindow = { resetAt: 0, count: 0 };
+let globalWindow = { resetAt: 0, count: 0, normalCount: 0 };
+
+export function criticalClientFailure(event) {
+  return event.status === 429 || (event.status !== null && event.status >= 500)
+    || ["resource-exhausted", "quota-exceeded", "browser-storage-quota", "permission-denied", "unavailable", "internal"].includes(event.code);
+}
 
 export function validateClientFailure(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)
@@ -42,15 +47,18 @@ export function validateClientFailure(input) {
 
 // No Firestore reads or writes: diagnostics must not worsen an exhausted quota.
 // Serverless instances have independent limits; the client also deduplicates.
-export function allowClientFailure(uid, now = Date.now()) {
-  if (now >= globalWindow.resetAt) globalWindow = { resetAt: now + WINDOW_MS, count: 0 };
-  if (globalWindow.count >= 60) return false;
+export function allowClientFailure(uid, event, now = Date.now()) {
+  if (now >= globalWindow.resetAt) globalWindow = { resetAt: now + WINDOW_MS, count: 0, normalCount: 0 };
+  const critical = criticalClientFailure(event);
+  if (globalWindow.count >= 60 || (!critical && globalWindow.normalCount >= 50)) return false;
   const key = createHash("sha256").update(uid).digest("hex");
   const prior = actorWindows.get(key);
-  const window = !prior || now >= prior.resetAt ? { resetAt: now + WINDOW_MS, count: 0 } : prior;
-  if (window.count >= 3) return false;
+  const window = !prior || now >= prior.resetAt ? { resetAt: now + WINDOW_MS, count: 0, normalCount: 0 } : prior;
+  if (window.count >= 3 || (!critical && window.normalCount >= 2)) return false;
   window.count += 1;
+  if (!critical) window.normalCount += 1;
   globalWindow.count += 1;
+  if (!critical) globalWindow.normalCount += 1;
   actorWindows.set(key, window);
   if (actorWindows.size > 1000) {
     for (const [actor, value] of actorWindows) if (now >= value.resetAt) actorWindows.delete(actor);
