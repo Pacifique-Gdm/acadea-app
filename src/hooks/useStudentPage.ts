@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { db } from "../firebase";
 import type { Student } from "../types";
+import { reportClientFailure } from "../services/clientFailureTelemetry";
 import {
   STUDENT_SOURCE_PAGE_SIZE,
   countStudentResults,
@@ -33,8 +34,12 @@ export function useStudentPage(filters: StudentQueryFilters, fallbackStudents: S
     let active = true;
     setLoading(true);
     setError("");
+    const startedAt = Date.now();
     void countStudentResults(filters).then((count) => { if (active) setTotal(count); }).catch((cause) => {
-      if (active) setError(cause instanceof Error ? cause.message : "Impossible de compter les élèves.");
+      if (active) {
+        setError(cause instanceof Error ? cause.message : "Impossible de compter les élèves.");
+        void reportClientFailure("students.count", cause, startedAt);
+      }
     });
     return () => { active = false; };
   }, [filters, key]);
@@ -43,6 +48,7 @@ export function useStudentPage(filters: StudentQueryFilters, fallbackStudents: S
     if (!db) return;
     setLoading(true);
     setError("");
+    const startedAt = Date.now();
     const cursor = cursors.current.get(page);
     return subscribeStudentPage(filters, cursor, (items, nextCursor) => {
       setRemoteStudents(items);
@@ -52,6 +58,7 @@ export function useStudentPage(filters: StudentQueryFilters, fallbackStudents: S
     }, (cause) => {
       setError(cause.message);
       setLoading(false);
+      void reportClientFailure("students.page", cause, startedAt);
     });
   }, [filters, key, page]);
 

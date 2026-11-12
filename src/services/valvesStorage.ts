@@ -2,6 +2,7 @@ import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from "firebas
 import { storage } from "../firebase";
 import type { ValvePublicationAttachment } from "../types";
 import { getValveAttachmentExtension, validateValveAttachments } from "../utils/valvesMedia";
+import { reportClientFailure } from "./clientFailureTelemetry";
 
 export type ValveAttachmentUploadInput = {
   name: string;
@@ -167,6 +168,7 @@ export async function uploadValveAttachments(params: {
   onProgress?: (progress: ValveAttachmentUploadProgress) => void;
 }): Promise<ValvePublicationAttachment[]> {
   const uploadedAttachments: ValvePublicationAttachment[] = [];
+  const startedAt = Date.now();
 
   try {
     for (const [index, attachment] of params.attachments.entries()) {
@@ -193,6 +195,7 @@ export async function uploadValveAttachments(params: {
     }
   } catch (error) {
     await deleteValveAttachments(uploadedAttachments.map((attachment) => attachment.path));
+    void reportClientFailure("valves.upload", error, startedAt);
     throw error;
   }
 

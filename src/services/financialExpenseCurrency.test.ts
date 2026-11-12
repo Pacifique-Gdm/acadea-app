@@ -4,7 +4,7 @@ import type { Expense } from "../types";
 vi.mock("./auth", () => ({ getCurrentFirebaseIdToken: async () => "fictional-test-token" }));
 vi.mock("../config/apiUrl", () => ({ resolveApiUrl: (route: string) => route }));
 
-import { resolveHistoricalExpenseCurrencies } from "./financialTransactions";
+import { FinancialRequestError, resolveHistoricalExpenseCurrencies } from "./financialTransactions";
 
 const linkedExpense = { id: "expense-a", schoolId: "school-a", schoolYearId: "year-a",
   amount: 25, personnelPaymentId: "payroll-a" } as Expense;
@@ -40,5 +40,15 @@ describe("devises des dépenses historiques côté navigateur", () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true,
       json: async () => ({ resolvedCurrencies: {} }) })));
     expect((await resolveHistoricalExpenseCurrencies([linkedExpense], true))[0].currency).toBeUndefined();
+  });
+
+  it("conserve le statut HTTP 429 et le code serveur sans exposer la réponse brute", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 429,
+      json: async () => ({ code: "resource-exhausted", error: "_rateLimits/private" }) })));
+    await expect(resolveHistoricalExpenseCurrencies([linkedExpense], true)).rejects.toMatchObject({
+      name: "FinancialRequestError", status: 429, code: "resource-exhausted",
+    });
+    await expect(resolveHistoricalExpenseCurrencies([linkedExpense], true)).rejects.toBeInstanceOf(FinancialRequestError);
+    await expect(resolveHistoricalExpenseCurrencies([linkedExpense], true)).rejects.not.toThrow("_rateLimits/private");
   });
 });
