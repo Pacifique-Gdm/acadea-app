@@ -40,9 +40,17 @@ describe("actualisation Firestore", () => {
     ["failed-precondition", "configuration supplémentaire"],
     ["client-timeout", "prend plus de temps que prévu"],
     ["deadline-exceeded", "connexion est lente"],
+    ["resource-exhausted", "limite de ressources"],
     ["unknown", "contactez l'assistance"],
   ])("affiche un message utile pour %s", (code, expected) => {
     expect(refreshErrorMessage({ code })).toContain(expected);
+  });
+
+  it("distingue une limite Firestore du stockage local sans relance automatique", () => {
+    expect(retryableRefreshError({ code: "resource-exhausted" })).toBe(false);
+    expect(refreshErrorMessage({ code: "resource-exhausted" })).toContain("actualisation n'est pas vérifiée");
+    expect(firebaseErrorCode({ name: "QuotaExceededError" })).toBe("browser-storage-quota");
+    expect(refreshErrorMessage({ name: "QuotaExceededError" })).toContain("navigateur");
   });
 
   it("utilise un périmètre réduit pour le Secrétaire", () => {
