@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { chromium, expect } from '@playwright/test';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createCanvas } from '@napi-rs/canvas';
+import { createWorker } from 'tesseract.js';
 import { fileURLToPath } from 'node:url';
 import { services } from './socialFinanceStagingFixture.mjs';
 import { feeAllocationAnchorId } from '../api/_lib/feeAllocationReceipts.js';
@@ -61,7 +62,7 @@ const manifest = { projectId: 'acadea-staging', tag, sha: expectedSha, schools: 
 const save = () => writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), { mode: 0o600 });
 save(); // Durable identity-only inventory before the first write. No password/token.
 const password = `Fictif-${randomUUID()}${randomUUID()}`;
-let browser;
+let browser, pdfOcr;
 const tokens = new Map();
 const record = name => { results.push({ name, result: 'PASS' }); console.log(`PASS: ${name}`); };
 async function put(collection, id, data) {
@@ -368,6 +369,7 @@ try {
   writeFileSync(`${output}/reconciliation-proof.json`, JSON.stringify({ currency: 'USD', expected: { opening: 500, received: 58100, spent: 4200, available: 54400 }, actual: finalTotals, sha: expectedSha }, null, 2));
   record('Rapprochement final : ouverture 5 + recettes 581 - dépenses nettes 42 = disponible 544 USD');
   browser = await chromium.launch({ headless: true });
+  pdfOcr = await createWorker('fra', 1, { langPath: fileURLToPath(new URL('../node_modules/@tesseract.js-data/fra/4.0.0_best_int', import.meta.url)), cacheMethod: 'none', logger: () => {} });
   for (const u of users.slice(0, 4)) {
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' });
     try {
@@ -380,20 +382,23 @@ try {
       await expect(drawer.getByRole('button', { name: 'Exporter PDF', exact: true })).toBeEnabled({ timeout: 60000 });
       await expect(drawer.locator('tbody tr')).toHaveCount(21);
       await expect(drawer.getByRole('button', { name: '+ Ajouter', exact: true })).toHaveCount(0);
-      let expectedReceived = 581, expectedSpent = 42;
+      let expectedReceived = 581, expectedSpent = 42, expectedFilter;
       if (u.role === 'school_admin') {
         await drawer.getByLabel('Valeur correspondante', { exact: true }).selectOption(JSON.stringify([school, secondFee]));
         expectedReceived = 200;
+        expectedFilter = 'Minerval';
       } else if (u.role === 'cashier') {
         await drawer.getByLabel('Filtre', { exact: true }).selectOption('class');
         await drawer.getByLabel('Valeur correspondante', { exact: true }).selectOption(JSON.stringify([school, '2ème Primaire']));
         expectedReceived = 200;
+        expectedFilter = '2ème Primaire';
       } else {
         await drawer.getByLabel('Filtre', { exact: true }).selectOption('period');
         await drawer.getByLabel('Valeur correspondante', { exact: true }).selectOption('custom');
         const day = new Date(Date.now() + (u.role === 'coordination_admin' ? 86400000 : 0)).toISOString().slice(0, 10);
         await drawer.getByLabel('Du', { exact: true }).fill(day);
         await drawer.getByLabel('Au', { exact: true }).fill(day);
+        expectedFilter = day;
         if (u.role === 'coordination_admin') { expectedReceived = 0; expectedSpent = 0; }
       }
       const summary = drawer.locator('[aria-label="Synthèse des répartitions"]');
@@ -407,16 +412,21 @@ try {
       await expect(page.locator('[data-pdf-download]')).toHaveAttribute('href', /^blob:/, { timeout: 90000 });
       const bytes = new Uint8Array(await page.evaluate(async () => Array.from(new Uint8Array(await (await fetch(document.querySelector('[data-pdf-download]').href)).arrayBuffer()))));
       writeFileSync(`${output}/${u.role}.pdf`, bytes);
-      const pdf = await getDocument({ data: bytes.slice(), standardFontDataUrl: fileURLToPath(new URL('../node_modules/pdfjs-dist/standard_fonts/', import.meta.url)) }).promise; assert.ok(pdf.numPages >= 2, 'Tableau multipage attendu');
+      const pdf = await getDocument({ data: bytes.slice(), standardFontDataUrl: fileURLToPath(new URL('../node_modules/pdfjs-dist/standard_fonts/', import.meta.url)).replaceAll('\\', '/') }).promise; assert.ok(pdf.numPages >= 2, 'Tableau multipage attendu');
       let pdfText = '';
       for (let i = 1; i <= pdf.numPages; i++) {
-        const sheet = await pdf.getPage(i), viewport = sheet.getViewport({ scale: 1.2 }), canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
-        pdfText += (await sheet.getTextContent()).items.map(item => item.str ?? '').join(' ') + ' ';
+        const sheet = await pdf.getPage(i), viewport = sheet.getViewport({ scale: 2 }), canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
         await sheet.render({ canvasContext: canvas.getContext('2d'), canvas, viewport }).promise;
-        writeFileSync(`${output}/${u.role}-${i}.png`, canvas.toBuffer('image/png'));
+        const raster = canvas.toBuffer('image/png');
+        writeFileSync(`${output}/${u.role}-${i}.png`, raster);
+        // Acadéa embeds the table as a raster image. Text extraction sees only
+        // the footer; verify the rendered first-page summary with local OCR.
+        if (i === 1) pdfText = (await pdfOcr.recognize(raster)).data.text;
       }
-      for (const amount of [expectedReceived, expectedSpent, 544]) assert.ok(pdfText.includes(money(amount)), 'Totaux PDF différents du drawer');
-      assert.ok(pdfText.includes('Filtre') && pdfText.includes('ouverture'));
+      writeFileSync(`${output}/${u.role}-ocr.txt`, pdfText);
+      const pdfSummary = pdfText.split('Situation')[0];
+      for (const amount of [expectedReceived, expectedSpent, 544]) assert.ok(pdfSummary.includes(money(amount)), 'Totaux PDF différents du drawer');
+      assert.ok(pdfText.includes(expectedFilter) && pdfText.includes('ouverture'), 'Filtre ou ouverture absent du PDF rendu');
       record(`${u.role} : connexion réelle, filtre frais/classe/période, disponible cumulé 544 USD, mobile Chromium et PDF multipage`);
     } finally { await context.close(); }
   }
@@ -424,6 +434,7 @@ try {
   results.push({ name: 'Recette interrompue', result: 'FAIL', detail: String(error.message).slice(0, 600) }); process.exitCode = 1;
   console.error('FAIL: recette interrompue, consulter le rapport expurgé.');
 } finally {
+  await pdfOcr?.terminate();
   await browser?.close();
   try { await retire(); } catch { results.push({ name: 'Clôture', result: 'FAIL' }); process.exitCode = 1; }
   writeFileSync(`${output}/results.json`, JSON.stringify({ projectId: 'acadea-staging', expectedSha, results }, null, 2));
