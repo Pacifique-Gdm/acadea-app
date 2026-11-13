@@ -12,10 +12,12 @@ import { services } from './socialFinanceStagingFixture.mjs';
 import { feeAllocationAnchorId } from '../api/_lib/feeAllocationReceipts.js';
 import { validateFeeAllocationRubrics } from '../api/_lib/feeAllocationMath.js';
 import { runHostedAllocationVolume } from './feeAllocationHostedVolume.mjs';
+import { runHostedAllocationPanel } from './feeAllocationHostedPanel.mjs';
 
 const origin = 'https://acadea-staging.vercel.app', expectedSha = process.env.ACADEA_EXPECTED_SHA;
 const volumeOnly = process.env.ACADEA_ALLOCATION_RECIPE === 'volume';
-assert.ok(!process.env.ACADEA_ALLOCATION_RECIPE || volumeOnly, 'Parcours de recette inconnu');
+const panelRecipe = process.env.ACADEA_ALLOCATION_RECIPE === 'panel';
+assert.ok(!process.env.ACADEA_ALLOCATION_RECIPE || volumeOnly || panelRecipe, 'Parcours de recette inconnu');
 const output = `diagnostics/fee-allocation-hosted/${expectedSha}${volumeOnly ? `-volume-${Date.now()}` : ''}`;
 const manifestPath = 'diagnostics/fee-allocation-hosted/manifest.json';
 assert.equal(process.env.GOOGLE_CLOUD_PROJECT, 'acadea-staging');
@@ -365,6 +367,13 @@ try {
     await page.getByRole('button', { name: 'Menu', exact: true }).last().click();
     await page.getByRole('button', { name: 'Répartition des frais', exact: true }).click();
     const panel = page.getByRole('region', { name: 'Activation par établissement' });
+    await page.route('**/api/manage-financial-transaction', async route => {
+      const action = route.request().postDataJSON()?.action;
+      if (!['publish-configuration', 'start-reconciliation', 'prepare-opening', 'approve-opening', 'activate', 'pause', 'resume'].some(a => action === `fee-allocation.${a}`)) return route.continue();
+      const response = await route.fetch();
+      await new Promise(resolve => setTimeout(resolve, 800));
+      await route.fulfill({ response });
+    });
     // Wait for the actual authenticated mutation, not Playwright's five-second
     // assertion default. A slow confirmed reply is not a server rejection.
     async function activationClick(label, action) {
@@ -372,28 +381,44 @@ try {
         if (!response.url().endsWith('/api/manage-financial-transaction') || response.request().method() !== 'POST') return false;
         try { return response.request().postDataJSON()?.action === `fee-allocation.${action}`; } catch { return false; }
       }, { timeout: 45000 });
-      const [response] = await Promise.all([responsePromise, panel.getByRole('button', { name: label, exact: true }).click()]);
+      const control = panel.getByRole('button', { name: label, exact: true });
+      const before = await control.boundingBox();
+      await control.click();
+      const waiting = panel.getByRole('button', { name: 'Chargement...', exact: true });
+      await expect(waiting).toBeDisabled();
+      const during = await waiting.boundingBox();
+      assert.equal(before.width, during.width); assert.equal(before.height, during.height);
+      const response = await responsePromise;
       const reply = await response.json();
       assert.equal(response.status(), 200, `Activation ${action}: HTTP ${response.status()}, code ${reply.code ?? 'inconnu'}`);
       assert.equal(reply.operational, false, 'Contrat de confirmation invalide');
     }
-    await activationClick('Publier cette version', 'publish-configuration');
-    await expect(panel.getByRole('button', { name: 'Publier cette version', exact: true })).toHaveCount(0, { timeout: 45000 });
-    await activationClick('Lancer un nouveau rapprochement', 'start-reconciliation');
-    await panel.getByRole('button', { name: 'Continuer le rapprochement', exact: true }).click();
-    await expect(panel.getByText('Rapprochement complet.', { exact: false })).toBeVisible({ timeout: 60000 });
+    await activationClick('Publier la répartition', 'publish-configuration');
+    await expect(panel.getByRole('button', { name: 'Publier la répartition', exact: true })).toHaveCount(0, { timeout: 45000 });
+    await activationClick('Vérifier le solde de départ', 'start-reconciliation');
+    await panel.getByRole('button', { name: 'Continuer la vérification', exact: true }).click();
+    await expect(panel.getByText('Vérification terminée.', { exact: false })).toBeVisible({ timeout: 60000 });
+    await panel.getByRole('button', { name: 'Préparer le solde de départ', exact: true }).click();
     await panel.getByLabel('Caisse constatée (CDF)', { exact: true }).fill('90');
     await panel.getByLabel('Ouverture : Fonctionnement CDF (CDF)', { exact: true }).fill('90');
     await panel.getByLabel('Confirmation du rapprochement', { exact: true }).fill('RAPPROCHER LA CAISSE');
-    await activationClick("Préparer l'ouverture", 'prepare-opening');
-    await expect(panel.getByRole('button', { name: 'Approuver le rapprochement', exact: true })).toBeVisible({ timeout: 45000 });
+    await activationClick('Confirmer le solde de départ', 'prepare-opening');
+    await expect(panel.getByRole('button', { name: 'Approuver le solde de départ', exact: true })).toBeVisible({ timeout: 45000 });
     await panel.getByLabel('Confirmation du rapprochement', { exact: true }).fill('APPROUVER LE RAPPROCHEMENT');
-    await activationClick('Approuver le rapprochement', 'approve-opening');
-    await expect(panel.getByRole('button', { name: 'Activer cet établissement', exact: true })).toBeVisible({ timeout: 45000 });
+    await activationClick('Approuver le solde de départ', 'approve-opening');
+    await expect(panel.getByRole('button', { name: 'Activer la répartition', exact: true })).toBeVisible({ timeout: 45000 });
     await panel.getByLabel('Confirmation du rapprochement', { exact: true }).fill('ACTIVER LA REPARTITION FICTIVE');
-    await activationClick('Activer cet établissement', 'activate');
-    await expect(panel.getByText('Répartition active', { exact: false })).toBeVisible({ timeout: 45000 });
+    await activationClick('Activer la répartition', 'activate');
+    await expect(panel.getByRole('heading', { name: 'Active', exact: true })).toBeVisible({ timeout: 45000 });
     await page.screenshot({ path: `${output}/activation-administrateur-cdf.png`, fullPage: true });
+    await panel.getByRole('button', { name: 'Mettre en pause', exact: true }).click();
+    await panel.getByLabel('Motif audité', { exact: true }).fill('Pause fictive de contrôle du panneau');
+    await activationClick('Confirmer la pause', 'pause');
+    await expect(panel.getByRole('heading', { name: 'En pause', exact: true })).toBeVisible();
+    await panel.getByRole('button', { name: 'Reprendre la répartition', exact: true }).click();
+    await panel.getByLabel('Motif audité', { exact: true }).fill('Reprise fictive de contrôle du panneau');
+    await activationClick('Confirmer la reprise', 'resume');
+    await expect(panel.getByRole('heading', { name: 'Active', exact: true })).toBeVisible();
     record('Publication, rapprochement, approbation et activation explicites depuis le véritable formulaire Administrateur');
   } finally { await activationContext.close(); }
   await api('cdf-cashier', { action: 'create-payment', schoolYearId: cdfYear, studentId: cdfStudent, feeTypeId: cdfFee, amount: 10000, clientRequestId: requestId() });
@@ -499,6 +524,10 @@ try {
       await expect(drawer.getByRole('button', { name: 'Exporter PDF', exact: true })).toBeEnabled({ timeout: 60000 });
       await expect(drawer.locator('tbody tr')).toHaveCount(21);
       await expect(drawer.getByRole('button', { name: '+ Ajouter', exact: true })).toHaveCount(0);
+      const toolbar = drawer.getByRole('region', { name: 'Commandes de répartition' });
+      await expect(toolbar.locator('button, select')).toHaveCount(3);
+      assert.ok((await drawer.getByLabel('Valeur correspondante', { exact: true }).locator('option').allTextContents()).every(text => !text.includes('Répartition fictive USD')));
+      await page.screenshot({ path: `${output}/${u.role}-desktop.png`, fullPage: true });
       let expectedReceived = 581, expectedFilter;
       if (u.role === 'school_admin') {
         await drawer.getByLabel('Valeur correspondante', { exact: true }).selectOption(JSON.stringify([school, secondFee]));
@@ -518,11 +547,10 @@ try {
         expectedFilter = day;
         if (u.role === 'coordination_admin') expectedReceived = 0;
       }
-      const summary = drawer.locator('[aria-label="Synthèse selon le filtre"]');
-      const globalSummary = drawer.locator('[aria-label="Synthèse globale des rubriques"]');
+      const summary = drawer.getByRole('table', { name: 'Situation des répartitions' }).locator('tfoot tr');
       const money = amount => `$${amount.toFixed(2).replace('.', ',')}`;
-      await expect(summary.locator(':scope > div').nth(1)).toContainText(money(expectedReceived));
-      for (const [i, amount] of [5, 581, 42, 544].entries()) await expect(globalSummary.locator(':scope > div').nth(i)).toContainText(money(amount));
+      await expect(summary.locator('td').nth(2)).toContainText(money(expectedReceived));
+      for (const [i, amount] of [5, 581, 42, 544].entries()) await expect(summary.locator('td').nth(i + 3)).toContainText(money(amount));
       for (const [name, opening, cumulative, spent, available, selected] of [['Rubrique fictive 1', 0, 60, 42, 18, 4], ['Non affecté', 5, 255, 0, 260, 44]]) {
         const row = drawer.getByRole('table', { name: 'Situation des répartitions' }).locator('tbody tr').filter({ has: page.getByText(name, { exact: true }) });
         await expect(row).toHaveCount(1);
@@ -531,6 +559,8 @@ try {
         assert.equal(opening + cumulative - spent, available);
       }
       await page.setViewportSize({ width: 390, height: 844 }); assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+      const positions = await toolbar.locator('button, select').evaluateAll(nodes => nodes.map(n => ({ y: n.getBoundingClientRect().y, h: n.getBoundingClientRect().height })));
+      assert.ok(positions.every(p => Math.abs(p.y - positions[0].y) < 2 && Math.abs(p.h - positions[0].h) < 2));
       await page.screenshot({ path: `${output}/${u.role}-mobile.png`, fullPage: true });
       await drawer.getByRole('button', { name: 'Exporter PDF', exact: true }).click();
       await expect(page.locator('[data-pdf-download]')).toHaveAttribute('href', /^blob:/, { timeout: 90000 });
@@ -561,9 +591,33 @@ try {
       console.error(`FAIL: ${u.role} : export/drawer (rapport expurgé conservé)`);
     } finally { await context.close(); }
   }
+  if (panelRecipe && !results.some(r => r.result === 'FAIL')) {
+    await ownUpdate('schools', foreign, { activeCoordinationId: coord });
+    await put('coordinationSchools', `${coord}__${foreign}`, { schoolId: foreign, coordinationId: coord, active: true });
+    await put('subCoordinationSchools', `${sub}__${foreign}`, { schoolId: foreign, coordinationId: coord, subCoordinationId: sub, active: true });
+    for (const u of users.filter(u => ['coordination_admin', 'sub_coordination_admin'].includes(u.role))) {
+      const context = await browser.newContext({ serviceWorkers: 'block' });
+      try {
+        const page = await context.newPage(); page.setDefaultTimeout(60000);
+        await page.goto(origin + '/login'); await page.getByPlaceholder('email@ecole.com').fill(u.email); await page.getByPlaceholder('Votre mot de passe').fill(password);
+        await page.getByRole('button', { name: 'Se connecter', exact: true }).click();
+        await page.getByRole('button', { name: 'Menu', exact: true }).last().click();
+        await page.getByRole('button', { name: 'Répartition des frais', exact: true }).click();
+        const drawer = page.getByRole('dialog', { name: 'Répartition des frais', exact: true });
+        await expect(drawer.locator('tfoot tr')).toHaveCount(2);
+        const labels = await drawer.getByLabel('Valeur correspondante', { exact: true }).locator('option').allTextContents();
+        assert.ok(labels.some(l => l.includes('Répartition fictive USD')) && labels.some(l => l.includes('Répartition fictive CDF')));
+        await page.screenshot({ path: `${output}/${u.role}-multi-ecoles.png`, fullPage: true });
+        await drawer.getByRole('combobox', { name: 'Établissement', exact: true }).selectOption(school);
+        await expect(drawer.locator('tfoot tr')).toHaveCount(1);
+        assert.ok((await drawer.getByLabel('Valeur correspondante', { exact: true }).locator('option').allTextContents()).every(l => !l.includes('Répartition fictive')));
+        record(`${u.role} : deux écoles/devises distinctes puis école unique sans répétitions`);
+      } finally { await context.close(); }
+    }
+  }
   }
   browser ??= await chromium.launch({ headless: true });
-  if (!results.some(result => result.result === 'FAIL')) await runHostedAllocationVolume({ db: s.db, tag, schoolId: volumeSchool, yearId: volumeYear,
+  if (!results.some(result => result.result === 'FAIL')) await (panelRecipe ? runHostedAllocationPanel : runHostedAllocationVolume)({ db: s.db, tag, schoolId: volumeSchool, yearId: volumeYear,
     put, api, allocation, manifest, save, output, browser, user: users.find(u => u.key === 'volume-cashier'), adminUser: users.find(u => u.key === 'volume-admin'), password, origin, record });
 } catch (error) {
   results.push({ name: 'Recette interrompue', result: 'FAIL', detail: safeError(error) }); process.exitCode = 1;

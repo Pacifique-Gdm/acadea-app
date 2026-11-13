@@ -3,6 +3,7 @@ import { completeAllocationFixture } from "./feeAllocationLifecycle.test.js";
 import { readAllocationActivation } from "./feeAllocationActivationView.js";
 import { manageFeeAllocationLifecycle } from "./feeAllocationLifecycle.js";
 import { reconcileFixture, markFixtureFinancialChange } from './feeAllocationTestHelpers.js';
+import { manageAllocationReconciliation } from './feeAllocationReconciliation.js';
 
 const now = "2026-11-13T10:00:00.000Z", rubricId = "a".repeat(32);
 const admin = { uid: "admin", schoolId: "school", role: "school_admin" };
@@ -13,6 +14,54 @@ const mutate = async (db, action, body = {}) => {
 };
 
 describe("consultation sécurisée du cycle d'activation", () => {
+  it("résume 36 sources et retrouve la paie bloquée hors de la page affichée sans modifier l'original", async () => {
+    const db = completeAllocationFixture();
+    // 34 payments + one expense + one existing configuration = 36 sources.
+    for (let i = 0; i < 34; i++) db.records.set(`payments/p${i}`, {
+      schoolId: 'school', schoolYearId: 'year', amount: 2, currency: 'USD', createdAt: now,
+      provenance: 'financial-api', clientRequestIdHash: `request-${i}`,
+    });
+    db.records.set('expenses/payroll', { schoolId: 'school', schoolYearId: 'year', amount: 12,
+      provenance: 'personnel-payroll', personnelPaymentId: 'salary' });
+    db.records.set('personnelPayments/salary', { schoolId: 'school', schoolYearId: 'year', expenseId: 'payroll',
+      netPaid: 12, currency: 'USD', createdAt: now, beneficiaryName: 'NEVER EXPOSE' });
+    await reconcileFixture(db);
+    const before = structuredClone([...db.records]);
+    const first = await view(db);
+    expect(first.reconciliation).toMatchObject({ scanned: 36, blockedCount: 1, status: 'BLOCKED' });
+    expect(first.evidencePage.rows.every(row => !row.reason)).toBe(true);
+    expect(first.singleBlocker).toMatchObject({ nature: 'Paiement de personnel', amountMinor: 1200,
+      currency: null, createdAt: null, reason: 'Date ou devise non justifiée' });
+    const blocked = await view(db, { blockedOnly: true });
+    expect(blocked.evidencePage.page).toBeGreaterThan(0);
+    expect(blocked.evidencePage.rows).toHaveLength(1);
+    const proofs = await view(db, { action: 'get-history-proofs', collection: 'expenses', sourceId: 'payroll' });
+    expect(proofs.candidates).toEqual([{ type: 'personnelPayments', id: 'salary', nature: 'Paie liée',
+      amount: 12, currency: 'USD', createdAt: now, receiptNumber: null }]);
+    expect(JSON.stringify(proofs)).not.toContain('NEVER EXPOSE');
+    expect([...db.records]).toEqual(before);
+    const original = structuredClone(db.records.get('expenses/payroll'));
+    const justify = evidenceId => manageAllocationReconciliation({ db, caller: admin, now, body: {
+      action: 'justify-history', requestId: `proof-choice-${evidenceId}`, collection: 'expenses', sourceId: 'payroll',
+      evidenceType: 'personnelPayments', evidenceId, reason: 'Paie liée vérifiée dans le test isolé',
+    } });
+    expect((await justify('missing')).decision).toBe('rejected');
+    expect((await justify('salary')).decision).toBe('accepted');
+    expect((await justify('salary')).idempotent).toBe(true);
+    expect(db.records.get('expenses/payroll')).toEqual(original);
+    await reconcileFixture(db);
+    expect((await view(db)).reconciliation.blockedCount).toBe(0);
+  });
+  it("refuse les suggestions étrangères, les rôles non autorisés et les paramètres injectés", async () => {
+    const db = completeAllocationFixture();
+    db.records.set('expenses/foreign', { schoolId: 'foreign', schoolYearId: 'year', amount: 12 });
+    const body = { action: 'get-history-proofs', collection: 'expenses', sourceId: 'foreign' };
+    await expect(view(db, body)).rejects.toMatchObject({ status: 403 });
+    await expect(view(db, body, { ...admin, role: 'cashier' })).rejects.toMatchObject({ status: 403 });
+    await expect(view(db, { ...body, schoolId: 'foreign' })).rejects.toMatchObject({ status: 400 });
+    await expect(view(db, { ...body, sourceId: '../foreign' })).rejects.toMatchObject({ status: 400 });
+    await expect(view(db, { blockedOnly: 'true' })).rejects.toMatchObject({ status: 400 });
+  });
   it("ne crée rien en consultant ; expose les pièces paginées et leur somme exhaustive", async () => {
     const db = completeAllocationFixture();
     for (let i = 0; i < 251; i++) db.records.set(`payments/p${String(i).padStart(4, "0")}`, {

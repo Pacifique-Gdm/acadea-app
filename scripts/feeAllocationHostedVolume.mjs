@@ -64,17 +64,20 @@ export async function runHostedAllocationVolume({ db, tag, schoolId, yearId, put
     await tab.getByRole('button', { name: 'Menu', exact: true }).last().click();
     await tab.getByRole('button', { name: 'Répartition des frais', exact: true }).click();
     const panel = tab.getByRole('region', { name: 'Activation par établissement' });
-    for (const [evidenceId, decision] of [[`${tag}-missing`, 'rejected'], [receipt.id, 'accepted']]) {
-      // A wrapping label includes the select's option text in getByLabel's
-      // exact match. The accessible combobox name remains stable and precise.
-      await panel.getByRole('combobox', { name: 'Écriture bloquante', exact: true }).selectOption(`payments/${payment.payment.id}`);
-      await panel.getByRole('textbox', { name: 'Référence de preuve', exact: true }).fill(evidenceId);
+    const rejected = await allocation('justify-history', { collection: 'payments', sourceId: payment.payment.id,
+      evidenceType: 'financialIdempotency', evidenceId: `${tag}-missing`, reason: 'Preuve absente volontaire pour le refus' }, 'volume-admin');
+    assert.equal(rejected.decision, 'rejected');
+    await panel.getByRole('button', { name: 'Voir les écritures à vérifier', exact: true }).click();
+    await panel.getByRole('button', { name: 'Justifier', exact: true }).click();
+    for (const [evidenceId, decision] of [[receipt.id, 'accepted']]) {
+      await expect(panel.getByRole('combobox', { name: 'Preuve autorisée', exact: true }).locator('option')).not.toHaveCount(1);
+      await panel.getByRole('combobox', { name: 'Preuve autorisée', exact: true }).selectOption(`financialIdempotency/${evidenceId}`);
       await panel.getByRole('textbox', { name: 'Motif de justification', exact: true }).fill('Reçu serveur original de la fixture hébergée');
       const pending = tab.waitForResponse(response => {
         if (!response.url().endsWith('/api/manage-financial-transaction') || response.request().method() !== 'POST') return false;
         try { return response.request().postDataJSON()?.action === 'fee-allocation.justify-history'; } catch { return false; }
       });
-      await panel.getByRole('button', { name: 'Vérifier et enregistrer la décision', exact: true }).click();
+      await panel.getByRole('button', { name: 'Vérifier la preuve', exact: true }).click();
       const response = await pending; assert.equal(response.status(), 200); assert.equal((await response.json()).decision, decision);
       await expect(panel.getByText(decision === 'accepted' ? /Justification vérifiée et conservée/ : /Justification refusée/)).toBeVisible({ timeout: 45000 });
     }

@@ -5,12 +5,13 @@ import type { AppUser, School } from "../../types";
 import type { FeeAllocationConfig, FeeAllocationRubric, FeeAllocationVersion } from "../../types/feeAllocation";
 import { AllocationApiError, allocationRequest, loadAllocationVersions, loadAllocationWorkspace, saveAllocationDrafts, type AllocationWorkspace, type SaveAllocationDrafts } from "../../services/feeAllocation";
 import { validateFeeAllocationRubrics } from "../../../api/_lib/feeAllocationMath.js";
-import { allocationClassKey, allocationClassLabel, allocationFeeKey, allocationTotals, allocationFinancialTotals, projectAllocations, unavailableAllocation, type AllocationFilter, type AllocationRow } from "../../utils/feeAllocationView";
+import { allocationClassLabel, allocationFilterChoices, allocationTotals, allocationFinancialTotals, projectAllocations, unavailableAllocation, type AllocationFilter, type AllocationRow } from "../../utils/feeAllocationView";
 import { formatCurrencyMoney } from "../../utils/currency";
 import { toMoneyMinor } from "../../utils/money";
 import { renderAcadPdfPreview } from "../../utils/pdf";
 import { feeAllocationPdfSections } from "../../utils/feeAllocationPdf";
 import { FeeAllocationActivation } from "./FeeAllocationActivation";
+import { AllocationActionButton as Action } from "./AllocationActionButton";
 
 const roles = new Set(["school_admin", "cashier", "coordination_admin", "sub_coordination_admin"]);
 const newId = () => crypto.randomUUID().replaceAll("-", "");
@@ -44,6 +45,8 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
   const [versions, setVersions] = useState<FeeAllocationVersion[] | null>(null);
   const [detailBusy, setDetailBusy] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const pdfLock = useRef(false), detailLock = useRef(false);
+  const [detailAction, setDetailAction] = useState("");
   const versionRequests = useRef(new Map<string, string>());
   useEffect(() => {
     const controller = new AbortController();
@@ -67,30 +70,27 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
   const ready = !loading && !error && !projection.error && workspaces.length > 0;
   const operational = workspaces.some(w => w.ledger);
   const configurable = user.role === "school_admin" && workspaces.length === 1 && workspaces[0].canConfigure && !workspaces[0].ledger;
-  const choices = useMemo(() => {
-    const pairs = workspaces.flatMap((workspace) => workspace.fees.map((fee) => filter.kind === "class"
-      ? [allocationClassKey(workspace.school.id, fee.classOptionKey || fee.className), `${workspace.school.name} · ${allocationClassLabel(fee.classOptionKey || fee.className)}`]
-      : [allocationFeeKey(workspace.school.id, fee.id), `${workspace.school.name} · ${fee.name} · ${allocationClassLabel(fee.classOptionKey || fee.className)}`]));
-    return [...new Map(pairs.map(([value, label]) => [value, label]))];
-  }, [workspaces, filter.kind]);
+  const multipleSchools = workspaces.length > 1;
+  const hasConfiguration = workspaces.some(w => w.configs.length || w.ledger);
+  const choices = useMemo(() => allocationFilterChoices(workspaces, filter.kind), [workspaces, filter.kind]);
   const periods = [["today", "Aujourd'hui"], ["week", "Cette semaine"], ["month", "Ce mois"], ["year", "Cette année scolaire"], ["custom", "Dates personnalisées"]];
   const filterLabel = `${filter.kind === "fee" ? "Frais" : filter.kind === "class" ? "Classe" : operational ? "Période comptabilisée" : "Période de préparation"} : ${filter.kind === "period"
     ? `${periods.find(([value]) => value === filter.value)?.[1] ?? "Cette année scolaire"}${filter.value === "custom" ? ` (${filter.from} au ${filter.to})` : ""}`
     : choices.find(([value]) => value === filter.value)?.[1] ?? (filter.kind === "fee" ? "Tous les frais" : "Toutes les classes")}`;
   async function exportPdf() {
-    if (!ready || pdfBusy) return;
-    setPdfBusy(true); setError("");
+    if (!ready || pdfLock.current) return;
+    pdfLock.current = true; setPdfBusy(true); setError("");
     try {
       const school = institution ?? schools[0];
       if (!school) throw new Error("Établissement indisponible.");
       await renderAcadPdfPreview({ filename: "repartition-frais-preparatoire.pdf", title: "Répartition des frais", school,
         subtitle: operational ? "Registre rapproché — situation par établissement" : "Configuration préparatoire — aucune disponibilité financière", throwOnError: true,
         sections: feeAllocationPdfSections(projection.rows, filterLabel, workspaces.map((item) => `${item.school.name} · ${item.year.name} · ${item.currency}`).join(" ; ")) });
-    } catch (cause) { setError(message(cause)); } finally { setPdfBusy(false); }
+    } catch (cause) { setError(message(cause)); } finally { pdfLock.current = false; setPdfBusy(false); }
   }
   async function showVersions(config: FeeAllocationConfig, prepare = false) {
-    if (detailBusy) return;
-    setDetailBusy(true); setError("");
+    if (detailLock.current) return;
+    detailLock.current = true; setDetailAction(prepare ? "prepare" : "versions"); setDetailBusy(true); setError("");
     try {
       if (prepare) {
         const key = `${config.id}/${config.draftRevision}`;
@@ -99,46 +99,37 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
         setNotice("Version préparée et confirmée. Elle n'est ni publiée ni active.");
       }
       setVersions(await loadAllocationVersions(config));
-    } catch (cause) { setError(message(cause)); } finally { setDetailBusy(false); }
+    } catch (cause) { setError(message(cause)); } finally { detailLock.current = false; setDetailBusy(false); setDetailAction(""); }
   }
   return <div className="grid min-w-0 gap-4" aria-label="Configuration préparatoire des répartitions">
-    {user.role === "school_admin" && workspaces.length === 1 && ready && workspaces[0].canConfigure && <FeeAllocationActivation workspace={workspaces[0]} onChanged={() => setReload(v => v + 1)}/>}
-    <div className="flex flex-wrap items-end gap-2" aria-label="Commandes de répartition">
-      {configurable && <button type="button" className="primary-button" disabled={!ready} onClick={() => setEditor({ workspace: workspaces[0] })}>+ Ajouter</button>}
-      <label className="grid min-w-0 gap-1 text-sm">Filtre<select aria-label="Filtre" className="input" value={filter.kind} onChange={(event) => setFilter({ kind: event.target.value as AllocationFilter["kind"], value: event.target.value === "period" ? "year" : "", from: "", to: "" })}><option value="fee">Frais</option><option value="class">Classe</option><option value="period">Période</option></select></label>
-      <label className="grid min-w-0 max-w-full gap-1 text-sm">Valeur correspondante<select aria-label="Valeur correspondante" className="input min-w-0 max-w-full" value={filter.value} onChange={(event) => setFilter({ ...filter, value: event.target.value })}>{filter.kind === "period" ? periods.map(([value, label]) => <option key={value} value={value}>{label}</option>) : <><option value="">{filter.kind === "fee" ? "Tous les frais" : "Toutes les classes"}</option>{choices.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</>}</select></label>
-      <button type="button" className="secondary-button" disabled={!ready || pdfBusy} onClick={() => void exportPdf()}>{pdfBusy ? "Export en cours…" : "Exporter PDF"}</button>
+    <p className="text-sm text-slate-600" aria-label="Contexte de répartition">{workspaces.map(w => `${w.school.name} · ${w.year.name} · ${w.currency}`).join(" ; ")}</p>
+    {ready && user.role !== 'school_admin' && <p className="text-sm" role="status">{workspaces.map(w => `${multipleSchools ? w.school.name + ' : ' : ''}${w.ledger?.status === 'ACTIVE' ? 'Active' : w.ledger?.status === 'PAUSED' ? 'En pause' : 'En préparation'}`).join(' · ')}</p>}
+    {user.role === "school_admin" && workspaces.length === 1 && ready && workspaces[0].canConfigure && <FeeAllocationActivation workspace={workspaces[0]} onChanged={() => setReload(v => v + 1)} onConfigure={() => setEditor({ workspace: workspaces[0] })}/>}
+    <div className="min-w-0 max-w-full overflow-x-auto pb-1" role="region" aria-label="Commandes de répartition" tabIndex={0}>
+      <div className="flex min-w-[580px] flex-nowrap items-center gap-2">
+        {configurable && <button type="button" className="primary-button min-h-11 shrink-0 whitespace-nowrap" disabled={!ready} onClick={() => setEditor({ workspace: workspaces[0] })}>+ Ajouter</button>}
+        <label className="shrink-0"><span className="sr-only">Filtre</span><select aria-label="Filtre" className="input h-11 w-28" value={filter.kind} onChange={event => setFilter({ kind: event.target.value as AllocationFilter["kind"], value: event.target.value === "period" ? "year" : "", from: "", to: "" })}><option value="fee">Frais</option><option value="class">Classe</option><option value="period">Période</option></select></label>
+        <label className="min-w-40 flex-1"><span className="sr-only">Valeur du filtre</span><select aria-label="Valeur correspondante" className="input h-11 w-full min-w-0 truncate" value={filter.value} onChange={event => setFilter({ ...filter, value: event.target.value })}>{filter.kind === "period" ? periods.map(([value, label]) => <option key={value} value={value}>{label}</option>) : <><option value="">{filter.kind === "fee" ? "Tous les frais" : "Toutes les classes"}</option>{choices.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</>}</select></label>
+        <Action busy={pdfBusy} disabled={!ready || !hasConfiguration} onClick={() => void exportPdf()}>Exporter PDF</Action>
+      </div>
     </div>
     {filter.kind === "period" && <p className="text-xs text-slate-600">{operational ? "La période filtre les dates de comptabilisation. Le disponible cumule toutes les écritures jusqu'à sa fin, ouverture incluse." : "La période filtre les dates de préparation des brouillons, pas des encaissements. Aucun flux financier n'est encore ventilé."}</p>}
     {filter.kind === "period" && filter.value === "custom" && <div className="flex flex-wrap gap-2"><label className="grid gap-1 text-sm">Du<input className="input" type="date" value={filter.from} onChange={(event) => setFilter({ ...filter, from: event.target.value })}/></label><label className="grid gap-1 text-sm">Au<input className="input" type="date" value={filter.to} onChange={(event) => setFilter({ ...filter, to: event.target.value })}/></label></div>}
-    <p className="text-sm text-slate-600">{workspaces.map((workspace) => `${workspace.school.name} · ${workspace.year.name} · ${workspace.currency}`).join(" ; ")}</p>
-    <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm">{operational ? "Registre rapproché. Le prévu et l'encaissé suivent le filtre. La situation globale reste commune à la rubrique, jamais propre à une classe ou à un frais." : "Préparatoire uniquement."} « Prévu » représente un tarif de référence par classe configurée, sans effectifs ni réductions individuelles. Ce n'est ni une créance totale ni de l'argent disponible.</p>
-    {loading && <p role="status">Chargement des répartitions autorisées…</p>}
-    {(error || projection.error) && <div role="alert" className="rounded border border-red-200 p-3 text-sm"><p>{error || projection.error}</p>{workspaces.length > 0 && <p>Les données conservées ne sont pas revérifiées. L'export et les modifications sont bloqués.</p>}<button type="button" disabled={loading} className="secondary-button mt-2" onClick={() => setReload((value) => value + 1)}>Réessayer la consultation</button></div>}
+    {ready && hasConfiguration && <details className="text-sm"><summary className="cursor-pointer">Comprendre les montants</summary><p>Le prévu et l’encaissé suivent le filtre. La situation globale reste commune à la rubrique, jamais propre à une classe ou à un frais. Le prévu représente un tarif de référence, sans effectifs ni réductions individuelles ; ce n’est pas un solde disponible.</p><p>Solde disponible = ouverture + encaissements cumulés − dépenses nettes cumulées. Les dépenses nettes incluent les corrections et annulations compensatoires.</p></details>}
+    {loading && <p role="status">Chargement...</p>}
+    {(error || projection.error) && <div role="alert" className="rounded border border-red-200 p-3 text-sm"><p>{error || projection.error}</p>{workspaces.length > 0 && <p>Les données conservées ne sont pas revérifiées. L'export et les modifications sont bloqués.</p>}<Action busy={loading} className="secondary-button mt-2" onClick={() => setReload((value) => value + 1)}>Réessayer la consultation</Action></div>}
     {notice && <p role="status" className="text-sm text-emerald-700">{notice}</p>}
-    <h3 className="font-bold">Selon le filtre</h3>
-    <div className="grid gap-2 rounded border bg-slate-50 p-3 sm:grid-cols-2" aria-label="Synthèse selon le filtre">
-      <div><b>Prévu</b><div>{projection.totals.length ? projection.totals.map((total) => <p key={total.currency}>{formatCurrencyMoney(total.amountMinor / 100, total.currency)}</p>) : "Aucune configuration dans cette vue"}</div></div>
-      <div><b>Encaissé selon le filtre</b>{operational ? allocationFinancialTotals(projection.rows, "receivedMinor").map(t => <p key={t.currency}>{t.value === null ? unavailableAllocation : formatCurrencyMoney(t.value / 100, t.currency)}</p>) : <p className="text-xs">{unavailableAllocation}</p>}</div>
-    </div>
-    {operational && <>
-      <h3 className="font-bold">Situation globale de la rubrique à la fin de la période</h3>
-      <p className="text-sm">{filter.kind === "period" ? "Cumul jusqu'à la fin de la période sélectionnée, y compris les écritures antérieures à son début." : "Toutes les classes et tous les frais : cumul jusqu'à la dernière écriture disponible."} Solde disponible = ouverture + encaissements cumulés − dépenses nettes cumulées. Les dépenses nettes incluent les corrections et annulations compensatoires.</p>
-      <div className="grid gap-2 rounded border bg-slate-50 p-3 sm:grid-cols-4" aria-label="Synthèse globale des rubriques">
-        {(["openingMinor", "cumulativeReceivedMinor", "cumulativeSpentMinor", "availableMinor"] as const).map((field, index) => <div key={field}><b>{["Ouverture", "Encaissements cumulés", "Dépenses nettes cumulées", "Solde disponible"][index]}</b>{allocationFinancialTotals(projection.rows, field).map(t => <p key={t.currency}>{t.value === null ? unavailableAllocation : formatCurrencyMoney(t.value / 100, t.currency)}</p>)}</div>)}
-      </div>
-    </>}
-    <h3 className="font-bold">Situation des répartitions</h3>
-    <div className="overflow-x-auto"><table className={`w-full ${operational ? "min-w-[980px]" : "min-w-[600px]"} text-sm`} aria-label="Situation des répartitions"><thead>
+    {ready && hasConfiguration && projection.rows.length > 0 && <div className="min-w-0 max-w-full overflow-x-auto"><table className={`w-full ${operational ? "min-w-[980px]" : "min-w-[600px]"} text-sm`} aria-label="Situation des répartitions"><thead>
       <tr><th rowSpan={2} scope="col" className="border-b p-2 text-left">Rubrique</th><th colSpan={2} scope="colgroup" className="border-b p-2">Selon le filtre</th>{operational && <th colSpan={4} scope="colgroup" className="border-b border-l p-2">Situation globale de la rubrique à la fin de la période</th>}</tr>
       <tr>{["Prévu", "Encaissé selon le filtre", ...(operational ? ["Ouverture", "Encaissements cumulés", "Dépenses nettes cumulées", "Solde disponible"] : [])].map(title => <th key={title} scope="col" className="border-b p-2 text-left">{title}</th>)}</tr>
-    </thead><tbody>{projection.rows.map(row => <tr key={row.key}><td className="border-b p-2"><button type="button" className="text-left text-blue-700 underline" onClick={() => { setDetail(row); setVersions(null); }}>{row.rubricName}</button><p className="text-xs text-slate-500">{row.schoolName} · {row.yearName} · {row.currency}{!row.financial && ` · ${row.feeName} · ${row.classLabel} · v${row.config.draftRevision}`}</p>{row.financial && <p className="text-xs">Dont arriérés selon le filtre : {formatCurrencyMoney(row.financial.arrearsMinor / 100, row.currency)}</p>}{row.stale && <p className="text-xs text-amber-800">Tarif ou cible modifié : brouillon à reprendre.</p>}</td><td className="border-b p-2 whitespace-nowrap">{formatCurrencyMoney(row.amountMinor / 100, row.currency)}</td>{(["receivedMinor", ...(operational ? ["openingMinor", "cumulativeReceivedMinor", "cumulativeSpentMinor", "availableMinor"] as const : [])] as const).map(field => <td key={field} className={`border-b p-2 text-xs whitespace-nowrap ${field === "openingMinor" ? "border-l" : ""}`}>{row.financial ? formatCurrencyMoney(row.financial[field] / 100, row.currency) : "Non disponible"}</td>)}</tr>)}</tbody></table></div>
-    {!loading && !projection.rows.length && <p>Aucune répartition préparée pour ce filtre.</p>}
+    </thead><tbody>{projection.rows.map(row => <tr key={row.key}><td className="border-b p-2"><button type="button" className="text-left text-blue-700 underline" onClick={() => { setDetail(row); setVersions(null); }}>{row.rubricName}</button><p className="text-xs text-slate-500">{multipleSchools ? row.schoolName + " · " + row.yearName + " · " + row.currency : ""}{!row.financial && ` · ${row.feeName} · ${row.classLabel} · v${row.config.draftRevision}`}</p>{row.financial && <p className="text-xs">Dont arriérés selon le filtre : {formatCurrencyMoney(row.financial.arrearsMinor / 100, row.currency)}</p>}{row.stale && <p className="text-xs text-amber-800">Tarif ou cible modifié : brouillon à reprendre.</p>}</td><td className="border-b p-2 whitespace-nowrap">{formatCurrencyMoney(row.amountMinor / 100, row.currency)}</td>{(["receivedMinor", ...(operational ? ["openingMinor", "cumulativeReceivedMinor", "cumulativeSpentMinor", "availableMinor"] as const : [])] as const).map(field => <td key={field} className={`border-b p-2 text-xs whitespace-nowrap ${field === "openingMinor" ? "border-l" : ""}`}>{row.financial ? formatCurrencyMoney(row.financial[field] / 100, row.currency) : "Non disponible"}</td>)}</tr>)}</tbody><tfoot>{projection.totals.map(total => <tr key={total.currency} className="font-semibold"><td className="p-2">Total {total.currency}</td><td className="p-2 whitespace-nowrap">{formatCurrencyMoney(total.amountMinor / 100, total.currency)}</td>{(["receivedMinor", ...(operational ? ["openingMinor", "cumulativeReceivedMinor", "cumulativeSpentMinor", "availableMinor"] as const : [])] as const).map(field => { const value = allocationFinancialTotals(projection.rows, field).find(t => t.currency === total.currency)?.value; return <td key={field} className="p-2 whitespace-nowrap">{value === null || value === undefined ? unavailableAllocation : formatCurrencyMoney(value / 100, total.currency)}</td>; })}</tr>)}</tfoot></table></div>}
+    {ready && !hasConfiguration && <p role="status">Aucune répartition configurée. Les opérations habituelles de l’établissement restent disponibles.</p>}
+    {ready && hasConfiguration && !projection.rows.length && <p role="status">Aucun résultat pour ce filtre. Les autres répartitions sont conservées.</p>}
     {detail && <AdminDrawer title={detail.rubricName} closeLabel="Fermer le détail de rubrique" onClose={() => setDetail(null)}>
       {error && <p role="alert" className="mb-3 text-sm text-red-700">{error}</p>}
-<dl className="grid gap-2 text-sm">{[["Établissement", detail.schoolName], ["Frais", `${detail.feeName} (${detail.config.feeTypeId})`], ["Classe", detail.classLabel], ["Année", detail.yearName], ["Version", detail.financial ? "Consulter les versions et le registre" : `Brouillon ${detail.config.draftRevision}`], ["Mode", detail.rubric?.mode === "fixed" ? "Montant fixe" : detail.rubric ? "Pourcentage" : "Reliquat automatique"], ["Valeur", detail.rubric?.mode === "fixed" ? formatCurrencyMoney((detail.rubric.fixedMinor ?? 0) / 100, detail.currency) : detail.rubric ? `${(detail.rubric.basisPoints ?? 0) / 100} %` : "Non affecté"], ["Prévu", `${formatCurrencyMoney(detail.amountMinor / 100, detail.currency)} (${detail.percent.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} %)`], ["Statut", detail.financial ? "Registre rapproché — recette fictive" : "Préparatoire — non actif"]].map(([label, value]) => <div key={label}><dt className="font-semibold">{label}</dt><dd className="break-words">{value}</dd></div>)}</dl>
+<dl className="grid gap-2 text-sm">{[["Établissement", detail.schoolName], ["Frais", detail.feeName], ["Classe", detail.classLabel], ["Année", detail.yearName], ["Version", detail.financial ? "Consulter les versions et le registre" : `Brouillon ${detail.config.draftRevision}`], ["Mode", detail.rubric?.mode === "fixed" ? "Montant fixe" : detail.rubric ? "Pourcentage" : "Reliquat automatique"], ["Valeur", detail.rubric?.mode === "fixed" ? formatCurrencyMoney((detail.rubric.fixedMinor ?? 0) / 100, detail.currency) : detail.rubric ? `${(detail.rubric.basisPoints ?? 0) / 100} %` : "Non affecté"], ["Prévu", `${formatCurrencyMoney(detail.amountMinor / 100, detail.currency)} (${detail.percent.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} %)`], ["Statut", detail.financial ? "Registre rapproché" : "Préparatoire — non actif"]].map(([label, value]) => <div key={label}><dt className="font-semibold">{label}</dt><dd className="break-words">{value}</dd></div>)}</dl>
       <p className="my-3 text-sm">{detail.financial ? "Les montants proviennent du registre rapproché. Le disponible est commun à cette rubrique dans l'établissement ; aucune attribution artificielle à un frais ou à une classe." : "Aucun mouvement financier ni historique d'encaissement n'est créé par ce brouillon. Les références d'origine restent conservées pour les phases suivantes."}</p>
-      <div className="flex flex-wrap gap-2"><button className="secondary-button" type="button" disabled={detailBusy} onClick={() => void showVersions(detail.config)}>Consulter les versions</button>{configurable && <><button type="button" className="secondary-button" disabled={!ready} onClick={() => { setEditor({ workspace: workspaces[0], config: detail.config }); setDetail(null); }}>Reprendre le brouillon</button><button type="button" className="secondary-button" disabled={!ready || detailBusy || detail.stale} onClick={() => void showVersions(detail.config, true)}>Préparer une version</button></>}</div>
+      <div className="flex flex-wrap gap-2"><Action busy={detailBusy && detailAction === "versions"} disabled={detailBusy} onClick={() => void showVersions(detail.config)}>Consulter les versions</Action>{configurable && <><button type="button" className="secondary-button" disabled={!ready} onClick={() => { setEditor({ workspace: workspaces[0], config: detail.config }); setDetail(null); }}>Reprendre le brouillon</button><Action busy={detailBusy && detailAction === "prepare"} disabled={!ready || detailBusy || detail.stale} onClick={() => void showVersions(detail.config, true)}>Préparer une version</Action></>}</div>
       {detailBusy && <p role="status">Vérification serveur…</p>}{versions && <ul className="mt-3 grid gap-2">{versions.map((version) => <li key={version.id} className="rounded border p-2 text-sm">Version {version.version} · {version.status} · {version.createdAt.slice(0, 10)} · {version.currency}<ul>{version.rubrics.map((rubric) => <li key={rubric.id}>{rubric.name} : {rubric.mode === "fixed" ? formatCurrencyMoney((rubric.fixedMinor ?? 0) / 100, version.currency) : `${(rubric.basisPoints ?? 0) / 100} %`}</li>)}</ul></li>)}{!versions.length && <li>Aucune version préparée.</li>}</ul>}
     </AdminDrawer>}
     {editor && <AllocationEditor workspace={editor.workspace} config={editor.config} onClose={() => setEditor(null)} onSaved={() => { setEditor(null); setNotice("Brouillons enregistrés et confirmés par le serveur. Aucune activation financière."); setReload((value) => value + 1); }} />}
@@ -191,6 +182,6 @@ function AllocationEditor({ workspace, config, onClose, onSaved }: { workspace: 
     <h3 className="mt-4 font-bold">Aperçu par classe</h3>{preview.error && <p role="status" className="text-sm text-amber-800">{preview.error}</p>}
     {preview.rows.map((row) => <section key={row.fee.id} className="my-2 rounded border p-3 text-sm"><h4 className="font-semibold">{allocationClassLabel(row.fee.classOptionKey || row.fee.className)} · {formatCurrencyMoney(row.fee.amount, workspace.currency)}</h4><ul>{row.shares.map((share) => <li key={share.rubricId}>{row.rubrics.find((rubric) => rubric.id === share.rubricId)?.name ?? "Non affecté"} : {formatCurrencyMoney(share.amountMinor / 100, workspace.currency)} · {(share.amountMinor / toMoneyMinor(row.fee.amount) * 100).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} %</li>)}</ul></section>)}
     {error && <p role="alert" className="my-3 text-sm text-red-700">{error}</p>}{uncertain && <p className="my-2 text-sm">L'enregistrement a peut-être abouti. La vérification renvoie exactement la même demande, sans nouvelle répartition.</p>}
-    <div className="mt-4 flex flex-wrap gap-2"><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Annuler</button><button type="button" className="primary-button" disabled={busy || (!uncertain && !!preview.error)} onClick={() => void save()}>{busy ? "Confirmation serveur…" : uncertain ? "Vérifier la même demande" : "Enregistrer la répartition"}</button></div>
+    <div className="mt-4 flex flex-wrap gap-2"><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Annuler</button><Action className="primary-button" busy={busy} disabled={!uncertain && !!preview.error} onClick={() => void save()}>{uncertain ? "Vérifier la même demande" : "Enregistrer la répartition"}</Action></div>
   </AdminDrawer>;
 }
