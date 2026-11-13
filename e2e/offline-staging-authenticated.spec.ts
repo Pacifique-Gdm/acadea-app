@@ -271,28 +271,34 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
   });
 
   test("paiement provisoire sans écriture locale, validation serveur et conflit financier", async ({ browser }) => {
+    console.info("[allocation-offline] preparing isolated state");
     // Only fictitious local demo-acadea data can exercise the phase 3 engine.
     if (local) await db!.doc(`feeAllocationStates/${feeAllocationStateId(schoolId, ids!.year, "CDF")}`).create({
       schoolId, schoolYearId: ids!.year, currency: "CDF", status: "EN_PREPARATION", phase3FixtureId: fixture!.tag,
       cutoffAt: new Date(Date.now() - 60_000).toISOString(), fixtureId: fixture!.tag,
     });
     const session = await createSession(browser, "cashier", { dropNextAttendanceResponse: false, dropNextPaymentResponse: local }, local);
+    console.info("[allocation-offline] browser ready");
     pageRoles.set(session.page, "cashier");
     try {
       await session.login();
+      console.info("[allocation-offline] authenticated");
       await offline(session.context);
       await session.page.getByLabel("Élève", { exact: true }).selectOption(ids!.student);
       await session.page.getByLabel("Type de frais").selectOption(ids!.fee);
       await session.page.getByLabel("Montant provisoire").fill("100");
       await draft(session.page);
+      console.info("[allocation-offline] proposal captured");
       expect((await db!.collection("payments").where("schoolId", "==", schoolId).get()).empty).toBe(true);
       if (local) {
         expect((await db!.collection("feeAllocationMovements").where("schoolId", "==", schoolId).get()).empty).toBe(true);
         await session.restartOffline();
+        console.info("[allocation-offline] proposal survived browser restart");
         pageRoles.set(session.page, "cashier");
         expect((await db!.collection("payments").where("schoolId", "==", schoolId).get()).empty).toBe(true);
       }
       await returnOnline(session.context, session.page);
+      console.info("[allocation-offline] connection restored");
       await expect.poll(async () => (await db!.collection("payments").where("schoolId", "==", schoolId).get()).size, { timeout: 45_000 }).toBe(1);
       const payment = (await db!.collection("payments").where("schoolId", "==", schoolId).get()).docs[0].data();
       expect(payment.amount).toBe(100);
@@ -304,11 +310,13 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
       expect((await db!.collection("payments").where("schoolId", "==", schoolId).get()).size).toBe(1);
       if (local) {
         await expect.poll(() => session.calls.some(c => c.body.action === "create-payment" && c.result.idempotent === true), { timeout: 45_000 }).toBe(true);
+        console.info("[allocation-offline] lost response reconciled");
         const allocated = await db!.collection("feeAllocationMovements").where("schoolId", "==", schoolId).get();
         expect(allocated.size).toBe(1);
         expect(allocated.docs[0].data()).toMatchObject({ sourceId: payment.id, amountMinor: 10000, configVersionId: null, lines: [{ rubricId: "UNALLOCATED", amountMinor: 10000 }] });
       }
       await session.dispose();
+      console.info("[allocation-offline] completed persistent session");
       const conflict = await createSession(browser, "cashier");
       pageRoles.set(conflict.page, "cashier");
       try {
