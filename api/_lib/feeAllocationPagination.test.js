@@ -4,6 +4,7 @@ import { completeAllocationFixture } from "./feeAllocationLifecycle.test.js";
 import { readFeeAllocationLedger } from "./feeAllocationLedger.js";
 import { manageFeeAllocationLifecycle } from "./feeAllocationLifecycle.js";
 import { allocationBalanceId } from "./feeAllocationRuntime.js";
+import { reconcileFixture, markFixtureFinancialChange } from './feeAllocationTestHelpers.js';
 
 describe("lecture exhaustive des répartitions", () => {
   it("prouve la page terminale y compris pour un multiple exact de la taille", async () => {
@@ -33,6 +34,7 @@ describe("lecture exhaustive des répartitions", () => {
     const now = "2026-11-13T10:00:00.000Z";
     const action = (action, body) => manageFeeAllocationLifecycle({ db, caller, now, body: { action, requestId: `volume-${action}-request`, ...body } });
     await action("publish-configuration", { versionId: "version" });
+    await reconcileFixture(db);
     const opening = await action("prepare-opening", { cashCountMinor: 0, lines: [{ rubricId, amountMinor: 0 }], confirmation: "RAPPROCHER LA CAISSE" });
     await action("approve-opening", { openingId: opening.openingId, confirmation: "APPROUVER LE RAPPROCHEMENT" });
     await action("activate", { openingId: opening.openingId, confirmation: "ACTIVER LA REPARTITION FICTIVE" });
@@ -41,17 +43,22 @@ describe("lecture exhaustive des répartitions", () => {
     Object.assign(db.records.get(`feeAllocationBalances/${allocationBalanceId("school", "year", "USD", rubricId)}`), { receivedMinor: 240000, availableMinor: 240000 });
     const args = { db, schoolId: "school", schoolYearId: "year", currency: "USD", now };
     const ledger = await readFeeAllocationLedger(args);
-    expect(ledger.movements).toHaveLength(200);
-    expect(ledger.pagination).toMatchObject({ total: 2401, pages: 13, page: 0 });
+    expect(ledger.movements).toHaveLength(100);
+    expect(ledger.pagination).toMatchObject({ hasNext: true, page: 0 });
     const all = [...ledger.movements];
-    for (let page = 1; page < ledger.pagination.pages; page++) {
-      const next = await readFeeAllocationLedger({ ...args, page, fingerprint: ledger.pagination.fingerprint });
-      expect(next.movements.length).toBeLessThanOrEqual(200); all.push(...next.movements);
+    let pagination = ledger.pagination, reads = ledger.metrics.movementReads;
+    while (pagination.hasNext) {
+      const next = await readFeeAllocationLedger({ ...args, page: pagination.page + 1, cursor: pagination.nextCursor, fingerprint: ledger.pagination.fingerprint });
+      expect(next.movements.length).toBeLessThanOrEqual(100); all.push(...next.movements);
+      expect(next.metrics.movementReads).toBeLessThanOrEqual(101);
+      reads += next.metrics.movementReads; pagination = next.pagination;
     }
     expect(all).toHaveLength(2401); expect(new Set(all.map(m => m.id)).size).toBe(2401);
+    expect(reads).toBe(2425);
     await expect(readFeeAllocationLedger({ ...args, page: 1 })).rejects.toThrow("continuité");
     db.records.get("feeAllocationMovements/m0").postedAt = "2026-11-13T09:30:00.000Z";
-    await expect(readFeeAllocationLedger({ ...args, page: 1, fingerprint: ledger.pagination.fingerprint })).rejects.toThrow("changé");
+    markFixtureFinancialChange(db);
+    await expect(readFeeAllocationLedger({ ...args, page: 1, cursor: ledger.pagination.nextCursor, fingerprint: ledger.pagination.fingerprint })).rejects.toThrow("changé");
     expect(ledger.balances.reduce((n, b) => n + b.availableMinor, 0)).toBe(240000);
   });
 });

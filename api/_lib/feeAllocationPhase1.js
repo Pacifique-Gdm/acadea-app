@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { evidenceRevisionRef } from './feeAllocationRevision.js';
 import { toMoneyMinor } from "./money.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { FeeAllocationError, assertFeeAllocationActivationBlocked, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
@@ -150,6 +151,7 @@ async function mutateDraft({ db, caller, body, prepare }) {
     transaction.create(db.doc(`auditLogs/${auditId}`), buildServerAudit({ id: auditId, eventType: auditType,
       actor: caller, schoolId, schoolYearId: yearId, resourceType: "feeAllocation", resourceId: configId,
       metadata: { feeTypeId: body.feeTypeId, revision: body.expectedRevision, operational: false } }));
+    transaction.set(evidenceRevisionRef(db, schoolId, yearId), { schoolId, schoolYearId: yearId, revision: fingerprint });
     transaction.create(receiptRef, { schoolId, schoolYearId: yearId, userId: caller.uid, fingerprint, result, createdAt: now });
     return { ...result, idempotent: false };
   });

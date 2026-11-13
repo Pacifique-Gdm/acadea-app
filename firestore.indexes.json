@@ -1,6 +1,16 @@
 {
   "indexes": [
     {
+      "collectionGroup": "feeAllocationMovements",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "schoolId", "order": "ASCENDING" },
+        { "fieldPath": "collectionSchoolYearId", "order": "ASCENDING" },
+        { "fieldPath": "currency", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "feeAllocationConfigs",
       "queryScope": "COLLECTION",
       "fields": [

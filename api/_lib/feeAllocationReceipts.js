@@ -138,8 +138,12 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
       || version.className !== anchor.className || (version.classOptionKey ?? null) !== (anchor.classOptionKey ?? null)
       || !["published", "superseded", "disabled"].includes(version.status) || !version.effectiveFrom || version.effectiveFrom > anchor.anchoredAt) fail("Version historique non vérifiée.");
     if (!anchorSnap.exists) {
+      const runBinding = operational?.receiptVersionsRunId ? (await transaction.get(db.doc(`feeAllocationReconciliationRuns/${operational.receiptVersionsRunId}/versions/${source.feeTypeId}`))).data() : null;
+      const approvedBinding = runBinding && runBinding.runId === operational.receiptVersionsRunId && runBinding.schoolId === source.schoolId
+        && runBinding.schoolYearId === collectionYear && runBinding.currency === source.currency
+        && runBinding.feeTypeId === source.feeTypeId && runBinding.versionId === version.id;
       const approvedAtOpening = operational && source.schoolYearId === collectionYear
-        && operational.approvedReceiptVersions.some(v => v.feeTypeId === source.feeTypeId && v.versionId === version.id)
+        && (approvedBinding || operational.approvedReceiptVersions.some(v => v.feeTypeId === source.feeTypeId && v.versionId === version.id))
         && Date.parse(version.effectiveFrom) <= Date.parse(operational.cutoffAt)
         && Date.parse(source.createdAt) >= Date.parse(operational.cutoffAt);
       if (approvedAtOpening) {

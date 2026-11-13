@@ -3,6 +3,7 @@ import { completeAllocationFixture } from "./feeAllocationLifecycle.test.js";
 import { manageFeeAllocationLifecycle, getAllocationSpendOptions } from "./feeAllocationLifecycle.js";
 import { readOperationalAllocation, allocationBalanceId } from "./feeAllocationRuntime.js";
 import { executeFinancialOperation } from "./financialTransactions.js";
+import { reconcileFixture } from './feeAllocationTestHelpers.js';
 
 const now = "2026-11-13T10:00:00.000Z", rubricId = "a".repeat(32);
 const admin = { uid: "admin", role: "school_admin", schoolId: "school" };
@@ -14,7 +15,10 @@ function ordinarySchool(project = "acadea-staging") {
   for (const key of db.records.keys()) if (key.startsWith("feeAllocationTestScopes/")) db.records.delete(key);
   return db;
 }
-const action = (db, action, extra = {}, caller = admin) => manageFeeAllocationLifecycle({ db, caller, now, body: { action, requestId: `general-${action}-request`, ...extra } });
+const action = async (db, action, extra = {}, caller = admin) => {
+  if (action === 'prepare-opening') await reconcileFixture(db, caller, now);
+  return manageFeeAllocationLifecycle({ db, caller, now, body: { action, requestId: `general-${action}-request`, ...extra } });
+};
 async function approved(db) {
   await action(db, "publish-configuration", { versionId: "version" });
   const p = await action(db, "prepare-opening", { cashCountMinor: 0, lines: [{ rubricId, amountMinor: 0 }], confirmation: "RAPPROCHER LA CAISSE" });
@@ -66,6 +70,7 @@ describe("activation ordinaire sans inscription de fixture (base en mémoire)", 
     const p = await approved(db);
     await action(db, "activate", { openingId: p.openingId, confirmation: "ACTIVER LA REPARTITION DE MON ETABLISSEMENT" });
     delete db.records.get(`feeAllocationOpeningAudits/${p.openingId}`).receiptVersions;
+    delete db.records.get(`feeAllocationOpeningAudits/${p.openingId}`).receiptVersionsRunId;
     const before = structuredClone([...db.records]);
     await expect(executeFinancialOperation({ db, caller: cashier, now: "2026-11-13T12:00:00.000Z", body: {
       action: "create-payment", schoolYearId: "year", studentId: "student", feeTypeId: "fee", amount: 100, clientRequestId: "legacy-obligation-001",

@@ -36,6 +36,7 @@ function fakeDb() {
         get: async (ref) => snapshot(ref.path),
         create: (ref, value) => changes.push(["create", ref.path, value]),
         update: (ref, value) => changes.push(["update", ref.path, value]),
+        set: (ref, value) => changes.push(['set', ref.path, value]),
       };
       const result = await work(tx);
       for (const [kind, path] of changes) if (kind === "create" && records.has(path)) throw new Error("already exists");

@@ -5,7 +5,9 @@ import { AllocationApiError, allocationRequest, loadAllocationWorkspace, saveAll
 afterEach(() => vi.unstubAllGlobals());
 describe("transport préparatoire sans succès optimiste", () => {
   const page = (index: number, fingerprint = "a".repeat(64)) => ({ operational: false, school: { id: "s" }, year: { id: "y" }, currency: "USD", fees: [], configs: [],
-    ledger: { movements: [{ id: `m${index}` }], pagination: { page: index, pages: 2, total: 2, fingerprint } } });
+    ledger: { movements: [{ id: `m${index}`, lines: [{ rubricId: 'r', amountMinor: 100 }] }],
+      balances: [{ rubricId: 'r', openingMinor: 0, receivedMinor: 200, spentMinor: 0, reservedMinor: 0, availableMinor: 200 }],
+      pagination: { page: index, hasNext: index === 0, nextCursor: `m${index}`, fingerprint } } });
   it("n'expose le registre qu'après toutes ses pages cohérentes", async () => {
     const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(page(0)))).mockResolvedValueOnce(new Response(JSON.stringify(page(1))));
     vi.stubGlobal("fetch", fetch);
@@ -15,7 +17,7 @@ describe("transport préparatoire sans succès optimiste", () => {
   });
   it.each(["changed", "duplicate", "missing", "network"])("ne renvoie aucun total partiel si une page est %s", async kind => {
     const second = page(1, kind === "changed" ? "b".repeat(64) : "a".repeat(64));
-    if (kind === "duplicate") second.ledger.movements = [{ id: "m0" }];
+    if (kind === "duplicate") second.ledger.movements[0].id = 'm0';
     if (kind === "missing") second.ledger.movements = [];
     const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(page(0))));
     if (kind === "network") fetch.mockRejectedValueOnce(new TypeError("network")); else fetch.mockResolvedValueOnce(new Response(JSON.stringify(second)));

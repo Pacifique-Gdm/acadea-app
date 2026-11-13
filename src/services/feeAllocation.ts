@@ -9,7 +9,7 @@ export type AllocationWorkspace = {
   currency: "USD" | "CDF"; canConfigure: boolean; operational: false;
   fees: AllocationFee[]; configs: FeeAllocationConfig[];
   ledger?: null | { status: "ACTIVE" | "PAUSED"; cutoffAt: string; testOnly: boolean; rubrics: { id: string; name: string }[];
-    pagination?: { page: number; pages: number; total: number; fingerprint: string };
+    pagination?: { page: number; hasNext: boolean; nextCursor: string | null; fingerprint: string };
     movements: { id: string; sourceType: "opening" | "payment" | "expense"; type: string; amountMinor: number;
       lines: { rubricId: string; amountMinor: number }[]; feeTypeId: string | null; className: string | null; classOptionKey: string | null;
       originSchoolYearId: string; postedAt: string }[];
@@ -20,6 +20,8 @@ export type SaveAllocationDrafts = { schoolYearId: string; baseFeeTypeId: string
 export type AllocationActivationView = {
   operational: false; schoolId: string; schoolYearId: string; currency: "USD" | "CDF"; testOnly: boolean;
   status: "EN_PREPARATION" | "ACTIVE" | "PAUSED"; cutoffAt: string;
+  reconciliation?: null | { id: string; status: "RUNNING" | "BLOCKED" | "COMPLETE"; pageCount: number; scanned: number; evidenceCount: number; blockedCount: number; sequence: number; stale: boolean; reason: string | null };
+  evidencePage?: { page: number; hasNext: boolean; fingerprint: string | null; rows: Array<{ collection: string; id: string; amountMinor: number | null; createdAt: string | null; reason: string | null }> };
   rubrics: Array<{ id: string; name: string }>;
   versions: Array<{ id: string; configId: string; feeTypeId: string; version: number; status: "prepared" | "published" }>;
   opening: null | { id: string; status: "proposed" | "approved" | "activated"; stale: boolean; cutoffAt: string;
@@ -58,17 +60,30 @@ export async function loadAllocationWorkspace(schoolId: string, signal?: AbortSi
     || !Array.isArray(result.fees) || !Array.isArray(result.configs)) throw new AllocationApiError("Contexte de répartition incomplet.");
   const first = result.ledger?.pagination;
   if (first && result.ledger) {
-    if (first.page !== 0 || !Number.isSafeInteger(first.pages) || first.pages < 1 || !Number.isSafeInteger(first.total) || first.total < 0 || !/^[a-f0-9]{64}$/.test(first.fingerprint)) throw new AllocationApiError("Pagination de registre invalide.");
+    if (first.page !== 0 || typeof first.hasNext !== 'boolean' || !/^[a-f0-9]{64}$/.test(first.fingerprint)) throw new AllocationApiError("Pagination de registre invalide.");
     const movements = [...result.ledger.movements];
-    for (let page = 1; page < first.pages; page++) {
-      const next = await allocationRequest<AllocationWorkspace>("get-workspace", { schoolId, ledgerPage: page, ledgerFingerprint: first.fingerprint }, signal);
+    let pagination = first;
+    const seenCursors = new Set<string>();
+    for (let page = 1; pagination.hasNext; page++) {
+      if (!pagination.nextCursor || seenCursors.has(pagination.nextCursor) || movements.at(-1)?.id !== pagination.nextCursor) throw new AllocationApiError('Curseur de registre invalide.');
+      seenCursors.add(pagination.nextCursor);
+      const next = await allocationRequest<AllocationWorkspace>("get-workspace", { schoolId, ledgerPage: page, ledgerFingerprint: first.fingerprint, ledgerCursor: pagination.nextCursor }, signal);
       if (next.school?.id !== schoolId || next.year?.id !== result.year.id || next.currency !== result.currency
-        || next.ledger?.pagination?.page !== page || next.ledger.pagination.pages !== first.pages
-        || next.ledger.pagination.total !== first.total || next.ledger.pagination.fingerprint !== first.fingerprint
-        || !Array.isArray(next.ledger.movements)) throw new AllocationApiError("Registre modifié ou réponse incomplète : aucun total partiel n'est affiché.");
+        || next.ledger?.pagination?.page !== page || next.ledger.pagination.fingerprint !== first.fingerprint
+        || typeof next.ledger.pagination.hasNext !== 'boolean'
+        || !Array.isArray(next.ledger.movements) || !next.ledger.movements.length) throw new AllocationApiError("Registre modifié ou réponse incomplète : aucun total partiel n'est affiché.");
       movements.push(...next.ledger.movements);
+      pagination = next.ledger.pagination;
     }
-    if (movements.length !== first.total || new Set(movements.map(m => m.id)).size !== movements.length) throw new AllocationApiError("Registre incomplet ou doublonné : export bloqué.");
+    if (new Set(movements.map(m => m.id)).size !== movements.length) throw new AllocationApiError("Registre incomplet ou doublonné : export bloqué.");
+    const sums = new Map<string, number>();
+    for (const movement of movements) for (const line of movement.lines) {
+      const sum = (sums.get(line.rubricId) ?? 0) + line.amountMinor;
+      if (!Number.isSafeInteger(sum)) throw new AllocationApiError('Cumul de registre invalide.');
+      sums.set(line.rubricId, sum);
+    }
+    if (result.ledger.balances.some(b => (sums.get(b.rubricId) ?? 0) !== b.openingMinor + b.receivedMinor - b.spentMinor)
+      || [...sums.keys()].some(id => !result.ledger!.balances.some(b => b.rubricId === id))) throw new AllocationApiError('Écart entre registre complet et soldes : export bloqué.');
     result.ledger.movements = movements;
   }
   return result;

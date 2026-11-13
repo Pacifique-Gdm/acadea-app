@@ -1,5 +1,6 @@
 import { readFeeAllocationScope } from "./feeAllocationPhase1.js";
-import { openingInventory } from "./feeAllocationLifecycle.js";
+import { allocationRunRef, readAllocationRevision } from './feeAllocationRevision.js';
+import { runPublic } from './feeAllocationReconciliation.js';
 import { readAllocationPages } from "./feeAllocationPagination.js";
 import { allocationHash as hash, allocationStateId, allocationFail as fail, readAllocationEligibility, readOperationalAllocation } from "./feeAllocationRuntime.js";
 import { validateFeeAllocationRubrics } from "./feeAllocationMath.js";
@@ -34,19 +35,29 @@ export async function readAllocationActivation({ db, caller, body, now = new Dat
       if (rubrics.has(r.id) && rubrics.get(r.id).name !== r.name) fail("Identité de rubrique incohérente.");
       rubrics.set(r.id, { id: r.id, name: r.name });
     }
-    const inventory = await openingInventory(db, tx, schoolId, yearId, currency);
-    if (body.fingerprint && body.fingerprint !== inventory.fingerprint) fail("Les pièces ont changé : recommencez leur consultation.");
+    const run = state?.reconciliationRunId ? (await tx.get(allocationRunRef(db, state.reconciliationRunId))).data() : null;
+    if (run && (run.schoolId !== schoolId || run.schoolYearId !== yearId || run.currency !== currency)) fail('Rapprochement étranger.');
+    const revision = await readAllocationRevision(db, tx, schoolId, yearId);
+    const runStale = !!run && run.revision !== revision;
+    const fingerprint = run ? hash([run.id, run.chain, run.revision]) : null;
+    if (body.fingerprint && (body.fingerprint !== fingerprint || runStale)) fail("Les pièces ont changé : recommencez leur consultation.");
     const proposal = state?.lastOpeningId ? (await tx.get(db.doc(`feeAllocationOpeningAudits/${state.lastOpeningId}`))).data() : null;
     if (proposal && (proposal.schoolId !== schoolId || proposal.schoolYearId !== yearId || proposal.currency !== currency)) fail("Rapprochement étranger.");
-    const stale = proposal && (proposal.fingerprint !== inventory.fingerprint || proposal.configurationFingerprint !== hash(published.map(v => hash(v)).sort()));
+    const stale = proposal && (runStale || proposal.fingerprint !== fingerprint || proposal.configurationFingerprint !== run?.configurationChain);
     const page = body.page ?? 0;
+    if (run && page >= Math.max(1, run.pageCount)) fail('Page de preuve hors limites.', 'invalid-argument', 400);
+    const proofPage = run?.pageCount ? (await tx.get(db.doc(`feeAllocationReconciliationRuns/${run.id}/pages/${String(page).padStart(8, '0')}`))).data() : null;
+    if (run?.pageCount && (!proofPage || proofPage.schoolId !== schoolId)) fail('Page de preuve manquante.');
+    const safeRows = (proofPage?.rows ?? []).map(({ digest: _digest, ...row }) => row);
     return { operational: false, schoolId, schoolYearId: yearId, currency, testOnly: scope.testOnly, status: "EN_PREPARATION", cutoffAt: now,
       rubrics: [...rubrics.values()], versions: versions.docs.map(d => d.data()).filter(v => ["prepared", "published"].includes(v.status))
         .map(v => ({ id: v.id, configId: v.configId, feeTypeId: v.feeTypeId, version: v.version, status: v.status })),
+      reconciliation: run ? { ...runPublic(run), stale: runStale } : null,
+      evidencePage: { page, hasNext: page + 1 < (run?.pageCount ?? 0), rows: safeRows, fingerprint },
       opening: proposal ? { id: proposal.id, status: proposal.status, stale: !!stale, cutoffAt: proposal.cutoffAt,
         approvedByCurrentUser: proposal.approvedBy === caller.uid, lines: proposal.lines, cashCountMinor: proposal.cashCountMinor } : null,
-      inventory: { schoolAvailableMinor: inventory.schoolAvailableMinor, cashAvailableMinor: inventory.cashAvailableMinor,
-        fingerprint: inventory.fingerprint, evidenceCount: inventory.evidence.length, page,
-        hasNext: (page + 1) * 200 < inventory.evidence.length, evidence: inventory.evidence.slice(page * 200, (page + 1) * 200).map(({ digest: _digest, ...row }) => row) } };
+      inventory: run?.status === 'COMPLETE' && !runStale ? { schoolAvailableMinor: run.receivedMinor - run.spentMinor,
+        cashAvailableMinor: run.receivedMinor - run.spentMinor + run.otherMinor,
+        fingerprint, evidenceCount: run.evidenceCount, page, hasNext: page + 1 < run.pageCount, evidence: safeRows.filter(row => row.collection !== 'feeAllocationConfigs') } : null };
   });
 }

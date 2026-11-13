@@ -28,9 +28,14 @@ describe("répartition des frais : collections exclusivement serveur", () => {
     await assertFails(setDoc(proof, { schoolId: "allocation-school", rows: [] }));
     await assertFails(updateDoc(proof, { rows: [] }));
     await assertFails(deleteDoc(proof));
+    for (const collection of ['pages', 'versions']) {
+      const page = doc(admin(), 'feeAllocationReconciliationRuns', 'run', collection, 'forged');
+      await assertFails(getDoc(page)); await assertFails(setDoc(page, { schoolId: 'allocation-school', status: 'COMPLETE' }));
+      await assertFails(updateDoc(page, { amountMinor: 100000 })); await assertFails(deleteDoc(page));
+    }
   });
   it("refuse aux clients les brouillons, versions, états, soldes et mouvements", async () => {
-    for (const name of ["feeAllocationStates", "feeAllocationConfigs", "feeAllocationVersions", "feeAllocationFeeGuards", "feeAllocationRequests", "feeAllocationOpeningAudits", "feeAllocationAnchors", "feeAllocationMovements", "feeAllocationBalances", "feeAllocationReconciliationRuns"]) {
+    for (const name of ["feeAllocationStates", "feeAllocationConfigs", "feeAllocationVersions", "feeAllocationFeeGuards", "feeAllocationRequests", "feeAllocationOpeningAudits", "feeAllocationAnchors", "feeAllocationMovements", "feeAllocationBalances", "feeAllocationReconciliationRuns", 'feeAllocationHistoricalProofs', 'feeAllocationHistoricalDecisions', 'feeAllocationEvidenceClaims', 'feeAllocationEvidenceRevisions']) {
       await assertFails(setDoc(doc(admin(), name, "forged"), { schoolId: "allocation-school", status: "ACTIVE" }));
       await assertFails(getDoc(doc(admin(), name, "forged")));
     }

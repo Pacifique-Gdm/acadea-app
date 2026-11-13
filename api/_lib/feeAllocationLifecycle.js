@@ -1,40 +1,14 @@
 import { readFeeAllocationScope, readFeeAllocationYear } from "./feeAllocationPhase1.js";
 import { validateFeeAllocationRubrics } from "./feeAllocationMath.js";
 import { toMoneyMinor } from "./money.js";
-import { readAllocationPages } from "./feeAllocationPagination.js";
+import { allocationRunRef, evidenceRevisionRef } from './feeAllocationRevision.js';
+import { assertRunCurrent } from './feeAllocationReconciliation.js';
 import { allocationHash as hash, allocationStateId, allocationBalanceId, allocationFail as fail,
   allocationIdentifier as id, allocationMinor as minor, readAllocationEligibility, readOperationalAllocation } from "./feeAllocationRuntime.js";
 
 export const allocationLifecycleActions = new Set(["publish-configuration", "prepare-opening", "approve-opening", "activate", "pause", "resume"]);
 const active = p => p && p.active !== false && !["inactive", "disabled", "suspended", "deleted", "deleting"].includes(p.status);
 const sum = values => { const n = values.reduce((a, b) => a + BigInt(b), 0n); if (n < 0n || n > BigInt(Number.MAX_SAFE_INTEGER)) fail("Total financier incohérent."); return Number(n); };
-
-/** Exhaustive transaction snapshot, transported in bounded pages. */
-export async function openingInventory(db, tx, schoolId, yearId, currency) {
-  const snapshots = await Promise.all(["payments", "expenses", "cashInflows"].map(async collection => {
-    const q = db.collection(collection).where("schoolId", "==", schoolId);
-    const s = await readAllocationPages(q, tx);
-    return s.docs.map(d => ({ collection, id: d.id, data: d.data() }));
-  }));
-  const records = snapshots.flat().filter(r => (r.data.collectionSchoolYearId ?? r.data.schoolYearId) === yearId);
-  const relevant = [];
-  for (const r of records) {
-    if (!["CDF", "USD"].includes(r.data.currency) || !Number.isFinite(Date.parse(r.data.createdAt))) fail("Devise ou date historique non prouvée.");
-    if (r.data.currency !== currency) continue;
-    if (r.collection === "payments" && (r.data.provenance !== "financial-api" || !r.data.clientRequestIdHash)) fail("Encaissement historique sans preuve serveur.");
-    if (r.collection === "expenses" && !["financial-api", "personnel-payroll"].includes(r.data.provenance)) fail("Décaissement historique sans preuve serveur.");
-    relevant.push({ ...r, minor: toMoneyMinor(r.data.amount) });
-  }
-  const receipts = sum(relevant.filter(r => r.collection === "payments").map(r => r.minor));
-  const spent = sum(relevant.filter(r => r.collection === "expenses").map(r => r.minor));
-  const other = sum(relevant.filter(r => r.collection === "cashInflows").map(r => r.minor));
-  // Conservatively debit all historical expenditure from justified school funds.
-  // Donations never become an allocation opening merely because cash is positive.
-  if (spent > receipts) fail("Origine des fonds historiques à rapprocher : dépenses supérieures aux recettes scolaires prouvées.");
-  const evidence = relevant.sort((a, b) => `${a.collection}/${a.id}`.localeCompare(`${b.collection}/${b.id}`))
-    .map(r => ({ collection: r.collection, id: r.id, amountMinor: r.minor, createdAt: r.data.createdAt, digest: hash(r.data) }));
-  return { evidence, fingerprint: hash(evidence), schoolAvailableMinor: receipts - spent, cashAvailableMinor: sum([receipts - spent, other]) };
-}
 
 export async function manageFeeAllocationLifecycle({ db, caller, body, now = new Date().toISOString() }) {
   if (!allocationLifecycleActions.has(body.action)) fail("Action inconnue.", "invalid-argument", 400);
@@ -62,19 +36,6 @@ export async function manageFeeAllocationLifecycle({ db, caller, body, now = new
     }
     const stateRef = db.doc(`feeAllocationStates/${allocationStateId(schoolId, yearId, currency)}`);
     const state = (await tx.get(stateRef)).data();
-    const configured = await readAllocationPages(db.collection("feeAllocationConfigs").where("schoolId", "==", schoolId).where("schoolYearId", "==", yearId), tx);
-    const versions = await Promise.all(configured.docs.filter(d => d.data().currentVersionId).map(async d => {
-      const v = (await tx.get(db.doc(`feeAllocationVersions/${d.data().currentVersionId}`))).data();
-      if (!v || v.schoolId !== schoolId || v.schoolYearId !== yearId || v.currency !== currency || v.status !== "published") fail("Version publiée non valide.");
-      return v;
-    }));
-    const rubrics = new Map();
-    for (const v of versions) for (const r of validateFeeAllocationRubrics(v.rubrics, v.feeAmountMinor).rubrics) {
-      if (rubrics.has(r.id) && rubrics.get(r.id).name !== r.name) fail("Identité de rubrique incohérente.");
-      rubrics.set(r.id, { id: r.id, name: r.name, active: true });
-    }
-    if (rubrics.size > 40) fail("Plus de 40 rubriques distinctes.");
-    const configurationFingerprint = hash(versions.map(v => hash(v)).sort());
     const result = { operational: false, testOnly: scope.testOnly, action: body.action };
     if (body.action === "publish-configuration") {
       if (["ACTIVE", "PAUSED"].includes(state?.status)) fail("Publication interdite après activation sans nouveau rapprochement.");
@@ -96,13 +57,21 @@ export async function manageFeeAllocationLifecycle({ db, caller, body, now = new
       if (oldRef) await tx.get(oldRef);
       tx.update(versionRef, { status: "published", effectiveFrom: now, publishedBy: caller.uid });
       tx.update(configRef, { currentVersionId: version.id });
+      tx.set(evidenceRevisionRef(db, schoolId, yearId), { schoolId, schoolYearId: yearId, revision: fingerprint });
       if (oldRef) tx.update(oldRef, { status: "superseded" });
       tx.set(db.doc(`feeAllocationFeeGuards/${version.feeTypeId}`), { schoolId, schoolYearId: yearId, configId: config.id, versionId: version.id });
       result.versionId = version.id;
     } else if (["prepare-opening", "approve-opening", "activate"].includes(body.action)) {
       if (["ACTIVE", "PAUSED"].includes(state?.status)) fail("Périmètre déjà activé.");
-      if (!rubrics.size) fail("Une configuration publiée est indispensable.");
-      const inventory = await openingInventory(db, tx, schoolId, yearId, currency);
+      const run = state?.reconciliationRunId ? (await tx.get(allocationRunRef(db, state.reconciliationRunId))).data() : null;
+      await assertRunCurrent(db, tx, run, schoolId, yearId, currency);
+      if (run.status !== 'COMPLETE' || run.blockedCount || run.spentMinor > run.receivedMinor) fail('Rapprochement complet et justifié requis.');
+      if (!run.configurationCount || !run.rubrics?.length || run.rubrics.length > 40) fail('Une configuration publiée est indispensable.');
+      const rubrics = new Map(run.rubrics.map(r => [r.id, r]));
+      const configurationFingerprint = run.configurationChain;
+      const inventory = { fingerprint: hash([run.id, run.chain, run.revision]), evidenceCount: run.evidenceCount,
+        evidencePages: run.pageCount, evidenceRunId: run.id, schoolAvailableMinor: run.receivedMinor - run.spentMinor,
+        cashAvailableMinor: sum([run.receivedMinor - run.spentMinor, run.otherMinor]) };
       const lockRef = db.doc(`financialCashLocks/${createCashLock(schoolId, yearId, currency)}`);
       await tx.get(lockRef);
       if (body.action === "prepare-opening") {
@@ -112,21 +81,13 @@ export async function manageFeeAllocationLifecycle({ db, caller, body, now = new
           || new Set(body.lines.map(l => l.rubricId)).size !== body.lines.length
           || sum(body.lines.map(l => l.amountMinor)) !== inventory.schoolAvailableMinor) fail("L'ouverture doit expliquer exactement les fonds scolaires justifiés.");
         const openingId = `opening_${hash([schoolId, body.requestId])}`;
-        // Proof rows are chunked: the audit document must not grow with school size.
-        const { evidence, ...summary } = inventory;
-        const proofPages = [];
-        for (let i = 0; i < evidence.length; i += 200) proofPages.push(evidence.slice(i, i + 200));
-        // Firestore commit size/time are hard infrastructure limits. No opening
-        // may be committed if the complete proof cannot be archived atomically.
-        if (Buffer.byteLength(JSON.stringify(proofPages), "utf8") > 7_000_000 || proofPages.length > 450) {
-          fail("Preuve exhaustive trop volumineuse pour une transaction : rapprochement asynchrone requis.");
-        }
+        // All immutable evidence pages already exist. The final atomic write
+        // references their terminal chain; it never recopies the whole history.
         tx.create(db.doc(`feeAllocationOpeningAudits/${openingId}`), { id: openingId, schoolId, schoolYearId: yearId, currency,
           fixtureId: scope.fixtureId, cutoffAt: now, status: "proposed", lines: body.lines, configurationFingerprint,
-          receiptVersions: versions.map(v => ({ feeTypeId: v.feeTypeId, versionId: v.id })),
-          ...summary, evidenceCount: evidence.length, evidencePages: proofPages.length,
+          receiptVersionsRunId: run.id,
+          ...inventory,
           cashCountMinor: body.cashCountMinor, proposedBy: caller.uid, proposedAt: now });
-        proofPages.forEach((rows, i) => tx.create(db.doc(`feeAllocationOpeningAudits/${openingId}/evidencePages/${String(i).padStart(6, "0")}`), { schoolId, schoolYearId: yearId, currency, rows }));
         tx.set(stateRef, { schoolId, schoolYearId: yearId, currency, status: "EN_PREPARATION", lastOpeningId: openingId, updatedAt: now }, { merge: true });
         result.openingId = openingId;
       } else {
@@ -159,7 +120,8 @@ export async function manageFeeAllocationLifecycle({ db, caller, body, now = new
         }
         result.openingId = proposal.id;
       }
-      tx.set(lockRef, { schoolId, schoolYearId: yearId, currency, updatedAt: now }, { merge: true });
+      // Approval is read-only with respect to the cash revision. Activation
+      // serializes against financial writes by reading the same cash lock.
     } else {
       const expected = body.action === "pause" ? "ACTIVE" : "PAUSED";
       if (state?.status !== expected || (state.fixtureId ?? null) !== scope.fixtureId || typeof body.reason !== "string" || body.reason.trim().length < 5 || body.reason.length > 500) fail("État ou motif de pause/reprise invalide.");

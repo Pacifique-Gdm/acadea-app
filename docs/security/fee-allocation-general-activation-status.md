@@ -1,5 +1,37 @@
 # Répartition générale — candidat du 13 novembre 2026
 
+## Reprise : lots, registre et historiques (validation en cours)
+
+Le candidat local remplace désormais la transaction exhaustive par un travail
+serveur reprenable de 100 sources par lot. Chaque lot conserve son curseur,
+sa séquence et son empreinte ; un rejeu après réponse perdue ne recompte rien.
+Les révisions des deux caisses et des configurations/justificatifs invalident
+le calcul si elles changent. Les versions approuvées sont conservées en documents
+individuels liés au rapprochement ; préparation, approbation et activation finales
+ne relisent ni toutes les pièces ni toutes les configurations.
+
+Le registre utilise un curseur de document, 100 mouvements et une sentinelle par
+page, avec empreinte commune des gardes et soldes. Le client refuse tout export
+incomplet, doublonné ou dont la somme diffère des soldes. Les pages suivantes ne
+rechargent pas les métadonnées de tous les tarifs.
+
+L'Administrateur peut consulter les pièces bloquantes et soumettre un reçu serveur
+ou un paiement de personnel lié. Le serveur contrôle école, année, montant,
+identité d'opération, devise et réutilisation ; la décision est auditée sans
+réécriture de la source. Une pièce absente, modifiée ou non concordante est refusée.
+
+Vérifications de cette reprise : 178 exécutions ciblées PASS (12 fichiers, dont
+réexécutions dues à la fixture importée), TypeScript et lint PASS. Le build Staging
+a réussi avec les paramètres officiels issus de GitHub ; les derniers ajustements
+d'interface restent soumis à la CI du commit publié. L'émulateur local n'a pas
+terminé son démarrage : il n'est pas compté PASS ; la CI Linux doit valider les
+règles. Le nouvel index du registre est en cours de création sur Staging uniquement.
+
+Les seuils hébergés sont fixés dans `fee-allocation-volume-gates.md`. La recette
+du nouveau code et les mesures de volume ne sont pas encore exécutées. Les preuves
+ci-dessous concernent l'ancien candidat et ne valident pas ces modifications.
+Aucune fusion ni promotion Production n'a eu lieu pendant cette reprise.
+
 Base : `6ab7bc9e5f4cf81c9cebb1de75d15ade4a15dc94` (PR #57).
 Branche : `codex/fee-allocation-general-activation-20261113`.
 

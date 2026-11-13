@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { services } from './socialFinanceStagingFixture.mjs';
 import { feeAllocationAnchorId } from '../api/_lib/feeAllocationReceipts.js';
 import { validateFeeAllocationRubrics } from '../api/_lib/feeAllocationMath.js';
+import { runHostedAllocationVolume } from './feeAllocationHostedVolume.mjs';
 
 const origin = 'https://acadea-staging.vercel.app', expectedSha = process.env.ACADEA_EXPECTED_SHA;
 const output = `diagnostics/fee-allocation-hosted/${expectedSha}`;
@@ -55,12 +56,14 @@ const s = services();
 const tag = `e2e-allocation-${randomUUID().replaceAll('-', '')}`;
 const school = `${tag}-a`, foreign = `${tag}-b`, year = `${tag}-year`, fee = `${tag}-fee`, student = `${tag}-student`;
 const inactiveSchool = `${tag}-inactive`, inactiveYear = `${tag}-inactive-year`;
+const volumeSchool = `${tag}-volume`, volumeYear = `${tag}-volume-year`;
 const coord = `${tag}-coord`, sub = `${tag}-sub`;
 const roles = ['school_admin', 'cashier', 'coordination_admin', 'sub_coordination_admin', 'teacher'];
 const users = roles.map(role => ({ role, uid: `${tag}-${role}`, email: `${tag}-${role}@example.invalid` }));
 users.push(...[['cdf-admin', 'school_admin'], ['cdf-cashier', 'cashier']].map(([key, role]) => ({ key, role, uid: `${tag}-${key}`, email: `${tag}-${key}@example.invalid`, schoolId: foreign })));
 users.push(...[['inactive-admin', 'school_admin'], ['inactive-cashier', 'cashier']].map(([key, role]) => ({ key, role, uid: `${tag}-${key}`, email: `${tag}-${key}@example.invalid`, schoolId: inactiveSchool })));
-const manifest = { projectId: 'acadea-staging', tag, sha: expectedSha, schools: [school, foreign, inactiveSchool], users, paths: [], retired: false, createdAt: new Date().toISOString() };
+users.push(...[['volume-admin', 'school_admin'], ['volume-cashier', 'cashier']].map(([key, role]) => ({ key, role, uid: `${tag}-${key}`, email: `${tag}-${key}@example.invalid`, schoolId: volumeSchool })));
+const manifest = { projectId: 'acadea-staging', tag, sha: expectedSha, schools: [school, foreign, inactiveSchool, volumeSchool], users, paths: [], retired: false, createdAt: new Date().toISOString() };
 const save = () => writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), { mode: 0o600 });
 save(); // Durable identity-only inventory before the first write. No password/token.
 const password = `Fictif-${randomUUID()}${randomUUID()}`;
@@ -102,6 +105,11 @@ async function api(role, body, status = 200) {
 }
 const requestId = () => randomUUID();
 const allocation = (action, body = {}, role = 'school_admin', status = 200) => api(role, { action: `fee-allocation.${action}`, requestId: requestId(), ...body }, status);
+async function reconcile(role = 'school_admin') {
+  let { run } = await allocation('start-reconciliation', {}, role);
+  while (run.status === 'RUNNING') ({ run } = await api(role, { action: 'fee-allocation.advance-reconciliation', runId: run.id, sequence: run.sequence }));
+  assert.equal(run.status, 'COMPLETE', 'Rapprochement hébergé incomplet'); return run;
+}
 async function retire() {
   assert.equal(manifest.projectId, 'acadea-staging'); assert.match(tag, /^e2e-allocation-[a-f0-9]{32}$/);
   for (const u of users) {
@@ -124,11 +132,19 @@ async function retire() {
     assert.ok([401, 403].includes(response.status), 'Compte fictif encore autorisé après neutralisation');
   }
   const retained = {};
-  for (const collection of ['payments', 'expenses', 'personnelPayments', 'feeAllocationStates', 'feeAllocationConfigs', 'feeAllocationVersions', 'feeAllocationOpeningAudits', 'feeAllocationBalances', 'feeAllocationMovements', 'feeAllocationRequests', 'feeAllocationAnchors', 'financialIdempotency', 'financialCounters', 'financialCashLocks', 'auditLogs', 'socialSupportDecisions', 'socialSupportRequests', 'socialSupportAudit', 'socialSupportFeeLocks']) {
+  for (const collection of ['payments', 'expenses', 'personnelPayments', 'feeAllocationStates', 'feeAllocationConfigs', 'feeAllocationVersions', 'feeAllocationOpeningAudits', 'feeAllocationBalances', 'feeAllocationMovements', 'feeAllocationRequests', 'feeAllocationAnchors', 'financialIdempotency', 'financialCounters', 'financialCashLocks', 'auditLogs', 'socialSupportDecisions', 'socialSupportRequests', 'socialSupportAudit', 'socialSupportFeeLocks', 'feeAllocationReconciliationRuns', 'feeAllocationHistoricalProofs', 'feeAllocationHistoricalDecisions', 'feeAllocationEvidenceClaims', 'feeAllocationEvidenceRevisions']) {
     retained[collection] = [];
     for (const sid of manifest.schools) retained[collection].push(...(await s.db.collection(collection).where('schoolId', '==', sid).get()).docs.map(d => ({ schoolId: sid, id: d.id })));
   }
   retained.openingEvidencePages = [];
+  retained.reconciliationDocuments = [];
+  for (const run of retained.feeAllocationReconciliationRuns) for (const collection of ['pages', 'versions']) {
+    const docs = await s.db.collection(`feeAllocationReconciliationRuns/${run.id}/${collection}`).get();
+    for (const doc of docs.docs) {
+      assert.ok(manifest.schools.includes(doc.data().schoolId));
+      retained.reconciliationDocuments.push({ schoolId: doc.data().schoolId, path: doc.ref.path });
+    }
+  }
   for (const audit of retained.feeAllocationOpeningAudits) {
     const pages = await s.db.collection(`feeAllocationOpeningAudits/${audit.id}/evidencePages`).get();
     for (const doc of pages.docs) {
@@ -142,8 +158,8 @@ async function retire() {
 try {
   const createdAt = new Date().toISOString(), expiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
   await put('feeAllocationTestScopes', tag, { projectId: 'acadea-staging', schoolIds: manifest.schools, status: 'active', createdAt, expiresAt });
-  const fixtureYear = sid => sid === school ? year : sid === foreign ? `${tag}-foreign-year` : inactiveYear;
-  for (const [sid, currency] of [[school, 'USD'], [foreign, 'CDF'], [inactiveSchool, 'USD']]) {
+  const fixtureYear = sid => sid === school ? year : sid === foreign ? `${tag}-foreign-year` : sid === volumeSchool ? volumeYear : inactiveYear;
+  for (const [sid, currency] of [[school, 'USD'], [foreign, 'CDF'], [inactiveSchool, 'USD'], [volumeSchool, 'USD']]) {
     await put('schools', sid, { name: `Répartition fictive ${currency}`, status: 'active', active: true, currency, activeSchoolYearId: fixtureYear(sid),
       schoolType: 'Primaire uniquement', educationLevels: ['Primaire'], schoolOptions: [], subscriptionStatus: 'active', subscriptionPlan: 'premium', ...(sid === school ? { activeCoordinationId: coord } : {}) });
     await put('schoolYears', fixtureYear(sid), { schoolId: sid, status: 'active', currency, name: '2026-2027', startsAt: '2026-09-01', endsAt: '2027-07-31' });
@@ -169,6 +185,15 @@ try {
   assert.equal((await api('inactive-admin', { action: 'fee-allocation.get-workspace', schoolId: inactiveSchool })).ledger, null);
   assert.equal((await s.db.collection('feeAllocationMovements').where('schoolId', '==', inactiveSchool).get()).size, 0);
   record('Troisième école non activée : paiement, rejeu et dépense sans rubrique, aucun mouvement de répartition');
+  await put('payments', `${tag}-unjustifiable-history`, { schoolId: inactiveSchool, schoolYearId: inactiveYear,
+    amount: 2, currency: null, provenance: 'legacy-fixture', createdAt });
+  let blockedRun = (await allocation('start-reconciliation', {}, 'inactive-admin')).run;
+  while (blockedRun.status === 'RUNNING') blockedRun = (await api('inactive-admin', { action: 'fee-allocation.advance-reconciliation', runId: blockedRun.id, sequence: blockedRun.sequence })).run;
+  assert.equal(blockedRun.status, 'BLOCKED');
+  assert.equal((await allocation('justify-history', { collection: 'payments', sourceId: `${tag}-unjustifiable-history`, evidenceType: 'financialIdempotency',
+    evidenceId: `${tag}-nonexistent-evidence`, reason: 'Absence volontaire de preuve vérifiable' }, 'inactive-admin')).decision, 'rejected');
+  assert.equal((await api('inactive-admin', { action: 'fee-allocation.get-workspace', schoolId: inactiveSchool })).ledger, null);
+  record('Historique non justifiable : refus explicite et école maintenue inactive, sans affectation automatique');
   await put('classes', `${tag}-class`, { schoolId: school, schoolYearId: year, name: '1ère Primaire', section: 'Primaire', active: true });
   await put('feeTypes', fee, { schoolId: school, schoolYearId: year, name: 'Minerval fictif', className: '1ère Primaire', amount: 100, createdAt });
   const rubrics = Array.from({ length: 20 }, (_, i) => ({ id: (i + 1).toString(16).padStart(32, '0'), name: `Rubrique fictive ${i + 1}`, mode: 'percent', basisPoints: 400 }));
@@ -193,6 +218,7 @@ try {
   // The opening is proved by a real API receipt in the still-inactive fixture,
   // never by manufacturing a ledger balance with Admin credentials.
   await api('cashier', { action: 'create-payment', schoolYearId: year, studentId: historicalStudent, feeTypeId: fee, amount: 5, clientRequestId: requestId() });
+  await reconcile();
   const p = await allocation('prepare-opening', { cashCountMinor: 500, lines: [{ rubricId: 'UNALLOCATED', amountMinor: 500 }], confirmation: 'RAPPROCHER LA CAISSE' });
   await allocation('approve-opening', { openingId: p.openingId, confirmation: 'APPROUVER LE RAPPROCHEMENT' });
   const activation = { openingId: p.openingId, confirmation: 'ACTIVER LA REPARTITION FICTIVE', requestId: requestId() };
@@ -335,6 +361,9 @@ try {
     }
     await activationClick('Publier cette version', 'publish-configuration');
     await expect(panel.getByRole('button', { name: 'Publier cette version', exact: true })).toHaveCount(0, { timeout: 45000 });
+    await activationClick('Lancer un nouveau rapprochement', 'start-reconciliation');
+    await panel.getByRole('button', { name: 'Continuer le rapprochement', exact: true }).click();
+    await expect(panel.getByText('Rapprochement complet.', { exact: false })).toBeVisible({ timeout: 60000 });
     await panel.getByLabel('Caisse constatée (CDF)', { exact: true }).fill('90');
     await panel.getByLabel('Ouverture : Fonctionnement CDF (CDF)', { exact: true }).fill('90');
     await panel.getByLabel('Confirmation du rapprochement', { exact: true }).fill('RAPPROCHER LA CAISSE');
@@ -514,6 +543,8 @@ try {
       console.error(`FAIL: ${u.role} : export/drawer (rapport expurgé conservé)`);
     } finally { await context.close(); }
   }
+  if (!results.some(result => result.result === 'FAIL')) await runHostedAllocationVolume({ db: s.db, tag, schoolId: volumeSchool, yearId: volumeYear,
+    put, api, allocation, manifest, save, output, browser, user: users.find(u => u.key === 'volume-cashier'), password, origin, record });
 } catch (error) {
   results.push({ name: 'Recette interrompue', result: 'FAIL', detail: String(error.message).slice(0, 600) }); process.exitCode = 1;
   console.error('FAIL: recette interrompue, consulter le rapport expurgé.');

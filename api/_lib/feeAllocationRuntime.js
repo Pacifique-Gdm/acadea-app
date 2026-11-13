@@ -77,5 +77,6 @@ export async function readOperationalAllocation({ db, transaction, schoolId, sch
   const receiptVersions = audit.receiptVersions ?? [];
   if (!Array.isArray(receiptVersions) || receiptVersions.some(v => !v || !allocationIdentifier(v.feeTypeId) || !allocationIdentifier(v.versionId))
     || new Set(receiptVersions.map(v => v.feeTypeId)).size !== receiptVersions.length) allocationFail("Versions du rapprochement incohérentes.");
-  return { ...state, approvedReceiptVersions: receiptVersions, testOnly: scope.testOnly };
+  if (audit.receiptVersionsRunId && !allocationIdentifier(audit.receiptVersionsRunId)) allocationFail('Rapprochement référencé invalide.');
+  return { ...state, approvedReceiptVersions: receiptVersions, receiptVersionsRunId: audit.receiptVersionsRunId ?? null, testOnly: scope.testOnly };
 }
