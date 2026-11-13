@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { evidenceRevisionRef } from './feeAllocationRevision.js';
 import { toMoneyMinor } from "./money.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { FeeAllocationError, assertFeeAllocationActivationBlocked, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
@@ -9,7 +10,7 @@ const denied = () => { throw new FeeAllocationError(403, "permission-denied", "A
 const invalid = (message) => { throw new FeeAllocationError(400, "invalid-argument", message); };
 const conflict = (message) => { throw new FeeAllocationError(409, "conflict", message); };
 const role = (value) => value === "admin" ? "school_admin" : value;
-const active = (value) => value && value.active !== false && value.status !== "inactive";
+const active = (value) => value && value.active !== false && !["inactive", "disabled", "suspended", "deleting", "deleted"].includes(value.status);
 const allowedActions = new Set(["get-state", "list-configurations", "list-versions", "get-permissions", "save-draft", "validate-draft", "prepare-version", "check-activation", "publish-configuration", "activate"]);
 
 export { readScope as readFeeAllocationScope, readYear as readFeeAllocationYear };
@@ -150,6 +151,7 @@ async function mutateDraft({ db, caller, body, prepare }) {
     transaction.create(db.doc(`auditLogs/${auditId}`), buildServerAudit({ id: auditId, eventType: auditType,
       actor: caller, schoolId, schoolYearId: yearId, resourceType: "feeAllocation", resourceId: configId,
       metadata: { feeTypeId: body.feeTypeId, revision: body.expectedRevision, operational: false } }));
+    transaction.set(evidenceRevisionRef(db, schoolId, yearId), { schoolId, schoolYearId: yearId, revision: fingerprint });
     transaction.create(receiptRef, { schoolId, schoolYearId: yearId, userId: caller.uid, fingerprint, result, createdAt: now });
     return { ...result, idempotent: false };
   });

@@ -37,7 +37,7 @@ export async function prepareFeeAllocationExpense({ db, transaction, caller, exp
     collectionSchoolYearId: source.schoolYearId, currency: source.currency, sourceType: "expense", sourceId: source.id,
     sourceRevision: requestId, configVersionId: null, amountMinor: -delta, lines: [{ rubricId, amountMinor: -delta }],
     postedAt: now, collectedAt: source.createdAt, actorId: caller.uid, type: previous ? expense ? "correction" : "reversal" : "expense",
-    reversesMovementId: prior?.lastMovementId ?? null, sourceSnapshot: { ...source }, testOnly: true });
+    reversesMovementId: prior?.lastMovementId ?? null, sourceSnapshot: { ...source }, testOnly: state.testOnly });
   return () => {
     transaction.create(movementRef, movement);
     transaction.set(sourceRef, { schoolId: source.schoolId, sourceId: source.id, sourceDigest: expense ? digest(expense) : null,

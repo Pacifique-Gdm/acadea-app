@@ -95,7 +95,8 @@ test("encaissements répartis : Auth réel, concurrence, arriérés, social, tie
     expect((await invoke(handler, adminToken, { action: "delete-payment", transactionId: thirdPayment.id, reason: "Interdit", clientRequestId: `${f.tag}-third-delete` })).status).toBe(409);
     for (const role of ["coordination_admin", "sub_coordination_admin", "teacher", "school_admin"]) expect((await invoke(handler, await f.token(role), request(1))).status).toBe(403);
     expect((await invoke(handler, token, request(1, { rubricId: "forged" }))).status).toBe(400);
-    expect((await invoke(handler, adminToken, { action: "fee-allocation.activate" })).status).toBe(409);
+    const activationDenied = await invoke(handler, adminToken, { action: "fee-allocation.activate" });
+    expect(activationDenied).toMatchObject({ status: 403, payload: { code: "test-scope-required" } });
     await f.db.doc(`users/${f.accounts.cashier.uid}`).update({ active: false });
     expect((await invoke(handler, token, request(1))).status).toBe(403);
     await f.db.doc(`users/${f.accounts.cashier.uid}`).update({ active: true });

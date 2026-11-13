@@ -4,22 +4,25 @@ import { feeAllocationConfigId, readFeeAllocationScope, readFeeAllocationYear } 
 import { toMoneyMinor } from "./money.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { readFeeAllocationLedger } from "./feeAllocationLedger.js";
+import { evidenceRevisionRef } from './feeAllocationRevision.js';
 
 const hash = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const id = (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(value);
 const nameKey = (value) => String(value).normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("fr");
 const fail = (status, code, message) => { throw new FeeAllocationError(status, code, message); };
-const active = (value) => value && value.active !== false && !["inactive", "suspended", "deleting", "deleted"].includes(value.status);
+const active = (value) => value && value.active !== false && !["inactive", "disabled", "suspended", "deleting", "deleted"].includes(value.status);
 const isAdmin = (role) => role === "school_admin" || role === "admin";
 const fields = (body, allowed) => { if (Object.keys(body).some((key) => !allowed.includes(key))) fail(400, "invalid-argument", "Champs de répartition non autorisés."); };
 
 /** The only read model for the phase 2 drawer. No payments, balances or student records are read. */
 export async function manageFeeAllocationPhase2({ db, caller, body }) {
   if (body.action === "get-workspace") {
-    fields(body, ["action", "schoolId"]);
+    fields(body, ["action", "schoolId", "ledgerPage", "ledgerFingerprint", "ledgerCursor"]);
     const { school, schoolId } = await readFeeAllocationScope(db, caller, body.schoolId ?? caller.schoolId);
     const { yearId, year, currency } = await readFeeAllocationYear(db, schoolId, school, undefined, false);
-    const [fees, configs] = await Promise.all([
+    // Subsequent ledger pages need only their verified scope and cursor. The
+    // first page already carries configuration metadata, immutable while active.
+    const [fees, configs] = (body.ledgerPage ?? 0) > 0 ? [{ docs: [] }, { docs: [] }] : await Promise.all([
       db.collection("feeTypes").where("schoolId", "==", schoolId).where("schoolYearId", "==", yearId).get(),
       db.collection("feeAllocationConfigs").where("schoolId", "==", schoolId).where("schoolYearId", "==", yearId).get(),
     ]);
@@ -30,7 +33,7 @@ export async function manageFeeAllocationPhase2({ db, caller, body }) {
       fees: fees.docs.map((row) => { const fee = row.data(); return { id: row.id, name: fee.name,
         className: fee.className, classOptionKey: fee.classOptionKey ?? null, amount: fee.amount }; }),
       configs: configs.docs.map((row) => row.data()),
-      ledger: await readFeeAllocationLedger({ db, schoolId, schoolYearId: yearId, currency }),
+      ledger: await readFeeAllocationLedger({ db, schoolId, schoolYearId: yearId, currency, page: body.ledgerPage ?? 0, fingerprint: body.ledgerFingerprint, cursor: body.ledgerCursor }),
     };
   }
   if (body.action !== "save-drafts") fail(400, "invalid-argument", "Action préparatoire inconnue.");
@@ -109,6 +112,7 @@ export async function manageFeeAllocationPhase2({ db, caller, body }) {
       eventType: AUDIT_EVENT_TYPES.FINANCE_ALLOCATION_DRAFT_SAVED, actor: caller, schoolId, schoolYearId: body.schoolYearId,
       resourceType: "feeAllocation", resourceId: configs[0].id, metadata: { targetCount: configs.length, operational: false } }));
     const result = { configs, operational: false };
+    transaction.set(evidenceRevisionRef(db, schoolId, body.schoolYearId), { schoolId, schoolYearId: body.schoolYearId, revision: fingerprint });
     transaction.create(receiptRef, { schoolId, schoolYearId: body.schoolYearId, userId: caller.uid, fingerprint, result, createdAt: now });
     return { ...result, idempotent: false };
   });

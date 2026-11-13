@@ -100,7 +100,8 @@ test("répartition préparatoire : quatre rôles authentifiés, transaction, ver
       expect(denied.status).toBe(403);
     }
     expect((await invoke(handler, await f.token("teacher"), { action: "fee-allocation.get-workspace", schoolId: f.school })).status).toBe(403);
-    expect((await invoke(handler, adminToken, { action: "fee-allocation.activate" })).status).toBe(409);
+    const activationDenied = await invoke(handler, adminToken, { action: "fee-allocation.activate" });
+    expect(activationDenied).toMatchObject({ status: 403, payload: { code: "test-scope-required" } });
     for (const collection of ["payments", "expenses", "feeAllocationMovements", "feeAllocationBalances", "feeAllocationOpeningAudits"]) expect((await f.db.collection(collection).where("schoolId", "==", f.school).get()).empty).toBe(true);
   } catch (error) {
     if (activePage && !activePage.isClosed() && !activePage.url().includes("/login")) {

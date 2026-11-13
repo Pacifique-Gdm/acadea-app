@@ -1,4 +1,5 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { allocationHash } from './feeAllocationRuntime.js';
 
 export class CashBalanceError extends Error {
   constructor(status, code, message, details = {}) {
@@ -21,16 +22,28 @@ function moneyCents(value) {
 
 export async function resolveRecordedCurrency(data, { db, reader, documentId, collection }) {
   if (data.currency === "CDF" || data.currency === "USD") return data.currency;
-  if (data.currency !== undefined && data.currency !== null && data.currency !== "") {
-    throw new CashBalanceError(409, "cash-balance-inconsistent", "Devise financière invalide : décaissement bloqué.");
-  }
-  if (collection === "expenses" && typeof data.personnelPaymentId === "string" && data.personnelPaymentId) {
+  if (!data.currency && collection === "expenses" && typeof data.personnelPaymentId === "string" && data.personnelPaymentId) {
     const ref = db.doc(`personnelPayments/${data.personnelPaymentId}`);
     const linked = reader ? await reader.get(ref) : await ref.get();
     const payment = linked.data?.();
     if (linked.exists && payment?.expenseId === documentId && payment.schoolId === data.schoolId
       && payment.schoolYearId === data.schoolYearId && payment.netPaid === data.amount
       && (payment.currency === "CDF" || payment.currency === "USD")) return payment.currency;
+  }
+  // A verified, audited server proof can resolve a legacy currency without
+  // changing the original receipt. A changed/reused proof never grants credit.
+  if (['payments', 'expenses', 'cashInflows'].includes(collection) && documentId) {
+    const get = ref => reader ? reader.get(ref) : ref.get();
+    const proof = (await get(db.doc(`feeAllocationHistoricalProofs/${allocationHash([collection, documentId])}`))).data();
+    if (proof?.decision === 'accepted' && proof.schoolId === data.schoolId
+      && proof.schoolYearId === (data.collectionSchoolYearId ?? data.schoolYearId)
+      && proof.sourceDigest === allocationHash(data) && ['USD', 'CDF'].includes(proof.currency)) {
+      const evidence = (await get(db.doc(proof.evidencePath))).data();
+      if (evidence && allocationHash(evidence) === proof.evidenceDigest) return proof.currency;
+    }
+  }
+  if (data.currency !== undefined && data.currency !== null && data.currency !== "") {
+    throw new CashBalanceError(409, "cash-balance-inconsistent", "Devise financière invalide : décaissement bloqué.");
   }
   // A mutable school/year setting is not evidence of an operation's original currency.
   // An unknown receipt OR expense makes every currency balance unsafe to spend.
@@ -98,6 +111,6 @@ export async function protectCashMutation({ db, transaction, schoolId, schoolYea
       ...balance, requestedCents: -deltaCents, shortfallCents: -deltaCents - balance.availableCents,
     });
   }
-  transaction.set(lockRef, { schoolId, schoolYearId, currency, updatedAt: now }, { merge: true });
+  transaction.set(lockRef, { schoolId, schoolYearId, currency, updatedAt: now, revision: randomUUID() }, { merge: true });
   return balance;
 }

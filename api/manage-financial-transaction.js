@@ -13,6 +13,8 @@ import { FeeAllocationError } from "./_lib/feeAllocationMath.js";
 import { manageFeeAllocationPhase1 } from "./_lib/feeAllocationPhase1.js";
 import { manageFeeAllocationPhase2 } from "./_lib/feeAllocationPhase2.js";
 import { allocationLifecycleActions, manageFeeAllocationLifecycle, getAllocationSpendOptions } from "./_lib/feeAllocationLifecycle.js";
+import { readAllocationActivation } from "./_lib/feeAllocationActivationView.js";
+import { reconciliationActions, manageAllocationReconciliation } from "./_lib/feeAllocationReconciliation.js";
 import { allowClientFailure, validateClientFailure } from "./_lib/clientFailureTelemetry.js";
 
 function parseJsonBody(raw) {
@@ -80,11 +82,15 @@ export default async function handler(req, res) {
         ? await requireActiveCoordinationActor(auth, db, token)
         : await requireActiveApiUser(db, caller);
       const allocationAction = requestedAction.slice("fee-allocation.".length);
-      const mutation = ["save-draft", "save-drafts", "prepare-version"].includes(allocationAction) || allocationLifecycleActions.has(allocationAction);
+      const mutation = ["save-draft", "save-drafts", "prepare-version"].includes(allocationAction) || allocationLifecycleActions.has(allocationAction) || reconciliationActions.has(allocationAction);
       await enforceApiRateLimit({ db, actorId: actor.uid, schoolId: String(actor.schoolId ?? actor.coordinationId ?? ""),
         action: requestedAction, idempotencyKey: mutation ? body.requestId : undefined,
-        ...(mutation ? API_RATE_LIMITS.FINANCE_CREATE : API_RATE_LIMITS.FINANCE_MUTATE) });
-      const manage = allocationLifecycleActions.has(allocationAction) ? manageFeeAllocationLifecycle
+        // Bounded ledger pages share a 60/min budget with financial creation;
+        // retain a finite budget while allowing a 3,001-row export to finish.
+        ...(mutation || allocationAction === 'get-workspace' ? API_RATE_LIMITS.FINANCE_CREATE : API_RATE_LIMITS.FINANCE_MUTATE) });
+      const manage = reconciliationActions.has(allocationAction) ? manageAllocationReconciliation
+        : allocationLifecycleActions.has(allocationAction) ? manageFeeAllocationLifecycle
+        : allocationAction === "get-activation" ? readAllocationActivation
         : allocationAction === "spend-options" ? getAllocationSpendOptions
         : ["get-workspace", "save-drafts"].includes(allocationAction) ? manageFeeAllocationPhase2 : manageFeeAllocationPhase1;
       return sendJson(res, 200, await manage({ db, caller: actor, body: { ...body, action: allocationAction } }));

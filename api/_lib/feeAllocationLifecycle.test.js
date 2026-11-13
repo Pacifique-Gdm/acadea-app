@@ -5,6 +5,7 @@ import { feeAllocationConfigId } from "./feeAllocationPhase1.js";
 import { validateFeeAllocationRubrics } from "./feeAllocationMath.js";
 import { executeFinancialOperation } from "./financialTransactions.js";
 import { createPersonnelPayment } from "./personnelPayroll.js";
+import { reconcileFixture, markFixtureFinancialChange } from './feeAllocationTestHelpers.js';
 
 const now = "2026-11-13T10:00:00.000Z", later = "2026-11-13T11:00:00.000Z";
 const rubricId = "a".repeat(32), fixtureId = `e2e-allocation-${"b".repeat(32)}`;
@@ -26,21 +27,25 @@ export function completeAllocationFixture() {
     "feeAllocationVersions/version": { id: "version", configId, schoolId: "school", schoolYearId: "year", feeTypeId: "fee", className: "1ère", currency: "USD", version: 1, feeAmountMinor: 10000, status: "prepared", effectiveFrom: null, rubrics, shares: validateFeeAllocationRubrics(rubrics, 10000).shares },
   }));
   const snapshot = path => ({ id: path.split("/").at(-1), exists: records.has(path), data: () => structuredClone(records.get(path)) });
-  const query = (collection, filters = [], limit = Infinity) => ({ where: (k, op, v) => { expect(op).toBe("=="); return query(collection, [...filters, [k, v]], limit); },
-    limit: n => query(collection, filters, n), get: async () => ({ docs: [...records].filter(([p, d]) => p.startsWith(`${collection}/`) && filters.every(([k, v]) => d[k] === v)).slice(0, limit).map(([p]) => snapshot(p)) }) });
+  const query = (collection, filters = [], limit = Infinity, after = "") => ({ where: (k, op, v) => { expect(op).toBe("=="); return query(collection, [...filters, [k, v]], limit, after); },
+    orderBy: () => query(collection, filters, limit, after), startAfter: doc => query(collection, filters, limit, typeof doc === 'string' ? doc : doc.id),
+    limit: n => query(collection, filters, n, after), get: async () => ({ docs: [...records].filter(([p, d]) => p.startsWith(`${collection}/`) && p.split("/").length === collection.split('/').length + 1 && p.split("/").at(-1) > after && filters.every(([k, v]) => d[k] === v)).sort(([a], [b]) => a < b ? -1 : 1).slice(0, limit).map(([p]) => snapshot(p)) }) });
   const db = { projectId: "demo-acadea", records, doc: path => ({ path, id: path.split("/").at(-1), get: async () => snapshot(path) }), collection: query,
     runTransaction: async fn => {
       let writing = false; const changes = [];
       const write = (op, ref, data) => { writing = true; if (op === "create" && records.has(ref.path)) throw Error("already exists"); changes.push([op, ref.path, data]); };
       const result = await fn({ get: async ref => { if (writing) throw Error("read after write"); return ref.path ? snapshot(ref.path) : ref.get(); },
-        create: (r, d) => write("create", r, d), update: (r, d) => write("update", r, d), set: (r, d) => write("set", r, d), delete: r => write("delete", r) });
+        create: (r, d) => write("create", r, d), update: (r, d) => write("update", r, d), set: (r, d, options) => write(options?.merge ? "update" : "set", r, d), delete: r => write("delete", r) });
       if (db.interrupt) throw Error("interruption");
       changes.forEach(([op, p, d]) => op === "delete" ? records.delete(p) : records.set(p, op === "update" ? { ...records.get(p), ...d } : d));
       return result;
     } };
   return db;
 }
-const action = (db, actionName, extra = {}, caller = admin) => manageFeeAllocationLifecycle({ db, caller, now, body: { action: actionName, requestId: `request-${actionName}-001`, ...extra } });
+const action = async (db, actionName, extra = {}, caller = admin) => {
+  if (actionName === 'prepare-opening') await reconcileFixture(db, caller, now);
+  return manageFeeAllocationLifecycle({ db, caller, now, body: { action: actionName, requestId: `request-${actionName}-001`, ...extra } });
+};
 async function activate(db) {
   await action(db, "publish-configuration", { versionId: "version" });
   const opening = await action(db, "prepare-opening", { cashCountMinor: 0, lines: [{ rubricId, amountMinor: 0 }], confirmation: "RAPPROCHER LA CAISSE" });
@@ -100,7 +105,7 @@ describe("activation isolée, ouverture prouvée et dépenses", () => {
   it("refuse activation Production, école réelle, périmètre expiré et rôle non administrateur", async () => {
     const db = completeAllocationFixture();
     await expect(action(db, "publish-configuration", { versionId: "version" }, cashier)).rejects.toMatchObject({ status: 403 });
-    db.projectId = "acadea-production"; await expect(action(db, "publish-configuration", { versionId: "version" })).rejects.toMatchObject({ code: "phase-not-ready" });
+    db.projectId = "acadea-production"; await expect(action(db, "publish-configuration", { versionId: "version" })).rejects.toMatchObject({ code: "permission-denied" });
     db.projectId = "demo-acadea"; db.records.get(`feeAllocationTestScopes/${fixtureId}`).expiresAt = "2026-11-12";
     await expect(readAllocationTestScope(db, null, "school", now)).rejects.toThrow();
     delete db.records.get("schools/school").fixtureId; expect(await readAllocationTestScope(db, null, "school", now)).toBeNull();
@@ -108,11 +113,12 @@ describe("activation isolée, ouverture prouvée et dépenses", () => {
   it("ne crédite pas de don, exige l'explication du solde et détecte les pièces modifiées", async () => {
     const db = completeAllocationFixture(); await action(db, "publish-configuration", { versionId: "version" });
     db.records.set("payments/old", { schoolId: "school", schoolYearId: "year", currency: "USD", amount: 25, createdAt: "2026-11-01", provenance: "financial-api", clientRequestIdHash: "proof" });
-    db.records.set("cashInflows/donation", { schoolId: "school", schoolYearId: "year", currency: "USD", amount: 50, createdAt: "2026-11-01" });
+    db.records.set("cashInflows/donation", { schoolId: "school", schoolYearId: "year", currency: "USD", amount: 50, createdAt: "2026-11-01", provenance: 'financial-api', clientRequestIdHash: 'donation-proof' });
     await expect(action(db, "prepare-opening", { cashCountMinor: 7500, lines: [{ rubricId, amountMinor: 7500 }], confirmation: "RAPPROCHER LA CAISSE" })).rejects.toThrow();
     const p = await action(db, "prepare-opening", { cashCountMinor: 7500, lines: [{ rubricId, amountMinor: 2500 }], confirmation: "RAPPROCHER LA CAISSE" });
     db.records.get("payments/old").amount = 30;
-    await expect(action(db, "approve-opening", { openingId: p.openingId, confirmation: "APPROUVER LE RAPPROCHEMENT" })).rejects.toThrow("modifiées");
+    markFixtureFinancialChange(db);
+    await expect(action(db, "approve-opening", { openingId: p.openingId, confirmation: "APPROUVER LE RAPPROCHEMENT" })).rejects.toThrow("refaire le rapprochement");
   });
   it("garde les anciennes propositions indécidables, sans paiement ni affectation", async () => {
     const db = completeAllocationFixture(); await activate(db); const before = structuredClone([...db.records]);
@@ -138,11 +144,15 @@ describe("activation isolée, ouverture prouvée et dépenses", () => {
     db.records.delete(`feeAllocationTestScopes/${fixtureId}`);
     await expect(readAllocationTestScope(db, null, "school", now)).rejects.toMatchObject({ code: "test-scope-required" });
   });
-  it("refuse un inventaire tronqué sans aucune écriture d'ouverture", async () => {
+  it("rapproche toutes les pièces au-delà de 200 et archive la preuve en pages", async () => {
     const db = completeAllocationFixture(); await action(db, "publish-configuration", { versionId: "version" });
-    for (let i = 0; i < 201; i++) db.records.set(`payments/old-${i}`, { schoolId: "school", schoolYearId: "year", currency: "USD", amount: 1, createdAt: "2026-11-01", provenance: "financial-api", clientRequestIdHash: String(i) });
-    const before = structuredClone([...db.records]);
-    await expect(action(db, "prepare-opening", { cashCountMinor: 20100, lines: [{ rubricId, amountMinor: 20100 }], confirmation: "RAPPROCHER LA CAISSE" })).rejects.toThrow("limite");
-    expect([...db.records]).toEqual(before);
+    for (let i = 0; i < 1201; i++) db.records.set(`payments/old-${i}`, { schoolId: "school", schoolYearId: "year", currency: "USD", amount: 1, createdAt: "2026-11-01", provenance: "financial-api", clientRequestIdHash: String(i) });
+    const result = await action(db, "prepare-opening", { cashCountMinor: 120100, lines: [{ rubricId, amountMinor: 120100 }], confirmation: "RAPPROCHER LA CAISSE" });
+    const proof = db.records.get(`feeAllocationOpeningAudits/${result.openingId}`);
+    expect(proof).toMatchObject({ evidenceCount: 1201, evidencePages: 16, schoolAvailableMinor: 120100 });
+    expect(proof.evidence).toBeUndefined();
+    await action(db, "approve-opening", { openingId: result.openingId, confirmation: "APPROUVER LE RAPPROCHEMENT" });
+    await action(db, "activate", { openingId: result.openingId, confirmation: "ACTIVER LA REPARTITION FICTIVE" });
+    expect(balance(db).availableMinor).toBe(120100);
   });
 });

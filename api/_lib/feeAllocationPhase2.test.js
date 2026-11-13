@@ -26,6 +26,7 @@ function fixture() {
     runTransaction: async (fn) => { const changes = []; let writes = false;
       const result = await fn({ get: async (ref) => { if (writes) throw Error("read after write"); return snap(ref.path); },
         create: (ref, data) => { writes = true; if (records.has(ref.path)) throw Error("already exists"); changes.push([ref.path, data]); },
+        set: (ref, data) => { writes = true; changes.push([ref.path, data]); },
         update: (ref, data) => { writes = true; if (!records.has(ref.path)) throw Error("missing"); changes.push([ref.path, { ...records.get(ref.path), ...data }]); } });
       changes.forEach(([path, data]) => records.set(path, data)); return result; },
   };
