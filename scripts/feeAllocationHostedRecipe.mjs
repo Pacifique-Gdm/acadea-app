@@ -321,19 +321,31 @@ try {
     await page.getByRole('button', { name: 'Menu', exact: true }).last().click();
     await page.getByRole('button', { name: 'Répartition des frais', exact: true }).click();
     const panel = page.getByRole('region', { name: 'Activation par établissement' });
-    await panel.getByRole('button', { name: 'Publier cette version', exact: true }).click();
-    await expect(panel.getByRole('button', { name: 'Publier cette version', exact: true })).toHaveCount(0);
+    // Wait for the actual authenticated mutation, not Playwright's five-second
+    // assertion default. A slow confirmed reply is not a server rejection.
+    async function activationClick(label, action) {
+      const responsePromise = page.waitForResponse(response => {
+        if (!response.url().endsWith('/api/manage-financial-transaction') || response.request().method() !== 'POST') return false;
+        try { return response.request().postDataJSON()?.action === `fee-allocation.${action}`; } catch { return false; }
+      }, { timeout: 45000 });
+      const [response] = await Promise.all([responsePromise, panel.getByRole('button', { name: label, exact: true }).click()]);
+      const reply = await response.json();
+      assert.equal(response.status(), 200, `Activation ${action}: HTTP ${response.status()}, code ${reply.code ?? 'inconnu'}`);
+      assert.equal(reply.operational, false, 'Contrat de confirmation invalide');
+    }
+    await activationClick('Publier cette version', 'publish-configuration');
+    await expect(panel.getByRole('button', { name: 'Publier cette version', exact: true })).toHaveCount(0, { timeout: 45000 });
     await panel.getByLabel('Caisse constatée (CDF)', { exact: true }).fill('90');
     await panel.getByLabel('Ouverture : Fonctionnement CDF (CDF)', { exact: true }).fill('90');
     await panel.getByLabel('Confirmation du rapprochement', { exact: true }).fill('RAPPROCHER LA CAISSE');
-    await panel.getByRole('button', { name: "Préparer l'ouverture", exact: true }).click();
-    await expect(panel.getByRole('button', { name: 'Approuver le rapprochement', exact: true })).toBeVisible();
+    await activationClick("Préparer l'ouverture", 'prepare-opening');
+    await expect(panel.getByRole('button', { name: 'Approuver le rapprochement', exact: true })).toBeVisible({ timeout: 45000 });
     await panel.getByLabel('Confirmation du rapprochement', { exact: true }).fill('APPROUVER LE RAPPROCHEMENT');
-    await panel.getByRole('button', { name: 'Approuver le rapprochement', exact: true }).click();
-    await expect(panel.getByRole('button', { name: 'Activer cet établissement', exact: true })).toBeVisible();
+    await activationClick('Approuver le rapprochement', 'approve-opening');
+    await expect(panel.getByRole('button', { name: 'Activer cet établissement', exact: true })).toBeVisible({ timeout: 45000 });
     await panel.getByLabel('Confirmation du rapprochement', { exact: true }).fill('ACTIVER LA REPARTITION FICTIVE');
-    await panel.getByRole('button', { name: 'Activer cet établissement', exact: true }).click();
-    await expect(panel.getByText('Répartition active', { exact: false })).toBeVisible();
+    await activationClick('Activer cet établissement', 'activate');
+    await expect(panel.getByText('Répartition active', { exact: false })).toBeVisible({ timeout: 45000 });
     await page.screenshot({ path: `${output}/activation-administrateur-cdf.png`, fullPage: true });
     record('Publication, rapprochement, approbation et activation explicites depuis le véritable formulaire Administrateur');
   } finally { await activationContext.close(); }
