@@ -426,16 +426,22 @@ try {
       writeFileSync(`${output}/${u.role}-ocr.txt`, pdfText);
       const pdfSummary = pdfText.split('Situation')[0];
       for (const amount of [expectedReceived, expectedSpent, 544]) assert.ok(pdfSummary.includes(money(amount)), 'Totaux PDF différents du drawer');
-      assert.ok(pdfText.includes(expectedFilter) && pdfText.includes('ouverture'), 'Filtre ou ouverture absent du PDF rendu');
+      // OCR traverses adjacent header columns and may interleave their wrapped
+      // lines. Require every filter token, not an artificial contiguous phrase.
+      assert.ok(expectedFilter.split(/\s+/).every(token => pdfText.includes(token)) && pdfText.includes('ouverture'), 'Filtre ou ouverture absent du PDF rendu');
       record(`${u.role} : connexion réelle, filtre frais/classe/période, disponible cumulé 544 USD, mobile Chromium et PDF multipage`);
+    } catch (error) {
+      results.push({ name: `${u.role} : export/drawer`, result: 'FAIL', detail: String(error.message).slice(0, 600) });
+      process.exitCode = 1;
+      console.error(`FAIL: ${u.role} : export/drawer (rapport expurgé conservé)`);
     } finally { await context.close(); }
   }
 } catch (error) {
   results.push({ name: 'Recette interrompue', result: 'FAIL', detail: String(error.message).slice(0, 600) }); process.exitCode = 1;
   console.error('FAIL: recette interrompue, consulter le rapport expurgé.');
 } finally {
-  await pdfOcr?.terminate();
-  await browser?.close();
+  // Fixture neutralization must still run if a browser/OCR worker failed.
+  await Promise.allSettled([Promise.resolve().then(() => pdfOcr?.terminate()), Promise.resolve().then(() => browser?.close())]);
   try { await retire(); } catch { results.push({ name: 'Clôture', result: 'FAIL' }); process.exitCode = 1; }
   writeFileSync(`${output}/results.json`, JSON.stringify({ projectId: 'acadea-staging', expectedSha, results }, null, 2));
   await s.close(); tokens.clear();
