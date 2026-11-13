@@ -80,7 +80,7 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
     || state.status !== "EN_PREPARATION" || state.schoolId !== source.schoolId || state.schoolYearId !== collectionYear
     || state.currency !== source.currency || !Number.isFinite(Date.parse(state.cutoffAt)) || state.cutoffAt > now)) fail("Environnement de recette financière non isolé.");
   if (operational && !previous && source.offlineProposal === true && (!source.proposedAt || !Number.isFinite(Date.parse(source.proposedAt))
-    || source.proposedAt < state.cutoffAt || source.proposedAt > now)) fail("Proposition antérieure à la coupure ou sans date prouvée : rapprochez-la sans la supprimer.");
+    || Date.parse(source.proposedAt) < Date.parse(state.cutoffAt) || Date.parse(source.proposedAt) > Date.parse(now))) fail("Proposition antérieure à la coupure ou sans date prouvée : rapprochez-la sans la supprimer.");
   const [profileSnap, studentSnap, feeSnap, yearSnap] = await Promise.all([
     transaction.get(db.doc(`users/${caller.uid}`)), transaction.get(db.doc(`students/${source.studentId}`)),
     transaction.get(db.doc(`feeTypes/${source.feeTypeId}`)), transaction.get(db.doc(`schoolYears/${source.schoolYearId}`)),

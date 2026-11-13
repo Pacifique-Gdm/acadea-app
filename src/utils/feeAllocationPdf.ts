@@ -17,7 +17,7 @@ export function feeAllocationPdfSections(rows: AllocationRow[], filterLabel: str
     { header: "Encaissé", render: row => amount(row.currency, "receivedMinor") }, { header: "Dépensé", render: row => amount(row.currency, "spentMinor") }, { header: "Disponible", render: row => amount(row.currency, "availableMinor") },
   ], allocationTotals(rows), "Aucun tarif configuré dans cette vue.")}`),
   pdfSection("Situation des répartitions", pdfTable<AllocationRow>([
-    { header: "Rubrique / origine", render: (row) => `${row.rubricName} · ${row.schoolName} · ${row.feeName} · ${row.classLabel} · ${row.yearName} · brouillon v${row.config.draftRevision}${row.stale ? " · tarif à revérifier" : ""}` },
+    { header: "Rubrique / origine", render: (row) => `${row.rubricName} · ${row.schoolName} · ${row.feeName} · ${row.classLabel} · ${row.yearName}${row.financial ? ` · ouverture ${formatCurrencyMoney(row.financial.openingMinor / 100, row.currency)} · dont arriérés ${formatCurrencyMoney(row.financial.arrearsMinor / 100, row.currency)}` : ` · brouillon v${row.config.draftRevision}`}${row.stale ? " · tarif à revérifier" : ""}` },
     { header: "Prévu", render: (row) => formatCurrencyMoney(row.amountMinor / 100, row.currency), align: "right" },
     ...(["receivedMinor", "spentMinor", "availableMinor"] as const).map((field, i) => ({ header: ["Encaissé", "Dépensé", "Disponible"][i], render: (row: AllocationRow) => row.financial ? formatCurrencyMoney(row.financial[field] / 100, row.currency) : "Non disponible" })),
   ], rows, "Aucune répartition préparée pour ce filtre.")),

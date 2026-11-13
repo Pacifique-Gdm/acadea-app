@@ -42,7 +42,7 @@ export async function readOperationalAllocation({ db, transaction, schoolId, sch
   if (!state || !["ACTIVE", "PAUSED"].includes(state.status)) return null;
   const test = await readAllocationTestScope(db, transaction, schoolId, now);
   if (!test || state.fixtureId !== test.school.fixtureId || state.schoolId !== schoolId || state.schoolYearId !== schoolYearId
-    || state.currency !== currency || !state.openingId || !state.cutoffAt
+    || state.currency !== currency || !state.openingId || !Number.isFinite(Date.parse(state.cutoffAt)) || Date.parse(state.cutoffAt) > Date.parse(now)
     || !Array.isArray(state.rubrics) || state.rubrics.length < 1 || state.rubrics.length > 40) allocationFail("État actif non rapproché ou hors périmètre.");
   return { ...state, testOnly: true };
 }

@@ -29,6 +29,7 @@ describe("projection et PDF du registre rapproché", () => {
     expect(rows[0].feeName).toContain("global");
     const pdf = feeAllocationPdfSections(rows, "Frais différent", "Fictif").join("");
     expect(pdf).toContain("Frais différent"); expect(pdf).toContain("globaux"); expect(pdf).toContain("40");
+    expect(pdf).toContain("ouverture"); expect(pdf).toContain("dont arriérés"); expect(pdf).not.toContain("brouillon v");
   });
   it("sépare les monnaies et refuse un total opérationnel mêlé à une école non activée", () => {
     const a = workspace(), b = { ...workspace(), currency: "CDF" as const };

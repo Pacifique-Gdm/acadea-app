@@ -121,8 +121,28 @@ describe("activation isolée, ouverture prouvée et dépenses", () => {
     await expect(pay(db, { expectedFeeAmount: 100, expectedCurrency: "USD", proposedAt: "2026-11-12T12:00:00.000Z" })).rejects.toThrow("coupure");
     await pay(db, { expectedFeeAmount: 100, expectedCurrency: "USD", proposedAt: later });
   });
+  it("compare la coupure à l'instant réel, pas à l'ordre textuel d'un fuseau horaire", async () => {
+    const db = completeAllocationFixture(); await activate(db); const before = structuredClone([...db.records]);
+    await expect(pay(db, { expectedFeeAmount: 100, expectedCurrency: "USD", proposedAt: "2026-11-13T10:30:00+02:00" })).rejects.toThrow("coupure");
+    expect([...db.records]).toEqual(before);
+  });
   it("garde le circuit historique sans rubrique ni nouvelle écriture si inactif", async () => {
     const db = completeAllocationFixture(); await pay(db); await spend(db, { allocationRubricId: undefined }); expect(movements(db)).toHaveLength(0);
     expect([...db.records.keys()].some(k => k.startsWith("feeAllocationBalances/"))).toBe(false);
+  });
+  it("exige sur Staging un registre serveur valide, pas seulement un marqueur d'école", async () => {
+    const db = completeAllocationFixture(); db.projectId = "acadea-staging";
+    vi.stubEnv("FIRESTORE_EMULATOR_HOST", ""); vi.stubEnv("FIREBASE_AUTH_EMULATOR_HOST", "");
+    db.records.get(`feeAllocationTestScopes/${fixtureId}`).projectId = "acadea-staging";
+    expect(await readAllocationTestScope(db, null, "school", now)).toBeTruthy();
+    db.records.delete(`feeAllocationTestScopes/${fixtureId}`);
+    await expect(readAllocationTestScope(db, null, "school", now)).rejects.toMatchObject({ code: "test-scope-required" });
+  });
+  it("refuse un inventaire tronqué sans aucune écriture d'ouverture", async () => {
+    const db = completeAllocationFixture(); await action(db, "publish-configuration", { versionId: "version" });
+    for (let i = 0; i < 201; i++) db.records.set(`payments/old-${i}`, { schoolId: "school", schoolYearId: "year", currency: "USD", amount: 1, createdAt: "2026-11-01", provenance: "financial-api", clientRequestIdHash: String(i) });
+    const before = structuredClone([...db.records]);
+    await expect(action(db, "prepare-opening", { cashCountMinor: 20100, lines: [{ rubricId, amountMinor: 20100 }], confirmation: "RAPPROCHER LA CAISSE" })).rejects.toThrow("limite");
+    expect([...db.records]).toEqual(before);
   });
 });
