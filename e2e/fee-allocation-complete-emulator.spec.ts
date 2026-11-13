@@ -9,7 +9,9 @@ test("cycle rapproché : activation fictive, net de paie, concurrence de dépens
   const f = fixture(), fixtureId = `e2e-allocation-${randomUUID().replaceAll("-", "")}`;
   try {
     await f.seed(["school_admin", "cashier", "teacher"]);
-    await f.db.doc(`schools/${f.school}`).update({ fixtureId });
+    // Preserve the existing fixture cleaner's ownership key after replacing
+    // only this new school's allocation registry marker.
+    await f.db.doc(`schools/${f.school}`).update({ fixtureId, schoolId: f.school });
     await f.db.doc(`feeAllocationTestScopes/${fixtureId}`).create({ fixtureId, schoolId: f.school, schoolIds: [f.school], projectId: "demo-acadea",
       status: "active", createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3600000).toISOString() });
     const fee = `${f.tag}-fee`, student = `${f.tag}-student`, rubric = "a".repeat(32);
