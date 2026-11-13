@@ -14,7 +14,9 @@ import { validateFeeAllocationRubrics } from '../api/_lib/feeAllocationMath.js';
 import { runHostedAllocationVolume } from './feeAllocationHostedVolume.mjs';
 
 const origin = 'https://acadea-staging.vercel.app', expectedSha = process.env.ACADEA_EXPECTED_SHA;
-const output = `diagnostics/fee-allocation-hosted/${expectedSha}`;
+const volumeOnly = process.env.ACADEA_ALLOCATION_RECIPE === 'volume';
+assert.ok(!process.env.ACADEA_ALLOCATION_RECIPE || volumeOnly, 'Parcours de recette inconnu');
+const output = `diagnostics/fee-allocation-hosted/${expectedSha}${volumeOnly ? `-volume-${Date.now()}` : ''}`;
 const manifestPath = 'diagnostics/fee-allocation-hosted/manifest.json';
 assert.equal(process.env.GOOGLE_CLOUD_PROJECT, 'acadea-staging');
 assert.equal(process.env.GOOGLE_CLOUD_QUOTA_PROJECT, 'acadea-staging');
@@ -24,11 +26,13 @@ assert.ok(!process.env.FIRESTORE_EMULATOR_HOST && !process.env.FIREBASE_AUTH_EMU
 const version = await fetch(`${origin}/version.json`, { redirect: 'manual', signal: AbortSignal.timeout(20000) });
 assert.equal(version.status, 200, 'Preview protégé/inaccessible : aucune fixture créée.');
 assert.equal((await version.json()).version, expectedSha, 'SHA hébergé différent : aucune fixture créée.');
-const html = await (await fetch(origin)).text(), asset = html.match(/src="(\/assets\/[^" ]+\.js)"/)?.[1];
+console.log('Précontrôle : SHA Staging confirmé.');
+const html = await (await fetch(origin, { signal: AbortSignal.timeout(30000) })).text(), asset = html.match(/src="(\/assets\/[^" ]+\.js)"/)?.[1];
 assert.ok(asset);
-const bundle = await (await fetch(origin + asset)).text();
+const bundle = await (await fetch(origin + asset, { signal: AbortSignal.timeout(30000) })).text();
 assert.match(bundle, /projectId\s*:\s*["']acadea-staging["']/);
 assert.ok(!/projectId\s*:\s*["']acadea-production["']/.test(bundle));
+console.log('Précontrôle : bundle Firebase exclusivement Staging.');
 async function googleRead(path) {
   const response = await fetch(path, { headers: { Authorization: `Bearer ${process.env.ACADEA_STAGING_ACCESS_TOKEN}`,
     'x-goog-user-project': 'acadea-staging' }, signal: AbortSignal.timeout(30000) });
@@ -44,6 +48,7 @@ const indexes = await googleRead('https://firestore.googleapis.com/v1/projects/a
 assert.ok(indexes.indexes?.some(i => i.state === 'READY' && ['schoolId', 'schoolYearId'].every(key => i.fields.some(f => f.fieldPath === key))), 'Index de configuration non prêt');
 const ledgerIndexes = await googleRead('https://firestore.googleapis.com/v1/projects/acadea-staging/databases/(default)/collectionGroups/feeAllocationMovements/indexes');
 assert.ok(ledgerIndexes.indexes?.some(i => i.state === 'READY' && ['schoolId', 'collectionSchoolYearId', 'currency'].every(key => i.fields.some(f => f.fieldPath === key))), 'Index de pagination non prêt : aucune fixture créée');
+console.log('Précontrôle : règles et index conformes.');
 if (existsSync(manifestPath)) {
   const previous = JSON.parse(readFileSync(manifestPath, 'utf8'));
   assert.equal(previous.retired, true, 'Fixture précédente à clôturer.');
@@ -65,7 +70,8 @@ const users = roles.map(role => ({ role, uid: `${tag}-${role}`, email: `${tag}-$
 users.push(...[['cdf-admin', 'school_admin'], ['cdf-cashier', 'cashier']].map(([key, role]) => ({ key, role, uid: `${tag}-${key}`, email: `${tag}-${key}@example.invalid`, schoolId: foreign })));
 users.push(...[['inactive-admin', 'school_admin'], ['inactive-cashier', 'cashier']].map(([key, role]) => ({ key, role, uid: `${tag}-${key}`, email: `${tag}-${key}@example.invalid`, schoolId: inactiveSchool })));
 users.push(...[['volume-admin', 'school_admin'], ['volume-cashier', 'cashier']].map(([key, role]) => ({ key, role, uid: `${tag}-${key}`, email: `${tag}-${key}@example.invalid`, schoolId: volumeSchool })));
-const manifest = { projectId: 'acadea-staging', tag, sha: expectedSha, schools: [school, foreign, inactiveSchool, volumeSchool], users, paths: [], retired: false, createdAt: new Date().toISOString() };
+if (volumeOnly) users.splice(0, users.length, ...users.filter(u => u.schoolId === volumeSchool));
+const manifest = { projectId: 'acadea-staging', tag, sha: expectedSha, schools: volumeOnly ? [volumeSchool] : [school, foreign, inactiveSchool, volumeSchool], users, paths: [], retired: false, createdAt: new Date().toISOString() };
 const save = () => writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), { mode: 0o600 });
 save(); // Durable identity-only inventory before the first write. No password/token.
 const password = `Fictif-${randomUUID()}${randomUUID()}`;
@@ -132,10 +138,11 @@ async function retire() {
     assert.equal((await ref.get()).data().active, false);
   }
   for (const u of users.slice(0, 4)) {
-    if (!tokens.has(u.role)) continue;
+    const tokenKey = u.key ?? u.role;
+    if (!tokens.has(tokenKey)) continue;
     const response = await fetch(`${origin}/api/manage-financial-transaction`, { method: 'POST', headers: {
-      Authorization: tokens.get(u.role), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'fee-allocation.get-workspace', schoolId: school }), signal: AbortSignal.timeout(30000) });
+      Authorization: tokens.get(tokenKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'fee-allocation.get-workspace', schoolId: u.schoolId ?? school }), signal: AbortSignal.timeout(30000) });
     assert.ok([401, 403].includes(response.status), 'Compte fictif encore autorisé après neutralisation');
   }
   const retained = {};
@@ -167,14 +174,17 @@ try {
   await put('feeAllocationTestScopes', tag, { projectId: 'acadea-staging', schoolIds: manifest.schools, status: 'active', createdAt, expiresAt });
   const fixtureYear = sid => sid === school ? year : sid === foreign ? `${tag}-foreign-year` : sid === volumeSchool ? volumeYear : inactiveYear;
   for (const [sid, currency] of [[school, 'USD'], [foreign, 'CDF'], [inactiveSchool, 'USD'], [volumeSchool, 'USD']]) {
+    if (!manifest.schools.includes(sid)) continue;
     await put('schools', sid, { name: `Répartition fictive ${currency}`, status: 'active', active: true, currency, activeSchoolYearId: fixtureYear(sid),
       schoolType: 'Primaire uniquement', educationLevels: ['Primaire'], schoolOptions: [], subscriptionStatus: 'active', subscriptionPlan: 'premium', ...(sid === school ? { activeCoordinationId: coord } : {}) });
     await put('schoolYears', fixtureYear(sid), { schoolId: sid, status: 'active', currency, name: '2026-2027', startsAt: '2026-09-01', endsAt: '2027-07-31' });
   }
+  if (!volumeOnly) {
   await put('coordinations', coord, { name: 'Coordination fictive répartition', status: 'active', principalCoordinatorUserId: users[2].uid, referenceSchoolYear: '2026-2027' });
   await put('subCoordinations', sub, { name: 'Sous-coordination fictive', status: 'active', active: true, coordinationId: coord, coordinatorUserId: users[3].uid });
   await put('coordinationSchools', `${coord}__${school}`, { schoolId: school, coordinationId: coord, active: true });
   await put('subCoordinationSchools', `${sub}__${school}`, { schoolId: school, coordinationId: coord, subCoordinationId: sub, active: true });
+  }
   for (const u of users) {
     const scope = u.role.includes('coordination') ? { coordinationId: coord, ...(u.role === 'sub_coordination_admin' ? { subCoordinationId: sub } : {}) } : { schoolId: u.schoolId ?? school };
     await put('users', u.uid, { role: u.role, ...scope, schoolId: scope.schoolId ?? '', name: `Compte fictif ${u.role}`, email: u.email, active: true, status: 'active', activeSchoolYearId: fixtureYear(u.schoolId ?? school) });
@@ -182,6 +192,7 @@ try {
     const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${process.env.STAGING_FIREBASE_API_KEY}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: u.email, password, returnSecureToken: true }) });
     assert.equal(response.status, 200, 'Authentification Firebase officielle refusée'); tokens.set(u.key ?? u.role, `Bearer ${(await response.json()).idToken}`);
   }
+  if (!volumeOnly) {
   const inactiveFee = `${tag}-inactive-fee`, inactiveStudent = `${tag}-inactive-student`;
   await put('classes', `${tag}-inactive-class`, { schoolId: inactiveSchool, schoolYearId: inactiveYear, name: '1ère Primaire', section: 'Primaire', active: true });
   await put('feeTypes', inactiveFee, { schoolId: inactiveSchool, schoolYearId: inactiveYear, name: 'Frais fictif inactif', className: '1ère Primaire', amount: 100, createdAt });
@@ -550,6 +561,8 @@ try {
       console.error(`FAIL: ${u.role} : export/drawer (rapport expurgé conservé)`);
     } finally { await context.close(); }
   }
+  }
+  browser ??= await chromium.launch({ headless: true });
   if (!results.some(result => result.result === 'FAIL')) await runHostedAllocationVolume({ db: s.db, tag, schoolId: volumeSchool, yearId: volumeYear,
     put, api, allocation, manifest, save, output, browser, user: users.find(u => u.key === 'volume-cashier'), adminUser: users.find(u => u.key === 'volume-admin'), password, origin, record });
 } catch (error) {

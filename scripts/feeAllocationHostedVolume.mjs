@@ -46,18 +46,30 @@ export async function runHostedAllocationVolume({ db, tag, schoolId, yearId, put
   const receipts = await db.collection('financialIdempotency').where('schoolId', '==', schoolId).get();
   const receipt = receipts.docs.find(d => d.data().result?.payment?.id === payment.payment.id); assert.ok(receipt);
   let blocked = await scan(); assert.equal(blocked.run.status, 'BLOCKED');
+  const blockedView = await api('volume-admin', { action: 'fee-allocation.get-activation' });
+  assert.equal(blockedView.reconciliation.id, blocked.run.id);
+  assert.ok(blockedView.evidencePage.rows.some(row => row.id === payment.payment.id && row.reason));
+  writeFileSync(`${output}/historical-view.json`, JSON.stringify(blockedView, null, 2));
   const proofContext = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 1440, height: 1000 } });
+  let proofTab;
+  const proofCalls = [];
   try {
-    const tab = await proofContext.newPage(); tab.setDefaultTimeout(60000);
+    const tab = await proofContext.newPage(); proofTab = tab; tab.setDefaultTimeout(60000);
+    tab.on('response', response => {
+      if (!response.url().endsWith('/api/manage-financial-transaction')) return;
+      try { proofCalls.push({ action: response.request().postDataJSON()?.action, status: response.status() }); } catch { /* No credentials or bodies captured. */ }
+    });
     await tab.goto(`${origin}/login`); await tab.getByPlaceholder('email@ecole.com').fill(adminUser.email);
     await tab.getByPlaceholder('Votre mot de passe').fill(password); await tab.getByRole('button', { name: 'Se connecter', exact: true }).click();
     await tab.getByRole('button', { name: 'Menu', exact: true }).last().click();
     await tab.getByRole('button', { name: 'Répartition des frais', exact: true }).click();
     const panel = tab.getByRole('region', { name: 'Activation par établissement' });
     for (const [evidenceId, decision] of [[`${tag}-missing`, 'rejected'], [receipt.id, 'accepted']]) {
-      await panel.getByLabel('Écriture bloquante', { exact: true }).selectOption(`payments/${payment.payment.id}`);
-      await panel.getByLabel('Référence de preuve', { exact: true }).fill(evidenceId);
-      await panel.getByLabel('Motif de justification', { exact: true }).fill('Reçu serveur original de la fixture hébergée');
+      // A wrapping label includes the select's option text in getByLabel's
+      // exact match. The accessible combobox name remains stable and precise.
+      await panel.getByRole('combobox', { name: 'Écriture bloquante', exact: true }).selectOption(`payments/${payment.payment.id}`);
+      await panel.getByRole('textbox', { name: 'Référence de preuve', exact: true }).fill(evidenceId);
+      await panel.getByRole('textbox', { name: 'Motif de justification', exact: true }).fill('Reçu serveur original de la fixture hébergée');
       const pending = tab.waitForResponse(response => {
         if (!response.url().endsWith('/api/manage-financial-transaction') || response.request().method() !== 'POST') return false;
         try { return response.request().postDataJSON()?.action === 'fee-allocation.justify-history'; } catch { return false; }
@@ -67,6 +79,15 @@ export async function runHostedAllocationVolume({ db, tag, schoolId, yearId, put
       await expect(panel.getByText(decision === 'accepted' ? /Justification vérifiée et conservée/ : /Justification refusée/)).toBeVisible({ timeout: 45000 });
     }
     await tab.screenshot({ path: `${output}/justification-historique.png`, fullPage: true });
+  } catch (error) {
+    if (proofTab) {
+      await proofTab.screenshot({ path: `${output}/justification-failure.png`, fullPage: true }).catch(() => {});
+      const panel = proofTab.getByRole('region', { name: 'Activation par établissement' });
+      writeFileSync(`${output}/justification-diagnostic.json`, JSON.stringify({ calls: proofCalls,
+        panel: await panel.innerText({ timeout: 1000 }).catch(() => 'Panneau absent'),
+        labels: await panel.locator('label').allTextContents().catch(() => []) }, null, 2));
+    }
+    throw error;
   } finally { await proofContext.close(); }
   assert.deepEqual((await sourceRef.get()).data(), historical, 'Une justification ne réécrit pas la source');
   record('Formulaire Administrateur hébergé : pièce absente refusée, reçu serveur lié accepté, original conservé');

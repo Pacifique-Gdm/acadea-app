@@ -1,5 +1,29 @@
 # Répartition générale — candidat du 13 novembre 2026
 
+## État vérifié au SHA applicatif `8da0ab97297a28611543cac2990631211f66354b`
+
+- CI 43449137298 : application/Functions, règles Firebase et E2E hors connexion
+  PASS. 2 745 tests applicatifs, 149 tests Functions, 451 règles Firestore (1 test
+  ignoré, non compté PASS), 55 règles Storage. Le job hébergé optionnel est ignoré.
+- CI Chromium authentifiée 43449137307 : PASS (19 parcours métier, 1 parcours
+  de fluidité et 29 assertions préparatoires). Aucun échec n'est masqué.
+- Staging `dpl_ExVvJPRRMYXjVrhHc6ecSTFxRtLu` : SHA exact, règles candidates et
+  index de registre READY vérifiés avant les fixtures.
+- Recette hébergée : deux écoles USD/CDF activées indépendamment, école inactive,
+  permissions, concurrence, compensations, tiers payeurs et réouverture hors ligne
+  validés. Les quatre PDF (12 pages) sont générés, rapprochés et inspectés visuellement.
+  Les équations 0 + 60 - 42 = 18 et 5 + 255 - 0 = 260 USD restent exactes.
+- La partie historique/volume n'est PAS encore validée. Deux sélecteurs exacts
+  `getByLabel` englobaient le texte des options ou la valeur du textarea ; une
+  reproduction Chromium et la trace hébergée le confirment. Le scénario utilise
+  désormais leurs rôles et noms accessibles, sans modification de permissions.
+- Les comptes de la recette complète ont été neutralisés. Une tentative locale
+  interrompue pendant la préparation a été récupérée depuis son manifeste : aucun
+  compte Auth créé, 10 périmètres fictifs neutralisés, aucun document supprimé.
+  La recette ciblée utilise maintenant seulement une école et deux comptes.
+- Aucune fusion/promotion n'est autorisée tant que la justification historique,
+  les mesures de volume et la clôture de la reprise ne sont pas toutes PASS.
+
 ## Reprise : lots, registre et historiques (validation en cours)
 
 Le candidat local remplace désormais la transaction exhaustive par un travail
