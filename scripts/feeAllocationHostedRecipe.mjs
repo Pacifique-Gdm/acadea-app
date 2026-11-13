@@ -54,11 +54,13 @@ const results = [{ name: 'SHA, projet Firebase, règles exactes et index READY a
 const s = services();
 const tag = `e2e-allocation-${randomUUID().replaceAll('-', '')}`;
 const school = `${tag}-a`, foreign = `${tag}-b`, year = `${tag}-year`, fee = `${tag}-fee`, student = `${tag}-student`;
+const inactiveSchool = `${tag}-inactive`, inactiveYear = `${tag}-inactive-year`;
 const coord = `${tag}-coord`, sub = `${tag}-sub`;
 const roles = ['school_admin', 'cashier', 'coordination_admin', 'sub_coordination_admin', 'teacher'];
 const users = roles.map(role => ({ role, uid: `${tag}-${role}`, email: `${tag}-${role}@example.invalid` }));
 users.push(...[['cdf-admin', 'school_admin'], ['cdf-cashier', 'cashier']].map(([key, role]) => ({ key, role, uid: `${tag}-${key}`, email: `${tag}-${key}@example.invalid`, schoolId: foreign })));
-const manifest = { projectId: 'acadea-staging', tag, sha: expectedSha, schools: [school, foreign], users, paths: [], retired: false, createdAt: new Date().toISOString() };
+users.push(...[['inactive-admin', 'school_admin'], ['inactive-cashier', 'cashier']].map(([key, role]) => ({ key, role, uid: `${tag}-${key}`, email: `${tag}-${key}@example.invalid`, schoolId: inactiveSchool })));
+const manifest = { projectId: 'acadea-staging', tag, sha: expectedSha, schools: [school, foreign, inactiveSchool], users, paths: [], retired: false, createdAt: new Date().toISOString() };
 const save = () => writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), { mode: 0o600 });
 save(); // Durable identity-only inventory before the first write. No password/token.
 const password = `Fictif-${randomUUID()}${randomUUID()}`;
@@ -131,11 +133,12 @@ async function retire() {
 }
 try {
   const createdAt = new Date().toISOString(), expiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
-  await put('feeAllocationTestScopes', tag, { projectId: 'acadea-staging', schoolIds: [school, foreign], status: 'active', createdAt, expiresAt });
-  for (const [sid, currency] of [[school, 'USD'], [foreign, 'CDF']]) {
-    await put('schools', sid, { name: `Répartition fictive ${currency}`, status: 'active', active: true, currency, activeSchoolYearId: sid === school ? year : `${tag}-foreign-year`,
+  await put('feeAllocationTestScopes', tag, { projectId: 'acadea-staging', schoolIds: manifest.schools, status: 'active', createdAt, expiresAt });
+  const fixtureYear = sid => sid === school ? year : sid === foreign ? `${tag}-foreign-year` : inactiveYear;
+  for (const [sid, currency] of [[school, 'USD'], [foreign, 'CDF'], [inactiveSchool, 'USD']]) {
+    await put('schools', sid, { name: `Répartition fictive ${currency}`, status: 'active', active: true, currency, activeSchoolYearId: fixtureYear(sid),
       schoolType: 'Primaire uniquement', educationLevels: ['Primaire'], schoolOptions: [], subscriptionStatus: 'active', subscriptionPlan: 'premium', ...(sid === school ? { activeCoordinationId: coord } : {}) });
-    await put('schoolYears', sid === school ? year : `${tag}-foreign-year`, { schoolId: sid, status: 'active', currency, name: '2026-2027', startsAt: '2026-09-01', endsAt: '2027-07-31' });
+    await put('schoolYears', fixtureYear(sid), { schoolId: sid, status: 'active', currency, name: '2026-2027', startsAt: '2026-09-01', endsAt: '2027-07-31' });
   }
   await put('coordinations', coord, { name: 'Coordination fictive répartition', status: 'active', principalCoordinatorUserId: users[2].uid, referenceSchoolYear: '2026-2027' });
   await put('subCoordinations', sub, { name: 'Sous-coordination fictive', status: 'active', active: true, coordinationId: coord, coordinatorUserId: users[3].uid });
@@ -143,11 +146,21 @@ try {
   await put('subCoordinationSchools', `${sub}__${school}`, { schoolId: school, coordinationId: coord, subCoordinationId: sub, active: true });
   for (const u of users) {
     const scope = u.role.includes('coordination') ? { coordinationId: coord, ...(u.role === 'sub_coordination_admin' ? { subCoordinationId: sub } : {}) } : { schoolId: u.schoolId ?? school };
-    await put('users', u.uid, { role: u.role, ...scope, schoolId: scope.schoolId ?? '', name: `Compte fictif ${u.role}`, email: u.email, active: true, status: 'active', activeSchoolYearId: u.schoolId === foreign ? `${tag}-foreign-year` : year });
+    await put('users', u.uid, { role: u.role, ...scope, schoolId: scope.schoolId ?? '', name: `Compte fictif ${u.role}`, email: u.email, active: true, status: 'active', activeSchoolYearId: fixtureYear(u.schoolId ?? school) });
     await s.auth.createUser({ uid: u.uid, email: u.email, password }); await s.auth.setCustomUserClaims(u.uid, { role: u.role, ...scope });
     const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${process.env.STAGING_FIREBASE_API_KEY}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: u.email, password, returnSecureToken: true }) });
     assert.equal(response.status, 200, 'Authentification Firebase officielle refusée'); tokens.set(u.key ?? u.role, `Bearer ${(await response.json()).idToken}`);
   }
+  const inactiveFee = `${tag}-inactive-fee`, inactiveStudent = `${tag}-inactive-student`;
+  await put('classes', `${tag}-inactive-class`, { schoolId: inactiveSchool, schoolYearId: inactiveYear, name: '1ère Primaire', section: 'Primaire', active: true });
+  await put('feeTypes', inactiveFee, { schoolId: inactiveSchool, schoolYearId: inactiveYear, name: 'Frais fictif inactif', className: '1ère Primaire', amount: 100, createdAt });
+  await put('students', inactiveStudent, { schoolId: inactiveSchool, schoolYearId: inactiveYear, nom: 'FICTIF INACTIF', className: '1ère Primaire', section: 'Primaire', status: 'ACTIVE', createdAt });
+  const inactivePayment = { action: 'create-payment', schoolYearId: inactiveYear, studentId: inactiveStudent, feeTypeId: inactiveFee, amount: 25, clientRequestId: requestId() };
+  await api('inactive-cashier', inactivePayment); assert.equal((await api('inactive-cashier', inactivePayment)).idempotent, true);
+  await api('inactive-cashier', { action: 'create-expense', schoolYearId: inactiveYear, amount: 5, category: 'Fournitures', description: 'Circuit historique fictif', beneficiary: 'Fictif', paymentMethod: 'Espèces', clientRequestId: requestId() });
+  assert.equal((await api('inactive-admin', { action: 'fee-allocation.get-workspace', schoolId: inactiveSchool })).ledger, null);
+  assert.equal((await s.db.collection('feeAllocationMovements').where('schoolId', '==', inactiveSchool).get()).size, 0);
+  record('Troisième école non activée : paiement, rejeu et dépense sans rubrique, aucun mouvement de répartition');
   await put('classes', `${tag}-class`, { schoolId: school, schoolYearId: year, name: '1ère Primaire', section: 'Primaire', active: true });
   await put('feeTypes', fee, { schoolId: school, schoolYearId: year, name: 'Minerval fictif', className: '1ère Primaire', amount: 100, createdAt });
   const rubrics = Array.from({ length: 20 }, (_, i) => ({ id: (i + 1).toString(16).padStart(32, '0'), name: `Rubrique fictive ${i + 1}`, mode: 'percent', basisPoints: 400 }));
@@ -281,15 +294,41 @@ try {
   await put('feeTypes', cdfFee, { schoolId: foreign, schoolYearId: cdfYear, name: 'Minerval fictif CDF', className: '1ère Primaire', amount: 1500000, createdAt: new Date().toISOString() });
   await allocation('save-draft', { feeTypeId: cdfFee, expectedRevision: 0, rubrics: [{ id: cdfRubric, name: 'Fonctionnement CDF', mode: 'percent', basisPoints: 5000 }] }, 'cdf-admin');
   const cdfVersion = await allocation('prepare-version', { feeTypeId: cdfFee, expectedRevision: 1 }, 'cdf-admin');
-  await allocation('publish-configuration', { versionId: cdfVersion.version.id }, 'cdf-admin');
   await put('students', cdfStudent, { schoolId: foreign, schoolYearId: cdfYear, nom: 'FICTIF CDF', className: '1ère Primaire', section: 'Primaire', status: 'ACTIVE', createdAt: new Date().toISOString() });
+  // Deliberately historical fixture: the real API must not reject its later
+  // payment merely because the approved publication is newer than the tariff.
+  await ownUpdate('students', cdfStudent, { createdAt: '2026-09-01T00:00:00.000Z' });
+  await ownUpdate('feeTypes', cdfFee, { createdAt: '2026-09-01T00:00:00.000Z' });
   await api('cdf-cashier', { action: 'create-payment', schoolYearId: cdfYear, studentId: cdfStudent, feeTypeId: cdfFee, amount: 100, clientRequestId: requestId() });
   const cdfExpense = { action: 'create-expense', schoolYearId: cdfYear, amount: 10, category: 'Fournitures', description: 'Dépense fictive historique', beneficiary: 'Fictif', paymentMethod: 'Espèces', clientRequestId: requestId() };
   await api('cdf-cashier', cdfExpense);
   assert.equal((await s.db.collection('feeAllocationMovements').where('schoolId', '==', foreign).get()).size, 0);
-  const cdfOpening = await allocation('prepare-opening', { cashCountMinor: 9000, lines: [{ rubricId: cdfRubric, amountMinor: 9000 }], confirmation: 'RAPPROCHER LA CAISSE' }, 'cdf-admin');
-  await allocation('approve-opening', { openingId: cdfOpening.openingId, confirmation: 'APPROUVER LE RAPPROCHEMENT' }, 'cdf-admin');
-  await allocation('activate', { openingId: cdfOpening.openingId, confirmation: 'ACTIVER LA REPARTITION FICTIVE' }, 'cdf-admin');
+  browser = await chromium.launch({ headless: true });
+  const activationContext = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' });
+  try {
+    const page = await activationContext.newPage(); page.setDefaultTimeout(60000);
+    const u = users.find(u => u.key === 'cdf-admin');
+    await page.goto(origin + '/login'); await page.getByPlaceholder('email@ecole.com').fill(u.email); await page.getByPlaceholder('Votre mot de passe').fill(password);
+    await page.getByRole('button', { name: 'Se connecter', exact: true }).click();
+    await page.getByRole('button', { name: 'Menu', exact: true }).last().click();
+    await page.getByRole('button', { name: 'Répartition des frais', exact: true }).click();
+    const panel = page.getByRole('region', { name: 'Activation par établissement' });
+    await panel.getByRole('button', { name: 'Publier cette version', exact: true }).click();
+    await expect(panel.getByRole('button', { name: 'Publier cette version', exact: true })).toHaveCount(0);
+    await panel.getByLabel('Caisse constatée (CDF)', { exact: true }).fill('90');
+    await panel.getByLabel('Ouverture : Fonctionnement CDF (CDF)', { exact: true }).fill('90');
+    await panel.getByLabel('Confirmation du rapprochement', { exact: true }).fill('RAPPROCHER LA CAISSE');
+    await panel.getByRole('button', { name: "Préparer l'ouverture", exact: true }).click();
+    await expect(panel.getByRole('button', { name: 'Approuver le rapprochement', exact: true })).toBeVisible();
+    await panel.getByLabel('Confirmation du rapprochement', { exact: true }).fill('APPROUVER LE RAPPROCHEMENT');
+    await panel.getByRole('button', { name: 'Approuver le rapprochement', exact: true }).click();
+    await expect(panel.getByRole('button', { name: 'Activer cet établissement', exact: true })).toBeVisible();
+    await panel.getByLabel('Confirmation du rapprochement', { exact: true }).fill('ACTIVER LA REPARTITION FICTIVE');
+    await panel.getByRole('button', { name: 'Activer cet établissement', exact: true }).click();
+    await expect(panel.getByText('Répartition active', { exact: false })).toBeVisible();
+    await page.screenshot({ path: `${output}/activation-administrateur-cdf.png`, fullPage: true });
+    record('Publication, rapprochement, approbation et activation explicites depuis le véritable formulaire Administrateur');
+  } finally { await activationContext.close(); }
   await api('cdf-cashier', { action: 'create-payment', schoolYearId: cdfYear, studentId: cdfStudent, feeTypeId: cdfFee, amount: 10000, clientRequestId: requestId() });
   await api('cdf-cashier', { ...cdfExpense, amount: 2000, allocationRubricId: cdfRubric, clientRequestId: requestId() });
   const cdfWorkspace = await api('cdf-admin', { action: 'fee-allocation.get-workspace', schoolId: foreign });
@@ -379,7 +418,7 @@ try {
   record('Deux rubriques signalées : écarts hors filtre 56/211 USD et équations du solde confirmés dans le registre hébergé');
   writeFileSync(`${output}/reconciliation-proof.json`, JSON.stringify({ currency: 'USD', expected: { opening: 500, received: 58100, spent: 4200, available: 54400 }, actual: finalTotals, sha: expectedSha }, null, 2));
   record('Rapprochement final : ouverture 5 + recettes 581 - dépenses nettes 42 = disponible 544 USD');
-  browser = await chromium.launch({ headless: true });
+  browser ??= await chromium.launch({ headless: true });
   pdfOcr = await createWorker('fra', 1, { langPath: fileURLToPath(new URL('../node_modules/@tesseract.js-data/fra/4.0.0_best_int', import.meta.url)), cacheMethod: 'none', logger: () => {} });
   for (const u of users.slice(0, 4)) {
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' });
