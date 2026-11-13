@@ -9,6 +9,7 @@ export type AllocationWorkspace = {
   currency: "USD" | "CDF"; canConfigure: boolean; operational: false;
   fees: AllocationFee[]; configs: FeeAllocationConfig[];
   ledger?: null | { status: "ACTIVE" | "PAUSED"; cutoffAt: string; testOnly: boolean; rubrics: { id: string; name: string }[];
+    pagination?: { page: number; pages: number; total: number; fingerprint: string };
     movements: { id: string; sourceType: "opening" | "payment" | "expense"; type: string; amountMinor: number;
       lines: { rubricId: string; amountMinor: number }[]; feeTypeId: string | null; className: string | null; classOptionKey: string | null;
       originSchoolYearId: string; postedAt: string }[];
@@ -55,6 +56,21 @@ export async function loadAllocationWorkspace(schoolId: string, signal?: AbortSi
   const result = await allocationRequest<AllocationWorkspace>("get-workspace", { schoolId }, signal);
   if (result.school?.id !== schoolId || !result.year?.id || !["USD", "CDF"].includes(result.currency)
     || !Array.isArray(result.fees) || !Array.isArray(result.configs)) throw new AllocationApiError("Contexte de répartition incomplet.");
+  const first = result.ledger?.pagination;
+  if (first && result.ledger) {
+    if (first.page !== 0 || !Number.isSafeInteger(first.pages) || first.pages < 1 || !Number.isSafeInteger(first.total) || first.total < 0 || !/^[a-f0-9]{64}$/.test(first.fingerprint)) throw new AllocationApiError("Pagination de registre invalide.");
+    const movements = [...result.ledger.movements];
+    for (let page = 1; page < first.pages; page++) {
+      const next = await allocationRequest<AllocationWorkspace>("get-workspace", { schoolId, ledgerPage: page, ledgerFingerprint: first.fingerprint }, signal);
+      if (next.school?.id !== schoolId || next.year?.id !== result.year.id || next.currency !== result.currency
+        || next.ledger?.pagination?.page !== page || next.ledger.pagination.pages !== first.pages
+        || next.ledger.pagination.total !== first.total || next.ledger.pagination.fingerprint !== first.fingerprint
+        || !Array.isArray(next.ledger.movements)) throw new AllocationApiError("Registre modifié ou réponse incomplète : aucun total partiel n'est affiché.");
+      movements.push(...next.ledger.movements);
+    }
+    if (movements.length !== first.total || new Set(movements.map(m => m.id)).size !== movements.length) throw new AllocationApiError("Registre incomplet ou doublonné : export bloqué.");
+    result.ledger.movements = movements;
+  }
   return result;
 }
 export async function saveAllocationDrafts(request: SaveAllocationDrafts) {

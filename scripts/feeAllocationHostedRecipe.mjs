@@ -128,6 +128,14 @@ async function retire() {
     retained[collection] = [];
     for (const sid of manifest.schools) retained[collection].push(...(await s.db.collection(collection).where('schoolId', '==', sid).get()).docs.map(d => ({ schoolId: sid, id: d.id })));
   }
+  retained.openingEvidencePages = [];
+  for (const audit of retained.feeAllocationOpeningAudits) {
+    const pages = await s.db.collection(`feeAllocationOpeningAudits/${audit.id}/evidencePages`).get();
+    for (const doc of pages.docs) {
+      assert.ok(manifest.schools.includes(doc.data().schoolId));
+      retained.openingEvidencePages.push({ schoolId: doc.data().schoolId, path: doc.ref.path });
+    }
+  }
   manifest.retired = true; manifest.deleted = false; manifest.retained = retained; manifest.closedAt = new Date().toISOString(); save();
   record('Clôture : comptes désactivés, sessions révoquées, écoles neutralisées, registre fictif inventorié sans suppression');
 }

@@ -39,8 +39,19 @@ describe("lecture exhaustive des répartitions", () => {
     for (let i = 0; i < 2400; i++) db.records.set(`feeAllocationMovements/m${i}`, { id: `m${i}`, schoolId: "school", collectionSchoolYearId: "year", currency: "USD", sourceType: "payment", type: "receipt", amountMinor: 100, lines: [{ rubricId, amountMinor: 100 }], postedAt: now });
     db.records.set("feeAllocationMovements/foreign", { schoolId: "foreign", collectionSchoolYearId: "year", currency: "USD" });
     Object.assign(db.records.get(`feeAllocationBalances/${allocationBalanceId("school", "year", "USD", rubricId)}`), { receivedMinor: 240000, availableMinor: 240000 });
-    const ledger = await readFeeAllocationLedger({ db, schoolId: "school", schoolYearId: "year", currency: "USD", now });
-    expect(ledger.movements).toHaveLength(2401);
+    const args = { db, schoolId: "school", schoolYearId: "year", currency: "USD", now };
+    const ledger = await readFeeAllocationLedger(args);
+    expect(ledger.movements).toHaveLength(200);
+    expect(ledger.pagination).toMatchObject({ total: 2401, pages: 13, page: 0 });
+    const all = [...ledger.movements];
+    for (let page = 1; page < ledger.pagination.pages; page++) {
+      const next = await readFeeAllocationLedger({ ...args, page, fingerprint: ledger.pagination.fingerprint });
+      expect(next.movements.length).toBeLessThanOrEqual(200); all.push(...next.movements);
+    }
+    expect(all).toHaveLength(2401); expect(new Set(all.map(m => m.id)).size).toBe(2401);
+    await expect(readFeeAllocationLedger({ ...args, page: 1 })).rejects.toThrow("continuité");
+    db.records.get("feeAllocationMovements/m0").postedAt = "2026-11-13T09:30:00.000Z";
+    await expect(readFeeAllocationLedger({ ...args, page: 1, fingerprint: ledger.pagination.fingerprint })).rejects.toThrow("changé");
     expect(ledger.balances.reduce((n, b) => n + b.availableMinor, 0)).toBe(240000);
   });
 });

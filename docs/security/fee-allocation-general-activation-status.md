@@ -42,8 +42,10 @@ Branche : `codex/fee-allocation-general-activation-20261113`.
    preuve dépassant 7 Mo/450 pages. La pagination ne suffit pas à lever les
    limites de durée/taille d'une transaction. Il faut un traitement reprenable
    avec preuve de cohérence complète, pas simplement relever les seuils.
-2. Le registre est lu par pages mais renvoyé dans une seule réponse API. Pour
-   les gros volumes, une réponse bornée/paginée cohérente reste nécessaire.
+2. Le registre est maintenant transmis en pages bornées (200 mouvements et
+   500 ko par page) avec empreinte de continuité ; aucun total partiel n'est
+   exposé. Sa vérification exhaustive par transaction reste toutefois coûteuse
+   pour les très gros volumes et doit encore être rendue reprenable.
 3. Les écritures historiques sans provenance serveur ou sans devise justifiée
    restent refusées. Aucun mécanisme ne doit fabriquer leur justification.
 4. Le parcours général modifié doit encore passer sa recette hébergée : deux

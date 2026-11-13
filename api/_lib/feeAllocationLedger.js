@@ -1,8 +1,9 @@
-import { allocationSupportedProject, readOperationalAllocation, allocationFail as fail, allocationMinor as minor } from "./feeAllocationRuntime.js";
+import { allocationSupportedProject, readOperationalAllocation, allocationFail as fail, allocationMinor as minor, allocationHash } from "./feeAllocationRuntime.js";
 import { readAllocationPages } from "./feeAllocationPagination.js";
 
 /** Consistent, bounded read model, never expose source snapshots or student IDs. */
-export async function readFeeAllocationLedger({ db, schoolId, schoolYearId, currency, now = new Date().toISOString() }) {
+export async function readFeeAllocationLedger({ db, schoolId, schoolYearId, currency, page = 0, fingerprint, now = new Date().toISOString() }) {
+  if (!Number.isSafeInteger(page) || page < 0 || page > 0 && !fingerprint) fail("Page de registre sans preuve de continuité.", "invalid-argument", 400);
   if (!allocationSupportedProject(db)) return null;
   return db.runTransaction(async transaction => {
     const state = await readOperationalAllocation({ db, transaction, schoolId, schoolYearId, currency, now });
@@ -30,10 +31,21 @@ export async function readFeeAllocationLedger({ db, schoolId, schoolYearId, curr
         || b.availableMinor !== (b.openingMinor ?? 0) + b.receivedMinor - b.spentMinor - b.reservedMinor) fail("Écart registre/solde ; consultation financière bloquée.");
     }
     if ([...sums.keys()].some(key => !relevant.some(b => b.rubricId === key))) fail("Solde manquant.");
-    return { status: state.status, cutoffAt: state.cutoffAt, testOnly: state.testOnly, rubrics: [...state.rubrics, { id: "UNALLOCATED", name: "Non affecté" }],
-      movements: rows.map(m => ({ id: m.id, sourceType: m.sourceType, type: m.type, amountMinor: m.amountMinor, lines: m.lines,
+    const safeRows = rows.map(m => ({ id: m.id, sourceType: m.sourceType, type: m.type, amountMinor: m.amountMinor, lines: m.lines,
         feeTypeId: m.feeTypeId ?? null, className: m.className ?? null, classOptionKey: m.classOptionKey ?? null,
-        originSchoolYearId: m.originSchoolYearId ?? schoolYearId, postedAt: m.postedAt })),
+        originSchoolYearId: m.originSchoolYearId ?? schoolYearId, postedAt: m.postedAt }));
+    const digest = allocationHash([state, safeRows, relevant]);
+    if (fingerprint && fingerprint !== digest) fail("Le registre a changé pendant sa lecture : actualisez la consultation complète.");
+    const pages = [[]]; let size = 0;
+    for (const row of safeRows) {
+      const bytes = Buffer.byteLength(JSON.stringify(row), "utf8");
+      if (bytes > 200_000) fail("Mouvement trop volumineux ou malformé.");
+      if (pages.at(-1).length >= 200 || size + bytes > 500_000) { pages.push([]); size = 0; }
+      pages.at(-1).push(row); size += bytes;
+    }
+    if (page >= pages.length) fail("Page de registre hors limites.", "invalid-argument", 400);
+    return { status: state.status, cutoffAt: state.cutoffAt, testOnly: state.testOnly, rubrics: [...state.rubrics, { id: "UNALLOCATED", name: "Non affecté" }],
+      movements: pages[page], pagination: { page, pages: pages.length, total: safeRows.length, fingerprint: digest },
       balances: relevant.map(b => ({ rubricId: b.rubricId, openingMinor: b.openingMinor ?? 0, receivedMinor: b.receivedMinor, spentMinor: b.spentMinor, reservedMinor: b.reservedMinor, availableMinor: b.availableMinor })) };
   });
 }

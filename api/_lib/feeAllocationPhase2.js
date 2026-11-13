@@ -16,7 +16,7 @@ const fields = (body, allowed) => { if (Object.keys(body).some((key) => !allowed
 /** The only read model for the phase 2 drawer. No payments, balances or student records are read. */
 export async function manageFeeAllocationPhase2({ db, caller, body }) {
   if (body.action === "get-workspace") {
-    fields(body, ["action", "schoolId"]);
+    fields(body, ["action", "schoolId", "ledgerPage", "ledgerFingerprint"]);
     const { school, schoolId } = await readFeeAllocationScope(db, caller, body.schoolId ?? caller.schoolId);
     const { yearId, year, currency } = await readFeeAllocationYear(db, schoolId, school, undefined, false);
     const [fees, configs] = await Promise.all([
@@ -30,7 +30,7 @@ export async function manageFeeAllocationPhase2({ db, caller, body }) {
       fees: fees.docs.map((row) => { const fee = row.data(); return { id: row.id, name: fee.name,
         className: fee.className, classOptionKey: fee.classOptionKey ?? null, amount: fee.amount }; }),
       configs: configs.docs.map((row) => row.data()),
-      ledger: await readFeeAllocationLedger({ db, schoolId, schoolYearId: yearId, currency }),
+      ledger: await readFeeAllocationLedger({ db, schoolId, schoolYearId: yearId, currency, page: body.ledgerPage ?? 0, fingerprint: body.ledgerFingerprint }),
     };
   }
   if (body.action !== "save-drafts") fail(400, "invalid-argument", "Action préparatoire inconnue.");
