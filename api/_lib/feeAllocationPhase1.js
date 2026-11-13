@@ -12,6 +12,8 @@ const role = (value) => value === "admin" ? "school_admin" : value;
 const active = (value) => value && value.active !== false && value.status !== "inactive";
 const allowedActions = new Set(["get-state", "list-configurations", "list-versions", "get-permissions", "save-draft", "validate-draft", "prepare-version", "check-activation", "publish-configuration", "activate"]);
 
+export { readScope as readFeeAllocationScope, readYear as readFeeAllocationYear };
+
 export function feeAllocationConfigId(schoolId, schoolYearId, feeTypeId) {
   return `allocation_${sha([schoolId, schoolYearId, feeTypeId]).slice(0, 40)}`;
 }
